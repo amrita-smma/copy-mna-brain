@@ -78,6 +78,22 @@ export async function getCompanyDetails(id: string) {
   }>(`/api/companies/${encodeURIComponent(id)}/details`);
 }
 
+export interface FinancialEditRow {
+  fiscal_year: number;
+  revenue_usd_mn?: number | null;
+  ebitda_usd_mn?: number | null;
+}
+
+export async function updateCompanyFinancials(
+  id: string,
+  payload: { rows: FinancialEditRow[]; deletedYears?: number[]; logAction?: string },
+) {
+  return apiRequest<any>(`/api/companies/${encodeURIComponent(id)}/financials`, {
+    method: 'PUT',
+    body: JSON.stringify(payload),
+  });
+}
+
 export async function promoteCompany(id: string, payload: {
   currentStage?: string | null;
   nextStage: string;

@@ -305,8 +305,8 @@ export default function Pipeline() {
   const [dropReason, setDropReason] = useState("");
   const [isDropping, setIsDropping] = useState(false);
 
-  const fetchCompanies = async () => {
-    setLoading(true);
+  const fetchCompanies = async (opts: { silent?: boolean } = {}) => {
+    if (!opts.silent) setLoading(true);
     try {
       const data = await getCompanies({
         stageNotNull: true,
@@ -356,7 +356,7 @@ export default function Pipeline() {
       console.error("Error fetching companies:", error);
       toast.error("Failed to load companies");
     } finally {
-      setLoading(false);
+      if (!opts.silent) setLoading(false);
     }
   };
 
@@ -1731,7 +1731,7 @@ export default function Pipeline() {
             company={selectedCompany}
             open={!!selectedCompany}
             onOpenChange={(open) => !open && setSelectedCompany(null)}
-            onUpdate={fetchCompanies}
+            onUpdate={() => fetchCompanies({ silent: true })}
           />
         )}
 

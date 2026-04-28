@@ -286,20 +286,22 @@ export default function CompanyDetailPage() {
     }
   }, [companyId]);
 
-  const fetchCompany = async () => {
-    setLoading(true);
+  const fetchCompany = async (opts: { silent?: boolean } = {}) => {
+    if (!opts.silent) setLoading(true);
     try {
       const data = await getCompanies({ id: companyId });
       if (data) {
         setCompany(data as CompanyData);
-        fetchDetails((data as CompanyData).target?.trim() || null);
-        fetchAnalysis();
+        if (!opts.silent) {
+          fetchDetails((data as CompanyData).target?.trim() || null);
+          fetchAnalysis();
+        }
       }
     } catch (error) {
       console.error('Error fetching company:', error);
       toast.error('Failed to load company details');
     } finally {
-      setLoading(false);
+      if (!opts.silent) setLoading(false);
     }
   };
 
@@ -866,6 +868,10 @@ export default function CompanyDetailPage() {
             {/* Financial Charts */}
             <FinancialCharts
               financials={mergeFinancialsWithOverrides(company.id, company.financials_raw ?? [])}
+              rawFinancials={company.financials_raw ?? []}
+              companyId={company.id}
+              hasOverrides={Boolean(getCompanyOverride(company.id))}
+              onUpdate={() => fetchCompany({ silent: true })}
             />
 
             {/* AI Company Card Section */}

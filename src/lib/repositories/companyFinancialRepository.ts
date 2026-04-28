@@ -60,6 +60,15 @@ export class CompanyFinancialRepository {
       );
   }
 
+  async findByCompanies(companyIds: string[]): Promise<Tables<'company_financials'>[]> {
+    if (companyIds.length === 0) return [];
+    return this.db
+      .select()
+      .from(companyFinancials)
+      .where(inArray(companyFinancials.company_id, companyIds))
+      .orderBy(companyFinancials.company_id, companyFinancials.fiscal_year);
+  }
+
   async upsert(data: TablesInsert<'company_financials'>): Promise<void> {
     await this.db
       .insert(companyFinancials)
@@ -102,5 +111,17 @@ export class CompanyFinancialRepository {
           });
       }
     });
+  }
+
+  async deleteByCompanyAndYears(companyId: string, years: number[]): Promise<void> {
+    if (years.length === 0) return;
+    await this.db
+      .delete(companyFinancials)
+      .where(
+        and(
+          eq(companyFinancials.company_id, companyId),
+          inArray(companyFinancials.fiscal_year, years),
+        ),
+      );
   }
 }

@@ -63,6 +63,7 @@ interface MarketScreeningResult {
   ebitda_margin_2023: number | null;
   ebitda_margin_2024: number | null;
   source: string | null;
+  financials_raw?: import('@/lib/repositories').Tables<'company_financials'>[];
 }
 
 interface MarketScreeningResultsProps {
@@ -101,7 +102,7 @@ export default function MarketScreeningResults({ refreshTrigger, onAddedToPipeli
   const [favoriteIds, setFavoriteIds] = useState<Set<string>>(new Set());
   const [togglingFavorite, setTogglingFavorite] = useState<string | null>(null);
 
-  const fetchResults = async () => {
+  const fetchResults = async (opts: { silent?: boolean } = {}) => {
     try {
       const data = await getCompanies({
         stage: 'market_screening',
@@ -112,7 +113,7 @@ export default function MarketScreeningResults({ refreshTrigger, onAddedToPipeli
     } catch (error: any) {
       console.error('Error fetching results:', error);
     } finally {
-      setLoading(false);
+      if (!opts.silent) setLoading(false);
     }
   };
 
@@ -582,10 +583,11 @@ export default function MarketScreeningResults({ refreshTrigger, onAddedToPipeli
                   created_at: selectedResult.created_at,
                   updated_at: selectedResult.created_at,
                   source: selectedResult.source,
+                  financials_raw: selectedResult.financials_raw,
                 }}
                 open={detailDialogOpen}
                 onOpenChange={setDetailDialogOpen}
-                onUpdate={fetchResults}
+                onUpdate={() => fetchResults({ silent: true })}
               />
             )}
           </>

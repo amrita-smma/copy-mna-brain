@@ -138,7 +138,7 @@ export default function Dashboard() {
     fetchDashboardData();
   }, []);
 
-  const fetchDashboardData = async () => {
+  const fetchDashboardData = async (opts: { silent?: boolean } = {}) => {
     try {
       // Fetch all companies
       const companiesData = await getCompanies({
@@ -197,7 +197,7 @@ export default function Dashboard() {
     } catch (error) {
       console.error('Error fetching dashboard data:', error);
     } finally {
-      setLoading(false);
+      if (!opts.silent) setLoading(false);
     }
   };
 
@@ -543,7 +543,7 @@ export default function Dashboard() {
                     company={selectedCompany}
                     open={detailDialogOpen}
                     onOpenChange={setDetailDialogOpen}
-                    onUpdate={() => fetchDashboardData()}
+                    onUpdate={() => fetchDashboardData({ silent: true })}
                   />
                 )}
               </CardContent>

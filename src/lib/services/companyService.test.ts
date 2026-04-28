@@ -58,9 +58,26 @@ function makeRepos() {
 
   const dealNoteRepo = { insert: vi.fn().mockResolvedValue({}) } as unknown as DealNoteRepository;
   const dealLinkRepo = { insert: vi.fn().mockResolvedValue({}) } as unknown as DealLinkRepository;
-  const companyFinancialRepo = {} as unknown as CompanyFinancialRepository;
-  const companyFxAdjustmentRepo = {} as unknown as CompanyFxAdjustmentRepository;
-  const companyScreeningDerivedRepo = {} as unknown as CompanyScreeningDerivedRepository;
+  const companyFinancialRepo = {
+    findByCompany: vi.fn().mockResolvedValue([]),
+    findByCompanyAndYear: vi.fn().mockResolvedValue(null),
+    findLatestByCompanies: vi.fn().mockResolvedValue([]),
+    findByCompaniesAndYears: vi.fn().mockResolvedValue([]),
+    findByCompanies: vi.fn().mockResolvedValue([]),
+    upsert: vi.fn().mockResolvedValue(undefined),
+    bulkUpsertForCompany: vi.fn().mockResolvedValue(undefined),
+    deleteByCompanyAndYears: vi.fn().mockResolvedValue(undefined),
+  } as unknown as CompanyFinancialRepository;
+  const companyFxAdjustmentRepo = {
+    findByCompany: vi.fn().mockResolvedValue([]),
+    findByCompanies: vi.fn().mockResolvedValue([]),
+    bulkUpsertForCompany: vi.fn().mockResolvedValue(undefined),
+  } as unknown as CompanyFxAdjustmentRepository;
+  const companyScreeningDerivedRepo = {
+    findByCompany: vi.fn().mockResolvedValue(null),
+    findByCompanies: vi.fn().mockResolvedValue([]),
+    upsertByCompany: vi.fn().mockResolvedValue(undefined),
+  } as unknown as CompanyScreeningDerivedRepository;
 
   return {
     companyRepo,
@@ -298,5 +315,111 @@ describe('CompanyService.restoreDeal', () => {
       company_id: 'company-2',
       action: 'RESTORED',
     });
+  });
+});
+
+describe('CompanyService.updateFinancials', () => {
+  let repos: ReturnType<typeof makeRepos>;
+  let service: CompanyService;
+
+  beforeEach(() => {
+    repos = makeRepos();
+    service = buildService(repos);
+    vi.mocked(repos.companyRepo.findById).mockResolvedValue(makeCompany());
+  });
+
+  it('preserves untouched fields when only revenue is submitted', async () => {
+    vi.mocked(repos.companyFinancialRepo.findByCompany).mockResolvedValue([
+      {
+        id: 'fin-1',
+        company_id: 'company-1',
+        fiscal_year: 2024,
+        revenue_usd_mn: '100' as any,
+        ebitda_usd_mn: '20' as any,
+        ev_usd_mn: '500' as any,
+        ebitda_margin: '0.2' as any,
+        ev_ebitda: '25' as any,
+        revenue_cagr_vs_prior: '0.1' as any,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      },
+    ]);
+
+    await service.updateFinancials('company-1', [{ fiscal_year: 2024, revenue_usd_mn: 150 }], []);
+
+    expect(repos.companyFinancialRepo.bulkUpsertForCompany).toHaveBeenCalledWith(
+      'company-1',
+      expect.arrayContaining([
+        expect.objectContaining({
+          fiscal_year: 2024,
+          revenue_usd_mn: 150,
+          ebitda_usd_mn: '20',
+          ev_usd_mn: '500',
+          ebitda_margin: '0.2',
+        }),
+      ]),
+    );
+  });
+
+  it('preserves existing ebitda when revenue-only row is submitted for a new year', async () => {
+    vi.mocked(repos.companyFinancialRepo.findByCompany).mockResolvedValue([]);
+
+    await service.updateFinancials('company-1', [{ fiscal_year: 2025, revenue_usd_mn: 200 }], []);
+
+    expect(repos.companyFinancialRepo.bulkUpsertForCompany).toHaveBeenCalledWith(
+      'company-1',
+      expect.arrayContaining([
+        expect.objectContaining({
+          fiscal_year: 2025,
+          revenue_usd_mn: 200,
+          ebitda_usd_mn: null,
+          ev_usd_mn: null,
+        }),
+      ]),
+    );
+  });
+
+  it('calls deleteByCompanyAndYears when deletedYears are provided', async () => {
+    vi.mocked(repos.companyFinancialRepo.findByCompany).mockResolvedValue([]);
+
+    await service.updateFinancials('company-1', [], [2021]);
+
+    expect(repos.companyFinancialRepo.deleteByCompanyAndYears).toHaveBeenCalledWith('company-1', [2021]);
+    expect(repos.companyFinancialRepo.bulkUpsertForCompany).not.toHaveBeenCalled();
+  });
+
+  it('handles combined upsert and delete in one call', async () => {
+    vi.mocked(repos.companyFinancialRepo.findByCompany).mockResolvedValue([]);
+
+    await service.updateFinancials(
+      'company-1',
+      [{ fiscal_year: 2024, ebitda_usd_mn: 42 }],
+      [2021],
+    );
+
+    expect(repos.companyFinancialRepo.bulkUpsertForCompany).toHaveBeenCalledWith(
+      'company-1',
+      expect.arrayContaining([expect.objectContaining({ fiscal_year: 2024, ebitda_usd_mn: 42 })]),
+    );
+    expect(repos.companyFinancialRepo.deleteByCompanyAndYears).toHaveBeenCalledWith('company-1', [2021]);
+  });
+
+  it('writes a log entry when logAction is provided', async () => {
+    vi.mocked(repos.companyFinancialRepo.findByCompany).mockResolvedValue([]);
+
+    await service.updateFinancials('company-1', [], [], 'UPDATED_FINANCIALS');
+
+    expect(repos.companyLogRepo.insert).toHaveBeenCalledWith({
+      company_id: 'company-1',
+      action: 'UPDATED_FINANCIALS',
+    });
+  });
+
+  it('skips log when logAction is omitted', async () => {
+    vi.mocked(repos.companyFinancialRepo.findByCompany).mockResolvedValue([]);
+
+    await service.updateFinancials('company-1', [], []);
+
+    expect(repos.companyLogRepo.insert).not.toHaveBeenCalled();
   });
 });

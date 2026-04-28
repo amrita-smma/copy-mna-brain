@@ -156,6 +156,7 @@ export default function MasterData() {
         created_at: data.created_at,
         updated_at: data.updated_at,
         source: data.source ?? null,
+        financials_raw: data.financials_raw,
       });
     } catch {
       toast({ title: 'Error', description: 'Could not load company', variant: 'destructive' });
@@ -172,7 +173,7 @@ export default function MasterData() {
     setCurrentPage(1);
   }, [searchQuery, stageFilter, sectorFilter, sourceFilter]);
 
-  const fetchCompanies = async () => {
+  const fetchCompanies = async (opts: { silent?: boolean } = {}) => {
     try {
       const data = await getCompanies({
         stageIn: ['L0', 'L1', 'L2', 'L3', 'L4', 'L5'],
@@ -208,7 +209,7 @@ export default function MasterData() {
     } catch (error) {
       console.error('Error fetching companies:', error);
     } finally {
-      setLoading(false);
+      if (!opts.silent) setLoading(false);
     }
   };
 
@@ -621,7 +622,9 @@ export default function MasterData() {
             company={selectedCompany}
             open={!!selectedCompany}
             onOpenChange={(open) => !open && setSelectedCompany(null)}
-            onUpdate={fetchCompanies}
+            onUpdate={() => {
+              fetchCompanies({ silent: true });
+            }}
           />
         )}
       </div>

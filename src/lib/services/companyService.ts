@@ -21,6 +21,12 @@ import {
   type CompanyDTOInput,
 } from '@/lib/dto/companyDTO';
 
+export interface FinancialUpsertInput {
+  fiscal_year: number;
+  revenue_usd_mn?: number | null;
+  ebitda_usd_mn?: number | null;
+}
+
 export class CompanyService {
   constructor(
     private readonly companyRepo: CompanyRepository,
@@ -65,7 +71,7 @@ export class CompanyService {
     if (companies.length === 0) return [];
     const ids = companies.map((c) => c.id);
     const [financials, fxRows, screeningRows] = await Promise.all([
-      this.companyFinancialRepo.findByCompaniesAndYears(ids, [2021, 2022, 2023, 2024]),
+      this.companyFinancialRepo.findByCompanies(ids),
       this.companyFxAdjustmentRepo.findByCompanies(ids),
       this.companyScreeningDerivedRepo.findByCompanies(ids),
     ]);
@@ -256,5 +262,41 @@ export class CompanyService {
 
   runL1Filters(id: string) {
     return this.companyRepo.runL1Filters(id);
+  }
+
+  async updateFinancials(
+    companyId: string,
+    rows: FinancialUpsertInput[],
+    deletedYears: number[],
+    logAction?: string,
+  ): Promise<CompanyDTO> {
+    const existing = await this.companyFinancialRepo.findByCompany(companyId);
+    const existingByYear = new Map(existing.map((r) => [r.fiscal_year, r]));
+
+    const merged = rows.map((row) => {
+      const prior = existingByYear.get(row.fiscal_year);
+      return {
+        fiscal_year: row.fiscal_year,
+        revenue_usd_mn:
+          row.revenue_usd_mn !== undefined ? row.revenue_usd_mn : (prior?.revenue_usd_mn ?? null),
+        ebitda_usd_mn:
+          row.ebitda_usd_mn !== undefined ? row.ebitda_usd_mn : (prior?.ebitda_usd_mn ?? null),
+        ev_usd_mn: prior?.ev_usd_mn ?? null,
+        ebitda_margin: prior?.ebitda_margin ?? null,
+        ev_ebitda: prior?.ev_ebitda ?? null,
+        revenue_cagr_vs_prior: prior?.revenue_cagr_vs_prior ?? null,
+      };
+    });
+
+    if (merged.length > 0) {
+      await this.companyFinancialRepo.bulkUpsertForCompany(companyId, merged);
+    }
+    if (deletedYears.length > 0) {
+      await this.companyFinancialRepo.deleteByCompanyAndYears(companyId, deletedYears);
+    }
+    if (logAction) {
+      await this.companyLogRepo.insert({ company_id: companyId, action: logAction });
+    }
+    return this.findByIdDTO(companyId);
   }
 }

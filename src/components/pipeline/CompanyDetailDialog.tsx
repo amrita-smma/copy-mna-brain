@@ -65,7 +65,7 @@ import {
   getScreenings,
   type UserSummary,
 } from "@/lib/api/pipeline";
-import { mergeFinancialsWithOverrides } from "@/lib/companyOverrides";
+import { mergeFinancialsWithOverrides, getCompanyOverride } from "@/lib/companyOverrides";
 
 const getStageLabel = (stage: string | null): string => {
   const key = (stage || "L0") as DealStage;
@@ -974,6 +974,10 @@ export default function CompanyDetailDialog({
 
               <FinancialCharts
                 financials={mergeFinancialsWithOverrides(company.id, company.financials_raw ?? [])}
+                rawFinancials={company.financials_raw ?? []}
+                companyId={company.id}
+                hasOverrides={Boolean(getCompanyOverride(company.id))}
+                onUpdate={onUpdate}
               />
 
               {/* AI Company Card Summary in Overview */}
