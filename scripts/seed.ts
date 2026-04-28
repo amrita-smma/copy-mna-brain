@@ -15,6 +15,8 @@ import postgres from 'postgres';
 import {
   companies,
   companyFinancials,
+  criterias,
+  investmentThesis,
   userCompanyFavorites,
   users,
 } from '../src/lib/db/schema';
@@ -27,6 +29,33 @@ const SEED_ENTRY_ID_MIN = 9001;
 const SEED_ENTRY_ID_MAX = 9999;
 // entry_ids that the seed user starts with as favorites (subset of seedCompanies).
 const SEED_FAVORITE_ENTRY_IDS = [9001, 9002, 9004];
+
+const seedThesis = {
+  title: 'Seed: SEA Industrial Tech Roll-Up',
+  content:
+    'Roll-up thesis targeting industrial automation and logistics tech across Southeast Asia. Focused on EBITDA-positive companies with $10–50M revenue, family- or PE-owned, with regional expansion potential.',
+  is_active: true,
+  scan_frequency: 'weekly',
+  sources_count: 5,
+};
+
+const seedCriterias = [
+  {
+    name: 'Seed: Revenue $10M–$50M',
+    prompt:
+      'Does the company report annual revenue between USD $10M and USD $50M in the most recent fiscal year?',
+  },
+  {
+    name: 'Seed: EBITDA-positive',
+    prompt:
+      'Is the company EBITDA-positive in the most recent fiscal year reported?',
+  },
+  {
+    name: 'Seed: Headquartered in Southeast Asia',
+    prompt:
+      'Is the company headquartered in Southeast Asia (Indonesia, Malaysia, Philippines, Singapore, Thailand, or Vietnam)?',
+  },
+];
 
 type SeedCompany = {
   entry_id: number;
@@ -277,6 +306,21 @@ async function main() {
       );
       console.log(`  ✓ ${favoriteCompanyIds.length} user_company_favorites for seed user`);
     }
+
+    // Investment thesis — single seed thesis, identified by title.
+    await db
+      .delete(investmentThesis)
+      .where(eq(investmentThesis.title, seedThesis.title));
+    await db.insert(investmentThesis).values(seedThesis);
+    console.log(`  ✓ investment_thesis "${seedThesis.title}"`);
+
+    // Criterias — three seed criterias, identified by name.
+    const seedCriteriaNames = seedCriterias.map((c) => c.name);
+    await db
+      .delete(criterias)
+      .where(inArray(criterias.name, seedCriteriaNames));
+    await db.insert(criterias).values(seedCriterias);
+    console.log(`  ✓ ${seedCriterias.length} criterias`);
 
     console.log('done.');
   } finally {

@@ -15,7 +15,7 @@ env:
 
 jobs:
   setup:
-    if: github.event.action != 'closed'
+    if: github.event.action == 'opened'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout PR head
@@ -72,20 +72,48 @@ jobs:
           vercel env rm DATABASE_URL preview "$BRANCH" --yes --token="$VERCEL_TOKEN" || true
           printf "%s" "$POOLED_URL" | vercel env add DATABASE_URL preview "$BRANCH" --token="$VERCEL_TOKEN"
 
-      - name: Deploy to Vercel (build runs on Vercel)
+      - name: Redeploy latest Vercel deployment for commit
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
           VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
-          # Pass git context so Vercel attaches this deploy to the PR branch and
-          # repoints the branch's preview alias (`*-git-<branch>-<team>.vercel.app`)
-          # to the new deployment instead of treating it as a one-off.
-          VERCEL_GIT_PROVIDER: github
-          VERCEL_GIT_REPO_OWNER: ${{ github.repository_owner }}
-          VERCEL_GIT_REPO_SLUG: ${{ github.event.repository.name }}
-          VERCEL_GIT_COMMIT_REF: ${{ github.head_ref }}
-          VERCEL_GIT_COMMIT_SHA: ${{ github.event.pull_request.head.sha }}
-        run: vercel deploy --yes --token="$VERCEL_TOKEN"
+          BRANCH: ${{ github.head_ref }}
+          PR_ID: ${{ github.event.number }}
+        run: |
+          # Poll the latest deployment for this branch until it succeeds, then
+          # redeploy it so the rebuild picks up the branch-scoped DATABASE_URL
+          # set above. Vercel's GitHub integration creates the original deploy
+          # but builds it before we can attach the env var.
+          for i in $(seq 1 12); do
+            RESP=$(vercel list \
+              --meta githubCommitRef="$BRANCH" \
+              --meta githubPrId="$PR_ID" \
+              -F json --token="$VERCEL_TOKEN" --scope "$VERCEL_ORG_ID")
+            URL=$(echo "$RESP" | jq -r '.deployments[0].url // empty')
+            STATE=$(echo "$RESP" | jq -r '.deployments[0].state // empty')
+
+            if [ -z "$URL" ]; then
+              echo "Attempt $i: no deployment found for $BRANCH (PR #$PR_ID) yet"
+            else
+              echo "Attempt $i: latest deployment $URL is $STATE"
+              case "$STATE" in
+                READY)
+                  echo "Redeploying https://$URL"
+                  vercel redeploy "https://$URL" --token="$VERCEL_TOKEN" --scope "$VERCEL_ORG_ID"
+                  exit 0
+                  ;;
+                ERROR|CANCELED)
+                  echo "::error::Latest deployment for $BRANCH (PR #$PR_ID) ended in state $STATE; aborting redeploy."
+                  exit 1
+                  ;;
+              esac
+            fi
+
+            sleep 10
+          done
+
+          echo "::error::Latest deployment for $BRANCH (PR #$PR_ID) did not reach READY within 10 minutes"
+          exit 1
 
   teardown:
     if: github.event.action == 'closed'
