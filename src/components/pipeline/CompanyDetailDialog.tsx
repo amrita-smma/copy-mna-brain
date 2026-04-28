@@ -48,11 +48,13 @@ import {
   Download,
   Eye,
   Presentation,
+  Pencil,
+  Check,
 } from "lucide-react";
 import { CompanyAnalysisSection } from "@/components/pipeline/CompanyAnalysisSection";
 import { AICompanyCardLoading } from "@/components/pipeline/AICompanyCardLoading";
 import FilePreview from "@/components/Files/FilePreview";
-import { DealStage, L1Status } from "@/lib/types";
+import { DealStage } from "@/lib/types";
 import { STAGE_LABELS } from "@/lib/constants";
 import { formatDistanceToNow, format } from "date-fns";
 import {
@@ -60,12 +62,33 @@ import {
   addCompanyNote,
   deleteDealLink,
   deleteDealNote,
+  getCompanies,
   getCompanyAssignees,
   getCompanyDetails,
   getScreenings,
+  getUsers,
+  setCompanyAssignees,
+  updateCompany,
   type UserSummary,
 } from "@/lib/api/pipeline";
 import { mergeFinancialsWithOverrides, getCompanyOverride } from "@/lib/companyOverrides";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import UserCombobox from "@/components/pipeline/UserCombobox";
+
+const OWNERSHIP_OPTIONS = [
+  "Public",
+  "Private",
+  "Private Equity",
+  "Venture Capital",
+  "Family Owned",
+  "Subsidiary",
+] as const;
 
 const getStageLabel = (stage: string | null): string => {
   const key = (stage || "L0") as DealStage;
@@ -109,6 +132,8 @@ export interface CompanyData {
   created_at: string;
   updated_at: string;
   source: string | null;
+  ownership: string | null;
+  geography: string | null;
   financials_raw?: Tables<'company_financials'>[];
 }
 
@@ -272,12 +297,16 @@ const formatDuration = (seconds: number | null) => {
 };
 
 export default function CompanyDetailDialog({
-  company,
+  company: companyProp,
   open,
   onOpenChange,
   onUpdate,
 }: CompanyDetailDialogProps) {
   const router = useRouter();
+  const [company, setCompany] = useState<CompanyData>(companyProp);
+  useEffect(() => {
+    setCompany(companyProp);
+  }, [companyProp]);
   const [stageHistory, setStageHistory] = useState<StageHistory[]>([]);
   const [notes, setNotes] = useState<DealNote[]>([]);
   const [links, setLinks] = useState<DealLink[]>([]);
@@ -286,6 +315,99 @@ export default function CompanyDetailDialog({
   const [screenings, setScreenings] = useState<Screening[]>([]);
   const [assignees, setAssignees] = useState<UserSummary[]>([]);
   const [loading, setLoading] = useState(true);
+
+  // Inline edit mode for the Company Information card
+  type EditForm = {
+    target: string;
+    website: string;
+    geography: string;
+    source: string;
+    ownership: string;
+    segment: string;
+    pipeline_stage: string;
+    ev_2024: string;
+    assigneeIds: string[];
+  };
+  const [isEditing, setIsEditing] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [editForm, setEditForm] = useState<EditForm | null>(null);
+  const [allUsers, setAllUsers] = useState<UserSummary[]>([]);
+  const [allUsersLoading, setAllUsersLoading] = useState(false);
+
+  const startEditing = async () => {
+    setEditForm({
+      target: company.target ?? '',
+      website: company.website ?? '',
+      geography: company.geography ?? '',
+      source: company.source ?? '',
+      ownership: company.ownership ?? '',
+      segment: company.segment ?? '',
+      pipeline_stage: company.pipeline_stage ?? 'L0',
+      ev_2024: company.ev_2024 != null ? String(company.ev_2024) : '',
+      assigneeIds: assignees.map((u) => u.id),
+    });
+    setIsEditing(true);
+    if (allUsers.length === 0) {
+      setAllUsersLoading(true);
+      try {
+        const list = await getUsers();
+        setAllUsers(list);
+      } catch (err) {
+        console.error('Failed to load users:', err);
+        toast.error('Failed to load users');
+      } finally {
+        setAllUsersLoading(false);
+      }
+    }
+  };
+
+  const cancelEditing = () => {
+    setIsEditing(false);
+    setEditForm(null);
+  };
+
+  const saveEditing = async () => {
+    if (!editForm) return;
+    setIsSaving(true);
+    try {
+      const evNum = editForm.ev_2024.trim() === '' ? null : Number(editForm.ev_2024);
+      if (evNum !== null && Number.isNaN(evNum)) {
+        toast.error('Enterprise Value must be a number');
+        setIsSaving(false);
+        return;
+      }
+      await Promise.all([
+        updateCompany(company.id, {
+          target: editForm.target.trim() || null,
+          website: editForm.website.trim() || null,
+          geography: editForm.geography.trim() || null,
+          source: editForm.source || null,
+          ownership: editForm.ownership || null,
+          segment: editForm.segment.trim() || null,
+          pipeline_stage: editForm.pipeline_stage,
+          ev_2024: evNum,
+        }),
+        setCompanyAssignees(company.id, editForm.assigneeIds),
+      ]);
+      const [refreshedAssignees, refreshedCompany] = await Promise.all([
+        getCompanyAssignees(company.id),
+        getCompanies({ id: company.id }),
+      ]);
+      setAssignees(refreshedAssignees);
+      if (refreshedCompany) {
+        setCompany((prev) => ({ ...prev, ...refreshedCompany }));
+      }
+      toast.success('Company updated');
+      setIsEditing(false);
+      setEditForm(null);
+      onUpdate();
+    } catch (err: any) {
+      console.error('Failed to save company:', err);
+      toast.error(`Failed to save: ${err.message || 'Unknown error'}`);
+    } finally {
+      setIsSaving(false);
+    }
+  };
 
   // Analysis states
   const [analysis, setAnalysis] = useState<CompanyAnalysis | null>(null);
@@ -852,107 +974,229 @@ export default function CompanyDetailDialog({
               {/* Company Information */}
               <Card>
                 <CardHeader>
-                  <CardTitle className="text-lg flex items-center gap-2">
-                    <Building2 className="h-4 w-4" />
-                    Company Information
-                  </CardTitle>
+                  <div className="flex items-center justify-between">
+                    <CardTitle className="text-lg flex items-center gap-2">
+                      <Building2 className="h-4 w-4" />
+                      Company Information
+                    </CardTitle>
+                    {!isEditing && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={startEditing}
+                        aria-label="Edit Company Information"
+                      >
+                        <Pencil className="h-4 w-4" />
+                      </Button>
+                    )}
+                  </div>
                 </CardHeader>
                 <CardContent>
-                  <div className="grid grid-cols-2 gap-6">
-                    <div className="space-y-3">
-                      <div>
-                        <p className="text-sm text-muted-foreground">
-                          Company Name
-                        </p>
-                        <p className="font-semibold text-lg">
+                  <div className="grid grid-cols-4 gap-6">
+                    {/* Row 1 */}
+                    <div>
+                      <p className="text-sm text-muted-foreground">
+                        Company Name
+                      </p>
+                      {isEditing && editForm ? (
+                        <Input
+                          value={editForm.target}
+                          onChange={(e) =>
+                            setEditForm({ ...editForm, target: e.target.value })
+                          }
+                          disabled={isSaving}
+                          className="mt-1"
+                        />
+                      ) : (
+                        <p className="font-semibold text-lg break-words">
                           {company.target || "Unknown"}
                         </p>
-                      </div>
-                      <div>
-                        <p className="text-sm text-muted-foreground">Website</p>
-                        {company.website ? (
-                          <a
-                            href={websiteHref(company.website)}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-primary hover:underline text-sm inline-flex items-center gap-1"
-                          >
-                            {company.website}
-                            <ExternalLink className="h-3 w-3" />
-                          </a>
-                        ) : (
-                          <span className="text-muted-foreground text-sm">
-                            Not available
-                          </span>
-                        )}
-                      </div>
-                      <div>
-                        <p className="text-sm text-muted-foreground">Segment</p>
-                        <p className="font-medium">{company.segment || "-"}</p>
-                      </div>
-                      <div>
-                        <p className="text-sm text-muted-foreground">Status</p>
-                        {company.watchlist_status ? (
-                          <Badge
-                            variant={
-                              company.watchlist_status === "Active"
-                                ? "default"
-                                : "secondary"
-                            }
-                          >
-                            {company.watchlist_status}
-                          </Badge>
-                        ) : (
-                          <span className="text-muted-foreground">-</span>
-                        )}
-                      </div>
+                      )}
                     </div>
-                    <div className="space-y-3">
-                      <div>
-                        <p className="text-sm text-muted-foreground">
-                          Pipeline Stage
+                    <div>
+                      <p className="text-sm text-muted-foreground">Website</p>
+                      {isEditing && editForm ? (
+                        <Input
+                          value={editForm.website}
+                          onChange={(e) =>
+                            setEditForm({ ...editForm, website: e.target.value })
+                          }
+                          placeholder="https://..."
+                          disabled={isSaving}
+                          className="mt-1"
+                        />
+                      ) : company.website ? (
+                        <a
+                          href={websiteHref(company.website)}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-primary hover:underline text-sm inline-flex items-start gap-1 break-all"
+                        >
+                          <span className="break-all">{company.website}</span>
+                          <ExternalLink className="h-3 w-3 shrink-0 mt-1" />
+                        </a>
+                      ) : (
+                        <span className="text-muted-foreground text-sm">
+                          Not available
+                        </span>
+                      )}
+                    </div>
+                    <div>
+                      <p className="text-sm text-muted-foreground">Sector</p>
+                      {isEditing && editForm ? (
+                        <Input
+                          value={editForm.segment}
+                          onChange={(e) =>
+                            setEditForm({ ...editForm, segment: e.target.value })
+                          }
+                          disabled={isSaving}
+                          className="mt-1"
+                        />
+                      ) : (
+                        <p className="font-medium break-words">{company.segment || "-"}</p>
+                      )}
+                    </div>
+                    <div>
+                      <p className="text-sm text-muted-foreground">Headquarter</p>
+                      {isEditing && editForm ? (
+                        <Input
+                          value={editForm.geography}
+                          onChange={(e) =>
+                            setEditForm({ ...editForm, geography: e.target.value })
+                          }
+                          disabled={isSaving}
+                          className="mt-1"
+                        />
+                      ) : (
+                        <p className="font-medium break-words">{company.geography || "-"}</p>
+                      )}
+                    </div>
+                    {/* Row 2 */}
+                    <div>
+                      <p className="text-sm text-muted-foreground">Ownership</p>
+                      {isEditing && editForm ? (
+                        <Select
+                          value={editForm.ownership || '__none__'}
+                          onValueChange={(v) =>
+                            setEditForm({
+                              ...editForm,
+                              ownership: v === '__none__' ? '' : v,
+                            })
+                          }
+                          disabled={isSaving}
+                        >
+                          <SelectTrigger className="mt-1">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="__none__">-</SelectItem>
+                            {OWNERSHIP_OPTIONS.map((o) => (
+                              <SelectItem key={o} value={o}>
+                                {o}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      ) : (
+                        <p className="font-medium break-words">{company.ownership || "-"}</p>
+                      )}
+                    </div>
+                    <div>
+                      <p className="text-sm text-muted-foreground">Source</p>
+                      {isEditing && editForm ? (
+                        <Select
+                          value={editForm.source || '__none__'}
+                          onValueChange={(v) =>
+                            setEditForm({
+                              ...editForm,
+                              source: v === '__none__' ? '' : v,
+                            })
+                          }
+                          disabled={isSaving}
+                        >
+                          <SelectTrigger className="mt-1">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="__none__">-</SelectItem>
+                            <SelectItem value="inbound">Inbound</SelectItem>
+                            <SelectItem value="outbound">Outbound</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      ) : (
+                        <p className="font-medium capitalize break-words">
+                          {company.source || "-"}
                         </p>
+                      )}
+                    </div>
+                    <div>
+                      <p className="text-sm text-muted-foreground">
+                        Current Stage
+                      </p>
+                      {isEditing && editForm ? (
+                        <Select
+                          value={editForm.pipeline_stage}
+                          onValueChange={(v) =>
+                            setEditForm({ ...editForm, pipeline_stage: v })
+                          }
+                          disabled={isSaving}
+                        >
+                          <SelectTrigger className="mt-1">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {(['L0', 'L1', 'L2', 'L3', 'L4', 'L5'] as DealStage[]).map((s) => (
+                              <SelectItem key={s} value={s}>
+                                {s} — {STAGE_LABELS[s] ?? s}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      ) : (
                         <Badge
                           variant="outline"
                           className="text-base px-3 py-1"
                         >
                           {getStageLabel(company.pipeline_stage)}
                         </Badge>
-                      </div>
-                      <div>
-                        <p className="text-sm text-muted-foreground">
-                          Enterprise Value (2024)
-                        </p>
-                        <p className="font-semibold text-2xl text-primary">
+                      )}
+                    </div>
+                    <div>
+                      <p className="text-sm text-muted-foreground">Valuation</p>
+                      {isEditing && editForm ? (
+                        <Input
+                          type="number"
+                          step="0.01"
+                          value={editForm.ev_2024}
+                          onChange={(e) =>
+                            setEditForm({ ...editForm, ev_2024: e.target.value })
+                          }
+                          placeholder="USD millions"
+                          disabled={isSaving}
+                          className="mt-1"
+                        />
+                      ) : (
+                        <p className="font-medium break-words">
                           {formatCurrency(company.ev_2024)}
                         </p>
-                      </div>
-                      <div>
-                        <p className="text-sm text-muted-foreground">
-                          L1 Screening Result
-                        </p>
-                        {company.l1_screening_result ? (
-                          <Badge
-                            variant={
-                              company.l1_screening_result.toLowerCase() ===
-                              "pass"
-                                ? "default"
-                                : "destructive"
-                            }
-                          >
-                            {company.l1_screening_result}
-                          </Badge>
-                        ) : (
-                          <span className="text-muted-foreground text-sm">
-                            Not screened yet
-                          </span>
-                        )}
-                      </div>
+                      )}
                     </div>
                   </div>
                   <div className="mt-4">
                     <p className="text-sm text-muted-foreground">PIC</p>
-                    {assignees.length > 0 ? (
+                    {isEditing && editForm ? (
+                      <div className="mt-1.5">
+                        <UserCombobox
+                          users={allUsers}
+                          selectedUserIds={editForm.assigneeIds}
+                          onChange={(ids) =>
+                            setEditForm({ ...editForm, assigneeIds: ids })
+                          }
+                          loading={allUsersLoading}
+                          disabled={isSaving}
+                        />
+                      </div>
+                    ) : assignees.length > 0 ? (
                       <div className="mt-1 flex flex-wrap gap-1.5 p-2">
                         {assignees.map((u) => (
                           <span
@@ -969,6 +1213,29 @@ export default function CompanyDetailDialog({
                       </span>
                     )}
                   </div>
+                  {isEditing && editForm && (
+                    <div className="mt-6 flex justify-end gap-2">
+                      <Button
+                        variant="outline"
+                        onClick={cancelEditing}
+                        disabled={isSaving}
+                      >
+                        Cancel
+                      </Button>
+                      <Button
+                        onClick={saveEditing}
+                        disabled={isSaving}
+                        className="gap-1"
+                      >
+                        {isSaving ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <Check className="h-4 w-4" />
+                        )}
+                        Save
+                      </Button>
+                    </div>
+                  )}
                 </CardContent>
               </Card>
 

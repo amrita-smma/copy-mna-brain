@@ -132,6 +132,8 @@ interface PipelineCompany {
   updated_at: string;
   source: string | null;
   status: string | null;
+  ownership: string | null;
+  geography: string | null;
   financials_raw?: import('@/lib/repositories').Tables<'company_financials'>[];
 }
 
@@ -342,11 +344,20 @@ export default function Pipeline() {
             ev_2024: override?.ev_2024 ?? company.ev_2024,
             pipeline_stage: (company.pipeline_stage || "L0") as DealStage,
             l1_screening_result: company.l1_screening_result,
-            pic: override?.pic ?? company.pic ?? null,
+            pic:
+              override?.pic ??
+              (Array.isArray(company.assignees) && company.assignees.length > 0
+                ? company.assignees
+                    .map((a: { name: string | null }) => a.name)
+                    .filter(Boolean)
+                    .join(", ")
+                : (company.pic ?? null)),
             remarks: company.remarks || null,
             created_at: company.created_at,
             updated_at: company.updated_at,
             source: company.source || null,
+            ownership: company.ownership ?? null,
+            geography: company.geography ?? null,
             financials_raw: company.financials_raw,
           };
         }) || [];

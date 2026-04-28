@@ -296,6 +296,30 @@ export class CompanyRepository {
       .orderBy(asc(users.name));
   }
 
+  async findAssigneesByCompanies(
+    companyIds: string[],
+  ): Promise<
+    Array<
+      Pick<Tables<"users">, "id" | "name" | "email" | "role"> & {
+        company_id: string;
+      }
+    >
+  > {
+    if (companyIds.length === 0) return [];
+    return this.db
+      .select({
+        company_id: companyAssignees.company_id,
+        id: users.id,
+        name: users.name,
+        email: users.email,
+        role: users.role,
+      })
+      .from(companyAssignees)
+      .innerJoin(users, eq(users.id, companyAssignees.user_id))
+      .where(inArray(companyAssignees.company_id, companyIds))
+      .orderBy(asc(users.name));
+  }
+
   async setAssignees(companyId: string, userIds: string[]): Promise<void> {
     await this.db.transaction(async (tx) => {
       await tx

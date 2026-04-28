@@ -120,6 +120,10 @@ export interface CompanyDTO {
   fx_rationale: string | null;
   // l1_result enum → capitalized string the FE renders (`Pass`/`Fail`/`Inconclusive`)
   l1_screening_result: string | null;
+
+  // Users currently assigned (PIC) to this company. Sourced from
+  // `company_assignees` join table.
+  assignees: Array<Pick<Tables<'users'>, 'id' | 'name' | 'email' | 'role'>>;
 }
 
 function boolToYesNo(b: boolean | null | undefined): string | null {
@@ -142,6 +146,7 @@ export function toCompanyDTO(
   financials: Tables<'company_financials'>[],
   fx: Tables<'company_fx_adjustments'>[],
   screening: Tables<'company_screening_derived'> | null,
+  assignees: Array<Pick<Tables<'users'>, 'id' | 'name' | 'email' | 'role'>> = [],
 ): CompanyDTO {
   const finByYear = new Map<number, Tables<'company_financials'>>();
   for (const f of financials) finByYear.set(f.fiscal_year, f);
@@ -153,6 +158,7 @@ export function toCompanyDTO(
     (fxByYear.get(year)?.[key] as number | null) ?? null;
 
   return {
+    assignees,
     financials_raw: financials,
     id: company.id,
     pipeline_stage: company.pipeline_stage,

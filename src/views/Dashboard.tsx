@@ -52,6 +52,8 @@ interface CompanyData {
   remarks: string | null;
   created_at: string;
   updated_at: string;
+  ownership: string | null;
+  geography: string | null;
 }
 
 interface StageCounts {

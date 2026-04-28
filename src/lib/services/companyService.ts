@@ -57,23 +57,25 @@ export class CompanyService {
 
   // --------- DTO (flat, backward-compatible) read path ---------
   async findByIdDTO(id: string): Promise<CompanyDTO> {
-    const [company, financials, fx, screening] = await Promise.all([
+    const [company, financials, fx, screening, assignees] = await Promise.all([
       this.companyRepo.findById(id),
       this.companyFinancialRepo.findByCompany(id),
       this.companyFxAdjustmentRepo.findByCompany(id),
       this.companyScreeningDerivedRepo.findByCompany(id),
+      this.companyRepo.findAssignees(id),
     ]);
-    return toCompanyDTO(company, financials, fx, screening);
+    return toCompanyDTO(company, financials, fx, screening, assignees);
   }
 
   async listDTO(filters: Omit<CompanyFilters, 'id'>): Promise<CompanyDTO[]> {
     const companies = await this.companyRepo.findAll(filters);
     if (companies.length === 0) return [];
     const ids = companies.map((c) => c.id);
-    const [financials, fxRows, screeningRows] = await Promise.all([
+    const [financials, fxRows, screeningRows, assigneeRows] = await Promise.all([
       this.companyFinancialRepo.findByCompanies(ids),
       this.companyFxAdjustmentRepo.findByCompanies(ids),
       this.companyScreeningDerivedRepo.findByCompanies(ids),
+      this.companyRepo.findAssigneesByCompanies(ids),
     ]);
     const finByCompany = new Map<string, Tables<'company_financials'>[]>();
     for (const f of financials) {
@@ -89,12 +91,23 @@ export class CompanyService {
     }
     const screeningByCompany = new Map<string, Tables<'company_screening_derived'>>();
     for (const s of screeningRows) screeningByCompany.set(s.company_id, s);
+    const assigneesByCompany = new Map<
+      string,
+      Array<Pick<Tables<'users'>, 'id' | 'name' | 'email' | 'role'>>
+    >();
+    for (const row of assigneeRows) {
+      const { company_id, ...user } = row;
+      const arr = assigneesByCompany.get(company_id) ?? [];
+      arr.push(user);
+      assigneesByCompany.set(company_id, arr);
+    }
     return companies.map((c) =>
       toCompanyDTO(
         c,
         finByCompany.get(c.id) ?? [],
         fxByCompany.get(c.id) ?? [],
         screeningByCompany.get(c.id) ?? null,
+        assigneesByCompany.get(c.id) ?? [],
       ),
     );
   }

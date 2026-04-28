@@ -156,6 +156,8 @@ export default function MasterData() {
         created_at: data.created_at,
         updated_at: data.updated_at,
         source: data.source ?? null,
+        ownership: data.ownership ?? null,
+        geography: data.geography ?? null,
         financials_raw: data.financials_raw,
       });
     } catch {
