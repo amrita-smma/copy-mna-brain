@@ -245,7 +245,11 @@ const L1StatusBadge = ({ status }: { status: L1Status | null }) => {
   );
 };
 
-export default function Pipeline() {
+interface PipelineProps {
+  showCrm?: boolean;
+}
+
+export default function Pipeline({ showCrm = false }: PipelineProps) {
   const { user } = useAuth();
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -698,7 +702,7 @@ export default function Pipeline() {
   };
 
   return (
-    <DashboardLayout>
+    <DashboardLayout showCrm={showCrm}>
       <div className="p-6 space-y-6 animate-fade-in">
         <div className="flex items-center justify-between">
           <div>

@@ -112,7 +112,11 @@ const getRevenueChange = (year2: number | null, year3: number | null): { directi
   return { direction: 'flat', percent: 0 };
 };
 
-export default function MasterData() {
+interface MasterDataProps {
+  showCrm?: boolean;
+}
+
+export default function MasterData({ showCrm = false }: MasterDataProps) {
   const [companies, setCompanies] = useState<CompanyWithDeal[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
@@ -285,7 +289,7 @@ export default function MasterData() {
 
   if (loading) {
     return (
-      <DashboardLayout>
+      <DashboardLayout showCrm={showCrm}>
         <div className="flex h-full items-center justify-center">
           <Loader2 className="h-8 w-8 animate-spin text-primary" />
         </div>
@@ -294,7 +298,7 @@ export default function MasterData() {
   }
 
   return (
-    <DashboardLayout>
+    <DashboardLayout showCrm={showCrm}>
       <div className="p-6 space-y-6 animate-fade-in">
         {/* Header */}
         <div className="flex items-center justify-between">

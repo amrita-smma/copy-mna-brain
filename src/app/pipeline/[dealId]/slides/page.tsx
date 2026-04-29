@@ -3,6 +3,10 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import DashboardLayout from '@/components/layout/DashboardLayout';
+
+interface SlidesPageProps {
+  showCrm?: boolean;
+}
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Input } from '@/components/ui/input';
@@ -351,7 +355,7 @@ function PresentationMode({
 // Main Page Component
 // ---------------------------------------------------------------------------
 
-export default function SlidesPage() {
+export default function SlidesPage({ showCrm = false }: SlidesPageProps) {
   const params = useParams();
   const router = useRouter();
   const companyId = params.dealId as string;
@@ -696,7 +700,7 @@ export default function SlidesPage() {
 
   if (loading) {
     return (
-      <DashboardLayout>
+      <DashboardLayout showCrm={showCrm}>
         <div className="flex items-center justify-center h-full">
           <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
         </div>
@@ -706,7 +710,7 @@ export default function SlidesPage() {
 
   if (!company) {
     return (
-      <DashboardLayout>
+      <DashboardLayout showCrm={showCrm}>
         <div className="flex flex-col items-center justify-center h-full gap-4">
           <p className="text-muted-foreground">Company not found</p>
           <Button onClick={() => router.push('/pipeline')}>
@@ -719,7 +723,7 @@ export default function SlidesPage() {
   }
 
   return (
-    <DashboardLayout>
+    <DashboardLayout showCrm={showCrm}>
       <div className="flex flex-col h-[calc(100vh-0px)]">
         {/* Top bar */}
         <div className="flex items-center justify-between px-4 py-2 border-b bg-background/80 backdrop-blur-sm shrink-0">

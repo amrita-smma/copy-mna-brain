@@ -16,3 +16,4 @@ export * from './chatService';
 export * from './jobService';
 export * from './authService';
 export * from './userService';
+export * from './crmService';

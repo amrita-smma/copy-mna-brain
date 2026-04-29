@@ -10,7 +10,11 @@ import { Sparkles, Zap, FileStack } from 'lucide-react';
 import { ChatWindow } from '@/components/chat/ChatWindow';
 import { cn } from '@/lib/utils';
 
-export default function AIDiscovery() {
+interface AIDiscoveryProps {
+  showCrm?: boolean;
+}
+
+export default function AIDiscovery({ showCrm = false }: AIDiscoveryProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
 
@@ -22,7 +26,7 @@ export default function AIDiscovery() {
   }, [searchParams, router]);
 
   return (
-    <DashboardLayout>
+    <DashboardLayout showCrm={showCrm}>
       <div className="flex flex-col h-screen p-6">
         {/* Header - AI CoPilot */}
         <div className="relative mb-6 flex-shrink-0">

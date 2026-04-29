@@ -19,3 +19,5 @@ export * from './resetPasswordTokenRepository';
 export * from './userCompanyFavoriteRepository';
 export * from './pastAcquisitionRepository';
 export * from './invenCacheRepository';
+export * from './contactRepository';
+export * from './contactMessageRepository';

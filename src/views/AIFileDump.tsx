@@ -550,10 +550,15 @@ function FileTable({
   );
 }
 
-export default function AIFileDump() {
+interface AIFileDumpProps {
+  showCrm?: boolean;
+}
+
+export default function AIFileDump({ showCrm = false }: AIFileDumpProps) {
   const router = useRouter();
   const [meetingNotes, setMeetingNotes] = useState<MeetingNote[]>([]);
   const [prospectus, setProspectus] = useState<Prospectus[]>([]);
+  const [bankerComms, setBankerComms] = useState<FileRecord[]>([]);
   const [otherFiles, setOtherFiles] = useState<OtherFile[]>([]);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
@@ -577,6 +582,10 @@ export default function AIFileDump() {
   const [prospectusSortField, setProspectusSortField] = useState<keyof MeetingNote>('file_date');
   const [prospectusSortDirection, setProspectusSortDirection] = useState<'asc' | 'desc'>('desc');
 
+  const [bankerCommsSearchQuery, setBankerCommsSearchQuery] = useState('');
+  const [bankerCommsSortField, setBankerCommsSortField] = useState<keyof MeetingNote>('file_date');
+  const [bankerCommsSortDirection, setBankerCommsSortDirection] = useState<'asc' | 'desc'>('desc');
+
   const [otherFilesSearchQuery, setOtherFilesSearchQuery] = useState('');
   const [otherFilesSortField, setOtherFilesSortField] = useState<keyof MeetingNote>('file_date');
   const [otherFilesSortDirection, setOtherFilesSortDirection] = useState<'asc' | 'desc'>('desc');
@@ -588,6 +597,7 @@ export default function AIFileDump() {
   // Pagination state for each table
   const [momPage, setMomPage] = useState(1);
   const [prospectusPage, setProspectusPage] = useState(1);
+  const [bankerCommsPage, setBankerCommsPage] = useState(1);
   const [otherFilesPage, setOtherFilesPage] = useState(1);
 
   const fetchMeetingNotes = useCallback(async () => {
@@ -626,6 +636,24 @@ export default function AIFileDump() {
     }
   }, []);
 
+  const fetchBankerComms = useCallback(async () => {
+    try {
+      const response = await fetch('/api/ai-file-dump?file_type=banker_communications');
+      const result = await response.json();
+
+      if (result.success) {
+        setBankerComms(result.data);
+      } else {
+        toast.error('Failed to load banker communications');
+      }
+    } catch (error) {
+      console.error('Error fetching banker communications:', error);
+      toast.error('Failed to load banker communications');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
   const fetchOtherFiles = useCallback(async () => {
     try {
       const response = await fetch('/api/ai-file-dump?file_type=other');
@@ -647,8 +675,9 @@ export default function AIFileDump() {
   useEffect(() => {
     fetchMeetingNotes();
     fetchProspectus();
+    fetchBankerComms();
     fetchOtherFiles();
-  }, [fetchMeetingNotes, fetchProspectus, fetchOtherFiles]);
+  }, [fetchMeetingNotes, fetchProspectus, fetchBankerComms, fetchOtherFiles]);
 
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
@@ -683,10 +712,11 @@ export default function AIFileDump() {
       return;
     }
 
-    // Check for duplicates across all file types (meeting notes, prospectus, other files)
+    // Check for duplicates across all file types (meeting notes, prospectus, banker comms, other files)
     const existingFileNames = new Set([
       ...meetingNotes.map(n => n.file_name),
       ...prospectus.map(n => n.file_name),
+      ...bankerComms.map(n => n.file_name),
       ...otherFiles.map(n => n.file_name),
     ]);
     const duplicates = selectedFiles.filter(file => existingFileNames.has(file.name));
@@ -804,6 +834,7 @@ export default function AIFileDump() {
       setExpandedFileNotes({});
       fetchMeetingNotes();
       fetchProspectus();
+      fetchBankerComms();
       fetchOtherFiles();
     } else {
       if (duplicates.length > 0) {
@@ -837,6 +868,7 @@ export default function AIFileDump() {
         toast.success('File deleted successfully');
         fetchMeetingNotes();
         fetchProspectus();
+        fetchBankerComms();
         fetchOtherFiles();
       } else {
         toast.error(result.error || 'Failed to delete file');
@@ -880,6 +912,16 @@ export default function AIFileDump() {
     setProspectusPage(1);
   };
 
+  const handleBankerCommsSort = (field: keyof MeetingNote) => {
+    if (bankerCommsSortField === field) {
+      setBankerCommsSortDirection(bankerCommsSortDirection === 'asc' ? 'desc' : 'asc');
+    } else {
+      setBankerCommsSortField(field);
+      setBankerCommsSortDirection('asc');
+    }
+    setBankerCommsPage(1);
+  };
+
   const handleOtherFilesSort = (field: keyof MeetingNote) => {
     if (otherFilesSortField === field) {
       setOtherFilesSortDirection(otherFilesSortDirection === 'asc' ? 'desc' : 'asc');
@@ -899,6 +941,11 @@ export default function AIFileDump() {
   const handleProspectusSearchChange = (query: string) => {
     setProspectusSearchQuery(query);
     setProspectusPage(1);
+  };
+
+  const handleBankerCommsSearchChange = (query: string) => {
+    setBankerCommsSearchQuery(query);
+    setBankerCommsPage(1);
   };
 
   const handleOtherFilesSearchChange = (query: string) => {
@@ -1008,11 +1055,12 @@ export default function AIFileDump() {
 
   const filteredAndSortedNotes = filterAndSortFiles(meetingNotes, momSearchQuery, momSortField, momSortDirection);
   const filteredAndSortedProspectus = filterAndSortFiles(prospectus, prospectusSearchQuery, prospectusSortField, prospectusSortDirection);
+  const filteredAndSortedBankerComms = filterAndSortFiles(bankerComms, bankerCommsSearchQuery, bankerCommsSortField, bankerCommsSortDirection);
   const filteredAndSortedOtherFiles = filterAndSortFiles(otherFiles, otherFilesSearchQuery, otherFilesSortField, otherFilesSortDirection);
 
   if (loading) {
     return (
-      <DashboardLayout>
+      <DashboardLayout showCrm={showCrm}>
         <div className="flex h-full items-center justify-center">
           <Loader2 className="h-8 w-8 animate-spin text-primary" />
         </div>
@@ -1021,7 +1069,7 @@ export default function AIFileDump() {
   }
 
   return (
-    <DashboardLayout>
+    <DashboardLayout showCrm={showCrm}>
       <div className="flex flex-col h-full p-6 space-y-6 animate-fade-in">
         {/* Header */}
         <div className="relative flex-shrink-0">
@@ -1111,13 +1159,13 @@ export default function AIFileDump() {
                           type="file"
                           className="hidden"
                           onChange={handleFileSelect}
-                          accept=".pdf,.doc,.docx,.txt,.md"
+                          accept=".pdf,.doc,.docx,.txt,.md,.csv,.mbox"
                           multiple
                         />
                       </label>
                     </p>
                     <p className="text-xs text-muted-foreground text-center">
-                      Supports PPTX, PDF, DOC, DOCX, TXT, MD
+                      Supports PPTX, PDF, DOC, DOCX, TXT, MD, CSV, MBOX
                     </p>
                   </div>
                   {/* <div className="flex flex-col items-center gap-2 text-center">
@@ -1153,6 +1201,7 @@ export default function AIFileDump() {
                     const existingFileNames = new Set([
                       ...meetingNotes.map(n => n.file_name),
                       ...prospectus.map(n => n.file_name),
+                      ...bankerComms.map(n => n.file_name),
                       ...otherFiles.map(n => n.file_name),
                     ]);
                     const isDuplicate = existingFileNames.has(file.name);
@@ -1326,6 +1375,33 @@ export default function AIFileDump() {
           emptySubMessage="Upload your first prospectus using the form above."
           currentPage={prospectusPage}
           onPageChange={setProspectusPage}
+        />
+
+        {/* Banker Communications List */}
+        <FileTable
+          title="Banker Communications"
+          icon={<FileSpreadsheet className="h-5 w-5" />}
+          iconColor="text-indigo-500"
+          files={bankerComms}
+          filteredFiles={filteredAndSortedBankerComms}
+          searchQuery={bankerCommsSearchQuery}
+          onSearchChange={handleBankerCommsSearchChange}
+          sortField={bankerCommsSortField}
+          sortDirection={bankerCommsSortDirection}
+          onSort={handleBankerCommsSort}
+          expandedTags={expandedTags}
+          toggleTags={toggleTags}
+          expandedCompanies={expandedCompanies}
+          toggleCompanies={toggleCompanies}
+          onUpdateDate={handleUpdateDate}
+          onDownload={handleDownload}
+          onDelete={handleDelete}
+          downloadingId={downloadingId}
+          deletingId={deletingId}
+          emptyMessage="No banker communications uploaded yet."
+          emptySubMessage="Upload CSV or MBOX files from Google Vault exports."
+          currentPage={bankerCommsPage}
+          onPageChange={setBankerCommsPage}
         />
 
         {/* Other List */}

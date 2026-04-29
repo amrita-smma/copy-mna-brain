@@ -1,8 +1,7 @@
-'use client';
-
 import { Suspense } from 'react';
 import Pipeline from '@/views/Pipeline';
 import { Loader2 } from 'lucide-react';
+import { crmEnabled } from '@/lib/flags';
 
 function PipelineLoading() {
   return (
@@ -12,10 +11,11 @@ function PipelineLoading() {
   );
 }
 
-export default function PipelinePage() {
+export default async function PipelinePage() {
+  const showCrm = Boolean(await crmEnabled());
   return (
     <Suspense fallback={<PipelineLoading />}>
-      <Pipeline />
+      <Pipeline showCrm={showCrm} />
     </Suspense>
   );
 }

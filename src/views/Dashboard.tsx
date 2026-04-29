@@ -126,7 +126,11 @@ const getRevenueChange = (year2023: number | null, year2024: number | null): { d
 };
 
 
-export default function Dashboard() {
+interface DashboardProps {
+  showCrm?: boolean;
+}
+
+export default function Dashboard({ showCrm = false }: DashboardProps) {
   const [loading, setLoading] = useState(true);
   const [companies, setCompanies] = useState<CompanyData[]>([]);
   const [totalCompanies, setTotalCompanies] = useState(0);
@@ -221,7 +225,7 @@ export default function Dashboard() {
 
   if (loading) {
     return (
-      <DashboardLayout>
+      <DashboardLayout showCrm={showCrm}>
         <div className="flex h-full items-center justify-center">
           <div className="flex flex-col items-center gap-4">
             <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
@@ -233,7 +237,7 @@ export default function Dashboard() {
   }
 
   return (
-    <DashboardLayout>
+    <DashboardLayout showCrm={showCrm}>
       <div className="p-6 lg:p-8 space-y-8 animate-fade-in">
           {/* Header - clean professional style */}
           <div className="relative">

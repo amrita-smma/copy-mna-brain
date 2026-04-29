@@ -19,6 +19,8 @@ import {
   ResetPasswordTokenRepository,
   UserRepository,
   UserCompanyFavoriteRepository,
+  ContactRepository,
+  ContactMessageRepository,
 } from '@/lib/repositories';
 import { JobDispatcher } from './jobDispatcher';
 import { CompanyService } from './companyService';
@@ -37,6 +39,7 @@ import { ChatService } from './chatService';
 import { JobService } from './jobService';
 import { AuthService } from './authService';
 import { UserService } from './userService';
+import { CRMService } from './crmService';
 
 export interface Container {
   companyService: CompanyService;
@@ -55,6 +58,7 @@ export interface Container {
   jobService: JobService;
   authService: AuthService;
   userService: UserService;
+  crmService: CRMService;
 }
 
 export function createContainer(db: DbClient): Container {
@@ -115,6 +119,12 @@ export function createContainer(db: DbClient): Container {
     companyFinancialRepo,
   );
 
+  const contactRepo = new ContactRepository(db);
+  const contactMessageRepo = new ContactMessageRepository(db);
+  const crmService = new CRMService(contactRepo, contactMessageRepo);
+
+  fileService.setCRMService(crmService);
+
   return {
     companyService,
     screeningService,
@@ -132,5 +142,6 @@ export function createContainer(db: DbClient): Container {
     jobService,
     authService,
     userService,
+    crmService,
   };
 }

@@ -15,6 +15,7 @@ import postgres from 'postgres';
 import {
   companies,
   companyFinancials,
+  contacts,
   criterias,
   investmentThesis,
   userCompanyFavorites,
@@ -54,6 +55,91 @@ const seedCriterias = [
     name: 'Seed: Headquartered in Southeast Asia',
     prompt:
       'Is the company headquartered in Southeast Asia (Indonesia, Malaysia, Philippines, Singapore, Thailand, or Vietnam)?',
+  },
+];
+
+type SeedContact = {
+  name: string;
+  email: string;
+  phone?: string;
+  company: string;
+  title: string;
+  type: 'internal' | 'external';
+  notes?: string;
+};
+
+const seedContacts: SeedContact[] = [
+  {
+    name: 'James Chen',
+    email: 'james.chen@goldmansachs.com',
+    phone: '+1 212 555 0101',
+    company: 'Goldman Sachs',
+    title: 'Managing Director',
+    type: 'external',
+    notes: 'Primary contact for tech M&A deals in Asia',
+  },
+  {
+    name: 'Sarah Thompson',
+    email: 'sarah.thompson@jpmorgan.com',
+    phone: '+1 212 555 0102',
+    company: 'JP Morgan',
+    title: 'Executive Director',
+    type: 'external',
+    notes: 'Specializes in industrial sector transactions',
+  },
+  {
+    name: 'Michael Lee',
+    email: 'michael.lee@morganstanley.com',
+    phone: '+65 6555 0103',
+    company: 'Morgan Stanley',
+    title: 'Vice President',
+    type: 'external',
+    notes: 'SEA coverage team lead',
+  },
+  {
+    name: 'Amanda Wijaya',
+    email: 'amanda.wijaya@starcapital.com',
+    phone: '+62 21 555 0104',
+    company: 'StarCapital',
+    title: 'Investment Director',
+    type: 'internal',
+    notes: 'Internal deal team lead',
+  },
+  {
+    name: 'David Tan',
+    email: 'david.tan@starcapital.com',
+    phone: '+62 21 555 0105',
+    company: 'StarCapital',
+    title: 'Associate',
+    type: 'internal',
+    notes: 'Financial analysis and due diligence',
+  },
+  {
+    name: 'Robert Kim',
+    email: 'robert.kim@creditsuisse.com',
+    phone: '+852 3988 0106',
+    company: 'Credit Suisse',
+    title: 'Director',
+    type: 'external',
+    notes: 'Cross-border M&A specialist',
+  },
+  {
+    name: 'Lisa Wang',
+    email: 'lisa.wang@baml.com',
+    phone: '+1 646 555 0107',
+    company: 'Bank of America Merrill Lynch',
+    title: 'Managing Director',
+    type: 'external',
+    notes: 'Healthcare and life sciences focus',
+  },
+  {
+    name: 'Andrew Hartono',
+    email: 'andrew.hartono@citi.com',
+    phone: '+65 6225 0108',
+    company: 'Citigroup',
+    title: 'Director',
+    type: 'external',
+    notes: 'Consumer and retail sector coverage',
   },
 ];
 
@@ -321,6 +407,14 @@ async function main() {
       .where(inArray(criterias.name, seedCriteriaNames));
     await db.insert(criterias).values(seedCriterias);
     console.log(`  ✓ ${seedCriterias.length} criterias`);
+
+    // Contacts — seed contacts, identified by email.
+    const seedContactEmails = seedContacts.map((c) => c.email);
+    await db
+      .delete(contacts)
+      .where(inArray(contacts.email, seedContactEmails));
+    await db.insert(contacts).values(seedContacts);
+    console.log(`  ✓ ${seedContacts.length} contacts`);
 
     console.log('done.');
   } finally {

@@ -38,6 +38,7 @@ const generateSystemPrompt = (companies_list, userRawNotes) => `You are a specia
 6. **Extract Meeting Date**: Identify the date of the meeting/document (usually mentioned in the title or content).
 7. **Categorize The File Type**: Identify the file type of the document.
 8. **Extract Prospectus Summary**: If the file type is "prospectus", extract a detailed summary of the prospectus.
+9. **Extract Banker Communications**: If the file type is "banker_communications", extract all email communications with their participants.
 
 ## Known Companies:
 ${companies_list}
@@ -50,7 +51,7 @@ ${userRawNotes}
 1. Review the "Known Companies" list.
 2. Identify which of those companies appear in the text.
 3. **Detect Codenames**: Actively scan for and include project codenames (such as "Project Utopia", "Project Tulia", "Project Notos", "Project gChem", etc.) even if they do not match the "Known Companies" list. Treat these as valid detected companies.
-3. **Categorize File Type**: Choose between "prospectus", "mom", and "other" file type.
+3. **Categorize File Type**: Choose between "prospectus", "mom", "banker_communications", and "other" file type. Use "banker_communications" if the file appears to be an email export (CSV or MBOX format containing email threads, especially from bankers or investment professionals).
 4. Final Output must be a valid JSON block containing:
    - summary: A concise overview of the meeting/document.
    - key_points: Array of main takeaways.
@@ -60,6 +61,7 @@ ${userRawNotes}
    - company_notes: Array of objects { "company_name": "...", "note": "..." } containing the specific context for that company.
    - file_date: A string representing the meeting date in YYYY-MM-DD format. If not found, return null.
    - prospectus_summary: Detailed variables of the prospectus file type. Only exist if the file type is "prospectus". Please take a look at the example output below to see the structure of the prospectus_summary.
+   - communications: Array of email communications extracted from banker communications files. Only exists if the file type is "banker_communications". Each communication should have: from_email, from_name, to_email, to_name, subject, body, sent_at (in ISO 8601 format if available), company (if the sender/recipient is associated with a company).
 
 ## Output Format:
 Your response should end with a JSON block in this format:
@@ -75,6 +77,18 @@ Your response should end with a JSON block in this format:
      { "company_name": "Acme Corp", "note": "Target price discussion..." }
   ],
   "file_date": "2024-01-30",
+  "communications": [
+    {
+      "from_email": "john.banker@example.com",
+      "from_name": "John Banker",
+      "to_email": "team@starcapital.com",
+      "to_name": "Star Capital Team",
+      "subject": "Re: Project Phoenix Update",
+      "body": "Email content here...",
+      "sent_at": "2024-01-15T10:30:00Z",
+      "company": "Example Bank"
+    }
+  ],
   "prospectus_summary": {
     "target": "Hidden company name. Please search for the company name in the known companies list or inside the document.",
     "segment": "...",

@@ -3,6 +3,10 @@
 import { useState, useEffect } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import DashboardLayout from '@/components/layout/DashboardLayout';
+
+interface CompanyDetailPageProps {
+  showCrm?: boolean;
+}
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -276,7 +280,7 @@ const formatCurrency = (value: number | null) => {
   return `$${value.toFixed(2)}M`;
 };
 
-export default function CompanyDetailPage() {
+export default function CompanyDetailPage({ showCrm = false }: CompanyDetailPageProps) {
   const params = useParams();
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -792,7 +796,7 @@ export default function CompanyDetailPage() {
 
   if (loading) {
     return (
-      <DashboardLayout>
+      <DashboardLayout showCrm={showCrm}>
         <div className="flex items-center justify-center h-full">
           <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
         </div>
@@ -802,7 +806,7 @@ export default function CompanyDetailPage() {
 
   if (!company) {
     return (
-      <DashboardLayout>
+      <DashboardLayout showCrm={showCrm}>
         <div className="flex flex-col items-center justify-center h-full gap-4">
           <p className="text-muted-foreground">Company not found</p>
           <Button onClick={() => router.push(returnTo)}>
@@ -815,7 +819,7 @@ export default function CompanyDetailPage() {
   }
 
   return (
-    <DashboardLayout>
+    <DashboardLayout showCrm={showCrm}>
       <div className="p-6 space-y-6">
         {/* Header */}
         <div className="flex items-center justify-between">

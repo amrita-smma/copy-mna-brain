@@ -44,6 +44,7 @@ import { LivingBackground } from '@/components/LivingBackground';
 
 interface DashboardLayoutProps {
   children: ReactNode;
+  showCrm?: boolean;
 }
 
 const navigation = [
@@ -51,6 +52,7 @@ const navigation = [
   { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard, color: 'default' as const },
   { name: 'Pipeline', href: '/pipeline', icon: GitBranch, color: 'default' as const },
   { name: 'Master Data', href: '/master-data', icon: Database, color: 'default' as const },
+  { name: 'CRM', href: '/crm', icon: Users, color: 'indigo' as const },
   { name: 'AI File Dump', href: '/ai-file-dump', icon: FileStack, color: 'teal' as const },
   // { name: 'Inbound Deal Sourcing', href: '#', icon: Inbox, disabled: true },
   // { name: 'Outbound Deal Sourcing', href: '#', icon: Send, disabled: true },
@@ -59,9 +61,13 @@ const navigation = [
   // { name: 'Banker Relations', href: '#', icon: Users, disabled: true },
 ];
 
-export default function DashboardLayout({ children }: DashboardLayoutProps) {
+export default function DashboardLayout({ children, showCrm = false }: DashboardLayoutProps) {
   const pathname = usePathname();
   const { user, signOut } = useAuth();
+
+  const filteredNavigation = showCrm
+    ? navigation
+    : navigation.filter(item => item.href !== '/crm');
 
   const handleSignOut = async () => {
     await signOut();
@@ -94,12 +100,13 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
                 <SidebarGroupLabel className="text-sidebar-foreground/50">Navigation</SidebarGroupLabel>
                 <SidebarGroupContent>
                   <SidebarMenu>
-                    {navigation.map((item) => {
+                    {filteredNavigation.map((item) => {
                       const isActive = pathname === item.href ||
                         (item.href !== '/dashboard' && item.href !== '#' && pathname.startsWith(item.href));
                       const isColored = item.color !== 'default';
                       const isPurple = item.color === 'purple';
                       const isTeal = item.color === 'teal';
+                      const isIndigo = item.color === 'indigo';
                       const isDisabled = 'disabled' in item && item.disabled;
 
                       return (
@@ -112,9 +119,11 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
                               isDisabled && 'opacity-50 cursor-not-allowed',
                               isPurple && !isDisabled && 'text-purple-400 hover:text-purple-300 hover:bg-purple-500/10',
                               isTeal && !isDisabled && 'text-teal-400 hover:text-teal-300 hover:bg-teal-500/10',
+                              isIndigo && !isDisabled && 'text-indigo-400 hover:text-indigo-300 hover:bg-indigo-500/10',
                               isActive && !isColored && 'bg-sidebar-accent text-sidebar-accent-foreground',
                               isActive && isPurple && 'bg-purple-500/20 text-purple-300',
-                              isActive && isTeal && 'bg-teal-500/20 text-teal-300'
+                              isActive && isTeal && 'bg-teal-500/20 text-teal-300',
+                              isActive && isIndigo && 'bg-indigo-500/20 text-indigo-300'
                             )}
                           >
                             {isDisabled ? (
@@ -122,7 +131,8 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
                                 <item.icon className={cn(
                                   'h-4 w-4',
                                   isPurple && 'text-purple-400',
-                                  isTeal && 'text-teal-400'
+                                  isTeal && 'text-teal-400',
+                                  isIndigo && 'text-indigo-400'
                                 )} />
                                 <span>{item.name}</span>
                               </div>
@@ -131,7 +141,8 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
                                 <item.icon className={cn(
                                   'h-4 w-4',
                                   isPurple && 'text-purple-400',
-                                  isTeal && 'text-teal-400'
+                                  isTeal && 'text-teal-400',
+                                  isIndigo && 'text-indigo-400'
                                 )} />
                                 <span>{item.name}</span>
                               </Link>

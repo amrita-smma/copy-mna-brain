@@ -1480,3 +1480,123 @@ export const userCompanyFavorites = pgTable(
     };
   },
 );
+
+export const contacts = pgTable(
+  "contacts",
+  {
+    id: uuid().defaultRandom().primaryKey().notNull(),
+    name: text().notNull(),
+    email: text(),
+    phone: text(),
+    company: text(),
+    title: text(),
+    type: text().default("external"),
+    notes: text(),
+    created_at: timestamp({ withTimezone: true, mode: "string" }).defaultNow(),
+    updated_at: timestamp({ withTimezone: true, mode: "string" }).defaultNow(),
+  },
+  (table) => {
+    return {
+      idxContactsName: index("idx_contacts_name").using(
+        "btree",
+        table.name.asc().nullsLast().op("text_ops"),
+      ),
+      idxContactsEmail: index("idx_contacts_email").using(
+        "btree",
+        table.email.asc().nullsLast().op("text_ops"),
+      ),
+      idxContactsCompany: index("idx_contacts_company").using(
+        "btree",
+        table.company.asc().nullsLast().op("text_ops"),
+      ),
+      idxContactsType: index("idx_contacts_type").using(
+        "btree",
+        table.type.asc().nullsLast().op("text_ops"),
+      ),
+      allowDeleteAccessOnContacts: pgPolicy("Allow delete access on contacts", {
+        as: "permissive",
+        for: "delete",
+        to: ["public"],
+        using: sql`true`,
+      }),
+      allowUpdateAccessOnContacts: pgPolicy("Allow update access on contacts", {
+        as: "permissive",
+        for: "update",
+        to: ["public"],
+      }),
+      allowInsertAccessOnContacts: pgPolicy("Allow insert access on contacts", {
+        as: "permissive",
+        for: "insert",
+        to: ["public"],
+      }),
+      allowReadAccessOnContacts: pgPolicy("Allow read access on contacts", {
+        as: "permissive",
+        for: "select",
+        to: ["public"],
+      }),
+    };
+  },
+);
+
+export const contactMessages = pgTable(
+  "contact_messages",
+  {
+    id: uuid().defaultRandom().primaryKey().notNull(),
+    contact_id: uuid().notNull(),
+    file_id: uuid(),
+    direction: text().default("inbound").notNull(),
+    subject: text(),
+    body: text().notNull(),
+    sent_at: timestamp({ withTimezone: true, mode: "string" }),
+    from_email: text(),
+    to_email: text(),
+    metadata: jsonb().$type<Record<string, unknown>>().default({}),
+    created_at: timestamp({ withTimezone: true, mode: "string" }).defaultNow(),
+  },
+  (table) => {
+    return {
+      idxContactMessagesContactId: index("idx_contact_messages_contact_id").using(
+        "btree",
+        table.contact_id.asc().nullsLast().op("uuid_ops"),
+      ),
+      idxContactMessagesFileId: index("idx_contact_messages_file_id").using(
+        "btree",
+        table.file_id.asc().nullsLast().op("uuid_ops"),
+      ),
+      idxContactMessagesSentAt: index("idx_contact_messages_sent_at").using(
+        "btree",
+        table.sent_at.asc().nullsLast().op("timestamptz_ops"),
+      ),
+      idxContactMessagesDirection: index("idx_contact_messages_direction").using(
+        "btree",
+        table.direction.asc().nullsLast().op("text_ops"),
+      ),
+      contactMessagesContactIdFkey: foreignKey({
+        columns: [table.contact_id],
+        foreignColumns: [contacts.id],
+        name: "contact_messages_contact_id_fkey",
+      }).onDelete("cascade"),
+      contactMessagesFileIdFkey: foreignKey({
+        columns: [table.file_id],
+        foreignColumns: [files.id],
+        name: "contact_messages_file_id_fkey",
+      }).onDelete("set null"),
+      allowDeleteAccessOnContactMessages: pgPolicy(
+        "Allow delete access on contact_messages",
+        { as: "permissive", for: "delete", to: ["public"], using: sql`true` },
+      ),
+      allowUpdateAccessOnContactMessages: pgPolicy(
+        "Allow update access on contact_messages",
+        { as: "permissive", for: "update", to: ["public"] },
+      ),
+      allowInsertAccessOnContactMessages: pgPolicy(
+        "Allow insert access on contact_messages",
+        { as: "permissive", for: "insert", to: ["public"] },
+      ),
+      allowReadAccessOnContactMessages: pgPolicy(
+        "Allow read access on contact_messages",
+        { as: "permissive", for: "select", to: ["public"] },
+      ),
+    };
+  },
+);

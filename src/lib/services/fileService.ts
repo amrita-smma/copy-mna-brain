@@ -2,11 +2,14 @@ import { downloadFile, getSignedUrl } from '@/lib/s3';
 import { deleteFile } from '@/lib/s3';
 import { extractTextFromFile } from '@/lib/fileExtractor';
 import { processFileContent } from '@/lib/agents/file_processing';
-import type { CompanyFinancialRepository, DbClient, FileRepository, CriteriaRepository, ScreeningRepository, Tables } from '@/lib/repositories';
+import type { CompanyFinancialRepository, DbClient, FileRepository, CriteriaRepository, ScreeningRepository, Tables, ContactRepository, ContactMessageRepository } from '@/lib/repositories';
 import type { CompanyAnalysisService } from './companyAnalysisService';
 import type { AIScreeningService } from './aiScreeningService';
+import type { CRMService } from './crmService';
 
 export class FileService {
+  private crmService?: CRMService;
+
   constructor(
     private readonly db: DbClient,
     private readonly fileRepo: FileRepository,
@@ -16,6 +19,10 @@ export class FileService {
     private readonly screeningRepo: ScreeningRepository,
     private readonly companyFinancialRepo: CompanyFinancialRepository,
   ) {}
+
+  setCRMService(crmService: CRMService) {
+    this.crmService = crmService;
+  }
 
   async findAll(fileType?: string) {
     const files = await this.fileRepo.findAll(fileType);
@@ -84,6 +91,35 @@ export class FileService {
 
     const updatedData = await this.fileRepo.findById(initialData.id);
     const signedUrl = await getSignedUrl(key);
+
+    if (structuredResult?.file_type === 'banker_communications' && structuredResult?.communications && this.crmService) {
+      const communications = structuredResult.communications as Array<{
+        from_email: string;
+        from_name?: string;
+        to_email?: string;
+        to_name?: string;
+        subject?: string;
+        body: string;
+        sent_at?: string;
+        company?: string;
+      }>;
+
+      const messages = communications.map(comm => ({
+        email: comm.from_email,
+        name: comm.from_name,
+        company: comm.company,
+        direction: 'inbound' as const,
+        subject: comm.subject,
+        body: comm.body,
+        sent_at: comm.sent_at,
+        from_email: comm.from_email,
+        to_email: comm.to_email,
+      }));
+
+      await this.crmService.addMessagesFromFile(initialData.id, messages).catch((err) => {
+        console.error('Error adding communications to CRM:', err);
+      });
+    }
 
     const company = structuredResult?.company;
     if (!company || !company.id) {
