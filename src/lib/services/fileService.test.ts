@@ -14,13 +14,13 @@ vi.mock('@/lib/fileExtractor', () => ({
   extractTextFromFile: vi.fn(),
 }));
 
-vi.mock('@/lib/file_processing_agent', () => ({
+vi.mock('@/lib/agents/file_processing', () => ({
   processFileContent: vi.fn(),
 }));
 
 import { downloadFile, getSignedUrl, deleteFile } from '@/lib/s3';
 import { extractTextFromFile } from '@/lib/fileExtractor';
-import { processFileContent } from '@/lib/file_processing_agent';
+import { processFileContent } from '@/lib/agents/file_processing';
 
 afterEach(() => vi.clearAllMocks());
 

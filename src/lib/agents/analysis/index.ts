@@ -1,11 +1,13 @@
 /**
- * LangGraph agent with Anthropic Claude and company data query tools.
+ * M&A analysis agent. Built on langchain's createAgent and exposes streaming
+ * via streamEvents (used by the chat route) plus a synchronous invoke wrapper
+ * used by the job handlers.
  */
 import { ChatAnthropic } from "@langchain/anthropic";
 import { createAgent } from "langchain";
 import { HumanMessage, AIMessage, BaseMessage } from "@langchain/core/messages";
 import { tools } from "./tools";
-import { logger } from "./logger";
+import { logger } from "../logger";
 
 const SYSTEM_PROMPT = `You are an intelligent M&A Data Analysis Assistant that helps users explore and analyze company/asset data for mergers and acquisitions.
 
@@ -115,7 +117,7 @@ export interface InvokeResult {
 }
 
 /**
- * Create the LangGraph agent with optional additional system context.
+ * Build a streaming-capable agent with optional additional system context.
  */
 export function createLocalAgent(config: AgentConfig, additionalSystemContext?: string) {
   const llm = new ChatAnthropic({
@@ -124,22 +126,19 @@ export function createLocalAgent(config: AgentConfig, additionalSystemContext?: 
     temperature: 0,
   });
 
-  // Combine base system prompt with additional context if provided
   const fullSystemPrompt = additionalSystemContext
     ? `${SYSTEM_PROMPT}\n\n---\n\n## Additional Context\n\n${additionalSystemContext}`
     : SYSTEM_PROMPT;
 
-  const agent = createAgent({
+  return createAgent({
     model: llm,
     tools,
     systemPrompt: fullSystemPrompt,
   });
-
-  return agent;
 }
 
 /**
- * Agent wrapper class for compatibility.
+ * Wrapper around the streaming agent that exposes both invoke and streamEvents.
  */
 export class AgentGraph {
   private config: AgentConfig;
@@ -150,20 +149,13 @@ export class AgentGraph {
     this.defaultAgent = createLocalAgent(config);
   }
 
-  /**
-   * Get an agent instance, optionally with additional system context.
-   */
   private getAgent(additionalSystemContext?: string): ReturnType<typeof createAgent> {
     if (!additionalSystemContext) {
       return this.defaultAgent;
     }
-    // Create a new agent with the additional context appended to system prompt
     return createLocalAgent(this.config, additionalSystemContext);
   }
 
-  /**
-   * Invoke the agent with messages and optional additional system context.
-   */
   async invoke(inputs: InvokeOptions, config?: InvokeConfig): Promise<InvokeResult> {
     logger.debug(`messages are ${JSON.stringify(inputs)}`);
     logger.debug("=".repeat(60));
@@ -181,7 +173,6 @@ export class AgentGraph {
       logger.debug("✅ AGENT INVOCATION COMPLETED SUCCESSFULLY");
       logger.debug("=".repeat(60));
 
-      // Return full messages including tool calls
       if (result && typeof result === "object" && "messages" in result) {
         return { messages: result.messages as BaseMessage[] };
       }
@@ -194,15 +185,13 @@ export class AgentGraph {
     }
   }
 
-  /**
-   * Async invoke (same as invoke for now).
-   */
   async ainvoke(inputs: InvokeOptions, config?: InvokeConfig): Promise<InvokeResult> {
     return this.invoke(inputs, config);
   }
 
   /**
-   * Stream events from the agent with optional additional system context.
+   * Stream events from the agent. The chat route consumes these to push
+   * incremental updates to the client.
    */
   async streamEvents(inputs: InvokeOptions, config?: any) {
     const agent = this.getAgent(inputs.additionalSystemContext);
@@ -210,7 +199,6 @@ export class AgentGraph {
   }
 }
 
-// Create agent instance on demand
 let agentGraph: AgentGraph | null = null;
 
 export function getAgentGraph(): AgentGraph | null {
@@ -233,7 +221,6 @@ export function getAgentGraph(): AgentGraph | null {
   }
 }
 
-// Reset agent (useful for testing or config changes)
 export function resetAgent(): void {
   agentGraph = null;
 }

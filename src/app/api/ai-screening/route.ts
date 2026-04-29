@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getAgentGraph } from '@/lib/agent';
+import { getAgentGraph } from '@/lib/agents/analysis';
 import { createDb } from '@/lib/server/db';
 import { createContainer } from '@/lib/services';
 import type { AIScreeningPayload } from '@/lib/jobs/handlers/aiScreening';

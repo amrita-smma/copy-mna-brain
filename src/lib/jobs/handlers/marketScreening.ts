@@ -1,5 +1,5 @@
-import { getAgentGraph, HumanMessage } from '@/lib/agent';
-import { companiesSchema } from '@/lib/agent/tools';
+import { getAgentGraph, HumanMessage } from '@/lib/agents/analysis';
+import { companiesSchema } from '@/lib/agents/analysis/tools';
 import { CompanyFinancialRepository, CompanyRepository, InvestmentThesisRepository } from '@/lib/repositories';
 import type { DbClient } from '@/lib/repositories';
 import { getPostHogClient } from '@/lib/posthog-server';

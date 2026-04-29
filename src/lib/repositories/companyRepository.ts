@@ -45,7 +45,7 @@ export interface CompanyFilters {
   limit?: number;
 }
 
-/** Filters used by AI-agent tool calls (queryCompanies in src/lib/agent/tools.ts). */
+/** Filters used by AI-agent tool calls (queryCompanies in src/lib/agents/analysis/tools/query_companies.ts). */
 export interface CompanyAgentFilters {
   segment?: string;
   geography?: string;

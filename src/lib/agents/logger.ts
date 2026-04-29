@@ -1,7 +1,6 @@
 /**
- * Simple logger utility for the agent.
+ * Shared logger for agents.
  */
-
 type LogLevel = "DEBUG" | "INFO" | "WARN" | "ERROR";
 
 const LOG_LEVELS: Record<LogLevel, number> = {

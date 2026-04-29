@@ -1,5 +1,5 @@
-import { getAgentGraph, HumanMessage } from '@/lib/agent';
-import { getToolDescriptions } from '@/lib/agent/tools';
+import { getAgentGraph, HumanMessage } from '@/lib/agents/analysis';
+import { getToolDescriptions } from '@/lib/agents/analysis/tools';
 import {
   CompanyFinancialRepository,
   CompanyRepository,

@@ -2,7 +2,7 @@
 
 ### Install the CLI
 
-Available via [NPM](https://www.npmjs.com) as dev dependency. To install:
+Available via pnpm as dev dependency. To install:
 
 ```bash
 pnpm i supabase --save-dev

@@ -1,9 +1,18 @@
+/**
+ * File-processing agent.
+ *
+ * Builds a Claude-backed agent via langchain's `createAgent` and consumes its
+ * output in streaming mode (`agent.stream` with `streamMode: "values"`).
+ * The agent currently runs without tools — the structured JSON contract is
+ * enforced by the system prompt — but tool definitions are kept under
+ * ./tools so adding tools later is a one-line change.
+ */
 import { ChatAnthropic } from "@langchain/anthropic";
 import { BaseMessage, HumanMessage } from "@langchain/core/messages";
 import { createAgent } from "langchain";
-import { logger } from "../agent/logger";
-import { getAllCompanyReferences } from "../fuzzySearch";
-import { splitPdf } from "../pdf";
+import { logger } from "../logger";
+import { getAllCompanyReferences } from "@/lib/fuzzySearch";
+import { splitPdf } from "@/lib/pdf";
 import type { DbClient } from "@/lib/server/db";
 import { CompanyFinancialRepository, CompanyRepository } from "@/lib/repositories";
 
@@ -129,6 +138,26 @@ Your response should end with a JSON block in this format:
 Always prioritize accuracy. Only list a company in 'companies_detected' if you are sure it matches one in the provided known list.`;
 
 /**
+ * Stream the agent and return the messages from the final state.
+ */
+async function streamAgentMessages(
+  agent: ReturnType<typeof createAgent>,
+  messages: BaseMessage[],
+): Promise<BaseMessage[]> {
+  let finalMessages: BaseMessage[] = [];
+  const stream = await agent.stream(
+    { messages } as any,
+    { streamMode: "values" } as any,
+  );
+  for await (const chunk of stream as AsyncIterable<{ messages?: BaseMessage[] }>) {
+    if (chunk?.messages) {
+      finalMessages = chunk.messages;
+    }
+  }
+  return finalMessages;
+}
+
+/**
  * Invoke the file processing agent.
  */
 export async function processFileContent(
@@ -143,10 +172,7 @@ export async function processFileContent(
     throw new Error("ANTHROPIC_API_KEY is not configured");
   }
 
-  // 1. Fetch all known companies to provide context
   const allReferences = await getAllCompanyReferences();
-
-  // OPTIMIZATION: Inject only names to save tokens
   const allNames = allReferences.map(r => r.name).join(", ");
 
   const llm = new ChatAnthropic({
@@ -157,23 +183,21 @@ export async function processFileContent(
 
   const agent = createAgent({
     model: llm,
-    tools: [], // No tools needed for this phase logic
+    tools: [],
     systemPrompt: generateSystemPrompt(allNames, userRawNotes),
   });
 
-  // 2. Implement Anthropic Files API for PDF processing
-  var inputs = {
-    messages: [new HumanMessage(`Raw Content to process:\n\n${rawText}`)],
+  let inputs = {
+    messages: [new HumanMessage(`Raw Content to process:\n\n${rawText}`)] as BaseMessage[],
   };
 
   let lastMessage: BaseMessage | null = null;
-  var company = null;
+  let company: any = null;
   if (contentType === 'application/pdf') {
     logger.debug("📂 INVOKING FILE PROCESSING AGENT");
 
     const buffers = await splitPdf(buffer, 50);
     for (const buff of buffers) {
-      // Extract and parse JSON from the last message content
       let lastParsedContent = "";
       if (lastMessage) {
         const rawContent = typeof lastMessage.content === "string"
@@ -206,33 +230,24 @@ export async function processFileContent(
           ],
         })],
       };
-      // Cast messages to satisfy the agent's type requirements
-      const result = await agent.invoke({ messages: inputs.messages } as any);
-      const messagesList = result.messages as BaseMessage[];
+      const messagesList = await streamAgentMessages(agent, inputs.messages);
       lastMessage = messagesList[messagesList.length - 1];
     }
   } else {
-    const result = await agent.invoke(inputs as any);
-    const messagesList = result.messages as BaseMessage[];
+    const messagesList = await streamAgentMessages(agent, inputs.messages);
     lastMessage = messagesList[messagesList.length - 1];
   }
 
-  // Extract the last message from the result
   const content = typeof lastMessage?.content === "string"
     ? lastMessage?.content
     : JSON.stringify(lastMessage?.content);
 
-  // Extract JSON from the content
   const jsonMatch = content.match(/```json\n([\s\S]*?)\n```/);
   if (jsonMatch && jsonMatch[1]) {
     try {
       const parsed = JSON.parse(jsonMatch[1]);
 
-      // Post-Processing: Client-side ID match
-      // Map detected strings back to IDs
       const finalMatchedCompanies: any[] = [];
-      // Prefer the agent's detected list. For prospectus files, fall back to the
-      // extracted target only when no companies were detected.
       let companiesDetected: string[] = Array.isArray(parsed.companies_detected)
         ? parsed.companies_detected.filter((n: unknown): n is string => typeof n === 'string' && n.length > 0)
         : [];
@@ -241,8 +256,6 @@ export async function processFileContent(
       }
 
       for (const detectedName of companiesDetected) {
-        // Find exact match in allReferences (case-insensitive search if needed, but agent should be exact)
-        // We do a permissive find
         const match = allReferences.find(r => r.name.toLowerCase() === (detectedName as string).toLowerCase());
         if (match) {
           finalMatchedCompanies.push(match);
@@ -265,7 +278,6 @@ export async function processFileContent(
             try {
               const companyRepo = new CompanyRepository(supabase);
               company = await companyRepo.insert(insertData);
-              // Normalized per-year financials go into company_financials.
               const financialRepo = new CompanyFinancialRepository(supabase);
               const financialRows = [
                 { fiscal_year: 2021, revenue_usd_mn: summary.revenue_2021_usd_mn ?? null, ebitda_usd_mn: summary.ebitda_2021_usd_mn ?? null, ev_usd_mn: null, ebitda_margin: summary.ebitda_margin_2021 ?? null, ev_ebitda: null, revenue_cagr_vs_prior: null },
@@ -288,38 +300,17 @@ export async function processFileContent(
             id: company?.id || null,
             name: detectedName,
             type: 'company',
-            similarity: 1
+            similarity: 1,
           });
         }
       }
 
-      // Add to final output
       parsed.matched_companies = finalMatchedCompanies;
-
-      // Also trigger add_company_note logic if notes are present
-      // We can do this here or let the API handler deal with it. 
-      // Since the tool is removed from agent, we must do it manually if we want the side effect, 
-      // OR just return the data structure and let the caller handle DB updates.
-      // Based on previous flow, the API endpoint handles DB updates using the returned 'matched_companies'.
-      // We should ensure 'company_notes' are also passed or handled.
-      // For now, minimal regression: The API uses 'matched_companies' to update the file record.
-      // If we want to persist notes to the company record, we should loop through company_notes here.
 
       if (parsed.company_notes && Array.isArray(parsed.company_notes)) {
         for (const noteObj of parsed.company_notes) {
           const match = allReferences.find(r => r.name.toLowerCase() === (noteObj.company_name as string).toLowerCase());
           if (match) {
-            // We invoke the tool logic manually or skip it?
-            // The original requirement was "add it to the companies detected".
-            // The API route likely reads 'matched_companies' and saves it to the DB column.
-            // Direct DB linking (add_company_note) was an agent tool action.
-            // We will attempt to invoke the tool functionality manually if we can, 
-            // OR simply return this data. 
-            // Given the instructions: "structure it... match it... store it". 
-            // We will attach the note content to the matched_companies object so the caller (API) can use it if needed,
-            // or just rely on the 'matched_companies' column in files table.
-
-            // Let's augment the matched company object with the note
             const recordIndex = finalMatchedCompanies.findIndex(m => m.id === match.id);
             if (recordIndex >= 0) {
               finalMatchedCompanies[recordIndex].note = noteObj.note;

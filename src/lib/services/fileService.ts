@@ -1,7 +1,7 @@
 import { downloadFile, getSignedUrl } from '@/lib/s3';
 import { deleteFile } from '@/lib/s3';
 import { extractTextFromFile } from '@/lib/fileExtractor';
-import { processFileContent } from '@/lib/file_processing_agent';
+import { processFileContent } from '@/lib/agents/file_processing';
 import type { CompanyFinancialRepository, DbClient, FileRepository, CriteriaRepository, ScreeningRepository, Tables } from '@/lib/repositories';
 import type { CompanyAnalysisService } from './companyAnalysisService';
 import type { AIScreeningService } from './aiScreeningService';

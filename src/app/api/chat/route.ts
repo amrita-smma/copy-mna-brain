@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getAgentGraph, AIMessage } from '@/lib/agent';
+import { getAgentGraph, AIMessage } from '@/lib/agents/analysis';
 import { createDb } from '@/lib/server/db';
 import { createContainer } from '@/lib/services';
 import { BaseMessage } from '@langchain/core/messages';
