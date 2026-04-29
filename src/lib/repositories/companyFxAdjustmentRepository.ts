@@ -31,6 +31,7 @@ export class CompanyFxAdjustmentRepository {
         set: {
           currency: data.currency,
           revenue_local: data.revenue_local,
+          ebitda_local: data.ebitda_local,
           assumed_forex: data.assumed_forex,
           forex_change_vs_prior: data.forex_change_vs_prior,
           revenue_cagr_domestic: data.revenue_cagr_domestic,
@@ -54,6 +55,7 @@ export class CompanyFxAdjustmentRepository {
             set: {
               currency: row.currency,
               revenue_local: row.revenue_local,
+              ebitda_local: row.ebitda_local,
               assumed_forex: row.assumed_forex,
               forex_change_vs_prior: row.forex_change_vs_prior,
               revenue_cagr_domestic: row.revenue_cagr_domestic,

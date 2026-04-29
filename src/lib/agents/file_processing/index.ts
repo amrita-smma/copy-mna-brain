@@ -14,7 +14,18 @@ import { logger } from "../logger";
 import { getAllCompanyReferences } from "@/lib/fuzzySearch";
 import { splitPdf } from "@/lib/pdf";
 import type { DbClient } from "@/lib/server/db";
-import { CompanyFinancialRepository, CompanyRepository } from "@/lib/repositories";
+import {
+  CompanyFinancialRepository,
+  CompanyFxAdjustmentRepository,
+  CompanyRepository,
+} from "@/lib/repositories";
+import {
+  applyFxBackfill,
+  normalizeFxRow,
+  type FinancialRow,
+  type FxRow,
+  type RawFxRow,
+} from "./fxBackfill";
 
 const generateSystemPrompt = (companies_list, userRawNotes) => `You are a specialized M&A File Processing Assistant. Your task is to analyze raw text extracted from meeting documents (like PPTX slides) and transform it into a highly structured format.
 
@@ -65,8 +76,8 @@ Your response should end with a JSON block in this format:
   ],
   "file_date": "2024-01-30",
   "prospectus_summary": {
-    "segment": "...",
     "target": "Hidden company name. Please search for the company name in the known companies list or inside the document.",
+    "segment": "...",
     "segment_related_offerings": "...",
     "company_focus": "...",
     "website": "...",
@@ -74,66 +85,47 @@ Your response should end with a JSON block in this format:
     "comments": "...",
     "ownership": "...",
     "geography": "country name",
-    "revenue_2021_usd_mn": <numeric>,
-    "revenue_2022_usd_mn": <numeric>,
-    "revenue_2023_usd_mn": <numeric>,
-    "revenue_2024_usd_mn": <numeric>,
-    "ebitda_2021_usd_mn": <numeric>,
-    "ebitda_2022_usd_mn": <numeric>,
-    "ebitda_2023_usd_mn": <numeric>,
-    "ebitda_2024_usd_mn": <numeric>,
-    "ev_2024": <numeric>,
-    "revenue_cagr_2021_2022": <numeric>,
-    "revenue_cagr_2022_2023": <numeric>,
-    "revenue_cagr_2023_2024": <numeric>,
-    "ebitda_margin_2021": <numeric>,
-    "ebitda_margin_2022": <numeric>,
-    "ebitda_margin_2023": <numeric>,
-    "ebitda_margin_2024": <numeric>,
-    "ev_ebitda_2024": <numeric>,
-    "segment_revenue": <numeric>,
-    "segment_ebitda": <numeric>,
-    "segment_revenue_total_ratio": <numeric>,
-    "l0_ebitda_2024_usd_mn": <numeric>,
-    "l0_ev_2024_usd_mn": <numeric>,
-    "l0_revenue_2024_usd_mn": <numeric>,
-    "l0_ev_ebitda_2024": <numeric>,
-    "segment_specific_revenue_pct": <numeric>,
-    "combined_segment_revenue": "...",
-    "revenue_from_priority_geo_flag": "...",
-    "pct_from_domestic": <numeric>,
-    "l0_ev_usd_mn": <numeric>,
-    "l1_revenue_cagr_l3y": <numeric>,
-    "l1_revenue_drop_count": <numeric>,
-    "l1_ebitda_below_threshold_count": <numeric>,
-    "l1_revenue_cagr_n3y": <numeric>,
-    "l1_vision_fit": "...",
-    "l1_priority_geo_flag": "...",
-    "l1_ev_below_threshold": "...",
-    "l1_rationale": "...",
-    "l1_revenue_no_consecutive_drop_usd": "...",
-    "fx_revenue_2021": <numeric>,
-    "fx_revenue_2022": <numeric>,
-    "fx_revenue_2023": <numeric>,
-    "fx_revenue_2024": <numeric>,
-    "fx_currency": "...",
-    "fx_assumed_forex_2021": <numeric>,
-    "fx_assumed_forex_2022": <numeric>,
-    "fx_assumed_forex_2023": <numeric>,
-    "fx_assumed_forex_2024": <numeric>,
-    "fx_forex_change_2021_2022": <numeric>,
-    "fx_forex_change_2022_2023": <numeric>,
-    "fx_forex_change_2023_2024": <numeric>,
-    "fx_revenue_cagr_domestic_2021_2022": <numeric>,
-    "fx_revenue_cagr_domestic_2022_2023": <numeric>,
-    "fx_revenue_cagr_domestic_2023_2024": <numeric>,
-    "fx_revenue_drop_count": <numeric>,
-    "fx_revenue_no_consecutive_drop_local": "...",
-    "fx_rationale": "...",
-    "fx_ebitda_above_10_l3y": "..."
+    "remarks": "...",
+    "financials": [
+      {
+        "fiscal_year": 2023,
+        "revenue_usd_mn": <numeric>,
+        "ebitda_usd_mn": <numeric>,
+        "ev_usd_mn": <numeric>,
+        "ebitda_margin": <numeric>,
+        "ev_ebitda": <numeric>,
+        "revenue_cagr_vs_prior": <numeric>
+      }
+    ],
+    "fx_adjustments": [
+      {
+        "fiscal_year": 2023,
+        "currency": "...",
+        "revenue_local": <numeric>,
+        "revenue_local_unit": "mn" | "bn" | "thousands",
+        "ebitda_local": <numeric>,
+        "ebitda_local_unit": "mn" | "bn" | "thousands",
+        "assumed_forex": <numeric>,
+        "forex_change_vs_prior": <numeric>,
+        "revenue_cagr_domestic": <numeric>
+      }
+    ]
   }
 }
 \`\`\`
+
+## Prospectus Summary Rules:
+- \`financials\` is an array with one object per fiscal year that the document explicitly reports. Years are flexible (typically the most recent 3-5 reported years; valid range 1990..2100). Use \`null\` for individual fields the document does not provide; omit the year entry entirely if the document reports nothing for it.
+- All \`*_usd_mn\` fields are in millions of USD.
+- \`revenue_cagr_vs_prior\` is YoY growth of revenue versus the immediately prior fiscal_year row in this same array. Leave it \`null\` for the earliest year. Express as a decimal (e.g. 0.12 for 12%).
+- \`ebitda_margin\` is also a decimal (e.g. 0.18 for 18%).
+- \`fx_adjustments\` is only populated when the company reports primary financials in a non-USD currency. Include one row per fiscal_year that mirrors a row in \`financials\`. \`currency\` is the ISO-4217 code (e.g. "KRW", "IDR"). Omit the entire \`fx_adjustments\` array if the company reports in USD.
+- When \`fx_adjustments\` is populated:
+  - \`revenue_local\` is the document-reported revenue figure verbatim. Set \`revenue_local_unit\` to "mn", "bn", or "thousands" to match exactly how the document expresses it (e.g. "KRW 36.2 bn" → \`revenue_local: 36.2, revenue_local_unit: "bn"\`; "IDR 12,500 mn" → \`revenue_local: 12500, revenue_local_unit: "mn"\`). The server normalizes to millions of local currency before persisting.
+  - \`ebitda_local\` and \`ebitda_local_unit\` follow the same rules; set both \`null\` when the document does not report EBITDA in local currency.
+  - \`assumed_forex\` MUST be filled. Units: local currency per 1 USD (e.g. KRW 1370/USD → 1370; IDR 16100/USD → 16100). Use a rate quoted in the document if available, otherwise the period-average spot rate for that fiscal year from your training knowledge. Do not leave it null.
+  - You MAY leave \`revenue_usd_mn\` and \`ebitda_usd_mn\` \`null\` when the document only reports local-currency figures. The server will derive them as \`<local_in_mn> / assumed_forex\`.
+- Do NOT extract derived screening fields (any \`l0_*\`, \`l1_*\`, segment revenue ratios, priority-geo flags, drop counts, screening rationales, etc.). Those are computed downstream by the screening pipeline.
 
 Always prioritize accuracy. Only list a company in 'companies_detected' if you are sure it matches one in the provided known list.`;
 
@@ -270,6 +262,8 @@ export async function processFileContent(
               segment_related_offerings: summary.segment_related_offerings || null,
               company_focus: summary.company_focus || null,
               website: summary.website || null,
+              watchlist_status: summary.watchlist_status || null,
+              comments: summary.comments || null,
               ownership: summary.ownership || null,
               geography: summary.geography || null,
               remarks: summary.remarks || null,
@@ -278,18 +272,48 @@ export async function processFileContent(
             try {
               const companyRepo = new CompanyRepository(supabase);
               company = await companyRepo.insert(insertData);
-              const financialRepo = new CompanyFinancialRepository(supabase);
-              const financialRows = [
-                { fiscal_year: 2021, revenue_usd_mn: summary.revenue_2021_usd_mn ?? null, ebitda_usd_mn: summary.ebitda_2021_usd_mn ?? null, ev_usd_mn: null, ebitda_margin: summary.ebitda_margin_2021 ?? null, ev_ebitda: null, revenue_cagr_vs_prior: null },
-                { fiscal_year: 2022, revenue_usd_mn: summary.revenue_2022_usd_mn ?? null, ebitda_usd_mn: summary.ebitda_2022_usd_mn ?? null, ev_usd_mn: null, ebitda_margin: summary.ebitda_margin_2022 ?? null, ev_ebitda: null, revenue_cagr_vs_prior: summary.revenue_cagr_2021_2022 ?? null },
-                { fiscal_year: 2023, revenue_usd_mn: summary.revenue_2023_usd_mn ?? null, ebitda_usd_mn: summary.ebitda_2023_usd_mn ?? null, ev_usd_mn: null, ebitda_margin: summary.ebitda_margin_2023 ?? null, ev_ebitda: null, revenue_cagr_vs_prior: summary.revenue_cagr_2022_2023 ?? null },
-                { fiscal_year: 2024, revenue_usd_mn: summary.revenue_2024_usd_mn ?? null, ebitda_usd_mn: summary.ebitda_2024_usd_mn ?? null, ev_usd_mn: summary.ev_2024 ?? null, ebitda_margin: summary.ebitda_margin_2024 ?? null, ev_ebitda: summary.ev_ebitda_2024 ?? null, revenue_cagr_vs_prior: summary.revenue_cagr_2023_2024 ?? null },
-              ].filter((r) =>
+
+              const financialRowsRaw: FinancialRow[] = Array.isArray(summary.financials)
+                ? summary.financials
+                    .filter((r: any) => r && Number.isInteger(r.fiscal_year))
+                    .map((r: any): FinancialRow => ({
+                      fiscal_year: r.fiscal_year as number,
+                      revenue_usd_mn: r.revenue_usd_mn ?? null,
+                      ebitda_usd_mn: r.ebitda_usd_mn ?? null,
+                      ev_usd_mn: r.ev_usd_mn ?? null,
+                      ebitda_margin: r.ebitda_margin ?? null,
+                      ev_ebitda: r.ev_ebitda ?? null,
+                      revenue_cagr_vs_prior: r.revenue_cagr_vs_prior ?? null,
+                    }))
+                : [];
+
+              const fxRows: FxRow[] = Array.isArray(summary.fx_adjustments)
+                ? summary.fx_adjustments
+                    .filter(
+                      (r: any) =>
+                        r &&
+                        Number.isInteger(r.fiscal_year) &&
+                        typeof r.currency === 'string' &&
+                        r.currency.length > 0,
+                    )
+                    .map((r: any) => normalizeFxRow(r as RawFxRow))
+                : [];
+
+              applyFxBackfill(financialRowsRaw, fxRows);
+
+              const financialRows = financialRowsRaw.filter((r: FinancialRow) =>
                 r.revenue_usd_mn !== null || r.ebitda_usd_mn !== null || r.ev_usd_mn !== null ||
                 r.ebitda_margin !== null || r.ev_ebitda !== null || r.revenue_cagr_vs_prior !== null,
               );
+
               if (financialRows.length > 0) {
+                const financialRepo = new CompanyFinancialRepository(supabase);
                 await financialRepo.bulkUpsertForCompany(company.id, financialRows);
+              }
+
+              if (fxRows.length > 0) {
+                const fxRepo = new CompanyFxAdjustmentRepository(supabase);
+                await fxRepo.bulkUpsertForCompany(company.id, fxRows);
               }
             } catch {
               logger.error('Error inserting companies results:');

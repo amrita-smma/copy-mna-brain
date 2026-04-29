@@ -1366,6 +1366,7 @@ export const companyFxAdjustments = pgTable(
     fiscal_year: integer().notNull(),
     currency: text().notNull(),
     revenue_local: numeric({ mode: "number" }),
+    ebitda_local: numeric({ mode: "number" }),
     assumed_forex: numeric({ mode: "number" }),
     forex_change_vs_prior: numeric({ mode: "number" }),
     revenue_cagr_domestic: numeric({ mode: "number" }),
