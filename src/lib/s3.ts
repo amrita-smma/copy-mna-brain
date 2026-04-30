@@ -23,6 +23,20 @@ const AWS_S3_FORCE_PATH_STYLE = process.env.AWS_S3_FORCE_PATH_STYLE === 'true';
 
 type ClientKind = 'internal' | 'presigner';
 
+/**
+ * Build an RFC 6266 Content-Disposition header value that preserves non-ASCII
+ * filenames (e.g. Chinese/Korean) for the browser save dialog. Embedding raw
+ * Unicode in the legacy `filename=` parameter breaks AWS presigned URL
+ * signatures, so we emit an ASCII-only fallback alongside the RFC 5987
+ * `filename*=UTF-8''…` form, which modern browsers prefer.
+ */
+export function buildContentDisposition(fileName: string): string {
+  const asciiFallback = fileName
+    .replace(/[^\x20-\x7E]/g, '_')
+    .replace(/["\\]/g, '_');
+  return `attachment; filename="${asciiFallback}"; filename*=UTF-8''${encodeURIComponent(fileName)}`;
+}
+
 function createS3Client(kind: ClientKind = 'internal'): S3Client {
   if (!AWS_ACCESS_KEY_ID || !AWS_SECRET_ACCESS_KEY) {
     throw new Error('AWS credentials not configured. Set AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY environment variables.');
@@ -100,7 +114,7 @@ export async function getSignedUrl(
   const command = new GetObjectCommand({
     Bucket: S3_BUCKET,
     Key: key,
-    ResponseContentDisposition: fileName ? `attachment; filename="${fileName}"` : undefined,
+    ResponseContentDisposition: fileName ? buildContentDisposition(fileName) : undefined,
   });
 
   return awsGetSignedUrl(s3Client, command, { expiresIn });
