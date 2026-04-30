@@ -2,7 +2,7 @@ name: Preview DB & Deploy
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened, closed]
+    types: [ opened, synchronize, reopened, closed ]
     branches:
       - main
 
@@ -168,10 +168,11 @@ jobs:
           api_key: ${{ secrets.NEON_API_KEY }}
 
       - name: Install Vercel CLI
-        run: pnpm add -g vercel@latest
+        run: npm install -g vercel@latest
 
       - name: Remove Vercel preview env var
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
           BRANCH: ${{ github.head_ref }}
-        run: vercel env rm DATABASE_URL preview "$BRANCH" --yes --token="$VERCEL_TOKEN" || true
+        run: vercel env rm DATABASE_URL preview "$BRANCH" --yes --token="$VERCEL_TOKEN"
+          || true
