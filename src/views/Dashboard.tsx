@@ -15,6 +15,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { getCompanies } from '@/lib/api/pipeline';
+import { getCompanyOverride } from '@/lib/companyOverrides';
 import {
   Building2,
   TrendingUp,
@@ -43,10 +44,12 @@ interface CompanyData {
   revenue_2022_usd_mn: number | null;
   revenue_2023_usd_mn: number | null;
   revenue_2024_usd_mn: number | null;
+  revenue_2025_usd_mn: number | null;
   ebitda_2021_usd_mn: number | null;
   ebitda_2022_usd_mn: number | null;
   ebitda_2023_usd_mn: number | null;
   ebitda_2024_usd_mn: number | null;
+  ebitda_2025_usd_mn: number | null;
   ev_2024: number | null;
   l1_screening_result: string | null;
   remarks: string | null;
@@ -154,7 +157,14 @@ export default function Dashboard({ showCrm = false, showAiWorkforce = false }: 
       });
 
       if (companiesData) {
-        setCompanies(companiesData);
+        setCompanies(companiesData.map((company: any) => {
+          const override = getCompanyOverride(company.id);
+          return {
+            ...company,
+            revenue_2025_usd_mn: override?.revenue_2025_usd_mn ?? company.revenue_2025_usd_mn,
+            ebitda_2025_usd_mn: override?.ebitda_2025_usd_mn ?? company.ebitda_2025_usd_mn,
+          };
+        }));
         setTotalCompanies(companiesData.length);
 
         // Calculate pipeline stage counts
@@ -425,14 +435,16 @@ export default function Dashboard({ showCrm = false, showAiWorkforce = false }: 
                             <TableHead className="text-right font-semibold">Rev 2022</TableHead>
                             <TableHead className="text-right font-semibold">Rev 2023</TableHead>
                             <TableHead className="text-right font-semibold">Rev 2024</TableHead>
+                            <TableHead className="text-right font-semibold">Rev 2025</TableHead>
                             <TableHead className="text-center font-semibold">Trend</TableHead>
                             <TableHead className="text-right font-semibold">EBITDA 2024</TableHead>
+                            <TableHead className="text-right font-semibold">EBITDA 2025</TableHead>
                             <TableHead className="text-right font-semibold">EV 2024</TableHead>
                           </TableRow>
                         </TableHeader>
                         <TableBody>
                           {paginatedCompanies.map((company) => {
-                            const revenueChange = getRevenueChange(company.revenue_2023_usd_mn, company.revenue_2024_usd_mn);
+                            const revenueChange = getRevenueChange(company.revenue_2024_usd_mn, company.revenue_2025_usd_mn);
                             return (
                               <TableRow key={company.id} className="hover:bg-muted/50 transition-colors">
                                 <TableCell>
@@ -485,6 +497,9 @@ export default function Dashboard({ showCrm = false, showAiWorkforce = false }: 
                                 <TableCell className="text-right font-mono text-sm font-semibold">
                                   {formatCurrency(company.revenue_2024_usd_mn)}
                                 </TableCell>
+                                <TableCell className="text-right font-mono text-sm font-semibold">
+                                  {formatCurrency(company.revenue_2025_usd_mn)}
+                                </TableCell>
                                 <TableCell className="text-center">
                                   {revenueChange.direction === 'up' && (
                                     <span className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-emerald-500/10">
@@ -504,6 +519,9 @@ export default function Dashboard({ showCrm = false, showAiWorkforce = false }: 
                                 </TableCell>
                                 <TableCell className="text-right font-mono text-sm font-medium">
                                   {formatCurrency(company.ebitda_2024_usd_mn)}
+                                </TableCell>
+                                <TableCell className="text-right font-mono text-sm font-medium">
+                                  {formatCurrency(company.ebitda_2025_usd_mn)}
                                 </TableCell>
                                 <TableCell className="text-right font-mono text-sm font-medium">
                                   {formatCurrency(company.ev_2024)}

@@ -59,12 +59,14 @@ interface CompanyWithDeal {
   sector: string;
   geo: string | null;
   source: string;
-  revenue_year1: number | null;
-  revenue_year2: number | null;
-  revenue_year3: number | null;
-  ebitda_year1: number | null;
-  ebitda_year2: number | null;
-  ebitda_year3: number | null;
+  revenue_2022: number | null;
+  revenue_2023: number | null;
+  revenue_2024: number | null;
+  revenue_2025: number | null;
+  ebitda_2022: number | null;
+  ebitda_2023: number | null;
+  ebitda_2024: number | null;
+  ebitda_2025: number | null;
   valuation: number | null;
   pic: string | null;
   created_at: string;
@@ -198,12 +200,14 @@ export default function MasterData({ showCrm = false, showAiWorkforce = false }:
               sector: company.segment || '',
               geo: company.geography || company.geo || null,
               source: company.watchlist_status === 'Active' ? 'inbound' : 'outbound',
-              revenue_year1: company.revenue_2022_usd_mn,
-              revenue_year2: override?.revenue_2023_usd_mn ?? company.revenue_2023_usd_mn,
-              revenue_year3: override?.revenue_2024_usd_mn ?? company.revenue_2024_usd_mn,
-              ebitda_year1: company.ebitda_2022_usd_mn,
-              ebitda_year2: override?.ebitda_2023_usd_mn ?? company.ebitda_2023_usd_mn,
-              ebitda_year3: override?.ebitda_2024_usd_mn ?? company.ebitda_2024_usd_mn,
+              revenue_2022: company.revenue_2022_usd_mn,
+              revenue_2023: override?.revenue_2023_usd_mn ?? company.revenue_2023_usd_mn,
+              revenue_2024: override?.revenue_2024_usd_mn ?? company.revenue_2024_usd_mn,
+              revenue_2025: override?.revenue_2025_usd_mn ?? company.revenue_2025_usd_mn,
+              ebitda_2022: company.ebitda_2022_usd_mn,
+              ebitda_2023: override?.ebitda_2023_usd_mn ?? company.ebitda_2023_usd_mn,
+              ebitda_2024: override?.ebitda_2024_usd_mn ?? company.ebitda_2024_usd_mn,
+              ebitda_2025: override?.ebitda_2025_usd_mn ?? company.ebitda_2025_usd_mn,
               valuation: override?.ev_2024 ?? company.ev_2024,
               pic: override?.pic ?? company.pic ?? null,
               created_at: company.created_at,
@@ -448,13 +452,15 @@ export default function MasterData({ showCrm = false, showAiWorkforce = false }:
                       <TableHead>Geo</TableHead>
                       <TableHead>Status</TableHead>
                       <TableHead>PIC</TableHead>
-                      <TableHead className="text-right">Rev Y1</TableHead>
-                      <TableHead className="text-right">Rev Y2</TableHead>
-                      <TableHead className="text-right">Rev Y3</TableHead>
+                      <TableHead className="text-right">Rev 2022</TableHead>
+                      <TableHead className="text-right">Rev 2023</TableHead>
+                      <TableHead className="text-right">Rev 2024</TableHead>
+                      <TableHead className="text-right">Rev 2025</TableHead>
                       <TableHead className="text-center">Trend</TableHead>
-                      <TableHead className="text-right">EBITDA Y1</TableHead>
-                      <TableHead className="text-right">EBITDA Y2</TableHead>
-                      <TableHead className="text-right">EBITDA Y3</TableHead>
+                      <TableHead className="text-right">EBITDA 2022</TableHead>
+                      <TableHead className="text-right">EBITDA 2023</TableHead>
+                      <TableHead className="text-right">EBITDA 2024</TableHead>
+                      <TableHead className="text-right">EBITDA 2025</TableHead>
                       <TableHead className="text-right">Valuation</TableHead>
                       <TableHead>Added</TableHead>
                       <TableHead className="text-center">Actions</TableHead>
@@ -463,7 +469,7 @@ export default function MasterData({ showCrm = false, showAiWorkforce = false }:
                   <TableBody>
                     {paginatedCompanies.map((company) => {
                       const displayStage = getDisplayStage(company);
-                      const revenueChange = getRevenueChange(company.revenue_year2, company.revenue_year3);
+                      const revenueChange = getRevenueChange(company.revenue_2024, company.revenue_2025);
 
                       return (
                         <TableRow key={company.id}>
@@ -512,13 +518,16 @@ export default function MasterData({ showCrm = false, showAiWorkforce = false }:
                             </span>
                           </TableCell>
                           <TableCell className="text-right font-mono">
-                            {formatCurrency(company.revenue_year1)}
+                            {formatCurrency(company.revenue_2022)}
                           </TableCell>
                           <TableCell className="text-right font-mono">
-                            {formatCurrency(company.revenue_year2)}
+                            {formatCurrency(company.revenue_2023)}
                           </TableCell>
                           <TableCell className="text-right font-mono">
-                            {formatCurrency(company.revenue_year3)}
+                            {formatCurrency(company.revenue_2024)}
+                          </TableCell>
+                          <TableCell className="text-right font-mono">
+                            {formatCurrency(company.revenue_2025)}
                           </TableCell>
                           <TableCell className="text-center">
                             {revenueChange.direction === 'up' && (
@@ -538,13 +547,16 @@ export default function MasterData({ showCrm = false, showAiWorkforce = false }:
                             )}
                           </TableCell>
                           <TableCell className="text-right font-mono">
-                            {formatCurrency(company.ebitda_year1)}
+                            {formatCurrency(company.ebitda_2022)}
                           </TableCell>
                           <TableCell className="text-right font-mono">
-                            {formatCurrency(company.ebitda_year2)}
+                            {formatCurrency(company.ebitda_2023)}
                           </TableCell>
                           <TableCell className="text-right font-mono">
-                            {formatCurrency(company.ebitda_year3)}
+                            {formatCurrency(company.ebitda_2024)}
+                          </TableCell>
+                          <TableCell className="text-right font-mono">
+                            {formatCurrency(company.ebitda_2025)}
                           </TableCell>
                           <TableCell className="text-right font-mono">
                             {formatCurrency(company.valuation)}

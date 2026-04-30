@@ -338,14 +338,14 @@ export default function Pipeline({ showCrm = false, showAiWorkforce = false }: P
               override?.revenue_2023_usd_mn ?? company.revenue_2023_usd_mn,
             revenue_2024_usd_mn:
               override?.revenue_2024_usd_mn ?? company.revenue_2024_usd_mn,
-            revenue_2025_usd_mn: override?.revenue_2025_usd_mn ?? null,
+            revenue_2025_usd_mn: override?.revenue_2025_usd_mn ?? company.revenue_2025_usd_mn,
             ebitda_2021_usd_mn: company.ebitda_2021_usd_mn,
             ebitda_2022_usd_mn: company.ebitda_2022_usd_mn,
             ebitda_2023_usd_mn:
               override?.ebitda_2023_usd_mn ?? company.ebitda_2023_usd_mn,
             ebitda_2024_usd_mn:
               override?.ebitda_2024_usd_mn ?? company.ebitda_2024_usd_mn,
-            ebitda_2025_usd_mn: override?.ebitda_2025_usd_mn ?? null,
+            ebitda_2025_usd_mn: override?.ebitda_2025_usd_mn ?? company.ebitda_2025_usd_mn,
             ev_2024: override?.ev_2024 ?? company.ev_2024,
             pipeline_stage: (company.pipeline_stage || "L0") as DealStage,
             l1_screening_result: company.l1_screening_result,

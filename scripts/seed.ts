@@ -175,8 +175,10 @@ const seedCompanies: SeedCompany[] = [
     status: 'active',
     watchlist_status: 'Active',
     financials: [
+      { fiscal_year: 2022, revenue_usd_mn: 31.4, ebitda_usd_mn: 4.1 },
       { fiscal_year: 2023, revenue_usd_mn: 42.1, ebitda_usd_mn: 6.2 },
       { fiscal_year: 2024, revenue_usd_mn: 58.7, ebitda_usd_mn: 9.4, ev_usd_mn: 320 },
+      { fiscal_year: 2025, revenue_usd_mn: 71.2, ebitda_usd_mn: 12.1, ev_usd_mn: 390 },
     ],
   },
   {
@@ -193,6 +195,7 @@ const seedCompanies: SeedCompany[] = [
     financials: [
       { fiscal_year: 2023, revenue_usd_mn: 120.0, ebitda_usd_mn: 14.8 },
       { fiscal_year: 2024, revenue_usd_mn: 134.5, ebitda_usd_mn: 18.1, ev_usd_mn: 410 },
+      { fiscal_year: 2025 },
     ],
   },
   {
@@ -207,8 +210,10 @@ const seedCompanies: SeedCompany[] = [
     status: 'active',
     watchlist_status: 'Monitoring',
     financials: [
+      { fiscal_year: 2022, revenue_usd_mn: 18.7, ebitda_usd_mn: 1.5, ev_usd_mn: 60 },
       { fiscal_year: 2023, revenue_usd_mn: 22.3, ebitda_usd_mn: 2.1 },
       { fiscal_year: 2024, revenue_usd_mn: 28.9, ebitda_usd_mn: 3.6, ev_usd_mn: 95 },
+      { fiscal_year: 2025, revenue_usd_mn: 33.4 },
     ],
   },
   {
@@ -223,8 +228,10 @@ const seedCompanies: SeedCompany[] = [
     status: 'active',
     watchlist_status: 'Active',
     financials: [
+      { fiscal_year: 2022, revenue_usd_mn: 4.1 },
       { fiscal_year: 2023, revenue_usd_mn: 8.4, ebitda_usd_mn: -1.2 },
       { fiscal_year: 2024, revenue_usd_mn: 17.2, ebitda_usd_mn: 0.8, ev_usd_mn: 180 },
+      { fiscal_year: 2025, revenue_usd_mn: 29.5, ebitda_usd_mn: 3.4, ev_usd_mn: 310 },
     ],
   },
   {
@@ -239,8 +246,10 @@ const seedCompanies: SeedCompany[] = [
     status: 'active',
     watchlist_status: 'Active',
     financials: [
+      { fiscal_year: 2022, revenue_usd_mn: 48.2, ebitda_usd_mn: 6.9, ev_usd_mn: 190 },
       { fiscal_year: 2023, revenue_usd_mn: 61.0, ebitda_usd_mn: 9.1 },
       { fiscal_year: 2024, revenue_usd_mn: 74.3, ebitda_usd_mn: 12.4, ev_usd_mn: 280 },
+      { fiscal_year: 2025 },
     ],
   },
   {
@@ -257,6 +266,7 @@ const seedCompanies: SeedCompany[] = [
     financials: [
       { fiscal_year: 2023, revenue_usd_mn: 210.5, ebitda_usd_mn: 22.0 },
       { fiscal_year: 2024, revenue_usd_mn: 205.1, ebitda_usd_mn: 19.4, ev_usd_mn: 540 },
+      { fiscal_year: 2025, revenue_usd_mn: 198.7, ebitda_usd_mn: 17.2 },
     ],
   },
   {
@@ -271,8 +281,10 @@ const seedCompanies: SeedCompany[] = [
     status: 'active',
     watchlist_status: 'Active',
     financials: [
+      { fiscal_year: 2022, revenue_usd_mn: 37.2, ebitda_usd_mn: 5.9, ev_usd_mn: 195 },
       { fiscal_year: 2023, revenue_usd_mn: 44.7, ebitda_usd_mn: 7.8 },
       { fiscal_year: 2024, revenue_usd_mn: 53.8, ebitda_usd_mn: 10.9, ev_usd_mn: 260 },
+      { fiscal_year: 2025, revenue_usd_mn: 61.0, ebitda_usd_mn: 13.2, ev_usd_mn: 310 },
     ],
   },
   {
@@ -287,8 +299,10 @@ const seedCompanies: SeedCompany[] = [
     status: 'active',
     watchlist_status: 'Monitoring',
     financials: [
+      { fiscal_year: 2022, revenue_usd_mn: 9.3 },
       { fiscal_year: 2023, revenue_usd_mn: 11.2, ebitda_usd_mn: 1.4 },
       { fiscal_year: 2024, revenue_usd_mn: 14.6, ebitda_usd_mn: 2.2, ev_usd_mn: 72 },
+      { fiscal_year: 2025, revenue_usd_mn: 16.1 },
     ],
   },
 ];

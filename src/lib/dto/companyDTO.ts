@@ -14,7 +14,7 @@
 import type { Tables, TablesInsert } from '@/lib/repositories/types';
 import type { DealOrigin, DealStage, CompanyStatus } from '@/lib/types';
 
-const TRACKED_YEARS = [2021, 2022, 2023, 2024] as const;
+const TRACKED_YEARS = [2021, 2022, 2023, 2024, 2025] as const;
 type TrackedYear = typeof TRACKED_YEARS[number];
 
 /**
@@ -59,10 +59,12 @@ export interface CompanyDTO {
   revenue_2022_usd_mn: number | null;
   revenue_2023_usd_mn: number | null;
   revenue_2024_usd_mn: number | null;
+  revenue_2025_usd_mn: number | null;
   ebitda_2021_usd_mn: number | null;
   ebitda_2022_usd_mn: number | null;
   ebitda_2023_usd_mn: number | null;
   ebitda_2024_usd_mn: number | null;
+  ebitda_2025_usd_mn: number | null;
   ev_2024: number | null;
   ev_ebitda_2024: number | null;
   ebitda_margin_2021: number | null;
@@ -184,10 +186,12 @@ export function toCompanyDTO(
     revenue_2022_usd_mn: get(2022, 'revenue_usd_mn'),
     revenue_2023_usd_mn: get(2023, 'revenue_usd_mn'),
     revenue_2024_usd_mn: get(2024, 'revenue_usd_mn'),
+    revenue_2025_usd_mn: get(2025, 'revenue_usd_mn'),
     ebitda_2021_usd_mn: get(2021, 'ebitda_usd_mn'),
     ebitda_2022_usd_mn: get(2022, 'ebitda_usd_mn'),
     ebitda_2023_usd_mn: get(2023, 'ebitda_usd_mn'),
     ebitda_2024_usd_mn: get(2024, 'ebitda_usd_mn'),
+    ebitda_2025_usd_mn: get(2025, 'ebitda_usd_mn'),
     ev_2024: get(2024, 'ev_usd_mn'),
     ev_ebitda_2024: get(2024, 'ev_ebitda'),
     ebitda_margin_2021: get(2021, 'ebitda_margin'),
@@ -321,10 +325,12 @@ export function splitCompanyDTO(dto: CompanyDTOInput): SplitCompanyWrite {
     ['revenue_2022_usd_mn', 2022, 'revenue_usd_mn'],
     ['revenue_2023_usd_mn', 2023, 'revenue_usd_mn'],
     ['revenue_2024_usd_mn', 2024, 'revenue_usd_mn'],
+    ['revenue_2025_usd_mn', 2025, 'revenue_usd_mn'],
     ['ebitda_2021_usd_mn', 2021, 'ebitda_usd_mn'],
     ['ebitda_2022_usd_mn', 2022, 'ebitda_usd_mn'],
     ['ebitda_2023_usd_mn', 2023, 'ebitda_usd_mn'],
     ['ebitda_2024_usd_mn', 2024, 'ebitda_usd_mn'],
+    ['ebitda_2025_usd_mn', 2025, 'ebitda_usd_mn'],
     ['ev_2024', 2024, 'ev_usd_mn'],
     ['ev_ebitda_2024', 2024, 'ev_ebitda'],
     ['ebitda_margin_2021', 2021, 'ebitda_margin'],

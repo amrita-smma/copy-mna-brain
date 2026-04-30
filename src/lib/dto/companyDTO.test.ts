@@ -84,11 +84,10 @@ describe('toCompanyDTO – financials_raw', () => {
     expect(dto.revenue_2022_usd_mn).toBe(50);
     expect(dto.revenue_2023_usd_mn).toBe(60);
     expect(dto.revenue_2024_usd_mn).toBe(70);
-    // Out-of-range year should be in financials_raw but NOT as a legacy key
+    // 2025 is now a tracked year — should appear as a legacy flat key
     const rowsWithExtra = [...rows, makeFinancial(2025, { revenue_usd_mn: 80 })];
     const dto2 = toCompanyDTO(makeCompany(), rowsWithExtra, [], null);
     expect(dto2.financials_raw).toHaveLength(4);
-    // No revenue_2025_usd_mn key on CompanyDTO (capped by TRACKED_YEARS)
-    expect('revenue_2025_usd_mn' in dto2).toBe(false);
+    expect(dto2.revenue_2025_usd_mn).toBe(80);
   });
 });
