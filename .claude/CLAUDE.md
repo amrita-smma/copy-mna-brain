@@ -5,6 +5,10 @@ When processing asynchronous tasks, put them in the jobs table and store state c
 Update the README.md when an architecture change happens.
 Unit tests should be added for every change to the backend side of the project, which is in src/lib
 
+## Database Migrations
+
+When adding a new Drizzle migration file under `drizzle/migrations/`, you must also register it in `drizzle/migrations/meta/_journal.json`. Add an entry to the `entries` array with the correct `idx`, `when` (Unix ms timestamp), `tag` (matching the migration filename without `.sql`), and `breakpoints: true`. Failing to update the journal will cause Drizzle to ignore the migration.
+
 ## Agent Design Pattern (`src/lib/agents`)
 
 Each agent lives in its own folder under `src/lib/agents`, named after the agent. The folder structure must be:
