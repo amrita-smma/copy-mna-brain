@@ -155,6 +155,11 @@ jobs:
     if: github.event.action == 'closed'
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout PR head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref }}
+
       - name: Delete Neon branch
         uses: neondatabase/delete-branch-action@v3
         with:
@@ -163,7 +168,7 @@ jobs:
           api_key: ${{ secrets.NEON_API_KEY }}
 
       - name: Install Vercel CLI
-        run: npm install -g vercel@latest
+        run: pnpm add -g vercel@latest
 
       - name: Remove Vercel preview env var
         env:
