@@ -1,3 +1,7 @@
+## Terraform Modules (`terraform/`)
+
+Each module under `terraform/` (e.g. `bootstrap`, `iam`, `rds`, `s3`, `ses`, `vpc`) must have a `Makefile` with `init-staging` and `init-production` targets. Copy the pattern from any existing module's `Makefile` when adding a new one.
+
 ## Overview
 
 Use Typescript Strict mode.

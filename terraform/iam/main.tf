@@ -1,48 +1,31 @@
-# Variables
-variable "s3_bucket_arn" {
-  description = "ARN of the S3 bucket to grant access to"
-  type        = string
-  default     = "arn:aws:s3:::mna-files"
+# Remote state from SES module
+data "terraform_remote_state" "ses" {
+  backend = "s3"
+  config = {
+    bucket = local.tfstate_bucket
+    key    = "env:/${local.environment}/mna/ses"
+    region = "ap-southeast-3"
+  }
 }
 
-# IAM Policy for S3 Read/Write Access
+# IAM Policy for S3 Full Access
 resource "aws_iam_policy" "mna_files_s3_policy" {
   name        = "mna-files-s3-policy"
-  description = "Policy to read and write to the mna-files S3 bucket"
+  description = "Full S3 access for mna-app"
 
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
       {
-        Sid    = "ListBucket"
-        Effect = "Allow"
-        Action = [
-          "s3:ListBucket",
-          "s3:GetBucketLocation"
-        ]
-        Resource = var.s3_bucket_arn
-      },
-      {
-        Sid    = "ReadWriteObjects"
-        Effect = "Allow"
-        Action = [
-          "s3:GetObject",
-          "s3:PutObject",
-          "s3:DeleteObject",
-          "s3:GetObjectVersion",
-          "s3:GetObjectAcl",
-          "s3:PutObjectAcl"
-        ]
-        Resource = "${var.s3_bucket_arn}/*"
+        Sid      = "S3FullAccess"
+        Effect   = "Allow"
+        Action   = "s3:*"
+        Resource = "*"
       }
     ]
   })
 
-  tags = {
-    Environment = "dev"
-    Project     = "MnA"
-    ManagedBy   = "Terraform"
-  }
+  tags = local.common_tags
 }
 
 # IAM Role for S3 Access (can be assumed by EC2, Lambda, etc.)
@@ -66,11 +49,7 @@ resource "aws_iam_role" "mna_files_role" {
     ]
   })
 
-  tags = {
-    Environment = "dev"
-    Project     = "MnA"
-    ManagedBy   = "Terraform"
-  }
+  tags = local.common_tags
 }
 
 # Attach policy to role
@@ -81,18 +60,26 @@ resource "aws_iam_role_policy_attachment" "mna_files_role_attachment" {
 
 # IAM User for programmatic access
 resource "aws_iam_user" "mna_files_user" {
-  name = "mna-files-user"
+  name = "mna-app"
   path = "/mna/"
 
-  tags = {
-    Environment = "dev"
-    Project     = "MnA"
-    ManagedBy   = "Terraform"
-  }
+  tags = local.common_tags
 }
 
-# Attach policy to user
+# Attach S3 policy to user
 resource "aws_iam_user_policy_attachment" "mna_files_user_attachment" {
   user       = aws_iam_user.mna_files_user.name
   policy_arn = aws_iam_policy.mna_files_s3_policy.arn
+}
+
+# Attach SES send-email policy to user
+resource "aws_iam_user_policy_attachment" "mna_files_user_ses_attachment" {
+  user       = aws_iam_user.mna_files_user.name
+  policy_arn = data.terraform_remote_state.ses.outputs.ses_send_email_policy_arn
+}
+
+# Attach RDS full access to user
+resource "aws_iam_user_policy_attachment" "mna_files_user_rds_attachment" {
+  user       = aws_iam_user.mna_files_user.name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonRDSFullAccess"
 }
