@@ -1,7 +1,10 @@
 import Dashboard from '@/views/Dashboard';
-import { crmEnabled } from '@/lib/flags';
+import { crmEnabled, aiWorkforceEnabled } from '@/lib/flags';
 
 export default async function DashboardPage() {
-  const showCrm = Boolean(await crmEnabled());
-  return <Dashboard showCrm={showCrm} />;
+  const [showCrm, showAiWorkforce] = await Promise.all([
+    crmEnabled().then(Boolean),
+    aiWorkforceEnabled().then(Boolean),
+  ]);
+  return <Dashboard showCrm={showCrm} showAiWorkforce={showAiWorkforce} />;
 }

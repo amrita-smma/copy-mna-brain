@@ -12,9 +12,10 @@ import { cn } from '@/lib/utils';
 
 interface AIDiscoveryProps {
   showCrm?: boolean;
+  showAiWorkforce?: boolean;
 }
 
-export default function AIDiscovery({ showCrm = false }: AIDiscoveryProps) {
+export default function AIDiscovery({ showCrm = false, showAiWorkforce = false }: AIDiscoveryProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
 
@@ -26,7 +27,7 @@ export default function AIDiscovery({ showCrm = false }: AIDiscoveryProps) {
   }, [searchParams, router]);
 
   return (
-    <DashboardLayout showCrm={showCrm}>
+    <DashboardLayout showCrm={showCrm} showAiWorkforce={showAiWorkforce}>
       <div className="flex flex-col h-screen p-6">
         {/* Header - AI CoPilot */}
         <div className="relative mb-6 flex-shrink-0">

@@ -1,7 +1,10 @@
 import AIFileDump from '@/views/AIFileDump';
-import { crmEnabled } from '@/lib/flags';
+import { crmEnabled, aiWorkforceEnabled } from '@/lib/flags';
 
 export default async function AIFileDumpPage() {
-  const showCrm = Boolean(await crmEnabled());
-  return <AIFileDump showCrm={showCrm} />;
+  const [showCrm, showAiWorkforce] = await Promise.all([
+    crmEnabled().then(Boolean),
+    aiWorkforceEnabled().then(Boolean),
+  ]);
+  return <AIFileDump showCrm={showCrm} showAiWorkforce={showAiWorkforce} />;
 }

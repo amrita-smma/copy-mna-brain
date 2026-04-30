@@ -1,8 +1,11 @@
 import CRM from '@/views/CRM';
-import { crmEnabled } from '@/lib/flags';
+import { crmEnabled, aiWorkforceEnabled } from '@/lib/flags';
 
 export default async function CRMPage() {
-  const isCrmEnabled = Boolean(await crmEnabled());
+  const [isCrmEnabled, showAiWorkforce] = await Promise.all([
+    crmEnabled().then(Boolean),
+    aiWorkforceEnabled().then(Boolean),
+  ]);
 
   if (!isCrmEnabled) {
     return (
@@ -19,5 +22,5 @@ export default async function CRMPage() {
     );
   }
 
-  return <CRM showCrm={true} />;
+  return <CRM showCrm={true} showAiWorkforce={showAiWorkforce} />;
 }

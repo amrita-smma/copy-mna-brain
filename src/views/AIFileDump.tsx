@@ -552,9 +552,10 @@ function FileTable({
 
 interface AIFileDumpProps {
   showCrm?: boolean;
+  showAiWorkforce?: boolean;
 }
 
-export default function AIFileDump({ showCrm = false }: AIFileDumpProps) {
+export default function AIFileDump({ showCrm = false, showAiWorkforce = false }: AIFileDumpProps) {
   const router = useRouter();
   const [meetingNotes, setMeetingNotes] = useState<MeetingNote[]>([]);
   const [prospectus, setProspectus] = useState<Prospectus[]>([]);
@@ -1060,7 +1061,7 @@ export default function AIFileDump({ showCrm = false }: AIFileDumpProps) {
 
   if (loading) {
     return (
-      <DashboardLayout showCrm={showCrm}>
+      <DashboardLayout showCrm={showCrm} showAiWorkforce={showAiWorkforce}>
         <div className="flex h-full items-center justify-center">
           <Loader2 className="h-8 w-8 animate-spin text-primary" />
         </div>
@@ -1069,7 +1070,7 @@ export default function AIFileDump({ showCrm = false }: AIFileDumpProps) {
   }
 
   return (
-    <DashboardLayout showCrm={showCrm}>
+    <DashboardLayout showCrm={showCrm} showAiWorkforce={showAiWorkforce}>
       <div className="flex flex-col h-full p-6 space-y-6 animate-fade-in">
         {/* Header */}
         <div className="relative flex-shrink-0">

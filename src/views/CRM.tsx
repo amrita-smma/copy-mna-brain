@@ -83,9 +83,10 @@ interface ContactWithMessages extends Contact {
 
 interface CRMProps {
   showCrm?: boolean;
+  showAiWorkforce?: boolean;
 }
 
-export default function CRM({ showCrm = false }: CRMProps) {
+export default function CRM({ showCrm = false, showAiWorkforce = false }: CRMProps) {
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
@@ -232,7 +233,7 @@ export default function CRM({ showCrm = false }: CRMProps) {
 
   if (loading) {
     return (
-      <DashboardLayout showCrm={showCrm}>
+      <DashboardLayout showCrm={showCrm} showAiWorkforce={showAiWorkforce}>
         <div className="flex h-full items-center justify-center">
           <Loader2 className="h-8 w-8 animate-spin text-primary" />
         </div>
@@ -241,7 +242,7 @@ export default function CRM({ showCrm = false }: CRMProps) {
   }
 
   return (
-    <DashboardLayout showCrm={showCrm}>
+    <DashboardLayout showCrm={showCrm} showAiWorkforce={showAiWorkforce}>
       <div className="flex flex-col h-full p-6 space-y-6 animate-fade-in">
         {/* Header */}
         <div className="relative flex-shrink-0">

@@ -24,3 +24,47 @@ Rules:
 - Each tool gets its own dedicated file under `tools/`.
 - `tools/index.ts` is responsible for registering all tools.
 - Every tool must have unit tests.
+
+## Feature Flags
+
+Feature flags live in `src/lib/flags.ts` (e.g. `crmEnabled`, `aiWorkforceEnabled`).
+
+**Server components (Next.js pages)** — fetch flags with `await` and pass as boolean props:
+
+```ts
+// src/app/some-page/page.tsx
+import { crmEnabled, aiWorkforceEnabled } from '@/lib/flags';
+
+export default async function SomePage() {
+  const [showCrm, showAiWorkforce] = await Promise.all([
+    crmEnabled().then(Boolean),
+    aiWorkforceEnabled().then(Boolean),
+  ]);
+  return <SomeView showCrm={showCrm} showAiWorkforce={showAiWorkforce} />;
+}
+```
+
+**Views** — accept flags as boolean props, pass them to `DashboardLayout`:
+
+```ts
+interface SomeViewProps {
+  showCrm?: boolean;
+  showAiWorkforce?: boolean;
+}
+
+export default function SomeView({ showCrm = false, showAiWorkforce = false }: SomeViewProps) {
+  return (
+    <DashboardLayout showCrm={showCrm} showAiWorkforce={showAiWorkforce}>
+      ...
+    </DashboardLayout>
+  );
+}
+```
+
+**`DashboardLayout`** — filters `baseNavigation` based on the boolean props. Do NOT use `useFeatureFlags` inside `DashboardLayout` or any view; all flag resolution happens server-side in the page file.
+
+When adding a new feature-flagged nav item:
+1. Add the flag function to `src/lib/flags.ts`
+2. Add a `show<FeatureName>` prop to `DashboardLayoutProps` (default `false`)
+3. Add the filter in `DashboardLayout`'s `filteredNavigation`
+4. Thread the prop through every page file and view

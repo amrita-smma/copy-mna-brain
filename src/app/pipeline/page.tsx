@@ -1,7 +1,7 @@
 import { Suspense } from 'react';
 import Pipeline from '@/views/Pipeline';
 import { Loader2 } from 'lucide-react';
-import { crmEnabled } from '@/lib/flags';
+import { crmEnabled, aiWorkforceEnabled } from '@/lib/flags';
 
 function PipelineLoading() {
   return (
@@ -12,10 +12,13 @@ function PipelineLoading() {
 }
 
 export default async function PipelinePage() {
-  const showCrm = Boolean(await crmEnabled());
+  const [showCrm, showAiWorkforce] = await Promise.all([
+    crmEnabled().then(Boolean),
+    aiWorkforceEnabled().then(Boolean),
+  ]);
   return (
     <Suspense fallback={<PipelineLoading />}>
-      <Pipeline showCrm={showCrm} />
+      <Pipeline showCrm={showCrm} showAiWorkforce={showAiWorkforce} />
     </Suspense>
   );
 }

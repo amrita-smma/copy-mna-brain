@@ -6,6 +6,7 @@ import DashboardLayout from '@/components/layout/DashboardLayout';
 
 interface SlidesPageProps {
   showCrm?: boolean;
+  showAiWorkforce?: boolean;
 }
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
@@ -355,7 +356,7 @@ function PresentationMode({
 // Main Page Component
 // ---------------------------------------------------------------------------
 
-export default function SlidesPage({ showCrm = false }: SlidesPageProps) {
+export default function SlidesPage({ showCrm = false, showAiWorkforce = false }: SlidesPageProps) {
   const params = useParams();
   const router = useRouter();
   const companyId = params.dealId as string;
@@ -700,7 +701,7 @@ export default function SlidesPage({ showCrm = false }: SlidesPageProps) {
 
   if (loading) {
     return (
-      <DashboardLayout showCrm={showCrm}>
+      <DashboardLayout showCrm={showCrm} showAiWorkforce={showAiWorkforce}>
         <div className="flex items-center justify-center h-full">
           <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
         </div>
@@ -710,7 +711,7 @@ export default function SlidesPage({ showCrm = false }: SlidesPageProps) {
 
   if (!company) {
     return (
-      <DashboardLayout showCrm={showCrm}>
+      <DashboardLayout showCrm={showCrm} showAiWorkforce={showAiWorkforce}>
         <div className="flex flex-col items-center justify-center h-full gap-4">
           <p className="text-muted-foreground">Company not found</p>
           <Button onClick={() => router.push('/pipeline')}>
@@ -723,7 +724,7 @@ export default function SlidesPage({ showCrm = false }: SlidesPageProps) {
   }
 
   return (
-    <DashboardLayout showCrm={showCrm}>
+    <DashboardLayout showCrm={showCrm} showAiWorkforce={showAiWorkforce}>
       <div className="flex flex-col h-[calc(100vh-0px)]">
         {/* Top bar */}
         <div className="flex items-center justify-between px-4 py-2 border-b bg-background/80 backdrop-blur-sm shrink-0">

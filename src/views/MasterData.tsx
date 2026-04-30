@@ -114,9 +114,10 @@ const getRevenueChange = (year2: number | null, year3: number | null): { directi
 
 interface MasterDataProps {
   showCrm?: boolean;
+  showAiWorkforce?: boolean;
 }
 
-export default function MasterData({ showCrm = false }: MasterDataProps) {
+export default function MasterData({ showCrm = false, showAiWorkforce = false }: MasterDataProps) {
   const [companies, setCompanies] = useState<CompanyWithDeal[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
@@ -289,7 +290,7 @@ export default function MasterData({ showCrm = false }: MasterDataProps) {
 
   if (loading) {
     return (
-      <DashboardLayout showCrm={showCrm}>
+      <DashboardLayout showCrm={showCrm} showAiWorkforce={showAiWorkforce}>
         <div className="flex h-full items-center justify-center">
           <Loader2 className="h-8 w-8 animate-spin text-primary" />
         </div>
@@ -298,7 +299,7 @@ export default function MasterData({ showCrm = false }: MasterDataProps) {
   }
 
   return (
-    <DashboardLayout showCrm={showCrm}>
+    <DashboardLayout showCrm={showCrm} showAiWorkforce={showAiWorkforce}>
       <div className="p-6 space-y-6 animate-fade-in">
         {/* Header */}
         <div className="flex items-center justify-between">

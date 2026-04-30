@@ -247,9 +247,10 @@ const L1StatusBadge = ({ status }: { status: L1Status | null }) => {
 
 interface PipelineProps {
   showCrm?: boolean;
+  showAiWorkforce?: boolean;
 }
 
-export default function Pipeline({ showCrm = false }: PipelineProps) {
+export default function Pipeline({ showCrm = false, showAiWorkforce = false }: PipelineProps) {
   const { user } = useAuth();
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -702,7 +703,7 @@ export default function Pipeline({ showCrm = false }: PipelineProps) {
   };
 
   return (
-    <DashboardLayout showCrm={showCrm}>
+    <DashboardLayout showCrm={showCrm} showAiWorkforce={showAiWorkforce}>
       <div className="p-6 space-y-6 animate-fade-in">
         <div className="flex items-center justify-between">
           <div>
