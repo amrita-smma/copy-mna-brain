@@ -21,9 +21,7 @@ You have access to the following tools:
 6. **query_past_acquisitions** - Query historical M&A deals
 7. **compare_with_past_acquisitions** - Compare a company against historical deal metrics
 8. **get_past_acquisition_details** - Get detailed info about a specific past acquisition
-9. **inven_paid_data_source_search** - Search for companies using Inven's AI-powered search (for Screening/Sourcing)
-10. **inven_paid_data_source_enrichment** - Get detailed company data from Inven by company IDs
-11. **query_files** - Search and retrieve files related to companies, tags, or topics
+9. **query_files** - Search and retrieve files related to companies, tags, or topics
 
 ## How to Help Users
 
@@ -36,7 +34,6 @@ You have access to the following tools:
 
 ## CRITICAL: Automatic Web Search Fallback
 
-**ALWAYS use Inven as a data source first before going to web_search**
 **ALWAYS use web_search as a fallback when database queries don't return sufficient information:**
 
 1. **Company not found:** If get_company_details or query_companies returns no results or "not found", IMMEDIATELY use web_search to find the company's information

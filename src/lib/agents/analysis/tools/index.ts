@@ -11,8 +11,6 @@ import { webSearch } from "./web_search";
 import { queryPastAcquisitions } from "./query_past_acquisitions";
 import { compareWithPastAcquisitions } from "./compare_with_past_acquisitions";
 import { getPastAcquisitionDetails } from "./get_past_acquisition_details";
-import { invenPaidDataSourceSearch } from "./inven_paid_data_source_search";
-import { invenPaidDataSourceEnrichment } from "./inven_paid_data_source_enrichment";
 import { queryMeetingNotes } from "./query_files";
 
 export {
@@ -24,8 +22,6 @@ export {
   queryPastAcquisitions,
   compareWithPastAcquisitions,
   getPastAcquisitionDetails,
-  invenPaidDataSourceSearch,
-  invenPaidDataSourceEnrichment,
   queryMeetingNotes,
 };
 
@@ -34,7 +30,6 @@ export {
   companyFinancialsSchema,
   companyFxAdjustmentsSchema,
   companyScreeningDerivedSchema,
-  invenCacheSchema,
 } from "./schemas";
 
 export const tools = [
@@ -46,8 +41,6 @@ export const tools = [
   queryPastAcquisitions,
   compareWithPastAcquisitions,
   getPastAcquisitionDetails,
-  invenPaidDataSourceSearch,
-  invenPaidDataSourceEnrichment,
   queryMeetingNotes,
 ];
 
@@ -65,8 +58,6 @@ export function getToolDescriptions(): string {
     { name: "query_past_acquisitions", description: "Query historical M&A deals by sector, country, status, or year" },
     { name: "compare_with_past_acquisitions", description: "Compare a company against historical acquisition metrics" },
     { name: "get_past_acquisition_details", description: "Get detailed information about a specific past acquisition" },
-    { name: "inven_paid_data_source_search", description: "Search for companies using Inven's AI-powered search for Screening and Sourcing" },
-    { name: "inven_paid_data_source_enrichment", description: "Get detailed company data from Inven by company IDs and cache results" },
     { name: "query_files", description: "Search and retrieve files related to companies, tags, or topics" },
   ];
 
