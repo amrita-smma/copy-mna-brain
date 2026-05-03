@@ -2,6 +2,16 @@
 
 Each module under `terraform/` (e.g. `bootstrap`, `iam`, `rds`, `s3`, `ses`, `vpc`) must have a `Makefile` with `init-staging` and `init-production` targets. Copy the pattern from any existing module's `Makefile` when adding a new one.
 
+## Package Manager
+
+This project uses **pnpm** instead of npm. All Claude Code commands should use pnpm:
+- `pnpm install` (not `npm install`)
+- `pnpm add <package>` (not `npm install <package>`)
+- `pnpm run <script>` (not `npm run <script>`)
+- `pnpm test` (not `npm test`)
+
+**Exception:** For the dev server, use `vercel dev` instead of `pnpm run dev` (we use Vercel's built-in tooling).
+
 ## Overview
 
 Use Typescript Strict mode.
