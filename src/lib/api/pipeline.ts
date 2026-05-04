@@ -11,6 +11,7 @@ export async function getCompanies(params: {
   orderBy?: string;
   orderDir?: 'asc' | 'desc';
   limit?: number;
+  offset?: number;
 }): Promise<any> {
   const search = new URLSearchParams();
   if (params.id) search.set('id', params.id);
@@ -23,8 +24,30 @@ export async function getCompanies(params: {
   if (params.orderBy) search.set('orderBy', params.orderBy);
   if (params.orderDir) search.set('orderDir', params.orderDir);
   if (params.limit) search.set('limit', String(params.limit));
+  if (params.offset) search.set('offset', String(params.offset));
 
   return apiRequest<any>(`/api/companies?${search.toString()}`);
+}
+
+/**
+ * Lightweight paginated company lookup — returns `{ id, target }[]`. Used by
+ * the AI File Dump "Matched Company" combobox. Skips DTO joins entirely, so
+ * each call is cheap and `q` (ILIKE on `target`) can be debounced as the
+ * user types.
+ */
+export async function getCompaniesLite(params: {
+  q?: string;
+  limit?: number;
+  offset?: number;
+}): Promise<Array<{ id: string; target: string | null }>> {
+  const search = new URLSearchParams();
+  search.set('lite', 'true');
+  if (params.q) search.set('q', params.q);
+  if (params.limit) search.set('limit', String(params.limit));
+  if (params.offset) search.set('offset', String(params.offset));
+  return apiRequest<Array<{ id: string; target: string | null }>>(
+    `/api/companies?${search.toString()}`,
+  );
 }
 
 export async function getCompaniesCount(params: {

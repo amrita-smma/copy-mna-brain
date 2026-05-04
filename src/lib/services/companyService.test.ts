@@ -35,6 +35,7 @@ function makeRepos() {
   const companyRepo = {
     findById: vi.fn(),
     findAll: vi.fn(),
+    findIdAndTargetPage: vi.fn().mockResolvedValue([]),
     count: vi.fn(),
     findDetails: vi.fn(),
     insert: vi.fn(),
@@ -421,5 +422,37 @@ describe('CompanyService.updateFinancials', () => {
     await service.updateFinancials('company-1', [], []);
 
     expect(repos.companyLogRepo.insert).not.toHaveBeenCalled();
+  });
+});
+
+describe('CompanyService.listIdAndTargetPage', () => {
+  it('forwards limit, offset, and targetSearch to the repository', async () => {
+    const repos = makeRepos();
+    vi.mocked(repos.companyRepo.findIdAndTargetPage).mockResolvedValue([
+      { id: 'company-1', target: 'Acme Corp' },
+    ]);
+    const service = buildService(repos);
+
+    const result = await service.listIdAndTargetPage({
+      limit: 25,
+      offset: 50,
+      targetSearch: 'acm',
+    });
+
+    expect(repos.companyRepo.findIdAndTargetPage).toHaveBeenCalledWith({
+      limit: 25,
+      offset: 50,
+      targetSearch: 'acm',
+    });
+    expect(result).toEqual([{ id: 'company-1', target: 'Acme Corp' }]);
+  });
+
+  it('passes through with no filters when none are provided', async () => {
+    const repos = makeRepos();
+    const service = buildService(repos);
+
+    await service.listIdAndTargetPage({});
+
+    expect(repos.companyRepo.findIdAndTargetPage).toHaveBeenCalledWith({});
   });
 });

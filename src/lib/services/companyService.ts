@@ -47,6 +47,18 @@ export class CompanyService {
     return this.companyRepo.findAll(filters);
   }
 
+  /**
+   * Lightweight paginated lookup returning only `id` + `target` for the AI
+   * File Dump "Matched Company" combobox. Supports server-side ILIKE search
+   * via `targetSearch` and offset/limit pagination — see
+   * `CompanyRepository.findIdAndTargetPage`.
+   */
+  listIdAndTargetPage(
+    filters: Pick<CompanyFilters, 'limit' | 'offset' | 'targetSearch'>,
+  ) {
+    return this.companyRepo.findIdAndTargetPage(filters);
+  }
+
   count(filters: Pick<CompanyFilters, 'id' | 'stage' | 'stageIn' | 'excludeStage' | 'stageNotNull' | 'excludeDropped' | 'createdAfter'>) {
     return this.companyRepo.count(filters);
   }

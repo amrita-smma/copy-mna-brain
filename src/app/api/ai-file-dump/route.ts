@@ -2,9 +2,25 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createDb } from '@/lib/server/db';
 import { createContainer } from '@/lib/services';
 
+const FILE_TYPE_OVERRIDES = ['mom', 'prospectus', 'other'] as const;
+type FileTypeOverrideValue = (typeof FILE_TYPE_OVERRIDES)[number];
+
+function parseFileTypeOverride(value: unknown): FileTypeOverrideValue | undefined {
+  if (typeof value !== 'string') return undefined;
+  return (FILE_TYPE_OVERRIDES as readonly string[]).includes(value)
+    ? (value as FileTypeOverrideValue)
+    : undefined;
+}
+
 export async function POST(request: NextRequest) {
   try {
-    const { key, fileName, contentType, raw_notes: userRawNotes } = await request.json();
+    const {
+      key,
+      fileName,
+      contentType,
+      raw_notes: userRawNotes,
+      file_type_override: rawFileTypeOverride,
+    } = await request.json();
 
     if (!key || !fileName) {
       return NextResponse.json(
@@ -13,9 +29,17 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const fileTypeOverride = parseFileTypeOverride(rawFileTypeOverride);
+
     const db = createDb();
     const { fileService } = createContainer(db);
-    const data = await fileService.processUpload(key, fileName, contentType, userRawNotes);
+    const data = await fileService.processUpload(
+      key,
+      fileName,
+      contentType,
+      userRawNotes,
+      fileTypeOverride,
+    );
 
     return NextResponse.json({ success: true, data });
   } catch (error) {

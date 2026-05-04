@@ -24,7 +24,12 @@ export async function GET(req: NextRequest) {
     const orderBy = params.get("orderBy") ?? "updated_at";
     const orderDir = (params.get("orderDir") ?? "desc") as "asc" | "desc";
     const limit = params.get("limit") ? Number(params.get("limit")) : undefined;
+    const offset = params.get("offset")
+      ? Number(params.get("offset"))
+      : undefined;
     const countOnly = parseBool(params.get("countOnly"));
+    const lite = parseBool(params.get("lite"));
+    const q = params.get("q")?.trim() || undefined;
 
     if (countOnly) {
       const count = await companyService.count({
@@ -44,6 +49,21 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ data });
     }
 
+    if (lite) {
+      // Lightweight paginated lookup for combobox use: returns only
+      // `id` + `target`, supports server-side ILIKE search via `q`,
+      // offset/limit pagination. Skips DTO joins entirely so each call
+      // is cheap. The page size is clamped so a misbehaving caller can't
+      // pull the entire `companies` table in one go.
+      const liteLimit = Math.min(Math.max(limit ?? 50, 1), 100);
+      const data = await companyService.listIdAndTargetPage({
+        limit: liteLimit,
+        offset,
+        targetSearch: q,
+      });
+      return NextResponse.json({ data });
+    }
+
     const data = await companyService.listDTO({
       stage,
       stageIn,
@@ -54,6 +74,7 @@ export async function GET(req: NextRequest) {
       orderBy,
       orderDir,
       limit,
+      offset,
     });
     return NextResponse.json({ data });
   } catch (error: unknown) {

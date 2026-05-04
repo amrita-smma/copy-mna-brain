@@ -27,7 +27,13 @@ import {
   type RawFxRow,
 } from "./fxBackfill";
 
-const generateSystemPrompt = (companies_list, userRawNotes) => `You are a specialized M&A File Processing Assistant. Your task is to analyze raw text extracted from meeting documents (like PPTX slides) and transform it into a highly structured format.
+export type FileTypeOverride = 'mom' | 'prospectus' | 'other';
+
+const generateSystemPrompt = (
+  companies_list: string,
+  userRawNotes: string,
+  fileTypeOverride?: FileTypeOverride,
+) => `You are a specialized M&A File Processing Assistant. Your task is to analyze raw text extracted from meeting documents (like PPTX slides) and transform it into a highly structured format.
 
 ## Objectives:
 1. **Understand Unstructured Data**: Read the provided raw text carefully.
@@ -42,7 +48,14 @@ const generateSystemPrompt = (companies_list, userRawNotes) => `You are a specia
 
 ## Known Companies:
 ${companies_list}
-
+${
+  fileTypeOverride
+    ? `
+## User-Specified File Type:
+The user has manually classified this document as "${fileTypeOverride}". You MUST set "file_type" to "${fileTypeOverride}" in your output regardless of the document's content. Continue to perform all other extraction (summary, tags, companies, financials, etc.) according to that classification — e.g. if "${fileTypeOverride}" is "prospectus", extract a full prospectus_summary; if "mom", treat the document as meeting minutes.
+`
+    : ''
+}
 ## Additional Notes:
 These are additional notes from the user about the document that might be relevant to the analysis. Please use this to understand the context of the document better.
 ${userRawNotes}
@@ -171,7 +184,8 @@ export async function processFileContent(
   buffer: Buffer,
   contentType: string,
   userRawNotes: string,
-  supabase: DbClient
+  supabase: DbClient,
+  fileTypeOverride?: FileTypeOverride,
 ) {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) {
@@ -190,7 +204,7 @@ export async function processFileContent(
   const agent = createAgent({
     model: llm,
     tools: [],
-    systemPrompt: generateSystemPrompt(allNames, userRawNotes),
+    systemPrompt: generateSystemPrompt(allNames, userRawNotes, fileTypeOverride),
   });
 
   let inputs = {

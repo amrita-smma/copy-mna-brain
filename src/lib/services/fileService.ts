@@ -1,7 +1,7 @@
 import { downloadFile, getSignedUrl } from '@/lib/s3';
 import { deleteFile } from '@/lib/s3';
 import { extractTextFromFile } from '@/lib/fileExtractor';
-import { processFileContent } from '@/lib/agents/file_processing';
+import { processFileContent, type FileTypeOverride } from '@/lib/agents/file_processing';
 import type { CompanyFinancialRepository, DbClient, FileRepository, CriteriaRepository, ScreeningRepository, Tables, ContactRepository, ContactMessageRepository } from '@/lib/repositories';
 import type { CompanyAnalysisService } from './companyAnalysisService';
 import type { AIScreeningService } from './aiScreeningService';
@@ -43,6 +43,7 @@ export class FileService {
     fileName: string,
     contentType: string,
     rawNotes?: string,
+    fileTypeOverride?: FileTypeOverride,
   ) {
     const buffer = await downloadFile(key);
     const fileType = contentType || 'application/octet-stream';
@@ -51,7 +52,7 @@ export class FileService {
       file_name: fileName,
       file_link: key,
       processing_status: 'processing',
-      file_type: 'other',
+      file_type: fileTypeOverride ?? 'other',
     });
 
     let rawText = '';
@@ -65,7 +66,7 @@ export class FileService {
         rawText = await extractTextFromFile(buffer, fileType, fileName);
       }
 
-      structuredResult = await processFileContent(rawText, buffer, fileType, rawNotes ?? '', this.db);
+      structuredResult = await processFileContent(rawText, buffer, fileType, rawNotes ?? '', this.db, fileTypeOverride);
 
       if (structuredResult) {
         tags = structuredResult.tags || [];
@@ -74,7 +75,7 @@ export class FileService {
 
       await this.fileRepo.updatePartial(initialData.id, {
         raw_notes: rawText,
-        file_type: structuredResult?.file_type || 'other',
+        file_type: fileTypeOverride ?? structuredResult?.file_type ?? 'other',
         structured_notes: structuredResult ? JSON.stringify(structuredResult, null, 2) : null,
         tags,
         matched_companies: matched_companies as Tables<'files'>['matched_companies'],

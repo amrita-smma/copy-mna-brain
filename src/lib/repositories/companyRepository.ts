@@ -43,6 +43,13 @@ export interface CompanyFilters {
   orderBy?: string;
   orderDir?: "asc" | "desc";
   limit?: number;
+  offset?: number;
+  /**
+   * Case-insensitive ILIKE filter against `companies.target`. The substring
+   * is matched anywhere — used by the lightweight lookup endpoint that
+   * powers the "Matched Company" combobox in the AI File Dump upload form.
+   */
+  targetSearch?: string;
 }
 
 /** Filters used by AI-agent tool calls (queryCompanies in src/lib/agents/analysis/tools/query_companies.ts). */
@@ -110,6 +117,9 @@ function buildFilterWhere(filters: CompanyFilters): SQL | undefined {
   }
   if (filters.createdAfter)
     conditions.push(gte(companies.created_at, filters.createdAfter));
+  if (filters.targetSearch && filters.targetSearch.trim().length > 0) {
+    conditions.push(ilike(companies.target, `%${filters.targetSearch.trim()}%`));
+  }
   if (conditions.length === 0) return undefined;
   return and(...conditions);
 }
@@ -128,17 +138,44 @@ export class CompanyRepository {
   }
 
   async findAll(filters: CompanyFilters = {}): Promise<Tables<"companies">[]> {
-    const { orderBy = "updated_at", orderDir = "desc", limit } = filters;
+    const { orderBy = "updated_at", orderDir = "desc", limit, offset } = filters;
     const where = buildFilterWhere(filters);
     const orderCol = ORDERABLE_COLUMNS[orderBy] ?? companies.updated_at;
     const orderExpr = orderDir === "asc" ? asc(orderCol) : desc(orderCol);
 
-    const query = this.db
+    const base = this.db
       .select()
       .from(companies)
       .where(where)
       .orderBy(orderExpr);
-    return limit ? query.limit(limit) : query;
+    const withLimit = limit ? base.limit(limit) : base;
+    return offset ? withLimit.offset(offset) : withLimit;
+  }
+
+  /**
+   * Lightweight paginated lookup that returns only `id` + `target`. Used by
+   * the AI File Dump "Matched Company" combobox — server-side search via
+   * `targetSearch` (ILIKE) plus offset/limit pagination so the dropdown can
+   * load companies on demand instead of all at once. Ordered by target
+   * ascending so paged scrolling produces a stable alphabetical list.
+   */
+  async findIdAndTargetPage(
+    filters: Pick<CompanyFilters, "limit" | "offset" | "targetSearch"> = {},
+  ): Promise<Array<{ id: string; target: string | null }>> {
+    const { limit, offset, targetSearch } = filters;
+    const conditions: (SQL | undefined)[] = [isNotNull(companies.target)];
+    if (targetSearch && targetSearch.trim().length > 0) {
+      conditions.push(ilike(companies.target, `%${targetSearch.trim()}%`));
+    }
+    const where = and(...conditions);
+
+    const base = this.db
+      .select({ id: companies.id, target: companies.target })
+      .from(companies)
+      .where(where)
+      .orderBy(asc(companies.target));
+    const withLimit = limit ? base.limit(limit) : base;
+    return offset ? withLimit.offset(offset) : withLimit;
   }
 
   async count(

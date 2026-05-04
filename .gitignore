@@ -55,6 +55,7 @@ test_files/
 
 sqemnabrain/
 .env.local
+.env.vercel
 
 # Playwright
 playwright-report/

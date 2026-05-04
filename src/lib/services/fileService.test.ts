@@ -289,6 +289,86 @@ describe('FileService.processUpload', () => {
     });
   });
 
+  it('forwards fileTypeOverride to processFileContent and persists it as file_type', async () => {
+    vi.mocked(processFileContent).mockResolvedValue({
+      file_type: 'mom',
+    } as never);
+
+    await service.processUpload(
+      'uploads/notes.pdf',
+      'notes.pdf',
+      'application/pdf',
+      undefined,
+      'mom',
+    );
+
+    const lastCallArgs = vi.mocked(processFileContent).mock.calls.at(-1);
+    expect(lastCallArgs?.[5]).toBe('mom');
+    expect(fileRepo.insert).toHaveBeenCalledWith(
+      expect.objectContaining({ file_type: 'mom' }),
+    );
+    expect(fileRepo.updatePartial).toHaveBeenCalledWith(
+      'file-1',
+      expect.objectContaining({ file_type: 'mom', processing_status: 'completed' }),
+    );
+  });
+
+  it('lets fileTypeOverride win over the agent-detected file_type', async () => {
+    vi.mocked(processFileContent).mockResolvedValue({
+      file_type: 'prospectus',
+    } as never);
+
+    await service.processUpload(
+      'uploads/notes.pdf',
+      'notes.pdf',
+      'application/pdf',
+      undefined,
+      'mom',
+    );
+
+    expect(fileRepo.updatePartial).toHaveBeenCalledWith(
+      'file-1',
+      expect.objectContaining({ file_type: 'mom' }),
+    );
+  });
+
+  it('falls back to the agent-detected file_type when no override is given', async () => {
+    vi.mocked(processFileContent).mockResolvedValue({
+      file_type: 'prospectus',
+    } as never);
+
+    await service.processUpload('uploads/notes.pdf', 'notes.pdf', 'application/pdf');
+
+    expect(fileRepo.insert).toHaveBeenCalledWith(
+      expect.objectContaining({ file_type: 'other' }),
+    );
+    expect(fileRepo.updatePartial).toHaveBeenCalledWith(
+      'file-1',
+      expect.objectContaining({ file_type: 'prospectus' }),
+    );
+  });
+
+  it('honors a fileTypeOverride of "other"', async () => {
+    vi.mocked(processFileContent).mockResolvedValue({
+      file_type: 'prospectus',
+    } as never);
+
+    await service.processUpload(
+      'uploads/notes.pdf',
+      'notes.pdf',
+      'application/pdf',
+      undefined,
+      'other',
+    );
+
+    const lastCallArgs = vi.mocked(processFileContent).mock.calls.at(-1);
+    expect(lastCallArgs?.[5]).toBe('other');
+    expect(fileRepo.updatePartial).toHaveBeenCalledWith(
+      'file-1',
+      expect.objectContaining({ file_type: 'other' }),
+    );
+  });
+
   it('marks screening as failed when aiScreeningService.dispatch rejects', async () => {
     vi.mocked(processFileContent).mockResolvedValue({
       company: { id: 'company-1', target: 'Acme' },
