@@ -363,6 +363,7 @@ export default function Pipeline({ showCrm = false, showAiWorkforce = false }: P
             created_at: company.created_at,
             updated_at: company.updated_at,
             source: company.source || null,
+            status: company.status ?? null,
             ownership: company.ownership ?? null,
             geography: company.geography ?? null,
             financials_raw: company.financials_raw,
