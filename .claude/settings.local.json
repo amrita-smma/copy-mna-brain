@@ -10,7 +10,21 @@
       "Bash(pnpm tsc *)",
       "Bash(npx tsc *)",
       "WebSearch",
-      "Bash(gh api *)"
+      "Bash(gh api *)",
+      "Bash(pnpm approve-builds *)",
+      "Bash(node node_modules/puppeteer/install.mjs)",
+      "Bash(mkdir -p /Users/nicoalimin/Code/sqe/mna-tracker/public/fonts)",
+      "Bash(curl -s -L \"https://fonts.gstatic.com/s/inter/v13/UcCO3FwrK3iLTeHuS_fvQtMwCp50KnMw2boKoduKmMEVuLyfAZ9hiJ-Ek-_EeA.woff\" -o /Users/nicoalimin/Code/sqe/mna-tracker/public/fonts/Inter-Regular.woff)",
+      "Bash(npm install *)",
+      "Bash(xxd)",
+      "Bash(tee /tmp/npm-install-out.txt)",
+      "Bash(pnpm remove *)",
+      "Bash(mkdir -p /tmp/inter-dl)",
+      "Bash(curl -sL \"https://github.com/rsms/inter/releases/download/v4.0/Inter-4.0.zip\" -o /tmp/inter-dl/inter.zip)",
+      "Bash(unzip -l /tmp/inter-dl/inter.zip)",
+      "Bash(unzip -p /tmp/inter-dl/inter.zip \"extras/ttf/Inter-Regular.ttf\")",
+      "Bash(npx vitest *)",
+      "Bash(gh pr *)"
     ]
   }
 }

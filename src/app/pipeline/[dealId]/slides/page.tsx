@@ -33,6 +33,7 @@ import {
   ZoomIn,
   ZoomOut,
   RefreshCw,
+  Download,
 } from 'lucide-react';
 import { getCompanies } from '@/lib/api/pipeline';
 import { waitForJob } from '@/lib/jobs/useJob';
@@ -374,6 +375,7 @@ export default function SlidesPage({ showCrm = false, showAiWorkforce = false }:
   const [presentationMode, setPresentationMode] = useState(false);
   const [initializing, setInitializing] = useState(false);
   const [slideZooms, setSlideZooms] = useState<Record<string, number>>({});
+  const [exporting, setExporting] = useState(false);
 
   const promptRef = useRef<HTMLTextAreaElement>(null);
 
@@ -685,6 +687,31 @@ export default function SlidesPage({ showCrm = false, showAiWorkforce = false }:
   };
 
   // -----------------------------------------------------------------------
+  // Export PPTX
+  // -----------------------------------------------------------------------
+
+  const handleExportPptx = async () => {
+    if (slides.length === 0 || exporting) return;
+    setExporting(true);
+    try {
+      const res = await fetch(`/api/slides/export-pptx?companyId=${companyId}`);
+      if (!res.ok) throw new Error('Export failed');
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${company?.target ?? 'slides'}.pptx`;
+      a.click();
+      URL.revokeObjectURL(url);
+      toast.success('PPTX exported');
+    } catch {
+      toast.error('Failed to export PPTX');
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  // -----------------------------------------------------------------------
   // Keyboard
   // -----------------------------------------------------------------------
 
@@ -751,6 +778,20 @@ export default function SlidesPage({ showCrm = false, showAiWorkforce = false }:
                 <RefreshCw className="h-4 w-4" />
               )}
               Regenerate Slides
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleExportPptx}
+              disabled={slides.length === 0 || exporting}
+              className="gap-2"
+            >
+              {exporting ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Download className="h-4 w-4" />
+              )}
+              Export PPTX (Beta)
             </Button>
             <Button
               variant="outline"
