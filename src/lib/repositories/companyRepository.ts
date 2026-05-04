@@ -153,24 +153,34 @@ export class CompanyRepository {
   }
 
   /**
-   * Lightweight paginated lookup that returns only `id` + `target`. Used by
-   * the AI File Dump "Matched Company" combobox — server-side search via
-   * `targetSearch` (ILIKE) plus offset/limit pagination so the dropdown can
-   * load companies on demand instead of all at once. Ordered by target
-   * ascending so paged scrolling produces a stable alphabetical list.
+   * Lightweight paginated lookup returning `id` + `target` + `project_name`.
+   * Used by the AI File Dump "Matched Company" / "Project Name" pickers —
+   * server-side ILIKE search via `targetSearch` matches against either
+   * `target` OR `project_name`, so users can find a row by either name.
+   * Offset/limit pagination so the dropdown can load on demand instead of
+   * all at once. Ordered by target ascending for a stable alphabetical list.
    */
   async findIdAndTargetPage(
     filters: Pick<CompanyFilters, "limit" | "offset" | "targetSearch"> = {},
-  ): Promise<Array<{ id: string; target: string | null }>> {
+  ): Promise<
+    Array<{ id: string; target: string | null; project_name: string | null }>
+  > {
     const { limit, offset, targetSearch } = filters;
     const conditions: (SQL | undefined)[] = [isNotNull(companies.target)];
     if (targetSearch && targetSearch.trim().length > 0) {
-      conditions.push(ilike(companies.target, `%${targetSearch.trim()}%`));
+      const term = `%${targetSearch.trim()}%`;
+      conditions.push(
+        or(ilike(companies.target, term), ilike(companies.project_name, term)),
+      );
     }
     const where = and(...conditions);
 
     const base = this.db
-      .select({ id: companies.id, target: companies.target })
+      .select({
+        id: companies.id,
+        target: companies.target,
+        project_name: companies.project_name,
+      })
       .from(companies)
       .where(where)
       .orderBy(asc(companies.target));

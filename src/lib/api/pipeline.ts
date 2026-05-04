@@ -30,24 +30,26 @@ export async function getCompanies(params: {
 }
 
 /**
- * Lightweight paginated company lookup — returns `{ id, target }[]`. Used by
- * the AI File Dump "Matched Company" combobox. Skips DTO joins entirely, so
- * each call is cheap and `q` (ILIKE on `target`) can be debounced as the
- * user types.
+ * Lightweight paginated company lookup — returns `{ id, target, project_name }[]`.
+ * Used by the AI File Dump "Matched Company" / "Project Name" pickers. Skips
+ * DTO joins entirely, so each call is cheap and `q` (ILIKE matching either
+ * `target` OR `project_name`) can be debounced as the user types.
  */
 export async function getCompaniesLite(params: {
   q?: string;
   limit?: number;
   offset?: number;
-}): Promise<Array<{ id: string; target: string | null }>> {
+}): Promise<
+  Array<{ id: string; target: string | null; project_name: string | null }>
+> {
   const search = new URLSearchParams();
   search.set('lite', 'true');
   if (params.q) search.set('q', params.q);
   if (params.limit) search.set('limit', String(params.limit));
   if (params.offset) search.set('offset', String(params.offset));
-  return apiRequest<Array<{ id: string; target: string | null }>>(
-    `/api/companies?${search.toString()}`,
-  );
+  return apiRequest<
+    Array<{ id: string; target: string | null; project_name: string | null }>
+  >(`/api/companies?${search.toString()}`);
 }
 
 export async function getCompaniesCount(params: {

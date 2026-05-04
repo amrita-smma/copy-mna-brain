@@ -429,7 +429,7 @@ describe('CompanyService.listIdAndTargetPage', () => {
   it('forwards limit, offset, and targetSearch to the repository', async () => {
     const repos = makeRepos();
     vi.mocked(repos.companyRepo.findIdAndTargetPage).mockResolvedValue([
-      { id: 'company-1', target: 'Acme Corp' },
+      { id: 'company-1', target: 'Acme Corp', project_name: 'Project Phoenix' },
     ]);
     const service = buildService(repos);
 
@@ -444,7 +444,9 @@ describe('CompanyService.listIdAndTargetPage', () => {
       offset: 50,
       targetSearch: 'acm',
     });
-    expect(result).toEqual([{ id: 'company-1', target: 'Acme Corp' }]);
+    expect(result).toEqual([
+      { id: 'company-1', target: 'Acme Corp', project_name: 'Project Phoenix' },
+    ]);
   });
 
   it('passes through with no filters when none are provided', async () => {

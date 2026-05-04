@@ -105,7 +105,10 @@ const MATCHED_COMPANY_PAGE_SIZE = 50;
 
 interface CompanyOption {
   id: string;
+  /** `companies.target` — the company name shown in the Matched Company column. */
   name: string;
+  /** `companies.project_name` — the codename shown in the Project Name column. */
+  projectName: string | null;
 }
 
 /**
@@ -1070,10 +1073,12 @@ export default function AIFileDump({
     fetchOtherFiles();
   }, [fetchMeetingNotes, fetchProspectus, fetchBankerComms, fetchOtherFiles]);
 
-  // Companies for the Matched Company / Project Name dropdowns. Both columns
-  // share this list for now; the data-model split into companies vs. projects
-  // is a separate effort. `apiRequest` already unwraps the `{ data }` envelope,
-  // so `getCompanies` returns the array directly.
+  // Companies for the Matched Company / Project Name dropdowns + the
+  // filename auto-matcher. Each row in `companies` carries both `target`
+  // (company name) and `project_name` (codename) — the two columns label
+  // their dropdowns from those fields respectively, but a single pick
+  // resolves to the same company id. `apiRequest` already unwraps the
+  // `{ data }` envelope, so `getCompanies` returns the array directly.
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -1081,12 +1086,22 @@ export default function AIFileDump({
         const result = (await getCompanies({
           orderBy: "target",
           orderDir: "asc",
-        })) as { id: string; target: string | null }[] | null;
+        })) as
+          | {
+              id: string;
+              target: string | null;
+              project_name: string | null;
+            }[]
+          | null;
         if (cancelled) return;
         const rows = Array.isArray(result) ? result : [];
         const options = rows
           .filter((r) => r.id && r.target)
-          .map((r) => ({ id: r.id, name: r.target as string }));
+          .map((r) => ({
+            id: r.id,
+            name: r.target as string,
+            projectName: r.project_name,
+          }));
         setCompanyOptions(options);
       } catch (error) {
         console.error("Error fetching companies for upload picker:", error);
@@ -1826,11 +1841,13 @@ export default function AIFileDump({
                                     <SelectItem value={AUTO}>
                                       Auto (AI Decides)
                                     </SelectItem>
-                                    {companyOptions.map((c) => (
-                                      <SelectItem key={c.id} value={c.id}>
-                                        {c.name}
-                                      </SelectItem>
-                                    ))}
+                                    {companyOptions
+                                      .filter((c) => c.projectName)
+                                      .map((c) => (
+                                        <SelectItem key={c.id} value={c.id}>
+                                          {c.projectName}
+                                        </SelectItem>
+                                      ))}
                                   </SelectContent>
                                 </Select>
                               </TableCell>
