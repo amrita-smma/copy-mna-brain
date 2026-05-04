@@ -109,6 +109,7 @@ import { getCompanyOverride } from "@/lib/companyOverrides";
 interface PipelineCompany {
   id: string;
   target: string;
+  project_name: string | null;
   segment: string;
   geo: string | null;
   website: string | null;
@@ -328,6 +329,7 @@ export default function Pipeline({ showCrm = false, showAiWorkforce = false }: P
           return {
             id: company.id,
             target: company.target || "",
+            project_name: company.project_name ?? null,
             segment: company.segment || "",
             geo: company.geography || company.geo || null,
             website: company.website ?? null,
@@ -451,9 +453,11 @@ export default function Pipeline({ showCrm = false, showAiWorkforce = false }: P
 
   const filteredCompanies = companies.filter((company) => {
     const matchesStage = company.pipeline_stage === activeTab;
+    const q = searchQuery.toLowerCase();
     const matchesSearch =
-      company.target.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (company.segment || "").toLowerCase().includes(searchQuery.toLowerCase());
+      company.target.toLowerCase().includes(q) ||
+      (company.project_name || "").toLowerCase().includes(q) ||
+      (company.segment || "").toLowerCase().includes(q);
     const matchesL1Status =
       l1StatusFilter === "all" ||
       company.l1_screening_result === l1StatusFilter;
@@ -483,8 +487,8 @@ export default function Pipeline({ showCrm = false, showAiWorkforce = false }: P
 
     switch (sortField) {
       case "name":
-        aVal = a.target.toLowerCase();
-        bVal = b.target.toLowerCase();
+        aVal = `${a.target} ${a.project_name ?? ''}`.trim().toLowerCase();
+        bVal = `${b.target} ${b.project_name ?? ''}`.trim().toLowerCase();
         break;
       case "sector":
         aVal = (a.segment || "").toLowerCase();
@@ -626,7 +630,7 @@ export default function Pipeline({ showCrm = false, showAiWorkforce = false }: P
         company_name: company.target,
         to_stage: company.pipeline_stage,
       });
-      toast.success(`Restored ${company.target}`);
+      toast.success(`Restored ${[company.target, company.project_name].filter(Boolean).join(' — ') || 'company'}`);
       fetchCompanies();
     } catch (err: any) {
       console.error("Error restoring deal:", err);
@@ -983,6 +987,7 @@ export default function Pipeline({ showCrm = false, showAiWorkforce = false }: P
                                             <SortIcon field="name" />
                                           </button>
                                         </TableHead>
+                                        <TableHead>Project</TableHead>
                                         <TableHead>
                                           <button
                                             onClick={() => toggleSort("sector")}
@@ -1105,24 +1110,48 @@ export default function Pipeline({ showCrm = false, showAiWorkforce = false }: P
                                               />
                                             </TableCell>
                                             <TableCell>
-                                              <button
-                                                onClick={() => {
-                                                  posthog.capture(
-                                                    "company_detail_viewed",
-                                                    {
-                                                      company_id: company.id,
-                                                      company_name:
-                                                        company.target,
-                                                      pipeline_stage:
-                                                        company.pipeline_stage,
-                                                    },
-                                                  );
-                                                  setSelectedCompany(company);
-                                                }}
-                                                className="font-medium text-left hover:text-primary hover:underline transition-colors"
-                                              >
-                                                {company.target}
-                                              </button>
+                                              {company.target ? (
+                                                <button
+                                                  onClick={() => {
+                                                    posthog.capture(
+                                                      "company_detail_viewed",
+                                                      {
+                                                        company_id: company.id,
+                                                        company_name: company.target,
+                                                        pipeline_stage: company.pipeline_stage,
+                                                      },
+                                                    );
+                                                    setSelectedCompany(company);
+                                                  }}
+                                                  className="font-medium text-left hover:text-primary hover:underline transition-colors"
+                                                >
+                                                  {company.target}
+                                                </button>
+                                              ) : (
+                                                <span className="text-muted-foreground">—</span>
+                                              )}
+                                            </TableCell>
+                                            <TableCell>
+                                              {company.project_name ? (
+                                                <button
+                                                  onClick={() => {
+                                                    posthog.capture(
+                                                      "company_detail_viewed",
+                                                      {
+                                                        company_id: company.id,
+                                                        company_name: company.target,
+                                                        pipeline_stage: company.pipeline_stage,
+                                                      },
+                                                    );
+                                                    setSelectedCompany(company);
+                                                  }}
+                                                  className="font-medium text-left hover:text-primary hover:underline transition-colors"
+                                                >
+                                                  {company.project_name}
+                                                </button>
+                                              ) : (
+                                                <span className="text-muted-foreground">—</span>
+                                              )}
                                             </TableCell>
                                             <TableCell>
                                               <span className="text-muted-foreground">
@@ -1418,6 +1447,7 @@ export default function Pipeline({ showCrm = false, showAiWorkforce = false }: P
                                       <SortIcon field="name" />
                                     </button>
                                   </TableHead>
+                                  <TableHead>Project</TableHead>
                                   <TableHead>
                                     <button
                                       onClick={() => toggleSort("sector")}
@@ -1517,23 +1547,48 @@ export default function Pipeline({ showCrm = false, showAiWorkforce = false }: P
                                           </button>
                                         </TableCell>
                                         <TableCell>
-                                          <button
-                                            onClick={() => {
-                                              posthog.capture(
-                                                "company_detail_viewed",
-                                                {
-                                                  company_id: company.id,
-                                                  company_name: company.target,
-                                                  pipeline_stage:
-                                                    company.pipeline_stage,
-                                                },
-                                              );
-                                              setSelectedCompany(company);
-                                            }}
-                                            className="font-medium text-left hover:text-primary hover:underline transition-colors"
-                                          >
-                                            {company.target}
-                                          </button>
+                                          {company.target ? (
+                                            <button
+                                              onClick={() => {
+                                                posthog.capture(
+                                                  "company_detail_viewed",
+                                                  {
+                                                    company_id: company.id,
+                                                    company_name: company.target,
+                                                    pipeline_stage: company.pipeline_stage,
+                                                  },
+                                                );
+                                                setSelectedCompany(company);
+                                              }}
+                                              className="font-medium text-left hover:text-primary hover:underline transition-colors"
+                                            >
+                                              {company.target}
+                                            </button>
+                                          ) : (
+                                            <span className="text-muted-foreground">—</span>
+                                          )}
+                                        </TableCell>
+                                        <TableCell>
+                                          {company.project_name ? (
+                                            <button
+                                              onClick={() => {
+                                                posthog.capture(
+                                                  "company_detail_viewed",
+                                                  {
+                                                    company_id: company.id,
+                                                    company_name: company.target,
+                                                    pipeline_stage: company.pipeline_stage,
+                                                  },
+                                                );
+                                                setSelectedCompany(company);
+                                              }}
+                                              className="font-medium text-left hover:text-primary hover:underline transition-colors"
+                                            >
+                                              {company.project_name}
+                                            </button>
+                                          ) : (
+                                            <span className="text-muted-foreground">—</span>
+                                          )}
                                         </TableCell>
                                         <TableCell>
                                           <Badge variant="outline">
@@ -1800,7 +1855,7 @@ export default function Pipeline({ showCrm = false, showAiWorkforce = false }: P
               <AlertDialogTitle>Drop deal?</AlertDialogTitle>
               <AlertDialogDescription>
                 Are you sure you want to drop{" "}
-                <span className="font-medium">{dropDealCompany?.target}</span>?
+                <span className="font-medium">{dropDealCompany ? [dropDealCompany.target, dropDealCompany.project_name].filter(Boolean).join(' — ') || 'this company' : 'this company'}</span>?
                 This will remove the deal from the pipeline.
               </AlertDialogDescription>
             </AlertDialogHeader>
@@ -1838,7 +1893,7 @@ export default function Pipeline({ showCrm = false, showAiWorkforce = false }: P
                       from_stage: dropDealCompany.pipeline_stage,
                       has_reason: dropReason.trim() !== "",
                     });
-                    toast.success(`Dropped ${dropDealCompany.target}`);
+                    toast.success(`Dropped ${[dropDealCompany.target, dropDealCompany.project_name].filter(Boolean).join(' — ') || 'company'}`);
                     setDropDealCompany(null);
                     setDropReason("");
                     fetchCompanies();

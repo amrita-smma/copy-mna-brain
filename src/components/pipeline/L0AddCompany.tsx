@@ -18,6 +18,7 @@ import { createCompany } from '@/lib/api/pipeline';
 
 interface CompanyFormData {
   name: string;
+  project_name: string;
   sector: string;
   revenue_year1: string;
   revenue_year2: string;
@@ -30,6 +31,7 @@ interface CompanyFormData {
 
 const emptyForm: CompanyFormData = {
   name: '',
+  project_name: '',
   sector: '',
   revenue_year1: '',
   revenue_year2: '',
@@ -70,6 +72,7 @@ export default function L0AddCompany({ onSuccess }: L0AddCompanyProps) {
     try {
       await createCompany({
         target: formData.name,
+        project_name: formData.project_name.trim() || null,
         segment: formData.sector,
         revenue_2022_usd_mn: parseNumber(formData.revenue_year1),
         revenue_2023_usd_mn: parseNumber(formData.revenue_year2),
@@ -129,6 +132,7 @@ export default function L0AddCompany({ onSuccess }: L0AddCompanyProps) {
 
       const companies: CompanyFormData[] = jsonData.map((row: any) => ({
         name: row['Company Name'] || row['name'] || '',
+        project_name: row['Project Name'] || row['project_name'] || '',
         sector: row['Sector'] || row['sector'] || '',
         revenue_year1: String(row['Revenue Year 1'] || row['revenue_year1'] || ''),
         revenue_year2: String(row['Revenue Year 2'] || row['revenue_year2'] || ''),
@@ -161,6 +165,7 @@ export default function L0AddCompany({ onSuccess }: L0AddCompanyProps) {
 
         await createCompany({
           target: company.name,
+          project_name: company.project_name.trim() || null,
           segment: company.sector,
           revenue_2022_usd_mn: parseNumber(company.revenue_year1),
           revenue_2023_usd_mn: parseNumber(company.revenue_year2),
@@ -214,6 +219,15 @@ export default function L0AddCompany({ onSuccess }: L0AddCompanyProps) {
                 value={formData.name}
                 onChange={(e) => handleInputChange('name', e.target.value)}
                 placeholder="Acme Corp"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="project_name">Project Name</Label>
+              <Input
+                id="project_name"
+                value={formData.project_name}
+                onChange={(e) => handleInputChange('project_name', e.target.value)}
+                placeholder="e.g. Project Phoenix"
               />
             </div>
             <div className="space-y-2">

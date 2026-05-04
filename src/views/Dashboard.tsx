@@ -36,6 +36,7 @@ import CompanyDetailDialog from '@/components/pipeline/CompanyDetailDialog';
 interface CompanyData {
   id: string;
   target: string | null;
+  project_name?: string | null;
   segment: string | null;
   watchlist_status: string | null;
   source: string | null;
@@ -430,6 +431,7 @@ export default function Dashboard({ showCrm = false, showAiWorkforce = false }: 
                         <TableHeader>
                           <TableRow className="bg-muted/30 hover:bg-muted/30">
                             <TableHead className="font-semibold">Company</TableHead>
+                            <TableHead className="font-semibold">Project</TableHead>
                             <TableHead className="font-semibold">Status</TableHead>
                             <TableHead className="font-semibold">Source</TableHead>
                             <TableHead className="text-right font-semibold">Rev 2022</TableHead>
@@ -456,10 +458,25 @@ export default function Dashboard({ showCrm = false, showAiWorkforce = false }: 
                                       }}
                                       className="font-semibold text-left hover:text-primary transition-colors"
                                     >
-                                      {company.target || 'Unknown'}
+                                      {company.target || '—'}
                                     </button>
                                     <p className="text-xs text-muted-foreground">{company.segment || '-'}</p>
                                   </div>
+                                </TableCell>
+                                <TableCell>
+                                  {company.project_name ? (
+                                    <button
+                                      onClick={() => {
+                                        setSelectedCompany(company);
+                                        setDetailDialogOpen(true);
+                                      }}
+                                      className="text-sm font-semibold text-left hover:text-primary transition-colors"
+                                    >
+                                      {company.project_name}
+                                    </button>
+                                  ) : (
+                                    <span className="text-sm text-muted-foreground">—</span>
+                                  )}
                                 </TableCell>
                                 <TableCell>
                                   {company.l1_screening_result ? (
@@ -606,7 +623,7 @@ export default function Dashboard({ showCrm = false, showAiWorkforce = false }: 
                         <div className="flex items-center gap-3">
                           <div className={`w-2 h-2 rounded-full ${getStatusColor(company.l1_screening_result)}`} />
                           <div>
-                            <p className="font-medium text-sm">{company.target || 'Unknown'}</p>
+                            <p className="font-medium text-sm">{[company.target, company.project_name].filter(Boolean).join(' — ') || 'Unknown'}</p>
                             <p className="text-xs text-muted-foreground">
                               {new Date(company.updated_at).toLocaleDateString()}
                             </p>

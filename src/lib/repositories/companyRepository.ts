@@ -201,10 +201,10 @@ export class CompanyRepository {
   }
 
   async findAllIdAndTarget(): Promise<
-    Array<{ id: string; target: string | null }>
+    Array<{ id: string; target: string | null; project_name: string | null }>
   > {
     return this.db
-      .select({ id: companies.id, target: companies.target })
+      .select({ id: companies.id, target: companies.target, project_name: companies.project_name })
       .from(companies);
   }
 
@@ -212,7 +212,10 @@ export class CompanyRepository {
     const [row] = await this.db
       .select()
       .from(companies)
-      .where(ilike(companies.target, `%${namePart}%`))
+      .where(or(
+        ilike(companies.target, `%${namePart}%`),
+        ilike(companies.project_name, `%${namePart}%`),
+      ))
       .limit(1);
     return row ?? null;
   }

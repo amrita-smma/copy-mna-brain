@@ -249,6 +249,7 @@ export const companies = pgTable(
     watchlist_id: integer(),
     segment: text(),
     target: text(),
+    project_name: text(),
     segment_related_offerings: text(),
     company_focus: text(),
     website: text(),

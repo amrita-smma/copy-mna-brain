@@ -101,6 +101,7 @@ const getStageLabel = (stage: string | null): string => {
 interface CompanyData {
   id: string;
   target: string | null;
+  project_name?: string | null;
   segment: string | null;
   pipeline_stage: string | null;
   website: string | null;
@@ -312,6 +313,7 @@ export default function CompanyDetailPage({ showCrm = false, showAiWorkforce = f
   // Inline edit mode for the Company Information card
   type EditForm = {
     target: string;
+    project_name: string;
     website: string;
     geography: string;
     source: string;
@@ -332,6 +334,7 @@ export default function CompanyDetailPage({ showCrm = false, showAiWorkforce = f
     if (!company) return;
     setEditForm({
       target: company.target ?? '',
+      project_name: company.project_name ?? '',
       website: company.website ?? '',
       geography: company.geography ?? '',
       source: company.source ?? '',
@@ -374,6 +377,7 @@ export default function CompanyDetailPage({ showCrm = false, showAiWorkforce = f
       await Promise.all([
         updateCompany(company.id, {
           target: editForm.target.trim() || null,
+          project_name: editForm.project_name.trim() || null,
           website: editForm.website.trim() || null,
           geography: editForm.geography.trim() || null,
           source: editForm.source || null,
@@ -831,7 +835,7 @@ export default function CompanyDetailPage({ showCrm = false, showAiWorkforce = f
             <div>
               <h1 className="text-2xl font-bold flex items-center gap-3">
                 <Building2 className="h-6 w-6" />
-                {company.target || 'Unnamed Company'}
+                {[company.target, company.project_name].filter(Boolean).join(' — ') || 'Unnamed Company'}
               </h1>
               <div className="flex items-center gap-2 mt-1">
                 <Badge variant="outline">{company.segment || 'N/A'}</Badge>
@@ -962,7 +966,25 @@ export default function CompanyDetailPage({ showCrm = false, showAiWorkforce = f
                       />
                     ) : (
                       <p className="font-semibold text-lg break-words">
-                        {company.target || 'Unknown'}
+                        {company.target || '—'}
+                      </p>
+                    )}
+                  </div>
+                  <div>
+                    <p className="text-sm text-muted-foreground">Project Name</p>
+                    {isEditing && editForm ? (
+                      <Input
+                        value={editForm.project_name}
+                        onChange={(e) =>
+                          setEditForm({ ...editForm, project_name: e.target.value })
+                        }
+                        placeholder="e.g. Project Phoenix"
+                        disabled={isSaving}
+                        className="mt-1"
+                      />
+                    ) : (
+                      <p className="font-semibold text-lg break-words">
+                        {company.project_name || '—'}
                       </p>
                     )}
                   </div>

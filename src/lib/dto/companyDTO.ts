@@ -32,6 +32,7 @@ export interface CompanyDTO {
   watchlist_id: number | null;
   segment: string | null;
   target: string | null;
+  project_name: string | null;
   segment_related_offerings: string | null;
   company_focus: string | null;
   website: string | null;
@@ -168,6 +169,7 @@ export function toCompanyDTO(
     watchlist_id: company.watchlist_id,
     segment: company.segment,
     target: company.target,
+    project_name: company.project_name,
     segment_related_offerings: company.segment_related_offerings,
     company_focus: company.company_focus,
     website: company.website,
@@ -299,7 +301,7 @@ export function splitCompanyDTO(dto: CompanyDTOInput): SplitCompanyWrite {
 
   // ---- company core ----
   const coreKeys = [
-    'entry_id', 'watchlist_id', 'segment', 'target', 'segment_related_offerings',
+    'entry_id', 'watchlist_id', 'segment', 'target', 'project_name', 'segment_related_offerings',
     'company_focus', 'website', 'watchlist_status', 'comments', 'ownership',
     'geography', 'source', 'status', 'pipeline_stage', 'remarks', 'thesis_content',
   ] as const;
@@ -423,3 +425,10 @@ export function splitCompanyDTO(dto: CompanyDTOInput): SplitCompanyWrite {
 }
 
 export { TRACKED_YEARS };
+
+export function formatCompanyDisplay(
+  c: Pick<CompanyDTO, 'target' | 'project_name'>,
+  fallback = 'Unknown',
+): string {
+  return [c.target, c.project_name].filter(Boolean).join(' — ') || fallback;
+}

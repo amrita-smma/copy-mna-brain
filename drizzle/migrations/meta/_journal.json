@@ -225,6 +225,20 @@
       "when": 1777420800000,
       "tag": "20260429000000_create_crm_tables",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1777507200000,
+      "tag": "20260430000000_add_project_name_to_companies",
+      "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1777507201000,
+      "tag": "20260430000001_backfill_project_name",
+      "breakpoints": true
     }
   ]
 }

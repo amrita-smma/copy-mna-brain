@@ -56,6 +56,7 @@ import { useToast } from '@/hooks/use-toast';
 interface CompanyWithDeal {
   id: string;
   name: string;
+  project_name: string | null;
   sector: string;
   geo: string | null;
   source: string;
@@ -145,6 +146,7 @@ export default function MasterData({ showCrm = false, showAiWorkforce = false }:
       setSelectedCompany({
         id: data.id,
         target: data.target,
+        project_name: data.project_name,
         segment: data.segment,
         website: data.website ?? null,
         watchlist_status: data.watchlist_status,
@@ -196,7 +198,8 @@ export default function MasterData({ showCrm = false, showAiWorkforce = false }:
             const override = getCompanyOverride(company.id);
             return {
               id: company.id,
-              name: company.target || 'Unknown',
+              name: company.target || '',
+              project_name: company.project_name ?? null,
               sector: company.segment || '',
               geo: company.geography || company.geo || null,
               source: company.watchlist_status === 'Active' ? 'inbound' : 'outbound',
@@ -257,8 +260,10 @@ export default function MasterData({ showCrm = false, showAiWorkforce = false }:
   const uniqueSectors = [...new Set(companies.map(c => c.sector).filter(Boolean))];
 
   const filteredCompanies = companies.filter(company => {
-    const matchesSearch = company.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      company.sector.toLowerCase().includes(searchQuery.toLowerCase());
+    const q = searchQuery.toLowerCase();
+    const matchesSearch = company.name.toLowerCase().includes(q) ||
+      (company.project_name || '').toLowerCase().includes(q) ||
+      company.sector.toLowerCase().includes(q);
 
     const displayStage = getDisplayStage(company);
     const matchesStage = stageFilter === 'all' || displayStage === stageFilter;
@@ -447,6 +452,7 @@ export default function MasterData({ showCrm = false, showAiWorkforce = false }:
                   <TableHeader>
                     <TableRow>
                       <TableHead>Company</TableHead>
+                      <TableHead>Project</TableHead>
                       <TableHead>Sector</TableHead>
                       <TableHead>Source</TableHead>
                       <TableHead>Geo</TableHead>
@@ -474,14 +480,32 @@ export default function MasterData({ showCrm = false, showAiWorkforce = false }:
                       return (
                         <TableRow key={company.id}>
                           <TableCell className="font-medium">
-                            <button
-                              type="button"
-                              onClick={() => openCompanyDialog(company.id)}
-                              disabled={loadingDialog}
-                              className="font-medium text-left hover:text-primary transition-colors disabled:opacity-50"
-                            >
-                              {company.name}
-                            </button>
+                            {company.name ? (
+                              <button
+                                type="button"
+                                onClick={() => openCompanyDialog(company.id)}
+                                disabled={loadingDialog}
+                                className="font-medium text-left hover:text-primary transition-colors disabled:opacity-50"
+                              >
+                                {company.name}
+                              </button>
+                            ) : (
+                              <span className="text-muted-foreground">—</span>
+                            )}
+                          </TableCell>
+                          <TableCell className="font-medium">
+                            {company.project_name ? (
+                              <button
+                                type="button"
+                                onClick={() => openCompanyDialog(company.id)}
+                                disabled={loadingDialog}
+                                className="font-medium text-left hover:text-primary transition-colors disabled:opacity-50"
+                              >
+                                {company.project_name}
+                              </button>
+                            ) : (
+                              <span className="text-muted-foreground">—</span>
+                            )}
                           </TableCell>
                           <TableCell>
                             <Badge variant="outline">{company.sector || '-'}</Badge>

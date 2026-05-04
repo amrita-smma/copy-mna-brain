@@ -63,9 +63,13 @@ ${userRawNotes}
 ## Process:
 1. Review the "Known Companies" list.
 2. Identify which of those companies appear in the text.
-3. **Detect Codenames**: Actively scan for and include project codenames (such as "Project Utopia", "Project Tulia", "Project Notos", "Project gChem", etc.) even if they do not match the "Known Companies" list. Treat these as valid detected companies.
-3. **Categorize File Type**: Choose between "prospectus", "mom", "banker_communications", and "other" file type. Use "banker_communications" if the file appears to be an email export (CSV or MBOX format containing email threads, especially from bankers or investment professionals).
-4. Final Output must be a valid JSON block containing:
+3. **Classify Each Detected Entity** as one of three types:
+   - **Company**: A real legal entity name (e.g. "Acme Corp", "PT Sinar Mas"). Goes into 'company_name'.
+   - **Project**: A codename with no known underlying company (e.g. "Project Phoenix", "Project Utopia"). Goes into 'project_name' only; leave 'company_name' null.
+   - **Project-in-Company**: A codename explicitly associated with a known company in the document (e.g. "Project Tulia (PT Sinar Mas)"). Set both 'company_name' and 'project_name'.
+   Actively scan for project codenames even if they don't match the Known Companies list — treat them as valid detected entities.
+4. **Categorize File Type**: Choose between "prospectus", "mom", "banker_communications", and "other" file type. Use "banker_communications" if the file appears to be an email export (CSV or MBOX format containing email threads, especially from bankers or investment professionals).
+5. Final Output must be a valid JSON block containing:
    - summary: A concise overview of the meeting/document.
    - key_points: Array of main takeaways.
    - action_items: Array of next steps.
@@ -103,7 +107,8 @@ Your response should end with a JSON block in this format:
     }
   ],
   "prospectus_summary": {
-    "target": "Hidden company name. Please search for the company name in the known companies list or inside the document.",
+    "company_name": "Legal entity name if the document identifies one (e.g. 'Acme Corp'). Null if only a project codename is known.",
+    "project_name": "Project codename if present (e.g. 'Project Phoenix'). Null if no codename is used. Set this even when company_name is also known.",
     "segment": "...",
     "segment_related_offerings": "...",
     "company_focus": "...",
@@ -271,8 +276,9 @@ export async function processFileContent(
       let companiesDetected: string[] = Array.isArray(parsed.companies_detected)
         ? parsed.companies_detected.filter((n: unknown): n is string => typeof n === 'string' && n.length > 0)
         : [];
-      if (companiesDetected.length === 0 && parsed.file_type === 'prospectus' && parsed.prospectus_summary?.target) {
-        companiesDetected = [parsed.prospectus_summary.target];
+      if (companiesDetected.length === 0 && parsed.file_type === 'prospectus') {
+        const fallbackName = parsed.prospectus_summary?.company_name || parsed.prospectus_summary?.project_name;
+        if (fallbackName) companiesDetected = [fallbackName];
       }
 
       for (const detectedName of companiesDetected) {
@@ -284,7 +290,8 @@ export async function processFileContent(
             const summary = parsed?.prospectus_summary ?? {};
             const insertData = {
               pipeline_stage: 'L0' as const,
-              target: summary.target || null,
+              target: summary.company_name || null,
+              project_name: summary.project_name || null,
               thesis_content: null,
               segment: summary.segment || null,
               segment_related_offerings: summary.segment_related_offerings || null,

@@ -33,24 +33,28 @@ export async function findBestCompanyMatch(
   let minDistance = Infinity;
 
   for (const company of companies) {
-    if (!company.target) continue;
-    const targetName = company.target.toLowerCase().trim();
+    const namesToCheck = [company.target, company.project_name].filter(Boolean) as string[];
+    if (namesToCheck.length === 0) continue;
 
-    if (normalizedSearch === targetName) {
-      return { id: company.id, name: company.target, type: 'company', similarity: 1 };
-    }
+    for (const candidateName of namesToCheck) {
+      const normalized = candidateName.toLowerCase().trim();
 
-    const distance = levenshtein.get(normalizedSearch, targetName);
-    const relativeDistance = distance / Math.max(normalizedSearch.length, targetName.length);
+      if (normalizedSearch === normalized) {
+        return { id: company.id, name: candidateName, type: 'company', similarity: 1 };
+      }
 
-    if (relativeDistance < minDistance) {
-      minDistance = relativeDistance;
-      bestMatch = {
-        id: company.id,
-        name: company.target,
-        type: 'company',
-        similarity: 1 - relativeDistance,
-      };
+      const distance = levenshtein.get(normalizedSearch, normalized);
+      const relativeDistance = distance / Math.max(normalizedSearch.length, normalized.length);
+
+      if (relativeDistance < minDistance) {
+        minDistance = relativeDistance;
+        bestMatch = {
+          id: company.id,
+          name: candidateName,
+          type: 'company',
+          similarity: 1 - relativeDistance,
+        };
+      }
     }
   }
 
@@ -105,13 +109,15 @@ export async function getAllCompanyReferences(): Promise<MatchResult[]> {
   const matches: MatchResult[] = [];
 
   for (const company of companies) {
-    if (!company.target) continue;
-    matches.push({
-      id: company.id,
-      name: company.target,
-      type: 'company',
-      similarity: 1,
-    });
+    if (!company.target && !company.project_name) continue;
+    // Expose target and project_name as separate lookup entries so the LLM
+    // can detect a company by either its legal name or its project codename.
+    if (company.target) {
+      matches.push({ id: company.id, name: company.target, type: 'company', similarity: 1 });
+    }
+    if (company.project_name) {
+      matches.push({ id: company.id, name: company.project_name, type: 'company', similarity: 1 });
+    }
   }
 
   for (const deal of pastDeals) {

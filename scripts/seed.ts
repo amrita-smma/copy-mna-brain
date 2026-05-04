@@ -145,7 +145,8 @@ const seedContacts: SeedContact[] = [
 
 type SeedCompany = {
   entry_id: number;
-  target: string;
+  target?: string;
+  project_name?: string;
   segment: string;
   company_focus: string;
   website: string;
@@ -165,7 +166,7 @@ type SeedCompany = {
 const seedCompanies: SeedCompany[] = [
   {
     entry_id: 9001,
-    target: 'Acme Robotics',
+    project_name: 'Project Atlas',
     segment: 'Industrial Automation',
     company_focus: 'Factory-floor robotic arms for SMB manufacturers',
     website: 'https://acme-robotics.example',
@@ -195,12 +196,12 @@ const seedCompanies: SeedCompany[] = [
     financials: [
       { fiscal_year: 2023, revenue_usd_mn: 120.0, ebitda_usd_mn: 14.8 },
       { fiscal_year: 2024, revenue_usd_mn: 134.5, ebitda_usd_mn: 18.1, ev_usd_mn: 410 },
-      { fiscal_year: 2025 },
     ],
   },
   {
     entry_id: 9003,
     target: 'Cinder Foods',
+    project_name: 'Project Cedar',
     segment: 'F&B / Packaged Goods',
     company_focus: 'Frozen ready-meals for urban retail',
     website: 'https://cinderfoods.example',
@@ -218,7 +219,7 @@ const seedCompanies: SeedCompany[] = [
   },
   {
     entry_id: 9004,
-    target: 'Delta Neural',
+    project_name: 'Project Delphi',
     segment: 'AI / SaaS',
     company_focus: 'Voice AI for call-center QA',
     website: 'https://deltaneural.example',
@@ -249,12 +250,12 @@ const seedCompanies: SeedCompany[] = [
       { fiscal_year: 2022, revenue_usd_mn: 48.2, ebitda_usd_mn: 6.9, ev_usd_mn: 190 },
       { fiscal_year: 2023, revenue_usd_mn: 61.0, ebitda_usd_mn: 9.1 },
       { fiscal_year: 2024, revenue_usd_mn: 74.3, ebitda_usd_mn: 12.4, ev_usd_mn: 280 },
-      { fiscal_year: 2025 },
     ],
   },
   {
     entry_id: 9006,
     target: 'Ferrous Metalworks',
+    project_name: 'Project Forge',
     segment: 'Heavy Manufacturing',
     company_focus: 'Precision steel components for auto OEMs',
     website: 'https://ferrousmw.example',
@@ -271,7 +272,7 @@ const seedCompanies: SeedCompany[] = [
   },
   {
     entry_id: 9007,
-    target: 'Glacier Health',
+    project_name: 'Project Gemini',
     segment: 'Healthcare Services',
     company_focus: 'Outpatient diagnostic chain',
     website: 'https://glacierhealth.example',
@@ -354,7 +355,8 @@ async function main() {
         .insert(companies)
         .values({
           entry_id: c.entry_id,
-          target: c.target,
+          target: c.target ?? null,
+          project_name: c.project_name ?? null,
           segment: c.segment,
           company_focus: c.company_focus,
           website: c.website,

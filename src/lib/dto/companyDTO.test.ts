@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { toCompanyDTO } from './companyDTO';
+import { toCompanyDTO, splitCompanyDTO, formatCompanyDisplay } from './companyDTO';
 import type { Tables } from '@/lib/repositories';
 
 function makeCompany(overrides: Partial<Tables<'companies'>> = {}): Tables<'companies'> {
@@ -9,6 +9,7 @@ function makeCompany(overrides: Partial<Tables<'companies'>> = {}): Tables<'comp
     watchlist_id: null,
     segment: null,
     target: 'Test Co',
+    project_name: null,
     segment_related_offerings: null,
     company_focus: null,
     website: null,
@@ -89,5 +90,48 @@ describe('toCompanyDTO – financials_raw', () => {
     const dto2 = toCompanyDTO(makeCompany(), rowsWithExtra, [], null);
     expect(dto2.financials_raw).toHaveLength(4);
     expect(dto2.revenue_2025_usd_mn).toBe(80);
+  });
+});
+
+describe('toCompanyDTO – project_name', () => {
+  it('passes through project_name when set', () => {
+    const dto = toCompanyDTO(makeCompany({ project_name: 'Project Phoenix' }), [], [], null);
+    expect(dto.project_name).toBe('Project Phoenix');
+  });
+
+  it('passes through null project_name', () => {
+    const dto = toCompanyDTO(makeCompany({ project_name: null }), [], [], null);
+    expect(dto.project_name).toBeNull();
+  });
+});
+
+describe('splitCompanyDTO – project_name', () => {
+  it('splits project_name into the company write fragment', () => {
+    const result = splitCompanyDTO({ project_name: 'Project Alpha' });
+    expect(result.company.project_name).toBe('Project Alpha');
+  });
+
+  it('preserves null project_name in the company write fragment', () => {
+    const result = splitCompanyDTO({ project_name: null });
+    expect(result.company.project_name).toBeNull();
+  });
+});
+
+describe('formatCompanyDisplay', () => {
+  it('returns company name alone when project_name is null', () => {
+    expect(formatCompanyDisplay({ target: 'Acme Corp', project_name: null })).toBe('Acme Corp');
+  });
+
+  it('returns project_name alone when target is null', () => {
+    expect(formatCompanyDisplay({ target: null, project_name: 'Project Phoenix' })).toBe('Project Phoenix');
+  });
+
+  it('joins both with em-dash when both are set', () => {
+    expect(formatCompanyDisplay({ target: 'Acme Corp', project_name: 'Project Phoenix' })).toBe('Acme Corp — Project Phoenix');
+  });
+
+  it('returns fallback when both are null', () => {
+    expect(formatCompanyDisplay({ target: null, project_name: null })).toBe('Unknown');
+    expect(formatCompanyDisplay({ target: null, project_name: null }, 'N/A')).toBe('N/A');
   });
 });
