@@ -15,7 +15,6 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { getCompanies } from '@/lib/api/pipeline';
-import { getCompanyOverride } from '@/lib/companyOverrides';
 import {
   Building2,
   TrendingUp,
@@ -158,14 +157,7 @@ export default function Dashboard({ showCrm = false, showAiWorkforce = false }: 
       });
 
       if (companiesData) {
-        setCompanies(companiesData.map((company: any) => {
-          const override = getCompanyOverride(company.id);
-          return {
-            ...company,
-            revenue_2025_usd_mn: override?.revenue_2025_usd_mn ?? company.revenue_2025_usd_mn,
-            ebitda_2025_usd_mn: override?.ebitda_2025_usd_mn ?? company.ebitda_2025_usd_mn,
-          };
-        }));
+        setCompanies(companiesData);
         setTotalCompanies(companiesData.length);
 
         // Calculate pipeline stage counts

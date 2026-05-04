@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { DollarSign, TrendingUp, Pencil, Plus, Trash2, Check, X, AlertTriangle, Loader2 } from 'lucide-react';
+import { DollarSign, TrendingUp, Pencil, Plus, Trash2, Check, X, Loader2 } from 'lucide-react';
 import {
   ChartContainer,
   ChartTooltip,
@@ -15,7 +15,6 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, ReferenceLine } from 'recha
 import { toast } from 'sonner';
 import type { Tables } from '@/lib/repositories';
 import { updateCompanyFinancials, type FinancialEditRow } from '@/lib/api/pipeline';
-import { mergeFinancialsWithOverrides } from '@/lib/companyOverrides';
 
 type FinancialRow = Pick<Tables<'company_financials'>, 'fiscal_year' | 'revenue_usd_mn' | 'ebitda_usd_mn'>;
 
@@ -23,7 +22,6 @@ interface FinancialChartsProps {
   financials: FinancialRow[];
   rawFinancials?: FinancialRow[];
   companyId?: string;
-  hasOverrides?: boolean;
   onUpdate?: () => void;
 }
 
@@ -71,7 +69,6 @@ export function FinancialCharts({
   financials,
   rawFinancials,
   companyId,
-  hasOverrides,
   onUpdate,
 }: FinancialChartsProps) {
   const [mode, setMode] = useState<EditField>('none');
@@ -83,10 +80,7 @@ export function FinancialCharts({
   // even before the parent's refetch lands a new `financials` prop.
   const [localRaw, setLocalRaw] = useState<FinancialRow[] | null>(null);
 
-  // Drop the local cache only when the dialog is reused for a different
-  // company. We can't watch `financials` here because the parent recomputes
-  // `mergeFinancialsWithOverrides(...)` (a fresh array) on every render, so
-  // a reference-change effect would clobber localRaw on every parent tick.
+  // Drop the local cache only when the dialog is reused for a different company.
   const prevCompanyIdRef = useRef(companyId);
   useEffect(() => {
     if (companyId !== prevCompanyIdRef.current) {
@@ -95,12 +89,7 @@ export function FinancialCharts({
     }
   }, [companyId]);
 
-  // Reapply the override layer on top of locally-cached raw rows so override
-  // companies still render the override values after a save.
-  const effectiveDisplay =
-    localRaw && companyId
-      ? mergeFinancialsWithOverrides(companyId, localRaw)
-      : financials;
+  const effectiveDisplay = localRaw ?? financials;
   const effectiveRaw = localRaw ?? rawFinancials ?? financials;
 
   const sorted = [...effectiveDisplay].sort((a, b) => a.fiscal_year - b.fiscal_year);
@@ -279,16 +268,6 @@ export function FinancialCharts({
 
   const renderEditPanel = () => (
     <div className="space-y-2 mt-3 pt-3 border-t">
-      {hasOverrides && (
-        <div className="flex items-start gap-2 rounded-md border border-amber-500/30 bg-amber-50 dark:bg-amber-950/20 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
-          <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
-          <span>
-            This company has display overrides. Saved values are written to the database but the
-            chart may keep showing the override until it is removed from{' '}
-            <code className="font-mono">companyOverrides.ts</code>.
-          </span>
-        </div>
-      )}
       {draft.map((d, idx) => (
         <div key={idx} className={`flex items-center gap-2 ${d.markedForDelete ? 'opacity-40' : ''}`}>
           <Input

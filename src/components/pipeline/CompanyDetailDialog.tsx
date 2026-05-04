@@ -71,7 +71,6 @@ import {
   updateCompany,
   type UserSummary,
 } from "@/lib/api/pipeline";
-import { mergeFinancialsWithOverrides, getCompanyOverride } from "@/lib/companyOverrides";
 import {
   Select,
   SelectContent,
@@ -1264,10 +1263,9 @@ export default function CompanyDetailDialog({
               </Card>
 
               <FinancialCharts
-                financials={mergeFinancialsWithOverrides(company.id, company.financials_raw ?? [])}
+                financials={company.financials_raw ?? []}
                 rawFinancials={company.financials_raw ?? []}
                 companyId={company.id}
-                hasOverrides={Boolean(getCompanyOverride(company.id))}
                 onUpdate={onUpdate}
               />
 

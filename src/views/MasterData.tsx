@@ -22,7 +22,6 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { deleteCompanyById, getCompanies } from '@/lib/api/pipeline';
-import { getCompanyOverride } from '@/lib/companyOverrides';
 import {
   Database,
   Search,
@@ -194,30 +193,27 @@ export default function MasterData({ showCrm = false, showAiWorkforce = false }:
 
       if (data) {
         const formatted = data
-          .map((company: any) => {
-            const override = getCompanyOverride(company.id);
-            return {
-              id: company.id,
-              name: company.target || '',
-              project_name: company.project_name ?? null,
-              sector: company.segment || '',
-              geo: company.geography || company.geo || null,
-              source: company.watchlist_status === 'Active' ? 'inbound' : 'outbound',
-              revenue_2022: company.revenue_2022_usd_mn,
-              revenue_2023: override?.revenue_2023_usd_mn ?? company.revenue_2023_usd_mn,
-              revenue_2024: override?.revenue_2024_usd_mn ?? company.revenue_2024_usd_mn,
-              revenue_2025: override?.revenue_2025_usd_mn ?? company.revenue_2025_usd_mn,
-              ebitda_2022: company.ebitda_2022_usd_mn,
-              ebitda_2023: override?.ebitda_2023_usd_mn ?? company.ebitda_2023_usd_mn,
-              ebitda_2024: override?.ebitda_2024_usd_mn ?? company.ebitda_2024_usd_mn,
-              ebitda_2025: override?.ebitda_2025_usd_mn ?? company.ebitda_2025_usd_mn,
-              valuation: override?.ev_2024 ?? company.ev_2024,
-              pic: override?.pic ?? company.pic ?? null,
-              created_at: company.created_at,
-              current_stage: company.pipeline_stage as DealStage | null,
-              is_active: company.pipeline_stage !== null && company.pipeline_stage !== 'Acquired',
-            };
-          });
+          .map((company: any) => ({
+            id: company.id,
+            name: company.target || '',
+            project_name: company.project_name ?? null,
+            sector: company.segment || '',
+            geo: company.geography || company.geo || null,
+            source: company.watchlist_status === 'Active' ? 'inbound' : 'outbound',
+            revenue_2022: company.revenue_2022_usd_mn,
+            revenue_2023: company.revenue_2023_usd_mn,
+            revenue_2024: company.revenue_2024_usd_mn,
+            revenue_2025: company.revenue_2025_usd_mn,
+            ebitda_2022: company.ebitda_2022_usd_mn,
+            ebitda_2023: company.ebitda_2023_usd_mn,
+            ebitda_2024: company.ebitda_2024_usd_mn,
+            ebitda_2025: company.ebitda_2025_usd_mn,
+            valuation: company.ev_2024,
+            pic: company.pic ?? null,
+            created_at: company.created_at,
+            current_stage: company.pipeline_stage as DealStage | null,
+            is_active: company.pipeline_stage !== null && company.pipeline_stage !== 'Acquired',
+          }));
         setCompanies(formatted);
       }
     } catch (error) {

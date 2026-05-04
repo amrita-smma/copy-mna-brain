@@ -17,7 +17,6 @@ import CompanyDetailDialog from './CompanyDetailDialog';
 import { cn } from '@/lib/utils';
 import { DealStage } from '@/lib/types';
 import { bulkUpdateCompanies, deleteCompanyById, getCompanies, getFavoriteCompanies, toggleFavoriteCompany } from '@/lib/api/pipeline';
-import { getCompanyOverride } from '@/lib/companyOverrides';
 import { useAuth } from '@/hooks/useAuth';
 
 interface MarketScreeningResult {
@@ -442,7 +441,6 @@ export default function MarketScreeningResults({ refreshTrigger, onAddedToPipeli
                 <TableBody>
                   {paginatedResults.map((result) => {
                     const isFav = favoriteIds.has(result.id);
-                    const override = getCompanyOverride(result.id);
                     return (
                       <TableRow
                         key={result.id}
@@ -490,28 +488,28 @@ export default function MarketScreeningResults({ refreshTrigger, onAddedToPipeli
                           <span className="text-muted-foreground">{result.segment || 'Unknown'}</span>
                         </TableCell>
                         <TableCell>
-                          <span className="text-muted-foreground">{override?.pic ?? '-'}</span>
+                          <span className="text-muted-foreground">-</span>
                         </TableCell>
                         <TableCell className="text-right font-mono text-xs">
-                          {formatCurrency(override?.revenue_2023_usd_mn ?? result.revenue_2023_usd_mn)}
+                          {formatCurrency(result.revenue_2023_usd_mn)}
                         </TableCell>
                         <TableCell className="text-right font-mono text-xs">
-                          {formatCurrency(override?.revenue_2024_usd_mn ?? result.revenue_2024_usd_mn)}
+                          {formatCurrency(result.revenue_2024_usd_mn)}
                         </TableCell>
                         <TableCell className="text-right font-mono text-xs">
-                          {formatCurrency(override?.revenue_2025_usd_mn ?? null)}
+                          {formatCurrency(null)}
                         </TableCell>
                         <TableCell className="text-right font-mono text-xs">
-                          {formatCurrency(override?.ebitda_2023_usd_mn ?? result.ebitda_2023_usd_mn)}
+                          {formatCurrency(result.ebitda_2023_usd_mn)}
                         </TableCell>
                         <TableCell className="text-right font-mono text-xs">
-                          {formatCurrency(override?.ebitda_2024_usd_mn ?? result.ebitda_2024_usd_mn)}
+                          {formatCurrency(result.ebitda_2024_usd_mn)}
                         </TableCell>
                         <TableCell className="text-right font-mono text-xs">
-                          {formatCurrency(override?.ebitda_2025_usd_mn ?? null)}
+                          {formatCurrency(null)}
                         </TableCell>
                         <TableCell className="text-right font-mono text-xs font-medium text-foreground">
-                          {formatCurrency(override?.ev_2024 ?? result.ev_2024)}
+                          {formatCurrency(result.ev_2024)}
                         </TableCell>
                         <TableCell className="text-right">
                           <Button

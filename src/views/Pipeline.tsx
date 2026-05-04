@@ -104,7 +104,6 @@ import {
 } from "@/lib/api/pipeline";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
-import { getCompanyOverride } from "@/lib/companyOverrides";
 
 interface PipelineCompany {
   id: string;
@@ -324,51 +323,43 @@ export default function Pipeline({ showCrm = false, showAiWorkforce = false }: P
       });
 
       const formatted: PipelineCompany[] =
-        data?.map((company: any) => {
-          const override = getCompanyOverride(company.id);
-          return {
-            id: company.id,
-            target: company.target || "",
-            project_name: company.project_name ?? null,
-            segment: company.segment || "",
-            geo: company.geography || company.geo || null,
-            website: company.website ?? null,
-            watchlist_status: company.watchlist_status,
-            revenue_2021_usd_mn: company.revenue_2021_usd_mn,
-            revenue_2022_usd_mn: company.revenue_2022_usd_mn,
-            revenue_2023_usd_mn:
-              override?.revenue_2023_usd_mn ?? company.revenue_2023_usd_mn,
-            revenue_2024_usd_mn:
-              override?.revenue_2024_usd_mn ?? company.revenue_2024_usd_mn,
-            revenue_2025_usd_mn: override?.revenue_2025_usd_mn ?? company.revenue_2025_usd_mn,
-            ebitda_2021_usd_mn: company.ebitda_2021_usd_mn,
-            ebitda_2022_usd_mn: company.ebitda_2022_usd_mn,
-            ebitda_2023_usd_mn:
-              override?.ebitda_2023_usd_mn ?? company.ebitda_2023_usd_mn,
-            ebitda_2024_usd_mn:
-              override?.ebitda_2024_usd_mn ?? company.ebitda_2024_usd_mn,
-            ebitda_2025_usd_mn: override?.ebitda_2025_usd_mn ?? company.ebitda_2025_usd_mn,
-            ev_2024: override?.ev_2024 ?? company.ev_2024,
-            pipeline_stage: (company.pipeline_stage || "L0") as DealStage,
-            l1_screening_result: company.l1_screening_result,
-            pic:
-              override?.pic ??
-              (Array.isArray(company.assignees) && company.assignees.length > 0
-                ? company.assignees
-                    .map((a: { name: string | null }) => a.name)
-                    .filter(Boolean)
-                    .join(", ")
-                : (company.pic ?? null)),
-            remarks: company.remarks || null,
-            created_at: company.created_at,
-            updated_at: company.updated_at,
-            source: company.source || null,
-            status: company.status ?? null,
-            ownership: company.ownership ?? null,
-            geography: company.geography ?? null,
-            financials_raw: company.financials_raw,
-          };
-        }) || [];
+        data?.map((company: any) => ({
+          id: company.id,
+          target: company.target || "",
+          project_name: company.project_name ?? null,
+          segment: company.segment || "",
+          geo: company.geography || company.geo || null,
+          website: company.website ?? null,
+          watchlist_status: company.watchlist_status,
+          revenue_2021_usd_mn: company.revenue_2021_usd_mn,
+          revenue_2022_usd_mn: company.revenue_2022_usd_mn,
+          revenue_2023_usd_mn: company.revenue_2023_usd_mn,
+          revenue_2024_usd_mn: company.revenue_2024_usd_mn,
+          revenue_2025_usd_mn: company.revenue_2025_usd_mn,
+          ebitda_2021_usd_mn: company.ebitda_2021_usd_mn,
+          ebitda_2022_usd_mn: company.ebitda_2022_usd_mn,
+          ebitda_2023_usd_mn: company.ebitda_2023_usd_mn,
+          ebitda_2024_usd_mn: company.ebitda_2024_usd_mn,
+          ebitda_2025_usd_mn: company.ebitda_2025_usd_mn,
+          ev_2024: company.ev_2024,
+          pipeline_stage: (company.pipeline_stage || "L0") as DealStage,
+          l1_screening_result: company.l1_screening_result,
+          pic:
+            Array.isArray(company.assignees) && company.assignees.length > 0
+              ? company.assignees
+                  .map((a: { name: string | null }) => a.name)
+                  .filter(Boolean)
+                  .join(", ")
+              : (company.pic ?? null),
+          remarks: company.remarks || null,
+          created_at: company.created_at,
+          updated_at: company.updated_at,
+          source: company.source || null,
+          status: company.status ?? null,
+          ownership: company.ownership ?? null,
+          geography: company.geography ?? null,
+          financials_raw: company.financials_raw,
+        })) || [];
 
       setCompanies(formatted);
     } catch (error: any) {

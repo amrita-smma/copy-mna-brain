@@ -79,7 +79,6 @@ import {
   updateCompany,
   type UserSummary,
 } from '@/lib/api/pipeline';
-import { getCompanyOverride, mergeFinancialsWithOverrides } from '@/lib/companyOverrides';
 
 const websiteHref = (url: string) =>
   /^https?:\/\//i.test(url) ? url : `https://${url}`;
@@ -1151,9 +1150,7 @@ export default function CompanyDetailPage({ showCrm = false, showAiWorkforce = f
                       />
                     ) : (
                       <p className="font-medium break-words">
-                        {formatCurrency(
-                          getCompanyOverride(company.id)?.ev_2024 ?? company.ev_2024,
-                        )}
+                        {formatCurrency(company.ev_2024)}
                       </p>
                     )}
                   </div>
@@ -1234,10 +1231,9 @@ export default function CompanyDetailPage({ showCrm = false, showAiWorkforce = f
 
             {/* Financial Charts */}
             <FinancialCharts
-              financials={mergeFinancialsWithOverrides(company.id, company.financials_raw ?? [])}
+              financials={company.financials_raw ?? []}
               rawFinancials={company.financials_raw ?? []}
               companyId={company.id}
-              hasOverrides={Boolean(getCompanyOverride(company.id))}
               onUpdate={() => fetchCompany({ silent: true })}
             />
 
