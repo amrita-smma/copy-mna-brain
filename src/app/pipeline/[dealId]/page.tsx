@@ -63,7 +63,7 @@ import { AICompanyCardLoading } from '@/components/pipeline/AICompanyCardLoading
 import FilePreview from '@/components/Files/FilePreview';
 import { FinancialCharts } from '@/components/pipeline/FinancialCharts';
 import { DealStage } from '@/lib/types';
-import { STAGE_LABELS } from '@/lib/constants';
+import { STAGE_LABELS, isAnalysisInProgress } from '@/lib/constants';
 import { formatDistanceToNow, format } from 'date-fns';
 import {
   addCompanyLink,
@@ -475,7 +475,7 @@ export default function CompanyDetailPage({ showCrm = false, showAiWorkforce = f
         const data = await res.json();
         setAnalysis(data);
         // If still processing, poll until complete
-        if (data.status === 'processing') {
+        if (isAnalysisInProgress(data.status)) {
           setAnalysisGenerating(true);
           pollAnalysis();
         }
@@ -493,7 +493,7 @@ export default function CompanyDetailPage({ showCrm = false, showAiWorkforce = f
         if (res.ok) {
           const data = await res.json();
           setAnalysis(data);
-          if (data.status !== 'processing') {
+          if (!isAnalysisInProgress(data.status)) {
             setAnalysisGenerating(false);
             clearInterval(interval);
           }

@@ -157,8 +157,11 @@ export class CompanyRepository {
    * Used by the AI File Dump "Matched Company" / "Project Name" pickers —
    * server-side ILIKE search via `targetSearch` matches against either
    * `target` OR `project_name`, so users can find a row by either name.
+   * Project-only companies (target null but project_name set) are included
+   * so they're pickable too.
    * Offset/limit pagination so the dropdown can load on demand instead of
-   * all at once. Ordered by target ascending for a stable alphabetical list.
+   * all at once. Ordered by target (then project_name) ascending for a
+   * stable alphabetical list with project-only rows trailing.
    */
   async findIdAndTargetPage(
     filters: Pick<CompanyFilters, "limit" | "offset" | "targetSearch"> = {},
@@ -166,7 +169,9 @@ export class CompanyRepository {
     Array<{ id: string; target: string | null; project_name: string | null }>
   > {
     const { limit, offset, targetSearch } = filters;
-    const conditions: (SQL | undefined)[] = [isNotNull(companies.target)];
+    const conditions: (SQL | undefined)[] = [
+      or(isNotNull(companies.target), isNotNull(companies.project_name)),
+    ];
     if (targetSearch && targetSearch.trim().length > 0) {
       const term = `%${targetSearch.trim()}%`;
       conditions.push(
@@ -183,7 +188,7 @@ export class CompanyRepository {
       })
       .from(companies)
       .where(where)
-      .orderBy(asc(companies.target));
+      .orderBy(asc(companies.target), asc(companies.project_name));
     const withLimit = limit ? base.limit(limit) : base;
     return offset ? withLimit.offset(offset) : withLimit;
   }

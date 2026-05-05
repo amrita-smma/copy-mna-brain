@@ -33,7 +33,8 @@ interface Screening {
   created_at: string;
   updated_at: string;
   company?: {
-    target: string;
+    target: string | null;
+    project_name: string | null;
     pipeline_stage: string;
   };
   criterias?: {
@@ -107,7 +108,12 @@ export default function ScreeningProgressPanel({
 
     screenings.forEach((s) => {
       const companyId = s.company_id;
-      const companyName = s.company?.target || 'Unknown';
+      const target = s.company?.target?.trim() || '';
+      const projectName = s.company?.project_name?.trim() || '';
+      const companyName =
+        target && projectName
+          ? `${target} — ${projectName}`
+          : target || projectName || 'Unknown';
 
       if (!grouped.has(companyId)) {
         grouped.set(companyId, {

@@ -4,6 +4,7 @@ import {
   coerceLocalUnit,
   normalizeFxRow,
   toMillions,
+  validateFxConsistency,
   type FinancialRow,
   type FxRow,
   type RawFxRow,
@@ -290,5 +291,107 @@ describe('applyFxBackfill', () => {
     expect(financials.every((r) => r.revenue_usd_mn !== null)).toBe(true);
     // 36.2 KRW bn = 36200 KRW mn → /1305 ≈ 27.74 USD mn
     expect(financials[0].revenue_usd_mn).toBeCloseTo(27.74, 1);
+  });
+});
+
+describe('validateFxConsistency', () => {
+  it('returns no warnings when local/forex matches USD within tolerance', () => {
+    const fin = [blankFinancial({ fiscal_year: 2024, revenue_usd_mn: 532 })];
+    const fx = [
+      blankFx({
+        fiscal_year: 2024,
+        currency: 'KRW',
+        revenue_local: 725100,
+        assumed_forex: 1363,
+      }),
+    ];
+
+    const warnings = validateFxConsistency(fin, fx);
+
+    expect(warnings).toHaveLength(0);
+    expect(fx[0].revenue_local).toBe(725100); // unchanged
+  });
+
+  it('flags and corrects revenue_local when LLM emits wrong unit (10x error)', () => {
+    // Real-world case: "KRW 7,251 억" should be 725,100 mn KRW.
+    // LLM emitted 7,251,000 (treating 億 as 1,000 mn) — 10x too high.
+    const fin = [blankFinancial({ fiscal_year: 2024, revenue_usd_mn: 532 })];
+    const fx = [
+      blankFx({
+        fiscal_year: 2024,
+        currency: 'KRW',
+        revenue_local: 7251000, // 10x too high
+        assumed_forex: 1363,
+      }),
+    ];
+
+    const warnings = validateFxConsistency(fin, fx);
+
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0].fiscal_year).toBe(2024);
+    expect(warnings[0].field).toBe('revenue');
+    expect(warnings[0].reported_usd_mn).toBe(532);
+    expect(warnings[0].divergence_ratio).toBeGreaterThan(0.05);
+    // Corrected: 532 × 1363 = 725,116 mn KRW (close to true 725,100)
+    expect(fx[0].revenue_local).toBeCloseTo(725116, 0);
+  });
+
+  it('flags ebitda independently of revenue', () => {
+    const fin = [blankFinancial({ fiscal_year: 2024, ebitda_usd_mn: 25.5 })];
+    const fx = [
+      blankFx({
+        fiscal_year: 2024,
+        currency: 'KRW',
+        ebitda_local: 352000, // 10x too high (true 35,200 mn KRW)
+        assumed_forex: 1380,
+      }),
+    ];
+
+    const warnings = validateFxConsistency(fin, fx);
+
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0].field).toBe('ebitda');
+    expect(fx[0].ebitda_local).toBeCloseTo(35190, 0);
+  });
+
+  it('skips rows with no FX entry', () => {
+    const fin = [blankFinancial({ fiscal_year: 2024, revenue_usd_mn: 100 })];
+    const warnings = validateFxConsistency(fin, []);
+    expect(warnings).toHaveLength(0);
+  });
+
+  it('skips when assumed_forex is null or zero', () => {
+    const fin = [blankFinancial({ fiscal_year: 2024, revenue_usd_mn: 100 })];
+    const fx = [
+      blankFx({
+        fiscal_year: 2024,
+        currency: 'KRW',
+        revenue_local: 9999999,
+        assumed_forex: null,
+      }),
+    ];
+
+    const warnings = validateFxConsistency(fin, fx);
+
+    expect(warnings).toHaveLength(0);
+    expect(fx[0].revenue_local).toBe(9999999); // unchanged
+  });
+
+  it('respects custom tolerance', () => {
+    // 10% divergence — would warn at default 5% but not at 15%
+    const fin = [blankFinancial({ fiscal_year: 2024, revenue_usd_mn: 100 })];
+    const fx = [
+      blankFx({
+        fiscal_year: 2024,
+        currency: 'USD',
+        revenue_local: 110, // 10% off
+        assumed_forex: 1,
+      }),
+    ];
+
+    expect(validateFxConsistency(fin, fx, 0.15)).toHaveLength(0);
+    // Reset, test with default
+    fx[0].revenue_local = 110;
+    expect(validateFxConsistency(fin, fx)).toHaveLength(1);
   });
 });

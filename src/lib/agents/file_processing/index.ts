@@ -13,15 +13,10 @@ import { createAgent } from "langchain";
 import { logger } from "../logger";
 import { getAllCompanyReferences } from "@/lib/fuzzySearch";
 import { splitPdf } from "@/lib/pdf";
-import type { DbClient } from "@/lib/server/db";
-import {
-  CompanyFinancialRepository,
-  CompanyFxAdjustmentRepository,
-  CompanyRepository,
-} from "@/lib/repositories";
 import {
   applyFxBackfill,
   normalizeFxRow,
+  validateFxConsistency,
   type FinancialRow,
   type FxRow,
   type RawFxRow,
@@ -154,6 +149,11 @@ Your response should end with a JSON block in this format:
 - \`fx_adjustments\` is only populated when the company reports primary financials in a non-USD currency. Include one row per fiscal_year that mirrors a row in \`financials\`. \`currency\` is the ISO-4217 code (e.g. "KRW", "IDR"). Omit the entire \`fx_adjustments\` array if the company reports in USD.
 - When \`fx_adjustments\` is populated:
   - \`revenue_local\` is the document-reported revenue figure verbatim. Set \`revenue_local_unit\` to "mn", "bn", or "thousands" to match exactly how the document expresses it (e.g. "KRW 36.2 bn" → \`revenue_local: 36.2, revenue_local_unit: "bn"\`; "IDR 12,500 mn" → \`revenue_local: 12500, revenue_local_unit: "mn"\`). The server normalizes to millions of local currency before persisting.
+  - **East Asian numerical units (CRITICAL):** documents in Korean / Japanese / Chinese often use non-decimal magnitude markers. The schema only supports "mn" / "bn" / "thousands" — you MUST convert before emitting. Common conversions:
+    - 億 / 억 (Korean / Japanese, = 100 million) → multiply by 100 to get mn. Example: "KRW 7,251 억" → \`revenue_local: 725100, revenue_local_unit: "mn"\` (NOT 7251000 — that would be a 10× error).
+    - 万 / 萬 (Chinese, = 10,000) → multiply by 0.01 to get mn (or use "thousands" with ×10). Example: "CNY 5,000 万" → \`revenue_local: 50, revenue_local_unit: "mn"\`.
+    - 兆 / 万亿 (10¹²) → use "bn" with ×1000. Example: "JPY 1.2 兆" → \`revenue_local: 1200, revenue_local_unit: "bn"\`.
+    Sanity-check before emitting: \`revenue_local\` (after applying the unit) divided by \`assumed_forex\` MUST equal \`revenue_usd_mn\` within 5%. If they disagree, your unit conversion is wrong — fix \`revenue_local\`, do not change \`revenue_usd_mn\`.
   - \`ebitda_local\` and \`ebitda_local_unit\` follow the same rules; set both \`null\` when the document does not report EBITDA in local currency.
   - \`assumed_forex\` MUST be filled. Units: local currency per 1 USD (e.g. KRW 1370/USD → 1370; IDR 16100/USD → 16100). Use a rate quoted in the document if available, otherwise the period-average spot rate for that fiscal year from your training knowledge. Do not leave it null.
   - You MAY leave \`revenue_usd_mn\` and \`ebitda_usd_mn\` \`null\` when the document only reports local-currency figures. The server will derive them as \`<local_in_mn> / assumed_forex\`.
@@ -183,13 +183,16 @@ async function streamAgentMessages(
 
 /**
  * Invoke the file processing agent.
+ *
+ * Returns the AI's parsed classification + extraction result. No DB writes —
+ * persistence (creating companies, financials, fx) is deferred to the human
+ * review / approve step in `FileService.approve`.
  */
 export async function processFileContent(
   rawText: string,
   buffer: Buffer,
   contentType: string,
   userRawNotes: string,
-  supabase: DbClient,
   fileTypeOverride?: FileTypeOverride,
 ) {
   const apiKey = process.env.ANTHROPIC_API_KEY;
@@ -217,7 +220,6 @@ export async function processFileContent(
   };
 
   let lastMessage: BaseMessage | null = null;
-  let company: any = null;
   if (contentType === 'application/pdf') {
     logger.debug("📂 INVOKING FILE PROCESSING AGENT");
 
@@ -286,77 +288,8 @@ export async function processFileContent(
         if (match) {
           finalMatchedCompanies.push(match);
         } else {
-          if (parsed.file_type === 'prospectus') {
-            const summary = parsed?.prospectus_summary ?? {};
-            const insertData = {
-              pipeline_stage: 'L0' as const,
-              target: summary.company_name || null,
-              project_name: summary.project_name || null,
-              thesis_content: null,
-              segment: summary.segment || null,
-              segment_related_offerings: summary.segment_related_offerings || null,
-              company_focus: summary.company_focus || null,
-              website: summary.website || null,
-              watchlist_status: summary.watchlist_status || null,
-              comments: summary.comments || null,
-              ownership: summary.ownership || null,
-              geography: summary.geography || null,
-              remarks: summary.remarks || null,
-              source: 'inbound' as const,
-            };
-            try {
-              const companyRepo = new CompanyRepository(supabase);
-              company = await companyRepo.insert(insertData);
-
-              const financialRowsRaw: FinancialRow[] = Array.isArray(summary.financials)
-                ? summary.financials
-                    .filter((r: any) => r && Number.isInteger(r.fiscal_year))
-                    .map((r: any): FinancialRow => ({
-                      fiscal_year: r.fiscal_year as number,
-                      revenue_usd_mn: r.revenue_usd_mn ?? null,
-                      ebitda_usd_mn: r.ebitda_usd_mn ?? null,
-                      ev_usd_mn: r.ev_usd_mn ?? null,
-                      ebitda_margin: r.ebitda_margin ?? null,
-                      ev_ebitda: r.ev_ebitda ?? null,
-                      revenue_cagr_vs_prior: r.revenue_cagr_vs_prior ?? null,
-                    }))
-                : [];
-
-              const fxRows: FxRow[] = Array.isArray(summary.fx_adjustments)
-                ? summary.fx_adjustments
-                    .filter(
-                      (r: any) =>
-                        r &&
-                        Number.isInteger(r.fiscal_year) &&
-                        typeof r.currency === 'string' &&
-                        r.currency.length > 0,
-                    )
-                    .map((r: any) => normalizeFxRow(r as RawFxRow))
-                : [];
-
-              applyFxBackfill(financialRowsRaw, fxRows);
-
-              const financialRows = financialRowsRaw.filter((r: FinancialRow) =>
-                r.revenue_usd_mn !== null || r.ebitda_usd_mn !== null || r.ev_usd_mn !== null ||
-                r.ebitda_margin !== null || r.ev_ebitda !== null || r.revenue_cagr_vs_prior !== null,
-              );
-
-              if (financialRows.length > 0) {
-                const financialRepo = new CompanyFinancialRepository(supabase);
-                await financialRepo.bulkUpsertForCompany(company.id, financialRows);
-              }
-
-              if (fxRows.length > 0) {
-                const fxRepo = new CompanyFxAdjustmentRepository(supabase);
-                await fxRepo.bulkUpsertForCompany(company.id, fxRows);
-              }
-            } catch {
-              logger.error('Error inserting companies results:');
-            }
-          }
-
           finalMatchedCompanies.push({
-            id: company?.id || null,
+            id: null,
             name: detectedName,
             type: 'company',
             similarity: 1,
@@ -384,14 +317,67 @@ export async function processFileContent(
         parsed.file_type = 'other';
       }
 
-      parsed.company = company;
+      // Run FX backfill (pure compute, no DB) so USD figures are available
+      // in the review diff and ready for approve() to persist as-is.
+      if (parsed.file_type === 'prospectus' && parsed.prospectus_summary) {
+        const summary = parsed.prospectus_summary;
+
+        const financialRowsRaw: FinancialRow[] = Array.isArray(summary.financials)
+          ? summary.financials
+              .filter((r: any) => r && Number.isInteger(r.fiscal_year))
+              .map((r: any): FinancialRow => ({
+                fiscal_year: r.fiscal_year as number,
+                revenue_usd_mn: r.revenue_usd_mn ?? null,
+                ebitda_usd_mn: r.ebitda_usd_mn ?? null,
+                ev_usd_mn: r.ev_usd_mn ?? null,
+                ebitda_margin: r.ebitda_margin ?? null,
+                ev_ebitda: r.ev_ebitda ?? null,
+                revenue_cagr_vs_prior: r.revenue_cagr_vs_prior ?? null,
+              }))
+          : [];
+
+        const fxRows: FxRow[] = Array.isArray(summary.fx_adjustments)
+          ? summary.fx_adjustments
+              .filter(
+                (r: any) =>
+                  r &&
+                  Number.isInteger(r.fiscal_year) &&
+                  typeof r.currency === 'string' &&
+                  r.currency.length > 0,
+              )
+              .map((r: any) => normalizeFxRow(r as RawFxRow))
+          : [];
+
+        applyFxBackfill(financialRowsRaw, fxRows);
+
+        // Cross-check USD vs local (after backfill). When the LLM emits both
+        // and they disagree (commonly because it mishandled non-decimal units
+        // like 억 / 万), trust the USD value and recompute local so the FX
+        // row stays consistent. Surface the corrections in the agent log.
+        const warnings = validateFxConsistency(financialRowsRaw, fxRows);
+        for (const w of warnings) {
+          logger.warn(
+            `FX inconsistency FY${w.fiscal_year} ${w.field}: ` +
+              `reported_usd=${w.reported_usd_mn} vs local/forex=${w.derived_usd_mn.toFixed(2)} ` +
+              `(divergence ${(w.divergence_ratio * 100).toFixed(1)}%). ` +
+              `Trusting USD; ${w.field}_local recomputed to ${w.resolved_local_mn.toFixed(0)}.`,
+          );
+        }
+
+        parsed.prospectus_summary.financials = financialRowsRaw.filter(
+          (r: FinancialRow) =>
+            r.revenue_usd_mn !== null || r.ebitda_usd_mn !== null || r.ev_usd_mn !== null ||
+            r.ebitda_margin !== null || r.ev_ebitda !== null || r.revenue_cagr_vs_prior !== null,
+        );
+        parsed.prospectus_summary.fx_adjustments = fxRows;
+      }
 
       return parsed;
-    } catch (e) {
+    } catch {
       logger.error("Failed to parse JSON from agent response:");
-      return { raw_response: content, company: company };
+      return { raw_response: content };
     }
   }
 
-  return { raw_response: content, company: company };
+  return { raw_response: content };
 }

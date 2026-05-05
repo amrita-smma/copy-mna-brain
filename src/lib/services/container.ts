@@ -117,6 +117,8 @@ export function createContainer(db: DbClient): Container {
     criteriaRepo,
     screeningRepo,
     companyFinancialRepo,
+    companyService,
+    companyFxAdjustmentRepo,
   );
 
   const contactRepo = new ContactRepository(db);

@@ -39,14 +39,6 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import {
-  Command,
-  CommandEmpty,
-  CommandGroup,
-  CommandInput,
-  CommandItem,
-  CommandList,
-} from "@/components/ui/command";
-import {
   Table,
   TableBody,
   TableCell,
@@ -62,7 +54,6 @@ import {
   Bot,
   Building,
   CalendarIcon,
-  Check,
   CheckCircle2,
   ChevronDown,
   ChevronLeft,
@@ -77,6 +68,7 @@ import {
   FileUp,
   FileStack,
   Loader2,
+  Pencil,
   Search,
   Sparkles,
   Tag,
@@ -90,26 +82,13 @@ import { useRouter } from "next/navigation";
 import { Fragment, useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import posthog from "posthog-js";
-import { getCompanies, getCompaniesLite } from "@/lib/api/pipeline";
+import { getCompanies } from "@/lib/api/pipeline";
+import { MatchedCompanyCombobox, AUTO as COMBOBOX_AUTO, type CompanyOption as ComboboxOption } from "@/components/Files/MatchedCompanyCombobox";
+import { HitlReviewDialog } from "@/components/Files/HitlReviewDialog";
 
-/**
- * Sentinel value for the matched-company / project pickers when the user
- * hasn't picked a specific company. Means "no manual override — let the AI
- * decide post-upload." Surfaced in the UI as "Auto (AI Decides)". Radix's
- * `<Select>` does not allow an empty string as an item value, hence this
- * placeholder string.
- */
-const AUTO = "__auto__";
+const AUTO = COMBOBOX_AUTO;
 
-const MATCHED_COMPANY_PAGE_SIZE = 50;
-
-interface CompanyOption {
-  id: string;
-  /** `companies.target` — the company name shown in the Matched Company column. */
-  name: string;
-  /** `companies.project_name` — the codename shown in the Project Name column. */
-  projectName: string | null;
-}
+type CompanyOption = ComboboxOption;
 
 /**
  * Lowercase, replace any non-alphanumeric characters with a single space, and
@@ -155,204 +134,12 @@ export function matchCompanyByFilename(
   return bestId;
 }
 
-interface MatchedCompanyComboboxProps {
-  value: string;
-  onChange: (next: string) => void;
-  /**
-   * Used to resolve `value` → display name when the picked company is not
-   * in the currently-loaded paginated results (e.g. when the combobox first
-   * mounts with a pre-filled match from `matchCompanyByFilename`).
-   */
-  fallbackOptions: CompanyOption[];
-  disabled?: boolean;
-}
-
-/**
- * Searchable, infinite-scrolling combobox for picking a company. Pages
- * through `/api/companies?lite=true` server-side: typing in the search box
- * debounces and refetches from offset 0; scrolling near the bottom of the
- * list fetches the next page. Independent state per instance — opening
- * different rows' comboboxes doesn't cross-contaminate.
- */
-function MatchedCompanyCombobox({
-  value,
-  onChange,
-  fallbackOptions,
-  disabled,
-}: MatchedCompanyComboboxProps) {
-  const [open, setOpen] = useState(false);
-  const [query, setQuery] = useState("");
-  const [debouncedQuery, setDebouncedQuery] = useState("");
-  const [results, setResults] = useState<
-    Array<{ id: string; target: string | null }>
-  >([]);
-  const [hasMore, setHasMore] = useState(true);
-  const [loading, setLoading] = useState(false);
-
-  // Debounce the search input so we don't issue a fetch on every keystroke.
-  useEffect(() => {
-    const t = setTimeout(() => setDebouncedQuery(query), 200);
-    return () => clearTimeout(t);
-  }, [query]);
-
-  // Initial fetch (offset 0) when the popover opens or the debounced query
-  // changes. Cancellation guard handles the case where the user closes the
-  // popover or types again before the in-flight request resolves.
-  useEffect(() => {
-    if (!open) return;
-    let cancelled = false;
-    setLoading(true);
-    (async () => {
-      try {
-        const rows = await getCompaniesLite({
-          q: debouncedQuery || undefined,
-          limit: MATCHED_COMPANY_PAGE_SIZE,
-        });
-        if (cancelled) return;
-        setResults(rows);
-        setHasMore(rows.length === MATCHED_COMPANY_PAGE_SIZE);
-      } catch (error) {
-        console.error(
-          "Error fetching companies for matched company picker:",
-          error,
-        );
-        if (!cancelled) {
-          setResults([]);
-          setHasMore(false);
-        }
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [open, debouncedQuery]);
-
-  const loadMore = useCallback(async () => {
-    if (loading || !hasMore) return;
-    setLoading(true);
-    try {
-      const rows = await getCompaniesLite({
-        q: debouncedQuery || undefined,
-        limit: MATCHED_COMPANY_PAGE_SIZE,
-        offset: results.length,
-      });
-      setResults((prev) => [...prev, ...rows]);
-      setHasMore(rows.length === MATCHED_COMPANY_PAGE_SIZE);
-    } catch (error) {
-      console.error("Error loading more companies:", error);
-      setHasMore(false);
-    } finally {
-      setLoading(false);
-    }
-  }, [debouncedQuery, hasMore, loading, results.length]);
-
-  const onListScroll = useCallback(
-    (e: React.UIEvent<HTMLDivElement>) => {
-      const el = e.currentTarget;
-      // 80px from the bottom is enough lead time to fetch before the user
-      // sees the spinner; tighter than that and the page jumps look abrupt.
-      if (el.scrollHeight - el.scrollTop - el.clientHeight < 80) {
-        void loadMore();
-      }
-    },
-    [loadMore],
-  );
-
-  // Resolve the trigger label. `value` may reference a company that's not in
-  // the currently-loaded `results` (e.g. the row's auto-match prefilled it
-  // before the combobox was ever opened), so fall back to `fallbackOptions`
-  // for the name lookup.
-  const label =
-    value === AUTO
-      ? "Auto (AI Decides)"
-      : (results.find((r) => r.id === value)?.target ??
-        fallbackOptions.find((c) => c.id === value)?.name ??
-        "Auto (AI Decides)");
-
-  return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <Button
-          type="button"
-          variant="outline"
-          role="combobox"
-          aria-expanded={open}
-          disabled={disabled}
-          className="h-8 w-full justify-between font-normal text-xs px-2"
-        >
-          <span className="truncate">{label}</span>
-          <ChevronsUpDown className="h-3 w-3 opacity-50 shrink-0 ml-1" />
-        </Button>
-      </PopoverTrigger>
-      <PopoverContent
-        className="w-[--radix-popover-trigger-width] p-0"
-        align="start"
-      >
-        <Command shouldFilter={false}>
-          <CommandInput
-            placeholder="Search company..."
-            value={query}
-            onValueChange={setQuery}
-          />
-          <CommandList onScroll={onListScroll}>
-            <CommandEmpty>
-              {loading ? "Loading..." : "No companies found."}
-            </CommandEmpty>
-            <CommandGroup>
-              <CommandItem
-                value={AUTO}
-                onSelect={() => {
-                  onChange(AUTO);
-                  setOpen(false);
-                }}
-              >
-                <Check
-                  className={cn(
-                    "mr-2 h-4 w-4",
-                    value === AUTO ? "opacity-100" : "opacity-0",
-                  )}
-                />
-                Auto (AI Decides)
-              </CommandItem>
-              {results.map((c) => (
-                <CommandItem
-                  key={c.id}
-                  value={c.id}
-                  onSelect={() => {
-                    onChange(c.id);
-                    setOpen(false);
-                  }}
-                >
-                  <Check
-                    className={cn(
-                      "mr-2 h-4 w-4",
-                      value === c.id ? "opacity-100" : "opacity-0",
-                    )}
-                  />
-                  <span className="truncate">{c.target}</span>
-                </CommandItem>
-              ))}
-              {loading && results.length > 0 && (
-                <div className="py-2 text-center text-xs text-muted-foreground">
-                  Loading more...
-                </div>
-              )}
-            </CommandGroup>
-          </CommandList>
-        </Command>
-      </PopoverContent>
-    </Popover>
-  );
-}
-
 interface FileRecord {
   id: string;
   file_name: string;
   raw_notes: string | null;
   structured_notes: string | null;
-  processing_status: "pending" | "processing" | "completed" | "failed";
+  processing_status: "pending" | "processing" | "awaiting_review" | "completed" | "failed";
   tags: string[];
   matched_companies: any[];
   signed_url?: string;
@@ -385,6 +172,7 @@ interface FileTableProps {
   onUpdateDate: (id: string, date: Date | undefined) => void;
   onDownload: (id: string, fileName: string) => Promise<void>;
   onDelete: (id: string) => void;
+  onReview: (id: string) => void;
   downloadingId: string | null;
   deletingId: string | null;
   emptyMessage: string;
@@ -412,6 +200,7 @@ function FileTable({
   onUpdateDate,
   onDownload,
   onDelete,
+  onReview,
   downloadingId,
   deletingId,
   emptyMessage,
@@ -448,6 +237,16 @@ function FileTable({
           >
             <Loader2 className="h-3 w-3 animate-spin" />
             Processing
+          </Badge>
+        );
+      case "awaiting_review":
+        return (
+          <Badge
+            variant="outline"
+            className="flex items-center gap-1 text-amber-600 bg-amber-500/5 border-amber-200"
+          >
+            <Eye className="h-3 w-3" />
+            Awaiting Review
           </Badge>
         );
       case "completed":
@@ -801,6 +600,17 @@ function FileTable({
                                 </div>
                               </DialogContent>
                             </Dialog>
+                            {note.processing_status === "awaiting_review" && (
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => onReview(note.id)}
+                                title="Review & approve"
+                                className="h-8 w-8 text-amber-600 hover:text-amber-700"
+                              >
+                                <Pencil className="h-4 w-4" />
+                              </Button>
+                            )}
                             <Button
                               variant="ghost"
                               size="icon"
@@ -985,6 +795,7 @@ export default function AIFileDump({
     Record<string, boolean>
   >({});
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
+  const [reviewFileId, setReviewFileId] = useState<string | null>(null);
 
   // Pagination state for each table
   const [momPage, setMomPage] = useState(1);
@@ -2018,6 +1829,7 @@ export default function AIFileDump({
           onUpdateDate={handleUpdateDate}
           onDownload={handleDownload}
           onDelete={handleDelete}
+          onReview={setReviewFileId}
           downloadingId={downloadingId}
           deletingId={deletingId}
           emptyMessage="No MoM uploaded yet."
@@ -2045,6 +1857,7 @@ export default function AIFileDump({
           onUpdateDate={handleUpdateDate}
           onDownload={handleDownload}
           onDelete={handleDelete}
+          onReview={setReviewFileId}
           downloadingId={downloadingId}
           deletingId={deletingId}
           emptyMessage="No prospectus uploaded yet."
@@ -2072,6 +1885,7 @@ export default function AIFileDump({
           onUpdateDate={handleUpdateDate}
           onDownload={handleDownload}
           onDelete={handleDelete}
+          onReview={setReviewFileId}
           downloadingId={downloadingId}
           deletingId={deletingId}
           emptyMessage="No banker communications uploaded yet."
@@ -2099,6 +1913,7 @@ export default function AIFileDump({
           onUpdateDate={handleUpdateDate}
           onDownload={handleDownload}
           onDelete={handleDelete}
+          onReview={setReviewFileId}
           downloadingId={downloadingId}
           deletingId={deletingId}
           emptyMessage="No other files uploaded yet."
@@ -2107,6 +1922,21 @@ export default function AIFileDump({
           onPageChange={setOtherFilesPage}
         />
       </div>
+
+      {reviewFileId && (
+        <HitlReviewDialog
+          fileId={reviewFileId}
+          open={!!reviewFileId}
+          onClose={() => setReviewFileId(null)}
+          onApproved={() => {
+            setReviewFileId(null);
+            fetchMeetingNotes();
+            fetchProspectus();
+            fetchBankerComms();
+            fetchOtherFiles();
+          }}
+        />
+      )}
     </DashboardLayout>
   );
 }

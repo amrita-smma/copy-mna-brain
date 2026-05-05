@@ -55,7 +55,7 @@ import { CompanyAnalysisSection } from "@/components/pipeline/CompanyAnalysisSec
 import { AICompanyCardLoading } from "@/components/pipeline/AICompanyCardLoading";
 import FilePreview from "@/components/Files/FilePreview";
 import { DealStage } from "@/lib/types";
-import { STAGE_LABELS } from "@/lib/constants";
+import { STAGE_LABELS, isAnalysisInProgress } from "@/lib/constants";
 import { formatDistanceToNow, format } from "date-fns";
 import {
   addCompanyLink,
@@ -488,7 +488,7 @@ export default function CompanyDetailDialog({
       if (res.ok) {
         const data = await res.json();
         setAnalysis(data);
-        if (data.status === "generating") {
+        if (isAnalysisInProgress(data.status)) {
           setAnalysisGenerating(true);
           pollAnalysis();
         }
@@ -507,7 +507,7 @@ export default function CompanyDetailDialog({
         if (res.ok) {
           const data = await res.json();
           setAnalysis(data);
-          if (data.status !== "generating") {
+          if (!isAnalysisInProgress(data.status)) {
             setAnalysisGenerating(false);
             clearInterval(interval);
           }

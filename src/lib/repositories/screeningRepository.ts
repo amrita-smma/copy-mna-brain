@@ -6,7 +6,7 @@ type ScreeningWithRelations = Pick<
   Tables<'screenings'>,
   'id' | 'company_id' | 'criteria_id' | 'state' | 'result' | 'remarks' | 'created_at' | 'updated_at'
 > & {
-  company: Pick<Tables<'companies'>, 'target' | 'pipeline_stage'> | null;
+  company: Pick<Tables<'companies'>, 'target' | 'project_name' | 'pipeline_stage'> | null;
   criterias: Pick<Tables<'criterias'>, 'id' | 'name' | 'prompt'> | null;
 };
 
@@ -32,6 +32,7 @@ export class ScreeningRepository {
         created_at: screenings.created_at,
         updated_at: screenings.updated_at,
         company_target: companies.target,
+        company_project_name: companies.project_name,
         company_pipeline_stage: companies.pipeline_stage,
         criteria_id_inner: criterias.id,
         criteria_name: criterias.name,
@@ -53,9 +54,15 @@ export class ScreeningRepository {
       created_at: r.created_at,
       updated_at: r.updated_at,
       company:
-        r.company_target === null && r.company_pipeline_stage === null
+        r.company_target === null &&
+        r.company_project_name === null &&
+        r.company_pipeline_stage === null
           ? null
-          : { target: r.company_target, pipeline_stage: r.company_pipeline_stage },
+          : {
+              target: r.company_target,
+              project_name: r.company_project_name,
+              pipeline_stage: r.company_pipeline_stage,
+            },
       criterias:
         r.criteria_id_inner === null
           ? null

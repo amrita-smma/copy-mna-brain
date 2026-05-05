@@ -1,8 +1,17 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { FileRepository, CriteriaRepository, ScreeningRepository, CompanyFinancialRepository, DbClient, Tables } from '@/lib/repositories';
+import type {
+  FileRepository,
+  CriteriaRepository,
+  ScreeningRepository,
+  CompanyFinancialRepository,
+  CompanyFxAdjustmentRepository,
+  DbClient,
+  Tables,
+} from '@/lib/repositories';
 import type { CompanyAnalysisService } from './companyAnalysisService';
 import type { AIScreeningService } from './aiScreeningService';
-import { FileService } from './fileService';
+import type { CompanyService } from './companyService';
+import { FileService, type ApproveFileInput } from './fileService';
 
 vi.mock('@/lib/s3', () => ({
   downloadFile: vi.fn(),
@@ -44,6 +53,29 @@ function makeFile(overrides: Partial<FileRow> = {}): FileRow {
     updated_at: new Date().toISOString(),
     ...overrides,
   } as FileRow;
+}
+
+function makeCompany(overrides: Partial<Tables<'companies'>> = {}): Tables<'companies'> {
+  return {
+    id: 'company-1',
+    target: 'Acme Corp',
+    project_name: null,
+    segment: null,
+    segment_related_offerings: null,
+    company_focus: null,
+    website: null,
+    watchlist_status: null,
+    comments: null,
+    ownership: null,
+    geography: null,
+    remarks: null,
+    pipeline_stage: 'L0',
+    source: 'inbound',
+    thesis_content: null,
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+    ...overrides,
+  } as unknown as Tables<'companies'>;
 }
 
 function makeCriteria(id: string): CriteriaRow {
@@ -110,6 +142,13 @@ function makeCompanyFinancialRepoStub(): CompanyFinancialRepository {
   } as unknown as CompanyFinancialRepository;
 }
 
+function makeCompanyFxAdjustmentRepoStub(): CompanyFxAdjustmentRepository {
+  return {
+    findByCompany: vi.fn().mockResolvedValue([]),
+    bulkUpsertForCompany: vi.fn(),
+  } as unknown as CompanyFxAdjustmentRepository;
+}
+
 function makeCompanyAnalysisServiceStub(): CompanyAnalysisService {
   return {
     dispatch: vi.fn(),
@@ -124,6 +163,15 @@ function makeAIScreeningServiceStub(): AIScreeningService {
   } as unknown as AIScreeningService;
 }
 
+function makeCompanyServiceStub(): CompanyService {
+  return {
+    findById: vi.fn().mockResolvedValue(makeCompany()),
+    createFromDTO: vi.fn().mockResolvedValue({ id: 'company-new' }),
+    updateFromDTO: vi.fn().mockResolvedValue({ id: 'company-1' }),
+    listIdAndTargetPage: vi.fn(),
+  } as unknown as CompanyService;
+}
+
 function makeService(overrides: {
   fileRepo?: FileRepository;
   companyAnalysisService?: CompanyAnalysisService;
@@ -131,6 +179,8 @@ function makeService(overrides: {
   criteriaRepo?: CriteriaRepository;
   screeningRepo?: ScreeningRepository;
   companyFinancialRepo?: CompanyFinancialRepository;
+  companyService?: CompanyService;
+  companyFxAdjustmentRepo?: CompanyFxAdjustmentRepository;
 } = {}) {
   return new FileService(
     null as unknown as DbClient,
@@ -140,6 +190,8 @@ function makeService(overrides: {
     overrides.criteriaRepo ?? makeCriteriaRepoStub(),
     overrides.screeningRepo ?? makeScreeningRepoStub(),
     overrides.companyFinancialRepo ?? makeCompanyFinancialRepoStub(),
+    overrides.companyService ?? makeCompanyServiceStub(),
+    overrides.companyFxAdjustmentRepo ?? makeCompanyFxAdjustmentRepoStub(),
   );
 }
 
@@ -167,6 +219,8 @@ describe('FileService.processUpload', () => {
       criteriaRepo,
       screeningRepo,
       companyFinancialRepo,
+      makeCompanyServiceStub(),
+      makeCompanyFxAdjustmentRepoStub(),
     );
 
     vi.mocked(downloadFile).mockResolvedValue(Buffer.from('content'));
@@ -197,12 +251,40 @@ describe('FileService.processUpload', () => {
     expect(extractTextFromFile).toHaveBeenCalledOnce();
   });
 
-  it('marks status as completed when processing succeeds', async () => {
+  it('auto-completes non-prospectus files (no HITL gate)', async () => {
+    await service.processUpload('uploads/report.pdf', 'report.pdf', 'application/pdf');
+
+    // file_type defaults to 'other' when no override and processFileContent
+    // returns null — Option A skips the review gate for these.
+    expect(fileRepo.updatePartial).toHaveBeenCalledWith(
+      'file-1',
+      expect.objectContaining({ processing_status: 'completed' }),
+    );
+  });
+
+  it('marks status as awaiting_review for prospectus files', async () => {
+    vi.mocked(processFileContent).mockResolvedValue({ file_type: 'prospectus' } as never);
+
     await service.processUpload('uploads/report.pdf', 'report.pdf', 'application/pdf');
 
     expect(fileRepo.updatePartial).toHaveBeenCalledWith(
       'file-1',
-      expect.objectContaining({ processing_status: 'completed' }),
+      expect.objectContaining({ processing_status: 'awaiting_review' }),
+    );
+  });
+
+  it('marks status as awaiting_review when fileTypeOverride is prospectus', async () => {
+    await service.processUpload(
+      'uploads/report.pdf',
+      'report.pdf',
+      'application/pdf',
+      undefined,
+      'prospectus',
+    );
+
+    expect(fileRepo.updatePartial).toHaveBeenCalledWith(
+      'file-1',
+      expect.objectContaining({ processing_status: 'awaiting_review' }),
     );
   });
 
@@ -217,12 +299,22 @@ describe('FileService.processUpload', () => {
     );
   });
 
-  it('does not dispatch company analysis when processing fails', async () => {
-    vi.mocked(processFileContent).mockRejectedValue(new Error('AI error'));
+  it('does not dispatch company analysis during processUpload', async () => {
+    vi.mocked(processFileContent).mockResolvedValue({ file_type: 'prospectus' } as never);
 
     await service.processUpload('uploads/report.pdf', 'report.pdf', 'application/pdf');
 
     expect(companyAnalysisService.dispatch).not.toHaveBeenCalled();
+  });
+
+  it('does not dispatch AI screening during processUpload', async () => {
+    vi.mocked(processFileContent).mockResolvedValue({ file_type: 'prospectus' } as never);
+    vi.mocked(criteriaRepo.findAll).mockResolvedValue([makeCriteria('criteria-1')]);
+
+    await service.processUpload('uploads/report.pdf', 'report.pdf', 'application/pdf');
+
+    expect(screeningRepo.insert).not.toHaveBeenCalled();
+    expect(aiScreeningService.dispatch).not.toHaveBeenCalled();
   });
 
   it('returns signed URL with file data', async () => {
@@ -230,63 +322,6 @@ describe('FileService.processUpload', () => {
 
     expect(getSignedUrl).toHaveBeenCalledWith('uploads/report.pdf');
     expect(result).toMatchObject({ signed_url: 'https://signed-url' });
-  });
-
-  it('returns early without dispatching when structured result has no company id', async () => {
-    vi.mocked(processFileContent).mockResolvedValue({ company: { target: 'Acme' } } as never);
-
-    await service.processUpload('uploads/report.pdf', 'report.pdf', 'application/pdf');
-
-    expect(companyAnalysisService.dispatch).not.toHaveBeenCalled();
-  });
-
-  it('dispatches company analysis when structured result has a company id', async () => {
-    vi.mocked(processFileContent).mockResolvedValue({
-      company: { id: 'company-1', target: 'Acme' },
-      file_type: 'im',
-    } as never);
-    vi.mocked(companyAnalysisService.dispatch).mockResolvedValue({ jobId: 'job-1' });
-
-    await service.processUpload('uploads/report.pdf', 'report.pdf', 'application/pdf');
-
-    expect(companyAnalysisService.dispatch).toHaveBeenCalledWith(
-      expect.objectContaining({ companyId: 'company-1' }),
-    );
-  });
-
-  it('inserts a screening row and dispatches AI screening for each criterion', async () => {
-    vi.mocked(processFileContent).mockResolvedValue({
-      company: { id: 'company-1', target: 'Acme' },
-    } as never);
-    vi.mocked(companyAnalysisService.dispatch).mockResolvedValue({ jobId: 'job-1' });
-    vi.mocked(criteriaRepo.findAll).mockResolvedValue([
-      makeCriteria('criteria-1'),
-      makeCriteria('criteria-2'),
-    ]);
-    vi.mocked(screeningRepo.insert).mockResolvedValueOnce(makeScreening('screening-1'));
-    vi.mocked(screeningRepo.insert).mockResolvedValueOnce(makeScreening('screening-2'));
-    vi.mocked(aiScreeningService.dispatch).mockResolvedValue({ jobId: 'job-2' });
-
-    await service.processUpload('uploads/report.pdf', 'report.pdf', 'application/pdf');
-
-    await vi.waitFor(() => {
-      expect(screeningRepo.insert).toHaveBeenCalledTimes(2);
-      expect(aiScreeningService.dispatch).toHaveBeenCalledTimes(2);
-    });
-  });
-
-  it('does not insert any screening rows when criteria list is empty', async () => {
-    vi.mocked(processFileContent).mockResolvedValue({
-      company: { id: 'company-1', target: 'Acme' },
-    } as never);
-    vi.mocked(companyAnalysisService.dispatch).mockResolvedValue({ jobId: 'job-1' });
-    vi.mocked(criteriaRepo.findAll).mockResolvedValue([]);
-
-    await service.processUpload('uploads/report.pdf', 'report.pdf', 'application/pdf');
-
-    await vi.waitFor(() => {
-      expect(screeningRepo.insert).not.toHaveBeenCalled();
-    });
   });
 
   it('forwards fileTypeOverride to processFileContent and persists it as file_type', async () => {
@@ -302,8 +337,9 @@ describe('FileService.processUpload', () => {
       'mom',
     );
 
+    // fileTypeOverride is now arg index 4 (rawText=0, buffer=1, fileType=2, rawNotes=3, fileTypeOverride=4)
     const lastCallArgs = vi.mocked(processFileContent).mock.calls.at(-1);
-    expect(lastCallArgs?.[5]).toBe('mom');
+    expect(lastCallArgs?.[4]).toBe('mom');
     expect(fileRepo.insert).toHaveBeenCalledWith(
       expect.objectContaining({ file_type: 'mom' }),
     );
@@ -362,30 +398,233 @@ describe('FileService.processUpload', () => {
     );
 
     const lastCallArgs = vi.mocked(processFileContent).mock.calls.at(-1);
-    expect(lastCallArgs?.[5]).toBe('other');
+    expect(lastCallArgs?.[4]).toBe('other');
     expect(fileRepo.updatePartial).toHaveBeenCalledWith(
       'file-1',
       expect.objectContaining({ file_type: 'other' }),
     );
   });
+});
 
-  it('marks screening as failed when aiScreeningService.dispatch rejects', async () => {
-    vi.mocked(processFileContent).mockResolvedValue({
-      company: { id: 'company-1', target: 'Acme' },
-    } as never);
+describe('FileService.approve', () => {
+  let fileRepo: FileRepository;
+  let companyService: CompanyService;
+  let companyFinancialRepo: CompanyFinancialRepository;
+  let companyFxAdjustmentRepo: CompanyFxAdjustmentRepository;
+  let companyAnalysisService: CompanyAnalysisService;
+  let criteriaRepo: CriteriaRepository;
+  let screeningRepo: ScreeningRepository;
+  let aiScreeningService: AIScreeningService;
+  let service: FileService;
+
+  const prospectusNotes = JSON.stringify({
+    file_type: 'prospectus',
+    prospectus_summary: {
+      company_name: 'Acme Corp',
+      project_name: 'Project Owl',
+      segment: 'Fintech',
+      geography: 'Indonesia',
+      ownership: 'Founder-led',
+      financials: [{ fiscal_year: 2023, revenue_usd_mn: 100, ebitda_usd_mn: 20, ev_usd_mn: null, ebitda_margin: 0.2, ev_ebitda: null, revenue_cagr_vs_prior: null }],
+      fx_adjustments: [],
+    },
+  });
+
+  beforeEach(() => {
+    fileRepo = makeFileRepoStub();
+    companyService = makeCompanyServiceStub();
+    companyFinancialRepo = makeCompanyFinancialRepoStub();
+    companyFxAdjustmentRepo = makeCompanyFxAdjustmentRepoStub();
+    companyAnalysisService = makeCompanyAnalysisServiceStub();
+    criteriaRepo = makeCriteriaRepoStub();
+    screeningRepo = makeScreeningRepoStub();
+    aiScreeningService = makeAIScreeningServiceStub();
+    service = new FileService(
+      null as unknown as DbClient,
+      fileRepo,
+      companyAnalysisService,
+      aiScreeningService,
+      criteriaRepo,
+      screeningRepo,
+      companyFinancialRepo,
+      companyService,
+      companyFxAdjustmentRepo,
+    );
+    vi.mocked(criteriaRepo.findAll).mockResolvedValue([]);
     vi.mocked(companyAnalysisService.dispatch).mockResolvedValue({ jobId: 'job-1' });
-    vi.mocked(criteriaRepo.findAll).mockResolvedValue([makeCriteria('criteria-1')]);
-    vi.mocked(screeningRepo.insert).mockResolvedValue(makeScreening('screening-1'));
-    vi.mocked(aiScreeningService.dispatch).mockRejectedValue(new Error('dispatch failed'));
+  });
 
-    await service.processUpload('uploads/report.pdf', 'report.pdf', 'application/pdf');
+  it('creates a new company from AI data when create_company_from_ai is true', async () => {
+    vi.mocked(fileRepo.findById).mockResolvedValue(
+      makeFile({ id: 'file-1', structured_notes: prospectusNotes }),
+    );
+    vi.mocked(companyService.createFromDTO).mockResolvedValue({ id: 'company-new' } as never);
+    vi.mocked(companyService.findById).mockResolvedValue(makeCompany({ id: 'company-new' }));
+
+    const input: ApproveFileInput = {
+      file_type: 'prospectus',
+      matched_company_id: null,
+      create_company_from_ai: true,
+    };
+    await service.approve('file-1', input);
+
+    expect(companyService.createFromDTO).toHaveBeenCalledWith(
+      expect.objectContaining({ target: 'Acme Corp', source: 'inbound' }),
+      'created_from_file:file-1',
+    );
+  });
+
+  it('applies company_field_updates for matched existing company', async () => {
+    vi.mocked(fileRepo.findById).mockResolvedValue(
+      makeFile({ id: 'file-1', structured_notes: prospectusNotes }),
+    );
+    vi.mocked(companyService.findById).mockResolvedValue(makeCompany());
+
+    const input: ApproveFileInput = {
+      file_type: 'prospectus',
+      matched_company_id: 'company-1',
+      company_field_updates: { project_name: 'Project Owl', segment: 'Fintech' },
+    };
+    await service.approve('file-1', input);
+
+    expect(companyService.updateFromDTO).toHaveBeenCalledWith(
+      'company-1',
+      { project_name: 'Project Owl', segment: 'Fintech' },
+      'enriched_from_file:file-1',
+    );
+  });
+
+  it('does not call updateFromDTO when company_field_updates is empty', async () => {
+    vi.mocked(fileRepo.findById).mockResolvedValue(
+      makeFile({ id: 'file-1', structured_notes: prospectusNotes }),
+    );
+    vi.mocked(companyService.findById).mockResolvedValue(makeCompany());
+
+    const input: ApproveFileInput = {
+      file_type: 'prospectus',
+      matched_company_id: 'company-1',
+    };
+    await service.approve('file-1', input);
+
+    expect(companyService.updateFromDTO).not.toHaveBeenCalled();
+  });
+
+  it('upserts financials only for years the user ticked', async () => {
+    vi.mocked(fileRepo.findById).mockResolvedValue(
+      makeFile({ id: 'file-1', structured_notes: prospectusNotes }),
+    );
+    vi.mocked(companyService.findById).mockResolvedValue(makeCompany());
+
+    const input: ApproveFileInput = {
+      file_type: 'prospectus',
+      matched_company_id: 'company-1',
+      financial_years_to_apply: [2023],
+    };
+    await service.approve('file-1', input);
+
+    expect(companyFinancialRepo.bulkUpsertForCompany).toHaveBeenCalledWith(
+      'company-1',
+      expect.arrayContaining([expect.objectContaining({ fiscal_year: 2023 })]),
+    );
+  });
+
+  it('does not upsert financials when financial_years_to_apply is empty', async () => {
+    vi.mocked(fileRepo.findById).mockResolvedValue(
+      makeFile({ id: 'file-1', structured_notes: prospectusNotes }),
+    );
+    vi.mocked(companyService.findById).mockResolvedValue(makeCompany());
+
+    const input: ApproveFileInput = { file_type: 'prospectus', matched_company_id: 'company-1' };
+    await service.approve('file-1', input);
+
+    expect(companyFinancialRepo.bulkUpsertForCompany).not.toHaveBeenCalled();
+  });
+
+  it('marks file as completed and dispatches downstream jobs', async () => {
+    vi.mocked(fileRepo.findById).mockResolvedValue(
+      makeFile({ id: 'file-1', structured_notes: prospectusNotes }),
+    );
+    vi.mocked(companyService.findById).mockResolvedValue(makeCompany());
+
+    const input: ApproveFileInput = { file_type: 'prospectus', matched_company_id: 'company-1' };
+    await service.approve('file-1', input);
+
+    expect(fileRepo.updatePartial).toHaveBeenCalledWith(
+      'file-1',
+      expect.objectContaining({ processing_status: 'completed' }),
+    );
+    expect(companyAnalysisService.dispatch).toHaveBeenCalledWith(
+      expect.objectContaining({ companyId: 'company-1' }),
+    );
+  });
+
+  it('does not dispatch jobs when no company is resolved', async () => {
+    vi.mocked(fileRepo.findById).mockResolvedValue(makeFile({ id: 'file-1' }));
+
+    const input: ApproveFileInput = { file_type: 'mom', matched_company_id: null };
+    await service.approve('file-1', input);
+
+    expect(companyAnalysisService.dispatch).not.toHaveBeenCalled();
+  });
+
+  it('dispatches screening jobs and marks failed on dispatch error', async () => {
+    vi.mocked(fileRepo.findById).mockResolvedValue(
+      makeFile({ id: 'file-1', structured_notes: prospectusNotes }),
+    );
+    vi.mocked(companyService.findById).mockResolvedValue(makeCompany());
+    vi.mocked(criteriaRepo.findAll).mockResolvedValue([makeCriteria('c-1')]);
+    vi.mocked(screeningRepo.insert).mockResolvedValue(makeScreening('s-1'));
+    vi.mocked(aiScreeningService.dispatch).mockRejectedValue(new Error('fail'));
+
+    const input: ApproveFileInput = { file_type: 'prospectus', matched_company_id: 'company-1' };
+    await service.approve('file-1', input);
 
     await vi.waitFor(() => {
-      expect(screeningRepo.update).toHaveBeenCalledWith(
-        'screening-1',
-        expect.objectContaining({ state: 'failed' }),
-      );
+      expect(screeningRepo.update).toHaveBeenCalledWith('s-1', expect.objectContaining({ state: 'failed' }));
     });
+  });
+});
+
+describe('FileService.getReviewData', () => {
+  it('returns current company when proposedCompanyId is present', async () => {
+    const fileRepo = makeFileRepoStub();
+    const companyService = makeCompanyServiceStub();
+    const companyFinancialRepo = makeCompanyFinancialRepoStub();
+    const companyFxAdjustmentRepo = makeCompanyFxAdjustmentRepoStub();
+
+    const matchedFile = makeFile({
+      id: 'file-1',
+      matched_companies: [{ id: 'company-1', name: 'Acme', type: 'company' }] as never,
+      structured_notes: JSON.stringify({ file_type: 'prospectus', prospectus_summary: { company_name: 'Acme' } }),
+    });
+    vi.mocked(fileRepo.findById).mockResolvedValue(matchedFile);
+    vi.mocked(companyService.findById).mockResolvedValue(makeCompany({ id: 'company-1' }));
+
+    const service = new FileService(
+      null as unknown as DbClient,
+      fileRepo,
+      makeCompanyAnalysisServiceStub(),
+      makeAIScreeningServiceStub(),
+      makeCriteriaRepoStub(),
+      makeScreeningRepoStub(),
+      companyFinancialRepo,
+      companyService,
+      companyFxAdjustmentRepo,
+    );
+
+    const result = await service.getReviewData('file-1');
+
+    expect(result.current.company?.id).toBe('company-1');
+  });
+
+  it('returns null current.company when no matched company', async () => {
+    const fileRepo = makeFileRepoStub();
+    vi.mocked(fileRepo.findById).mockResolvedValue(makeFile({ id: 'file-1', matched_companies: [] }));
+
+    const service = makeService({ fileRepo });
+    const result = await service.getReviewData('file-1');
+
+    expect(result.current.company).toBeNull();
   });
 });
 
