@@ -88,7 +88,7 @@ export function createContainer(db: DbClient): Container {
   const investmentThesisService = new InvestmentThesisService(thesisRepo);
   const dealNoteService = new DealNoteService(dealNoteRepo);
   const dealLinkService = new DealLinkService(dealLinkRepo);
-  const jobService = new JobService(jobRepo);
+  const jobService = new JobService(jobRepo, screeningRepo);
   const authService = new AuthService(userRepo, resetTokenRepo);
   const userService = new UserService(userRepo, userFavoriteRepo);
   const chatService = new ChatService(thesisRepo, criteriaRepo);

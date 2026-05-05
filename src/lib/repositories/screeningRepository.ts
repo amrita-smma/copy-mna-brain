@@ -91,6 +91,28 @@ export class ScreeningRepository {
   }
 
   /**
+   * Idempotent terminal write used as a safety net when a job ends without
+   * the AI screening handler having written a result (pre-handler throws,
+   * orphaned timeouts, stuck-cleanup sweep). The WHERE clause guarantees
+   * we never clobber a real result that did get written.
+   */
+  async markFailedIfPending(
+    id: string,
+    remarks: string,
+  ): Promise<Tables<'screenings'> | null> {
+    const [row] = await this.db
+      .update(screenings)
+      .set({
+        state: 'failed',
+        result: 'error',
+        remarks,
+      } as TablesUpdate<'screenings'>)
+      .where(and(eq(screenings.id, id), eq(screenings.state, 'pending')))
+      .returning();
+    return row ?? null;
+  }
+
+  /**
    * For each (companyId, criteriaId) pair: reset to pending if it exists, otherwise insert.
    * Returns the final row id + company_id + criteria_id for each pair.
    */

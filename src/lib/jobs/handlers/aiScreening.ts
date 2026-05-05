@@ -192,101 +192,123 @@ export async function runAIScreening(
   deps: { db: DbClient; job: Tables<'jobs'> },
 ): Promise<AIScreeningJobResult> {
   const { companyId, criteriaId, criteriaPrompt, company, screeningId } = payload;
-
-  if (!companyId || !criteriaId || !criteriaPrompt || !company || !screeningId) {
-    throw new Error(
-      'Missing required fields: companyId, criteriaId, criteriaPrompt, company, screeningId',
-    );
-  }
-
-  const agent = await getAgentGraph();
-  if (!agent) {
-    throw new Error('Agent not available. Please ensure ANTHROPIC_API_KEY is set.');
-  }
-
-  const companyRepo = new CompanyRepository(deps.db);
-  const financialRepo = new CompanyFinancialRepository(deps.db);
-  const screeningDerivedRepo = new CompanyScreeningDerivedRepository(deps.db);
   const screeningRepo = new ScreeningRepository(deps.db);
+  let resultWritten = false;
 
-  const [dbCompany, financials, screeningDerived] = await Promise.all([
-    companyRepo.findById(companyId),
-    financialRepo.findByCompany(companyId),
-    screeningDerivedRepo.findByCompany(companyId),
-  ]);
-
-  const companyContext = buildCompanyContext(
-    { ...dbCompany, name: company.name },
-    financials,
-    screeningDerived,
-  );
-  const toolDescriptions = getToolDescriptions();
-
-  const evaluationPrompt = SCREENING_PROMPT_TEMPLATE.replace(
-    '{toolDescriptions}',
-    toolDescriptions,
-  )
-    .replace('{companyContext}', companyContext)
-    .replace('{criteriaPrompt}', criteriaPrompt);
-
-  let agentResult;
   try {
-    agentResult = await agent.invoke({ messages: [new HumanMessage(evaluationPrompt)] });
-  } catch (agentError) {
-    const errorMsg = (agentError as Error).message;
-    const isRateLimit =
-      errorMsg.includes('rate_limit') ||
-      errorMsg.includes('429') ||
-      errorMsg.includes('Rate limit');
+    if (!companyId || !criteriaId || !criteriaPrompt || !company || !screeningId) {
+      throw new Error(
+        'Missing required fields: companyId, criteriaId, criteriaPrompt, company, screeningId',
+      );
+    }
 
-    const remarks = isRateLimit
-      ? 'Rate limit exceeded. Request will be retried automatically.'
-      : `Agent error: ${errorMsg}`;
-    const screeningResult: ScreeningResult = { result: 'error', remarks };
-    await writeScreeningResult(screeningRepo, screeningId, deps.job.id, screeningResult);
-    throw new Error(remarks);
-  }
+    const agent = await getAgentGraph();
+    if (!agent) {
+      throw new Error('Agent not available. Please ensure ANTHROPIC_API_KEY is set.');
+    }
 
-  const messages = agentResult.messages;
-  const msg = messages[messages.length - 1];
-  const content = msg
-    ? typeof msg.content === 'string'
-      ? msg.content
-      : JSON.stringify(msg.content)
-    : '';
+    const companyRepo = new CompanyRepository(deps.db);
+    const financialRepo = new CompanyFinancialRepository(deps.db);
+    const screeningDerivedRepo = new CompanyScreeningDerivedRepository(deps.db);
 
-  let screeningResult: ScreeningResult;
-  try {
-    screeningResult = ScreeningResultSchema.parse(JSON.parse(content));
-  } catch {
-    const jsonMatch = content.match(/\{[\s\S]*\}/);
-    if (jsonMatch) {
-      try {
-        screeningResult = ScreeningResultSchema.parse(JSON.parse(jsonMatch[0]));
-      } catch {
-        screeningResult = { result: 'error', remarks: 'Failed to parse AI response' };
+    const [dbCompany, financials, screeningDerived] = await Promise.all([
+      companyRepo.findById(companyId),
+      financialRepo.findByCompany(companyId),
+      screeningDerivedRepo.findByCompany(companyId),
+    ]);
+
+    const companyContext = buildCompanyContext(
+      { ...dbCompany, name: company.name },
+      financials,
+      screeningDerived,
+    );
+    const toolDescriptions = getToolDescriptions();
+
+    const evaluationPrompt = SCREENING_PROMPT_TEMPLATE.replace(
+      '{toolDescriptions}',
+      toolDescriptions,
+    )
+      .replace('{companyContext}', companyContext)
+      .replace('{criteriaPrompt}', criteriaPrompt);
+
+    let agentResult;
+    try {
+      agentResult = await agent.invoke({ messages: [new HumanMessage(evaluationPrompt)] });
+    } catch (agentError) {
+      const errorMsg = (agentError as Error).message;
+      const isRateLimit =
+        errorMsg.includes('rate_limit') ||
+        errorMsg.includes('429') ||
+        errorMsg.includes('Rate limit');
+
+      const remarks = isRateLimit
+        ? 'Rate limit exceeded. Request will be retried automatically.'
+        : `Agent error: ${errorMsg}`;
+      const screeningResult: ScreeningResult = { result: 'error', remarks };
+      await writeScreeningResult(screeningRepo, screeningId, deps.job.id, screeningResult);
+      resultWritten = true;
+      throw new Error(remarks);
+    }
+
+    const messages = agentResult.messages;
+    const msg = messages[messages.length - 1];
+    const content = msg
+      ? typeof msg.content === 'string'
+        ? msg.content
+        : JSON.stringify(msg.content)
+      : '';
+
+    let screeningResult: ScreeningResult;
+    try {
+      screeningResult = ScreeningResultSchema.parse(JSON.parse(content));
+    } catch {
+      const jsonMatch = content.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        try {
+          screeningResult = ScreeningResultSchema.parse(JSON.parse(jsonMatch[0]));
+        } catch {
+          screeningResult = { result: 'error', remarks: 'Failed to parse AI response' };
+        }
+      } else {
+        screeningResult = {
+          result: 'error',
+          remarks: 'AI response was not in expected format',
+        };
       }
-    } else {
-      screeningResult = {
-        result: 'error',
-        remarks: 'AI response was not in expected format',
-      };
+    }
+
+    await writeScreeningResult(screeningRepo, screeningId, deps.job.id, screeningResult);
+    resultWritten = true;
+
+    const posthog = getPostHogClient();
+    posthog.capture({
+      distinctId: 'server',
+      event: 'ai_screening_completed',
+      properties: {
+        company_id: companyId,
+        company_name: dbCompany.target || company.name,
+        criteria_id: criteriaId,
+        result: screeningResult.result,
+      },
+    });
+
+    return { companyId, criteriaId, screeningId, ...screeningResult };
+  } finally {
+    // Safety net: if any path above threw before a result was persisted,
+    // mark the screening failed so it can't sit at 'pending' forever.
+    // markFailedIfPending is a no-op when state is no longer 'pending'.
+    if (!resultWritten && screeningId) {
+      try {
+        await screeningRepo.markFailedIfPending(
+          screeningId,
+          `AI screening did not produce a result for job ${deps.job.id}`,
+        );
+      } catch (mirrorErr) {
+        console.error(
+          `[ai_screening] failed to mirror failed state for screening ${screeningId}:`,
+          mirrorErr,
+        );
+      }
     }
   }
-
-  await writeScreeningResult(screeningRepo, screeningId, deps.job.id, screeningResult);
-
-  const posthog = getPostHogClient();
-  posthog.capture({
-    distinctId: 'server',
-    event: 'ai_screening_completed',
-    properties: {
-      company_id: companyId,
-      company_name: dbCompany.target || company.name,
-      criteria_id: criteriaId,
-      result: screeningResult.result,
-    },
-  });
-
-  return { companyId, criteriaId, screeningId, ...screeningResult };
 }
