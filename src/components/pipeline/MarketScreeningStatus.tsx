@@ -61,10 +61,10 @@ export default function MarketScreeningStatus({ onScanComplete, newCandidatesCou
 
       if (data) {
         setThesis(data as InvestmentThesis);
-        setThesisTitle(data.title);
-        setThesisContent(data.content);
-        setScanFrequency(data.scan_frequency);
-        setSourcesCount(data.sources_count);
+        setThesisTitle(data.title ?? '');
+        setThesisContent(data.content ?? '');
+        setScanFrequency(data.scan_frequency ?? 'weekly');
+        setSourcesCount(data.sources_count ?? 5);
       }
     } catch (error: any) {
       console.error('Error fetching thesis:', error);
@@ -184,7 +184,7 @@ export default function MarketScreeningStatus({ onScanComplete, newCandidatesCou
 
   return (
     <div className="border border-purple-100 dark:border-purple-900/20 rounded-xl p-3 bg-purple-50/50 dark:bg-purple-950/10 backdrop-blur-sm w-full">
-      <div className="flex items-center justify-between gap-4 w-full min-w-0">
+      <div className="flex flex-wrap items-center justify-between gap-y-3 gap-x-4 w-full min-w-0">
 
         {/* Left Section: Icon & Title */}
         <div className="flex items-center gap-3 shrink-0">
