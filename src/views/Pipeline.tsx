@@ -260,6 +260,9 @@ export default function Pipeline({ showCrm = false, showAiWorkforce = false }: P
   );
   const [companies, setCompanies] = useState<PipelineCompany[]>([]);
   const [loading, setLoading] = useState(true);
+  const [updatingCompanyIds, setUpdatingCompanyIds] = useState<Set<string>>(
+    new Set(),
+  );
   const [searchQuery, setSearchQuery] = useState("");
   const [sectorFilterValue, setSectorFilterValue] = useState<string>("all");
   const [selectedCompany, setSelectedCompany] =
@@ -367,6 +370,23 @@ export default function Pipeline({ showCrm = false, showAiWorkforce = false }: P
       toast.error("Failed to load companies");
     } finally {
       if (!opts.silent) setLoading(false);
+    }
+  };
+
+  const refetchAfterCompanyUpdate = async (companyId: string) => {
+    setUpdatingCompanyIds((prev) => {
+      const next = new Set(prev);
+      next.add(companyId);
+      return next;
+    });
+    try {
+      await fetchCompanies({ silent: true });
+    } finally {
+      setUpdatingCompanyIds((prev) => {
+        const next = new Set(prev);
+        next.delete(companyId);
+        return next;
+      });
     }
   };
 
@@ -1047,6 +1067,8 @@ export default function Pipeline({ showCrm = false, showAiWorkforce = false }: P
                                         const isFav = favoriteIds.has(
                                           company.id,
                                         );
+                                        const isUpdating =
+                                          updatingCompanyIds.has(company.id);
                                         return (
                                           <TableRow
                                             key={company.id}
@@ -1055,6 +1077,8 @@ export default function Pipeline({ showCrm = false, showAiWorkforce = false }: P
                                               isFav
                                                 ? "bg-amber-50/60 dark:bg-amber-900/10 hover:bg-amber-100/60 dark:hover:bg-amber-900/20"
                                                 : "hover:bg-muted/50",
+                                              isUpdating &&
+                                                "animate-pulse opacity-60",
                                             )}
                                           >
                                             <TableCell className="pr-0">
@@ -1505,6 +1529,9 @@ export default function Pipeline({ showCrm = false, showAiWorkforce = false }: P
 
                                   return paginatedCompanies.map((company) => {
                                     const isFav = favoriteIds.has(company.id);
+                                    const isUpdating = updatingCompanyIds.has(
+                                      company.id,
+                                    );
                                     return (
                                       <TableRow
                                         key={company.id}
@@ -1513,6 +1540,8 @@ export default function Pipeline({ showCrm = false, showAiWorkforce = false }: P
                                           isFav
                                             ? "bg-amber-50/60 dark:bg-amber-900/10 hover:bg-amber-100/60 dark:hover:bg-amber-900/20"
                                             : "hover:bg-muted/50",
+                                          isUpdating &&
+                                            "animate-pulse opacity-60",
                                         )}
                                       >
                                         <TableCell className="pr-0">
@@ -1794,7 +1823,7 @@ export default function Pipeline({ showCrm = false, showAiWorkforce = false }: P
             company={selectedCompany}
             open={!!selectedCompany}
             onOpenChange={(open) => !open && setSelectedCompany(null)}
-            onUpdate={() => fetchCompanies({ silent: true })}
+            onUpdate={() => refetchAfterCompanyUpdate(selectedCompany.id)}
           />
         )}
 
