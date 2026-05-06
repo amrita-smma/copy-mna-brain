@@ -263,7 +263,12 @@ export class CompanyService {
   }
 
   async dropDeal(id: string, currentStage: string | undefined, reason?: string) {
-    await this.companyRepo.update(id, { status: 'dropped' });
+    const trimmedReason = reason?.trim() || null;
+    await this.companyRepo.update(id, {
+      status: 'dropped',
+      dropped_reason: trimmedReason,
+      dropped_at: new Date().toISOString(),
+    });
     await this.companyLogRepo.insert({
       company_id: id,
       action: currentStage ? `DROPPED_FROM_${currentStage}` : 'DROPPED',
@@ -278,7 +283,11 @@ export class CompanyService {
   }
 
   async restoreDeal(id: string, currentStage: string | undefined) {
-    await this.companyRepo.update(id, { status: null });
+    await this.companyRepo.update(id, {
+      status: 'active',
+      dropped_reason: null,
+      dropped_at: null,
+    });
     await this.companyLogRepo.insert({
       company_id: id,
       action: currentStage ? `RESTORED_TO_${currentStage}` : 'RESTORED',

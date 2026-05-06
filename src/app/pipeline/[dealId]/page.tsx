@@ -9,6 +9,7 @@ interface CompanyDetailPageProps {
   showAiWorkforce?: boolean;
 }
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -137,6 +138,9 @@ interface CompanyData {
   created_at: string | null;
   updated_at: string | null;
   source: string | null;
+  status?: string | null;
+  dropped_reason?: string | null;
+  dropped_at?: string | null;
   financials_raw?: import('@/lib/repositories').Tables<'company_financials'>[];
 }
 
@@ -844,10 +848,29 @@ export default function CompanyDetailPage({ showCrm = false, showAiWorkforce = f
                     L1: {company.l1_screening_result}
                   </Badge>
                 )}
+                {company.status === 'dropped' && (
+                  <Badge variant="destructive">Dropped</Badge>
+                )}
               </div>
             </div>
           </div>
         </div>
+
+        {company.status === 'dropped' && (
+          <Alert variant="destructive">
+            <AlertCircle className="h-4 w-4" />
+            <AlertTitle>
+              Deal dropped
+              {company.dropped_at &&
+                ` on ${format(new Date(company.dropped_at), 'MMM d, yyyy')}`}
+            </AlertTitle>
+            <AlertDescription>
+              {company.dropped_reason
+                ? company.dropped_reason
+                : 'No reason was recorded.'}
+            </AlertDescription>
+          </Alert>
+        )}
 
         {/* Content */}
         <Tabs defaultValue="company-card" className="w-full">

@@ -72,6 +72,7 @@ interface CompanyWithDeal {
   created_at: string;
   current_stage: DealStage | null;
   is_active: boolean;
+  status: string | null;
 }
 
 const stageLabels: Record<DealStage | 'Acquired', string> = {
@@ -164,6 +165,9 @@ export default function MasterData({ showCrm = false, showAiWorkforce = false }:
         created_at: data.created_at,
         updated_at: data.updated_at,
         source: data.source ?? null,
+        status: data.status ?? null,
+        dropped_reason: data.dropped_reason ?? null,
+        dropped_at: data.dropped_at ?? null,
         ownership: data.ownership ?? null,
         geography: data.geography ?? null,
         financials_raw: data.financials_raw,
@@ -213,6 +217,7 @@ export default function MasterData({ showCrm = false, showAiWorkforce = false }:
             created_at: company.created_at,
             current_stage: company.pipeline_stage as DealStage | null,
             is_active: company.pipeline_stage !== null && company.pipeline_stage !== 'Acquired',
+            status: company.status ?? null,
           }));
         setCompanies(formatted);
       }
@@ -449,10 +454,11 @@ export default function MasterData({ showCrm = false, showAiWorkforce = false }:
                     <TableRow>
                       <TableHead>Company</TableHead>
                       <TableHead>Project</TableHead>
+                      <TableHead>Status</TableHead>
                       <TableHead>Sector</TableHead>
                       <TableHead>Source</TableHead>
                       <TableHead>Geo</TableHead>
-                      <TableHead>Status</TableHead>
+                      <TableHead>Stage</TableHead>
                       <TableHead>PIC</TableHead>
                       <TableHead className="text-right">Rev 2022</TableHead>
                       <TableHead className="text-right">Rev 2023</TableHead>
@@ -499,6 +505,15 @@ export default function MasterData({ showCrm = false, showAiWorkforce = false }:
                               >
                                 {company.project_name}
                               </button>
+                            ) : (
+                              <span className="text-muted-foreground">—</span>
+                            )}
+                          </TableCell>
+                          <TableCell>
+                            {company.status === 'dropped' ? (
+                              <Badge variant="destructive">Dropped</Badge>
+                            ) : company.status === 'active' ? (
+                              <Badge variant="default">Active</Badge>
                             ) : (
                               <span className="text-muted-foreground">—</span>
                             )}

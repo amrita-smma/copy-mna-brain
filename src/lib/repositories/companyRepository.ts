@@ -111,9 +111,7 @@ function buildFilterWhere(filters: CompanyFilters): SQL | undefined {
   if (filters.stageNotNull)
     conditions.push(isNotNull(companies.pipeline_stage));
   if (filters.excludeDropped) {
-    conditions.push(
-      or(isNull(companies.status), ne(companies.status, "dropped")),
-    );
+    conditions.push(ne(companies.status, "dropped"));
   }
   if (filters.createdAfter)
     conditions.push(gte(companies.created_at, filters.createdAfter));

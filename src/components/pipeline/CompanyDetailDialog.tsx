@@ -15,6 +15,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -132,6 +133,9 @@ export interface CompanyData {
   created_at: string;
   updated_at: string;
   source: string | null;
+  status: string | null;
+  dropped_reason: string | null;
+  dropped_at: string | null;
   ownership: string | null;
   geography: string | null;
   financials_raw?: Tables<'company_financials'>[];
@@ -869,7 +873,7 @@ export default function CompanyDetailDialog({
                 {company.segment && (
                   <Badge variant="outline">{company.segment}</Badge>
                 )}
-                {company.watchlist_status && (
+                {company.watchlist_status && company.status !== "dropped" && (
                   <Badge
                     variant={
                       company.watchlist_status === "Active"
@@ -883,9 +887,28 @@ export default function CompanyDetailDialog({
                 <Badge variant="secondary">
                   {getStageLabel(company.pipeline_stage)}
                 </Badge>
+                {company.status === "dropped" && (
+                  <Badge variant="destructive">Dropped</Badge>
+                )}
               </div>
             </DialogDescription>
           </DialogHeader>
+
+          {company.status === "dropped" && (
+            <Alert variant="destructive">
+              <AlertCircle className="h-4 w-4" />
+              <AlertTitle>
+                Deal dropped
+                {company.dropped_at &&
+                  ` on ${format(new Date(company.dropped_at), "MMM d, yyyy")}`}
+              </AlertTitle>
+              <AlertDescription>
+                {company.dropped_reason
+                  ? company.dropped_reason
+                  : "No reason was recorded."}
+              </AlertDescription>
+            </Alert>
+          )}
 
           <Tabs
             value={activeTab}

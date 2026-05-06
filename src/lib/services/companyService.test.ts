@@ -245,7 +245,14 @@ describe('CompanyService.dropDeal', () => {
   it('marks the company as dropped and writes a stage-aware log entry', async () => {
     await service.dropDeal('company-1', 'L2');
 
-    expect(repos.companyRepo.update).toHaveBeenCalledWith('company-1', { status: 'dropped' });
+    expect(repos.companyRepo.update).toHaveBeenCalledWith(
+      'company-1',
+      expect.objectContaining({
+        status: 'dropped',
+        dropped_reason: null,
+        dropped_at: expect.any(String),
+      }),
+    );
     expect(repos.companyLogRepo.insert).toHaveBeenCalledWith({
       company_id: 'company-1',
       action: 'DROPPED_FROM_L2',
@@ -262,9 +269,17 @@ describe('CompanyService.dropDeal', () => {
     });
   });
 
-  it('persists a deal note when a non-blank reason is provided', async () => {
+  it('persists a deal note and trimmed dropped_reason when a non-blank reason is provided', async () => {
     await service.dropDeal('company-3', 'L1', '  competitor acquired them  ');
 
+    expect(repos.companyRepo.update).toHaveBeenCalledWith(
+      'company-3',
+      expect.objectContaining({
+        status: 'dropped',
+        dropped_reason: 'competitor acquired them',
+        dropped_at: expect.any(String),
+      }),
+    );
     expect(repos.dealNoteRepo.insert).toHaveBeenCalledWith({
       deal_id: 'company-3',
       content: '  competitor acquired them  ',
@@ -298,10 +313,14 @@ describe('CompanyService.restoreDeal', () => {
     service = buildService(repos);
   });
 
-  it('clears the dropped status and writes a stage-aware log entry', async () => {
+  it('clears the dropped status, dropped_reason, dropped_at and writes a stage-aware log entry', async () => {
     await service.restoreDeal('company-1', 'L3');
 
-    expect(repos.companyRepo.update).toHaveBeenCalledWith('company-1', { status: null });
+    expect(repos.companyRepo.update).toHaveBeenCalledWith('company-1', {
+      status: 'active',
+      dropped_reason: null,
+      dropped_at: null,
+    });
     expect(repos.companyLogRepo.insert).toHaveBeenCalledWith({
       company_id: 'company-1',
       action: 'RESTORED_TO_L3',

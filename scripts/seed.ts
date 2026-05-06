@@ -155,6 +155,8 @@ type SeedCompany = {
   pipeline_stage: 'market_screening' | 'L0' | 'L1' | 'L2' | 'L3' | 'L4' | 'L5';
   status: 'active' | 'dropped';
   watchlist_status: string;
+  dropped_reason?: string;
+  dropped_at?: string;
   financials: Array<{
     fiscal_year: number;
     revenue_usd_mn?: number;
@@ -264,6 +266,9 @@ const seedCompanies: SeedCompany[] = [
     pipeline_stage: 'L0',
     status: 'dropped',
     watchlist_status: 'Dropped',
+    dropped_reason:
+      'Revenue declining YoY and customer base concentrated in legacy ICE auto OEMs; misaligned with thesis exposure to growth segments.',
+    dropped_at: '2026-02-12T09:30:00Z',
     financials: [
       { fiscal_year: 2023, revenue_usd_mn: 210.5, ebitda_usd_mn: 22.0 },
       { fiscal_year: 2024, revenue_usd_mn: 205.1, ebitda_usd_mn: 19.4, ev_usd_mn: 540 },
@@ -304,6 +309,130 @@ const seedCompanies: SeedCompany[] = [
       { fiscal_year: 2023, revenue_usd_mn: 11.2, ebitda_usd_mn: 1.4 },
       { fiscal_year: 2024, revenue_usd_mn: 14.6, ebitda_usd_mn: 2.2, ev_usd_mn: 72 },
       { fiscal_year: 2025, revenue_usd_mn: 16.1 },
+    ],
+  },
+  {
+    entry_id: 9009,
+    target: 'Indigo Apparel',
+    segment: 'Consumer / Apparel',
+    company_focus: 'Boutique denim brand with regional retail footprint',
+    website: 'https://indigoapparel.example',
+    geography: 'Indonesia',
+    ownership: 'Family-owned',
+    pipeline_stage: 'market_screening',
+    status: 'dropped',
+    watchlist_status: 'Dropped',
+    dropped_reason:
+      'Revenue below thesis floor (<$10M) and consumer apparel sits outside our industrial/logistics focus.',
+    dropped_at: '2026-03-04T11:15:00Z',
+    financials: [
+      { fiscal_year: 2024, revenue_usd_mn: 6.2, ebitda_usd_mn: 0.4 },
+      { fiscal_year: 2025, revenue_usd_mn: 7.1, ebitda_usd_mn: 0.6 },
+    ],
+  },
+  {
+    entry_id: 9010,
+    target: 'Juniper AgriTech',
+    project_name: 'Project Juniper',
+    segment: 'AgriTech',
+    company_focus: 'Precision irrigation systems for smallholder farms',
+    website: 'https://juniperagri.example',
+    geography: 'Vietnam',
+    ownership: 'VC-backed',
+    pipeline_stage: 'L1',
+    status: 'dropped',
+    watchlist_status: 'Dropped',
+    dropped_reason:
+      'EBITDA negative for three consecutive years with no clear path to profitability; founders unwilling to discuss control transactions.',
+    dropped_at: '2026-03-18T14:42:00Z',
+    financials: [
+      { fiscal_year: 2023, revenue_usd_mn: 11.5, ebitda_usd_mn: -3.2 },
+      { fiscal_year: 2024, revenue_usd_mn: 14.8, ebitda_usd_mn: -2.7 },
+      { fiscal_year: 2025, revenue_usd_mn: 18.6, ebitda_usd_mn: -1.9 },
+    ],
+  },
+  {
+    entry_id: 9011,
+    target: 'Kestrel Cold Chain',
+    project_name: 'Project Kestrel',
+    segment: 'Logistics / Cold Chain',
+    company_focus: 'Refrigerated warehousing and last-mile for pharma',
+    website: 'https://kestrelcold.example',
+    geography: 'Philippines',
+    ownership: 'PE-backed',
+    pipeline_stage: 'L2',
+    status: 'dropped',
+    watchlist_status: 'Dropped',
+    dropped_reason:
+      'Top customer concentration risk — single pharma client = 58% of revenue; renewal uncertain after 2026.',
+    dropped_at: '2026-04-02T08:20:00Z',
+    financials: [
+      { fiscal_year: 2023, revenue_usd_mn: 32.4, ebitda_usd_mn: 4.1 },
+      { fiscal_year: 2024, revenue_usd_mn: 38.7, ebitda_usd_mn: 5.6, ev_usd_mn: 165 },
+      { fiscal_year: 2025, revenue_usd_mn: 41.2, ebitda_usd_mn: 6.0 },
+    ],
+  },
+  {
+    entry_id: 9012,
+    target: 'Lumen Diagnostics',
+    project_name: 'Project Lumen',
+    segment: 'Healthcare / Diagnostics',
+    company_focus: 'Lab-as-a-service for hospital networks',
+    website: 'https://lumendx.example',
+    geography: 'Malaysia',
+    ownership: 'Private',
+    pipeline_stage: 'L3',
+    status: 'dropped',
+    watchlist_status: 'Dropped',
+    dropped_reason:
+      'Valuation expectations from sellers (>14x EV/EBITDA) materially above comparables; gap could not be bridged.',
+    dropped_at: '2026-04-15T16:05:00Z',
+    financials: [
+      { fiscal_year: 2023, revenue_usd_mn: 27.1, ebitda_usd_mn: 5.4 },
+      { fiscal_year: 2024, revenue_usd_mn: 33.8, ebitda_usd_mn: 7.1, ev_usd_mn: 210 },
+      { fiscal_year: 2025, revenue_usd_mn: 39.6, ebitda_usd_mn: 8.9, ev_usd_mn: 250 },
+    ],
+  },
+  {
+    entry_id: 9013,
+    target: 'Meridian Packaging',
+    project_name: 'Project Meridian',
+    segment: 'Industrial / Packaging',
+    company_focus: 'Sustainable corrugated packaging for e-commerce',
+    website: 'https://meridianpkg.example',
+    geography: 'Thailand',
+    ownership: 'Family-owned',
+    pipeline_stage: 'L4',
+    status: 'dropped',
+    watchlist_status: 'Dropped',
+    dropped_reason:
+      'QoE surfaced material revenue recognition adjustments (~12% of stated EBITDA); deal economics no longer support thesis.',
+    dropped_at: '2026-04-22T10:48:00Z',
+    financials: [
+      { fiscal_year: 2023, revenue_usd_mn: 64.0, ebitda_usd_mn: 9.8 },
+      { fiscal_year: 2024, revenue_usd_mn: 71.5, ebitda_usd_mn: 11.4, ev_usd_mn: 295 },
+      { fiscal_year: 2025, revenue_usd_mn: 78.2, ebitda_usd_mn: 12.6, ev_usd_mn: 320 },
+    ],
+  },
+  {
+    entry_id: 9014,
+    target: 'Northwind Robotics',
+    project_name: 'Project Northwind',
+    segment: 'Industrial Automation',
+    company_focus: 'Warehouse AGVs for 3PL operators',
+    website: 'https://northwindrobotics.example',
+    geography: 'Singapore',
+    ownership: 'PE-backed',
+    pipeline_stage: 'L5',
+    status: 'dropped',
+    watchlist_status: 'Dropped',
+    dropped_reason:
+      'Lost to competing strategic in final round; counterparty offered all-cash at premium valuation we declined to match.',
+    dropped_at: '2026-05-01T13:11:00Z',
+    financials: [
+      { fiscal_year: 2023, revenue_usd_mn: 45.6, ebitda_usd_mn: 7.2 },
+      { fiscal_year: 2024, revenue_usd_mn: 58.9, ebitda_usd_mn: 10.1, ev_usd_mn: 340 },
+      { fiscal_year: 2025, revenue_usd_mn: 72.4, ebitda_usd_mn: 13.8, ev_usd_mn: 420 },
     ],
   },
 ];
@@ -365,6 +494,8 @@ async function main() {
           pipeline_stage: c.pipeline_stage,
           status: c.status,
           watchlist_status: c.watchlist_status,
+          dropped_reason: c.dropped_reason ?? null,
+          dropped_at: c.dropped_at ?? null,
         })
         .returning({ id: companies.id });
       if (!inserted) continue;

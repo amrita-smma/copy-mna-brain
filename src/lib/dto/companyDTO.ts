@@ -42,6 +42,8 @@ export interface CompanyDTO {
   geography: string | null;
   source: DealOrigin | null;
   status: CompanyStatus | null;
+  dropped_reason: string | null;
+  dropped_at: string | null;
 
   remarks: string | null;
   thesis_content: string | null;
@@ -179,6 +181,8 @@ export function toCompanyDTO(
     geography: company.geography,
     source: company.source,
     status: company.status,
+    dropped_reason: company.dropped_reason,
+    dropped_at: company.dropped_at,
     remarks: company.remarks,
     thesis_content: company.thesis_content,
     created_at: company.created_at,

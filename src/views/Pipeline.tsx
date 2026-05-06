@@ -132,6 +132,8 @@ interface PipelineCompany {
   updated_at: string;
   source: string | null;
   status: string | null;
+  dropped_reason: string | null;
+  dropped_at: string | null;
   ownership: string | null;
   geography: string | null;
   financials_raw?: import('@/lib/repositories').Tables<'company_financials'>[];
@@ -359,6 +361,8 @@ export default function Pipeline({ showCrm = false, showAiWorkforce = false }: P
           updated_at: company.updated_at,
           source: company.source || null,
           status: company.status ?? null,
+          dropped_reason: company.dropped_reason ?? null,
+          dropped_at: company.dropped_at ?? null,
           ownership: company.ownership ?? null,
           geography: company.geography ?? null,
           financials_raw: company.financials_raw,
@@ -810,9 +814,9 @@ export default function Pipeline({ showCrm = false, showAiWorkforce = false }: P
                       {/* L0 Pipeline Companies */}
                       <Card className="border-dashed">
                         <CardHeader className="pb-3">
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-3">
-                              <div>
+                          <div className="flex flex-wrap items-center justify-between gap-3">
+                            <div className="flex items-center gap-3 min-w-0">
+                              <div className="min-w-0">
                                 <CardTitle className="text-lg">
                                   L0 Pipeline Companies
                                 </CardTitle>
@@ -821,7 +825,7 @@ export default function Pipeline({ showCrm = false, showAiWorkforce = false }: P
                                 </CardDescription>
                               </div>
                             </div>
-                            <div className="flex items-center gap-2">
+                            <div className="flex flex-wrap items-center gap-2 ml-auto">
                               <Button
                                 variant="ghost"
                                 size="sm"

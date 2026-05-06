@@ -55,6 +55,9 @@ interface CompanyData {
   remarks: string | null;
   created_at: string;
   updated_at: string;
+  status: string | null;
+  dropped_reason: string | null;
+  dropped_at: string | null;
   ownership: string | null;
   geography: string | null;
 }
@@ -150,8 +153,9 @@ export default function Dashboard({ showCrm = false, showAiWorkforce = false }: 
 
   const fetchDashboardData = async (opts: { silent?: boolean } = {}) => {
     try {
-      // Fetch all companies
+      // Fetch only active (non-dropped) companies for the dashboard.
       const companiesData = await getCompanies({
+        excludeDropped: true,
         orderBy: 'updated_at',
         orderDir: 'desc',
       });
@@ -471,14 +475,16 @@ export default function Dashboard({ showCrm = false, showAiWorkforce = false }: 
                                   )}
                                 </TableCell>
                                 <TableCell>
-                                  {company.l1_screening_result ? (
-                                    <Badge className={`${getStatusColor(company.l1_screening_result)} text-white text-xs border-0`}>
-                                      {company.l1_screening_result}
+                                  {company.status === 'dropped' ? (
+                                    <Badge variant="destructive" className="text-xs">
+                                      Dropped
+                                    </Badge>
+                                  ) : company.status === 'active' ? (
+                                    <Badge variant="default" className="text-xs">
+                                      Active
                                     </Badge>
                                   ) : (
-                                    <Badge variant="secondary" className="text-xs">
-                                      Pending
-                                    </Badge>
+                                    <span className="text-xs text-muted-foreground">—</span>
                                   )}
                                 </TableCell>
                                 <TableCell>

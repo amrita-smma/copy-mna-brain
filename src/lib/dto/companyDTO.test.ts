@@ -24,6 +24,8 @@ function makeCompany(overrides: Partial<Tables<'companies'>> = {}): Tables<'comp
     thesis_content: null,
     source: null,
     status: null,
+    dropped_reason: null,
+    dropped_at: null,
     ...overrides,
   };
 }

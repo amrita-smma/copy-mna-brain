@@ -263,7 +263,9 @@ export const companies = pgTable(
     remarks: text(),
     thesis_content: text(),
     source: dealOrigin(),
-    status: companyStatus(),
+    status: companyStatus().default("active").notNull(),
+    dropped_reason: text(),
+    dropped_at: timestamp({ withTimezone: true, mode: "string" }),
   },
   (table) => {
     return {
