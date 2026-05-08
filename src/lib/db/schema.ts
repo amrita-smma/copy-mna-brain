@@ -6,6 +6,7 @@ import {
   jsonb,
   text,
   integer,
+  bigserial,
   timestamp,
   foreignKey,
   unique,
@@ -55,6 +56,54 @@ export const screeningState = pgEnum("screening_state", [
   "pending",
   "completed",
   "failed",
+]);
+
+// AI Workforce (MB-143)
+export const workforceStatus = pgEnum("workforce_status", [
+  "pending",
+  "running",
+  "waiting_for_human_input",
+  "waiting_for_subagent",
+  "resume_ready",
+  "succeeded",
+  "failed",
+  "rejected",
+  "timed_out",
+]);
+
+export const triggerSource = pgEnum("trigger_source", [
+  "chat",
+  "cron",
+  "webhook",
+  "api",
+]);
+
+export const scheduleKind = pgEnum("schedule_kind", [
+  "daily",
+  "weekly",
+  "monthly",
+  "cron",
+]);
+
+export const pendingMutationStatus = pgEnum("pending_mutation_status", [
+  "pending",
+  "approved",
+  "rejected",
+  "timed_out",
+]);
+
+export const agentRunEventKind = pgEnum("agent_run_event_kind", [
+  "assistant_message",
+  "tool_call",
+  "tool_result",
+  "subagent_dispatch",
+  "mutation_proposed",
+  "mutation_resolved",
+  "checkpoint_saved",
+  "checkpoint_loaded",
+  "node_update",
+  "token_chunk",
+  "error",
 ]);
 
 export const jobs = pgTable(
@@ -1598,6 +1647,311 @@ export const contactMessages = pgTable(
       ),
       allowReadAccessOnContactMessages: pgPolicy(
         "Allow read access on contact_messages",
+        { as: "permissive", for: "select", to: ["public"] },
+      ),
+    };
+  },
+);
+
+// ============================================================================
+// AI Workforce (MB-143)
+// ============================================================================
+
+export const aiWorkforceQueue = pgTable(
+  "ai_workforce_queue",
+  {
+    id: uuid().defaultRandom().primaryKey().notNull(),
+    parent_run_id: uuid(),
+    agent_name: text().notNull(),
+    trigger_source: triggerSource().notNull(),
+    trigger_meta: jsonb()
+      .$type<Record<string, unknown>>()
+      .default({})
+      .notNull(),
+    status: workforceStatus().default("pending").notNull(),
+    priority: integer().default(0).notNull(),
+    resume_token: text(),
+    resume_reason: text(),
+    workflow_run_id: text(),
+    last_heartbeat_at: timestamp({ withTimezone: true, mode: "string" }),
+    input: jsonb().$type<Record<string, unknown>>().notNull(),
+    output: jsonb().$type<unknown>(),
+    error: jsonb().$type<Record<string, unknown>>(),
+    cost_cents: integer(),
+    token_input: integer(),
+    token_output: integer(),
+    created_at: timestamp({ withTimezone: true, mode: "string" })
+      .defaultNow()
+      .notNull(),
+    started_at: timestamp({ withTimezone: true, mode: "string" }),
+    ended_at: timestamp({ withTimezone: true, mode: "string" }),
+    idempotency_key: text(),
+  },
+  (table) => {
+    return {
+      idxAiWorkforceQueueRunning: index(
+        "idx_ai_workforce_queue_running",
+      ).using("btree", table.status.asc().nullsLast().op("enum_ops")),
+      idxAiWorkforceQueueResumeReady: index(
+        "idx_ai_workforce_queue_resume_ready",
+      ).using(
+        "btree",
+        table.priority.desc().nullsLast().op("int4_ops"),
+        table.created_at.asc().nullsLast().op("timestamptz_ops"),
+      ),
+      idxAiWorkforceQueuePending: index(
+        "idx_ai_workforce_queue_pending",
+      ).using(
+        "btree",
+        table.priority.desc().nullsLast().op("int4_ops"),
+        table.created_at.asc().nullsLast().op("timestamptz_ops"),
+      ),
+      idxAiWorkforceQueueHeartbeat: index(
+        "idx_ai_workforce_queue_heartbeat",
+      ).using(
+        "btree",
+        table.last_heartbeat_at.asc().nullsLast().op("timestamptz_ops"),
+      ),
+      idxAiWorkforceQueueParent: index(
+        "idx_ai_workforce_queue_parent",
+      ).using("btree", table.parent_run_id.asc().nullsLast().op("uuid_ops")),
+      aiWorkforceQueueParentRunIdFkey: foreignKey({
+        columns: [table.parent_run_id],
+        foreignColumns: [table.id],
+        name: "ai_workforce_queue_parent_run_id_fkey",
+      }),
+      aiWorkforceQueueIdempotencyKeyKey: unique(
+        "ai_workforce_queue_idempotency_key_key",
+      ).on(table.idempotency_key),
+      allowDeleteAccessOnAiWorkforceQueue: pgPolicy(
+        "Allow delete access on ai_workforce_queue",
+        { as: "permissive", for: "delete", to: ["public"], using: sql`true` },
+      ),
+      allowUpdateAccessOnAiWorkforceQueue: pgPolicy(
+        "Allow update access on ai_workforce_queue",
+        { as: "permissive", for: "update", to: ["public"] },
+      ),
+      allowInsertAccessOnAiWorkforceQueue: pgPolicy(
+        "Allow insert access on ai_workforce_queue",
+        { as: "permissive", for: "insert", to: ["public"] },
+      ),
+      allowReadAccessOnAiWorkforceQueue: pgPolicy(
+        "Allow read access on ai_workforce_queue",
+        { as: "permissive", for: "select", to: ["public"] },
+      ),
+    };
+  },
+);
+
+export const agentRunEvents = pgTable(
+  "agent_run_events",
+  {
+    id: bigserial({ mode: "number" }).primaryKey().notNull(),
+    run_id: uuid().notNull(),
+    seq: integer().notNull(),
+    kind: agentRunEventKind().notNull(),
+    payload: jsonb().$type<Record<string, unknown>>().notNull(),
+    latency_ms: integer(),
+    tokens_in: integer(),
+    tokens_out: integer(),
+    created_at: timestamp({ withTimezone: true, mode: "string" })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => {
+    return {
+      idxAgentRunEventsRun: index("idx_agent_run_events_run").using(
+        "btree",
+        table.run_id.asc().nullsLast().op("uuid_ops"),
+        table.seq.asc().nullsLast().op("int4_ops"),
+      ),
+      agentRunEventsRunIdFkey: foreignKey({
+        columns: [table.run_id],
+        foreignColumns: [aiWorkforceQueue.id],
+        name: "agent_run_events_run_id_fkey",
+      }).onDelete("cascade"),
+      agentRunEventsRunSeqKey: unique("agent_run_events_run_id_seq_key").on(
+        table.run_id,
+        table.seq,
+      ),
+      allowDeleteAccessOnAgentRunEvents: pgPolicy(
+        "Allow delete access on agent_run_events",
+        { as: "permissive", for: "delete", to: ["public"], using: sql`true` },
+      ),
+      allowUpdateAccessOnAgentRunEvents: pgPolicy(
+        "Allow update access on agent_run_events",
+        { as: "permissive", for: "update", to: ["public"] },
+      ),
+      allowInsertAccessOnAgentRunEvents: pgPolicy(
+        "Allow insert access on agent_run_events",
+        { as: "permissive", for: "insert", to: ["public"] },
+      ),
+      allowReadAccessOnAgentRunEvents: pgPolicy(
+        "Allow read access on agent_run_events",
+        { as: "permissive", for: "select", to: ["public"] },
+      ),
+    };
+  },
+);
+
+export const pendingMutations = pgTable(
+  "pending_mutations",
+  {
+    id: uuid().defaultRandom().primaryKey().notNull(),
+    run_id: uuid().notNull(),
+    tool_name: text().notNull(),
+    proposed_diff: jsonb().$type<Record<string, unknown>>().notNull(),
+    human_summary: text().notNull(),
+    status: pendingMutationStatus().default("pending").notNull(),
+    resolved_by: uuid(),
+    resolved_at: timestamp({ withTimezone: true, mode: "string" }),
+    resolution_note: text(),
+    applied_result: jsonb().$type<unknown>(),
+    created_at: timestamp({ withTimezone: true, mode: "string" })
+      .defaultNow()
+      .notNull(),
+    expires_at: timestamp({ withTimezone: true, mode: "string" }).notNull(),
+  },
+  (table) => {
+    return {
+      idxPendingMutationsRun: index("idx_pending_mutations_run").using(
+        "btree",
+        table.run_id.asc().nullsLast().op("uuid_ops"),
+      ),
+      idxPendingMutationsStatus: index(
+        "idx_pending_mutations_status",
+      ).using("btree", table.status.asc().nullsLast().op("enum_ops")),
+      pendingMutationsRunIdFkey: foreignKey({
+        columns: [table.run_id],
+        foreignColumns: [aiWorkforceQueue.id],
+        name: "pending_mutations_run_id_fkey",
+      }).onDelete("cascade"),
+      pendingMutationsResolvedByFkey: foreignKey({
+        columns: [table.resolved_by],
+        foreignColumns: [users.id],
+        name: "pending_mutations_resolved_by_fkey",
+      }).onDelete("set null"),
+      allowDeleteAccessOnPendingMutations: pgPolicy(
+        "Allow delete access on pending_mutations",
+        { as: "permissive", for: "delete", to: ["public"], using: sql`true` },
+      ),
+      allowUpdateAccessOnPendingMutations: pgPolicy(
+        "Allow update access on pending_mutations",
+        { as: "permissive", for: "update", to: ["public"] },
+      ),
+      allowInsertAccessOnPendingMutations: pgPolicy(
+        "Allow insert access on pending_mutations",
+        { as: "permissive", for: "insert", to: ["public"] },
+      ),
+      allowReadAccessOnPendingMutations: pgPolicy(
+        "Allow read access on pending_mutations",
+        { as: "permissive", for: "select", to: ["public"] },
+      ),
+    };
+  },
+);
+
+export const routines = pgTable(
+  "routines",
+  {
+    id: uuid().defaultRandom().primaryKey().notNull(),
+    title: text().notNull(),
+    prompt: text().notNull(),
+    schedule_kind: scheduleKind().notNull(),
+    schedule_spec: jsonb().$type<Record<string, unknown>>().notNull(),
+    cron_expression: text().notNull(),
+    timezone: text().default("UTC").notNull(),
+    agent_name: text(),
+    priority: integer().default(0).notNull(),
+    enabled: boolean().default(true).notNull(),
+    last_fired_at: timestamp({ withTimezone: true, mode: "string" }),
+    next_fire_at: timestamp({ withTimezone: true, mode: "string" }),
+    created_by: uuid().notNull(),
+    updated_by: uuid(),
+    created_at: timestamp({ withTimezone: true, mode: "string" })
+      .defaultNow()
+      .notNull(),
+    updated_at: timestamp({ withTimezone: true, mode: "string" })
+      .defaultNow()
+      .notNull(),
+    archived_at: timestamp({ withTimezone: true, mode: "string" }),
+  },
+  (table) => {
+    return {
+      idxRoutinesActiveDue: index("idx_routines_active_due").using(
+        "btree",
+        table.next_fire_at.asc().nullsLast().op("timestamptz_ops"),
+      ),
+      routinesCreatedByFkey: foreignKey({
+        columns: [table.created_by],
+        foreignColumns: [users.id],
+        name: "routines_created_by_fkey",
+      }),
+      routinesUpdatedByFkey: foreignKey({
+        columns: [table.updated_by],
+        foreignColumns: [users.id],
+        name: "routines_updated_by_fkey",
+      }).onDelete("set null"),
+      allowDeleteAccessOnRoutines: pgPolicy(
+        "Allow delete access on routines",
+        { as: "permissive", for: "delete", to: ["public"], using: sql`true` },
+      ),
+      allowUpdateAccessOnRoutines: pgPolicy(
+        "Allow update access on routines",
+        { as: "permissive", for: "update", to: ["public"] },
+      ),
+      allowInsertAccessOnRoutines: pgPolicy(
+        "Allow insert access on routines",
+        { as: "permissive", for: "insert", to: ["public"] },
+      ),
+      allowReadAccessOnRoutines: pgPolicy(
+        "Allow read access on routines",
+        { as: "permissive", for: "select", to: ["public"] },
+      ),
+    };
+  },
+);
+
+export const copilotChats = pgTable(
+  "copilot_chats",
+  {
+    id: uuid().defaultRandom().primaryKey().notNull(),
+    user_id: uuid().notNull(),
+    title: text(),
+    created_at: timestamp({ withTimezone: true, mode: "string" })
+      .defaultNow()
+      .notNull(),
+    last_active_at: timestamp({ withTimezone: true, mode: "string" })
+      .defaultNow()
+      .notNull(),
+    archived_at: timestamp({ withTimezone: true, mode: "string" }),
+  },
+  (table) => {
+    return {
+      idxCopilotChatsUserActive: index("idx_copilot_chats_user_active").using(
+        "btree",
+        table.user_id.asc().nullsLast().op("uuid_ops"),
+        table.last_active_at.desc().nullsFirst().op("timestamptz_ops"),
+      ),
+      copilotChatsUserIdFkey: foreignKey({
+        columns: [table.user_id],
+        foreignColumns: [users.id],
+        name: "copilot_chats_user_id_fkey",
+      }).onDelete("cascade"),
+      allowDeleteAccessOnCopilotChats: pgPolicy(
+        "Allow delete access on copilot_chats",
+        { as: "permissive", for: "delete", to: ["public"], using: sql`true` },
+      ),
+      allowUpdateAccessOnCopilotChats: pgPolicy(
+        "Allow update access on copilot_chats",
+        { as: "permissive", for: "update", to: ["public"] },
+      ),
+      allowInsertAccessOnCopilotChats: pgPolicy(
+        "Allow insert access on copilot_chats",
+        { as: "permissive", for: "insert", to: ["public"] },
+      ),
+      allowReadAccessOnCopilotChats: pgPolicy(
+        "Allow read access on copilot_chats",
         { as: "permissive", for: "select", to: ["public"] },
       ),
     };
