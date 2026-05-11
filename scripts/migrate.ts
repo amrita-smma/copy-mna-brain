@@ -9,13 +9,16 @@
 import { config } from 'dotenv';
 // Load .env.local first (if present), then .env as a fallback. dotenv won't
 // overwrite variables that are already set, so .env.local takes precedence.
+// Must call config() before dynamically importing db.ts — static imports are
+// hoisted in CJS output, so db.ts's module-level client creation would run
+// before dotenv if we used a static import here.
 config({ path: '.env.local' });
 config();
 import { drizzle } from 'drizzle-orm/postgres-js';
 import { migrate } from 'drizzle-orm/postgres-js/migrator';
-import { createPostgresClientFromEnv } from '../src/lib/server/db';
 
 async function main() {
+  const { createPostgresClientFromEnv } = await import('../src/lib/server/db');
   const client = createPostgresClientFromEnv({
     connect_timeout: 15,
     onnotice: () => {}, // silence NOTICE spam from IF NOT EXISTS etc
