@@ -11,7 +11,6 @@ config();
 
 import { drizzle } from 'drizzle-orm/postgres-js';
 import { and, eq, gte, inArray, lte } from 'drizzle-orm';
-import postgres from 'postgres';
 import {
   companies,
   companyFinancials,
@@ -22,6 +21,7 @@ import {
   users,
 } from '../src/lib/db/schema';
 import { hashPassword } from '../src/lib/services/password';
+import { createPostgresClientFromEnv } from '../src/lib/server/db';
 
 const SEED_USER_EMAIL = 'test@sqe.co.id';
 const SEED_USER_PASSWORD = 'password';
@@ -438,19 +438,13 @@ const seedCompanies: SeedCompany[] = [
 ];
 
 async function main() {
-  const url = process.env.DATABASE_URL;
-  if (!url) throw new Error('DATABASE_URL not set');
-
-  const isLocal = /127\.0\.0\.1|localhost/.test(url);
-  const client = postgres(url, {
-    max: 1,
+  const client = createPostgresClientFromEnv({
     prepare: false,
-    ssl: isLocal ? false : 'require',
     onnotice: () => {},
   });
   const db = drizzle(client);
 
-  console.log(`seeding ${new URL(url).host}...`);
+  console.log(`seeding ${process.env.DB_HOST}:${process.env.DB_PORT ?? '5432'}...`);
 
   try {
     // Users — remove any prior seed user (cascades favorites/assignees), then insert fresh.

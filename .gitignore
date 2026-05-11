@@ -21,6 +21,7 @@ pnpm-debug.log*
 
 # Local env files
 .env*.local
+.env
 *.local
 
 # TypeScript

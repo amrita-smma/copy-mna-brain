@@ -1,8 +1,8 @@
 /**
  * Programmatic migrate runner — bypass drizzle-kit CLI to get reliable SSL +
- * error reporting. Reads DATABASE_URL, auto-enables TLS for non-localhost
- * hosts, applies everything in drizzle/migrations/ that isn't already in
- * drizzle.__drizzle_migrations.
+ * error reporting. Uses DB_* env via createPostgresClientFromEnv (supports
+ * RDS IAM auth when RDS_IAM_DB_AUTH=true). Applies everything in
+ * drizzle/migrations/ that isn't already in drizzle.__drizzle_migrations.
  *
  * Usage: pnpm tsx scripts/migrate.ts
  */
@@ -13,23 +13,18 @@ config({ path: '.env.local' });
 config();
 import { drizzle } from 'drizzle-orm/postgres-js';
 import { migrate } from 'drizzle-orm/postgres-js/migrator';
-import postgres from 'postgres';
+import { createPostgresClientFromEnv } from '../src/lib/server/db';
 
 async function main() {
-  const url = process.env.DATABASE_URL;
-  if (!url) throw new Error('DATABASE_URL not set');
-
-  const isLocal = /127\.0\.0\.1|localhost/.test(url);
-  const client = postgres(url, {
-    max: 1,
-    prepare: false,
-    ssl: isLocal ? false : 'require',
+  const client = createPostgresClientFromEnv({
     connect_timeout: 15,
     onnotice: () => {}, // silence NOTICE spam from IF NOT EXISTS etc
+    prepare: false,
   });
 
   const db = drizzle(client);
-  console.log(`connecting to ${new URL(url).host} (ssl=${!isLocal})...`);
+  const hostHint = `${process.env.DB_HOST}:${process.env.DB_PORT ?? '5432'}/${process.env.DB_NAME}`;
+  console.log(`connecting to ${hostHint}...`);
   try {
     await migrate(db, {
       migrationsFolder: './drizzle/migrations',
