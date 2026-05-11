@@ -15,9 +15,10 @@ locals {
 
   workspace_config = {
     dev = {
-      environment           = "dev"
-      mna_devops_users      = ["haris.prakoso", "nico.alimin"]
-      mna_maintainers_users = []
+      environment              = "dev"
+      mna_devops_users         = ["haris.prakoso", "nico.alimin"]
+      mna_maintainers_users    = []
+      ses_send_email_users     = []
       tags = {
         Environment = "dev"
         Project     = "MnA"
@@ -34,6 +35,12 @@ locals {
         "dicki.sujadi",
         "kensen.huang",
       ]
+      ses_send_email_users = [
+        "dicki.sujadi",
+        "haris.prakoso",
+        "kensen.huang",
+        "nico.alimin",
+      ]
       tags = {
         Environment = "staging"
         Project     = "MnA"
@@ -47,6 +54,12 @@ locals {
         "nico.alimin",
       ]
       mna_maintainers_users = []
+      ses_send_email_users = [
+        "dicki.sujadi",
+        "haris.prakoso",
+        "kensen.huang",
+        "nico.alimin",
+      ]
       tags = {
         Environment = "production"
         Project     = "MnA"
