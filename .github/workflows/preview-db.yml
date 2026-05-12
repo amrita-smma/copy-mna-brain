@@ -87,15 +87,16 @@ jobs:
           P_PORT="5432"
           P_NAME="${DBPART%%\?*}"
 
-          for VAR in DB_HOST DB_PORT DB_NAME DB_USER DB_PASSWORD; do
+          for VAR in DB_HOST DB_PORT DB_NAME DB_USER DB_PASSWORD RDS_IAM_DB_AUTH; do
             vercel env rm "$VAR" preview "$BRANCH" --yes --token="$VERCEL_TOKEN" || true
           done
 
-          printf "%s" "$P_HOST"     | vercel env add DB_HOST     preview "$BRANCH" --token="$VERCEL_TOKEN"
-          printf "%s" "$P_PORT"     | vercel env add DB_PORT     preview "$BRANCH" --token="$VERCEL_TOKEN"
-          printf "%s" "$P_NAME"     | vercel env add DB_NAME     preview "$BRANCH" --token="$VERCEL_TOKEN"
-          printf "%s" "$P_USER"     | vercel env add DB_USER     preview "$BRANCH" --token="$VERCEL_TOKEN"
-          printf "%s" "$P_PASSWORD" | vercel env add DB_PASSWORD preview "$BRANCH" --token="$VERCEL_TOKEN"
+          printf "%s" "$P_HOST"     | vercel env add DB_HOST          preview "$BRANCH" --token="$VERCEL_TOKEN"
+          printf "%s" "$P_PORT"     | vercel env add DB_PORT          preview "$BRANCH" --token="$VERCEL_TOKEN"
+          printf "%s" "$P_NAME"     | vercel env add DB_NAME          preview "$BRANCH" --token="$VERCEL_TOKEN"
+          printf "%s" "$P_USER"     | vercel env add DB_USER          preview "$BRANCH" --token="$VERCEL_TOKEN"
+          printf "%s" "$P_PASSWORD" | vercel env add DB_PASSWORD      preview "$BRANCH" --token="$VERCEL_TOKEN"
+          printf "%s" "false"       | vercel env add RDS_IAM_DB_AUTH  preview "$BRANCH" --token="$VERCEL_TOKEN"
 
       - name: Redeploy latest Vercel deployment for commit
         env:
@@ -206,6 +207,6 @@ jobs:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
           BRANCH: ${{ github.head_ref }}
         run: |
-          for VAR in DB_HOST DB_PORT DB_NAME DB_USER DB_PASSWORD; do
+          for VAR in DB_HOST DB_PORT DB_NAME DB_USER DB_PASSWORD RDS_IAM_DB_AUTH; do
             vercel env rm "$VAR" preview "$BRANCH" --yes --token="$VERCEL_TOKEN" || true
           done
