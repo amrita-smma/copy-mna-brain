@@ -1,5 +1,5 @@
 import { type UIMessage } from "@ai-sdk/react";
-import { useState, useEffect } from "react";
+import { memo, useState, useEffect } from "react";
 import { cn } from "@/lib/utils";
 import { Bot, User, ChevronDown, ChevronRight, Wrench, Loader2, FileText, X, Sparkles, FileSearch, Brain } from "lucide-react";
 import { MarkdownRenderer } from "./MarkdownRenderer";
@@ -56,7 +56,7 @@ export function LoadingBubble() {
   );
 }
 
-export function ChatMessageBubble(props: ChatMessageBubbleProps) {
+function ChatMessageBubbleImpl(props: ChatMessageBubbleProps) {
   const isUser = props.message.role === "user";
   const parts = props.message?.parts || [];
 
@@ -592,3 +592,8 @@ export function ChatMessageBubble(props: ChatMessageBubbleProps) {
     </div>
   );
 }
+
+// Memoize so typing in the input doesn't re-render every bubble in the
+// history. Streaming messages still re-render because the AI SDK produces a
+// new message object on each chunk (changes the prop reference).
+export const ChatMessageBubble = memo(ChatMessageBubbleImpl);

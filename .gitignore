@@ -57,7 +57,11 @@ test_files/
 sqemnabrain/
 .env.local
 .env.vercel
+.env
 
 # Playwright
 playwright-report/
 test-results/
+
+.pnpm-store/
+.pnpm-store

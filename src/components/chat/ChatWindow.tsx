@@ -1,17 +1,17 @@
 "use client";
 
 import type { UIMessage } from "@ai-sdk/react";
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import type { ReactNode } from "react";
 import { toast } from "sonner";
 import { StickToBottom, useStickToBottomContext } from "use-stick-to-bottom";
-import { ArrowDown, LoaderCircle, Trash2, Send, Lightbulb } from "lucide-react";
+import { ArrowDown, LoaderCircle, MessageSquarePlus, Send, Lightbulb } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { ChatMessageBubble, LoadingBubble } from "./ChatMessageBubble";
-import { useChatContext, STORAGE_KEY } from "./ChatProvider";
+import { useChatContext } from "./ChatProvider";
 
 const WELCOME_MESSAGE = `# Hello! I'm your M&A discovery assistant. I can help you with
 
@@ -51,17 +51,16 @@ function ChatMessages(props: {
 }) {
   return (
     <div className="w-full min-w-0">
-      {/* Clear History Button - Sticky */}
       {props.messages.length > 0 && props.onClearHistory && (
         <div className="sticky top-2 z-20 flex justify-end pb-2 pr-2">
           <Button
             variant="ghost"
             size="sm"
             onClick={props.onClearHistory}
-            className="ml-auto text-muted-foreground hover:text-destructive gap-1.5 bg-background/90 backdrop-blur supports-[backdrop-filter]:backdrop-blur"
+            className="ml-auto text-muted-foreground hover:text-foreground gap-1.5 bg-background/90 backdrop-blur supports-[backdrop-filter]:backdrop-blur"
           >
-            <Trash2 className="h-4 w-4" />
-            Clear History
+            <MessageSquarePlus className="h-4 w-4" />
+            New Chat
           </Button>
         </div>
       )}
@@ -182,6 +181,32 @@ function StickyToBottomContent(props: {
   );
 }
 
+/**
+ * Forces a scroll to the bottom when a chat finishes loading from history.
+ * Without this, StickToBottom thinks the user "isn't at the bottom" (because
+ * the prior render was empty / loading spinner) and skips its auto-scroll
+ * when the message list suddenly materializes, leaving the viewport stranded
+ * mid-conversation.
+ */
+function ScrollToBottomAfterLoad() {
+  const { isLoadingMessages, messages } = useChatContext();
+  const { scrollToBottom } = useStickToBottomContext();
+  const wasLoading = useRef(isLoadingMessages);
+
+  useEffect(() => {
+    if (wasLoading.current && !isLoadingMessages && messages.length > 0) {
+      // Defer to the next frame so the freshly-rendered messages have laid
+      // out and the scroll container knows its real scrollHeight.
+      requestAnimationFrame(() => {
+        void scrollToBottom("instant");
+      });
+    }
+    wasLoading.current = isLoadingMessages;
+  }, [isLoadingMessages, messages.length, scrollToBottom]);
+
+  return null;
+}
+
 export function ChatLayout(props: {
   content: ReactNode;
   footer: ReactNode;
@@ -196,6 +221,7 @@ export function ChatLayout(props: {
   );
   return (
     <StickToBottom>
+      <ScrollToBottomAfterLoad />
       <StickyToBottomContent
         className="absolute inset-0"
         contentClassName={cn("py-8 px-4 sm:px-6", props.contentClassName)}
@@ -216,6 +242,35 @@ export function ChatLayout(props: {
   );
 }
 
+/**
+ * Owns its own input state and pulls `sendMessage`/`status` from context so
+ * that typing only re-renders this component, not the entire message tree.
+ * (With memoized message bubbles, typing should be near-free.)
+ */
+function ChatInputContainer({ placeholder }: { placeholder?: string }) {
+  const [input, setInput] = useState("");
+  const { sendMessage, status } = useChatContext();
+  const isBusy = status === "streaming" || status === "submitted";
+
+  return (
+    <div className="max-w-5xl mx-auto space-y-3">
+      <ChatInput
+        value={input}
+        onChange={(e) => setInput(e.target.value)}
+        onSubmit={() => {
+          if (!input.trim()) return;
+          sendMessage({ text: input });
+          setInput("");
+        }}
+        loading={isBusy}
+        placeholder={placeholder ?? CHAT_INPUT_PLACEHOLDER}
+        suggestionChips={SUGGESTION_CHIPS}
+        onChipClick={(chip) => setInput(chip)}
+      />
+    </div>
+  );
+}
+
 export function ChatWindow(props: {
   endpoint: string;
   emptyStateComponent: ReactNode;
@@ -224,20 +279,17 @@ export function ChatWindow(props: {
   contentClassName?: string;
   footerClassName?: string;
 }) {
-  const [input, setInput] = useState("");
   const [isHydrated, setIsHydrated] = useState(false);
-  const { messages, sendMessage, status, setMessages } = useChatContext();
+  const { messages, status, newChat, isLoadingMessages } = useChatContext();
 
-  // Defer render until client to avoid hydration mismatch with stored messages
   useEffect(() => {
     setIsHydrated(true);
   }, []);
 
-  const handleClearHistory = useCallback(() => {
-    setMessages([]);
-    localStorage.removeItem(STORAGE_KEY);
-    toast.success("Chat history cleared");
-  }, [setMessages]);
+  const handleNewChat = useCallback(() => {
+    newChat();
+    toast.success("Started a new chat");
+  }, [newChat]);
 
   if (!isHydrated) {
     return null;
@@ -248,7 +300,12 @@ export function ChatWindow(props: {
       contentClassName={props.contentClassName}
       footerClassName={props.footerClassName ?? "border-t bg-card p-4 flex-shrink-0"}
       content={
-        messages.length === 0 ? (
+        isLoadingMessages ? (
+          <div className="flex items-center justify-center h-full min-h-[300px] text-muted-foreground gap-2">
+            <LoaderCircle className="h-5 w-5 animate-spin" />
+            <span className="text-sm">Loading chat…</span>
+          </div>
+        ) : messages.length === 0 ? (
           <div className="flex flex-col min-w-0 max-w-[768px] mx-auto pb-12 w-full">
             <WelcomeMessage />
           </div>
@@ -258,26 +315,11 @@ export function ChatWindow(props: {
             messages={messages}
             emptyStateComponent={props.emptyStateComponent}
             isLoading={status === "submitted"}
-            onClearHistory={handleClearHistory}
+            onClearHistory={handleNewChat}
           />
         )
       }
-      footer={
-        <div className="max-w-5xl mx-auto space-y-3">
-          <ChatInput
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onSubmit={() => {
-              sendMessage({ text: input });
-              setInput("");
-            }}
-            loading={status === "streaming" || status === "submitted"}
-            placeholder={props.placeholder ?? CHAT_INPUT_PLACEHOLDER}
-            suggestionChips={SUGGESTION_CHIPS}
-            onChipClick={(chip) => setInput(chip)}
-          />
-        </div>
-      }
+      footer={<ChatInputContainer placeholder={props.placeholder} />}
     />
   );
 }

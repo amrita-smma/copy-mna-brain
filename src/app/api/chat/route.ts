@@ -1,10 +1,16 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { after, NextRequest, NextResponse } from 'next/server';
 import { getAgentGraph, AIMessage } from '@/lib/agents/analysis';
+import { ChatAnthropic } from '@langchain/anthropic';
 import { createDb } from '@/lib/server/db';
 import { createContainer } from '@/lib/services';
+import {
+  CopilotChatNotFoundError,
+  CopilotChatForbiddenError,
+} from '@/lib/services/copilotChatsService';
+import { auth } from '@/auth';
 import { BaseMessage } from '@langchain/core/messages';
 import { toUIMessageStream, toBaseMessages } from '@ai-sdk/langchain';
-import { createUIMessageStreamResponse, UIMessage } from 'ai';
+import { createUIMessageStream, createUIMessageStreamResponse, UIMessage } from 'ai';
 
 const convertLangChainMessageToVercelMessage = (message: BaseMessage) => {
   if (message._getType() === 'human') {
@@ -20,66 +26,187 @@ const convertLangChainMessageToVercelMessage = (message: BaseMessage) => {
   }
 };
 
-export async function POST(req: NextRequest) {
+async function generateAndSaveTitle(opts: {
+  chatId: string;
+  firstUserMessage: string;
+  apiKey: string;
+}): Promise<string | null> {
   try {
-    const body = await req.json();
-    const returnIntermediateSteps = body.show_intermediate_steps;
+    const llm = new ChatAnthropic({
+      model: 'claude-haiku-4-5-20251001',
+      anthropicApiKey: opts.apiKey,
+      temperature: 0,
+      maxTokens: 60,
+    });
+    const res = await llm.invoke([
+      {
+        role: 'system',
+        content:
+          'Produce a concise 2-5 word title for the following user message. ' +
+          'Return only the title, no quotes, no trailing punctuation.',
+      },
+      { role: 'user', content: opts.firstUserMessage },
+    ]);
+    const title = String(res.content).trim().slice(0, 80);
+    if (!title) return null;
 
     const db = createDb();
-    const { chatService } = createContainer(db);
+    const { copilotChatsService } = createContainer(db);
+    await copilotChatsService.setTitle(opts.chatId, title);
+    return title;
+  } catch (err) {
+    console.error('[chat] title generation failed:', err);
+    return null;
+  }
+}
+
+export async function POST(req: NextRequest) {
+  try {
+    const session = await auth();
+    if (!session?.user?.id) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+    const userId = session.user.id;
+
+    const body = await req.json();
+    const returnIntermediateSteps = body.show_intermediate_steps;
+    const requestedChatId: string | undefined = body.chat_id;
+
+    const db = createDb();
+    const { chatService, copilotChatsService } = createContainer(db);
+
+    let chat;
+    if (requestedChatId) {
+      try {
+        chat = await copilotChatsService.assertOwnedBy(requestedChatId, userId);
+      } catch (err) {
+        if (err instanceof CopilotChatNotFoundError) {
+          return NextResponse.json({ error: 'Chat not found' }, { status: 404 });
+        }
+        if (err instanceof CopilotChatForbiddenError) {
+          return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+        }
+        throw err;
+      }
+    } else {
+      chat = await copilotChatsService.create(userId);
+    }
+
     const contextData = await chatService.buildContext();
 
-    console.log(JSON.stringify(body.messages));
-
+    // The client posts the full UI message history; with a checkpointer we
+    // only feed the latest user turn — prior state is rehydrated by the
+    // saver via thread_id.
     const filteredMessages = (body.messages ?? []).filter(
-      (message: { role: string }) =>
-        message.role === 'user' || message.role === 'assistant',
+      (m: { role: string }) => m.role === 'user' || m.role === 'assistant',
     );
+    const lastUserUI = [...filteredMessages]
+      .reverse()
+      .find((m: { role: string }) => m.role === 'user');
+    if (!lastUserUI) {
+      return NextResponse.json({ error: 'No user message in request' }, { status: 400 });
+    }
 
-    const rawMessages: UIMessage[] = filteredMessages.map((msg: { role: string; parts?: { type: string }[]; content?: unknown }) => {
-      if (msg.parts && Array.isArray(msg.parts)) {
-        const textParts = msg.parts.filter((part: { type: string }) => part.type === 'text');
-        return { ...msg, parts: textParts };
+    const normalizedLast: UIMessage = ((): UIMessage => {
+      const m = lastUserUI as { role: string; parts?: { type: string }[]; content?: unknown };
+      if (m.parts && Array.isArray(m.parts)) {
+        return { ...m, parts: m.parts.filter((p) => p.type === 'text') } as UIMessage;
       }
       return {
-        ...msg,
-        parts: msg.content
+        ...m,
+        parts: m.content
           ? [
               {
                 type: 'text',
-                text:
-                  typeof msg.content === 'string'
-                    ? msg.content
-                    : JSON.stringify(msg.content),
+                text: typeof m.content === 'string' ? m.content : JSON.stringify(m.content),
               },
             ]
           : [],
-      };
-    });
+      } as UIMessage;
+    })();
 
-    const messages: BaseMessage[] = await toBaseMessages(rawMessages);
+    const messages: BaseMessage[] = await toBaseMessages([normalizedLast]);
 
-    const agent = getAgentGraph();
+    const agent = await getAgentGraph();
     if (!agent) {
       return NextResponse.json(
-        { error: 'Agent not available. Please ensure ANTHROPIC_API_KEY is set.' },
+        {
+          error:
+            'Agent not available. Check server logs — likely a missing ANTHROPIC_API_KEY, ' +
+            'misconfigured DB env (DB_HOST/DB_PORT/DB_NAME/DB_USER + DB_PASSWORD or RDS_IAM_DB_AUTH), ' +
+            'or a checkpointer setup failure.',
+        },
         { status: 500 },
       );
     }
 
+    await copilotChatsService.touchLastActive(chat.id);
+
+    // First message of the chat → start title generation in parallel with the
+    // agent stream so the title is ready sooner. `after()` keeps the runtime
+    // alive until the promise resolves. Intentionally NOT going through the
+    // jobs table: title generation is a one-shot side effect with no need
+    // for status tracking, retry, or visibility.
+    const shouldGenerateTitle = !chat.title;
+    const apiKey = process.env.ANTHROPIC_API_KEY;
+    let titlePromise: Promise<string | null> | null = null;
+    if (shouldGenerateTitle && apiKey) {
+      const firstUserText = (normalizedLast.parts ?? [])
+        .filter((p): p is { type: 'text'; text: string } => p.type === 'text' && 'text' in p)
+        .map((p) => p.text)
+        .join('\n');
+      titlePromise = generateAndSaveTitle({
+        chatId: chat.id,
+        firstUserMessage: firstUserText,
+        apiKey,
+      });
+      after(() => titlePromise);
+    }
+
+    const headers = { 'X-Chat-Id': chat.id };
+
     if (!returnIntermediateSteps) {
       const eventStream = await agent.streamEvents(
         { messages, additionalSystemContext: contextData || undefined },
-        { version: 'v2', recursionLimit: 50 },
+        {
+          version: 'v2',
+          recursionLimit: 50,
+          configurable: { thread_id: chat.id },
+        },
       );
 
-      return createUIMessageStreamResponse({
-        stream: toUIMessageStream(eventStream),
+      // Wrap the langchain stream so we can also push a transient data part
+      // carrying the freshly-generated chat title the moment Haiku resolves —
+      // the client picks it up via useChat's onData and updates the sidebar
+      // without waiting for the agent stream to finish or polling the DB.
+      const stream = createUIMessageStream({
+        execute: async ({ writer }) => {
+          writer.merge(toUIMessageStream(eventStream));
+          if (titlePromise) {
+            // Cap so a slow Haiku call can't hold the response open.
+            const title = await Promise.race([
+              titlePromise,
+              new Promise<null>((r) => setTimeout(() => r(null), 15000)),
+            ]);
+            if (title) {
+              writer.write({
+                type: 'data-chat-title',
+                data: { chatId: chat.id, title },
+                transient: true,
+              });
+            }
+          }
+        },
       });
+
+      return createUIMessageStreamResponse({ stream, headers });
     } else {
       const result = await agent.invoke(
         { messages, additionalSystemContext: contextData || undefined },
-        { recursionLimit: 50 },
+        {
+          recursionLimit: 50,
+          configurable: { thread_id: chat.id },
+        },
       );
 
       const validMessages = result.messages.map((m: BaseMessage | string) => {
@@ -91,7 +218,7 @@ export async function POST(req: NextRequest) {
 
       return NextResponse.json(
         { messages: validMessages.map(convertLangChainMessageToVercelMessage) },
-        { status: 200 },
+        { status: 200, headers },
       );
     }
   } catch (e: unknown) {

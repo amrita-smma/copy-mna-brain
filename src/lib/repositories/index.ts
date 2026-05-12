@@ -21,3 +21,4 @@ export * from './pastAcquisitionRepository';
 export * from './invenCacheRepository';
 export * from './contactRepository';
 export * from './contactMessageRepository';
+export * from './copilotChatsRepository';

@@ -21,6 +21,7 @@ import {
   UserCompanyFavoriteRepository,
   ContactRepository,
   ContactMessageRepository,
+  CopilotChatsRepository,
 } from '@/lib/repositories';
 import { JobDispatcher } from './jobDispatcher';
 import { CompanyService } from './companyService';
@@ -40,6 +41,7 @@ import { JobService } from './jobService';
 import { AuthService } from './authService';
 import { UserService } from './userService';
 import { CRMService } from './crmService';
+import { CopilotChatsService } from './copilotChatsService';
 
 export interface Container {
   companyService: CompanyService;
@@ -59,6 +61,7 @@ export interface Container {
   authService: AuthService;
   userService: UserService;
   crmService: CRMService;
+  copilotChatsService: CopilotChatsService;
 }
 
 export function createContainer(db: DbClient): Container {
@@ -125,6 +128,9 @@ export function createContainer(db: DbClient): Container {
   const contactMessageRepo = new ContactMessageRepository(db);
   const crmService = new CRMService(contactRepo, contactMessageRepo);
 
+  const copilotChatsRepo = new CopilotChatsRepository(db);
+  const copilotChatsService = new CopilotChatsService(copilotChatsRepo);
+
   fileService.setCRMService(crmService);
 
   return {
@@ -145,5 +151,6 @@ export function createContainer(db: DbClient): Container {
     authService,
     userService,
     crmService,
+    copilotChatsService,
   };
 }

@@ -194,7 +194,7 @@ export async function runCompanyAnalysis(
     job_id: deps.job.id,
   });
 
-  const agent = getAgentGraph();
+  const agent = await getAgentGraph();
   if (!agent) {
     await analysisRepo.updateByCompanyId(companyId, {
       status: 'failed',

@@ -9,12 +9,12 @@ export type PostgresClientFromEnvOptions = {
   prepare?: boolean;
 };
 
-function rdsIamDbAuthFromEnv(): boolean {
+export function rdsIamDbAuthFromEnv(): boolean {
   const value = process.env.RDS_IAM_DB_AUTH?.trim().toLowerCase();
   return value === '1' || value === 'true' || value === 'yes';
 }
 
-function parseExplicitDbFromEnv(): {
+export function parseExplicitDbFromEnv(): {
   host: string;
   port: number;
   database: string;
@@ -35,7 +35,7 @@ function parseExplicitDbFromEnv(): {
   return { host, port, database, user, password };
 }
 
-async function rdsIamAuthToken(host: string, port: number, username: string): Promise<string> {
+export async function rdsIamAuthToken(host: string, port: number, username: string): Promise<string> {
   const region = process.env.AWS_REGION ?? process.env.AWS_DEFAULT_REGION;
   if (!region) {
     throw new Error('Set AWS_REGION (or AWS_DEFAULT_REGION) for RDS IAM database authentication.');
@@ -44,7 +44,7 @@ async function rdsIamAuthToken(host: string, port: number, username: string): Pr
   return signer.getAuthToken();
 }
 
-function isLocalPostgresHost(host: string): boolean {
+export function isLocalPostgresHost(host: string): boolean {
   return /^(127\.0\.0\.1|localhost|postgres)$/i.test(host) || !host.includes('.');
 }
 

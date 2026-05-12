@@ -1,19 +1,23 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { FileText, Sparkles, Users } from 'lucide-react';
 import DashboardLayout from '@/components/layout/DashboardLayout';
+import { useChatContext } from '@/components/chat/ChatProvider';
 import { cn } from '@/lib/utils';
 
 import { CoPilotPanel, ComingSoonPanel } from './CoPilotPanel';
 import { WorkforceTasks } from './WorkforceTasks';
 
+type TabKey = 'copilot' | 'workforce' | 'ingestion';
+
 interface AIWorkforceProps {
   showCrm?: boolean;
   showAiWorkforce?: boolean;
+  initialTab?: TabKey;
+  initialChatId?: string | null;
 }
-
-type TabKey = 'copilot' | 'workforce' | 'ingestion';
 
 const tabs: { key: TabKey; label: string; icon: typeof Sparkles; dot?: boolean }[] = [
   { key: 'copilot', label: 'AI CoPilot', icon: Sparkles },
@@ -24,12 +28,39 @@ const tabs: { key: TabKey; label: string; icon: typeof Sparkles; dot?: boolean }
 export default function AIWorkforce({
   showCrm = false,
   showAiWorkforce = false,
+  initialTab = 'workforce',
+  initialChatId = null,
 }: AIWorkforceProps) {
-  const [activeTab, setActiveTab] = useState<TabKey>('workforce');
+  const [activeTab, setActiveTab] = useState<TabKey>(initialTab);
+  const router = useRouter();
+  const { chatId, setChatId } = useChatContext();
+
+  // Seed chatId from the URL on mount, then keep URL in sync with subsequent
+  // state changes. Combined into one effect (gated by `reconciled`) so URL
+  // sync never fires before the initial seeding completes — otherwise the
+  // first render writes "/ai-workforce/ai-copilot" before chatId arrives,
+  // stripping the chatId from the URL on every refresh.
+  const reconciled = useRef(false);
+  useEffect(() => {
+    if (!reconciled.current) {
+      if (initialChatId !== null && chatId !== initialChatId) {
+        setChatId(initialChatId);
+        return;
+      }
+      reconciled.current = true;
+    }
+    let target = '/ai-workforce';
+    if (activeTab === 'copilot') {
+      target = chatId ? `/ai-workforce/ai-copilot/${chatId}` : '/ai-workforce/ai-copilot';
+    }
+    if (typeof window !== 'undefined' && window.location.pathname !== target) {
+      router.replace(target);
+    }
+  }, [initialChatId, activeTab, chatId, setChatId, router]);
 
   return (
     <DashboardLayout showCrm={showCrm} showAiWorkforce={showAiWorkforce}>
-      <div className="flex flex-col h-full animate-fade-in">
+      <div className="flex flex-col h-full">
         {/* Header */}
         <div className="flex-shrink-0 px-8 pt-8 pb-4 bg-card">
           <div className="flex items-start gap-4">

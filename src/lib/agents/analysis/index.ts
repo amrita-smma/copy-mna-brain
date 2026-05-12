@@ -6,8 +6,19 @@
 import { ChatAnthropic } from "@langchain/anthropic";
 import { createAgent } from "langchain";
 import { HumanMessage, AIMessage, BaseMessage } from "@langchain/core/messages";
+import { PostgresSaver } from "@langchain/langgraph-checkpoint-postgres";
+import type { BaseCheckpointSaver } from "@langchain/langgraph-checkpoint";
+import pg from "pg";
 import { tools } from "./tools";
 import { logger } from "../logger";
+import {
+  isLocalPostgresHost,
+  parseExplicitDbFromEnv,
+  rdsIamAuthToken,
+  rdsIamDbAuthFromEnv,
+} from "@/lib/server/db";
+
+const CHECKPOINT_SCHEMA = "agent_states";
 
 const SYSTEM_PROMPT = `You are an intelligent M&A Data Analysis Assistant that helps users explore and analyze company/asset data for mergers and acquisitions.
 
@@ -98,6 +109,7 @@ Use get_company_details for the company in question first, then query_past_acqui
 
 export interface AgentConfig {
   apiKey: string;
+  checkpointer?: BaseCheckpointSaver;
 }
 
 export interface InvokeOptions {
@@ -107,6 +119,7 @@ export interface InvokeOptions {
 
 export interface InvokeConfig {
   recursionLimit?: number;
+  configurable?: Record<string, unknown>;
 }
 
 export interface InvokeResult {
@@ -131,6 +144,7 @@ export function createLocalAgent(config: AgentConfig, additionalSystemContext?: 
     model: llm,
     tools,
     systemPrompt: fullSystemPrompt,
+    checkpointer: config.checkpointer,
   });
 }
 
@@ -194,11 +208,87 @@ export class AgentGraph {
     const agent = this.getAgent(inputs.additionalSystemContext);
     return agent.streamEvents({ messages: inputs.messages }, config);
   }
+
+  /**
+   * Load the persisted message history for a thread from the checkpointer.
+   * Returns an empty array when the thread has no checkpoint yet (e.g. a
+   * brand-new chat row that was created but never sent a message).
+   */
+  async getMessages(threadId: string): Promise<BaseMessage[]> {
+    // getState is marked @internal in LangChain v1 typings (return type
+    // `never`) but it's the documented LangGraph API and works at runtime.
+    const agent = this.defaultAgent as unknown as {
+      getState: (config: { configurable: { thread_id: string } }) => Promise<{
+        values?: { messages?: BaseMessage[] };
+      } | undefined>;
+    };
+    const state = await agent.getState({ configurable: { thread_id: threadId } });
+    return state?.values?.messages ?? [];
+  }
 }
 
 let agentGraph: AgentGraph | null = null;
+let checkpointerSetupPromise: Promise<PostgresSaver> | null = null;
 
-export function getAgentGraph(): AgentGraph | null {
+/**
+ * Lazily build (and `setup()`) a singleton PostgresSaver bound to the
+ * `agent_states` schema. The first call runs the library's idempotent
+ * setup() — every call after that resolves to the same instance.
+ *
+ * Connection config follows the same pattern as `src/lib/server/db.ts`:
+ * discrete `DB_*` env vars + `RDS_IAM_DB_AUTH` to switch between static
+ * password and rotating IAM token auth. `pg.Pool`'s `password` option accepts
+ * an async function, which is called on every new connection — perfect for
+ * IAM tokens that expire every 15 minutes.
+ */
+function getCheckpointer(): Promise<PostgresSaver> | null {
+  let explicitDb;
+  try {
+    explicitDb = parseExplicitDbFromEnv();
+  } catch (err) {
+    logger.error((err as Error).message);
+    return null;
+  }
+  const useIam = rdsIamDbAuthFromEnv();
+
+  if (useIam && explicitDb.password) {
+    logger.error('With RDS_IAM_DB_AUTH, leave DB_PASSWORD empty; the app uses an IAM token.');
+    return null;
+  }
+  if (!useIam && explicitDb.password === undefined) {
+    logger.error('Without RDS_IAM_DB_AUTH, set DB_PASSWORD.');
+    return null;
+  }
+
+  if (checkpointerSetupPromise) return checkpointerSetupPromise;
+
+  checkpointerSetupPromise = (async () => {
+    const isLocal = isLocalPostgresHost(explicitDb.host);
+    const pool = new pg.Pool({
+      host: explicitDb.host,
+      port: explicitDb.port,
+      database: explicitDb.database,
+      user: explicitDb.user,
+      password: useIam
+        ? () => rdsIamAuthToken(explicitDb.host, explicitDb.port, explicitDb.user)
+        : explicitDb.password!,
+      ssl: isLocal ? false : { rejectUnauthorized: false },
+    });
+    const saver = new PostgresSaver(pool, undefined, { schema: CHECKPOINT_SCHEMA });
+    await saver.setup();
+    logger.info(`✓ PostgresSaver ready (schema: ${CHECKPOINT_SCHEMA}, ssl: ${!isLocal}, iam: ${useIam})`);
+    return saver;
+  })().catch((err) => {
+    // Reset on failure so the next caller retries instead of inheriting the
+    // rejected promise forever.
+    checkpointerSetupPromise = null;
+    throw err;
+  });
+
+  return checkpointerSetupPromise;
+}
+
+export async function getAgentGraph(): Promise<AgentGraph | null> {
   if (agentGraph) {
     return agentGraph;
   }
@@ -210,7 +300,9 @@ export function getAgentGraph(): AgentGraph | null {
   }
 
   try {
-    agentGraph = new AgentGraph({ apiKey });
+    const checkpointerPromise = getCheckpointer();
+    const checkpointer = checkpointerPromise ? await checkpointerPromise : undefined;
+    agentGraph = new AgentGraph({ apiKey, checkpointer });
     return agentGraph;
   } catch (error) {
     logger.error(`Failed to create agent: ${(error as Error).message}`);
@@ -220,6 +312,7 @@ export function getAgentGraph(): AgentGraph | null {
 
 export function resetAgent(): void {
   agentGraph = null;
+  checkpointerSetupPromise = null;
 }
 
 export { HumanMessage, AIMessage };

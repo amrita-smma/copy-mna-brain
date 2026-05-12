@@ -8,6 +8,7 @@ import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Sparkles, Zap, FileStack } from 'lucide-react';
 import { ChatWindow } from '@/components/chat/ChatWindow';
+import { ChatSidebar } from '@/components/chat/ChatSidebar';
 import { cn } from '@/lib/utils';
 
 interface AIDiscoveryProps {
@@ -88,7 +89,8 @@ export default function AIDiscovery({ showCrm = false, showAiWorkforce = false }
         </div>
 
         {/* Chat */}
-        <Card className="flex-1 flex flex-col overflow-hidden bg-muted/30 min-h-0 rounded-2xl border shadow-sm">
+        <Card className="flex-1 flex overflow-hidden bg-muted/30 min-h-0 rounded-2xl border shadow-sm">
+          <ChatSidebar />
           <div className="flex-1 flex flex-col min-h-0 relative">
             <ChatWindow
               endpoint="/api/chat"
