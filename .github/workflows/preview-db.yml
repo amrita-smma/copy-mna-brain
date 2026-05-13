@@ -200,7 +200,7 @@ jobs:
           api_key: ${{ secrets.NEON_API_KEY }}
 
       - name: Install Vercel CLI
-        run: pnpm add -g vercel@latest
+        run: npm install -g vercel@latest
 
       - name: Remove Vercel preview env vars
         env:
