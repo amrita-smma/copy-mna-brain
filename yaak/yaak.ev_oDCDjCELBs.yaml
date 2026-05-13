@@ -1,0 +1,22 @@
+type: environment
+model: environment
+id: ev_oDCDjCELBs
+workspaceId: wk_4yBsWJ5Tuh
+createdAt: 2026-04-25T01:43:29.564632
+updatedAt: 2026-05-12T09:41:04.165739
+name: dev
+public: true
+base: false
+parentModel: environment
+parentId: null
+variables:
+- enabled: true
+  name: apiSharedSecret
+  value: ${[ secure(value=b64'WUVOQ19lVUUwYXpOdVF3RmVRcnpjVzB3T3d5V1QvMEFQZE83ekFnU1cyZmJrMWNBYk1zWlhTdkVVSmhwQm5LMEhWS3RHa1ArODVEMDIwbFNwdExtWExmdjhVM0gvd2t4NCtYOTBNcm50dEZicG9oN3VFb1MrR1JSeGFaazNVa2swYUNXd29UT2t6bVIzbXQ3MWZlNWkySjJjYmc9PQ') ]}
+  id: 6DC58yW2QA
+- enabled: true
+  name: API_URL
+  value: localhost:3000
+  id: QV9drfzBaU
+color: var(--success)
+sortPriority: 0.0

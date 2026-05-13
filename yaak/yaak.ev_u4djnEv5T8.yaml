@@ -1,0 +1,22 @@
+type: environment
+model: environment
+id: ev_u4djnEv5T8
+workspaceId: wk_4yBsWJ5Tuh
+createdAt: 2026-04-25T01:43:35.311697
+updatedAt: 2026-05-12T09:41:06.803603
+name: staging
+public: true
+base: false
+parentModel: environment
+parentId: null
+variables:
+- enabled: true
+  name: apiSharedSecret
+  value: ${[ secure(value=b64'WUVOQ19lVUUwYXpOdVF3RmhNZDFYUTExR3RhSnY5eXE1VGwzSmdodnA5UjhwakpmRkhYWVdRanc0OW9VczJxTEt6L08rVDI0QjJmM3BaOTBIM01VN01uUDlEeXQvT0lSaWU0MHBkMjZpT3dxU3IvTXhuLzN2M3JoL3NWRHNRSDJuaEhmOGVUNElUbi85MnVMcVdNZXV4MEI5K2c9PQ') ]}
+  id: 3nf6sDFuTF
+- enabled: true
+  name: API_URL
+  value: mna-stg.sqe.co.id
+  id: 3aZexwTJNm
+color: var(--notice)
+sortPriority: 0.0

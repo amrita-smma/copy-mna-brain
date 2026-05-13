@@ -1,0 +1,22 @@
+type: environment
+model: environment
+id: ev_cubmgKS9Ty
+workspaceId: wk_4yBsWJ5Tuh
+createdAt: 2026-04-25T01:43:38.838159
+updatedAt: 2026-05-12T09:41:00.474569
+name: production
+public: true
+base: false
+parentModel: environment
+parentId: null
+variables:
+- enabled: true
+  name: apiSharedSecret
+  value: ${[ secure(value=b64'WUVOQ19lVUUwYXpOdVF3R1QwZ0MxbWVtejR4WmpwSnp4STJoaWRWS0x1d21raTVQZytDOTVtZjluczZ2TWFmWG9YbDlBOXU3RU1KVHIrRVBZKzJIVlIvUHN6OUhaTDA3RVowZFVNSlp2S0Y0Rkg1VmNXRFlwTVo2bkEvQjVBMmRVZlRVeEg3WWhWYXh3TW52dUQ4cU5zZTIyU1E9PQ') ]}
+  id: Ac2Uy4ekTk
+- enabled: true
+  name: API_URL
+  value: mna.sqe.co.id
+  id: PqFie50X4C
+color: var(--danger)
+sortPriority: 0.0
