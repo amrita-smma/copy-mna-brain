@@ -12,6 +12,7 @@ import { queryPastAcquisitions } from "./query_past_acquisitions";
 import { compareWithPastAcquisitions } from "./compare_with_past_acquisitions";
 import { getPastAcquisitionDetails } from "./get_past_acquisition_details";
 import { queryMeetingNotes } from "./query_files";
+import { proposeWorkforceHandoff } from "./propose_workforce_handoff";
 
 export {
   getDataSchema,
@@ -23,6 +24,7 @@ export {
   compareWithPastAcquisitions,
   getPastAcquisitionDetails,
   queryMeetingNotes,
+  proposeWorkforceHandoff,
 };
 
 export {
@@ -42,6 +44,7 @@ export const tools = [
   compareWithPastAcquisitions,
   getPastAcquisitionDetails,
   queryMeetingNotes,
+  proposeWorkforceHandoff,
 ];
 
 /**
@@ -59,6 +62,7 @@ export function getToolDescriptions(): string {
     { name: "compare_with_past_acquisitions", description: "Compare a company against historical acquisition metrics" },
     { name: "get_past_acquisition_details", description: "Get detailed information about a specific past acquisition" },
     { name: "query_files", description: "Search and retrieve files related to companies, tags, or topics" },
+    { name: "propose_workforce_handoff", description: "Offer to send a write-heavy request (including L0→L1 promotions) to the AI Workforce via a confirmation card" },
   ];
 
   return toolInfo.map((t, i) => `${i + 1}. **${t.name}** - ${t.description}`).join("\n");

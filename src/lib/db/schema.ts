@@ -1662,6 +1662,7 @@ export const aiWorkforceQueue = pgTable(
   {
     id: uuid().defaultRandom().primaryKey().notNull(),
     parent_run_id: uuid(),
+    origin_routine_id: uuid(),
     agent_name: text().notNull(),
     trigger_source: triggerSource().notNull(),
     trigger_meta: jsonb()
@@ -1715,6 +1716,15 @@ export const aiWorkforceQueue = pgTable(
       idxAiWorkforceQueueParent: index(
         "idx_ai_workforce_queue_parent",
       ).using("btree", table.parent_run_id.asc().nullsLast().op("uuid_ops")),
+      idxAiWorkforceQueueOriginRoutine: index(
+        "idx_ai_workforce_queue_origin_routine",
+      ).using(
+        "btree",
+        table.origin_routine_id.asc().nullsLast().op("uuid_ops"),
+      ),
+      idxAiWorkforceQueueTerminal: index(
+        "idx_ai_workforce_queue_terminal",
+      ).using("btree", table.ended_at.desc().nullsLast().op("timestamptz_ops")),
       aiWorkforceQueueParentRunIdFkey: foreignKey({
         columns: [table.parent_run_id],
         foreignColumns: [table.id],

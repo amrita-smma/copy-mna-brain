@@ -11,9 +11,5 @@ export function proxy(req: NextRequest) {
 }
 
 export const config = {
-  matcher: [
-    "/api/auth/signup",
-    "/api/auth/forget-password",
-    "/api/auth/reset-password",
-  ],
+  matcher: ["/api/auth/signup"],
 };

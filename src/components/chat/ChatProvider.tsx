@@ -16,6 +16,61 @@ import { toast } from "sonner";
 
 const CHAT_API = "/api/chat";
 
+function parseChatError(err: Error): { title: string; description: string } {
+  // The AI SDK forwards Anthropic API errors as a JSON-stringified payload in
+  // err.message (e.g. {"error":{"type":"overloaded_error",...}}). Translate
+  // the known types into user-friendly copy; fall back to the raw message.
+  try {
+    const payload = JSON.parse(err.message) as {
+      error?: { type?: string; message?: string };
+    };
+    switch (payload?.error?.type) {
+      case 'overloaded_error':
+        return {
+          title: 'Claude is overloaded right now',
+          description:
+            "Anthropic's servers are busy. Please wait a moment and send your message again.",
+        };
+      case 'rate_limit_error':
+        return {
+          title: 'Rate limit reached',
+          description: 'Too many requests in a short window. Please wait a few seconds and try again.',
+        };
+      case 'timeout_error':
+        return {
+          title: 'Request timed out',
+          description: 'The model took too long to respond. Please try again.',
+        };
+      case 'api_error':
+        return {
+          title: 'Claude API error',
+          description:
+            payload.error?.message ||
+            "Something went wrong on Anthropic's side. Please try again in a moment.",
+        };
+      case 'authentication_error':
+      case 'permission_error':
+        return {
+          title: 'Authentication issue',
+          description: 'There was a problem authenticating with the model provider. Please contact support.',
+        };
+      case 'invalid_request_error':
+        return {
+          title: 'Invalid request',
+          description:
+            payload.error?.message ||
+            'The request was rejected. Please try again or start a new chat.',
+        };
+    }
+  } catch {
+    // Not a JSON payload — fall through to the generic message.
+  }
+  return {
+    title: 'Error while processing your request',
+    description: err.message,
+  };
+}
+
 export interface CopilotChatSummary {
   id: string;
   title: string | null;
@@ -88,7 +143,8 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     transport,
     onError: (e: Error) => {
       console.error(e);
-      toast.error("Error while processing your request", { description: e.message });
+      const { title, description } = parseChatError(e);
+      toast.error(title, { description, duration: 8000 });
     },
     onData: (part) => {
       // The server pushes the generated chat title via a transient

@@ -257,7 +257,7 @@
     {
       "idx": 36,
       "version": "7",
-      "when": 1778112000000,
+      "when": 1778025600000,
       "tag": "20260506000000_companies_status_not_null_default_active",
       "breakpoints": true
     },
@@ -273,6 +273,13 @@
       "version": "7",
       "when": 1778168564000,
       "tag": "20260507154244_copilot_chats",
+      "breakpoints": true
+    },
+    {
+      "idx": 39,
+      "version": "7",
+      "when": 1778457600000,
+      "tag": "20260511000000_workforce_queue_schema_delta",
       "breakpoints": true
     }
   ]

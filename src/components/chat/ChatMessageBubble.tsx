@@ -1,7 +1,7 @@
 import { type UIMessage } from "@ai-sdk/react";
 import { memo, useState, useEffect } from "react";
 import { cn } from "@/lib/utils";
-import { Bot, User, ChevronDown, ChevronRight, Wrench, Loader2, FileText, X, Sparkles, FileSearch, Brain } from "lucide-react";
+import { Bot, User, ChevronDown, ChevronRight, Wrench, Loader2, FileText, X, Sparkles, FileSearch, Brain, AlertTriangle } from "lucide-react";
 import { MarkdownRenderer } from "./MarkdownRenderer";
 import {
   Collapsible,
@@ -18,6 +18,14 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
 import FilePreview from "@/components/Files/FilePreview";
 import { toast } from "sonner";
+import {
+  WorkforceHandoffCard,
+  type WorkforceHandoffPayload,
+} from "./WorkforceHandoffCard";
+import { useChatContext } from "./ChatProvider";
+
+const WORKFORCE_HANDOFF_MARKER = "WORKFORCE_HANDOFF_JSON";
+const WORKFORCE_HANDOFF_TOOL_NAME = "propose_workforce_handoff";
 
 interface ChatMessageBubbleProps {
   message: UIMessage;
@@ -171,6 +179,45 @@ function ChatMessageBubbleImpl(props: ChatMessageBubbleProps) {
     thinkingText = thinkingParts.filter(Boolean).join("\n\n---\n\n");
   }
 
+  // Second pass: pull warning blocks out of responseText. The agent wraps an
+  // EBITDA concern (or any other risk surfaced from a tool preview) between
+  // <!-- WARNING_START --> and <!-- WARNING_END -->; we render those as a
+  // yellow banner above the chat bubble and strip them from the prose.
+  const WARNING_START_DELIMITER = "<!-- WARNING_START -->";
+  const WARNING_END_DELIMITER = "<!-- WARNING_END -->";
+
+  const warnings: string[] = [];
+  if (
+    responseText.includes(WARNING_START_DELIMITER) ||
+    responseText.includes(WARNING_END_DELIMITER)
+  ) {
+    let cleaned = "";
+    let remaining = responseText;
+    while (remaining.length > 0) {
+      const startIdx = remaining.indexOf(WARNING_START_DELIMITER);
+      if (startIdx === -1) {
+        // Drop any orphan END token but keep surrounding text.
+        cleaned += remaining.split(WARNING_END_DELIMITER).join("");
+        break;
+      }
+      cleaned += remaining.substring(0, startIdx);
+      remaining = remaining.substring(startIdx + WARNING_START_DELIMITER.length);
+      const endIdx = remaining.indexOf(WARNING_END_DELIMITER);
+      if (endIdx === -1) {
+        // Mid-stream: closing delimiter hasn't arrived. Treat the remainder
+        // as an in-progress warning so it shows immediately as a banner.
+        const partial = remaining.trim();
+        if (partial) warnings.push(partial);
+        remaining = "";
+      } else {
+        const body = remaining.substring(0, endIdx).trim();
+        if (body) warnings.push(body);
+        remaining = remaining.substring(endIdx + WARNING_END_DELIMITER.length);
+      }
+    }
+    responseText = cleaned;
+  }
+
   const hasThinkingContent = thinkingText.trim().length > 0;
   const hasResponseContent = responseText.trim().length > 0;
 
@@ -196,6 +243,7 @@ function ChatMessageBubbleImpl(props: ChatMessageBubbleProps) {
     matched_companies: any[];
   }
   const allMeetingNotes: MeetingNoteRef[] = [];
+  let workforceHandoff: WorkforceHandoffPayload | null = null;
 
   for (const part of toolParts) {
     const toolName = (part as any).toolName || "";
@@ -223,6 +271,22 @@ function ChatMessageBubbleImpl(props: ChatMessageBubbleProps) {
       }
     }
 
+    if (toolName === WORKFORCE_HANDOFF_TOOL_NAME && !workforceHandoff) {
+      const handoffMatch = content.match(
+        new RegExp(`<!--\\s*${WORKFORCE_HANDOFF_MARKER}:(.*?)-->`, "s"),
+      );
+      if (handoffMatch) {
+        try {
+          const parsed = JSON.parse(handoffMatch[1].trim()) as WorkforceHandoffPayload;
+          if (parsed && parsed.title && parsed.instruction) {
+            workforceHandoff = parsed;
+          }
+        } catch {
+          // Ignore parse errors — fall through to plain text rendering.
+        }
+      }
+    }
+
     if (toolName === "query_files") {
       const notesMatch = content.match(/<!-- FILES_JSON:(.*?) -->/);
       if (notesMatch) {
@@ -239,6 +303,14 @@ function ChatMessageBubbleImpl(props: ChatMessageBubbleProps) {
       }
     }
   }
+
+  // Chat context for sending follow-up messages (e.g. "Just answer here")
+  const { sendMessage } = useChatContext();
+  const handleJustAnswerHere = () => {
+    sendMessage({
+      text: "Just answer here — please proceed inline without sending this to the Workforce.",
+    });
+  };
 
   // State for files preview modal
   const [previewNote, setPreviewNote] = useState<MeetingNoteRef | null>(null);
@@ -324,6 +396,10 @@ function ChatMessageBubbleImpl(props: ChatMessageBubbleProps) {
                   // Remove hidden metadata from display content
                   displayContent = displayContent.replace(/\n*<!-- CITATIONS_JSON:.*? -->/g, "");
                   displayContent = displayContent.replace(/\n*<!-- FILES_JSON:.*? -->/g, "");
+                  displayContent = displayContent.replace(
+                    new RegExp(`\\n*<!--\\s*${WORKFORCE_HANDOFF_MARKER}:.*?-->`, "gs"),
+                    "",
+                  );
 
                   return (
                     <div key={`tool-${index}`} className="border-b border-border/50 pb-2 last:border-0 last:pb-0">
@@ -399,11 +475,42 @@ function ChatMessageBubbleImpl(props: ChatMessageBubbleProps) {
         {/* Thinking Indicator - Shows when agent is still processing */}
         {showThinking && <ThinkingIndicator />}
 
+        {/* Warning banner(s) — agent surfaces concerns (e.g. weak EBITDA on an
+            L0→L1 promotion preview) between WARNING_START/WARNING_END. */}
+        {warnings.length > 0 && (
+          <div className="w-full flex flex-col gap-2">
+            {warnings.map((w, i) => (
+              <div
+                key={`warning-${i}`}
+                role="alert"
+                className="flex items-start gap-3 w-full rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-amber-900 dark:border-amber-800 dark:bg-amber-900/30 dark:text-amber-200"
+              >
+                <AlertTriangle className="h-5 w-5 flex-shrink-0 mt-0.5" />
+                <div className="min-w-0 flex-1 text-sm leading-relaxed">
+                  <span className="font-semibold">Warning! </span>
+                  <MarkdownRenderer
+                    content={w}
+                    className="inline prose-sm [&_p]:inline [&_p]:m-0 [&_*]:text-amber-900 dark:[&_*]:text-amber-200"
+                  />
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
         {/* Response Text - Final answer inside the chat bubble */}
         {hasResponseContent && (
           <div className="rounded-2xl px-5 py-4 w-full min-w-0 overflow-auto break-words bg-card border shadow-sm text-card-foreground">
             <MarkdownRenderer content={responseText} />
           </div>
+        )}
+
+        {/* Workforce handoff card */}
+        {workforceHandoff && (
+          <WorkforceHandoffCard
+            payload={workforceHandoff}
+            onJustAnswerHere={handleJustAnswerHere}
+          />
         )}
 
         {/* Sources */}

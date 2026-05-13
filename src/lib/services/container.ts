@@ -21,6 +21,7 @@ import {
   UserCompanyFavoriteRepository,
   ContactRepository,
   ContactMessageRepository,
+  AiWorkforceQueueRepository,
   CopilotChatsRepository,
 } from '@/lib/repositories';
 import { JobDispatcher } from './jobDispatcher';
@@ -41,6 +42,7 @@ import { JobService } from './jobService';
 import { AuthService } from './authService';
 import { UserService } from './userService';
 import { CRMService } from './crmService';
+import { AiWorkforceService } from './aiWorkforceService';
 import { CopilotChatsService } from './copilotChatsService';
 
 export interface Container {
@@ -61,6 +63,7 @@ export interface Container {
   authService: AuthService;
   userService: UserService;
   crmService: CRMService;
+  aiWorkforceService: AiWorkforceService;
   copilotChatsService: CopilotChatsService;
 }
 
@@ -128,6 +131,9 @@ export function createContainer(db: DbClient): Container {
   const contactMessageRepo = new ContactMessageRepository(db);
   const crmService = new CRMService(contactRepo, contactMessageRepo);
 
+  const aiWorkforceQueueRepo = new AiWorkforceQueueRepository(db);
+  const aiWorkforceService = new AiWorkforceService(aiWorkforceQueueRepo);
+
   const copilotChatsRepo = new CopilotChatsRepository(db);
   const copilotChatsService = new CopilotChatsService(copilotChatsRepo);
 
@@ -151,6 +157,7 @@ export function createContainer(db: DbClient): Container {
     authService,
     userService,
     crmService,
+    aiWorkforceService,
     copilotChatsService,
   };
 }

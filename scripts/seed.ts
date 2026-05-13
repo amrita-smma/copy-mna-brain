@@ -6,6 +6,9 @@
  * Usage: pnpm db:seed
  */
 import { config } from 'dotenv';
+// Must call config() before dynamically importing db.ts — static imports are
+// hoisted in CJS output, so db.ts's module-level client creation would run
+// before dotenv if we used a static import here.
 config({ path: '.env.local' });
 config();
 
@@ -21,7 +24,6 @@ import {
   users,
 } from '../src/lib/db/schema';
 import { hashPassword } from '../src/lib/services/password';
-import { createPostgresClientFromEnv } from '../src/lib/server/db';
 
 const SEED_USER_EMAIL = 'test@sqe.co.id';
 const SEED_USER_PASSWORD = 'password';
@@ -438,6 +440,7 @@ const seedCompanies: SeedCompany[] = [
 ];
 
 async function main() {
+  const { createPostgresClientFromEnv } = await import('../src/lib/server/db');
   const client = createPostgresClientFromEnv({
     prepare: false,
     onnotice: () => {},
