@@ -2,7 +2,7 @@ name: Preview DB & Deploy
 
 on:
   pull_request:
-    types: [ opened, synchronize, reopened, closed ]
+    types: [opened, synchronize, reopened, closed]
     branches:
       - main
 
@@ -28,6 +28,8 @@ jobs:
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.4
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
