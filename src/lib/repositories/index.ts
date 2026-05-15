@@ -23,3 +23,5 @@ export * from './contactRepository';
 export * from './contactMessageRepository';
 export * from './aiWorkforceQueueRepository';
 export * from './copilotChatsRepository';
+export * from './aiWorkforceQueueRepository';
+export * from './agentRunEventsRepository';

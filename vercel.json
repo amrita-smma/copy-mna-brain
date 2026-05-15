@@ -3,5 +3,11 @@
     "deploymentEnabled": {
       "main": true
     }
-  }
+  },
+  "crons": [
+    {
+      "path": "/api/cron/dispatch",
+      "schedule": "* * * * *"
+    }
+  ]
 }

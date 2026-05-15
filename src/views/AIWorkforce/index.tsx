@@ -17,6 +17,7 @@ interface AIWorkforceProps {
   showAiWorkforce?: boolean;
   initialTab?: TabKey;
   initialChatId?: string | null;
+  initialTaskId?: string | null;
 }
 
 const tabs: { key: TabKey; label: string; icon: typeof Sparkles; dot?: boolean }[] = [
@@ -30,16 +31,19 @@ export default function AIWorkforce({
   showAiWorkforce = false,
   initialTab = 'workforce',
   initialChatId = null,
+  initialTaskId = null,
 }: AIWorkforceProps) {
   const [activeTab, setActiveTab] = useState<TabKey>(initialTab);
   const router = useRouter();
   const { chatId, setChatId } = useChatContext();
 
   // Seed chatId from the URL on mount, then keep URL in sync with subsequent
-  // state changes. Combined into one effect (gated by `reconciled`) so URL
-  // sync never fires before the initial seeding completes — otherwise the
-  // first render writes "/ai-workforce/ai-copilot" before chatId arrives,
-  // stripping the chatId from the URL on every refresh.
+  // state changes — but only for the copilot tab. The workforce tab manages
+  // its own URL inside WorkforceTasks since the selection state lives there.
+  // Combined into one effect (gated by `reconciled`) so URL sync never fires
+  // before the initial seeding completes — otherwise the first render writes
+  // "/ai-workforce/ai-copilot" before chatId arrives, stripping the chatId
+  // from the URL on every refresh.
   const reconciled = useRef(false);
   useEffect(() => {
     if (!reconciled.current) {
@@ -49,10 +53,11 @@ export default function AIWorkforce({
       }
       reconciled.current = true;
     }
-    let target = '/ai-workforce';
-    if (activeTab === 'copilot') {
-      target = chatId ? `/ai-workforce/ai-copilot/${chatId}` : '/ai-workforce/ai-copilot';
-    }
+    // Workforce tab owns its URL — see WorkforceTasks.
+    if (activeTab !== 'copilot') return;
+    const target = chatId
+      ? `/ai-workforce/ai-copilot/${chatId}`
+      : '/ai-workforce/ai-copilot';
     if (typeof window !== 'undefined' && window.location.pathname !== target) {
       router.replace(target);
     }
@@ -111,7 +116,7 @@ export default function AIWorkforce({
         </div>
 
         {/* Body */}
-        {activeTab === 'workforce' && <WorkforceTasks />}
+        {activeTab === 'workforce' && <WorkforceTasks initialTaskId={initialTaskId} />}
         {activeTab === 'copilot' && <CoPilotPanel />}
         {activeTab === 'ingestion' && <ComingSoonPanel label="File Ingestion" />}
       </div>

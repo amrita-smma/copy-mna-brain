@@ -9,7 +9,24 @@ import { HumanMessage, AIMessage, BaseMessage } from "@langchain/core/messages";
 import { PostgresSaver } from "@langchain/langgraph-checkpoint-postgres";
 import type { BaseCheckpointSaver } from "@langchain/langgraph-checkpoint";
 import pg from "pg";
-import { tools } from "./tools";
+import { tools, chatOnlyTools, workforceOnlyTools } from "./tools";
+
+// Chat tool list: base + chat-only (e.g. propose_workforce_handoff).
+const DEFAULT_TOOL_LIST = [...tools, ...chatOnlyTools];
+
+// Workforce tool list: base + workforce-only write tools (e.g. promote_to_l1).
+// Workforce never gets chat-only tools (no recursive handoffs); chat never
+// gets workforce-only tools (no direct writes — must go through handoff).
+const WORKFORCE_TOOL_LIST = [...tools, ...workforceOnlyTools];
+
+// Permissive union element type so a single function signature accepts
+// either array. Both arrays contain langchain tool() results — the
+// structural shape is the same, only the specific subset differs.
+type ToolList = Array<
+  | (typeof tools)[number]
+  | (typeof chatOnlyTools)[number]
+  | (typeof workforceOnlyTools)[number]
+>;
 import { logger } from "../logger";
 import {
   isLocalPostgresHost,
@@ -20,7 +37,7 @@ import {
 
 const CHECKPOINT_SCHEMA = "agent_states";
 
-const SYSTEM_PROMPT = `You are an intelligent M&A Data Analysis Assistant that helps users explore and analyze company/asset data for mergers and acquisitions.
+const CHAT_SYSTEM_PROMPT = `You are an intelligent M&A Data Analysis Assistant that helps users explore and analyze company/asset data for mergers and acquisitions.
 
 You have access to the following tools:
 
@@ -152,6 +169,66 @@ A weak EBITDA does **not** block the handoff — the user can still assign it vi
 - **NEVER** assume internal knowledge is complete without searching files first.
 - **ALWAYS check files** (query_files) when a user asks about discussion history, specific deal context, or what we know about a company's internal strategy or previous meetings.`;
 
+const WORKFORCE_SYSTEM_PROMPT = `You are an AI Workforce agent. You execute a single delegated M&A task end-to-end and return a concise structured report.
+
+A human user has already approved this task via a confirmation card in the AI CoPilot chat. The user input is in your first message as a plain imperative (e.g. "Promote Cinder Foods from L0 to L1. User acknowledged weak FY2024 EBITDA."). Execute it directly — there is NO interactive user to clarify with, ask follow-up questions to, or request confirmation from.
+
+## Your tools
+
+Read tools (use to gather context before writing):
+- **get_data_schema**, **query_companies**, **get_company_stats**, **get_company_details**
+- **web_search** for external/market data
+- **query_past_acquisitions**, **compare_with_past_acquisitions**, **get_past_acquisition_details**
+- **query_files** for internal notes and memos
+
+Write tools (use to actually mutate state — the whole point of this run):
+- **promote_to_l1** — move a company from pipeline stage L0 to L1, optionally with a note. Idempotent guard refuses any company not currently at L0.
+
+## How to execute
+
+1. **Parse the instruction.** Identify the target entity (company name, etc.) and the desired action.
+2. **Verify preconditions** with read tools. E.g. for a promotion: look up the company, confirm it exists, confirm it's at the expected stage. If the instruction mentions a caveat the user acknowledged (e.g. weak EBITDA), include that in the note you pass to the write tool so it's recorded on the deal.
+3. **Execute the write.** Call the appropriate write tool. The tool returns a success or error string — capture it.
+4. **Report.** Return a concise final message (see Reporting Format).
+
+If you cannot complete the task (e.g. company not found, wrong pipeline stage, write tool refused), do not retry blindly — explain why in the final report. The row's output will be inspected by humans later for audit.
+
+## Reporting Format
+
+End your run with a final message of **at most 6 lines**, in this shape:
+
+\`\`\`
+✓ Done: <one-line summary of what you did>
+- Action: <write tool called + args summary>
+- Result: <pass/fail + key detail from the tool's return string>
+- Notes: <any caveats, the recorded note, or "(none)">
+\`\`\`
+
+Or on failure:
+
+\`\`\`
+✗ Could not complete: <one-line reason>
+- Attempted: <what you tried>
+- Blocker: <specific reason — error message from a tool, missing data, etc.>
+\`\`\`
+
+Don't elaborate beyond that. The trace UI shows your full tool-call sequence separately; the final message is the executive summary.
+
+## Constraints
+
+- **Do NOT** emit \`<!-- THINKING_START -->\` / \`<!-- THINKING_END -->\` delimiters. Those are for the chat UI; you have no UI streaming your reasoning.
+- **Do NOT** ask for confirmation before executing — the user already confirmed via the handoff card.
+- **Do NOT** try to delegate further — you cannot spawn child workforce tasks.
+- **Do NOT** restate the user's instruction back to them. Do the work and report what happened.
+- **Do NOT** invent data. If you can't find something, look it up via a tool or web_search. If it's still missing, say so in the report.
+- Format financial numbers consistently ($M for millions, $B for billions).
+- When the instruction mentions an explicit ID (e.g. "Entry ID: 9003"), prefer it over fuzzy name match.
+
+## Important domain rules
+
+- The pipeline stages are L0 → L1 → L2 → ... A company at L1+ cannot be re-promoted to L1; the write tool will refuse.
+- Caveats the user acknowledged ("user acknowledged weak FY2024 EBITDA", "user approved despite missing financials") MUST end up in the note recorded on the deal so the audit trail captures that the user proceeded knowingly.`;
+
 export interface AgentConfig {
   apiKey: string;
   checkpointer?: BaseCheckpointSaver;
@@ -173,8 +250,19 @@ export interface InvokeResult {
 
 /**
  * Build a streaming-capable agent with optional additional system context.
+ *
+ * `toolList` and `systemPrompt` control the agent's behavior:
+ *   - Chat agents use DEFAULT_TOOL_LIST + CHAT_SYSTEM_PROMPT
+ *     (read tools + chat-only delegation + chatty user-facing prose)
+ *   - Workforce agents use WORKFORCE_TOOL_LIST + WORKFORCE_SYSTEM_PROMPT
+ *     (read tools + write tools + terse "do-and-report" execution)
  */
-export function createLocalAgent(config: AgentConfig, additionalSystemContext?: string) {
+export function createLocalAgent(
+  config: AgentConfig,
+  additionalSystemContext?: string,
+  toolList: ToolList = DEFAULT_TOOL_LIST,
+  systemPrompt: string = CHAT_SYSTEM_PROMPT,
+) {
   const llm = new ChatAnthropic({
     model: "claude-sonnet-4-6",
     anthropicApiKey: config.apiKey,
@@ -182,12 +270,12 @@ export function createLocalAgent(config: AgentConfig, additionalSystemContext?: 
   });
 
   const fullSystemPrompt = additionalSystemContext
-    ? `${SYSTEM_PROMPT}\n\n---\n\n## Additional Context\n\n${additionalSystemContext}`
-    : SYSTEM_PROMPT;
+    ? `${systemPrompt}\n\n---\n\n## Additional Context\n\n${additionalSystemContext}`
+    : systemPrompt;
 
   return createAgent({
     model: llm,
-    tools,
+    tools: toolList,
     systemPrompt: fullSystemPrompt,
     checkpointer: config.checkpointer,
   });
@@ -199,17 +287,30 @@ export function createLocalAgent(config: AgentConfig, additionalSystemContext?: 
 export class AgentGraph {
   private config: AgentConfig;
   private defaultAgent: ReturnType<typeof createAgent>;
+  private toolList: ToolList;
+  private systemPrompt: string;
 
-  constructor(config: AgentConfig) {
+  constructor(
+    config: AgentConfig,
+    toolList: ToolList = DEFAULT_TOOL_LIST,
+    systemPrompt: string = CHAT_SYSTEM_PROMPT,
+  ) {
     this.config = config;
-    this.defaultAgent = createLocalAgent(config);
+    this.toolList = toolList;
+    this.systemPrompt = systemPrompt;
+    this.defaultAgent = createLocalAgent(config, undefined, toolList, systemPrompt);
   }
 
   private getAgent(additionalSystemContext?: string): ReturnType<typeof createAgent> {
     if (!additionalSystemContext) {
       return this.defaultAgent;
     }
-    return createLocalAgent(this.config, additionalSystemContext);
+    return createLocalAgent(
+      this.config,
+      additionalSystemContext,
+      this.toolList,
+      this.systemPrompt,
+    );
   }
 
   async invoke(inputs: InvokeOptions, config?: InvokeConfig): Promise<InvokeResult> {
@@ -272,7 +373,11 @@ export class AgentGraph {
   }
 }
 
-let agentGraph: AgentGraph | null = null;
+// Two singletons: chat (base + chatOnly tools) and workforce (base only).
+// They share the same checkpointer; thread_id namespaces the conversations
+// (copilot_chats.id vs ai_workforce_queue.id).
+let chatAgentGraph: AgentGraph | null = null;
+let workforceAgentGraph: AgentGraph | null = null;
 let checkpointerSetupPromise: Promise<PostgresSaver> | null = null;
 
 /**
@@ -333,11 +438,10 @@ function getCheckpointer(): Promise<PostgresSaver> | null {
   return checkpointerSetupPromise;
 }
 
-export async function getAgentGraph(): Promise<AgentGraph | null> {
-  if (agentGraph) {
-    return agentGraph;
-  }
-
+async function buildAgentGraph(
+  toolList: ToolList,
+  systemPrompt: string,
+): Promise<AgentGraph | null> {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) {
     logger.error("ANTHROPIC_API_KEY environment variable is required");
@@ -347,16 +451,43 @@ export async function getAgentGraph(): Promise<AgentGraph | null> {
   try {
     const checkpointerPromise = getCheckpointer();
     const checkpointer = checkpointerPromise ? await checkpointerPromise : undefined;
-    agentGraph = new AgentGraph({ apiKey, checkpointer });
-    return agentGraph;
+    return new AgentGraph({ apiKey, checkpointer }, toolList, systemPrompt);
   } catch (error) {
     logger.error(`Failed to create agent: ${(error as Error).message}`);
     return null;
   }
 }
 
+/**
+ * Singleton for the copilot chat agent. Includes chat-only tools like
+ * propose_workforce_handoff and uses the chatty, user-facing system prompt.
+ */
+export async function getAgentGraph(): Promise<AgentGraph | null> {
+  if (chatAgentGraph) return chatAgentGraph;
+  const graph = await buildAgentGraph(DEFAULT_TOOL_LIST, CHAT_SYSTEM_PROMPT);
+  if (graph) chatAgentGraph = graph;
+  return chatAgentGraph;
+}
+
+/**
+ * Singleton for the workforce agent. Uses base + workforce-only tools and
+ * the terse "execute and report" system prompt. Excludes chat-only tools
+ * like propose_workforce_handoff so workforce runs cannot recursively
+ * spawn more workforce tasks.
+ */
+export async function getWorkforceAgentGraph(): Promise<AgentGraph | null> {
+  if (workforceAgentGraph) return workforceAgentGraph;
+  const graph = await buildAgentGraph(
+    WORKFORCE_TOOL_LIST,
+    WORKFORCE_SYSTEM_PROMPT,
+  );
+  if (graph) workforceAgentGraph = graph;
+  return workforceAgentGraph;
+}
+
 export function resetAgent(): void {
-  agentGraph = null;
+  chatAgentGraph = null;
+  workforceAgentGraph = null;
   checkpointerSetupPromise = null;
 }
 

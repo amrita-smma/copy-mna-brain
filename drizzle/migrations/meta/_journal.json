@@ -281,6 +281,13 @@
       "when": 1778457600000,
       "tag": "20260511000000_workforce_queue_schema_delta",
       "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1778581936000,
+      "tag": "20260512103216_add_user_id_and_title_to_workforce_queue",
+      "breakpoints": true
     }
   ]
 }

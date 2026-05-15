@@ -13,6 +13,7 @@ import { compareWithPastAcquisitions } from "./compare_with_past_acquisitions";
 import { getPastAcquisitionDetails } from "./get_past_acquisition_details";
 import { queryMeetingNotes } from "./query_files";
 import { proposeWorkforceHandoff } from "./propose_workforce_handoff";
+import { promoteToL1 } from "./promote_to_l1";
 
 export {
   getDataSchema,
@@ -25,6 +26,7 @@ export {
   getPastAcquisitionDetails,
   queryMeetingNotes,
   proposeWorkforceHandoff,
+  promoteToL1,
 };
 
 export {
@@ -34,6 +36,11 @@ export {
   companyScreeningDerivedSchema,
 } from "./schemas";
 
+/**
+ * Base tools — safe for any agent context, including the workforce itself.
+ * Read-only data/web tools. Anything added here is callable by workforce
+ * runs too.
+ */
 export const tools = [
   getDataSchema,
   queryCompanies,
@@ -44,8 +51,24 @@ export const tools = [
   compareWithPastAcquisitions,
   getPastAcquisitionDetails,
   queryMeetingNotes,
-  proposeWorkforceHandoff,
 ];
+
+/**
+ * Chat-only tools — available to the copilot chat agent but NOT to the
+ * workforce agent. propose_workforce_handoff lives here so workforce runs
+ * cannot recursively spawn child workforce tasks (the v1
+ * single-workforce-step invariant), and so a workforce agent doesn't waste
+ * tokens emitting handoff cards that have no UI to render them.
+ */
+export const chatOnlyTools = [proposeWorkforceHandoff];
+
+/**
+ * Workforce-only tools — write actions available to the workforce agent
+ * but NOT to chat. Chat never writes directly; users approve writes via
+ * propose_workforce_handoff, which enqueues a workforce row that uses
+ * these tools to actually mutate state.
+ */
+export const workforceOnlyTools = [promoteToL1];
 
 /**
  * Get a formatted list of tool names and descriptions for prompt injection.

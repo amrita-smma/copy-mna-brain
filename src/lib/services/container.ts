@@ -132,7 +132,7 @@ export function createContainer(db: DbClient): Container {
   const crmService = new CRMService(contactRepo, contactMessageRepo);
 
   const aiWorkforceQueueRepo = new AiWorkforceQueueRepository(db);
-  const aiWorkforceService = new AiWorkforceService(aiWorkforceQueueRepo);
+  const aiWorkforceService = new AiWorkforceService(aiWorkforceQueueRepo, db);
 
   const copilotChatsRepo = new CopilotChatsRepository(db);
   const copilotChatsService = new CopilotChatsService(copilotChatsRepo);

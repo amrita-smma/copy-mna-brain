@@ -30,6 +30,11 @@ type TableMap = {
   screenings: typeof schema.screenings;
   user_company_favorites: typeof schema.userCompanyFavorites;
   users: typeof schema.users;
+  ai_workforce_queue: typeof schema.aiWorkforceQueue;
+  agent_run_events: typeof schema.agentRunEvents;
+  pending_mutations: typeof schema.pendingMutations;
+  routines: typeof schema.routines;
+  copilot_chats: typeof schema.copilotChats;
 };
 
 export type Tables<T extends keyof TableMap> = TableMap[T]["$inferSelect"];

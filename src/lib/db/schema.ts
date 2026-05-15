@@ -1687,9 +1687,22 @@ export const aiWorkforceQueue = pgTable(
     started_at: timestamp({ withTimezone: true, mode: "string" }),
     ended_at: timestamp({ withTimezone: true, mode: "string" }),
     idempotency_key: text(),
+    triggered_by_user_id: uuid(),
+    title: text(),
   },
   (table) => {
     return {
+      idxAiWorkforceQueueTriggeredBy: index(
+        "idx_ai_workforce_queue_triggered_by",
+      ).using(
+        "btree",
+        table.triggered_by_user_id.asc().nullsLast().op("uuid_ops"),
+      ),
+      aiWorkforceQueueTriggeredByUserIdFkey: foreignKey({
+        columns: [table.triggered_by_user_id],
+        foreignColumns: [users.id],
+        name: "ai_workforce_queue_triggered_by_user_id_fkey",
+      }).onDelete("set null"),
       idxAiWorkforceQueueRunning: index(
         "idx_ai_workforce_queue_running",
       ).using("btree", table.status.asc().nullsLast().op("enum_ops")),

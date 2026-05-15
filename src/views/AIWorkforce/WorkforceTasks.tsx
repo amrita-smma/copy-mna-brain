@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Check,
   ChevronLeft,
@@ -101,8 +101,14 @@ function toQueueTask(item: ApiQueueItem): QueueTask {
   };
 }
 
-export function WorkforceTasks() {
-  const [selection, setSelection] = useState<Selection>(DEFAULT_SELECTION);
+interface WorkforceTasksProps {
+  initialTaskId?: string | null;
+}
+
+export function WorkforceTasks({ initialTaskId = null }: WorkforceTasksProps = {}) {
+  const [selection, setSelection] = useState<Selection>(
+    initialTaskId ? { kind: 'task', id: initialTaskId } : DEFAULT_SELECTION,
+  );
   const [items, setItems] = useState<ApiQueueItem[]>([]);
   // Local-only drag reordering of pending tasks. Not persisted yet — the
   // backend has no priority-update endpoint. New items append to the tail.
@@ -175,6 +181,31 @@ export function WorkforceTasks() {
 
   const selectedTaskId =
     selection.kind === 'task' && selection.id !== 'active' ? selection.id : null;
+
+  // Keep the URL in sync with task selection: `/ai-workforce/tasks/<uuid>`
+  // when a specific task is selected, `/ai-workforce` otherwise (routine
+  // selection and the synthetic 'active' default).
+  //
+  // Use window.history.replaceState (not router.replace) — this updates the
+  // URL bar without triggering a Next.js soft navigation, so the server
+  // component doesn't re-run and the page doesn't flicker between task
+  // switches. The URL here is a deep-link/bookmark affordance, not a server
+  // input — all the data is already in client state. Back/forward buttons
+  // still work because the browser dispatches popstate events that Next
+  // intercepts for the actual route change.
+  const urlReconciled = useRef(false);
+  useEffect(() => {
+    if (!urlReconciled.current) {
+      urlReconciled.current = true;
+      return;
+    }
+    const target = selectedTaskId
+      ? `/ai-workforce/tasks/${selectedTaskId}`
+      : '/ai-workforce';
+    if (typeof window !== 'undefined' && window.location.pathname !== target) {
+      window.history.replaceState(null, '', target);
+    }
+  }, [selectedTaskId]);
 
   const handleDragStart = (e: React.DragEvent, id: string) => {
     setDraggingId(id);

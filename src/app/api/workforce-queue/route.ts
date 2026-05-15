@@ -37,6 +37,12 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
+  const session = await auth();
+  if (!session?.user?.id) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+  const userId = session.user.id;
+
   try {
     const body = (await req.json()) as HandoffBody;
     const title = body.title?.trim();
@@ -57,6 +63,7 @@ export async function POST(req: NextRequest) {
       instruction,
       conversation_id: body.conversation_id,
       tool_call_id: body.tool_call_id,
+      user_id: userId,
       priority: body.priority,
     });
 
