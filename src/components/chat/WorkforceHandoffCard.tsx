@@ -13,6 +13,11 @@ export interface WorkforceHandoffPayload {
   rationale: string;
   instruction: string;
   agent_name: string;
+  // Resolved company IDs forwarded to /api/workforce-queue. The server uses
+  // these to re-validate that no targeted company is dropped before enqueue.
+  // Optional for backward compat with marker payloads written before the
+  // dropped-company guard shipped.
+  company_ids?: string[];
 }
 
 interface WorkforceHandoffCardProps {
@@ -74,6 +79,7 @@ export function WorkforceHandoffCard({
           title: payload.title,
           instruction: payload.instruction,
           tool_call_id: handoffId,
+          company_ids: payload.company_ids ?? [],
         }),
       });
       if (!res.ok) {

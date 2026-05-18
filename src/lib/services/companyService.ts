@@ -27,6 +27,23 @@ export interface FinancialUpsertInput {
   ebitda_usd_mn?: number | null;
 }
 
+// Dropped companies are terminal: any write attempt (manual UI, Copilot,
+// Workforce) must fail loud. There is no user-facing restore flow yet, so
+// the error message intentionally does not suggest one.
+export class CompanyDroppedError extends Error {
+  readonly droppedIds: string[];
+  constructor(droppedIds: string[]) {
+    const list = droppedIds.join(", ");
+    super(
+      droppedIds.length === 1
+        ? `Company ${list} is dropped and cannot be modified.`
+        : `Companies [${list}] are dropped and cannot be modified.`,
+    );
+    this.name = "CompanyDroppedError";
+    this.droppedIds = droppedIds;
+  }
+}
+
 export class CompanyService {
   constructor(
     private readonly companyRepo: CompanyRepository,
@@ -146,6 +163,7 @@ export class CompanyService {
     input: CompanyDTOInput,
     logAction?: string,
   ): Promise<CompanyDTO> {
+    await this.guardWritable(id);
     const split = splitCompanyDTO(input);
     if (Object.keys(split.company).length > 0) {
       await this.companyRepo.update(id, split.company as TablesUpdate<'companies'>);
@@ -193,6 +211,7 @@ export class CompanyService {
   }
 
   async update(id: string, updates: TablesUpdate<'companies'>, logAction?: string) {
+    await this.guardWritable(id);
     const data = await this.companyRepo.update(id, updates);
     if (logAction) {
       await this.companyLogRepo.insert({ company_id: id, action: logAction });
@@ -201,6 +220,7 @@ export class CompanyService {
   }
 
   async updateMany(ids: string[], updates: TablesUpdate<'companies'>, logAction?: string) {
+    await this.guardWritableMany(ids);
     const data = await this.companyRepo.updateMany(ids, updates);
     if (logAction) {
       await this.companyLogRepo.insertMany(
@@ -227,6 +247,7 @@ export class CompanyService {
     linkTitle?: string,
     assigneeIds?: string[],
   ) {
+    await this.guardWritable(id);
     await this.companyRepo.update(id, { pipeline_stage: nextStage as DealStage });
     await this.companyLogRepo.insert({
       company_id: id,
@@ -258,7 +279,8 @@ export class CompanyService {
     return this.companyRepo.findAssignees(id);
   }
 
-  setAssignees(id: string, userIds: string[]) {
+  async setAssignees(id: string, userIds: string[]) {
+    await this.guardWritable(id);
     return this.companyRepo.setAssignees(id, userIds);
   }
 
@@ -304,6 +326,7 @@ export class CompanyService {
     deletedYears: number[],
     logAction?: string,
   ): Promise<CompanyDTO> {
+    await this.guardWritable(companyId);
     const existing = await this.companyFinancialRepo.findByCompany(companyId);
     const existingByYear = new Map(existing.map((r) => [r.fiscal_year, r]));
 
@@ -332,5 +355,20 @@ export class CompanyService {
       await this.companyLogRepo.insert({ company_id: companyId, action: logAction });
     }
     return this.findByIdDTO(companyId);
+  }
+
+  private async guardWritable(id: string): Promise<void> {
+    const company = await this.companyRepo.findById(id);
+    if (company.status === 'dropped') {
+      throw new CompanyDroppedError([id]);
+    }
+  }
+
+  private async guardWritableMany(ids: string[]): Promise<void> {
+    if (ids.length === 0) return;
+    const dropped = await this.companyRepo.findDroppedIds(ids);
+    if (dropped.length > 0) {
+      throw new CompanyDroppedError(dropped);
+    }
   }
 }

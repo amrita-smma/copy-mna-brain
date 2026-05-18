@@ -2,6 +2,8 @@ import { randomUUID } from "node:crypto";
 import { tool } from "@langchain/core/tools";
 import { z } from "zod";
 import { logger } from "../../logger";
+import { createDb } from "@/lib/server/db";
+import { CompanyRepository } from "@/lib/repositories";
 
 /**
  * Marker used by the chat UI ([ChatMessageBubble]) to detect a workforce
@@ -20,6 +22,11 @@ export interface WorkforceHandoffPayload {
   rationale: string;
   instruction: string;
   agent_name: string;
+  // Resolved companies the handoff will touch. Empty array means the handoff
+  // isn't scoped to specific companies (e.g. broad outbound research). Used
+  // by the chat UI to forward company_ids to /api/workforce-queue so the
+  // server can reject enqueues that target dropped rows.
+  company_ids: string[];
 }
 
 export const proposeWorkforceHandoff = tool(
@@ -28,13 +35,55 @@ export const proposeWorkforceHandoff = tool(
     rationale,
     instruction,
     agent_name,
+    company_names,
   }: {
     title: string;
     rationale: string;
     instruction: string;
     agent_name?: string;
+    company_names: string[];
   }) => {
     logger.debug(`🔧 TOOL CALLED: propose_workforce_handoff(title='${title}')`);
+
+    const db = createDb();
+    const companyRepo = new CompanyRepository(db);
+
+    // Resolve each provided name. Unresolved names are not fatal (the agent
+    // may legitimately reference companies that aren't in the pipeline yet,
+    // e.g. outbound research targets) — only DROPPED matches block the card.
+    const resolved: Array<{
+      query: string;
+      id: string;
+      target: string;
+      status: string;
+    }> = [];
+    const dropped: Array<{ query: string; target: string }> = [];
+    for (const raw of company_names) {
+      const name = raw.trim();
+      if (!name) continue;
+      const company = await companyRepo.findByNameFuzzy(name);
+      if (!company) continue;
+      resolved.push({
+        query: name,
+        id: company.id,
+        target: company.target ?? name,
+        status: company.status ?? "active",
+      });
+      if (company.status === "dropped") {
+        dropped.push({ query: name, target: company.target ?? name });
+      }
+    }
+
+    if (dropped.length > 0) {
+      const list = dropped
+        .map((d) => `"${d.target}"`)
+        .join(", ");
+      const msg = `Cannot hand this off to the Workforce: ${list} ${
+        dropped.length === 1 ? "is" : "are"
+      } dropped and read-only. Tell the user the company is dropped and answer their question directly in chat instead.`;
+      logger.debug(`✗ propose_workforce_handoff blocked by dropped: ${list}`);
+      return msg;
+    }
 
     const payload: WorkforceHandoffPayload = {
       handoff_id: randomUUID(),
@@ -42,6 +91,7 @@ export const proposeWorkforceHandoff = tool(
       rationale: rationale.trim(),
       instruction: instruction.trim(),
       agent_name: agent_name?.trim() || "chat_handoff",
+      company_ids: resolved.map((r) => r.id),
     };
 
     return [
@@ -69,11 +119,14 @@ Do NOT use this tool for read-only analysis or single-tool answers — just answ
 
 Calling this tool does NOT enqueue anything itself. It renders a card in the chat that asks the user to confirm via "Assign to Workforce" or to keep the conversation in-chat via "Just answer here". After calling it, write a single short sentence explaining the offer and then STOP — do not start executing the plan yourself in the same turn.
 
+The tool will REFUSE to render the card (returning a refusal string instead) when any company in \`company_names\` is dropped. Dropped companies are read-only across the whole product — surface the refusal to the user and do not retry with the company removed unless they explicitly ask.
+
 Args:
     title: Short headline for the card (e.g. "Outbound search + L0/L1 screening + pipeline write").
     rationale: One sentence explaining why this is better suited to the Workforce.
     instruction: The exact instruction the Workforce will execute. Write it as a complete imperative sentence; the user will see it verbatim.
-    agent_name: Optional agent identifier (defaults to "chat_handoff").`,
+    agent_name: Optional agent identifier (defaults to "chat_handoff").
+    company_names: REQUIRED. Every company the handoff will read, write, or otherwise act on, by name (target field). Pass an empty array ONLY for handoffs not scoped to specific companies (e.g. "find all new fintech companies in the EU"). The tool fuzzy-matches each name against the pipeline; unmatched names are ignored, but any matched dropped company aborts the handoff.`,
     schema: z.object({
       title: z.string().describe("Card headline"),
       rationale: z
@@ -90,6 +143,11 @@ Args:
         .string()
         .optional()
         .describe("Optional Workforce agent id (defaults to 'chat_handoff')"),
+      company_names: z
+        .array(z.string())
+        .describe(
+          "Every company the handoff will touch, by target name. Required; pass [] only for handoffs not scoped to specific companies.",
+        ),
     }),
   },
 );

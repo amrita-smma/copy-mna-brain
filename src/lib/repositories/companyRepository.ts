@@ -329,6 +329,15 @@ export class CompanyRepository {
       .returning();
   }
 
+  async findDroppedIds(ids: string[]): Promise<string[]> {
+    if (ids.length === 0) return [];
+    const rows = await this.db
+      .select({ id: companies.id })
+      .from(companies)
+      .where(and(inArray(companies.id, ids), eq(companies.status, "dropped")));
+    return rows.map((r) => r.id);
+  }
+
   async delete(id: string): Promise<void> {
     await this.db.delete(companies).where(eq(companies.id, id));
   }

@@ -42,6 +42,10 @@ export const promoteToL1 = tool(
         return `No company found matching "${company_name}". Use get_company_details or query_companies first to confirm the exact spelling.`;
       }
 
+      if (company.status === "dropped") {
+        return `Cannot promote "${company.target}": this company is dropped and is read-only.`;
+      }
+
       const stage = company.pipeline_stage ?? null;
       if (stage !== CURRENT_STAGE) {
         return `Cannot promote "${company.target}" to ${NEXT_STAGE}: current pipeline stage is ${stage ?? "unset"}, expected ${CURRENT_STAGE}.`;

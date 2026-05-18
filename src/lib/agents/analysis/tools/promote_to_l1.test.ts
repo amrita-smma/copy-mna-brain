@@ -64,6 +64,22 @@ describe("promote_to_l1 (workforce tool)", () => {
     expect(promote).not.toHaveBeenCalled();
   });
 
+  it("refuses to promote a company that's been dropped", async () => {
+    findByNameFuzzy.mockResolvedValueOnce({
+      id: "c-1",
+      target: "Halcyon Media",
+      pipeline_stage: "L0",
+      status: "dropped",
+    });
+
+    const result = await call({ company_name: "Halcyon Media" });
+
+    expect(String(result)).toMatch(
+      /Cannot promote "Halcyon Media": this company is dropped/,
+    );
+    expect(promote).not.toHaveBeenCalled();
+  });
+
   it("refuses to promote when pipeline_stage is null (unset)", async () => {
     findByNameFuzzy.mockResolvedValueOnce({
       id: "c-1",

@@ -10,7 +10,7 @@ import type {
   CompanyScreeningDerivedRepository,
   Tables,
 } from '@/lib/repositories';
-import { CompanyService } from './companyService';
+import { CompanyDroppedError, CompanyService } from './companyService';
 
 vi.mock('@/lib/s3', () => ({ deleteFile: vi.fn() }));
 
@@ -33,7 +33,9 @@ function makeCompany(overrides: Partial<Company> = {}): Company {
 
 function makeRepos() {
   const companyRepo = {
-    findById: vi.fn(),
+    // Default: every guard lookup returns an active company. Tests that
+    // exercise the dropped-write guard override this with a dropped row.
+    findById: vi.fn().mockResolvedValue(makeCompany()),
     findAll: vi.fn(),
     findIdAndTargetPage: vi.fn().mockResolvedValue([]),
     count: vi.fn(),
@@ -45,6 +47,8 @@ function makeRepos() {
     runL1Filters: vi.fn(),
     setAssignees: vi.fn().mockResolvedValue(undefined),
     findAssignees: vi.fn().mockResolvedValue([]),
+    findAssigneesByCompanies: vi.fn().mockResolvedValue([]),
+    findDroppedIds: vi.fn().mockResolvedValue([]),
   } as unknown as CompanyRepository;
 
   const companyLogRepo = {
@@ -475,5 +479,104 @@ describe('CompanyService.listIdAndTargetPage', () => {
     await service.listIdAndTargetPage({});
 
     expect(repos.companyRepo.findIdAndTargetPage).toHaveBeenCalledWith({});
+  });
+});
+
+describe('CompanyService dropped-company write guard', () => {
+  let repos: ReturnType<typeof makeRepos>;
+  let service: CompanyService;
+
+  beforeEach(() => {
+    repos = makeRepos();
+    service = buildService(repos);
+    vi.mocked(repos.companyRepo.findById).mockResolvedValue(
+      makeCompany({ status: 'dropped' }),
+    );
+  });
+
+  it('update throws CompanyDroppedError and does not touch the row', async () => {
+    await expect(
+      service.update('company-1', { target: 'Renamed' } as any),
+    ).rejects.toBeInstanceOf(CompanyDroppedError);
+    expect(repos.companyRepo.update).not.toHaveBeenCalled();
+    expect(repos.companyLogRepo.insert).not.toHaveBeenCalled();
+  });
+
+  it('updateFromDTO throws and skips both company + child writes', async () => {
+    await expect(
+      service.updateFromDTO('company-1', { target: 'Renamed' } as any),
+    ).rejects.toBeInstanceOf(CompanyDroppedError);
+    expect(repos.companyRepo.update).not.toHaveBeenCalled();
+    expect(repos.companyFinancialRepo.bulkUpsertForCompany).not.toHaveBeenCalled();
+  });
+
+  it('updateMany throws and lists every dropped id in the error', async () => {
+    vi.mocked(repos.companyRepo.findDroppedIds).mockResolvedValue([
+      'company-1',
+      'company-2',
+    ]);
+
+    await expect(
+      service.updateMany(['company-1', 'company-2', 'company-3'], {
+        target: 'x',
+      } as any),
+    ).rejects.toMatchObject({
+      name: 'CompanyDroppedError',
+      droppedIds: ['company-1', 'company-2'],
+    });
+    expect(repos.companyRepo.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('updateMany still writes when none of the ids are dropped', async () => {
+    vi.mocked(repos.companyRepo.findDroppedIds).mockResolvedValue([]);
+    vi.mocked(repos.companyRepo.updateMany).mockResolvedValue([]);
+
+    await service.updateMany(['company-1', 'company-2'], { target: 'x' } as any);
+
+    expect(repos.companyRepo.updateMany).toHaveBeenCalledWith(
+      ['company-1', 'company-2'],
+      { target: 'x' },
+    );
+  });
+
+  it('promote throws and never advances pipeline_stage', async () => {
+    await expect(
+      service.promote('company-1', 'L0', 'L1'),
+    ).rejects.toBeInstanceOf(CompanyDroppedError);
+    expect(repos.companyRepo.update).not.toHaveBeenCalled();
+    expect(repos.companyLogRepo.insert).not.toHaveBeenCalled();
+  });
+
+  it('setAssignees throws and does not mutate assignees', async () => {
+    await expect(
+      service.setAssignees('company-1', ['user-a']),
+    ).rejects.toBeInstanceOf(CompanyDroppedError);
+    expect(repos.companyRepo.setAssignees).not.toHaveBeenCalled();
+  });
+
+  it('updateFinancials throws and skips financials writes', async () => {
+    await expect(
+      service.updateFinancials(
+        'company-1',
+        [{ fiscal_year: 2024, revenue_usd_mn: 1 }],
+        [],
+      ),
+    ).rejects.toBeInstanceOf(CompanyDroppedError);
+    expect(repos.companyFinancialRepo.bulkUpsertForCompany).not.toHaveBeenCalled();
+    expect(repos.companyFinancialRepo.deleteByCompanyAndYears).not.toHaveBeenCalled();
+  });
+
+  it('restoreDeal still works on a dropped company (escape hatch)', async () => {
+    vi.mocked(repos.companyRepo.update).mockResolvedValue([
+      makeCompany({ status: 'active' }),
+    ]);
+
+    await service.restoreDeal('company-1', 'L1');
+
+    expect(repos.companyRepo.update).toHaveBeenCalledWith('company-1', {
+      status: 'active',
+      dropped_reason: null,
+      dropped_at: null,
+    });
   });
 });

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/auth';
+import { CompanyRepository } from '@/lib/repositories';
 import { createDb } from '@/lib/server/db';
 import { createContainer } from '@/lib/services';
 
@@ -10,6 +11,7 @@ interface HandoffBody {
   conversation_id?: string;
   tool_call_id?: string;
   priority?: number;
+  company_ids?: string[];
 }
 
 const DEFAULT_AGENT = 'chat_handoff';
@@ -56,6 +58,27 @@ export async function POST(req: NextRequest) {
     }
 
     const db = createDb();
+
+    // Server-side backstop for the dropped-company guard. The tool refuses
+    // to render the card when any cited company is dropped, but the POST
+    // body is still user-controllable from the browser — re-check here so
+    // direct curl/replay can't bypass it.
+    const companyIds = Array.isArray(body.company_ids) ? body.company_ids : [];
+    if (companyIds.length > 0) {
+      const droppedIds = await new CompanyRepository(db).findDroppedIds(
+        companyIds,
+      );
+      if (droppedIds.length > 0) {
+        return NextResponse.json(
+          {
+            error: `Cannot assign to Workforce: ${droppedIds.length === 1 ? 'company' : 'companies'} ${droppedIds.join(', ')} ${droppedIds.length === 1 ? 'is' : 'are'} dropped and read-only.`,
+            droppedIds,
+          },
+          { status: 409 },
+        );
+      }
+    }
+
     const { aiWorkforceService } = createContainer(db);
     const row = await aiWorkforceService.enqueueFromChat({
       agent_name: body.agent_name?.trim() || DEFAULT_AGENT,
