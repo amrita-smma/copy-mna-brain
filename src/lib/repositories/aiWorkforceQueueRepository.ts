@@ -1,5 +1,6 @@
 import { and, desc, eq, lte, sql } from 'drizzle-orm';
 import { aiWorkforceQueue } from '@/lib/db/schema';
+import type { HumanDecision } from '@/lib/db/schema';
 import type { DbClient, Tables, TablesInsert, TablesUpdate } from './types';
 
 // Single source of truth: rows come from Drizzle's $inferSelect on the table.
@@ -245,6 +246,30 @@ export class AiWorkforceQueueRepository {
     };
     if (resumeToken !== undefined) patch.resume_token = resumeToken;
     return this.updateStatusOrThrow(id, patch);
+  }
+
+  // Transition to waiting_for_human_input — the agent emitted a HITL
+  // interrupt and is paused awaiting a decision from the task creator.
+  async markWaitingForHumanInput(id: string, reason: string): Promise<Row> {
+    return this.updateStatusOrThrow(id, {
+      status: 'waiting_for_human_input',
+      resume_reason: reason,
+    });
+  }
+
+  // Append one HumanDecision to the JSONB array. Uses `||` jsonb concat so
+  // we never have to read-then-write — safe under concurrent decisions for
+  // the same row even though the API enforces single-creator serialization.
+  async appendDecision(id: string, decision: HumanDecision): Promise<Row> {
+    const [row] = await this.db
+      .update(aiWorkforceQueue)
+      .set({
+        human_decisions: sql`${aiWorkforceQueue.human_decisions} || ${JSON.stringify([decision])}::jsonb`,
+      })
+      .where(eq(aiWorkforceQueue.id, id))
+      .returning();
+    if (!row) throw new Error(`ai_workforce_queue row ${id} not found`);
+    return row;
   }
 
   async heartbeat(id: string): Promise<void> {

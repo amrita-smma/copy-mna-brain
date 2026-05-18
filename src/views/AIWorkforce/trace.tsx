@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { AlertCircle, Check, ChevronRight, Send } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { MarkdownRenderer } from '@/components/chat/MarkdownRenderer';
 import { avatarToneClass } from './shared';
 import type {
   InterventionData,
@@ -11,12 +12,23 @@ import type {
   TraceStepStatus,
 } from './shared';
 
+export type InterventionDecisionInput = {
+  tool_call_id: string;
+  tool_name: string;
+  decision: 'approve' | 'reject';
+  rejection_message?: string;
+};
+
 export function TraceLine({
   step,
   isLast,
+  onDecision,
+  canDecide = false,
 }: {
   step: TraceData;
   isLast: boolean;
+  onDecision?: (input: InterventionDecisionInput) => void | Promise<void>;
+  canDecide?: boolean;
 }) {
   return (
     <div
@@ -45,7 +57,13 @@ export function TraceLine({
           </div>
         )}
 
-        {step.intervention && <InterventionCard intervention={step.intervention} />}
+        {step.intervention && (
+          <InterventionCard
+            intervention={step.intervention}
+            onDecision={onDecision}
+            canDecide={canDecide}
+          />
+        )}
       </div>
     </div>
   );
@@ -126,28 +144,41 @@ function ToolCallView({ call }: { call: ToolCall }) {
         )}
       </button>
       {open && hasOutput && call.output && (
-        <div className="border-t bg-card px-3 py-2 text-[11px] text-muted-foreground max-h-60 overflow-y-auto">
-          <div className="mb-1.5 text-[9.5px] font-bold uppercase tracking-wider text-muted-foreground/80 font-sans">
+        <div className="border-t bg-card px-3 py-2 text-[12px] text-muted-foreground max-h-96 overflow-y-auto font-sans">
+          <div className="mb-1.5 text-[9.5px] font-bold uppercase tracking-wider text-muted-foreground/80">
             {call.output.label}
           </div>
           <div className="space-y-1">
             {call.output.rows.map((row, i) => (
               <div
                 key={i}
-                className="py-0.5 border-b border-dashed border-border last:border-b-0"
+                className={cn(
+                  'last:border-b-0',
+                  row.key && 'py-0.5 border-b border-dashed border-border',
+                )}
               >
-                {row.key && <span className="text-muted-foreground">{row.key} · </span>}
-                <span
-                  className={cn(
-                    'font-medium',
-                    row.tone === 'pass' && 'text-emerald-600',
-                    row.tone === 'fail' && 'text-red-600',
-                    row.tone === 'warn' && 'text-amber-600',
-                    (!row.tone || row.tone === 'default') && 'text-foreground',
-                  )}
-                >
-                  {row.value}
-                </span>
+                {row.key ? (
+                  <>
+                    <span className="text-muted-foreground">{row.key} · </span>
+                    <span
+                      className={cn(
+                        'font-medium',
+                        row.tone === 'pass' && 'text-emerald-600',
+                        row.tone === 'fail' && 'text-red-600',
+                        row.tone === 'warn' && 'text-amber-600',
+                        (!row.tone || row.tone === 'default') && 'text-foreground',
+                      )}
+                    >
+                      {row.value}
+                    </span>
+                  </>
+                ) : (
+                  // Unstructured row — render value as markdown so tool
+                  // outputs that ship with headers / bold / tables don't
+                  // appear as raw syntax. Falls back to plain text when
+                  // the content has no markdown markers.
+                  <MarkdownRenderer content={row.value} />
+                )}
               </div>
             ))}
           </div>
@@ -157,8 +188,18 @@ function ToolCallView({ call }: { call: ToolCall }) {
   );
 }
 
-function InterventionCard({ intervention }: { intervention: InterventionData }) {
+function InterventionCard({
+  intervention,
+  onDecision,
+  canDecide = false,
+}: {
+  intervention: InterventionData;
+  onDecision?: (input: InterventionDecisionInput) => void | Promise<void>;
+  canDecide?: boolean;
+}) {
   const [composerOpen, setComposerOpen] = useState(false);
+  const [rejectMessage, setRejectMessage] = useState('');
+  const [submitting, setSubmitting] = useState(false);
 
   if (intervention.state === 'resolved') {
     const { question, resolution } = intervention;
@@ -203,6 +244,30 @@ function InterventionCard({ intervention }: { intervention: InterventionData }) 
   }
 
   // Waiting state
+  const toolCallId = intervention.tool_call_id;
+  const toolName = intervention.tool_name;
+  const decideAllowed = canDecide && !!onDecision && !!toolCallId && !!toolName;
+
+  const submit = async (
+    decision: 'approve' | 'reject',
+    rejection_message?: string,
+  ) => {
+    if (!decideAllowed || submitting) return;
+    setSubmitting(true);
+    try {
+      await onDecision!({
+        tool_call_id: toolCallId!,
+        tool_name: toolName!,
+        decision,
+        ...(rejection_message ? { rejection_message } : {}),
+      });
+    } finally {
+      setSubmitting(false);
+      setComposerOpen(false);
+      setRejectMessage('');
+    }
+  };
+
   return (
     <div className="relative mt-2 rounded-lg border-[1.5px] border-violet-300 bg-gradient-to-br from-violet-50/70 to-indigo-50/50 px-3.5 py-3 overflow-hidden">
       <span className="absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r from-violet-500 to-indigo-500" />
@@ -218,34 +283,46 @@ function InterventionCard({ intervention }: { intervention: InterventionData }) 
           {intervention.proposal}
         </div>
       )}
-      {!composerOpen ? (
+      {!decideAllowed ? (
+        <p className="text-[11px] text-muted-foreground italic">
+          Only the task creator can decide.
+        </p>
+      ) : !composerOpen ? (
         <div className="flex flex-wrap items-center gap-2">
           <button
             type="button"
-            className="inline-flex items-center gap-1.5 rounded-md bg-gradient-to-br from-violet-500 to-indigo-600 px-3 py-1.5 text-xs font-semibold text-white hover:from-violet-600 hover:to-indigo-700 transition-colors"
+            disabled={submitting}
+            onClick={() => void submit('approve')}
+            className="inline-flex items-center gap-1.5 rounded-md bg-gradient-to-br from-violet-500 to-indigo-600 px-3 py-1.5 text-xs font-semibold text-white hover:from-violet-600 hover:to-indigo-700 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
           >
             <Check className="h-3 w-3" strokeWidth={3} />
             Approve
           </button>
           <button
             type="button"
+            disabled={submitting}
             onClick={() => setComposerOpen(true)}
-            className="inline-flex items-center rounded-md border border-violet-300 bg-card px-3 py-1.5 text-xs font-semibold text-violet-700 hover:border-violet-500 transition-colors"
+            className="inline-flex items-center rounded-md border border-rose-300 bg-card px-3 py-1.5 text-xs font-semibold text-rose-700 hover:border-rose-500 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
           >
-            Add custom instruction
+            Reject
           </button>
         </div>
       ) : (
-        <div className="flex items-stretch gap-1.5 rounded-md border-[1.5px] border-violet-500 bg-card pl-3 pr-1 py-1">
+        <div className="flex items-stretch gap-1.5 rounded-md border-[1.5px] border-rose-400 bg-card pl-3 pr-1 py-1">
           <textarea
             autoFocus
             rows={1}
-            placeholder="e.g. 'Drop it — we don't bend on growth criteria'…"
+            value={rejectMessage}
+            onChange={(e) => setRejectMessage(e.target.value)}
+            placeholder="Reason (optional)…"
+            disabled={submitting}
             className="flex-1 resize-none bg-transparent py-1.5 text-xs outline-none placeholder:text-muted-foreground"
           />
           <button
             type="button"
-            className="self-stretch w-7 grid place-items-center rounded bg-gradient-to-br from-violet-500 to-indigo-600 text-white hover:from-violet-600 hover:to-indigo-700 transition-colors"
+            disabled={submitting}
+            onClick={() => void submit('reject', rejectMessage.trim() || undefined)}
+            className="self-stretch w-7 grid place-items-center rounded bg-gradient-to-br from-rose-500 to-rose-600 text-white hover:from-rose-600 hover:to-rose-700 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
           >
             <Send className="h-3 w-3" />
           </button>

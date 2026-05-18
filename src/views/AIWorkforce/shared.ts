@@ -58,6 +58,10 @@ export type InterventionData =
       state: 'waiting';
       question: string;
       proposal?: string;
+      // Identifies the tool call being gated. Required for the decision
+      // endpoint to know what to resume.
+      tool_call_id?: string;
+      tool_name?: string;
     }
   | {
       state: 'resolved';

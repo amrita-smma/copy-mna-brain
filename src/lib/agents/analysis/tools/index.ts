@@ -14,6 +14,7 @@ import { getPastAcquisitionDetails } from "./get_past_acquisition_details";
 import { queryMeetingNotes } from "./query_files";
 import { proposeWorkforceHandoff } from "./propose_workforce_handoff";
 import { promoteToL1 } from "./promote_to_l1";
+import { narrateStep } from "./narrate_step";
 
 export {
   getDataSchema,
@@ -27,6 +28,7 @@ export {
   queryMeetingNotes,
   proposeWorkforceHandoff,
   promoteToL1,
+  narrateStep,
 };
 
 export {
@@ -67,8 +69,13 @@ export const chatOnlyTools = [proposeWorkforceHandoff];
  * but NOT to chat. Chat never writes directly; users approve writes via
  * propose_workforce_handoff, which enqueues a workforce row that uses
  * these tools to actually mutate state.
+ *
+ * narrate_step is a no-op trace-card tool: the workforce agent calls it
+ * once per model turn to emit structured title/overview/detailed for the
+ * Reasoning trace UI in /ai-workforce/tasks/{id}. Excluded from chat
+ * because the chat UI has no trace renderer.
  */
-export const workforceOnlyTools = [promoteToL1];
+export const workforceOnlyTools = [promoteToL1, narrateStep];
 
 /**
  * Get a formatted list of tool names and descriptions for prompt injection.

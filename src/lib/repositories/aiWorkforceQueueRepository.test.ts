@@ -208,6 +208,72 @@ describe('AiWorkforceQueueRepository.markFailed / markSucceeded', () => {
   });
 });
 
+describe('AiWorkforceQueueRepository.markWaitingForHumanInput', () => {
+  it('updates status to waiting_for_human_input with reason', async () => {
+    const { db, updateChain } = makeMockDb();
+    const row = { id: 'r1', status: 'waiting_for_human_input' };
+    updateChain.returning.mockResolvedValueOnce([row]);
+
+    const repo = new AiWorkforceQueueRepository(db as never);
+    const result = await repo.markWaitingForHumanInput('r1', 'awaiting approval');
+
+    expect(result).toBe(row);
+    expect(updateChain.set).toHaveBeenCalledWith({
+      status: 'waiting_for_human_input',
+      resume_reason: 'awaiting approval',
+    });
+  });
+
+  it('throws when the row does not exist', async () => {
+    const { db, updateChain } = makeMockDb();
+    updateChain.returning.mockResolvedValueOnce([]);
+
+    const repo = new AiWorkforceQueueRepository(db as never);
+    await expect(
+      repo.markWaitingForHumanInput('missing', 'x'),
+    ).rejects.toThrow(/not found/);
+  });
+});
+
+describe('AiWorkforceQueueRepository.appendDecision', () => {
+  it('appends one decision via jsonb concat and returns the row', async () => {
+    const { db, updateChain } = makeMockDb();
+    const row = { id: 'r1', human_decisions: [] };
+    updateChain.returning.mockResolvedValueOnce([row]);
+
+    const repo = new AiWorkforceQueueRepository(db as never);
+    const decision = {
+      tool_call_id: 'c-1',
+      tool_name: 'promote_to_l1',
+      decision: 'approve' as const,
+      decided_at: '2026-05-15T10:00:00Z',
+    };
+    const result = await repo.appendDecision('r1', decision);
+
+    expect(result).toBe(row);
+    expect(updateChain.set).toHaveBeenCalledTimes(1);
+    // The set arg is a partial with a sql template for human_decisions.
+    // Light check: just confirm the key was patched.
+    const setArg = updateChain.set.mock.calls[0][0];
+    expect(setArg).toHaveProperty('human_decisions');
+  });
+
+  it('throws when the row does not exist', async () => {
+    const { db, updateChain } = makeMockDb();
+    updateChain.returning.mockResolvedValueOnce([]);
+
+    const repo = new AiWorkforceQueueRepository(db as never);
+    await expect(
+      repo.appendDecision('missing', {
+        tool_call_id: 'c-1',
+        tool_name: 'promote_to_l1',
+        decision: 'approve',
+        decided_at: '2026-05-15T10:00:00Z',
+      }),
+    ).rejects.toThrow(/not found/);
+  });
+});
+
 describe('AiWorkforceQueueRepository.isTerminal', () => {
   it('classifies terminal vs non-terminal statuses', () => {
     expect(AiWorkforceQueueRepository.isTerminal('succeeded')).toBe(true);

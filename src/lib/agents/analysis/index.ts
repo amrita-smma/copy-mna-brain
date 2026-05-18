@@ -4,10 +4,28 @@
  * used by the job handlers.
  */
 import { ChatAnthropic } from "@langchain/anthropic";
-import { createAgent } from "langchain";
+import { createAgent, humanInTheLoopMiddleware } from "langchain";
 import { HumanMessage, AIMessage, BaseMessage } from "@langchain/core/messages";
 import { PostgresSaver } from "@langchain/langgraph-checkpoint-postgres";
 import type { BaseCheckpointSaver } from "@langchain/langgraph-checkpoint";
+import type { CheckpointPendingWrite } from "@langchain/langgraph-checkpoint";
+
+// HITL middleware for the workforce agent: gates write tools that require
+// human approval before execution. Currently only promote_to_l1; extend
+// `interruptOn` when more write tools come online.
+const WORKFORCE_HITL_MIDDLEWARE = humanInTheLoopMiddleware({
+  interruptOn: {
+    promote_to_l1: {
+      allowedDecisions: ["approve", "reject"],
+      description: (toolCall) => {
+        const args = toolCall.args as { company_name?: string; note?: string };
+        const co = args.company_name ?? "(unknown)";
+        const note = args.note ? ` Note: ${args.note}` : "";
+        return `Promote ${co} from L0 to L1?${note}`;
+      },
+    },
+  },
+});
 import pg from "pg";
 import { tools, chatOnlyTools, workforceOnlyTools } from "./tools";
 
@@ -184,12 +202,19 @@ Read tools (use to gather context before writing):
 Write tools (use to actually mutate state — the whole point of this run):
 - **promote_to_l1** — move a company from pipeline stage L0 to L1, optionally with a note. Idempotent guard refuses any company not currently at L0.
 
+Trace tool (call EVERY model turn, in parallel with real tools):
+- **narrate_step** — record a structured trace card with \`title\` and \`overview\` for this turn. The user sees these in the Reasoning trace panel. Always include narrate_step in your tool_calls. Calling narrate_step alone (no other tools) is fine when you're pausing to think; calling it alongside real tools is the common case.
+
 ## How to execute
 
 1. **Parse the instruction.** Identify the target entity (company name, etc.) and the desired action.
 2. **Verify preconditions** with read tools. E.g. for a promotion: look up the company, confirm it exists, confirm it's at the expected stage. If the instruction mentions a caveat the user acknowledged (e.g. weak EBITDA), include that in the note you pass to the write tool so it's recorded on the deal.
 3. **Execute the write.** Call the appropriate write tool. The tool returns a success or error string — capture it.
 4. **Report.** Return a concise final message (see Reporting Format).
+
+On EVERY model turn — including the final report turn — emit a parallel \`narrate_step\` call summarizing what you're doing. Title is short and action-oriented; overview is one sentence. This applies whether you're reasoning before a tool dispatch, executing alongside real tools, or delivering the final outcome.
+
+On the FINAL turn specifically (when you're about to write the "✓ Done:" / "✗ Could not complete:" report), the narrate_step's \`title\` should be the outcome itself (e.g. "Promoted Acme Corp to L1", "Could not find Blue Harbor Logistics") and \`overview\` should restate the one-line summary in plain English. Then write your structured report as the message content as usual.
 
 If you cannot complete the task (e.g. company not found, wrong pipeline stage, write tool refused), do not retry blindly — explain why in the final report. The row's output will be inspected by humans later for audit.
 
@@ -246,6 +271,16 @@ export interface InvokeConfig {
 
 export interface InvokeResult {
   messages: BaseMessage[];
+  // Present when the agent paused on a HITL interrupt. The first element of
+  // langgraph's __interrupt__ array is surfaced verbatim so callers can
+  // render it or persist it to ai_workforce_queue.
+  interrupt?: {
+    actionRequests: Array<{
+      name: string;
+      args: Record<string, unknown>;
+      description?: string;
+    }>;
+  };
 }
 
 /**
@@ -262,6 +297,7 @@ export function createLocalAgent(
   additionalSystemContext?: string,
   toolList: ToolList = DEFAULT_TOOL_LIST,
   systemPrompt: string = CHAT_SYSTEM_PROMPT,
+  middleware: ReadonlyArray<ReturnType<typeof humanInTheLoopMiddleware>> = [],
 ) {
   const llm = new ChatAnthropic({
     model: "claude-sonnet-4-6",
@@ -273,11 +309,17 @@ export function createLocalAgent(
     ? `${systemPrompt}\n\n---\n\n## Additional Context\n\n${additionalSystemContext}`
     : systemPrompt;
 
+  // createAgent's `middleware` typing is generic on the middleware list, so
+  // we pass through `as any` to avoid having to materialize the inferred
+  // tuple type at this seam. The runtime accepts AgentMiddleware[].
   return createAgent({
     model: llm,
     tools: toolList,
     systemPrompt: fullSystemPrompt,
     checkpointer: config.checkpointer,
+    ...(middleware.length > 0
+      ? { middleware: middleware as unknown as never }
+      : {}),
   });
 }
 
@@ -289,16 +331,25 @@ export class AgentGraph {
   private defaultAgent: ReturnType<typeof createAgent>;
   private toolList: ToolList;
   private systemPrompt: string;
+  private middleware: ReadonlyArray<ReturnType<typeof humanInTheLoopMiddleware>>;
 
   constructor(
     config: AgentConfig,
     toolList: ToolList = DEFAULT_TOOL_LIST,
     systemPrompt: string = CHAT_SYSTEM_PROMPT,
+    middleware: ReadonlyArray<ReturnType<typeof humanInTheLoopMiddleware>> = [],
   ) {
     this.config = config;
     this.toolList = toolList;
     this.systemPrompt = systemPrompt;
-    this.defaultAgent = createLocalAgent(config, undefined, toolList, systemPrompt);
+    this.middleware = middleware;
+    this.defaultAgent = createLocalAgent(
+      config,
+      undefined,
+      toolList,
+      systemPrompt,
+      middleware,
+    );
   }
 
   private getAgent(additionalSystemContext?: string): ReturnType<typeof createAgent> {
@@ -310,6 +361,7 @@ export class AgentGraph {
       additionalSystemContext,
       this.toolList,
       this.systemPrompt,
+      this.middleware,
     );
   }
 
@@ -325,21 +377,67 @@ export class AgentGraph {
         logger.debug("📎 Additional system context provided");
       }
       const result = await agent.invoke({ messages: inputs.messages }, config);
-      logger.debug("✓ Agent graph invocation completed");
-
-      logger.debug("✅ AGENT INVOCATION COMPLETED SUCCESSFULLY");
-      logger.debug("=".repeat(60));
-
-      if (result && typeof result === "object" && "messages" in result) {
-        return { messages: result.messages as BaseMessage[] };
-      }
-
-      return { messages: [new AIMessage(JSON.stringify(result))] };
+      return this.shapeInvokeResult(result);
     } catch (error) {
       logger.error(`✗ AGENT INVOCATION FAILED: ${(error as Error).message}`);
       logger.debug("=".repeat(60));
       return { messages: [new AIMessage(`Error invoking agent: ${(error as Error).message}`)] };
     }
+  }
+
+  /**
+   * Resume a paused agent thread with a HITL decision payload. Wraps the
+   * payload in a langgraph `Command({ resume })` and invokes the agent on
+   * the same checkpoint thread. Returns the same shape as `invoke`, so
+   * `result.interrupt` will be populated again if the agent paused on
+   * another HITL interrupt during resume.
+   */
+  async resume(
+    threadId: string,
+    resumePayload: unknown,
+  ): Promise<InvokeResult> {
+    logger.debug(`🔁 Resuming agent thread ${threadId}`);
+    try {
+      const agent = this.defaultAgent;
+      // Lazy import to avoid pulling Command type at module load.
+      const { Command } = await import("@langchain/langgraph");
+      const result = await agent.invoke(
+        new Command({ resume: resumePayload }) as never,
+        { configurable: { thread_id: threadId } } as never,
+      );
+      return this.shapeInvokeResult(result);
+    } catch (error) {
+      logger.error(`✗ AGENT RESUME FAILED: ${(error as Error).message}`);
+      return {
+        messages: [
+          new AIMessage(`Error resuming agent: ${(error as Error).message}`),
+        ],
+      };
+    }
+  }
+
+  private shapeInvokeResult(result: unknown): InvokeResult {
+    logger.debug("✓ Agent graph invocation completed");
+    logger.debug("✅ AGENT INVOCATION COMPLETED SUCCESSFULLY");
+    logger.debug("=".repeat(60));
+
+    if (result && typeof result === "object" && "messages" in result) {
+      const out: InvokeResult = {
+        messages: (result as { messages: BaseMessage[] }).messages,
+      };
+      const interruptRaw = (result as Record<string, unknown>).__interrupt__;
+      if (Array.isArray(interruptRaw) && interruptRaw.length > 0) {
+        const first = interruptRaw[0] as { value?: unknown };
+        const value = (first?.value ?? first) as {
+          actionRequests?: NonNullable<InvokeResult["interrupt"]>["actionRequests"];
+        };
+        if (value?.actionRequests?.length) {
+          out.interrupt = { actionRequests: value.actionRequests };
+        }
+      }
+      return out;
+    }
+    return { messages: [new AIMessage(JSON.stringify(result))] };
   }
 
   async ainvoke(inputs: InvokeOptions, config?: InvokeConfig): Promise<InvokeResult> {
@@ -370,6 +468,33 @@ export class AgentGraph {
     };
     const state = await agent.getState({ configurable: { thread_id: threadId } });
     return state?.values?.messages ?? [];
+  }
+
+  /**
+   * Read raw checkpoint tuple data for a thread: the persisted message list
+   * plus any pending writes (e.g. unresolved `__interrupt__` entries from
+   * humanInTheLoopMiddleware). Used by the trace endpoint to render both
+   * completed execution and live HITL-waiting state in one fetch.
+   */
+  async getTrace(
+    threadId: string,
+  ): Promise<{ messages: BaseMessage[]; pendingWrites: CheckpointPendingWrite[] }> {
+    if (!this.config.checkpointer) {
+      return { messages: [], pendingWrites: [] };
+    }
+    const tuple = await this.config.checkpointer.getTuple({
+      configurable: { thread_id: threadId },
+    });
+    if (!tuple) {
+      return { messages: [], pendingWrites: [] };
+    }
+    const channelValues = tuple.checkpoint.channel_values as
+      | { messages?: BaseMessage[] }
+      | undefined;
+    return {
+      messages: channelValues?.messages ?? [],
+      pendingWrites: tuple.pendingWrites ?? [],
+    };
   }
 }
 
@@ -441,6 +566,7 @@ function getCheckpointer(): Promise<PostgresSaver> | null {
 async function buildAgentGraph(
   toolList: ToolList,
   systemPrompt: string,
+  middleware: ReadonlyArray<ReturnType<typeof humanInTheLoopMiddleware>> = [],
 ): Promise<AgentGraph | null> {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) {
@@ -451,7 +577,12 @@ async function buildAgentGraph(
   try {
     const checkpointerPromise = getCheckpointer();
     const checkpointer = checkpointerPromise ? await checkpointerPromise : undefined;
-    return new AgentGraph({ apiKey, checkpointer }, toolList, systemPrompt);
+    return new AgentGraph(
+      { apiKey, checkpointer },
+      toolList,
+      systemPrompt,
+      middleware,
+    );
   } catch (error) {
     logger.error(`Failed to create agent: ${(error as Error).message}`);
     return null;
@@ -480,6 +611,7 @@ export async function getWorkforceAgentGraph(): Promise<AgentGraph | null> {
   const graph = await buildAgentGraph(
     WORKFORCE_TOOL_LIST,
     WORKFORCE_SYSTEM_PROMPT,
+    [WORKFORCE_HITL_MIDDLEWARE],
   );
   if (graph) workforceAgentGraph = graph;
   return workforceAgentGraph;

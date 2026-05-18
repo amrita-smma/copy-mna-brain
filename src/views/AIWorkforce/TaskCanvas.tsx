@@ -1,8 +1,18 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { AlertCircle, Inbox, Send, Sparkles } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { TraceLine, type InterventionDecisionInput } from './trace';
+import type { AvatarTone, TraceData } from './shared';
+import { avatarToneClass } from './shared';
+
+interface TraceActorResponse {
+  id: string;
+  name: string;
+  initials: string;
+  avatarTone: AvatarTone;
+}
 
 type WorkforceQueueStatus =
   | 'pending'
@@ -14,6 +24,15 @@ type WorkforceQueueStatus =
   | 'failed'
   | 'rejected'
   | 'timed_out';
+
+const IN_PROGRESS_STATUSES: WorkforceQueueStatus[] = [
+  'pending',
+  'running',
+  'waiting_for_human_input',
+  'waiting_for_subagent',
+  'resume_ready',
+];
+const TRACE_POLL_MS = 2000;
 
 interface ApiQueueItem {
   id: string;
@@ -65,6 +84,11 @@ export function TaskCanvas({ taskId }: { taskId: string | null }) {
   const [item, setItem] = useState<ApiQueueItem | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [traceSteps, setTraceSteps] = useState<TraceData[]>([]);
+  const [traceError, setTraceError] = useState<string | null>(null);
+  const [canDecide, setCanDecide] = useState(false);
+  const [actor, setActor] = useState<TraceActorResponse | null>(null);
+  const traceLoadedRef = useRef(false);
 
   useEffect(() => {
     if (!taskId) {
@@ -94,6 +118,55 @@ export function TaskCanvas({ taskId }: { taskId: string | null }) {
       cancelled = true;
     };
   }, [taskId]);
+
+  // Reset trace state when the selected task changes.
+  useEffect(() => {
+    setTraceSteps([]);
+    setTraceError(null);
+    setActor(null);
+    traceLoadedRef.current = false;
+  }, [taskId]);
+
+  // Fetch the trace on mount and poll while the task is non-terminal. The
+  // status comes from the task-detail fetch above; once that lands we know
+  // whether to poll. Terminal statuses fetch once and stop.
+  useEffect(() => {
+    if (!taskId) return;
+    let cancelled = false;
+
+    const fetchTrace = async () => {
+      try {
+        const res = await fetch(`/api/workforce-queue/${taskId}/trace`);
+        if (!res.ok) throw new Error(`Failed to load trace (HTTP ${res.status})`);
+        const data = (await res.json()) as {
+          steps?: TraceData[];
+          canDecide?: boolean;
+          status?: WorkforceQueueStatus;
+          actor?: TraceActorResponse;
+        };
+        if (cancelled) return;
+        setTraceSteps(data.steps ?? []);
+        setCanDecide(Boolean(data.canDecide));
+        if (data.actor) setActor(data.actor);
+        setTraceError(null);
+        traceLoadedRef.current = true;
+      } catch (e) {
+        if (cancelled) return;
+        setTraceError(e instanceof Error ? e.message : 'Failed to load trace');
+      }
+    };
+
+    void fetchTrace();
+    const inProgress = item?.status && IN_PROGRESS_STATUSES.includes(item.status);
+    if (!inProgress) return () => {
+      cancelled = true;
+    };
+    const intervalId = window.setInterval(fetchTrace, TRACE_POLL_MS);
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+    };
+  }, [taskId, item?.status]);
 
   if (!taskId) {
     return (
@@ -141,6 +214,24 @@ export function TaskCanvas({ taskId }: { taskId: string | null }) {
             {title}
           </h2>
           <div className="flex items-center gap-3 text-xs text-muted-foreground flex-wrap">
+            {actor && (
+              <>
+                <span className="inline-flex items-center gap-1.5">
+                  <span
+                    className={cn(
+                      'h-5 w-5 rounded-full grid place-items-center text-[9px] font-bold',
+                      avatarToneClass[actor.avatarTone],
+                    )}
+                  >
+                    {actor.initials}
+                  </span>
+                  <span className="text-foreground/80 font-medium">
+                    {actor.name}
+                  </span>
+                </span>
+                <span className="h-1 w-1 rounded-full bg-muted-foreground/50" />
+              </>
+            )}
             <span className="inline-flex items-center gap-1.5">
               Agent <span className="font-mono text-foreground/80">{item.agent_name}</span>
             </span>
@@ -184,19 +275,74 @@ export function TaskCanvas({ taskId }: { taskId: string | null }) {
           </div>
         )}
 
-        {/* Reasoning trace — no execution layer yet, so render an empty state */}
+        {/* Reasoning trace */}
         <div>
           <div className="flex items-baseline justify-between mb-2.5">
             <h3 className="text-[11px] font-bold tracking-wider uppercase text-muted-foreground">
               Reasoning trace
             </h3>
           </div>
-          <div className="rounded-lg border border-dashed bg-muted/20 px-4 py-6 text-center text-[12px] text-muted-foreground">
-            No execution events yet.
-            <div className="mt-1 text-[11px] text-muted-foreground/70">
-              The Workforce executor isn&apos;t wired up — queued tasks won&apos;t run until it is.
+          {traceError ? (
+            <div className="rounded-lg border border-rose-200 bg-rose-50/40 px-4 py-3 text-[12px] text-rose-600">
+              {traceError}
             </div>
-          </div>
+          ) : traceSteps.length === 0 ? (
+            <div className="rounded-lg border border-dashed bg-muted/20 px-4 py-6 text-center text-[12px] text-muted-foreground">
+              {traceLoadedRef.current
+                ? 'No execution events yet. Trace will appear once execution begins.'
+                : 'Loading trace…'}
+            </div>
+          ) : (
+            <div>
+              {[...traceSteps].reverse().map((step, i, arr) => (
+                <TraceLine
+                  key={step.id}
+                  step={step}
+                  isLast={i === arr.length - 1}
+                  canDecide={canDecide}
+                  onDecision={async (input) => {
+                    if (!taskId) return;
+                    const res = await fetch(
+                      `/api/workforce-queue/${taskId}/decision`,
+                      {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(input),
+                      },
+                    );
+                    if (!res.ok) {
+                      const body = (await res.json().catch(() => null)) as
+                        | { error?: string }
+                        | null;
+                      throw new Error(
+                        body?.error ?? `Decision failed (HTTP ${res.status})`,
+                      );
+                    }
+                    // Refetch task status + trace immediately so the UI
+                    // reflects the new state before the next poll tick.
+                    const [taskRes, traceRes] = await Promise.all([
+                      fetch(`/api/workforce-queue/${taskId}`),
+                      fetch(`/api/workforce-queue/${taskId}/trace`),
+                    ]);
+                    if (taskRes.ok) {
+                      const data = (await taskRes.json()) as {
+                        item?: ApiQueueItem;
+                      };
+                      setItem(data.item ?? null);
+                    }
+                    if (traceRes.ok) {
+                      const data = (await traceRes.json()) as {
+                        steps?: TraceData[];
+                        canDecide?: boolean;
+                      };
+                      setTraceSteps(data.steps ?? []);
+                      setCanDecide(Boolean(data.canDecide));
+                    }
+                  }}
+                />
+              ))}
+            </div>
+          )}
         </div>
       </div>
 

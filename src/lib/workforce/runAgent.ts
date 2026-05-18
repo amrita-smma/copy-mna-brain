@@ -62,16 +62,22 @@ async function loadAndHeartbeat(runId: string): Promise<LoadResult> {
   return { prompt: candidate };
 }
 
-interface InvokeResult {
-  finalMessage: string;
-  messageCount: number;
-  toolCallCount: number;
-}
+type InvokeStepResult =
+  | {
+      kind: 'completed';
+      finalMessage: string;
+      messageCount: number;
+      toolCallCount: number;
+    }
+  | {
+      kind: 'interrupted';
+      reason: string;
+    };
 
 async function invokeAgent(
   runId: string,
   prompt: string,
-): Promise<InvokeResult> {
+): Promise<InvokeStepResult> {
   'use step';
   if (!process.env.ANTHROPIC_API_KEY) {
     throw new FatalError('ANTHROPIC_API_KEY is not set');
@@ -90,6 +96,18 @@ async function invokeAgent(
     { configurable: { thread_id: runId }, recursionLimit: 50 },
   );
 
+  // HITL interrupt fired — the agent has paused awaiting a human decision.
+  // Hand off to the decision endpoint via status; don't finalize and don't
+  // throw (we'd rather not call markFailed for a healthy pause).
+  if (result.interrupt?.actionRequests?.length) {
+    const first = result.interrupt.actionRequests[0];
+    const reason =
+      typeof first.description === 'string' && first.description.trim()
+        ? first.description
+        : `Awaiting approval for ${first.name ?? 'tool call'}`;
+    return { kind: 'interrupted', reason };
+  }
+
   const messages = result.messages ?? [];
   const lastMessage = messages[messages.length - 1];
   const finalMessage = lastMessage
@@ -106,13 +124,17 @@ async function invokeAgent(
   }).length;
 
   return {
+    kind: 'completed',
     finalMessage,
     messageCount: messages.length,
     toolCallCount,
   };
 }
 
-async function finalize(runId: string, result: InvokeResult): Promise<void> {
+async function finalize(
+  runId: string,
+  result: Extract<InvokeStepResult, { kind: 'completed' }>,
+): Promise<void> {
   'use step';
   const db = createDb();
   const repo = new AiWorkforceQueueRepository(db);
@@ -121,6 +143,13 @@ async function finalize(runId: string, result: InvokeResult): Promise<void> {
     message_count: result.messageCount,
     tool_call_count: result.toolCallCount,
   });
+}
+
+async function markWaitingStep(runId: string, reason: string): Promise<void> {
+  'use step';
+  const db = createDb();
+  const repo = new AiWorkforceQueueRepository(db);
+  await repo.markWaitingForHumanInput(runId, reason);
 }
 
 async function markFailedStep(
@@ -144,6 +173,12 @@ export async function runAgent({ runId }: { runId: string }): Promise<void> {
   // step itself needs to break into smaller turns.
   try {
     const result = await invokeAgent(runId, prompt);
+    if (result.kind === 'interrupted') {
+      // Healthy pause: HITL middleware caught a gated tool call. The decision
+      // endpoint will resume the agent (outside this workflow).
+      await markWaitingStep(runId, result.reason);
+      return;
+    }
     await finalize(runId, result);
   } catch (err) {
     // WDK has already exhausted step retries by the time we get here.

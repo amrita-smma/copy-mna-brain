@@ -1,0 +1,415 @@
+/**
+ * Convert a LangGraph checkpoint dump (messages + pending writes) plus the
+ * recorded human-decision audit into the TraceData[] shape consumed by
+ * src/views/AIWorkforce/trace.tsx.
+ *
+ * Pure function — no I/O. The caller is responsible for fetching messages
+ * (via AgentGraph.getTrace) and the workforce row (for human_decisions and
+ * the creator-actor lookup).
+ *
+ * Granularity: one TraceData per AIMessage. ToolMessages fold into their
+ * originating AIMessage's tool_calls[i].output by matching tool_call_id.
+ * HumanMessages are skipped (they're the user prompt, surfaced separately
+ * above the trace).
+ *
+ * Caveat — timestamps: BaseMessage doesn't carry per-message timestamps,
+ * and per-step checkpoint timestamps would require walking the checkpoint
+ * chain. v1 uses the task's started_at for every step (formatted HH:MM:SS).
+ * If users need finer granularity later, lift timestamps from the checkpoint
+ * chain via `checkpointer.list()`.
+ */
+import type { BaseMessage } from "@langchain/core/messages";
+import { AIMessage, ToolMessage } from "@langchain/core/messages";
+import type { CheckpointPendingWrite } from "@langchain/langgraph-checkpoint";
+import type { HumanDecision } from "@/lib/db/schema";
+import type {
+  AvatarTone,
+  InterventionData,
+  TraceData,
+  TraceStepStatus,
+} from "@/views/AIWorkforce/shared";
+
+export interface TraceActor {
+  id: string;
+  name: string;
+  initials: string;
+  avatarTone: AvatarTone;
+}
+
+export interface BuildTraceInput {
+  messages: BaseMessage[];
+  pendingWrites: CheckpointPendingWrite[];
+  humanDecisions: HumanDecision[];
+  actor: TraceActor;
+  startedAt: string | null;
+}
+
+// HITLRequest shape from langchain's humanInTheLoopMiddleware (hitl.js).
+// Loosely typed because we read it back from a JSON-decoded pending write.
+interface HitlActionRequest {
+  name?: unknown;
+  args?: unknown;
+  description?: unknown;
+}
+interface HitlRequest {
+  actionRequests?: HitlActionRequest[];
+}
+
+const DESCRIPTION_MAX = 280;
+const ARGS_MAX = 120;
+
+function formatTime(iso: string | null): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  const hh = String(d.getUTCHours()).padStart(2, "0");
+  const mm = String(d.getUTCMinutes()).padStart(2, "0");
+  const ss = String(d.getUTCSeconds()).padStart(2, "0");
+  return `${hh}:${mm}:${ss}`;
+}
+
+function coerceContent(content: unknown): string {
+  if (typeof content === "string") return content;
+  try {
+    return JSON.stringify(content);
+  } catch {
+    return String(content);
+  }
+}
+
+function truncate(value: string, max: number): string {
+  return value.length > max ? `${value.slice(0, max - 1)}…` : value;
+}
+
+/**
+ * Fallback parser for final-turn messages where the model forgot to call
+ * narrate_step. The workforce system prompt requires final messages to
+ * follow either "✓ Done: …" / "✗ Could not complete: …", so we lift the
+ * outcome line into a title and use the first detail line as the overview.
+ * Returns undefined if the content doesn't match the convention.
+ */
+function parseFinalReport(
+  content: string,
+): { title: string; overview: string } | undefined {
+  if (!content) return undefined;
+  const done = content.match(/^[✓✔]\s*Done:\s*(.+?)\s*$/m);
+  const failed = content.match(/^[✗✘]\s*Could not complete:\s*(.+?)\s*$/m);
+  const match = done ?? failed;
+  if (!match) return undefined;
+  const title = (done ? "✓ " : "✗ ") + match[1].trim();
+  // First non-empty bullet line after the header, or the next non-empty line.
+  const after = content.slice((match.index ?? 0) + match[0].length);
+  const detail = after
+    .split("\n")
+    .map((l) => l.trim().replace(/^[-•]\s*/, ""))
+    .find((l) => l.length > 0);
+  return { title, overview: detail ?? match[1].trim() };
+}
+
+/**
+ * Heuristic tool-result → status-badge derivation.
+ *
+ * Renders the small label that floats right on a tool row in the trace UI
+ * (e.g. "5 matches", "promoted", "failed"). Conservative by design — we
+ * return undefined for tools we don't recognize so the badge slot just
+ * stays empty rather than rendering misleading text.
+ *
+ * Adding a new tool: keep the badge to <= ~20 chars and surface the most
+ * scannable single fact (count, status, ratio). Avoid duplicating what
+ * the user can already see in the args.
+ */
+function deriveToolStatus(name: string, content: string): string | undefined {
+  if (!content) return undefined;
+
+  // Generic error short-circuit applicable to most tools.
+  if (/^\*\*Error:\*\*/i.test(content)) return "error";
+
+  switch (name) {
+    case "query_companies": {
+      const m = content.match(/Query Results \((\d+) compan/i);
+      if (m) {
+        const n = Number(m[1]);
+        return `${n} ${n === 1 ? "match" : "matches"}`;
+      }
+      if (/No companies found/i.test(content)) return "no matches";
+      return undefined;
+    }
+    case "get_company_details": {
+      if (/No company found/i.test(content)) return "not found";
+      // Success path returns a formatted block; we don't try to parse it.
+      return "found";
+    }
+    case "promote_to_l1": {
+      if (/^Promoted /i.test(content)) return "promoted";
+      if (/^Cannot promote/i.test(content)) return "refused";
+      if (/^No company found/i.test(content)) return "not found";
+      return undefined;
+    }
+    case "web_search":
+      // Tool tends to return a long markdown blob — count source markers.
+      {
+        const matches = content.match(/^\s*\d+\.\s/gm);
+        if (matches && matches.length > 0) {
+          return `${matches.length} ${matches.length === 1 ? "source" : "sources"}`;
+        }
+      }
+      return undefined;
+    default:
+      return undefined;
+  }
+}
+
+interface AiMessageLike {
+  id?: string;
+  content?: unknown;
+  tool_calls?: Array<{ id?: string; name?: string; args?: unknown }>;
+}
+interface ToolMessageLike {
+  tool_call_id?: string;
+  content?: unknown;
+}
+
+function readAi(msg: BaseMessage): AiMessageLike {
+  return msg as unknown as AiMessageLike;
+}
+function readTool(msg: BaseMessage): ToolMessageLike {
+  return msg as unknown as ToolMessageLike;
+}
+
+function findResolvedDecision(
+  decisions: HumanDecision[],
+  toolCallId: string | undefined,
+): HumanDecision | undefined {
+  if (!toolCallId) return undefined;
+  return decisions.find((d) => d.tool_call_id === toolCallId);
+}
+
+function buildResolved(
+  decision: HumanDecision,
+  question: string,
+  actor: TraceActor,
+): InterventionData {
+  let text: string;
+  let mappedDecision: "approved" | "modified";
+  if (decision.decision === "approve") {
+    text = "Approved as proposed";
+    mappedDecision = "approved";
+  } else if (decision.decision === "edit") {
+    text = decision.edited_args
+      ? `Edited args: ${truncate(JSON.stringify(decision.edited_args), 200)}`
+      : "Edited";
+    mappedDecision = "modified";
+  } else {
+    text = decision.rejection_message ?? "Rejected";
+    mappedDecision = "modified";
+  }
+  return {
+    state: "resolved",
+    question,
+    resolution: {
+      actor: actor.name,
+      actorInitials: actor.initials,
+      avatarTone: actor.avatarTone,
+      decision: mappedDecision,
+      text,
+      timestamp: formatTime(decision.decided_at),
+    },
+  };
+}
+
+interface PendingInterrupt {
+  question: string;
+  toolName: string;
+  toolCallId: string | undefined;
+}
+
+function extractPendingInterrupts(
+  pendingWrites: CheckpointPendingWrite[],
+  lastAiToolCallsByName: Map<string, string>,
+): PendingInterrupt[] {
+  const out: PendingInterrupt[] = [];
+  for (const write of pendingWrites) {
+    // CheckpointPendingWrite = [taskId, channel, value]
+    const channel = write[1];
+    const value = write[2];
+    if (channel !== "__interrupt__") continue;
+    // The interrupt value is typically a langgraph Interrupt envelope
+    // containing the HITLRequest. We grope for `.value.actionRequests`
+    // or `.actionRequests` to be permissive across versions.
+    const v = value as { value?: HitlRequest } & HitlRequest;
+    const req = v?.value ?? v;
+    const actions = Array.isArray(req?.actionRequests) ? req.actionRequests : [];
+    if (actions.length === 0) continue;
+    const first = actions[0];
+    const toolName = typeof first?.name === "string" ? first.name : "";
+    const descRaw =
+      typeof first?.description === "string" ? first.description : "";
+    const question =
+      descRaw.trim() || `Approval required for ${toolName || "tool call"}`;
+    out.push({
+      question,
+      toolName,
+      toolCallId: toolName ? lastAiToolCallsByName.get(toolName) : undefined,
+    });
+  }
+  return out;
+}
+
+export function buildTrace(input: BuildTraceInput): TraceData[] {
+  const { messages, pendingWrites, humanDecisions, actor, startedAt } = input;
+  const baseTimestamp = formatTime(startedAt);
+  const steps: TraceData[] = [];
+
+  // First pass: emit a step per AIMessage, fold ToolMessages into the
+  // matching tool call's `output`.
+  let aiIndex = 0;
+  for (let i = 0; i < messages.length; i++) {
+    const msg = messages[i];
+    if (!AIMessage.isInstance(msg)) continue;
+    const ai = readAi(msg);
+    const toolCalls = Array.isArray(ai.tool_calls) ? ai.tool_calls : [];
+
+    // Lift narration from the (optional) narrate_step tool call. The model
+    // calls this as a no-op alongside real work to record structured
+    // title / overview for this trace card. We use the args even when
+    // the tool hasn't executed yet (e.g. paused on HITL), since the args
+    // travel with the AIMessage regardless of execution.
+    const narrationCall = toolCalls.find(
+      (tc) => typeof tc?.name === "string" && tc.name === "narrate_step",
+    );
+    let narration: { title: string; overview: string } | undefined;
+    if (narrationCall && narrationCall.args && typeof narrationCall.args === "object") {
+      const a = narrationCall.args as Record<string, unknown>;
+      narration = {
+        title: typeof a.title === "string" ? a.title : "",
+        overview: typeof a.overview === "string" ? a.overview : "",
+      };
+    }
+
+    // The "real" tool calls drive status, title, and rendered tool rows —
+    // narrate_step is internal trace plumbing, not user-facing tool work.
+    const realToolCalls = toolCalls.filter((tc) => tc?.name !== "narrate_step");
+
+    const desc = truncate(coerceContent(ai.content ?? ""), DESCRIPTION_MAX);
+
+    let anyRunning = false;
+    const mappedToolCalls = realToolCalls.map((tc) => {
+      const name = typeof tc?.name === "string" ? tc.name : "(unnamed)";
+      const argsStr = truncate(coerceContent(tc?.args ?? {}), ARGS_MAX);
+      // Find the matching ToolMessage downstream of this AIMessage.
+      let result: BaseMessage | undefined;
+      for (let j = i + 1; j < messages.length; j++) {
+        const next = messages[j];
+        if (!ToolMessage.isInstance(next)) continue;
+        const tm = readTool(next);
+        if (tm.tool_call_id && tc?.id && tm.tool_call_id === tc.id) {
+          result = next;
+          break;
+        }
+      }
+      if (!result) {
+        anyRunning = true;
+        return { name, args: argsStr, running: true };
+      }
+      const tm = readTool(result);
+      const rawContent = coerceContent(tm.content ?? "");
+      // The expanded panel renders this as markdown when there's no `key`,
+      // so we keep enough content for tables and profiles to render whole.
+      // Long contents get a scrollbar in the UI; truncation here is just a
+      // safety cap to avoid massive payloads on the wire.
+      const value = truncate(rawContent, 6000);
+      const status = deriveToolStatus(name, rawContent);
+      return {
+        name,
+        args: argsStr,
+        ...(status ? { status } : {}),
+        output: {
+          label: name,
+          rows: [{ value }],
+        },
+      };
+    });
+
+    let status: TraceStepStatus = anyRunning ? "active" : "done";
+
+    // Attach a resolved-intervention if any of this turn's tool calls have a
+    // matching audit entry. If multiple, the first wins (current
+    // InterventionData supports one per step).
+    let intervention: InterventionData | undefined;
+    for (const tc of realToolCalls) {
+      const decision = findResolvedDecision(humanDecisions, tc?.id);
+      if (decision) {
+        const question =
+          decision.decision === "reject"
+            ? `Reject ${decision.tool_name}?`
+            : `Approve ${decision.tool_name}?`;
+        intervention = buildResolved(decision, question, actor);
+        status = "intervention-resolved";
+        break;
+      }
+    }
+
+    // Final-turn fallback: if the model didn't emit narrate_step on the
+    // last turn but did write a "✓ Done:" / "✗ Could not complete:" report
+    // (per the workforce system prompt), lift the outcome line into the
+    // card. Belt-and-braces alongside the prompt requirement.
+    if (!narration && realToolCalls.length === 0) {
+      const parsed = parseFinalReport(coerceContent(ai.content ?? ""));
+      if (parsed) narration = parsed;
+    }
+
+    // Prefer narration when present; fall back to derived defaults.
+    const autoTitle =
+      realToolCalls.length > 0
+        ? `Tool ${realToolCalls
+            .map((t) => (typeof t.name === "string" ? t.name : "?"))
+            .join(", ")}`
+        : "Final response";
+    const title = narration?.title?.trim() || autoTitle;
+    const description =
+      (narration?.overview?.trim() || desc) || "(no content)";
+
+    steps.push({
+      id: ai.id ?? `step-${aiIndex}`,
+      status,
+      title,
+      description,
+      timestamp: baseTimestamp,
+      toolCalls: mappedToolCalls.length > 0 ? mappedToolCalls : undefined,
+      intervention,
+    });
+    aiIndex++;
+  }
+
+  // Second pass: attach pending interrupts to the latest AI step (the one
+  // whose tool calls are blocked). Pending interrupts are only meaningful
+  // when there's a most-recent AIMessage with unfinished tool calls.
+  const latestStep = steps[steps.length - 1];
+  if (latestStep && pendingWrites.length > 0) {
+    const lastAi = [...messages].reverse().find((m) => AIMessage.isInstance(m));
+    const lastAiToolCallsByName = new Map<string, string>();
+    if (lastAi) {
+      for (const tc of readAi(lastAi).tool_calls ?? []) {
+        if (typeof tc?.name === "string" && typeof tc?.id === "string") {
+          // First-write wins if a turn has duplicate tool names.
+          if (!lastAiToolCallsByName.has(tc.name)) {
+            lastAiToolCallsByName.set(tc.name, tc.id);
+          }
+        }
+      }
+    }
+    const pending = extractPendingInterrupts(pendingWrites, lastAiToolCallsByName);
+    if (pending.length > 0 && !latestStep.intervention) {
+      const first = pending[0];
+      latestStep.intervention = {
+        state: "waiting",
+        question: first.question,
+        tool_call_id: first.toolCallId,
+        tool_name: first.toolName || undefined,
+      };
+      latestStep.status = "intervention-waiting";
+    }
+  }
+
+  return steps;
+}

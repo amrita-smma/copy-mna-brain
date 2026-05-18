@@ -288,6 +288,13 @@
       "when": 1778581936000,
       "tag": "20260512103216_add_user_id_and_title_to_workforce_queue",
       "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1778803200000,
+      "tag": "20260515000000_add_human_decisions_to_workforce_queue",
+      "breakpoints": true
     }
   ]
 }

@@ -1657,6 +1657,19 @@ export const contactMessages = pgTable(
 // AI Workforce (MB-143)
 // ============================================================================
 
+// Audit entry for a single HITL (human-in-the-loop) decision on a workforce
+// run. Stored as an element of ai_workforce_queue.human_decisions. The
+// `decided_by` is implicit (always the row's triggered_by_user_id — only the
+// task creator can decide, enforced at the API layer).
+export type HumanDecision = {
+  tool_call_id: string;
+  tool_name: string;
+  decision: "approve" | "edit" | "reject";
+  edited_args?: Record<string, unknown>;
+  rejection_message?: string;
+  decided_at: string;
+};
+
 export const aiWorkforceQueue = pgTable(
   "ai_workforce_queue",
   {
@@ -1689,6 +1702,10 @@ export const aiWorkforceQueue = pgTable(
     idempotency_key: text(),
     triggered_by_user_id: uuid(),
     title: text(),
+    human_decisions: jsonb()
+      .$type<HumanDecision[]>()
+      .default([])
+      .notNull(),
   },
   (table) => {
     return {
