@@ -18,9 +18,10 @@ import { TaskCanvas } from './TaskCanvas';
 import { RoutineCanvas } from './RoutineCanvas';
 import { NewRoutineModal } from './NewRoutineModal';
 
-import { routineRuns, routines } from './data';
 import { DEFAULT_SELECTION, avatarToneClass } from './shared';
 import type { AvatarTone, QueueTask, Selection } from './shared';
+import { apiRoutineToUi } from './routineApi';
+import type { ApiRoutine } from './routineApi';
 
 const QUEUE_PAGE_SIZE = 5;
 
@@ -47,6 +48,7 @@ interface ApiQueueItem {
   created_at: string;
   started_at: string | null;
   ended_at: string | null;
+  origin_routine_id: string | null;
   triggered_by_user_id: string | null;
   triggered_by_user_name: string | null;
 }
@@ -95,6 +97,34 @@ function initialsOf(label: string): string {
   return label.slice(0, 2).toUpperCase();
 }
 
+// Inline meta attribution for routine-spawned rows. Replaces the (always
+// "analysis") agent_name line with a compact, clickable routine reference.
+// Lowercase + muted styling so it sits next to "Started 14:33" without
+// dominating the card; the parent row's click still navigates to the task,
+// this chip's click jumps to the routine.
+function RoutineChip({
+  name,
+  onClick,
+}: {
+  name: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={(e) => {
+        e.stopPropagation();
+        onClick();
+      }}
+      className="inline-flex items-center gap-1 min-w-0 text-[11px] text-emerald-700 hover:underline"
+      title={`Routine: ${name}`}
+    >
+      <RefreshCw className="h-2.5 w-2.5 flex-shrink-0" />
+      <span className="truncate">{name}</span>
+    </button>
+  );
+}
+
 // Owner attribution = "who kicked this off." Prefer the submitter's name
 // (joined in by the API from users.name); fall back to a per-trigger-source
 // label so cron/webhook/api rows don't render an empty avatar.
@@ -131,8 +161,16 @@ function relTime(iso: string | null | undefined, nowMs = Date.now()): string {
 
 function toQueueTask(
   item: ApiQueueItem,
+  routineNameById: Map<string, string>,
   basis: 'created_at' | 'started_at' | 'ended_at' = 'created_at',
 ): QueueTask {
+  const routineId = item.origin_routine_id ?? undefined;
+  // If origin_routine_id is set but the routine row isn't in our map (most
+  // likely archived), fall back to a generic 'Routine' label rather than
+  // hiding the attribution entirely.
+  const routineName = routineId
+    ? routineNameById.get(routineId) ?? 'Routine'
+    : undefined;
   const owner = ownerOf(item);
   // Fall back to created_at when the requested basis isn't populated yet
   // (e.g. running item with no started_at, done item where ended_at is null).
@@ -149,6 +187,8 @@ function toQueueTask(
     initials: initialsOf(owner),
     avatarTone: toneForId(item.id),
     icon: TRIGGER_ICONS[item.trigger_source] ?? Zap,
+    routineId,
+    routineName,
     relTime: relTime(tsCandidate),
   };
 }
@@ -170,12 +210,16 @@ export function WorkforceTasks({ initialTaskId = null }: WorkforceTasksProps = {
     initialTaskId ? { kind: 'task', id: initialTaskId } : DEFAULT_SELECTION,
   );
   const [items, setItems] = useState<ApiQueueItem[]>([]);
+  const [apiRoutines, setApiRoutines] = useState<ApiRoutine[]>([]);
   // Local-only drag reordering of pending tasks. Not persisted yet — the
   // backend has no priority-update endpoint. New items append to the tail.
   const [queueOrder, setQueueOrder] = useState<string[]>([]);
   const [queuePage, setQueuePage] = useState(0);
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [routineModalOpen, setRoutineModalOpen] = useState(false);
+  // When set, the routine modal opens in EDIT mode prefilled with this row.
+  // Cleared on close so the next "New Routine" click gets a blank form.
+  const [editingRoutine, setEditingRoutine] = useState<ApiRoutine | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -193,9 +237,84 @@ export function WorkforceTasks({ initialTaskId = null }: WorkforceTasksProps = {
     }
   }, []);
 
+  const fetchRoutines = useCallback(async () => {
+    try {
+      const res = await fetch('/api/routines');
+      if (!res.ok) throw new Error(`Failed to load routines (HTTP ${res.status})`);
+      const data = (await res.json()) as { items?: ApiRoutine[] };
+      setApiRoutines(data.items ?? []);
+    } catch (e) {
+      // Don't surface routine load failures in the error banner — the queue
+      // still works without them. Log so it's visible during dev.
+      console.error('[WorkforceTasks] fetchRoutines failed:', e);
+    }
+  }, []);
+
   useEffect(() => {
     void fetchQueue();
-  }, [fetchQueue]);
+    void fetchRoutines();
+  }, [fetchQueue, fetchRoutines]);
+
+  // Poll the queue + routines while the tab is foregrounded. Without this,
+  // a routine that fires at 15:12 only shows up after a manual page reload;
+  // 5s is short enough that new runs appear "instantly" to the user and
+  // long enough that an idle dashboard stays cheap. We gate on
+  // `document.visibilityState` so a backgrounded tab doesn't keep pinging
+  // — Page Visibility API fires `visibilitychange` when the user returns,
+  // which the effect picks up via re-render of the interval below if we
+  // ever wire it; for now a simple skip is good enough.
+  useEffect(() => {
+    const POLL_MS = 5000;
+    const tick = () => {
+      if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
+      void fetchQueue();
+      void fetchRoutines();
+    };
+    const intervalId = window.setInterval(tick, POLL_MS);
+    return () => window.clearInterval(intervalId);
+  }, [fetchQueue, fetchRoutines]);
+
+  const runCountByRoutine = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const i of items) {
+      if (!i.origin_routine_id) continue;
+      counts.set(i.origin_routine_id, (counts.get(i.origin_routine_id) ?? 0) + 1);
+    }
+    return counts;
+  }, [items]);
+
+  // Routine-name lookup used by sidebar rows to attribute each
+  // routine-spawned queue item back to its source routine.
+  const routineNameById = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const r of apiRoutines) map.set(r.id, r.title);
+    return map;
+  }, [apiRoutines]);
+
+  const routines = useMemo(
+    () =>
+      apiRoutines.map((row) =>
+        apiRoutineToUi(row, { runCount: runCountByRoutine.get(row.id) ?? 0 }),
+      ),
+    [apiRoutines, runCountByRoutine],
+  );
+
+  const handleDeleteRoutine = useCallback(
+    async (id: string) => {
+      const res = await fetch(`/api/routines/${id}`, { method: 'DELETE' });
+      if (!res.ok) {
+        console.error('[WorkforceTasks] delete routine failed', res.status);
+        return;
+      }
+      // After archive, refetch and reset the selection if we just deleted
+      // the active routine.
+      setSelection((prev) =>
+        prev.kind === 'routine' && prev.id === id ? DEFAULT_SELECTION : prev,
+      );
+      await fetchRoutines();
+    },
+    [fetchRoutines],
+  );
 
   // Poll the queue every 10s so users see status changes (HITL pauses,
   // completions, the next claim) without manually refreshing. Pauses when
@@ -254,22 +373,22 @@ export function WorkforceTasks({ initialTaskId = null }: WorkforceTasksProps = {
     () =>
       items
         .filter((i) => IN_PROGRESS_STATUSES.includes(i.status))
-        .map((i) => toQueueTask(i, 'started_at')),
-    [items],
+        .map((i) => toQueueTask(i, routineNameById, 'started_at')),
+    [items, routineNameById],
   );
 
   const needsActionItems = useMemo(
     () =>
       items
         .filter((i) => NEEDS_ACTION_STATUSES.includes(i.status))
-        .map((i) => toQueueTask(i, 'started_at')),
-    [items],
+        .map((i) => toQueueTask(i, routineNameById, 'started_at')),
+    [items, routineNameById],
   );
 
   const pendingItems = useMemo(() => {
     const tasks = items
       .filter((i) => i.status === 'pending')
-      .map((i) => toQueueTask(i, 'created_at'));
+      .map((i) => toQueueTask(i, routineNameById, 'created_at'));
     if (queueOrder.length === 0) return tasks;
     const byId = new Map(tasks.map((t) => [t.id, t]));
     const ordered: QueueTask[] = [];
@@ -282,7 +401,7 @@ export function WorkforceTasks({ initialTaskId = null }: WorkforceTasksProps = {
     }
     for (const t of byId.values()) ordered.push(t);
     return ordered;
-  }, [items, queueOrder]);
+  }, [items, queueOrder, routineNameById]);
 
   // "Done today" — only terminal rows whose ended_at falls in the current
   // local day. Rows missing ended_at (rare) fall back to created_at so a
@@ -296,8 +415,8 @@ export function WorkforceTasks({ initialTaskId = null }: WorkforceTasksProps = {
         const ts = Date.parse(i.ended_at ?? i.created_at);
         return !Number.isNaN(ts) && ts >= cutoff;
       })
-      .map((i) => toQueueTask(i, 'ended_at'));
-  }, [items]);
+      .map((i) => toQueueTask(i, routineNameById, 'ended_at'));
+  }, [items, routineNameById]);
 
   const totalQueuePages = Math.max(1, Math.ceil(pendingItems.length / QUEUE_PAGE_SIZE));
   const paginatedQueue = useMemo(
@@ -461,18 +580,27 @@ export function WorkforceTasks({ initialTaskId = null }: WorkforceTasksProps = {
                       iconClass="bg-violet-100 text-violet-600"
                       title={task.title}
                       meta={
-                        <span className="flex items-center gap-1.5">
-                          <span
-                            className={cn(
-                              'h-3 w-3 rounded-full grid place-items-center text-[7px] font-bold',
-                              avatarToneClass[task.avatarTone],
-                            )}
-                          >
-                            {task.initials}
-                          </span>
-                          {task.owner}
+                        <span className="flex items-center gap-1.5 min-w-0">
+                          {task.routineName && task.routineId ? (
+                            <RoutineChip
+                              name={task.routineName}
+                              onClick={() => goToRoutine(task.routineId!)}
+                            />
+                          ) : (
+                            <>
+                              <span
+                                className={cn(
+                                  'h-3 w-3 rounded-full grid place-items-center text-[7px] font-bold flex-shrink-0',
+                                  avatarToneClass[task.avatarTone],
+                                )}
+                              >
+                                {task.initials}
+                              </span>
+                              <span className="truncate">{task.owner}</span>
+                            </>
+                          )}
                           {task.relTime && (
-                            <span className="text-muted-foreground/70">
+                            <span className="text-muted-foreground/70 flex-shrink-0">
                               · {task.relTime}
                             </span>
                           )}
@@ -530,18 +658,27 @@ export function WorkforceTasks({ initialTaskId = null }: WorkforceTasksProps = {
                           </>
                         }
                         meta={
-                          <span className="flex items-center gap-1.5">
-                            <span
-                              className={cn(
-                                'h-3 w-3 rounded-full grid place-items-center text-[7px] font-bold',
-                                avatarToneClass[task.avatarTone],
-                              )}
-                            >
-                              {task.initials}
-                            </span>
-                            {task.owner}
+                          <span className="flex items-center gap-1.5 min-w-0">
+                            {task.routineName && task.routineId ? (
+                              <RoutineChip
+                                name={task.routineName}
+                                onClick={() => goToRoutine(task.routineId!)}
+                              />
+                            ) : (
+                              <>
+                                <span
+                                  className={cn(
+                                    'h-3 w-3 rounded-full grid place-items-center text-[7px] font-bold flex-shrink-0',
+                                    avatarToneClass[task.avatarTone],
+                                  )}
+                                >
+                                  {task.initials}
+                                </span>
+                                <span className="truncate">{task.owner}</span>
+                              </>
+                            )}
                             {task.relTime && (
-                              <span className="text-muted-foreground/70">
+                              <span className="text-muted-foreground/70 flex-shrink-0">
                                 · {task.relTime}
                               </span>
                             )}
@@ -598,18 +735,27 @@ export function WorkforceTasks({ initialTaskId = null }: WorkforceTasksProps = {
                     iconClass="bg-emerald-50 text-emerald-600"
                     title={task.title}
                     meta={
-                      <span className="flex items-center gap-1.5">
-                        <span
-                          className={cn(
-                            'h-3 w-3 rounded-full grid place-items-center text-[7px] font-bold',
-                            avatarToneClass[task.avatarTone],
-                          )}
-                        >
-                          {task.initials}
-                        </span>
-                        {task.owner}
+                      <span className="flex items-center gap-1.5 min-w-0">
+                        {task.routineName && task.routineId ? (
+                          <RoutineChip
+                            name={task.routineName}
+                            onClick={() => goToRoutine(task.routineId!)}
+                          />
+                        ) : (
+                          <>
+                            <span
+                              className={cn(
+                                'h-3 w-3 rounded-full grid place-items-center text-[7px] font-bold flex-shrink-0',
+                                avatarToneClass[task.avatarTone],
+                              )}
+                            >
+                              {task.initials}
+                            </span>
+                            <span className="truncate">{task.owner}</span>
+                          </>
+                        )}
                         {task.relTime && (
-                          <span className="text-muted-foreground/70">
+                          <span className="text-muted-foreground/70 flex-shrink-0">
                             · {task.relTime}
                           </span>
                         )}
@@ -626,13 +772,32 @@ export function WorkforceTasks({ initialTaskId = null }: WorkforceTasksProps = {
       {selectedRoutine ? (
         <RoutineCanvas
           routine={selectedRoutine}
-          runs={routineRuns[selectedRoutine.id] ?? []}
+          onDelete={() => handleDeleteRoutine(selectedRoutine.id)}
+          onEnqueued={fetchQueue}
+          onEdit={() => {
+            const row = apiRoutines.find((r) => r.id === selectedRoutine.id);
+            if (!row) return;
+            setEditingRoutine(row);
+            setRoutineModalOpen(true);
+          }}
         />
       ) : (
         <TaskCanvas taskId={selectedTaskId} />
       )}
 
-      <NewRoutineModal open={routineModalOpen} onOpenChange={setRoutineModalOpen} />
+      <NewRoutineModal
+        open={routineModalOpen}
+        onOpenChange={(next) => {
+          setRoutineModalOpen(next);
+          // Clear the edit target when the modal closes so a subsequent
+          // "New Routine" click gets a blank form. We do this in the close
+          // handler (rather than only after a successful save) so cancels
+          // also reset the next open.
+          if (!next) setEditingRoutine(null);
+        }}
+        onCreated={fetchRoutines}
+        routine={editingRoutine ?? undefined}
+      />
     </div>
   );
 }

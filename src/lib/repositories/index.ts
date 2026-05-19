@@ -25,3 +25,4 @@ export * from './aiWorkforceQueueRepository';
 export * from './copilotChatsRepository';
 export * from './aiWorkforceQueueRepository';
 export * from './agentRunEventsRepository';
+export * from './routinesRepository';

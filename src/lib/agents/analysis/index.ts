@@ -11,8 +11,20 @@ import type { BaseCheckpointSaver } from "@langchain/langgraph-checkpoint";
 import type { CheckpointPendingWrite } from "@langchain/langgraph-checkpoint";
 
 // HITL middleware for the workforce agent: gates write tools that require
-// human approval before execution. Currently only promote_to_l1; extend
-// `interruptOn` when more write tools come online.
+// human approval before execution.
+//
+// Gating policy (see RoutineCanvas + TaskCanvas for the UI half):
+//   - Adding a company to L0 (initial pipeline entry) — AUTO. The agent
+//     executes without human approval; L0 is a triage stage, not a
+//     commitment. If/when an L0-creation tool ships, do NOT list it here.
+//   - Promoting a company to L1 or higher — GATED. The agent must hand off
+//     to a human via this middleware; the human approves or rejects in the
+//     routine/task canvas before the tool runs.
+//
+// Today only `promote_to_l1` exists; it is gated as required by policy.
+// When additional stage-changing tools land (e.g. promote_to_l2), add them
+// to `interruptOn` so the L1+ rule keeps holding. Read-only tools and L0
+// entry tools must NEVER appear here.
 const WORKFORCE_HITL_MIDDLEWARE = humanInTheLoopMiddleware({
   interruptOn: {
     promote_to_l1: {
@@ -200,7 +212,8 @@ Read tools (use to gather context before writing):
 - **query_files** for internal notes and memos
 
 Write tools (use to actually mutate state — the whole point of this run):
-- **promote_to_l1** — move a company from pipeline stage L0 to L1, optionally with a note. Idempotent guard refuses any company not currently at L0.
+- **add_company_to_l0** — add a newly discovered company to the pipeline at stage L0. Auto-executes (no human approval). Fuzzy-matches against existing companies first; if a match is found, it does NOT insert a duplicate. Use this when an instruction tells you to scan/discover/add companies (e.g. "add Acme to the pipeline", "find APAC slurry vendors and add the qualifiers").
+- **promote_to_l1** — move a company from pipeline stage L0 to L1, optionally with a note. Idempotent guard refuses any company not currently at L0. Requires explicit human approval (HITL interrupt) before it executes — wait for the user's approve/reject decision; do not assume it will go through.
 
 Trace tool (call EVERY model turn, in parallel with real tools):
 - **narrate_step** — record a structured trace card with \`title\` and \`overview\` for this turn. The user sees these in the Reasoning trace panel. Always include narrate_step in your tool_calls. Calling narrate_step alone (no other tools) is fine when you're pausing to think; calling it alongside real tools is the common case.
@@ -252,6 +265,7 @@ Don't elaborate beyond that. The trace UI shows your full tool-call sequence sep
 ## Important domain rules
 
 - The pipeline stages are L0 → L1 → L2 → ... A company at L1+ cannot be re-promoted to L1; the write tool will refuse.
+- **L0 entries auto-execute; L1+ promotions require explicit user approval.** \`add_company_to_l0\` runs without an approval interrupt — L0 is the triage stage. \`promote_to_l1\` (and any future promote_to_l2, promote_to_l3, etc.) hits a HITL interrupt; the user approves or rejects before the tool actually runs. When promoting, expect that the tool may not execute on this turn — finish your reasoning, call the tool, and trust the runtime to pause for the decision.
 - Caveats the user acknowledged ("user acknowledged weak FY2024 EBITDA", "user approved despite missing financials") MUST end up in the note recorded on the deal so the audit trail captures that the user proceeded knowingly.`;
 
 export interface AgentConfig {

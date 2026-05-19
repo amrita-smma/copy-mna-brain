@@ -145,6 +145,41 @@ describe('enqueueAgentRun', () => {
     expect(dispatcherTick).toHaveBeenCalledWith(fakeDb);
   });
 
+  it('persists origin_routine_id when provided', async () => {
+    createOrGetByIdempotencyKey.mockResolvedValueOnce({
+      row: { id: 'r-or' },
+      created: true,
+    });
+
+    await enqueueAgentRun(fakeDb, {
+      agentName: 'analysis',
+      triggerSource: 'cron',
+      input: {},
+      originRoutineId: 'rt-99',
+    });
+
+    expect(createOrGetByIdempotencyKey).toHaveBeenCalledWith(
+      expect.objectContaining({ origin_routine_id: 'rt-99' }),
+    );
+  });
+
+  it('defaults origin_routine_id to null', async () => {
+    createOrGetByIdempotencyKey.mockResolvedValueOnce({
+      row: { id: 'r-no' },
+      created: true,
+    });
+
+    await enqueueAgentRun(fakeDb, {
+      agentName: 'analysis',
+      triggerSource: 'chat',
+      input: {},
+    });
+
+    expect(createOrGetByIdempotencyKey).toHaveBeenCalledWith(
+      expect.objectContaining({ origin_routine_id: null }),
+    );
+  });
+
   it('persists triggered_by_user_id when provided', async () => {
     createOrGetByIdempotencyKey.mockResolvedValueOnce({
       row: { id: 'r-u' },

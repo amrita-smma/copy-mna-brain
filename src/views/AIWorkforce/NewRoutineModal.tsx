@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { AlertCircle, Check, ChevronLeft, ChevronRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -20,6 +20,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import type { ApiRoutine } from './routineApi';
 
 type Cadence = 'daily' | 'weekly' | 'monthly' | 'custom';
 
@@ -56,22 +57,119 @@ function interpretCron(expr: string): { plain: string; valid: boolean } {
   return { plain: cronExamples[trimmed] ?? 'Custom schedule', valid: true };
 }
 
+// Maps the dropdown label back to its IANA timezone. The label shows the
+// abbreviation in parens for readability; the API needs the IANA form.
+const TIMEZONE_MAP: Record<string, string> = {
+  'Asia/Jakarta (ICT, UTC+7)': 'Asia/Jakarta',
+  'Asia/Tokyo (JST, UTC+9)': 'Asia/Tokyo',
+  'America/New_York (EST)': 'America/New_York',
+  'Europe/London (GMT)': 'Europe/London',
+};
+
+// Default form state — kept blank so each new-routine flow starts fresh.
+// The Input/Textarea placeholders still show example text to guide the user;
+// pre-filling actual values made it feel like the form was locked to one
+// routine after the first create.
+const DEFAULTS = {
+  name: '',
+  instruction: '',
+  cadence: 'daily' as Cadence,
+  time: '06:00',
+  timezone: timezoneOptions[0],
+  cron: '0 6 * * 1-5',
+};
+
+// Reverse of TIMEZONE_MAP — given an IANA tz (what the server stores),
+// find the human-readable label the modal uses. Falls back to the IANA
+// itself when no mapping exists so unfamiliar tz values still display.
+const IANA_TO_LABEL: Record<string, string> = Object.fromEntries(
+  Object.entries(TIMEZONE_MAP).map(([label, iana]) => [iana, label]),
+);
+
+interface FormState {
+  name: string;
+  instruction: string;
+  cadence: Cadence;
+  time: string;
+  timezone: string;
+  cron: string;
+}
+
+// Convert a server-side routine row into the form's local state shape.
+// Reverses what `normalizeSchedule` does at write time. Schedule fields the
+// modal doesn't yet expose (weekly weekdays, monthly day-of-month) are
+// preserved separately so a save doesn't accidentally lose them.
+function routineToFormState(routine: ApiRoutine): FormState {
+  const spec = (routine.schedule_spec ?? {}) as {
+    time?: string;
+    expression?: string;
+  };
+  let cadence: Cadence;
+  let cron = DEFAULTS.cron;
+  if (routine.schedule_kind === 'cron') {
+    cadence = 'custom';
+    cron = spec.expression ?? routine.cron_expression ?? DEFAULTS.cron;
+  } else {
+    cadence = routine.schedule_kind;
+  }
+  return {
+    name: routine.title,
+    instruction: routine.prompt,
+    cadence,
+    time: spec.time ?? DEFAULTS.time,
+    timezone: IANA_TO_LABEL[routine.timezone] ?? routine.timezone,
+    cron,
+  };
+}
+
 export function NewRoutineModal({
   open,
   onOpenChange,
+  onCreated,
+  // When provided, the modal operates in EDIT mode: form pre-fills from the
+  // routine, the title/CTA copy switches, and the submit calls PATCH instead
+  // of POST. Caller is responsible for clearing this back to undefined after
+  // the modal closes so a subsequent "New Routine" click gets a clean slate.
+  routine,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  onCreated?: () => void | Promise<void>;
+  routine?: ApiRoutine;
 }) {
+  const isEditMode = !!routine;
   const [step, setStep] = useState<1 | 2>(1);
-  const [name, setName] = useState('CMP & Lithography APAC Scan');
-  const [instruction, setInstruction] = useState(
-    'Each run, scan Inven.AI and SEMI directory for new companies in CMP slurry, lithography ancillaries, and advanced packaging materials across APAC (Korea, Japan, Taiwan). Apply L0 criteria. Surface qualifying candidates to Discoveries.',
-  );
-  const [cadence, setCadence] = useState<Cadence>('daily');
-  const [time, setTime] = useState('06:00');
-  const [timezone, setTimezone] = useState(timezoneOptions[0]);
-  const [cron, setCron] = useState('0 6 * * 1-5');
+  const [name, setName] = useState(DEFAULTS.name);
+  const [instruction, setInstruction] = useState(DEFAULTS.instruction);
+  const [cadence, setCadence] = useState<Cadence>(DEFAULTS.cadence);
+  const [time, setTime] = useState(DEFAULTS.time);
+  const [timezone, setTimezone] = useState(DEFAULTS.timezone);
+  const [cron, setCron] = useState(DEFAULTS.cron);
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+
+  // Reset every time the dialog opens. The Radix Dialog keeps the content
+  // tree mounted across open/close cycles, so without this useState values
+  // would persist from the previous create/edit — the user would see stale
+  // form values and assume the form was stuck. In edit mode we prefill from
+  // the routine; otherwise we go back to blank defaults.
+  //
+  // Dependency includes routine?.id so opening for a different routine
+  // re-prefills even if the modal was already mounted with `open=true` for
+  // a prior routine.
+  useEffect(() => {
+    if (!open) return;
+    const seed = routine ? routineToFormState(routine) : DEFAULTS;
+    setStep(1);
+    setName(seed.name);
+    setInstruction(seed.instruction);
+    setCadence(seed.cadence);
+    setTime(seed.time);
+    setTimezone(seed.timezone);
+    setCron(seed.cron);
+    setSubmitError(null);
+    setSubmitting(false);
+  }, [open, routine?.id, routine]);
 
   const cronInterpretation = interpretCron(cron);
   const tzShort = timezone.match(/\(([^)]+)\)/)?.[1] ?? timezone;
@@ -86,23 +184,104 @@ export function NewRoutineModal({
     instruction.trim().length > 0 &&
     (cadence !== 'custom' || cronInterpretation.valid);
 
-  const reset = () => setStep(1);
+  const reset = () => {
+    setStep(1);
+    setName(DEFAULTS.name);
+    setInstruction(DEFAULTS.instruction);
+    setCadence(DEFAULTS.cadence);
+    setTime(DEFAULTS.time);
+    setTimezone(DEFAULTS.timezone);
+    setCron(DEFAULTS.cron);
+    setSubmitError(null);
+  };
   const handleClose = () => {
     onOpenChange(false);
     window.setTimeout(reset, 200);
   };
-  const handleCreate = () => {
-    handleClose();
-    // Mock — in real implementation, dispatch routine create.
+  const handleSubmit = async () => {
+    setSubmitError(null);
+    setSubmitting(true);
+    try {
+      const iana = TIMEZONE_MAP[timezone] ?? timezone;
+      const scheduleKind = cadence === 'custom' ? 'cron' : cadence;
+      // For weekly/monthly the modal doesn't yet expose a weekday/day-of-
+      // month picker. In edit mode, preserve those fields from the existing
+      // routine when the cadence is unchanged so we don't accidentally reset
+      // a user's custom Mon/Wed/Fri pick to Mon-Fri on every save. New
+      // routines (or cadence changes) fall back to a sensible default.
+      const existingSpec = (routine?.schedule_spec ?? {}) as {
+        weekdays?: number[];
+        day?: number;
+      };
+      const cadenceUnchanged = isEditMode && scheduleKind === routine!.schedule_kind;
+      let scheduleSpec: Record<string, unknown>;
+      if (cadence === 'custom') {
+        scheduleSpec = { expression: cron };
+      } else if (cadence === 'weekly') {
+        const weekdays =
+          cadenceUnchanged && Array.isArray(existingSpec.weekdays)
+            ? existingSpec.weekdays
+            : [1, 2, 3, 4, 5];
+        scheduleSpec = { time, weekdays };
+      } else if (cadence === 'monthly') {
+        const day =
+          cadenceUnchanged && typeof existingSpec.day === 'number'
+            ? existingSpec.day
+            : 1;
+        scheduleSpec = { time, day };
+      } else {
+        scheduleSpec = { time };
+      }
+
+      const payload = {
+        title: name.trim(),
+        prompt: instruction.trim(),
+        schedule_kind: scheduleKind,
+        schedule_spec: scheduleSpec,
+        timezone: iana,
+      };
+
+      const res = isEditMode
+        ? await fetch(`/api/routines/${routine!.id}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+          })
+        : await fetch('/api/routines', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+          });
+      if (!res.ok) {
+        const body = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(
+          body.error ?? `${isEditMode ? 'Save' : 'Create'} failed (HTTP ${res.status})`,
+        );
+      }
+      await onCreated?.();
+      handleClose();
+    } catch (err) {
+      setSubmitError(
+        err instanceof Error
+          ? err.message
+          : `Failed to ${isEditMode ? 'save' : 'create'} routine`,
+      );
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-2xl p-0 gap-0 overflow-hidden">
         <DialogHeader className="px-6 pt-6 pb-4 border-b text-left space-y-1">
-          <DialogTitle className="text-lg">New Standing Routine</DialogTitle>
+          <DialogTitle className="text-lg">
+            {isEditMode ? 'Edit Routine' : 'New Standing Routine'}
+          </DialogTitle>
           <DialogDescription className="text-xs leading-relaxed">
-            Routines run automatically on schedule when the on-demand queue is empty.
+            {isEditMode
+              ? 'Update the schedule or instruction. The next scheduled fire is recomputed from the new schedule.'
+              : 'Routines run automatically on schedule when the on-demand queue is empty.'}
           </DialogDescription>
         </DialogHeader>
 
@@ -275,6 +454,12 @@ export function NewRoutineModal({
                 <AlertCircle className="h-3 w-3 flex-shrink-0 mt-0.5" />
                 You can pause, edit, or delete this routine anytime from the Workforce sidebar.
               </p>
+              {submitError && (
+                <div className="mt-3 rounded-md border border-red-200 bg-red-50/60 px-3 py-2 flex items-start gap-2 text-[12px] text-red-700">
+                  <AlertCircle className="h-3 w-3 mt-0.5 flex-shrink-0" />
+                  <span>{submitError}</span>
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -305,11 +490,18 @@ export function NewRoutineModal({
             ) : (
               <Button
                 size="sm"
-                onClick={handleCreate}
+                onClick={handleSubmit}
+                disabled={submitting}
                 className="bg-gradient-to-br from-violet-500 to-indigo-600 hover:from-violet-600 hover:to-indigo-700"
               >
                 <Check className="h-3 w-3 mr-1" strokeWidth={3} />
-                Create routine
+                {submitting
+                  ? isEditMode
+                    ? 'Saving…'
+                    : 'Creating…'
+                  : isEditMode
+                    ? 'Save changes'
+                    : 'Create routine'}
               </Button>
             )}
           </div>

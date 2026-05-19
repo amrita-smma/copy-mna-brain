@@ -18,6 +18,10 @@ export type QueueTask = {
   initials: string;
   avatarTone: AvatarTone;
   icon: LucideIcon;
+  // Set when the task was spawned by a routine. Lets the sidebar attribute
+  // running/done tasks to their source routine and offer a one-click jump.
+  routineId?: string;
+  routineName?: string;
   // Short relative-time badge (e.g. "8m", "2h"). Per-section meaning:
   //   queued    → time since created_at
   //   running   → time since started_at (falls back to created_at)

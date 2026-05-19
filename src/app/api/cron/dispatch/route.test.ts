@@ -1,12 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { dispatcherTick, reapStuckRuns, createDbFn } = vi.hoisted(() => ({
+const { dispatcherTick, reapStuckRuns, fireDueRoutines, createDbFn } = vi.hoisted(() => ({
   dispatcherTick: vi.fn(),
   reapStuckRuns: vi.fn(),
+  fireDueRoutines: vi.fn(),
   createDbFn: vi.fn(),
 }));
 
 vi.mock('@/lib/workforce', () => ({ dispatcherTick, reapStuckRuns }));
+vi.mock('@/lib/routines', () => ({ fireDueRoutines }));
 vi.mock('@/lib/server/db', () => ({ createDb: createDbFn }));
 
 import { GET } from './route';
@@ -28,9 +30,11 @@ describe('GET /api/cron/dispatch', () => {
   beforeEach(() => {
     dispatcherTick.mockReset();
     reapStuckRuns.mockReset();
+    fireDueRoutines.mockReset();
     createDbFn.mockReset();
     createDbFn.mockReturnValue({});
     reapStuckRuns.mockResolvedValue({ reaped: [], scanned: 0 });
+    fireDueRoutines.mockResolvedValue({ scanned: 0, fired: [], errors: [] });
     dispatcherTick.mockResolvedValue({ outcome: 'empty' });
   });
 
@@ -69,7 +73,9 @@ describe('GET /api/cron/dispatch', () => {
     const body = await res.json();
     expect(body.ok).toBe(true);
     expect(body.reaper).toEqual({ reaped: ['r1'], scanned: 1 });
+    expect(body.routines).toEqual({ scanned: 0, fired: [], errors: [] });
     expect(body.dispatch).toEqual({ outcome: 'claimed', runId: 'r-claimed' });
+    expect(fireDueRoutines).toHaveBeenCalledTimes(1);
   });
 
   it('is open when CRON_SECRET is unset (local dev)', async () => {

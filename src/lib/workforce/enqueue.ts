@@ -14,6 +14,7 @@ export interface EnqueueAgentRunInput {
   input: Record<string, unknown>;
   priority?: number;
   parentRunId?: string | null;
+  originRoutineId?: string | null;
   idempotencyKey?: string | null;
   // User who initiated the task. Required for chat/api triggers (UI shows
   // the owner); null for cron (use trigger_meta.routine_id to find creator)
@@ -52,6 +53,7 @@ export async function enqueueAgentRun(
     input: input.input,
     priority: input.priority ?? 0,
     parent_run_id: input.parentRunId ?? null,
+    origin_routine_id: input.originRoutineId ?? null,
     idempotency_key: input.idempotencyKey ?? null,
     triggered_by_user_id: input.triggeredByUserId ?? null,
   } as never);

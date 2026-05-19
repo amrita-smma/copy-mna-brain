@@ -14,6 +14,7 @@ import { getPastAcquisitionDetails } from "./get_past_acquisition_details";
 import { queryMeetingNotes } from "./query_files";
 import { proposeWorkforceHandoff } from "./propose_workforce_handoff";
 import { promoteToL1 } from "./promote_to_l1";
+import { addCompanyToL0 } from "./add_company_to_l0";
 import { narrateStep } from "./narrate_step";
 
 export {
@@ -28,6 +29,7 @@ export {
   queryMeetingNotes,
   proposeWorkforceHandoff,
   promoteToL1,
+  addCompanyToL0,
   narrateStep,
 };
 
@@ -75,7 +77,7 @@ export const chatOnlyTools = [proposeWorkforceHandoff];
  * Reasoning trace UI in /ai-workforce/tasks/{id}. Excluded from chat
  * because the chat UI has no trace renderer.
  */
-export const workforceOnlyTools = [promoteToL1, narrateStep];
+export const workforceOnlyTools = [promoteToL1, addCompanyToL0, narrateStep];
 
 /**
  * Get a formatted list of tool names and descriptions for prompt injection.
