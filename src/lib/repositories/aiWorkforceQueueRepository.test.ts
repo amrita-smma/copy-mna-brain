@@ -308,6 +308,39 @@ describe('AiWorkforceQueueRepository.markResumeReady', () => {
   });
 });
 
+describe('AiWorkforceQueueRepository.setPriorities', () => {
+  it('returns early without opening a transaction when the update list is empty', async () => {
+    const { db } = makeMockDb();
+    const repo = new AiWorkforceQueueRepository(db as never);
+
+    await repo.setPriorities([]);
+
+    expect(db.transaction).not.toHaveBeenCalled();
+  });
+
+  it('issues one UPDATE per id inside a single transaction', async () => {
+    const { db, updateChain } = makeMockDb();
+    // updateChain.where is mockReturnThis(), so resolves to itself; we just
+    // need the call counts and arguments.
+    db.transaction.mockImplementation(
+      async (fn: (tx: typeof db) => Promise<unknown>) => fn(db),
+    );
+
+    const repo = new AiWorkforceQueueRepository(db as never);
+    await repo.setPriorities([
+      { id: 'r1', priority: 3 },
+      { id: 'r2', priority: 2 },
+      { id: 'r3', priority: 1 },
+    ]);
+
+    expect(db.transaction).toHaveBeenCalledTimes(1);
+    expect(db.update).toHaveBeenCalledTimes(3);
+    expect(updateChain.set).toHaveBeenNthCalledWith(1, { priority: 3 });
+    expect(updateChain.set).toHaveBeenNthCalledWith(2, { priority: 2 });
+    expect(updateChain.set).toHaveBeenNthCalledWith(3, { priority: 1 });
+  });
+});
+
 describe('AiWorkforceQueueRepository.clearResumeToken', () => {
   it('updates resume_token to null without throwing on missing rows', async () => {
     const { db, updateChain } = makeMockDb();

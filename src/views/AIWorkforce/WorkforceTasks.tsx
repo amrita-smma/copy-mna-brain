@@ -386,10 +386,20 @@ export function WorkforceTasks({ initialTaskId = null }: WorkforceTasksProps = {
   );
 
   const pendingItems = useMemo(() => {
-    const tasks = items
+    // Sort by priority DESC then created_at ASC — mirrors the dispatcher's
+    // claim ORDER BY so the visual order matches the run order across
+    // tabs / reloads (where queueOrder isn't populated yet).
+    const sorted = items
       .filter((i) => i.status === 'pending')
-      .map((i) => toQueueTask(i, routineNameById, 'created_at'));
+      .slice()
+      .sort((a, b) => {
+        if (a.priority !== b.priority) return b.priority - a.priority;
+        return Date.parse(a.created_at) - Date.parse(b.created_at);
+      });
+    const tasks = sorted.map((i) => toQueueTask(i, routineNameById, 'created_at'));
     if (queueOrder.length === 0) return tasks;
+    // In-flight drag: queueOrder is the source of truth for the visual
+    // order until the POST settles and we clear it.
     const byId = new Map(tasks.map((t) => [t.id, t]));
     const ordered: QueueTask[] = [];
     for (const id of queueOrder) {
@@ -482,7 +492,40 @@ export function WorkforceTasks({ initialTaskId = null }: WorkforceTasksProps = {
       return next;
     });
   };
-  const handleDragEnd = () => setDraggingId(null);
+  const handleDragEnd = async () => {
+    const order = queueOrder;
+    setDraggingId(null);
+    if (order.length === 0) return;
+
+    // Server-side: top of the queue gets highest priority. Leave 0 reserved
+    // for freshly enqueued rows so they always land at the bottom (the
+    // dispatcher's ORDER BY uses priority DESC, created_at ASC).
+    const payload = order.map((id, idx) => ({
+      id,
+      priority: order.length - idx,
+    }));
+
+    try {
+      const res = await fetch('/api/workforce-queue/reorder', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ order: payload }),
+      });
+      if (!res.ok) {
+        throw new Error(`Reorder failed (HTTP ${res.status})`);
+      }
+      // Refetch to pick up the new priorities, then clear the local override
+      // so subsequent renders use the server-derived sort.
+      await fetchQueue();
+      setQueueOrder([]);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to reorder queue');
+      // Revert: clear local override and refetch so the UI snaps back to
+      // the server's order rather than a half-applied state.
+      setQueueOrder([]);
+      void fetchQueue();
+    }
+  };
 
   return (
     <div className="flex-1 grid grid-cols-[280px_1fr] min-h-0 overflow-hidden bg-muted/20">

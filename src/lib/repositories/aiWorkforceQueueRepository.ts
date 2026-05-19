@@ -259,6 +259,24 @@ export class AiWorkforceQueueRepository {
       .where(eq(aiWorkforceQueue.id, id));
   }
 
+  // Bulk renumber row priorities (drag-to-reorder writes through this).
+  // Each call wraps all updates in a single transaction so a reorder either
+  // applies fully or not at all; intermediate inconsistencies never reach
+  // the dispatcher's claim query.
+  async setPriorities(
+    updates: Array<{ id: string; priority: number }>,
+  ): Promise<void> {
+    if (updates.length === 0) return;
+    await this.db.transaction(async (tx) => {
+      for (const u of updates) {
+        await tx
+          .update(aiWorkforceQueue)
+          .set({ priority: u.priority })
+          .where(eq(aiWorkforceQueue.id, u.id));
+      }
+    });
+  }
+
   // Transition to waiting_for_human_input — the agent emitted a HITL
   // interrupt and is paused awaiting a decision from the task creator.
   async markWaitingForHumanInput(id: string, reason: string): Promise<Row> {
