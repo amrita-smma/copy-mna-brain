@@ -274,6 +274,53 @@ describe('AiWorkforceQueueRepository.appendDecision', () => {
   });
 });
 
+describe('AiWorkforceQueueRepository.markResumeReady', () => {
+  it('persists status, resume_reason, and resume_token when token is provided', async () => {
+    const { db, updateChain } = makeMockDb();
+    const row = { id: 'r1', status: 'resume_ready' };
+    updateChain.returning.mockResolvedValueOnce([row]);
+
+    const repo = new AiWorkforceQueueRepository(db as never);
+    const payloadJson = JSON.stringify({ decisions: [{ type: 'approve' }] });
+    const result = await repo.markResumeReady('r1', 'human approve', payloadJson);
+
+    expect(result).toBe(row);
+    expect(updateChain.set).toHaveBeenCalledWith({
+      status: 'resume_ready',
+      resume_reason: 'human approve',
+      resume_token: payloadJson,
+    });
+  });
+
+  it('omits resume_token from the patch when not provided', async () => {
+    const { db, updateChain } = makeMockDb();
+    updateChain.returning.mockResolvedValueOnce([{ id: 'r1' }]);
+
+    const repo = new AiWorkforceQueueRepository(db as never);
+    await repo.markResumeReady('r1', 'subagent done');
+
+    const setArg = updateChain.set.mock.calls[0][0];
+    expect(setArg).toEqual({
+      status: 'resume_ready',
+      resume_reason: 'subagent done',
+    });
+    expect(setArg).not.toHaveProperty('resume_token');
+  });
+});
+
+describe('AiWorkforceQueueRepository.clearResumeToken', () => {
+  it('updates resume_token to null without throwing on missing rows', async () => {
+    const { db, updateChain } = makeMockDb();
+    // No .returning() chain expected — clearResumeToken is fire-and-forget.
+    updateChain.returning.mockResolvedValueOnce([]);
+
+    const repo = new AiWorkforceQueueRepository(db as never);
+    await expect(repo.clearResumeToken('r1')).resolves.toBeUndefined();
+
+    expect(updateChain.set).toHaveBeenCalledWith({ resume_token: null });
+  });
+});
+
 describe('AiWorkforceQueueRepository.isTerminal', () => {
   it('classifies terminal vs non-terminal statuses', () => {
     expect(AiWorkforceQueueRepository.isTerminal('succeeded')).toBe(true);

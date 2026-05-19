@@ -1,9 +1,9 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse, after } from 'next/server';
 import { auth } from '@/auth';
 import { createDb } from '@/lib/server/db';
 import { createContainer } from '@/lib/services';
 import { AiWorkforceQueueRepository } from '@/lib/repositories';
-import { getWorkforceAgentGraph } from '@/lib/agents/analysis';
+import { dispatcherTick } from '@/lib/workforce';
 import type { HumanDecision } from '@/lib/db/schema';
 
 interface DecisionRequestBody {
@@ -85,14 +85,6 @@ export async function POST(
       );
     }
 
-    const graph = await getWorkforceAgentGraph();
-    if (!graph) {
-      return NextResponse.json(
-        { error: 'workforce agent graph unavailable' },
-        { status: 503 },
-      );
-    }
-
     const resumePayload =
       parsed.decision === 'approve'
         ? { decisions: [{ type: 'approve' as const }] }
@@ -105,9 +97,11 @@ export async function POST(
             ],
           };
 
-    // Audit the decision BEFORE resuming. If the resume invocation crashes
-    // we still have a record of what the user requested; the row stays in
-    // waiting_for_human_input and can be re-resumed if needed.
+    // Audit the decision and queue the resume. The dispatcher claims the row
+    // (advisory lock + serial guard), starts a WDK workflow, and runAgent
+    // calls graph.resume with the stashed payload. This keeps the "1 active
+    // run at a time" cap honest — the resume goes through the same gating as
+    // a fresh dispatch.
     const repo = new AiWorkforceQueueRepository(db);
     const auditEntry: HumanDecision = {
       tool_call_id: parsed.tool_call_id,
@@ -120,39 +114,20 @@ export async function POST(
     };
     await repo.appendDecision(item.id, auditEntry);
 
-    // Resume the agent on the same thread. The HITL middleware consumes the
-    // resume payload, runs (or skips) the gated tool, and either finishes
-    // or hits another interrupt.
-    const result = await graph.resume(item.id, resumePayload);
+    const reason = `human ${parsed.decision}`;
+    await repo.markResumeReady(item.id, reason, JSON.stringify(resumePayload));
 
-    // Transition the queue row based on what came back.
-    if (result.interrupt?.actionRequests?.length) {
-      const first = result.interrupt.actionRequests[0];
-      const reason =
-        typeof first.description === 'string' && first.description.trim()
-          ? first.description
-          : `Awaiting approval for ${first.name ?? 'tool call'}`;
-      await repo.markWaitingForHumanInput(item.id, reason);
-      return NextResponse.json({ status: 'waiting_for_human_input' });
-    }
-
-    const messages = result.messages ?? [];
-    const lastMessage = messages[messages.length - 1];
-    const finalMessage = lastMessage
-      ? typeof lastMessage.content === 'string'
-        ? lastMessage.content
-        : JSON.stringify(lastMessage.content)
-      : '';
-    const toolCallCount = messages.filter((m) => {
-      const calls = (m as unknown as { tool_calls?: unknown[] }).tool_calls;
-      return Array.isArray(calls) && calls.length > 0;
-    }).length;
-    await repo.markSucceeded(item.id, {
-      final_message: finalMessage,
-      message_count: messages.length,
-      tool_call_count: toolCallCount,
+    // Fire-and-forget dispatcher kick so the resume claims the slot
+    // immediately when free. The cron tick remains the liveness fallback.
+    after(async () => {
+      try {
+        await dispatcherTick(createDb());
+      } catch (err) {
+        console.error('[decision] dispatcher kick failed:', err);
+      }
     });
-    return NextResponse.json({ status: 'succeeded' });
+
+    return NextResponse.json({ status: 'queued_for_resume' });
   } catch (error: unknown) {
     const message =
       error instanceof Error ? error.message : 'Failed to record decision';

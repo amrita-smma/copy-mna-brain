@@ -1,36 +1,69 @@
 'use client';
 
 import * as React from 'react';
-import { GripVertical } from 'lucide-react';
+import { ChevronDown, ChevronRight, GripVertical } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 export function RailGroup({
   label,
   count,
   hint,
+  collapsible = false,
+  defaultOpen = true,
   children,
 }: {
   label: string;
   count: number;
   hint?: string;
+  // When true, the header becomes a toggle button and children hide when
+  // collapsed. Sections that always need visibility (e.g. NEED ACTION,
+  // IN PROGRESS) should leave this false.
+  collapsible?: boolean;
+  defaultOpen?: boolean;
   children: React.ReactNode;
 }) {
+  const [open, setOpen] = React.useState(defaultOpen);
+  const isOpen = collapsible ? open : true;
+
+  const header = (
+    <>
+      {collapsible &&
+        (isOpen ? (
+          <ChevronDown className="h-3 w-3 text-muted-foreground/60" />
+        ) : (
+          <ChevronRight className="h-3 w-3 text-muted-foreground/60" />
+        ))}
+      <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+        {label}
+      </span>
+      <span className="text-[10px] font-semibold text-muted-foreground/70">
+        · {count}
+      </span>
+      {hint && (
+        <span className="ml-auto text-[10px] text-muted-foreground/60">
+          {hint}
+        </span>
+      )}
+    </>
+  );
+
   return (
     <div>
-      <div className="flex items-center gap-1.5 px-2.5 pt-1.5 pb-1">
-        <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-          {label}
-        </span>
-        <span className="text-[10px] font-semibold text-muted-foreground/70">
-          · {count}
-        </span>
-        {hint && (
-          <span className="ml-auto text-[10px] text-muted-foreground/60">
-            {hint}
-          </span>
-        )}
-      </div>
-      {children}
+      {collapsible ? (
+        <button
+          type="button"
+          onClick={() => setOpen((o) => !o)}
+          className="flex w-full items-center gap-1.5 px-2.5 pt-1.5 pb-1 rounded-md hover:bg-muted/40 transition-colors"
+          aria-expanded={isOpen}
+        >
+          {header}
+        </button>
+      ) : (
+        <div className="flex items-center gap-1.5 px-2.5 pt-1.5 pb-1">
+          {header}
+        </div>
+      )}
+      {isOpen && children}
     </div>
   );
 }

@@ -235,6 +235,10 @@ export class AiWorkforceQueueRepository {
     });
   }
 
+  // Transition to resume_ready and stash the resume payload for the workflow
+  // to consume. `resumeToken` carries the LangGraph resume payload as a
+  // JSON-encoded string (the column is `text`); the workflow JSON.parses it
+  // and feeds it to `graph.resume`, then calls clearResumeToken once consumed.
   async markResumeReady(
     id: string,
     reason: string,
@@ -246,6 +250,13 @@ export class AiWorkforceQueueRepository {
     };
     if (resumeToken !== undefined) patch.resume_token = resumeToken;
     return this.updateStatusOrThrow(id, patch);
+  }
+
+  async clearResumeToken(id: string): Promise<void> {
+    await this.db
+      .update(aiWorkforceQueue)
+      .set({ resume_token: null })
+      .where(eq(aiWorkforceQueue.id, id));
   }
 
   // Transition to waiting_for_human_input — the agent emitted a HITL

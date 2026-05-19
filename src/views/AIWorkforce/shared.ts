@@ -18,6 +18,11 @@ export type QueueTask = {
   initials: string;
   avatarTone: AvatarTone;
   icon: LucideIcon;
+  // Short relative-time badge (e.g. "8m", "2h"). Per-section meaning:
+  //   queued    → time since created_at
+  //   running   → time since started_at (falls back to created_at)
+  //   done      → time since ended_at (falls back to created_at)
+  relTime?: string;
 };
 
 export type DoneTask = {

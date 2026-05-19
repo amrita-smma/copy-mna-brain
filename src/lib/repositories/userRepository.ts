@@ -1,4 +1,4 @@
-import { asc, eq, ilike } from 'drizzle-orm';
+import { asc, eq, ilike, inArray } from 'drizzle-orm';
 import { users } from '@/lib/db/schema';
 import type { DbClient, Tables, TablesInsert, TablesUpdate } from './types';
 
@@ -12,6 +12,17 @@ export class UserRepository {
       .select({ id: users.id, name: users.name, email: users.email, role: users.role })
       .from(users)
       .orderBy(asc(users.name));
+  }
+
+  // Bulk id → name/email lookup. Used to attribute workforce-queue rows to
+  // their submitter without an N+1 fetch from the client. Returns only the
+  // ids present in the table; callers should treat missing rows as null.
+  async findByIds(ids: string[]): Promise<Array<Pick<UserListItem, 'id' | 'name' | 'email'>>> {
+    if (ids.length === 0) return [];
+    return this.db
+      .select({ id: users.id, name: users.name, email: users.email })
+      .from(users)
+      .where(inArray(users.id, ids));
   }
 
   async findByEmail(email: string): Promise<Tables<'users'> | null> {

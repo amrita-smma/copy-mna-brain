@@ -2,6 +2,7 @@ import { FatalError, RetryableError } from 'workflow';
 import { getWorkforceAgentGraph, HumanMessage } from '@/lib/agents/analysis';
 import { AiWorkforceQueueRepository } from '@/lib/repositories';
 import { createDb } from '@/lib/server/db';
+import { dispatcherTick } from './dispatcher';
 
 /**
  * AI Workforce agent runtime (MB-147 Tier 3).
@@ -17,6 +18,13 @@ import { createDb } from '@/lib/server/db';
  * workforce run gets its own checkpoint thread, isolated from copilot chats
  * (which key off copilot_chats.id).
  *
+ * Resumes (rows claimed from status='resume_ready') carry a JSON-encoded
+ * resume payload in `resume_token`. When present, runAgent calls
+ * `graph.resume` instead of `graph.invoke`. The HITL decision route writes
+ * this payload; runAgent clears it once consumed (any outcome — success,
+ * pause, fail — so WDK step retries on a transient resume failure still
+ * see the payload).
+ *
  * WDK constraints:
  *   - The workflow function body runs in a sandboxed VM (no fetch, no node
  *     modules). All real I/O lives in step functions.
@@ -27,6 +35,7 @@ import { createDb } from '@/lib/server/db';
 
 interface LoadResult {
   prompt: string;
+  resumePayloadJson: string | null;
 }
 
 async function loadAndHeartbeat(runId: string): Promise<LoadResult> {
@@ -59,7 +68,7 @@ async function loadAndHeartbeat(runId: string): Promise<LoadResult> {
   }
 
   await repo.heartbeat(runId);
-  return { prompt: candidate };
+  return { prompt: candidate, resumePayloadJson: row.resume_token ?? null };
 }
 
 type InvokeStepResult =
@@ -77,6 +86,7 @@ type InvokeStepResult =
 async function invokeAgent(
   runId: string,
   prompt: string,
+  resumePayloadJson: string | null,
 ): Promise<InvokeStepResult> {
   'use step';
   if (!process.env.ANTHROPIC_API_KEY) {
@@ -91,10 +101,12 @@ async function invokeAgent(
     throw new RetryableError('workforce agent graph unavailable');
   }
 
-  const result = await graph.invoke(
-    { messages: [new HumanMessage(prompt)] },
-    { configurable: { thread_id: runId }, recursionLimit: 50 },
-  );
+  const result = resumePayloadJson
+    ? await graph.resume(runId, JSON.parse(resumePayloadJson))
+    : await graph.invoke(
+        { messages: [new HumanMessage(prompt)] },
+        { configurable: { thread_id: runId }, recursionLimit: 50 },
+      );
 
   // HITL interrupt fired — the agent has paused awaiting a human decision.
   // Hand off to the decision endpoint via status; don't finalize and don't
@@ -138,18 +150,22 @@ async function finalize(
   'use step';
   const db = createDb();
   const repo = new AiWorkforceQueueRepository(db);
+  await repo.clearResumeToken(runId);
   await repo.markSucceeded(runId, {
     final_message: result.finalMessage,
     message_count: result.messageCount,
     tool_call_count: result.toolCallCount,
   });
+  await kickDispatcher(db);
 }
 
 async function markWaitingStep(runId: string, reason: string): Promise<void> {
   'use step';
   const db = createDb();
   const repo = new AiWorkforceQueueRepository(db);
+  await repo.clearResumeToken(runId);
   await repo.markWaitingForHumanInput(runId, reason);
+  await kickDispatcher(db);
 }
 
 async function markFailedStep(
@@ -159,12 +175,28 @@ async function markFailedStep(
   'use step';
   const db = createDb();
   const repo = new AiWorkforceQueueRepository(db);
+  await repo.clearResumeToken(runId);
   await repo.markFailed(runId, errorPayload);
+  await kickDispatcher(db);
+}
+
+// Reactive trigger: when the current run leaves status='running' (succeeded,
+// paused, or failed), kick the dispatcher so the next queued/resume_ready row
+// claims the slot immediately. The cron tick remains the liveness fallback.
+// Errors are swallowed — the cron will pick up anything we miss here.
+async function kickDispatcher(
+  db: ReturnType<typeof createDb>,
+): Promise<void> {
+  try {
+    await dispatcherTick(db);
+  } catch (err) {
+    console.error('[runAgent] dispatcher kick failed:', err);
+  }
 }
 
 export async function runAgent({ runId }: { runId: string }): Promise<void> {
   'use workflow';
-  const { prompt } = await loadAndHeartbeat(runId);
+  const { prompt, resumePayloadJson } = await loadAndHeartbeat(runId);
 
   // TODO(Tier 3+): heartbeat periodically inside long invokeAgent runs so
   // legitimate slow LLM/tool work doesn't trip the reaper's 5min staleness
@@ -172,10 +204,10 @@ export async function runAgent({ runId }: { runId: string }): Promise<void> {
   // case; agents that run > ~4 min need a sidecar heartbeat loop or the
   // step itself needs to break into smaller turns.
   try {
-    const result = await invokeAgent(runId, prompt);
+    const result = await invokeAgent(runId, prompt, resumePayloadJson);
     if (result.kind === 'interrupted') {
       // Healthy pause: HITL middleware caught a gated tool call. The decision
-      // endpoint will resume the agent (outside this workflow).
+      // endpoint will re-enqueue the resume by writing status='resume_ready'.
       await markWaitingStep(runId, result.reason);
       return;
     }

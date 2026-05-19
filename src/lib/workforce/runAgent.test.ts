@@ -10,18 +10,26 @@ const {
   heartbeat,
   markSucceeded,
   markFailed,
+  markWaitingForHumanInput,
+  clearResumeToken,
   createDb,
   invokeMock,
+  resumeMock,
   getWorkforceAgentGraph,
+  dispatcherTick,
   HumanMessage,
 } = vi.hoisted(() => ({
   findById: vi.fn(),
   heartbeat: vi.fn(),
   markSucceeded: vi.fn(),
   markFailed: vi.fn(),
+  markWaitingForHumanInput: vi.fn(),
+  clearResumeToken: vi.fn(),
   createDb: vi.fn(),
   invokeMock: vi.fn(),
+  resumeMock: vi.fn(),
   getWorkforceAgentGraph: vi.fn(),
+  dispatcherTick: vi.fn(),
   // Identity carrier so tests can assert the argument structure without
   // pulling LangChain types into the test environment.
   HumanMessage: class {
@@ -36,6 +44,8 @@ vi.mock('@/lib/repositories', async (importOriginal) => {
     heartbeat = heartbeat;
     markSucceeded = markSucceeded;
     markFailed = markFailed;
+    markWaitingForHumanInput = markWaitingForHumanInput;
+    clearResumeToken = clearResumeToken;
   }
   return {
     ...actual,
@@ -49,6 +59,8 @@ vi.mock('@/lib/agents/analysis', () => ({
   getWorkforceAgentGraph,
   HumanMessage,
 }));
+
+vi.mock('./dispatcher', () => ({ dispatcherTick }));
 
 import { runAgent } from './runAgent';
 
@@ -83,9 +95,13 @@ describe('runAgent — happy path', () => {
     heartbeat.mockReset();
     markSucceeded.mockReset();
     markFailed.mockReset();
+    markWaitingForHumanInput.mockReset();
+    clearResumeToken.mockReset();
     createDb.mockReset().mockReturnValue({});
     invokeMock.mockReset();
+    resumeMock.mockReset();
     getWorkforceAgentGraph.mockReset();
+    dispatcherTick.mockReset().mockResolvedValue({ outcome: 'empty' });
     process.env.ANTHROPIC_API_KEY = 'test-key';
   });
 
@@ -165,9 +181,13 @@ describe('runAgent — guard rails', () => {
     findById.mockReset();
     markSucceeded.mockReset();
     markFailed.mockReset().mockResolvedValue({});
+    markWaitingForHumanInput.mockReset();
+    clearResumeToken.mockReset();
     getWorkforceAgentGraph.mockReset();
     invokeMock.mockReset();
+    resumeMock.mockReset();
     createDb.mockReset().mockReturnValue({});
+    dispatcherTick.mockReset().mockResolvedValue({ outcome: 'empty' });
     process.env.ANTHROPIC_API_KEY = 'test-key';
   });
 
@@ -263,9 +283,13 @@ describe('runAgent — failure path', () => {
     findById.mockReset();
     markSucceeded.mockReset();
     markFailed.mockReset().mockResolvedValue({});
+    markWaitingForHumanInput.mockReset();
+    clearResumeToken.mockReset();
     getWorkforceAgentGraph.mockReset();
     invokeMock.mockReset();
+    resumeMock.mockReset();
     createDb.mockReset().mockReturnValue({});
+    dispatcherTick.mockReset().mockResolvedValue({ outcome: 'empty' });
     process.env.ANTHROPIC_API_KEY = 'test-key';
   });
 
@@ -300,3 +324,198 @@ describe('runAgent — failure path', () => {
   });
 });
 
+describe('runAgent — resume branch (rows carrying a resume_token)', () => {
+  beforeEach(() => {
+    findById.mockReset();
+    heartbeat.mockReset();
+    markSucceeded.mockReset();
+    markFailed.mockReset().mockResolvedValue({});
+    markWaitingForHumanInput.mockReset();
+    clearResumeToken.mockReset();
+    getWorkforceAgentGraph.mockReset();
+    invokeMock.mockReset();
+    resumeMock.mockReset();
+    createDb.mockReset().mockReturnValue({});
+    dispatcherTick.mockReset().mockResolvedValue({ outcome: 'empty' });
+    process.env.ANTHROPIC_API_KEY = 'test-key';
+  });
+
+  it('calls graph.resume with the parsed payload (and not graph.invoke) when resume_token is present', async () => {
+    const payload = { decisions: [{ type: 'approve' }] };
+    findById.mockResolvedValueOnce(
+      makeRow({ resume_token: JSON.stringify(payload) }),
+    );
+    getWorkforceAgentGraph.mockResolvedValueOnce({
+      invoke: invokeMock,
+      resume: resumeMock,
+    });
+    resumeMock.mockResolvedValueOnce(makeAgentResult({ finalText: 'Resumed.' }));
+
+    await runAgent({ runId: RUN_ID });
+
+    expect(resumeMock).toHaveBeenCalledTimes(1);
+    expect(resumeMock).toHaveBeenCalledWith(RUN_ID, payload);
+    expect(invokeMock).not.toHaveBeenCalled();
+    expect(markSucceeded).toHaveBeenCalledTimes(1);
+  });
+
+  it('uses graph.invoke (not resume) when resume_token is null', async () => {
+    findById.mockResolvedValueOnce(makeRow({ resume_token: null }));
+    getWorkforceAgentGraph.mockResolvedValueOnce({
+      invoke: invokeMock,
+      resume: resumeMock,
+    });
+    invokeMock.mockResolvedValueOnce(makeAgentResult({ finalText: 'Done.' }));
+
+    await runAgent({ runId: RUN_ID });
+
+    expect(invokeMock).toHaveBeenCalledTimes(1);
+    expect(resumeMock).not.toHaveBeenCalled();
+  });
+
+  it('clears resume_token before persisting the terminal status', async () => {
+    findById.mockResolvedValueOnce(
+      makeRow({ resume_token: '{"decisions":[{"type":"approve"}]}' }),
+    );
+    getWorkforceAgentGraph.mockResolvedValueOnce({
+      invoke: invokeMock,
+      resume: resumeMock,
+    });
+    resumeMock.mockResolvedValueOnce(makeAgentResult({ finalText: 'Done.' }));
+
+    await runAgent({ runId: RUN_ID });
+
+    expect(clearResumeToken).toHaveBeenCalledWith(RUN_ID);
+    // clearResumeToken must run before markSucceeded so the row's terminal
+    // snapshot doesn't carry a stale payload.
+    const clearOrder = clearResumeToken.mock.invocationCallOrder[0];
+    const succeededOrder = markSucceeded.mock.invocationCallOrder[0];
+    expect(clearOrder).toBeLessThan(succeededOrder);
+  });
+});
+
+describe('runAgent — HITL interrupt path', () => {
+  beforeEach(() => {
+    findById.mockReset();
+    heartbeat.mockReset();
+    markSucceeded.mockReset();
+    markFailed.mockReset().mockResolvedValue({});
+    markWaitingForHumanInput.mockReset();
+    clearResumeToken.mockReset();
+    getWorkforceAgentGraph.mockReset();
+    invokeMock.mockReset();
+    resumeMock.mockReset();
+    createDb.mockReset().mockReturnValue({});
+    dispatcherTick.mockReset().mockResolvedValue({ outcome: 'empty' });
+    process.env.ANTHROPIC_API_KEY = 'test-key';
+  });
+
+  it('transitions to waiting_for_human_input when the agent returns an interrupt', async () => {
+    findById.mockResolvedValueOnce(makeRow());
+    getWorkforceAgentGraph.mockResolvedValueOnce({
+      invoke: invokeMock,
+      resume: resumeMock,
+    });
+    invokeMock.mockResolvedValueOnce({
+      messages: [{ content: 'paused mid-tool' }],
+      interrupt: {
+        actionRequests: [
+          {
+            name: 'promote_l0_to_l1',
+            args: {},
+            description: 'Approve promotion of Acme Corp?',
+          },
+        ],
+      },
+    });
+
+    await runAgent({ runId: RUN_ID });
+
+    expect(markWaitingForHumanInput).toHaveBeenCalledWith(
+      RUN_ID,
+      'Approve promotion of Acme Corp?',
+    );
+    expect(markSucceeded).not.toHaveBeenCalled();
+    expect(markFailed).not.toHaveBeenCalled();
+  });
+});
+
+describe('runAgent — reactive dispatcher kick', () => {
+  beforeEach(() => {
+    findById.mockReset();
+    heartbeat.mockReset();
+    markSucceeded.mockReset();
+    markFailed.mockReset().mockResolvedValue({});
+    markWaitingForHumanInput.mockReset();
+    clearResumeToken.mockReset();
+    getWorkforceAgentGraph.mockReset();
+    invokeMock.mockReset();
+    resumeMock.mockReset();
+    createDb.mockReset().mockReturnValue({});
+    dispatcherTick.mockReset().mockResolvedValue({ outcome: 'empty' });
+    process.env.ANTHROPIC_API_KEY = 'test-key';
+  });
+
+  it('kicks the dispatcher after markSucceeded on the happy path', async () => {
+    findById.mockResolvedValueOnce(makeRow());
+    getWorkforceAgentGraph.mockResolvedValueOnce({
+      invoke: invokeMock,
+      resume: resumeMock,
+    });
+    invokeMock.mockResolvedValueOnce(makeAgentResult({ finalText: 'Done.' }));
+
+    await runAgent({ runId: RUN_ID });
+
+    expect(dispatcherTick).toHaveBeenCalledTimes(1);
+    const succeededOrder = markSucceeded.mock.invocationCallOrder[0];
+    const dispatchOrder = dispatcherTick.mock.invocationCallOrder[0];
+    expect(succeededOrder).toBeLessThan(dispatchOrder);
+  });
+
+  it('kicks the dispatcher after markWaitingForHumanInput when the agent pauses', async () => {
+    findById.mockResolvedValueOnce(makeRow());
+    getWorkforceAgentGraph.mockResolvedValueOnce({
+      invoke: invokeMock,
+      resume: resumeMock,
+    });
+    invokeMock.mockResolvedValueOnce({
+      messages: [],
+      interrupt: {
+        actionRequests: [{ name: 'tool', args: {}, description: 'pause' }],
+      },
+    });
+
+    await runAgent({ runId: RUN_ID });
+
+    expect(dispatcherTick).toHaveBeenCalledTimes(1);
+  });
+
+  it('kicks the dispatcher after markFailed when the agent throws', async () => {
+    findById.mockResolvedValueOnce(makeRow());
+    getWorkforceAgentGraph.mockResolvedValueOnce({
+      invoke: invokeMock,
+      resume: resumeMock,
+    });
+    invokeMock.mockRejectedValueOnce(new Error('LLM unreachable'));
+
+    await expect(runAgent({ runId: RUN_ID })).rejects.toThrow('LLM unreachable');
+
+    expect(dispatcherTick).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not let a dispatcher kick failure bubble out of runAgent', async () => {
+    findById.mockResolvedValueOnce(makeRow());
+    getWorkforceAgentGraph.mockResolvedValueOnce({
+      invoke: invokeMock,
+      resume: resumeMock,
+    });
+    invokeMock.mockResolvedValueOnce(makeAgentResult({ finalText: 'Done.' }));
+    dispatcherTick.mockRejectedValueOnce(new Error('dispatcher boom'));
+
+    // Errors from the dispatcher kick are swallowed — the cron is the
+    // liveness fallback, and we don't want a tick failure to mark a
+    // successful run as failed.
+    await expect(runAgent({ runId: RUN_ID })).resolves.toBeUndefined();
+    expect(markSucceeded).toHaveBeenCalledTimes(1);
+  });
+});
