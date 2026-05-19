@@ -43,9 +43,21 @@ describe("buildTrace", () => {
     });
     expect(steps).toHaveLength(1);
     expect(steps[0].status).toBe("done");
+    expect(steps[0].stepNumber).toBe(1);
     expect(steps[0].title).toBe("Final response");
     expect(steps[0].description).toBe("hello back");
     expect(steps[0].toolCalls).toBeUndefined();
+  });
+
+  it("assigns sequential stepNumbers starting at 1", () => {
+    const steps = buildTrace({
+      messages: [ai("turn one"), ai("turn two"), ai("turn three")],
+      pendingWrites: [],
+      humanDecisions: [],
+      actor: ACTOR,
+      startedAt: STARTED,
+    });
+    expect(steps.map((s) => s.stepNumber)).toEqual([1, 2, 3]);
   });
 
   it("marks a tool call without ToolMessage as running", () => {
@@ -405,7 +417,7 @@ describe("buildTrace", () => {
   });
 
   describe("status badge derivation", () => {
-    it("emits 'promoted' for a successful promote_to_l1", () => {
+    it("emits 'promoted' with pass tone for a successful promote_to_l1", () => {
       const steps = buildTrace({
         messages: [
           ai("doing it", [{ id: "c-1", name: "promote_to_l1", args: {} }]),
@@ -417,9 +429,10 @@ describe("buildTrace", () => {
         startedAt: STARTED,
       });
       expect(steps[0].toolCalls?.[0].status).toBe("promoted");
+      expect(steps[0].toolCalls?.[0].tone).toBe("pass");
     });
 
-    it("emits 'refused' when promote_to_l1 rejects due to stage mismatch", () => {
+    it("emits 'refused' with fail tone when promote_to_l1 rejects due to stage mismatch", () => {
       const steps = buildTrace({
         messages: [
           ai("doing it", [{ id: "c-1", name: "promote_to_l1", args: {} }]),
@@ -434,9 +447,10 @@ describe("buildTrace", () => {
         startedAt: STARTED,
       });
       expect(steps[0].toolCalls?.[0].status).toBe("refused");
+      expect(steps[0].toolCalls?.[0].tone).toBe("fail");
     });
 
-    it("emits 'N matches' for query_companies success", () => {
+    it("emits 'N matches' with pass tone for query_companies success", () => {
       const steps = buildTrace({
         messages: [
           ai("querying", [{ id: "c-1", name: "query_companies", args: {} }]),
@@ -451,6 +465,7 @@ describe("buildTrace", () => {
         startedAt: STARTED,
       });
       expect(steps[0].toolCalls?.[0].status).toBe("5 matches");
+      expect(steps[0].toolCalls?.[0].tone).toBe("pass");
     });
 
     it("emits '1 match' (singular) for a single hit", () => {
@@ -467,7 +482,22 @@ describe("buildTrace", () => {
       expect(steps[0].toolCalls?.[0].status).toBe("1 match");
     });
 
-    it("emits 'error' for a tool that returned a **Error:** prefix", () => {
+    it("emits 'no matches' with warn tone when query_companies returns zero rows", () => {
+      const steps = buildTrace({
+        messages: [
+          ai("querying", [{ id: "c-1", name: "query_companies", args: {} }]),
+          tool("No companies found matching the filter.", "c-1"),
+        ],
+        pendingWrites: [],
+        humanDecisions: [],
+        actor: ACTOR,
+        startedAt: STARTED,
+      });
+      expect(steps[0].toolCalls?.[0].status).toBe("no matches");
+      expect(steps[0].toolCalls?.[0].tone).toBe("warn");
+    });
+
+    it("emits 'error' with fail tone for a tool that returned a **Error:** prefix", () => {
       const steps = buildTrace({
         messages: [
           ai("querying", [{ id: "c-1", name: "query_companies", args: {} }]),
@@ -479,6 +509,7 @@ describe("buildTrace", () => {
         startedAt: STARTED,
       });
       expect(steps[0].toolCalls?.[0].status).toBe("error");
+      expect(steps[0].toolCalls?.[0].tone).toBe("fail");
     });
 
     it("does not emit a status for tools we don't recognize", () => {
@@ -493,6 +524,7 @@ describe("buildTrace", () => {
         startedAt: STARTED,
       });
       expect(steps[0].toolCalls?.[0].status).toBeUndefined();
+      expect(steps[0].toolCalls?.[0].tone).toBeUndefined();
     });
 
     it("emits no status while the tool is still running", () => {
@@ -507,6 +539,131 @@ describe("buildTrace", () => {
       });
       expect(steps[0].toolCalls?.[0].running).toBe(true);
       expect(steps[0].toolCalls?.[0].status).toBeUndefined();
+      expect(steps[0].toolCalls?.[0].tone).toBeUndefined();
+    });
+  });
+
+  describe("outcome chips", () => {
+    it("emits an outcome chip per resolved, toned tool call", () => {
+      const steps = buildTrace({
+        messages: [
+          ai("doing it", [
+            { id: "c-1", name: "promote_to_l1", args: {} },
+            { id: "c-2", name: "query_companies", args: {} },
+          ]),
+          tool('Promoted "Acme" to L1.', "c-1"),
+          tool("**Query Results (3 companies):**\n\n...", "c-2"),
+        ],
+        pendingWrites: [],
+        humanDecisions: [],
+        actor: ACTOR,
+        startedAt: STARTED,
+      });
+      expect(steps[0].outcomeChips).toEqual([
+        { label: "promoted", tone: "pass" },
+        { label: "3 matches", tone: "pass" },
+      ]);
+    });
+
+    it("omits outcomeChips when nothing has resolved yet", () => {
+      const steps = buildTrace({
+        messages: [
+          ai("calling", [{ id: "c-1", name: "promote_to_l1", args: {} }]),
+        ],
+        pendingWrites: [],
+        humanDecisions: [],
+        actor: ACTOR,
+        startedAt: STARTED,
+      });
+      expect(steps[0].outcomeChips).toBeUndefined();
+    });
+  });
+
+  describe("plan-driven pending placeholders", () => {
+    const planArgs = (plan: string[]) => ({
+      title: "Verifying L0 stage",
+      overview: "Looking up Acme.",
+      plan,
+    });
+
+    it("appends pending steps for unrendered plan entries", () => {
+      const steps = buildTrace({
+        messages: [
+          ai("thinking", [
+            { id: "n-1", name: "narrate_step", args: planArgs(["Verify", "Promote", "Report"]) },
+          ]),
+        ],
+        pendingWrites: [],
+        humanDecisions: [],
+        actor: ACTOR,
+        startedAt: STARTED,
+      });
+      expect(steps).toHaveLength(3);
+      expect(steps[0].stepNumber).toBe(1);
+      expect(steps[0].status).toBe("done");
+      expect(steps[1].status).toBe("pending");
+      expect(steps[1].stepNumber).toBe(2);
+      expect(steps[1].title).toBe("Promote");
+      expect(steps[2].status).toBe("pending");
+      expect(steps[2].stepNumber).toBe(3);
+      expect(steps[2].title).toBe("Report");
+    });
+
+    it("uses the most recent plan when the agent revises it", () => {
+      const steps = buildTrace({
+        messages: [
+          ai("turn 1", [
+            { id: "n-1", name: "narrate_step", args: planArgs(["A", "B", "C"]) },
+          ]),
+          ai("turn 2", [
+            { id: "n-2", name: "narrate_step", args: planArgs(["A", "B-revised", "D", "E"]) },
+          ]),
+        ],
+        pendingWrites: [],
+        humanDecisions: [],
+        actor: ACTOR,
+        startedAt: STARTED,
+      });
+      // 2 executed + 2 pending from the revised plan.
+      expect(steps).toHaveLength(4);
+      expect(steps[2].title).toBe("D");
+      expect(steps[3].title).toBe("E");
+    });
+
+    it("suppresses pending placeholders when terminal=true", () => {
+      const steps = buildTrace({
+        messages: [
+          ai("done early", [
+            { id: "n-1", name: "narrate_step", args: planArgs(["A", "B", "C"]) },
+          ]),
+        ],
+        pendingWrites: [],
+        humanDecisions: [],
+        actor: ACTOR,
+        startedAt: STARTED,
+        terminal: true,
+      });
+      expect(steps).toHaveLength(1);
+      expect(steps[0].status).toBe("done");
+    });
+
+    it("ignores malformed plan args", () => {
+      const steps = buildTrace({
+        messages: [
+          ai("turn", [
+            {
+              id: "n-1",
+              name: "narrate_step",
+              args: { title: "x", overview: "y", plan: [42, "ok"] },
+            },
+          ]),
+        ],
+        pendingWrites: [],
+        humanDecisions: [],
+        actor: ACTOR,
+        startedAt: STARTED,
+      });
+      expect(steps).toHaveLength(1);
     });
   });
 });

@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { AlertCircle, Inbox, Send, Sparkles } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { TraceLine, type InterventionDecisionInput } from './trace';
+import { TraceLine, TraceProgressBar, type InterventionDecisionInput } from './trace';
 import type { AvatarTone, TraceData } from './shared';
 import { avatarToneClass } from './shared';
 
@@ -294,7 +294,8 @@ export function TaskCanvas({ taskId }: { taskId: string | null }) {
             </div>
           ) : (
             <div>
-              {[...traceSteps].reverse().map((step, i, arr) => (
+              <TraceProgressBar steps={traceSteps} startedAt={item.started_at} />
+              {traceSteps.map((step, i, arr) => (
                 <TraceLine
                   key={step.id}
                   step={step}

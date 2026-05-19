@@ -17,4 +17,23 @@ describe("narrate_step", () => {
       narrateStep.invoke({ title: "t" } as never),
     ).rejects.toBeDefined();
   });
+
+  it("accepts an optional plan: string[] arg", async () => {
+    const result = await narrateStep.invoke({
+      title: "Verifying L0 stage",
+      overview: "Looking up Acme.",
+      plan: ["Verify L0 stage", "Promote to L1", "Report outcome"],
+    });
+    expect(result).toBe("ok");
+  });
+
+  it("rejects a plan containing non-strings", async () => {
+    await expect(
+      narrateStep.invoke({
+        title: "x",
+        overview: "y",
+        plan: [42] as never,
+      } as never),
+    ).rejects.toBeDefined();
+  });
 });

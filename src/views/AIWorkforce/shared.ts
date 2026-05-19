@@ -40,6 +40,7 @@ export type DoneTask = {
 export type TraceStepStatus =
   | 'done'
   | 'active'
+  | 'pending'
   | 'intervention-waiting'
   | 'intervention-resolved';
 
@@ -55,11 +56,21 @@ export type ToolCall = {
   name: string;
   args: string;
   status?: string;
+  // Maps the heuristic status label to a colored pill. Mapper sets this
+  // alongside `status`; UI uses it to pick the pill color.
+  tone?: ToolCallRowTone;
   running?: boolean;
   output?: {
     label: string;
     rows: ToolCallRow[];
   };
+};
+
+// Step-level summary chip, one per noteworthy outcome in this step (typically
+// derived from each tool call's resolved status + tone).
+export type TraceOutcomeChip = {
+  label: string;
+  tone: 'pass' | 'fail' | 'warn';
 };
 
 export type InterventionData =
@@ -88,10 +99,15 @@ export type InterventionData =
 export type TraceData = {
   id: string;
   status: TraceStepStatus;
+  // 1-based position in the trace. Mapper assigns; UI renders as "STEP N".
+  stepNumber: number;
   title: string;
   description: string;
   timestamp: string;
   toolCalls?: ToolCall[];
+  // Summarises the step's outcomes (e.g. "5 matches", "1 eliminated") for
+  // the meta row. Empty/undefined for steps with no resolved tool calls.
+  outcomeChips?: TraceOutcomeChip[];
   intervention?: InterventionData;
 };
 

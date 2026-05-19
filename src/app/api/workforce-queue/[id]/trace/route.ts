@@ -96,12 +96,19 @@ export async function GET(
     const { messages, pendingWrites } = await graph.getTrace(item.id);
     const humanDecisions = (item.human_decisions as HumanDecision[] | null) ?? [];
 
+    const TERMINAL: Array<typeof item.status> = [
+      'succeeded',
+      'failed',
+      'rejected',
+      'timed_out',
+    ];
     const steps = buildTrace({
       messages,
       pendingWrites,
       humanDecisions,
       actor,
       startedAt: item.started_at,
+      terminal: TERMINAL.includes(item.status),
     });
 
     return NextResponse.json({ steps, canDecide, status: item.status, actor });

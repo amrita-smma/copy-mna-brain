@@ -25,7 +25,10 @@ import type { HumanDecision } from "@/lib/db/schema";
 import type {
   AvatarTone,
   InterventionData,
+  ToolCall,
+  ToolCallRowTone,
   TraceData,
+  TraceOutcomeChip,
   TraceStepStatus,
 } from "@/views/AIWorkforce/shared";
 
@@ -42,6 +45,9 @@ export interface BuildTraceInput {
   humanDecisions: HumanDecision[];
   actor: TraceActor;
   startedAt: string | null;
+  // When true, the workforce task has reached a terminal state — suppress
+  // any trailing "pending" plan placeholders since no more steps will run.
+  terminal?: boolean;
 }
 
 // HITLRequest shape from langchain's humanInTheLoopMiddleware (hitl.js).
@@ -110,39 +116,47 @@ function parseFinalReport(
  * Heuristic tool-result → status-badge derivation.
  *
  * Renders the small label that floats right on a tool row in the trace UI
- * (e.g. "5 matches", "promoted", "failed"). Conservative by design — we
- * return undefined for tools we don't recognize so the badge slot just
- * stays empty rather than rendering misleading text.
+ * (e.g. "5 matches", "promoted", "failed"), along with a tone that picks
+ * the pill color. Conservative by design — we return undefined for tools we
+ * don't recognize so the badge slot just stays empty rather than rendering
+ * misleading text.
  *
- * Adding a new tool: keep the badge to <= ~20 chars and surface the most
+ * Adding a new tool: keep the label to <= ~20 chars and surface the most
  * scannable single fact (count, status, ratio). Avoid duplicating what
  * the user can already see in the args.
  */
-function deriveToolStatus(name: string, content: string): string | undefined {
+function deriveToolStatus(
+  name: string,
+  content: string,
+): { label: string; tone: ToolCallRowTone } | undefined {
   if (!content) return undefined;
 
   // Generic error short-circuit applicable to most tools.
-  if (/^\*\*Error:\*\*/i.test(content)) return "error";
+  if (/^\*\*Error:\*\*/i.test(content)) return { label: "error", tone: "fail" };
 
   switch (name) {
     case "query_companies": {
       const m = content.match(/Query Results \((\d+) compan/i);
       if (m) {
         const n = Number(m[1]);
-        return `${n} ${n === 1 ? "match" : "matches"}`;
+        const label = `${n} ${n === 1 ? "match" : "matches"}`;
+        return { label, tone: n > 0 ? "pass" : "warn" };
       }
-      if (/No companies found/i.test(content)) return "no matches";
+      if (/No companies found/i.test(content))
+        return { label: "no matches", tone: "warn" };
       return undefined;
     }
     case "get_company_details": {
-      if (/No company found/i.test(content)) return "not found";
-      // Success path returns a formatted block; we don't try to parse it.
-      return "found";
+      if (/No company found/i.test(content))
+        return { label: "not found", tone: "warn" };
+      return { label: "found", tone: "pass" };
     }
     case "promote_to_l1": {
-      if (/^Promoted /i.test(content)) return "promoted";
-      if (/^Cannot promote/i.test(content)) return "refused";
-      if (/^No company found/i.test(content)) return "not found";
+      if (/^Promoted /i.test(content)) return { label: "promoted", tone: "pass" };
+      if (/^Cannot promote/i.test(content))
+        return { label: "refused", tone: "fail" };
+      if (/^No company found/i.test(content))
+        return { label: "not found", tone: "warn" };
       return undefined;
     }
     case "web_search":
@@ -150,7 +164,10 @@ function deriveToolStatus(name: string, content: string): string | undefined {
       {
         const matches = content.match(/^\s*\d+\.\s/gm);
         if (matches && matches.length > 0) {
-          return `${matches.length} ${matches.length === 1 ? "source" : "sources"}`;
+          const label = `${matches.length} ${
+            matches.length === 1 ? "source" : "sources"
+          }`;
+          return { label, tone: "pass" };
         }
       }
       return undefined;
@@ -256,9 +273,41 @@ function extractPendingInterrupts(
 }
 
 export function buildTrace(input: BuildTraceInput): TraceData[] {
-  const { messages, pendingWrites, humanDecisions, actor, startedAt } = input;
+  const {
+    messages,
+    pendingWrites,
+    humanDecisions,
+    actor,
+    startedAt,
+    terminal = false,
+  } = input;
   const baseTimestamp = formatTime(startedAt);
   const steps: TraceData[] = [];
+
+  // Latest plan declared via narrate_step(plan: [...]). The agent is asked
+  // to pass this on its first turn so the UI can show the full outline up
+  // front; if it revises later, the most recent value wins. Used only to
+  // append "pending" placeholders past the steps we've actually executed.
+  let latestPlan: string[] | undefined;
+  for (const msg of messages) {
+    if (!AIMessage.isInstance(msg)) continue;
+    const ai = readAi(msg);
+    for (const tc of ai.tool_calls ?? []) {
+      if (
+        tc?.name !== "narrate_step" ||
+        typeof tc.args !== "object" ||
+        tc.args === null
+      )
+        continue;
+      const planArg = (tc.args as Record<string, unknown>).plan;
+      if (
+        Array.isArray(planArg) &&
+        planArg.every((p) => typeof p === "string" && p.length > 0)
+      ) {
+        latestPlan = planArg as string[];
+      }
+    }
+  }
 
   // First pass: emit a step per AIMessage, fold ToolMessages into the
   // matching tool call's `output`.
@@ -293,7 +342,7 @@ export function buildTrace(input: BuildTraceInput): TraceData[] {
     const desc = truncate(coerceContent(ai.content ?? ""), DESCRIPTION_MAX);
 
     let anyRunning = false;
-    const mappedToolCalls = realToolCalls.map((tc) => {
+    const mappedToolCalls: ToolCall[] = realToolCalls.map((tc): ToolCall => {
       const name = typeof tc?.name === "string" ? tc.name : "(unnamed)";
       const argsStr = truncate(coerceContent(tc?.args ?? {}), ARGS_MAX);
       // Find the matching ToolMessage downstream of this AIMessage.
@@ -318,17 +367,31 @@ export function buildTrace(input: BuildTraceInput): TraceData[] {
       // Long contents get a scrollbar in the UI; truncation here is just a
       // safety cap to avoid massive payloads on the wire.
       const value = truncate(rawContent, 6000);
-      const status = deriveToolStatus(name, rawContent);
+      const derived = deriveToolStatus(name, rawContent);
       return {
         name,
         args: argsStr,
-        ...(status ? { status } : {}),
+        ...(derived ? { status: derived.label, tone: derived.tone } : {}),
         output: {
           label: name,
           rows: [{ value }],
         },
       };
     });
+
+    // Step-level outcome chips: one chip per resolved tool whose tone is
+    // pass / fail / warn (skip the neutral 'default' tone). Surfaces a
+    // scannable summary on the step header without having to expand tools.
+    const outcomeChips: TraceOutcomeChip[] = [];
+    for (const tc of mappedToolCalls) {
+      if (tc.running || !tc.status || !tc.tone || tc.tone === "default") {
+        continue;
+      }
+      outcomeChips.push({
+        label: tc.status,
+        tone: tc.tone,
+      });
+    }
 
     let status: TraceStepStatus = anyRunning ? "active" : "done";
 
@@ -372,10 +435,12 @@ export function buildTrace(input: BuildTraceInput): TraceData[] {
     steps.push({
       id: ai.id ?? `step-${aiIndex}`,
       status,
+      stepNumber: aiIndex + 1,
       title,
       description,
       timestamp: baseTimestamp,
       toolCalls: mappedToolCalls.length > 0 ? mappedToolCalls : undefined,
+      ...(outcomeChips.length > 0 ? { outcomeChips } : {}),
       intervention,
     });
     aiIndex++;
@@ -408,6 +473,23 @@ export function buildTrace(input: BuildTraceInput): TraceData[] {
         tool_name: first.toolName || undefined,
       };
       latestStep.status = "intervention-waiting";
+    }
+  }
+
+  // Append "pending" placeholders for plan entries past the steps we've
+  // actually executed. Skipped when the task has reached a terminal state
+  // (succeeded / failed / rejected / timed_out) — the trailing items will
+  // never run and rendering them as "pending" would be misleading.
+  if (!terminal && latestPlan && latestPlan.length > steps.length) {
+    for (let i = steps.length; i < latestPlan.length; i++) {
+      steps.push({
+        id: `pending-${i + 1}`,
+        status: "pending",
+        stepNumber: i + 1,
+        title: latestPlan[i],
+        description: "",
+        timestamp: "",
+      });
     }
   }
 

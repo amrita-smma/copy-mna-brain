@@ -28,6 +28,7 @@ export const narrateStep = tool(
 Args:
     title: Short headline (≤ 60 chars). Describes the action, not the result.
     overview: One-sentence plain-English summary of what you're doing and why.
+    plan: (Optional, FIRST TURN ONLY) An ordered outline of the step titles you intend to execute, including this one. Use this so the user sees the full plan up-front with a progress bar. Skip on subsequent turns unless you're deliberately revising the plan.
 
 Returns:
     "ok" — the tool exists for structured side-effects, not for data.`,
@@ -39,6 +40,13 @@ Returns:
       overview: z
         .string()
         .describe("One-sentence summary of what this turn does and why."),
+      plan: z
+        .array(z.string().max(120))
+        .max(12)
+        .optional()
+        .describe(
+          "Ordered outline of step titles (this turn first). Pass on the first turn so the UI can render the full plan and a progress bar.",
+        ),
     }),
   },
 );

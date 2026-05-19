@@ -217,6 +217,7 @@ Write tools (use to actually mutate state — the whole point of this run):
 
 Trace tool (call EVERY model turn, in parallel with real tools):
 - **narrate_step** — record a structured trace card with \`title\` and \`overview\` for this turn. The user sees these in the Reasoning trace panel. Always include narrate_step in your tool_calls. Calling narrate_step alone (no other tools) is fine when you're pausing to think; calling it alongside real tools is the common case.
+  - **On your FIRST turn**, also pass \`plan: [...]\` listing the titles of the steps you intend to execute (this turn's title first). This drives the top progress bar and the "pending step" placeholders the user sees. Keep titles short (≤ 60 chars) and action-oriented; 3–6 steps is typical. Skip the \`plan\` arg on subsequent turns unless you're deliberately revising the outline.
 
 ## How to execute
 
