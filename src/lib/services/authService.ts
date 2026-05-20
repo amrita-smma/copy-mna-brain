@@ -1,8 +1,11 @@
 import { randomBytes } from 'crypto';
 import type { ResetPasswordTokenRepository, UserRepository } from '@/lib/repositories';
 import { hashPassword, verifyPassword } from './password';
+import { enqueueSendEmail } from '@/lib/queue';
+import type { SendEmailPayload } from '@/lib/jobs/handlers/sendEmail';
 
 const RESET_TOKEN_TTL_MS = 60 * 60 * 1000;
+const RESET_TOKEN_TTL_MINUTES = Math.round(RESET_TOKEN_TTL_MS / 60_000);
 
 export class AuthService {
   constructor(
@@ -29,21 +32,54 @@ export class AuthService {
     await this.userRepo.create({ email: normalizedEmail, name, password: passwordHash });
   }
 
-  async forgetPassword(email: string): Promise<string> {
+  /**
+   * Initiate the forgot-password flow.
+   *
+   * Always returns void regardless of whether the email is registered, so the
+   * response cannot be used to enumerate accounts. The reset link is delivered
+   * out-of-band via AWS SES, dispatched through Vercel Queues so the SES call
+   * happens after the HTTP response has returned.
+   *
+   * Behavior:
+   *   - Unknown email → no DB writes, no message published.
+   *   - Known email   → token persisted in `reset_password_tokens`, then a
+   *                     message is published to the `send-email` topic.
+   *                     The consumer route (`/api/queues/send-email`) renders
+   *                     and sends the email via SES.
+   *
+   * Errors from the queue publish are deliberately swallowed: we don't want a
+   * transient queue outage to surface as an error response (which would leak
+   * the email's account status). The token is still in the DB and the user
+   * can retry.
+   */
+  async forgetPassword(email: string): Promise<void> {
     const normalizedEmail = email.toLowerCase().trim();
+    if (!normalizedEmail) return;
+
     const user = await this.userRepo.findByEmail(normalizedEmail);
-    // Always return a token-shaped string to avoid leaking which emails are
-    // registered. If the user doesn't exist, the returned token is random and
-    // never stored — it will fail validation on /reset-password.
+    if (!user) return;
+
     const token = randomBytes(24).toString('hex');
-    if (!user) return token;
     const validUntil = new Date(Date.now() + RESET_TOKEN_TTL_MS).toISOString();
     await this.resetTokenRepo.create({
       token,
       user_id: user.id,
       valid_until: validUntil,
     });
-    return token;
+
+    const payload: SendEmailPayload = {
+      kind: 'forgot_password',
+      to: normalizedEmail,
+      token,
+      ttlMinutes: RESET_TOKEN_TTL_MINUTES,
+    };
+
+    try {
+      await enqueueSendEmail(payload);
+    } catch (err) {
+      // Log but don't throw — see method comment for rationale.
+      console.error('[auth] enqueueSendEmail failed:', err);
+    }
   }
 
   async resetPassword(key: string, password: string): Promise<void> {

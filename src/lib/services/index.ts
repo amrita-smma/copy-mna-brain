@@ -17,5 +17,6 @@ export * from './jobService';
 export * from './authService';
 export * from './userService';
 export * from './crmService';
+export * from './emailService';
 export * from './aiWorkforceService';
 export * from './copilotChatsService';

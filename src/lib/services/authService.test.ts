@@ -7,6 +7,13 @@ import { hashPassword } from './password';
 type User = Tables<'users'>;
 type ResetToken = Tables<'reset_password_tokens'>;
 
+const enqueueSendEmailMock = vi.fn().mockResolvedValue({ messageId: 'msg-1' });
+
+vi.mock('@/lib/queue', () => ({
+  enqueueSendEmail: (...args: unknown[]) => enqueueSendEmailMock(...args),
+  TOPICS: { sendEmail: 'send-email' },
+}));
+
 function makeUser(overrides: Partial<User> = {}): User {
   return {
     id: 'user-1',
@@ -105,25 +112,55 @@ describe('AuthService.forgetPassword', () => {
   let service: AuthService;
 
   beforeEach(() => {
+    enqueueSendEmailMock.mockClear();
+    enqueueSendEmailMock.mockResolvedValue({ messageId: 'msg-1' });
     userRepo = makeUserRepoStub();
     tokenRepo = makeTokenRepoStub();
     service = new AuthService(userRepo, tokenRepo);
   });
 
-  it('returns a token even for unknown emails (timing-safety: no email enumeration)', async () => {
+  it('does not store a token or enqueue an email for unknown emails', async () => {
     vi.mocked(userRepo.findByEmail).mockResolvedValue(undefined);
-    const token = await service.forgetPassword('nobody@example.com');
-    expect(typeof token).toBe('string');
-    expect(token.length).toBeGreaterThan(0);
+    const result = await service.forgetPassword('nobody@example.com');
+    expect(result).toBeUndefined();
     expect(tokenRepo.create).not.toHaveBeenCalled();
+    expect(enqueueSendEmailMock).not.toHaveBeenCalled();
   });
 
-  it('stores the token and returns it for a known user', async () => {
+  it('returns void without writes for an empty email', async () => {
+    await service.forgetPassword('   ');
+    expect(userRepo.findByEmail).not.toHaveBeenCalled();
+    expect(enqueueSendEmailMock).not.toHaveBeenCalled();
+  });
+
+  it('stores a token and enqueues a send-email message for a known user', async () => {
     vi.mocked(userRepo.findByEmail).mockResolvedValue(makeUser({ id: 'user-1' }));
-    const token = await service.forgetPassword('test@example.com');
-    expect(tokenRepo.create).toHaveBeenCalledWith(
-      expect.objectContaining({ token, user_id: 'user-1' }),
-    );
+    await service.forgetPassword('  Test@Example.com  ');
+
+    const createCall = vi.mocked(tokenRepo.create).mock.calls[0][0];
+    expect(createCall.user_id).toBe('user-1');
+    expect(typeof createCall.token).toBe('string');
+    expect((createCall.token as string).length).toBeGreaterThan(20);
+    expect(new Date(createCall.valid_until as string).getTime()).toBeGreaterThan(Date.now());
+
+    expect(enqueueSendEmailMock).toHaveBeenCalledTimes(1);
+    const payload = enqueueSendEmailMock.mock.calls[0][0];
+    expect(payload).toMatchObject({
+      kind: 'forgot_password',
+      to: 'test@example.com',
+      token: createCall.token,
+    });
+    expect(payload.ttlMinutes).toBeGreaterThan(0);
+  });
+
+  it('swallows enqueue failures so the response stays anti-enumeration', async () => {
+    vi.mocked(userRepo.findByEmail).mockResolvedValue(makeUser({ id: 'user-1' }));
+    enqueueSendEmailMock.mockRejectedValueOnce(new Error('queue down'));
+
+    // Should not throw to the caller — the API contract is "always ok".
+    await expect(service.forgetPassword('test@example.com')).resolves.toBeUndefined();
+    // Token still persisted; user can retry.
+    expect(tokenRepo.create).toHaveBeenCalled();
   });
 });
 
