@@ -25,12 +25,42 @@ import type { HumanDecision } from "@/lib/db/schema";
 import type {
   AvatarTone,
   InterventionData,
+  LiveRow,
+  LiveRowStatus,
   ToolCall,
   ToolCallRowTone,
   TraceData,
   TraceOutcomeChip,
   TraceStepStatus,
 } from "@/views/AIWorkforce/shared";
+
+const LIVE_ROW_STATUSES: LiveRowStatus[] = [
+  "pending",
+  "checking",
+  "done",
+  "fail",
+];
+
+function parseLiveRows(args: unknown): LiveRow[] | undefined {
+  if (!args || typeof args !== "object") return undefined;
+  const items = (args as Record<string, unknown>).items;
+  if (!Array.isArray(items)) return undefined;
+  const out: LiveRow[] = [];
+  for (const raw of items) {
+    if (!raw || typeof raw !== "object") continue;
+    const r = raw as Record<string, unknown>;
+    const label = typeof r.label === "string" ? r.label : "";
+    const status =
+      typeof r.status === "string" &&
+      (LIVE_ROW_STATUSES as string[]).includes(r.status)
+        ? (r.status as LiveRowStatus)
+        : undefined;
+    if (!label || !status) continue;
+    const detail = typeof r.detail === "string" ? r.detail : undefined;
+    out.push(detail ? { label, status, detail } : { label, status });
+  }
+  return out.length > 0 ? out : undefined;
+}
 
 export interface TraceActor {
   id: string;
@@ -341,9 +371,24 @@ export function buildTrace(input: BuildTraceInput): TraceData[] {
       };
     }
 
+    // Lift in-flight iteration snapshot from the (optional) report_progress
+    // tool call. Like narrate_step, the tool body is a no-op — we read the
+    // args directly off the AIMessage. The most recent call wins if (for
+    // some reason) the agent emits more than one in a single turn.
+    let liveRows: LiveRow[] | undefined;
+    for (const tc of toolCalls) {
+      if (typeof tc?.name === "string" && tc.name === "report_progress") {
+        const parsed = parseLiveRows(tc.args);
+        if (parsed) liveRows = parsed;
+      }
+    }
+
     // The "real" tool calls drive status, title, and rendered tool rows —
-    // narrate_step is internal trace plumbing, not user-facing tool work.
-    const realToolCalls = toolCalls.filter((tc) => tc?.name !== "narrate_step");
+    // narrate_step and report_progress are internal trace plumbing, not
+    // user-facing tool work.
+    const realToolCalls = toolCalls.filter(
+      (tc) => tc?.name !== "narrate_step" && tc?.name !== "report_progress",
+    );
 
     const desc = truncate(coerceContent(ai.content ?? ""), DESCRIPTION_MAX);
 
@@ -456,6 +501,7 @@ export function buildTrace(input: BuildTraceInput): TraceData[] {
       timestamp: baseTimestamp,
       toolCalls: mappedToolCalls.length > 0 ? mappedToolCalls : undefined,
       ...(outcomeChips.length > 0 ? { outcomeChips } : {}),
+      ...(liveRows ? { liveRows } : {}),
       intervention,
     });
     aiIndex++;

@@ -28,6 +28,7 @@ import { MarkdownRenderer } from '@/components/chat/MarkdownRenderer';
 import { avatarToneClass } from './shared';
 import type {
   InterventionData,
+  LiveRow,
   ToolCall,
   ToolCallRowTone,
   TraceData,
@@ -205,8 +206,19 @@ export function TraceLine({
                 <ToolCallView key={i} call={tc} />
               ))}
             </div>
+            {step.liveRows && step.liveRows.length > 0 && (
+              <LiveOutputBlock rows={step.liveRows} />
+            )}
           </div>
         )}
+
+        {(!step.toolCalls || step.toolCalls.length === 0) &&
+          step.liveRows &&
+          step.liveRows.length > 0 && (
+            <div className="border-t bg-muted/30 px-3.5 py-2.5">
+              <LiveOutputBlock rows={step.liveRows} />
+            </div>
+          )}
 
         {step.intervention && (
           <div className="border-t px-3.5 py-3">
@@ -340,6 +352,77 @@ const TONE_PILL_CLASS: Record<ToolCallRowTone, string> = {
   fail: 'bg-rose-50 text-rose-700',
   warn: 'bg-amber-50 text-amber-700',
 };
+
+function LiveOutputBlock({ rows }: { rows: LiveRow[] }) {
+  const anyChecking = rows.some((r) => r.status === 'checking');
+  return (
+    <div className="mt-2 rounded-md border border-amber-200/70 bg-card overflow-hidden">
+      <div className="flex items-center gap-1.5 px-2.5 py-1 bg-amber-50 border-b border-amber-200/60 text-[10px] font-bold uppercase tracking-wider text-amber-700">
+        {anyChecking && (
+          <Loader2 className="h-2.5 w-2.5 animate-spin" strokeWidth={2.5} />
+        )}
+        Live · partial output
+      </div>
+      <div className="px-2.5 py-1.5 space-y-0.5">
+        {rows.map((row, i) => (
+          <LiveOutputRow key={i} row={row} isLast={i === rows.length - 1} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function LiveOutputRow({ row, isLast }: { row: LiveRow; isLast: boolean }) {
+  return (
+    <div
+      className={cn(
+        'flex items-center gap-2 py-1 font-mono text-[11px]',
+        !isLast && 'border-b border-dashed border-border',
+      )}
+    >
+      <span className="text-foreground font-medium min-w-[140px] flex-shrink-0 truncate">
+        {row.label}
+      </span>
+      <LiveStatusIndicator row={row} />
+    </div>
+  );
+}
+
+function LiveStatusIndicator({ row }: { row: LiveRow }) {
+  if (row.status === 'done') {
+    return (
+      <span className="inline-flex items-center gap-1 text-[10.5px] font-semibold text-emerald-700 truncate">
+        <Check className="h-2.5 w-2.5 flex-shrink-0" strokeWidth={3.5} />
+        <span className="truncate">{row.detail ?? 'done'}</span>
+      </span>
+    );
+  }
+  if (row.status === 'fail') {
+    return (
+      <span className="inline-flex items-center gap-1 text-[10.5px] font-semibold text-rose-700 truncate">
+        <span className="font-bold flex-shrink-0">✗</span>
+        <span className="truncate">{row.detail ?? 'failed'}</span>
+      </span>
+    );
+  }
+  if (row.status === 'checking') {
+    return (
+      <span className="inline-flex items-center gap-1 text-[10.5px] font-medium text-amber-700 truncate">
+        <Loader2
+          className="h-2.5 w-2.5 animate-spin flex-shrink-0"
+          strokeWidth={2.5}
+        />
+        <span className="truncate">{row.detail ?? 'checking…'}</span>
+      </span>
+    );
+  }
+  // pending
+  return (
+    <span className="text-[10.5px] text-muted-foreground/70 truncate">
+      — {row.detail ?? 'pending'}
+    </span>
+  );
+}
 
 function ToolCallView({ call }: { call: ToolCall }) {
   const [open, setOpen] = useState(false);

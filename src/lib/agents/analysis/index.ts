@@ -215,9 +215,10 @@ Write tools (use to actually mutate state — the whole point of this run):
 - **add_company_to_l0** — add a newly discovered company to the pipeline at stage L0. Auto-executes (no human approval). Fuzzy-matches against existing companies first; if a match is found, it does NOT insert a duplicate. Use this when an instruction tells you to scan/discover/add companies (e.g. "add Acme to the pipeline", "find APAC slurry vendors and add the qualifiers").
 - **promote_to_l1** — move a company from pipeline stage L0 to L1, optionally with a note. Idempotent guard refuses any company not currently at L0. Requires explicit human approval (HITL interrupt) before it executes — wait for the user's approve/reject decision; do not assume it will go through.
 
-Trace tool (call EVERY model turn, in parallel with real tools):
+Trace tools (call on EVERY model turn, in parallel with real tools):
 - **narrate_step** — record a structured trace card with \`title\` and \`overview\` for this turn. The user sees these in the Reasoning trace panel. Always include narrate_step in your tool_calls. Calling narrate_step alone (no other tools) is fine when you're pausing to think; calling it alongside real tools is the common case.
   - **On your FIRST turn**, also pass \`plan: [...]\` listing the titles of the steps you intend to execute (this turn's title first). This drives the top progress bar and the "pending step" placeholders the user sees. Keep titles short (≤ 60 chars) and action-oriented; 3–6 steps is typical. Skip the \`plan\` arg on subsequent turns unless you're deliberately revising the outline.
+- **report_progress** — call this ONLY on turns where you're iterating through a list of items (e.g. screening N candidates, scoring N companies, checking N files). Pass the FULL \`items\` list each time with the current per-item status (\`pending\` / \`checking\` / \`done\` / \`fail\`) and an optional short \`detail\`. The UI renders this as a "Live · partial output" block on the current trace step so the user can watch each row tick over. Skip on turns where there is no iteration to report — don't re-emit a stale list.
 
 ## How to execute
 

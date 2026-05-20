@@ -16,6 +16,7 @@ import { proposeWorkforceHandoff } from "./propose_workforce_handoff";
 import { promoteToL1 } from "./promote_to_l1";
 import { addCompanyToL0 } from "./add_company_to_l0";
 import { narrateStep } from "./narrate_step";
+import { reportProgress } from "./report_progress";
 
 export {
   getDataSchema,
@@ -31,6 +32,7 @@ export {
   promoteToL1,
   addCompanyToL0,
   narrateStep,
+  reportProgress,
 };
 
 export {
@@ -76,8 +78,19 @@ export const chatOnlyTools = [proposeWorkforceHandoff];
  * once per model turn to emit structured title/overview/detailed for the
  * Reasoning trace UI in /ai-workforce/tasks/{id}. Excluded from chat
  * because the chat UI has no trace renderer.
+ *
+ * report_progress is the iteration-snapshot equivalent: when the agent is
+ * working through a list of N candidates, it re-emits the full items list
+ * each turn with per-item status (pending / checking / done / fail). The
+ * trace UI renders this as a "Live · partial output" block on the current
+ * step. Same chat-exclusion rationale as narrate_step.
  */
-export const workforceOnlyTools = [promoteToL1, addCompanyToL0, narrateStep];
+export const workforceOnlyTools = [
+  promoteToL1,
+  addCompanyToL0,
+  narrateStep,
+  reportProgress,
+];
 
 /**
  * Get a formatted list of tool names and descriptions for prompt injection.

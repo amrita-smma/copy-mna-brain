@@ -751,4 +751,96 @@ describe("buildTrace", () => {
       expect(steps).toHaveLength(1);
     });
   });
+
+  describe("report_progress live rows", () => {
+    it("attaches valid items as liveRows on the step", () => {
+      const steps = buildTrace({
+        messages: [
+          ai("scanning", [
+            {
+              id: "r-1",
+              name: "report_progress",
+              args: {
+                items: [
+                  { label: "NovaSpec", status: "done", detail: "CMP match" },
+                  { label: "Atlas", status: "checking" },
+                  { label: "SiC Korea", status: "pending" },
+                ],
+              },
+            },
+            { id: "c-1", name: "query_companies", args: { name: "Acme" } },
+          ]),
+          tool("**Query Results (3 companies):**\n\n...", "c-1"),
+        ],
+        pendingWrites: [],
+        humanDecisions: [],
+        actor: ACTOR,
+        startedAt: STARTED,
+      });
+      expect(steps).toHaveLength(1);
+      expect(steps[0].liveRows).toEqual([
+        { label: "NovaSpec", status: "done", detail: "CMP match" },
+        { label: "Atlas", status: "checking" },
+        { label: "SiC Korea", status: "pending" },
+      ]);
+    });
+
+    it("filters report_progress from the rendered tool calls", () => {
+      const steps = buildTrace({
+        messages: [
+          ai("scanning", [
+            {
+              id: "r-1",
+              name: "report_progress",
+              args: { items: [{ label: "x", status: "pending" }] },
+            },
+            { id: "c-1", name: "query_companies", args: {} },
+          ]),
+        ],
+        pendingWrites: [],
+        humanDecisions: [],
+        actor: ACTOR,
+        startedAt: STARTED,
+      });
+      expect(steps[0].toolCalls).toHaveLength(1);
+      expect(steps[0].toolCalls?.[0].name).toBe("query_companies");
+    });
+
+    it("drops items missing a label or with an unknown status", () => {
+      const steps = buildTrace({
+        messages: [
+          ai("scanning", [
+            {
+              id: "r-1",
+              name: "report_progress",
+              args: {
+                items: [
+                  { label: "ok", status: "done" },
+                  { label: "", status: "done" },
+                  { label: "weird", status: "weird" },
+                  { status: "done" },
+                ],
+              },
+            },
+          ]),
+        ],
+        pendingWrites: [],
+        humanDecisions: [],
+        actor: ACTOR,
+        startedAt: STARTED,
+      });
+      expect(steps[0].liveRows).toEqual([{ label: "ok", status: "done" }]);
+    });
+
+    it("omits liveRows when no report_progress was called", () => {
+      const steps = buildTrace({
+        messages: [ai("plain turn")],
+        pendingWrites: [],
+        humanDecisions: [],
+        actor: ACTOR,
+        startedAt: STARTED,
+      });
+      expect(steps[0].liveRows).toBeUndefined();
+    });
+  });
 });

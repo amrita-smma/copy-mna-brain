@@ -74,6 +74,19 @@ export type TraceOutcomeChip = {
   tone: 'pass' | 'fail' | 'warn';
 };
 
+// Per-item snapshot of an in-flight iteration. Populated by the agent via
+// the `report_progress` tool; rendered as the "Live · partial output" block
+// on a trace step.
+export type LiveRowStatus = 'pending' | 'checking' | 'done' | 'fail';
+
+export type LiveRow = {
+  label: string;
+  status: LiveRowStatus;
+  // Short result/reason text shown next to the status (e.g. "match",
+  // "EBITDA too thin", "kept"). Omitted when the row hasn't been touched.
+  detail?: string;
+};
+
 export type InterventionData =
   | {
       state: 'waiting';
@@ -109,6 +122,9 @@ export type TraceData = {
   // Summarises the step's outcomes (e.g. "5 matches", "1 eliminated") for
   // the meta row. Empty/undefined for steps with no resolved tool calls.
   outcomeChips?: TraceOutcomeChip[];
+  // Snapshot of an in-flight iteration the agent reported via the
+  // `report_progress` tool. Rendered as the "Live · partial output" block.
+  liveRows?: LiveRow[];
   intervention?: InterventionData;
 };
 
