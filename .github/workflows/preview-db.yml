@@ -190,6 +190,10 @@ jobs:
     if: github.event.action == 'closed'
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout PR head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref }}
       - name: Delete Neon branch
         uses: neondatabase/delete-branch-action@v3
         with:
