@@ -48,6 +48,11 @@ export interface BuildTraceInput {
   // When true, the workforce task has reached a terminal state — suppress
   // any trailing "pending" plan placeholders since no more steps will run.
   terminal?: boolean;
+  // When true, the terminal state was a user-initiated cancel (error.code
+  // === 'cancelled_by_user'). Trailing plan entries that didn't run are
+  // emitted as 'skipped' instead of being hidden, so the user can see what
+  // would have happened. Ignored unless `terminal` is also true.
+  cancelled?: boolean;
 }
 
 // HITLRequest shape from langchain's humanInTheLoopMiddleware (hitl.js).
@@ -280,6 +285,7 @@ export function buildTrace(input: BuildTraceInput): TraceData[] {
     actor,
     startedAt,
     terminal = false,
+    cancelled = false,
   } = input;
   const baseTimestamp = formatTime(startedAt);
   const steps: TraceData[] = [];
@@ -357,6 +363,15 @@ export function buildTrace(input: BuildTraceInput): TraceData[] {
         }
       }
       if (!result) {
+        // No ToolMessage downstream — the tool was mid-flight (or paused on
+        // a HITL gate) when the trace was captured. If the workforce row is
+        // already terminal (user cancel, reaper, etc.), the tool will never
+        // complete in this run, so render a neutral 'cancelled' badge
+        // instead of a live spinner. Otherwise the agent is genuinely still
+        // working and we want the spinner.
+        if (terminal) {
+          return { name, args: argsStr, status: "cancelled", tone: "default" };
+        }
         anyRunning = true;
         return { name, args: argsStr, running: true };
       }
@@ -449,8 +464,14 @@ export function buildTrace(input: BuildTraceInput): TraceData[] {
   // Second pass: attach pending interrupts to the latest AI step (the one
   // whose tool calls are blocked). Pending interrupts are only meaningful
   // when there's a most-recent AIMessage with unfinished tool calls.
+  //
+  // Skipped when the workforce row is already terminal — the user cancelled
+  // (or the reaper killed) the run, so the LangGraph checkpoint still
+  // carries a pending interrupt that will never resolve. Rendering the
+  // intervention card would leave clickable Approve/Reject buttons under a
+  // FAILED header, which is exactly the bug we're fixing.
   const latestStep = steps[steps.length - 1];
-  if (latestStep && pendingWrites.length > 0) {
+  if (!terminal && latestStep && pendingWrites.length > 0) {
     const lastAi = [...messages].reverse().find((m) => AIMessage.isInstance(m));
     const lastAiToolCallsByName = new Map<string, string>();
     if (lastAi) {
@@ -476,20 +497,27 @@ export function buildTrace(input: BuildTraceInput): TraceData[] {
     }
   }
 
-  // Append "pending" placeholders for plan entries past the steps we've
-  // actually executed. Skipped when the task has reached a terminal state
-  // (succeeded / failed / rejected / timed_out) — the trailing items will
-  // never run and rendering them as "pending" would be misleading.
-  if (!terminal && latestPlan && latestPlan.length > steps.length) {
-    for (let i = steps.length; i < latestPlan.length; i++) {
-      steps.push({
-        id: `pending-${i + 1}`,
-        status: "pending",
-        stepNumber: i + 1,
-        title: latestPlan[i],
-        description: "",
-        timestamp: "",
-      });
+  // Append placeholders for plan entries past the steps we've actually
+  // executed. Three cases for unrendered trailing plan entries:
+  //   - Not terminal: emit as 'pending' (the agent will still get to them).
+  //   - Terminal + cancelled-by-user: emit as 'skipped' so the user can see
+  //     what would have happened if they hadn't stopped the run.
+  //   - Terminal + any other reason (succeeded early, agent failure, reaper,
+  //     etc.): suppress — rendering them as "pending" or "skipped" would
+  //     misrepresent why the run ended.
+  if (latestPlan && latestPlan.length > steps.length) {
+    const emit = !terminal ? "pending" : cancelled ? "skipped" : null;
+    if (emit) {
+      for (let i = steps.length; i < latestPlan.length; i++) {
+        steps.push({
+          id: `${emit}-${i + 1}`,
+          status: emit,
+          stepNumber: i + 1,
+          title: latestPlan[i],
+          description: "",
+          timestamp: "",
+        });
+      }
     }
   }
 

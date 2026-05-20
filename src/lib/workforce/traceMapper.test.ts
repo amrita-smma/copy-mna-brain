@@ -131,6 +131,50 @@ describe("buildTrace", () => {
     });
   });
 
+  it("neutralizes in-flight tools and skips pending interrupts when terminal=true", () => {
+    // Repro for MB-95: cancelling a HITL-paused task flips the row to
+    // terminal but the LangGraph checkpoint still carries the unresolved
+    // tool call + pending interrupt. The mapper must render the step as
+    // 'done' with a 'cancelled' tool badge, not 'intervention-waiting' with
+    // a live spinner + Approve/Reject buttons.
+    const pendingWrites: CheckpointPendingWrite[] = [
+      [
+        "task-1",
+        "__interrupt__",
+        {
+          value: {
+            actionRequests: [
+              {
+                name: "promote_to_l1",
+                args: { id: "halcyon" },
+                description: "Promote Halcyon Media to L1?",
+              },
+            ],
+          },
+        },
+      ],
+    ];
+    const steps = buildTrace({
+      messages: [
+        ai("about to call", [
+          { id: "c-1", name: "promote_to_l1", args: { id: "halcyon" } },
+        ]),
+      ],
+      pendingWrites,
+      humanDecisions: [],
+      actor: ACTOR,
+      startedAt: STARTED,
+      terminal: true,
+    });
+    expect(steps).toHaveLength(1);
+    expect(steps[0].status).toBe("done");
+    expect(steps[0].intervention).toBeUndefined();
+    const call = steps[0].toolCalls?.[0];
+    expect(call?.running).toBeUndefined();
+    expect(call?.status).toBe("cancelled");
+    expect(call?.tone).toBe("default");
+  });
+
   it("attaches a resolved approve decision to the matching AIMessage", () => {
     const decisions: HumanDecision[] = [
       {
@@ -630,7 +674,7 @@ describe("buildTrace", () => {
       expect(steps[3].title).toBe("E");
     });
 
-    it("suppresses pending placeholders when terminal=true", () => {
+    it("suppresses pending placeholders when terminal=true (non-cancelled)", () => {
       const steps = buildTrace({
         messages: [
           ai("done early", [
@@ -645,6 +689,47 @@ describe("buildTrace", () => {
       });
       expect(steps).toHaveLength(1);
       expect(steps[0].status).toBe("done");
+    });
+
+    it("emits trailing plan entries as 'skipped' when terminal+cancelled", () => {
+      // User-cancelled a run with a 3-step plan after step 1 finished —
+      // steps 2 and 3 should still render so the user can see what they
+      // cut off, but as muted 'skipped' rather than active 'pending'.
+      const steps = buildTrace({
+        messages: [
+          ai("done step 1", [
+            { id: "n-1", name: "narrate_step", args: planArgs(["A", "B", "C"]) },
+          ]),
+        ],
+        pendingWrites: [],
+        humanDecisions: [],
+        actor: ACTOR,
+        startedAt: STARTED,
+        terminal: true,
+        cancelled: true,
+      });
+      expect(steps).toHaveLength(3);
+      expect(steps[0].status).toBe("done");
+      expect(steps[1]).toMatchObject({ status: "skipped", stepNumber: 2, title: "B" });
+      expect(steps[2]).toMatchObject({ status: "skipped", stepNumber: 3, title: "C" });
+    });
+
+    it("ignores cancelled=true when terminal=false (still emits pending)", () => {
+      const steps = buildTrace({
+        messages: [
+          ai("turn 1", [
+            { id: "n-1", name: "narrate_step", args: planArgs(["A", "B"]) },
+          ]),
+        ],
+        pendingWrites: [],
+        humanDecisions: [],
+        actor: ACTOR,
+        startedAt: STARTED,
+        terminal: false,
+        cancelled: true,
+      });
+      expect(steps).toHaveLength(2);
+      expect(steps[1].status).toBe("pending");
     });
 
     it("ignores malformed plan args", () => {

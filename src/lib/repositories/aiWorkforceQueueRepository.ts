@@ -235,6 +235,80 @@ export class AiWorkforceQueueRepository {
     });
   }
 
+  // User-initiated cancellation. Flips the row to a terminal `failed` state
+  // with an explicit cancellation marker in the error payload so the row is
+  // distinguishable from agent-side failures (and so the dispatcher's
+  // hasRunning() check correctly sees nothing running). For in-flight rows
+  // (status='running', etc.) the WDK workflow keeps executing in the
+  // background — its eventual markSucceeded/markFailed write is rejected
+  // here because the row's status is already terminal at the DB level,
+  // satisfied via the `not(isTerminal)` precondition.
+  //
+  // Returns null when the row is already in a terminal state (idempotent —
+  // double-click on Cancel is benign).
+  async cancelById(
+    id: string,
+    options: { userId?: string | null; reason?: string } = {},
+  ): Promise<Row | null> {
+    const error: Record<string, unknown> = {
+      code: 'cancelled_by_user',
+      cancelled_at: new Date().toISOString(),
+    };
+    if (options.userId) error.cancelled_by_user_id = options.userId;
+    if (options.reason) error.reason = options.reason;
+
+    const [row] = await this.db
+      .update(aiWorkforceQueue)
+      .set({
+        status: 'failed',
+        error: error as Row['error'],
+        ended_at: new Date().toISOString(),
+      })
+      .where(
+        and(
+          eq(aiWorkforceQueue.id, id),
+          sql`${aiWorkforceQueue.status} NOT IN ('succeeded', 'failed', 'rejected', 'timed_out')`,
+        ),
+      )
+      .returning();
+    return row ?? null;
+  }
+
+  // Enqueue a fresh copy of an existing row. The original stays terminal;
+  // the new row carries `retried_from_id` pointing back at it.
+  //
+  // Preserves agent_name, trigger_source, input, priority, parent_run_id,
+  // origin_routine_id, and triggered_by_user_id (so attribution and
+  // routine-membership are correct). Drops idempotency_key (a retry by
+  // definition is a fresh attempt and shouldn't collide with the original
+  // key), drops trigger_meta (HITL tool_call_id contexts don't transfer to
+  // a from-scratch re-run), and starts in status='pending'.
+  async retryById(
+    originalId: string,
+    options: { userId?: string | null } = {},
+  ): Promise<Row> {
+    const original = await this.findById(originalId);
+    if (!original) {
+      throw new Error(`ai_workforce_queue row ${originalId} not found`);
+    }
+
+    const [row] = await this.db
+      .insert(aiWorkforceQueue)
+      .values({
+        agent_name: original.agent_name,
+        trigger_source: original.trigger_source,
+        input: original.input,
+        priority: original.priority,
+        parent_run_id: original.parent_run_id,
+        origin_routine_id: original.origin_routine_id,
+        triggered_by_user_id: options.userId ?? original.triggered_by_user_id,
+        title: original.title,
+        retried_from_id: original.id,
+      } as TablesInsert<'ai_workforce_queue'>)
+      .returning();
+    return row;
+  }
+
   // Transition to resume_ready and stash the resume payload for the workflow
   // to consume. `resumeToken` carries the LangGraph resume payload as a
   // JSON-encoded string (the column is `text`); the workflow JSON.parses it

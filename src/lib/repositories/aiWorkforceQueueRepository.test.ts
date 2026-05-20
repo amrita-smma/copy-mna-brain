@@ -208,6 +208,130 @@ describe('AiWorkforceQueueRepository.markFailed / markSucceeded', () => {
   });
 });
 
+describe('AiWorkforceQueueRepository.cancelById', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('flips a non-terminal row to failed with cancellation marker', async () => {
+    const { db, updateChain } = makeMockDb();
+    const row = { id: 'r1', status: 'failed' };
+    updateChain.returning.mockResolvedValueOnce([row]);
+
+    const repo = new AiWorkforceQueueRepository(db as never);
+    const result = await repo.cancelById('r1', { userId: 'u1', reason: 'too slow' });
+
+    expect(result).toBe(row);
+    const setArg = updateChain.set.mock.calls[0][0];
+    expect(setArg.status).toBe('failed');
+    expect(setArg.error).toMatchObject({
+      code: 'cancelled_by_user',
+      cancelled_by_user_id: 'u1',
+      reason: 'too slow',
+    });
+    expect(setArg.error.cancelled_at).toBeTypeOf('string');
+    expect(setArg.ended_at).toBeTypeOf('string');
+  });
+
+  it('omits cancelled_by_user_id / reason when not provided', async () => {
+    const { db, updateChain } = makeMockDb();
+    updateChain.returning.mockResolvedValueOnce([{ id: 'r2', status: 'failed' }]);
+
+    const repo = new AiWorkforceQueueRepository(db as never);
+    await repo.cancelById('r2');
+
+    const setArg = updateChain.set.mock.calls[0][0];
+    expect(setArg.error).not.toHaveProperty('cancelled_by_user_id');
+    expect(setArg.error).not.toHaveProperty('reason');
+    expect(setArg.error.code).toBe('cancelled_by_user');
+  });
+
+  it('returns null when the row is already terminal (predicate matches nothing)', async () => {
+    const { db, updateChain } = makeMockDb();
+    updateChain.returning.mockResolvedValueOnce([]);
+
+    const repo = new AiWorkforceQueueRepository(db as never);
+    const result = await repo.cancelById('r3');
+
+    expect(result).toBeNull();
+  });
+});
+
+describe('AiWorkforceQueueRepository.retryById', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('inserts a fresh pending row carrying retried_from_id', async () => {
+    const { db, selectChain, insertChain } = makeMockDb();
+    const original = {
+      id: 'orig',
+      agent_name: 'analysis',
+      trigger_source: 'chat',
+      input: { prompt: 'hi' },
+      priority: 5,
+      parent_run_id: null,
+      origin_routine_id: null,
+      triggered_by_user_id: 'u-original',
+      title: 'My task',
+      status: 'failed',
+    };
+    selectChain.limit.mockResolvedValueOnce([original]);
+    const newRow = { id: 'new', retried_from_id: 'orig' };
+    insertChain.returning.mockResolvedValueOnce([newRow]);
+
+    const repo = new AiWorkforceQueueRepository(db as never);
+    const result = await repo.retryById('orig', { userId: 'u-new' });
+
+    expect(result).toBe(newRow);
+    expect(insertChain.values).toHaveBeenCalledWith(
+      expect.objectContaining({
+        agent_name: 'analysis',
+        trigger_source: 'chat',
+        input: { prompt: 'hi' },
+        priority: 5,
+        title: 'My task',
+        retried_from_id: 'orig',
+        // userId arg overrides the original's owner
+        triggered_by_user_id: 'u-new',
+      }),
+    );
+    // No idempotency_key, no trigger_meta carried over
+    const values = insertChain.values.mock.calls[0][0];
+    expect(values).not.toHaveProperty('idempotency_key');
+    expect(values).not.toHaveProperty('trigger_meta');
+  });
+
+  it('falls back to the original triggered_by_user_id when no userId is supplied', async () => {
+    const { db, selectChain, insertChain } = makeMockDb();
+    selectChain.limit.mockResolvedValueOnce([
+      {
+        id: 'orig',
+        agent_name: 'a',
+        trigger_source: 'cron',
+        input: {},
+        priority: 0,
+        parent_run_id: null,
+        origin_routine_id: 'rt-1',
+        triggered_by_user_id: 'u-original',
+        title: null,
+      },
+    ]);
+    insertChain.returning.mockResolvedValueOnce([{ id: 'new' }]);
+
+    const repo = new AiWorkforceQueueRepository(db as never);
+    await repo.retryById('orig');
+
+    const values = insertChain.values.mock.calls[0][0];
+    expect(values.triggered_by_user_id).toBe('u-original');
+    expect(values.origin_routine_id).toBe('rt-1');
+  });
+
+  it('throws when the original row does not exist', async () => {
+    const { db, selectChain } = makeMockDb();
+    selectChain.limit.mockResolvedValueOnce([]);
+
+    const repo = new AiWorkforceQueueRepository(db as never);
+    await expect(repo.retryById('missing')).rejects.toThrow(/row missing not found/);
+  });
+});
+
 describe('AiWorkforceQueueRepository.markWaitingForHumanInput', () => {
   it('updates status to waiting_for_human_input with reason', async () => {
     const { db, updateChain } = makeMockDb();

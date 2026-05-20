@@ -102,13 +102,25 @@ export async function GET(
       'rejected',
       'timed_out',
     ];
+    const isTerminal = TERMINAL.includes(item.status);
+    // User-cancelled rows still live under status='failed' (see
+    // AiWorkforceQueueRepository.cancelById). Detect via error.code so the
+    // mapper can render trailing plan entries as 'skipped' instead of
+    // suppressing them — gives the user visibility into what they cut off.
+    const errorPayload =
+      item.error && typeof item.error === 'object'
+        ? (item.error as Record<string, unknown>)
+        : null;
+    const isCancelled =
+      isTerminal && errorPayload?.code === 'cancelled_by_user';
     const steps = buildTrace({
       messages,
       pendingWrites,
       humanDecisions,
       actor,
       startedAt: item.started_at,
-      terminal: TERMINAL.includes(item.status),
+      terminal: isTerminal,
+      cancelled: isCancelled,
     });
 
     return NextResponse.json({ steps, canDecide, status: item.status, actor });

@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { AlertCircle, Inbox, Send, Sparkles } from 'lucide-react';
+import { AlertCircle, Inbox, RotateCcw, Send, Sparkles, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { TraceLine, TraceProgressBar, type InterventionDecisionInput } from './trace';
 import type { AvatarTone, TraceData } from './shared';
@@ -32,6 +32,21 @@ const IN_PROGRESS_STATUSES: WorkforceQueueStatus[] = [
   'waiting_for_subagent',
   'resume_ready',
 ];
+// Statuses where Cancel is a meaningful action — anything not yet terminal.
+const CANCELLABLE_STATUSES: WorkforceQueueStatus[] = [
+  'pending',
+  'running',
+  'waiting_for_human_input',
+  'waiting_for_subagent',
+  'resume_ready',
+];
+// Statuses where Retry produces a fresh attempt. Matches the API's
+// RETRYABLE_STATUSES guard in /retry/route.ts.
+const RETRYABLE_STATUSES: WorkforceQueueStatus[] = [
+  'failed',
+  'rejected',
+  'timed_out',
+];
 const TRACE_POLL_MS = 2000;
 
 interface ApiQueueItem {
@@ -44,9 +59,14 @@ interface ApiQueueItem {
   created_at: string;
   started_at: string | null;
   ended_at: string | null;
+  // jsonb error payload. Read here to distinguish user-cancelled rows
+  // (code='cancelled_by_user') from genuine agent failures — both share
+  // status='failed' at the DB level (no separate enum for cancel).
+  error?: Record<string, unknown> | null;
 }
 
-const STATUS_TONE: Record<WorkforceQueueStatus, { label: string; color: string; dot: string }> = {
+type StatusTone = { label: string; color: string; dot: string };
+const STATUS_TONE: Record<WorkforceQueueStatus, StatusTone> = {
   pending: { label: 'Queued', color: 'text-amber-600', dot: 'bg-amber-500' },
   running: { label: 'Running', color: 'text-violet-600', dot: 'bg-violet-500 animate-pulse' },
   waiting_for_human_input: {
@@ -66,6 +86,24 @@ const STATUS_TONE: Record<WorkforceQueueStatus, { label: string; color: string; 
   timed_out: { label: 'Timed out', color: 'text-rose-600', dot: 'bg-rose-500' },
 };
 
+// User-cancelled rows live under status='failed' (no separate enum value)
+// but deserve a neutral label/color — they aren't agent failures and the
+// red "Failed" pill misrepresents what happened.
+const CANCELLED_TONE: StatusTone = {
+  label: 'Cancelled',
+  color: 'text-muted-foreground',
+  dot: 'bg-muted-foreground/60',
+};
+
+function isCancelled(item: ApiQueueItem): boolean {
+  return (
+    item.status === 'failed' &&
+    typeof item.error === 'object' &&
+    item.error !== null &&
+    (item.error as { code?: unknown }).code === 'cancelled_by_user'
+  );
+}
+
 function fmtTs(ts: string | null): string {
   if (!ts) return '—';
   try {
@@ -80,7 +118,20 @@ function strField(input: Record<string, unknown>, key: string): string {
   return typeof v === 'string' ? v : '';
 }
 
-export function TaskCanvas({ taskId }: { taskId: string | null }) {
+interface TaskCanvasProps {
+  taskId: string | null;
+  // Called after a successful Retry with the id of the freshly-enqueued row,
+  // so the parent can navigate selection / refetch the sidebar queue. When
+  // unset, TaskCanvas falls back to showing a "Retried as #abc12345" line
+  // without changing the route.
+  onRetried?: (newId: string) => void;
+  // Called after a successful Cancel, so the parent can refresh the sidebar
+  // (the cancelled row will hop from "In progress" / "Queued" into the
+  // terminal bucket on the next refetch).
+  onCancelled?: (id: string) => void;
+}
+
+export function TaskCanvas({ taskId, onRetried, onCancelled }: TaskCanvasProps) {
   const [item, setItem] = useState<ApiQueueItem | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -88,6 +139,10 @@ export function TaskCanvas({ taskId }: { taskId: string | null }) {
   const [traceError, setTraceError] = useState<string | null>(null);
   const [canDecide, setCanDecide] = useState(false);
   const [actor, setActor] = useState<TraceActorResponse | null>(null);
+  const [actionPending, setActionPending] = useState<'retry' | 'cancel' | null>(
+    null,
+  );
+  const [actionError, setActionError] = useState<string | null>(null);
   const traceLoadedRef = useRef(false);
 
   useEffect(() => {
@@ -124,21 +179,36 @@ export function TaskCanvas({ taskId }: { taskId: string | null }) {
     setTraceSteps([]);
     setTraceError(null);
     setActor(null);
+    setActionError(null);
+    setActionPending(null);
     traceLoadedRef.current = false;
   }, [taskId]);
 
-  // Fetch the trace on mount and poll while the task is non-terminal. The
-  // status comes from the task-detail fetch above; once that lands we know
-  // whether to poll. Terminal statuses fetch once and stop.
+  // Fetch the task + trace on mount and poll while the task is non-terminal.
+  // We refresh BOTH on each tick so the status pill, action buttons, and
+  // ended_at line stay in sync with the row's true state — without this,
+  // background transitions (agent finishes, reaper marks failed, another
+  // user cancels) never propagate to the local item state and the UI shows
+  // stale "Running" + Cancel button after the row is already terminal.
   useEffect(() => {
     if (!taskId) return;
     let cancelled = false;
 
-    const fetchTrace = async () => {
+    const refresh = async () => {
       try {
-        const res = await fetch(`/api/workforce-queue/${taskId}/trace`);
-        if (!res.ok) throw new Error(`Failed to load trace (HTTP ${res.status})`);
-        const data = (await res.json()) as {
+        const [taskRes, traceRes] = await Promise.all([
+          fetch(`/api/workforce-queue/${taskId}`),
+          fetch(`/api/workforce-queue/${taskId}/trace`),
+        ]);
+        if (cancelled) return;
+        if (taskRes.ok) {
+          const data = (await taskRes.json()) as { item?: ApiQueueItem };
+          if (data.item) setItem(data.item);
+        }
+        if (!traceRes.ok) {
+          throw new Error(`Failed to load trace (HTTP ${traceRes.status})`);
+        }
+        const data = (await traceRes.json()) as {
           steps?: TraceData[];
           canDecide?: boolean;
           status?: WorkforceQueueStatus;
@@ -156,12 +226,12 @@ export function TaskCanvas({ taskId }: { taskId: string | null }) {
       }
     };
 
-    void fetchTrace();
+    void refresh();
     const inProgress = item?.status && IN_PROGRESS_STATUSES.includes(item.status);
     if (!inProgress) return () => {
       cancelled = true;
     };
-    const intervalId = window.setInterval(fetchTrace, TRACE_POLL_MS);
+    const intervalId = window.setInterval(refresh, TRACE_POLL_MS);
     return () => {
       cancelled = true;
       window.clearInterval(intervalId);
@@ -195,21 +265,108 @@ export function TaskCanvas({ taskId }: { taskId: string | null }) {
 
   const title = strField(item.input, 'title') || item.agent_name;
   const instruction = strField(item.input, 'instruction');
-  const tone = STATUS_TONE[item.status];
+  const tone = isCancelled(item) ? CANCELLED_TONE : STATUS_TONE[item.status];
+  const canCancel = CANCELLABLE_STATUSES.includes(item.status);
+  const canRetry = RETRYABLE_STATUSES.includes(item.status);
+
+  const handleCancel = async () => {
+    if (!taskId || actionPending) return;
+    setActionPending('cancel');
+    setActionError(null);
+    try {
+      const res = await fetch(`/api/workforce-queue/${taskId}/cancel`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+      if (!res.ok) {
+        const body = (await res.json().catch(() => null)) as
+          | { error?: string }
+          | null;
+        throw new Error(body?.error ?? `Cancel failed (HTTP ${res.status})`);
+      }
+      const data = (await res.json()) as { item?: ApiQueueItem };
+      if (data.item) setItem(data.item);
+      onCancelled?.(taskId);
+    } catch (e) {
+      setActionError(e instanceof Error ? e.message : 'Failed to cancel task');
+    } finally {
+      setActionPending(null);
+    }
+  };
+
+  const handleRetry = async () => {
+    if (!taskId || actionPending) return;
+    setActionPending('retry');
+    setActionError(null);
+    try {
+      const res = await fetch(`/api/workforce-queue/${taskId}/retry`, {
+        method: 'POST',
+      });
+      if (!res.ok) {
+        const body = (await res.json().catch(() => null)) as
+          | { error?: string }
+          | null;
+        throw new Error(body?.error ?? `Retry failed (HTTP ${res.status})`);
+      }
+      const data = (await res.json()) as { item?: ApiQueueItem };
+      const newId = data.item?.id;
+      if (newId && onRetried) {
+        onRetried(newId);
+      }
+    } catch (e) {
+      setActionError(e instanceof Error ? e.message : 'Failed to retry task');
+    } finally {
+      setActionPending(null);
+    }
+  };
 
   return (
     <main className="flex flex-col min-h-0 bg-card">
       <div className="flex-1 overflow-y-auto px-9 py-6">
         {/* Task header */}
         <div className="space-y-2.5 mb-7">
-          <div className="inline-flex items-center gap-2 text-[11px] font-bold tracking-wider uppercase">
-            <span className={cn('h-1.5 w-1.5 rounded-full', tone.dot)} />
-            <span className={tone.color}>{tone.label}</span>
-            <span className="text-muted-foreground/50">·</span>
-            <span className="text-muted-foreground font-mono">
-              #{item.id.slice(0, 8)}
-            </span>
+          <div className="flex items-center justify-between gap-3 flex-wrap">
+            <div className="inline-flex items-center gap-2 text-[11px] font-bold tracking-wider uppercase">
+              <span className={cn('h-1.5 w-1.5 rounded-full', tone.dot)} />
+              <span className={tone.color}>{tone.label}</span>
+              <span className="text-muted-foreground/50">·</span>
+              <span className="text-muted-foreground font-mono">
+                #{item.id.slice(0, 8)}
+              </span>
+            </div>
+            {(canCancel || canRetry) && (
+              <div className="inline-flex items-center gap-2">
+                {canCancel && (
+                  <button
+                    type="button"
+                    onClick={handleCancel}
+                    disabled={actionPending !== null}
+                    className="inline-flex items-center gap-1.5 rounded-md border border-rose-200 bg-rose-50 px-2.5 py-1 text-xs font-medium text-rose-700 hover:bg-rose-100 hover:border-rose-300 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    <X className="h-3 w-3" strokeWidth={2.5} />
+                    {actionPending === 'cancel' ? 'Cancelling…' : 'Cancel'}
+                  </button>
+                )}
+                {canRetry && (
+                  <button
+                    type="button"
+                    onClick={handleRetry}
+                    disabled={actionPending !== null}
+                    className="inline-flex items-center gap-1.5 rounded-md border border-violet-200 bg-violet-50 px-2.5 py-1 text-xs font-medium text-violet-700 hover:bg-violet-100 hover:border-violet-300 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    <RotateCcw className="h-3 w-3" strokeWidth={2.5} />
+                    {actionPending === 'retry' ? 'Retrying…' : 'Retry'}
+                  </button>
+                )}
+              </div>
+            )}
           </div>
+          {actionError && (
+            <div className="rounded-md border border-rose-200 bg-rose-50/60 px-2.5 py-1.5 text-[11px] text-rose-700">
+              {actionError}
+            </div>
+          )}
           <h2 className="text-[22px] font-extrabold tracking-tight leading-tight">
             {title}
           </h2>

@@ -4,11 +4,13 @@ import * as React from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertCircle,
+  Ban,
   Check,
   ChevronLeft,
   ChevronRight,
   MessagesSquare,
   RefreshCw,
+  X,
   Zap,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -51,6 +53,23 @@ interface ApiQueueItem {
   origin_routine_id: string | null;
   triggered_by_user_id: string | null;
   triggered_by_user_name: string | null;
+  // Needed to tell user-cancelled rows apart from genuine failures —
+  // both share status='failed' at the DB level.
+  error?: Record<string, unknown> | null;
+}
+
+// Categorises a terminal queue row for sidebar rendering. `succeeded` →
+// green check; user-cancelled `failed` → grey ban; anything else terminal
+// → rose X. Returns null for non-terminal statuses.
+type TerminalKind = 'success' | 'cancelled' | 'failed';
+function terminalKindOf(item: ApiQueueItem): TerminalKind | null {
+  if (item.status === 'succeeded') return 'success';
+  if (item.status === 'failed') {
+    const code = (item.error as { code?: unknown } | null)?.code;
+    return code === 'cancelled_by_user' ? 'cancelled' : 'failed';
+  }
+  if (item.status === 'rejected' || item.status === 'timed_out') return 'failed';
+  return null;
 }
 
 const TRIGGER_ICONS: Record<WorkforceTriggerSource, typeof MessagesSquare> = {
@@ -417,6 +436,10 @@ export function WorkforceTasks({ initialTaskId = null }: WorkforceTasksProps = {
   // local day. Rows missing ended_at (rare) fall back to created_at so a
   // freshly-completed row never disappears just because the timestamp
   // didn't write yet.
+  //
+  // Carries `kind` alongside each task so the sidebar can pick the right
+  // icon (green check / grey ban / rose X) instead of using one emerald
+  // check for everything — see the doneTodayItems render block below.
   const doneTodayItems = useMemo(() => {
     const cutoff = startOfTodayMs();
     return items
@@ -425,7 +448,10 @@ export function WorkforceTasks({ initialTaskId = null }: WorkforceTasksProps = {
         const ts = Date.parse(i.ended_at ?? i.created_at);
         return !Number.isNaN(ts) && ts >= cutoff;
       })
-      .map((i) => toQueueTask(i, routineNameById, 'ended_at'));
+      .map((i) => ({
+        task: toQueueTask(i, routineNameById, 'ended_at'),
+        kind: terminalKindOf(i) ?? 'failed',
+      }));
   }, [items, routineNameById]);
 
   const totalQueuePages = Math.max(1, Math.ceil(pendingItems.length / QUEUE_PAGE_SIZE));
@@ -769,13 +795,25 @@ export function WorkforceTasks({ initialTaskId = null }: WorkforceTasksProps = {
               collapsible
             >
               <div className="space-y-0.5">
-                {doneTodayItems.map((task) => (
+                {doneTodayItems.map(({ task, kind }) => {
+                  // Per-outcome icon. Kept inline because this is the only
+                  // place these mappings matter; lifting to a constant
+                  // would buy nothing.
+                  const Icon =
+                    kind === 'success' ? Check : kind === 'cancelled' ? Ban : X;
+                  const iconClass =
+                    kind === 'success'
+                      ? 'bg-emerald-50 text-emerald-600'
+                      : kind === 'cancelled'
+                        ? 'bg-muted text-muted-foreground'
+                        : 'bg-rose-50 text-rose-600';
+                  return (
                   <RailItem
                     key={task.id}
                     onClick={() => goToTask(task.id)}
                     active={showTaskCanvas && selectedTaskId === task.id}
-                    icon={<Check className="h-3 w-3" strokeWidth={3} />}
-                    iconClass="bg-emerald-50 text-emerald-600"
+                    icon={<Icon className="h-3 w-3" strokeWidth={kind === 'success' ? 3 : 2.5} />}
+                    iconClass={iconClass}
                     title={task.title}
                     meta={
                       <span className="flex items-center gap-1.5 min-w-0">
@@ -805,7 +843,8 @@ export function WorkforceTasks({ initialTaskId = null }: WorkforceTasksProps = {
                       </span>
                     }
                   />
-                ))}
+                  );
+                })}
               </div>
             </RailGroup>
           )}
@@ -825,7 +864,21 @@ export function WorkforceTasks({ initialTaskId = null }: WorkforceTasksProps = {
           }}
         />
       ) : (
-        <TaskCanvas taskId={selectedTaskId} />
+        <TaskCanvas
+          taskId={selectedTaskId}
+          onRetried={(newId) => {
+            // Jump to the freshly-enqueued retry row and pull the queue
+            // straight away so the new row appears in "Queued" without
+            // waiting for the next poll tick.
+            goToTask(newId);
+            void fetchQueue();
+          }}
+          onCancelled={() => {
+            // Refetch so the cancelled row hops out of "In progress" /
+            // "Queued" and into "Done today" on the sidebar immediately.
+            void fetchQueue();
+          }}
+        />
       )}
 
       <NewRoutineModal

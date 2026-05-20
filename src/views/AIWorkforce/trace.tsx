@@ -14,6 +14,7 @@ import {
   Globe,
   History,
   Loader2,
+  Minus,
   Plus,
   ScrollText,
   Search,
@@ -63,7 +64,8 @@ function iconForTool(name: string): LucideIcon {
 }
 
 // Background color for the connector segment leaving this step toward the
-// next one. Done → emerald, active → amber gradient, pending → muted grey.
+// next one. Done → emerald, active → amber gradient, pending/skipped → muted
+// grey.
 function connectorClass(status: TraceStepStatus): string {
   if (status === 'done' || status === 'intervention-resolved') {
     return 'bg-emerald-400';
@@ -90,6 +92,10 @@ export function TraceLine({
   const isActive =
     step.status === 'active' || step.status === 'intervention-waiting';
   const isPending = step.status === 'pending';
+  const isSkipped = step.status === 'skipped';
+  // Both pending and skipped share the same "no body content, muted card"
+  // treatment — neither has tool calls or a meaningful timestamp.
+  const isPlaceholder = isPending || isSkipped;
 
   // Mini per-step progress: count tool calls with resolved output vs total.
   // Only rendered for the active step with more than one tool call.
@@ -120,7 +126,7 @@ export function TraceLine({
           'rounded-xl border bg-card overflow-hidden transition-shadow',
           isDone && 'border-emerald-200/70',
           isActive && 'border-amber-300/70 shadow-[0_0_0_3px_rgba(245,158,11,0.08)]',
-          isPending && 'border-border/70 bg-muted/30',
+          isPlaceholder && 'border-border/70 bg-muted/30',
         )}
       >
         <div className="px-3.5 py-3">
@@ -132,7 +138,11 @@ export function TraceLine({
               <p
                 className={cn(
                   'text-[13.5px] font-bold leading-snug',
-                  isPending ? 'text-muted-foreground' : 'text-foreground',
+                  isPlaceholder ? 'text-muted-foreground' : 'text-foreground',
+                  // Skipped steps were on the plan but never ran — strike
+                  // them through so the "wouldn't happen" intent reads at a
+                  // glance, not just from the badge.
+                  isSkipped && 'line-through',
                 )}
               >
                 {step.title}
@@ -145,14 +155,14 @@ export function TraceLine({
             <p
               className={cn(
                 'text-[12px] leading-relaxed mb-1.5',
-                isPending ? 'text-muted-foreground/70' : 'text-muted-foreground',
+                isPlaceholder ? 'text-muted-foreground/70' : 'text-muted-foreground',
               )}
             >
               {step.description}
             </p>
           )}
 
-          {(step.timestamp || step.outcomeChips?.length) && !isPending && (
+          {(step.timestamp || step.outcomeChips?.length) && !isPlaceholder && (
             <div className="flex items-center gap-2.5 flex-wrap">
               {step.timestamp && (
                 <span className="font-mono text-[10px] text-muted-foreground/70">
@@ -251,6 +261,20 @@ function TraceNode({ step }: { step: TraceData }) {
       </span>
     );
   }
+  if (step.status === 'skipped') {
+    // Step was on the plan but never ran — flat muted dash to read as
+    // "wasn't reached", distinct from the numbered pending circle.
+    return (
+      <span
+        className={cn(
+          ringBase,
+          'bg-muted/40 border-2 border-border text-muted-foreground/70',
+        )}
+      >
+        <Minus className="h-3.5 w-3.5" strokeWidth={3} />
+      </span>
+    );
+  }
   // pending
   return (
     <span
@@ -277,6 +301,7 @@ function StatusBadge({ status }: { status: TraceStepStatus }) {
       className: 'bg-violet-50 text-violet-700',
     },
     pending: { label: 'Pending', className: 'bg-muted text-muted-foreground' },
+    skipped: { label: 'Skipped', className: 'bg-muted text-muted-foreground/70' },
   };
   const c = config[status];
   return (

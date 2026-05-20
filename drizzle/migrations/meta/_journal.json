@@ -295,6 +295,13 @@
       "when": 1778803200000,
       "tag": "20260515000000_add_human_decisions_to_workforce_queue",
       "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "7",
+      "when": 1779148800000,
+      "tag": "20260519000000_add_retried_from_id_to_workforce_queue",
+      "breakpoints": true
     }
   ]
 }

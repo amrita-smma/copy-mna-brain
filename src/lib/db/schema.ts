@@ -1706,6 +1706,7 @@ export const aiWorkforceQueue = pgTable(
       .$type<HumanDecision[]>()
       .default([])
       .notNull(),
+    retried_from_id: uuid(),
   },
   (table) => {
     return {
@@ -1760,6 +1761,17 @@ export const aiWorkforceQueue = pgTable(
         foreignColumns: [table.id],
         name: "ai_workforce_queue_parent_run_id_fkey",
       }),
+      aiWorkforceQueueRetriedFromIdFkey: foreignKey({
+        columns: [table.retried_from_id],
+        foreignColumns: [table.id],
+        name: "ai_workforce_queue_retried_from_id_fkey",
+      }).onDelete("set null"),
+      idxAiWorkforceQueueRetriedFrom: index(
+        "idx_ai_workforce_queue_retried_from",
+      ).using(
+        "btree",
+        table.retried_from_id.asc().nullsLast().op("uuid_ops"),
+      ),
       aiWorkforceQueueIdempotencyKeyKey: unique(
         "ai_workforce_queue_idempotency_key_key",
       ).on(table.idempotency_key),

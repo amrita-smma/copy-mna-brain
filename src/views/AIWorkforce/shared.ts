@@ -41,6 +41,7 @@ export type TraceStepStatus =
   | 'done'
   | 'active'
   | 'pending'
+  | 'skipped'
   | 'intervention-waiting'
   | 'intervention-resolved';
 
