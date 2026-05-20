@@ -1,3 +1,20 @@
+## Pull Request Naming
+
+PR titles must begin with a Jira ticket prefix in the form `[MB-xx]`, where `xx` is the issue number (e.g., `[MB-123] add user authentication`). Never omit the prefix or use a different bracket style.
+
+## Test Files (`**/*.test.ts`)
+
+Test files live next to their source files as `<name>.test.ts`. Rules when writing or editing tests:
+
+- Use **vitest** exclusively — import `describe`, `it`, `expect`, `vi`, `beforeEach`, `afterEach` from `'vitest'`. Never use Jest APIs.
+- Use `vi.hoisted(() => ({ ... }))` for mock functions that must exist before module-level `vi.mock(...)` calls run.
+- Use `vi.mock('@/lib/...')` to stub module dependencies. Prefer class-based mocks for repositories (instantiate a class that exposes the hoisted mock functions as methods).
+- Reset mocks in `beforeEach` with `.mockReset()` (or `.mockClear()` when only call counts matter). Add `afterEach(() => vi.clearAllMocks())` when not using `beforeEach`.
+- Describe blocks: `describe('ClassName.methodName', ...)` or `describe('functionName', ...)`. Test names state the expected behaviour, not the implementation (e.g., `'returns [] without hitting the DB when the id list is empty'`).
+- For **repository tests**: construct the class with a typed `db as never` mock that stubs `.select/.insert/.update/.delete` chains via `vi.fn().mockReturnThis()`.
+- For **agent tool tests**: mock `@/lib/server/db` and any repository modules before importing the tool, then test via `tool.invoke({ ... })`. Assert on the string/object returned.
+- Keep tests fast and free of real I/O — no network calls, no real database connections.
+
 ## Terraform Modules (`terraform/`)
 
 Each module under `terraform/` (e.g. `bootstrap`, `iam`, `rds`, `s3`, `ses`, `vpc`) must have a `Makefile` with `init-staging` and `init-production` targets. Copy the pattern from any existing module's `Makefile` when adding a new one.
