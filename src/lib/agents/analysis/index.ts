@@ -138,6 +138,9 @@ Examples of requests that MUST go through the handoff:
 - "Find all CMP slurry suppliers in Korea under $500M EV, run them through L0/L1, and add the qualifiers to the pipeline."
 - "Pull every Korean TIM supplier from Inven.AI and SEMI, screen them, and add the passing ones."
 - "Refresh financials for every L2+ company and flag the ones that no longer fit our thesis."
+- "Help me find L0 candidates that are fit to move to L1" / "Identify L0 companies ready for L1" / "Which L0s should we promote?" — any request that asks you to surface candidates *for the purpose of* a stage change (L0→L1, L1→L2, etc.) is a batch promotion task, even when phrased as "find", "help me find", "identify", "which", or "show me". The intended outcome is a write (promotion), so route it through the Workforce. Do NOT just return a read-only list.
+
+**Rule of thumb for ambiguous "find" phrasing:** if the user's request couples a search ("find", "identify", "which") with an action verb on the pipeline ("move to L1", "promote", "advance", "drop", "add to L0"), treat it as a workforce task. When in doubt, propose the handoff — the user can click "Just answer here" if they only wanted a read-only list.
 
 For these you MUST:
 
@@ -347,7 +350,9 @@ export class AgentGraph {
   private defaultAgent: ReturnType<typeof createAgent>;
   private toolList: ToolList;
   private systemPrompt: string;
-  private middleware: ReadonlyArray<ReturnType<typeof humanInTheLoopMiddleware>>;
+  private middleware: ReadonlyArray<
+    ReturnType<typeof humanInTheLoopMiddleware>
+  >;
 
   constructor(
     config: AgentConfig,
@@ -368,7 +373,9 @@ export class AgentGraph {
     );
   }
 
-  private getAgent(additionalSystemContext?: string): ReturnType<typeof createAgent> {
+  private getAgent(
+    additionalSystemContext?: string,
+  ): ReturnType<typeof createAgent> {
     if (!additionalSystemContext) {
       return this.defaultAgent;
     }
@@ -381,7 +388,10 @@ export class AgentGraph {
     );
   }
 
-  async invoke(inputs: InvokeOptions, config?: InvokeConfig): Promise<InvokeResult> {
+  async invoke(
+    inputs: InvokeOptions,
+    config?: InvokeConfig,
+  ): Promise<InvokeResult> {
     logger.debug(`messages are ${JSON.stringify(inputs)}`);
     logger.debug("=".repeat(60));
     logger.debug("🚀 AGENT INVOCATION STARTED");
@@ -397,7 +407,11 @@ export class AgentGraph {
     } catch (error) {
       logger.error(`✗ AGENT INVOCATION FAILED: ${(error as Error).message}`);
       logger.debug("=".repeat(60));
-      return { messages: [new AIMessage(`Error invoking agent: ${(error as Error).message}`)] };
+      return {
+        messages: [
+          new AIMessage(`Error invoking agent: ${(error as Error).message}`),
+        ],
+      };
     }
   }
 
@@ -445,7 +459,9 @@ export class AgentGraph {
       if (Array.isArray(interruptRaw) && interruptRaw.length > 0) {
         const first = interruptRaw[0] as { value?: unknown };
         const value = (first?.value ?? first) as {
-          actionRequests?: NonNullable<InvokeResult["interrupt"]>["actionRequests"];
+          actionRequests?: NonNullable<
+            InvokeResult["interrupt"]
+          >["actionRequests"];
         };
         if (value?.actionRequests?.length) {
           out.interrupt = { actionRequests: value.actionRequests };
@@ -456,7 +472,10 @@ export class AgentGraph {
     return { messages: [new AIMessage(JSON.stringify(result))] };
   }
 
-  async ainvoke(inputs: InvokeOptions, config?: InvokeConfig): Promise<InvokeResult> {
+  async ainvoke(
+    inputs: InvokeOptions,
+    config?: InvokeConfig,
+  ): Promise<InvokeResult> {
     return this.invoke(inputs, config);
   }
 
@@ -478,11 +497,16 @@ export class AgentGraph {
     // getState is marked @internal in LangChain v1 typings (return type
     // `never`) but it's the documented LangGraph API and works at runtime.
     const agent = this.defaultAgent as unknown as {
-      getState: (config: { configurable: { thread_id: string } }) => Promise<{
-        values?: { messages?: BaseMessage[] };
-      } | undefined>;
+      getState: (config: { configurable: { thread_id: string } }) => Promise<
+        | {
+            values?: { messages?: BaseMessage[] };
+          }
+        | undefined
+      >;
     };
-    const state = await agent.getState({ configurable: { thread_id: threadId } });
+    const state = await agent.getState({
+      configurable: { thread_id: threadId },
+    });
     return state?.values?.messages ?? [];
   }
 
@@ -494,7 +518,10 @@ export class AgentGraph {
    */
   async getTrace(
     threadId: string,
-  ): Promise<{ messages: BaseMessage[]; pendingWrites: CheckpointPendingWrite[] }> {
+  ): Promise<{
+    messages: BaseMessage[];
+    pendingWrites: CheckpointPendingWrite[];
+  }> {
     if (!this.config.checkpointer) {
       return { messages: [], pendingWrites: [] };
     }
@@ -543,11 +570,13 @@ function getCheckpointer(): Promise<PostgresSaver> | null {
   const useIam = rdsIamDbAuthFromEnv();
 
   if (useIam && explicitDb.password) {
-    logger.error('With RDS_IAM_DB_AUTH, leave DB_PASSWORD empty; the app uses an IAM token.');
+    logger.error(
+      "With RDS_IAM_DB_AUTH, leave DB_PASSWORD empty; the app uses an IAM token.",
+    );
     return null;
   }
   if (!useIam && explicitDb.password === undefined) {
-    logger.error('Without RDS_IAM_DB_AUTH, set DB_PASSWORD.');
+    logger.error("Without RDS_IAM_DB_AUTH, set DB_PASSWORD.");
     return null;
   }
 
@@ -561,13 +590,18 @@ function getCheckpointer(): Promise<PostgresSaver> | null {
       database: explicitDb.database,
       user: explicitDb.user,
       password: useIam
-        ? () => rdsIamAuthToken(explicitDb.host, explicitDb.port, explicitDb.user)
+        ? () =>
+            rdsIamAuthToken(explicitDb.host, explicitDb.port, explicitDb.user)
         : explicitDb.password!,
       ssl: isLocal ? false : { rejectUnauthorized: false },
     });
-    const saver = new PostgresSaver(pool, undefined, { schema: CHECKPOINT_SCHEMA });
+    const saver = new PostgresSaver(pool, undefined, {
+      schema: CHECKPOINT_SCHEMA,
+    });
     await saver.setup();
-    logger.info(`✓ PostgresSaver ready (schema: ${CHECKPOINT_SCHEMA}, ssl: ${!isLocal}, iam: ${useIam})`);
+    logger.info(
+      `✓ PostgresSaver ready (schema: ${CHECKPOINT_SCHEMA}, ssl: ${!isLocal}, iam: ${useIam})`,
+    );
     return saver;
   })().catch((err) => {
     // Reset on failure so the next caller retries instead of inheriting the
@@ -592,7 +626,9 @@ async function buildAgentGraph(
 
   try {
     const checkpointerPromise = getCheckpointer();
-    const checkpointer = checkpointerPromise ? await checkpointerPromise : undefined;
+    const checkpointer = checkpointerPromise
+      ? await checkpointerPromise
+      : undefined;
     return new AgentGraph(
       { apiKey, checkpointer },
       toolList,
