@@ -16,9 +16,13 @@ export async function POST(req: NextRequest) {
     if (typeof email !== 'string') {
       return NextResponse.json({ error: 'Invalid email' }, { status: 400 });
     }
+    // Derive the base URL from the incoming request so the reset link in the
+    // email matches the host the user is actually browsing from (works for
+    // localhost, preview deployments, and production without any env var).
+    const appUrl = req.nextUrl.origin;
     const db = createDb();
     const { authService } = createContainer(db);
-    await authService.forgetPassword(email);
+    await authService.forgetPassword(email, appUrl);
     return NextResponse.json({ ok: true });
   } catch (error: unknown) {
     // Even on internal errors we return a generic ok=true response below in

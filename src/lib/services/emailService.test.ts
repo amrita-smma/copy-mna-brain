@@ -58,14 +58,32 @@ describe('EmailService.sendForgotPasswordEmail', () => {
 
   it('throws when email is missing', async () => {
     await expect(
-      service.sendForgotPasswordEmail({ email: '', token: 't' }),
+      service.sendForgotPasswordEmail({
+        email: '',
+        token: 't',
+        appUrl: 'https://x.com',
+      }),
     ).rejects.toThrow('email is required');
   });
 
   it('throws when token is missing', async () => {
     await expect(
-      service.sendForgotPasswordEmail({ email: 'a@b.com', token: '' }),
+      service.sendForgotPasswordEmail({
+        email: 'a@b.com',
+        token: '',
+        appUrl: 'https://x.com',
+      }),
     ).rejects.toThrow('token is required');
+  });
+
+  it('throws when appUrl is missing', async () => {
+    await expect(
+      service.sendForgotPasswordEmail({
+        email: 'a@b.com',
+        token: 't',
+        appUrl: '',
+      }),
+    ).rejects.toThrow('appUrl is required');
   });
 
   it('calls the sender with a built reset link and returns its result', async () => {
@@ -88,20 +106,27 @@ describe('EmailService.sendForgotPasswordEmail', () => {
     expect(arg.text).toContain('45 minutes');
   });
 
-  it('falls back to the default app URL when none is provided', async () => {
+  it('uses the provided appUrl (sourced from the request origin) to build the reset link', async () => {
     await service.sendForgotPasswordEmail({
       email: 'user@example.com',
       token: 'plain',
+      appUrl: 'https://preview-123.vercel.app',
     });
     const arg = vi.mocked(sender).mock.calls[0][0];
-    expect(arg.html).toContain('/reset-password?token=plain');
+    expect(arg.html).toContain(
+      'https://preview-123.vercel.app/reset-password?token=plain',
+    );
   });
 
   it('propagates errors from the sender', async () => {
     sender = vi.fn().mockRejectedValue(new Error('SES boom'));
     service = new EmailService(sender);
     await expect(
-      service.sendForgotPasswordEmail({ email: 'a@b.com', token: 't' }),
+      service.sendForgotPasswordEmail({
+        email: 'a@b.com',
+        token: 't',
+        appUrl: 'https://x.com',
+      }),
     ).rejects.toThrow('SES boom');
   });
 });

@@ -52,7 +52,7 @@ export class AuthService {
    * the email's account status). The token is still in the DB and the user
    * can retry.
    */
-  async forgetPassword(email: string): Promise<void> {
+  async forgetPassword(email: string, appUrl: string): Promise<void> {
     const normalizedEmail = email.toLowerCase().trim();
     if (!normalizedEmail) return;
 
@@ -71,6 +71,7 @@ export class AuthService {
       kind: 'forgot_password',
       to: normalizedEmail,
       token,
+      appUrl,
       ttlMinutes: RESET_TOKEN_TTL_MINUTES,
     };
 

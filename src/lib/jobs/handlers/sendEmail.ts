@@ -11,8 +11,8 @@ export type SendEmailPayload = {
   kind: 'forgot_password';
   to: string;
   token: string;
+  appUrl: string;
   ttlMinutes?: number;
-  appUrl?: string;
 };
 
 export interface SendEmailJobResult {
@@ -45,11 +45,14 @@ export async function runSendEmail(
       if (!payload.token) {
         throw new Error('send_email[forgot_password]: `token` is required');
       }
+      if (!payload.appUrl) {
+        throw new Error('send_email[forgot_password]: `appUrl` is required');
+      }
       const { messageId } = await emailService.sendForgotPasswordEmail({
         email: payload.to,
         token: payload.token,
-        ttlMinutes: payload.ttlMinutes,
         appUrl: payload.appUrl,
+        ttlMinutes: payload.ttlMinutes,
       });
       return { kind: 'forgot_password', to: payload.to, messageId };
     }

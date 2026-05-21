@@ -12,14 +12,35 @@ function makeService(): EmailService {
 describe('runSendEmail', () => {
   it('throws when payload is missing `to`', async () => {
     await expect(
-      runSendEmail({ kind: 'forgot_password', to: '', token: 't' }),
+      runSendEmail({
+        kind: 'forgot_password',
+        to: '',
+        token: 't',
+        appUrl: 'https://x.com',
+      }),
     ).rejects.toThrow('`to` is required');
   });
 
   it('throws when forgot_password payload is missing `token`', async () => {
     await expect(
-      runSendEmail({ kind: 'forgot_password', to: 'a@b.com', token: '' }),
+      runSendEmail({
+        kind: 'forgot_password',
+        to: 'a@b.com',
+        token: '',
+        appUrl: 'https://x.com',
+      }),
     ).rejects.toThrow('`token` is required');
+  });
+
+  it('throws when forgot_password payload is missing `appUrl`', async () => {
+    await expect(
+      runSendEmail({
+        kind: 'forgot_password',
+        to: 'a@b.com',
+        token: 't',
+        appUrl: '',
+      }),
+    ).rejects.toThrow('`appUrl` is required');
   });
 
   it('delegates forgot_password to EmailService.sendForgotPasswordEmail', async () => {
@@ -37,8 +58,8 @@ describe('runSendEmail', () => {
     expect(emailService.sendForgotPasswordEmail).toHaveBeenCalledWith({
       email: 'user@example.com',
       token: 'tok-1',
-      ttlMinutes: 30,
       appUrl: 'https://app.example.com',
+      ttlMinutes: 30,
     });
     expect(result).toEqual({
       kind: 'forgot_password',
@@ -52,7 +73,12 @@ describe('runSendEmail', () => {
       vi.fn().mockResolvedValue({ messageId: 'ses-abc' }),
     );
     const result = await runSendEmail(
-      { kind: 'forgot_password', to: 'a@b.com', token: 'x' },
+      {
+        kind: 'forgot_password',
+        to: 'a@b.com',
+        token: 'x',
+        appUrl: 'https://x.com',
+      },
       { emailService: fakeService },
     );
     expect(result.messageId).toBe('ses-abc');
@@ -64,7 +90,12 @@ describe('runSendEmail', () => {
     );
     await expect(
       runSendEmail(
-        { kind: 'forgot_password', to: 'a@b.com', token: 't' },
+        {
+          kind: 'forgot_password',
+          to: 'a@b.com',
+          token: 't',
+          appUrl: 'https://x.com',
+        },
         { emailService: errorService },
       ),
     ).rejects.toThrow('SES rate limit');

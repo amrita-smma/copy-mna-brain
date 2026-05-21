@@ -1,10 +1,5 @@
 import { sendEmail, type SendEmailInput, type SendEmailResult } from '@/lib/ses';
 
-// Hardcoded base URL placeholder. Override via NEXT_PUBLIC_APP_URL in
-// production. Used to construct links inside transactional email bodies.
-export const DEFAULT_APP_URL =
-  process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
-
 const RESET_PATH = '/reset-password';
 
 /**
@@ -17,10 +12,11 @@ export interface ForgotPasswordEmailInput {
   email: string;
   token: string;
   /**
-   * Override the app's base URL (used to build the reset link). Defaults to
-   * `NEXT_PUBLIC_APP_URL` from the env, falling back to localhost.
+   * The app's base URL used to build the reset link. Sourced from the
+   * incoming request's origin in the API route, then carried through the
+   * queue payload to this handler.
    */
-  appUrl?: string;
+  appUrl: string;
   /** Token TTL in minutes — surfaced in the body so users know the urgency. */
   ttlMinutes?: number;
 }
@@ -29,7 +25,7 @@ export interface ForgotPasswordEmailInput {
  * Build the reset URL that goes in the email body. Encodes the token to keep
  * special characters safe inside a query string.
  */
-export function buildResetUrl(token: string, appUrl: string = DEFAULT_APP_URL): string {
+export function buildResetUrl(token: string, appUrl: string): string {
   const base = appUrl.replace(/\/+$/, '');
   return `${base}${RESET_PATH}?token=${encodeURIComponent(token)}`;
 }
@@ -105,12 +101,13 @@ export class EmailService {
   async sendForgotPasswordEmail(
     input: ForgotPasswordEmailInput,
   ): Promise<SendEmailResult> {
-    const { email, token } = input;
+    const { email, token, appUrl } = input;
     if (!email) throw new Error('sendForgotPasswordEmail: email is required');
     if (!token) throw new Error('sendForgotPasswordEmail: token is required');
+    if (!appUrl) throw new Error('sendForgotPasswordEmail: appUrl is required');
 
     const ttlMinutes = input.ttlMinutes ?? 60;
-    const resetUrl = buildResetUrl(token, input.appUrl);
+    const resetUrl = buildResetUrl(token, appUrl);
     const { subject, html, text } = renderForgotPasswordEmail({ resetUrl, ttlMinutes });
 
     return this.sender({

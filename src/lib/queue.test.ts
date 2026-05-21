@@ -11,6 +11,7 @@ describe('enqueueSendEmail', () => {
       kind: 'forgot_password',
       to: 'user@example.com',
       token: 'tok-1',
+      appUrl: 'https://app.example.com',
     });
 
     const { send } = await import('@vercel/queue');
@@ -18,6 +19,7 @@ describe('enqueueSendEmail', () => {
       kind: 'forgot_password',
       to: 'user@example.com',
       token: 'tok-1',
+      appUrl: 'https://app.example.com',
     });
     expect(result).toEqual({ messageId: 'msg-1' });
   });

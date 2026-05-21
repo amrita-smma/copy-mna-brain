@@ -43,7 +43,12 @@ describe('POST /api/queues/send-email', () => {
       meta: unknown,
     ) => Promise<void>;
 
-    const message = { kind: 'forgot_password', to: 'a@b.com', token: 't' };
+    const message = {
+      kind: 'forgot_password',
+      to: 'a@b.com',
+      token: 't',
+      appUrl: 'https://x.com',
+    };
     await handler(message, { messageId: 'm1', deliveryCount: 1 });
 
     expect(runSendEmail).toHaveBeenCalledWith(message);

@@ -121,21 +121,27 @@ describe('AuthService.forgetPassword', () => {
 
   it('does not store a token or enqueue an email for unknown emails', async () => {
     vi.mocked(userRepo.findByEmail).mockResolvedValue(undefined);
-    const result = await service.forgetPassword('nobody@example.com');
+    const result = await service.forgetPassword(
+      'nobody@example.com',
+      'https://app.example.com',
+    );
     expect(result).toBeUndefined();
     expect(tokenRepo.create).not.toHaveBeenCalled();
     expect(enqueueSendEmailMock).not.toHaveBeenCalled();
   });
 
   it('returns void without writes for an empty email', async () => {
-    await service.forgetPassword('   ');
+    await service.forgetPassword('   ', 'https://app.example.com');
     expect(userRepo.findByEmail).not.toHaveBeenCalled();
     expect(enqueueSendEmailMock).not.toHaveBeenCalled();
   });
 
-  it('stores a token and enqueues a send-email message for a known user', async () => {
+  it('stores a token and enqueues a send-email message (with the request-origin appUrl) for a known user', async () => {
     vi.mocked(userRepo.findByEmail).mockResolvedValue(makeUser({ id: 'user-1' }));
-    await service.forgetPassword('  Test@Example.com  ');
+    await service.forgetPassword(
+      '  Test@Example.com  ',
+      'https://preview-123.vercel.app',
+    );
 
     const createCall = vi.mocked(tokenRepo.create).mock.calls[0][0];
     expect(createCall.user_id).toBe('user-1');
@@ -149,6 +155,7 @@ describe('AuthService.forgetPassword', () => {
       kind: 'forgot_password',
       to: 'test@example.com',
       token: createCall.token,
+      appUrl: 'https://preview-123.vercel.app',
     });
     expect(payload.ttlMinutes).toBeGreaterThan(0);
   });
@@ -158,7 +165,9 @@ describe('AuthService.forgetPassword', () => {
     enqueueSendEmailMock.mockRejectedValueOnce(new Error('queue down'));
 
     // Should not throw to the caller — the API contract is "always ok".
-    await expect(service.forgetPassword('test@example.com')).resolves.toBeUndefined();
+    await expect(
+      service.forgetPassword('test@example.com', 'https://app.example.com'),
+    ).resolves.toBeUndefined();
     // Token still persisted; user can retry.
     expect(tokenRepo.create).toHaveBeenCalled();
   });
