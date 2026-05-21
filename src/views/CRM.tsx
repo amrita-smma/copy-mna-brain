@@ -37,6 +37,7 @@ import {
   Building,
   ChevronDown,
   ChevronRight,
+  Download,
   Loader2,
   Mail,
   MessageSquare,
@@ -84,9 +85,10 @@ interface ContactWithMessages extends Contact {
 interface CRMProps {
   showCrm?: boolean;
   showAiWorkforce?: boolean;
+  showVaultSync?: boolean;
 }
 
-export default function CRM({ showCrm = false, showAiWorkforce = false }: CRMProps) {
+export default function CRM({ showCrm = false, showAiWorkforce = false, showVaultSync = false }: CRMProps) {
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
@@ -96,6 +98,7 @@ export default function CRM({ showCrm = false, showAiWorkforce = false }: CRMPro
 
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
   const [creating, setCreating] = useState(false);
+  const [vaultSyncing, setVaultSyncing] = useState(false);
   const [newContact, setNewContact] = useState({
     name: '',
     email: '',
@@ -221,6 +224,24 @@ export default function CRM({ showCrm = false, showAiWorkforce = false }: CRMPro
     }
   };
 
+  const handleVaultSync = async () => {
+    setVaultSyncing(true);
+    try {
+      const response = await fetch('/api/crm/vault-export', { method: 'POST' });
+      const result = await response.json();
+      if (response.ok) {
+        toast.success('Vault email sync started. Messages will appear once the export completes.');
+      } else {
+        toast.error(result.error || 'Failed to start vault sync');
+      }
+    } catch (error) {
+      console.error('Error starting vault sync:', error);
+      toast.error('Failed to start vault sync');
+    } finally {
+      setVaultSyncing(false);
+    }
+  };
+
   const getTypeColor = (type: string | null) => {
     switch (type) {
       case 'internal':
@@ -289,7 +310,23 @@ export default function CRM({ showCrm = false, showAiWorkforce = false }: CRMPro
               onChange={(e) => setSearchQuery(e.target.value)}
             />
           </div>
-          <Dialog open={isCreateDialogOpen} onOpenChange={setIsCreateDialogOpen}>
+          <div className="flex items-center gap-2">
+            {showVaultSync && (
+              <Button variant="outline" onClick={handleVaultSync} disabled={vaultSyncing}>
+                {vaultSyncing ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    Syncing...
+                  </>
+                ) : (
+                  <>
+                    <Download className="h-4 w-4 mr-2" />
+                    Sync Email (1d)
+                  </>
+                )}
+              </Button>
+            )}
+            <Dialog open={isCreateDialogOpen} onOpenChange={setIsCreateDialogOpen}>
             <DialogTrigger asChild>
               <Button>
                 <Plus className="h-4 w-4 mr-2" />
@@ -394,6 +431,7 @@ export default function CRM({ showCrm = false, showAiWorkforce = false }: CRMPro
               </DialogFooter>
             </DialogContent>
           </Dialog>
+          </div>
         </div>
 
         {/* Contacts List */}

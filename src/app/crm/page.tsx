@@ -1,10 +1,11 @@
 import CRM from '@/views/CRM';
-import { crmEnabled, aiWorkforceEnabled } from '@/lib/flags';
+import { crmEnabled, aiWorkforceEnabled, crmGoogleVaultSyncEnabled } from '@/lib/flags';
 
 export default async function CRMPage() {
-  const [isCrmEnabled, showAiWorkforce] = await Promise.all([
+  const [isCrmEnabled, showAiWorkforce, showVaultSync] = await Promise.all([
     crmEnabled().then(Boolean),
     aiWorkforceEnabled().then(Boolean),
+    crmGoogleVaultSyncEnabled().then(Boolean),
   ]);
 
   if (!isCrmEnabled) {
@@ -22,5 +23,5 @@ export default async function CRMPage() {
     );
   }
 
-  return <CRM showCrm={true} showAiWorkforce={showAiWorkforce} />;
+  return <CRM showCrm={true} showAiWorkforce={showAiWorkforce} showVaultSync={showVaultSync} />;
 }

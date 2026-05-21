@@ -12,3 +12,9 @@ export const aiWorkforceEnabled = flag<boolean>({
   defaultValue: process.env.AI_WORKFORCE_ENABLED === "true",
   adapter: vercelAdapter(),
 });
+
+export const crmGoogleVaultSyncEnabled = flag<boolean>({
+  key: "CRM_GOOGLE_VAULT_SYNC",
+  defaultValue: process.env.CRM_GOOGLE_VAULT_SYNC === "true",
+  adapter: vercelAdapter(),
+});

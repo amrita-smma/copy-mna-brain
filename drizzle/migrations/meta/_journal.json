@@ -302,6 +302,13 @@
       "when": 1779148800000,
       "tag": "20260519000000_add_retried_from_id_to_workforce_queue",
       "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "7",
+      "when": 1779321600000,
+      "tag": "20260521000000_add_vault_export_job_type",
+      "breakpoints": true
     }
   ]
 }

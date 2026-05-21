@@ -24,7 +24,10 @@
       "Bash(unzip -l /tmp/inter-dl/inter.zip)",
       "Bash(unzip -p /tmp/inter-dl/inter.zip \"extras/ttf/Inter-Regular.ttf\")",
       "Bash(npx vitest *)",
-      "Bash(gh pr *)"
+      "Bash(gh pr *)",
+      "Bash(grep -E \"\\\\.ts$\")",
+      "Bash(grep -v \"^$\")",
+      "Bash(grep \"\\\\.ts$\")"
     ]
   }
 }

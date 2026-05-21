@@ -41,6 +41,7 @@ export const jobType = pgEnum("job_type", [
   "ai_screening",
   "company_analysis",
   "stuck_cleanup",
+  "vault_export",
 ]);
 export const l1Result = pgEnum("l1_result", ["pass", "fail", "inconclusive"]);
 export const pipelineStage = pgEnum("pipeline_stage", [
