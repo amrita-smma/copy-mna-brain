@@ -10,10 +10,12 @@ import {
   ChevronRight,
   MessagesSquare,
   RefreshCw,
+  Search,
   X,
   Zap,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { Input } from '@/components/ui/input';
 
 import { RailGroup, RailItem } from './rail';
 import { TaskCanvas } from './TaskCanvas';
@@ -128,19 +130,24 @@ function RoutineChip({
   name: string;
   onClick: () => void;
 }) {
+  // Rendered as <span role="button"> rather than <button> because this chip
+  // appears inside RailItem's outer <button>, and HTML doesn't allow nested
+  // buttons (Next.js flags it as a hydration error). stopPropagation keeps
+  // the row's click handler from firing when the chip is clicked.
   return (
-    <button
-      type="button"
+    <span
+      role="button"
+      tabIndex={-1}
       onClick={(e) => {
         e.stopPropagation();
         onClick();
       }}
-      className="inline-flex items-center gap-1 min-w-0 text-[11px] text-emerald-700 hover:underline"
+      className="inline-flex items-center gap-1 min-w-0 text-[11px] text-emerald-700 hover:underline cursor-pointer"
       title={`Routine: ${name}`}
     >
       <RefreshCw className="h-2.5 w-2.5 flex-shrink-0" />
       <span className="truncate">{name}</span>
-    </button>
+    </span>
   );
 }
 
@@ -241,6 +248,7 @@ export function WorkforceTasks({ initialTaskId = null }: WorkforceTasksProps = {
   const [editingRoutine, setEditingRoutine] = useState<ApiRoutine | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [doneTodaySearch, setDoneTodaySearch] = useState('');
 
   const fetchQueue = useCallback(async () => {
     setError(null);
@@ -454,6 +462,14 @@ export function WorkforceTasks({ initialTaskId = null }: WorkforceTasksProps = {
       }));
   }, [items, routineNameById]);
 
+  const filteredDoneTodayItems = useMemo(() => {
+    const q = doneTodaySearch.trim().toLowerCase();
+    if (!q) return doneTodayItems;
+    return doneTodayItems.filter(({ task }) =>
+      task.title.toLowerCase().includes(q),
+    );
+  }, [doneTodayItems, doneTodaySearch]);
+
   const totalQueuePages = Math.max(1, Math.ceil(pendingItems.length / QUEUE_PAGE_SIZE));
   const paginatedQueue = useMemo(
     () =>
@@ -586,6 +602,7 @@ export function WorkforceTasks({ initialTaskId = null }: WorkforceTasksProps = {
                         : 'bg-emerald-50 text-emerald-700'
                     }
                     title={routine.name}
+                    tooltipText={routine.name}
                     meta={
                       <span className="flex items-center gap-1">
                         {routine.isFiring && (
@@ -611,6 +628,7 @@ export function WorkforceTasks({ initialTaskId = null }: WorkforceTasksProps = {
                     icon={<AlertCircle className="h-3 w-3" />}
                     iconClass="bg-amber-50 text-amber-600"
                     title={task.title}
+                    tooltipText={task.title}
                     meta={
                       <span className="flex items-center gap-1.5">
                         <span
@@ -648,6 +666,7 @@ export function WorkforceTasks({ initialTaskId = null }: WorkforceTasksProps = {
                       icon={<Icon className="h-3 w-3" />}
                       iconClass="bg-violet-100 text-violet-600"
                       title={task.title}
+                      tooltipText={task.title}
                       meta={
                         <span className="flex items-center gap-1.5 min-w-0">
                           {task.routineName && task.routineId ? (
@@ -726,6 +745,7 @@ export function WorkforceTasks({ initialTaskId = null }: WorkforceTasksProps = {
                             {task.title}
                           </>
                         }
+                        tooltipText={`#${position} ${task.title}`}
                         meta={
                           <span className="flex items-center gap-1.5 min-w-0">
                             {task.routineName && task.routineId ? (
@@ -791,11 +811,36 @@ export function WorkforceTasks({ initialTaskId = null }: WorkforceTasksProps = {
           {doneTodayItems.length > 0 && (
             <RailGroup
               label="Done today"
-              count={doneTodayItems.length}
+              count={filteredDoneTodayItems.length}
               collapsible
             >
+              <div className="relative mb-1">
+                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
+                <Input
+                  type="text"
+                  value={doneTodaySearch}
+                  onChange={(e) => setDoneTodaySearch(e.target.value)}
+                  placeholder="Search tasks..."
+                  className="h-8 pl-8 pr-7 text-[12px]"
+                />
+                {doneTodaySearch && (
+                  <button
+                    type="button"
+                    aria-label="Clear search"
+                    onClick={() => setDoneTodaySearch('')}
+                    className="absolute right-1.5 top-1/2 -translate-y-1/2 h-5 w-5 grid place-items-center rounded text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                )}
+              </div>
+              {filteredDoneTodayItems.length === 0 ? (
+                <div className="px-2.5 py-3 text-center text-[11px] text-muted-foreground">
+                  No tasks found
+                </div>
+              ) : (
               <div className="space-y-0.5">
-                {doneTodayItems.map(({ task, kind }) => {
+                {filteredDoneTodayItems.map(({ task, kind }) => {
                   // Per-outcome icon. Kept inline because this is the only
                   // place these mappings matter; lifting to a constant
                   // would buy nothing.
@@ -815,6 +860,7 @@ export function WorkforceTasks({ initialTaskId = null }: WorkforceTasksProps = {
                     icon={<Icon className="h-3 w-3" strokeWidth={kind === 'success' ? 3 : 2.5} />}
                     iconClass={iconClass}
                     title={task.title}
+                    tooltipText={task.title}
                     meta={
                       <span className="flex items-center gap-1.5 min-w-0">
                         {task.routineName && task.routineId ? (
@@ -846,6 +892,7 @@ export function WorkforceTasks({ initialTaskId = null }: WorkforceTasksProps = {
                   );
                 })}
               </div>
+              )}
             </RailGroup>
           )}
         </div>

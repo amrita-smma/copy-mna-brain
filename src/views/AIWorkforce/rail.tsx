@@ -3,6 +3,11 @@
 import * as React from 'react';
 import { ChevronDown, ChevronRight, GripVertical } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
 
 export function RailGroup({
   label,
@@ -72,6 +77,7 @@ export function RailItem({
   icon,
   iconClass,
   title,
+  tooltipText,
   meta,
   active,
   showDragHandle,
@@ -86,6 +92,9 @@ export function RailItem({
   icon: React.ReactNode;
   iconClass: string;
   title: React.ReactNode;
+  // Plain-text version of the title shown in a hover tooltip. Used because
+  // the title cell is `truncate`d and long task names get cut off otherwise.
+  tooltipText?: string;
   meta: React.ReactNode;
   active?: boolean;
   showDragHandle?: boolean;
@@ -97,7 +106,7 @@ export function RailItem({
   onDragEnd?: (e: React.DragEvent<HTMLButtonElement>) => void;
   onDrop?: (e: React.DragEvent<HTMLButtonElement>) => void;
 }) {
-  return (
+  const button = (
     <button
       type="button"
       onClick={onClick}
@@ -135,5 +144,20 @@ export function RailItem({
         <span className="block mt-0.5 text-[10.5px] text-muted-foreground">{meta}</span>
       </span>
     </button>
+  );
+
+  if (!tooltipText) return button;
+
+  return (
+    <Tooltip delayDuration={300}>
+      <TooltipTrigger asChild>{button}</TooltipTrigger>
+      <TooltipContent
+        side="top"
+        align="start"
+        className="max-w-[260px] text-xs leading-snug break-words"
+      >
+        {tooltipText}
+      </TooltipContent>
+    </Tooltip>
   );
 }
