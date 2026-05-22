@@ -25,7 +25,7 @@ export async function POST() {
       type: 'vault_export',
       payload: {
         custodianEmails: VAULT_CUSTODIAN_EMAILS,
-        daysBack: 1,
+        daysBack: 5,
       },
       timeoutSeconds: VAULT_EXPORT_TIMEOUT_SECONDS,
       work: ({ job, db: jobDb }) =>

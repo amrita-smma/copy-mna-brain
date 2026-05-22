@@ -450,8 +450,23 @@ export default function CRM({ showCrm = false, showAiWorkforce = false, showVaul
                 <p className="text-sm">Add your first contact to get started</p>
               </div>
             ) : (
-              <div className="space-y-2">
-                {contacts.map((contact) => (
+              <div className="space-y-6">
+                {Object.entries(
+                  contacts
+                    .slice()
+                    .sort((a, b) => a.name.localeCompare(b.name))
+                    .reduce<Record<string, Contact[]>>((groups, contact) => {
+                      const letter = contact.name[0]?.toUpperCase() ?? '#';
+                      (groups[letter] ??= []).push(contact);
+                      return groups;
+                    }, {}),
+                ).sort(([a], [b]) => a.localeCompare(b)).map(([letter, group]) => (
+                  <div key={letter}>
+                    <div className="text-xs font-semibold text-muted-foreground uppercase tracking-widest mb-2 px-1">
+                      {letter}
+                    </div>
+                    <div className="space-y-2">
+                {group.map((contact) => (
                   <div
                     key={contact.id}
                     className="border rounded-lg overflow-hidden"
@@ -573,9 +588,8 @@ export default function CRM({ showCrm = false, showAiWorkforce = false, showVaul
                                       )}
                                     </div>
                                     {message.subject && (
-                                      <p className="font-medium text-sm mb-1">{message.subject}</p>
+                                      <p className="font-medium text-sm">{message.subject}</p>
                                     )}
-                                    <p className="text-sm whitespace-pre-wrap">{message.body}</p>
                                     {(message.from_email || message.to_email) && (
                                       <div className="mt-2 pt-2 border-t text-xs text-muted-foreground">
                                         {message.from_email && <p>From: {message.from_email}</p>}
@@ -590,6 +604,9 @@ export default function CRM({ showCrm = false, showAiWorkforce = false, showVaul
                         )}
                       </div>
                     )}
+                  </div>
+                ))}
+                    </div>
                   </div>
                 ))}
               </div>

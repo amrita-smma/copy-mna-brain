@@ -74,7 +74,10 @@ export async function getVaultAccessToken(creds: VaultCredentials, subject?: str
   const jwt = makeJwt(
     creds.client_email,
     creds.private_key,
-    ['https://www.googleapis.com/auth/ediscovery'],
+    [
+      'https://www.googleapis.com/auth/ediscovery',
+      'https://www.googleapis.com/auth/devstorage.read_only',
+    ],
     subject,
   );
   const resp = await fetch('https://oauth2.googleapis.com/token', {
@@ -178,7 +181,7 @@ export async function closeVaultMatter(token: string, matterId: string): Promise
   await vaultRequest(token, 'POST', `/matters/${matterId}:close`, {});
 }
 
-export async function downloadExportFile(token: string, file: VaultExportFile): Promise<string> {
+export async function downloadExportFile(token: string, file: VaultExportFile): Promise<Buffer> {
   const encodedObject = encodeURIComponent(file.objectName);
   const url = `${STORAGE_DOWNLOAD_BASE}/b/${file.bucketName}/o/${encodedObject}?alt=media`;
   const resp = await fetch(url, {
@@ -187,7 +190,7 @@ export async function downloadExportFile(token: string, file: VaultExportFile): 
   if (!resp.ok) {
     throw new Error(`Failed to download export file ${file.objectName}: ${resp.status}`);
   }
-  return resp.text();
+  return Buffer.from(await resp.arrayBuffer());
 }
 
 // ─── MBOX + MIME parsing ──────────────────────────────────────────────────────

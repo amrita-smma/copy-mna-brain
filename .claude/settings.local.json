@@ -27,7 +27,8 @@
       "Bash(gh pr *)",
       "Bash(grep -E \"\\\\.ts$\")",
       "Bash(grep -v \"^$\")",
-      "Bash(grep \"\\\\.ts$\")"
+      "Bash(grep \"\\\\.ts$\")",
+      "WebFetch(domain:developers.google.com)"
     ]
   }
 }
