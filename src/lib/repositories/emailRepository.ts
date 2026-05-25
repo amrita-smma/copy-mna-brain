@@ -1,5 +1,5 @@
 import { and, desc, eq, gte, inArray, sql } from "drizzle-orm";
-import { emailParticipants, emails, employers } from "@/lib/db/schema";
+import { correspondents, emailParticipants, emails, employers } from "@/lib/db/schema";
 import type { DbClient } from "./types";
 
 export type Email = typeof emails.$inferSelect;
@@ -10,23 +10,31 @@ export type EmailParticipantInsert = typeof emailParticipants.$inferInsert;
 export class EmailRepository {
   constructor(private db: DbClient) {}
 
+  // Returns every email that touches the employer via any participant
+  // (sender or to/cc), not just emails whose sender's domain matches.
+  // Matches the CRM card's participant-based email_count semantics.
   async findByEmployerId(
     employerId: string,
     opts: { limit?: number } = {},
   ): Promise<Email[]> {
     return this.db
-      .select()
+      .selectDistinct()
       .from(emails)
-      .where(eq(emails.employer_id, employerId))
+      .innerJoin(emailParticipants, eq(emailParticipants.email_id, emails.id))
+      .innerJoin(correspondents, eq(correspondents.id, emailParticipants.correspondent_id))
+      .where(eq(correspondents.employer_id, employerId))
       .orderBy(desc(emails.sent_at))
-      .limit(opts.limit ?? 50);
+      .limit(opts.limit ?? 50)
+      .then((rows) => rows.map((r) => r.emails));
   }
 
   async countByEmployer(employerId: string): Promise<number> {
     const rows = await this.db
-      .select({ n: sql<number>`COUNT(*)` })
+      .select({ n: sql<number>`COUNT(DISTINCT ${emails.id})` })
       .from(emails)
-      .where(eq(emails.employer_id, employerId));
+      .innerJoin(emailParticipants, eq(emailParticipants.email_id, emails.id))
+      .innerJoin(correspondents, eq(correspondents.id, emailParticipants.correspondent_id))
+      .where(eq(correspondents.employer_id, employerId));
     return Number(rows[0]?.n ?? 0);
   }
 
@@ -83,8 +91,14 @@ export class EmailRepository {
       .where(
         and(
           eq(employers.curation_status, "published"),
+          // Match the CRM card: "last contact" = any email this employer's
+          // correspondents participated in (not just emails they sent).
           sql`COALESCE(
-            (SELECT MAX(${emails.sent_at}) FROM ${emails} WHERE ${emails.employer_id} = ${employers.id}),
+            (SELECT MAX(${emails.sent_at})
+             FROM ${emailParticipants}
+             JOIN ${correspondents} ON ${correspondents.id} = ${emailParticipants.correspondent_id}
+             JOIN ${emails}         ON ${emails.id}         = ${emailParticipants.email_id}
+             WHERE ${correspondents.employer_id} = ${employers.id}),
             ${employers.created_at}
           ) < ${thresholdIso}`,
         ),

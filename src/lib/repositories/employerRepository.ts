@@ -1,6 +1,7 @@
 import { and, asc, desc, eq, ilike, inArray, or, sql, type SQL } from "drizzle-orm";
 import {
   correspondents,
+  emailParticipants,
   emails,
   employers,
   employerTeamMembers,
@@ -76,7 +77,13 @@ export class EmployerRepository {
           )
         : undefined,
       filters.lastContactAfter
-        ? sql`EXISTS (SELECT 1 FROM ${emails} WHERE ${emails.employer_id} = ${employers.id} AND ${emails.sent_at} >= ${filters.lastContactAfter})`
+        ? sql`EXISTS (
+            SELECT 1 FROM ${emailParticipants}
+            JOIN ${correspondents} ON ${correspondents.id} = ${emailParticipants.correspondent_id}
+            JOIN ${emails}          ON ${emails.id}          = ${emailParticipants.email_id}
+            WHERE ${correspondents.employer_id} = ${employers.id}
+              AND ${emails.sent_at} >= ${filters.lastContactAfter}
+          )`
         : undefined,
       filters.topicIds && filters.topicIds.length > 0
         ? sql`EXISTS (SELECT 1 FROM ${employerTopics} WHERE ${employerTopics.employer_id} = ${employers.id} AND ${inArray(employerTopics.topic_id, filters.topicIds)})`
@@ -104,8 +111,25 @@ export class EmployerRepository {
         curation_status: employers.curation_status,
         created_at: employers.created_at,
         updated_at: employers.updated_at,
-        email_count: sql<number>`COALESCE((SELECT COUNT(*) FROM "emails" WHERE "emails"."employer_id" = "employers"."id"), 0)`,
-        last_contact_at: sql<string | null>`(SELECT MAX("emails"."sent_at") FROM "emails" WHERE "emails"."employer_id" = "employers"."id")`,
+        // Count any email that touches this firm via a participant (sender or
+        // to/cc), not just emails whose sender's domain matches. Otherwise an
+        // employer we only ever send TO (or one whose people are only CC'd)
+        // shows 0 emails even though they're clearly in the conversation.
+        // DISTINCT collapses cases where multiple people at the same firm are
+        // on the same email.
+        email_count: sql<number>`COALESCE((
+          SELECT COUNT(DISTINCT "email_participants"."email_id")
+          FROM "email_participants"
+          JOIN "correspondents" ON "correspondents"."id" = "email_participants"."correspondent_id"
+          WHERE "correspondents"."employer_id" = "employers"."id"
+        ), 0)`,
+        last_contact_at: sql<string | null>`(
+          SELECT MAX("emails"."sent_at")
+          FROM "email_participants"
+          JOIN "correspondents" ON "correspondents"."id" = "email_participants"."correspondent_id"
+          JOIN "emails" ON "emails"."id" = "email_participants"."email_id"
+          WHERE "correspondents"."employer_id" = "employers"."id"
+        )`,
         primary_pic: sql<EmployerSummary["primary_pic"]>`(
           SELECT jsonb_build_object(
             'id', "correspondents"."id",
@@ -140,14 +164,32 @@ export class EmployerRepository {
           JOIN "users" ON "users"."id" = "employer_team_members"."user_id"
           WHERE "employer_team_members"."employer_id" = "employers"."id"
         ), '[]'::jsonb)`,
+        // Auto vs manual is decided by the FIRST correspondent ever registered
+        // for this employer — if it came from the mbox ingest the employer is
+        // auto; otherwise (UI-created, future API source, etc.) it's manual.
+        // We lock in based on origin instead of "has emails right now" so the
+        // badge doesn't flip when revert/re-ingest temporarily empties data.
         source: sql<"auto" | "manual">`CASE
-          WHEN EXISTS (SELECT 1 FROM "emails" WHERE "emails"."employer_id" = "employers"."id")
-          THEN 'auto'::text ELSE 'manual'::text END`,
+          WHEN (
+            SELECT "correspondents"."source"
+            FROM "correspondents"
+            WHERE "correspondents"."employer_id" = "employers"."id"
+            ORDER BY "correspondents"."created_at" ASC, "correspondents"."id" ASC
+            LIMIT 1
+          ) = 'mbox' THEN 'auto'::text ELSE 'manual'::text END`,
       })
       .from(employers)
       .where(this.buildWhere(filters))
       .orderBy(
-        sql`(SELECT MAX(${emails.sent_at}) FROM ${emails} WHERE ${emails.employer_id} = ${employers.id}) DESC NULLS LAST`,
+        // Match the participant-based last_contact_at computed above, so the
+        // sort order agrees with the displayed value.
+        sql`(
+          SELECT MAX("emails"."sent_at")
+          FROM "email_participants"
+          JOIN "correspondents" ON "correspondents"."id" = "email_participants"."correspondent_id"
+          JOIN "emails" ON "emails"."id" = "email_participants"."email_id"
+          WHERE "correspondents"."employer_id" = "employers"."id"
+        ) DESC NULLS LAST`,
         asc(employers.name),
       )
       .limit(filters.limit ?? 50)
