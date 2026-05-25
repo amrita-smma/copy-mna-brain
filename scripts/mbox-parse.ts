@@ -183,6 +183,7 @@ const CSV_FIELDS = [
   'cc',
   'subject',
   'body',
+  'signature',
   'filter_reason',
 ] as const;
 
@@ -203,6 +204,7 @@ function recordToCsvRow(rec: AuditedEmail): string {
     cc: fmt(rec.cc),
     subject: rec.subject ?? '',
     body: rec.body,
+    signature: rec.signature ?? '',
     filter_reason: rec.filter_reason ?? '',
   };
   return CSV_FIELDS.map((f) => csvEscape(row[f])).join(',');

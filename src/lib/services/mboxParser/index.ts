@@ -20,6 +20,7 @@ export {
   parseMessage,
   parseAddresses,
   cleanBody,
+  extractSignature,
   extractBody,
   stripHtml,
   parseHeaders,
@@ -31,6 +32,33 @@ export {
   isCalendarInvite,
   isInternalOnly,
 } from './filter';
+export {
+  domainTag,
+  findBodyCandidates,
+  processEmail,
+  updateContact,
+  type Candidate,
+  type ContactRow,
+  type CountryCode,
+  type EnrichedEmail,
+  type LlmPayload,
+  type ProcessEmailOptions,
+} from './extract';
+export {
+  EMAIL_EXTRACTION_SCHEMA,
+  SYSTEM_PROMPT,
+  buildUserPrompt,
+  mergePeopleWithCandidates,
+  readQueue,
+  safeCustomId,
+  type EnrichedPerson,
+  type EnrichedRecord,
+  type EnrichmentError,
+  type EnrichmentResult,
+  type LlmExtraction,
+  type LlmPerson,
+  type QueueEntry,
+} from './llmEnrich';
 
 export interface ParseAndFilterOptions extends FilterOptions {
   minChars?: number;

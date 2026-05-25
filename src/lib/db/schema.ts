@@ -1,6 +1,7 @@
 import {
   pgTable,
   index,
+  uniqueIndex,
   pgPolicy,
   uuid,
   jsonb,
@@ -1858,8 +1859,12 @@ export const emails = pgTable(
     created_at: timestamp({ withTimezone: true, mode: "string" })
       .defaultNow()
       .notNull(),
+    message_id: text(),
   },
   (table) => ({
+    uqEmailsMessageId: uniqueIndex("uq_emails_message_id")
+      .on(table.message_id)
+      .where(sql`message_id IS NOT NULL`),
     idxEmailEmployerSent: index("idx_email_employer_sent").using(
       "btree",
       table.employer_id.asc().nullsLast().op("uuid_ops"),

@@ -1,0 +1,229 @@
+// Shared logic for the LLM enrichment step. Mirrors mna-mbox-parser/llm_extract.py.
+// Pure functions (prompt builder, merge step, schema, system prompt). Anything
+// I/O — local Ollama HTTP, Anthropic SDK batch calls — lives in
+// scripts/mbox-llm-enrich.ts so this module stays testable without network.
+
+import { createReadStream } from 'node:fs';
+import { createInterface } from 'node:readline';
+
+import type { Candidate } from './extract';
+
+// ─── Types ───────────────────────────────────────────────────────────────────
+
+export interface QueueEntry {
+  message_id: string;
+  subject: string;
+  sender_email: string;
+  domain_tag: string | null;
+  payload: {
+    body_snippet: string;
+    candidates: Candidate[];
+    want_topics: boolean;
+    want_names: boolean;
+  };
+}
+
+// What the LLM returns (raw, pre-merge).
+export interface LlmPerson {
+  name: string | null;
+  role: string | null;
+  company: string | null;
+  candidate_indices: number[];
+}
+
+export interface LlmExtraction {
+  topics: string[];
+  people: LlmPerson[];
+}
+
+// After merging LLM output back with the deterministic email/phone values.
+export interface EnrichedPerson {
+  name: string | null;
+  role: string | null;
+  company: string | null;
+  email: string | null;
+  phone: string | null;
+}
+
+export interface EnrichedRecord {
+  message_id: string;
+  sender_email?: string;
+  domain_tag?: string | null;
+  topics: string[];
+  people: EnrichedPerson[];
+}
+
+export interface EnrichmentError {
+  message_id: string;
+  error: string;
+}
+
+export type EnrichmentResult = EnrichedRecord | EnrichmentError;
+
+// ─── Schema (JSON Schema for Anthropic tool_use; mirrors Python's pydantic) ──
+
+export const EMAIL_EXTRACTION_SCHEMA = {
+  type: 'object',
+  properties: {
+    topics: {
+      type: 'array',
+      items: { type: 'string' },
+      description: "1-5 short topic tags (kebab-case, e.g. 'client-proposal', 'q3-planning')",
+    },
+    people: {
+      type: 'array',
+      description:
+        'One Person per unique person who owns at least one CANDIDATE. If no CANDIDATES were provided in the prompt, return [].',
+      items: {
+        type: 'object',
+        properties: {
+          name: {
+            type: ['string', 'null'],
+            description: "Person's name as written in the candidate's context; null if not identifiable from context",
+          },
+          role: {
+            type: ['string', 'null'],
+            description: 'Job title or role from context; null if not in context',
+          },
+          company: {
+            type: ['string', 'null'],
+            description: 'Company or organization from context; null if not in context',
+          },
+          candidate_indices: {
+            type: 'array',
+            items: { type: 'integer', minimum: 0 },
+            description:
+              'REQUIRED: indices [0, 1, ...] of the input CANDIDATES that belong to this person. If a person has both an email and phone candidate in the same signature, include BOTH indices.',
+          },
+        },
+        required: ['name', 'role', 'company', 'candidate_indices'],
+      },
+    },
+  },
+  required: ['topics', 'people'],
+} as const;
+
+// ─── Prompts (verbatim from the Python original — well-tested phrasing) ──────
+
+export const SYSTEM_PROMPT = `You extract structured info from a single email.
+
+PEOPLE RULES:
+- Each CANDIDATE has an [index], a type (EMAIL or PHONE), a value, and a CONTEXT.
+- Read the CONTEXT to find a name attached to the candidate. Names usually appear DIRECTLY before the address, e.g. "John Smith <john@acme.com>", "Sarah Lim sarah.lim@firm.com", or in a signature block right above the address.
+- If the same person owns multiple candidates (e.g. email and phone in the same signature), output ONE Person with all their candidate indices in \`candidate_indices\`.
+- Use ONLY what is explicitly in the CONTEXT for name/role/company. If something isn't there, return null. NEVER invent.
+- If NO candidates were provided, return an empty people list. Do NOT extract people from the email body alone.
+
+EXAMPLE INPUT:
+CANDIDATES:
+[0] EMAIL: john.smith@goldmansachs.com
+    CONTEXT: Best regards, John Smith Managing Director, Industrials Group Goldman Sachs +1 (212) 555-0100 john.smith@goldmansachs.com
+[1] PHONE: +12125550100
+    CONTEXT: Best regards, John Smith Managing Director, Industrials Group Goldman Sachs +1 (212) 555-0100 john.smith@goldmansachs.com
+[2] EMAIL: jen@startup.io
+    CONTEXT: forwarded message from jen@startup.io subject: re intro
+
+EXAMPLE OUTPUT:
+{
+  "people": [
+    {"name": "John Smith", "role": "Managing Director, Industrials Group", "company": "Goldman Sachs", "candidate_indices": [0, 1]},
+    {"name": null, "role": null, "company": null, "candidate_indices": [2]}
+  ]
+}
+
+THING TO CONSIDER:
+- sender_email is the email of the sender of the email
+
+TOPIC RULES:
+- 1-5 short kebab-case tags (e.g. "client-proposal", "billing", "industry-event", "project-A", "project-B", "company-A").
+
+Output must be valid JSON matching the requested schema.`;
+
+// Build the per-entry user prompt. Order matches the Python version exactly:
+// TASK → CANDIDATES → EMAIL BODY, so the model attends to candidates first.
+export function buildUserPrompt(entry: QueueEntry): string {
+  const { payload } = entry;
+  const sections: string[] = [];
+
+  const instructions: string[] = [];
+  if (payload.want_names) {
+    instructions.push(
+      '1. For each CANDIDATE below, identify which person owns it from its CONTEXT. Look for names DIRECTLY adjacent to the email/phone. Group candidates with the same context into a single Person.',
+    );
+  }
+  if (payload.want_topics) {
+    instructions.push('2. Extract 1-5 topic tags from the EMAIL BODY.');
+  }
+  sections.push(`TASK:\n${instructions.join('\n')}`);
+
+  if (payload.want_names && payload.candidates.length > 0) {
+    const candLines: string[] = [];
+    payload.candidates.forEach((c, idx) => {
+      candLines.push(`[${idx}] ${c.type.toUpperCase()}: ${c.value}`);
+      candLines.push(`    CONTEXT: ${c.context}`);
+    });
+    sections.push(`CANDIDATES:\n${candLines.join('\n')}`);
+  }
+
+  if (payload.want_topics) {
+    // Topics don't need 6000 chars; truncate further for cheaper calls.
+    const body = payload.body_snippet.slice(0, 2000);
+    sections.push(`EMAIL BODY:\n${body}`);
+  }
+
+  return sections.join('\n\n');
+}
+
+// Merge LLM-extracted name/role/company with the deterministic email/phone
+// candidate values. Drops people the model emitted without any candidate
+// ownership (hallucinations from the body).
+export function mergePeopleWithCandidates(
+  llmPeople: LlmPerson[],
+  candidates: Candidate[],
+): EnrichedPerson[] {
+  const out: EnrichedPerson[] = [];
+  for (const p of llmPeople) {
+    const person: EnrichedPerson = {
+      name: p.name ?? null,
+      role: p.role ?? null,
+      company: p.company ?? null,
+      email: null,
+      phone: null,
+    };
+    for (const idx of p.candidate_indices ?? []) {
+      if (idx >= 0 && idx < candidates.length) {
+        const cand = candidates[idx];
+        if (cand.type === 'email') person.email = cand.value;
+        else if (cand.type === 'phone') person.phone = cand.value;
+      }
+    }
+    if (person.email || person.phone) out.push(person);
+  }
+  return out;
+}
+
+// Anthropic batch custom_id rules: 1–64 chars, [A-Za-z0-9_-]. Message-IDs
+// have angle brackets and `@` so they need sanitizing; long ones get hashed.
+export function safeCustomId(messageId: string): string {
+  const cleaned = (messageId || '').replace(/[^A-Za-z0-9_-]/g, '_');
+  if (cleaned.length >= 1 && cleaned.length <= 64) return cleaned;
+  // SHA-256 of original, first 32 hex chars (deterministic, fits in 64).
+  const { createHash } = require('node:crypto') as typeof import('node:crypto');
+  return createHash('sha256').update(messageId || '').digest('hex').slice(0, 32);
+}
+
+// Stream-read llm_queue.jsonl into memory. Queue is small (≤ a few thousand
+// rows) so we just collect them — no need for a streaming consumer here.
+export async function readQueue(path: string, limit = 0): Promise<QueueEntry[]> {
+  const entries: QueueEntry[] = [];
+  const rl = createInterface({
+    input: createReadStream(path, { encoding: 'utf-8' }),
+    crlfDelay: Infinity,
+  });
+  for await (const line of rl) {
+    if (!line) continue;
+    entries.push(JSON.parse(line) as QueueEntry);
+    if (limit > 0 && entries.length >= limit) break;
+  }
+  return entries;
+}

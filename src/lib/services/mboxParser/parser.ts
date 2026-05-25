@@ -16,6 +16,9 @@ export interface ParsedEmail {
   cc: ParsedAddress[];
   subject: string;
   body: string;
+  // Sig block after the RFC 3676 `-- ` delimiter, with quoted replies stripped.
+  // Empty string when no delimiter is present.
+  signature: string;
 }
 
 export interface RawMessage {
@@ -302,6 +305,42 @@ const MULTI_NEWLINE_RE = /\n{3,}/g;
 // what a human sees. Escape form avoids GitHub's bidirectional-Unicode warning.
 const ZERO_WIDTH_RE = /[\u200B-\u200F\u202A-\u202E\uFEFF]/g;
 
+// Pulls the signature block out of an email body. We walk the raw (post-MIME,
+// post-HTML-strip) text looking for the RFC 3676 `-- ` delimiter, then collect
+// the lines that follow it until a quoted reply intro is reached. Returns ''
+// when no delimiter is present, which is the common case for emails without a
+// proper sig (Outlook inline sigs, short replies, etc.).
+export function extractSignature(text: string): string {
+  if (!text) return '';
+  const normalized = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n').replace(ZERO_WIDTH_RE, '');
+  const lines = normalized.split('\n');
+
+  let sigStart = -1;
+  for (let i = 0; i < lines.length; i++) {
+    const stripped = lines[i].trim();
+    if (stripped.startsWith('>')) continue;
+    // Reply intro before any delimiter — this email's sig (if any) was inside
+    // the quoted thread, not on this message.
+    if (QUOTE_INTRO_RE.test(stripped)) return '';
+    if (stripped === '--') {
+      sigStart = i + 1;
+      break;
+    }
+  }
+
+  if (sigStart === -1) return '';
+
+  const sigLines: string[] = [];
+  for (let i = sigStart; i < lines.length; i++) {
+    const stripped = lines[i].trim();
+    if (stripped.startsWith('>')) break;
+    if (QUOTE_INTRO_RE.test(stripped)) break;
+    sigLines.push(lines[i]);
+  }
+
+  return sigLines.join('\n').trim().replace(WHITESPACE_RE, ' ').replace(MULTI_NEWLINE_RE, '\n\n');
+}
+
 export function cleanBody(text: string, dropUrls = false): string {
   if (!text) return '';
   let s = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n').replace(ZERO_WIDTH_RE, '');
@@ -343,6 +382,7 @@ export function parseMessage(raw: RawMessage, opts: ParseMessageOptions = {}): P
     cc,
     subject: getHeader(raw.headers, 'subject'),
     body: cleanBody(bodyRaw, opts.dropUrls ?? false),
+    signature: extractSignature(bodyRaw),
   };
 }
 

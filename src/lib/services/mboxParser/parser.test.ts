@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   parseAddresses,
   cleanBody,
+  extractSignature,
   stripHtml,
   parseHeaders,
   normalizeDate,
@@ -116,6 +117,46 @@ describe('cleanBody', () => {
   });
 });
 
+describe('extractSignature', () => {
+  it('returns "" for empty input', () => {
+    expect(extractSignature('')).toBe('');
+  });
+
+  it('returns "" when no "-- " delimiter is present', () => {
+    expect(extractSignature('Hi there.\nThanks,\nAlice')).toBe('');
+  });
+
+  it('returns the block after the "-- " delimiter', () => {
+    const sig = extractSignature('Body content.\n-- \nAlice Banker\nVice President\n+62 812 1234 5678');
+    expect(sig).toBe('Alice Banker\nVice President\n+62 812 1234 5678');
+  });
+
+  it('also matches the bare "--" delimiter without a trailing space', () => {
+    expect(extractSignature('Body.\n--\nAlice')).toBe('Alice');
+  });
+
+  it('stops at a quoted reply that follows the signature', () => {
+    const sig = extractSignature(
+      'Body.\n-- \nAlice\n+62 812 0000\nOn Mon, Jan 1 2024 Bob wrote:\nold content',
+    );
+    expect(sig).toBe('Alice\n+62 812 0000');
+  });
+
+  it('stops at a `>`-prefixed quoted line that follows the signature', () => {
+    const sig = extractSignature('Body.\n-- \nAlice\n+62 812 0000\n> previous message');
+    expect(sig).toBe('Alice\n+62 812 0000');
+  });
+
+  it('returns "" when a quoted-reply intro appears before the delimiter', () => {
+    expect(extractSignature('FYR\nOn Mon, Jan 1 Alice wrote:\n-- \nstale sig')).toBe('');
+  });
+
+  it('collapses runs of whitespace and newlines inside the signature', () => {
+    const sig = extractSignature('Body.\n-- \nAlice    Banker\n\n\n\n+62 812 1234');
+    expect(sig).toBe('Alice Banker\n\n+62 812 1234');
+  });
+});
+
 describe('stripHtml', () => {
   it('removes <script> blocks entirely', () => {
     expect(stripHtml('<p>Hi</p><script>alert(1)</script>')).not.toContain('alert');
@@ -216,8 +257,22 @@ describe('splitMboxMessages + parseMessage', () => {
     expect(parsed.cc).toEqual([{ name: '', email: 'cc@z.com' }]);
     expect(parsed.subject).toBe('hello');
     expect(parsed.body).toBe('Body text long enough to keep.');
+    expect(parsed.signature).toBe('');
     expect(parsed.message_id).toBe('<msg-hello@x>');
     expect(parsed.date).toBe('2024-01-01T10:00:00.000Z');
+  });
+
+  it('populates signature when the body has a "-- " delimiter', () => {
+    const raw = makeMsg({
+      from: 'Alice <alice@x.com>',
+      to: 'Bob <bob@y.com>',
+      subject: 'with sig',
+      body: 'Body text long enough to keep.\n-- \nAlice Banker\nVice President\n+62 812 1234 5678',
+    });
+    const [msg] = splitMboxMessages(raw);
+    const parsed = parseMessage(msg);
+    expect(parsed.body).toBe('Body text long enough to keep.');
+    expect(parsed.signature).toBe('Alice Banker\nVice President\n+62 812 1234 5678');
   });
 
   it('returns [] for empty content', () => {
