@@ -418,7 +418,6 @@ export class CRMService {
       id: string;
       name: string;
       industry: string | null;
-      industry_category: string | null;
       status: string;
       primary_pic: {
         id: string;
@@ -441,7 +440,6 @@ export class CRMService {
           id: emp.id,
           name: emp.name,
           industry: emp.industry,
-          industry_category: emp.industry_category,
           status: emp.status,
           primary_pic: primary
             ? {

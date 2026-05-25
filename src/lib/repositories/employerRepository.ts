@@ -38,7 +38,6 @@ export interface EmployerSummary {
   name: string;
   normalized_name: string;
   industry: string | null;
-  industry_category: string | null;
   status: string;
   curation_status: string;
   source: "auto" | "manual";
@@ -101,7 +100,6 @@ export class EmployerRepository {
         name: employers.name,
         normalized_name: employers.normalized_name,
         industry: employers.industry,
-        industry_category: employers.industry_category,
         status: employers.status,
         curation_status: employers.curation_status,
         created_at: employers.created_at,
@@ -160,7 +158,6 @@ export class EmployerRepository {
       name: r.name,
       normalized_name: r.normalized_name,
       industry: r.industry,
-      industry_category: r.industry_category,
       status: r.status,
       curation_status: r.curation_status,
       source: r.source,

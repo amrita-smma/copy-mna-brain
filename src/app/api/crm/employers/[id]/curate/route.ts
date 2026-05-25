@@ -21,8 +21,6 @@ function pickPatch(raw: Record<string, unknown>): CuratePatch {
   const patch: CuratePatch = {};
   if (typeof raw.name === 'string') patch.name = raw.name;
   if ('industry' in raw) patch.industry = (raw.industry ?? null) as string | null;
-  if ('industry_category' in raw)
-    patch.industry_category = (raw.industry_category ?? null) as string | null;
   const pic = raw.primary_pic;
   if (pic && typeof pic === 'object') {
     const p = pic as Record<string, unknown>;

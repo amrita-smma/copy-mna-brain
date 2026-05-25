@@ -1554,7 +1554,6 @@ export const employers = pgTable(
     name: text().notNull(),
     normalized_name: text().notNull(),
     industry: text(),
-    industry_category: text(),
     status: text().default("inbound").notNull(),
     curation_status: text().default("published").notNull(),
     created_at: timestamp({ withTimezone: true, mode: "string" })

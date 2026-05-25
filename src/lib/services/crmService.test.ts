@@ -306,8 +306,8 @@ describe('CRMService.curateEmployer', () => {
 describe('CRMService.listFlaggedEmployerDetails', () => {
   it('returns each flagged employer with its primary correspondent', async () => {
     employerRepo.listFlagged.mockResolvedValue([
-      { id: 'e1', name: 'GS', industry: 'IB', industry_category: 'Inv. Bank', status: 'inbound' },
-      { id: 'e2', name: 'MS', industry: null, industry_category: null, status: 'outbound' },
+      { id: 'e1', name: 'GS', industry: 'IB', status: 'inbound' },
+      { id: 'e2', name: 'MS', industry: null, status: 'outbound' },
     ]);
     correspondentRepo.findByEmployerId
       .mockResolvedValueOnce([
@@ -321,7 +321,6 @@ describe('CRMService.listFlaggedEmployerDetails', () => {
       id: 'e1',
       name: 'GS',
       industry: 'IB',
-      industry_category: 'Inv. Bank',
       primary_pic: { id: 'c1', name: 'James', email: 'j@gs.com' },
     });
     expect(out[1].primary_pic).toBeNull();

@@ -1,31 +1,31 @@
-'use client';
+"use client";
 
-import DashboardLayout from '@/components/layout/DashboardLayout';
-import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
+import DashboardLayout from "@/components/layout/DashboardLayout";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from '@/components/ui/dialog';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
-} from '@/components/ui/popover';
-import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Textarea } from '@/components/ui/textarea';
-import { cn } from '@/lib/utils';
+} from "@/components/ui/popover";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Textarea } from "@/components/ui/textarea";
+import { cn } from "@/lib/utils";
 import {
   formatDistanceToNow,
   formatDistanceToNowStrict,
   format,
-} from 'date-fns';
+} from "date-fns";
 import {
   AlertTriangle,
   Calendar,
@@ -39,9 +39,9 @@ import {
   Users,
   X,
   Zap,
-} from 'lucide-react';
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { toast } from 'sonner';
+} from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { toast } from "sonner";
 
 // ─── Types matching backend payloads ─────────────────────────────────────────
 
@@ -71,10 +71,9 @@ interface EmployerSummary {
   name: string;
   normalized_name: string;
   industry: string | null;
-  industry_category: string | null;
   status: string;
   curation_status: string;
-  source: 'auto' | 'manual';
+  source: "auto" | "manual";
   created_at: string;
   updated_at: string;
   primary_pic: PrimaryPic | null;
@@ -114,7 +113,12 @@ interface EmployerTopicAssignment {
 }
 
 interface EmployerDetail {
-  employer: { id: string; name: string; industry: string | null; status: string };
+  employer: {
+    id: string;
+    name: string;
+    industry: string | null;
+    status: string;
+  };
   primary_pic: Correspondent | null;
   correspondents: Correspondent[];
   notes: EmployerNote[];
@@ -139,28 +143,33 @@ interface Topic {
   slug: string;
 }
 
-type LastContactPreset = 'today' | 'yesterday' | 'week' | 'month' | 'custom';
+type LastContactPreset = "today" | "yesterday" | "week" | "month" | "custom";
 
 const LAST_CONTACT_LABELS: Record<LastContactPreset, string> = {
-  today: 'Today',
-  yesterday: 'Yesterday',
-  week: 'Last 7 days',
-  month: 'Last 30 days',
-  custom: 'Custom date',
+  today: "Today",
+  yesterday: "Yesterday",
+  week: "Last 7 days",
+  month: "Last 30 days",
+  custom: "Custom date",
 };
 
-const PAGE_SIZE = 8;
+const PAGE_SIZE = 50;
+
+// Tab trigger styling for expanded-card tabs — strips the shadcn pill highlight
+// and replaces it with a purple bottom border on the active tab.
+const tabTriggerCls =
+  "relative -mb-px rounded-none border-b-2 border-transparent bg-transparent px-3 py-2 text-sm font-medium text-muted-foreground shadow-none transition-colors data-[state=active]:border-indigo-600 data-[state=active]:bg-transparent data-[state=active]:text-indigo-700 data-[state=active]:shadow-none dark:data-[state=active]:text-indigo-300";
 
 // ─── Deterministic avatar palette ────────────────────────────────────────────
 
 const AVATAR_PALETTE = [
-  'from-indigo-500 to-violet-600',
-  'from-amber-500 to-orange-600',
-  'from-teal-500 to-emerald-600',
-  'from-pink-500 to-rose-600',
-  'from-slate-500 to-slate-700',
-  'from-violet-500 to-purple-600',
-  'from-sky-500 to-blue-600',
+  "from-indigo-500 to-violet-600",
+  "from-amber-500 to-orange-600",
+  "from-teal-500 to-emerald-600",
+  "from-pink-500 to-rose-600",
+  "from-slate-500 to-slate-700",
+  "from-violet-500 to-purple-600",
+  "from-sky-500 to-blue-600",
 ] as const;
 
 /**
@@ -181,7 +190,7 @@ function initialsOf(name: string): string {
     .split(/\s+/)
     .filter(Boolean)
     .map((s) => s[0])
-    .join('')
+    .join("")
     .slice(0, 2)
     .toUpperCase();
 }
@@ -189,20 +198,20 @@ function initialsOf(name: string): string {
 // Seed list shown inside the Add-tag input's <datalist>. The full menu of
 // existing topics still comes from /api/crm/topics.
 const TOPIC_SUGGESTIONS = [
-  'CMP slurry',
-  'lithography',
-  'wet processing',
-  'acquisition',
-  'mandate',
-  'TIM',
-  'carve-out',
-  'financing',
-  'buy-side',
-  'PE exit',
-  'packaging',
-  'Korea',
-  'specialty chem',
-  'semiconductors',
+  "CMP slurry",
+  "lithography",
+  "wet processing",
+  "acquisition",
+  "mandate",
+  "TIM",
+  "carve-out",
+  "financing",
+  "buy-side",
+  "PE exit",
+  "packaging",
+  "Korea",
+  "specialty chem",
+  "semiconductors",
 ];
 
 // ─── Page ───────────────────────────────────────────────────────────────────
@@ -223,11 +232,13 @@ export default function CRM({
   const [insights, setInsights] = useState<Insights | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const [search, setSearch] = useState('');
-  const [debouncedSearch, setDebouncedSearch] = useState('');
+  const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
 
-  const [lastContact, setLastContact] = useState<LastContactPreset | null>(null);
-  const [customDate, setCustomDate] = useState<string>('');
+  const [lastContact, setLastContact] = useState<LastContactPreset | null>(
+    null,
+  );
+  const [customDate, setCustomDate] = useState<string>("");
   const [topicFilter, setTopicFilter] = useState<Set<string>>(new Set());
   const [teamFilter, setTeamFilter] = useState<Set<string>>(new Set());
 
@@ -240,9 +251,9 @@ export default function CRM({
   const [loadingDetail, setLoadingDetail] = useState<string | null>(null);
 
   const [addContactOpen, setAddContactOpen] = useState(false);
-  const [addContactEmployerId, setAddContactEmployerId] = useState<string | null>(
-    null,
-  );
+  const [addContactEmployerId, setAddContactEmployerId] = useState<
+    string | null
+  >(null);
 
   const [curationOpen, setCurationOpen] = useState(false);
 
@@ -257,18 +268,18 @@ export default function CRM({
     setLoading(true);
     try {
       const params = new URLSearchParams();
-      if (debouncedSearch) params.set('q', debouncedSearch);
-      if (lastContact) params.set('lastContact', lastContact);
-      if (lastContact === 'custom' && customDate)
-        params.set('customDate', customDate);
-      topicFilter.forEach((id) => params.append('topicId', id));
-      teamFilter.forEach((id) => params.append('teamUserId', id));
-      params.set('limit', String(PAGE_SIZE));
-      params.set('offset', String((page - 1) * PAGE_SIZE));
+      if (debouncedSearch) params.set("q", debouncedSearch);
+      if (lastContact) params.set("lastContact", lastContact);
+      if (lastContact === "custom" && customDate)
+        params.set("customDate", customDate);
+      topicFilter.forEach((id) => params.append("topicId", id));
+      teamFilter.forEach((id) => params.append("teamUserId", id));
+      params.set("limit", String(PAGE_SIZE));
+      params.set("offset", String((page - 1) * PAGE_SIZE));
 
       const res = await fetch(`/api/crm?${params.toString()}`);
       const json = await res.json();
-      if (!res.ok) throw new Error(json.error || 'Failed to load CRM');
+      if (!res.ok) throw new Error(json.error || "Failed to load CRM");
       setEmployers(json.data);
       setTotal(json.total);
       setInsights(json.insights);
@@ -286,11 +297,11 @@ export default function CRM({
 
   // ─── Load filter sources ──────────────────────────────────────────────────
   useEffect(() => {
-    fetch('/api/crm/topics')
+    fetch("/api/crm/topics")
       .then((r) => r.json())
       .then((j) => setTopics(j.data ?? []))
       .catch(() => undefined);
-    fetch('/api/crm/team-users')
+    fetch("/api/crm/team-users")
       .then((r) => r.json())
       .then((j) => setTeamUsers(j.data ?? []))
       .catch(() => undefined);
@@ -302,7 +313,7 @@ export default function CRM({
     try {
       const res = await fetch(`/api/crm/employers/${id}`);
       const json = await res.json();
-      if (!res.ok) throw new Error(json.error || 'Failed to load employer');
+      if (!res.ok) throw new Error(json.error || "Failed to load employer");
       setDetails((prev) => ({ ...prev, [id]: json.data }));
     } catch (err) {
       toast.error((err as Error).message);
@@ -325,11 +336,11 @@ export default function CRM({
     const tags: Array<{ key: string; label: string; clear: () => void }> = [];
     if (lastContact) {
       tags.push({
-        key: 'lc',
+        key: "lc",
         label: `Last contact: ${LAST_CONTACT_LABELS[lastContact]}`,
         clear: () => {
           setLastContact(null);
-          setCustomDate('');
+          setCustomDate("");
         },
       });
     }
@@ -337,7 +348,7 @@ export default function CRM({
       const t = topics.find((x) => x.id === id);
       if (!t) return;
       tags.push({
-        key: 'topic:' + id,
+        key: "topic:" + id,
         label: `Topic: ${t.name}`,
         clear: () =>
           setTopicFilter((s) => {
@@ -351,7 +362,7 @@ export default function CRM({
       const u = teamUsers.find((x) => x.id === id);
       if (!u) return;
       tags.push({
-        key: 'team:' + id,
+        key: "team:" + id,
         label: u.name,
         clear: () =>
           setTeamFilter((s) => {
@@ -383,7 +394,7 @@ export default function CRM({
             setAddContactOpen(true);
           }}
           onShowStale={() => {
-            setLastContact('month');
+            setLastContact("month");
             setPage(1);
           }}
           onOpenCuration={() => setCurationOpen(true)}
@@ -407,122 +418,124 @@ export default function CRM({
           </div>
         )}
 
-        <div className="flex-1 overflow-y-auto px-7 py-3">
-          {/* Toolbar */}
-          <div className="mb-2 flex flex-wrap items-center gap-2">
-            <div className="relative min-w-[180px] flex-1">
-              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                placeholder="Search by firm name or PIC name…"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                className="pl-9"
-              />
-            </div>
-
-            <LastContactFilter
-              value={lastContact}
-              customDate={customDate}
-              onChange={(v, custom) => {
-                setLastContact(v);
-                setCustomDate(custom ?? '');
-                setPage(1);
-              }}
-            />
-
-            <TopicFilter
-              topics={topics}
-              selected={topicFilter}
-              onChange={(next) => {
-                setTopicFilter(next);
-                setPage(1);
-              }}
-            />
-
-            <TeamFilter
-              users={teamUsers}
-              selected={teamFilter}
-              onChange={(next) => {
-                setTeamFilter(next);
-                setPage(1);
-              }}
-            />
-          </div>
-
-          {/* Active filter chips */}
-          {activeTags.length > 0 && (
-            <div className="mb-3 flex flex-wrap gap-1">
-              {activeTags.map((t) => (
-                <button
-                  key={t.key}
-                  className="inline-flex items-center gap-1 rounded-md bg-indigo-100 px-2 py-0.5 text-xs font-semibold text-indigo-700 hover:bg-indigo-600 hover:text-white dark:bg-indigo-950 dark:text-indigo-300"
-                  onClick={t.clear}
-                >
-                  {t.label}
-                  <X className="h-3 w-3" />
-                </button>
-              ))}
-            </div>
-          )}
-
-          {/* Column headers */}
-          <div className="mb-1 grid grid-cols-[40px_minmax(180px,1.4fr)_minmax(110px,0.9fr)_minmax(180px,1.4fr)_minmax(110px,0.9fr)_minmax(180px,1.6fr)_minmax(140px,1fr)_40px] gap-3 px-3 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-            <div />
-            <div>Source</div>
-            <div>Industry Focus</div>
-            <div>Primary PIC</div>
-            <div>Last Contact</div>
-            <div>Topics</div>
-            <div>Team Member</div>
-            <div />
-          </div>
-
-          {/* Cards */}
-          {loading ? (
-            <div className="flex items-center justify-center py-16">
-              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-            </div>
-          ) : employers.length === 0 ? (
-            <div className="flex flex-col items-center gap-2 py-16 text-muted-foreground">
-              <Users className="h-10 w-10 opacity-50" />
-              <p>No employers match these filters.</p>
-            </div>
-          ) : (
-            <div className="space-y-2">
-              {employers.map((emp) => (
-                <EmployerCard
-                  key={emp.id}
-                  employer={emp}
-                  expanded={expandedId === emp.id}
-                  detail={details[emp.id]}
-                  loadingDetail={loadingDetail === emp.id}
-                  onToggle={() => toggleExpand(emp.id)}
-                  onAddContact={() => {
-                    setAddContactEmployerId(emp.id);
-                    setAddContactOpen(true);
-                  }}
-                  onRefreshDetail={() => loadDetail(emp.id)}
-                  onRefreshList={() => fetchEmployers()}
+        <div className="flex-1 overflow-y-auto">
+          <div className="mx-auto max-w-screen-2xl px-7 py-3">
+            {/* Toolbar */}
+            <div className="mb-2 flex flex-wrap items-center gap-2">
+              <div className="relative min-w-[180px] flex-1">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  placeholder="Search by firm name or PIC name…"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  className="pl-9"
                 />
-              ))}
-            </div>
-          )}
-
-          {/* Pagination */}
-          {total > PAGE_SIZE && (
-            <div className="mt-6 flex items-center justify-between border-t pt-4">
-              <div className="text-sm text-muted-foreground">
-                Showing {(page - 1) * PAGE_SIZE + 1}–
-                {Math.min(page * PAGE_SIZE, total)} of <strong>{total}</strong>{' '}
-                firms
               </div>
-              <Pagination
-                page={page}
-                totalPages={totalPages}
-                onChange={setPage}
+
+              <LastContactFilter
+                value={lastContact}
+                customDate={customDate}
+                onChange={(v, custom) => {
+                  setLastContact(v);
+                  setCustomDate(custom ?? "");
+                  setPage(1);
+                }}
+              />
+
+              <TopicFilter
+                topics={topics}
+                selected={topicFilter}
+                onChange={(next) => {
+                  setTopicFilter(next);
+                  setPage(1);
+                }}
+              />
+
+              <TeamFilter
+                users={teamUsers}
+                selected={teamFilter}
+                onChange={(next) => {
+                  setTeamFilter(next);
+                  setPage(1);
+                }}
               />
             </div>
-          )}
+
+            {/* Active filter chips */}
+            {activeTags.length > 0 && (
+              <div className="mb-3 flex flex-wrap gap-1">
+                {activeTags.map((t) => (
+                  <button
+                    key={t.key}
+                    className="inline-flex items-center gap-1 rounded-md bg-indigo-100 px-2 py-0.5 text-xs font-semibold text-indigo-700 hover:bg-indigo-600 hover:text-white dark:bg-indigo-950 dark:text-indigo-300"
+                    onClick={t.clear}
+                  >
+                    {t.label}
+                    <X className="h-3 w-3" />
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {/* Column headers */}
+            <div className="mb-1 grid grid-cols-[36px_minmax(0,1.6fr)_minmax(0,1fr)_minmax(0,1.6fr)_minmax(0,1fr)_minmax(0,1.6fr)_minmax(0,1.1fr)_28px] gap-3 px-3 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+              <div />
+              <div>Source</div>
+              <div>Industry Focus</div>
+              <div>Primary PIC</div>
+              <div>Last Contact</div>
+              <div>Topics</div>
+              <div>Team Member</div>
+              <div />
+            </div>
+
+            {/* Cards */}
+            {loading ? (
+              <div className="flex items-center justify-center py-16">
+                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+              </div>
+            ) : employers.length === 0 ? (
+              <div className="flex flex-col items-center gap-2 py-16 text-muted-foreground">
+                <Users className="h-10 w-10 opacity-50" />
+                <p>No employers match these filters.</p>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {employers.map((emp) => (
+                  <EmployerCard
+                    key={emp.id}
+                    employer={emp}
+                    expanded={expandedId === emp.id}
+                    detail={details[emp.id]}
+                    loadingDetail={loadingDetail === emp.id}
+                    onToggle={() => toggleExpand(emp.id)}
+                    onAddContact={() => {
+                      setAddContactEmployerId(emp.id);
+                      setAddContactOpen(true);
+                    }}
+                    onRefreshDetail={() => loadDetail(emp.id)}
+                    onRefreshList={() => fetchEmployers()}
+                  />
+                ))}
+              </div>
+            )}
+
+            {/* Pagination */}
+            {total > PAGE_SIZE && (
+              <div className="mt-6 flex items-center justify-between border-t pt-4">
+                <div className="text-sm text-muted-foreground">
+                  Showing {(page - 1) * PAGE_SIZE + 1}–
+                  {Math.min(page * PAGE_SIZE, total)} of{" "}
+                  <strong>{total}</strong> firms
+                </div>
+                <Pagination
+                  page={page}
+                  totalPages={totalPages}
+                  onChange={setPage}
+                />
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
@@ -566,11 +579,11 @@ function PageHeader({
   const handleSync = async () => {
     setSyncing(true);
     try {
-      const res = await fetch('/api/crm/vault-export', { method: 'POST' });
-      if (res.ok) toast.success('Vault sync started');
+      const res = await fetch("/api/crm/vault-export", { method: "POST" });
+      if (res.ok) toast.success("Vault sync started");
       else {
         const j = await res.json().catch(() => ({}));
-        toast.error(j.error || 'Failed to start vault sync');
+        toast.error(j.error || "Failed to start vault sync");
       }
     } finally {
       setSyncing(false);
@@ -631,11 +644,11 @@ function PageHeader({
             <>
               <strong className="text-foreground">
                 {insights?.stale_employers ?? 0} firms
-              </strong>{' '}
+              </strong>{" "}
               silent 30+ days
             </>
           }
-          cta={{ label: 'Follow up →', onClick: onShowStale }}
+          cta={{ label: "Follow up →", onClick: onShowStale }}
         />
         <InsightItem
           tone="amber"
@@ -644,11 +657,11 @@ function PageHeader({
             <>
               <strong className="text-foreground">
                 {insights?.flagged_records ?? 0} records
-              </strong>{' '}
+              </strong>{" "}
               need curation
             </>
           }
-          cta={{ label: 'Review →', onClick: onOpenCuration }}
+          cta={{ label: "Review →", onClick: onOpenCuration }}
         />
         <InsightItem
           tone="green"
@@ -657,7 +670,7 @@ function PageHeader({
             <>
               <strong className="text-foreground">
                 {insights?.emails_today ?? 0} new emails
-              </strong>{' '}
+              </strong>{" "}
               today
             </>
           }
@@ -680,7 +693,7 @@ function InsightItem({
   cta,
   subline,
 }: {
-  tone: 'red' | 'amber' | 'green';
+  tone: "red" | "amber" | "green";
   icon: React.ReactNode;
   body: React.ReactNode;
   cta?: { label: string; onClick: () => void };
@@ -688,13 +701,20 @@ function InsightItem({
   subline?: React.ReactNode;
 }) {
   const toneClasses = {
-    red: 'bg-red-100 text-red-600 dark:bg-red-950/40 dark:text-red-300',
-    amber: 'bg-orange-100 text-orange-600 dark:bg-orange-950/40 dark:text-orange-300',
-    green: 'bg-emerald-100 text-emerald-600 dark:bg-emerald-950/40 dark:text-emerald-300',
+    red: "bg-red-100 text-red-600 dark:bg-red-950/40 dark:text-red-300",
+    amber:
+      "bg-orange-100 text-orange-600 dark:bg-orange-950/40 dark:text-orange-300",
+    green:
+      "bg-emerald-100 text-emerald-600 dark:bg-emerald-950/40 dark:text-emerald-300",
   }[tone];
   return (
     <div className="flex items-start gap-2 border-r px-4 py-2 text-sm text-muted-foreground">
-      <div className={cn('mt-0.5 grid h-5 w-5 place-items-center rounded-md', toneClasses)}>
+      <div
+        className={cn(
+          "mt-0.5 grid h-5 w-5 place-items-center rounded-md",
+          toneClasses,
+        )}
+      >
         {icon}
       </div>
       <div className="flex flex-col gap-0.5">
@@ -731,7 +751,9 @@ function SyncSubline({
   nextSyncAt: string | null;
 }) {
   if (!lastSyncedAt) return null;
-  const synced = formatDistanceToNow(new Date(lastSyncedAt), { addSuffix: true });
+  const synced = formatDistanceToNow(new Date(lastSyncedAt), {
+    addSuffix: true,
+  });
   const next =
     nextSyncAt && new Date(nextSyncAt).getTime() > Date.now()
       ? formatDistanceToNowStrict(new Date(nextSyncAt))
@@ -769,15 +791,19 @@ function LastContactFilter({
 
   // Trigger label stays "Last Contact" — the active selection is communicated
   // via the active-filter chip strip below the toolbar.
-  const label = 'Last Contact';
+  const label = "Last Contact";
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <Button
-          variant={value ? 'default' : 'outline'}
+          variant={value ? "default" : "outline"}
           size="sm"
-          className={cn('gap-1', value && 'bg-indigo-100 text-indigo-700 hover:bg-indigo-200 dark:bg-indigo-950 dark:text-indigo-200')}
+          className={cn(
+            "gap-1",
+            value &&
+              "bg-indigo-100 text-indigo-700 hover:bg-indigo-200 dark:bg-indigo-950 dark:text-indigo-200",
+          )}
         >
           <Calendar className="h-3 w-3" />
           {label}
@@ -789,22 +815,28 @@ function LastContactFilter({
           Show firms contacted…
         </div>
         <RadioGroup
-          value={draft ?? ''}
+          value={draft ?? ""}
           onValueChange={(v) => setDraft(v as LastContactPreset)}
         >
-          {(['today', 'yesterday', 'week', 'month', 'custom'] as LastContactPreset[]).map(
-            (preset) => (
-              <label
-                key={preset}
-                className="flex cursor-pointer items-center gap-2 rounded-md p-1.5 text-sm hover:bg-muted"
-              >
-                <RadioGroupItem value={preset} />
-                {LAST_CONTACT_LABELS[preset]}
-              </label>
-            ),
-          )}
+          {(
+            [
+              "today",
+              "yesterday",
+              "week",
+              "month",
+              "custom",
+            ] as LastContactPreset[]
+          ).map((preset) => (
+            <label
+              key={preset}
+              className="flex cursor-pointer items-center gap-2 rounded-md p-1.5 text-sm hover:bg-muted"
+            >
+              <RadioGroupItem value={preset} />
+              {LAST_CONTACT_LABELS[preset]}
+            </label>
+          ))}
         </RadioGroup>
-        {draft === 'custom' && (
+        {draft === "custom" && (
           <Input
             type="date"
             value={draftDate}
@@ -817,7 +849,7 @@ function LastContactFilter({
             className="text-xs font-semibold text-muted-foreground hover:text-red-600"
             onClick={() => {
               setDraft(null);
-              setDraftDate('');
+              setDraftDate("");
               onChange(null);
               setOpen(false);
             }}
@@ -851,7 +883,7 @@ function TopicFilter({
   onChange: (next: Set<string>) => void;
 }) {
   const [open, setOpen] = useState(false);
-  const [query, setQuery] = useState('');
+  const [query, setQuery] = useState("");
   const [draft, setDraft] = useState<Set<string>>(new Set(selected));
 
   useEffect(() => {
@@ -863,18 +895,18 @@ function TopicFilter({
   );
 
   const first = topics.find((t) => selected.has(t.id));
-  const label = selected.size === 0 ? 'Topic' : first?.name ?? 'Topic';
+  const label = selected.size === 0 ? "Topic" : (first?.name ?? "Topic");
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <Button
-          variant={selected.size ? 'default' : 'outline'}
+          variant={selected.size ? "default" : "outline"}
           size="sm"
           className={cn(
-            'gap-1',
+            "gap-1",
             selected.size &&
-              'bg-indigo-100 text-indigo-700 hover:bg-indigo-200 dark:bg-indigo-950 dark:text-indigo-200',
+              "bg-indigo-100 text-indigo-700 hover:bg-indigo-200 dark:bg-indigo-950 dark:text-indigo-200",
           )}
         >
           <Tag className="h-3 w-3" />
@@ -907,8 +939,8 @@ function TopicFilter({
                   key={t.id}
                   type="button"
                   className={cn(
-                    'flex w-full items-center gap-2 rounded-md p-1.5 text-left text-sm hover:bg-muted',
-                    on && 'font-semibold text-indigo-700 dark:text-indigo-300',
+                    "flex w-full items-center gap-2 rounded-md p-1.5 text-left text-sm hover:bg-muted",
+                    on && "font-semibold text-indigo-700 dark:text-indigo-300",
                   )}
                   onClick={() => {
                     const next = new Set(draft);
@@ -919,8 +951,8 @@ function TopicFilter({
                   <span
                     aria-hidden
                     className={cn(
-                      'flex h-4 w-4 shrink-0 items-center justify-center rounded-sm border border-primary',
-                      on && 'bg-primary text-primary-foreground',
+                      "flex h-4 w-4 shrink-0 items-center justify-center rounded-sm border border-primary",
+                      on && "bg-primary text-primary-foreground",
                     )}
                   >
                     {on && <Check className="h-3 w-3" />}
@@ -969,7 +1001,7 @@ function TeamFilter({
   onChange: (next: Set<string>) => void;
 }) {
   const [open, setOpen] = useState(false);
-  const [query, setQuery] = useState('');
+  const [query, setQuery] = useState("");
   const [draft, setDraft] = useState<Set<string>>(new Set(selected));
 
   useEffect(() => {
@@ -981,18 +1013,18 @@ function TeamFilter({
   );
   const first = users.find((u) => selected.has(u.id));
   const label =
-    selected.size === 0 ? 'Team member' : first?.name.split(' ')[0] ?? 'Team';
+    selected.size === 0 ? "Team member" : (first?.name.split(" ")[0] ?? "Team");
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <Button
-          variant={selected.size ? 'default' : 'outline'}
+          variant={selected.size ? "default" : "outline"}
           size="sm"
           className={cn(
-            'gap-1',
+            "gap-1",
             selected.size &&
-              'bg-indigo-100 text-indigo-700 hover:bg-indigo-200 dark:bg-indigo-950 dark:text-indigo-200',
+              "bg-indigo-100 text-indigo-700 hover:bg-indigo-200 dark:bg-indigo-950 dark:text-indigo-200",
           )}
         >
           <Users className="h-3 w-3" />
@@ -1025,8 +1057,8 @@ function TeamFilter({
                   key={u.id}
                   type="button"
                   className={cn(
-                    'flex w-full items-center gap-2 rounded-md p-1.5 text-left text-sm hover:bg-muted',
-                    on && 'font-semibold text-indigo-700 dark:text-indigo-300',
+                    "flex w-full items-center gap-2 rounded-md p-1.5 text-left text-sm hover:bg-muted",
+                    on && "font-semibold text-indigo-700 dark:text-indigo-300",
                   )}
                   onClick={() => {
                     const next = new Set(draft);
@@ -1037,8 +1069,8 @@ function TeamFilter({
                   <span
                     aria-hidden
                     className={cn(
-                      'flex h-4 w-4 shrink-0 items-center justify-center rounded-sm border border-primary',
-                      on && 'bg-primary text-primary-foreground',
+                      "flex h-4 w-4 shrink-0 items-center justify-center rounded-sm border border-primary",
+                      on && "bg-primary text-primary-foreground",
                     )}
                   >
                     {on && <Check className="h-3 w-3" />}
@@ -1100,41 +1132,39 @@ function EmployerCard({
     ? formatDistanceToNow(new Date(employer.last_contact_at), {
         addSuffix: true,
       })
-    : '—';
+    : "—";
   const isStale = employer.last_contact_at
     ? Date.now() - new Date(employer.last_contact_at).getTime() >
       30 * 24 * 60 * 60 * 1000
     : true;
   const initials = initialsOf(employer.name);
   const avatarGradient = colorForId(employer.id);
-  const metaLabel =
-    employer.industry_category ??
-    (employer.status === 'inbound' ? 'Inbound' : 'Outbound');
+  const metaLabel = employer.status === "inbound" ? "Inbound" : "Outbound";
   const summaryTopics = [...employer.topics]
     .sort(
       (a, b) =>
         Number(b.is_highlight) - Number(a.is_highlight) ||
-        (a.source === 'auto' ? -1 : 1),
+        (a.source === "auto" ? -1 : 1),
     )
     .slice(0, 2);
 
   return (
     <div
       className={cn(
-        'overflow-hidden rounded-lg border bg-card transition-all',
+        "overflow-hidden rounded-lg border bg-card transition-all",
         expanded
-          ? 'border-indigo-500 shadow-md shadow-indigo-500/10'
-          : 'hover:border-foreground/20',
+          ? "border-indigo-500 shadow-md shadow-indigo-500/10"
+          : "hover:border-foreground/20",
       )}
     >
       <button
         type="button"
         onClick={onToggle}
-        className="grid w-full grid-cols-[40px_minmax(180px,1.4fr)_minmax(110px,0.9fr)_minmax(180px,1.4fr)_minmax(110px,0.9fr)_minmax(180px,1.6fr)_minmax(140px,1fr)_40px] items-center gap-3 px-3 py-2.5 text-left"
+        className="grid w-full grid-cols-[36px_minmax(0,1.6fr)_minmax(0,1fr)_minmax(0,1.6fr)_minmax(0,1fr)_minmax(0,1.6fr)_minmax(0,1.1fr)_28px] items-center gap-3 px-3 py-2.5 text-left"
       >
         <div
           className={cn(
-            'grid h-8 w-8 place-items-center rounded-lg bg-gradient-to-br text-xs font-bold text-white',
+            "grid h-8 w-8 place-items-center rounded-lg bg-gradient-to-br text-xs font-bold text-white",
             avatarGradient,
           )}
         >
@@ -1148,20 +1178,20 @@ function EmployerCard({
             <Badge
               variant="outline"
               className={cn(
-                'inline-flex h-4 items-center gap-0.5 px-1.5 text-[9px] font-semibold uppercase',
-                employer.source === 'auto'
-                  ? 'border-orange-200 bg-orange-50 text-orange-700 dark:bg-orange-950/40 dark:text-orange-300'
-                  : 'text-muted-foreground',
+                "inline-flex h-4 items-center gap-0.5 px-1.5 text-[9px] font-semibold uppercase",
+                employer.source === "auto"
+                  ? "border-orange-200 bg-orange-50 text-orange-700 dark:bg-orange-950/40 dark:text-orange-300"
+                  : "text-muted-foreground",
               )}
             >
-              {employer.source === 'auto' && <Mail className="h-2.5 w-2.5" />}
+              {employer.source === "auto" && <Mail className="h-2.5 w-2.5" />}
               {employer.source}
             </Badge>
           </div>
         </div>
 
-        <div className="truncate text-xs font-semibold text-muted-foreground">
-          {employer.industry ?? '—'}
+        <div className="min-w-0 truncate text-xs font-semibold text-muted-foreground">
+          {employer.industry ?? "—"}
         </div>
 
         <div className="min-w-0">
@@ -1171,7 +1201,7 @@ function EmployerCard({
                 {employer.primary_pic.name}
               </div>
               <div className="truncate text-[10px] text-muted-foreground">
-                {employer.primary_pic.title ?? '—'}
+                {employer.primary_pic.title ?? "—"}
               </div>
               {employer.primary_pic.email && (
                 <div className="truncate font-mono text-[9px] text-indigo-600 dark:text-indigo-400">
@@ -1184,31 +1214,35 @@ function EmployerCard({
           )}
         </div>
 
-        <div>
+        <div className="min-w-0">
           <div
             className={cn(
-              'text-sm font-semibold',
-              isStale ? 'text-orange-600' : 'text-emerald-600',
+              "truncate text-sm font-semibold",
+              isStale ? "text-orange-600" : "text-emerald-600",
             )}
           >
             {lastContact}
           </div>
           {employer.last_contact_at && (
-            <div className="text-[10px] text-muted-foreground">
-              {format(new Date(employer.last_contact_at), 'MMM d, yyyy')}
+            <div className="truncate text-[10px] text-muted-foreground">
+              {format(new Date(employer.last_contact_at), "MMM d, yyyy")}
             </div>
           )}
         </div>
 
         <div className="min-w-0">
-          <div className="mb-0.5 text-xs font-semibold">
-            {employer.email_count} email{employer.email_count === 1 ? '' : 's'}
+          <div className="mb-0.5 truncate text-xs font-semibold">
+            {employer.email_count} email{employer.email_count === 1 ? "" : "s"}
           </div>
-          <div className="flex flex-wrap gap-1">
+          <div className="flex flex-nowrap items-center gap-1 overflow-hidden">
             {summaryTopics.length === 0 ? (
               <span className="text-[10px] text-muted-foreground">No tags</span>
             ) : (
-              summaryTopics.map((t) => <TopicChipBadge key={t.id} topic={t} />)
+              summaryTopics.map((t) => (
+                <div key={t.id} className="min-w-0 flex-shrink truncate">
+                  <TopicChipBadge topic={t} />
+                </div>
+              ))
             )}
           </div>
         </div>
@@ -1217,18 +1251,21 @@ function EmployerCard({
           {employer.team.length === 0 ? (
             <span className="text-[10px] text-muted-foreground">—</span>
           ) : (
-            <div className="flex flex-wrap gap-1">
+            <div className="flex flex-nowrap items-center gap-1 overflow-hidden">
               {employer.team.slice(0, 3).map((t) => (
                 <Badge
                   key={t.id}
                   variant="outline"
-                  className="h-4 px-1.5 text-[10px] font-semibold"
+                  className="h-4 max-w-[80px] flex-shrink-0 truncate px-1.5 text-[10px] font-semibold"
                 >
-                  {t.name.split(' ')[0]}
+                  {t.name.split(" ")[0]}
                 </Badge>
               ))}
               {employer.team.length > 3 && (
-                <Badge variant="outline" className="h-4 px-1.5 text-[10px]">
+                <Badge
+                  variant="outline"
+                  className="h-4 flex-shrink-0 px-1.5 text-[10px]"
+                >
                   +{employer.team.length - 3}
                 </Badge>
               )}
@@ -1238,8 +1275,8 @@ function EmployerCard({
 
         <ChevronDown
           className={cn(
-            'h-4 w-4 text-muted-foreground transition-transform',
-            expanded && 'rotate-180',
+            "h-4 w-4 text-muted-foreground transition-transform",
+            expanded && "rotate-180",
           )}
         />
       </button>
@@ -1265,18 +1302,22 @@ function EmployerCard({
   );
 }
 
-function TopicChipBadge({ topic }: { topic: TopicChip | EmployerTopicAssignment }) {
+function TopicChipBadge({
+  topic,
+}: {
+  topic: TopicChip | EmployerTopicAssignment;
+}) {
   const cls =
-    topic.source === 'auto'
-      ? 'bg-orange-50 text-orange-700 border-orange-200 dark:bg-orange-950/40 dark:text-orange-300'
-      : 'bg-muted text-foreground';
+    topic.source === "auto"
+      ? "bg-orange-50 text-orange-700 border-orange-200 dark:bg-orange-950/40 dark:text-orange-300"
+      : "bg-muted text-foreground";
   return (
     <Badge
       variant="outline"
       className={cn(
-        'h-4 px-1.5 text-[10px] font-semibold',
+        "h-4 px-1.5 text-[10px] font-semibold",
         cls,
-        topic.is_highlight && 'ring-1 ring-indigo-300',
+        topic.is_highlight && "ring-1 ring-indigo-300",
       )}
     >
       {topic.name}
@@ -1301,14 +1342,18 @@ function ExpandedTabs({
 }) {
   return (
     <Tabs defaultValue="contacts" className="w-full">
-      <TabsList className="h-auto rounded-none border-b bg-background px-5">
-        <TabsTrigger value="contacts">
-          Contacts <span className="ml-1 text-xs">({detail.correspondents.length})</span>
+      <TabsList className="h-auto w-full justify-start rounded-none border-b bg-background px-5 py-0">
+        <TabsTrigger value="contacts" className={tabTriggerCls}>
+          Contacts{" "}
+          <span className="ml-1 text-xs">({detail.correspondents.length})</span>
         </TabsTrigger>
-        <TabsTrigger value="topics">
-          Topics Tag <span className="ml-1 text-xs">({detail.topics.length})</span>
+        <TabsTrigger value="topics" className={tabTriggerCls}>
+          Topics Tag{" "}
+          <span className="ml-1 text-xs">({detail.topics.length})</span>
         </TabsTrigger>
-        <TabsTrigger value="notes">Notes</TabsTrigger>
+        <TabsTrigger value="notes" className={tabTriggerCls}>
+          Notes
+        </TabsTrigger>
       </TabsList>
 
       <TabsContent value="contacts" className="px-5 pb-5 pt-4">
@@ -1331,7 +1376,7 @@ function ExpandedTabs({
               <div key={c.id} className="flex items-start gap-3 py-3">
                 <div
                   className={cn(
-                    'grid h-8 w-8 place-items-center rounded-full bg-gradient-to-br text-[10px] font-bold text-white',
+                    "grid h-8 w-8 place-items-center rounded-full bg-gradient-to-br text-[10px] font-bold text-white",
                     colorForId(c.id),
                   )}
                 >
@@ -1350,7 +1395,9 @@ function ExpandedTabs({
                     )}
                   </div>
                   {c.title && (
-                    <div className="text-xs text-muted-foreground">{c.title}</div>
+                    <div className="text-xs text-muted-foreground">
+                      {c.title}
+                    </div>
                   )}
                   {c.email && (
                     <div className="mt-0.5 font-mono text-[11px] text-indigo-600 dark:text-indigo-400">
@@ -1404,29 +1451,28 @@ function TopicsTab({
   onChanged: () => void;
 }) {
   const [adding, setAdding] = useState(false);
-  const [name, setName] = useState('');
-  const [confirmRemove, setConfirmRemove] = useState<EmployerTopicAssignment | null>(
-    null,
-  );
+  const [name, setName] = useState("");
+  const [confirmRemove, setConfirmRemove] =
+    useState<EmployerTopicAssignment | null>(null);
 
   const handleAdd = async () => {
     const v = name.trim();
     if (!v) {
-      toast.error('Enter a tag name');
+      toast.error("Enter a tag name");
       return;
     }
     const res = await fetch(`/api/crm/employers/${employerId}/topics`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name: v }),
     });
     const json = await res.json().catch(() => ({}));
     if (!res.ok) {
-      toast.error(json.error || 'Failed to add tag');
+      toast.error(json.error || "Failed to add tag");
       return;
     }
-    toast.success('Tag added');
-    setName('');
+    toast.success("Tag added");
+    setName("");
     setAdding(false);
     onChanged();
   };
@@ -1434,13 +1480,15 @@ function TopicsTab({
   const handleRemove = async (topic: EmployerTopicAssignment) => {
     const res = await fetch(
       `/api/crm/employers/${employerId}/topics/${topic.topic_id}`,
-      { method: 'DELETE' },
+      { method: "DELETE" },
     );
     if (!res.ok) {
-      toast.error('Failed to remove tag');
+      toast.error("Failed to remove tag");
       return;
     }
-    toast.success(topic.source === 'auto' ? 'Auto tag dismissed' : 'Tag removed');
+    toast.success(
+      topic.source === "auto" ? "Auto tag dismissed" : "Tag removed",
+    );
     setConfirmRemove(null);
     onChanged();
   };
@@ -1487,10 +1535,10 @@ function TopicsTab({
             className="max-w-[200px]"
             autoFocus
             onKeyDown={(e) => {
-              if (e.key === 'Enter') handleAdd();
-              if (e.key === 'Escape') {
+              if (e.key === "Enter") handleAdd();
+              if (e.key === "Escape") {
                 setAdding(false);
-                setName('');
+                setName("");
               }
             }}
           />
@@ -1501,7 +1549,7 @@ function TopicsTab({
             className="text-xs font-semibold text-muted-foreground hover:text-foreground"
             onClick={() => {
               setAdding(false);
-              setName('');
+              setName("");
             }}
           >
             Cancel
@@ -1510,13 +1558,16 @@ function TopicsTab({
       )}
 
       <div className="mt-3 text-[10px] text-muted-foreground">
-        <Badge variant="outline" className="mr-1 h-4 px-1.5 text-[9px]">
-          auto
-        </Badge>{' '}
-        from emails &nbsp;·&nbsp;{' '}
+        <span
+          className="mr-1 inline-flex h-4 items-center rounded-full px-1.5 text-[9px] font-semibold text-orange-600"
+          style={{ border: "1px solid #f97316" }}
+        >
+          Auto
+        </span>{" "}
+        from emails &nbsp;·&nbsp;{" "}
         <Badge variant="outline" className="mr-1 h-4 px-1.5 text-[9px]">
           manual
-        </Badge>{' '}
+        </Badge>{" "}
         added by you
       </div>
 
@@ -1529,7 +1580,7 @@ function TopicsTab({
             <DialogTitle>Delete topic?</DialogTitle>
           </DialogHeader>
           <p className="text-sm text-muted-foreground">
-            {confirmRemove?.source === 'auto' ? 'Dismiss' : 'Delete'} topic “
+            {confirmRemove?.source === "auto" ? "Dismiss" : "Delete"} topic “
             {confirmRemove?.name}”? This cannot be undone.
           </p>
           <DialogFooter>
@@ -1562,11 +1613,11 @@ function NotesTab({
   team: TeamMemberSummary[];
   onChanged: () => void;
 }) {
-  const [content, setContent] = useState(notes[0]?.content ?? '');
+  const [content, setContent] = useState(notes[0]?.content ?? "");
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    setContent(notes[0]?.content ?? '');
+    setContent(notes[0]?.content ?? "");
   }, [notes]);
 
   const save = async () => {
@@ -1574,12 +1625,12 @@ function NotesTab({
     setSaving(true);
     try {
       const res = await fetch(`/api/crm/employers/${employerId}/notes`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ content }),
       });
-      if (!res.ok) throw new Error('Save failed');
-      toast.success('Note saved');
+      if (!res.ok) throw new Error("Save failed");
+      toast.success("Note saved");
       onChanged();
     } catch (err) {
       toast.error((err as Error).message);
@@ -1613,7 +1664,7 @@ function NotesTab({
               <span
                 key={m.id}
                 className={cn(
-                  'grid h-5 w-5 place-items-center rounded-full bg-gradient-to-br text-[8px] font-bold text-white',
+                  "grid h-5 w-5 place-items-center rounded-full bg-gradient-to-br text-[8px] font-bold text-white",
                   colorForId(m.id),
                 )}
                 title={m.name}
@@ -1623,7 +1674,7 @@ function NotesTab({
             ))}
           </div>
           <span className="text-xs font-medium normal-case text-muted-foreground">
-            {team.map((m) => m.name.split(' ')[0]).join(', ')}
+            {team.map((m) => m.name.split(" ")[0]).join(", ")}
           </span>
         </div>
       )}
@@ -1634,10 +1685,10 @@ function NotesTab({
             {notes.slice(1).map((n) => (
               <li key={n.id}>
                 <span className="text-[10px] text-muted-foreground">
-                  {format(new Date(n.created_at), 'MMM d, yyyy')}
-                </span>{' '}
+                  {format(new Date(n.created_at), "MMM d, yyyy")}
+                </span>{" "}
                 — {n.content.slice(0, 80)}
-                {n.content.length > 80 ? '…' : ''}
+                {n.content.length > 80 ? "…" : ""}
               </li>
             ))}
           </ul>
@@ -1660,7 +1711,7 @@ interface CompanyPickerValue {
 function CompanyPicker({
   value,
   locked,
-  placeholder = 'Select company',
+  placeholder = "Select company",
   onChange,
 }: {
   value: CompanyPickerValue | null;
@@ -1669,8 +1720,8 @@ function CompanyPicker({
   onChange: (next: CompanyPickerValue) => void;
 }) {
   const [open, setOpen] = useState(false);
-  const [query, setQuery] = useState('');
-  const [debounced, setDebounced] = useState('');
+  const [query, setQuery] = useState("");
+  const [debounced, setDebounced] = useState("");
   const [items, setItems] = useState<EmployerSummary[]>([]);
   const [loading, setLoading] = useState(false);
 
@@ -1683,8 +1734,8 @@ function CompanyPicker({
     if (!open) return;
     let cancelled = false;
     setLoading(true);
-    const params = new URLSearchParams({ limit: '20' });
-    if (debounced) params.set('q', debounced);
+    const params = new URLSearchParams({ limit: "20" });
+    if (debounced) params.set("q", debounced);
     fetch(`/api/crm?${params.toString()}`)
       .then((r) => r.json())
       .then((j) => {
@@ -1715,10 +1766,10 @@ function CompanyPicker({
           size="sm"
           disabled={locked}
           className={cn(
-            'w-full justify-between gap-2 font-medium',
+            "w-full justify-between gap-2 font-medium",
             value?.name &&
-              'border-indigo-300 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 dark:bg-indigo-950 dark:text-indigo-200',
-            locked && 'cursor-default opacity-90',
+              "border-indigo-300 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 dark:bg-indigo-950 dark:text-indigo-200",
+            locked && "cursor-default opacity-90",
           )}
         >
           <span className="truncate">{label}</span>
@@ -1754,8 +1805,9 @@ function CompanyPicker({
                   key={c.id}
                   type="button"
                   className={cn(
-                    'flex w-full items-center gap-2 rounded-md p-1.5 text-left text-sm hover:bg-muted',
-                    isSel && 'font-semibold text-indigo-700 dark:text-indigo-300',
+                    "flex w-full items-center gap-2 rounded-md p-1.5 text-left text-sm hover:bg-muted",
+                    isSel &&
+                      "font-semibold text-indigo-700 dark:text-indigo-300",
                   )}
                   onClick={() => {
                     onChange({ name: c.name, id: c.id });
@@ -1802,19 +1854,19 @@ function AddContactDialog({
   onCreated: () => void;
 }) {
   const [firm, setFirm] = useState<CompanyPickerValue | null>(null);
-  const [name, setName] = useState('');
-  const [email, setEmail] = useState('');
-  const [phone, setPhone] = useState('');
-  const [title, setTitle] = useState('');
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [phone, setPhone] = useState("");
+  const [title, setTitle] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
     if (!open) {
       setFirm(null);
-      setName('');
-      setEmail('');
-      setPhone('');
-      setTitle('');
+      setName("");
+      setEmail("");
+      setPhone("");
+      setTitle("");
     } else if (employerId) {
       const existing = employers.find((e) => e.id === employerId);
       setFirm(existing ? { name: existing.name, id: existing.id } : null);
@@ -1825,26 +1877,26 @@ function AddContactDialog({
 
   const submit = async () => {
     if (!name.trim()) {
-      toast.error('Name is required');
+      toast.error("Name is required");
       return;
     }
     if (!firm?.name) {
-      toast.error('Firm is required');
+      toast.error("Firm is required");
       return;
     }
     setSubmitting(true);
     try {
       const targetId = firm.id ?? (await ensureEmployer(firm.name));
       const res = await fetch(`/api/crm/employers/${targetId}/contacts`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name, email, phone, title }),
       });
       if (!res.ok) {
         const j = await res.json().catch(() => ({}));
-        throw new Error(j.error || 'Failed to create contact');
+        throw new Error(j.error || "Failed to create contact");
       }
-      toast.success('Contact created');
+      toast.success("Contact created");
       onCreated();
     } catch (err) {
       toast.error((err as Error).message);
@@ -1861,7 +1913,9 @@ function AddContactDialog({
         </DialogHeader>
         <div className="space-y-3 py-2">
           <div>
-            <Label className="mb-1 block text-[10px] uppercase">Company *</Label>
+            <Label className="mb-1 block text-[10px] uppercase">
+              Company *
+            </Label>
             <CompanyPicker
               value={firm}
               locked={lockedFirm}
@@ -1920,26 +1974,26 @@ function AddContactDialog({
 
 async function ensureEmployer(name: string): Promise<string> {
   const trimmed = name.trim();
-  if (!trimmed) throw new Error('Firm name is required');
-  const res = await fetch('/api/crm', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+  if (!trimmed) throw new Error("Firm name is required");
+  const res = await fetch("/api/crm", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ name: trimmed }),
   });
   const j = await res.json();
   if (res.status === 409) {
     // Already exists — re-fetch it to grab the id
-    const list = await fetch(
-      '/api/crm?q=' + encodeURIComponent(trimmed),
-    ).then((r) => r.json());
+    const list = await fetch("/api/crm?q=" + encodeURIComponent(trimmed)).then(
+      (r) => r.json(),
+    );
     const found = list.data?.find(
       (e: EmployerSummary) =>
         e.name.trim().toLowerCase() === trimmed.toLowerCase(),
     );
-    if (!found) throw new Error(j.error || 'Could not resolve firm');
+    if (!found) throw new Error(j.error || "Could not resolve firm");
     return found.id;
   }
-  if (!res.ok) throw new Error(j.error || 'Failed to create firm');
+  if (!res.ok) throw new Error(j.error || "Failed to create firm");
   return j.data.id;
 }
 
@@ -1949,7 +2003,6 @@ interface FlaggedEmployer {
   id: string;
   name: string;
   industry: string | null;
-  industry_category: string | null;
   status: string;
   primary_pic: {
     id: string;
@@ -1972,14 +2025,14 @@ function CurationDialog({
   const [queue, setQueue] = useState<FlaggedEmployer[]>([]);
   const [idx, setIdx] = useState(0);
   const [firm, setFirm] = useState<CompanyPickerValue | null>(null);
-  const [picName, setPicName] = useState('');
-  const [picTitle, setPicTitle] = useState('');
-  const [picEmail, setPicEmail] = useState('');
-  const [picPhone, setPicPhone] = useState('');
+  const [picName, setPicName] = useState("");
+  const [picTitle, setPicTitle] = useState("");
+  const [picEmail, setPicEmail] = useState("");
+  const [picPhone, setPicPhone] = useState("");
 
   useEffect(() => {
     if (!open) return;
-    fetch('/api/crm/flagged')
+    fetch("/api/crm/flagged")
       .then((r) => r.json())
       .then((j) => {
         setQueue((j.data ?? []) as FlaggedEmployer[]);
@@ -1991,10 +2044,10 @@ function CurationDialog({
   useEffect(() => {
     if (!current) return;
     setFirm({ name: current.name, id: current.id });
-    setPicName(current.primary_pic?.name ?? '');
-    setPicTitle(current.primary_pic?.title ?? '');
-    setPicEmail(current.primary_pic?.email ?? '');
-    setPicPhone(current.primary_pic?.phone ?? '');
+    setPicName(current.primary_pic?.name ?? "");
+    setPicTitle(current.primary_pic?.title ?? "");
+    setPicEmail(current.primary_pic?.email ?? "");
+    setPicPhone(current.primary_pic?.phone ?? "");
   }, [current]);
 
   const advance = () => {
@@ -2005,10 +2058,10 @@ function CurationDialog({
     }
   };
 
-  const decide = async (decision: 'approve' | 'skip') => {
+  const decide = async (decision: "approve" | "skip") => {
     if (!current) return;
     const patch =
-      decision === 'approve'
+      decision === "approve"
         ? {
             name: firm?.name ?? current.name,
             primary_pic: {
@@ -2020,19 +2073,19 @@ function CurationDialog({
           }
         : {};
     const res = await fetch(`/api/crm/employers/${current.id}/curate`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ decision, patch }),
     });
     if (!res.ok) {
       const j = await res.json().catch(() => ({}));
-      toast.error(j.error || 'Failed to record decision');
+      toast.error(j.error || "Failed to record decision");
       return;
     }
     toast.success(
-      decision === 'approve'
-        ? 'Record approved and published'
-        : 'Skipped — left in queue',
+      decision === "approve"
+        ? "Record approved and published"
+        : "Skipped — left in queue",
     );
     advance();
   };
@@ -2066,7 +2119,9 @@ function CurationDialog({
             </div>
             <div className="space-y-3 rounded-lg border bg-muted/40 p-3">
               <div>
-                <Label className="mb-1 block text-[10px] uppercase">Company</Label>
+                <Label className="mb-1 block text-[10px] uppercase">
+                  Company
+                </Label>
                 <CompanyPicker value={firm} onChange={setFirm} />
               </div>
               <div className="grid grid-cols-2 gap-3">
@@ -2107,10 +2162,14 @@ function CurationDialog({
           </>
         )}
         <DialogFooter>
-          <Button variant="outline" onClick={() => decide('skip')} disabled={!current}>
+          <Button
+            variant="outline"
+            onClick={() => decide("skip")}
+            disabled={!current}
+          >
             Skip for now
           </Button>
-          <Button onClick={() => decide('approve')} disabled={!current}>
+          <Button onClick={() => decide("approve")} disabled={!current}>
             Approve
           </Button>
         </DialogFooter>
@@ -2153,7 +2212,7 @@ function Pagination({
           )}
           <Button
             size="sm"
-            variant={p === page ? 'default' : 'outline'}
+            variant={p === page ? "default" : "outline"}
             onClick={() => onChange(p)}
           >
             {p}

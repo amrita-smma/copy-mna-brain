@@ -330,6 +330,13 @@
       "when": 1779667201000,
       "tag": "20260525000001_emails_add_message_id",
       "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "7",
+      "when": 1779710400000,
+      "tag": "20260525120000_drop_employer_industry_category",
+      "breakpoints": true
     }
   ]
 }
