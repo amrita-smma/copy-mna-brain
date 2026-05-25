@@ -17,16 +17,24 @@ const monthlySpec = z.object({
 });
 const cronSpec = z.object({ expression: z.string() });
 
-const createSchema = z.object({
+// Discriminated by schedule_kind so the right spec schema is enforced.
+// A plain z.union would let a weekly payload match dailySpec first and silently
+// strip `weekdays`, which then crashes normalizeSchedule downstream.
+const baseFields = {
   title: z.string().min(1).max(200),
   prompt: z.string().min(1),
-  schedule_kind: z.enum(['daily', 'weekly', 'monthly', 'cron']),
-  schedule_spec: z.union([dailySpec, weeklySpec, monthlySpec, cronSpec]),
   timezone: z.string().default('UTC'),
   agent_name: z.string().optional().nullable(),
   priority: z.number().int().optional(),
   enabled: z.boolean().optional(),
-});
+};
+
+const createSchema = z.discriminatedUnion('schedule_kind', [
+  z.object({ ...baseFields, schedule_kind: z.literal('daily'), schedule_spec: dailySpec }),
+  z.object({ ...baseFields, schedule_kind: z.literal('weekly'), schedule_spec: weeklySpec }),
+  z.object({ ...baseFields, schedule_kind: z.literal('monthly'), schedule_spec: monthlySpec }),
+  z.object({ ...baseFields, schedule_kind: z.literal('cron'), schedule_spec: cronSpec }),
+]);
 
 export async function GET() {
   const session = await auth();
@@ -75,6 +83,11 @@ export async function POST(req: NextRequest) {
     const nextFireAt = computeNextFireAt(
       normalized.cronExpression,
       parsed.data.timezone,
+      new Date(),
+      {
+        kind: parsed.data.schedule_kind as ScheduleKind,
+        spec: normalized.scheduleSpec,
+      },
     );
 
     const db = createDb();

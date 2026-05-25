@@ -151,6 +151,7 @@ describe('fireDueRoutines', () => {
       '0 6 * * *',
       'UTC',
       new Date('2026-05-18T06:00:00.000Z'),
+      { kind: 'daily', spec: { time: '06:00' } },
     );
     expect(markFired).toHaveBeenCalledWith(
       'rt-1',

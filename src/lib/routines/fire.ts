@@ -2,6 +2,7 @@ import { RoutinesRepository } from '@/lib/repositories';
 import type { DbClient, RoutineRow } from '@/lib/repositories';
 import { enqueueAgentRun } from '@/lib/workforce';
 import { computeNextFireAt } from './schedule';
+import type { ScheduleKind } from './schedule';
 
 const DEFAULT_ROUTINE_AGENT = 'analysis';
 
@@ -81,11 +82,17 @@ async function fireOne(
   });
 
   // Advance the schedule. Compute the next fire strictly after the credited
-  // fire instant so back-to-back ticks don't re-fire the same window.
+  // fire instant so back-to-back ticks don't re-fire the same window. Pass
+  // the schedule kind+spec so monthly clamping (day > daysInMonth → last day)
+  // is honored.
   const nextFireAt = computeNextFireAt(
     routine.cron_expression,
     routine.timezone,
     new Date(firedAtIso),
+    {
+      kind: routine.schedule_kind as ScheduleKind,
+      spec: routine.schedule_spec as Record<string, unknown>,
+    },
   );
   await routinesRepo.markFired(routine.id, now, nextFireAt);
 

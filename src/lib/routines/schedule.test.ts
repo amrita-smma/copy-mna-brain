@@ -97,4 +97,82 @@ describe('computeNextFireAt', () => {
     const next = computeNextFireAt('0 9 * * 1', 'UTC', ref);
     expect(next).toBe('2026-05-18T09:00:00.000Z');
   });
+
+  describe('monthly clamping', () => {
+    it('fires on the literal day when the month has that day', () => {
+      const ref = new Date('2026-03-01T00:00:00Z');
+      const next = computeNextFireAt('0 9 15 * *', 'UTC', ref, {
+        kind: 'monthly',
+        spec: { time: '09:00', day: 15 },
+      });
+      expect(next).toBe('2026-03-15T09:00:00.000Z');
+    });
+
+    it('clamps day=31 to Feb 28 in a non-leap year', () => {
+      // 2026 is non-leap, Feb has 28 days.
+      const ref = new Date('2026-02-01T00:00:00Z');
+      const next = computeNextFireAt('0 9 31 * *', 'UTC', ref, {
+        kind: 'monthly',
+        spec: { time: '09:00', day: 31 },
+      });
+      expect(next).toBe('2026-02-28T09:00:00.000Z');
+    });
+
+    it('clamps day=31 to Feb 29 in a leap year', () => {
+      // 2028 is a leap year.
+      const ref = new Date('2028-02-01T00:00:00Z');
+      const next = computeNextFireAt('0 9 31 * *', 'UTC', ref, {
+        kind: 'monthly',
+        spec: { time: '09:00', day: 31 },
+      });
+      expect(next).toBe('2028-02-29T09:00:00.000Z');
+    });
+
+    it('clamps day=31 to Apr 30', () => {
+      const ref = new Date('2026-04-01T00:00:00Z');
+      const next = computeNextFireAt('0 9 31 * *', 'UTC', ref, {
+        kind: 'monthly',
+        spec: { time: '09:00', day: 31 },
+      });
+      expect(next).toBe('2026-04-30T09:00:00.000Z');
+    });
+
+    it('clamps day=30 to Feb 28 (non-leap)', () => {
+      const ref = new Date('2026-02-01T00:00:00Z');
+      const next = computeNextFireAt('0 9 30 * *', 'UTC', ref, {
+        kind: 'monthly',
+        spec: { time: '09:00', day: 30 },
+      });
+      expect(next).toBe('2026-02-28T09:00:00.000Z');
+    });
+
+    it('day=29 fires on Feb 29 in a leap year', () => {
+      const ref = new Date('2028-02-01T00:00:00Z');
+      const next = computeNextFireAt('0 9 29 * *', 'UTC', ref, {
+        kind: 'monthly',
+        spec: { time: '09:00', day: 29 },
+      });
+      expect(next).toBe('2028-02-29T09:00:00.000Z');
+    });
+
+    it('advances to next month when current month\'s fire has passed', () => {
+      // March 31 at 10:00 UTC; next monthly day=31 → clamp to April 30.
+      const ref = new Date('2026-03-31T10:00:00Z');
+      const next = computeNextFireAt('0 9 31 * *', 'UTC', ref, {
+        kind: 'monthly',
+        spec: { time: '09:00', day: 31 },
+      });
+      expect(next).toBe('2026-04-30T09:00:00.000Z');
+    });
+
+    it('honors timezone for monthly schedules', () => {
+      // Feb 28 09:00 ICT = Feb 28 02:00 UTC.
+      const ref = new Date('2026-02-01T00:00:00Z');
+      const next = computeNextFireAt('0 9 31 * *', 'Asia/Jakarta', ref, {
+        kind: 'monthly',
+        spec: { time: '09:00', day: 31 },
+      });
+      expect(next).toBe('2026-02-28T02:00:00.000Z');
+    });
+  });
 });

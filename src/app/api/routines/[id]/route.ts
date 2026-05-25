@@ -17,14 +17,22 @@ const monthlySpec = z.object({
 });
 const cronSpec = z.object({ expression: z.string() });
 
+const specByKind = {
+  daily: dailySpec,
+  weekly: weeklySpec,
+  monthly: monthlySpec,
+  cron: cronSpec,
+} as const;
+
 const patchSchema = z
   .object({
     title: z.string().min(1).max(200).optional(),
     prompt: z.string().min(1).optional(),
     schedule_kind: z.enum(['daily', 'weekly', 'monthly', 'cron']).optional(),
-    schedule_spec: z
-      .union([dailySpec, weeklySpec, monthlySpec, cronSpec])
-      .optional(),
+    // Kept loose here — z.union would let a weekly payload match dailySpec
+    // first and strip `weekdays`. The kind-keyed superRefine below validates
+    // the spec against the actual schedule_kind.
+    schedule_spec: z.record(z.string(), z.unknown()).optional(),
     timezone: z.string().optional(),
     agent_name: z.string().nullable().optional(),
     priority: z.number().int().optional(),
@@ -33,7 +41,20 @@ const patchSchema = z
   .refine(
     (v) => (v.schedule_kind === undefined) === (v.schedule_spec === undefined),
     { message: 'schedule_kind and schedule_spec must be updated together' },
-  );
+  )
+  .superRefine((v, ctx) => {
+    if (!v.schedule_kind || !v.schedule_spec) return;
+    const result = specByKind[v.schedule_kind].safeParse(v.schedule_spec);
+    if (!result.success) {
+      for (const issue of result.error.issues) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: issue.message,
+          path: ['schedule_spec', ...issue.path],
+        });
+      }
+    }
+  });
 
 export async function GET(
   _req: NextRequest,
@@ -115,12 +136,23 @@ export async function PATCH(
       patch.next_fire_at = computeNextFireAt(
         normalized.cronExpression,
         parsed.data.timezone ?? existing.timezone,
+        new Date(),
+        {
+          kind: parsed.data.schedule_kind as ScheduleKind,
+          spec: normalized.scheduleSpec,
+        },
       );
     } else if (parsed.data.timezone !== undefined) {
-      // Timezone-only change still moves the next fire instant.
+      // Timezone-only change still moves the next fire instant. Preserve the
+      // existing schedule kind+spec so monthly clamping stays consistent.
       patch.next_fire_at = computeNextFireAt(
         existing.cron_expression,
         parsed.data.timezone,
+        new Date(),
+        {
+          kind: existing.schedule_kind as ScheduleKind,
+          spec: existing.schedule_spec as Record<string, unknown>,
+        },
       );
     }
 

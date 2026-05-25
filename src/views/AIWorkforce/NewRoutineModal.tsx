@@ -38,6 +38,34 @@ const timezoneOptions = [
   'Europe/London (GMT)',
 ];
 
+// 0=Sun..6=Sat matches cron's day-of-week convention used by the backend.
+const WEEKDAYS: { value: number; short: string; long: string }[] = [
+  { value: 1, short: 'Mon', long: 'Monday' },
+  { value: 2, short: 'Tue', long: 'Tuesday' },
+  { value: 3, short: 'Wed', long: 'Wednesday' },
+  { value: 4, short: 'Thu', long: 'Thursday' },
+  { value: 5, short: 'Fri', long: 'Friday' },
+  { value: 6, short: 'Sat', long: 'Saturday' },
+  { value: 0, short: 'Sun', long: 'Sunday' },
+];
+
+const DAYS_OF_MONTH = Array.from({ length: 31 }, (_, i) => i + 1);
+
+function ordinal(n: number): string {
+  const v = n % 100;
+  if (v >= 11 && v <= 13) return `${n}th`;
+  switch (n % 10) {
+    case 1:
+      return `${n}st`;
+    case 2:
+      return `${n}nd`;
+    case 3:
+      return `${n}rd`;
+    default:
+      return `${n}th`;
+  }
+}
+
 const cronExamples: Record<string, string> = {
   '0 6 * * 1-5': 'At 06:00 on every weekday',
   '0 9 * * 1': 'At 09:00 every Monday',
@@ -77,6 +105,8 @@ const DEFAULTS = {
   time: '06:00',
   timezone: timezoneOptions[0],
   cron: '0 6 * * 1-5',
+  weekday: 1, // Monday
+  dayOfMonth: 1,
 };
 
 // Reverse of TIMEZONE_MAP — given an IANA tz (what the server stores),
@@ -93,16 +123,18 @@ interface FormState {
   time: string;
   timezone: string;
   cron: string;
+  weekday: number;
+  dayOfMonth: number;
 }
 
 // Convert a server-side routine row into the form's local state shape.
-// Reverses what `normalizeSchedule` does at write time. Schedule fields the
-// modal doesn't yet expose (weekly weekdays, monthly day-of-month) are
-// preserved separately so a save doesn't accidentally lose them.
+// Reverses what `normalizeSchedule` does at write time.
 function routineToFormState(routine: ApiRoutine): FormState {
   const spec = (routine.schedule_spec ?? {}) as {
     time?: string;
     expression?: string;
+    weekdays?: number[];
+    day?: number;
   };
   let cadence: Cadence;
   let cron = DEFAULTS.cron;
@@ -119,6 +151,11 @@ function routineToFormState(routine: ApiRoutine): FormState {
     time: spec.time ?? DEFAULTS.time,
     timezone: IANA_TO_LABEL[routine.timezone] ?? routine.timezone,
     cron,
+    weekday:
+      Array.isArray(spec.weekdays) && spec.weekdays.length > 0
+        ? spec.weekdays[0]
+        : DEFAULTS.weekday,
+    dayOfMonth: typeof spec.day === 'number' ? spec.day : DEFAULTS.dayOfMonth,
   };
 }
 
@@ -145,6 +182,8 @@ export function NewRoutineModal({
   const [time, setTime] = useState(DEFAULTS.time);
   const [timezone, setTimezone] = useState(DEFAULTS.timezone);
   const [cron, setCron] = useState(DEFAULTS.cron);
+  const [weekday, setWeekday] = useState(DEFAULTS.weekday);
+  const [dayOfMonth, setDayOfMonth] = useState(DEFAULTS.dayOfMonth);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
 
@@ -167,17 +206,25 @@ export function NewRoutineModal({
     setTime(seed.time);
     setTimezone(seed.timezone);
     setCron(seed.cron);
+    setWeekday(seed.weekday);
+    setDayOfMonth(seed.dayOfMonth);
     setSubmitError(null);
     setSubmitting(false);
   }, [open, routine?.id, routine]);
 
   const cronInterpretation = interpretCron(cron);
   const tzShort = timezone.match(/\(([^)]+)\)/)?.[1] ?? timezone;
-  const cadenceLabel = cadenceOptions.find((c) => c.key === cadence)?.label ?? 'Daily';
-  const scheduleLabel =
-    cadence === 'custom'
-      ? cronInterpretation.plain
-      : `${cadenceLabel} at ${time} ${tzShort}`;
+  let scheduleLabel: string;
+  if (cadence === 'custom') {
+    scheduleLabel = cronInterpretation.plain;
+  } else if (cadence === 'weekly') {
+    const dayLabel = WEEKDAYS.find((d) => d.value === weekday)?.long ?? 'Monday';
+    scheduleLabel = `Weekly on ${dayLabel} at ${time} ${tzShort}`;
+  } else if (cadence === 'monthly') {
+    scheduleLabel = `Monthly on the ${ordinal(dayOfMonth)} at ${time} ${tzShort}`;
+  } else {
+    scheduleLabel = `Daily at ${time} ${tzShort}`;
+  }
 
   const canContinue =
     name.trim().length > 0 &&
@@ -192,6 +239,8 @@ export function NewRoutineModal({
     setTime(DEFAULTS.time);
     setTimezone(DEFAULTS.timezone);
     setCron(DEFAULTS.cron);
+    setWeekday(DEFAULTS.weekday);
+    setDayOfMonth(DEFAULTS.dayOfMonth);
     setSubmitError(null);
   };
   const handleClose = () => {
@@ -204,31 +253,13 @@ export function NewRoutineModal({
     try {
       const iana = TIMEZONE_MAP[timezone] ?? timezone;
       const scheduleKind = cadence === 'custom' ? 'cron' : cadence;
-      // For weekly/monthly the modal doesn't yet expose a weekday/day-of-
-      // month picker. In edit mode, preserve those fields from the existing
-      // routine when the cadence is unchanged so we don't accidentally reset
-      // a user's custom Mon/Wed/Fri pick to Mon-Fri on every save. New
-      // routines (or cadence changes) fall back to a sensible default.
-      const existingSpec = (routine?.schedule_spec ?? {}) as {
-        weekdays?: number[];
-        day?: number;
-      };
-      const cadenceUnchanged = isEditMode && scheduleKind === routine!.schedule_kind;
       let scheduleSpec: Record<string, unknown>;
       if (cadence === 'custom') {
         scheduleSpec = { expression: cron };
       } else if (cadence === 'weekly') {
-        const weekdays =
-          cadenceUnchanged && Array.isArray(existingSpec.weekdays)
-            ? existingSpec.weekdays
-            : [1, 2, 3, 4, 5];
-        scheduleSpec = { time, weekdays };
+        scheduleSpec = { time, weekdays: [weekday] };
       } else if (cadence === 'monthly') {
-        const day =
-          cadenceUnchanged && typeof existingSpec.day === 'number'
-            ? existingSpec.day
-            : 1;
-        scheduleSpec = { time, day };
+        scheduleSpec = { time, day: dayOfMonth };
       } else {
         scheduleSpec = { time };
       }
@@ -349,33 +380,89 @@ export function NewRoutineModal({
                 </div>
 
                 {cadence !== 'custom' ? (
-                  <div className="grid grid-cols-2 gap-3 rounded-lg border bg-muted/30 px-3.5 py-3">
-                    <div>
-                      <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-1.5">
-                        Run at
-                      </p>
-                      <Input
-                        type="time"
-                        value={time}
-                        onChange={(e) => setTime(e.target.value)}
-                      />
-                    </div>
-                    <div>
-                      <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-1.5">
-                        Timezone
-                      </p>
-                      <Select value={timezone} onValueChange={setTimezone}>
-                        <SelectTrigger>
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {timezoneOptions.map((tz) => (
-                            <SelectItem key={tz} value={tz}>
-                              {tz}
-                            </SelectItem>
+                  <div className="rounded-lg border bg-muted/30 px-3.5 py-3 space-y-3">
+                    {cadence === 'weekly' && (
+                      <div>
+                        <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-1.5">
+                          Day of week
+                        </p>
+                        <div className="flex gap-1">
+                          {WEEKDAYS.map((d) => (
+                            <button
+                              key={d.value}
+                              type="button"
+                              onClick={() => setWeekday(d.value)}
+                              className={cn(
+                                'flex-1 min-w-[36px] rounded-md border py-1.5 text-[11px] font-semibold transition-colors',
+                                weekday === d.value
+                                  ? 'border-violet-500 bg-violet-50 text-violet-700'
+                                  : 'border-border bg-card text-muted-foreground hover:text-foreground',
+                              )}
+                            >
+                              {d.short}
+                            </button>
                           ))}
-                        </SelectContent>
-                      </Select>
+                        </div>
+                      </div>
+                    )}
+                    {cadence === 'monthly' && (
+                      <div>
+                        <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-1.5">
+                          Day of month
+                        </p>
+                        <Select
+                          value={String(dayOfMonth)}
+                          onValueChange={(v) => setDayOfMonth(Number(v))}
+                        >
+                          <SelectTrigger>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {DAYS_OF_MONTH.map((d) => (
+                              <SelectItem key={d} value={String(d)}>
+                                {ordinal(d)}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        {dayOfMonth >= 29 && (
+                          <p className="mt-1.5 text-[11px] text-muted-foreground/80 flex items-start gap-1.5">
+                            <AlertCircle className="h-3 w-3 flex-shrink-0 mt-0.5" />
+                            <span>
+                              Months with fewer than {dayOfMonth} days fire on the last day instead.
+                            </span>
+                          </p>
+                        )}
+                      </div>
+                    )}
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-1.5">
+                          Run at
+                        </p>
+                        <Input
+                          type="time"
+                          value={time}
+                          onChange={(e) => setTime(e.target.value)}
+                        />
+                      </div>
+                      <div>
+                        <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-1.5">
+                          Timezone
+                        </p>
+                        <Select value={timezone} onValueChange={setTimezone}>
+                          <SelectTrigger>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {timezoneOptions.map((tz) => (
+                              <SelectItem key={tz} value={tz}>
+                                {tz}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
                     </div>
                   </div>
                 ) : (
