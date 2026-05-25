@@ -1,0 +1,54 @@
+import { NextRequest, NextResponse } from 'next/server';
+import { createDb } from '@/lib/server/db';
+import { createContainer } from '@/lib/services';
+
+interface Ctx {
+  params: Promise<{ id: string }>;
+}
+
+export async function GET(_req: NextRequest, ctx: Ctx) {
+  try {
+    const { id } = await ctx.params;
+    const db = createDb();
+    const { crmService } = createContainer(db);
+    const data = await crmService.listContacts(id);
+    return NextResponse.json({ data });
+  } catch (err) {
+    console.error(err);
+    return NextResponse.json(
+      { error: 'Internal server error' },
+      { status: 500 },
+    );
+  }
+}
+
+export async function POST(req: NextRequest, ctx: Ctx) {
+  try {
+    const { id } = await ctx.params;
+    const body = await req.json();
+    if (!body?.name) {
+      return NextResponse.json(
+        { error: 'name is required' },
+        { status: 400 },
+      );
+    }
+    const db = createDb();
+    const { crmService } = createContainer(db);
+    const data = await crmService.createContact({
+      employerId: id,
+      name: body.name,
+      email: body.email,
+      phone: body.phone,
+      title: body.title,
+      type: body.type,
+      isPrimary: body.is_primary,
+    });
+    return NextResponse.json({ data }, { status: 201 });
+  } catch (err) {
+    console.error(err);
+    return NextResponse.json(
+      { error: 'Internal server error' },
+      { status: 500 },
+    );
+  }
+}

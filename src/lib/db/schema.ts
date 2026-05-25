@@ -1534,124 +1534,515 @@ export const userCompanyFavorites = pgTable(
   },
 );
 
-export const contacts = pgTable(
-  "contacts",
+// ============================================================================
+// CRM v2 — employers, correspondents, topics, emails. Replaces the legacy
+// `contacts` / `contact_messages` model.
+// ============================================================================
+
+export const emailParticipantRole = pgEnum("email_participant_role", [
+  "from",
+  "to",
+  "cc",
+  "bcc",
+]);
+
+export const employers = pgTable(
+  "employers",
   {
     id: uuid().defaultRandom().primaryKey().notNull(),
     name: text().notNull(),
-    email: text(),
-    phone: text(),
-    company: text(),
-    title: text(),
-    type: text().default("external"),
-    notes: text(),
-    created_at: timestamp({ withTimezone: true, mode: "string" }).defaultNow(),
-    updated_at: timestamp({ withTimezone: true, mode: "string" }).defaultNow(),
+    normalized_name: text().notNull(),
+    industry: text(),
+    industry_category: text(),
+    status: text().default("inbound").notNull(),
+    curation_status: text().default("published").notNull(),
+    created_at: timestamp({ withTimezone: true, mode: "string" })
+      .defaultNow()
+      .notNull(),
+    updated_at: timestamp({ withTimezone: true, mode: "string" })
+      .defaultNow()
+      .notNull(),
   },
-  (table) => {
-    return {
-      idxContactsName: index("idx_contacts_name").using(
-        "btree",
-        table.name.asc().nullsLast().op("text_ops"),
-      ),
-      idxContactsEmail: index("idx_contacts_email").using(
-        "btree",
-        table.email.asc().nullsLast().op("text_ops"),
-      ),
-      idxContactsCompany: index("idx_contacts_company").using(
-        "btree",
-        table.company.asc().nullsLast().op("text_ops"),
-      ),
-      idxContactsType: index("idx_contacts_type").using(
-        "btree",
-        table.type.asc().nullsLast().op("text_ops"),
-      ),
-      allowDeleteAccessOnContacts: pgPolicy("Allow delete access on contacts", {
-        as: "permissive",
-        for: "delete",
-        to: ["public"],
-        using: sql`true`,
-      }),
-      allowUpdateAccessOnContacts: pgPolicy("Allow update access on contacts", {
-        as: "permissive",
-        for: "update",
-        to: ["public"],
-      }),
-      allowInsertAccessOnContacts: pgPolicy("Allow insert access on contacts", {
-        as: "permissive",
-        for: "insert",
-        to: ["public"],
-      }),
-      allowReadAccessOnContacts: pgPolicy("Allow read access on contacts", {
-        as: "permissive",
-        for: "select",
-        to: ["public"],
-      }),
-    };
-  },
+  (table) => ({
+    employersNormalizedNameKey: unique("employers_normalized_name_key").on(
+      table.normalized_name,
+    ),
+    idxEmployersName: index("idx_employers_name").using(
+      "btree",
+      table.name.asc().nullsLast().op("text_ops"),
+    ),
+    idxEmployersStatus: index("idx_employers_status").using(
+      "btree",
+      table.status.asc().nullsLast().op("text_ops"),
+    ),
+    idxEmployersCuration: index("idx_employers_curation").using(
+      "btree",
+      table.curation_status.asc().nullsLast().op("text_ops"),
+    ),
+    allowReadEmployers: pgPolicy("Allow read access on employers", {
+      as: "permissive",
+      for: "select",
+      to: ["public"],
+    }),
+    allowInsertEmployers: pgPolicy("Allow insert access on employers", {
+      as: "permissive",
+      for: "insert",
+      to: ["public"],
+    }),
+    allowUpdateEmployers: pgPolicy("Allow update access on employers", {
+      as: "permissive",
+      for: "update",
+      to: ["public"],
+    }),
+    allowDeleteEmployers: pgPolicy("Allow delete access on employers", {
+      as: "permissive",
+      for: "delete",
+      to: ["public"],
+      using: sql`true`,
+    }),
+  }),
 );
 
-export const contactMessages = pgTable(
-  "contact_messages",
+export const correspondents = pgTable(
+  "correspondents",
   {
     id: uuid().defaultRandom().primaryKey().notNull(),
-    contact_id: uuid().notNull(),
-    file_id: uuid(),
-    direction: text().default("inbound").notNull(),
+    employer_id: uuid().notNull(),
+    name: text().notNull(),
+    title: text(),
+    email: text(),
+    phone: text(),
+    type: text(),
+    is_primary: boolean().default(false).notNull(),
+    source: text().default("manual").notNull(),
+    last_edited_by_user_id: uuid(),
+    last_edited_at: timestamp({ withTimezone: true, mode: "string" }),
+    created_at: timestamp({ withTimezone: true, mode: "string" })
+      .defaultNow()
+      .notNull(),
+    updated_at: timestamp({ withTimezone: true, mode: "string" })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    idxCorrespondentEmail: index("idx_correspondent_email").using(
+      "btree",
+      table.email.asc().nullsLast().op("text_ops"),
+    ),
+    correspondentsEmployerFkey: foreignKey({
+      columns: [table.employer_id],
+      foreignColumns: [employers.id],
+      name: "correspondents_employer_id_fkey",
+    }).onDelete("cascade"),
+    correspondentsLastEditedFkey: foreignKey({
+      columns: [table.last_edited_by_user_id],
+      foreignColumns: [users.id],
+      name: "correspondents_last_edited_by_user_id_fkey",
+    }).onDelete("set null"),
+    allowReadCorrespondents: pgPolicy("Allow read access on correspondents", {
+      as: "permissive",
+      for: "select",
+      to: ["public"],
+    }),
+    allowInsertCorrespondents: pgPolicy(
+      "Allow insert access on correspondents",
+      { as: "permissive", for: "insert", to: ["public"] },
+    ),
+    allowUpdateCorrespondents: pgPolicy(
+      "Allow update access on correspondents",
+      { as: "permissive", for: "update", to: ["public"] },
+    ),
+    allowDeleteCorrespondents: pgPolicy(
+      "Allow delete access on correspondents",
+      { as: "permissive", for: "delete", to: ["public"], using: sql`true` },
+    ),
+  }),
+);
+
+export const correspondentCompanies = pgTable(
+  "correspondent_companies",
+  {
+    id: uuid().defaultRandom().primaryKey().notNull(),
+    correspondent_id: uuid().notNull(),
+    company_id: uuid().notNull(),
+    created_at: timestamp({ withTimezone: true, mode: "string" })
+      .defaultNow()
+      .notNull(),
+    updated_at: timestamp({ withTimezone: true, mode: "string" })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    uqCorrespondentCompanies: unique("uq_correspondent_companies").on(
+      table.correspondent_id,
+      table.company_id,
+    ),
+    correspondentCompaniesCorrespondentFkey: foreignKey({
+      columns: [table.correspondent_id],
+      foreignColumns: [correspondents.id],
+      name: "correspondent_companies_correspondent_id_fkey",
+    }).onDelete("cascade"),
+    correspondentCompaniesCompanyFkey: foreignKey({
+      columns: [table.company_id],
+      foreignColumns: [companies.id],
+      name: "correspondent_companies_company_id_fkey",
+    }).onDelete("cascade"),
+    allowReadCorrespondentCompanies: pgPolicy(
+      "Allow read access on correspondent_companies",
+      { as: "permissive", for: "select", to: ["public"] },
+    ),
+    allowInsertCorrespondentCompanies: pgPolicy(
+      "Allow insert access on correspondent_companies",
+      { as: "permissive", for: "insert", to: ["public"] },
+    ),
+    allowUpdateCorrespondentCompanies: pgPolicy(
+      "Allow update access on correspondent_companies",
+      { as: "permissive", for: "update", to: ["public"] },
+    ),
+    allowDeleteCorrespondentCompanies: pgPolicy(
+      "Allow delete access on correspondent_companies",
+      { as: "permissive", for: "delete", to: ["public"], using: sql`true` },
+    ),
+  }),
+);
+
+export const employerNotes = pgTable(
+  "employer_notes",
+  {
+    id: uuid().defaultRandom().primaryKey().notNull(),
+    employer_id: uuid().notNull(),
+    author_user_id: uuid(),
+    content: text().notNull(),
+    created_at: timestamp({ withTimezone: true, mode: "string" })
+      .defaultNow()
+      .notNull(),
+    updated_at: timestamp({ withTimezone: true, mode: "string" })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    idxNotesEmployerCreated: index("idx_notes_employer_created").using(
+      "btree",
+      table.employer_id.asc().nullsLast().op("uuid_ops"),
+      table.created_at.asc().nullsLast().op("timestamptz_ops"),
+    ),
+    employerNotesEmployerFkey: foreignKey({
+      columns: [table.employer_id],
+      foreignColumns: [employers.id],
+      name: "employer_notes_employer_id_fkey",
+    }).onDelete("cascade"),
+    employerNotesAuthorFkey: foreignKey({
+      columns: [table.author_user_id],
+      foreignColumns: [users.id],
+      name: "employer_notes_author_user_id_fkey",
+    }).onDelete("set null"),
+    allowReadEmployerNotes: pgPolicy("Allow read access on employer_notes", {
+      as: "permissive",
+      for: "select",
+      to: ["public"],
+    }),
+    allowInsertEmployerNotes: pgPolicy(
+      "Allow insert access on employer_notes",
+      { as: "permissive", for: "insert", to: ["public"] },
+    ),
+    allowUpdateEmployerNotes: pgPolicy(
+      "Allow update access on employer_notes",
+      { as: "permissive", for: "update", to: ["public"] },
+    ),
+    allowDeleteEmployerNotes: pgPolicy(
+      "Allow delete access on employer_notes",
+      { as: "permissive", for: "delete", to: ["public"], using: sql`true` },
+    ),
+  }),
+);
+
+export const topics = pgTable(
+  "topics",
+  {
+    id: uuid().defaultRandom().primaryKey().notNull(),
+    name: text().notNull(),
+    slug: text().notNull(),
+    description: text(),
+    created_at: timestamp({ withTimezone: true, mode: "string" })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    topicsNameKey: unique("topics_name_key").on(table.name),
+    topicsSlugKey: unique("topics_slug_key").on(table.slug),
+    allowReadTopics: pgPolicy("Allow read access on topics", {
+      as: "permissive",
+      for: "select",
+      to: ["public"],
+    }),
+    allowInsertTopics: pgPolicy("Allow insert access on topics", {
+      as: "permissive",
+      for: "insert",
+      to: ["public"],
+    }),
+    allowUpdateTopics: pgPolicy("Allow update access on topics", {
+      as: "permissive",
+      for: "update",
+      to: ["public"],
+    }),
+    allowDeleteTopics: pgPolicy("Allow delete access on topics", {
+      as: "permissive",
+      for: "delete",
+      to: ["public"],
+      using: sql`true`,
+    }),
+  }),
+);
+
+export const employerTopics = pgTable(
+  "employer_topics",
+  {
+    id: uuid().defaultRandom().primaryKey().notNull(),
+    employer_id: uuid().notNull(),
+    topic_id: uuid().notNull(),
+    source: text().default("manual").notNull(),
+    is_highlight: boolean().default(false).notNull(),
+    created_at: timestamp({ withTimezone: true, mode: "string" })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    uqEmployerTopic: unique("uq_employer_topic").on(
+      table.employer_id,
+      table.topic_id,
+    ),
+    employerTopicsEmployerFkey: foreignKey({
+      columns: [table.employer_id],
+      foreignColumns: [employers.id],
+      name: "employer_topics_employer_id_fkey",
+    }).onDelete("cascade"),
+    employerTopicsTopicFkey: foreignKey({
+      columns: [table.topic_id],
+      foreignColumns: [topics.id],
+      name: "employer_topics_topic_id_fkey",
+    }).onDelete("cascade"),
+    allowReadEmployerTopics: pgPolicy("Allow read access on employer_topics", {
+      as: "permissive",
+      for: "select",
+      to: ["public"],
+    }),
+    allowInsertEmployerTopics: pgPolicy(
+      "Allow insert access on employer_topics",
+      { as: "permissive", for: "insert", to: ["public"] },
+    ),
+    allowUpdateEmployerTopics: pgPolicy(
+      "Allow update access on employer_topics",
+      { as: "permissive", for: "update", to: ["public"] },
+    ),
+    allowDeleteEmployerTopics: pgPolicy(
+      "Allow delete access on employer_topics",
+      { as: "permissive", for: "delete", to: ["public"], using: sql`true` },
+    ),
+  }),
+);
+
+export const emails = pgTable(
+  "emails",
+  {
+    id: uuid().defaultRandom().primaryKey().notNull(),
+    employer_id: uuid(),
+    from_address: text().notNull(),
+    from_display_name: text(),
     subject: text(),
-    body: text().notNull(),
-    sent_at: timestamp({ withTimezone: true, mode: "string" }),
-    from_email: text(),
-    to_email: text(),
-    metadata: jsonb().$type<Record<string, unknown>>().default({}),
-    created_at: timestamp({ withTimezone: true, mode: "string" }).defaultNow(),
+    body_text: text(),
+    sent_at: timestamp({ withTimezone: true, mode: "string" }).notNull(),
+    direction: text().notNull(),
+    filter_status: text().default("processed").notNull(),
+    filter_reason: text(),
+    processed_at: timestamp({ withTimezone: true, mode: "string" }),
+    created_at: timestamp({ withTimezone: true, mode: "string" })
+      .defaultNow()
+      .notNull(),
   },
-  (table) => {
-    return {
-      idxContactMessagesContactId: index("idx_contact_messages_contact_id").using(
-        "btree",
-        table.contact_id.asc().nullsLast().op("uuid_ops"),
-      ),
-      idxContactMessagesFileId: index("idx_contact_messages_file_id").using(
-        "btree",
-        table.file_id.asc().nullsLast().op("uuid_ops"),
-      ),
-      idxContactMessagesSentAt: index("idx_contact_messages_sent_at").using(
-        "btree",
-        table.sent_at.asc().nullsLast().op("timestamptz_ops"),
-      ),
-      idxContactMessagesDirection: index("idx_contact_messages_direction").using(
-        "btree",
-        table.direction.asc().nullsLast().op("text_ops"),
-      ),
-      contactMessagesContactIdFkey: foreignKey({
-        columns: [table.contact_id],
-        foreignColumns: [contacts.id],
-        name: "contact_messages_contact_id_fkey",
-      }).onDelete("cascade"),
-      contactMessagesFileIdFkey: foreignKey({
-        columns: [table.file_id],
-        foreignColumns: [files.id],
-        name: "contact_messages_file_id_fkey",
-      }).onDelete("set null"),
-      allowDeleteAccessOnContactMessages: pgPolicy(
-        "Allow delete access on contact_messages",
-        { as: "permissive", for: "delete", to: ["public"], using: sql`true` },
-      ),
-      allowUpdateAccessOnContactMessages: pgPolicy(
-        "Allow update access on contact_messages",
-        { as: "permissive", for: "update", to: ["public"] },
-      ),
-      allowInsertAccessOnContactMessages: pgPolicy(
-        "Allow insert access on contact_messages",
-        { as: "permissive", for: "insert", to: ["public"] },
-      ),
-      allowReadAccessOnContactMessages: pgPolicy(
-        "Allow read access on contact_messages",
-        { as: "permissive", for: "select", to: ["public"] },
-      ),
-    };
+  (table) => ({
+    idxEmailEmployerSent: index("idx_email_employer_sent").using(
+      "btree",
+      table.employer_id.asc().nullsLast().op("uuid_ops"),
+      table.sent_at.asc().nullsLast().op("timestamptz_ops"),
+    ),
+    idxEmailSentAt: index("idx_email_sent_at").using(
+      "btree",
+      table.sent_at.asc().nullsLast().op("timestamptz_ops"),
+    ),
+    emailsEmployerFkey: foreignKey({
+      columns: [table.employer_id],
+      foreignColumns: [employers.id],
+      name: "emails_employer_id_fkey",
+    }).onDelete("set null"),
+    allowReadEmails: pgPolicy("Allow read access on emails", {
+      as: "permissive",
+      for: "select",
+      to: ["public"],
+    }),
+    allowInsertEmails: pgPolicy("Allow insert access on emails", {
+      as: "permissive",
+      for: "insert",
+      to: ["public"],
+    }),
+    allowUpdateEmails: pgPolicy("Allow update access on emails", {
+      as: "permissive",
+      for: "update",
+      to: ["public"],
+    }),
+    allowDeleteEmails: pgPolicy("Allow delete access on emails", {
+      as: "permissive",
+      for: "delete",
+      to: ["public"],
+      using: sql`true`,
+    }),
+  }),
+);
+
+export const emailTopics = pgTable(
+  "email_topics",
+  {
+    id: uuid().defaultRandom().primaryKey().notNull(),
+    email_id: uuid().notNull(),
+    topic_id: uuid().notNull(),
   },
+  (table) => ({
+    uqEmailTopic: unique("uq_email_topic").on(table.email_id, table.topic_id),
+    emailTopicsEmailFkey: foreignKey({
+      columns: [table.email_id],
+      foreignColumns: [emails.id],
+      name: "email_topics_email_id_fkey",
+    }).onDelete("cascade"),
+    emailTopicsTopicFkey: foreignKey({
+      columns: [table.topic_id],
+      foreignColumns: [topics.id],
+      name: "email_topics_topic_id_fkey",
+    }).onDelete("cascade"),
+    allowReadEmailTopics: pgPolicy("Allow read access on email_topics", {
+      as: "permissive",
+      for: "select",
+      to: ["public"],
+    }),
+    allowInsertEmailTopics: pgPolicy("Allow insert access on email_topics", {
+      as: "permissive",
+      for: "insert",
+      to: ["public"],
+    }),
+    allowUpdateEmailTopics: pgPolicy("Allow update access on email_topics", {
+      as: "permissive",
+      for: "update",
+      to: ["public"],
+    }),
+    allowDeleteEmailTopics: pgPolicy("Allow delete access on email_topics", {
+      as: "permissive",
+      for: "delete",
+      to: ["public"],
+      using: sql`true`,
+    }),
+  }),
+);
+
+export const emailParticipants = pgTable(
+  "email_participants",
+  {
+    id: uuid().defaultRandom().primaryKey().notNull(),
+    email_id: uuid().notNull(),
+    user_id: uuid(),
+    correspondent_id: uuid(),
+    address: text().notNull(),
+    display_name: text(),
+    role: emailParticipantRole().notNull(),
+  },
+  (table) => ({
+    uqEmailParticipant: unique("uq_email_participant").on(
+      table.email_id,
+      table.address,
+      table.role,
+    ),
+    idxEmailParticipantUser: index("idx_email_participant_user").using(
+      "btree",
+      table.user_id.asc().nullsLast().op("uuid_ops"),
+    ),
+    idxEmailParticipantCorrespondent: index(
+      "idx_email_participant_correspondent",
+    ).using("btree", table.correspondent_id.asc().nullsLast().op("uuid_ops")),
+    emailParticipantsEmailFkey: foreignKey({
+      columns: [table.email_id],
+      foreignColumns: [emails.id],
+      name: "email_participants_email_id_fkey",
+    }).onDelete("cascade"),
+    emailParticipantsUserFkey: foreignKey({
+      columns: [table.user_id],
+      foreignColumns: [users.id],
+      name: "email_participants_user_id_fkey",
+    }).onDelete("set null"),
+    emailParticipantsCorrespondentFkey: foreignKey({
+      columns: [table.correspondent_id],
+      foreignColumns: [correspondents.id],
+      name: "email_participants_correspondent_id_fkey",
+    }).onDelete("set null"),
+    allowReadEmailParticipants: pgPolicy(
+      "Allow read access on email_participants",
+      { as: "permissive", for: "select", to: ["public"] },
+    ),
+    allowInsertEmailParticipants: pgPolicy(
+      "Allow insert access on email_participants",
+      { as: "permissive", for: "insert", to: ["public"] },
+    ),
+    allowUpdateEmailParticipants: pgPolicy(
+      "Allow update access on email_participants",
+      { as: "permissive", for: "update", to: ["public"] },
+    ),
+    allowDeleteEmailParticipants: pgPolicy(
+      "Allow delete access on email_participants",
+      { as: "permissive", for: "delete", to: ["public"], using: sql`true` },
+    ),
+  }),
+);
+
+export const employerTeamMembers = pgTable(
+  "employer_team_members",
+  {
+    employer_id: uuid().notNull(),
+    user_id: uuid().notNull(),
+    created_at: timestamp({ withTimezone: true, mode: "string" })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    employerTeamMembersPk: primaryKey({
+      columns: [table.employer_id, table.user_id],
+    }),
+    idxEmployerTeamUser: index("idx_employer_team_user").using(
+      "btree",
+      table.user_id.asc().nullsLast().op("uuid_ops"),
+    ),
+    employerTeamMembersEmployerFkey: foreignKey({
+      columns: [table.employer_id],
+      foreignColumns: [employers.id],
+      name: "employer_team_members_employer_id_fkey",
+    }).onDelete("cascade"),
+    employerTeamMembersUserFkey: foreignKey({
+      columns: [table.user_id],
+      foreignColumns: [users.id],
+      name: "employer_team_members_user_id_fkey",
+    }).onDelete("cascade"),
+    allowReadEmployerTeamMembers: pgPolicy(
+      "Allow read access on employer_team_members",
+      { as: "permissive", for: "select", to: ["public"] },
+    ),
+    allowInsertEmployerTeamMembers: pgPolicy(
+      "Allow insert access on employer_team_members",
+      { as: "permissive", for: "insert", to: ["public"] },
+    ),
+    allowUpdateEmployerTeamMembers: pgPolicy(
+      "Allow update access on employer_team_members",
+      { as: "permissive", for: "update", to: ["public"] },
+    ),
+    allowDeleteEmployerTeamMembers: pgPolicy(
+      "Allow delete access on employer_team_members",
+      { as: "permissive", for: "delete", to: ["public"], using: sql`true` },
+    ),
+  }),
 );
 
 // ============================================================================

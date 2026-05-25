@@ -309,6 +309,20 @@
       "when": 1779321600000,
       "tag": "20260521000000_add_vault_export_job_type",
       "breakpoints": true
+    },
+    {
+      "idx": 44,
+      "version": "7",
+      "when": 1779408000000,
+      "tag": "20260522000000_crm_employers_correspondents",
+      "breakpoints": true
+    },
+    {
+      "idx": 45,
+      "version": "7",
+      "when": 1779667200000,
+      "tag": "20260525000000_employer_industry_category",
+      "breakpoints": true
     }
   ]
 }

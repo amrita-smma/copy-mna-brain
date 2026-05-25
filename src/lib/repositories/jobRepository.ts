@@ -78,6 +78,23 @@ export class JobRepository {
     return row ?? null;
   }
 
+  /**
+   * Most recent job of `type` in the given status, regardless of how long ago
+   * it ran. Used by the CRM insights bar to surface "last successful sync".
+   */
+  async findLatestByTypeAndStatus(
+    type: JobType,
+    status: JobStatus,
+  ): Promise<Job | null> {
+    const [row] = await this.db
+      .select()
+      .from(jobs)
+      .where(and(eq(jobs.type, type), eq(jobs.status, status)))
+      .orderBy(desc(jobs.completed_at))
+      .limit(1);
+    return row ?? null;
+  }
+
   async findStuck(bufferSeconds: number = DEFAULT_STUCK_BUFFER_SECONDS): Promise<Job[]> {
     const rows = await this.db
       .select()

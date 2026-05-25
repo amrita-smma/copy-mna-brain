@@ -11,8 +11,6 @@ import type {
   ScreeningRepository,
   Tables,
   TablesInsert,
-  ContactRepository,
-  ContactMessageRepository,
 } from '@/lib/repositories';
 import type { CompanyAnalysisService } from './companyAnalysisService';
 import type { AIScreeningService } from './aiScreeningService';
@@ -178,21 +176,23 @@ export class FileService {
         company?: string;
       }>;
 
-      const messages = communications.map(comm => ({
-        email: comm.from_email,
-        name: comm.from_name,
-        company: comm.company,
-        direction: 'inbound' as const,
-        subject: comm.subject,
-        body: comm.body,
-        sent_at: comm.sent_at,
-        from_email: comm.from_email,
-        to_email: comm.to_email,
-      }));
-
-      await this.crmService.addMessagesFromFile(initialData.id, messages).catch((err) => {
-        console.error('Error adding communications to CRM:', err);
-      });
+      await this.crmService
+        .ingestEmails(
+          communications.map((comm) => ({
+            from_email: comm.from_email,
+            from_name: comm.from_name,
+            to_email: comm.to_email,
+            to_name: comm.to_name,
+            subject: comm.subject,
+            body: comm.body,
+            sent_at: comm.sent_at,
+            direction: 'inbound' as const,
+            company: comm.company,
+          })),
+        )
+        .catch((err) => {
+          console.error('Error adding communications to CRM:', err);
+        });
     }
 
     return { ...updatedData, signed_url: signedUrl };

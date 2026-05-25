@@ -13,12 +13,24 @@ import {
   closeVaultMatter,
 } from '@/lib/services/googleVaultService';
 import {
-  ContactRepository,
-  ContactMessageRepository,
+  EmployerRepository,
+  CorrespondentRepository,
+  EmployerNoteRepository,
+  TopicRepository,
+  EmailRepository,
+  EmployerTeamRepository,
 } from '@/lib/repositories';
 import type { DbClient, Tables } from '@/lib/repositories';
+import { CRMService } from '@/lib/services/crmService';
 
 export const VAULT_EXPORT_TIMEOUT_SECONDS = 1800; // 30 minutes
+
+/**
+ * Expected cadence between scheduled Vault syncs. Surfaced in the CRM insights
+ * bar as "next sync in …". The actual job is dispatched manually today; this
+ * constant just feeds the UX hint.
+ */
+export const VAULT_SYNC_CADENCE_MS = 24 * 60 * 60 * 1000;
 
 export const VAULT_CUSTODIAN_EMAILS = [
   'hendric.g@starcapital.co.id',
@@ -40,8 +52,8 @@ export interface VaultExportResult {
   matters_created: number;
   files_downloaded: number;
   emails_parsed: number;
-  contacts_created: number;
-  messages_added: number;
+  employers_created: number;
+  emails_added: number;
 }
 
 const POLL_INTERVAL_MS = 30_000;
@@ -125,13 +137,19 @@ export async function runVaultExport(
 
   // Download, parse, and import
   const custodianSet = new Set(custodianEmails.map((e) => e.toLowerCase()));
-  const contactRepo = new ContactRepository(deps.db);
-  const messageRepo = new ContactMessageRepository(deps.db);
+  const crmService = new CRMService(
+    new EmployerRepository(deps.db),
+    new CorrespondentRepository(deps.db),
+    new EmployerNoteRepository(deps.db),
+    new TopicRepository(deps.db),
+    new EmailRepository(deps.db),
+    new EmployerTeamRepository(deps.db),
+  );
 
   let filesDownloaded = 0;
   let emailsParsed = 0;
-  let contactsCreated = 0;
-  let messagesAdded = 0;
+  let totalEmployersCreated = 0;
+  let totalEmailsAdded = 0;
 
   for (const file of exportFiles) {
     if (!file.objectName.endsWith('.zip')) {
@@ -184,28 +202,19 @@ export async function runVaultExport(
       emailsParsed += parsed.length;
       debug(`${entry.entryName}: parsed ${parsed.length} emails, ${classified.length} classified`);
 
-      for (const msg of classified) {
-        let contact = await contactRepo.findByEmail(msg.contact_email);
-        if (!contact) {
-          contact = await contactRepo.insert({
-            email: msg.contact_email,
-            name: msg.contact_email,
-          });
-          contactsCreated++;
-        }
-
-        await messageRepo.insert({
-          contact_id: contact.id,
-          direction: msg.direction,
+      const { employers_created, emails_added } = await crmService.ingestEmails(
+        classified.map((msg) => ({
+          from_email: msg.from_email ?? msg.contact_email,
+          from_name: msg.contact_name,
+          to_email: msg.to_email,
           subject: msg.subject,
           body: msg.body,
           sent_at: msg.sent_at,
-          from_email: msg.from_email,
-          to_email: msg.to_email,
-          metadata: { source: 'google_vault', matter_id: matterId, export_id: exportId },
-        });
-        messagesAdded++;
-      }
+          direction: msg.direction,
+        })),
+      );
+      totalEmployersCreated += employers_created;
+      totalEmailsAdded += emails_added;
     }
   }
 
@@ -217,8 +226,8 @@ export async function runVaultExport(
     matters_created: 1,
     files_downloaded: filesDownloaded,
     emails_parsed: emailsParsed,
-    contacts_created: contactsCreated,
-    messages_added: messagesAdded,
+    employers_created: totalEmployersCreated,
+    emails_added: totalEmailsAdded,
   };
   log(`done: ${JSON.stringify(result)}`);
   return result;

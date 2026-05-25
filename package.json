@@ -13,6 +13,7 @@
     "db:migrate:status": "tsx scripts/status.ts",
     "db:migration:new": "tsx scripts/new-migration.ts",
     "db:seed": "tsx scripts/seed.ts",
+    "db:seed:crm": "tsx scripts/seed-crm.ts",
     "mbox:parse": "tsx scripts/mbox-parse.ts",
     "test": "vitest run",
     "test:watch": "vitest",

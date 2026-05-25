@@ -1,193 +1,414 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { CRMService } from './crmService';
+import {
+  CRMService,
+  DuplicateEmployerError,
+  EmployerNotFoundError,
+} from './crmService';
 
-const mockContactRepo = {
-  findAll: vi.fn(),
+const employerRepo = {
+  list: vi.fn(),
+  count: vi.fn(),
   findById: vi.fn(),
-  findByEmail: vi.fn(),
-  search: vi.fn(),
+  findByNormalizedName: vi.fn(),
   insert: vi.fn(),
   update: vi.fn(),
   delete: vi.fn(),
-  findOrCreateByEmail: vi.fn(),
+  findByIds: vi.fn(),
+  countFlagged: vi.fn(),
+  listFlagged: vi.fn(),
 };
 
-const mockMessageRepo = {
-  findByContactId: vi.fn(),
+const correspondentRepo = {
+  findByEmployerId: vi.fn(),
   findById: vi.fn(),
-  findByFileId: vi.fn(),
+  findByEmployerAndEmail: vi.fn(),
+  findByEmail: vi.fn(),
   insert: vi.fn(),
-  insertMany: vi.fn(),
+  update: vi.fn(),
   delete: vi.fn(),
-  deleteByFileId: vi.fn(),
+  findByIds: vi.fn(),
+  countByEmployer: vi.fn(),
 };
 
-describe('CRMService', () => {
-  let service: CRMService;
+const noteRepo = {
+  findByEmployerId: vi.fn(),
+  findById: vi.fn(),
+  insert: vi.fn(),
+  update: vi.fn(),
+  delete: vi.fn(),
+};
 
-  beforeEach(() => {
-    vi.clearAllMocks();
-    service = new CRMService(mockContactRepo as any, mockMessageRepo as any);
+const topicRepo = {
+  listAll: vi.fn(),
+  findByName: vi.fn(),
+  findById: vi.fn(),
+  findOrCreate: vi.fn(),
+  listForEmployer: vi.fn(),
+  assignToEmployer: vi.fn(),
+  removeFromEmployer: vi.fn(),
+  countEmployerTopics: vi.fn(),
+  findByIds: vi.fn(),
+};
+
+const emailRepo = {
+  findByEmployerId: vi.fn(),
+  countByEmployer: vi.fn(),
+  insert: vi.fn(),
+  insertParticipants: vi.fn(),
+  findById: vi.fn(),
+  countSince: vi.fn(),
+  listParticipants: vi.fn(),
+  findByIds: vi.fn(),
+  countStaleEmployers: vi.fn(),
+};
+
+const teamRepo = {
+  listForEmployer: vi.fn(),
+  add: vi.fn(),
+  remove: vi.fn(),
+  setMembers: vi.fn(),
+  listAllTeamUsers: vi.fn(),
+};
+
+function makeService(): CRMService {
+  return new CRMService(
+    employerRepo as never,
+    correspondentRepo as never,
+    noteRepo as never,
+    topicRepo as never,
+    emailRepo as never,
+    teamRepo as never,
+  );
+}
+
+beforeEach(() => {
+  vi.clearAllMocks();
+});
+
+describe('CRMService.listEmployers', () => {
+  it('returns aggregated rows and total in parallel', async () => {
+    employerRepo.list.mockResolvedValue([{ id: '1', name: 'GS' }]);
+    employerRepo.count.mockResolvedValue(1);
+
+    const out = await makeService().listEmployers({ search: 'gs' });
+
+    expect(out).toEqual({ data: [{ id: '1', name: 'GS' }], total: 1 });
+    expect(employerRepo.list).toHaveBeenCalledWith({ search: 'gs' });
+    expect(employerRepo.count).toHaveBeenCalledWith({ search: 'gs' });
+  });
+});
+
+describe('CRMService.getEmployerDetail', () => {
+  it('throws EmployerNotFoundError when the employer is missing', async () => {
+    employerRepo.findById.mockResolvedValue(undefined);
+    await expect(makeService().getEmployerDetail('x')).rejects.toBeInstanceOf(
+      EmployerNotFoundError,
+    );
   });
 
-  describe('findAllContacts', () => {
-    it('returns all contacts', async () => {
-      const mockContacts = [
-        { id: '1', name: 'John Doe' },
-        { id: '2', name: 'Jane Doe' },
-      ];
-      mockContactRepo.findAll.mockResolvedValueOnce(mockContacts);
+  it('aggregates correspondents, notes, topics, team and primary PIC', async () => {
+    employerRepo.findById.mockResolvedValue({ id: 'e1', name: 'GS' });
+    const primary = { id: 'c1', name: 'James', is_primary: true };
+    correspondentRepo.findByEmployerId.mockResolvedValue([
+      { id: 'c0', name: 'Sara', is_primary: false },
+      primary,
+    ]);
+    noteRepo.findByEmployerId.mockResolvedValue([{ id: 'n1' }]);
+    topicRepo.listForEmployer.mockResolvedValue([{ id: 't1' }]);
+    teamRepo.listForEmployer.mockResolvedValue([{ id: 'u1' }]);
+    emailRepo.countByEmployer.mockResolvedValue(7);
+    emailRepo.findByEmployerId.mockResolvedValue([
+      { sent_at: '2026-05-01T00:00:00Z' },
+    ]);
 
-      const result = await service.findAllContacts();
+    const detail = await makeService().getEmployerDetail('e1');
 
-      expect(result).toEqual(mockContacts);
-      expect(mockContactRepo.findAll).toHaveBeenCalled();
+    expect(detail.primary_pic).toEqual(primary);
+    expect(detail.email_count).toBe(7);
+    expect(detail.last_contact_at).toBe('2026-05-01T00:00:00Z');
+    expect(detail.notes).toHaveLength(1);
+    expect(detail.topics).toHaveLength(1);
+    expect(detail.team).toHaveLength(1);
+  });
+});
+
+describe('CRMService.createEmployer', () => {
+  it('rejects duplicates by normalized name', async () => {
+    employerRepo.findByNormalizedName.mockResolvedValue({ id: 'old', name: 'GS' });
+    await expect(
+      makeService().createEmployer({ name: 'GS' }),
+    ).rejects.toBeInstanceOf(DuplicateEmployerError);
+    expect(employerRepo.insert).not.toHaveBeenCalled();
+  });
+
+  it('normalizes the name before inserting', async () => {
+    employerRepo.findByNormalizedName.mockResolvedValue(undefined);
+    employerRepo.insert.mockResolvedValue({ id: 'new', name: '  Goldman Sachs  ' });
+    await makeService().createEmployer({ name: '  Goldman Sachs  ' });
+    expect(employerRepo.insert).toHaveBeenCalledWith(
+      expect.objectContaining({ normalized_name: 'goldman sachs' }),
+    );
+  });
+});
+
+describe('CRMService.createContact', () => {
+  it('updates rather than duplicates when (employer, email) already exists', async () => {
+    employerRepo.findById.mockResolvedValue({ id: 'e1' });
+    correspondentRepo.findByEmployerAndEmail.mockResolvedValue({ id: 'c1' });
+    correspondentRepo.update.mockResolvedValue({ id: 'c1', name: 'Updated' });
+
+    await makeService().createContact({
+      employerId: 'e1',
+      name: 'Updated',
+      email: 'a@b.com',
+    });
+
+    expect(correspondentRepo.update).toHaveBeenCalledWith(
+      'c1',
+      expect.objectContaining({ name: 'Updated' }),
+    );
+    expect(correspondentRepo.insert).not.toHaveBeenCalled();
+  });
+
+  it('throws if no employerId or firmName is provided', async () => {
+    await expect(
+      makeService().createContact({ name: 'X' }),
+    ).rejects.toThrow(/employerId or firmName/);
+  });
+
+  it('creates an employer on the fly when only firmName is provided', async () => {
+    employerRepo.findByNormalizedName.mockResolvedValue(undefined);
+    employerRepo.insert.mockResolvedValue({ id: 'new-emp' });
+    correspondentRepo.findByEmployerAndEmail.mockResolvedValue(undefined);
+    correspondentRepo.insert.mockResolvedValue({ id: 'new-c' });
+
+    await makeService().createContact({
+      firmName: 'New Firm',
+      name: 'John',
+      email: 'john@new.com',
+    });
+
+    expect(employerRepo.insert).toHaveBeenCalledWith(
+      expect.objectContaining({ name: 'New Firm' }),
+    );
+    expect(correspondentRepo.insert).toHaveBeenCalledWith(
+      expect.objectContaining({ employer_id: 'new-emp', email: 'john@new.com' }),
+    );
+  });
+});
+
+describe('CRMService.addTopicToEmployer', () => {
+  it('rejects when the employer already has 20 topics', async () => {
+    topicRepo.listForEmployer.mockResolvedValue(
+      Array.from({ length: 20 }, (_, i) => ({ id: `${i}`, name: `t${i}` })),
+    );
+    await expect(
+      makeService().addTopicToEmployer('e1', 'new'),
+    ).rejects.toThrow(/Maximum/);
+  });
+
+  it('rejects duplicates case-insensitively', async () => {
+    topicRepo.listForEmployer.mockResolvedValue([
+      { id: '1', name: 'CMP slurry' },
+    ]);
+    await expect(
+      makeService().addTopicToEmployer('e1', 'cmp slurry'),
+    ).rejects.toThrow(/already/);
+  });
+
+  it('returns the refreshed topic list after assigning', async () => {
+    topicRepo.listForEmployer
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ id: 't', name: 'NewTopic' }]);
+    topicRepo.findOrCreate.mockResolvedValue({ id: 'topic-1' });
+    topicRepo.assignToEmployer.mockResolvedValue({ id: 'et1' });
+
+    const out = await makeService().addTopicToEmployer('e1', 'NewTopic');
+    expect(topicRepo.assignToEmployer).toHaveBeenCalledWith(
+      'e1',
+      'topic-1',
+      expect.objectContaining({ source: 'manual' }),
+    );
+    expect(out).toEqual([{ id: 't', name: 'NewTopic' }]);
+  });
+});
+
+describe('CRMService.curateEmployer', () => {
+  it('publishes on approve and normalises the new name', async () => {
+    employerRepo.update.mockResolvedValue({ id: 'e1' });
+    await makeService().curateEmployer('e1', 'approve', {
+      name: 'Goldman Sachs',
+    });
+    expect(employerRepo.update).toHaveBeenCalledWith('e1', {
+      name: 'Goldman Sachs',
+      normalized_name: 'goldman sachs',
+      curation_status: 'published',
     });
   });
 
-  describe('findContactById', () => {
-    it('returns contact with messages when found', async () => {
-      const mockContact = { id: '1', name: 'John Doe' };
-      const mockMessages = [
-        { id: 'm1', body: 'Hello' },
-        { id: 'm2', body: 'World' },
-      ];
-      mockContactRepo.findById.mockResolvedValueOnce(mockContact);
-      mockMessageRepo.findByContactId.mockResolvedValueOnce(mockMessages);
+  it('on skip, just bumps updated_at without changing curation_status', async () => {
+    employerRepo.update.mockResolvedValue({ id: 'e1' });
+    await makeService().curateEmployer('e1', 'skip');
+    expect(employerRepo.update).toHaveBeenCalledWith('e1', {});
+  });
 
-      const result = await service.findContactById('1');
+  it('on approve with a primary_pic patch, updates the existing primary correspondent', async () => {
+    employerRepo.update.mockResolvedValue({ id: 'e1' });
+    correspondentRepo.findByEmployerId.mockResolvedValue([
+      { id: 'c-other', name: 'Other', is_primary: false },
+      { id: 'c-primary', name: 'Old', is_primary: true },
+    ]);
 
-      expect(result).toEqual({
-        ...mockContact,
-        messages: mockMessages,
-        message_count: 2,
-      });
+    await makeService().curateEmployer('e1', 'approve', {
+      primary_pic: { name: 'New Name', title: 'MD', email: null, phone: '+1 555' },
     });
 
-    it('returns null when contact not found', async () => {
-      mockContactRepo.findById.mockResolvedValueOnce(undefined);
+    expect(correspondentRepo.update).toHaveBeenCalledWith('c-primary', {
+      name: 'New Name',
+      title: 'MD',
+      email: null,
+      phone: '+1 555',
+    });
+    expect(correspondentRepo.insert).not.toHaveBeenCalled();
+  });
 
-      const result = await service.findContactById('nonexistent');
+  it('on approve with no primary, inserts a new primary correspondent when one is given', async () => {
+    employerRepo.update.mockResolvedValue({ id: 'e1' });
+    correspondentRepo.findByEmployerId.mockResolvedValue([]);
+    correspondentRepo.insert.mockResolvedValue({ id: 'c-new' });
 
-      expect(result).toBeNull();
+    await makeService().curateEmployer('e1', 'approve', {
+      primary_pic: { name: 'Brand New', email: 'b@n.com' },
+    });
+
+    expect(correspondentRepo.insert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        employer_id: 'e1',
+        name: 'Brand New',
+        email: 'b@n.com',
+        is_primary: true,
+        source: 'manual',
+      }),
+    );
+  });
+
+  it('on skip, never touches correspondents even when primary_pic is in the patch', async () => {
+    employerRepo.update.mockResolvedValue({ id: 'e1' });
+    await makeService().curateEmployer('e1', 'skip', {
+      primary_pic: { name: 'Ignored' },
+    });
+    expect(correspondentRepo.findByEmployerId).not.toHaveBeenCalled();
+    expect(correspondentRepo.update).not.toHaveBeenCalled();
+    expect(correspondentRepo.insert).not.toHaveBeenCalled();
+  });
+});
+
+describe('CRMService.listFlaggedEmployerDetails', () => {
+  it('returns each flagged employer with its primary correspondent', async () => {
+    employerRepo.listFlagged.mockResolvedValue([
+      { id: 'e1', name: 'GS', industry: 'IB', industry_category: 'Inv. Bank', status: 'inbound' },
+      { id: 'e2', name: 'MS', industry: null, industry_category: null, status: 'outbound' },
+    ]);
+    correspondentRepo.findByEmployerId
+      .mockResolvedValueOnce([
+        { id: 'c1', name: 'James', title: 'MD', email: 'j@gs.com', phone: null, is_primary: true },
+      ])
+      .mockResolvedValueOnce([]);
+
+    const out = await makeService().listFlaggedEmployerDetails();
+    expect(out).toHaveLength(2);
+    expect(out[0]).toMatchObject({
+      id: 'e1',
+      name: 'GS',
+      industry: 'IB',
+      industry_category: 'Inv. Bank',
+      primary_pic: { id: 'c1', name: 'James', email: 'j@gs.com' },
+    });
+    expect(out[1].primary_pic).toBeNull();
+  });
+});
+
+describe('CRMService.insights', () => {
+  it('passes vault context through to the response', async () => {
+    emailRepo.countStaleEmployers.mockResolvedValue(2);
+    employerRepo.countFlagged.mockResolvedValue(1);
+    emailRepo.countSince.mockResolvedValue(7);
+
+    const out = await makeService().insights({
+      vaultCustodianCount: 4,
+      lastVaultSyncedAt: '2026-05-24T12:00:00.000Z',
+      vaultSyncCadenceMs: 24 * 60 * 60 * 1000,
+    });
+
+    expect(out).toEqual({
+      stale_employers: 2,
+      flagged_records: 1,
+      emails_today: 7,
+      email_accounts: 4,
+      last_synced_at: '2026-05-24T12:00:00.000Z',
+      next_sync_at: '2026-05-25T12:00:00.000Z',
     });
   });
 
-  describe('searchContacts', () => {
-    it('searches contacts by query', async () => {
-      const mockContacts = [{ id: '1', name: 'John Doe' }];
-      mockContactRepo.search.mockResolvedValueOnce(mockContacts);
+  it('returns nulls for sync state when no vault context is provided', async () => {
+    emailRepo.countStaleEmployers.mockResolvedValue(0);
+    employerRepo.countFlagged.mockResolvedValue(0);
+    emailRepo.countSince.mockResolvedValue(0);
 
-      const result = await service.searchContacts('john');
+    const out = await makeService().insights();
+    expect(out.email_accounts).toBeNull();
+    expect(out.last_synced_at).toBeNull();
+    expect(out.next_sync_at).toBeNull();
+  });
+});
 
-      expect(result).toEqual(mockContacts);
-      expect(mockContactRepo.search).toHaveBeenCalledWith('john');
-    });
+describe('CRMService.ingestEmails', () => {
+  it('reuses an existing employer and creates an email + from-participant', async () => {
+    employerRepo.findByNormalizedName.mockResolvedValue({ id: 'e1', name: 'Goldman' });
+    correspondentRepo.findByEmployerAndEmail.mockResolvedValue({ id: 'c1' });
+    emailRepo.insert.mockResolvedValue({ id: 'em1' });
+    emailRepo.insertParticipants.mockResolvedValue([]);
+
+    const out = await makeService().ingestEmails([
+      {
+        from_email: 'james@goldman.com',
+        subject: 'Hi',
+        body: 'Body',
+        direction: 'inbound',
+        company: 'Goldman',
+      },
+    ]);
+
+    expect(out).toEqual({ employers_created: 0, emails_added: 1 });
+    expect(employerRepo.insert).not.toHaveBeenCalled();
+    expect(emailRepo.insert).toHaveBeenCalledWith(
+      expect.objectContaining({ employer_id: 'e1', from_address: 'james@goldman.com' }),
+    );
+    expect(emailRepo.insertParticipants).toHaveBeenCalledWith([
+      expect.objectContaining({ role: 'from', correspondent_id: 'c1' }),
+    ]);
   });
 
-  describe('createContact', () => {
-    it('creates a new contact', async () => {
-      const newContact = { name: 'John Doe', email: 'john@example.com' };
-      const createdContact = { id: '1', ...newContact };
-      mockContactRepo.insert.mockResolvedValueOnce(createdContact);
+  it('creates the employer when one is missing', async () => {
+    employerRepo.findByNormalizedName.mockResolvedValue(undefined);
+    employerRepo.insert.mockResolvedValue({ id: 'new-emp' });
+    correspondentRepo.findByEmployerAndEmail.mockResolvedValue(undefined);
+    correspondentRepo.insert.mockResolvedValue({ id: 'c1' });
+    emailRepo.insert.mockResolvedValue({ id: 'em1' });
+    emailRepo.insertParticipants.mockResolvedValue([]);
 
-      const result = await service.createContact(newContact);
+    const out = await makeService().ingestEmails([
+      {
+        from_email: 'x@morgan.com',
+        body: 'Hello',
+        direction: 'inbound',
+        company: 'Morgan Stanley',
+      },
+    ]);
 
-      expect(result).toEqual(createdContact);
-      expect(mockContactRepo.insert).toHaveBeenCalledWith(newContact);
-    });
-  });
-
-  describe('updateContact', () => {
-    it('updates contact when found', async () => {
-      const updatedContact = { id: '1', name: 'John Updated' };
-      mockContactRepo.update.mockResolvedValueOnce(updatedContact);
-
-      const result = await service.updateContact('1', { name: 'John Updated' });
-
-      expect(result).toEqual(updatedContact);
-    });
-
-    it('returns null when contact not found', async () => {
-      mockContactRepo.update.mockResolvedValueOnce(undefined);
-
-      const result = await service.updateContact('nonexistent', { name: 'Test' });
-
-      expect(result).toBeNull();
-    });
-  });
-
-  describe('deleteContact', () => {
-    it('deletes a contact', async () => {
-      mockContactRepo.delete.mockResolvedValueOnce(undefined);
-
-      await expect(service.deleteContact('1')).resolves.toBeUndefined();
-      expect(mockContactRepo.delete).toHaveBeenCalledWith('1');
-    });
-  });
-
-  describe('addMessagesFromFile', () => {
-    it('creates contacts and adds messages from file', async () => {
-      const fileId = 'file-1';
-      const messages = [
-        {
-          email: 'john@example.com',
-          name: 'John Doe',
-          company: 'Acme',
-          direction: 'inbound' as const,
-          subject: 'Test',
-          body: 'Hello',
-          sent_at: '2024-01-01T00:00:00Z',
-          from_email: 'john@example.com',
-          to_email: 'team@starcapital.com',
-        },
-      ];
-
-      mockContactRepo.findByEmail.mockResolvedValueOnce(undefined);
-      mockContactRepo.insert.mockResolvedValueOnce({ id: 'c1', email: 'john@example.com', name: 'John Doe' });
-      mockMessageRepo.insertMany.mockResolvedValueOnce([{ id: 'm1' }]);
-
-      const result = await service.addMessagesFromFile(fileId, messages);
-
-      expect(result).toEqual({
-        contacts_created: 1,
-        messages_added: 1,
-      });
-      expect(mockContactRepo.insert).toHaveBeenCalled();
-      expect(mockMessageRepo.insertMany).toHaveBeenCalled();
-    });
-
-    it('uses existing contact when found', async () => {
-      const fileId = 'file-1';
-      const messages = [
-        {
-          email: 'john@example.com',
-          name: 'John Doe',
-          direction: 'inbound' as const,
-          body: 'Hello',
-        },
-      ];
-
-      const existingContact = { id: 'c1', email: 'john@example.com', name: 'John Doe' };
-      mockContactRepo.findByEmail.mockResolvedValueOnce(existingContact);
-      mockMessageRepo.insertMany.mockResolvedValueOnce([{ id: 'm1' }]);
-
-      const result = await service.addMessagesFromFile(fileId, messages);
-
-      expect(result).toEqual({
-        contacts_created: 0,
-        messages_added: 1,
-      });
-      expect(mockContactRepo.insert).not.toHaveBeenCalled();
-    });
-  });
-
-  describe('deleteMessagesByFileId', () => {
-    it('deletes messages by file id', async () => {
-      mockMessageRepo.deleteByFileId.mockResolvedValueOnce(undefined);
-
-      await expect(service.deleteMessagesByFileId('file-1')).resolves.toBeUndefined();
-      expect(mockMessageRepo.deleteByFileId).toHaveBeenCalledWith('file-1');
-    });
+    expect(out.employers_created).toBe(1);
+    expect(employerRepo.insert).toHaveBeenCalledWith(
+      expect.objectContaining({ name: 'Morgan Stanley' }),
+    );
   });
 });

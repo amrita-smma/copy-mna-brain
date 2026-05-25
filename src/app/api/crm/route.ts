@@ -1,59 +1,104 @@
-import { NextRequest, NextResponse } from "next/server";
-import { createDb } from "@/lib/server/db";
-import { createContainer } from "@/lib/services";
+import { NextRequest, NextResponse } from 'next/server';
+import { createDb } from '@/lib/server/db';
+import { createContainer } from '@/lib/services';
+import { DuplicateEmployerError } from '@/lib/services/crmService';
+import { JobRepository, type EmployerListFilters } from '@/lib/repositories';
+import {
+  VAULT_CUSTODIAN_EMAILS,
+  VAULT_SYNC_CADENCE_MS,
+} from '@/lib/jobs/handlers/vaultExport';
 
-export async function GET(request: NextRequest) {
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+function lastContactAfter(
+  preset: string | null,
+  custom: string | null,
+): string | undefined {
+  if (!preset) return undefined;
+  const now = Date.now();
+  const startOfDay = new Date(now);
+  startOfDay.setHours(0, 0, 0, 0);
+  switch (preset) {
+    case 'today':
+      return startOfDay.toISOString();
+    case 'yesterday':
+      return new Date(startOfDay.getTime() - DAY_MS).toISOString();
+    case 'week':
+      return new Date(now - 7 * DAY_MS).toISOString();
+    case 'month':
+      return new Date(now - 30 * DAY_MS).toISOString();
+    case 'custom':
+      if (!custom) return undefined;
+      // Custom is YYYY-MM-DD — interpret as start-of-day local
+      return new Date(custom).toISOString();
+    default:
+      return undefined;
+  }
+}
+
+export async function GET(req: NextRequest) {
   try {
-    const searchParams = request.nextUrl.searchParams;
-    const query = searchParams.get("q");
+    const sp = req.nextUrl.searchParams;
+    const filters: EmployerListFilters = {
+      search: sp.get('q')?.trim() || undefined,
+      status: (sp.get('status') as 'inbound' | 'outbound' | null) ?? undefined,
+      curationStatus:
+        (sp.get('curationStatus') as 'published' | 'flagged' | null) ??
+        'published',
+      lastContactAfter: lastContactAfter(
+        sp.get('lastContact'),
+        sp.get('customDate'),
+      ),
+      topicIds: sp.getAll('topicId').filter(Boolean),
+      teamUserIds: sp.getAll('teamUserId').filter(Boolean),
+      limit: Number(sp.get('limit')) || 50,
+      offset: Number(sp.get('offset')) || 0,
+    };
 
     const db = createDb();
     const { crmService } = createContainer(db);
-
-    const data = query
-      ? await crmService.searchContacts(query)
-      : await crmService.findAllContacts();
-
-    return NextResponse.json({ success: true, data });
-  } catch (error) {
-    console.error("Fetch contacts error:", error);
+    const jobRepo = new JobRepository(db);
+    const lastSyncJob = await jobRepo.findLatestByTypeAndStatus(
+      'vault_export',
+      'completed',
+    );
+    const { data, total } = await crmService.listEmployers(filters);
+    const insights = await crmService.insights({
+      vaultCustodianCount: VAULT_CUSTODIAN_EMAILS.length,
+      lastVaultSyncedAt: lastSyncJob?.completed_at ?? null,
+      vaultSyncCadenceMs: VAULT_SYNC_CADENCE_MS,
+    });
+    return NextResponse.json({ data, total, insights });
+  } catch (err) {
+    console.error(err);
     return NextResponse.json(
-      { error: (error as Error).message || "Failed to fetch contacts" },
+      { error: 'Internal server error' },
       { status: 500 },
     );
   }
 }
 
-export async function POST(request: NextRequest) {
+export async function POST(req: NextRequest) {
   try {
-    const body = await request.json();
-    const { name, email, phone, company, title, type, notes } = body;
-
-    if (!name) {
-      return NextResponse.json(
-        { error: "Name is required" },
-        { status: 400 },
-      );
+    const body = await req.json();
+    if (!body?.name) {
+      return NextResponse.json({ error: 'name is required' }, { status: 400 });
     }
-
     const db = createDb();
     const { crmService } = createContainer(db);
-
-    const data = await crmService.createContact({
-      name,
-      email,
-      phone,
-      company,
-      title,
-      type,
-      notes,
+    const data = await crmService.createEmployer({
+      name: body.name,
+      industry: body.industry,
+      status: body.status,
     });
-
-    return NextResponse.json({ success: true, data });
-  } catch (error) {
-    console.error("Create contact error:", error);
+    return NextResponse.json({ data }, { status: 201 });
+  } catch (err) {
+    if (err instanceof DuplicateEmployerError) {
+      return NextResponse.json({ error: err.message }, { status: 409 });
+    }
+    console.error(err);
     return NextResponse.json(
-      { error: (error as Error).message || "Failed to create contact" },
+      { error: 'Internal server error' },
       { status: 500 },
     );
   }

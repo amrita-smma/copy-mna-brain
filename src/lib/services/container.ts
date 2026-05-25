@@ -19,8 +19,12 @@ import {
   ResetPasswordTokenRepository,
   UserRepository,
   UserCompanyFavoriteRepository,
-  ContactRepository,
-  ContactMessageRepository,
+  EmployerRepository,
+  CorrespondentRepository,
+  EmployerNoteRepository,
+  TopicRepository,
+  EmailRepository,
+  EmployerTeamRepository,
   AiWorkforceQueueRepository,
   CopilotChatsRepository,
 } from '@/lib/repositories';
@@ -127,9 +131,20 @@ export function createContainer(db: DbClient): Container {
     companyFxAdjustmentRepo,
   );
 
-  const contactRepo = new ContactRepository(db);
-  const contactMessageRepo = new ContactMessageRepository(db);
-  const crmService = new CRMService(contactRepo, contactMessageRepo);
+  const employerRepo = new EmployerRepository(db);
+  const correspondentRepo = new CorrespondentRepository(db);
+  const employerNoteRepo = new EmployerNoteRepository(db);
+  const topicRepo = new TopicRepository(db);
+  const emailRepo = new EmailRepository(db);
+  const employerTeamRepo = new EmployerTeamRepository(db);
+  const crmService = new CRMService(
+    employerRepo,
+    correspondentRepo,
+    employerNoteRepo,
+    topicRepo,
+    emailRepo,
+    employerTeamRepo,
+  );
 
   const aiWorkforceQueueRepo = new AiWorkforceQueueRepository(db);
   const aiWorkforceService = new AiWorkforceService(aiWorkforceQueueRepo, db);

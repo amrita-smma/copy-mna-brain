@@ -17,8 +17,9 @@ import { and, eq, gte, inArray, lte } from 'drizzle-orm';
 import {
   companies,
   companyFinancials,
-  contacts,
+  correspondents,
   criterias,
+  employers,
   investmentThesis,
   userCompanyFavorites,
   users,
@@ -64,9 +65,11 @@ type SeedContact = {
   name: string;
   email: string;
   phone?: string;
+  /** Firm the contact works for — becomes an `employers` row. */
   company: string;
   title: string;
-  type: 'internal' | 'external';
+  /** Free-text classification (e.g. Bankers, Advisors, Internal). */
+  type: string;
   notes?: string;
 };
 
@@ -552,13 +555,51 @@ async function main() {
     await db.insert(criterias).values(seedCriterias);
     console.log(`  ✓ ${seedCriterias.length} criterias`);
 
-    // Contacts — seed contacts, identified by email.
+    // CRM seed — one employer per unique company name + one correspondent per
+    // SeedContact. Identified by `correspondents.email` for re-runs.
+    const seedFirms = Array.from(
+      new Set(seedContacts.map((c) => c.company.trim())),
+    );
+    const normalize = (s: string) => s.trim().toLowerCase().replace(/\s+/g, ' ');
+
     const seedContactEmails = seedContacts.map((c) => c.email);
     await db
-      .delete(contacts)
-      .where(inArray(contacts.email, seedContactEmails));
-    await db.insert(contacts).values(seedContacts);
-    console.log(`  ✓ ${seedContacts.length} contacts`);
+      .delete(correspondents)
+      .where(inArray(correspondents.email, seedContactEmails));
+
+    const insertedEmployers = await db
+      .insert(employers)
+      .values(
+        seedFirms.map((name) => ({
+          name,
+          normalized_name: normalize(name),
+        })),
+      )
+      .onConflictDoUpdate({
+        target: employers.normalized_name,
+        set: { updated_at: new Date().toISOString() },
+      })
+      .returning();
+
+    const firmIdByName = new Map(
+      insertedEmployers.map((e) => [normalize(e.name), e.id]),
+    );
+
+    const correspondentRows = seedContacts.map((c) => ({
+      employer_id: firmIdByName.get(normalize(c.company))!,
+      name: c.name,
+      email: c.email,
+      phone: c.phone,
+      title: c.title,
+      type: c.type,
+      is_primary: false,
+      source: 'manual',
+    }));
+
+    await db.insert(correspondents).values(correspondentRows);
+    console.log(
+      `  ✓ ${insertedEmployers.length} employers + ${correspondentRows.length} correspondents`,
+    );
 
     console.log('done.');
   } finally {
