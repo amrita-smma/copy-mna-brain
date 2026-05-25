@@ -36,7 +36,7 @@ describe('buildUserPrompt', () => {
 
   it('includes the topics task only when want_topics is true', () => {
     const out = buildUserPrompt(makeEntry({ want_topics: true, body_snippet: 'Body here.' }));
-    expect(out).toContain('2. Extract 1-5 topic tags');
+    expect(out).toContain('2. Extract 0-5 business-substance topic tags');
     expect(out).not.toContain('1. For each CANDIDATE');
   });
 

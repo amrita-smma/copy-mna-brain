@@ -19,6 +19,7 @@
     "mbox:llm-enrich": "tsx scripts/mbox-llm-enrich.ts",
     "mbox:domain-enrich": "tsx scripts/mbox-domain-enrich.ts",
     "mbox:ingest": "tsx scripts/seed-crm-from-mbox.ts",
+    "mbox:ingest:revert": "tsx scripts/seed-crm-revert-mbox.ts",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test",

@@ -57,6 +57,7 @@ interface CliArgs {
   enriched: string;
   domains: string;
   domainsEnriched: string;
+  topicsBlocklist: string;
   reset: boolean;
 }
 
@@ -67,6 +68,7 @@ function parseArgs(argv: string[]): CliArgs {
     enriched: 'enriched-haiku.jsonl',
     domains: 'scripts/domains.json',
     domainsEnriched: 'domains_enriched.json',
+    topicsBlocklist: 'scripts/topics-blocklist.json',
     reset: false,
   };
   for (let i = 0; i < argv.length; i++) {
@@ -86,6 +88,7 @@ function parseArgs(argv: string[]): CliArgs {
       case '--enriched': args.enriched = val('--enriched'); break;
       case '--domains': args.domains = val('--domains'); break;
       case '--domains-enriched': args.domainsEnriched = val('--domains-enriched'); break;
+      case '--topics-blocklist': args.topicsBlocklist = val('--topics-blocklist'); break;
       case '--reset': args.reset = true; break;
       case '-h':
       case '--help':
@@ -188,6 +191,26 @@ function loadDomainMap(path: string): DomainConfig {
   return { map, excluded };
 }
 
+// Per-employer topic blocklist (normalized_name → Set of slugs). When a
+// topic in this set appears on an email belonging to that employer, the
+// `email_topics` row is skipped. `employer_topics` step 4g inherits the
+// filter automatically because it aggregates from `email_topics`. The
+// global `topics` dictionary is NOT filtered — a topic blocked for one
+// employer can still be valid for another.
+function loadTopicsBlocklist(path: string): Map<string, Set<string>> {
+  if (!existsSync(path)) return new Map();
+  const raw = JSON.parse(readFileSync(path, 'utf-8')) as Record<string, unknown>;
+  const m = new Map<string, Set<string>>();
+  for (const [employer, slugs] of Object.entries(raw)) {
+    if (employer.startsWith('_')) continue;
+    if (!Array.isArray(slugs)) continue;
+    const set = new Set<string>();
+    for (const s of slugs) set.add(String(s).toLowerCase());
+    m.set(employer.toLowerCase(), set);
+  }
+  return m;
+}
+
 // Optional LLM-classified industry per domain (from `pnpm mbox:domain-enrich`).
 // Curated `domains.json` always wins on conflict.
 function loadDomainsEnriched(path: string): Map<string, string> {
@@ -268,12 +291,14 @@ async function main() {
   const domainMap = domainConfig.map;
   const excludedDomains = domainConfig.excluded;
   const enrichedIndustries = loadDomainsEnriched(args.domainsEnriched);
+  const topicsBlocklist = loadTopicsBlocklist(args.topicsBlocklist);
   console.log(`  emails:       ${emailsList.length}`);
   console.log(`  contacts:     ${contacts.length}`);
   console.log(`  enriched:     ${enriched.length}`);
   console.log(`  domain map:   ${domainMap.size} curated`);
   console.log(`  industries:   ${enrichedIndustries.size} from ${args.domainsEnriched}`);
   console.log(`  excluded:     ${excludedDomains.size} domains`);
+  console.log(`  topic blocks: ${topicsBlocklist.size} employer-scoped sets`);
 
   // 2. Derived state.
   const enrichedByMid = new Map(enriched.filter(r => !('error' in r)).map(r => [r.message_id, r]));
@@ -334,6 +359,7 @@ async function main() {
     emailsSkippedDuplicate: 0,
     participantsInserted: 0,
     emailTopicsInserted: 0,
+    emailTopicsBlocked: 0,
     employerTopicsInserted: 0,
   };
 
@@ -553,16 +579,29 @@ async function main() {
         stats.participantsInserted = inserted.length;
       }
 
-      // 4f. Email topics.
+      // 4f. Email topics. Skips topics that are in the blocklist for this
+      // email's employer (normalized_name → set of slugs).
       console.log('  [6/6] inserting email_topics…');
       const etRows: typeof emailTopics.$inferInsert[] = [];
+      let blockedCount = 0;
       for (const e of emailsToIngest) {
         const emailId = midToEmailId.get(e.message_id);
         if (!emailId) continue;
         const enrichRec = enrichedByMid.get(e.message_id);
         if (!enrichRec) continue;
+        const senderDomain = domainOf(e.sender?.email ?? '');
+        const resolved = senderDomain
+          ? resolveEmployer(senderDomain, domainMap, enrichedIndustries)
+          : null;
+        const employerNorm = resolved ? normalize(resolved.name) : '';
+        const blocked = topicsBlocklist.get(employerNorm);
         for (const t of enrichRec.topics ?? []) {
-          const topicId = slugToId.get(normalize(t));
+          const slug = normalize(t);
+          if (blocked?.has(slug)) {
+            blockedCount++;
+            continue;
+          }
+          const topicId = slugToId.get(slug);
           if (topicId) etRows.push({ email_id: emailId, topic_id: topicId });
         }
       }
@@ -574,6 +613,7 @@ async function main() {
           .returning({ id: emailTopics.id });
         stats.emailTopicsInserted = inserted.length;
       }
+      stats.emailTopicsBlocked = blockedCount;
 
       // 4g. Employer topics — derive by aggregating email_topics by employer.
       // The CRM card UI reads employer.topics from this table; without it,
@@ -603,6 +643,7 @@ async function main() {
     console.log(`  emails skipped (dup):      ${stats.emailsSkippedDuplicate}`);
     console.log(`  participants inserted:     ${stats.participantsInserted}`);
     console.log(`  email_topics inserted:     ${stats.emailTopicsInserted}`);
+    console.log(`  email_topics blocked:      ${stats.emailTopicsBlocked}`);
     console.log(`  employer_topics derived:   ${stats.employerTopicsInserted}`);
   } finally {
     await client.end({ timeout: 5 });

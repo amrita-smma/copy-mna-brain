@@ -2,7 +2,10 @@
   "_comment": "Sender-domain → canonical employer name. Seed list curated from contacts.csv top entries. Unknown domains auto-fallback to titlecase(first label) at ingest time. `internal: true` marks our own custodian domains — those senders become users, not correspondents.",
   "_excluded": [
     "fireflies.ai",
-    "fireflies.io"
+    "fireflies.io",
+    "gmail.com",
+    "isupportworldwide.com",
+    "gbo-awards.com"
   ],
   "starcapital.co.id":          { "name": "STAR Capital Group",    "internal": true },
   "starcapitalholdings.com":    { "name": "STAR Capital Holdings", "internal": true },
@@ -30,6 +33,5 @@
   "meritz.co.kr":               { "name": "Meritz Financial" },
   "sinarmasland.com":           { "name": "Sinar Mas Land" },
   "sinarmasmining.com":         { "name": "Sinar Mas Mining" },
-  "iif.co.id":                  { "name": "Indonesia Infrastructure Finance" },
-  "gmail.com":                  { "name": "(personal Gmail)" }
+  "iif.co.id":                  { "name": "Indonesia Infrastructure Finance" }
 }

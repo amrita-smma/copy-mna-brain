@@ -68,7 +68,8 @@ export const EMAIL_EXTRACTION_SCHEMA = {
     topics: {
       type: 'array',
       items: { type: 'string' },
-      description: "1-5 short topic tags (kebab-case, e.g. 'client-proposal', 'q3-planning')",
+      description:
+        "0-5 short business-substance topic tags (kebab-case, e.g. 'nda', 'term-sheet', 'waste-to-energy', 'project-domino'). Empty array is fine — do NOT include procedural/admin/scheduling/file-handling tags. See SYSTEM_PROMPT TOPIC RULES for full guidance.",
     },
     people: {
       type: 'array',
@@ -135,7 +136,32 @@ THING TO CONSIDER:
 - sender_email is the email of the sender of the email
 
 TOPIC RULES:
-- 1-5 short kebab-case tags (e.g. "client-proposal", "billing", "industry-event", "project-A", "project-B", "company-A").
+Emit 0-5 short kebab-case tags describing the BUSINESS SUBSTANCE of the email.
+Empty is fine and better than noise.
+
+GOOD topics describe:
+- Deal mechanics: nda, term-sheet, due-diligence, valuation, mou, loi, signing, term-sheet-negotiation
+- Project codenames mentioned in the email: project-domino, project-olive
+- Industry / sector: semiconductors, waste-to-energy, real-estate, infrastructure, fintech
+- Deal stage / activity: intro, market-sounding, regulatory-filing, fundraising, exit, ipo
+- Substantive subject matter — only when the email is genuinely ABOUT the analysis, not just
+  transmitting a file: bankability-study, capex-analysis, financial-model, valuation-review
+
+AVOID — NEVER emit topics about:
+- Document/file handling: document-submission, document-revision, appendix-*, file-*,
+  attachment-*, translation, format-change, signature-request
+- Meeting / scheduling admin: meeting-attendance, meeting-confirmation, meeting-follow-up,
+  meeting-request, meeting-scheduling, scheduling, virtual-meeting
+- Generic procedural: approval, deadline, follow-up, acknowledgement, forwarded-message,
+  fyi, business-discussion, business-meeting, internal-approval
+- Compliance procedure (vs substance): compliance, compliance-documentation, ubo-request,
+  declaration-letter, support-letter, parent-company-support-letter
+- Company / entity names — these are tracked as employers, not topics. Never emit
+  samsung, star-capital, goldman-sachs, jpm, sinarmas, etc.
+- IT / system access: file-access, password-protection, login-access, sharepoint
+
+If no GOOD topic applies to this email, return an empty topics list. Do not pad with
+procedural tags to hit the 1-5 minimum.
 
 Output must be valid JSON matching the requested schema.`;
 
@@ -152,7 +178,9 @@ export function buildUserPrompt(entry: QueueEntry): string {
     );
   }
   if (payload.want_topics) {
-    instructions.push('2. Extract 1-5 topic tags from the EMAIL BODY.');
+    instructions.push(
+      '2. Extract 0-5 business-substance topic tags from the EMAIL BODY (see TOPIC RULES). Empty list is acceptable when nothing substantive applies.',
+    );
   }
   sections.push(`TASK:\n${instructions.join('\n')}`);
 

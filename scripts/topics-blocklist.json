@@ -1,0 +1,8 @@
+{
+  "_comment": "Per-employer topic blocklist sourced from `MNA Brain - CRM Tags Review.xlsx`. Keys are employer `normalized_name` (lowercase, non-alphanumeric → hyphen) so they match the value stored in the employers table. Topics listed here are dropped at ingest time from `email_topics` rows whose email belongs to that employer; `employer_topics` derivation inherits the filter via the join. The global `topics` dictionary is NOT filtered — a topic blocked for one employer may be valid for another.",
+
+  "samsung": [],
+
+  "star-capital-group": []
+  
+}
