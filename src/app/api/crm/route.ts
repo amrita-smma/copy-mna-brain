@@ -36,6 +36,11 @@ function lastContactAfter(
   }
 }
 
+function lastContactBefore(preset: string | null): string | undefined {
+  if (preset !== 'stale_30') return undefined;
+  return new Date(Date.now() - 30 * DAY_MS).toISOString();
+}
+
 export async function GET(req: NextRequest) {
   try {
     const sp = req.nextUrl.searchParams;
@@ -49,6 +54,7 @@ export async function GET(req: NextRequest) {
         sp.get('lastContact'),
         sp.get('customDate'),
       ),
+      lastContactBefore: lastContactBefore(sp.get('lastContact')),
       topicIds: sp.getAll('topicId').filter(Boolean),
       teamUserIds: sp.getAll('teamUserId').filter(Boolean),
       limit: Number(sp.get('limit')) || 50,

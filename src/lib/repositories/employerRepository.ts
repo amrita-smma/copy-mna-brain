@@ -21,6 +21,13 @@ export interface EmployerListFilters {
   curationStatus?: "published" | "flagged";
   /** Restrict to employers whose latest email is on/after this ISO timestamp. */
   lastContactAfter?: string;
+  /**
+   * Restrict to employers whose latest email is strictly before this ISO
+   * timestamp — or who have no emails at all (treating `created_at` as a
+   * fallback). Mirrors `countStaleEmployers` so the "More than N days" filter
+   * lines up with the insights bar count.
+   */
+  lastContactBefore?: string;
   /** Topic ids (any-match). */
   topicIds?: string[];
   /** Team member user ids (any-match). */
@@ -84,6 +91,12 @@ export class EmployerRepository {
             WHERE ${correspondents.employer_id} = ${employers.id}
               AND ${emails.sent_at} >= ${filters.lastContactAfter}
           )`
+        : undefined,
+      filters.lastContactBefore
+        ? sql`COALESCE(
+            (SELECT MAX(${emails.sent_at}) FROM ${emails} WHERE ${emails.employer_id} = ${employers.id}),
+            ${employers.created_at}
+          ) < ${filters.lastContactBefore}`
         : undefined,
       filters.topicIds && filters.topicIds.length > 0
         ? sql`EXISTS (SELECT 1 FROM ${employerTopics} WHERE ${employerTopics.employer_id} = ${employers.id} AND ${inArray(employerTopics.topic_id, filters.topicIds)})`
