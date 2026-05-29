@@ -393,8 +393,6 @@ function daysAgoIso(days: number): string {
   return new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
 }
 
-const CUSTODIAN_EMAIL = 'analyst@smma.id';
-
 // ─── Main ────────────────────────────────────────────────────────────────────
 
 async function main() {
@@ -461,7 +459,7 @@ async function main() {
     let totalTopicAssigns = 0;
     let totalTeamRows = 0;
 
-    for (const e of SEED_EMPLOYERS) {
+    for (const [empIdx, e] of SEED_EMPLOYERS.entries()) {
       const [emp] = await db
         .insert(employers)
         .values({
@@ -530,21 +528,32 @@ async function main() {
         totalNotes++;
       }
 
-      // Emails + participants — each maps the primary PIC as the "from" address
-      // for inbound, custodian for outbound. Subject/body are synthetic.
+      // Emails + participants — pick a rotating SEED_USER as this employer's
+      // custodian so that the team-member filter (which surfaces users seen as
+      // role='from' on at least one email) has every seed user represented.
+      // Half the dummy emails are outbound (custodian → contact, custodian
+      // becomes the sender), the other half stay inbound (contact → custodian).
       const primary = e.contacts.find((c) => c.is_primary) ?? e.contacts[0];
+      const custodian = SEED_USERS[empIdx % SEED_USERS.length];
+      const custodianEmail = custodian.email;
+      const custodianName = custodian.name;
+      const custodianUserId = userByEmail.get(custodianEmail) ?? null;
       if (primary) {
-        const direction = e.emailDirection ?? 'inbound';
-        for (const days of e.emailsDaysAgo) {
+        for (const [dayIdx, days] of e.emailsDaysAgo.entries()) {
+          // Force outbound on alternating indices unless the employer hard-codes
+          // a direction. Ensures each employer produces ≥1 row where the
+          // custodian is the sender (role='from').
+          const direction: 'inbound' | 'outbound' =
+            e.emailDirection ?? (dayIdx % 2 === 0 ? 'outbound' : 'inbound');
           const sentAt = daysAgoIso(days);
           const [emailRow] = await db
             .insert(emails)
             .values({
               employer_id: emp.id,
               from_address:
-                direction === 'inbound' ? primary.email : CUSTODIAN_EMAIL,
+                direction === 'inbound' ? primary.email : custodianEmail,
               from_display_name:
-                direction === 'inbound' ? primary.name : 'Internal Analyst',
+                direction === 'inbound' ? primary.name : custodianName,
               subject: `Touchpoint #${days} — ${e.name}`,
               body_text: `Auto-generated dummy email for ${e.name}.`,
               sent_at: sentAt,
@@ -558,9 +567,10 @@ async function main() {
             {
               email_id: emailRow.id,
               address:
-                direction === 'inbound' ? primary.email : CUSTODIAN_EMAIL,
+                direction === 'inbound' ? primary.email : custodianEmail,
               display_name:
-                direction === 'inbound' ? primary.name : 'Internal Analyst',
+                direction === 'inbound' ? primary.name : custodianName,
+              user_id: direction === 'inbound' ? null : custodianUserId,
               correspondent_id:
                 direction === 'inbound'
                   ? correspondentByEmail.get(primary.email) ?? null
@@ -570,9 +580,10 @@ async function main() {
             {
               email_id: emailRow.id,
               address:
-                direction === 'inbound' ? CUSTODIAN_EMAIL : primary.email,
+                direction === 'inbound' ? custodianEmail : primary.email,
               display_name:
-                direction === 'inbound' ? 'Internal Analyst' : primary.name,
+                direction === 'inbound' ? custodianName : primary.name,
+              user_id: direction === 'inbound' ? custodianUserId : null,
               correspondent_id:
                 direction === 'inbound'
                   ? null

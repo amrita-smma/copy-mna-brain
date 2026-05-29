@@ -1,5 +1,9 @@
 import { and, eq } from "drizzle-orm";
-import { employerTeamMembers, users } from "@/lib/db/schema";
+import {
+  emailParticipants,
+  employerTeamMembers,
+  users,
+} from "@/lib/db/schema";
 import type { DbClient } from "./types";
 
 export type EmployerTeamMember = typeof employerTeamMembers.$inferSelect;
@@ -51,10 +55,27 @@ export class EmployerTeamRepository {
       .onConflictDoNothing();
   }
 
+  /**
+   * Internal users that have **sent** at least one CRM email
+   * (`email_participants.role = 'from'`). The previous version surfaced every
+   * row in `users`, which polluted the team-member filter on the CRM page with
+   * accounts that never reached out — only senders should show up.
+   */
   async listAllTeamUsers(): Promise<TeamMember[]> {
     return this.db
-      .select({ id: users.id, name: users.name, email: users.email })
+      .selectDistinct({
+        id: users.id,
+        name: users.name,
+        email: users.email,
+      })
       .from(users)
+      .innerJoin(
+        emailParticipants,
+        and(
+          eq(emailParticipants.user_id, users.id),
+          eq(emailParticipants.role, "from"),
+        ),
+      )
       .orderBy(users.name);
   }
 }
