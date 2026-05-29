@@ -13,12 +13,14 @@ config({ path: '.env.local' });
 config();
 
 import { drizzle } from 'drizzle-orm/postgres-js';
-import { and, eq, gte, inArray, lte } from 'drizzle-orm';
+import { and, eq, gte, inArray, like, lte } from 'drizzle-orm';
 import {
   companies,
   companyFinancials,
   correspondents,
   criterias,
+  emailParticipants,
+  emails,
   employers,
   investmentThesis,
   userCompanyFavorites,
@@ -599,6 +601,194 @@ async function main() {
     await db.insert(correspondents).values(correspondentRows);
     console.log(
       `  ✓ ${insertedEmployers.length} employers + ${correspondentRows.length} correspondents`,
+    );
+
+    // ── AUTO VEHICLE ─────────────────────────────────────────────────────────
+    // Simulates a CRM employer that originated from an mbox ingest. Surfaces
+    // the AUTO badge in the CRM card because employerRepository.list flips to
+    // "auto" when the first correspondent's source = 'mbox'. Idempotent via a
+    // stable message_id prefix (emails) and normalized_name (employer).
+    const AV_NAME = 'AUTO VEHICLE';
+    const AV_NORM = 'auto-vehicle';
+    const AV_MID_PREFIX = 'seed-auto-vehicle-';
+    const AV_MID_SUFFIX = '@seed.local';
+
+    // Wipe seed emails first (cascades email_participants), then employer
+    // (cascades correspondents). Doing emails first avoids leaving orphan
+    // emails with employer_id set null on the second delete.
+    await db
+      .delete(emails)
+      .where(like(emails.message_id, `${AV_MID_PREFIX}%${AV_MID_SUFFIX}`));
+    await db.delete(employers).where(eq(employers.normalized_name, AV_NORM));
+
+    const [avEmployer] = await db
+      .insert(employers)
+      .values({
+        name: AV_NAME,
+        normalized_name: AV_NORM,
+        industry: 'Automotive',
+      })
+      .returning({ id: employers.id });
+    if (!avEmployer) throw new Error('failed to insert AUTO VEHICLE employer');
+
+    const avContacts = [
+      {
+        name: 'Ahmad Pratama',
+        email: 'ahmad.pratama@autovehicle.co.id',
+        title: 'Head of Corporate Development',
+        phone: '+62 21 555 0201',
+        is_primary: true,
+      },
+      {
+        name: 'Siti Rahayu',
+        email: 'siti.rahayu@autovehicle.co.id',
+        title: 'CFO',
+        phone: '+62 21 555 0202',
+        is_primary: false,
+      },
+    ];
+    const insertedAvCorrespondents = await db
+      .insert(correspondents)
+      .values(
+        avContacts.map((c) => ({
+          employer_id: avEmployer.id,
+          name: c.name,
+          email: c.email,
+          title: c.title,
+          phone: c.phone,
+          type: 'external',
+          is_primary: c.is_primary,
+          source: 'mbox',
+        })),
+      )
+      .returning({ id: correspondents.id, email: correspondents.email });
+    const avCorrIdByEmail = new Map(
+      insertedAvCorrespondents.map((r) => [r.email!.toLowerCase(), r.id]),
+    );
+
+    const INTERNAL = { name: 'Amanda Wijaya', email: 'amanda.wijaya@starcapital.com' };
+    const PIC = avContacts[0]!;
+    const SECONDARY = avContacts[1]!;
+    const dayMs = 24 * 60 * 60 * 1000;
+    const avBase = new Date('2026-04-10T09:00:00Z').getTime();
+
+    type AvMail = {
+      idx: number;
+      subject: string;
+      body: string;
+      from: { name: string; email: string };
+      to: Array<{ name: string; email: string }>;
+      cc?: Array<{ name: string; email: string }>;
+      direction: 'inbound' | 'outbound';
+      daysOffset: number;
+    };
+
+    const avMails: AvMail[] = [
+      {
+        idx: 1,
+        subject: 'Introduction — AUTO VEHICLE × Star Capital',
+        body: 'Hi Amanda, Following up on our brief call last week, I would like to schedule a deeper conversation about strategic options for AUTO VEHICLE. Best, Ahmad.',
+        from: { name: PIC.name, email: PIC.email },
+        to: [INTERNAL],
+        direction: 'inbound',
+        daysOffset: 0,
+      },
+      {
+        idx: 2,
+        subject: 'RE: Introduction — AUTO VEHICLE × Star Capital',
+        body: 'Hi Ahmad, Thanks for reaching out. Let us set up a call next Tuesday at 10am SGT. I will send an invite. — Amanda',
+        from: INTERNAL,
+        to: [{ name: PIC.name, email: PIC.email }],
+        cc: [{ name: SECONDARY.name, email: SECONDARY.email }],
+        direction: 'outbound',
+        daysOffset: 1,
+      },
+      {
+        idx: 3,
+        subject: 'AUTO VEHICLE — FY2025 financials',
+        body: 'Amanda, Please find attached our FY2025 financials (unaudited). Revenue grew 18% YoY to USD 42M. Happy to walk through. — Siti',
+        from: { name: SECONDARY.name, email: SECONDARY.email },
+        to: [INTERNAL],
+        cc: [{ name: PIC.name, email: PIC.email }],
+        direction: 'inbound',
+        daysOffset: 5,
+      },
+      {
+        idx: 4,
+        subject: 'NDA draft for AUTO VEHICLE discussions',
+        body: 'Ahmad, Attaching our standard NDA for your review. Once executed we can proceed to share the CIM. — Amanda',
+        from: INTERNAL,
+        to: [{ name: PIC.name, email: PIC.email }],
+        direction: 'outbound',
+        daysOffset: 9,
+      },
+      {
+        idx: 5,
+        subject: 'Signed NDA — AUTO VEHICLE',
+        body: 'Amanda, Signed NDA attached. Looking forward to next steps. — Ahmad',
+        from: { name: PIC.name, email: PIC.email },
+        to: [INTERNAL],
+        direction: 'inbound',
+        daysOffset: 12,
+      },
+    ];
+
+    const avEmailRows = avMails.map((m) => ({
+      message_id: `${AV_MID_PREFIX}${m.idx}${AV_MID_SUFFIX}`,
+      employer_id: avEmployer.id,
+      from_address: m.from.email.toLowerCase(),
+      from_display_name: m.from.name,
+      subject: m.subject,
+      body_text: m.body,
+      sent_at: new Date(avBase + m.daysOffset * dayMs).toISOString(),
+      direction: m.direction,
+      filter_status: 'processed',
+      processed_at: new Date().toISOString(),
+    }));
+    const insertedAvEmails = await db
+      .insert(emails)
+      .values(avEmailRows)
+      .returning({ id: emails.id, message_id: emails.message_id });
+    const avEmailIdByMid = new Map(
+      insertedAvEmails.map((r) => [r.message_id!, r.id]),
+    );
+
+    const avParticipantRows: (typeof emailParticipants.$inferInsert)[] = [];
+    for (const m of avMails) {
+      const mid = `${AV_MID_PREFIX}${m.idx}${AV_MID_SUFFIX}`;
+      const emailId = avEmailIdByMid.get(mid);
+      if (!emailId) continue;
+      avParticipantRows.push({
+        email_id: emailId,
+        correspondent_id: avCorrIdByEmail.get(m.from.email.toLowerCase()) ?? null,
+        address: m.from.email.toLowerCase(),
+        display_name: m.from.name,
+        role: 'from',
+      });
+      for (const r of m.to) {
+        avParticipantRows.push({
+          email_id: emailId,
+          correspondent_id: avCorrIdByEmail.get(r.email.toLowerCase()) ?? null,
+          address: r.email.toLowerCase(),
+          display_name: r.name,
+          role: 'to',
+        });
+      }
+      for (const r of m.cc ?? []) {
+        avParticipantRows.push({
+          email_id: emailId,
+          correspondent_id: avCorrIdByEmail.get(r.email.toLowerCase()) ?? null,
+          address: r.email.toLowerCase(),
+          display_name: r.name,
+          role: 'cc',
+        });
+      }
+    }
+    if (avParticipantRows.length > 0) {
+      await db.insert(emailParticipants).values(avParticipantRows);
+    }
+    console.log(
+      `  ✓ AUTO VEHICLE: 1 employer + ${insertedAvCorrespondents.length} mbox correspondents + ${insertedAvEmails.length} emails + ${avParticipantRows.length} participants`,
     );
 
     console.log('done.');

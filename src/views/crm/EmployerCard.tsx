@@ -472,14 +472,14 @@ function TopicsTab({
       )}
 
       <div className="mt-3 text-[10px] text-muted-foreground">
-        <span
-          className="mr-1 inline-flex h-4 items-center rounded-full px-1.5 text-[9px] font-semibold text-orange-600"
-          style={{ border: "1px solid #f97316" }}
+        <Badge
+          variant="outline"
+          className="mr-1 h-4 border-orange-200 bg-orange-50 px-1.5 text-[10px] font-semibold text-orange-700 dark:bg-orange-950/40 dark:text-orange-300"
         >
           Auto
-        </span>{" "}
+        </Badge>{" "}
         from emails &nbsp;·&nbsp;{" "}
-        <Badge variant="outline" className="mr-1 h-4 px-1.5 text-[9px]">
+        <Badge variant="outline" className="mr-1 h-4 px-1.5 text-[10px] font-semibold">
           manual
         </Badge>{" "}
         added by you
