@@ -1,13 +1,13 @@
-import { getAgentGraph, HumanMessage } from '@/lib/agents/analysis';
-import { getToolDescriptions } from '@/lib/agents/analysis/tools';
+import { getAgentGraph, HumanMessage } from "@/lib/agents/analysis";
+import { getToolDescriptions } from "@/lib/agents/analysis/tools";
 import {
   CompanyAnalysisRepository,
   CompanyFinancialRepository,
   CompanyRepository,
   CompanyScreeningDerivedRepository,
-} from '@/lib/repositories';
-import type { DbClient, Tables } from '@/lib/repositories';
-import { z } from 'zod';
+} from "@/lib/repositories";
+import type { DbClient, Tables } from "@/lib/repositories";
+import { z } from "zod";
 
 export const COMPANY_ANALYSIS_TIMEOUT_SECONDS = 300;
 
@@ -118,13 +118,13 @@ Respond ONLY with a JSON object. Each section value should be a markdown string 
 Include ONLY the sources you actually used in \`sources_used\`. Respond with the JSON object only, no additional text.`;
 
 function buildCompanyContext(
-  company: Tables<'companies'>,
-  financials: Tables<'company_financials'>[],
-  screening: Tables<'company_screening_derived'> | null,
+  company: Tables<"companies">,
+  financials: Tables<"company_financials">[],
+  screening: Tables<"company_screening_derived"> | null,
 ): string {
   const lines: string[] = [];
 
-  lines.push(`**Company Name:** ${company.target || 'Unknown'}`);
+  lines.push(`**Company Name:** ${company.target || "Unknown"}`);
 
   if (company.segment) lines.push(`**Segment:** ${company.segment}`);
   if (company.geography) lines.push(`**Geography:** ${company.geography}`);
@@ -133,7 +133,7 @@ function buildCompanyContext(
   if (company.website) lines.push(`**Website:** ${company.website}`);
   if (company.comments) lines.push(`**Comments:** ${company.comments}`);
 
-  const byYear = new Map<number, Tables<'company_financials'>>();
+  const byYear = new Map<number, Tables<"company_financials">>();
   for (const row of financials) byYear.set(row.fiscal_year, row);
 
   const revenueParts: string[] = [];
@@ -143,38 +143,48 @@ function buildCompanyContext(
   for (const year of [2021, 2022, 2023, 2024]) {
     const row = byYear.get(year);
     if (!row) continue;
-    if (row.revenue_usd_mn != null) revenueParts.push(`Revenue ${year}: $${row.revenue_usd_mn}M`);
-    if (row.ebitda_usd_mn != null) ebitdaParts.push(`EBITDA ${year}: $${row.ebitda_usd_mn}M`);
-    if (row.ebitda_margin != null) marginParts.push(`Margin ${year}: ${row.ebitda_margin}%`);
-    if (year === 2024 && row.ev_usd_mn != null) evPart = `EV 2024: $${row.ev_usd_mn}M`;
+    if (row.revenue_usd_mn != null)
+      revenueParts.push(`Revenue ${year}: $${row.revenue_usd_mn}M`);
+    if (row.ebitda_usd_mn != null)
+      ebitdaParts.push(`EBITDA ${year}: $${row.ebitda_usd_mn}M`);
+    if (row.ebitda_margin != null)
+      marginParts.push(`Margin ${year}: ${row.ebitda_margin}%`);
+    if (year === 2024 && row.ev_usd_mn != null)
+      evPart = `EV 2024: $${row.ev_usd_mn}M`;
   }
-  const financialStrings = [...revenueParts, ...ebitdaParts, ...(evPart ? [evPart] : [])];
+  const financialStrings = [
+    ...revenueParts,
+    ...ebitdaParts,
+    ...(evPart ? [evPart] : []),
+  ];
 
   if (financialStrings.length > 0) {
     lines.push(`**Financials:**`);
-    lines.push(financialStrings.join(' | '));
+    lines.push(financialStrings.join(" | "));
   } else {
     lines.push(`**Financials:** No financial data available in database`);
   }
 
   if (marginParts.length > 0) {
     lines.push(`**EBITDA Margins:**`);
-    lines.push(marginParts.join(' | '));
+    lines.push(marginParts.join(" | "));
   }
 
-  if (screening?.l1_screening_result) lines.push(`**L1 Screening Result:** ${screening.l1_screening_result}`);
-  if (screening?.l1_rationale) lines.push(`**L1 Rationale:** ${screening.l1_rationale}`);
+  if (screening?.l1_screening_result)
+    lines.push(`**L1 Screening Result:** ${screening.l1_screening_result}`);
+  if (screening?.l1_rationale)
+    lines.push(`**L1 Rationale:** ${screening.l1_rationale}`);
 
-  return lines.join('\n');
+  return lines.join("\n");
 }
 
 export async function runCompanyAnalysis(
   payload: CompanyAnalysisPayload,
-  deps: { db: DbClient; job: Tables<'jobs'> },
-): Promise<Tables<'company_analyses'>> {
+  deps: { db: DbClient; job: Tables<"jobs"> },
+): Promise<Tables<"company_analyses">> {
   const { companyId, source } = payload;
 
-  if (!companyId) throw new Error('Missing required field: companyId');
+  if (!companyId) throw new Error("Missing required field: companyId");
 
   const analysisRepo = new CompanyAnalysisRepository(deps.db);
   const companyRepo = new CompanyRepository(deps.db);
@@ -189,7 +199,7 @@ export async function runCompanyAnalysis(
 
   await analysisRepo.upsertByCompanyId({
     company_id: companyId,
-    status: 'processing',
+    status: "processing",
     error_message: null,
     job_id: deps.job.id,
   });
@@ -197,28 +207,36 @@ export async function runCompanyAnalysis(
   const agent = await getAgentGraph();
   if (!agent) {
     await analysisRepo.updateByCompanyId(companyId, {
-      status: 'failed',
-      error_message: 'Agent not available. Check ANTHROPIC_API_KEY.',
+      status: "failed",
+      error_message: "Agent not available. Check ANTHROPIC_API_KEY.",
     });
-    throw new Error('Agent not available. Please ensure ANTHROPIC_API_KEY is set.');
+    throw new Error(
+      "Agent not available. Please ensure ANTHROPIC_API_KEY is set.",
+    );
   }
 
   const companyContext = buildCompanyContext(company, financials, screening);
   const toolDescriptions = getToolDescriptions();
 
-  const prompt = ANALYSIS_PROMPT_TEMPLATE.replace('{toolDescriptions}', toolDescriptions)
-    .replace('{companyName}', company.target || 'Unknown')
-    .replace('{companyName}', company.target || 'Unknown')
-    .replace('{companyContext}', companyContext)
-    .replace('{source}', source || 'files');
+  const prompt = ANALYSIS_PROMPT_TEMPLATE.replace(
+    "{toolDescriptions}",
+    toolDescriptions,
+  )
+    .replace("{companyName}", company.target || "Unknown")
+    .replace("{companyName}", company.target || "Unknown")
+    .replace("{companyContext}", companyContext)
+    .replace("{source}", source || "files");
 
   let agentResult;
   try {
-    agentResult = await agent.invoke({ messages: [new HumanMessage(prompt)] });
+    agentResult = await agent.invoke(
+      { messages: [new HumanMessage(prompt)] },
+      { configurable: { thread_id: deps.job.id } },
+    );
   } catch (err) {
-    const message = (err as Error).message || 'Unknown error';
+    const message = (err as Error).message || "Unknown error";
     await analysisRepo.updateByCompanyId(companyId, {
-      status: 'failed',
+      status: "failed",
       error_message: message,
     });
     throw err;
@@ -227,10 +245,10 @@ export async function runCompanyAnalysis(
   const messages = agentResult.messages;
   const lastMsg = messages[messages.length - 1];
   const content = lastMsg
-    ? typeof lastMsg.content === 'string'
+    ? typeof lastMsg.content === "string"
       ? lastMsg.content
       : JSON.stringify(lastMsg.content)
-    : '';
+    : "";
 
   let analysisResult: CompanyAnalysisResult;
   try {
@@ -239,25 +257,27 @@ export async function runCompanyAnalysis(
     const jsonMatch = content.match(/\{[\s\S]*\}/);
     if (jsonMatch) {
       try {
-        analysisResult = CompanyAnalysisResultSchema.parse(JSON.parse(jsonMatch[0]));
+        analysisResult = CompanyAnalysisResultSchema.parse(
+          JSON.parse(jsonMatch[0]),
+        );
       } catch {
         await analysisRepo.updateByCompanyId(companyId, {
-          status: 'failed',
-          error_message: 'Failed to parse AI response into structured format',
+          status: "failed",
+          error_message: "Failed to parse AI response into structured format",
         });
-        throw new Error('Failed to parse AI response');
+        throw new Error("Failed to parse AI response");
       }
     } else {
       await analysisRepo.updateByCompanyId(companyId, {
-        status: 'failed',
-        error_message: 'AI response was not in expected JSON format',
+        status: "failed",
+        error_message: "AI response was not in expected JSON format",
       });
-      throw new Error('AI response was not in expected format');
+      throw new Error("AI response was not in expected format");
     }
   }
 
   const updated = await analysisRepo.updateByCompanyId(companyId, {
-    status: 'completed',
+    status: "completed",
     business_overview: analysisResult.business_overview,
     business_model_summary: analysisResult.business_model_summary,
     key_takeaways: analysisResult.key_takeaways,

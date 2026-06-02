@@ -233,7 +233,10 @@ export async function runAIScreening(
 
     let agentResult;
     try {
-      agentResult = await agent.invoke({ messages: [new HumanMessage(evaluationPrompt)] });
+      agentResult = await agent.invoke(
+        { messages: [new HumanMessage(evaluationPrompt)] },
+        { configurable: { thread_id: deps.job.id } },
+      );
     } catch (agentError) {
       const errorMsg = (agentError as Error).message;
       const isRateLimit =

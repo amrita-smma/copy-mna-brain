@@ -1,3 +1,4 @@
+import { randomUUID } from 'crypto';
 import { getAgentGraph, HumanMessage } from '@/lib/agents/analysis';
 import { companiesSchema } from '@/lib/agents/analysis/tools';
 import { CompanyFinancialRepository, CompanyRepository, InvestmentThesisRepository } from '@/lib/repositories';
@@ -142,7 +143,10 @@ ${schemaFields}
 
 Find ${sourcesCount} companies. Return ONLY the JSON object, no other text. Use null for any fields where data is not available.`;
 
-  const result = await agent.invoke({ messages: [new HumanMessage(prompt)] });
+  const result = await agent.invoke(
+    { messages: [new HumanMessage(prompt)] },
+    { configurable: { thread_id: randomUUID() } },
+  );
 
   const aiMessages = result.messages.filter(
     (m: { _getType?: () => string; constructor?: { name: string } }) =>
