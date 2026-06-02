@@ -546,6 +546,7 @@ export class AgentGraph {
 // (copilot_chats.id vs ai_workforce_queue.id).
 let chatAgentGraph: AgentGraph | null = null;
 let workforceAgentGraph: AgentGraph | null = null;
+let statelessAgentGraph: AgentGraph | null = null;
 let checkpointerSetupPromise: Promise<PostgresSaver> | null = null;
 
 /**
@@ -617,6 +618,7 @@ async function buildAgentGraph(
   toolList: ToolList,
   systemPrompt: string,
   middleware: ReadonlyArray<ReturnType<typeof humanInTheLoopMiddleware>> = [],
+  useCheckpointer = true,
 ): Promise<AgentGraph | null> {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) {
@@ -625,7 +627,10 @@ async function buildAgentGraph(
   }
 
   try {
-    const checkpointerPromise = getCheckpointer();
+    // Only copilot chat and the workforce queue need persisted state (resumable
+    // threads / HITL). One-shot job handlers (screening, analysis) run stateless
+    // — no checkpointer, so no `agent_states` writes and no thread_id required.
+    const checkpointerPromise = useCheckpointer ? getCheckpointer() : null;
     const checkpointer = checkpointerPromise
       ? await checkpointerPromise
       : undefined;
@@ -653,6 +658,25 @@ export async function getAgentGraph(): Promise<AgentGraph | null> {
 }
 
 /**
+ * Singleton for one-shot job handlers (AI screening, company analysis, market
+ * screening). Same tools and system prompt as the copilot chat agent, but
+ * built WITHOUT a checkpointer: these runs are stateless, single-turn
+ * evaluations that never resume, so there is nothing to persist. This avoids
+ * spinning up the `agent_states` PostgresSaver for paths that don't need it.
+ */
+export async function getStatelessAgentGraph(): Promise<AgentGraph | null> {
+  if (statelessAgentGraph) return statelessAgentGraph;
+  const graph = await buildAgentGraph(
+    DEFAULT_TOOL_LIST,
+    CHAT_SYSTEM_PROMPT,
+    [],
+    false,
+  );
+  if (graph) statelessAgentGraph = graph;
+  return statelessAgentGraph;
+}
+
+/**
  * Singleton for the workforce agent. Uses base + workforce-only tools and
  * the terse "execute and report" system prompt. Excludes chat-only tools
  * like propose_workforce_handoff so workforce runs cannot recursively
@@ -672,7 +696,42 @@ export async function getWorkforceAgentGraph(): Promise<AgentGraph | null> {
 export function resetAgent(): void {
   chatAgentGraph = null;
   workforceAgentGraph = null;
+  statelessAgentGraph = null;
   checkpointerSetupPromise = null;
+}
+
+/**
+ * Extract the textual content of an agent message.
+ *
+ * `@langchain/anthropic` returns a tool-using agent's final message `content`
+ * as an array of content blocks (e.g. `[{ type: "text", text: "..." }]`),
+ * not a plain string. `JSON.stringify`-ing that array escapes newlines and
+ * wraps the real text in block metadata, which mangles any embedded JSON and
+ * breaks downstream `JSON.parse` extraction. Concatenate the text of every
+ * text block instead. Plain-string content (no-tool agents) passes through
+ * unchanged.
+ */
+export function extractMessageText(message: BaseMessage | undefined): string {
+  if (!message) return "";
+  const content = message.content;
+  if (typeof content === "string") return content;
+  if (Array.isArray(content)) {
+    return content
+      .map((block) => {
+        if (typeof block === "string") return block;
+        if (
+          block &&
+          typeof block === "object" &&
+          "text" in block &&
+          typeof (block as { text: unknown }).text === "string"
+        ) {
+          return (block as { text: string }).text;
+        }
+        return "";
+      })
+      .join("");
+  }
+  return "";
 }
 
 export { HumanMessage, AIMessage };

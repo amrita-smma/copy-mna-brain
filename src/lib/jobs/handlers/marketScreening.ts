@@ -1,5 +1,8 @@
-import { randomUUID } from 'crypto';
-import { getAgentGraph, HumanMessage } from '@/lib/agents/analysis';
+import {
+  extractMessageText,
+  getStatelessAgentGraph,
+  HumanMessage,
+} from '@/lib/agents/analysis';
 import { companiesSchema } from '@/lib/agents/analysis/tools';
 import { CompanyFinancialRepository, CompanyRepository, InvestmentThesisRepository } from '@/lib/repositories';
 import type { DbClient } from '@/lib/repositories';
@@ -75,7 +78,7 @@ export async function runMarketScreening(
 
   if (!thesis) throw new Error('Investment thesis is required');
 
-  const agent = await getAgentGraph();
+  const agent = await getStatelessAgentGraph();
   if (!agent) {
     throw new Error('Agent not available. Please ensure ANTHROPIC_API_KEY is set.');
   }
@@ -143,21 +146,16 @@ ${schemaFields}
 
 Find ${sourcesCount} companies. Return ONLY the JSON object, no other text. Use null for any fields where data is not available.`;
 
-  const result = await agent.invoke(
-    { messages: [new HumanMessage(prompt)] },
-    { configurable: { thread_id: randomUUID() } },
-  );
+  const result = await agent.invoke({
+    messages: [new HumanMessage(prompt)],
+  });
 
   const aiMessages = result.messages.filter(
     (m: { _getType?: () => string; constructor?: { name: string } }) =>
       m._getType?.() === 'ai' || m.constructor?.name === 'AIMessage',
   );
   const msg = aiMessages[aiMessages.length - 1];
-  const responseText = msg
-    ? typeof msg.content === 'string'
-      ? msg.content
-      : JSON.stringify(msg.content)
-    : '';
+  const responseText = extractMessageText(msg);
 
   let companies: DiscoveredCompany[] = [];
   try {

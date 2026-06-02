@@ -111,6 +111,27 @@ function formatTime(iso: string | null): string {
 
 function coerceContent(content: unknown): string {
   if (typeof content === "string") return content;
+  // `@langchain/anthropic` returns a tool-using agent's message content as an
+  // array of content blocks (e.g. [{ type: "text", text: "…" }]). Join the
+  // text blocks so descriptions / tool output / final reports render as the
+  // real text instead of a JSON.stringify'd block wrapper. Non-text arrays and
+  // plain objects (e.g. structured tool args) still fall through to JSON.
+  if (Array.isArray(content)) {
+    const text = content
+      .map((block) => {
+        if (typeof block === "string") return block;
+        if (
+          block &&
+          typeof block === "object" &&
+          (block as { type?: string }).type === "text"
+        ) {
+          return (block as { text?: string }).text ?? "";
+        }
+        return "";
+      })
+      .join("");
+    if (text) return text;
+  }
   try {
     return JSON.stringify(content);
   } catch {

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getAgentGraph } from '@/lib/agents/analysis';
+import { getStatelessAgentGraph } from '@/lib/agents/analysis';
 import { createDb } from '@/lib/server/db';
 import { createContainer } from '@/lib/services';
 import type { AIScreeningPayload } from '@/lib/jobs/handlers/aiScreening';
@@ -31,7 +31,7 @@ export async function POST(request: NextRequest) {
 }
 
 export async function GET() {
-  const agent = await getAgentGraph();
+  const agent = await getStatelessAgentGraph();
   return NextResponse.json({
     status: agent ? 'ready' : 'not_configured',
     message: agent

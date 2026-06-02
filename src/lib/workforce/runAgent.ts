@@ -1,5 +1,9 @@
 import { FatalError, RetryableError } from 'workflow';
-import { getWorkforceAgentGraph, HumanMessage } from '@/lib/agents/analysis';
+import {
+  extractMessageText,
+  getWorkforceAgentGraph,
+  HumanMessage,
+} from '@/lib/agents/analysis';
 import { AiWorkforceQueueRepository } from '@/lib/repositories';
 import { createDb } from '@/lib/server/db';
 import { dispatcherTick } from './dispatcher';
@@ -122,11 +126,7 @@ async function invokeAgent(
 
   const messages = result.messages ?? [];
   const lastMessage = messages[messages.length - 1];
-  const finalMessage = lastMessage
-    ? typeof lastMessage.content === 'string'
-      ? lastMessage.content
-      : JSON.stringify(lastMessage.content)
-    : '';
+  const finalMessage = extractMessageText(lastMessage);
 
   // tool_calls is an AIMessage-only field; BaseMessage typings don't include
   // it, so we widen the type via unknown before reading.

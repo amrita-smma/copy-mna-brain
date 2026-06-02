@@ -58,6 +58,30 @@ vi.mock('@/lib/server/db', () => ({ createDb }));
 vi.mock('@/lib/agents/analysis', () => ({
   getWorkforceAgentGraph,
   HumanMessage,
+  // Faithful copy of the real helper (a pure function) so we don't pull the
+  // heavy tools/db deps the rest of this mock avoids.
+  extractMessageText: (message: { content?: unknown } | undefined): string => {
+    if (!message) return '';
+    const content = message.content;
+    if (typeof content === 'string') return content;
+    if (Array.isArray(content)) {
+      return content
+        .map((block) => {
+          if (typeof block === 'string') return block;
+          if (
+            block &&
+            typeof block === 'object' &&
+            'text' in block &&
+            typeof (block as { text: unknown }).text === 'string'
+          ) {
+            return (block as { text: string }).text;
+          }
+          return '';
+        })
+        .join('');
+    }
+    return '';
+  },
 }));
 
 vi.mock('./dispatcher', () => ({ dispatcherTick }));
@@ -158,11 +182,18 @@ describe('runAgent — happy path', () => {
     expect(markFailed).not.toHaveBeenCalled();
   });
 
-  it('stringifies non-string final content', async () => {
+  it('extracts text from array content-block final content', async () => {
+    // @langchain/anthropic returns a tool-using agent's final content as an
+    // array of content blocks. The report must be the text, not a
+    // JSON.stringify'd block wrapper.
     findById.mockResolvedValueOnce(makeRow());
     getWorkforceAgentGraph.mockResolvedValueOnce({ invoke: invokeMock });
     invokeMock.mockResolvedValueOnce({
-      messages: [{ content: { structured: 'response' } }],
+      messages: [
+        {
+          content: [{ type: 'text', text: '✓ Done: promoted 3 companies.' }],
+        },
+      ],
     });
 
     await runAgent({ runId: RUN_ID });
@@ -170,7 +201,7 @@ describe('runAgent — happy path', () => {
     expect(markSucceeded).toHaveBeenCalledWith(
       RUN_ID,
       expect.objectContaining({
-        final_message: JSON.stringify({ structured: 'response' }),
+        final_message: '✓ Done: promoted 3 companies.',
       }),
     );
   });

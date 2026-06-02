@@ -1,4 +1,8 @@
-import { getAgentGraph, HumanMessage } from '@/lib/agents/analysis';
+import {
+  extractMessageText,
+  getStatelessAgentGraph,
+  HumanMessage,
+} from '@/lib/agents/analysis';
 import { getToolDescriptions } from '@/lib/agents/analysis/tools';
 import {
   CompanyFinancialRepository,
@@ -202,7 +206,7 @@ export async function runAIScreening(
       );
     }
 
-    const agent = await getAgentGraph();
+    const agent = await getStatelessAgentGraph();
     if (!agent) {
       throw new Error('Agent not available. Please ensure ANTHROPIC_API_KEY is set.');
     }
@@ -233,10 +237,9 @@ export async function runAIScreening(
 
     let agentResult;
     try {
-      agentResult = await agent.invoke(
-        { messages: [new HumanMessage(evaluationPrompt)] },
-        { configurable: { thread_id: deps.job.id } },
-      );
+      agentResult = await agent.invoke({
+        messages: [new HumanMessage(evaluationPrompt)],
+      });
     } catch (agentError) {
       const errorMsg = (agentError as Error).message;
       const isRateLimit =
@@ -255,11 +258,7 @@ export async function runAIScreening(
 
     const messages = agentResult.messages;
     const msg = messages[messages.length - 1];
-    const content = msg
-      ? typeof msg.content === 'string'
-        ? msg.content
-        : JSON.stringify(msg.content)
-      : '';
+    const content = extractMessageText(msg);
 
     let screeningResult: ScreeningResult;
     try {
@@ -270,6 +269,12 @@ export async function runAIScreening(
         try {
           screeningResult = ScreeningResultSchema.parse(JSON.parse(jsonMatch[0]));
         } catch {
+          console.error('[aiScreening] failed to parse agent output', {
+            jobId: deps.job.id,
+            screeningId,
+            contentIsArray: Array.isArray(msg?.content),
+            contentPreview: content.slice(0, 500),
+          });
           screeningResult = { result: 'error', remarks: 'Failed to parse AI response' };
         }
       } else {

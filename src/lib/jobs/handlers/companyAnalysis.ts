@@ -1,4 +1,8 @@
-import { getAgentGraph, HumanMessage } from "@/lib/agents/analysis";
+import {
+  extractMessageText,
+  getStatelessAgentGraph,
+  HumanMessage,
+} from "@/lib/agents/analysis";
 import { getToolDescriptions } from "@/lib/agents/analysis/tools";
 import {
   CompanyAnalysisRepository,
@@ -204,7 +208,7 @@ export async function runCompanyAnalysis(
     job_id: deps.job.id,
   });
 
-  const agent = await getAgentGraph();
+  const agent = await getStatelessAgentGraph();
   if (!agent) {
     await analysisRepo.updateByCompanyId(companyId, {
       status: "failed",
@@ -229,10 +233,9 @@ export async function runCompanyAnalysis(
 
   let agentResult;
   try {
-    agentResult = await agent.invoke(
-      { messages: [new HumanMessage(prompt)] },
-      { configurable: { thread_id: deps.job.id } },
-    );
+    agentResult = await agent.invoke({
+      messages: [new HumanMessage(prompt)],
+    });
   } catch (err) {
     const message = (err as Error).message || "Unknown error";
     await analysisRepo.updateByCompanyId(companyId, {
@@ -244,11 +247,7 @@ export async function runCompanyAnalysis(
 
   const messages = agentResult.messages;
   const lastMsg = messages[messages.length - 1];
-  const content = lastMsg
-    ? typeof lastMsg.content === "string"
-      ? lastMsg.content
-      : JSON.stringify(lastMsg.content)
-    : "";
+  const content = extractMessageText(lastMsg);
 
   let analysisResult: CompanyAnalysisResult;
   try {
@@ -260,7 +259,17 @@ export async function runCompanyAnalysis(
         analysisResult = CompanyAnalysisResultSchema.parse(
           JSON.parse(jsonMatch[0]),
         );
-      } catch {
+      } catch (parseErr) {
+        console.error(
+          "[companyAnalysis] failed to parse agent output into structured format",
+          {
+            jobId: deps.job.id,
+            companyId,
+            contentIsArray: Array.isArray(lastMsg?.content),
+            contentPreview: content.slice(0, 500),
+            error: (parseErr as Error).message,
+          },
+        );
         await analysisRepo.updateByCompanyId(companyId, {
           status: "failed",
           error_message: "Failed to parse AI response into structured format",
@@ -268,6 +277,15 @@ export async function runCompanyAnalysis(
         throw new Error("Failed to parse AI response");
       }
     } else {
+      console.error(
+        "[companyAnalysis] agent output contained no JSON object",
+        {
+          jobId: deps.job.id,
+          companyId,
+          contentIsArray: Array.isArray(lastMsg?.content),
+          contentPreview: content.slice(0, 500),
+        },
+      );
       await analysisRepo.updateByCompanyId(companyId, {
         status: "failed",
         error_message: "AI response was not in expected JSON format",
