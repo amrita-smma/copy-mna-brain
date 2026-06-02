@@ -15,15 +15,20 @@ export const getCompanyDetails = tool(
   async ({ company_name }: { company_name: string }) => {
     logger.debug(`🔧 TOOL CALLED: get_company_details(company_name='${company_name}')`);
 
+    const trimmed = company_name?.trim() ?? "";
+    if (trimmed.length === 0) {
+      return "Please provide a company target name or project name to look up. Use query_companies to browse available companies.";
+    }
+
     try {
       const db = createDb();
       const companyRepo = new CompanyRepository(db);
       const financialRepo = new CompanyFinancialRepository(db);
       const screeningRepo = new CompanyScreeningDerivedRepository(db);
-      const c = await companyRepo.findByNameFuzzy(company_name);
+      const c = await companyRepo.findByNameFuzzy(trimmed);
 
       if (!c) {
-        return `No company found matching "${company_name}". Try a different search term or use query_companies to browse available companies.`;
+        return `No company found matching "${trimmed}". Try a different search term or use query_companies to browse available companies.`;
       }
 
       const [financials, screening] = await Promise.all([
@@ -53,6 +58,7 @@ export const getCompanyDetails = tool(
 
 ### Basic Information
 - **Entry ID:** ${c.entry_id || "N/A"}
+- **Project Name:** ${c.project_name || "N/A"}
 - **Segment:** ${c.segment || "N/A"}
 - **Company Focus:** ${c.company_focus || "N/A"}
 - **Geography:** ${c.geography || "N/A"}
@@ -90,17 +96,21 @@ ${c.comments ? `### Comments\n${c.comments}` : ""}
   },
   {
     name: "get_company_details",
-    description: `Get detailed information about a specific company by name.
+    description: `Get detailed information about a specific company by name or project name.
 
 Use this when the user asks about a specific company's financials, details, or history.
+Matches case-insensitively against both the company target name and the project name.
 
 Args:
-    company_name: The name (or partial name) of the company to look up
+    company_name: The company target name or project name (partial match) to look up
 
 Returns:
     Detailed company profile with all available financial data.`,
     schema: z.object({
-      company_name: z.string().describe("Company name to look up"),
+      company_name: z
+        .string()
+        .min(1)
+        .describe("Company target name or project name (partial match, must be non-empty)"),
     }),
   }
 );

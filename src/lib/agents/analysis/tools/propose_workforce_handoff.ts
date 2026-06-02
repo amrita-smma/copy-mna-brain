@@ -126,7 +126,7 @@ Args:
     rationale: One sentence explaining why this is better suited to the Workforce.
     instruction: The exact instruction the Workforce will execute. Write it as a complete imperative sentence; the user will see it verbatim.
     agent_name: Optional agent identifier (defaults to "chat_handoff").
-    company_names: REQUIRED. Every company the handoff will read, write, or otherwise act on, by name (target field). Pass an empty array ONLY for handoffs not scoped to specific companies (e.g. "find all new fintech companies in the EU"). The tool fuzzy-matches each name against the pipeline; unmatched names are ignored, but any matched dropped company aborts the handoff.`,
+    company_names: REQUIRED. Every company the handoff will read, write, or otherwise act on, by target name or project name. Pass an empty array ONLY for handoffs not scoped to specific companies (e.g. "find all new fintech companies in the EU"). The tool fuzzy-matches each name against both \`target\` and \`project_name\` in the pipeline; unmatched names are ignored, but any matched dropped company aborts the handoff.`,
     schema: z.object({
       title: z.string().describe("Card headline"),
       rationale: z
@@ -146,7 +146,7 @@ Args:
       company_names: z
         .array(z.string())
         .describe(
-          "Every company the handoff will touch, by target name. Required; pass [] only for handoffs not scoped to specific companies.",
+          "Every company the handoff will touch, by target name or project name (fuzzy-matched against both). Required; pass [] only for handoffs not scoped to specific companies.",
         ),
     }),
   },

@@ -11,11 +11,16 @@ export const getPastAcquisitionDetails = tool(
   async ({ project_name }: { project_name: string }) => {
     logger.debug(`🔧 TOOL CALLED: get_past_acquisition_details(project_name='${project_name}')`);
 
+    const trimmed = project_name?.trim() ?? "";
+    if (trimmed.length === 0) {
+      return "Please provide a project name to look up. Use query_past_acquisitions to browse available deals.";
+    }
+
     try {
       const pastRepo = new PastAcquisitionRepository(createDb());
-      const a = await pastRepo.findByNameFuzzy(project_name);
+      const a = await pastRepo.findByNameFuzzy(trimmed);
       if (!a) {
-        return `No past acquisition found matching "${project_name}". Try a different search term or use query_past_acquisitions to browse available deals.`;
+        return `No past acquisition found matching "${trimmed}". Try a different search term or use query_past_acquisitions to browse available deals.`;
       }
 
       const result = `## Past Acquisition Details: ${a.project_name || "Unknown"}
@@ -113,7 +118,10 @@ Args:
 Returns:
     Complete deal profile with all available financial data, screening results, and strategic fit assessment.`,
     schema: z.object({
-      project_name: z.string().describe("Project name to look up"),
+      project_name: z
+        .string()
+        .min(1)
+        .describe("Project name to look up (partial match, must be non-empty)"),
     }),
   }
 );

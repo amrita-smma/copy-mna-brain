@@ -57,6 +57,8 @@ export interface CompanyAgentFilters {
   segment?: string;
   geography?: string;
   watchlistStatus?: string;
+  stage?: string;
+  name?: string;
   minRevenue?: number;
   maxRevenue?: number;
   minEbitda?: number;
@@ -244,6 +246,15 @@ export class CompanyRepository {
     if (filters.watchlistStatus) {
       conditions.push(
         ilike(companies.watchlist_status, `%${filters.watchlistStatus}%`),
+      );
+    }
+    if (filters.stage) {
+      conditions.push(eq(companies.pipeline_stage, filters.stage as DealStage));
+    }
+    if (filters.name) {
+      const term = `%${filters.name}%`;
+      conditions.push(
+        or(ilike(companies.target, term), ilike(companies.project_name, term)),
       );
     }
     // Revenue/EBITDA filters apply against fiscal_year 2024 rows in company_financials.

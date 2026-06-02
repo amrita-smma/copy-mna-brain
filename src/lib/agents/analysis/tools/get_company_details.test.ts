@@ -33,9 +33,34 @@ describe('getCompanyDetails', () => {
     expect(result).toContain('No company found matching "Ghost"');
   });
 
+  it('rejects whitespace-only input without hitting the repository', async () => {
+    const result = (await getCompanyDetails.invoke({ company_name: '   ' })) as string;
+
+    expect(result).toContain('Please provide a company target name or project name');
+    expect(findByNameFuzzyMock).not.toHaveBeenCalled();
+  });
+
+  it('resolves a company looked up by its project name', async () => {
+    findByNameFuzzyMock.mockResolvedValue({
+      target: 'Acme',
+      project_name: 'Project Alpha',
+      entry_id: 7,
+      pipeline_stage: 'L1',
+    });
+    findByCompanyFinancialsMock.mockResolvedValue([]);
+    findByCompanyScreeningMock.mockResolvedValue(null);
+
+    const result = (await getCompanyDetails.invoke({ company_name: 'Alpha' })) as string;
+
+    expect(findByNameFuzzyMock).toHaveBeenCalledWith('Alpha');
+    expect(result).toContain('## Company Details: Acme');
+    expect(result).toContain('**Project Name:** Project Alpha');
+  });
+
   it('renders financials, screening, and basic info for a real company', async () => {
     findByNameFuzzyMock.mockResolvedValue({
       target: 'Acme',
+      project_name: 'Project Alpha',
       entry_id: 7,
       segment: 'Tech',
       geography: 'US',
@@ -54,6 +79,7 @@ describe('getCompanyDetails', () => {
     const result = (await getCompanyDetails.invoke({ company_name: 'Acme' })) as string;
 
     expect(result).toContain('## Company Details: Acme');
+    expect(result).toContain('**Project Name:** Project Alpha');
     expect(result).toContain('**Pipeline Stage:** L1');
     expect(result).toContain('### Revenue (USD Millions)');
     expect(result).toContain('### L1 Screening');

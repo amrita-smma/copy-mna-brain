@@ -42,6 +42,14 @@ describe("promote_to_l1 (workforce tool)", () => {
 
   afterEach(() => vi.restoreAllMocks());
 
+  it("rejects whitespace-only company_name without touching the repo or service", async () => {
+    const result = await call({ company_name: "   " });
+
+    expect(String(result)).toMatch(/company_name is required/);
+    expect(findByNameFuzzy).not.toHaveBeenCalled();
+    expect(promote).not.toHaveBeenCalled();
+  });
+
   it("returns a not-found message when no company matches the name", async () => {
     findByNameFuzzy.mockResolvedValueOnce(null);
 
@@ -91,6 +99,22 @@ describe("promote_to_l1 (workforce tool)", () => {
 
     expect(String(result)).toMatch(/current pipeline stage is unset, expected L0/);
     expect(promote).not.toHaveBeenCalled();
+  });
+
+  it("resolves the company by project name and promotes it", async () => {
+    findByNameFuzzy.mockResolvedValueOnce({
+      id: "c-9",
+      target: "Acme Holdings",
+      project_name: "Project Alpha",
+      pipeline_stage: "L0",
+    });
+    promote.mockResolvedValueOnce(undefined);
+
+    const result = await call({ company_name: "Project Alpha" });
+
+    expect(findByNameFuzzy).toHaveBeenCalledWith("Project Alpha");
+    expect(promote).toHaveBeenCalledWith("c-9", "L0", "L1", undefined);
+    expect(String(result)).toMatch(/Promoted "Acme Holdings" from L0 to L1/);
   });
 
   it("calls companyService.promote with the correct args and reports success", async () => {

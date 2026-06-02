@@ -34,8 +34,8 @@ describe('queryCompanies', () => {
 
   it('renders a markdown table with latest financials joined per company', async () => {
     searchForAgentMock.mockResolvedValue([
-      { id: 'c1', target: 'Acme', segment: 'Tech', geography: 'US', watchlist_status: 'Active' },
-      { id: 'c2', target: 'Beta', segment: 'Health', geography: 'JP', watchlist_status: null },
+      { id: 'c1', target: 'Acme', project_name: 'Project Alpha', segment: 'Tech', geography: 'US', watchlist_status: 'Active' },
+      { id: 'c2', target: 'Beta', project_name: null, segment: 'Health', geography: 'JP', watchlist_status: null },
     ]);
     findLatestByCompaniesMock.mockResolvedValue([
       { company_id: 'c1', revenue_usd_mn: 12.345, ebitda_usd_mn: 3.5, ev_usd_mn: 100 },
@@ -45,9 +45,31 @@ describe('queryCompanies', () => {
 
     expect(result).toContain('Query Results (2 companies)');
     expect(result).toContain('Acme');
+    expect(result).toContain('Project Alpha');
+    expect(result).toContain('Target | Project | Segment');
     expect(result).toContain('$12.3');
     expect(result).toContain('Beta');
     expect(result).toContain('| - |'); // missing financials render as '-'
+  });
+
+  it('forwards the stage filter to the repository', async () => {
+    searchForAgentMock.mockResolvedValue([]);
+
+    await queryCompanies.invoke({ stage: 'L2' });
+
+    expect(searchForAgentMock).toHaveBeenCalledWith(
+      expect.objectContaining({ stage: 'L2', limit: 20 }),
+    );
+  });
+
+  it('forwards the name filter to the repository', async () => {
+    searchForAgentMock.mockResolvedValue([]);
+
+    await queryCompanies.invoke({ name: 'Acme' });
+
+    expect(searchForAgentMock).toHaveBeenCalledWith(
+      expect.objectContaining({ name: 'Acme', limit: 20 }),
+    );
   });
 
   it('returns a formatted error when the search call throws', async () => {

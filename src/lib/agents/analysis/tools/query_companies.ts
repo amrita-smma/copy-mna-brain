@@ -12,6 +12,8 @@ export const queryCompanies = tool(
     segment,
     geography,
     watchlist_status,
+    stage,
+    name,
     min_revenue,
     max_revenue,
     min_ebitda,
@@ -21,6 +23,8 @@ export const queryCompanies = tool(
     segment?: string;
     geography?: string;
     watchlist_status?: string;
+    stage?: string;
+    name?: string;
     min_revenue?: number;
     max_revenue?: number;
     min_ebitda?: number;
@@ -28,7 +32,7 @@ export const queryCompanies = tool(
     limit?: number;
   }) => {
     logger.debug(
-      `🔧 TOOL CALLED: query_companies(segment='${segment}', geography='${geography}', search='${search_term}')`
+      `🔧 TOOL CALLED: query_companies(segment='${segment}', geography='${geography}', stage='${stage}', name='${name}', search='${search_term}')`
     );
 
     try {
@@ -37,6 +41,8 @@ export const queryCompanies = tool(
         segment,
         geography,
         watchlistStatus: watchlist_status,
+        stage,
+        name,
         minRevenue: min_revenue,
         maxRevenue: max_revenue,
         minEbitda: min_ebitda,
@@ -55,15 +61,15 @@ export const queryCompanies = tool(
       const finByCompany = new Map<string, typeof latestFin[number]>();
       for (const r of latestFin) finByCompany.set(r.company_id, r);
 
-      const header = "Target | Segment | Geography | Status | Rev ($M) | EBITDA ($M) | EV ($M)";
-      const separator = "--- | --- | --- | --- | --- | --- | ---";
+      const header = "Target | Project | Segment | Geography | Status | Rev ($M) | EBITDA ($M) | EV ($M)";
+      const separator = "--- | --- | --- | --- | --- | --- | --- | ---";
 
       const rows = companies.map((c) => {
         const f = finByCompany.get(c.id);
         const rev = f?.revenue_usd_mn != null ? `$${f.revenue_usd_mn.toFixed(1)}` : "-";
         const ebitda = f?.ebitda_usd_mn != null ? `$${f.ebitda_usd_mn.toFixed(1)}` : "-";
         const ev = f?.ev_usd_mn != null ? `$${f.ev_usd_mn.toFixed(1)}` : "-";
-        return `${c.target || "N/A"} | ${c.segment || "-"} | ${c.geography || "-"} | ${c.watchlist_status || "-"} | ${rev} | ${ebitda} | ${ev}`;
+        return `${c.target || "N/A"} | ${c.project_name || "-"} | ${c.segment || "-"} | ${c.geography || "-"} | ${c.watchlist_status || "-"} | ${rev} | ${ebitda} | ${ev}`;
       });
 
       let result = `**Query Results (${companies.length} companies):**\n\n`;
@@ -79,15 +85,17 @@ export const queryCompanies = tool(
   },
   {
     name: "query_companies",
-    description: `Query companies from the database with optional filters.
+    description: `Query companies or projects from the database with optional filters.
 
-Use this tool to find companies by segment, geography, financial metrics, or search terms.
+Use this tool to find companies or projects by segment, geography, financial metrics, or search terms.
 All filters are optional and can be combined.
 
 Args:
     segment: Filter by segment (partial match, e.g., "Technology", "Healthcare")
     geography: Filter by geography (partial match, e.g., "USA", "Japan", "Europe")
     watchlist_status: Filter by status (e.g., "Active", "Inactive")
+    stage: Filter by pipeline stage (exact match, one of: "market_screening", "L0", "L1", "L2", "L3", "L4", "L5")
+    name: Filter by company name (partial, case-insensitive match against target or project_name)
     min_revenue: Minimum 2024 revenue in USD millions
     max_revenue: Maximum 2024 revenue in USD millions
     min_ebitda: Minimum 2024 EBITDA in USD millions
@@ -100,6 +108,14 @@ Returns:
       segment: z.string().optional().describe("Filter by segment"),
       geography: z.string().optional().describe("Filter by geography"),
       watchlist_status: z.string().optional().describe("Filter by watchlist status"),
+      stage: z
+        .enum(["market_screening", "L0", "L1", "L2", "L3", "L4", "L5"])
+        .optional()
+        .describe("Filter by pipeline stage (exact match)"),
+      name: z
+        .string()
+        .optional()
+        .describe("Filter by company name (partial, matches target or project_name)"),
       min_revenue: z.number().optional().describe("Minimum 2024 revenue (USD M)"),
       max_revenue: z.number().optional().describe("Maximum 2024 revenue (USD M)"),
       min_ebitda: z.number().optional().describe("Minimum 2024 EBITDA (USD M)"),

@@ -17,6 +17,15 @@ import { getPastAcquisitionDetails } from './get_past_acquisition_details';
 afterEach(() => vi.clearAllMocks());
 
 describe('getPastAcquisitionDetails', () => {
+  it('rejects whitespace-only project_name without hitting the repository', async () => {
+    const result = (await getPastAcquisitionDetails.invoke({
+      project_name: '   ',
+    })) as string;
+
+    expect(result).toContain('Please provide a project name');
+    expect(findByNameFuzzyMock).not.toHaveBeenCalled();
+  });
+
   it('returns a not-found message when fuzzy search misses', async () => {
     findByNameFuzzyMock.mockResolvedValue(null);
 

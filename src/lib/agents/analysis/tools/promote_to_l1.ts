@@ -33,13 +33,18 @@ export const promoteToL1 = tool(
       `🔧 TOOL CALLED: promote_to_l1(company_name='${company_name}')`,
     );
 
+    const trimmedName = company_name?.trim() ?? "";
+    if (trimmedName.length === 0) {
+      return `**Error:** company_name is required. Pass the target name or project name of the company to promote.`;
+    }
+
     try {
       const db = createDb();
       const companyRepo = new CompanyRepository(db);
-      const company = await companyRepo.findByNameFuzzy(company_name);
+      const company = await companyRepo.findByNameFuzzy(trimmedName);
 
       if (!company) {
-        return `No company found matching "${company_name}". Use get_company_details or query_companies first to confirm the exact spelling.`;
+        return `No company found matching "${trimmedName}". Use get_company_details or query_companies first to confirm the exact spelling.`;
       }
 
       if (company.status === "dropped") {
@@ -78,7 +83,7 @@ This is the workforce-side execution of an L0→L1 promotion. By the time this i
 The tool refuses to promote any company whose current stage is not L0; surface that error directly so the workforce trace records why nothing happened.
 
 Args:
-    company_name: The company to promote. Fuzzy-matched against the names in the DB; use query_companies or get_company_details first if you're unsure of the spelling.
+    company_name: The company to promote. Required (non-empty). Fuzzy-matched (case-insensitive) against both the target name and the project name in the DB; use query_companies or get_company_details first if you're unsure of the spelling.
     note: Optional promotion note recorded on the deal. Use this to record any caveats from the handoff instruction (e.g. "user acknowledged weak FY2024 EBITDA").
 
 Returns:
@@ -86,7 +91,10 @@ Returns:
     schema: z.object({
       company_name: z
         .string()
-        .describe("Company name to promote (fuzzy match)"),
+        .min(1)
+        .describe(
+          "Company target name or project name to promote (fuzzy match, must be non-empty)",
+        ),
       note: z
         .string()
         .optional()
