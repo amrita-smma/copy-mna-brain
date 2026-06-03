@@ -1015,6 +1015,7 @@ export default function Pipeline({ showCrm = false, showAiWorkforce = false }: P
                                         </TableHead>
                                         <TableHead>Geo</TableHead>
                                         <TableHead>PIC</TableHead>
+                                        <TableHead>Created</TableHead>
                                         <TableHead className="text-right">
                                           Revenue 2023
                                         </TableHead>
@@ -1187,6 +1188,14 @@ export default function Pipeline({ showCrm = false, showAiWorkforce = false }: P
                                               <span className="text-sm text-muted-foreground">
                                                 {company.pic || "-"}
                                               </span>
+                                            </TableCell>
+                                            <TableCell className="text-muted-foreground text-sm whitespace-nowrap">
+                                              {company.created_at
+                                                ? new Date(company.created_at).toLocaleDateString(
+                                                    undefined,
+                                                    { year: "numeric", month: "short", day: "numeric" },
+                                                  )
+                                                : "-"}
                                             </TableCell>
                                             <TableCell className="text-right font-mono">
                                               {formatCurrency(
@@ -1479,6 +1488,7 @@ export default function Pipeline({ showCrm = false, showAiWorkforce = false }: P
                                   </TableHead>
                                   <TableHead>Geo</TableHead>
                                   <TableHead>PIC</TableHead>
+                                  <TableHead>Created</TableHead>
                                   <TableHead className="text-right">
                                     Rev 2023
                                   </TableHead>
@@ -1629,6 +1639,14 @@ export default function Pipeline({ showCrm = false, showAiWorkforce = false }: P
                                           <span className="text-sm text-muted-foreground">
                                             {company.pic || "-"}
                                           </span>
+                                        </TableCell>
+                                        <TableCell className="text-muted-foreground text-sm whitespace-nowrap">
+                                          {company.created_at
+                                            ? new Date(company.created_at).toLocaleDateString(
+                                                undefined,
+                                                { year: "numeric", month: "short", day: "numeric" },
+                                              )
+                                            : "-"}
                                         </TableCell>
                                         <TableCell className="text-right font-mono">
                                           {formatCurrency(
