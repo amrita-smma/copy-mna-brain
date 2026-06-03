@@ -94,7 +94,11 @@ export class EmployerRepository {
         : undefined,
       filters.lastContactBefore
         ? sql`COALESCE(
-            (SELECT MAX(${emails.sent_at}) FROM ${emails} WHERE ${emails.employer_id} = ${employers.id}),
+            (SELECT MAX(${emails.sent_at})
+             FROM ${emailParticipants}
+             JOIN ${correspondents} ON ${correspondents.id} = ${emailParticipants.correspondent_id}
+             JOIN ${emails}         ON ${emails.id}         = ${emailParticipants.email_id}
+             WHERE ${correspondents.employer_id} = ${employers.id}),
             ${employers.created_at}
           ) < ${filters.lastContactBefore}`
         : undefined,

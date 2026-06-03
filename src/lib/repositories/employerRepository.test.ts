@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { PgDialect } from 'drizzle-orm/pg-core';
 import { EmployerRepository } from './employerRepository';
 
 function makeDb() {
@@ -103,6 +104,15 @@ describe('EmployerRepository', () => {
         email_count: 3,
         source: 'manual',
       });
+    });
+
+    it('uses the participant-based join for lastContactBefore so the filter matches the displayed last_contact_at', async () => {
+      db.offset.mockResolvedValueOnce([]);
+      await repo.list({ lastContactBefore: '2026-05-01T00:00:00Z' });
+      const whereArg = db.where.mock.calls[0]?.[0];
+      const { sql: text } = new PgDialect().sqlToQuery(whereArg);
+      expect(text).toContain('email_participants');
+      expect(text).toContain('correspondents');
     });
   });
 });

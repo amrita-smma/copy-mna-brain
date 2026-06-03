@@ -199,11 +199,20 @@ export function TraceLine({
           <div className="border-t bg-muted/30 px-3.5 py-2.5">
             <div className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground/80 mb-1.5 flex items-center gap-1.5">
               <Wrench className="h-2.5 w-2.5" />
-              {step.toolCalls.some((tc) => tc.running) ? 'Tool running' : 'Tools called'}
+              {step.status === 'intervention-waiting' &&
+              step.toolCalls.some((tc) => tc.running)
+                ? 'Waiting for user confirmation'
+                : step.toolCalls.some((tc) => tc.running)
+                  ? 'Tool running'
+                  : 'Tools called'}
             </div>
             <div className="space-y-1">
               {step.toolCalls.map((tc, i) => (
-                <ToolCallView key={i} call={tc} />
+                <ToolCallView
+                  key={i}
+                  call={tc}
+                  awaitingApproval={step.status === 'intervention-waiting'}
+                />
               ))}
             </div>
             {step.liveRows && step.liveRows.length > 0 && (
@@ -424,21 +433,36 @@ function LiveStatusIndicator({ row }: { row: LiveRow }) {
   );
 }
 
-function ToolCallView({ call }: { call: ToolCall }) {
+function ToolCallView({
+  call,
+  awaitingApproval = false,
+}: {
+  call: ToolCall;
+  // True when the parent step is paused on a HITL interrupt — the call is
+  // "running" in the LangGraph sense but actually waiting on the human, so we
+  // recolor the row violet and relabel the pill instead of using the amber
+  // "running" treatment that implies the agent is doing work.
+  awaitingApproval?: boolean;
+}) {
   const [open, setOpen] = useState(false);
   const hasOutput = !!call.output && call.output.rows.length > 0;
   const Icon = iconForTool(call.name);
-  const pillClass = call.running
-    ? 'bg-amber-50 text-amber-700'
-    : TONE_PILL_CLASS[call.tone ?? 'default'];
+  const isWaiting = call.running && awaitingApproval;
+  const pillClass = isWaiting
+    ? 'bg-violet-50 text-violet-700'
+    : call.running
+      ? 'bg-amber-50 text-amber-700'
+      : TONE_PILL_CLASS[call.tone ?? 'default'];
 
   return (
     <div
       className={cn(
         'rounded-md border bg-card overflow-hidden transition-colors',
-        call.running
-          ? 'border-amber-200 bg-amber-50/40'
-          : 'border-border hover:border-border/80',
+        isWaiting
+          ? 'border-violet-200 bg-violet-50/40'
+          : call.running
+            ? 'border-amber-200 bg-amber-50/40'
+            : 'border-border hover:border-border/80',
       )}
     >
       <button
@@ -453,7 +477,11 @@ function ToolCallView({ call }: { call: ToolCall }) {
         <span
           className={cn(
             'h-[18px] w-[18px] rounded grid place-items-center flex-shrink-0',
-            call.running ? 'bg-amber-100 text-amber-600' : 'bg-violet-100 text-violet-700',
+            isWaiting
+              ? 'bg-violet-100 text-violet-700'
+              : call.running
+                ? 'bg-amber-100 text-amber-600'
+                : 'bg-violet-100 text-violet-700',
           )}
         >
           <Icon className="h-2.5 w-2.5" />
@@ -468,7 +496,11 @@ function ToolCallView({ call }: { call: ToolCall }) {
         <span
           className={cn(
             'font-mono text-[11.5px] font-semibold flex-shrink-0',
-            call.running ? 'text-amber-700' : 'text-violet-700',
+            isWaiting
+              ? 'text-violet-700'
+              : call.running
+                ? 'text-amber-700'
+                : 'text-violet-700',
           )}
         >
           {call.name}
@@ -483,10 +515,16 @@ function ToolCallView({ call }: { call: ToolCall }) {
               pillClass,
             )}
           >
-            {call.running && (
-              <Loader2 className="h-2 w-2 animate-spin" strokeWidth={3} />
+            {isWaiting ? (
+              <span className="h-1.5 w-1.5 rounded-full bg-violet-500 animate-pulse" />
+            ) : (
+              call.running && (
+                <Loader2 className="h-2 w-2 animate-spin" strokeWidth={3} />
+              )
             )}
-            {call.status ?? 'running'}
+            {isWaiting
+              ? 'waiting for user confirmation'
+              : (call.status ?? 'running')}
           </span>
         )}
       </button>
