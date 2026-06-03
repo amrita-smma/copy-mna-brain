@@ -87,9 +87,9 @@ export default function UserCombobox({
             role="combobox"
             aria-expanded={open}
             disabled={disabled || loading}
-            className="w-full justify-between font-normal"
+            className="group w-full justify-between font-normal"
           >
-            <span className="flex items-center gap-1.5 text-muted-foreground">
+            <span className="flex items-center gap-1.5 text-muted-foreground group-hover:text-white">
               <Plus className="h-3.5 w-3.5" />
               {loading ? "Loading users..." : placeholder}
             </span>

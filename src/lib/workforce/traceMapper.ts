@@ -292,8 +292,33 @@ function buildResolved(
 
 interface PendingInterrupt {
   question: string;
+  proposal: string | undefined;
   toolName: string;
   toolCallId: string | undefined;
+}
+
+/**
+ * Pull a free-text rationale out of a HITL action request's args. Per-tool
+ * because the field name varies by tool: `promote_to_l1` uses `reason`, and
+ * its optional `note` (caveats acknowledged by the user) is appended when
+ * present so the reviewer sees both in the proposal block. Returns undefined
+ * when the tool has no rationale-style arg, leaving `proposal` unset and the
+ * intervention card collapsed to question + buttons only.
+ */
+function deriveInterventionProposal(
+  toolName: string,
+  args: unknown,
+): string | undefined {
+  if (!args || typeof args !== "object") return undefined;
+  const a = args as Record<string, unknown>;
+  if (toolName === "promote_to_l1") {
+    const reason = typeof a.reason === "string" ? a.reason.trim() : "";
+    const note = typeof a.note === "string" ? a.note.trim() : "";
+    if (!reason && !note) return undefined;
+    if (reason && note) return `${reason}\n\nNote: ${note}`;
+    return reason || `Note: ${note}`;
+  }
+  return undefined;
 }
 
 function extractPendingInterrupts(
@@ -319,8 +344,10 @@ function extractPendingInterrupts(
       typeof first?.description === "string" ? first.description : "";
     const question =
       descRaw.trim() || `Approval required for ${toolName || "tool call"}`;
+    const proposal = deriveInterventionProposal(toolName, first?.args);
     out.push({
       question,
+      proposal,
       toolName,
       toolCallId: toolName ? lastAiToolCallsByName.get(toolName) : undefined,
     });
@@ -557,6 +584,7 @@ export function buildTrace(input: BuildTraceInput): TraceData[] {
       latestStep.intervention = {
         state: "waiting",
         question: first.question,
+        ...(first.proposal ? { proposal: first.proposal } : {}),
         tool_call_id: first.toolCallId,
         tool_name: first.toolName || undefined,
       };

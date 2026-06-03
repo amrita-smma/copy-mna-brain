@@ -14,6 +14,7 @@
     "db:migration:new": "tsx scripts/new-migration.ts",
     "db:seed": "tsx scripts/seed.ts",
     "db:seed:crm": "tsx scripts/seed-crm.ts",
+    "db:seed:bad-ebitda": "tsx scripts/seed-bad-ebitda-l0.ts",
     "mbox:parse": "tsx scripts/mbox-parse.ts",
     "mbox:extract": "tsx scripts/mbox-extract.ts",
     "mbox:llm-enrich": "tsx scripts/mbox-llm-enrich.ts",

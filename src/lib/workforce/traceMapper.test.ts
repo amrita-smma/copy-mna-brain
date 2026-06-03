@@ -131,6 +131,95 @@ describe("buildTrace", () => {
     });
   });
 
+  it("surfaces promote_to_l1.reason as intervention.proposal on a pending interrupt", () => {
+    const pendingWrites: CheckpointPendingWrite[] = [
+      [
+        "task-1",
+        "__interrupt__",
+        {
+          value: {
+            actionRequests: [
+              {
+                name: "promote_to_l1",
+                args: {
+                  company_name: "Acme",
+                  reason: "Revenue $42M FY2024, EBITDA margin 18%; thesis fit.",
+                },
+                description: "Promote Acme from L0 to L1?",
+              },
+            ],
+          },
+        },
+      ],
+    ];
+    const steps = buildTrace({
+      messages: [
+        ai("about to call", [
+          {
+            id: "c-1",
+            name: "promote_to_l1",
+            args: { company_name: "Acme" },
+          },
+        ]),
+      ],
+      pendingWrites,
+      humanDecisions: [],
+      actor: ACTOR,
+      startedAt: STARTED,
+    });
+    expect(steps[0].intervention).toEqual({
+      state: "waiting",
+      question: "Promote Acme from L0 to L1?",
+      proposal: "Revenue $42M FY2024, EBITDA margin 18%; thesis fit.",
+      tool_call_id: "c-1",
+      tool_name: "promote_to_l1",
+    });
+  });
+
+  it("appends promote_to_l1.note after the reason in intervention.proposal", () => {
+    const pendingWrites: CheckpointPendingWrite[] = [
+      [
+        "task-1",
+        "__interrupt__",
+        {
+          value: {
+            actionRequests: [
+              {
+                name: "promote_to_l1",
+                args: {
+                  company_name: "Cinder Foods",
+                  reason: "Strong revenue growth.",
+                  note: "User acknowledged weak FY2023 EBITDA.",
+                },
+                description: "Promote Cinder Foods from L0 to L1?",
+              },
+            ],
+          },
+        },
+      ],
+    ];
+    const steps = buildTrace({
+      messages: [
+        ai("about to call", [
+          {
+            id: "c-1",
+            name: "promote_to_l1",
+            args: { company_name: "Cinder Foods" },
+          },
+        ]),
+      ],
+      pendingWrites,
+      humanDecisions: [],
+      actor: ACTOR,
+      startedAt: STARTED,
+    });
+    expect(steps[0].intervention).toMatchObject({
+      state: "waiting",
+      proposal:
+        "Strong revenue growth.\n\nNote: User acknowledged weak FY2023 EBITDA.",
+    });
+  });
+
   it("neutralizes in-flight tools and skips pending interrupts when terminal=true", () => {
     // Repro for MB-95: cancelling a HITL-paused task flips the row to
     // terminal but the LangGraph checkpoint still carries the unresolved

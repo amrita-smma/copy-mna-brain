@@ -743,8 +743,16 @@ function InterventionCard({
         {intervention.question}
       </p>
       {intervention.proposal && (
-        <div className="rounded-md border bg-card px-3 py-2 mb-2.5 text-xs text-muted-foreground leading-relaxed">
-          {intervention.proposal}
+        <div className="rounded-md border bg-card px-3 py-2 mb-2.5">
+          <div className="text-[10px] font-bold uppercase tracking-wider text-violet-600 mb-1">
+            Why
+          </div>
+          {/* whitespace-pre-line so the "reason\n\nNote: …" composition from
+              traceMapper renders as two paragraphs instead of collapsing the
+              newlines. */}
+          <p className="text-xs text-muted-foreground leading-relaxed whitespace-pre-line">
+            {intervention.proposal}
+          </p>
         </div>
       )}
       {!decideAllowed ? (

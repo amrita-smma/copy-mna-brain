@@ -26,8 +26,18 @@ vi.mock("@/lib/repositories", async (importOriginal) => {
 
 import { promoteToL1 } from "./promote_to_l1";
 
-async function call(args: { company_name: string; note?: string }) {
-  return promoteToL1.invoke(args);
+const DEFAULT_REASON =
+  "Revenue $42M FY2024, EBITDA margin 18%; fits APAC semicap thesis.";
+
+async function call(args: {
+  company_name: string;
+  reason?: string;
+  note?: string;
+}) {
+  return promoteToL1.invoke({
+    reason: DEFAULT_REASON,
+    ...args,
+  });
 }
 
 describe("promote_to_l1 (workforce tool)", () => {
@@ -46,6 +56,14 @@ describe("promote_to_l1 (workforce tool)", () => {
     const result = await call({ company_name: "   " });
 
     expect(String(result)).toMatch(/company_name is required/);
+    expect(findByNameFuzzy).not.toHaveBeenCalled();
+    expect(promote).not.toHaveBeenCalled();
+  });
+
+  it("rejects whitespace-only reason without touching the repo or service", async () => {
+    const result = await call({ company_name: "Acme", reason: "   " });
+
+    expect(String(result)).toMatch(/reason is required/);
     expect(findByNameFuzzy).not.toHaveBeenCalled();
     expect(promote).not.toHaveBeenCalled();
   });
@@ -101,7 +119,7 @@ describe("promote_to_l1 (workforce tool)", () => {
     expect(promote).not.toHaveBeenCalled();
   });
 
-  it("resolves the company by project name and promotes it", async () => {
+  it("resolves the company by project name and promotes it with the reason recorded", async () => {
     findByNameFuzzy.mockResolvedValueOnce({
       id: "c-9",
       target: "Acme Holdings",
@@ -113,11 +131,16 @@ describe("promote_to_l1 (workforce tool)", () => {
     const result = await call({ company_name: "Project Alpha" });
 
     expect(findByNameFuzzy).toHaveBeenCalledWith("Project Alpha");
-    expect(promote).toHaveBeenCalledWith("c-9", "L0", "L1", undefined);
+    expect(promote).toHaveBeenCalledWith(
+      "c-9",
+      "L0",
+      "L1",
+      `Reason: ${DEFAULT_REASON}`,
+    );
     expect(String(result)).toMatch(/Promoted "Acme Holdings" from L0 to L1/);
   });
 
-  it("calls companyService.promote with the correct args and reports success", async () => {
+  it("records reason and note together when both are passed", async () => {
     findByNameFuzzy.mockResolvedValueOnce({
       id: "c-2",
       target: "Cinder Foods",
@@ -127,17 +150,17 @@ describe("promote_to_l1 (workforce tool)", () => {
 
     const result = await call({
       company_name: "Cinder Foods",
-      note: "User acknowledged weak FY2024 EBITDA.",
+      reason: "Strong FY2024 revenue growth (32% YoY); EBITDA margin 21%.",
+      note: "User acknowledged weak FY2023 EBITDA.",
     });
 
     expect(promote).toHaveBeenCalledWith(
       "c-2",
       "L0",
       "L1",
-      "User acknowledged weak FY2024 EBITDA.",
+      "Reason: Strong FY2024 revenue growth (32% YoY); EBITDA margin 21%.\n\nNote: User acknowledged weak FY2023 EBITDA.",
     );
     expect(String(result)).toMatch(/Promoted "Cinder Foods" from L0 to L1/);
-    expect(String(result)).toMatch(/Note recorded/);
   });
 
   it("treats whitespace-only notes as no note", async () => {
@@ -148,10 +171,14 @@ describe("promote_to_l1 (workforce tool)", () => {
     });
     promote.mockResolvedValueOnce(undefined);
 
-    const result = await call({ company_name: "X", note: "   " });
+    await call({ company_name: "X", note: "   " });
 
-    expect(promote).toHaveBeenCalledWith("c-3", "L0", "L1", undefined);
-    expect(String(result)).not.toMatch(/Note recorded/);
+    expect(promote).toHaveBeenCalledWith(
+      "c-3",
+      "L0",
+      "L1",
+      `Reason: ${DEFAULT_REASON}`,
+    );
   });
 
   it("returns an **Error:** string when the service throws (does not propagate)", async () => {

@@ -29,11 +29,18 @@ const WORKFORCE_HITL_MIDDLEWARE = humanInTheLoopMiddleware({
   interruptOn: {
     promote_to_l1: {
       allowedDecisions: ["approve", "reject"],
+      // The description is what the human reviewer reads in the HITL card
+      // (mapped to `intervention.question`). The args.reason carries the
+      // longer rationale and is rendered separately as `intervention.proposal`
+      // in the trace UI — see traceMapper.ts.
       description: (toolCall) => {
-        const args = toolCall.args as { company_name?: string; note?: string };
+        const args = toolCall.args as {
+          company_name?: string;
+          reason?: string;
+          note?: string;
+        };
         const co = args.company_name ?? "(unknown)";
-        const note = args.note ? ` Note: ${args.note}` : "";
-        return `Promote ${co} from L0 to L1?${note}`;
+        return `Promote ${co} from L0 to L1?`;
       },
     },
   },
@@ -216,7 +223,7 @@ Read tools (use to gather context before writing):
 
 Write tools (use to actually mutate state — the whole point of this run):
 - **add_company_to_l0** — add a newly discovered company to the pipeline at stage L0. Auto-executes (no human approval). Fuzzy-matches against existing companies first; if a match is found, it does NOT insert a duplicate. Use this when an instruction tells you to scan/discover/add companies (e.g. "add Acme to the pipeline", "find APAC slurry vendors and add the qualifiers").
-- **promote_to_l1** — move a company from pipeline stage L0 to L1, optionally with a note. Idempotent guard refuses any company not currently at L0. Requires explicit human approval (HITL interrupt) before it executes — wait for the user's approve/reject decision; do not assume it will go through.
+- **promote_to_l1** — move a company from pipeline stage L0 to L1. Requires a \`reason\` (the human reviewer sees this in the approval card; cite concrete evidence — financial fit, comparable multiples, screening criteria met) and accepts an optional \`note\` for caveats. Idempotent guard refuses any company not currently at L0. Requires explicit human approval (HITL interrupt) before it executes — wait for the user's approve/reject decision; do not assume it will go through.
 
 Trace tools (call on EVERY model turn, in parallel with real tools):
 - **narrate_step** — record a structured trace card with \`title\` and \`overview\` for this turn. The user sees these in the Reasoning trace panel. Always include narrate_step in your tool_calls. Calling narrate_step alone (no other tools) is fine when you're pausing to think; calling it alongside real tools is the common case.
@@ -226,7 +233,7 @@ Trace tools (call on EVERY model turn, in parallel with real tools):
 ## How to execute
 
 1. **Parse the instruction.** Identify the target entity (company name, etc.) and the desired action.
-2. **Verify preconditions** with read tools. E.g. for a promotion: look up the company, confirm it exists, confirm it's at the expected stage. If the instruction mentions a caveat the user acknowledged (e.g. weak EBITDA), include that in the note you pass to the write tool so it's recorded on the deal.
+2. **Verify preconditions** with read tools. E.g. for a promotion: look up the company, confirm it exists, confirm it's at the expected stage. Gather concrete evidence you can cite in \`reason\` (financials, comparable acquisitions, screening criteria the company passed). If the instruction mentions a caveat the user acknowledged (e.g. weak EBITDA), include that in the \`note\` arg of the write tool so it's recorded on the deal alongside the reason.
 3. **Execute the write.** Call the appropriate write tool. The tool returns a success or error string — capture it.
 4. **Report.** Return a concise final message (see Reporting Format).
 
@@ -271,7 +278,8 @@ Don't elaborate beyond that. The trace UI shows your full tool-call sequence sep
 
 - The pipeline stages are L0 → L1 → L2 → ... A company at L1+ cannot be re-promoted to L1; the write tool will refuse.
 - **L0 entries auto-execute; L1+ promotions require explicit user approval.** \`add_company_to_l0\` runs without an approval interrupt — L0 is the triage stage. \`promote_to_l1\` (and any future promote_to_l2, promote_to_l3, etc.) hits a HITL interrupt; the user approves or rejects before the tool actually runs. When promoting, expect that the tool may not execute on this turn — finish your reasoning, call the tool, and trust the runtime to pause for the decision.
-- Caveats the user acknowledged ("user acknowledged weak FY2024 EBITDA", "user approved despite missing financials") MUST end up in the note recorded on the deal so the audit trail captures that the user proceeded knowingly.`;
+- Caveats the user acknowledged ("user acknowledged weak FY2024 EBITDA", "user approved despite missing financials") MUST end up in the \`note\` arg of the write tool so the audit trail captures that the user proceeded knowingly. The \`reason\` arg is for the positive case (why the company qualifies for the next stage); \`note\` is for caveats and risks. Both are persisted on the deal record.
+- When calling \`promote_to_l1\`, the \`reason\` arg is what the human reviewer sees in the approval card. Write it so a reviewer with no other context could decide: name the concrete fit (e.g. "Revenue $42M FY2024, EBITDA margin 18%, growing 28% YoY; comparable Asia-Pacific semicap deals closed at 11–14x EBITDA — Acme fits the thesis cleanly"). Avoid vague phrasing.`;
 
 export interface AgentConfig {
   apiKey: string;
