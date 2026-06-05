@@ -85,6 +85,9 @@ describe('runCompanyAnalysis', () => {
       { db: {} as never, job: { id: 'job-abc-123' } as Tables<'jobs'> },
     );
 
+    // Post-#174: company analysis runs on the stateless agent graph, which
+    // has no PostgresSaver attached. The handler must use the stateless
+    // variant (no thread_id needed) and not call the persistent one.
     expect(mocks.getStatelessAgentGraph).toHaveBeenCalledTimes(1);
     expect(mocks.getAgentGraph).not.toHaveBeenCalled();
     expect(mocks.invoke).toHaveBeenCalledTimes(1);

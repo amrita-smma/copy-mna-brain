@@ -47,6 +47,29 @@ const RETRYABLE_STATUSES: WorkforceQueueStatus[] = [
   'rejected',
   'timed_out',
 ];
+// Composer is disabled when the agent is actively burning compute. A user
+// update written here could race a tool call mid-step. The /message API
+// rejects these statuses with 409 as a server-side backstop.
+const COMPOSER_THINKING_STATUSES: WorkforceQueueStatus[] = [
+  'running',
+  'waiting_for_subagent',
+];
+// Submitting a message on one of these attaches it to the row's
+// pending_user_messages buffer; the agent drains the buffer on its next
+// invoke/resume. No new row is created.
+const COMPOSER_ATTACH_STATUSES: WorkforceQueueStatus[] = [
+  'pending',
+  'waiting_for_human_input',
+  'resume_ready',
+];
+
+type ComposerMode = 'disabled' | 'attach' | 'fork';
+
+function getComposerMode(status: WorkforceQueueStatus): ComposerMode {
+  if (COMPOSER_THINKING_STATUSES.includes(status)) return 'disabled';
+  if (COMPOSER_ATTACH_STATUSES.includes(status)) return 'attach';
+  return 'fork';
+}
 const TRACE_POLL_MS = 2000;
 
 interface ApiQueueItem {
@@ -129,9 +152,18 @@ interface TaskCanvasProps {
   // (the cancelled row will hop from "In progress" / "Queued" into the
   // terminal bucket on the next refetch).
   onCancelled?: (id: string) => void;
+  // Called after submitting a chat message against a terminal task spawns a
+  // fresh follow-up run. Same plumbing as onRetried: parent jumps selection
+  // to the new row and refetches the sidebar.
+  onForked?: (newId: string) => void;
 }
 
-export function TaskCanvas({ taskId, onRetried, onCancelled }: TaskCanvasProps) {
+export function TaskCanvas({
+  taskId,
+  onRetried,
+  onCancelled,
+  onForked,
+}: TaskCanvasProps) {
   const [item, setItem] = useState<ApiQueueItem | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -143,6 +175,10 @@ export function TaskCanvas({ taskId, onRetried, onCancelled }: TaskCanvasProps) 
     null,
   );
   const [actionError, setActionError] = useState<string | null>(null);
+  const [composerText, setComposerText] = useState('');
+  const [composerSending, setComposerSending] = useState(false);
+  const [composerError, setComposerError] = useState<string | null>(null);
+  const [composerToast, setComposerToast] = useState<string | null>(null);
   const traceLoadedRef = useRef(false);
 
   useEffect(() => {
@@ -181,6 +217,9 @@ export function TaskCanvas({ taskId, onRetried, onCancelled }: TaskCanvasProps) 
     setActor(null);
     setActionError(null);
     setActionPending(null);
+    setComposerText('');
+    setComposerError(null);
+    setComposerToast(null);
     traceLoadedRef.current = false;
   }, [taskId]);
 
@@ -268,6 +307,14 @@ export function TaskCanvas({ taskId, onRetried, onCancelled }: TaskCanvasProps) 
   const tone = isCancelled(item) ? CANCELLED_TONE : STATUS_TONE[item.status];
   const canCancel = CANCELLABLE_STATUSES.includes(item.status);
   const canRetry = RETRYABLE_STATUSES.includes(item.status);
+  const composerMode = getComposerMode(item.status);
+  const composerDisabled = composerMode === 'disabled' || composerSending;
+  const composerHint =
+    composerMode === 'disabled'
+      ? 'Replies are paused while the agent is working. They’ll re-open when it pauses or finishes.'
+      : composerMode === 'attach'
+        ? 'Your reply will be queued for this task and picked up on its next step.'
+        : 'This task has finished. Your reply will start a follow-up run.';
 
   const handleCancel = async () => {
     if (!taskId || actionPending) return;
@@ -292,6 +339,43 @@ export function TaskCanvas({ taskId, onRetried, onCancelled }: TaskCanvasProps) 
       setActionError(e instanceof Error ? e.message : 'Failed to cancel task');
     } finally {
       setActionPending(null);
+    }
+  };
+
+  const handleComposerSubmit = async () => {
+    if (!taskId || composerDisabled) return;
+    const text = composerText.trim();
+    if (!text) return;
+    setComposerSending(true);
+    setComposerError(null);
+    setComposerToast(null);
+    try {
+      const res = await fetch(`/api/workforce-queue/${taskId}/message`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text }),
+      });
+      const body = (await res.json().catch(() => null)) as
+        | { data?: { kind: 'attached'; queue_position: number } | { kind: 'forked'; new_run_id: string }; error?: string }
+        | null;
+      if (!res.ok) {
+        throw new Error(body?.error ?? `Submit failed (HTTP ${res.status})`);
+      }
+      setComposerText('');
+      const data = body?.data;
+      if (data?.kind === 'attached') {
+        const ord =
+          data.queue_position === 1 ? 'next up' : `position ${data.queue_position}`;
+        setComposerToast(`Queued for this task (${ord}).`);
+      } else if (data?.kind === 'forked') {
+        onForked?.(data.new_run_id);
+      }
+    } catch (e) {
+      setComposerError(
+        e instanceof Error ? e.message : 'Failed to send message',
+      );
+    } finally {
+      setComposerSending(false);
     }
   };
 
@@ -504,27 +588,62 @@ export function TaskCanvas({ taskId, onRetried, onCancelled }: TaskCanvasProps) 
         </div>
       </div>
 
-      {/* Composer (disabled — execution layer not wired) */}
+      {/* Composer */}
       <div className="flex-shrink-0 border-t bg-card px-9 py-3.5">
-        <div className="flex items-stretch gap-2 rounded-xl border bg-card pl-3.5 pr-1 py-1 opacity-60">
+        <div
+          className={cn(
+            'flex items-stretch gap-2 rounded-xl border bg-card pl-3.5 pr-1 py-1',
+            composerMode === 'disabled' && 'opacity-60',
+          )}
+        >
           <textarea
             rows={1}
-            disabled
-            placeholder="Reply to the Workforce or add a new instruction…"
-            className="flex-1 resize-none bg-transparent py-2 text-sm outline-none placeholder:text-muted-foreground"
+            disabled={composerDisabled}
+            value={composerText}
+            onChange={(e) => setComposerText(e.target.value)}
+            onKeyDown={(e) => {
+              if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+                e.preventDefault();
+                void handleComposerSubmit();
+              }
+            }}
+            placeholder={
+              composerMode === 'fork'
+                ? 'Send a follow-up instruction…'
+                : 'Reply to the Workforce or add a new instruction…'
+            }
+            className="flex-1 resize-none bg-transparent py-2 text-sm outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed"
           />
           <button
             type="button"
-            disabled
-            className="self-stretch w-9 grid place-items-center rounded-lg bg-gradient-to-br from-violet-500 to-indigo-600 text-white"
+            disabled={composerDisabled || !composerText.trim()}
+            onClick={() => void handleComposerSubmit()}
+            className="self-stretch w-9 grid place-items-center rounded-lg bg-gradient-to-br from-violet-500 to-indigo-600 text-white disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <Send className="h-3.5 w-3.5" />
           </button>
         </div>
-        <p className="mt-2 text-[11px] text-muted-foreground/70 inline-flex items-center gap-1.5">
+        <p
+          className={cn(
+            'mt-2 text-[11px] inline-flex items-center gap-1.5',
+            composerMode === 'disabled'
+              ? 'text-muted-foreground/70'
+              : 'text-muted-foreground',
+          )}
+        >
           <AlertCircle className="h-3 w-3" />
-          Replies will be enabled once the executor is wired.
+          {composerHint}
         </p>
+        {composerError && (
+          <div className="mt-1.5 rounded-md border border-rose-200 bg-rose-50/60 px-2.5 py-1.5 text-[11px] text-rose-700">
+            {composerError}
+          </div>
+        )}
+        {composerToast && (
+          <div className="mt-1.5 rounded-md border border-emerald-200 bg-emerald-50/60 px-2.5 py-1.5 text-[11px] text-emerald-700">
+            {composerToast}
+          </div>
+        )}
       </div>
     </main>
   );

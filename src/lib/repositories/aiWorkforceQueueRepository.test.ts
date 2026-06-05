@@ -478,6 +478,111 @@ describe('AiWorkforceQueueRepository.clearResumeToken', () => {
   });
 });
 
+describe('AiWorkforceQueueRepository.appendPendingUserMessage', () => {
+  it('returns queue_position equal to the post-append buffer length', async () => {
+    const { db, updateChain } = makeMockDb();
+    const row = {
+      id: 'r1',
+      pending_user_messages: [{ id: 'm-old' }, { id: 'm-new' }],
+    };
+    updateChain.returning.mockResolvedValueOnce([row]);
+
+    const repo = new AiWorkforceQueueRepository(db as never);
+    const result = await repo.appendPendingUserMessage('r1', {
+      id: 'm-new',
+      text: 'hello',
+      submitted_at: '2026-06-04T10:00:00Z',
+      submitted_by_user_id: 'u1',
+    });
+
+    expect(result.row).toBe(row);
+    expect(result.queue_position).toBe(2);
+    const setArg = updateChain.set.mock.calls[0][0];
+    expect(setArg).toHaveProperty('pending_user_messages');
+  });
+
+  it('throws when the row does not exist', async () => {
+    const { db, updateChain } = makeMockDb();
+    updateChain.returning.mockResolvedValueOnce([]);
+
+    const repo = new AiWorkforceQueueRepository(db as never);
+    await expect(
+      repo.appendPendingUserMessage('missing', {
+        id: 'm',
+        text: 't',
+        submitted_at: 'now',
+        submitted_by_user_id: 'u',
+      }),
+    ).rejects.toThrow(/row missing not found/);
+  });
+});
+
+describe('AiWorkforceQueueRepository.consumePendingUserMessages', () => {
+  function makeTxChainMock(rows: unknown[]) {
+    const selectChain = {
+      from: vi.fn().mockReturnThis(),
+      where: vi.fn().mockReturnThis(),
+      for: vi.fn().mockReturnThis(),
+      limit: vi.fn().mockResolvedValue(rows),
+    };
+    const updateChain = {
+      set: vi.fn().mockReturnThis(),
+      where: vi.fn().mockResolvedValue(undefined),
+    };
+    const tx = {
+      select: vi.fn().mockReturnValue(selectChain),
+      update: vi.fn().mockReturnValue(updateChain),
+    };
+    return { tx, selectChain, updateChain };
+  }
+
+  it('returns [] and skips the UPDATE when the buffer is empty', async () => {
+    const { tx, updateChain } = makeTxChainMock([{ msgs: [] }]);
+    const { db } = makeMockDb();
+    db.transaction.mockImplementation(
+      async (fn: (t: typeof tx) => Promise<unknown>) => fn(tx),
+    );
+
+    const repo = new AiWorkforceQueueRepository(db as never);
+    const result = await repo.consumePendingUserMessages('r1');
+
+    expect(result).toEqual([]);
+    expect(updateChain.set).not.toHaveBeenCalled();
+  });
+
+  it('returns the previous buffer and clears it in a single tx when present', async () => {
+    const msgs = [
+      { id: 'm1', text: 'a', submitted_at: 't1', submitted_by_user_id: 'u1' },
+      { id: 'm2', text: 'b', submitted_at: 't2', submitted_by_user_id: 'u1' },
+    ];
+    const { tx, updateChain } = makeTxChainMock([{ msgs }]);
+    const { db } = makeMockDb();
+    db.transaction.mockImplementation(
+      async (fn: (t: typeof tx) => Promise<unknown>) => fn(tx),
+    );
+
+    const repo = new AiWorkforceQueueRepository(db as never);
+    const result = await repo.consumePendingUserMessages('r1');
+
+    expect(result).toEqual(msgs);
+    expect(updateChain.set).toHaveBeenCalledWith({ pending_user_messages: [] });
+  });
+
+  it('returns [] when the row is not found', async () => {
+    const { tx, updateChain } = makeTxChainMock([]);
+    const { db } = makeMockDb();
+    db.transaction.mockImplementation(
+      async (fn: (t: typeof tx) => Promise<unknown>) => fn(tx),
+    );
+
+    const repo = new AiWorkforceQueueRepository(db as never);
+    const result = await repo.consumePendingUserMessages('missing');
+
+    expect(result).toEqual([]);
+    expect(updateChain.set).not.toHaveBeenCalled();
+  });
+});
+
 describe('AiWorkforceQueueRepository.isTerminal', () => {
   it('classifies terminal vs non-terminal statuses', () => {
     expect(AiWorkforceQueueRepository.isTerminal('succeeded')).toBe(true);

@@ -925,6 +925,12 @@ export function WorkforceTasks({ initialTaskId = null }: WorkforceTasksProps = {
             // "Queued" and into "Done today" on the sidebar immediately.
             void fetchQueue();
           }}
+          onForked={(newId) => {
+            // Same flow as onRetried — a follow-up run started from the
+            // composer is a new queue row, so jump selection to it.
+            goToTask(newId);
+            void fetchQueue();
+          }}
         />
       )}
 

@@ -6,12 +6,23 @@ const { enqueueAgentRun } = vi.hoisted(() => ({
 
 vi.mock('@/lib/workforce', () => ({ enqueueAgentRun }));
 
-import { AiWorkforceService } from './aiWorkforceService';
+import {
+  AiWorkforceService,
+  TaskBusyError,
+  TaskNotFoundError,
+  TaskOwnershipError,
+} from './aiWorkforceService';
 
 function makeService(findById: ReturnType<typeof vi.fn>) {
   const queueRepo = { findById } as never;
   const db = {} as never;
   return new AiWorkforceService(queueRepo, db);
+}
+
+function makeServiceWith(
+  queueRepo: Record<string, ReturnType<typeof vi.fn>>,
+) {
+  return new AiWorkforceService(queueRepo as never, {} as never);
 }
 
 describe('AiWorkforceService.enqueueFromChat', () => {
@@ -114,4 +125,179 @@ describe('AiWorkforceService.enqueueFromChat', () => {
       }),
     ).rejects.toThrow(/row gone was inserted but findById returned null/);
   });
+});
+
+describe('AiWorkforceService.submitUserMessage', () => {
+  beforeEach(() => {
+    enqueueAgentRun.mockReset();
+  });
+
+  it('throws TaskNotFoundError when the row is missing', async () => {
+    const service = makeServiceWith({
+      findById: vi.fn().mockResolvedValueOnce(null),
+      appendPendingUserMessage: vi.fn(),
+    });
+    await expect(
+      service.submitUserMessage({
+        runId: 'missing',
+        userId: 'u1',
+        text: 'hi',
+      }),
+    ).rejects.toBeInstanceOf(TaskNotFoundError);
+  });
+
+  it('throws TaskOwnershipError when caller is not triggered_by_user_id', async () => {
+    const service = makeServiceWith({
+      findById: vi.fn().mockResolvedValueOnce({
+        id: 'r1',
+        triggered_by_user_id: 'someone-else',
+        status: 'pending',
+      }),
+      appendPendingUserMessage: vi.fn(),
+    });
+    await expect(
+      service.submitUserMessage({
+        runId: 'r1',
+        userId: 'u1',
+        text: 'hi',
+      }),
+    ).rejects.toBeInstanceOf(TaskOwnershipError);
+  });
+
+  it('throws TaskBusyError when status is running', async () => {
+    const service = makeServiceWith({
+      findById: vi.fn().mockResolvedValueOnce({
+        id: 'r1',
+        triggered_by_user_id: 'u1',
+        status: 'running',
+      }),
+      appendPendingUserMessage: vi.fn(),
+    });
+    await expect(
+      service.submitUserMessage({ runId: 'r1', userId: 'u1', text: 'hi' }),
+    ).rejects.toBeInstanceOf(TaskBusyError);
+  });
+
+  it('throws TaskBusyError when status is waiting_for_subagent', async () => {
+    const service = makeServiceWith({
+      findById: vi.fn().mockResolvedValueOnce({
+        id: 'r1',
+        triggered_by_user_id: 'u1',
+        status: 'waiting_for_subagent',
+      }),
+      appendPendingUserMessage: vi.fn(),
+    });
+    await expect(
+      service.submitUserMessage({ runId: 'r1', userId: 'u1', text: 'hi' }),
+    ).rejects.toBeInstanceOf(TaskBusyError);
+  });
+
+  it('throws when text is empty after trim', async () => {
+    const service = makeServiceWith({
+      findById: vi.fn(),
+      appendPendingUserMessage: vi.fn(),
+    });
+    await expect(
+      service.submitUserMessage({
+        runId: 'r1',
+        userId: 'u1',
+        text: '   \n  ',
+      }),
+    ).rejects.toThrow(/text is required/);
+  });
+
+  for (const status of [
+    'pending',
+    'waiting_for_human_input',
+    'resume_ready',
+  ] as const) {
+    it(`attaches and returns queue_position when status is ${status}`, async () => {
+      const appendPendingUserMessage = vi.fn().mockResolvedValueOnce({
+        row: { id: 'r1', status },
+        queue_position: 3,
+      });
+      const service = makeServiceWith({
+        findById: vi.fn().mockResolvedValueOnce({
+          id: 'r1',
+          triggered_by_user_id: 'u1',
+          status,
+        }),
+        appendPendingUserMessage,
+      });
+      const result = await service.submitUserMessage({
+        runId: 'r1',
+        userId: 'u1',
+        text: '  do the thing  ',
+      });
+      expect(result).toEqual({
+        kind: 'attached',
+        message_id: expect.any(String),
+        queue_position: 3,
+        status,
+      });
+      expect(enqueueAgentRun).not.toHaveBeenCalled();
+      const [calledRunId, calledMsg] = appendPendingUserMessage.mock.calls[0];
+      expect(calledRunId).toBe('r1');
+      expect(calledMsg).toEqual({
+        id: expect.any(String),
+        text: 'do the thing',
+        submitted_at: expect.any(String),
+        submitted_by_user_id: 'u1',
+      });
+    });
+  }
+
+  it.each(['succeeded', 'failed', 'rejected', 'timed_out'] as const)(
+    'forks via enqueueAgentRun when status is %s (terminal)',
+    async (status) => {
+      enqueueAgentRun.mockResolvedValueOnce({
+        runId: 'new-run',
+        created: true,
+      });
+      const service = makeServiceWith({
+        findById: vi.fn().mockResolvedValueOnce({
+          id: 'orig',
+          triggered_by_user_id: 'u1',
+          status,
+          agent_name: 'analysis',
+          input: { title: 'Original task' },
+          title: 'Original task',
+          priority: 7,
+        }),
+        appendPendingUserMessage: vi.fn(),
+      });
+
+      const result = await service.submitUserMessage({
+        runId: 'orig',
+        userId: 'u1',
+        text: 'follow up on Acme',
+      });
+
+      expect(result).toEqual({
+        kind: 'forked',
+        new_run_id: 'new-run',
+        status: 'pending',
+      });
+      expect(enqueueAgentRun).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          agentName: 'analysis',
+          triggerSource: 'chat',
+          parentRunId: 'orig',
+          priority: 7,
+          triggeredByUserId: 'u1',
+          input: expect.objectContaining({
+            title: 'Original task',
+            prompt: 'follow up on Acme',
+            instruction: 'follow up on Acme',
+            follow_up_thread_id: 'orig',
+          }),
+          triggerMeta: expect.objectContaining({
+            follow_up_from_run_id: 'orig',
+            submitted_by_user_id: 'u1',
+          }),
+        }),
+      );
+    },
+  );
 });

@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(curl -s -o /dev/null -w \"GET /api/workforce-queue → %{http_code}\\\\n\" http://localhost:3000/api/workforce-queue)",
+      "Bash(curl -s -o /dev/null -w \"POST /api/workforce-queue/nonexistent-id/message → %{http_code}\\\\n\" -X POST -H 'Content-Type: application/json' -d '{\"text\":\"hello\"}' http://localhost:3000/api/workforce-queue/nonexistent-id/message)"
+    ]
+  }
+}

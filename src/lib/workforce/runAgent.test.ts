@@ -12,6 +12,7 @@ const {
   markFailed,
   markWaitingForHumanInput,
   clearResumeToken,
+  consumePendingUserMessages,
   createDb,
   invokeMock,
   resumeMock,
@@ -25,6 +26,7 @@ const {
   markFailed: vi.fn(),
   markWaitingForHumanInput: vi.fn(),
   clearResumeToken: vi.fn(),
+  consumePendingUserMessages: vi.fn(),
   createDb: vi.fn(),
   invokeMock: vi.fn(),
   resumeMock: vi.fn(),
@@ -46,6 +48,7 @@ vi.mock('@/lib/repositories', async (importOriginal) => {
     markFailed = markFailed;
     markWaitingForHumanInput = markWaitingForHumanInput;
     clearResumeToken = clearResumeToken;
+    consumePendingUserMessages = consumePendingUserMessages;
   }
   return {
     ...actual,
@@ -121,6 +124,7 @@ describe('runAgent — happy path', () => {
     markFailed.mockReset();
     markWaitingForHumanInput.mockReset();
     clearResumeToken.mockReset();
+    consumePendingUserMessages.mockReset().mockResolvedValue([]);
     createDb.mockReset().mockReturnValue({});
     invokeMock.mockReset();
     resumeMock.mockReset();
@@ -214,6 +218,7 @@ describe('runAgent — guard rails', () => {
     markFailed.mockReset().mockResolvedValue({});
     markWaitingForHumanInput.mockReset();
     clearResumeToken.mockReset();
+    consumePendingUserMessages.mockReset().mockResolvedValue([]);
     getWorkforceAgentGraph.mockReset();
     invokeMock.mockReset();
     resumeMock.mockReset();
@@ -316,6 +321,7 @@ describe('runAgent — failure path', () => {
     markFailed.mockReset().mockResolvedValue({});
     markWaitingForHumanInput.mockReset();
     clearResumeToken.mockReset();
+    consumePendingUserMessages.mockReset().mockResolvedValue([]);
     getWorkforceAgentGraph.mockReset();
     invokeMock.mockReset();
     resumeMock.mockReset();
@@ -363,6 +369,7 @@ describe('runAgent — resume branch (rows carrying a resume_token)', () => {
     markFailed.mockReset().mockResolvedValue({});
     markWaitingForHumanInput.mockReset();
     clearResumeToken.mockReset();
+    consumePendingUserMessages.mockReset().mockResolvedValue([]);
     getWorkforceAgentGraph.mockReset();
     invokeMock.mockReset();
     resumeMock.mockReset();
@@ -433,6 +440,7 @@ describe('runAgent — HITL interrupt path', () => {
     markFailed.mockReset().mockResolvedValue({});
     markWaitingForHumanInput.mockReset();
     clearResumeToken.mockReset();
+    consumePendingUserMessages.mockReset().mockResolvedValue([]);
     getWorkforceAgentGraph.mockReset();
     invokeMock.mockReset();
     resumeMock.mockReset();
@@ -479,6 +487,7 @@ describe('runAgent — reactive dispatcher kick', () => {
     markFailed.mockReset().mockResolvedValue({});
     markWaitingForHumanInput.mockReset();
     clearResumeToken.mockReset();
+    consumePendingUserMessages.mockReset().mockResolvedValue([]);
     getWorkforceAgentGraph.mockReset();
     invokeMock.mockReset();
     resumeMock.mockReset();
@@ -548,5 +557,140 @@ describe('runAgent — reactive dispatcher kick', () => {
     // successful run as failed.
     await expect(runAgent({ runId: RUN_ID })).resolves.toBeUndefined();
     expect(markSucceeded).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('runAgent — pending user messages', () => {
+  beforeEach(() => {
+    findById.mockReset();
+    heartbeat.mockReset();
+    markSucceeded.mockReset();
+    markFailed.mockReset().mockResolvedValue({});
+    markWaitingForHumanInput.mockReset();
+    clearResumeToken.mockReset();
+    consumePendingUserMessages.mockReset().mockResolvedValue([]);
+    getWorkforceAgentGraph.mockReset();
+    invokeMock.mockReset();
+    resumeMock.mockReset();
+    createDb.mockReset().mockReturnValue({});
+    dispatcherTick.mockReset().mockResolvedValue({ outcome: 'empty' });
+    process.env.ANTHROPIC_API_KEY = 'test-key';
+  });
+
+  it('appends pending messages onto the initial invoke', async () => {
+    findById.mockResolvedValueOnce(makeRow());
+    consumePendingUserMessages.mockResolvedValueOnce([
+      {
+        id: 'm1',
+        text: 'also include Acme',
+        submitted_at: 't',
+        submitted_by_user_id: 'u1',
+      },
+      {
+        id: 'm2',
+        text: 'and Beta Co',
+        submitted_at: 't',
+        submitted_by_user_id: 'u1',
+      },
+    ]);
+    getWorkforceAgentGraph.mockResolvedValueOnce({ invoke: invokeMock });
+    invokeMock.mockResolvedValueOnce(makeAgentResult({ finalText: 'Done.' }));
+
+    await runAgent({ runId: RUN_ID });
+
+    expect(invokeMock).toHaveBeenCalledTimes(1);
+    const [inputArg] = invokeMock.mock.calls[0];
+    const msgs = (inputArg as { messages: Array<{ content: string }> })
+      .messages;
+    expect(msgs).toHaveLength(3);
+    expect(msgs[0].content).toBe(PROMPT);
+    expect(msgs[1].content).toBe('also include Acme');
+    expect(msgs[2].content).toBe('and Beta Co');
+  });
+
+  it('uses follow_up_thread_id as the thread_id when present', async () => {
+    findById.mockResolvedValueOnce(
+      makeRow({
+        input: {
+          prompt: 'do a follow-up',
+          follow_up_thread_id: 'original-run-99',
+        },
+      }),
+    );
+    getWorkforceAgentGraph.mockResolvedValueOnce({ invoke: invokeMock });
+    invokeMock.mockResolvedValueOnce(makeAgentResult({ finalText: 'Done.' }));
+
+    await runAgent({ runId: RUN_ID });
+
+    const [, configArg] = invokeMock.mock.calls[0];
+    expect(configArg).toEqual(
+      expect.objectContaining({
+        configurable: { thread_id: 'original-run-99' },
+      }),
+    );
+  });
+
+  it('on resume, drains pending messages via a follow-up invoke on the same thread', async () => {
+    const payload = { decisions: [{ type: 'approve' }] };
+    findById.mockResolvedValueOnce(
+      makeRow({ resume_token: JSON.stringify(payload) }),
+    );
+    consumePendingUserMessages.mockResolvedValueOnce([
+      {
+        id: 'm1',
+        text: 'one more thing',
+        submitted_at: 't',
+        submitted_by_user_id: 'u1',
+      },
+    ]);
+    getWorkforceAgentGraph.mockResolvedValueOnce({
+      invoke: invokeMock,
+      resume: resumeMock,
+    });
+    // First call: resume returns a non-interrupted result.
+    resumeMock.mockResolvedValueOnce(
+      makeAgentResult({ finalText: 'Resumed.' }),
+    );
+    // Second call (follow-up invoke for pending messages): final answer.
+    invokeMock.mockResolvedValueOnce(
+      makeAgentResult({ finalText: 'Done with update.' }),
+    );
+
+    await runAgent({ runId: RUN_ID });
+
+    expect(resumeMock).toHaveBeenCalledTimes(1);
+    expect(invokeMock).toHaveBeenCalledTimes(1);
+    const [inputArg, configArg] = invokeMock.mock.calls[0];
+    const msgs = (inputArg as { messages: Array<{ content: string }> })
+      .messages;
+    expect(msgs).toHaveLength(1);
+    expect(msgs[0].content).toBe('one more thing');
+    expect(configArg).toEqual(
+      expect.objectContaining({ configurable: { thread_id: RUN_ID } }),
+    );
+    expect(markSucceeded).toHaveBeenCalledWith(
+      RUN_ID,
+      expect.objectContaining({ final_message: 'Done with update.' }),
+    );
+  });
+
+  it('on resume with no pending messages, does NOT make a follow-up invoke', async () => {
+    const payload = { decisions: [{ type: 'approve' }] };
+    findById.mockResolvedValueOnce(
+      makeRow({ resume_token: JSON.stringify(payload) }),
+    );
+    consumePendingUserMessages.mockResolvedValueOnce([]);
+    getWorkforceAgentGraph.mockResolvedValueOnce({
+      invoke: invokeMock,
+      resume: resumeMock,
+    });
+    resumeMock.mockResolvedValueOnce(
+      makeAgentResult({ finalText: 'Resumed.' }),
+    );
+
+    await runAgent({ runId: RUN_ID });
+
+    expect(resumeMock).toHaveBeenCalledTimes(1);
+    expect(invokeMock).not.toHaveBeenCalled();
   });
 });

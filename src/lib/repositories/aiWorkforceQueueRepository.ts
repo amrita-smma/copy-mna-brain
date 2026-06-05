@@ -1,6 +1,6 @@
 import { and, desc, eq, lte, sql } from 'drizzle-orm';
 import { aiWorkforceQueue } from '@/lib/db/schema';
-import type { HumanDecision } from '@/lib/db/schema';
+import type { HumanDecision, PendingUserMessage } from '@/lib/db/schema';
 import type { DbClient, Tables, TablesInsert, TablesUpdate } from './types';
 
 // Single source of truth: rows come from Drizzle's $inferSelect on the table.
@@ -373,6 +373,50 @@ export class AiWorkforceQueueRepository {
       .returning();
     if (!row) throw new Error(`ai_workforce_queue row ${id} not found`);
     return row;
+  }
+
+  // Append one PendingUserMessage to the JSONB buffer. Same `||` concat
+  // pattern as appendDecision — safe under concurrent appends. Returns the
+  // updated row plus the 1-indexed position the message occupies in the
+  // buffer (position 1 = next to be consumed).
+  async appendPendingUserMessage(
+    id: string,
+    message: PendingUserMessage,
+  ): Promise<{ row: Row; queue_position: number }> {
+    const [row] = await this.db
+      .update(aiWorkforceQueue)
+      .set({
+        pending_user_messages: sql`${aiWorkforceQueue.pending_user_messages} || ${JSON.stringify([message])}::jsonb`,
+      })
+      .where(eq(aiWorkforceQueue.id, id))
+      .returning();
+    if (!row) throw new Error(`ai_workforce_queue row ${id} not found`);
+    return { row, queue_position: row.pending_user_messages.length };
+  }
+
+  // Atomically read-and-clear the pending_user_messages buffer. Wrapped in
+  // a transaction with SELECT ... FOR UPDATE so a concurrent append from the
+  // /message route either lands before the lock is taken (gets consumed) or
+  // after the clear (stays for the next claim) — never duplicated, never
+  // lost. Called by runAgent's load step before invoke/resume.
+  async consumePendingUserMessages(
+    id: string,
+  ): Promise<PendingUserMessage[]> {
+    return this.db.transaction(async (tx) => {
+      const [current] = await tx
+        .select({ msgs: aiWorkforceQueue.pending_user_messages })
+        .from(aiWorkforceQueue)
+        .where(eq(aiWorkforceQueue.id, id))
+        .for('update')
+        .limit(1);
+      const messages = current?.msgs ?? [];
+      if (messages.length === 0) return [];
+      await tx
+        .update(aiWorkforceQueue)
+        .set({ pending_user_messages: [] })
+        .where(eq(aiWorkforceQueue.id, id));
+      return messages;
+    });
   }
 
   async heartbeat(id: string): Promise<void> {

@@ -40,6 +40,15 @@ import { dispatcherTick } from './dispatcher';
 interface LoadResult {
   prompt: string;
   resumePayloadJson: string | null;
+  // LangGraph thread_id to use for the invoke. Usually equals runId, but
+  // for a "follow-up" row spawned from a terminal task via the TaskCanvas
+  // composer, we override to the original runId so the new run sees the
+  // prior conversation's checkpoint.
+  threadId: string;
+  // Free-form user updates submitted via /api/workforce-queue/[id]/message
+  // while the row was paused/queued. Already cleared from the DB by the
+  // consume call below; the workflow drains them through the agent.
+  pendingMessages: string[];
 }
 
 async function loadAndHeartbeat(runId: string): Promise<LoadResult> {
@@ -71,8 +80,25 @@ async function loadAndHeartbeat(runId: string): Promise<LoadResult> {
     );
   }
 
+  // follow_up_thread_id: set by AiWorkforceService.submitUserMessage when
+  // the user sends a message against a terminal task — we resume the same
+  // LangGraph checkpoint thread so the agent has prior context.
+  const followUp = input.follow_up_thread_id;
+  const threadId =
+    typeof followUp === 'string' && followUp.trim() ? followUp : runId;
+
+  // Read-and-clear buffered updates atomically; if the consume step fails
+  // mid-run, WDK retries the whole step — since the consume is wrapped in
+  // its own transaction, the buffer is either fully drained or untouched.
+  const pending = await repo.consumePendingUserMessages(runId);
+
   await repo.heartbeat(runId);
-  return { prompt: candidate, resumePayloadJson: row.resume_token ?? null };
+  return {
+    prompt: candidate,
+    resumePayloadJson: row.resume_token ?? null,
+    threadId,
+    pendingMessages: pending.map((m) => m.text),
+  };
 }
 
 type InvokeStepResult =
@@ -91,6 +117,8 @@ async function invokeAgent(
   runId: string,
   prompt: string,
   resumePayloadJson: string | null,
+  threadId: string,
+  pendingMessages: string[],
 ): Promise<InvokeStepResult> {
   'use step';
   if (!process.env.ANTHROPIC_API_KEY) {
@@ -105,11 +133,22 @@ async function invokeAgent(
     throw new RetryableError('workforce agent graph unavailable');
   }
 
+  // Build the message list. For a fresh invoke this is the row's prompt
+  // followed by any buffered user updates. For a resume we feed only the
+  // resume payload first (the agent picks up where it left off); buffered
+  // updates are appended via a follow-up invoke after the resume returns
+  // (or are skipped if the resume itself interrupted again — they stay
+  // buffered for the next claim).
   const result = resumePayloadJson
     ? await graph.resume(runId, JSON.parse(resumePayloadJson))
     : await graph.invoke(
-        { messages: [new HumanMessage(prompt)] },
-        { configurable: { thread_id: runId }, recursionLimit: 50 },
+        {
+          messages: [
+            new HumanMessage(prompt),
+            ...pendingMessages.map((t) => new HumanMessage(t)),
+          ],
+        },
+        { configurable: { thread_id: threadId }, recursionLimit: 50 },
       );
 
   // HITL interrupt fired — the agent has paused awaiting a human decision.
@@ -124,7 +163,28 @@ async function invokeAgent(
     return { kind: 'interrupted', reason };
   }
 
-  const messages = result.messages ?? [];
+  // Resume branch only: drain any user updates that landed while the row
+  // was paused. We do this via a fresh invoke on the same thread so the
+  // agent sees the updates as new HumanMessages in the existing
+  // conversation. If this follow-up itself interrupts or errors, it's
+  // handled by the same WDK retry envelope as the main invoke.
+  let finalResult = result;
+  if (resumePayloadJson && pendingMessages.length > 0) {
+    finalResult = await graph.invoke(
+      { messages: pendingMessages.map((t) => new HumanMessage(t)) },
+      { configurable: { thread_id: threadId }, recursionLimit: 50 },
+    );
+    if (finalResult.interrupt?.actionRequests?.length) {
+      const first = finalResult.interrupt.actionRequests[0];
+      const reason =
+        typeof first.description === 'string' && first.description.trim()
+          ? first.description
+          : `Awaiting approval for ${first.name ?? 'tool call'}`;
+      return { kind: 'interrupted', reason };
+    }
+  }
+
+  const messages = finalResult.messages ?? [];
   const lastMessage = messages[messages.length - 1];
   const finalMessage = extractMessageText(lastMessage);
 
@@ -196,7 +256,8 @@ async function kickDispatcher(
 
 export async function runAgent({ runId }: { runId: string }): Promise<void> {
   'use workflow';
-  const { prompt, resumePayloadJson } = await loadAndHeartbeat(runId);
+  const { prompt, resumePayloadJson, threadId, pendingMessages } =
+    await loadAndHeartbeat(runId);
 
   // TODO(Tier 3+): heartbeat periodically inside long invokeAgent runs so
   // legitimate slow LLM/tool work doesn't trip the reaper's 5min staleness
@@ -204,7 +265,13 @@ export async function runAgent({ runId }: { runId: string }): Promise<void> {
   // case; agents that run > ~4 min need a sidecar heartbeat loop or the
   // step itself needs to break into smaller turns.
   try {
-    const result = await invokeAgent(runId, prompt, resumePayloadJson);
+    const result = await invokeAgent(
+      runId,
+      prompt,
+      resumePayloadJson,
+      threadId,
+      pendingMessages,
+    );
     if (result.kind === 'interrupted') {
       // Healthy pause: HITL middleware caught a gated tool call. The decision
       // endpoint will re-enqueue the resume by writing status='resume_ready'.

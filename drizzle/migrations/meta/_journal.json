@@ -365,6 +365,13 @@
       "when": 1780538400000,
       "tag": "20260604020000_change_promoted_reasons_to_text",
       "breakpoints": true
+    },
+    {
+      "idx": 52,
+      "version": "7",
+      "when": 1780542000000,
+      "tag": "20260604030000_add_pending_user_messages_to_workforce_queue",
+      "breakpoints": true
     }
   ]
 }

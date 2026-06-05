@@ -2067,6 +2067,17 @@ export type HumanDecision = {
   decided_at: string;
 };
 
+// Free-form user update message attached to a workforce run via the
+// TaskCanvas composer while the run is paused/queued. Consumed FIFO by
+// runAgent (read + clear atomically) on the next invoke or resume so the
+// agent sees the messages as additional HumanMessage entries.
+export type PendingUserMessage = {
+  id: string;
+  text: string;
+  submitted_at: string;
+  submitted_by_user_id: string;
+};
+
 export const aiWorkforceQueue = pgTable(
   "ai_workforce_queue",
   {
@@ -2101,6 +2112,10 @@ export const aiWorkforceQueue = pgTable(
     title: text(),
     human_decisions: jsonb()
       .$type<HumanDecision[]>()
+      .default([])
+      .notNull(),
+    pending_user_messages: jsonb()
+      .$type<PendingUserMessage[]>()
       .default([])
       .notNull(),
     retried_from_id: uuid(),
