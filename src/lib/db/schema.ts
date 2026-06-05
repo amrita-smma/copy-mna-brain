@@ -1038,6 +1038,7 @@ export const companyAnalyses = pgTable(
     diligence_priorities: text(),
     sources: jsonb().$type<unknown>(),
     error_message: text(),
+    logo_url: text(),
     created_at: timestamp({ withTimezone: true, mode: "string" }).defaultNow(),
     updated_at: timestamp({ withTimezone: true, mode: "string" }).defaultNow(),
     job_id: uuid(),

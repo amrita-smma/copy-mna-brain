@@ -22,6 +22,7 @@ const CompanyAnalysisResultSchema = z.object({
   investment_highlights: z.string(),
   investment_risks: z.string(),
   diligence_priorities: z.string(),
+  logo_url: z.string().url().optional().nullable(),
   sources_used: z
     .array(
       z.object({
@@ -115,9 +116,15 @@ Respond ONLY with a JSON object. Each section value should be a markdown string 
   "investment_highlights": "- **Market Position**: ...\\n- **Differentiation**: ...\\n...",
   "investment_risks": "- **Customer Concentration**: ...\\n- **Regulatory Exposure**: ...\\n...",
   "diligence_priorities": "1. Question one?\\n2. Question two?\\n...",
+  "logo_url": "https://...",
   "sources_used": [{"type": "database"}, {"type": "web", "url": "https://...", "title": "..."}, {"type": "inven"}, {"type": "{source}"}]
 }
 \`\`\`
+
+For \`logo_url\`: find the company's official logo. Try these sources in order:
+1. The company's own website favicon/logo (e.g. https://companydomain.com/favicon.ico or look for og:image in their homepage)
+2. If using Inven data, use the \`logo_url\` field from the enrichment result
+3. If none found, set to null
 
 Include ONLY the sources you actually used in \`sources_used\`. Respond with the JSON object only, no additional text.`;
 
@@ -303,6 +310,7 @@ export async function runCompanyAnalysis(
     investment_risks: analysisResult.investment_risks,
     diligence_priorities: analysisResult.diligence_priorities,
     sources: analysisResult.sources_used || [],
+    logo_url: analysisResult.logo_url ?? null,
     error_message: null,
   });
 

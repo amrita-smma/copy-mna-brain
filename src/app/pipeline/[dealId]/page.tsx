@@ -266,6 +266,7 @@ interface CompanyAnalysis {
   investment_risks: string | null;
   diligence_priorities: string | null;
   sources: AnalysisSource[] | null;
+  logo_url: string | null;
   error_message: string | null;
   created_at: string | null;
   updated_at: string | null;
@@ -828,33 +829,98 @@ export default function CompanyDetailPage({ showCrm = false, showAiWorkforce = f
     );
   }
 
+  const logoInitial = (company.target || 'U')
+    .trim()
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((w) => w[0]?.toUpperCase() ?? '')
+    .join('');
+
+  const overviewFirstLine = analysis?.business_overview
+    ? analysis.business_overview.replace(/^-\s+\*\*[^*]+\*\*:\s*/m, '').replace(/\n[\s\S]*/m, '').trim()
+    : null;
+
   return (
     <DashboardLayout showCrm={showCrm} showAiWorkforce={showAiWorkforce}>
       <div className="p-6 space-y-6">
         {/* Header */}
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between gap-6">
           <div className="flex items-center gap-4">
-            <Button variant="ghost" size="icon" onClick={() => router.push(returnTo)}>
+            <Button variant="ghost" size="icon" onClick={() => router.push(returnTo)} className="shrink-0">
               <ArrowLeft className="h-5 w-5" />
             </Button>
-            <div>
-              <h1 className="text-2xl font-bold flex items-center gap-3">
-                <Building2 className="h-6 w-6" />
-                {[company.target, company.project_name].filter(Boolean).join(' — ') || 'Unnamed Company'}
-              </h1>
-              <div className="flex items-center gap-2 mt-1">
-                <Badge variant="outline">{company.segment || 'N/A'}</Badge>
-                <Badge variant="secondary">{getStageLabel(company.pipeline_stage)}</Badge>
+            {/* Logo / Acronym */}
+            <div className="h-16 w-16 rounded-full bg-violet-100 dark:bg-violet-900/40 flex items-center justify-center shrink-0 overflow-hidden border border-violet-200 dark:border-violet-700">
+              {analysis?.logo_url ? (
+                <img
+                  src={analysis.logo_url}
+                  alt={company.target ?? ''}
+                  className="h-full w-full object-cover"
+                  onError={(e) => {
+                    (e.currentTarget as HTMLImageElement).style.display = 'none';
+                    (e.currentTarget.nextSibling as HTMLElement | null)?.removeAttribute('style');
+                  }}
+                />
+              ) : null}
+              <span
+                className="text-xl font-bold text-violet-600 dark:text-violet-300"
+                style={analysis?.logo_url ? { display: 'none' } : undefined}
+              >
+                {logoInitial}
+              </span>
+            </div>
+            {/* Name + badges + description */}
+            <div className="min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <h1 className="text-2xl font-bold leading-tight">
+                  {company.target || 'Unnamed Company'}
+                </h1>
+                {company.segment && <Badge variant="outline">{company.segment}</Badge>}
+                <Badge variant="outline">{getStageLabel(company.pipeline_stage)}</Badge>
                 {company.l1_screening_result && (
                   <Badge variant={company.l1_screening_result === 'Pass' ? 'default' : 'destructive'}>
                     L1: {company.l1_screening_result}
                   </Badge>
                 )}
-                {company.status === 'dropped' && (
-                  <Badge variant="destructive">Dropped</Badge>
-                )}
+                {company.status === 'dropped' && <Badge variant="destructive">Dropped</Badge>}
               </div>
+              {overviewFirstLine && (
+                <p className="text-sm text-muted-foreground mt-1 max-w-2xl leading-snug">
+                  {overviewFirstLine}
+                </p>
+              )}
             </div>
+          </div>
+          {/* Action buttons */}
+          <div className="flex items-center gap-2 shrink-0 self-center">
+            {analysis?.status === 'completed' && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-2"
+                onClick={() => router.push(`/pipeline/${companyId}/slides`)}
+              >
+                <Presentation className="h-4 w-4" />
+                Generate Slides
+              </Button>
+            )}
+            <Button
+              size="sm"
+              className="bg-accent hover:bg-accent/90 text-accent-foreground gap-2"
+              onClick={analysis?.status === 'completed' ? regenerateAnalysis : generateAnalysis}
+              disabled={analysisGenerating}
+            >
+              {analysisGenerating ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Sparkles className="h-4 w-4" />
+              )}
+              {analysisGenerating
+                ? 'Generating...'
+                : analysis?.status === 'completed'
+                  ? 'Regenerate AI Card'
+                  : 'Generate AI Company Card'}
+            </Button>
           </div>
         </div>
 
@@ -863,13 +929,10 @@ export default function CompanyDetailPage({ showCrm = false, showAiWorkforce = f
             <AlertCircle className="h-4 w-4" />
             <AlertTitle>
               Deal dropped
-              {company.dropped_at &&
-                ` on ${format(new Date(company.dropped_at), 'MMM d, yyyy')}`}
+              {company.dropped_at && ` on ${format(new Date(company.dropped_at), 'MMM d, yyyy')}`}
             </AlertTitle>
             <AlertDescription>
-              {company.dropped_reason
-                ? company.dropped_reason
-                : 'No reason was recorded.'}
+              {company.dropped_reason ?? 'No reason was recorded.'}
             </AlertDescription>
           </Alert>
         )}
@@ -886,53 +949,14 @@ export default function CompanyDetailPage({ showCrm = false, showAiWorkforce = f
 
         {/* Content */}
         <Tabs defaultValue="company-card" className="w-full">
-          <div className="flex items-center justify-between">
-            <TabsList className="grid grid-cols-3 max-w-lg">
-              <TabsTrigger value="company-card">Company Card</TabsTrigger>
-              <TabsTrigger value="filters">L1 Screening</TabsTrigger>
-              <TabsTrigger value="attachments">Attachments</TabsTrigger>
-            </TabsList>
-            <div className="flex flex-col items-end gap-1">
-              <div className="flex items-center gap-2">
-                {analysis?.status === 'completed' && (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="gap-2"
-                    onClick={() => router.push(`/pipeline/${companyId}/slides`)}
-                  >
-                    <Presentation className="h-4 w-4" />
-                    Generate Slides
-                  </Button>
-                )}
-                <Button
-                  size="sm"
-                  className="bg-accent hover:bg-accent/90 text-accent-foreground gap-2"
-                  onClick={analysis?.status === 'completed' ? regenerateAnalysis : generateAnalysis}
-                  disabled={analysisGenerating}
-                >
-                  {analysisGenerating ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <Sparkles className="h-4 w-4" />
-                  )}
-                  {analysisGenerating
-                    ? 'Generating...'
-                    : analysis?.status === 'completed'
-                      ? 'Regenerate'
-                      : 'AI Company Card'}
-                </Button>
-              </div>
-              {analysis?.updated_at && analysis.status === 'completed' && (
-                <span className="text-xs text-muted-foreground">
-                  Last: {format(new Date(analysis.updated_at), 'MMM d, yyyy HH:mm')}
-                </span>
-              )}
-            </div>
-          </div>
+          <TabsList className="grid grid-cols-3 max-w-lg">
+            <TabsTrigger value="company-card">Company Card</TabsTrigger>
+            <TabsTrigger value="filters">L1 Screening</TabsTrigger>
+            <TabsTrigger value="attachments">Attachments</TabsTrigger>
+          </TabsList>
 
           <TabsContent value="company-card" className="space-y-6 mt-6">
-            {/* AI Market Scanning Remarks - only for outbound deals */}
+            {/* AI Market Scanning Remarks */}
             {company.remarks && company.source?.toLowerCase() === 'outbound' && (
               <Card className="border-purple-200 dark:border-purple-800/50 bg-gradient-to-br from-purple-50/50 to-violet-50/30 dark:from-purple-950/20 dark:to-violet-950/10">
                 <CardHeader className="pb-2">
@@ -947,9 +971,7 @@ export default function CompanyDetailPage({ showCrm = false, showAiWorkforce = f
                     </Badge>
                   </div>
                   {company.segment && (
-                    <p className="text-sm text-muted-foreground">
-                      Matched against: {company.segment}
-                    </p>
+                    <p className="text-sm text-muted-foreground">Matched against: {company.segment}</p>
                   )}
                 </CardHeader>
                 <CardContent>
@@ -964,313 +986,163 @@ export default function CompanyDetailPage({ showCrm = false, showAiWorkforce = f
               </Card>
             )}
 
-            {/* Company Info Card */}
-            <Card>
-              <CardHeader>
-                <div className="flex items-center justify-between">
-                  <CardTitle className="text-lg flex items-center gap-2">
-                    <Building2 className="h-4 w-4" />
-                    Company Information
-                  </CardTitle>
-                  {!isEditing && (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={startEditing}
-                      aria-label="Edit Company Information"
-                    >
-                      <Pencil className="h-4 w-4" />
-                    </Button>
-                  )}
-                </div>
-              </CardHeader>
-              <CardContent>
-                <div className="grid grid-cols-4 gap-6">
-                  {/* Row 1 */}
-                  <div>
-                    <p className="text-sm text-muted-foreground">Company Name</p>
-                    {isEditing && editForm ? (
-                      <Input
-                        value={editForm.target}
-                        onChange={(e) =>
-                          setEditForm({ ...editForm, target: e.target.value })
-                        }
-                        disabled={isSaving}
-                        className="mt-1"
-                      />
-                    ) : (
-                      <p className="font-semibold text-lg break-words">
-                        {company.target || '—'}
-                      </p>
-                    )}
-                  </div>
-                  <div>
-                    <p className="text-sm text-muted-foreground">Project Name</p>
-                    {isEditing && editForm ? (
-                      <Input
-                        value={editForm.project_name}
-                        onChange={(e) =>
-                          setEditForm({ ...editForm, project_name: e.target.value })
-                        }
-                        placeholder="e.g. Project Phoenix"
-                        disabled={isSaving}
-                        className="mt-1"
-                      />
-                    ) : (
-                      <p className="font-semibold text-lg break-words">
-                        {company.project_name || '—'}
-                      </p>
-                    )}
-                  </div>
-                  <div>
-                    <p className="text-sm text-muted-foreground">Website</p>
-                    {isEditing && editForm ? (
-                      <Input
-                        value={editForm.website}
-                        onChange={(e) =>
-                          setEditForm({ ...editForm, website: e.target.value })
-                        }
-                        placeholder="https://..."
-                        disabled={isSaving}
-                        className="mt-1"
-                      />
-                    ) : company.website ? (
-                      <a
-                        href={websiteHref(company.website)}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-primary hover:underline text-sm inline-flex items-start gap-1 break-all"
-                      >
-                        <span className="break-all">{company.website}</span>
-                        <ExternalLink className="h-3 w-3 shrink-0 mt-1" />
-                      </a>
-                    ) : (
-                      <span className="text-muted-foreground text-sm">
-                        Not available
-                      </span>
-                    )}
-                  </div>
-                  <div>
-                    <p className="text-sm text-muted-foreground">Sector</p>
-                    {isEditing && editForm ? (
-                      <Input
-                        value={editForm.segment}
-                        onChange={(e) =>
-                          setEditForm({ ...editForm, segment: e.target.value })
-                        }
-                        disabled={isSaving}
-                        className="mt-1"
-                      />
-                    ) : (
-                      <p className="font-medium break-words">{company.segment || '-'}</p>
-                    )}
-                  </div>
-                  <div>
-                    <p className="text-sm text-muted-foreground">Headquarter</p>
-                    {isEditing && editForm ? (
-                      <Input
-                        value={editForm.geography}
-                        onChange={(e) =>
-                          setEditForm({ ...editForm, geography: e.target.value })
-                        }
-                        disabled={isSaving}
-                        className="mt-1"
-                      />
-                    ) : (
-                      <p className="font-medium break-words">
-                        {company.geography || '-'}
-                      </p>
-                    )}
-                  </div>
-                  {/* Row 2 */}
-                  <div>
-                    <p className="text-sm text-muted-foreground">Ownership</p>
-                    {isEditing && editForm ? (
-                      <Select
-                        value={editForm.ownership || '__none__'}
-                        onValueChange={(v) =>
-                          setEditForm({
-                            ...editForm,
-                            ownership: v === '__none__' ? '' : v,
-                          })
-                        }
-                        disabled={isSaving}
-                      >
-                        <SelectTrigger className="mt-1">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="__none__">-</SelectItem>
-                          {OWNERSHIP_OPTIONS.map((o) => (
-                            <SelectItem key={o} value={o}>
-                              {o}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    ) : (
-                      <p className="font-medium break-words">
-                        {company.ownership || '-'}
-                      </p>
-                    )}
-                  </div>
-                  <div>
-                    <p className="text-sm text-muted-foreground">Source</p>
-                    {isEditing && editForm ? (
-                      <Select
-                        value={editForm.source || '__none__'}
-                        onValueChange={(v) =>
-                          setEditForm({
-                            ...editForm,
-                            source: v === '__none__' ? '' : v,
-                          })
-                        }
-                        disabled={isSaving}
-                      >
-                        <SelectTrigger className="mt-1">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="__none__">-</SelectItem>
-                          <SelectItem value="inbound">Inbound</SelectItem>
-                          <SelectItem value="outbound">Outbound</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    ) : (
-                      <p className="font-medium capitalize break-words">
-                        {company.source || '-'}
-                      </p>
-                    )}
-                  </div>
-                  <div>
-                    <p className="text-sm text-muted-foreground">Current Stage</p>
-                    {isEditing && editForm ? (
-                      <Select
-                        value={editForm.pipeline_stage}
-                        onValueChange={(v) =>
-                          setEditForm({ ...editForm, pipeline_stage: v })
-                        }
-                        disabled={isSaving}
-                      >
-                        <SelectTrigger className="mt-1">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {(['L0', 'L1', 'L2', 'L3', 'L4', 'L5'] as DealStage[]).map((s) => (
-                            <SelectItem key={s} value={s}>
-                              {s} — {STAGE_LABELS[s] ?? s}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    ) : (
-                      <Badge variant="outline" className="text-base px-3 py-1">
-                        {getStageLabel(company.pipeline_stage)}
-                      </Badge>
-                    )}
-                  </div>
-                  <div>
-                    <p className="text-sm text-muted-foreground">Valuation</p>
-                    {isEditing && editForm ? (
-                      <Input
-                        type="number"
-                        step="0.01"
-                        value={editForm.ev_2024}
-                        onChange={(e) =>
-                          setEditForm({ ...editForm, ev_2024: e.target.value })
-                        }
-                        placeholder="USD millions"
-                        disabled={isSaving}
-                        className="mt-1"
-                      />
-                    ) : (
-                      <p className="font-medium break-words">
-                        {formatCurrency(company.ev_2024)}
-                      </p>
-                    )}
-                  </div>
-                </div>
-                {/* PIC */}
-                <div className="mt-4">
-                  <p className="text-sm text-muted-foreground">PIC</p>
-                  {isEditing && editForm ? (
-                    <div className="mt-1.5">
-                      <UserCombobox
-                        users={allUsers}
-                        selectedUserIds={editForm.assigneeIds}
-                        onChange={(ids) =>
-                          setEditForm({ ...editForm, assigneeIds: ids })
-                        }
-                        loading={allUsersLoading}
-                        disabled={isSaving}
-                      />
-                    </div>
-                  ) : assignees.length > 0 ? (
-                    <div className="mt-1 flex flex-wrap gap-1.5 p-2">
-                      {assignees.map((u) => (
-                        <span
-                          key={u.id}
-                          className="inline-flex items-center rounded-full bg-muted px-2.5 py-2 text-xs font-medium text-foreground"
-                        >
-                          {u.name}
-                        </span>
-                      ))}
-                    </div>
-                  ) : (
-                    <span className="text-muted-foreground text-sm">
-                      Not assigned
-                    </span>
-                  )}
-                </div>
-                {/* Company Focus (display-only) */}
-                {company.company_focus && !isEditing && (
-                  <div className="mt-4 pt-4 border-t">
-                    <p className="text-sm text-muted-foreground mb-1">Company Focus</p>
-                    <p className="text-sm break-words">{company.company_focus}</p>
-                  </div>
-                )}
-                {/* Comments (display-only) */}
-                {company.comments && !isEditing && (
-                  <div className="mt-4 pt-4 border-t">
-                    <p className="text-sm text-muted-foreground mb-1">Comments</p>
-                    <p className="text-sm break-words">{company.comments}</p>
-                  </div>
-                )}
-                {isEditing && editForm && (
-                  <div className="mt-6 flex justify-end gap-2">
-                    <Button
-                      variant="outline"
-                      onClick={cancelEditing}
-                      disabled={isSaving}
-                    >
-                      Cancel
-                    </Button>
-                    <Button
-                      onClick={saveEditing}
-                      disabled={isSaving}
-                      className="gap-1"
-                    >
-                      {isSaving ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                      ) : (
-                        <Check className="h-4 w-4" />
-                      )}
-                      Save
-                    </Button>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-
-           
-
-            {/* Financial Charts */}
+            {/* Financial Charts - first */}
             <FinancialCharts
               financials={company.financials_raw ?? []}
               rawFinancials={company.financials_raw ?? []}
               companyId={company.id}
               onUpdate={() => fetchCompany({ silent: true })}
             />
+
+            {/* Company Information - flat, 2-column */}
+            <div className="rounded-lg border bg-card px-4 py-3">
+              <div className="flex items-center justify-between mb-3">
+                <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                  Company Information
+                </p>
+                {!isEditing && (
+                  <Button variant="ghost" size="sm" onClick={startEditing} aria-label="Edit" className="h-6 w-6 p-0">
+                    <Pencil className="h-3.5 w-3.5" />
+                  </Button>
+                )}
+              </div>
+              <div className="grid grid-cols-2 gap-x-8 gap-y-3">
+                <div>
+                  <p className="text-xs text-muted-foreground">Company Name</p>
+                  {isEditing && editForm ? (
+                    <Input value={editForm.target} onChange={(e) => setEditForm({ ...editForm, target: e.target.value })} disabled={isSaving} className="mt-1 h-7 text-sm" />
+                  ) : (
+                    <p className="text-sm font-medium break-words">{company.target || '—'}</p>
+                  )}
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">Project Name</p>
+                  {isEditing && editForm ? (
+                    <Input value={editForm.project_name} onChange={(e) => setEditForm({ ...editForm, project_name: e.target.value })} placeholder="e.g. Project Phoenix" disabled={isSaving} className="mt-1 h-7 text-sm" />
+                  ) : (
+                    <p className="text-sm font-medium break-words">{company.project_name || '—'}</p>
+                  )}
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">Website</p>
+                  {isEditing && editForm ? (
+                    <Input value={editForm.website} onChange={(e) => setEditForm({ ...editForm, website: e.target.value })} placeholder="https://..." disabled={isSaving} className="mt-1 h-7 text-sm" />
+                  ) : company.website ? (
+                    <a href={websiteHref(company.website)} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline text-xs inline-flex items-start gap-1 break-all">
+                      <span className="break-all">{company.website}</span>
+                      <ExternalLink className="h-3 w-3 shrink-0 mt-0.5" />
+                    </a>
+                  ) : (
+                    <span className="text-sm text-muted-foreground">—</span>
+                  )}
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">Sector</p>
+                  {isEditing && editForm ? (
+                    <Input value={editForm.segment} onChange={(e) => setEditForm({ ...editForm, segment: e.target.value })} disabled={isSaving} className="mt-1 h-7 text-sm" />
+                  ) : (
+                    <p className="text-sm font-medium break-words">{company.segment || '—'}</p>
+                  )}
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">Headquarter</p>
+                  {isEditing && editForm ? (
+                    <Input value={editForm.geography} onChange={(e) => setEditForm({ ...editForm, geography: e.target.value })} disabled={isSaving} className="mt-1 h-7 text-sm" />
+                  ) : (
+                    <p className="text-sm font-medium break-words">{company.geography || '—'}</p>
+                  )}
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">Ownership</p>
+                  {isEditing && editForm ? (
+                    <Select value={editForm.ownership || '__none__'} onValueChange={(v) => setEditForm({ ...editForm, ownership: v === '__none__' ? '' : v })} disabled={isSaving}>
+                      <SelectTrigger className="mt-1 h-7 text-sm"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__none__">-</SelectItem>
+                        {OWNERSHIP_OPTIONS.map((o) => <SelectItem key={o} value={o}>{o}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  ) : (
+                    <p className="text-sm font-medium break-words">{company.ownership || '—'}</p>
+                  )}
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">Source</p>
+                  {isEditing && editForm ? (
+                    <Select value={editForm.source || '__none__'} onValueChange={(v) => setEditForm({ ...editForm, source: v === '__none__' ? '' : v })} disabled={isSaving}>
+                      <SelectTrigger className="mt-1 h-7 text-sm"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__none__">-</SelectItem>
+                        <SelectItem value="inbound">Inbound</SelectItem>
+                        <SelectItem value="outbound">Outbound</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  ) : (
+                    <p className="text-sm font-medium capitalize break-words">{company.source || '—'}</p>
+                  )}
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">Current Stage</p>
+                  {isEditing && editForm ? (
+                    <Select value={editForm.pipeline_stage} onValueChange={(v) => setEditForm({ ...editForm, pipeline_stage: v })} disabled={isSaving}>
+                      <SelectTrigger className="mt-1 h-7 text-sm"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        {(['L0', 'L1', 'L2', 'L3', 'L4', 'L5'] as DealStage[]).map((s) => (
+                          <SelectItem key={s} value={s}>{s} — {STAGE_LABELS[s] ?? s}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  ) : (
+                    <Badge variant="outline" className="text-xs px-2 py-0.5 mt-0.5">{getStageLabel(company.pipeline_stage)}</Badge>
+                  )}
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">Valuation</p>
+                  {isEditing && editForm ? (
+                    <Input type="number" step="0.01" value={editForm.ev_2024} onChange={(e) => setEditForm({ ...editForm, ev_2024: e.target.value })} placeholder="USD millions" disabled={isSaving} className="mt-1 h-7 text-sm" />
+                  ) : (
+                    <p className="text-sm font-medium break-words">{formatCurrency(company.ev_2024)}</p>
+                  )}
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">PIC</p>
+                  {isEditing && editForm ? (
+                    <div className="mt-1">
+                      <UserCombobox users={allUsers} selectedUserIds={editForm.assigneeIds} onChange={(ids) => setEditForm({ ...editForm, assigneeIds: ids })} loading={allUsersLoading} disabled={isSaving} />
+                    </div>
+                  ) : assignees.length > 0 ? (
+                    <div className="flex flex-wrap gap-1 mt-0.5">
+                      {assignees.map((u) => (
+                        <span key={u.id} className="inline-flex items-center rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-foreground">{u.name}</span>
+                      ))}
+                    </div>
+                  ) : (
+                    <span className="text-sm text-muted-foreground">—</span>
+                  )}
+                </div>
+              </div>
+              {company.company_focus && !isEditing && (
+                <div className="mt-3 pt-3 border-t">
+                  <p className="text-xs text-muted-foreground mb-0.5">Company Focus</p>
+                  <p className="text-sm break-words">{company.company_focus}</p>
+                </div>
+              )}
+              {company.comments && !isEditing && (
+                <div className="mt-3 pt-3 border-t">
+                  <p className="text-xs text-muted-foreground mb-0.5">Comments</p>
+                  <p className="text-sm break-words">{company.comments}</p>
+                </div>
+              )}
+              {isEditing && editForm && (
+                <div className="mt-4 flex justify-end gap-2">
+                  <Button variant="outline" size="sm" onClick={cancelEditing} disabled={isSaving}>Cancel</Button>
+                  <Button size="sm" onClick={saveEditing} disabled={isSaving} className="gap-1">
+                    {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
+                    Save
+                  </Button>
+                </div>
+              )}
+            </div>
 
             {/* AI Company Card Section */}
             {analysisGenerating ? (
@@ -1285,168 +1157,63 @@ export default function CompanyDetailPage({ showCrm = false, showAiWorkforce = f
                   </p>
                 </div>
                 <Button variant="outline" size="sm" onClick={regenerateAnalysis} disabled={analysisGenerating}>
-                  <Sparkles className="h-4 w-4 mr-2" />
-                  Retry
+                  <Sparkles className="h-4 w-4 mr-2" />Retry
                 </Button>
               </div>
             ) : analysis?.status === 'completed' ? (
-              <div className="rounded-lg border border-accent/30 bg-accent/5 p-6 space-y-6">
-                <div className="flex items-center justify-between gap-4 mb-2 flex-wrap">
-                  <div className="flex items-center gap-2">
-                    <Sparkles className="h-5 w-5 text-accent" />
-                    <h3 className="text-lg font-semibold text-accent">AI Company Card</h3>
-                    <span className="text-xs text-muted-foreground ml-2">AI-generated analysis</span>
-                  </div>
-                  {analysis.sources && Array.isArray(analysis.sources) && analysis.sources.length > 0 && (
-                    <div className="flex items-center gap-3 flex-wrap">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="text-xs text-muted-foreground">Sources:</span>
-                        {(analysis.sources as AnalysisSource[]).map((source, idx) => (
-                          source.url ? (
-                            <a
-                              key={idx}
-                              href={source.url}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-accent/10 text-accent text-xs hover:bg-accent/20 transition-colors"
-                            >
-                              <Globe className="h-3 w-3" />
-                              {source.title || new URL(source.url).hostname}
-                              <ExternalLink className="h-2.5 w-2.5" />
-                            </a>
-                          ) : (
-                            <span
-                              key={idx}
-                              className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-accent/10 text-accent text-xs"
-                            >
-                              {source.type === 'database' ? (
-                                <FileText className="h-3 w-3" />
-                              ) : source.type === 'inven' ? (
-                                <Search className="h-3 w-3" />
-                              ) : source.type === 'files' ? (
-                                <FileText className="h-3 w-3" />
-                              ) : (
-                                <Globe className="h-3 w-3" />
-                              )}
-                              {source.title || source.type}
-                            </span>
-                          )
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-                {/* Business Overview */}
-                <CompanyAnalysisSection
-                  title="Business Overview"
-                  description="Establish a factual baseline: products, end markets, customer types, and geographic footprint."
-                  icon={Building2}
-                  content={analysis.business_overview || ''}
-                  colorVariant="default"
-                />
-
-                {/* Business Model & Value Chain Summary */}
-                <CompanyAnalysisSection
-                  title="Business Model & Value Chain Summary"
-                  description="Explain how the company operates economically and where it sits in the industry value chain."
-                  icon={Briefcase}
-                  content={analysis.business_model_summary || ''}
-                  colorVariant="teal"
-                />
-
-                {/* Key Takeaways */}
-                <CompanyAnalysisSection
-                  title="Key Takeaways"
-                  description="Surface the most important implications from the analysis above (3-5 synthesized insights)."
-                  icon={Lightbulb}
-                  content={analysis.key_takeaways || ''}
-                  colorVariant="blue"
-                />
-
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                  {/* Investment Highlights */}
-                  <CompanyAnalysisSection
-                    title="Investment Highlights"
-                    description="Identify upside drivers linked to the company's business model and positioning."
-                    icon={TrendingUp}
-                    content={analysis.investment_highlights || ''}
-                    colorVariant="green"
-                  />
-
-                  {/* Investment Risks */}
-                  <CompanyAnalysisSection
-                    title="Investment Risks"
-                    description="Identify risks inherent to the company's business model and value chain."
-                    icon={AlertTriangle}
-                    content={analysis.investment_risks || ''}
-                    colorVariant="amber"
-                  />
-                </div>
-
-                {/* Diligence Priorities */}
-                <CompanyAnalysisSection
-                  title="Diligence Priorities"
-                  description="Define the most critical unknowns to resolve before advancing investment (3-7 items)."
-                  icon={Search}
-                  content={analysis.diligence_priorities || ''}
-                  colorVariant="rose"
-                />
-              </div>
-            ) : (
-              <div className="rounded-lg border border-dashed border-accent/40 bg-accent/5 p-12 flex flex-col items-center justify-center gap-4">
-                <Sparkles className="h-10 w-10 text-accent/50" />
-                <div className="text-center">
-                  <h3 className="text-lg font-semibold text-muted-foreground">No AI Analysis Yet</h3>
-                  <p className="text-sm text-muted-foreground mt-1">
-                    Click &quot;AI Company Card&quot; to generate a comprehensive analysis using AI.
-                  </p>
-                </div>
-                <Button
-                  size="sm"
-                  className="bg-accent hover:bg-accent/90 text-accent-foreground gap-2"
-                  onClick={generateAnalysis}
-                  disabled={analysisGenerating}
-                >
-                  <Sparkles className="h-4 w-4" />
-                  Generate AI Company Card
-                </Button>
-              </div>
-            )}
-
-             {/* Stage History */}
-             <Card>
-              <CardHeader>
-                <CardTitle className="text-lg flex items-center gap-2">
-                  <Clock className="h-4 w-4" />
-                  Stage History
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                {stageHistory.length === 0 ? (
-                  <p className="text-muted-foreground text-sm">No history yet</p>
-                ) : (
-                  <div className="space-y-2">
-                    {stageHistory.map((history) => (
-                      <div key={history.id} className="flex items-center justify-between py-2 border-b last:border-0">
-                        <div className="flex items-center gap-3">
-                          <Badge variant="outline">{getStageLabel(history.stage)}</Badge>
-                          <span className="text-sm text-muted-foreground">
-                            {format(new Date(history.entered_at), 'MMM d, yyyy HH:mm')}
-                          </span>
-                        </div>
-                        <span className="text-sm font-medium">
-                          {history.exited_at
-                            ? formatDuration(history.duration_seconds)
-                            : 'Current'
-                          }
+              <div className="space-y-6">
+                {analysis.sources && Array.isArray(analysis.sources) && analysis.sources.length > 0 && (
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-xs text-muted-foreground">Sources:</span>
+                    {(analysis.sources as AnalysisSource[]).map((source, idx) =>
+                      source.url ? (
+                        <a key={idx} href={source.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-accent/10 text-accent text-xs hover:bg-accent/20 transition-colors">
+                          <Globe className="h-3 w-3" />
+                          {source.title || new URL(source.url).hostname}
+                          <ExternalLink className="h-2.5 w-2.5" />
+                        </a>
+                      ) : (
+                        <span key={idx} className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-accent/10 text-accent text-xs">
+                          {source.type === 'database' || source.type === 'files' ? <FileText className="h-3 w-3" /> : source.type === 'inven' ? <Search className="h-3 w-3" /> : <Globe className="h-3 w-3" />}
+                          {source.title || source.type}
                         </span>
-                      </div>
-                    ))}
+                      ),
+                    )}
                   </div>
                 )}
-              </CardContent>
-            </Card>
+                <CompanyAnalysisSection title="Business Overview" description="Establish a factual baseline: products, end markets, customer types, and geographic footprint." icon={Building2} content={analysis.business_overview || ''} colorVariant="default" />
+                <CompanyAnalysisSection title="Business Model & Value Chain Summary" description="Explain how the company operates economically and where it sits in the industry value chain." icon={Briefcase} content={analysis.business_model_summary || ''} colorVariant="teal" />
+                <CompanyAnalysisSection title="Key Takeaways" description="Surface the most important implications from the analysis above (3-5 synthesized insights)." icon={Lightbulb} content={analysis.key_takeaways || ''} colorVariant="blue" />
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                  <CompanyAnalysisSection title="Investment Highlights" description="Identify upside drivers linked to the company's business model and positioning." icon={TrendingUp} content={analysis.investment_highlights || ''} colorVariant="green" />
+                  <CompanyAnalysisSection title="Investment Risks" description="Identify risks inherent to the company's business model and value chain." icon={AlertTriangle} content={analysis.investment_risks || ''} colorVariant="amber" />
+                </div>
+                <CompanyAnalysisSection title="Diligence Priorities" description="Define the most critical unknowns to resolve before advancing investment (3-7 items)." icon={Search} content={analysis.diligence_priorities || ''} colorVariant="rose" />
+              </div>
+            ) : null}
+
+            {/* Stage History */}
+            <div className="rounded-lg border bg-card px-4 py-3">
+              <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2 flex items-center gap-1.5">
+                <Clock className="h-3.5 w-3.5" />
+                Stage History
+              </p>
+              {stageHistory.length === 0 ? (
+                <p className="text-muted-foreground text-sm">No history yet</p>
+              ) : (
+                <div className="space-y-1">
+                  {stageHistory.map((history) => (
+                    <div key={history.id} className="flex items-center justify-between py-1.5 border-b last:border-0">
+                      <div className="flex items-center gap-3">
+                        <Badge variant="outline" className="text-xs px-2 py-0.5">{getStageLabel(history.stage)}</Badge>
+                        <span className="text-xs text-muted-foreground">{format(new Date(history.entered_at), 'MMM d, yyyy HH:mm')}</span>
+                      </div>
+                      <span className="text-xs font-medium">{history.exited_at ? formatDuration(history.duration_seconds) : 'Current'}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           </TabsContent>
 
           <TabsContent value="filters" className="mt-6">

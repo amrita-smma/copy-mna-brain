@@ -13,7 +13,6 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock('@/lib/agents/analysis', () => ({
-  getAgentGraph: mocks.getAgentGraph,
   getStatelessAgentGraph: mocks.getStatelessAgentGraph,
   HumanMessage: class {
     constructor(public content: string) {}
@@ -58,7 +57,6 @@ const VALID_ANALYSIS_JSON = JSON.stringify({
 
 beforeEach(() => {
   mocks.invoke.mockReset();
-  mocks.getAgentGraph.mockReset();
   mocks.getStatelessAgentGraph.mockReset();
   mocks.upsertByCompanyId.mockReset();
   mocks.updateByCompanyId.mockReset();
@@ -74,13 +72,12 @@ beforeEach(() => {
   mocks.invoke.mockResolvedValue({
     messages: [{ content: VALID_ANALYSIS_JSON }],
   });
-  mocks.getAgentGraph.mockResolvedValue({ invoke: mocks.invoke });
   mocks.getStatelessAgentGraph.mockResolvedValue({ invoke: mocks.invoke });
 });
 
 describe('runCompanyAnalysis', () => {
-  it('uses the stateless agent graph (no checkpointer) for one-shot analysis runs', async () => {
-    await runCompanyAnalysis(
+  it('invokes the agent once and saves the structured result', async () => {
+    const result = await runCompanyAnalysis(
       { companyId: 'co-1' },
       { db: {} as never, job: { id: 'job-abc-123' } as Tables<'jobs'> },
     );
@@ -91,9 +88,10 @@ describe('runCompanyAnalysis', () => {
     expect(mocks.getStatelessAgentGraph).toHaveBeenCalledTimes(1);
     expect(mocks.getAgentGraph).not.toHaveBeenCalled();
     expect(mocks.invoke).toHaveBeenCalledTimes(1);
-    const [invokeArgs] = mocks.invoke.mock.calls[0];
-    expect(invokeArgs).toEqual({
-      messages: [expect.objectContaining({ content: expect.any(String) })],
-    });
+    expect(mocks.updateByCompanyId).toHaveBeenCalledWith(
+      'co-1',
+      expect.objectContaining({ status: 'completed', business_overview: 'overview' }),
+    );
+    expect(result).toEqual({});
   });
 });
