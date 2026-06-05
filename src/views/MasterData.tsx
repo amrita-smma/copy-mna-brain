@@ -168,6 +168,7 @@ export default function MasterData({ showCrm = false, showAiWorkforce = false }:
         status: data.status ?? null,
         dropped_reason: data.dropped_reason ?? null,
         dropped_at: data.dropped_at ?? null,
+        promoted_reasons: data.promoted_reasons ?? null,
         ownership: data.ownership ?? null,
         geography: data.geography ?? null,
         financials_raw: data.financials_raw,

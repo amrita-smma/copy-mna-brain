@@ -77,6 +77,10 @@ export const promoteToL1 = tool(
         CURRENT_STAGE,
         NEXT_STAGE,
         recordedNote,
+        undefined,
+        undefined,
+        undefined,
+        trimmedReason,
       );
 
       logger.debug(

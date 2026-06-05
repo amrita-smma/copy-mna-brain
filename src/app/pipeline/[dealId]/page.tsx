@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import DashboardLayout from '@/components/layout/DashboardLayout';
+import { MarkdownRenderer } from '@/components/chat/MarkdownRenderer';
 
 interface CompanyDetailPageProps {
   showCrm?: boolean;
@@ -141,6 +142,7 @@ interface CompanyData {
   status?: string | null;
   dropped_reason?: string | null;
   dropped_at?: string | null;
+  promoted_reasons?: string | null;
   financials_raw?: import('@/lib/repositories').Tables<'company_financials'>[];
 }
 
@@ -868,6 +870,16 @@ export default function CompanyDetailPage({ showCrm = false, showAiWorkforce = f
               {company.dropped_reason
                 ? company.dropped_reason
                 : 'No reason was recorded.'}
+            </AlertDescription>
+          </Alert>
+        )}
+
+        {company.promoted_reasons && company.promoted_reasons.trim() && (
+          <Alert>
+            <TrendingUp className="h-4 w-4" />
+            <AlertTitle>Promotion reasons</AlertTitle>
+            <AlertDescription>
+              <MarkdownRenderer content={company.promoted_reasons} />
             </AlertDescription>
           </Alert>
         )}

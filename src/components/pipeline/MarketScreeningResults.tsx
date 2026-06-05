@@ -584,6 +584,7 @@ export default function MarketScreeningResults({ refreshTrigger, onAddedToPipeli
                   status: null,
                   dropped_reason: null,
                   dropped_at: null,
+                  promoted_reasons: null,
                   ownership: selectedResult.ownership,
                   geography: selectedResult.geography,
                   financials_raw: selectedResult.financials_raw,

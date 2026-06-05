@@ -110,6 +110,7 @@ import {
 } from "recharts";
 import { FinancialCharts } from "@/components/pipeline/FinancialCharts";
 import type { Tables } from "@/lib/repositories";
+import { MarkdownRenderer } from "@/components/chat/MarkdownRenderer";
 
 export interface CompanyData {
   id: string;
@@ -136,6 +137,7 @@ export interface CompanyData {
   status: string | null;
   dropped_reason: string | null;
   dropped_at: string | null;
+  promoted_reasons?: string | null;
   ownership: string | null;
   geography: string | null;
   financials_raw?: Tables<'company_financials'>[];
@@ -906,6 +908,16 @@ export default function CompanyDetailDialog({
                 {company.dropped_reason
                   ? company.dropped_reason
                   : "No reason was recorded."}
+              </AlertDescription>
+            </Alert>
+          )}
+
+          {company.promoted_reasons && company.promoted_reasons.trim() && (
+            <Alert>
+              <TrendingUp className="h-4 w-4" />
+              <AlertTitle>Promotion reasons</AlertTitle>
+              <AlertDescription>
+                <MarkdownRenderer content={company.promoted_reasons} />
               </AlertDescription>
             </Alert>
           )}

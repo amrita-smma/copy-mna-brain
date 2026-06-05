@@ -246,9 +246,21 @@ export class CompanyService {
     linkUrl?: string,
     linkTitle?: string,
     assigneeIds?: string[],
+    promotionReason?: string,
   ) {
     await this.guardWritable(id);
-    await this.companyRepo.update(id, { pipeline_stage: nextStage as DealStage });
+    const trimmedPromotionReason = promotionReason?.trim() || null;
+    const companyUpdate: TablesUpdate<'companies'> = {
+      pipeline_stage: nextStage as DealStage,
+    };
+    if (trimmedPromotionReason) {
+      const existing = await this.companyRepo.findById(id);
+      const prior = existing.promoted_reasons?.trim() || '';
+      companyUpdate.promoted_reasons = prior
+        ? `${prior}\n\n${trimmedPromotionReason}`
+        : trimmedPromotionReason;
+    }
+    await this.companyRepo.update(id, companyUpdate);
     await this.companyLogRepo.insert({
       company_id: id,
       action: currentStage

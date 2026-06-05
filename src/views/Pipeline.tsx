@@ -134,6 +134,7 @@ interface PipelineCompany {
   status: string | null;
   dropped_reason: string | null;
   dropped_at: string | null;
+  promoted_reasons: string | null;
   ownership: string | null;
   geography: string | null;
   financials_raw?: import('@/lib/repositories').Tables<'company_financials'>[];
@@ -363,6 +364,7 @@ export default function Pipeline({ showCrm = false, showAiWorkforce = false }: P
           status: company.status ?? null,
           dropped_reason: company.dropped_reason ?? null,
           dropped_at: company.dropped_at ?? null,
+          promoted_reasons: company.promoted_reasons ?? null,
           ownership: company.ownership ?? null,
           geography: company.geography ?? null,
           financials_raw: company.financials_raw,

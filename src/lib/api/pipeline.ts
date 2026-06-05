@@ -126,6 +126,7 @@ export async function promoteCompany(id: string, payload: {
   linkUrl?: string;
   linkTitle?: string;
   assigneeIds?: string[];
+  promotionReason?: string;
 }) {
   return apiRequest<{ success: boolean }>(`/api/companies/${encodeURIComponent(id)}/promote`, {
     method: 'POST',

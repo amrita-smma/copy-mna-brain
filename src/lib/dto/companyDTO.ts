@@ -44,6 +44,7 @@ export interface CompanyDTO {
   status: CompanyStatus | null;
   dropped_reason: string | null;
   dropped_at: string | null;
+  promoted_reasons: string | null;
 
   remarks: string | null;
   thesis_content: string | null;
@@ -183,6 +184,7 @@ export function toCompanyDTO(
     status: company.status,
     dropped_reason: company.dropped_reason,
     dropped_at: company.dropped_at,
+    promoted_reasons: company.promoted_reasons ?? null,
     remarks: company.remarks,
     thesis_content: company.thesis_content,
     created_at: company.created_at,

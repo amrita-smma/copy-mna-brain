@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState } from "react";
 import {
   Dialog,
   DialogContent,
@@ -6,14 +6,14 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from '@/components/ui/dialog';
-import { Button } from '@/components/ui/button';
-import { Textarea } from '@/components/ui/textarea';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { useAuth } from '@/hooks/useAuth';
-import { toast } from 'sonner';
+} from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useAuth } from "@/hooks/useAuth";
+import { toast } from "sonner";
 import {
   FileText,
   Link as LinkIcon,
@@ -21,16 +21,16 @@ import {
   Loader2,
   ChevronRight,
   ChevronLeft,
-} from 'lucide-react';
-import { DealStage } from '@/lib/types';
-import posthog from 'posthog-js';
+} from "lucide-react";
+import { DealStage } from "@/lib/types";
+import posthog from "posthog-js";
 import {
   getCompanyAssignees,
   getUsers,
   promoteCompany,
   type UserSummary,
-} from '@/lib/api/pipeline';
-import UserCombobox from './UserCombobox';
+} from "@/lib/api/pipeline";
+import UserCombobox from "./UserCombobox";
 
 interface PromoteDialogProps {
   open: boolean;
@@ -40,7 +40,7 @@ interface PromoteDialogProps {
   currentStage: DealStage;
   nextStage: DealStage;
   onSuccess: () => void;
-  mode?: 'promote' | 'demote';
+  mode?: "promote" | "demote";
 }
 
 export default function PromoteDialog({
@@ -51,20 +51,21 @@ export default function PromoteDialog({
   currentStage,
   nextStage,
   onSuccess,
-  mode = 'promote',
+  mode = "promote",
 }: PromoteDialogProps) {
   const { user } = useAuth();
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [note, setNote] = useState('');
-  const [linkUrl, setLinkUrl] = useState('');
-  const [linkTitle, setLinkTitle] = useState('');
+  const [promotionReason, setPromotionReason] = useState("");
+  const [note, setNote] = useState("");
+  const [linkUrl, setLinkUrl] = useState("");
+  const [linkTitle, setLinkTitle] = useState("");
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [users, setUsers] = useState<UserSummary[]>([]);
   const [usersLoading, setUsersLoading] = useState(false);
   const [assigneeIds, setAssigneeIds] = useState<string[]>([]);
 
   useEffect(() => {
-    if (!open || mode !== 'promote') return;
+    if (!open || mode !== "promote") return;
     let cancelled = false;
     setUsersLoading(true);
     Promise.all([getUsers(), getCompanyAssignees(dealId)])
@@ -75,8 +76,8 @@ export default function PromoteDialog({
       })
       .catch((err) => {
         if (cancelled) return;
-        console.error('Failed to load users/assignees:', err);
-        toast.error('Failed to load users');
+        console.error("Failed to load users/assignees:", err);
+        toast.error("Failed to load users");
       })
       .finally(() => {
         if (!cancelled) setUsersLoading(false);
@@ -100,38 +101,43 @@ export default function PromoteDialog({
         note,
         linkUrl,
         linkTitle,
-        assigneeIds: mode === 'promote' ? assigneeIds : undefined,
+        assigneeIds: mode === "promote" ? assigneeIds : undefined,
+        promotionReason:
+          mode === "promote" && promotionReason.trim()
+            ? promotionReason
+            : undefined,
       });
 
       // Auto-trigger AI Company Card when promoting to L1
-      if (nextStage === 'L1') {
-        fetch('/api/company-analysis', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+      if (nextStage === "L1") {
+        fetch("/api/company-analysis", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ companyId: dealId }),
-        }).catch(() => { }); // Silent — don't block promotion on analysis
+        }).catch(() => {}); // Silent — don't block promotion on analysis
       }
 
       // 3. Upload and Save Document
       if (selectedFile) {
         try {
-          const contentType = selectedFile.type || 'application/octet-stream';
+          const contentType = selectedFile.type || "application/octet-stream";
 
           // 1. Get presigned URL
           let uploadUrlRes: Response;
           try {
             uploadUrlRes = await fetch(
-              `/api/deal-documents/upload-url?dealId=${encodeURIComponent(dealId)}&fileName=${encodeURIComponent(selectedFile.name)}&contentType=${encodeURIComponent(contentType)}`
+              `/api/deal-documents/upload-url?dealId=${encodeURIComponent(dealId)}&fileName=${encodeURIComponent(selectedFile.name)}&contentType=${encodeURIComponent(contentType)}`,
             );
           } catch (netErr) {
-            throw new Error('Could not reach server to get upload URL.');
+            throw new Error("Could not reach server to get upload URL.");
           }
 
-          if (!uploadUrlRes.ok) throw new Error(`Get upload URL failed: ${uploadUrlRes.status}`);
+          if (!uploadUrlRes.ok)
+            throw new Error(`Get upload URL failed: ${uploadUrlRes.status}`);
 
           const uploadUrlData = await uploadUrlRes.json();
           if (!uploadUrlData.success || !uploadUrlData.data) {
-            throw new Error(uploadUrlData.error || 'Failed to get upload URL');
+            throw new Error(uploadUrlData.error || "Failed to get upload URL");
           }
 
           const { uploadUrl, key } = uploadUrlData.data;
@@ -140,22 +146,22 @@ export default function PromoteDialog({
           let s3Res: Response;
           try {
             s3Res = await fetch(uploadUrl, {
-              method: 'PUT',
+              method: "PUT",
               body: selectedFile,
-              headers: { 'Content-Type': contentType },
+              headers: { "Content-Type": contentType },
             });
           } catch (netErr) {
-            throw new Error('Upload to storage failed (network error).');
+            throw new Error("Upload to storage failed (network error).");
           }
 
-          if (!s3Res.ok) throw new Error('Failed to upload file to storage');
+          if (!s3Res.ok) throw new Error("Failed to upload file to storage");
 
           // 3. Register document in database
           let registerRes: Response;
           try {
-            registerRes = await fetch('/api/deal-documents', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
+            registerRes = await fetch("/api/deal-documents", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
                 dealId: dealId,
                 key,
@@ -166,49 +172,58 @@ export default function PromoteDialog({
               }),
             });
           } catch (netErr) {
-            throw new Error('Could not register document in database.');
+            throw new Error("Could not register document in database.");
           }
 
-          if (!registerRes.ok) throw new Error(`Register document failed: ${registerRes.status}`);
+          if (!registerRes.ok)
+            throw new Error(`Register document failed: ${registerRes.status}`);
 
           const registerData = await registerRes.json();
           if (!registerData.success) {
-            throw new Error(registerData.error || 'Failed to register document');
+            throw new Error(
+              registerData.error || "Failed to register document",
+            );
           }
-
         } catch (docError: any) {
-          console.error('Error handling document upload:', docError);
+          console.error("Error handling document upload:", docError);
           toast.error(`Document upload failed: ${docError.message}`);
           // We don't re-throw here so the promotion itself (which likely succeeded) isn't rolled back in UI terms
         }
       }
 
-      posthog.capture(mode === 'demote' ? 'deal_demoted' : 'deal_promoted', {
+      posthog.capture(mode === "demote" ? "deal_demoted" : "deal_promoted", {
         deal_id: dealId,
         company_name: companyName,
         from_stage: currentStage,
         to_stage: nextStage,
-        has_note: note.trim() !== '',
-        has_link: linkUrl.trim() !== '',
+        has_note: note.trim() !== "",
+        has_link: linkUrl.trim() !== "",
         has_document: selectedFile !== null,
       });
 
-      toast.success(mode === 'demote' ? `Demoted to ${nextStage}` : `Promoted to ${nextStage}`);
+      toast.success(
+        mode === "demote"
+          ? `Demoted to ${nextStage}`
+          : `Promoted to ${nextStage}`,
+      );
       resetForm();
       onOpenChange(false);
       onSuccess();
     } catch (error: any) {
-      console.error('Error promoting company:', error);
-      toast.error(`Failed to ${mode === 'demote' ? 'demote' : 'promote'} company: ${error.message || 'Unknown error'}`);
+      console.error("Error promoting company:", error);
+      toast.error(
+        `Failed to ${mode === "demote" ? "demote" : "promote"} company: ${error.message || "Unknown error"}`,
+      );
     } finally {
       setIsSubmitting(false);
     }
   };
 
   const resetForm = () => {
-    setNote('');
-    setLinkUrl('');
-    setLinkTitle('');
+    setPromotionReason("");
+    setNote("");
+    setLinkUrl("");
+    setLinkTitle("");
     setSelectedFile(null);
     setAssigneeIds([]);
   };
@@ -221,22 +236,37 @@ export default function PromoteDialog({
   };
 
   return (
-    <Dialog open={open} onOpenChange={(open) => { if (!open) resetForm(); onOpenChange(open); }}>
+    <Dialog
+      open={open}
+      onOpenChange={(open) => {
+        if (!open) resetForm();
+        onOpenChange(open);
+      }}
+    >
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            {mode === 'demote' ? `Demote to ${nextStage}` : `Promote to ${nextStage}`}
+            {mode === "demote"
+              ? `Demote to ${nextStage}`
+              : `Promote to ${nextStage}`}
           </DialogTitle>
           <DialogDescription>
-            {mode === 'demote' ? (
-              <>Move <span className="font-medium">{companyName}</span> back from {currentStage} to {nextStage}.</>
+            {mode === "demote" ? (
+              <>
+                Move <span className="font-medium">{companyName}</span> back
+                from {currentStage} to {nextStage}.
+              </>
             ) : (
-              <>Add supporting information before promoting <span className="font-medium">{companyName}</span> from {currentStage} to {nextStage}.</>
+              <>
+                Add supporting information before promoting{" "}
+                <span className="font-medium">{companyName}</span> from{" "}
+                {currentStage} to {nextStage}.
+              </>
             )}
           </DialogDescription>
         </DialogHeader>
 
-        {mode === 'demote' ? (
+        {mode === "demote" ? (
           <div className="mt-2">
             <Label htmlFor="reason">Reason (optional)</Label>
             <Textarea
@@ -261,91 +291,116 @@ export default function PromoteDialog({
               />
             </div>
             <Tabs defaultValue="note" className="w-full">
-            <TabsList className="grid w-full grid-cols-3">
-              <TabsTrigger value="note" className="gap-1">
-                <FileText className="h-3 w-3" />
-                Note
-              </TabsTrigger>
-              <TabsTrigger value="link" className="gap-1">
-                <LinkIcon className="h-3 w-3" />
-                Link
-              </TabsTrigger>
-              <TabsTrigger value="document" className="gap-1">
-                <Upload className="h-3 w-3" />
-                Document
-              </TabsTrigger>
-            </TabsList>
+              <TabsList className="grid w-full grid-cols-3">
+                <TabsTrigger value="note" className="gap-1">
+                  <FileText className="h-3 w-3" />
+                  Note
+                </TabsTrigger>
+                <TabsTrigger value="link" className="gap-1">
+                  <LinkIcon className="h-3 w-3" />
+                  Link
+                </TabsTrigger>
+                <TabsTrigger value="document" className="gap-1">
+                  <Upload className="h-3 w-3" />
+                  Document
+                </TabsTrigger>
+              </TabsList>
 
-            <TabsContent value="note" className="mt-4 space-y-3">
-              <div>
-                <Label htmlFor="note">Add a note (optional)</Label>
-                <Textarea
-                  id="note"
-                  placeholder="Enter notes about this promotion..."
-                  value={note}
-                  onChange={(e) => setNote(e.target.value)}
-                  rows={4}
-                  className="mt-1.5"
-                />
-              </div>
-            </TabsContent>
-
-            <TabsContent value="link" className="mt-4 space-y-3">
-              <div>
-                <Label htmlFor="linkUrl">URL</Label>
-                <Input
-                  id="linkUrl"
-                  placeholder="https://..."
-                  value={linkUrl}
-                  onChange={(e) => setLinkUrl(e.target.value)}
-                  className="mt-1.5"
-                />
-              </div>
-              <div>
-                <Label htmlFor="linkTitle">Title (optional)</Label>
-                <Input
-                  id="linkTitle"
-                  placeholder="Link description..."
-                  value={linkTitle}
-                  onChange={(e) => setLinkTitle(e.target.value)}
-                  className="mt-1.5"
-                />
-              </div>
-            </TabsContent>
-
-            <TabsContent value="document" className="mt-4 space-y-3">
-              <div>
-                <Label htmlFor="document">Upload Document</Label>
-                <div className="mt-1.5">
-                  <Input
-                    id="document"
-                    type="file"
-                    onChange={handleFileChange}
-                    className="cursor-pointer"
+              <TabsContent value="note" className="mt-4 space-y-3">
+                <div>
+                  <Label htmlFor="promotionReason">Promotion reason</Label>
+                  <Textarea
+                    id="promotionReason"
+                    placeholder={
+                      "- strong FY2024 growth\n- good EBITDA\n- high customer satisfaction"
+                    }
+                    value={promotionReason}
+                    onChange={(e) => setPromotionReason(e.target.value)}
+                    rows={4}
+                    className="mt-1.5 font-mono text-sm"
+                  />
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Supports markdown. Appended below any prior promotion
+                    reasons on this company.
+                  </p>
+                </div>
+                <div>
+                  <Label htmlFor="note">Add a note (optional)</Label>
+                  <Textarea
+                    id="note"
+                    placeholder="Enter notes about this promotion..."
+                    value={note}
+                    onChange={(e) => setNote(e.target.value)}
+                    rows={4}
+                    className="mt-1.5"
                   />
                 </div>
-                {selectedFile && (
-                  <p className="text-sm text-muted-foreground mt-2">
-                    Selected: {selectedFile.name}
-                  </p>
-                )}
-              </div>
-            </TabsContent>
+              </TabsContent>
+
+              <TabsContent value="link" className="mt-4 space-y-3">
+                <div>
+                  <Label htmlFor="linkUrl">URL</Label>
+                  <Input
+                    id="linkUrl"
+                    placeholder="https://..."
+                    value={linkUrl}
+                    onChange={(e) => setLinkUrl(e.target.value)}
+                    className="mt-1.5"
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="linkTitle">Title (optional)</Label>
+                  <Input
+                    id="linkTitle"
+                    placeholder="Link description..."
+                    value={linkTitle}
+                    onChange={(e) => setLinkTitle(e.target.value)}
+                    className="mt-1.5"
+                  />
+                </div>
+              </TabsContent>
+
+              <TabsContent value="document" className="mt-4 space-y-3">
+                <div>
+                  <Label htmlFor="document">Upload Document</Label>
+                  <div className="mt-1.5">
+                    <Input
+                      id="document"
+                      type="file"
+                      onChange={handleFileChange}
+                      className="cursor-pointer"
+                    />
+                  </div>
+                  {selectedFile && (
+                    <p className="text-sm text-muted-foreground mt-2">
+                      Selected: {selectedFile.name}
+                    </p>
+                  )}
+                </div>
+              </TabsContent>
             </Tabs>
           </>
         )}
 
         <DialogFooter className="mt-4">
-          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={isSubmitting}>
+          <Button
+            variant="outline"
+            onClick={() => onOpenChange(false)}
+            disabled={isSubmitting}
+          >
             Cancel
           </Button>
-          <Button onClick={handlePromote} disabled={isSubmitting} variant={mode === 'demote' ? 'destructive' : 'default'}>
+          <Button
+            onClick={handlePromote}
+            disabled={isSubmitting}
+            variant={mode === "demote" ? "destructive" : "default"}
+          >
             {isSubmitting ? (
               <>
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                {mode === 'demote' ? 'Demoting...' : 'Promoting...'}
+                {mode === "demote" ? "Demoting..." : "Promoting..."}
               </>
-            ) : mode === 'demote' ? (
+            ) : mode === "demote" ? (
               <>
                 <ChevronLeft className="mr-1 h-4 w-4" />
                 Demote

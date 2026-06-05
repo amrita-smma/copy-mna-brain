@@ -136,6 +136,10 @@ describe("promote_to_l1 (workforce tool)", () => {
       "L0",
       "L1",
       `Reason: ${DEFAULT_REASON}`,
+      undefined,
+      undefined,
+      undefined,
+      DEFAULT_REASON,
     );
     expect(String(result)).toMatch(/Promoted "Acme Holdings" from L0 to L1/);
   });
@@ -159,6 +163,10 @@ describe("promote_to_l1 (workforce tool)", () => {
       "L0",
       "L1",
       "Reason: Strong FY2024 revenue growth (32% YoY); EBITDA margin 21%.\n\nNote: User acknowledged weak FY2023 EBITDA.",
+      undefined,
+      undefined,
+      undefined,
+      "Strong FY2024 revenue growth (32% YoY); EBITDA margin 21%.",
     );
     expect(String(result)).toMatch(/Promoted "Cinder Foods" from L0 to L1/);
   });
@@ -178,6 +186,10 @@ describe("promote_to_l1 (workforce tool)", () => {
       "L0",
       "L1",
       `Reason: ${DEFAULT_REASON}`,
+      undefined,
+      undefined,
+      undefined,
+      DEFAULT_REASON,
     );
   });
 

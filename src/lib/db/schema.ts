@@ -317,6 +317,7 @@ export const companies = pgTable(
     status: companyStatus().default("active").notNull(),
     dropped_reason: text(),
     dropped_at: timestamp({ withTimezone: true, mode: "string" }),
+    promoted_reasons: text(),
   },
   (table) => {
     return {

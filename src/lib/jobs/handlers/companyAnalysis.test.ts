@@ -4,6 +4,7 @@ import type { Tables } from '@/lib/repositories';
 const mocks = vi.hoisted(() => ({
   invoke: vi.fn(),
   getAgentGraph: vi.fn(),
+  getStatelessAgentGraph: vi.fn(),
   upsertByCompanyId: vi.fn(),
   updateByCompanyId: vi.fn(),
   findById: vi.fn(),
@@ -13,8 +14,14 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('@/lib/agents/analysis', () => ({
   getAgentGraph: mocks.getAgentGraph,
+  getStatelessAgentGraph: mocks.getStatelessAgentGraph,
   HumanMessage: class {
     constructor(public content: string) {}
+  },
+  extractMessageText: (message: { content?: unknown } | undefined): string => {
+    if (!message) return '';
+    const c = message.content;
+    return typeof c === 'string' ? c : '';
   },
 }));
 
@@ -52,6 +59,7 @@ const VALID_ANALYSIS_JSON = JSON.stringify({
 beforeEach(() => {
   mocks.invoke.mockReset();
   mocks.getAgentGraph.mockReset();
+  mocks.getStatelessAgentGraph.mockReset();
   mocks.upsertByCompanyId.mockReset();
   mocks.updateByCompanyId.mockReset();
   mocks.findById.mockReset();
@@ -67,17 +75,22 @@ beforeEach(() => {
     messages: [{ content: VALID_ANALYSIS_JSON }],
   });
   mocks.getAgentGraph.mockResolvedValue({ invoke: mocks.invoke });
+  mocks.getStatelessAgentGraph.mockResolvedValue({ invoke: mocks.invoke });
 });
 
 describe('runCompanyAnalysis', () => {
-  it('passes deps.job.id as thread_id so PostgresSaver never writes a null checkpoint', async () => {
+  it('uses the stateless agent graph (no checkpointer) for one-shot analysis runs', async () => {
     await runCompanyAnalysis(
       { companyId: 'co-1' },
       { db: {} as never, job: { id: 'job-abc-123' } as Tables<'jobs'> },
     );
 
+    expect(mocks.getStatelessAgentGraph).toHaveBeenCalledTimes(1);
+    expect(mocks.getAgentGraph).not.toHaveBeenCalled();
     expect(mocks.invoke).toHaveBeenCalledTimes(1);
-    const [, config] = mocks.invoke.mock.calls[0];
-    expect(config).toEqual({ configurable: { thread_id: 'job-abc-123' } });
+    const [invokeArgs] = mocks.invoke.mock.calls[0];
+    expect(invokeArgs).toEqual({
+      messages: [expect.objectContaining({ content: expect.any(String) })],
+    });
   });
 });

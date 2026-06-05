@@ -337,6 +337,34 @@
       "when": 1779710400000,
       "tag": "20260525120000_drop_employer_industry_category",
       "breakpoints": true
+    },
+    {
+      "idx": 48,
+      "version": "7",
+      "when": 1780444800000,
+      "tag": "20260603000000_add_promoted_reasons_to_companies",
+      "breakpoints": true
+    },
+    {
+      "idx": 49,
+      "version": "7",
+      "when": 1780531200000,
+      "tag": "20260604000000_normalize_promoted_reasons_to_strings",
+      "breakpoints": true
+    },
+    {
+      "idx": 50,
+      "version": "7",
+      "when": 1780534800000,
+      "tag": "20260604010000_change_promoted_reasons_to_text_array",
+      "breakpoints": true
+    },
+    {
+      "idx": 51,
+      "version": "7",
+      "when": 1780538400000,
+      "tag": "20260604020000_change_promoted_reasons_to_text",
+      "breakpoints": true
     }
   ]
 }
