@@ -13,6 +13,8 @@ import { compareWithPastAcquisitions } from "./compare_with_past_acquisitions";
 import { getPastAcquisitionDetails } from "./get_past_acquisition_details";
 import { queryMeetingNotes } from "./query_files";
 import { proposeWorkforceHandoff } from "./propose_workforce_handoff";
+import { proposeBulkDropCompanies } from "./propose_bulk_drop_companies";
+import { proposeBulkPromoteCompanies } from "./propose_bulk_promote_companies";
 import { promoteToL1 } from "./promote_to_l1";
 import { addCompanyToL0 } from "./add_company_to_l0";
 import { narrateStep } from "./narrate_step";
@@ -29,6 +31,8 @@ export {
   getPastAcquisitionDetails,
   queryMeetingNotes,
   proposeWorkforceHandoff,
+  proposeBulkDropCompanies,
+  proposeBulkPromoteCompanies,
   promoteToL1,
   addCompanyToL0,
   narrateStep,
@@ -66,7 +70,11 @@ export const tools = [
  * single-workforce-step invariant), and so a workforce agent doesn't waste
  * tokens emitting handoff cards that have no UI to render them.
  */
-export const chatOnlyTools = [proposeWorkforceHandoff];
+export const chatOnlyTools = [
+  proposeWorkforceHandoff,
+  proposeBulkDropCompanies,
+  proposeBulkPromoteCompanies,
+];
 
 /**
  * Workforce-only tools — write actions available to the workforce agent
@@ -108,6 +116,8 @@ export function getToolDescriptions(): string {
     { name: "get_past_acquisition_details", description: "Get detailed information about a specific past acquisition" },
     { name: "query_files", description: "Search and retrieve files related to companies, tags, or topics" },
     { name: "propose_workforce_handoff", description: "Offer to send a write-heavy request (including L0→L1 promotions) to the AI Workforce via a confirmation card" },
+    { name: "propose_bulk_drop_companies", description: "Propose dropping a batch of stale or out-of-mandate companies via an approval card with checkboxes" },
+    { name: "propose_bulk_promote_companies", description: "Propose promoting a batch of L0 companies to L1 (or any stage) via an approval card with checkboxes, tags, and inline signals" },
   ];
 
   return toolInfo.map((t, i) => `${i + 1}. **${t.name}** - ${t.description}`).join("\n");

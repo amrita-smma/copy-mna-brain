@@ -18,6 +18,11 @@ export class DealNoteRepository {
     return row;
   }
 
+  async insertMany(rows: TablesInsert<'deal_notes'>[]): Promise<void> {
+    if (rows.length === 0) return;
+    await this.db.insert(dealNotes).values(rows);
+  }
+
   async delete(id: string): Promise<void> {
     await this.db.delete(dealNotes).where(eq(dealNotes.id, id));
   }

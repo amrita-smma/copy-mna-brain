@@ -63,6 +63,7 @@ function makeRepos() {
 
   const dealNoteRepo = {
     insert: vi.fn().mockResolvedValue({}),
+    insertMany: vi.fn().mockResolvedValue(undefined),
   } as unknown as DealNoteRepository;
   const dealLinkRepo = {
     insert: vi.fn().mockResolvedValue({}),
@@ -431,6 +432,177 @@ describe("CompanyService.dropDeal", () => {
       content: "no fit",
       stage: "L0",
     });
+  });
+});
+
+describe("CompanyService.dropDealMany", () => {
+  let repos: ReturnType<typeof makeRepos>;
+  let service: CompanyService;
+
+  beforeEach(() => {
+    repos = makeRepos();
+    service = buildService(repos);
+  });
+
+  it('returns without writing when the deals list is empty', async () => {
+    await service.dropDealMany([], 'noop');
+
+    expect(repos.companyRepo.findDroppedIds).not.toHaveBeenCalled();
+    expect(repos.companyRepo.updateMany).not.toHaveBeenCalled();
+    expect(repos.companyLogRepo.insertMany).not.toHaveBeenCalled();
+    expect(repos.dealNoteRepo.insertMany).not.toHaveBeenCalled();
+  });
+
+  it('drops all companies in one updateMany call and writes per-company stage logs', async () => {
+    await service.dropDealMany([
+      { id: 'company-1', currentStage: 'L2' },
+      { id: 'company-2', currentStage: 'L0' },
+    ]);
+
+    expect(repos.companyRepo.findDroppedIds).toHaveBeenCalledWith([
+      'company-1',
+      'company-2',
+    ]);
+    expect(repos.companyRepo.updateMany).toHaveBeenCalledWith(
+      ['company-1', 'company-2'],
+      expect.objectContaining({
+        status: 'dropped',
+        dropped_reason: null,
+        dropped_at: expect.any(String),
+      }),
+    );
+    expect(repos.companyLogRepo.insertMany).toHaveBeenCalledWith([
+      { company_id: 'company-1', action: 'DROPPED_FROM_L2' },
+      { company_id: 'company-2', action: 'DROPPED_FROM_L0' },
+    ]);
+    expect(repos.dealNoteRepo.insertMany).not.toHaveBeenCalled();
+  });
+
+  it('falls back to DROPPED when a company has no current stage', async () => {
+    await service.dropDealMany([
+      { id: 'company-1', currentStage: 'L1' },
+      { id: 'company-2' },
+    ]);
+
+    expect(repos.companyLogRepo.insertMany).toHaveBeenCalledWith([
+      { company_id: 'company-1', action: 'DROPPED_FROM_L1' },
+      { company_id: 'company-2', action: 'DROPPED' },
+    ]);
+  });
+
+  it('persists trimmed reason on companies and inserts one note per id with per-company stage', async () => {
+    await service.dropDealMany(
+      [
+        { id: 'company-1', currentStage: 'L2' },
+        { id: 'company-2' },
+      ],
+      '  no fit  ',
+    );
+
+    expect(repos.companyRepo.updateMany).toHaveBeenCalledWith(
+      ['company-1', 'company-2'],
+      expect.objectContaining({
+        dropped_reason: 'no fit',
+      }),
+    );
+    expect(repos.dealNoteRepo.insertMany).toHaveBeenCalledWith([
+      { deal_id: 'company-1', content: '  no fit  ', stage: 'L2' },
+      { deal_id: 'company-2', content: '  no fit  ', stage: 'L0' },
+    ]);
+  });
+
+  it('skips note insert when reason is blank or whitespace', async () => {
+    await service.dropDealMany(
+      [{ id: 'company-1', currentStage: 'L2' }],
+      '   ',
+    );
+
+    expect(repos.dealNoteRepo.insertMany).not.toHaveBeenCalled();
+  });
+
+  it('throws CompanyDroppedError and writes nothing when any id is already dropped', async () => {
+    vi.mocked(repos.companyRepo.findDroppedIds).mockResolvedValue(['company-2']);
+
+    await expect(
+      service.dropDealMany([
+        { id: 'company-1', currentStage: 'L1' },
+        { id: 'company-2', currentStage: 'L1' },
+      ]),
+    ).rejects.toMatchObject({
+      name: 'CompanyDroppedError',
+      droppedIds: ['company-2'],
+    });
+    expect(repos.companyRepo.updateMany).not.toHaveBeenCalled();
+    expect(repos.companyLogRepo.insertMany).not.toHaveBeenCalled();
+    expect(repos.dealNoteRepo.insertMany).not.toHaveBeenCalled();
+  });
+});
+
+describe('CompanyService.promoteMany', () => {
+  let repos: ReturnType<typeof makeRepos>;
+  let service: CompanyService;
+
+  beforeEach(() => {
+    repos = makeRepos();
+    service = buildService(repos);
+  });
+
+  it('returns without writing when the deals list is empty', async () => {
+    await service.promoteMany([], 'L1');
+    expect(repos.companyRepo.findDroppedIds).not.toHaveBeenCalled();
+    expect(repos.companyRepo.updateMany).not.toHaveBeenCalled();
+    expect(repos.companyLogRepo.insertMany).not.toHaveBeenCalled();
+  });
+
+  it('updates pipeline_stage in one updateMany call and writes per-company stage logs', async () => {
+    await service.promoteMany(
+      [
+        { id: 'c-1', currentStage: 'L0' },
+        { id: 'c-2', currentStage: 'L0' },
+      ],
+      'L1',
+    );
+
+    expect(repos.companyRepo.findDroppedIds).toHaveBeenCalledWith(['c-1', 'c-2']);
+    expect(repos.companyRepo.updateMany).toHaveBeenCalledWith(
+      ['c-1', 'c-2'],
+      { pipeline_stage: 'L1' },
+    );
+    expect(repos.companyLogRepo.insertMany).toHaveBeenCalledWith([
+      { company_id: 'c-1', action: 'PROMOTED_FROM_L0_TO_L1' },
+      { company_id: 'c-2', action: 'PROMOTED_FROM_L0_TO_L1' },
+    ]);
+  });
+
+  it('falls back to stageless log action when a company has no current stage', async () => {
+    await service.promoteMany(
+      [{ id: 'c-1' }, { id: 'c-2', currentStage: 'L0' }],
+      'L1',
+    );
+
+    expect(repos.companyLogRepo.insertMany).toHaveBeenCalledWith([
+      { company_id: 'c-1', action: 'PROMOTED_TO_L1' },
+      { company_id: 'c-2', action: 'PROMOTED_FROM_L0_TO_L1' },
+    ]);
+  });
+
+  it('throws CompanyDroppedError and writes nothing when any id is already dropped', async () => {
+    vi.mocked(repos.companyRepo.findDroppedIds).mockResolvedValue(['c-2']);
+
+    await expect(
+      service.promoteMany(
+        [
+          { id: 'c-1', currentStage: 'L0' },
+          { id: 'c-2', currentStage: 'L0' },
+        ],
+        'L1',
+      ),
+    ).rejects.toMatchObject({
+      name: 'CompanyDroppedError',
+      droppedIds: ['c-2'],
+    });
+    expect(repos.companyRepo.updateMany).not.toHaveBeenCalled();
+    expect(repos.companyLogRepo.insertMany).not.toHaveBeenCalled();
   });
 });
 

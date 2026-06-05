@@ -166,6 +166,26 @@ export async function dropDeal(id: string, payload: {
   });
 }
 
+export async function bulkDropDeals(payload: {
+  deals: Array<{ id: string; currentStage?: string | null }>;
+  reason?: string;
+}) {
+  return apiRequest<{ success: boolean; count: number }>('/api/companies/drop-bulk', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function bulkPromoteDeals(payload: {
+  deals: Array<{ id: string; currentStage?: string | null }>;
+  nextStage: string;
+}) {
+  return apiRequest<{ success: boolean; count: number }>('/api/companies/promote-bulk', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
 export async function restoreDeal(id: string, payload: {
   currentStage?: string | null;
 }) {

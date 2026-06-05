@@ -22,10 +22,22 @@ import {
   WorkforceHandoffCard,
   type WorkforceHandoffPayload,
 } from "./WorkforceHandoffCard";
+import {
+  BulkDropCompaniesCard,
+  type BulkDropApprovalPayload,
+} from "./BulkDropCompaniesCard";
+import {
+  BulkPromoteCompaniesCard,
+  type BulkPromoteApprovalPayload,
+} from "./BulkPromoteCompaniesCard";
 import { useChatContext } from "./ChatProvider";
 
 const WORKFORCE_HANDOFF_MARKER = "WORKFORCE_HANDOFF_JSON";
 const WORKFORCE_HANDOFF_TOOL_NAME = "propose_workforce_handoff";
+const BULK_DROP_APPROVAL_MARKER = "BULK_DROP_APPROVAL_JSON";
+const BULK_DROP_APPROVAL_TOOL_NAME = "propose_bulk_drop_companies";
+const BULK_PROMOTE_APPROVAL_MARKER = "BULK_PROMOTE_APPROVAL_JSON";
+const BULK_PROMOTE_APPROVAL_TOOL_NAME = "propose_bulk_promote_companies";
 
 interface ChatMessageBubbleProps {
   message: UIMessage;
@@ -244,6 +256,8 @@ function ChatMessageBubbleImpl(props: ChatMessageBubbleProps) {
   }
   const allMeetingNotes: MeetingNoteRef[] = [];
   let workforceHandoff: WorkforceHandoffPayload | null = null;
+  let bulkDropApproval: BulkDropApprovalPayload | null = null;
+  let bulkPromoteApproval: BulkPromoteApprovalPayload | null = null;
 
   for (const part of toolParts) {
     const toolName = (part as any).toolName || "";
@@ -280,6 +294,44 @@ function ChatMessageBubbleImpl(props: ChatMessageBubbleProps) {
           const parsed = JSON.parse(handoffMatch[1].trim()) as WorkforceHandoffPayload;
           if (parsed && parsed.title && parsed.instruction) {
             workforceHandoff = parsed;
+          }
+        } catch {
+          // Ignore parse errors — fall through to plain text rendering.
+        }
+      }
+    }
+
+    if (toolName === BULK_DROP_APPROVAL_TOOL_NAME && !bulkDropApproval) {
+      const bulkDropMatch = content.match(
+        new RegExp(`<!--\\s*${BULK_DROP_APPROVAL_MARKER}:(.*?)-->`, "s"),
+      );
+      if (bulkDropMatch) {
+        try {
+          const parsed = JSON.parse(bulkDropMatch[1].trim()) as BulkDropApprovalPayload;
+          if (parsed && parsed.title && Array.isArray(parsed.candidates) && parsed.candidates.length > 0) {
+            bulkDropApproval = parsed;
+          }
+        } catch {
+          // Ignore parse errors — fall through to plain text rendering.
+        }
+      }
+    }
+
+    if (toolName === BULK_PROMOTE_APPROVAL_TOOL_NAME && !bulkPromoteApproval) {
+      const bulkPromoteMatch = content.match(
+        new RegExp(`<!--\\s*${BULK_PROMOTE_APPROVAL_MARKER}:(.*?)-->`, "s"),
+      );
+      if (bulkPromoteMatch) {
+        try {
+          const parsed = JSON.parse(bulkPromoteMatch[1].trim()) as BulkPromoteApprovalPayload;
+          if (
+            parsed &&
+            parsed.title &&
+            parsed.target_stage &&
+            Array.isArray(parsed.candidates) &&
+            parsed.candidates.length > 0
+          ) {
+            bulkPromoteApproval = parsed;
           }
         } catch {
           // Ignore parse errors — fall through to plain text rendering.
@@ -511,6 +563,16 @@ function ChatMessageBubbleImpl(props: ChatMessageBubbleProps) {
             payload={workforceHandoff}
             onJustAnswerHere={handleJustAnswerHere}
           />
+        )}
+
+        {/* Bulk drop approval card */}
+        {bulkDropApproval && (
+          <BulkDropCompaniesCard payload={bulkDropApproval} />
+        )}
+
+        {/* Bulk promote approval card */}
+        {bulkPromoteApproval && (
+          <BulkPromoteCompaniesCard payload={bulkPromoteApproval} />
         )}
 
         {/* Sources */}

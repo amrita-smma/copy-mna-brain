@@ -316,6 +316,56 @@ export class CompanyService {
     }
   }
 
+  async dropDealMany(
+    deals: Array<{ id: string; currentStage?: string }>,
+    reason?: string,
+  ) {
+    if (deals.length === 0) return;
+    const ids = deals.map((d) => d.id);
+    await this.guardWritableMany(ids);
+    const trimmedReason = reason?.trim() || null;
+    await this.companyRepo.updateMany(ids, {
+      status: 'dropped',
+      dropped_reason: trimmedReason,
+      dropped_at: new Date().toISOString(),
+    });
+    await this.companyLogRepo.insertMany(
+      deals.map(({ id, currentStage }) => ({
+        company_id: id,
+        action: currentStage ? `DROPPED_FROM_${currentStage}` : 'DROPPED',
+      })),
+    );
+    if (reason?.trim()) {
+      await this.dealNoteRepo.insertMany(
+        deals.map(({ id, currentStage }) => ({
+          deal_id: id,
+          content: reason,
+          stage: currentStage || 'L0',
+        })),
+      );
+    }
+  }
+
+  async promoteMany(
+    deals: Array<{ id: string; currentStage?: string }>,
+    nextStage: string,
+  ) {
+    if (deals.length === 0) return;
+    const ids = deals.map((d) => d.id);
+    await this.guardWritableMany(ids);
+    await this.companyRepo.updateMany(ids, {
+      pipeline_stage: nextStage as DealStage,
+    });
+    await this.companyLogRepo.insertMany(
+      deals.map(({ id, currentStage }) => ({
+        company_id: id,
+        action: currentStage
+          ? `PROMOTED_FROM_${currentStage}_TO_${nextStage}`
+          : `PROMOTED_TO_${nextStage}`,
+      })),
+    );
+  }
+
   async restoreDeal(id: string, currentStage: string | undefined) {
     await this.companyRepo.update(id, {
       status: 'active',
