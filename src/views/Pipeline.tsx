@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useLocalStorage } from "@/hooks/useLocalStorage";
 import { useSearchParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import DashboardLayout from "@/components/layout/DashboardLayout";
@@ -279,8 +280,8 @@ export default function Pipeline({ showCrm = false, showAiWorkforce = false }: P
   // Section visibility
   const [showL0Pipeline, setShowL0Pipeline] = useState(true);
   const [showMarketScanning, setShowMarketScanning] = useState(true);
-  const [showMarketResults, setShowMarketResults] = useState(true);
-  const [showScreeningProgress, setShowScreeningProgress] = useState(true);
+  const [showMarketResults, setShowMarketResults] = useLocalStorage('pipeline:show-market-results', true);
+  const [showScreeningProgress, setShowScreeningProgress] = useLocalStorage('pipeline:show-screening-progress', true);
 
   // Sorting state
   const [sortField, setSortField] = useState<string | null>(null);

@@ -1,6 +1,6 @@
 'use client';
 
-import { ReactNode, useState } from 'react';
+import { ReactNode } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
@@ -38,6 +38,7 @@ import { LivingBackground } from '@/components/LivingBackground';
 import { AICopilotPane } from './AICopilotPane';
 import { ChatProvider } from '@/components/chat/ChatProvider';
 import { motion, AnimatePresence } from 'framer-motion';
+import { useLocalStorage } from '@/hooks/useLocalStorage';
 
 
 interface DashboardLayoutProps {
@@ -58,8 +59,8 @@ const baseNavigation = [
 export default function DashboardLayout({ children, showCrm = false, showAiWorkforce = false }: DashboardLayoutProps) {
   const pathname = usePathname();
   const { user, signOut } = useAuth();
-  const [isMainExpanded, setIsMainExpanded] = useState(false);
-  const [isCopilotExpanded, setIsCopilotExpanded] = useState(false);
+  const [isMainExpanded, setIsMainExpanded] = useLocalStorage('layout:main-expanded', false);
+  const [isCopilotExpanded, setIsCopilotExpanded] = useLocalStorage('layout:copilot-expanded', false);
 
   const isOnAiWorkforce = pathname.startsWith('/ai-workforce');
   const showCopilotPane = !isOnAiWorkforce;
