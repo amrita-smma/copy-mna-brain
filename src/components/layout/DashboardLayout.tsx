@@ -1,6 +1,6 @@
 'use client';
 
-import { ReactNode } from 'react';
+import { ReactNode, useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
@@ -23,23 +23,21 @@ import {
   LayoutDashboard,
   GitBranch,
   Database,
-  Sparkles,
   LogOut,
-  PanelLeftOpen,
-  Inbox,
-  Send,
-  Search,
-  FileSliders,
   Users,
   FileStack,
+  Maximize2,
+  Minimize2,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { ChatbotWidget } from '@/components/chat/ChatbotWidget';
 import { ProtectedRoute } from '@/components/auth/ProtectedRoute';
 import { useAuth } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/button';
 import { ThemeToggle } from '@/components/theme-toggle';
 import { LivingBackground } from '@/components/LivingBackground';
+import { AICopilotPane } from './AICopilotPane';
+import { ChatProvider } from '@/components/chat/ChatProvider';
+import { motion, AnimatePresence } from 'framer-motion';
 
 
 interface DashboardLayoutProps {
@@ -49,23 +47,22 @@ interface DashboardLayoutProps {
 }
 
 const baseNavigation = [
-  { name: 'AI CoPilot', href: '/ai-discovery', icon: Sparkles, color: 'purple' as const },
   { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard, color: 'default' as const },
   { name: 'Pipeline', href: '/pipeline', icon: GitBranch, color: 'default' as const },
   { name: 'Master Data', href: '/master-data', icon: Database, color: 'default' as const },
   { name: 'CRM', href: '/crm', icon: Users, color: 'indigo' as const },
   { name: 'AI File Dump', href: '/ai-file-dump', icon: FileStack, color: 'teal' as const },
   { name: 'AI Workforce', href: '/ai-workforce', icon: Users, color: 'orange' as const },
-  // { name: 'Inbound Deal Sourcing', href: '#', icon: Inbox, disabled: true },
-  // { name: 'Outbound Deal Sourcing', href: '#', icon: Send, disabled: true },
-  // { name: 'Company Deep Dive', href: '#', icon: Search, disabled: true },
-  // { name: 'Slide Generator', href: '#', icon: FileSliders, disabled: true },
-  // { name: 'Banker Relations', href: '#', icon: Users, disabled: true },
 ];
 
 export default function DashboardLayout({ children, showCrm = false, showAiWorkforce = false }: DashboardLayoutProps) {
   const pathname = usePathname();
   const { user, signOut } = useAuth();
+  const [isMainExpanded, setIsMainExpanded] = useState(false);
+  const [isCopilotExpanded, setIsCopilotExpanded] = useState(false);
+
+  const isOnAiWorkforce = pathname.startsWith('/ai-workforce');
+  const showCopilotPane = !isOnAiWorkforce;
 
   const filteredNavigation = baseNavigation.filter((item) => {
     if (item.href === '/crm') return showCrm;
@@ -108,7 +105,6 @@ export default function DashboardLayout({ children, showCrm = false, showAiWorkf
                       const isActive = pathname === item.href ||
                         (item.href !== '/dashboard' && item.href !== '#' && pathname.startsWith(item.href));
                       const isColored = item.color !== 'default';
-                      const isPurple = item.color === 'purple';
                       const isTeal = item.color === 'teal';
                       const isIndigo = item.color === 'indigo';
                       const isOrange = item.color === 'orange';
@@ -122,17 +118,12 @@ export default function DashboardLayout({ children, showCrm = false, showAiWorkf
                             className={cn(
                               'transition-colors',
                               isDisabled && 'opacity-50 cursor-not-allowed',
-                              isPurple && !isDisabled && 'text-purple-400 hover:text-purple-300 hover:bg-purple-500/10',
                               isTeal && !isDisabled && 'text-teal-400 hover:text-teal-300 hover:bg-teal-500/10',
                               isIndigo && !isDisabled && 'text-indigo-400 hover:text-indigo-300 hover:bg-indigo-500/10',
-                              isActive && !isColored && 'bg-sidebar-accent text-sidebar-accent-foreground',
-                              isActive && isPurple && 'bg-purple-500/20 text-purple-300',
-                              isActive && isTeal && 'bg-teal-500/20 text-teal-300',
-                              isActive && isIndigo && 'bg-indigo-500/20 text-indigo-300',
                               isOrange && !isDisabled && 'text-orange-400 hover:text-orange-300 hover:bg-orange-500/10',
                               isActive && !isColored && 'bg-sidebar-accent text-sidebar-accent-foreground',
-                              isActive && isPurple && 'bg-purple-500/20 text-purple-300',
                               isActive && isTeal && 'bg-teal-500/20 text-teal-300',
+                              isActive && isIndigo && 'bg-indigo-500/20 text-indigo-300',
                               isActive && isOrange && 'bg-orange-500/20 text-orange-300'
                             )}
                           >
@@ -140,7 +131,6 @@ export default function DashboardLayout({ children, showCrm = false, showAiWorkf
                               <div className="flex items-center gap-2">
                                 <item.icon className={cn(
                                   'h-4 w-4',
-                                  isPurple && 'text-purple-400',
                                   isTeal && 'text-teal-400',
                                   isIndigo && 'text-indigo-400',
                                   isOrange && 'text-orange-400'
@@ -151,7 +141,6 @@ export default function DashboardLayout({ children, showCrm = false, showAiWorkf
                               <Link href={item.href}>
                                 <item.icon className={cn(
                                   'h-4 w-4',
-                                  isPurple && 'text-purple-400',
                                   isTeal && 'text-teal-400',
                                   isIndigo && 'text-indigo-400',
                                   isOrange && 'text-orange-400'
@@ -200,16 +189,94 @@ export default function DashboardLayout({ children, showCrm = false, showAiWorkf
             </SidebarFooter>
           </Sidebar>
 
-          <SidebarInset className="flex flex-1 flex-col min-w-0">
-            <main className="flex-1 overflow-auto min-w-0 w-full">
-              {children}
-            </main>
+          <SidebarInset className="flex flex-1 min-w-0 h-screen overflow-hidden">
+            <ChatProvider>
+              <div className="flex flex-1 min-w-0 h-full">
+                <motion.div
+                  className="flex flex-col min-w-0 h-full overflow-hidden"
+                  initial={false}
+                  animate={{
+                    width: isCopilotExpanded && showCopilotPane ? 0 : isMainExpanded ? '100%' : 'auto',
+                    flex: isCopilotExpanded && showCopilotPane ? 0 : 1,
+                    opacity: isCopilotExpanded && showCopilotPane ? 0 : 1,
+                  }}
+                  transition={{
+                    duration: 0.3,
+                    ease: [0.4, 0, 0.2, 1],
+                  }}
+                >
+                  <AnimatePresence>
+                    {!isCopilotExpanded && showCopilotPane && (
+                      <motion.div
+                        className="flex items-center justify-end p-2 border-b bg-background/80 backdrop-blur-xl shrink-0 sticky top-0 z-10"
+                        initial={{ opacity: 0, height: 0 }}
+                        animate={{ opacity: 1, height: 'auto' }}
+                        exit={{ opacity: 0, height: 0 }}
+                        transition={{ duration: 0.2 }}
+                      >
+                        <motion.div
+                          whileHover={{ scale: 1.02 }}
+                          whileTap={{ scale: 0.98 }}
+                        >
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => setIsMainExpanded(!isMainExpanded)}
+                            className="h-7 gap-1.5 text-xs text-muted-foreground hover:text-foreground"
+                          >
+                            <AnimatePresence mode="wait" initial={false}>
+                              <motion.span
+                                key={isMainExpanded ? 'collapse' : 'expand'}
+                                className="flex items-center gap-1.5"
+                                initial={{ opacity: 0, y: -10 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                exit={{ opacity: 0, y: 10 }}
+                                transition={{ duration: 0.15 }}
+                              >
+                                {isMainExpanded ? (
+                                  <>
+                                    <Minimize2 className="h-3.5 w-3.5" />
+                                    Exit Full Screen
+                                  </>
+                                ) : (
+                                  <>
+                                    <Maximize2 className="h-3.5 w-3.5" />
+                                    Expand
+                                  </>
+                                )}
+                              </motion.span>
+                            </AnimatePresence>
+                          </Button>
+                        </motion.div>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                  <main className="flex-1 overflow-auto min-w-0 w-full">
+                    {children}
+                  </main>
+                </motion.div>
+                {showCopilotPane && !isMainExpanded && (
+                  <motion.div
+                    className={cn(
+                      'h-full',
+                      isCopilotExpanded ? 'flex-1' : ''
+                    )}
+                    initial={{ opacity: 0, x: 50 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    transition={{
+                      duration: 0.3,
+                      ease: [0.4, 0, 0.2, 1],
+                    }}
+                  >
+                    <AICopilotPane
+                      isExpanded={isCopilotExpanded}
+                      onToggleExpand={() => setIsCopilotExpanded(!isCopilotExpanded)}
+                    />
+                  </motion.div>
+                )}
+              </div>
+            </ChatProvider>
           </SidebarInset>
-
-          {/* Chatbot Widget - only on Dashboard, Pipeline, Master Data */}
-          {(pathname === '/dashboard' || pathname === '/master-data' || pathname === '/pipeline' || pathname.startsWith('/pipeline/')) && (
-            <ChatbotWidget />
-          )}
         </div>
       </SidebarProvider>
     </ProtectedRoute>

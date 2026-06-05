@@ -1,0 +1,253 @@
+'use client';
+
+import { useState } from 'react';
+import { Sparkles, Maximize2, Minimize2, Send, LoaderCircle, Lightbulb, PenLine } from 'lucide-react';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { cn } from '@/lib/utils';
+import { useChatContext } from '@/components/chat/ChatProvider';
+import { ChatMessageBubble, LoadingBubble } from '@/components/chat/ChatMessageBubble';
+import { StickToBottom, useStickToBottomContext } from 'use-stick-to-bottom';
+import { motion, AnimatePresence } from 'framer-motion';
+import type { UIMessage } from '@ai-sdk/react';
+
+const SUGGESTION_CHIPS = [
+  'semiconductor companies',
+  'pipeline performance',
+  'analyze Project Oriole',
+];
+
+const WELCOME_MESSAGE = `# Hello! I'm your M&A discovery assistant.
+
+🔍 **Company Discovery** - Find acquisition targets
+🔬 **Deep Dive Analysis** - Detailed assessments
+📊 **Pipeline Insights** - Performance metrics`;
+
+const welcomeUIMessage: UIMessage = {
+  id: 'welcome-pane',
+  role: 'assistant',
+  parts: [{ type: 'text', text: WELCOME_MESSAGE }],
+};
+
+function ScrollContent({ children }: { children: React.ReactNode }) {
+  const context = useStickToBottomContext();
+
+  return (
+    <div
+      ref={context.scrollRef}
+      className="flex-1 overflow-y-auto min-h-0"
+    >
+      <div ref={context.contentRef} className="p-4 pb-32">
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function FloatingChatInput({ isExpanded }: { isExpanded: boolean }) {
+  const [input, setInput] = useState('');
+  const { sendMessage, status } = useChatContext();
+  const isBusy = status === 'streaming' || status === 'submitted';
+
+  const handleSubmit = () => {
+    if (!input.trim()) return;
+    sendMessage({ text: input });
+    setInput('');
+  };
+
+  return (
+    <motion.div
+      className="absolute bottom-0 left-0 right-0 p-4"
+      initial={{ y: 20, opacity: 0 }}
+      animate={{ y: 0, opacity: 1 }}
+      transition={{ duration: 0.3, ease: 'easeOut' }}
+    >
+      <motion.div
+        className="mx-auto"
+        animate={{ maxWidth: isExpanded ? '48rem' : '100%' }}
+        transition={{ duration: 0.3, ease: 'easeInOut' }}
+      >
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            handleSubmit();
+          }}
+          className="space-y-2"
+        >
+          <div className="flex gap-2 p-2 bg-muted/80 backdrop-blur-xl rounded-2xl border shadow-lg">
+            <Input
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              placeholder="Ask anything..."
+              className="flex-1 text-sm border-0 bg-transparent focus-visible:ring-0 focus-visible:ring-offset-0"
+              disabled={isBusy}
+            />
+            <Button
+              type="submit"
+              size="sm"
+              disabled={!input.trim() || isBusy}
+              className="bg-purple-600 hover:bg-purple-700 shrink-0 rounded-xl"
+            >
+              {isBusy ? (
+                <LoaderCircle className="h-4 w-4 animate-spin" />
+              ) : (
+                <Send className="h-4 w-4" />
+              )}
+            </Button>
+          </div>
+          <AnimatePresence>
+            {!isExpanded && (
+              <motion.div
+                className="flex items-center justify-center gap-1.5 text-[10px] text-muted-foreground"
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: 'auto' }}
+                exit={{ opacity: 0, height: 0 }}
+                transition={{ duration: 0.2 }}
+              >
+                <Lightbulb className="h-3 w-3 text-amber-500 shrink-0" />
+                {SUGGESTION_CHIPS.map((chip, i) => (
+                  <button
+                    key={i}
+                    type="button"
+                    onClick={() => setInput(chip)}
+                    className="text-primary hover:underline truncate"
+                  >
+                    {chip}{i < SUGGESTION_CHIPS.length - 1 ? ',' : ''}
+                  </button>
+                ))}
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </form>
+      </motion.div>
+    </motion.div>
+  );
+}
+
+function ChatContent({ isExpanded }: { isExpanded: boolean }) {
+  const { messages, status } = useChatContext();
+
+  return (
+    <StickToBottom className="flex-1 flex flex-col min-h-0 relative">
+      <ScrollContent>
+        <motion.div
+          className="flex flex-col gap-2"
+          animate={{
+            maxWidth: isExpanded ? '48rem' : '100%',
+            marginLeft: isExpanded ? 'auto' : 0,
+            marginRight: isExpanded ? 'auto' : 0,
+          }}
+          transition={{ duration: 0.3, ease: 'easeInOut' }}
+        >
+          <ChatMessageBubble message={welcomeUIMessage} />
+          {messages.map((message) => (
+            <ChatMessageBubble key={message.id} message={message} />
+          ))}
+          {status === 'submitted' && <LoadingBubble />}
+        </motion.div>
+      </ScrollContent>
+      <FloatingChatInput isExpanded={isExpanded} />
+    </StickToBottom>
+  );
+}
+
+interface AICopilotPaneProps {
+  isExpanded: boolean;
+  onToggleExpand: () => void;
+  className?: string;
+}
+
+export function AICopilotPane({ isExpanded, onToggleExpand, className }: AICopilotPaneProps) {
+  const { newChat } = useChatContext();
+
+  return (
+    <motion.div
+      className={cn(
+        'flex flex-col bg-background border-l h-full sticky top-0 overflow-hidden',
+        className
+      )}
+      initial={false}
+      animate={{
+        width: isExpanded ? '100%' : 384,
+      }}
+      transition={{
+        duration: 0.3,
+        ease: [0.4, 0, 0.2, 1],
+      }}
+    >
+      <motion.div
+        className="flex items-center justify-between p-3 border-b bg-background/80 backdrop-blur-xl shrink-0 sticky top-0 z-10"
+        layout
+      >
+        <div className="flex items-center gap-2">
+          <motion.div
+            className="flex h-7 w-7 items-center justify-center rounded-lg bg-purple-500/10"
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
+          >
+            <Sparkles className="h-4 w-4 text-purple-500" />
+          </motion.div>
+          <span className="text-sm font-medium">AI CoPilot</span>
+        </div>
+        <div className="flex items-center gap-1">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <motion.div
+                whileHover={{ scale: 1.1 }}
+                whileTap={{ scale: 0.9 }}
+              >
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={newChat}
+                  className="h-7 w-7 p-0"
+                >
+                  <PenLine className="h-4 w-4" />
+                </Button>
+              </motion.div>
+            </TooltipTrigger>
+            <TooltipContent side="bottom">
+              <p>New chat</p>
+            </TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <motion.div
+                whileHover={{ scale: 1.1 }}
+                whileTap={{ scale: 0.9 }}
+              >
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={onToggleExpand}
+                  className="h-7 w-7 p-0"
+                >
+                  <AnimatePresence mode="wait" initial={false}>
+                    <motion.div
+                      key={isExpanded ? 'minimize' : 'maximize'}
+                      initial={{ rotate: -90, opacity: 0 }}
+                      animate={{ rotate: 0, opacity: 1 }}
+                      exit={{ rotate: 90, opacity: 0 }}
+                      transition={{ duration: 0.15 }}
+                    >
+                      {isExpanded ? (
+                        <Minimize2 className="h-4 w-4" />
+                      ) : (
+                        <Maximize2 className="h-4 w-4" />
+                      )}
+                    </motion.div>
+                  </AnimatePresence>
+                </Button>
+              </motion.div>
+            </TooltipTrigger>
+            <TooltipContent side="bottom">
+              <p>{isExpanded ? 'Collapse' : 'Expand'}</p>
+            </TooltipContent>
+          </Tooltip>
+        </div>
+      </motion.div>
+      <ChatContent isExpanded={isExpanded} />
+    </motion.div>
+  );
+}
