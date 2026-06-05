@@ -238,7 +238,7 @@ export function BulkDropCompaniesCard({
             <div className="text-xs text-muted-foreground">
               <strong className="text-foreground">{selectedCount}</strong> of {total} selected
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <Button
                 onClick={handleDrop}
                 disabled={isSubmitting || selectedCount === 0}
@@ -261,7 +261,7 @@ export function BulkDropCompaniesCard({
                 Keep all
               </Button>
               {error && (
-                <span className="text-xs text-destructive ml-2">{error}</span>
+                <span className="text-xs text-destructive">{error}</span>
               )}
             </div>
           </div>

@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Sparkles, Maximize2, Minimize2, Send, LoaderCircle, Lightbulb, PenLine } from 'lucide-react';
+import { Sparkles, Maximize2, Minimize2, Send, LoaderCircle, PenLine } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -11,12 +11,6 @@ import { ChatMessageBubble, LoadingBubble } from '@/components/chat/ChatMessageB
 import { StickToBottom, useStickToBottomContext } from 'use-stick-to-bottom';
 import { motion, AnimatePresence } from 'framer-motion';
 import type { UIMessage } from '@ai-sdk/react';
-
-const SUGGESTION_CHIPS = [
-  'semiconductor companies',
-  'pipeline performance',
-  'analyze Project Oriole',
-];
 
 const WELCOME_MESSAGE = `# Hello! I'm your M&A discovery assistant.
 
@@ -38,14 +32,14 @@ function ScrollContent({ children }: { children: React.ReactNode }) {
       ref={context.scrollRef}
       className="flex-1 overflow-y-auto min-h-0"
     >
-      <div ref={context.contentRef} className="p-4 pb-32">
+      <div ref={context.contentRef} className="p-4">
         {children}
       </div>
     </div>
   );
 }
 
-function FloatingChatInput({ isExpanded }: { isExpanded: boolean }) {
+function ChatInput({ isExpanded }: { isExpanded: boolean }) {
   const [input, setInput] = useState('');
   const { sendMessage, status } = useChatContext();
   const isBusy = status === 'streaming' || status === 'submitted';
@@ -57,12 +51,7 @@ function FloatingChatInput({ isExpanded }: { isExpanded: boolean }) {
   };
 
   return (
-    <motion.div
-      className="absolute bottom-0 left-0 right-0 p-4"
-      initial={{ y: 20, opacity: 0 }}
-      animate={{ y: 0, opacity: 1 }}
-      transition={{ duration: 0.3, ease: 'easeOut' }}
-    >
+    <div className="p-4 border-t bg-muted shrink-0">
       <motion.div
         className="mx-auto"
         animate={{ maxWidth: isExpanded ? '48rem' : '100%' }}
@@ -73,9 +62,8 @@ function FloatingChatInput({ isExpanded }: { isExpanded: boolean }) {
             e.preventDefault();
             handleSubmit();
           }}
-          className="space-y-2"
         >
-          <div className="flex gap-2 p-2 bg-muted/80 backdrop-blur-xl rounded-2xl border shadow-lg">
+          <div className="flex gap-2 p-2 bg-background rounded-2xl border">
             <Input
               value={input}
               onChange={(e) => setInput(e.target.value)}
@@ -96,32 +84,9 @@ function FloatingChatInput({ isExpanded }: { isExpanded: boolean }) {
               )}
             </Button>
           </div>
-          <AnimatePresence>
-            {!isExpanded && (
-              <motion.div
-                className="flex items-center justify-center gap-1.5 text-[10px] text-muted-foreground"
-                initial={{ opacity: 0, height: 0 }}
-                animate={{ opacity: 1, height: 'auto' }}
-                exit={{ opacity: 0, height: 0 }}
-                transition={{ duration: 0.2 }}
-              >
-                <Lightbulb className="h-3 w-3 text-amber-500 shrink-0" />
-                {SUGGESTION_CHIPS.map((chip, i) => (
-                  <button
-                    key={i}
-                    type="button"
-                    onClick={() => setInput(chip)}
-                    className="text-primary hover:underline truncate"
-                  >
-                    {chip}{i < SUGGESTION_CHIPS.length - 1 ? ',' : ''}
-                  </button>
-                ))}
-              </motion.div>
-            )}
-          </AnimatePresence>
         </form>
       </motion.div>
-    </motion.div>
+    </div>
   );
 }
 
@@ -129,7 +94,7 @@ function ChatContent({ isExpanded }: { isExpanded: boolean }) {
   const { messages, status } = useChatContext();
 
   return (
-    <StickToBottom className="flex-1 flex flex-col min-h-0 relative">
+    <StickToBottom className="flex-1 flex flex-col min-h-0">
       <ScrollContent>
         <motion.div
           className="flex flex-col gap-2"
@@ -147,7 +112,7 @@ function ChatContent({ isExpanded }: { isExpanded: boolean }) {
           {status === 'submitted' && <LoadingBubble />}
         </motion.div>
       </ScrollContent>
-      <FloatingChatInput isExpanded={isExpanded} />
+      <ChatInput isExpanded={isExpanded} />
     </StickToBottom>
   );
 }

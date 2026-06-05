@@ -148,11 +148,11 @@ export function WorkforceHandoffCard({
             <span>Continuing in chat — ask a follow-up to proceed.</span>
           </div>
         ) : (
-          <div className="flex items-center gap-2">
+          <div className="flex flex-col gap-2 w-full">
             <Button
               onClick={handleAssign}
               disabled={status === "submitting"}
-              className="bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-700 hover:to-indigo-700 text-white"
+              className="w-full bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-700 hover:to-indigo-700 text-white"
             >
               {status === "submitting" ? (
                 <>
@@ -167,11 +167,12 @@ export function WorkforceHandoffCard({
               variant="outline"
               onClick={handleDecline}
               disabled={status === "submitting"}
+              className="w-full"
             >
               Just answer here
             </Button>
             {error && (
-              <span className="text-xs text-destructive ml-2">{error}</span>
+              <span className="text-xs text-destructive">{error}</span>
             )}
           </div>
         )}
