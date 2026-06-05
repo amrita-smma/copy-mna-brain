@@ -91,7 +91,7 @@ const mockCompanies = (page: Page, companies: Company[]) =>
   });
 
 test.describe('Master Data page', () => {
-  test('redirects to /login when unauthenticated', async ({ page }) => {
+  test('Unauthenticated user opens Master Data', async ({ page }) => {
     await mockAuthSession(page, null);
 
     await page.goto('/master-data');
@@ -99,7 +99,7 @@ test.describe('Master Data page', () => {
     await expect(page).toHaveURL(/\/login/);
   });
 
-  test('renders header, stats and companies table', async ({ page }) => {
+  test('Authenticated user views Master Data', async ({ page }) => {
     await mockAuthSession(page);
     await mockCompanies(page, MOCK_COMPANIES);
 
@@ -123,7 +123,7 @@ test.describe('Master Data page', () => {
     await expect(page.getByText('L5: 1')).toBeVisible();
   });
 
-  test('search input filters the table', async ({ page }) => {
+  test('User searches by company name', async ({ page }) => {
     await mockAuthSession(page);
     await mockCompanies(page, MOCK_COMPANIES);
 
@@ -139,7 +139,7 @@ test.describe('Master Data page', () => {
     await expect(page.getByText('All Companies (1)')).toBeVisible();
   });
 
-  test('source filter narrows results (watchlist_status → source mapping)', async ({ page }) => {
+  test('User filters by Source = Inbound', async ({ page }) => {
     await mockAuthSession(page);
     await mockCompanies(page, MOCK_COMPANIES);
 
@@ -157,7 +157,7 @@ test.describe('Master Data page', () => {
     await expect(page.getByRole('button', { name: 'Globex', exact: true })).not.toBeVisible();
   });
 
-  test('stage filter narrows by pipeline_stage', async ({ page }) => {
+  test('User filters by stage L3', async ({ page }) => {
     await mockAuthSession(page);
     await mockCompanies(page, MOCK_COMPANIES);
 
@@ -173,7 +173,7 @@ test.describe('Master Data page', () => {
     await expect(page.getByRole('button', { name: 'Umbrella', exact: true })).toBeVisible();
   });
 
-  test('suggestion chip populates the search', async ({ page }) => {
+  test('User clicks a suggestion chip', async ({ page }) => {
     await mockAuthSession(page);
     await mockCompanies(page, MOCK_COMPANIES);
 
@@ -190,7 +190,7 @@ test.describe('Master Data page', () => {
     await expect(search).toHaveValue(chipText);
   });
 
-  test('paginates at 10 items per page', async ({ page }) => {
+  test('User pages through more than 10 companies', async ({ page }) => {
     await mockAuthSession(page);
     const many: Company[] = Array.from({ length: 12 }, (_, i) =>
       baseCompany({
@@ -219,7 +219,7 @@ test.describe('Master Data page', () => {
     await expect(page.getByRole('button', { name: 'Company 11', exact: true })).toBeVisible();
   });
 
-  test('opens the detail dialog from a row', async ({ page }) => {
+  test('User clicks a company row in Master Data', async ({ page }) => {
     await mockAuthSession(page);
     await mockCompanies(page, MOCK_COMPANIES);
 
@@ -243,7 +243,7 @@ test.describe('Master Data page', () => {
     await expect(page.getByRole('dialog')).toBeVisible();
   });
 
-  test('delete flow confirms then removes the row', async ({ page }) => {
+  test('User deletes a company', async ({ page }) => {
     await mockAuthSession(page);
     await mockCompanies(page, MOCK_COMPANIES);
 
@@ -269,7 +269,7 @@ test.describe('Master Data page', () => {
     await expect(page.getByText(`All Companies (${MOCK_COMPANIES.length - 1})`)).toBeVisible();
   });
 
-  test('shows empty state when the filter matches nothing', async ({ page }) => {
+  test('User searches for a non-existent company', async ({ page }) => {
     await mockAuthSession(page);
     await mockCompanies(page, MOCK_COMPANIES);
 

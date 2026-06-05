@@ -68,7 +68,7 @@ const mockCompanies = (page: Page, companies: Company[]) =>
   });
 
 test.describe('Dashboard page', () => {
-  test('redirects to /login when unauthenticated', async ({ page }) => {
+  test('Unauthenticated user opens the dashboard', async ({ page }) => {
     await mockAuthSession(page, null);
 
     await page.goto('/dashboard');
@@ -76,7 +76,7 @@ test.describe('Dashboard page', () => {
     await expect(page).toHaveURL(/\/login/);
   });
 
-  test('renders header, stat cards, pipeline stages and tables', async ({ page }) => {
+  test('Authenticated user views the dashboard with companies', async ({ page }) => {
     await mockAuthSession(page);
     await mockCompanies(page, MOCK_COMPANIES);
     await page.goto('/dashboard');
@@ -120,7 +120,7 @@ test.describe('Dashboard page', () => {
     await expect(page.getByText('Recent Updates')).toBeVisible();
   });
 
-  test('pipeline stage link routes to /pipeline?stage=<stage>', async ({ page }) => {
+  test('User clicks a pipeline stage link on the dashboard', async ({ page }) => {
     await mockAuthSession(page);
     await mockCompanies(page, MOCK_COMPANIES);
     await page.goto('/dashboard');
@@ -134,7 +134,7 @@ test.describe('Dashboard page', () => {
     expect(href).toBe('/pipeline?stage=L2');
   });
 
-  test('paginates the company overview (10 per page)', async ({ page }) => {
+  test('User pages through more than 10 companies', async ({ page }) => {
     await mockAuthSession(page);
     const many: Company[] = Array.from({ length: 12 }, (_, i) =>
       baseCompany({
@@ -163,7 +163,7 @@ test.describe('Dashboard page', () => {
     await expect(page.getByRole('button', { name: 'Company 12', exact: true })).toBeVisible();
   });
 
-  test('opens the company detail dialog when a row is clicked', async ({ page }) => {
+  test('User clicks a company row on the dashboard', async ({ page }) => {
     await mockAuthSession(page);
     await mockCompanies(page, MOCK_COMPANIES);
     await page.route('**/api/companies/*', (route) =>
@@ -181,7 +181,7 @@ test.describe('Dashboard page', () => {
     await expect(page.getByRole('dialog')).toBeVisible();
   });
 
-  test('shows empty state when no companies exist', async ({ page }) => {
+  test('Dashboard loads with an empty company list', async ({ page }) => {
     await mockAuthSession(page);
     await mockCompanies(page, []);
 
@@ -196,7 +196,7 @@ test.describe('Dashboard page', () => {
     await expect(page.getByText('No companies yet').first()).toBeVisible();
   });
 
-  test('surfaces the loading spinner before the API resolves', async ({ page }) => {
+  test('Dashboard data fetch is still pending', async ({ page }) => {
     await mockAuthSession(page);
     let release!: () => void;
     const gate = new Promise<void>((r) => {

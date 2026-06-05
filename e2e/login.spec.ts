@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { MOCK_USER, mockAuthSession, mockNextAuthSignIn } from './helpers/auth';
+import { getTestCredentials } from './helpers/credentials';
 
 test.describe('Login page', () => {
   test.beforeEach(async ({ page }) => {
@@ -14,9 +15,9 @@ test.describe('Login page', () => {
     );
   });
 
-  test('renders login form', async ({ page }) => {
+  test('Unauthenticated user opens the login page', async ({ page }) => {
     await mockAuthSession(page, null);
-    await page.goto('/login');
+    await page.goto('/login', { waitUntil: 'domcontentloaded' });
 
     await expect(page.getByRole('heading', { name: 'BRAIN 2.0' })).toBeVisible();
     await expect(page.locator('#signin-email')).toBeVisible();
@@ -24,10 +25,10 @@ test.describe('Login page', () => {
     await expect(page.getByRole('button', { name: 'Sign In' })).toBeVisible();
   });
 
-  test('shows error on invalid credentials', async ({ page }) => {
+  test('User submits a wrong email/password combination', async ({ page }) => {
     await mockAuthSession(page, null);
     await mockNextAuthSignIn(page, { errorCode: 'CredentialsSignin' });
-    await page.goto('/login');
+    await page.goto('/login', { waitUntil: 'domcontentloaded' });
 
     await page.locator('#signin-email').fill('wrong@example.com');
     await page.locator('#signin-password').fill('wrongpassword');
@@ -40,13 +41,14 @@ test.describe('Login page', () => {
     await expect(page).toHaveURL(/\/login$/);
   });
 
-  test('successful login redirects to /dashboard', async ({ page }) => {
+  test('User signs in with valid credentials', async ({ page }) => {
     const session = await mockAuthSession(page, null);
     await mockNextAuthSignIn(page);
-    await page.goto('/login');
+    await page.goto('/login', { waitUntil: 'domcontentloaded' });
 
-    await page.locator('#signin-email').fill('test@example.com');
-    await page.locator('#signin-password').fill('password123');
+    const { email, password } = getTestCredentials();
+    await page.locator('#signin-email').fill(email);
+    await page.locator('#signin-password').fill(password);
 
     // Flip the session to authenticated right before submit so the post-signin
     // session refresh and the dashboard's ProtectedRoute see a valid user.
@@ -57,10 +59,10 @@ test.describe('Login page', () => {
     await expect(page).toHaveURL(/\/dashboard/);
   });
 
-  test('disables form while submitting', async ({ page }) => {
+  test('Form disabled while submitting', async ({ page }) => {
     await mockAuthSession(page, null);
     await mockNextAuthSignIn(page, { delayMs: 700 });
-    await page.goto('/login');
+    await page.goto('/login', { waitUntil: 'domcontentloaded' });
 
     await page.locator('#signin-email').fill('test@example.com');
     await page.locator('#signin-password').fill('password123');
@@ -71,10 +73,10 @@ test.describe('Login page', () => {
     await expect(page.getByText('Signing in...')).toBeVisible();
   });
 
-  test('redirects to /dashboard if already authenticated', async ({ page }) => {
+  test('Authenticated user navigates to the login page', async ({ page }) => {
     await mockAuthSession(page, MOCK_USER);
 
-    await page.goto('/login');
+    await page.goto('/login', { waitUntil: 'domcontentloaded' });
     await page.waitForURL('**/dashboard');
     await expect(page).toHaveURL(/\/dashboard/);
   });

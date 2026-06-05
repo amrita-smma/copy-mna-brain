@@ -126,7 +126,7 @@ const mockApis = async (page: Page, companies: Company[], opts?: { favorites?: s
 };
 
 test.describe('Pipeline page', () => {
-  test('redirects to /login when unauthenticated', async ({ page }) => {
+  test('Unauthenticated user opens the Pipeline', async ({ page }) => {
     await mockAuthSession(page, null);
 
     await page.goto('/pipeline');
@@ -134,7 +134,7 @@ test.describe('Pipeline page', () => {
     await expect(page).toHaveURL(/\/login/);
   });
 
-  test('renders header, stage tabs and per-stage counts', async ({ page }) => {
+  test('Authenticated user views the Pipeline', async ({ page }) => {
     await mockAuthSession(page);
     await mockApis(page, MOCK_COMPANIES);
 
@@ -156,7 +156,7 @@ test.describe('Pipeline page', () => {
     await expect(page.getByRole('tab', { name: /^L2\s+1$/ })).toBeVisible();
   });
 
-  test('honors ?stage= query param and renders that stage', async ({ page }) => {
+  test('User opens the Pipeline with ?stage=L2', async ({ page }) => {
     await mockAuthSession(page);
     await mockApis(page, MOCK_COMPANIES);
 
@@ -170,7 +170,7 @@ test.describe('Pipeline page', () => {
     await expect(page.getByRole('button', { name: 'Stark Industries', exact: true })).toBeVisible();
   });
 
-  test('switching tabs updates the URL', async ({ page }) => {
+  test('User switches pipeline stage tabs', async ({ page }) => {
     await mockAuthSession(page);
     await mockApis(page, MOCK_COMPANIES);
 
@@ -184,7 +184,7 @@ test.describe('Pipeline page', () => {
     await expect(page.getByRole('button', { name: 'Wayne Enterprises', exact: true })).toBeVisible();
   });
 
-  test('search filters companies within the active stage', async ({ page }) => {
+  test('User searches within a stage', async ({ page }) => {
     await mockAuthSession(page);
     await mockApis(page, MOCK_COMPANIES);
 
@@ -201,7 +201,7 @@ test.describe('Pipeline page', () => {
     await expect(page.getByRole('button', { name: 'Umbrella', exact: true })).not.toBeVisible();
   });
 
-  test('L1 status filter narrows to matching rows', async ({ page }) => {
+  test('User filters L1 by screening status', async ({ page }) => {
     await mockAuthSession(page);
     await mockApis(page, MOCK_COMPANIES);
 
@@ -217,7 +217,7 @@ test.describe('Pipeline page', () => {
     await expect(page.getByRole('button', { name: 'Umbrella', exact: true })).not.toBeVisible();
   });
 
-  test('clicking a company opens the detail dialog', async ({ page }) => {
+  test('User clicks a company in the Pipeline', async ({ page }) => {
     await mockAuthSession(page);
     await mockApis(page, MOCK_COMPANIES);
     await page.route('**/api/deal-notes**', (route) =>
@@ -239,7 +239,7 @@ test.describe('Pipeline page', () => {
     await expect(page.getByRole('dialog')).toBeVisible();
   });
 
-  test('toggling favorite star posts to the favorites endpoint', async ({ page }) => {
+  test('User stars a company', async ({ page }) => {
     await mockAuthSession(page, MOCK_USER);
     await mockApis(page, MOCK_COMPANIES);
 
@@ -260,7 +260,7 @@ test.describe('Pipeline page', () => {
     expect(JSON.parse(req.postData() || '{}')).toEqual({ companyId: 'co-5' });
   });
 
-  test('empty stage shows "No companies in this stage"', async ({ page }) => {
+  test('User views a stage with no companies', async ({ page }) => {
     await mockAuthSession(page);
     // Only L0 data, so L4 will be empty.
     const onlyL0 = MOCK_COMPANIES.filter((c) => c.pipeline_stage === 'L0');

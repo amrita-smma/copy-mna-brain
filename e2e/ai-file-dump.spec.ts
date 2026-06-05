@@ -39,22 +39,28 @@ const PROSPECTUS_FILES: FileRecord[] = [
   baseFile({ id: 'pro-1', file_name: 'Acme Prospectus.pdf', processing_status: 'completed' }),
 ];
 
+const BANKER_FILES: FileRecord[] = [
+  baseFile({ id: 'bnk-1', file_name: 'Goldman Engagement Letter.pdf', processing_status: 'completed' }),
+];
+
 const OTHER_FILES: FileRecord[] = [
   baseFile({ id: 'oth-1', file_name: 'Misc Notes.pdf', processing_status: 'pending' }),
 ];
 
 /**
  * /api/ai-file-dump is dispatched by the `file_type` query param:
- *   ?file_type           → MoM (empty value ⇒ default list)
- *   ?file_type=prospectus → Prospectus
- *   ?file_type=other     → Other
+ *   ?file_type                      → MoM (empty value ⇒ default list)
+ *   ?file_type=prospectus           → Prospectus
+ *   ?file_type=banker_communications → Banker Communications
+ *   ?file_type=other                → Other
  */
 const mockFileDump = (
   page: Page,
-  opts?: { mom?: FileRecord[]; prospectus?: FileRecord[]; other?: FileRecord[] },
+  opts?: { mom?: FileRecord[]; prospectus?: FileRecord[]; banker?: FileRecord[]; other?: FileRecord[] },
 ) => {
   const mom = opts?.mom ?? MOM_FILES;
   const prospectus = opts?.prospectus ?? PROSPECTUS_FILES;
+  const banker = opts?.banker ?? BANKER_FILES;
   const other = opts?.other ?? OTHER_FILES;
 
   return page.route('**/api/ai-file-dump**', (route) => {
@@ -80,6 +86,13 @@ const mockFileDump = (
           body: JSON.stringify({ success: true, data: prospectus }),
         });
       }
+      if (fileType === 'banker_communications') {
+        return route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ success: true, data: banker }),
+        });
+      }
       if (fileType === 'other') {
         return route.fulfill({
           status: 200,
@@ -100,7 +113,7 @@ const mockFileDump = (
 };
 
 test.describe('AI File Dump page', () => {
-  test('redirects to /login when unauthenticated', async ({ page }) => {
+  test('Unauthenticated user opens AI File Dump', async ({ page }) => {
     await mockAuthSession(page, null);
 
     await page.goto('/ai-file-dump');
@@ -108,7 +121,7 @@ test.describe('AI File Dump page', () => {
     await expect(page).toHaveURL(/\/login/);
   });
 
-  test('renders header, upload zone and three file tables', async ({ page }) => {
+  test('Authenticated user views AI File Dump', async ({ page }) => {
     await mockAuthSession(page);
     await mockFileDump(page);
 
@@ -128,17 +141,19 @@ test.describe('AI File Dump page', () => {
     // Tables titled with counts
     await expect(page.getByText(`MoM (${MOM_FILES.length})`)).toBeVisible();
     await expect(page.getByText(`Prospectus (${PROSPECTUS_FILES.length})`)).toBeVisible();
+    await expect(page.getByText(`Banker Communications (${BANKER_FILES.length})`)).toBeVisible();
     await expect(page.getByText(`Other (${OTHER_FILES.length})`)).toBeVisible();
 
     // Rows from each table
     await expect(page.getByText('Board Meeting March.pdf')).toBeVisible();
     await expect(page.getByText('Acme Prospectus.pdf')).toBeVisible();
+    await expect(page.getByText('Goldman Engagement Letter.pdf')).toBeVisible();
     await expect(page.getByText('Misc Notes.pdf')).toBeVisible();
   });
 
-  test('shows per-table empty states when no files exist', async ({ page }) => {
+  test('All three file tables are empty', async ({ page }) => {
     await mockAuthSession(page);
-    await mockFileDump(page, { mom: [], prospectus: [], other: [] });
+    await mockFileDump(page, { mom: [], prospectus: [], banker: [], other: [] });
 
     await Promise.all([
       page.waitForResponse((res) => res.url().includes('/api/ai-file-dump') && res.status() === 200),
@@ -147,10 +162,11 @@ test.describe('AI File Dump page', () => {
 
     await expect(page.getByText('No MoM uploaded yet.')).toBeVisible();
     await expect(page.getByText('No prospectus uploaded yet.')).toBeVisible();
+    await expect(page.getByText('No banker communications uploaded yet.')).toBeVisible();
     await expect(page.getByText('No other files uploaded yet.')).toBeVisible();
   });
 
-  test('loading spinner is visible until the fetches resolve', async ({ page }) => {
+  test('File-dump fetches are still pending', async ({ page }) => {
     await mockAuthSession(page);
     let release!: () => void;
     const gate = new Promise<void>((r) => {
@@ -175,7 +191,7 @@ test.describe('AI File Dump page', () => {
     await expect(page.getByRole('heading', { name: 'AI File Dump', level: 1 })).toBeVisible();
   });
 
-  test('selecting a file via browse input adds it to the selection list', async ({ page }) => {
+  test('User selects a file via the browse input', async ({ page }) => {
     await mockAuthSession(page);
     await mockFileDump(page);
 
@@ -195,7 +211,7 @@ test.describe('AI File Dump page', () => {
     await expect(page.getByRole('button', { name: /Upload File/ })).toBeVisible();
   });
 
-  test('duplicate filename is flagged in the selection list', async ({ page }) => {
+  test('User selects a file matching an existing name', async ({ page }) => {
     await mockAuthSession(page);
     await mockFileDump(page);
 
@@ -214,7 +230,7 @@ test.describe('AI File Dump page', () => {
     await expect(page.getByText('Duplicate').first()).toBeVisible();
   });
 
-  test('clear-all removes selected files', async ({ page }) => {
+  test('User clears the selection', async ({ page }) => {
     await mockAuthSession(page);
     await mockFileDump(page);
 
@@ -234,7 +250,7 @@ test.describe('AI File Dump page', () => {
     await expect(page.getByText('Selected Files (1)')).not.toBeVisible();
   });
 
-  test('search filters the MoM table', async ({ page }) => {
+  test('User searches the MoM table', async ({ page }) => {
     await mockAuthSession(page);
     await mockFileDump(page);
 
@@ -243,8 +259,8 @@ test.describe('AI File Dump page', () => {
       page.goto('/ai-file-dump'),
     ]);
 
-    // Three tables render with identical search placeholders (MoM, Prospectus, Other).
-    // MoM renders first, so target the first one.
+    // Four tables render with identical search placeholders (MoM, Prospectus,
+    // Banker Communications, Other). MoM renders first, so target the first one.
     await page.getByPlaceholder('Search notes, tags, companies...').first().fill('Board');
 
     await expect(page.getByText(`MoM (1)`)).toBeVisible();
@@ -252,7 +268,7 @@ test.describe('AI File Dump page', () => {
     await expect(page.getByText('Investor Call Q1.pdf')).not.toBeVisible();
   });
 
-  test('delete flow confirms then sends DELETE /api/ai-file-dump/<id>', async ({ page }) => {
+  test('User deletes a file', async ({ page }) => {
     await mockAuthSession(page);
     await mockFileDump(page);
 
@@ -276,7 +292,7 @@ test.describe('AI File Dump page', () => {
     expect(deleteReq.url()).toContain('/api/ai-file-dump/mom-1');
   });
 
-  test('AI CoPilot tab navigates to /ai-discovery', async ({ page }) => {
+  test('User clicks the AI CoPilot tab', async ({ page }) => {
     await mockAuthSession(page);
     await mockFileDump(page);
 

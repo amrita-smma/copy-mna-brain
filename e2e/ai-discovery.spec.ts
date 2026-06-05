@@ -14,7 +14,7 @@ const mockChatEndpoint = (page: Page) =>
   });
 
 test.describe('AI Discovery page', () => {
-  test('redirects to /login when unauthenticated', async ({ page }) => {
+  test('Unauthenticated user opens AI Discovery', async ({ page }) => {
     await mockAuthSession(page, null);
 
     await page.goto('/ai-discovery');
@@ -22,7 +22,7 @@ test.describe('AI Discovery page', () => {
     await expect(page).toHaveURL(/\/login/);
   });
 
-  test('renders AI CoPilot header, tab bar and chat input', async ({ page }) => {
+  test('Authenticated user views AI Discovery', async ({ page }) => {
     await mockAuthSession(page);
     await mockChatEndpoint(page);
     await page.goto('/ai-discovery');
@@ -42,7 +42,7 @@ test.describe('AI Discovery page', () => {
     ).toBeVisible();
   });
 
-  test('?tab=filedump redirects to /ai-file-dump', async ({ page }) => {
+  test('User opens AI Discovery with ?tab=filedump', async ({ page }) => {
     await mockAuthSession(page);
     // Stub the ai-file-dump fetches so the target page renders without backend.
     await page.route('**/api/ai-file-dump**', (route) =>
@@ -58,7 +58,7 @@ test.describe('AI Discovery page', () => {
     await expect(page).toHaveURL(/\/ai-file-dump/);
   });
 
-  test('suggestion chip populates the input', async ({ page }) => {
+  test('User clicks a suggestion chip', async ({ page }) => {
     await mockAuthSession(page);
     await mockChatEndpoint(page);
     await page.goto('/ai-discovery');
@@ -72,7 +72,7 @@ test.describe('AI Discovery page', () => {
     await expect(input).toHaveValue(chipLabel);
   });
 
-  test('send button is disabled for empty input and enabled after typing', async ({ page }) => {
+  test('Send button reflects input state', async ({ page }) => {
     await mockAuthSession(page);
     await mockChatEndpoint(page);
     await page.goto('/ai-discovery');
@@ -85,7 +85,7 @@ test.describe('AI Discovery page', () => {
     await expect(sendBtn).toBeEnabled();
   });
 
-  test('submitting a message POSTs to /api/chat', async ({ page }) => {
+  test('User sends a chat message', async ({ page }) => {
     await mockAuthSession(page);
     await mockChatEndpoint(page);
     await page.goto('/ai-discovery');
@@ -101,7 +101,7 @@ test.describe('AI Discovery page', () => {
     expect(req.method()).toBe('POST');
   });
 
-  test('clicking the AI File Dump tab navigates to /ai-file-dump', async ({ page }) => {
+  test('User clicks the in-page AI File Dump tab', async ({ page }) => {
     await mockAuthSession(page);
     await mockChatEndpoint(page);
     await page.route('**/api/ai-file-dump**', (route) =>
