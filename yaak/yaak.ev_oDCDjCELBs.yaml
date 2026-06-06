@@ -3,7 +3,7 @@ model: environment
 id: ev_oDCDjCELBs
 workspaceId: wk_4yBsWJ5Tuh
 createdAt: 2026-04-25T01:43:29.564632
-updatedAt: 2026-05-12T09:41:04.165739
+updatedAt: 2026-06-06T10:10:21.916750
 name: dev
 public: true
 base: false
@@ -12,11 +12,11 @@ parentId: null
 variables:
 - enabled: true
   name: apiSharedSecret
-  value: ${[ secure(value=b64'WUVOQ19lVUUwYXpOdVF3RmVRcnpjVzB3T3d5V1QvMEFQZE83ekFnU1cyZmJrMWNBYk1zWlhTdkVVSmhwQm5LMEhWS3RHa1ArODVEMDIwbFNwdExtWExmdjhVM0gvd2t4NCtYOTBNcm50dEZicG9oN3VFb1MrR1JSeGFaazNVa2swYUNXd29UT2t6bVIzbXQ3MWZlNWkySjJjYmc9PQ') ]}
+  value: ${[ secure(value=b64'WUVOQ19lVUUwYXpOdVF3RkhCQVVWdGExcVpneUxCOExyZUx0WEFkMWV5QXA0VjhIQ0JadzB0eUFkVHVqUEoyZGI4WFZlSlRzM1JNWlFqeThCaUM4ZHZPQytseHlURVJjNVlPODM0SXhFejZmdThMSjZIS0dlK1l5VVFJWW5YcmlMbmVaMHNiT1BEWnVxOGp3Vnp4SWIwQjVhWXc9PQ') ]}
   id: 6DC58yW2QA
 - enabled: true
   name: API_URL
-  value: localhost:3000
+  value: localhost:3001
   id: QV9drfzBaU
 color: var(--success)
 sortPriority: 0.0

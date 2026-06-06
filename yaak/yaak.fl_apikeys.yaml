@@ -1,0 +1,13 @@
+type: folder
+model: folder
+id: fl_apikeys
+createdAt: 2026-06-06T00:00:00
+updatedAt: 2026-06-06T09:53:32.011223
+workspaceId: wk_4yBsWJ5Tuh
+folderId: null
+authentication: {}
+authenticationType: null
+description: Admin CRUD for external chat API keys. Gated by the NextAuth dashboard session — paste your browser session cookie into the sessionCookie variable.
+headers: []
+name: API Keys
+sortPriority: 2000.0

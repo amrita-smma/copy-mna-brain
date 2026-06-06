@@ -2422,3 +2422,65 @@ export const copilotChats = pgTable(
     };
   },
 );
+
+// API keys for external authorized applications (machine-to-machine access to
+// the chat API). The raw token is never stored — only a scrypt hash and a
+// short non-secret prefix used to look the row up before verifying the hash.
+export const apiKeys = pgTable(
+  "api_keys",
+  {
+    id: uuid().defaultRandom().primaryKey().notNull(),
+    name: text().notNull(),
+    key_prefix: text().notNull(),
+    key_hash: text().notNull(),
+    scopes: text().array().default([]).notNull(),
+    last_used_at: timestamp({ withTimezone: true, mode: "string" }),
+    revoked_at: timestamp({ withTimezone: true, mode: "string" }),
+    created_at: timestamp({ withTimezone: true, mode: "string" })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => {
+    return {
+      idxApiKeysPrefix: index("idx_api_keys_prefix").using(
+        "btree",
+        table.key_prefix.asc().nullsLast().op("text_ops"),
+      ),
+    };
+  },
+);
+
+// Chat conversations owned by an API key. Mirrors copilot_chats but for
+// external clients: the id is used as the agent checkpointer thread_id, and
+// ownership is scoped to api_key_id so one client can never resume another's
+// conversation.
+export const apiChatConversations = pgTable(
+  "api_chat_conversations",
+  {
+    id: uuid().defaultRandom().primaryKey().notNull(),
+    api_key_id: uuid().notNull(),
+    title: text(),
+    created_at: timestamp({ withTimezone: true, mode: "string" })
+      .defaultNow()
+      .notNull(),
+    last_active_at: timestamp({ withTimezone: true, mode: "string" })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => {
+    return {
+      idxApiChatConversationsKeyActive: index(
+        "idx_api_chat_conversations_key_active",
+      ).using(
+        "btree",
+        table.api_key_id.asc().nullsLast().op("uuid_ops"),
+        table.last_active_at.desc().nullsFirst().op("timestamptz_ops"),
+      ),
+      apiChatConversationsApiKeyIdFkey: foreignKey({
+        columns: [table.api_key_id],
+        foreignColumns: [apiKeys.id],
+        name: "api_chat_conversations_api_key_id_fkey",
+      }).onDelete("cascade"),
+    };
+  },
+);

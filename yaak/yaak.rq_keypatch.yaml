@@ -1,0 +1,35 @@
+type: http_request
+model: http_request
+id: rq_keypatch
+createdAt: 2026-06-06T00:00:00
+updatedAt: 2026-06-06T10:22:51.846022
+workspaceId: wk_4yBsWJ5Tuh
+folderId: fl_apikeys
+authentication: {}
+authenticationType: null
+body:
+  text: |-
+    {
+      "name": "Acme Integration (renamed)",
+      "scopes": ["chat:write"]
+    }
+bodyType: application/json
+description: PATCH /api/auth/api-keys/:id — update name and/or scopes.
+headers:
+- enabled: true
+  name: Content-Type
+  value: application/json
+  id: W0JhPkWugm
+- enabled: true
+  name: X-Api-Secret
+  value: ${[ secure(value=b64'WUVOQ19lVUUwYXpOdVF3R20veTdDK2pjM1locy90QjUwWUxHY1VzWktkekxyMW16UFdhbmgyWEZ2dlo2eHRlWmdyS0VsSEptTUR5ckgwOGN3RGlZSVNLRHBYbDBnNERweFF3PT0') ]}
+  id: bFfNXee2ZB
+- enabled: true
+  name: ''
+  value: ''
+  id: UxQYCQFUeM
+method: PATCH
+name: Update key
+sortPriority: 4.0
+url: http://${[ API_URL ]}/api/auth/api-keys/${[ keyId ]}
+urlParameters: []

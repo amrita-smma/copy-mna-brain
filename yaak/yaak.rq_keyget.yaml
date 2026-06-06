@@ -1,0 +1,26 @@
+type: http_request
+model: http_request
+id: rq_keyget
+createdAt: 2026-06-06T00:00:00
+updatedAt: 2026-06-06T10:23:58.888651
+workspaceId: wk_4yBsWJ5Tuh
+folderId: fl_apikeys
+authentication: {}
+authenticationType: null
+body: {}
+bodyType: null
+description: GET /api/auth/api-keys/:id — fetch one key's metadata.
+headers:
+- enabled: true
+  name: X-Api-Secret
+  value: ${[ secure(value=b64'WUVOQ19lVUUwYXpOdVF3RU5BWC9wQXdqRW03QWM1bHZMZnk3blhJdi93L2t1WjdBR01QWU9uY3g1WUU5Z1IwTkRpenUzQ0NRMTczZWhhMnV2K21EUlMzVCsvVEdGc09aU1F3PT0') ]}
+  id: CB6ZGd3C9d
+- enabled: true
+  name: ''
+  value: ''
+  id: rzdBzpJsuV
+method: GET
+name: Get key
+sortPriority: 3.0
+url: http://${[ API_URL ]}/api/auth/api-keys/ea079bb6-14e7-416e-995e-37203962403b
+urlParameters: []

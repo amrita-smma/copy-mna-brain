@@ -1,8 +1,8 @@
 type: folder
 model: folder
 id: fl_Brain2Auth0
-createdAt: 2026-04-23T00:00:00.000000
-updatedAt: 2026-04-23T00:00:00.000000
+createdAt: 2026-04-23T00:00:00
+updatedAt: 2026-06-06T09:53:32.010302
 workspaceId: wk_4yBsWJ5Tuh
 folderId: null
 authentication: {}
@@ -10,4 +10,4 @@ authenticationType: null
 description: ''
 headers: []
 name: Brain 2.0 Auth
-sortPriority: 10.0
+sortPriority: 1000.0

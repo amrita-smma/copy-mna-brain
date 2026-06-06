@@ -2,7 +2,7 @@ type: http_request
 model: http_request
 id: rq_BrainReset01
 createdAt: 2026-04-23T00:00:00
-updatedAt: 2026-04-28T07:46:42.446392
+updatedAt: 2026-06-06T09:55:00.469637
 workspaceId: wk_4yBsWJ5Tuh
 folderId: fl_Brain2Auth0
 authentication: {}
@@ -34,5 +34,5 @@ headers:
 method: POST
 name: Reset password
 sortPriority: 3.0
-url: http://localhost:3000/api/auth/reset-password
+url: http://${[ API_URL ]}/api/auth/reset-password
 urlParameters: []

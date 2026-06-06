@@ -1,0 +1,38 @@
+type: http_request
+model: http_request
+id: rq_keyslist
+createdAt: 2026-06-06T00:00:00
+updatedAt: 2026-06-06T10:22:22.230644
+workspaceId: wk_4yBsWJ5Tuh
+folderId: fl_apikeys
+authentication: {}
+authenticationType: null
+body: {}
+bodyType: null
+description: GET /api/auth/api-keys — list all keys (metadata only, no secrets).
+headers:
+- enabled: false
+  name: ''
+  value: ''
+  id: Q730t0RWIG
+- enabled: true
+  name: X-Api-Secret
+  value: ${[ secure(value=b64'WUVOQ19lVUUwYXpOdVF3SFhReFhUeUdjYk5JT1NBcHBZMG1kZ3lOMXVEZ1ZTL2UxNkhhVWxkTU5pR0JDRGpnRHNOZVhEOXg3NE13Unl1S0d2Y2l1ekpDa0VXNE9MVzY2TytRPT0') ]}
+  id: xGCpY7sgMk
+- enabled: true
+  name: ''
+  value: ''
+  id: c5i9cJHP3B
+method: GET
+name: List keys
+sortPriority: 1.0
+url: http://${[ API_URL ]}/api/auth/api-keys
+urlParameters:
+- enabled: false
+  name: X-Api-Secret
+  value: ${[ apiSharedSecret ]}
+  id: Q89PZQHPf3
+- enabled: true
+  name: ''
+  value: ''
+  id: Z7GwkQcBjV

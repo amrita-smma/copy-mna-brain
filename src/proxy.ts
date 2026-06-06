@@ -10,6 +10,8 @@ export function proxy(req: NextRequest) {
   return NextResponse.next();
 }
 
+// Admin routes live under /api/auth and are gated by the X-Api-Secret header
+// (compared against ADMIN_SECRET above). Add new admin routes to this matcher.
 export const config = {
-  matcher: ["/api/auth/signup"],
+  matcher: ["/api/auth/signup", "/api/auth/api-keys", "/api/auth/api-keys/:path*"],
 };

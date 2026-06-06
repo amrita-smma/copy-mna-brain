@@ -3,12 +3,28 @@ model: environment
 id: ev_d28seoD7TM
 workspaceId: wk_4yBsWJ5Tuh
 createdAt: 2026-04-23T07:39:21.678403
-updatedAt: 2026-05-12T09:35:25.350791
+updatedAt: 2026-06-06T10:22:15.618691
 name: Global Variables
 public: true
 base: true
 parentModel: workspace
 parentId: null
-variables: []
+variables:
+- enabled: false
+  name: apiKey
+  value: ''
+  id: var_apikey_chat
+- enabled: false
+  name: sessionCookie
+  value: ''
+  id: var_session_cookie
+- enabled: false
+  name: keyId
+  value: ''
+  id: var_api_key_id
+- enabled: false
+  name: conversationId
+  value: ''
+  id: var_conversation_id
 color: null
 sortPriority: 0.0

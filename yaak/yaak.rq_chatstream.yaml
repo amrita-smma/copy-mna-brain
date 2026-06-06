@@ -1,0 +1,42 @@
+type: http_request
+model: http_request
+id: rq_chatstream
+createdAt: 2026-06-06T00:00:00
+updatedAt: 2026-06-06T09:53:32.013142
+workspaceId: wk_4yBsWJ5Tuh
+folderId: null
+authentication: {}
+authenticationType: null
+body:
+  text: |-
+    {
+      "conversation_id": "${[ conversationId ]}",
+      "messages": [
+        { "role": "user", "content": "What changed since my last question?" }
+      ]
+    }
+bodyType: application/json
+description: |-
+  POST /api/v1/chat/stream — Server-Sent Events.
+
+  Emits `delta` (text chunks), `tool_call`, `done`, and `error` events. Pass
+  conversation_id to continue an existing conversation (only the latest user
+  turn is sent; prior state is rehydrated server-side).
+headers:
+- enabled: true
+  name: Authorization
+  value: Bearer ${[ apiKey ]}
+  id: null
+- enabled: true
+  name: Content-Type
+  value: application/json
+  id: null
+- enabled: true
+  name: Accept
+  value: text/event-stream
+  id: null
+method: POST
+name: Chat (streaming SSE)
+sortPriority: 4000.0
+url: http://${[ API_URL ]}/api/v1/chat/stream
+urlParameters: []

@@ -1,0 +1,30 @@
+type: http_request
+model: http_request
+id: rq_keydelete
+createdAt: 2026-06-06T00:00:00
+updatedAt: 2026-06-06T10:20:11.011600
+workspaceId: wk_4yBsWJ5Tuh
+folderId: fl_apikeys
+authentication: {}
+authenticationType: null
+body: {}
+bodyType: null
+description: DELETE /api/auth/api-keys/:id — revoke the key (soft delete via revoked_at).
+headers:
+- enabled: true
+  name: Cookie
+  value: ${[ sessionCookie ]}
+  id: RkZSc8EkeH
+- enabled: true
+  name: X-Api-Secret
+  value: ${[ secure(value=b64'WUVOQ19lVUUwYXpOdVF3Rnp1bTJRTWFVM01YSlJHbVVtOVpLUTE5OFZjVUdhMFlwOW8yeTB4eXU3UTBobmJkR05EU29BaTA3Tkx6ZG1rQVpzZ2dvVFhHd3R6TVNIWXNhYmdnPT0') ]}
+  id: 2fyCMWKzsr
+- enabled: true
+  name: ''
+  value: ''
+  id: JrwMGD3kaQ
+method: DELETE
+name: Revoke key
+sortPriority: 5.0
+url: http://${[ API_URL ]}/api/auth/api-keys/${[ keyId ]}
+urlParameters: []

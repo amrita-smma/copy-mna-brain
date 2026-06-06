@@ -35,6 +35,8 @@ type TableMap = {
   pending_mutations: typeof schema.pendingMutations;
   routines: typeof schema.routines;
   copilot_chats: typeof schema.copilotChats;
+  api_keys: typeof schema.apiKeys;
+  api_chat_conversations: typeof schema.apiChatConversations;
   employers: typeof schema.employers;
   correspondents: typeof schema.correspondents;
   correspondent_companies: typeof schema.correspondentCompanies;

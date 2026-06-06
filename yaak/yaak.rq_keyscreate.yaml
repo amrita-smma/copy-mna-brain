@@ -1,0 +1,39 @@
+type: http_request
+model: http_request
+id: rq_keyscreate
+createdAt: 2026-06-06T00:00:00
+updatedAt: 2026-06-06T10:23:46.377454
+workspaceId: wk_4yBsWJ5Tuh
+folderId: fl_apikeys
+authentication: {}
+authenticationType: null
+body:
+  text: |-
+    {
+      "name": "BRAIN Launcher",
+      "scopes": ["chat:write"]
+    }
+bodyType: application/json
+description: POST /api/auth/api-keys — mint a key. The raw `token` is returned once in the response `data` and is never retrievable again.
+headers:
+- enabled: true
+  name: ''
+  value: ''
+  id: biccUkqS8x
+- enabled: true
+  name: Content-Type
+  value: application/json
+  id: vZYrXf54Tq
+- enabled: true
+  name: X-Api-Secret
+  value: ${[ secure(value=b64'WUVOQ19lVUUwYXpOdVF3SHdUTGZTR0t5NVh5M2J5NEo3THF4UjVYSUVzMklSU0txWWxiamhJWFJEZDJrV0xLenBUUG8rRDZCM292TkdoWXkwNWRVL1U1dTZocHZ1cGRmKzV3PT0') ]}
+  id: DEskbNNxqp
+- enabled: true
+  name: ''
+  value: ''
+  id: sfisiGqajX
+method: POST
+name: Create key
+sortPriority: 2.0
+url: http://${[ API_URL ]}/api/auth/api-keys
+urlParameters: []

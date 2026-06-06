@@ -2,6 +2,18 @@
 
 PR titles must begin with a Jira ticket prefix in the form `[MB-xx]`, where `xx` is the issue number (e.g., `[MB-123] add user authentication`). Never omit the prefix or use a different bracket style.
 
+## Admin Routes (`/api/auth`)
+
+Privileged machine-to-machine **admin** endpoints live under `src/app/api/auth/*` and are gated by a shared secret, NOT by a NextAuth session or a chat API key. The `proxy.ts` middleware compares the request's `X-Api-Secret` header against the `ADMIN_SECRET` env var for every path listed in its `matcher`.
+
+Rules when adding or moving an admin route:
+
+- Place the route under `src/app/api/auth/<route>/route.ts`.
+- Add its path (and a `:path*` entry for any dynamic segments) to the `matcher` array in `src/proxy.ts` so the `X-Api-Secret` gate applies.
+- Do NOT add a per-handler session check (`auth()`); authentication happens in the middleware. The handler should go straight to `createDb()` / `createContainer(db)`.
+- Callers must send `X-Api-Secret: <ADMIN_SECRET>`. Server-side internal calls via `src/lib/api/client.ts` (`apiRequest`) attach this header automatically.
+- Existing admin routes: `/api/auth/signup`, `/api/auth/api-keys`, `/api/auth/api-keys/:id`.
+
 ## Test Files (`**/*.test.ts`)
 
 Test files live next to their source files as `<name>.test.ts`. Rules when writing or editing tests:

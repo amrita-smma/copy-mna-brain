@@ -27,6 +27,8 @@ export * from './emailRepository';
 export * from './employerTeamRepository';
 export * from './aiWorkforceQueueRepository';
 export * from './copilotChatsRepository';
+export * from './apiKeyRepository';
+export * from './apiChatConversationRepository';
 export * from './agentRunEventsRepository';
 export * from './routinesRepository';
 export * from './dashboardActivityRepository';

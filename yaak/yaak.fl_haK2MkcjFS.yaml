@@ -2,12 +2,12 @@ type: folder
 model: folder
 id: fl_haK2MkcjFS
 createdAt: 2026-01-28T15:58:25.701999
-updatedAt: 2026-01-28T15:58:25.701999
+updatedAt: 2026-06-06T09:53:32.008678
 workspaceId: wk_4yBsWJ5Tuh
 folderId: null
 authentication: {}
 authenticationType: null
 description: ''
 headers: []
-name: public-api/v1
+name: Inven
 sortPriority: 0.0
