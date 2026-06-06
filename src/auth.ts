@@ -35,6 +35,34 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         }
       },
     }),
+    Credentials({
+      // Google SSO: the dashboard is reachable via `?token=<google id token>`.
+      // We validate that token against Google, resolve the local user by the
+      // verified email, and from here the JWT session is identical to a
+      // password sign-in — the rest of the auth flow is unchanged.
+      id: 'google-sso',
+      name: 'Google SSO',
+      credentials: {
+        token: {},
+      },
+      async authorize(credentials) {
+        const token = credentials?.token as string | undefined;
+        if (!token) return null;
+        try {
+          const db = createDb();
+          const { authService } = createContainer(db);
+          const user = await authService.signInWithGoogleToken(token);
+          return {
+            id: user.id,
+            email: user.email ?? undefined,
+            name: user.name,
+          };
+        } catch (err) {
+          console.error('[auth] google-sso authorize failed:', err);
+          return null;
+        }
+      },
+    }),
   ],
   callbacks: {
     async jwt({ token, user }) {

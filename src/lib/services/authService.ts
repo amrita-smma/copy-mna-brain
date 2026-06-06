@@ -1,6 +1,7 @@
 import { randomBytes } from 'crypto';
 import type { ResetPasswordTokenRepository, UserRepository } from '@/lib/repositories';
 import { hashPassword, verifyPassword } from './password';
+import { verifyGoogleIdToken } from './googleToken';
 import { enqueueSendEmail } from '@/lib/queue';
 import type { SendEmailPayload } from '@/lib/jobs/handlers/sendEmail';
 
@@ -18,6 +19,22 @@ export class AuthService {
     if (!user) throw new Error('Invalid email or password');
     const ok = await verifyPassword(password, user.password);
     if (!ok) throw new Error('Invalid email or password');
+    return user;
+  }
+
+  /**
+   * Sign in via a Google SSO ID token (the `?token=` value handed to the
+   * dashboard). The token is validated against Google, the verified email is
+   * extracted, and the matching local user is returned — from there the normal
+   * NextAuth JWT session flow takes over, identical to password sign-in.
+   *
+   * No account is auto-provisioned: just like the credentials flow, an unknown
+   * email is rejected so only pre-existing users can authenticate.
+   */
+  async signInWithGoogleToken(token: string) {
+    const email = await verifyGoogleIdToken(token);
+    const user = await this.userRepo.findByEmail(email);
+    if (!user) throw new Error('No account found for this Google email');
     return user;
   }
 

@@ -14,6 +14,12 @@ vi.mock('@/lib/queue', () => ({
   TOPICS: { sendEmail: 'send-email' },
 }));
 
+const verifyGoogleIdTokenMock = vi.fn();
+
+vi.mock('./googleToken', () => ({
+  verifyGoogleIdToken: (...args: unknown[]) => verifyGoogleIdTokenMock(...args),
+}));
+
 function makeUser(overrides: Partial<User> = {}): User {
   return {
     id: 'user-1',
@@ -69,6 +75,43 @@ describe('AuthService.signIn', () => {
     vi.mocked(userRepo.findByEmail).mockResolvedValue(user);
     const result = await service.signIn('test@example.com', 'correct');
     expect(result).toBe(user);
+  });
+});
+
+describe('AuthService.signInWithGoogleToken', () => {
+  let userRepo: UserRepository;
+  let service: AuthService;
+
+  beforeEach(() => {
+    verifyGoogleIdTokenMock.mockReset();
+    userRepo = makeUserRepoStub();
+    service = new AuthService(userRepo, makeTokenRepoStub());
+  });
+
+  it('propagates the verification error for an invalid token without touching the DB', async () => {
+    verifyGoogleIdTokenMock.mockRejectedValue(new Error('Google token verification failed'));
+    await expect(service.signInWithGoogleToken('bad-token')).rejects.toThrow('verification failed');
+    expect(userRepo.findByEmail).not.toHaveBeenCalled();
+  });
+
+  it('throws when no local account matches the verified email', async () => {
+    verifyGoogleIdTokenMock.mockResolvedValue('ghost@example.com');
+    vi.mocked(userRepo.findByEmail).mockResolvedValue(undefined);
+    await expect(service.signInWithGoogleToken('good-token')).rejects.toThrow(
+      'No account found for this Google email',
+    );
+    expect(userRepo.findByEmail).toHaveBeenCalledWith('ghost@example.com');
+  });
+
+  it('returns the matching user for a valid token', async () => {
+    const user = makeUser({ email: 'test@example.com' });
+    verifyGoogleIdTokenMock.mockResolvedValue('test@example.com');
+    vi.mocked(userRepo.findByEmail).mockResolvedValue(user);
+
+    const result = await service.signInWithGoogleToken('good-token');
+
+    expect(result).toBe(user);
+    expect(verifyGoogleIdTokenMock).toHaveBeenCalledWith('good-token');
   });
 });
 

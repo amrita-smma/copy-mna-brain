@@ -37,6 +37,20 @@ export function useAuth() {
     return { error: null };
   }, []);
 
+  const signInWithGoogleToken = useCallback(
+    async (token: string): Promise<SignInResult> => {
+      const result = await nextAuthSignIn('google-sso', {
+        token,
+        redirect: false,
+      });
+      if (!result || result.error) {
+        return { error: new Error(result?.error ?? 'Google sign-in failed') };
+      }
+      return { error: null };
+    },
+    [],
+  );
+
   const signOut = useCallback(async () => {
     posthog.capture('user_signed_out');
     posthog.reset();
@@ -47,6 +61,7 @@ export function useAuth() {
     user,
     loading: status === 'loading',
     signIn,
+    signInWithGoogleToken,
     signOut,
   };
 }

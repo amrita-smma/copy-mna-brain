@@ -91,6 +91,7 @@
     "fast-levenshtein": "^3.0.0",
     "flags": "^4.0.6",
     "framer-motion": "^12.34.0",
+    "google-auth-library": "^10.7.0",
     "input-otp": "^1.4.2",
     "jspdf": "^4.1.0",
     "jszip": "^3.10.1",

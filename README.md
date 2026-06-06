@@ -108,6 +108,29 @@ The AI File Dump supports a "banker_communications" file type for CSV and MBOX e
 - `GET /api/crm/:id/messages` — Get contact's messages
 - `POST /api/crm/:id/messages` — Add message to contact
 
+## Google SSO sign-in (dashboard token exchange)
+
+The dashboard can be opened with a Google-issued ID token in the URL:
+`https://mna.sqe.co.id/dashboard?token=eyJ...`. This logs the user in without a
+password while reusing the existing NextAuth JWT session.
+
+End-to-end shape:
+
+1. `GoogleSsoTokenGate` (`src/components/auth/GoogleSsoTokenGate.tsx`) wraps the
+   dashboard page. If a `token` query param is present it blocks rendering and
+   calls `useAuth().signInWithGoogleToken(token)`.
+2. That triggers the `google-sso` Credentials provider in `src/auth.ts`, whose
+   `authorize` calls `AuthService.signInWithGoogleToken`.
+3. `AuthService.signInWithGoogleToken` validates the token against Google via
+   `verifyGoogleIdToken` (`src/lib/services/googleToken.ts`, backed by
+   `google-auth-library`), extracts the verified email, and looks the user up by
+   email. Unknown emails are rejected — no account is auto-provisioned.
+4. On success NextAuth mints the same JWT session as a password sign-in; the gate
+   strips `token` from the URL and renders the dashboard.
+
+Set `GOOGLE_CLIENT_ID` so the token's `aud` claim is enforced against this app.
+Signature, issuer, expiry and `email_verified` are always checked.
+
 ## Forgot-password flow (AWS SES + Vercel Queues)
 
 Password resets are delivered out-of-band by email — the `/api/auth/forget-password`
