@@ -7,47 +7,55 @@ import { cn } from '@/lib/utils';
 interface MarkdownRendererProps {
   content: string;
   className?: string;
+  variant?: 'chat' | 'card';
 }
 
-export function MarkdownRenderer({ content, className }: MarkdownRendererProps) {
+export function MarkdownRenderer({ content, className, variant = 'chat' }: MarkdownRendererProps) {
+  const isCard = variant === 'card';
+
   return (
-    <div className={cn("prose prose-sm max-w-none break-words dark:prose-invert", className)}>
+    <div className={cn("prose max-w-none break-words dark:prose-invert", isCard ? "prose-base" : "prose-sm", className)}>
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         components={{
           // Headers
           h1: ({ children }) => (
-            <h1 className="text-xl font-bold mt-4 mb-2 first:mt-0 text-foreground">{children}</h1>
+            <h1 className={cn("font-bold mt-4 mb-2 first:mt-0 text-foreground", isCard ? "text-2xl tracking-tight" : "text-xl")}>{children}</h1>
           ),
           h2: ({ children }) => (
-            <h2 className="text-lg font-semibold mt-4 mb-2 first:mt-0 text-foreground border-b border-border pb-1">{children}</h2>
+            <h2 className={cn("font-bold mt-4 mb-2 first:mt-0 text-foreground border-b border-border pb-1", isCard ? "text-xl tracking-tight" : "text-lg font-semibold")}>{children}</h2>
           ),
           h3: ({ children }) => (
-            <h3 className="text-base font-semibold mt-3 mb-1.5 text-foreground">{children}</h3>
+            <h3 className={cn("font-semibold mt-3 mb-1.5 text-foreground", isCard ? "text-lg" : "text-base")}>{children}</h3>
           ),
           h4: ({ children }) => (
-            <h4 className="text-sm font-semibold mt-2 mb-1 text-foreground">{children}</h4>
+            <h4 className={cn("font-semibold mt-2 mb-1 text-foreground", isCard ? "text-base" : "text-sm")}>{children}</h4>
           ),
 
           // Paragraphs
           p: ({ children }) => (
-            <p className="mb-2 last:mb-0 text-foreground/90 leading-relaxed">{children}</p>
+            <p className={cn("mb-2 last:mb-0 leading-relaxed", isCard ? "text-foreground" : "text-foreground/90")}>{children}</p>
           ),
 
           // Strong/Bold
           strong: ({ children }) => (
-            <strong className="font-semibold text-foreground">{children}</strong>
+            <strong className={cn(isCard ? "font-bold text-foreground" : "font-semibold text-foreground")}>{children}</strong>
+          ),
+
+          // Emphasis/Italic
+          em: ({ children }) => (
+            <em className={cn("italic", isCard ? "text-foreground/80" : "text-foreground/90")}>{children}</em>
           ),
 
           // Lists
           ul: ({ children }) => (
-            <ul className="my-2 ml-4 space-y-1 list-disc marker:text-muted-foreground">{children}</ul>
+            <ul className={cn("my-2 ml-4 list-disc marker:text-muted-foreground", isCard ? "space-y-1.5" : "space-y-1")}>{children}</ul>
           ),
           ol: ({ children }) => (
-            <ol className="my-2 ml-4 space-y-1 list-decimal marker:text-muted-foreground">{children}</ol>
+            <ol className={cn("my-2 ml-4 list-decimal marker:text-muted-foreground", isCard ? "space-y-1.5" : "space-y-1")}>{children}</ol>
           ),
           li: ({ children }) => (
-            <li className="text-foreground/90">{children}</li>
+            <li className={cn(isCard ? "text-foreground leading-snug" : "text-foreground/90")}>{children}</li>
           ),
 
           // Tables - styled to match our UI

@@ -89,7 +89,7 @@ export function CompanyAnalysisSection({
         <CollapsibleContent>
           <CardContent>
             {content ? (
-              <MarkdownRenderer content={content} />
+              <MarkdownRenderer content={content} variant="card" />
             ) : (
               <p className="text-sm text-muted-foreground italic">
                 No content available

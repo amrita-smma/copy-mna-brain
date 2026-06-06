@@ -967,7 +967,7 @@ export default function CompanyDetailDialog({
               <TrendingUp className="h-4 w-4" />
               <AlertTitle>Promotion reasons</AlertTitle>
               <AlertDescription>
-                <MarkdownRenderer content={company.promoted_reasons} />
+                <MarkdownRenderer content={company.promoted_reasons} variant="card" />
               </AlertDescription>
             </Alert>
           )}
@@ -980,6 +980,30 @@ export default function CompanyDetailDialog({
             }
             className="flex flex-col flex-1 min-h-0"
           >
+            {/* Tab bar pinned to top */}
+            <div className="shrink-0 border-b bg-background">
+              <TabsList className="w-full h-auto rounded-none bg-transparent p-0 grid grid-cols-3">
+                <TabsTrigger
+                  value="overview"
+                  className="rounded-none border-b-2 border-transparent data-[state=active]:border-accent data-[state=active]:text-accent data-[state=active]:bg-transparent py-3 text-sm font-medium"
+                >
+                  Overview
+                </TabsTrigger>
+                <TabsTrigger
+                  value="filters"
+                  className="rounded-none border-b-2 border-transparent data-[state=active]:border-accent data-[state=active]:text-accent data-[state=active]:bg-transparent py-3 text-sm font-medium"
+                >
+                  L1 Filters
+                </TabsTrigger>
+                <TabsTrigger
+                  value="attachments"
+                  className="rounded-none border-b-2 border-transparent data-[state=active]:border-accent data-[state=active]:text-accent data-[state=active]:bg-transparent py-3 text-sm font-medium"
+                >
+                  Attachments
+                </TabsTrigger>
+              </TabsList>
+            </div>
+
             <div className="flex-1 min-h-0 overflow-y-auto px-6">
               <div className="h-2" />
 
@@ -1014,9 +1038,7 @@ export default function CompanyDetailDialog({
                           <Sparkles className="h-4 w-4" />
                           Why This Company Matches Your Investment Thesis
                         </p>
-                        <p className="text-sm leading-relaxed">
-                          {company.remarks}
-                        </p>
+                        <MarkdownRenderer content={company.remarks} variant="card" />
                       </div>
                     </CardContent>
                   </Card>
@@ -1471,65 +1493,123 @@ export default function CompanyDetailDialog({
             </TabsContent>
 
             <TabsContent value="attachments" className="space-y-4 pb-4">
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-                {/* Notes Section */}
+              <div className="grid grid-cols-1 gap-4">
+                {/* Files mentioning this company (from AI file dump) */}
                 <Card>
                   <CardHeader className="pb-3">
                     <CardTitle className="text-base flex items-center gap-2">
                       <FileText className="h-4 w-4" />
-                      Notes
+                      Files mentioning this company
                     </CardTitle>
+                    <CardDescription>From AI file dump</CardDescription>
                   </CardHeader>
-                  <CardContent className="space-y-3">
-                    <div className="flex gap-2">
-                      <Textarea
-                        placeholder="Add a note..."
-                        value={newNote}
-                        onChange={(e) => setNewNote(e.target.value)}
-                        className="flex-1 min-h-[60px]"
-                        rows={2}
-                      />
-                      <Button
-                        onClick={addNote}
-                        disabled={isSubmitting || !newNote.trim()}
-                        size="icon"
-                        className="shrink-0"
-                      >
-                        {isSubmitting ? (
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                        ) : (
-                          <Plus className="h-4 w-4" />
-                        )}
-                      </Button>
-                    </div>
-                    <div className="space-y-2 max-h-[200px] overflow-y-auto">
-                      {notes.length === 0 ? (
-                        <p className="text-muted-foreground text-xs">
-                          No notes yet
-                        </p>
-                      ) : (
-                        notes.map((note) => (
+                  <CardContent>
+                    {matchedFiles.length === 0 ? (
+                      <p className="text-muted-foreground text-xs">
+                        No files from the AI file dump mention this company yet.
+                      </p>
+                    ) : (
+                      <div className="space-y-2 max-h-[200px] overflow-y-auto">
+                        {matchedFiles.map((file) => (
                           <div
-                            key={note.id}
-                            className="p-2 border rounded-lg text-sm"
+                            key={file.id}
+                            className="flex items-center justify-between p-3 border rounded-lg bg-muted/30"
                           >
-                            <div className="flex items-start justify-between gap-2">
-                              <p className="text-xs whitespace-pre-wrap flex-1">
-                                {note.content}
-                              </p>
+                            <div className="flex items-center gap-2 min-w-0 flex-1">
+                              <FileText className="h-4 w-4 text-muted-foreground shrink-0" />
+                              <span
+                                className="text-sm truncate"
+                                title={file.file_name}
+                              >
+                                {file.file_name}
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-1 shrink-0">
                               <Button
                                 variant="ghost"
                                 size="icon"
-                                className="h-6 w-6 shrink-0"
-                                onClick={() => deleteNote(note.id)}
+                                onClick={() => downloadMatchedFile(file)}
+                                title="Download"
                               >
-                                <Trash2 className="h-3 w-3 text-destructive" />
+                                <Download className="h-4 w-4" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() =>
+                                  handleOpenMatchedFilePreview(file)
+                                }
+                                title="Preview"
+                              >
+                                <Eye className="h-4 w-4" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() =>
+                                  router.push(
+                                    `/ai-file-dump?highlight=${encodeURIComponent(file.id)}`,
+                                  )
+                                }
+                                title="Open in AI File Dump"
+                              >
+                                <ExternalLink className="h-4 w-4" />
                               </Button>
                             </div>
-                            <p className="text-xs text-muted-foreground mt-1">
-                              {format(new Date(note.created_at), "MMM d, yyyy")}{" "}
-                              • {note.stage}
-                            </p>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+
+                {/* Documents Section */}
+                <Card>
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-base flex items-center gap-2">
+                      <Upload className="h-4 w-4" />
+                      Documents
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    <div>
+                      <Label htmlFor="file-upload" className="cursor-pointer">
+                        <div className="border-2 border-dashed rounded-lg p-3 text-center hover:border-primary transition-colors">
+                          <Upload className="h-5 w-5 mx-auto mb-1 text-muted-foreground" />
+                          <p className="text-xs text-muted-foreground">
+                            Click to upload
+                          </p>
+                        </div>
+                      </Label>
+                      <Input
+                        id="file-upload"
+                        type="file"
+                        className="hidden"
+                        onChange={handleFileUpload}
+                        disabled={isSubmitting}
+                      />
+                    </div>
+                    <div className="space-y-2 max-h-[200px] overflow-y-auto">
+                      {documents.length === 0 ? (
+                        <p className="text-muted-foreground text-xs">
+                          No documents yet
+                        </p>
+                      ) : (
+                        documents.map((doc) => (
+                          <div
+                            key={doc.id}
+                            className="flex items-center justify-between p-2 border rounded-lg"
+                          >
+                            <div className="flex items-center gap-2 min-w-0 flex-1">
+                              <FileText className="h-3 w-3 text-muted-foreground shrink-0" />
+                              <button
+                                type="button"
+                                onClick={() => downloadDocument(doc)}
+                                className="text-xs text-primary hover:underline truncate text-left"
+                              >
+                                {doc.file_name}
+                              </button>
+                            </div>
                           </div>
                         ))
                       )}
@@ -1609,53 +1689,64 @@ export default function CompanyDetailDialog({
                   </CardContent>
                 </Card>
 
-                {/* Documents Section */}
+                {/* Notes Section */}
                 <Card>
                   <CardHeader className="pb-3">
                     <CardTitle className="text-base flex items-center gap-2">
-                      <Upload className="h-4 w-4" />
-                      Documents
+                      <FileText className="h-4 w-4" />
+                      Notes
                     </CardTitle>
                   </CardHeader>
                   <CardContent className="space-y-3">
-                    <div>
-                      <Label htmlFor="file-upload" className="cursor-pointer">
-                        <div className="border-2 border-dashed rounded-lg p-3 text-center hover:border-primary transition-colors">
-                          <Upload className="h-5 w-5 mx-auto mb-1 text-muted-foreground" />
-                          <p className="text-xs text-muted-foreground">
-                            Click to upload
-                          </p>
-                        </div>
-                      </Label>
-                      <Input
-                        id="file-upload"
-                        type="file"
-                        className="hidden"
-                        onChange={handleFileUpload}
-                        disabled={isSubmitting}
+                    <div className="flex gap-2">
+                      <Textarea
+                        placeholder="Add a note..."
+                        value={newNote}
+                        onChange={(e) => setNewNote(e.target.value)}
+                        className="flex-1 min-h-[60px]"
+                        rows={2}
                       />
+                      <Button
+                        onClick={addNote}
+                        disabled={isSubmitting || !newNote.trim()}
+                        size="icon"
+                        className="shrink-0"
+                      >
+                        {isSubmitting ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <Plus className="h-4 w-4" />
+                        )}
+                      </Button>
                     </div>
                     <div className="space-y-2 max-h-[200px] overflow-y-auto">
-                      {documents.length === 0 ? (
+                      {notes.length === 0 ? (
                         <p className="text-muted-foreground text-xs">
-                          No documents yet
+                          No notes yet
                         </p>
                       ) : (
-                        documents.map((doc) => (
+                        notes.map((note) => (
                           <div
-                            key={doc.id}
-                            className="flex items-center justify-between p-2 border rounded-lg"
+                            key={note.id}
+                            className="p-2 border rounded-lg text-sm"
                           >
-                            <div className="flex items-center gap-2 min-w-0 flex-1">
-                              <FileText className="h-3 w-3 text-muted-foreground shrink-0" />
-                              <button
-                                type="button"
-                                onClick={() => downloadDocument(doc)}
-                                className="text-xs text-primary hover:underline truncate text-left"
+                            <div className="flex items-start justify-between gap-2">
+                              <p className="text-xs whitespace-pre-wrap flex-1">
+                                {note.content}
+                              </p>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-6 w-6 shrink-0"
+                                onClick={() => deleteNote(note.id)}
                               >
-                                {doc.file_name}
-                              </button>
+                                <Trash2 className="h-3 w-3 text-destructive" />
+                              </Button>
                             </div>
+                            <p className="text-xs text-muted-foreground mt-1">
+                              {format(new Date(note.created_at), "MMM d, yyyy")}{" "}
+                              • {note.stage}
+                            </p>
                           </div>
                         ))
                       )}
@@ -1663,102 +1754,10 @@ export default function CompanyDetailDialog({
                   </CardContent>
                 </Card>
 
-                {/* Files mentioning this company (from AI file dump) */}
-                <Card className="lg:col-span-3">
-                  <CardHeader className="pb-3">
-                    <CardTitle className="text-base flex items-center gap-2">
-                      <FileText className="h-4 w-4" />
-                      Files mentioning this company
-                    </CardTitle>
-                    <CardDescription>From AI file dump</CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    {matchedFiles.length === 0 ? (
-                      <p className="text-muted-foreground text-xs">
-                        No files from the AI file dump mention this company yet.
-                      </p>
-                    ) : (
-                      <div className="space-y-2 max-h-[200px] overflow-y-auto">
-                        {matchedFiles.map((file) => (
-                          <div
-                            key={file.id}
-                            className="flex items-center justify-between p-3 border rounded-lg bg-muted/30"
-                          >
-                            <div className="flex items-center gap-2 min-w-0 flex-1">
-                              <FileText className="h-4 w-4 text-muted-foreground shrink-0" />
-                              <span
-                                className="text-sm truncate"
-                                title={file.file_name}
-                              >
-                                {file.file_name}
-                              </span>
-                            </div>
-                            <div className="flex items-center gap-1 shrink-0">
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                onClick={() => downloadMatchedFile(file)}
-                                title="Download"
-                              >
-                                <Download className="h-4 w-4" />
-                              </Button>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                onClick={() =>
-                                  handleOpenMatchedFilePreview(file)
-                                }
-                                title="Preview"
-                              >
-                                <Eye className="h-4 w-4" />
-                              </Button>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                onClick={() =>
-                                  router.push(
-                                    `/ai-file-dump?highlight=${encodeURIComponent(file.id)}`,
-                                  )
-                                }
-                                title="Open in AI File Dump"
-                              >
-                                <ExternalLink className="h-4 w-4" />
-                              </Button>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </CardContent>
-                </Card>
               </div>
             </TabsContent>
 
             </div>{/* end scrollable content */}
-
-            {/* Tab bar pinned to bottom */}
-            <div className="shrink-0 border-t bg-background">
-              <TabsList className="w-full h-auto rounded-none bg-transparent p-0 grid grid-cols-3">
-                <TabsTrigger
-                  value="overview"
-                  className="rounded-none border-b-2 border-transparent data-[state=active]:border-accent data-[state=active]:text-accent data-[state=active]:bg-transparent py-3 text-sm font-medium"
-                >
-                  Overview
-                </TabsTrigger>
-                <TabsTrigger
-                  value="filters"
-                  className="rounded-none border-b-2 border-transparent data-[state=active]:border-accent data-[state=active]:text-accent data-[state=active]:bg-transparent py-3 text-sm font-medium"
-                >
-                  L1 Filters
-                </TabsTrigger>
-                <TabsTrigger
-                  value="attachments"
-                  className="rounded-none border-b-2 border-transparent data-[state=active]:border-accent data-[state=active]:text-accent data-[state=active]:bg-transparent py-3 text-sm font-medium"
-                >
-                  Attachments
-                </TabsTrigger>
-              </TabsList>
-            </div>
           </Tabs>
         </DialogContent>
       </Dialog>

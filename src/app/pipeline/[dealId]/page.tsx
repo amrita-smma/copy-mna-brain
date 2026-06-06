@@ -884,11 +884,6 @@ export default function CompanyDetailPage({ showCrm = false, showAiWorkforce = f
                 )}
                 {company.status === 'dropped' && <Badge variant="destructive">Dropped</Badge>}
               </div>
-              {overviewFirstLine && (
-                <p className="text-sm text-muted-foreground mt-1 max-w-2xl leading-snug">
-                  {overviewFirstLine}
-                </p>
-              )}
             </div>
           </div>
           {/* Action buttons */}
@@ -924,6 +919,14 @@ export default function CompanyDetailPage({ showCrm = false, showAiWorkforce = f
           </div>
         </div>
 
+        {overviewFirstLine && (
+          <Card>
+            <CardContent className="pt-4 pb-4">
+              <p className="text-sm text-muted-foreground leading-relaxed">{overviewFirstLine}</p>
+            </CardContent>
+          </Card>
+        )}
+
         {company.status === 'dropped' && (
           <Alert variant="destructive">
             <AlertCircle className="h-4 w-4" />
@@ -942,7 +945,7 @@ export default function CompanyDetailPage({ showCrm = false, showAiWorkforce = f
             <TrendingUp className="h-4 w-4" />
             <AlertTitle>Promotion reasons</AlertTitle>
             <AlertDescription>
-              <MarkdownRenderer content={company.promoted_reasons} />
+              <MarkdownRenderer content={company.promoted_reasons} variant="card" />
             </AlertDescription>
           </Alert>
         )}
@@ -980,7 +983,7 @@ export default function CompanyDetailPage({ showCrm = false, showAiWorkforce = f
                       <Sparkles className="h-4 w-4" />
                       Why This Company Matches Your Investment Thesis
                     </p>
-                    <p className="text-sm leading-relaxed">{company.remarks}</p>
+                    <MarkdownRenderer content={company.remarks} variant="card" />
                   </div>
                 </CardContent>
               </Card>
@@ -1275,91 +1278,59 @@ export default function CompanyDetailPage({ showCrm = false, showAiWorkforce = f
           </TabsContent>
 
           <TabsContent value="attachments" className="mt-6">
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-              {/* Notes Section */}
+            <div className="grid grid-cols-1 gap-6">
+              {/* Files mentioning this company (from AI file dump) */}
               <Card>
-                <CardHeader>
-                  <CardTitle className="text-lg flex items-center gap-2">
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base flex items-center gap-2">
                     <FileText className="h-4 w-4" />
-                    Notes
+                    Files mentioning this company
                   </CardTitle>
+                  <CardDescription>From AI file dump</CardDescription>
                 </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="space-y-2">
-                    <Textarea
-                      placeholder="Add a note..."
-                      value={newNote}
-                      onChange={(e) => setNewNote(e.target.value)}
-                      rows={3}
-                    />
-                    <Button onClick={addNote} disabled={isSubmitting || !newNote.trim()} size="sm">
-                      {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Plus className="h-4 w-4 mr-2" />}
-                      Add Note
-                    </Button>
-                  </div>
-                  <div className="space-y-3 max-h-[300px] overflow-y-auto">
-                    {notes.map((note) => (
-                      <div key={note.id} className="p-3 bg-muted rounded-lg">
-                        <div className="flex justify-between items-start gap-2">
-                          <p className="text-sm whitespace-pre-wrap flex-1">{note.content}</p>
-                          <Button variant="ghost" size="icon" onClick={() => deleteNote(note.id)}>
-                            <Trash2 className="h-4 w-4 text-destructive" />
-                          </Button>
+                <CardContent>
+                  {matchedFiles.length === 0 ? (
+                    <p className="text-muted-foreground text-xs">No files from the AI file dump mention this company yet.</p>
+                  ) : (
+                    <div className="space-y-2 max-h-[200px] overflow-y-auto">
+                      {matchedFiles.map((file) => (
+                        <div key={file.id} className="flex items-center justify-between p-3 border rounded-lg bg-muted/30">
+                          <div className="flex items-center gap-2 min-w-0 flex-1">
+                            <FileText className="h-4 w-4 text-muted-foreground shrink-0" />
+                            <span className="text-sm truncate" title={file.file_name}>
+                              {file.file_name}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-1 shrink-0">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => downloadMatchedFile(file)}
+                              title="Download"
+                            >
+                              <Download className="h-4 w-4" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => handleOpenMatchedFilePreview(file)}
+                              title="Preview"
+                            >
+                              <Eye className="h-4 w-4" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => router.push(`/ai-file-dump?highlight=${encodeURIComponent(file.id)}`)}
+                              title="Open in AI File Dump"
+                            >
+                              <ExternalLink className="h-4 w-4" />
+                            </Button>
+                          </div>
                         </div>
-                        <p className="text-xs text-muted-foreground mt-2">
-                          {note.created_at && formatDistanceToNow(new Date(note.created_at), { addSuffix: true })} · {note.stage}
-                        </p>
-                      </div>
-                    ))}
-                    {notes.length === 0 && <p className="text-muted-foreground text-sm">No notes yet</p>}
-                  </div>
-                </CardContent>
-              </Card>
-
-              {/* Links Section */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-lg flex items-center gap-2">
-                    <LinkIcon className="h-4 w-4" />
-                    Links
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="space-y-2">
-                    <Input
-                      placeholder="https://..."
-                      value={newLinkUrl}
-                      onChange={(e) => setNewLinkUrl(e.target.value)}
-                    />
-                    <Input
-                      placeholder="Title (optional)"
-                      value={newLinkTitle}
-                      onChange={(e) => setNewLinkTitle(e.target.value)}
-                    />
-                    <Button onClick={addLink} disabled={isSubmitting || !newLinkUrl.trim()} size="sm">
-                      {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Plus className="h-4 w-4 mr-2" />}
-                      Add Link
-                    </Button>
-                  </div>
-                  <div className="space-y-2 max-h-[300px] overflow-y-auto">
-                    {links.map((link) => (
-                      <div key={link.id} className="flex items-center justify-between p-2 bg-muted rounded-lg">
-                        <a
-                          href={link.url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="flex items-center gap-2 text-primary hover:underline text-sm truncate flex-1"
-                        >
-                          <ExternalLink className="h-4 w-4 shrink-0" />
-                          {link.title || link.url}
-                        </a>
-                        <Button variant="ghost" size="icon" onClick={() => deleteLink(link.id)}>
-                          <Trash2 className="h-4 w-4 text-destructive" />
-                        </Button>
-                      </div>
-                    ))}
-                    {links.length === 0 && <p className="text-muted-foreground text-sm">No links yet</p>}
-                  </div>
+                      ))}
+                    </div>
+                  )}
                 </CardContent>
               </Card>
 
@@ -1423,58 +1394,91 @@ export default function CompanyDetailPage({ showCrm = false, showAiWorkforce = f
                   </div>
                 </CardContent>
               </Card>
-              {/* Files mentioning this company (from AI file dump) */}
-              <Card className="lg:col-span-3">
-                <CardHeader className="pb-3">
-                  <CardTitle className="text-base flex items-center gap-2">
-                    <FileText className="h-4 w-4" />
-                    Files mentioning this company
+
+              {/* Links Section */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-lg flex items-center gap-2">
+                    <LinkIcon className="h-4 w-4" />
+                    Links
                   </CardTitle>
-                  <CardDescription>From AI file dump</CardDescription>
                 </CardHeader>
-                <CardContent>
-                  {matchedFiles.length === 0 ? (
-                    <p className="text-muted-foreground text-xs">No files from the AI file dump mention this company yet.</p>
-                  ) : (
-                    <div className="space-y-2 max-h-[200px] overflow-y-auto">
-                      {matchedFiles.map((file) => (
-                        <div key={file.id} className="flex items-center justify-between p-3 border rounded-lg bg-muted/30">
-                          <div className="flex items-center gap-2 min-w-0 flex-1">
-                            <FileText className="h-4 w-4 text-muted-foreground shrink-0" />
-                            <span className="text-sm truncate" title={file.file_name}>
-                              {file.file_name}
-                            </span>
-                          </div>
-                          <div className="flex items-center gap-1 shrink-0">
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              onClick={() => downloadMatchedFile(file)}
-                              title="Download"
-                            >
-                              <Download className="h-4 w-4" />
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              onClick={() => handleOpenMatchedFilePreview(file)}
-                              title="Preview"
-                            >
-                              <Eye className="h-4 w-4" />
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              onClick={() => router.push(`/ai-file-dump?highlight=${encodeURIComponent(file.id)}`)}
-                              title="Open in AI File Dump"
-                            >
-                              <ExternalLink className="h-4 w-4" />
-                            </Button>
-                          </div>
+                <CardContent className="space-y-4">
+                  <div className="space-y-2">
+                    <Input
+                      placeholder="https://..."
+                      value={newLinkUrl}
+                      onChange={(e) => setNewLinkUrl(e.target.value)}
+                    />
+                    <Input
+                      placeholder="Title (optional)"
+                      value={newLinkTitle}
+                      onChange={(e) => setNewLinkTitle(e.target.value)}
+                    />
+                    <Button onClick={addLink} disabled={isSubmitting || !newLinkUrl.trim()} size="sm">
+                      {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Plus className="h-4 w-4 mr-2" />}
+                      Add Link
+                    </Button>
+                  </div>
+                  <div className="space-y-2 max-h-[300px] overflow-y-auto">
+                    {links.map((link) => (
+                      <div key={link.id} className="flex items-center justify-between p-2 bg-muted rounded-lg">
+                        <a
+                          href={link.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex items-center gap-2 text-primary hover:underline text-sm truncate flex-1"
+                        >
+                          <ExternalLink className="h-4 w-4 shrink-0" />
+                          {link.title || link.url}
+                        </a>
+                        <Button variant="ghost" size="icon" onClick={() => deleteLink(link.id)}>
+                          <Trash2 className="h-4 w-4 text-destructive" />
+                        </Button>
+                      </div>
+                    ))}
+                    {links.length === 0 && <p className="text-muted-foreground text-sm">No links yet</p>}
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Notes Section */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-lg flex items-center gap-2">
+                    <FileText className="h-4 w-4" />
+                    Notes
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="space-y-2">
+                    <Textarea
+                      placeholder="Add a note..."
+                      value={newNote}
+                      onChange={(e) => setNewNote(e.target.value)}
+                      rows={3}
+                    />
+                    <Button onClick={addNote} disabled={isSubmitting || !newNote.trim()} size="sm">
+                      {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Plus className="h-4 w-4 mr-2" />}
+                      Add Note
+                    </Button>
+                  </div>
+                  <div className="space-y-3 max-h-[300px] overflow-y-auto">
+                    {notes.map((note) => (
+                      <div key={note.id} className="p-3 bg-muted rounded-lg">
+                        <div className="flex justify-between items-start gap-2">
+                          <p className="text-sm whitespace-pre-wrap flex-1">{note.content}</p>
+                          <Button variant="ghost" size="icon" onClick={() => deleteNote(note.id)}>
+                            <Trash2 className="h-4 w-4 text-destructive" />
+                          </Button>
                         </div>
-                      ))}
-                    </div>
-                  )}
+                        <p className="text-xs text-muted-foreground mt-2">
+                          {note.created_at && formatDistanceToNow(new Date(note.created_at), { addSuffix: true })} · {note.stage}
+                        </p>
+                      </div>
+                    ))}
+                    {notes.length === 0 && <p className="text-muted-foreground text-sm">No notes yet</p>}
+                  </div>
                 </CardContent>
               </Card>
             </div>
