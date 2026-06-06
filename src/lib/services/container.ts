@@ -27,6 +27,7 @@ import {
   EmployerTeamRepository,
   AiWorkforceQueueRepository,
   CopilotChatsRepository,
+  DashboardActivityRepository,
 } from '@/lib/repositories';
 import { JobDispatcher } from './jobDispatcher';
 import { CompanyService } from './companyService';
@@ -48,6 +49,7 @@ import { UserService } from './userService';
 import { CRMService } from './crmService';
 import { AiWorkforceService } from './aiWorkforceService';
 import { CopilotChatsService } from './copilotChatsService';
+import { DashboardActivityService } from './dashboardActivityService';
 
 export interface Container {
   companyService: CompanyService;
@@ -69,6 +71,7 @@ export interface Container {
   crmService: CRMService;
   aiWorkforceService: AiWorkforceService;
   copilotChatsService: CopilotChatsService;
+  dashboardActivityService: DashboardActivityService;
 }
 
 export function createContainer(db: DbClient): Container {
@@ -152,6 +155,9 @@ export function createContainer(db: DbClient): Container {
   const copilotChatsRepo = new CopilotChatsRepository(db);
   const copilotChatsService = new CopilotChatsService(copilotChatsRepo);
 
+  const dashboardActivityRepo = new DashboardActivityRepository(db);
+  const dashboardActivityService = new DashboardActivityService(dashboardActivityRepo);
+
   fileService.setCRMService(crmService);
 
   return {
@@ -174,5 +180,6 @@ export function createContainer(db: DbClient): Container {
     crmService,
     aiWorkforceService,
     copilotChatsService,
+    dashboardActivityService,
   };
 }

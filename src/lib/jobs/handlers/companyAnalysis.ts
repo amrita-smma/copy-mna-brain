@@ -240,9 +240,10 @@ export async function runCompanyAnalysis(
 
   let agentResult;
   try {
-    agentResult = await agent.invoke({
-      messages: [new HumanMessage(prompt)],
-    });
+    agentResult = await agent.invoke(
+      { messages: [new HumanMessage(prompt)] },
+      { configurable: { thread_id: deps.job.id } },
+    );
   } catch (err) {
     const message = (err as Error).message || "Unknown error";
     await analysisRepo.updateByCompanyId(companyId, {

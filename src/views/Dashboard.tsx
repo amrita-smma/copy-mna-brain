@@ -1,66 +1,33 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import DashboardLayout from '@/components/layout/DashboardLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Calendar } from '@/components/ui/calendar';
 import { getCompanies } from '@/lib/api/pipeline';
+import { getDashboardActivity } from '@/lib/api/dashboard';
+import type { DashboardActivity } from '@/lib/services/dashboardActivityService';
+import CompanyDetailDialog, { type CompanyData } from '@/components/pipeline/CompanyDetailDialog';
 import {
   Building2,
   TrendingUp,
-  TrendingDown,
-  Minus,
-  Clock,
   ArrowUpRight,
   Loader2,
-  ChevronLeft,
-  ChevronRight,
-  Database,
   Layers,
   Target,
   Activity,
+  XCircle,
+  ChevronRight,
+  MoveRight,
+  FileText,
+  CalendarIcon,
+  Clock,
 } from 'lucide-react';
-import CompanyDetailDialog from '@/components/pipeline/CompanyDetailDialog';
-
-interface CompanyData {
-  id: string;
-  target: string | null;
-  project_name?: string | null;
-  segment: string | null;
-  watchlist_status: string | null;
-  source: string | null;
-  pipeline_stage: string | null;
-  revenue_2021_usd_mn: number | null;
-  revenue_2022_usd_mn: number | null;
-  revenue_2023_usd_mn: number | null;
-  revenue_2024_usd_mn: number | null;
-  revenue_2025_usd_mn: number | null;
-  ebitda_2021_usd_mn: number | null;
-  ebitda_2022_usd_mn: number | null;
-  ebitda_2023_usd_mn: number | null;
-  ebitda_2024_usd_mn: number | null;
-  ebitda_2025_usd_mn: number | null;
-  ev_2024: number | null;
-  l1_screening_result: string | null;
-  remarks: string | null;
-  created_at: string;
-  updated_at: string;
-  status: string | null;
-  dropped_reason: string | null;
-  dropped_at: string | null;
-  ownership: string | null;
-  geography: string | null;
-}
 
 interface StageCounts {
   stage: string;
@@ -79,17 +46,6 @@ const PIPELINE_STAGES: { stage: string; label: string; color: string }[] = [
   { stage: 'L5', label: 'Closing', color: 'bg-pink-500' },
 ];
 
-// Softer stage gradients (sqemnabrain style)
-const stageGradients: Record<string, string> = {
-  L0: 'from-blue-400/80 to-blue-500/80',
-  L1: 'from-violet-400/80 to-purple-500/80',
-  L2: 'from-amber-400/80 to-orange-500/80',
-  L3: 'from-emerald-400/80 to-green-500/80',
-  L4: 'from-cyan-400/80 to-teal-500/80',
-  L5: 'from-pink-400/80 to-rose-500/80',
-};
-
-// Bar colors for inbound (lighter) / outbound (darker) per stage
 const stageBarColors: Record<string, { inbound: string; outbound: string }> = {
   L0: { inbound: 'bg-blue-400/70', outbound: 'bg-blue-600/70' },
   L1: { inbound: 'bg-violet-400/70', outbound: 'bg-violet-600/70' },
@@ -99,38 +55,285 @@ const stageBarColors: Record<string, { inbound: string; outbound: string }> = {
   L5: { inbound: 'bg-pink-400/70', outbound: 'bg-pink-600/70' },
 };
 
-const statusColors: Record<string, string> = {
-  pass: 'bg-green-500',
-  fail: 'bg-red-500',
-  pending: 'bg-yellow-500',
-  default: 'bg-gray-500',
-};
+type PresetKey = '7d' | '14d';
 
-const getStatusColor = (status: string | null): string => {
-  if (!status) return statusColors.default;
-  const lower = status.toLowerCase();
-  return statusColors[lower] || statusColors.default;
-};
+interface ActiveDateRange {
+  from: Date;
+  to: Date;
+  preset: PresetKey | 'custom';
+}
 
-// Values in database are in USD Millions, so format accordingly
-const formatCurrency = (value: number | null): string => {
-  if (value === null || value === undefined) return '-';
-  // Values are stored in millions
-  if (Math.abs(value) >= 1000) {
-    const billions = value / 1000;
-    return `$${billions.toFixed(2)}B`;
+function presetToRange(key: PresetKey): { from: Date; to: Date } {
+  const to = new Date();
+  const from = new Date();
+  from.setDate(from.getDate() - (key === '7d' ? 7 : 14));
+  return { from, to };
+}
+
+function formatDate(d: Date): string {
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
+function parsePipelineMoveAction(action: string | null): { from: string | null; to: string | null } {
+  if (!action) return { from: null, to: null };
+  const fromTo = action.match(/^PROMOTED_FROM_(\S+)_TO_(\S+)$/);
+  if (fromTo) return { from: fromTo[1], to: fromTo[2] };
+  const toOnly = action.match(/^PROMOTED_TO_(\S+)$/);
+  if (toOnly) return { from: null, to: toOnly[1] };
+  return { from: null, to: null };
+}
+
+function formatRelative(dateStr: string | null | undefined): string {
+  if (!dateStr) return '';
+  const date = new Date(dateStr);
+  const now = new Date();
+  const diffMs = now.getTime() - date.getTime();
+  const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+  const diffDays = Math.floor(diffHours / 24);
+  if (diffHours < 1) return 'just now';
+  if (diffHours < 24) return `${diffHours}h ago`;
+  if (diffDays === 1) return 'yesterday';
+  return `${diffDays}d ago`;
+}
+
+function formatShortDate(dateStr: string | null | undefined): string {
+  if (!dateStr) return '';
+  const d = new Date(dateStr);
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
+
+// ─── Feed types ──────────────────────────────────────────────────────────────
+
+type FeedEventType = 'new_deal' | 'stage_move' | 'dropped' | 'note_updated';
+type FeedFilterKey = 'all' | 'new' | 'moved' | 'dropped' | 'notes';
+
+interface FeedEvent {
+  id: string;
+  type: FeedEventType;
+  company_id: string;
+  company_name: string;
+  segment: string | null;
+  geography: string | null;
+  source: string | null;
+  event_at: string;
+  from_stage?: string | null;
+  to_stage?: string | null;
+  dropped_stage?: string | null;
+  remarks?: string | null;
+  thesis_content?: string | null;
+  note_content?: string | null;
+  note_stage?: string | null;
+}
+
+function buildFeedEvents(activity: DashboardActivity): FeedEvent[] {
+  const events: FeedEvent[] = [];
+
+  for (const c of activity.newL0Companies) {
+    events.push({
+      id: `new-${c.id}-${c.event_at}`,
+      type: 'new_deal',
+      company_id: c.id,
+      company_name: c.target || c.project_name || '—',
+      segment: c.segment ?? null,
+      geography: c.geography ?? null,
+      source: c.source ?? null,
+      event_at: c.event_at,
+    });
   }
-  return `$${value.toFixed(2)}M`;
+
+  for (const m of activity.pipelineMoves) {
+    if (!m.created_at) continue;
+    const { from: fromStage, to: toStage } = parsePipelineMoveAction(m.action);
+    events.push({
+      id: `move-${m.id}`,
+      type: 'stage_move',
+      company_id: m.company_id ?? '',
+      company_name: m.target || m.project_name || '—',
+      segment: m.segment ?? null,
+      geography: m.geography ?? null,
+      source: m.source ?? null,
+      event_at: m.created_at,
+      from_stage: fromStage,
+      to_stage: toStage,
+      remarks: m.remarks ?? null,
+      thesis_content: m.thesis_content ?? null,
+    });
+  }
+
+  for (const d of activity.droppedDeals) {
+    if (!d.dropped_at) continue;
+    events.push({
+      id: `dropped-${d.id}`,
+      type: 'dropped',
+      company_id: d.id,
+      company_name: d.target || d.project_name || '—',
+      segment: d.segment ?? null,
+      geography: d.geography ?? null,
+      source: d.source ?? null,
+      event_at: d.dropped_at,
+      dropped_stage: d.pipeline_stage ?? null,
+      remarks: d.remarks ?? null,
+      thesis_content: d.thesis_content ?? null,
+    });
+  }
+
+  for (const n of activity.notesUpdated) {
+    if (!n.updated_at) continue;
+    events.push({
+      id: `note-${n.id}`,
+      type: 'note_updated',
+      company_id: n.company_id,
+      company_name: n.target || n.project_name || '—',
+      segment: n.segment ?? null,
+      geography: n.geography ?? null,
+      source: n.source ?? null,
+      event_at: n.updated_at,
+      note_content: n.content ?? null,
+      note_stage: n.stage ?? null,
+      remarks: n.remarks ?? null,
+      thesis_content: n.thesis_content ?? null,
+    });
+  }
+
+  return events.sort((a, b) => b.event_at.localeCompare(a.event_at));
+}
+
+function groupEventsByDate(events: FeedEvent[]): { dateLabel: string; events: FeedEvent[] }[] {
+  const groups: { dateLabel: string; events: FeedEvent[] }[] = [];
+  const seen = new Map<string, number>();
+  for (const event of events) {
+    const d = new Date(event.event_at);
+    const label = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    if (seen.has(label)) {
+      groups[seen.get(label)!].events.push(event);
+    } else {
+      seen.set(label, groups.length);
+      groups.push({ dateLabel: label, events: [event] });
+    }
+  }
+  return groups;
+}
+
+// ─── Stage chip ──────────────────────────────────────────────────────────────
+
+const stageChipColors: Record<string, string> = {
+  L0: 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300',
+  L1: 'bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300',
+  L2: 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300',
+  L3: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300',
+  L4: 'bg-cyan-100 text-cyan-700 dark:bg-cyan-900/40 dark:text-cyan-300',
+  L5: 'bg-pink-100 text-pink-700 dark:bg-pink-900/40 dark:text-pink-300',
 };
 
-const getRevenueChange = (year2023: number | null, year2024: number | null): { direction: 'up' | 'down' | 'flat'; percent: number } => {
-  if (!year2023 || !year2024) return { direction: 'flat', percent: 0 };
-  const change = ((year2024 - year2023) / year2023) * 100;
-  if (change > 1) return { direction: 'up', percent: change };
-  if (change < -1) return { direction: 'down', percent: Math.abs(change) };
-  return { direction: 'flat', percent: 0 };
+function StageChip({ stage }: { stage: string }) {
+  return (
+    <span className={`inline-flex items-center rounded px-1.5 py-0.5 text-xs font-semibold ${stageChipColors[stage] ?? 'bg-muted text-muted-foreground'}`}>
+      {stage}
+    </span>
+  );
+}
+
+// ─── Event dot color ─────────────────────────────────────────────────────────
+
+const dotColors: Record<FeedEventType, string> = {
+  new_deal: 'bg-blue-500',
+  stage_move: 'bg-emerald-500',
+  dropped: 'bg-red-500',
+  note_updated: 'bg-amber-500',
 };
 
+const eventTypeLabels: Record<FeedEventType, string> = {
+  new_deal: 'New Deal',
+  stage_move: 'Stage Move',
+  dropped: 'Dropped',
+  note_updated: 'Note Updated',
+};
+
+// ─── Notes modal ─────────────────────────────────────────────────────────────
+
+interface NotesModalProps {
+  event: FeedEvent | null;
+  onClose: () => void;
+}
+
+function NotesModal({ event, onClose }: NotesModalProps) {
+  if (!event) return null;
+  const isStageMove = event.type === 'stage_move';
+  const isDropped = event.type === 'dropped';
+  const showStageContext = isStageMove || isDropped;
+
+  return (
+    <Dialog open={!!event} onOpenChange={(open) => { if (!open) onClose(); }}>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2 flex-wrap">
+            <span>{event.company_name}</span>
+            {event.segment && (
+              <Badge variant="secondary" className="text-xs font-normal">{event.segment}</Badge>
+            )}
+            <Badge
+              className={`text-xs ${
+                isDropped ? 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300' :
+                isStageMove ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300' :
+                'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300'
+              }`}
+            >
+              {eventTypeLabels[event.type]}
+            </Badge>
+          </DialogTitle>
+        </DialogHeader>
+
+        <div className="space-y-4 pt-1">
+          {showStageContext && (
+            <div className="flex items-center gap-2 p-3 rounded-lg bg-muted/50 text-sm">
+              {isStageMove && (
+                <>
+                  {event.from_stage && <StageChip stage={event.from_stage} />}
+                  {event.from_stage && <MoveRight className="h-3.5 w-3.5 text-muted-foreground shrink-0" />}
+                  {event.to_stage && <StageChip stage={event.to_stage} />}
+                </>
+              )}
+              {isDropped && (
+                <>
+                  <span className="text-muted-foreground">Dropped at</span>
+                  {event.dropped_stage && <StageChip stage={event.dropped_stage} />}
+                </>
+              )}
+            </div>
+          )}
+
+          {event.type === 'note_updated' && event.note_content && (
+            <div className="rounded-lg border border-amber-200 bg-amber-50/50 dark:border-amber-900/50 dark:bg-amber-950/20 p-3">
+              <p className="text-xs font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-400 mb-1.5 flex items-center gap-1.5">
+                <FileText className="h-3 w-3" />
+                Note
+                {event.note_stage && <span className="normal-case font-normal text-muted-foreground ml-1">— at {event.note_stage}</span>}
+              </p>
+              <p className="text-sm text-foreground leading-relaxed whitespace-pre-wrap">{event.note_content}</p>
+            </div>
+          )}
+
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-1.5">
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Key Rationale</p>
+              <p className="text-sm text-foreground leading-relaxed">
+                {event.remarks || <span className="text-muted-foreground italic">No rationale recorded.</span>}
+              </p>
+            </div>
+            <div className="space-y-1.5">
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Additional Remarks</p>
+              <p className="text-sm text-foreground leading-relaxed">
+                {event.thesis_content || <span className="text-muted-foreground italic">No additional remarks.</span>}
+              </p>
+            </div>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ─── Main Dashboard ───────────────────────────────────────────────────────────
 
 interface DashboardProps {
   showCrm?: boolean;
@@ -139,21 +342,30 @@ interface DashboardProps {
 
 export default function Dashboard({ showCrm = false, showAiWorkforce = false }: DashboardProps) {
   const [loading, setLoading] = useState(true);
-  const [companies, setCompanies] = useState<CompanyData[]>([]);
+  const [activityInitialising, setActivityInitialising] = useState(true);
+  const [companies, setCompanies] = useState<any[]>([]);
   const [totalCompanies, setTotalCompanies] = useState(0);
   const [stageCounts, setStageCounts] = useState<StageCounts[]>([]);
-  const [currentPage, setCurrentPage] = useState(1);
+  const [activity, setActivity] = useState<DashboardActivity | null>(null);
   const [selectedCompany, setSelectedCompany] = useState<CompanyData | null>(null);
-  const [detailDialogOpen, setDetailDialogOpen] = useState(false);
-  const itemsPerPage = 10;
+  const [dialogOpen, setDialogOpen] = useState(false);
 
-  useEffect(() => {
-    fetchDashboardData();
-  }, []);
+  // Date range
+  const defaultRange = presetToRange('7d');
+  const [dateRange, setDateRange] = useState<ActiveDateRange>({
+    ...defaultRange,
+    preset: '7d',
+  });
+  const [customFrom, setCustomFrom] = useState<Date | undefined>(undefined);
+  const [customTo, setCustomTo] = useState<Date | undefined>(undefined);
+  const [customPickerOpen, setCustomPickerOpen] = useState(false);
+  const [activeField, setActiveField] = useState<'from' | 'to'>('from');
 
-  const fetchDashboardData = async (opts: { silent?: boolean } = {}) => {
+  // Feed
+  const [feedFilter, setFeedFilter] = useState<FeedFilterKey>('all');
+
+  const fetchPipelineData = useCallback(async () => {
     try {
-      // Fetch only active (non-dropped) companies for the dashboard.
       const companiesData = await getCompanies({
         excludeDropped: true,
         orderBy: 'updated_at',
@@ -164,72 +376,158 @@ export default function Dashboard({ showCrm = false, showAiWorkforce = false }: 
         setCompanies(companiesData);
         setTotalCompanies(companiesData.length);
 
-        // Calculate pipeline stage counts
         const stageMap = new Map<string, { count: number; inbound: number; outbound: number }>();
-        
-        // Initialize all stages
         PIPELINE_STAGES.forEach(({ stage }) => {
           stageMap.set(stage, { count: 0, inbound: 0, outbound: 0 });
         });
-        
-        companiesData.forEach((company) => {
+
+        companiesData.forEach((company: any) => {
           const stage = company.pipeline_stage || 'L0';
           const current = stageMap.get(stage) || { count: 0, inbound: 0, outbound: 0 };
           current.count += 1;
-
-          // Track inbound vs outbound for every stage (source column; fallback to watchlist_status)
           const src = company.source?.toLowerCase();
-          const fromSource = src === 'inbound' || src === 'outbound';
-          if (fromSource) {
-            if (src === 'inbound') current.inbound += 1;
-            else current.outbound += 1;
-          } else {
+          if (src === 'inbound') current.inbound += 1;
+          else if (src === 'outbound') current.outbound += 1;
+          else {
             const status = company.watchlist_status?.toLowerCase() || '';
-            if (status.includes('inbound') || status === 'active') {
-              current.inbound += 1;
-            } else {
-              current.outbound += 1;
-            }
+            if (status.includes('inbound') || status === 'active') current.inbound += 1;
+            else current.outbound += 1;
           }
-
           stageMap.set(stage, current);
         });
-        
+
         const counts: StageCounts[] = PIPELINE_STAGES.map(({ stage, label }) => {
           const data = stageMap.get(stage) || { count: 0, inbound: 0, outbound: 0 };
-          return {
-            stage,
-            label,
-            count: data.count,
-            inbound: data.inbound,
-            outbound: data.outbound,
-          };
+          return { stage, label, count: data.count, inbound: data.inbound, outbound: data.outbound };
         });
-        
+
         setStageCounts(counts);
       }
     } catch (error) {
-      console.error('Error fetching dashboard data:', error);
+      console.error('Error fetching pipeline data:', error);
     } finally {
-      if (!opts.silent) setLoading(false);
+      setLoading(false);
     }
+  }, []);
+
+  const fetchActivity = useCallback(async (range: ActiveDateRange, initialLoad = false) => {
+    if (initialLoad) setActivityInitialising(true);
+    try {
+      const data = await getDashboardActivity({ from: range.from, to: range.to });
+      setActivity(data);
+    } catch (error) {
+      console.error('Error fetching activity:', error);
+    } finally {
+      if (initialLoad) setActivityInitialising(false);
+    }
+  }, []);
+
+  const handleCompanyClick = useCallback(async (id: string) => {
+    const cached = companies.find((c: any) => c.id === id);
+    if (cached) {
+      setSelectedCompany(cached as CompanyData);
+      setDialogOpen(true);
+      return;
+    }
+    try {
+      const rows = await getCompanies({ id });
+      if (rows?.[0]) {
+        setSelectedCompany(rows[0] as CompanyData);
+        setDialogOpen(true);
+      }
+    } catch (err) {
+      console.error('Failed to load company details', err);
+    }
+  }, [companies]);
+
+  useEffect(() => {
+    fetchPipelineData();
+  }, [fetchPipelineData]);
+
+  const isFirstLoad = activity === null;
+  useEffect(() => {
+    fetchActivity(dateRange, isFirstLoad);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dateRange, fetchActivity]);
+
+  const applyPreset = (key: PresetKey) => {
+    const range = presetToRange(key);
+    setDateRange({ ...range, preset: key });
   };
 
-  // Pagination logic
-  const totalPages = Math.ceil(companies.length / itemsPerPage);
-  const paginatedCompanies = companies.slice(
-    (currentPage - 1) * itemsPerPage,
-    currentPage * itemsPerPage
-  );
+  const applyCustom = () => {
+    if (!customFrom || !customTo) return;
+    setDateRange({ from: customFrom, to: customTo, preset: 'custom' });
+    setCustomPickerOpen(false);
+  };
 
-  // Get recent companies (last 5 updated)
-  const recentCompanies = companies.slice(0, 5);
+  // ─── Recap derivations ──────────────────────────────────────────────────────
 
-  const totalInbound = stageCounts.reduce((s, x) => s + (x.inbound || 0), 0);
-  const totalOutbound = stageCounts.reduce((s, x) => s + (x.outbound || 0), 0);
-  const l0Count = stageCounts[0]?.count || 1;
-  const l5Count = stageCounts[5]?.count ?? stageCounts.find(s => s.stage === 'L5')?.count ?? 0;
-  const conversionPercent = l0Count > 0 ? Math.round((l5Count / l0Count) * 100) : 0;
+  const recapDropped = activity?.droppedDeals ?? [];
+  const recapNewDeals = activity?.newL0Companies ?? [];
+  const recapStageMoves = activity?.pipelineMoves ?? [];
+  const recapNewInbound = recapNewDeals.filter(c => c.source?.toLowerCase() === 'inbound');
+  const recapNewOutbound = recapNewDeals.filter(c => c.source?.toLowerCase() !== 'inbound');
+
+  // ─── Feed derivations ───────────────────────────────────────────────────────
+
+  const allFeedEvents = useMemo(() => {
+    if (!activity) return [];
+    return buildFeedEvents(activity);
+  }, [activity]);
+
+  const filteredFeedEvents = useMemo(() => {
+    if (feedFilter === 'all') return allFeedEvents;
+    const typeMap: Record<FeedFilterKey, FeedEventType> = {
+      all: 'new_deal',
+      new: 'new_deal',
+      moved: 'stage_move',
+      dropped: 'dropped',
+      notes: 'note_updated',
+    };
+    return allFeedEvents.filter(e => e.type === typeMap[feedFilter]);
+  }, [allFeedEvents, feedFilter]);
+
+  const groupedFeedEvents = useMemo(() => groupEventsByDate(filteredFeedEvents), [filteredFeedEvents]);
+
+  // ─── Date-filtered pipeline stage counts ────────────────────────────────────
+
+  const filteredStageCounts = useMemo((): StageCounts[] => {
+    if (!activity) return stageCounts;
+
+    const stageMap = new Map<string, { count: number; inbound: number; outbound: number }>();
+    PIPELINE_STAGES.forEach(({ stage }) => stageMap.set(stage, { count: 0, inbound: 0, outbound: 0 }));
+
+    for (const c of activity.newL0Companies) {
+      const e = stageMap.get('L0')!;
+      e.count += 1;
+      if (c.source?.toLowerCase() === 'inbound') e.inbound += 1;
+      else e.outbound += 1;
+    }
+
+    for (const m of activity.pipelineMoves) {
+      const { to: toStage } = parsePipelineMoveAction(m.action);
+      if (!toStage) continue;
+      const e = stageMap.get(toStage);
+      if (!e) continue;
+      e.count += 1;
+      if (m.source?.toLowerCase() === 'inbound') e.inbound += 1;
+      else e.outbound += 1;
+    }
+
+    return PIPELINE_STAGES.map(({ stage, label }) => {
+      const data = stageMap.get(stage) ?? { count: 0, inbound: 0, outbound: 0 };
+      return { stage, label, count: data.count, inbound: data.inbound, outbound: data.outbound };
+    });
+  }, [activity, stageCounts]);
+
+  const displayStageCounts = filteredStageCounts;
+  const displayTotal = displayStageCounts.reduce((s, x) => s + x.count, 0);
+  const displayInbound = displayStageCounts.reduce((s, x) => s + (x.inbound ?? 0), 0);
+  const displayOutbound = displayStageCounts.reduce((s, x) => s + (x.outbound ?? 0), 0);
+  const displayL0 = displayStageCounts[0]?.count || 0;
+  const displayL5 = displayStageCounts.find(s => s.stage === 'L5')?.count ?? 0;
+  const displayConversion = displayL0 > 0 ? Math.round((displayL5 / displayL0) * 100) : 0;
 
   if (loading) {
     return (
@@ -247,403 +545,677 @@ export default function Dashboard({ showCrm = false, showAiWorkforce = false }: 
   return (
     <DashboardLayout showCrm={showCrm} showAiWorkforce={showAiWorkforce}>
       <div className="p-6 lg:p-8 space-y-8 animate-fade-in">
-          {/* Header - clean professional style */}
-          <div className="relative">
+        {/* Header */}
+        <div className="flex items-start justify-between gap-6">
+          <div>
             <div className="flex items-center gap-3 mb-2">
               <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-foreground/10">
                 <Layers className="h-5 w-5 text-foreground" />
               </div>
-              <h1 className="text-3xl font-semibold tracking-tight text-foreground">
-                Dashboard
-              </h1>
+              <h1 className="text-3xl font-semibold tracking-tight text-foreground">Dashboard</h1>
             </div>
-            <p className="text-muted-foreground ml-[52px]">
-              Real-time overview of your M&A deal pipeline
-            </p>
+            <p className="text-muted-foreground ml-[52px]">Real-time overview of your M&A deal pipeline</p>
           </div>
 
-          {/* Stat cards - soft colored accents */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-            <Card className="border bg-card">
-              <CardContent className="p-5">
-                <div className="flex items-center gap-3 mb-3">
-                  <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-blue-500/10">
-                    <Target className="h-4 w-4 text-blue-500" />
+          {/* Global date range filter */}
+          <div className="flex items-center gap-1 p-1 bg-muted/50 rounded-lg border border-border/50 shrink-0 mt-1">
+            {(['7d', '14d'] as PresetKey[]).map((key) => (
+              <button
+                key={key}
+                type="button"
+                onClick={() => applyPreset(key)}
+                className={[
+                  'h-7 px-3 text-xs font-medium rounded-md transition-colors',
+                  dateRange.preset === key
+                    ? 'bg-primary text-primary-foreground shadow-sm'
+                    : 'text-muted-foreground hover:text-foreground',
+                ].join(' ')}
+              >
+                {key === '7d' ? '7 days' : '14 days'}
+              </button>
+            ))}
+            <Popover
+              open={customPickerOpen}
+              onOpenChange={(open) => {
+                setCustomPickerOpen(open);
+                if (open) {
+                  setActiveField('from');
+                  if (dateRange.preset === 'custom') {
+                    setCustomFrom(dateRange.from);
+                    setCustomTo(dateRange.to);
+                  }
+                }
+              }}
+            >
+              <PopoverTrigger asChild>
+                <button
+                  type="button"
+                  className={[
+                    'h-7 px-3 text-xs font-medium rounded-md transition-colors flex items-center gap-1.5',
+                    dateRange.preset === 'custom' || customPickerOpen
+                      ? 'bg-primary text-primary-foreground shadow-sm'
+                      : 'text-muted-foreground hover:text-foreground',
+                  ].join(' ')}
+                >
+                  <CalendarIcon className="h-3 w-3 shrink-0" />
+                  Custom
+                </button>
+              </PopoverTrigger>
+              <PopoverContent className="w-auto p-4 space-y-3" align="end">
+                <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Custom Date Range</p>
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="space-y-1">
+                    <p className="text-xs text-muted-foreground">From</p>
+                    <button
+                      type="button"
+                      onClick={() => setActiveField('from')}
+                      className={[
+                        'w-full flex items-center gap-2 rounded-md border px-3 py-2 text-sm transition-colors',
+                        activeField === 'from'
+                          ? 'border-primary ring-1 ring-primary bg-background'
+                          : 'border-border bg-muted/40 hover:bg-muted',
+                      ].join(' ')}
+                    >
+                      <CalendarIcon className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                      <span className={customFrom ? 'text-foreground' : 'text-muted-foreground'}>
+                        {customFrom ? customFrom.toLocaleDateString('en-GB') : 'DD/MM/YYYY'}
+                      </span>
+                    </button>
                   </div>
-                  <p className="text-sm font-medium text-muted-foreground">Total Deals</p>
-                </div>
-                <p className="text-3xl font-semibold">{totalCompanies}</p>
-                <p className="text-xs text-muted-foreground mt-1">Active in pipeline</p>
-              </CardContent>
-            </Card>
-            <Card className="border bg-card">
-              <CardContent className="p-5">
-                <div className="flex items-center gap-3 mb-3">
-                  <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-500/10">
-                    <ArrowUpRight className="h-4 w-4 text-emerald-500" />
+                  <div className="space-y-1">
+                    <p className="text-xs text-muted-foreground">To</p>
+                    <button
+                      type="button"
+                      onClick={() => setActiveField('to')}
+                      className={[
+                        'w-full flex items-center gap-2 rounded-md border px-3 py-2 text-sm transition-colors',
+                        activeField === 'to'
+                          ? 'border-primary ring-1 ring-primary bg-background'
+                          : 'border-border bg-muted/40 hover:bg-muted',
+                      ].join(' ')}
+                    >
+                      <CalendarIcon className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                      <span className={customTo ? 'text-foreground' : 'text-muted-foreground'}>
+                        {customTo ? customTo.toLocaleDateString('en-GB') : 'DD/MM/YYYY'}
+                      </span>
+                    </button>
                   </div>
-                  <p className="text-sm font-medium text-muted-foreground">Inbound</p>
                 </div>
-                <p className="text-3xl font-semibold">{totalInbound}</p>
-                <p className="text-xs text-muted-foreground mt-1">
-                  {totalCompanies > 0 ? Math.round((totalInbound / totalCompanies) * 100) : 0}% of total
-                </p>
-              </CardContent>
-            </Card>
-            <Card className="border bg-card">
-              <CardContent className="p-5">
-                <div className="flex items-center gap-3 mb-3">
-                  <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-violet-500/10">
-                    <Activity className="h-4 w-4 text-violet-500" />
-                  </div>
-                  <p className="text-sm font-medium text-muted-foreground">Outbound</p>
-                </div>
-                <p className="text-3xl font-semibold">{totalOutbound}</p>
-                <p className="text-xs text-muted-foreground mt-1">
-                  {totalCompanies > 0 ? Math.round((totalOutbound / totalCompanies) * 100) : 0}% of total
-                </p>
-              </CardContent>
-            </Card>
-            <Card className="border bg-card">
-              <CardContent className="p-5">
-                <div className="flex items-center gap-3 mb-3">
-                  <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-amber-500/10">
-                    <TrendingUp className="h-4 w-4 text-amber-500" />
-                  </div>
-                  <p className="text-sm font-medium text-muted-foreground">Conversion</p>
-                </div>
-                <p className="text-3xl font-semibold">{conversionPercent}%</p>
-                <p className="text-xs text-muted-foreground mt-1">L0 → L5</p>
-              </CardContent>
-            </Card>
-          </div>
-
-          {/* Pipeline Stages */}
-          <Card className="border bg-card">
-            <CardHeader className="pb-2">
-              <CardTitle className="flex items-center gap-3 text-lg font-semibold">
-                <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10">
-                  <TrendingUp className="h-4 w-4 text-primary" />
-                </div>
-                Pipeline Stages
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="pt-4">
-              {totalCompanies === 0 ? (
-                <div className="text-center py-12 text-muted-foreground">
-                  <Building2 className="mx-auto h-12 w-12 mb-4 opacity-40" />
-                  <p className="text-base font-medium">No companies in database yet.</p>
-                  <p className="text-sm">Import or add companies to see pipeline stages</p>
-                </div>
-              ) : (
-                <div className="flex items-end gap-4 justify-between" style={{ height: '300px' }}>
-                  {stageCounts.map((item, index) => {
-                    const maxCount = Math.max(...stageCounts.map(s => s.count), 1);
-                    const l0 = stageCounts[0]?.count || 1;
-                    const conversionPercentStage = l0 > 0 ? Math.round((item.count / l0) * 100) : 0;
-                    const barMaxHeight = 200;
-                    const minBarHeight = 80; // fits two segments with label + number (min 40px each)
-                    const barHeight = Math.max((item.count / maxCount) * barMaxHeight, minBarHeight);
-                    const colors = stageBarColors[item.stage] || { inbound: 'bg-gray-400/70', outbound: 'bg-gray-600/70' };
-                    const inboundRatio = item.count > 0 ? (item.inbound || 0) / item.count : 0.5;
-                    const outboundRatio = item.count > 0 ? (item.outbound || 0) / item.count : 0.5;
-                    const segmentMinPx = 40;
-                    const remainingHeight = Math.max(0, barHeight - 2 * segmentMinPx);
-                    const inboundHeightPx = segmentMinPx + inboundRatio * remainingHeight;
-                    const outboundHeightPx = segmentMinPx + outboundRatio * remainingHeight;
-                    return (
-                      <Link
-                        key={item.stage}
-                        href={`/pipeline?stage=${item.stage}`}
-                        className="flex-1 flex flex-col items-center cursor-pointer group no-underline text-inherit"
-                      >
-                        <span className="text-xl font-semibold mb-2 transition-transform group-hover:scale-110">{item.count}</span>
-                        <Badge variant="secondary" className="mb-4 text-xs bg-muted/80 backdrop-blur-sm">
-                          {conversionPercentStage}%
-                        </Badge>
-                        <div
-                          className="w-full rounded-xl overflow-hidden flex flex-col transition-all duration-200 group-hover:scale-[1.02]"
-                          style={{ height: `${barHeight}px` }}
-                        >
-                          <div
-                            className={`w-full ${colors.inbound} flex items-center justify-center shrink-0`}
-                            style={{ height: `${inboundHeightPx}px`, minHeight: segmentMinPx }}
-                          >
-                            <div className="text-white text-xs font-medium text-center px-1">
-                              <div className="opacity-80 text-[10px] uppercase tracking-wide">Inbound</div>
-                              <div className="font-semibold text-sm">{item.inbound || 0}</div>
-                            </div>
-                          </div>
-                          <div
-                            className={`w-full ${colors.outbound} flex items-center justify-center shrink-0`}
-                            style={{ height: `${outboundHeightPx}px`, minHeight: segmentMinPx }}
-                          >
-                            <div className="text-white text-xs font-medium text-center px-1">
-                              <div className="opacity-80 text-[10px] uppercase tracking-wide">Outbound</div>
-                              <div className="font-semibold text-sm">{item.outbound || 0}</div>
-                            </div>
-                          </div>
-                        </div>
-                        <div className="text-center mt-4">
-                          <div className="text-base font-bold">{item.stage}</div>
-                          <div className="text-xs text-muted-foreground">{item.label}</div>
-                        </div>
-                      </Link>
-                    );
-                  })}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-
-          {/* Two Column Layout: Company Overview + Recent Activity */}
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            {/* Company Overview Table */}
-            <Card className="lg:col-span-2 border bg-card">
-              <CardHeader className="flex flex-row items-center justify-between">
-                <CardTitle className="flex items-center gap-3 text-lg font-semibold">
-                  <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-500/10">
-                    <Database className="h-4 w-4 text-emerald-500" />
-                  </div>
-                  Company Overview
-                </CardTitle>
-                <Button variant="ghost" size="sm" asChild>
-                  <Link href="/master-data" className="flex items-center gap-1 text-muted-foreground hover:text-foreground">
-                    View All <ArrowUpRight className="h-4 w-4" />
-                  </Link>
-                </Button>
-              </CardHeader>
-              <CardContent>
-                {companies.length === 0 ? (
-                  <div className="text-center py-12 text-muted-foreground">
-                    <Building2 className="mx-auto h-12 w-12 mb-4 opacity-40" />
-                    <p className="text-base font-medium">No companies yet</p>
-                    <p className="text-sm">Import data to get started</p>
-                  </div>
+                {activeField === 'from' ? (
+                  <Calendar
+                    mode="single"
+                    selected={customFrom}
+                    onSelect={(d) => {
+                      setCustomFrom(d);
+                      setActiveField('to');
+                    }}
+                    disabled={(d) => d > new Date() || (customTo ? d > customTo : false)}
+                    initialFocus
+                  />
                 ) : (
-                  <>
-                    <div className="overflow-x-auto rounded-xl border border-border/50">
-                      <Table>
-                        <TableHeader>
-                          <TableRow className="bg-muted/30 hover:bg-muted/30">
-                            <TableHead className="font-semibold">Company</TableHead>
-                            <TableHead className="font-semibold">Project</TableHead>
-                            <TableHead className="font-semibold">Status</TableHead>
-                            <TableHead className="font-semibold">Source</TableHead>
-                            <TableHead className="text-right font-semibold">Rev 2022</TableHead>
-                            <TableHead className="text-right font-semibold">Rev 2023</TableHead>
-                            <TableHead className="text-right font-semibold">Rev 2024</TableHead>
-                            <TableHead className="text-right font-semibold">Rev 2025</TableHead>
-                            <TableHead className="text-center font-semibold">Trend</TableHead>
-                            <TableHead className="text-right font-semibold">EBITDA 2024</TableHead>
-                            <TableHead className="text-right font-semibold">EBITDA 2025</TableHead>
-                            <TableHead className="text-right font-semibold">EV 2024</TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {paginatedCompanies.map((company) => {
-                            const revenueChange = getRevenueChange(company.revenue_2024_usd_mn, company.revenue_2025_usd_mn);
-                            return (
-                              <TableRow key={company.id} className="hover:bg-muted/50 transition-colors">
-                                <TableCell>
-                                  <div>
-                                    <button
-                                      onClick={() => {
-                                        setSelectedCompany(company);
-                                        setDetailDialogOpen(true);
-                                      }}
-                                      className="font-semibold text-left hover:text-primary transition-colors"
-                                    >
-                                      {company.target || '—'}
-                                    </button>
-                                    <p className="text-xs text-muted-foreground">{company.segment || '-'}</p>
-                                  </div>
-                                </TableCell>
-                                <TableCell>
-                                  {company.project_name ? (
-                                    <button
-                                      onClick={() => {
-                                        setSelectedCompany(company);
-                                        setDetailDialogOpen(true);
-                                      }}
-                                      className="text-sm font-semibold text-left hover:text-primary transition-colors"
-                                    >
-                                      {company.project_name}
-                                    </button>
-                                  ) : (
-                                    <span className="text-sm text-muted-foreground">—</span>
-                                  )}
-                                </TableCell>
-                                <TableCell>
-                                  {company.status === 'dropped' ? (
-                                    <Badge variant="destructive" className="text-xs">
-                                      Dropped
-                                    </Badge>
-                                  ) : company.status === 'active' ? (
-                                    <Badge variant="default" className="text-xs">
-                                      Active
-                                    </Badge>
-                                  ) : (
-                                    <span className="text-xs text-muted-foreground">—</span>
-                                  )}
-                                </TableCell>
-                                <TableCell>
-                                  {company.source ? (
-                                    <Badge
-                                      variant="secondary"
-                                      className={`text-xs border-0 ${
-                                        company.source.toLowerCase() === 'inbound'
-                                          ? 'bg-emerald-500/15 text-emerald-600'
-                                          : 'bg-violet-500/15 text-violet-600'
-                                      }`}
-                                    >
-                                      {company.source}
-                                    </Badge>
-                                  ) : (
-                                    <span className="text-muted-foreground text-sm">—</span>
-                                  )}
-                                </TableCell>
-                                <TableCell className="text-right font-mono text-sm font-semibold">
-                                  {formatCurrency(company.revenue_2022_usd_mn)}
-                                </TableCell>
-                                <TableCell className="text-right font-mono text-sm font-semibold">
-                                  {formatCurrency(company.revenue_2023_usd_mn)}
-                                </TableCell>
-                                <TableCell className="text-right font-mono text-sm font-semibold">
-                                  {formatCurrency(company.revenue_2024_usd_mn)}
-                                </TableCell>
-                                <TableCell className="text-right font-mono text-sm font-semibold">
-                                  {formatCurrency(company.revenue_2025_usd_mn)}
-                                </TableCell>
-                                <TableCell className="text-center">
-                                  {revenueChange.direction === 'up' && (
-                                    <span className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-emerald-500/10">
-                                      <TrendingUp className="h-4 w-4 text-emerald-500" />
-                                    </span>
-                                  )}
-                                  {revenueChange.direction === 'down' && (
-                                    <span className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-red-500/10">
-                                      <TrendingDown className="h-4 w-4 text-red-500" />
-                                    </span>
-                                  )}
-                                  {revenueChange.direction === 'flat' && (
-                                    <span className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-muted">
-                                      <Minus className="h-4 w-4 text-muted-foreground" />
-                                    </span>
-                                  )}
-                                </TableCell>
-                                <TableCell className="text-right font-mono text-sm font-medium">
-                                  {formatCurrency(company.ebitda_2024_usd_mn)}
-                                </TableCell>
-                                <TableCell className="text-right font-mono text-sm font-medium">
-                                  {formatCurrency(company.ebitda_2025_usd_mn)}
-                                </TableCell>
-                                <TableCell className="text-right font-mono text-sm font-medium">
-                                  {formatCurrency(company.ev_2024)}
-                                </TableCell>
-                              </TableRow>
-                            );
-                          })}
-                        </TableBody>
-                      </Table>
-                    </div>
-                    {totalPages > 1 && (
-                      <div className="flex items-center justify-between mt-4 pt-4 border-t border-border/50">
-                        <p className="text-sm text-muted-foreground">
-                          Page <span className="font-semibold">{currentPage}</span> of <span className="font-semibold">{totalPages}</span>
-                          <span className="ml-2 text-muted-foreground/60">({companies.length} companies)</span>
-                        </p>
-                        <div className="flex items-center gap-2">
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-                            disabled={currentPage === 1}
-                            className="h-9 w-9 p-0"
-                          >
-                            <ChevronLeft className="h-4 w-4" />
-                          </Button>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
-                            disabled={currentPage === totalPages}
-                            className="h-9 w-9 p-0"
-                          >
-                            <ChevronRight className="h-4 w-4" />
-                          </Button>
-                        </div>
-                      </div>
-                    )}
-                  </>
-                )}
-
-                {selectedCompany && (
-                  <CompanyDetailDialog
-                    company={selectedCompany}
-                    open={detailDialogOpen}
-                    onOpenChange={setDetailDialogOpen}
-                    onUpdate={() => fetchDashboardData({ silent: true })}
+                  <Calendar
+                    mode="single"
+                    selected={customTo}
+                    onSelect={(d) => {
+                      setCustomTo(d);
+                    }}
+                    disabled={(d) => d > new Date() || (customFrom ? d < customFrom : false)}
+                    initialFocus
                   />
                 )}
+                <div className="flex gap-2 pt-1">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="flex-1 h-8 text-xs"
+                    onClick={() => setCustomPickerOpen(false)}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    className="flex-1 h-8 text-xs"
+                    disabled={!customFrom || !customTo}
+                    onClick={applyCustom}
+                  >
+                    Apply
+                  </Button>
+                </div>
+              </PopoverContent>
+            </Popover>
+          </div>
+        </div>
+
+        {/* Stat cards */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+          <Card className="border bg-card">
+            <CardContent className="p-5">
+              <div className="flex items-center gap-3 mb-3">
+                <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-blue-500/10">
+                  <Target className="h-4 w-4 text-blue-500" />
+                </div>
+                <p className="text-sm font-medium text-muted-foreground">Total Deals</p>
+              </div>
+              <p className="text-3xl font-semibold">{displayTotal}</p>
+              <p className="text-xs text-muted-foreground mt-1">
+                {activity ? 'Added in period' : 'Active in pipeline'}
+              </p>
+            </CardContent>
+          </Card>
+          <Card className="border bg-card">
+            <CardContent className="p-5">
+              <div className="flex items-center gap-3 mb-3">
+                <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-500/10">
+                  <ArrowUpRight className="h-4 w-4 text-emerald-500" />
+                </div>
+                <p className="text-sm font-medium text-muted-foreground">Inbound</p>
+              </div>
+              <p className="text-3xl font-semibold">{displayInbound}</p>
+              <p className="text-xs text-muted-foreground mt-1">
+                {displayTotal > 0 ? Math.round((displayInbound / displayTotal) * 100) : 0}% of total
+              </p>
+            </CardContent>
+          </Card>
+          <Card className="border bg-card">
+            <CardContent className="p-5">
+              <div className="flex items-center gap-3 mb-3">
+                <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-violet-500/10">
+                  <Activity className="h-4 w-4 text-violet-500" />
+                </div>
+                <p className="text-sm font-medium text-muted-foreground">Outbound</p>
+              </div>
+              <p className="text-3xl font-semibold">{displayOutbound}</p>
+              <p className="text-xs text-muted-foreground mt-1">
+                {displayTotal > 0 ? Math.round((displayOutbound / displayTotal) * 100) : 0}% of total
+              </p>
+            </CardContent>
+          </Card>
+          <Card className="border bg-card">
+            <CardContent className="p-5">
+              <div className="flex items-center gap-3 mb-3">
+                <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-amber-500/10">
+                  <TrendingUp className="h-4 w-4 text-amber-500" />
+                </div>
+                <p className="text-sm font-medium text-muted-foreground">Conversion</p>
+              </div>
+              <p className="text-3xl font-semibold">{displayConversion}%</p>
+              <p className="text-xs text-muted-foreground mt-1">L0 → L5</p>
+            </CardContent>
+          </Card>
+        </div>
+
+        {activityInitialising ? (
+          <div className="flex items-center justify-center py-16">
+            <div className="flex flex-col items-center gap-3">
+              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+              <p className="text-sm text-muted-foreground">Loading activity...</p>
+            </div>
+          </div>
+        ) : activity ? (
+          <>
+            {/* ── 7-Day Recap Section ─────────────────────────────────────────────── */}
+            <Card className="border bg-card">
+              <CardHeader className="pb-4">
+                <div className="flex items-center gap-2">
+                  <CalendarIcon className="h-5 w-5 text-muted-foreground" />
+                  <CardTitle className="text-lg font-semibold">
+                    {dateRange.preset === '7d' ? '7-Day Recap' : dateRange.preset === '14d' ? '14-Day Recap' : 'Custom Recap'}
+                  </CardTitle>
+                  <span className="text-sm text-muted-foreground">
+                    {formatDate(dateRange.from)} – {formatDate(dateRange.to)}
+                  </span>
+                </div>
+              </CardHeader>
+
+              <CardContent className="space-y-6">
+                {/* 3 summary counters */}
+                <div className="grid grid-cols-3 gap-4">
+                  <div className="rounded-lg border border-red-200 bg-red-50/50 dark:border-red-900/50 dark:bg-red-950/20 p-4">
+                    <p className="text-xs font-semibold text-red-600 dark:text-red-400 uppercase tracking-wide">Dropped</p>
+                    <p className="text-3xl font-bold mt-1">{recapDropped.length}</p>
+                    <p className="text-xs text-muted-foreground mt-0.5">deals removed</p>
+                  </div>
+                  <div className="rounded-lg border border-emerald-200 bg-emerald-50/50 dark:border-emerald-900/50 dark:bg-emerald-950/20 p-4">
+                    <p className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 uppercase tracking-wide">New Deals</p>
+                    <div className="flex items-end gap-4 mt-2">
+                      <div>
+                        <p className="text-3xl font-bold leading-none">{recapNewDeals.length}</p>
+                        <p className="text-xs text-muted-foreground mt-1">total</p>
+                      </div>
+                      <div className="w-px h-8 bg-emerald-200 dark:bg-emerald-800/50 self-center" />
+                      <Popover>
+                        <PopoverTrigger asChild>
+                          <button type="button" className="text-left">
+                            <p className="text-xl font-bold text-violet-600 dark:text-violet-400 leading-none underline decoration-dotted underline-offset-2">{recapNewInbound.length}</p>
+                            <p className="text-xs text-muted-foreground mt-1">Inbound</p>
+                          </button>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-64 p-3" align="start">
+                          <p className="text-xs font-bold uppercase tracking-wider text-violet-600 dark:text-violet-400 mb-2">Inbound · New Deals</p>
+                          {recapNewInbound.length === 0 ? (
+                            <p className="text-xs text-muted-foreground">No inbound deals this period</p>
+                          ) : (
+                            <div className="space-y-0">
+                              {recapNewInbound.map((c) => (
+                                <div key={`${c.id}-${c.event_at}`} className="flex items-start justify-between gap-2 py-2 border-b border-border/40 last:border-0">
+                                  <div className="flex-1 min-w-0">
+                                    <p className="text-xs font-semibold truncate">{c.target || c.project_name || '—'}</p>
+                                    <div className="flex flex-wrap gap-1 mt-1">
+                                      {c.segment && <span className="text-[10px] bg-muted px-1.5 py-0.5 rounded font-medium">{c.segment}</span>}
+                                      {c.geography && <span className="text-[10px] bg-muted px-1.5 py-0.5 rounded font-medium">{c.geography}</span>}
+                                    </div>
+                                  </div>
+                                  <span className="text-[10px] text-muted-foreground shrink-0 mt-0.5">{formatShortDate(c.event_at)}</span>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </PopoverContent>
+                      </Popover>
+                      <Popover>
+                        <PopoverTrigger asChild>
+                          <button type="button" className="text-left">
+                            <p className="text-xl font-bold text-blue-600 dark:text-blue-400 leading-none underline decoration-dotted underline-offset-2">{recapNewOutbound.length}</p>
+                            <p className="text-xs text-muted-foreground mt-1">Outbound</p>
+                          </button>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-64 p-3" align="start">
+                          <p className="text-xs font-bold uppercase tracking-wider text-blue-600 dark:text-blue-400 mb-2">Outbound · New Deals</p>
+                          {recapNewOutbound.length === 0 ? (
+                            <p className="text-xs text-muted-foreground">No outbound deals this period</p>
+                          ) : (
+                            <div className="space-y-0">
+                              {recapNewOutbound.map((c) => (
+                                <div key={`${c.id}-${c.event_at}`} className="flex items-start justify-between gap-2 py-2 border-b border-border/40 last:border-0">
+                                  <div className="flex-1 min-w-0">
+                                    <p className="text-xs font-semibold truncate">{c.target || c.project_name || '—'}</p>
+                                    <div className="flex flex-wrap gap-1 mt-1">
+                                      {c.segment && <span className="text-[10px] bg-muted px-1.5 py-0.5 rounded font-medium">{c.segment}</span>}
+                                      {c.geography && <span className="text-[10px] bg-muted px-1.5 py-0.5 rounded font-medium">{c.geography}</span>}
+                                    </div>
+                                  </div>
+                                  <span className="text-[10px] text-muted-foreground shrink-0 mt-0.5">{formatShortDate(c.event_at)}</span>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </PopoverContent>
+                      </Popover>
+                    </div>
+                  </div>
+                  <div className="rounded-lg border border-blue-200 bg-blue-50/50 dark:border-blue-900/50 dark:bg-blue-950/20 p-4">
+                    <p className="text-xs font-semibold text-blue-600 dark:text-blue-400 uppercase tracking-wide">Stage Moves</p>
+                    <p className="text-3xl font-bold mt-1">{recapStageMoves.length}</p>
+                    <p className="text-xs text-muted-foreground mt-0.5">pipeline movements</p>
+                  </div>
+                </div>
+
+                {/* 3 detail columns side-by-side */}
+                <div className="grid grid-cols-3 gap-6">
+                  {/* Dropped Deals Column */}
+                  <div className="space-y-3">
+                    <div className="flex items-center gap-2">
+                      <span className="h-2 w-2 rounded-full bg-red-500" />
+                      <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Dropped Deals</span>
+                    </div>
+                    <div className="space-y-2">
+                      {recapDropped.length === 0 ? (
+                        <p className="text-xs text-muted-foreground py-2">No dropped deals</p>
+                      ) : (
+                        recapDropped.map((d) => (
+                          <div
+                            key={d.id}
+                            className="flex items-start gap-2 p-2 rounded-lg hover:bg-muted/40 transition-colors cursor-pointer"
+                            onClick={() => handleCompanyClick(d.id)}
+                          >
+                            <div className="flex h-6 w-6 items-center justify-center rounded bg-red-100 dark:bg-red-900/30 shrink-0">
+                              <XCircle className="h-3.5 w-3.5 text-red-500" />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-start justify-between gap-2">
+                                <p className="text-sm font-medium truncate">{d.target || d.project_name || '—'}</p>
+                                <span className="text-xs text-muted-foreground shrink-0">{formatShortDate(d.dropped_at)}</span>
+                              </div>
+                              <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+                                {d.segment && <Badge variant="secondary" className="text-[10px] px-1.5 py-0 h-4">{d.segment}</Badge>}
+                                {d.geography && <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4">{d.geography}</Badge>}
+                              </div>
+                              {d.pipeline_stage && (
+                                <p className="text-xs text-muted-foreground mt-1">Dropped at {d.pipeline_stage}</p>
+                              )}
+                            </div>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </div>
+
+                  {/* New Deals Column */}
+                  <div className="space-y-3">
+                    <div className="flex items-center gap-2">
+                      <span className="h-2 w-2 rounded-full bg-emerald-500" />
+                      <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">New Deals This Week</span>
+                    </div>
+                    <div className="space-y-2">
+                      {recapNewDeals.length === 0 ? (
+                        <p className="text-xs text-muted-foreground py-2">No new deals</p>
+                      ) : (
+                        recapNewDeals.map((c) => (
+                          <div
+                            key={`${c.id}-${c.event_at}`}
+                            className="flex items-start gap-2 p-2 rounded-lg hover:bg-muted/40 transition-colors cursor-pointer"
+                            onClick={() => handleCompanyClick(c.id)}
+                          >
+                            <div className="flex h-6 w-6 items-center justify-center rounded bg-emerald-100 dark:bg-emerald-900/30 shrink-0">
+                              <span className="text-emerald-600 dark:text-emerald-400 text-sm font-bold">+</span>
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-start justify-between gap-2">
+                                <p className="text-sm font-medium truncate">{c.target || c.project_name || '—'}</p>
+                                <span className="text-xs text-muted-foreground shrink-0">{formatShortDate(c.event_at)}</span>
+                              </div>
+                              <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+                                {c.segment && <Badge variant="secondary" className="text-[10px] px-1.5 py-0 h-4">{c.segment}</Badge>}
+                                {c.geography && <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4">{c.geography}</Badge>}
+                              </div>
+                            </div>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Pipeline Stage Movements Column */}
+                  <div className="space-y-3">
+                    <div className="flex items-center gap-2">
+                      <span className="h-2 w-2 rounded-full bg-blue-500" />
+                      <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Pipeline Stage Movements</span>
+                    </div>
+                    <div className="space-y-2">
+                      {recapStageMoves.length === 0 ? (
+                        <p className="text-xs text-muted-foreground py-2">No stage movements</p>
+                      ) : (
+                        recapStageMoves.map((m) => {
+                          const { from: fromStage, to: toStage } = parsePipelineMoveAction(m.action);
+                          return (
+                            <div
+                              key={m.id}
+                              className="flex items-start gap-2 p-2 rounded-lg hover:bg-muted/40 transition-colors cursor-pointer"
+                              onClick={() => m.company_id && handleCompanyClick(m.company_id)}
+                            >
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-start justify-between gap-2">
+                                  <p className="text-sm font-medium truncate">{m.target || m.project_name || '—'}</p>
+                                  <div className="flex items-center gap-1 shrink-0">
+                                    {fromStage && <StageChip stage={fromStage} />}
+                                    {fromStage && toStage && <ChevronRight className="h-3 w-3 text-muted-foreground" />}
+                                    {toStage && <StageChip stage={toStage} />}
+                                    <span className="text-xs text-muted-foreground ml-1">{formatShortDate(m.created_at)}</span>
+                                  </div>
+                                </div>
+                                <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+                                  {m.source && <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4 capitalize">{m.source}</Badge>}
+                                  {m.geography && <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4">{m.geography}</Badge>}
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })
+                      )}
+                    </div>
+                  </div>
+                </div>
               </CardContent>
             </Card>
 
-            {/* Recent Activity */}
+            {/* ── Pipeline Stages ────────────────────────────────────────────── */}
             <Card className="border bg-card">
-              <CardHeader className="flex flex-row items-center justify-between">
-                <CardTitle className="flex items-center gap-3 text-lg font-semibold">
-                  <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-cyan-500/10">
-                    <Clock className="h-4 w-4 text-cyan-500" />
-                  </div>
-                  Recent Updates
-                </CardTitle>
-                <Button variant="ghost" size="sm" asChild>
-                  <Link href="/master-data" className="flex items-center gap-1 text-muted-foreground hover:text-foreground">
-                    View All <ArrowUpRight className="h-4 w-4" />
-                  </Link>
-                </Button>
+              <CardHeader className="pb-2">
+                <div className="flex items-center gap-3">
+                  <CardTitle className="flex items-center gap-3 text-lg font-semibold">
+                    <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10">
+                      <TrendingUp className="h-4 w-4 text-primary" />
+                    </div>
+                    Pipeline Stages
+                  </CardTitle>
+                  <span className="text-sm text-muted-foreground">
+                    {formatDate(dateRange.from)} – {formatDate(dateRange.to)}
+                  </span>
+                </div>
               </CardHeader>
-              <CardContent>
-                {recentCompanies.length === 0 ? (
+              <CardContent className="pt-4">
+                {displayTotal === 0 ? (
                   <div className="text-center py-12 text-muted-foreground">
                     <Building2 className="mx-auto h-12 w-12 mb-4 opacity-40" />
-                    <p className="text-base font-medium">No companies yet</p>
-                    <p className="text-sm">Import data to get started</p>
+                    <p className="text-base font-medium">No pipeline activity in this period.</p>
                   </div>
                 ) : (
-                  <div className="space-y-3">
-                    {recentCompanies.map((company) => (
-                      <div
-                        key={company.id}
-                        className="flex items-center justify-between p-3 rounded-lg bg-muted/50 hover:bg-muted transition-colors"
-                      >
-                        <div className="flex items-center gap-3">
-                          <div className={`w-2 h-2 rounded-full ${getStatusColor(company.l1_screening_result)}`} />
-                          <div>
-                            <p className="font-medium text-sm">{[company.target, company.project_name].filter(Boolean).join(' — ') || 'Unknown'}</p>
-                            <p className="text-xs text-muted-foreground">
-                              {new Date(company.updated_at).toLocaleDateString()}
-                            </p>
+                  <div className="flex items-end gap-4 justify-between" style={{ height: '300px' }}>
+                    {displayStageCounts.map((item) => {
+                      const maxCount = Math.max(...displayStageCounts.map(s => s.count), 1);
+                      const l0 = displayStageCounts[0]?.count || 1;
+                      const conversionPercentStage = l0 > 0 ? Math.round((item.count / l0) * 100) : 0;
+                      const barMaxHeight = 200;
+                      const minBarHeight = 80;
+                      const barHeight = Math.max((item.count / maxCount) * barMaxHeight, minBarHeight);
+                      const colors = stageBarColors[item.stage] || { inbound: 'bg-gray-400/70', outbound: 'bg-gray-600/70' };
+                      const inboundRatio = item.count > 0 ? (item.inbound || 0) / item.count : 0.5;
+                      const outboundRatio = item.count > 0 ? (item.outbound || 0) / item.count : 0.5;
+                      const segmentMinPx = 40;
+                      const remainingHeight = Math.max(0, barHeight - 2 * segmentMinPx);
+                      const inboundHeightPx = segmentMinPx + inboundRatio * remainingHeight;
+                      const outboundHeightPx = segmentMinPx + outboundRatio * remainingHeight;
+                      return (
+                        <Link
+                          key={item.stage}
+                          href={`/pipeline?stage=${item.stage}`}
+                          className="flex-1 flex flex-col items-center cursor-pointer group no-underline text-inherit"
+                        >
+                          <span className="text-xl font-semibold mb-2 transition-transform group-hover:scale-110">{item.count}</span>
+                          <Badge variant="secondary" className="mb-4 text-xs bg-muted/80 backdrop-blur-sm">
+                            {conversionPercentStage}%
+                          </Badge>
+                          <div
+                            className="w-full rounded-xl overflow-hidden flex flex-col transition-all duration-200 group-hover:scale-[1.02]"
+                            style={{ height: `${barHeight}px` }}
+                          >
+                            <div
+                              className={`w-full ${colors.inbound} flex items-center justify-center shrink-0`}
+                              style={{ height: `${inboundHeightPx}px`, minHeight: segmentMinPx }}
+                            >
+                              <div className="text-white text-xs font-medium text-center px-1">
+                                <div className="opacity-80 text-[10px] uppercase tracking-wide">Inbound</div>
+                                <div className="font-semibold text-sm">{item.inbound || 0}</div>
+                              </div>
+                            </div>
+                            <div
+                              className={`w-full ${colors.outbound} flex items-center justify-center shrink-0`}
+                              style={{ height: `${outboundHeightPx}px`, minHeight: segmentMinPx }}
+                            >
+                              <div className="text-white text-xs font-medium text-center px-1">
+                                <div className="opacity-80 text-[10px] uppercase tracking-wide">Outbound</div>
+                                <div className="font-semibold text-sm">{item.outbound || 0}</div>
+                              </div>
+                            </div>
                           </div>
-                        </div>
-                        {company.l1_screening_result ? (
-                          <Badge className={`${getStatusColor(company.l1_screening_result)} text-white text-xs border-0`}>
-                            {company.l1_screening_result}
-                          </Badge>
-                        ) : (
-                          <Badge variant="secondary" className="text-xs">
-                            Pending
-                          </Badge>
-                        )}
-                      </div>
-                    ))}
+                          <div className="text-center mt-4">
+                            <div className="text-base font-bold">{item.stage}</div>
+                            <div className="text-xs text-muted-foreground">{item.label}</div>
+                          </div>
+                        </Link>
+                      );
+                    })}
                   </div>
                 )}
               </CardContent>
             </Card>
-          </div>
+
+            {/* ── Activity Feed ──────────────────────────────────────────────── */}
+            <Card className="border bg-card">
+              <CardHeader className="pb-4">
+                <div className="space-y-4">
+                  <div className="flex items-center gap-2">
+                    <Clock className="h-5 w-5 text-muted-foreground" />
+                    <CardTitle className="text-lg font-semibold">Activity Feed</CardTitle>
+                  </div>
+
+                  {/* Filter pills */}
+                  <div className="flex items-center gap-2">
+                    {(['all', 'new', 'moved', 'dropped', 'notes'] as FeedFilterKey[]).map((key) => (
+                      <button
+                        key={key}
+                        type="button"
+                        onClick={() => setFeedFilter(key)}
+                        className={[
+                          'h-7 px-3 text-xs font-medium rounded-full transition-colors',
+                          feedFilter === key
+                            ? 'bg-primary text-primary-foreground'
+                            : 'bg-muted text-muted-foreground hover:text-foreground',
+                        ].join(' ')}
+                      >
+                        {key === 'all' ? 'All' : key === 'new' ? 'New' : key === 'moved' ? 'Moved' : key === 'dropped' ? 'Dropped' : 'Notes'}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </CardHeader>
+
+              <CardContent className="pt-0">
+                {/* Events */}
+                <div className="space-y-0">
+                  {groupedFeedEvents.length === 0 ? (
+                    <div className="text-center py-12 text-muted-foreground">
+                      <p className="text-sm">No activity in this period</p>
+                    </div>
+                  ) : (
+                    groupedFeedEvents.map(({ dateLabel, events }) => (
+                      <div key={dateLabel}>
+                        {/* Date header */}
+                        <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide pt-4 pb-2">
+                          {new Date(events[0]?.event_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }).toUpperCase().replace(',', '')}
+                        </p>
+
+                        {/* Events for this date */}
+                        {events.map((event) => (
+                          <FeedEventRow
+                            key={event.id}
+                            event={event}
+                            onCompanyClick={handleCompanyClick}
+                          />
+                        ))}
+                      </div>
+                    ))
+                  )}
+
+                  {/* End of feed marker */}
+                  {groupedFeedEvents.length > 0 && (
+                    <div className="text-center py-8">
+                      <span className="text-sm text-muted-foreground">— End of recent activity —</span>
+                    </div>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          </>
+        ) : null}
       </div>
+
+      {selectedCompany && (
+        <CompanyDetailDialog
+          company={selectedCompany}
+          open={dialogOpen}
+          onOpenChange={setDialogOpen}
+          onUpdate={fetchPipelineData}
+        />
+      )}
+
     </DashboardLayout>
+  );
+}
+
+// ─── FeedEventRow ─────────────────────────────────────────────────────────────
+
+interface FeedEventRowProps {
+  event: FeedEvent;
+  onCompanyClick: (id: string) => void;
+}
+
+const eventTypeBadgeStyles: Record<FeedEventType, string> = {
+  new_deal: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300',
+  stage_move: 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300',
+  dropped: 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300',
+  note_updated: 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300',
+};
+
+const eventTypeBadgeLabels: Record<FeedEventType, string> = {
+  new_deal: 'NEW DEAL',
+  stage_move: 'STAGE MOVE',
+  dropped: 'DROPPED',
+  note_updated: 'NOTE UPDATED',
+};
+
+function FeedEventRow({ event, onCompanyClick }: FeedEventRowProps) {
+  const inlineNote =
+    event.type === 'note_updated'
+      ? event.note_content
+      : event.remarks ?? null;
+
+  return (
+    <div className="flex items-start gap-3 py-3 border-b border-border/40 last:border-b-0">
+      {/* Color dot */}
+      <div className="mt-1.5 shrink-0">
+        <div className={`h-2.5 w-2.5 rounded-full ${dotColors[event.type]}`} />
+      </div>
+
+      {/* Content */}
+      <div className="flex-1 min-w-0 space-y-1.5">
+        {/* Company name */}
+        <button
+          type="button"
+          onClick={() => onCompanyClick(event.company_id)}
+          className="text-sm font-semibold text-left hover:text-primary transition-colors block"
+        >
+          {event.company_name}
+        </button>
+
+        {/* Event detail line */}
+        <div className="flex items-center gap-2 flex-wrap">
+          {event.type === 'stage_move' && (
+            <>
+              {event.from_stage && <StageChip stage={event.from_stage} />}
+              {event.from_stage && event.to_stage && <ChevronRight className="h-3 w-3 text-muted-foreground shrink-0" />}
+              {event.to_stage && <StageChip stage={event.to_stage} />}
+            </>
+          )}
+
+          {event.type === 'dropped' && (
+            <>
+              <span className="text-xs text-muted-foreground">Dropped at</span>
+              {event.dropped_stage && <StageChip stage={event.dropped_stage} />}
+            </>
+          )}
+        </div>
+
+        {/* Inline note / remarks */}
+        {inlineNote && (
+          <p className="text-xs text-muted-foreground leading-relaxed line-clamp-3">{inlineNote}</p>
+        )}
+
+        {/* Event type badge + metadata badges */}
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <span className={`inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase ${eventTypeBadgeStyles[event.type]}`}>
+            {eventTypeBadgeLabels[event.type]}
+          </span>
+          {event.geography && (
+            <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4 font-normal">{event.geography}</Badge>
+          )}
+          {event.segment && (
+            <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4 font-normal">{event.segment}</Badge>
+          )}
+        </div>
+      </div>
+    </div>
   );
 }

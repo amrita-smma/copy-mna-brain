@@ -28,7 +28,11 @@
       "Bash(grep -E \"\\\\.ts$\")",
       "Bash(grep -v \"^$\")",
       "Bash(grep \"\\\\.ts$\")",
-      "WebFetch(domain:developers.google.com)"
+      "WebFetch(domain:developers.google.com)",
+      "Bash(grep -E \"\\\\.\\(tsx|ts|jsx|js\\)$\")",
+      "Bash(git *)",
+      "Bash(git -C /Users/nicoalimin/Code/sqe/mna-tracker show user/nicoalimin/adjust-dashboard:src/views/Dashboard.tsx)",
+      "Read(//tmp/**)"
     ]
   }
 }

@@ -20,3 +20,4 @@ export * from './crmService';
 export * from './emailService';
 export * from './aiWorkforceService';
 export * from './copilotChatsService';
+export * from './dashboardActivityService';
