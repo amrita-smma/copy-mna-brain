@@ -9,13 +9,13 @@ variable "tags" {
 }
 
 variable "cors_allowed_origins" {
-  type        = list(string)
-  default     = []
+  type    = list(string)
+  default = []
 }
 
 variable "cors_additional_origins" {
-  type        = list(string)
-  default     = []
+  type    = list(string)
+  default = []
 }
 
 data "aws_caller_identity" "current" {}
@@ -53,6 +53,8 @@ locals {
   bucket_name      = "mna-app-data-${local.current_config.environment}"
 
   mna_cors_baseline = [
+    "http://localhost:*",
+    "http://localhost:3001",
     "http://localhost:3000",
     "http://localhost:5173",
     "https://mna-stg.sqe.co.id",

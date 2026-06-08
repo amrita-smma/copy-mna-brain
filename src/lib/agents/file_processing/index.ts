@@ -223,7 +223,7 @@ export async function processFileContent(
   if (contentType === 'application/pdf') {
     logger.debug("📂 INVOKING FILE PROCESSING AGENT");
 
-    const buffers = await splitPdf(buffer, 50);
+    const buffers = await splitPdf(buffer, 5);
     for (const buff of buffers) {
       let lastParsedContent = "";
       if (lastMessage) {
