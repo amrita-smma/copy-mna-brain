@@ -172,7 +172,6 @@ function buildFeedEvents(activity: DashboardActivity): FeedEvent[] {
       source: d.source ?? null,
       event_at: d.dropped_at,
       dropped_stage: d.pipeline_stage ?? null,
-      remarks: d.remarks ?? null,
       thesis_content: d.thesis_content ?? null,
     });
   }
@@ -430,9 +429,12 @@ export default function Dashboard({ showCrm = false, showAiWorkforce = false }: 
       return;
     }
     try {
-      const rows = await getCompanies({ id });
-      if (rows?.[0]) {
-        setSelectedCompany(rows[0] as CompanyData);
+      // `getCompanies({ id })` hits the single-company endpoint, which returns
+      // one DTO object (not an array). Dropped companies are excluded from the
+      // cached `companies` list, so they always take this path.
+      const company = await getCompanies({ id });
+      if (company) {
+        setSelectedCompany(company as CompanyData);
         setDialogOpen(true);
       }
     } catch (err) {
@@ -772,11 +774,6 @@ export default function Dashboard({ showCrm = false, showAiWorkforce = false }: 
               <CardContent className="space-y-6">
                 {/* 3 summary counters */}
                 <div className="grid grid-cols-3 gap-4">
-                  <div className="rounded-lg border border-red-200 bg-red-50/50 dark:border-red-900/50 dark:bg-red-950/20 p-4">
-                    <p className="text-xs font-semibold text-red-600 dark:text-red-400 uppercase tracking-wide">Dropped</p>
-                    <p className="text-3xl font-bold mt-1">{recapDropped.length}</p>
-                    <p className="text-xs text-muted-foreground mt-0.5">deals removed</p>
-                  </div>
                   <div className="rounded-lg border border-emerald-200 bg-emerald-50/50 dark:border-emerald-900/50 dark:bg-emerald-950/20 p-4">
                     <p className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 uppercase tracking-wide">New Deals</p>
                     <div className="flex items-end gap-4 mt-2">
@@ -845,6 +842,11 @@ export default function Dashboard({ showCrm = false, showAiWorkforce = false }: 
                       </Popover>
                     </div>
                   </div>
+                  <div className="rounded-lg border border-red-200 bg-red-50/50 dark:border-red-900/50 dark:bg-red-950/20 p-4">
+                    <p className="text-xs font-semibold text-red-600 dark:text-red-400 uppercase tracking-wide">Dropped</p>
+                    <p className="text-3xl font-bold mt-1">{recapDropped.length}</p>
+                    <p className="text-xs text-muted-foreground mt-0.5">deals removed</p>
+                  </div>
                   <div className="rounded-lg border border-blue-200 bg-blue-50/50 dark:border-blue-900/50 dark:bg-blue-950/20 p-4">
                     <p className="text-xs font-semibold text-blue-600 dark:text-blue-400 uppercase tracking-wide">Stage Moves</p>
                     <p className="text-3xl font-bold mt-1">{recapStageMoves.length}</p>
@@ -854,6 +856,42 @@ export default function Dashboard({ showCrm = false, showAiWorkforce = false }: 
 
                 {/* 3 detail columns side-by-side */}
                 <div className="grid grid-cols-3 gap-6">
+
+                {/* New Deals Column */}
+                <div className="space-y-3">
+                  <div className="flex items-center gap-2">
+                    <span className="h-2 w-2 rounded-full bg-emerald-500" />
+                    <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">New Deals This Week</span>
+                  </div>
+                  <div className="space-y-2">
+                    {recapNewDeals.length === 0 ? (
+                      <p className="text-xs text-muted-foreground py-2">No new deals</p>
+                    ) : (
+                      recapNewDeals.map((c) => (
+                        <div
+                          key={`${c.id}-${c.event_at}`}
+                          className="flex items-start gap-2 p-2 rounded-lg hover:bg-muted/40 transition-colors cursor-pointer"
+                          onClick={() => handleCompanyClick(c.id)}
+                        >
+                          <div className="flex h-6 w-6 items-center justify-center rounded bg-emerald-100 dark:bg-emerald-900/30 shrink-0">
+                            <span className="text-emerald-600 dark:text-emerald-400 text-sm font-bold">+</span>
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-start justify-between gap-2">
+                              <p className="text-sm font-medium truncate">{c.target || c.project_name || '—'}</p>
+                              <span className="text-xs text-muted-foreground shrink-0">{formatShortDate(c.event_at)}</span>
+                            </div>
+                            <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+                              {c.segment && <Badge variant="secondary" className="text-[10px] px-1.5 py-0 h-4">{c.segment}</Badge>}
+                              {c.geography && <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4">{c.geography}</Badge>}
+                            </div>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+
                   {/* Dropped Deals Column */}
                   <div className="space-y-3">
                     <div className="flex items-center gap-2">
@@ -885,41 +923,6 @@ export default function Dashboard({ showCrm = false, showAiWorkforce = false }: 
                               {d.pipeline_stage && (
                                 <p className="text-xs text-muted-foreground mt-1">Dropped at {d.pipeline_stage}</p>
                               )}
-                            </div>
-                          </div>
-                        ))
-                      )}
-                    </div>
-                  </div>
-
-                  {/* New Deals Column */}
-                  <div className="space-y-3">
-                    <div className="flex items-center gap-2">
-                      <span className="h-2 w-2 rounded-full bg-emerald-500" />
-                      <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">New Deals This Week</span>
-                    </div>
-                    <div className="space-y-2">
-                      {recapNewDeals.length === 0 ? (
-                        <p className="text-xs text-muted-foreground py-2">No new deals</p>
-                      ) : (
-                        recapNewDeals.map((c) => (
-                          <div
-                            key={`${c.id}-${c.event_at}`}
-                            className="flex items-start gap-2 p-2 rounded-lg hover:bg-muted/40 transition-colors cursor-pointer"
-                            onClick={() => handleCompanyClick(c.id)}
-                          >
-                            <div className="flex h-6 w-6 items-center justify-center rounded bg-emerald-100 dark:bg-emerald-900/30 shrink-0">
-                              <span className="text-emerald-600 dark:text-emerald-400 text-sm font-bold">+</span>
-                            </div>
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-start justify-between gap-2">
-                                <p className="text-sm font-medium truncate">{c.target || c.project_name || '—'}</p>
-                                <span className="text-xs text-muted-foreground shrink-0">{formatShortDate(c.event_at)}</span>
-                              </div>
-                              <div className="flex items-center gap-1.5 mt-1 flex-wrap">
-                                {c.segment && <Badge variant="secondary" className="text-[10px] px-1.5 py-0 h-4">{c.segment}</Badge>}
-                                {c.geography && <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4">{c.geography}</Badge>}
-                              </div>
                             </div>
                           </div>
                         ))

@@ -482,6 +482,8 @@ export default function Pipeline({ showCrm = false, showAiWorkforce = false }: P
       company.l1_screening_result === l1StatusFilter;
     const matchesSector =
       sectorFilter === "all" || company.segment === sectorFilter;
+    const matchesSource =
+      sourceFilter === "all" || company.source === sourceFilter;
     const matchesView =
       viewMode === "dropped" ? isDropped(company) : isActive(company);
     return (
@@ -489,6 +491,7 @@ export default function Pipeline({ showCrm = false, showAiWorkforce = false }: P
       matchesSearch &&
       matchesL1Status &&
       matchesSector &&
+      matchesSource &&
       matchesView
     );
   });
@@ -1234,32 +1237,22 @@ export default function Pipeline({ showCrm = false, showAiWorkforce = false }: P
                                               {formatCurrency(company.ev_2024)}
                                             </TableCell>
                                             <TableCell className="text-center">
-                                              {/* Source is not in PipelineCompany interface! 
-                                                Wait, PipelineCompany interface (Step 267) has: 
-                                                id, target, segment, ...
-                                                It DOES NOT have 'source'.
-                                                I need to check where 'source' comes from.
-                                                In Step 253 (sqemnabrain), 'source' was in the query: `deals(companies(source))`.
-                                                In acqgent `fetchCompanies` (Step 267), it selects from `companies` table directly?
-                                                Line 206: `.from('companies')`.
-                                                I should check if `companies` table has `source` column.
-                                                If not, I might need to omit it or fetch from deals if possible.
-                                                For now I will put a placeholder or omit badge.
-                                                The screenshot shows "Inbound" / "Outbound".
-                                                I will assume 'Inbound' for now or check if there is a field I missed.
-                                                Actually, let's omit the Source column if I can't find it, OR add it if it's critical.
-                                                User screenshot has "Source" column.
-                                                I'll add the column but with a static/placeholder value or check if I can map it from something else.
-                                                Wait, `sqemnabrain` has `source`. `acqgent` might not have migrated that column yet.
-                                                I'll put "Inbound" as default or check remarks.
-                                                Let's just use "Inbound" hardcoded for now or comments.
-                                            */}
-                                              <Badge
-                                                variant="secondary"
-                                                className="bg-emerald-500/20 text-emerald-600 hover:bg-emerald-500/30"
-                                              >
-                                                Inbound
-                                              </Badge>
+                                              {company.source ? (
+                                                <Badge
+                                                  variant="secondary"
+                                                  className={
+                                                    company.source === "inbound"
+                                                      ? "bg-emerald-500/20 text-emerald-600 hover:bg-emerald-500/30 capitalize"
+                                                      : "bg-blue-500/20 text-blue-600 hover:bg-blue-500/30 capitalize"
+                                                  }
+                                                >
+                                                  {company.source}
+                                                </Badge>
+                                              ) : (
+                                                <span className="text-muted-foreground">
+                                                  -
+                                                </span>
+                                              )}
                                             </TableCell>
                                             <TableCell className="text-right">
                                               <DropdownMenu>

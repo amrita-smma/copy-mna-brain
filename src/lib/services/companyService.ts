@@ -27,9 +27,10 @@ export interface FinancialUpsertInput {
   ebitda_usd_mn?: number | null;
 }
 
-// Dropped companies are terminal: any write attempt (manual UI, Copilot,
-// Workforce) must fail loud. There is no user-facing restore flow yet, so
-// the error message intentionally does not suggest one.
+// Dropped companies stay editable for detail fields (target, financials,
+// assignees, etc.) so users can keep records accurate after a drop. Pipeline
+// lifecycle moves are still off-limits: promoting a dropped deal or
+// re-dropping one fails loud with this error.
 export class CompanyDroppedError extends Error {
   readonly droppedIds: string[];
   constructor(droppedIds: string[]) {
@@ -163,7 +164,6 @@ export class CompanyService {
     input: CompanyDTOInput,
     logAction?: string,
   ): Promise<CompanyDTO> {
-    await this.guardWritable(id);
     const split = splitCompanyDTO(input);
     if (Object.keys(split.company).length > 0) {
       await this.companyRepo.update(id, split.company as TablesUpdate<'companies'>);
@@ -211,7 +211,6 @@ export class CompanyService {
   }
 
   async update(id: string, updates: TablesUpdate<'companies'>, logAction?: string) {
-    await this.guardWritable(id);
     const data = await this.companyRepo.update(id, updates);
     if (logAction) {
       await this.companyLogRepo.insert({ company_id: id, action: logAction });
@@ -220,7 +219,6 @@ export class CompanyService {
   }
 
   async updateMany(ids: string[], updates: TablesUpdate<'companies'>, logAction?: string) {
-    await this.guardWritableMany(ids);
     const data = await this.companyRepo.updateMany(ids, updates);
     if (logAction) {
       await this.companyLogRepo.insertMany(
@@ -292,7 +290,6 @@ export class CompanyService {
   }
 
   async setAssignees(id: string, userIds: string[]) {
-    await this.guardWritable(id);
     return this.companyRepo.setAssignees(id, userIds);
   }
 
@@ -388,7 +385,6 @@ export class CompanyService {
     deletedYears: number[],
     logAction?: string,
   ): Promise<CompanyDTO> {
-    await this.guardWritable(companyId);
     const existing = await this.companyFinancialRepo.findByCompany(companyId);
     const existingByYear = new Map(existing.map((r) => [r.fiscal_year, r]));
 

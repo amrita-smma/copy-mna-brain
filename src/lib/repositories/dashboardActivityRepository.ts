@@ -168,7 +168,6 @@ export class DashboardActivityRepository {
         segment: companies.segment,
         geography: companies.geography,
         source: companies.source,
-        remarks: companies.remarks,
         thesis_content: companies.thesis_content,
       })
       .from(companies)

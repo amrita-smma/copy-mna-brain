@@ -204,7 +204,7 @@ export default function MasterData({ showCrm = false, showAiWorkforce = false }:
             project_name: company.project_name ?? null,
             sector: company.segment || '',
             geo: company.geography || company.geo || null,
-            source: company.watchlist_status === 'Active' ? 'inbound' : 'outbound',
+            source: company.source ?? '',
             revenue_2022: company.revenue_2022_usd_mn,
             revenue_2023: company.revenue_2023_usd_mn,
             revenue_2024: company.revenue_2024_usd_mn,
@@ -524,7 +524,7 @@ export default function MasterData({ showCrm = false, showAiWorkforce = false }:
                           </TableCell>
                           <TableCell>
                             <Badge variant="secondary" className="capitalize">
-                              {company.source}
+                              {company.source || '-'}
                             </Badge>
                           </TableCell>
                           <TableCell>
