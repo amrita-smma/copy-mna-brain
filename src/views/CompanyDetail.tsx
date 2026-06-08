@@ -370,6 +370,40 @@ export default function CompanyDetail({ showCrm = false, showAiWorkforce = false
     setEditForm(null);
   };
 
+  // Inline edit mode for the AI Market Scanning Remarks card
+  const [isEditingRemarks, setIsEditingRemarks] = useState(false);
+  const [isSavingRemarks, setIsSavingRemarks] = useState(false);
+  const [remarksDraft, setRemarksDraft] = useState('');
+
+  const startEditingRemarks = () => {
+    if (!company) return;
+    setRemarksDraft(company.remarks ?? '');
+    setIsEditingRemarks(true);
+  };
+
+  const cancelEditingRemarks = () => {
+    setIsEditingRemarks(false);
+    setRemarksDraft('');
+  };
+
+  const saveRemarks = async () => {
+    if (!company) return;
+    setIsSavingRemarks(true);
+    try {
+      const trimmed = remarksDraft.trim();
+      await updateCompany(company.id, { remarks: trimmed || null });
+      setCompany((prev) => (prev ? { ...prev, remarks: trimmed || null } : prev));
+      toast.success('Remarks updated');
+      setIsEditingRemarks(false);
+      setRemarksDraft('');
+    } catch (err: unknown) {
+      console.error('Failed to save remarks:', err);
+      toast.error(`Failed to save: ${(err as Error)?.message || 'Unknown error'}`);
+    } finally {
+      setIsSavingRemarks(false);
+    }
+  };
+
   const saveEditing = async () => {
     if (!editForm || !company) return;
     setIsSaving(true);
@@ -960,7 +994,7 @@ export default function CompanyDetail({ showCrm = false, showAiWorkforce = false
 
           <TabsContent value="company-card" className="space-y-6 mt-6">
             {/* AI Market Scanning Remarks */}
-            {company.remarks && company.source?.toLowerCase() === 'outbound' && (
+            {company.source?.toLowerCase() === 'outbound' && (
               <Card className="border-purple-200 dark:border-purple-800/50 bg-gradient-to-br from-purple-50/50 to-violet-50/30 dark:from-purple-950/20 dark:to-violet-950/10">
                 <CardHeader className="pb-2">
                   <div className="flex items-center justify-between">
@@ -968,10 +1002,17 @@ export default function CompanyDetail({ showCrm = false, showAiWorkforce = false
                       <Sparkles className="h-5 w-5 text-purple-500" />
                       AI Market Scanning Remarks
                     </CardTitle>
-                    <Badge variant="secondary" className="bg-purple-100 dark:bg-purple-900/40 text-purple-700 dark:text-purple-300 border-purple-200 dark:border-purple-700">
-                      <Sparkles className="h-3 w-3 mr-1" />
-                      AI Discovered
-                    </Badge>
+                    <div className="flex items-center gap-2">
+                      <Badge variant="secondary" className="bg-purple-100 dark:bg-purple-900/40 text-purple-700 dark:text-purple-300 border-purple-200 dark:border-purple-700">
+                        <Sparkles className="h-3 w-3 mr-1" />
+                        AI Discovered
+                      </Badge>
+                      {!isEditingRemarks && (
+                        <Button variant="ghost" size="sm" onClick={startEditingRemarks} aria-label="Edit remarks" className="h-6 w-6 p-0 text-purple-700 dark:text-purple-300">
+                          <Pencil className="h-3.5 w-3.5" />
+                        </Button>
+                      )}
+                    </div>
                   </div>
                   {company.segment && (
                     <p className="text-sm text-muted-foreground">Matched against: {company.segment}</p>
@@ -983,7 +1024,29 @@ export default function CompanyDetail({ showCrm = false, showAiWorkforce = false
                       <Sparkles className="h-4 w-4" />
                       Why This Company Matches Your Investment Thesis
                     </p>
-                    <MarkdownRenderer content={company.remarks} variant="card" />
+                    {isEditingRemarks ? (
+                      <div className="space-y-3">
+                        <Textarea
+                          value={remarksDraft}
+                          onChange={(e) => setRemarksDraft(e.target.value)}
+                          disabled={isSavingRemarks}
+                          rows={6}
+                          placeholder="Describe how this company aligns with the investment thesis…"
+                          className="text-sm"
+                        />
+                        <div className="flex justify-end gap-2">
+                          <Button variant="outline" size="sm" onClick={cancelEditingRemarks} disabled={isSavingRemarks}>Cancel</Button>
+                          <Button size="sm" onClick={saveRemarks} disabled={isSavingRemarks} className="gap-1">
+                            {isSavingRemarks ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
+                            Save
+                          </Button>
+                        </div>
+                      </div>
+                    ) : company.remarks ? (
+                      <MarkdownRenderer content={company.remarks} variant="card" />
+                    ) : (
+                      <p className="text-sm text-muted-foreground italic">No remarks yet. Click the edit icon to add some.</p>
+                    )}
                   </div>
                 </CardContent>
               </Card>
