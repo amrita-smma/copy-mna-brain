@@ -232,6 +232,26 @@ function StageChip({ stage }: { stage: string }) {
   );
 }
 
+// ─── Source chip (Inbound / Outbound) ────────────────────────────────────────
+// Mirrors the inbound/outbound color palette used in the Pipeline view.
+
+function SourceChip({ source }: { source: string | null | undefined }) {
+  if (!source) return null;
+  const isInbound = source.toLowerCase() === 'inbound';
+  return (
+    <Badge
+      variant="secondary"
+      className={
+        isInbound
+          ? 'text-[10px] px-1.5 py-0 h-4 capitalize bg-emerald-500/20 text-emerald-600 hover:bg-emerald-500/30'
+          : 'text-[10px] px-1.5 py-0 h-4 capitalize bg-blue-500/20 text-blue-600 hover:bg-blue-500/30'
+      }
+    >
+      {source}
+    </Badge>
+  );
+}
+
 // ─── Event dot color ─────────────────────────────────────────────────────────
 
 const dotColors: Record<FeedEventType, string> = {
@@ -882,6 +902,7 @@ export default function Dashboard({ showCrm = false, showAiWorkforce = false }: 
                               <span className="text-xs text-muted-foreground shrink-0">{formatShortDate(c.event_at)}</span>
                             </div>
                             <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+                              <SourceChip source={c.source} />
                               {c.segment && <Badge variant="secondary" className="text-[10px] px-1.5 py-0 h-4">{c.segment}</Badge>}
                               {c.geography && <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4">{c.geography}</Badge>}
                             </div>
@@ -917,6 +938,7 @@ export default function Dashboard({ showCrm = false, showAiWorkforce = false }: 
                                 <span className="text-xs text-muted-foreground shrink-0">{formatShortDate(d.dropped_at)}</span>
                               </div>
                               <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+                                <SourceChip source={d.source} />
                                 {d.segment && <Badge variant="secondary" className="text-[10px] px-1.5 py-0 h-4">{d.segment}</Badge>}
                                 {d.geography && <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4">{d.geography}</Badge>}
                               </div>
@@ -959,7 +981,7 @@ export default function Dashboard({ showCrm = false, showAiWorkforce = false }: 
                                   </div>
                                 </div>
                                 <div className="flex items-center gap-1.5 mt-1 flex-wrap">
-                                  {m.source && <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4 capitalize">{m.source}</Badge>}
+                                  <SourceChip source={m.source} />
                                   {m.geography && <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4">{m.geography}</Badge>}
                                 </div>
                               </div>
@@ -1211,6 +1233,7 @@ function FeedEventRow({ event, onCompanyClick }: FeedEventRowProps) {
           <span className={`inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase ${eventTypeBadgeStyles[event.type]}`}>
             {eventTypeBadgeLabels[event.type]}
           </span>
+          <SourceChip source={event.source} />
           {event.geography && (
             <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4 font-normal">{event.geography}</Badge>
           )}
