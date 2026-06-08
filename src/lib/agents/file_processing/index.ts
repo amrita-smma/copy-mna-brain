@@ -7,12 +7,18 @@
  * enforced by the system prompt — but tool definitions are kept under
  * ./tools so adding tools later is a one-line change.
  */
+import Anthropic, { toFile } from "@anthropic-ai/sdk";
 import { ChatAnthropic } from "@langchain/anthropic";
 import { BaseMessage, HumanMessage } from "@langchain/core/messages";
 import { createAgent } from "langchain";
 import { logger } from "../logger";
+
+/**
+ * Beta flag required for the Files API. Both the upload/delete calls and any
+ * message that references an uploaded file by id must carry this header.
+ */
+const FILES_API_BETA = "files-api-2025-04-14" as const;
 import { getAllCompanyReferences } from "@/lib/fuzzySearch";
-import { splitPdf } from "@/lib/pdf";
 import {
   applyFxBackfill,
   normalizeFxRow,
@@ -195,19 +201,26 @@ export async function processFileContent(
   userRawNotes: string,
   fileTypeOverride?: FileTypeOverride,
 ) {
+  const startedAt = Date.now();
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) {
     throw new Error("ANTHROPIC_API_KEY is not configured");
   }
 
+  const refsStart = Date.now();
   const allReferences = await getAllCompanyReferences();
   const allNames = allReferences.map(r => r.name).join(", ");
+  logger.info(`⏱️  Loaded ${allReferences.length} company references in ${Date.now() - refsStart}ms`);
 
   const llm = new ChatAnthropic({
     model: "claude-sonnet-4-6",
     anthropicApiKey: apiKey,
     temperature: 0,
+    // Documents referenced by Files API id are served from the beta endpoint.
+    betas: [FILES_API_BETA],
   });
+
+  const anthropic = new Anthropic({ apiKey });
 
   const agent = createAgent({
     model: llm,
@@ -221,49 +234,54 @@ export async function processFileContent(
 
   let lastMessage: BaseMessage | null = null;
   if (contentType === 'application/pdf') {
-    logger.debug("📂 INVOKING FILE PROCESSING AGENT");
+    logger.info("📂 INVOKING FILE PROCESSING AGENT");
 
-    const buffers = await splitPdf(buffer, 5);
-    for (const buff of buffers) {
-      let lastParsedContent = "";
-      if (lastMessage) {
-        const rawContent = typeof lastMessage.content === "string"
-          ? lastMessage.content
-          : JSON.stringify(lastMessage.content);
-        const jsonMatch = rawContent.match(/```json\n([\s\S]*?)\n```/);
-        if (jsonMatch && jsonMatch[1]) {
-          try {
-            const parsed = JSON.parse(jsonMatch[1]);
-            lastParsedContent = JSON.stringify(parsed);
-          } catch {
-            lastParsedContent = rawContent;
-          }
-        } else {
-          lastParsedContent = rawContent;
-        }
-      }
+    // Upload the whole PDF via the Files API and reference it by id rather than
+    // inlining the PDF as base64. The file is deleted immediately after the
+    // agent processes it so nothing is left behind in the workspace.
+    const uploadStart = Date.now();
+    const uploaded = await anthropic.beta.files.upload({
+      file: await toFile(buffer, "document.pdf", { type: "application/pdf" }),
+      betas: [FILES_API_BETA],
+    });
+    logger.info(`⬆️  Uploaded PDF (${buffer.length} bytes) as ${uploaded.id} in ${Date.now() - uploadStart}ms`);
+
+    try {
       inputs = {
         messages: [new HumanMessage({
           content: [{
             type: 'text',
-            text: `Analyze the following documents. This is the last state of the data. Please update: ${lastParsedContent}`,
+            text: 'Analyze the following document.',
           },
           {
             type: "file",
-            source_type: "base64",
-            data: buff.toString("base64"),
-            mime_type: "application/pdf",
+            fileId: uploaded.id,
           },
           ],
         })],
       };
+      const agentStart = Date.now();
       const messagesList = await streamAgentMessages(agent, inputs.messages);
       lastMessage = messagesList[messagesList.length - 1];
+      logger.info(`🤖 Agent processed PDF in ${Date.now() - agentStart}ms`);
+    } finally {
+      // Best-effort cleanup — a failed delete should not fail the pipeline.
+      const deleteStart = Date.now();
+      try {
+        await anthropic.beta.files.delete(uploaded.id, { betas: [FILES_API_BETA] });
+        logger.info(`🗑️  Deleted uploaded file ${uploaded.id} in ${Date.now() - deleteStart}ms`);
+      } catch (err) {
+        logger.warn(`Failed to delete uploaded file ${uploaded.id}: ${err}`);
+      }
     }
   } else {
+    const agentStart = Date.now();
     const messagesList = await streamAgentMessages(agent, inputs.messages);
     lastMessage = messagesList[messagesList.length - 1];
+    logger.info(`🤖 Agent processed text in ${Date.now() - agentStart}ms`);
   }
+
+  logger.info(`⏱️  LLM phase complete in ${Date.now() - startedAt}ms`);
 
   const content = typeof lastMessage?.content === "string"
     ? lastMessage?.content
