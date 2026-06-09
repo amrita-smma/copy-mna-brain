@@ -1,0 +1,13 @@
+type: folder
+model: folder
+id: fl_CrmArchive
+createdAt: 2026-06-02T00:00:00.000000
+updatedAt: 2026-06-02T00:00:00.000000
+workspaceId: wk_4yBsWJ5Tuh
+folderId: fl_CrmPipeline
+authentication: {}
+authenticationType: null
+description: ''
+headers: []
+name: Archive (manual triggers)
+sortPriority: 10.0

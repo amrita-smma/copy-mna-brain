@@ -1,0 +1,4 @@
+data-pipeline/*
+!data-pipeline/package.json
+!data-pipeline/src/
+!data-pipeline/src/**

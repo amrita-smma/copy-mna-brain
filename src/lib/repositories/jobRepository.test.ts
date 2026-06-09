@@ -40,3 +40,46 @@ describe('JobRepository.findLatestByTypeAndStatus', () => {
     expect(out).toBeNull();
   });
 });
+
+describe('JobRepository.findByTypeAndPayload', () => {
+  let db: ReturnType<typeof makeDb>;
+  let repo: JobRepository;
+
+  beforeEach(() => {
+    db = makeDb();
+    repo = new JobRepository(db as never);
+  });
+
+  it('returns every matching row regardless of status', async () => {
+    const rows = [
+      { id: 'j1', type: 'vault_archive', status: 'completed' },
+      { id: 'j2', type: 'vault_archive', status: 'failed' },
+    ];
+    db.orderBy.mockResolvedValueOnce(rows);
+    const out = await repo.findByTypeAndPayload('vault_archive', {
+      year: 2026,
+      month: 3,
+      mode: 'monthly',
+    });
+    expect(out).toEqual(rows);
+  });
+
+  it('returns [] when nothing matches', async () => {
+    db.orderBy.mockResolvedValueOnce([]);
+    const out = await repo.findByTypeAndPayload('vault_archive', {
+      year: 2026,
+      month: 4,
+      mode: 'monthly',
+    });
+    expect(out).toEqual([]);
+  });
+
+  it('stringifies numeric values for the JSONB text comparison', async () => {
+    db.orderBy.mockResolvedValueOnce([]);
+    await repo.findByTypeAndPayload('vault_archive', { year: 2026, month: 1 });
+    // Drizzle's sql template captures the value verbatim via parameterised
+    // queries; we only assert that the query ran (the SQL shape is exercised
+    // by integration tests, not unit tests).
+    expect(db.where).toHaveBeenCalled();
+  });
+});

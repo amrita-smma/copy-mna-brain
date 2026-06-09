@@ -1,0 +1,41 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1780707600000,
+      "tag": "20260606010000_analytics_schema_and_relocate_facts",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1780707601000,
+      "tag": "20260606010001_pipeline_tables",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1780707602000,
+      "tag": "20260606010002_analytics_marts",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1780711200000,
+      "tag": "20260606020000_vault_exports",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1780711201000,
+      "tag": "20260606020001_make_mbox_files_job_id_nullable",
+      "breakpoints": true
+    }
+  ]
+}

@@ -1,0 +1,18 @@
+type: http_request
+model: http_request
+id: rq_CrmJobStatus
+createdAt: 2026-06-02T00:00:00.000000
+updatedAt: 2026-06-02T00:00:00.000000
+workspaceId: wk_4yBsWJ5Tuh
+folderId: fl_CrmPipeline
+authentication: {}
+authenticationType: null
+description: 'Paste a jobId from any 202 response to poll status + logs. GET /api/jobs/:id'
+headers: []
+method: GET
+name: "Job status"
+bodyType: null
+body: {}
+urlParameters: []
+sortPriority: 99.0
+url: "${[base_url]}/api/jobs/${[job_id]}"

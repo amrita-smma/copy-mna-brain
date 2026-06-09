@@ -1,8 +1,9 @@
 /**
  * Programmatic migrate runner — bypass drizzle-kit CLI to get reliable SSL +
  * error reporting. Uses DB_* env via createPostgresClientFromEnv (supports
- * RDS IAM auth when RDS_IAM_DB_AUTH=true). Applies everything in
- * drizzle/migrations/ that isn't already in drizzle.__drizzle_migrations.
+ * RDS IAM auth when RDS_IAM_DB_AUTH=true). Applies app migrations first
+ * (drizzle/migrations/ → drizzle schema), then pipeline migrations
+ * (data-pipeline/migrations/ → drizzle_pipeline schema).
  *
  * Usage: pnpm tsx scripts/migrate.ts
  */
@@ -34,7 +35,13 @@ async function main() {
       migrationsTable: '__drizzle_migrations',
       migrationsSchema: 'drizzle',
     });
-    console.log('✓ migrations applied');
+    console.log('✓ app migrations applied');
+    await migrate(db, {
+      migrationsFolder: './data-pipeline/migrations',
+      migrationsTable: '__drizzle_migrations',
+      migrationsSchema: 'drizzle_pipeline',
+    });
+    console.log('✓ pipeline migrations applied');
   } finally {
     await client.end();
   }

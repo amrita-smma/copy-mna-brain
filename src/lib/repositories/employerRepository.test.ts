@@ -90,6 +90,8 @@ describe('EmployerRepository', () => {
           updated_at: 't',
           email_count: 3,
           last_contact_at: '2026-05-01T00:00:00Z',
+          response_p50_seconds: 259200,
+          response_pair_count: 8,
           primary_pic: null,
           topics: [],
           team: [],
@@ -102,6 +104,8 @@ describe('EmployerRepository', () => {
         id: 'e1',
         name: 'GS',
         email_count: 3,
+        response_p50_seconds: 259200,
+        response_pair_count: 8,
         source: 'manual',
       });
     });
@@ -113,6 +117,34 @@ describe('EmployerRepository', () => {
       const { sql: text } = new PgDialect().sqlToQuery(whereArg);
       expect(text).toContain('email_participants');
       expect(text).toContain('correspondents');
+    });
+
+    it('coerces numeric response fields from strings and keeps a null p50', async () => {
+      db.offset.mockResolvedValueOnce([
+        {
+          id: 'e2',
+          name: 'MS',
+          normalized_name: 'ms',
+          industry: null,
+          status: 'inbound',
+          curation_status: 'published',
+          created_at: 't',
+          updated_at: 't',
+          email_count: 1,
+          last_contact_at: null,
+          // percentile_cont returns null when there are no pairs; COUNT comes
+          // back as a string over the postgres wire.
+          response_p50_seconds: null,
+          response_pair_count: '0',
+          primary_pic: null,
+          topics: [],
+          team: [],
+          source: 'auto',
+        },
+      ]);
+      const out = await repo.list();
+      expect(out[0].response_p50_seconds).toBeNull();
+      expect(out[0].response_pair_count).toBe(0);
     });
   });
 });

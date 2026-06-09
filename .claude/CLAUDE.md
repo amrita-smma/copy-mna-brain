@@ -27,9 +27,11 @@ Test files live next to their source files as `<name>.test.ts`. Rules when writi
 - For **agent tool tests**: mock `@/lib/server/db` and any repository modules before importing the tool, then test via `tool.invoke({ ... })`. Assert on the string/object returned.
 - Keep tests fast and free of real I/O — no network calls, no real database connections.
 
-## Terraform Modules (`terraform/`)
+## Terraform Modules
 
-Each module under `terraform/` (e.g. `bootstrap`, `iam`, `rds`, `s3`, `ses`, `vpc`) must have a `Makefile` with `init-staging` and `init-production` targets. Copy the pattern from any existing module's `Makefile` when adding a new one.
+App-infrastructure modules live under `terraform/` (e.g. `bootstrap`, `iam`, `rds`, `s3`, `ses`, `vpc`). The data-pipeline compute module lives at `data-pipeline/terraform/pipeline-compute/` (co-located with the package it serves).
+
+Each module must have a `Makefile` with `init-staging` and `init-production` targets. Copy the pattern from any existing module's `Makefile` when adding a new one.
 
 ## Package Manager
 

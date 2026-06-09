@@ -1,0 +1,21 @@
+type: http_request
+model: http_request
+id: rq_CrmIngest
+createdAt: 2026-06-02T00:00:00.000000
+updatedAt: 2026-06-02T00:00:00.000000
+workspaceId: wk_4yBsWJ5Tuh
+folderId: fl_CrmPipeline
+authentication: {}
+authenticationType: null
+description: 'Cron: 50 * * * *  — upsert employers/correspondents/emails/topics into CRM tables'
+headers:
+  - { enabled: true, name: Authorization, value: "Bearer ${[cron_secret]}", id: null }
+  - { enabled: true, name: Content-Type,  value: application/json,          id: null }
+method: POST
+name: "6 · crm-ingest [:50]"
+bodyType: application/json
+body:
+  text: '{"limit": 5000}'
+urlParameters: []
+sortPriority: 6.0
+url: "${[base_url]}/api/crm/crm-ingest"

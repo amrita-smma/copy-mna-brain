@@ -39,6 +39,27 @@ export function colorForId(id: string): string {
   return AVATAR_PALETTE[Math.abs(hash) % AVATAR_PALETTE.length];
 }
 
+/**
+ * Humanises a response-time p50 (seconds) for the CRM list, e.g. "3 days",
+ * "5 hrs", "12 mins". Returns "—" when there is no value. Sub-minute gaps round
+ * up to "1 min" so a near-instant reply never shows "0".
+ */
+export function formatResponseP50(seconds: number | null): string {
+  if (seconds == null) return "—";
+  const days = seconds / 86400;
+  if (days >= 1) {
+    const d = Math.round(days);
+    return `${d} day${d === 1 ? "" : "s"}`;
+  }
+  const hours = seconds / 3600;
+  if (hours >= 1) {
+    const h = Math.round(hours);
+    return `${h} hr${h === 1 ? "" : "s"}`;
+  }
+  const mins = Math.max(1, Math.round(seconds / 60));
+  return `${mins} min${mins === 1 ? "" : "s"}`;
+}
+
 export function initialsOf(name: string): string {
   return name
     .split(/\s+/)

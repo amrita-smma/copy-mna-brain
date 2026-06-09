@@ -1,5 +1,5 @@
 import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
-import { correspondents } from "@/lib/db/schema";
+import { correspondents, correspondentEffective } from "@/lib/db/schema";
 import type { DbClient } from "./types";
 
 export type Correspondent = typeof correspondents.$inferSelect;
@@ -9,19 +9,23 @@ export type CorrespondentUpdate = Partial<CorrespondentInsert>;
 export class CorrespondentRepository {
   constructor(private db: DbClient) {}
 
+  // Reads go through the effective view so the human overlay wins (RFC §3.4).
   async findByEmployerId(employerId: string): Promise<Correspondent[]> {
     return this.db
       .select()
-      .from(correspondents)
-      .where(eq(correspondents.employer_id, employerId))
-      .orderBy(desc(correspondents.is_primary), asc(correspondents.created_at));
+      .from(correspondentEffective)
+      .where(eq(correspondentEffective.employer_id, employerId))
+      .orderBy(
+        desc(correspondentEffective.is_primary),
+        asc(correspondentEffective.created_at),
+      );
   }
 
   async findById(id: string): Promise<Correspondent | undefined> {
     const rows = await this.db
       .select()
-      .from(correspondents)
-      .where(eq(correspondents.id, id))
+      .from(correspondentEffective)
+      .where(eq(correspondentEffective.id, id))
       .limit(1);
     return rows[0];
   }
@@ -32,11 +36,11 @@ export class CorrespondentRepository {
   ): Promise<Correspondent | undefined> {
     const rows = await this.db
       .select()
-      .from(correspondents)
+      .from(correspondentEffective)
       .where(
         and(
-          eq(correspondents.employer_id, employerId),
-          eq(correspondents.email, email),
+          eq(correspondentEffective.employer_id, employerId),
+          eq(correspondentEffective.email, email),
         ),
       )
       .limit(1);
@@ -46,8 +50,8 @@ export class CorrespondentRepository {
   async findByEmail(email: string): Promise<Correspondent[]> {
     return this.db
       .select()
-      .from(correspondents)
-      .where(eq(correspondents.email, email));
+      .from(correspondentEffective)
+      .where(eq(correspondentEffective.email, email));
   }
 
   async insert(data: CorrespondentInsert): Promise<Correspondent> {
@@ -85,8 +89,8 @@ export class CorrespondentRepository {
     if (ids.length === 0) return [];
     return this.db
       .select()
-      .from(correspondents)
-      .where(inArray(correspondents.id, ids));
+      .from(correspondentEffective)
+      .where(inArray(correspondentEffective.id, ids));
   }
 
   /**
@@ -113,5 +117,46 @@ export class CorrespondentRepository {
       .from(correspondents)
       .where(eq(correspondents.employer_id, employerId));
     return Number(rows[0]?.n ?? 0);
+  }
+
+  /**
+   * Bulk upsert on partial UNIQUE `(employer_id, email) WHERE email IS NOT NULL`.
+   * Mirrors `crmIngest` correspondent upsert. Returns `{ id, email }`
+   * per upserted row so callers can build an email→correspondent map.
+   *
+   * The `targetWhere` is required: Postgres doesn't infer a partial unique
+   * index from a bare ON CONFLICT, and Drizzle 0.45 honors `targetWhere` on
+   * `onConflictDoUpdate`.
+   */
+  async upsertBatch(
+    rows: CorrespondentInsert[],
+  ): Promise<Array<{ id: string; email: string | null }>> {
+    if (rows.length === 0) return [];
+    const CHUNK = 1000;
+    const out: Array<{ id: string; email: string | null }> = [];
+    for (let i = 0; i < rows.length; i += CHUNK) {
+      const chunk = rows.slice(i, i + CHUNK);
+      const res = await this.db
+        .insert(correspondents)
+        .values(chunk)
+        .onConflictDoUpdate({
+          target: [correspondents.employer_id, correspondents.email],
+          targetWhere: sql`email IS NOT NULL`,
+          set: {
+            name: sql`EXCLUDED.name`,
+            title: sql`COALESCE(EXCLUDED.title, ${correspondents.title})`,
+            phone: sql`COALESCE(EXCLUDED.phone, ${correspondents.phone})`,
+            type: sql`EXCLUDED.type`,
+            source: sql`EXCLUDED.source`,
+            updated_at: sql`now()`,
+          },
+        })
+        .returning({
+          id: correspondents.id,
+          email: correspondents.email,
+        });
+      out.push(...res);
+    }
+    return out;
   }
 }

@@ -1,9 +1,11 @@
 import type {
   Correspondent,
   CorrespondentInsert,
+  CorrespondentCurationRepository,
   CorrespondentRepository,
   EmailRepository,
   Employer,
+  EmployerCurationRepository,
   EmployerListFilters,
   EmployerNote,
   EmployerNoteInsert,
@@ -95,6 +97,10 @@ export class CRMService {
     private topicRepo: TopicRepository,
     private emailRepo: EmailRepository,
     private teamRepo: EmployerTeamRepository,
+    // RFC §3: human field edits land in the overlay tables, never on the
+    // machine base columns the ETL owns.
+    private employerCurationRepo: EmployerCurationRepository,
+    private correspondentCurationRepo: CorrespondentCurationRepository,
   ) {}
 
   // ─── Employers ───────────────────────────────────────────────────────────
@@ -173,11 +179,28 @@ export class CRMService {
   }
 
   async updateEmployer(id: string, data: EmployerUpdate): Promise<Employer> {
-    const patch: EmployerUpdate = { ...data };
-    if (data.name) patch.normalized_name = normalizeName(data.name);
-    const updated = await this.employerRepo.update(id, patch);
-    if (!updated) throw new EmployerNotFoundError(id);
-    return updated;
+    // Split: name/industry are machine-derived → human edits go to the overlay
+    // (and normalized_name, the merge key, is deliberately NOT touched on a
+    // rename — it stays on the machine value, RFC §4.2). status/curation_status
+    // are purely-human workflow fields → base.
+    const overlay: { name?: string | null; industry?: string | null } = {};
+    if (data.name !== undefined) overlay.name = data.name;
+    if (data.industry !== undefined) overlay.industry = data.industry;
+    if (Object.keys(overlay).length > 0) {
+      await this.employerCurationRepo.upsert(id, overlay, null);
+    }
+
+    const base: EmployerUpdate = {};
+    if (data.status !== undefined) base.status = data.status;
+    if (data.curation_status !== undefined) base.curation_status = data.curation_status;
+    if (Object.keys(base).length > 0) {
+      const updated = await this.employerRepo.update(id, base);
+      if (!updated) throw new EmployerNotFoundError(id);
+    }
+
+    const effective = await this.employerRepo.findById(id);
+    if (!effective) throw new EmployerNotFoundError(id);
+    return effective;
   }
 
   async deleteEmployer(id: string): Promise<void> {
@@ -203,10 +226,24 @@ export class CRMService {
     } = {},
   ): Promise<Employer> {
     const { primary_pic: picPatch, ...employerPatch } = patch;
-    const next: EmployerUpdate = { ...employerPatch };
-    if (employerPatch.name) next.normalized_name = normalizeName(employerPatch.name);
-    if (decision === "approve") next.curation_status = "published";
-    const updated = await this.employerRepo.update(id, next);
+
+    // Machine-derived employer fields → overlay (no normalized_name change).
+    const overlay: { name?: string | null; industry?: string | null } = {};
+    if (employerPatch.name !== undefined) overlay.name = employerPatch.name;
+    if (employerPatch.industry !== undefined) overlay.industry = employerPatch.industry;
+    if (Object.keys(overlay).length > 0) {
+      await this.employerCurationRepo.upsert(id, overlay, null);
+    }
+
+    // Workflow fields → base. Always call update so "skip" bumps updated_at and
+    // the record falls to the back of the curation queue.
+    const base: EmployerUpdate = {};
+    if (employerPatch.status !== undefined) base.status = employerPatch.status;
+    if (decision === "approve") base.curation_status = "published";
+    else if (employerPatch.curation_status !== undefined) {
+      base.curation_status = employerPatch.curation_status;
+    }
+    const updated = await this.employerRepo.update(id, base);
     if (!updated) throw new EmployerNotFoundError(id);
 
     if (decision === "approve" && picPatch) {
@@ -223,10 +260,12 @@ export class CRMService {
       if (picPatch.phone !== undefined) pic.phone = picPatch.phone ?? null;
 
       if (primary) {
+        // Routes name/title/phone → overlay, email → base (see updateContact).
         if (Object.keys(pic).length > 0) {
-          await this.correspondentRepo.update(primary.id, pic);
+          await this.updateContact(primary.id, pic);
         }
       } else if (pic.name) {
+        // Brand-new human-authored contact: base row, origin='manual'.
         await this.correspondentRepo.insert({
           employer_id: id,
           name: pic.name,
@@ -235,11 +274,12 @@ export class CRMService {
           phone: pic.phone ?? null,
           is_primary: true,
           source: "manual",
+          origin: "manual",
         });
       }
     }
 
-    return updated;
+    return this.employerRepo.findById(id) as Promise<Employer>;
   }
 
   // ─── Correspondents ──────────────────────────────────────────────────────
@@ -263,12 +303,14 @@ export class CRMService {
         input.email,
       );
       if (dupe) {
-        return this.correspondentRepo.update(dupe.id, {
+        // Adding a contact that already exists (by email) = a human edit of the
+        // existing row → goes to the overlay via updateContact.
+        return this.updateContact(dupe.id, {
           name: input.name,
           title: input.title,
           phone: input.phone,
           type: input.type,
-        }) as Promise<Correspondent>;
+        });
       }
     }
 
@@ -281,6 +323,8 @@ export class CRMService {
       type: input.type,
       is_primary: input.isPrimary ?? false,
       source: "manual",
+      // Human-added: the ETL must never touch this row (RFC §3.4).
+      origin: "manual",
     });
   }
 
@@ -292,7 +336,36 @@ export class CRMService {
     id: string,
     data: Partial<CorrespondentInsert>,
   ): Promise<Correspondent> {
-    const row = await this.correspondentRepo.update(id, data);
+    // Split: name/title/phone/type are machine-derived → overlay. is_primary
+    // and email (the natural key) plus last_edited_* stay on the base table —
+    // is_primary so the one-primary unique index keeps enforcing (RFC §3.4).
+    const editedBy = data.last_edited_by_user_id ?? null;
+    const overlay: {
+      name?: string | null;
+      title?: string | null;
+      phone?: string | null;
+      type?: string | null;
+    } = {};
+    if (data.name !== undefined) overlay.name = data.name;
+    if (data.title !== undefined) overlay.title = data.title;
+    if (data.phone !== undefined) overlay.phone = data.phone;
+    if (data.type !== undefined) overlay.type = data.type;
+    if (Object.keys(overlay).length > 0) {
+      await this.correspondentCurationRepo.upsert(id, overlay, editedBy);
+    }
+
+    const base: Partial<CorrespondentInsert> = {};
+    if (data.is_primary !== undefined) base.is_primary = data.is_primary;
+    if (data.email !== undefined) base.email = data.email;
+    if (data.last_edited_by_user_id !== undefined) {
+      base.last_edited_by_user_id = data.last_edited_by_user_id;
+    }
+    if (Object.keys(base).length > 0) {
+      const updated = await this.correspondentRepo.update(id, base);
+      if (!updated) throw new Error(`Correspondent ${id} not found`);
+    }
+
+    const row = await this.correspondentRepo.findById(id);
     if (!row) throw new Error(`Correspondent ${id} not found`);
     return row;
   }

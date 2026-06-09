@@ -1,20 +1,26 @@
 import { flag } from "flags/next";
 import { vercelAdapter } from "@flags-sdk/vercel";
 
-export const crmEnabled = flag<boolean>({
-  key: "CRM_ENABLED",
-  defaultValue: process.env.CRM_ENABLED === "true",
-  adapter: vercelAdapter(),
-});
+function booleanFlag(key: string, value: boolean) {
+  return flag<boolean>({
+    key,
+    defaultValue: value,
+    decide: () => value,
+    adapter: vercelAdapter<boolean, any>(),
+  });
+}
 
-export const aiWorkforceEnabled = flag<boolean>({
-  key: "AI_WORKFORCE_ENABLED",
-  defaultValue: process.env.AI_WORKFORCE_ENABLED === "true",
-  adapter: vercelAdapter(),
-});
+export const crmEnabled = booleanFlag(
+  "CRM_ENABLED",
+  process.env.CRM_ENABLED === "true",
+);
 
-export const crmGoogleVaultSyncEnabled = flag<boolean>({
-  key: "CRM_GOOGLE_VAULT_SYNC",
-  defaultValue: process.env.CRM_GOOGLE_VAULT_SYNC === "true",
-  adapter: vercelAdapter(),
-});
+export const aiWorkforceEnabled = booleanFlag(
+  "AI_WORKFORCE_ENABLED",
+  process.env.AI_WORKFORCE_ENABLED === "true",
+);
+
+export const crmGoogleVaultSyncEnabled = booleanFlag(
+  "CRM_GOOGLE_VAULT_SYNC",
+  process.env.CRM_GOOGLE_VAULT_SYNC === "true",
+);

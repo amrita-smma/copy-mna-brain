@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gte, inArray } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, inArray, sql } from 'drizzle-orm';
 import { jobs, jobLogs } from '@/lib/db/schema';
 import { DEFAULT_STUCK_BUFFER_SECONDS, isStuckJob } from '@/lib/jobs/stuck';
 import type { DbClient, Tables, TablesInsert, TablesUpdate } from './types';
@@ -93,6 +93,29 @@ export class JobRepository {
       .orderBy(desc(jobs.completed_at))
       .limit(1);
     return row ?? null;
+  }
+
+  /**
+   * Find every job of `type` whose JSONB `payload` matches each key/value in
+   * `payloadFilter`. Returns all statuses — caller decides how to react (e.g.
+   * 409 on running/completed, allow retry on failed).
+   *
+   * Values are compared as text via `payload->>key`, which is the safest cast
+   * for primitive JSON values. Keep payload shapes primitive (number, string).
+   */
+  async findByTypeAndPayload(
+    type: JobType,
+    payloadFilter: Record<string, string | number>,
+  ): Promise<Job[]> {
+    const conditions = [eq(jobs.type, type)];
+    for (const [key, value] of Object.entries(payloadFilter)) {
+      conditions.push(sql`${jobs.payload}->>${key} = ${String(value)}`);
+    }
+    return this.db
+      .select()
+      .from(jobs)
+      .where(and(...conditions))
+      .orderBy(desc(jobs.created_at));
   }
 
   async findStuck(bufferSeconds: number = DEFAULT_STUCK_BUFFER_SECONDS): Promise<Job[]> {

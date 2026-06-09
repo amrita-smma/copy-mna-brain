@@ -70,6 +70,20 @@ const teamRepo = {
   listAllTeamUsers: vi.fn(),
 };
 
+const employerCurationRepo = {
+  findByEmployerId: vi.fn(),
+  findManyByEmployerIds: vi.fn(),
+  upsert: vi.fn(),
+  clear: vi.fn(),
+};
+
+const correspondentCurationRepo = {
+  findByCorrespondentId: vi.fn(),
+  findManyByCorrespondentIds: vi.fn(),
+  upsert: vi.fn(),
+  clear: vi.fn(),
+};
+
 function makeService(): CRMService {
   return new CRMService(
     employerRepo as never,
@@ -78,6 +92,8 @@ function makeService(): CRMService {
     topicRepo as never,
     emailRepo as never,
     teamRepo as never,
+    employerCurationRepo as never,
+    correspondentCurationRepo as never,
   );
 }
 
@@ -155,7 +171,7 @@ describe('CRMService.createContact', () => {
   it('updates rather than duplicates when (employer, email) already exists', async () => {
     employerRepo.findById.mockResolvedValue({ id: 'e1' });
     correspondentRepo.findByEmployerAndEmail.mockResolvedValue({ id: 'c1' });
-    correspondentRepo.update.mockResolvedValue({ id: 'c1', name: 'Updated' });
+    correspondentRepo.findById.mockResolvedValue({ id: 'c1', name: 'Updated' });
 
     await makeService().createContact({
       employerId: 'e1',
@@ -163,9 +179,12 @@ describe('CRMService.createContact', () => {
       email: 'a@b.com',
     });
 
-    expect(correspondentRepo.update).toHaveBeenCalledWith(
+    // Editing an existing contact routes the name change to the overlay, not
+    // the base table.
+    expect(correspondentCurationRepo.upsert).toHaveBeenCalledWith(
       'c1',
-      expect.objectContaining({ name: 'Updated' }),
+      { name: 'Updated' },
+      null,
     );
     expect(correspondentRepo.insert).not.toHaveBeenCalled();
   });
@@ -234,14 +253,20 @@ describe('CRMService.addTopicToEmployer', () => {
 });
 
 describe('CRMService.curateEmployer', () => {
-  it('publishes on approve and normalises the new name', async () => {
+  it('publishes on approve; name correction goes to the overlay, not the base merge key', async () => {
     employerRepo.update.mockResolvedValue({ id: 'e1' });
+    employerRepo.findById.mockResolvedValue({ id: 'e1', name: 'Goldman Sachs' });
     await makeService().curateEmployer('e1', 'approve', {
       name: 'Goldman Sachs',
     });
+    // name → overlay (normalized_name, the merge key, is NOT touched — RFC §4.2)
+    expect(employerCurationRepo.upsert).toHaveBeenCalledWith(
+      'e1',
+      { name: 'Goldman Sachs' },
+      null,
+    );
+    // base gets only the workflow field
     expect(employerRepo.update).toHaveBeenCalledWith('e1', {
-      name: 'Goldman Sachs',
-      normalized_name: 'goldman sachs',
       curation_status: 'published',
     });
   });
@@ -252,22 +277,28 @@ describe('CRMService.curateEmployer', () => {
     expect(employerRepo.update).toHaveBeenCalledWith('e1', {});
   });
 
-  it('on approve with a primary_pic patch, updates the existing primary correspondent', async () => {
+  it('on approve with a primary_pic patch, edits the existing primary via the overlay (email stays base)', async () => {
     employerRepo.update.mockResolvedValue({ id: 'e1' });
+    employerRepo.findById.mockResolvedValue({ id: 'e1' });
     correspondentRepo.findByEmployerId.mockResolvedValue([
       { id: 'c-other', name: 'Other', is_primary: false },
       { id: 'c-primary', name: 'Old', is_primary: true },
     ]);
+    correspondentRepo.update.mockResolvedValue({ id: 'c-primary' });
+    correspondentRepo.findById.mockResolvedValue({ id: 'c-primary', name: 'New Name' });
 
     await makeService().curateEmployer('e1', 'approve', {
       primary_pic: { name: 'New Name', title: 'MD', email: null, phone: '+1 555' },
     });
 
+    // name/title/phone → overlay; email (the natural key) → base.
+    expect(correspondentCurationRepo.upsert).toHaveBeenCalledWith(
+      'c-primary',
+      { name: 'New Name', title: 'MD', phone: '+1 555' },
+      null,
+    );
     expect(correspondentRepo.update).toHaveBeenCalledWith('c-primary', {
-      name: 'New Name',
-      title: 'MD',
       email: null,
-      phone: '+1 555',
     });
     expect(correspondentRepo.insert).not.toHaveBeenCalled();
   });

@@ -1,0 +1,21 @@
+type: http_request
+model: http_request
+id: rq_CrmDomainClassify
+createdAt: 2026-06-02T00:00:00.000000
+updatedAt: 2026-06-02T00:00:00.000000
+workspaceId: wk_4yBsWJ5Tuh
+folderId: fl_CrmPipeline
+authentication: {}
+authenticationType: null
+description: 'Cron: 45 * * * *  — LLM industry/name classification per sender domain'
+headers:
+  - { enabled: true, name: Authorization, value: "Bearer ${[cron_secret]}", id: null }
+  - { enabled: true, name: Content-Type,  value: application/json,          id: null }
+method: POST
+name: "5 · crm-domain-classify [:45]"
+bodyType: application/json
+body:
+  text: '{"limit": 100}'
+urlParameters: []
+sortPriority: 5.0
+url: "${[base_url]}/api/crm/crm-domain-classify"

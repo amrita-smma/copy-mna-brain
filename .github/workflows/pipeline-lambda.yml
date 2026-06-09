@@ -1,0 +1,147 @@
+name: Pipeline Lambda
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/pipeline-lambda.yml"
+      - "data-pipeline/package.json"
+      - "data-pipeline/scripts/build.ts"
+      - "data-pipeline/src/**"
+      - "package.json"
+      - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
+      - "src/lib/repositories/**"
+      - "src/lib/s3.ts"
+      - "src/lib/server/db.ts"
+      - "src/lib/services/googleVaultService.ts"
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/pipeline-lambda.yml"
+      - "data-pipeline/package.json"
+      - "data-pipeline/scripts/build.ts"
+      - "data-pipeline/src/**"
+      - "package.json"
+      - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
+      - "src/lib/repositories/**"
+      - "src/lib/s3.ts"
+      - "src/lib/server/db.ts"
+      - "src/lib/services/googleVaultService.ts"
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Pipeline environment to deploy"
+        required: true
+        type: choice
+        options:
+          - staging
+          - production
+
+env:
+  AWS_REGION: ap-southeast-3
+
+jobs:
+  plan:
+    name: Plan Lambda Code Deploy
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build Lambda zips
+        run: pnpm --filter data-pipeline build
+
+      - name: Show staging deploy plan
+        shell: bash
+        run: |
+          set -euo pipefail
+          {
+            echo "### Pipeline Lambda deploy plan"
+            echo
+            echo "| Function | Artifact | Size |"
+            echo "| --- | --- | ---: |"
+          } >> "$GITHUB_STEP_SUMMARY"
+          for zip in data-pipeline/dist/*.zip; do
+            name="$(basename "$zip" .zip)"
+            bytes="$(wc -c < "$zip")"
+            function_name="mna-staging-pipeline-${name}"
+            echo "would update ${function_name} from ${zip} (${bytes} bytes)"
+            echo "| \`${function_name}\` | \`${zip}\` | ${bytes} bytes |" >> "$GITHUB_STEP_SUMMARY"
+          done
+
+  deploy:
+    name: Deploy Lambda Code
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build Lambda zips
+        run: pnpm --filter data-pipeline build
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: ${{ env.AWS_REGION }}
+          role-to-assume: ${{ github.event_name == 'workflow_dispatch' && inputs.environment == 'production' && secrets.PROD_AWS_PIPELINE_LAMBDA_DEPLOY_ROLE_ARN || secrets.STG_AWS_PIPELINE_LAMBDA_DEPLOY_ROLE_ARN }}
+
+      - name: Upload Lambda code
+        shell: bash
+        env:
+          DEPLOY_ENV: ${{ github.event_name == 'workflow_dispatch' && inputs.environment || 'staging' }}
+        run: |
+          set -euo pipefail
+          {
+            echo "### Pipeline Lambda deploy"
+            echo
+            echo "| Function | Artifact | Status |"
+            echo "| --- | --- | --- |"
+          } >> "$GITHUB_STEP_SUMMARY"
+          for zip in data-pipeline/dist/*.zip; do
+            name="$(basename "$zip" .zip)"
+            function_name="mna-${DEPLOY_ENV}-pipeline-${name}"
+            echo "updating ${function_name} from ${zip}"
+            aws lambda update-function-code \
+              --function-name "${function_name}" \
+              --zip-file "fileb://${zip}" \
+              --no-publish
+            aws lambda wait function-updated --function-name "${function_name}"
+            echo "| \`${function_name}\` | \`${zip}\` | updated |" >> "$GITHUB_STEP_SUMMARY"
+          done

@@ -285,11 +285,12 @@ export default function CRM({
             )}
 
             {/* Column headers */}
-            <div className="mb-1 grid grid-cols-[36px_minmax(0,1.6fr)_minmax(0,1fr)_minmax(0,1.6fr)_minmax(0,1fr)_minmax(0,1.6fr)_minmax(0,1.1fr)_28px] gap-3 px-3 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+            <div className="mb-1 grid grid-cols-[36px_minmax(0,1.6fr)_minmax(0,1fr)_minmax(0,1.6fr)_minmax(0,0.8fr)_minmax(0,1fr)_minmax(0,1.6fr)_minmax(0,1.1fr)_28px] gap-3 px-3 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
               <div />
               <div>Source</div>
               <div>Industry Focus</div>
               <div>Primary PIC</div>
+              <div>Response p50</div>
               <div>Last Contact</div>
               <div>Topics</div>
               <div>Team Member</div>

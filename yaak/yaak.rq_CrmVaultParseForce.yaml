@@ -1,0 +1,27 @@
+type: http_request
+model: http_request
+id: rq_CrmVaultParseForce
+createdAt: 2026-06-02T00:00:00
+updatedAt: 2026-06-02T00:54:13.240030779
+workspaceId: wk_4yBsWJ5Tuh
+folderId: fl_CrmPipeline
+authentication: {}
+authenticationType: null
+body:
+  text: '{"limit": 20, "force": true}'
+bodyType: application/json
+description: force=true also retries files with parse_status=failed (no manual DB reset needed)
+headers:
+- enabled: true
+  name: Authorization
+  value: Bearer ${[cron_secret]}
+  id: null
+- enabled: true
+  name: Content-Type
+  value: application/json
+  id: null
+method: POST
+name: 2b · vault-parse (force-retry failed)
+sortPriority: 2.5
+url: ${[base_url]}/api/crm/vault-parse
+urlParameters: []

@@ -25,7 +25,12 @@ import type {
   TeamMemberSummary,
   TopicChip,
 } from "./types";
-import { colorForId, initialsOf, tabTriggerCls } from "./utils";
+import {
+  colorForId,
+  formatResponseP50,
+  initialsOf,
+  tabTriggerCls,
+} from "./utils";
 
 export function EmployerCard({
   employer,
@@ -78,7 +83,7 @@ export function EmployerCard({
       <button
         type="button"
         onClick={onToggle}
-        className="grid w-full grid-cols-[36px_minmax(0,1.6fr)_minmax(0,1fr)_minmax(0,1.6fr)_minmax(0,1fr)_minmax(0,1.6fr)_minmax(0,1.1fr)_28px] items-center gap-3 px-3 py-2.5 text-left"
+        className="grid w-full grid-cols-[36px_minmax(0,1.6fr)_minmax(0,1fr)_minmax(0,1.6fr)_minmax(0,0.8fr)_minmax(0,1fr)_minmax(0,1.6fr)_minmax(0,1.1fr)_28px] items-center gap-3 px-3 py-2.5 text-left"
       >
         <div
           className={cn(
@@ -129,6 +134,22 @@ export function EmployerCard({
             </>
           ) : (
             <span className="text-xs text-muted-foreground">No PIC yet</span>
+          )}
+        </div>
+
+        <div className="min-w-0">
+          {employer.response_pair_count > 0 ? (
+            <>
+              <div className="truncate text-sm font-semibold">
+                {formatResponseP50(employer.response_p50_seconds)}
+              </div>
+              <div className="truncate text-[10px] text-muted-foreground">
+                {employer.response_pair_count} pair
+                {employer.response_pair_count === 1 ? "" : "s"}
+              </div>
+            </>
+          ) : (
+            <span className="text-xs text-muted-foreground">—</span>
           )}
         </div>
 

@@ -108,6 +108,12 @@ The AI File Dump supports a "banker_communications" file type for CSV and MBOX e
 - `GET /api/crm/:id/messages` — Get contact's messages
 - `POST /api/crm/:id/messages` — Add message to contact
 
+## CRM data pipeline
+
+The Google Vault MBOX archive + parse pipeline and the CRM ingest pipeline (enrichment, employer/correspondent resolution, analytics marts) live in the `analytics` Postgres schema and are documented in [`data-pipeline/README.md`](data-pipeline/README.md).
+
+The app (`public` schema) overlays human curation on top of `analytics` mart data via `employer_effective` and `correspondent_effective` views. Cross-schema dependency is one-directional: `analytics` reads `public` effective views; nothing in `public` depends on `analytics`.
+
 ## Google SSO sign-in (dashboard token exchange)
 
 The dashboard can be opened with a Google-issued ID token in the URL:

@@ -4,6 +4,7 @@ import {
   emailParticipants,
   emails,
   employers,
+  employerEffective,
   employerTeamMembers,
   employerTopics,
   topics,
@@ -60,6 +61,12 @@ export interface EmployerSummary {
   } | null;
   email_count: number;
   last_contact_at: string | null;
+  // Median time (seconds) between an inbound email from this firm and our next
+  // outbound reply (paired via in_reply_to, gaps capped at 30 days). Null when
+  // there are no answered exchanges. `response_pair_count` is the sample size
+  // behind the median, so the UI can hide/qualify low-confidence values.
+  response_p50_seconds: number | null;
+  response_pair_count: number;
   topics: Array<{
     id: string;
     name: string;
@@ -121,32 +128,50 @@ export class EmployerRepository {
     const rows = await this.db
       .select({
         id: employers.id,
-        name: employers.name,
+        // Effective (overlay-aware) name/industry — human override wins. The
+        // rest of this query stays correlated on "employers"."id".
+        name: sql<string>`COALESCE((SELECT "employer_curation"."name" FROM "employer_curation" WHERE "employer_curation"."employer_id" = "employers"."id"), "employers"."name")`,
         normalized_name: employers.normalized_name,
-        industry: employers.industry,
+        industry: sql<
+          string | null
+        >`COALESCE((SELECT "employer_curation"."industry" FROM "employer_curation" WHERE "employer_curation"."employer_id" = "employers"."id"), "employers"."industry")`,
         status: employers.status,
         curation_status: employers.curation_status,
         created_at: employers.created_at,
         updated_at: employers.updated_at,
-        // Count any email that touches this firm via a participant (sender or
-        // to/cc), not just emails whose sender's domain matches. Otherwise an
-        // employer we only ever send TO (or one whose people are only CC'd)
-        // shows 0 emails even though they're clearly in the conversation.
-        // DISTINCT collapses cases where multiple people at the same firm are
-        // on the same email.
+        // KPIs are served from the precomputed analytics.mart_crm (RFC MB-205
+        // §Phase 5b) rather than recomputed per request — chiefly the
+        // response_p50 percentile, which is an O(emails) LATERAL self-join.
+        // mart_crm holds the SAME arithmetic as the former inline subqueries
+        // (email_count via COUNT(DISTINCT participant email), last_contact via
+        // MAX(sent_at), p50/pair_count via the inbound→earliest-outbound reply
+        // gap capped at 30 days), one row per employer, refreshed after each
+        // ingest — so served numbers are unchanged. Verify with a SELECT-diff
+        // before relying on it. CAVEAT: mart_crm groups email_count/
+        // last_contact by correspondents.employer_id, so it only stays correct
+        // while ingest is the sole writer of those links. If a future UI
+        // feature reassigns an already-emailed contact to another firm, refresh
+        // the mart on that write (or keep these two columns live).
         email_count: sql<number>`COALESCE((
-          SELECT COUNT(DISTINCT "email_participants"."email_id")
-          FROM "email_participants"
-          JOIN "correspondents" ON "correspondents"."id" = "email_participants"."correspondent_id"
-          WHERE "correspondents"."employer_id" = "employers"."id"
+          SELECT "mart_crm"."email_count"
+          FROM "analytics"."mart_crm"
+          WHERE "mart_crm"."employer_id" = "employers"."id"
         ), 0)`,
         last_contact_at: sql<string | null>`(
-          SELECT MAX("emails"."sent_at")
-          FROM "email_participants"
-          JOIN "correspondents" ON "correspondents"."id" = "email_participants"."correspondent_id"
-          JOIN "emails" ON "emails"."id" = "email_participants"."email_id"
-          WHERE "correspondents"."employer_id" = "employers"."id"
+          SELECT "mart_crm"."last_contact_at"
+          FROM "analytics"."mart_crm"
+          WHERE "mart_crm"."employer_id" = "employers"."id"
         )`,
+        response_p50_seconds: sql<number | null>`(
+          SELECT "mart_crm"."response_p50_seconds"
+          FROM "analytics"."mart_crm"
+          WHERE "mart_crm"."employer_id" = "employers"."id"
+        )`,
+        response_pair_count: sql<number>`COALESCE((
+          SELECT "mart_crm"."response_pair_count"
+          FROM "analytics"."mart_crm"
+          WHERE "mart_crm"."employer_id" = "employers"."id"
+        ), 0)`,
         primary_pic: sql<EmployerSummary["primary_pic"]>`(
           SELECT jsonb_build_object(
             'id', "correspondents"."id",
@@ -198,14 +223,12 @@ export class EmployerRepository {
       .from(employers)
       .where(this.buildWhere(filters))
       .orderBy(
-        // Match the participant-based last_contact_at computed above, so the
-        // sort order agrees with the displayed value.
+        // Sort by the same mart-sourced last_contact_at selected above, so the
+        // order agrees with the displayed value.
         sql`(
-          SELECT MAX("emails"."sent_at")
-          FROM "email_participants"
-          JOIN "correspondents" ON "correspondents"."id" = "email_participants"."correspondent_id"
-          JOIN "emails" ON "emails"."id" = "email_participants"."email_id"
-          WHERE "correspondents"."employer_id" = "employers"."id"
+          SELECT "mart_crm"."last_contact_at"
+          FROM "analytics"."mart_crm"
+          WHERE "mart_crm"."employer_id" = "employers"."id"
         ) DESC NULLS LAST`,
         asc(employers.name),
       )
@@ -225,6 +248,9 @@ export class EmployerRepository {
       primary_pic: r.primary_pic ?? null,
       email_count: Number(r.email_count ?? 0),
       last_contact_at: r.last_contact_at ?? null,
+      response_p50_seconds:
+        r.response_p50_seconds == null ? null : Number(r.response_p50_seconds),
+      response_pair_count: Number(r.response_pair_count ?? 0),
       topics: r.topics ?? [],
       team: r.team ?? [],
     }));
@@ -238,11 +264,12 @@ export class EmployerRepository {
     return Number(rows[0]?.n ?? 0);
   }
 
+  // Reads go through the effective view so the human overlay wins (RFC §3).
   async findById(id: string): Promise<Employer | undefined> {
     const rows = await this.db
       .select()
-      .from(employers)
-      .where(eq(employers.id, id))
+      .from(employerEffective)
+      .where(eq(employerEffective.id, id))
       .limit(1);
     return rows[0];
   }
@@ -252,8 +279,8 @@ export class EmployerRepository {
   ): Promise<Employer | undefined> {
     const rows = await this.db
       .select()
-      .from(employers)
-      .where(eq(employers.normalized_name, normalizedName))
+      .from(employerEffective)
+      .where(eq(employerEffective.normalized_name, normalizedName))
       .limit(1);
     return rows[0];
   }
@@ -283,9 +310,9 @@ export class EmployerRepository {
     if (ids.length === 0) return [];
     return this.db
       .select()
-      .from(employers)
-      .where(inArray(employers.id, ids))
-      .orderBy(desc(employers.updated_at));
+      .from(employerEffective)
+      .where(inArray(employerEffective.id, ids))
+      .orderBy(desc(employerEffective.updated_at));
   }
 
   async countFlagged(): Promise<number> {
@@ -299,8 +326,42 @@ export class EmployerRepository {
   async listFlagged(): Promise<Employer[]> {
     return this.db
       .select()
-      .from(employers)
-      .where(eq(employers.curation_status, "flagged"))
-      .orderBy(asc(employers.created_at));
+      .from(employerEffective)
+      .where(eq(employerEffective.curation_status, "flagged"))
+      .orderBy(asc(employerEffective.created_at));
+  }
+
+  /**
+   * Bulk upsert by `normalized_name`. Mirrors the on-conflict semantics from
+   * `crmIngest` employer upsert: name overwrites, industry only
+   * fills in NULLs (so manual UI edits to industry survive re-runs).
+   * Returns `{ id, normalized_name }` per row so callers can build a
+   * domain→id map.
+   */
+  async upsertBatch(
+    rows: EmployerInsert[],
+  ): Promise<Array<{ id: string; normalized_name: string }>> {
+    if (rows.length === 0) return [];
+    const CHUNK = 1000;
+    const out: Array<{ id: string; normalized_name: string }> = [];
+    for (let i = 0; i < rows.length; i += CHUNK) {
+      const chunk = rows.slice(i, i + CHUNK);
+      const res = await this.db
+        .insert(employers)
+        .values(chunk)
+        .onConflictDoUpdate({
+          target: employers.normalized_name,
+          set: {
+            name: sql`EXCLUDED.name`,
+            industry: sql`COALESCE(EXCLUDED.industry, ${employers.industry})`,
+          },
+        })
+        .returning({
+          id: employers.id,
+          normalized_name: employers.normalized_name,
+        });
+      out.push(...res);
+    }
+    return out;
   }
 }

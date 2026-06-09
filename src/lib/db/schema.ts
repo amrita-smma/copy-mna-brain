@@ -1,5 +1,7 @@
 import {
   pgTable,
+  pgSchema,
+  pgView,
   index,
   uniqueIndex,
   pgPolicy,
@@ -7,6 +9,7 @@ import {
   jsonb,
   text,
   integer,
+  bigint,
   bigserial,
   timestamp,
   foreignKey,
@@ -20,6 +23,11 @@ import {
   primaryKey,
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
+
+// MB-205: the analytics schema holds the recomputable / machine-owned data
+// plane — raw layer, email facts, mbox-pipeline state, and the marts. Declared
+// up here because table definitions below attach to it.
+export const analytics = pgSchema("analytics");
 
 export const analysisJobStatus = pgEnum("analysis_job_status", [
   "pending",
@@ -43,6 +51,12 @@ export const jobType = pgEnum("job_type", [
   "company_analysis",
   "stuck_cleanup",
   "vault_export",
+  "vault_archive",
+  "vault_parse",
+  "crm_llm_submit",
+  "crm_llm_fetch",
+  "crm_domain_classify",
+  "crm_ingest",
 ]);
 export const l1Result = pgEnum("l1_result", ["pass", "fail", "inconclusive"]);
 export const pipelineStage = pgEnum("pipeline_stage", [
@@ -1375,6 +1389,218 @@ export const files = pgTable(
   },
 );
 
+export const mboxFiles = analytics.table(
+  "mbox_files",
+  {
+    id: uuid().defaultRandom().primaryKey().notNull(),
+    source: text().notNull(),
+    s3_bucket: text().notNull(),
+    s3_key: text().notNull(),
+    size_bytes: bigint({ mode: "number" }).notNull(),
+    uncompressed_size_bytes: bigint({ mode: "number" }),
+    custodian_email: text().notNull(),
+    window_start: timestamp({ withTimezone: true, mode: "string" }).notNull(),
+    window_end: timestamp({ withTimezone: true, mode: "string" }).notNull(),
+    vault_matter_id: text(),
+    vault_export_id: text(),
+    mode: text().notNull(),
+    job_id: uuid(),
+    parse_status: text().default("pending").notNull(),
+    parsed_at: timestamp({ withTimezone: true, mode: "string" }),
+    parse_error: text(),
+    raw_email_count: integer(),
+    created_at: timestamp({ withTimezone: true, mode: "string" })
+      .defaultNow()
+      .notNull(),
+    updated_at: timestamp({ withTimezone: true, mode: "string" })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => {
+    return {
+      idxMboxFilesSourceWindowStart: index(
+        "idx_mbox_files_source_window_start",
+      ).using(
+        "btree",
+        table.source.asc().nullsLast().op("text_ops"),
+        table.window_start.asc().nullsLast().op("timestamptz_ops"),
+      ),
+      idxMboxFilesParseStatus: index("idx_mbox_files_parse_status").using(
+        "btree",
+        table.parse_status.asc().nullsLast().op("text_ops"),
+      ),
+      idxMboxFilesJobId: index("idx_mbox_files_job_id").using(
+        "btree",
+        table.job_id.asc().nullsLast().op("uuid_ops"),
+      ),
+      mboxFilesJobIdFkey: foreignKey({
+        columns: [table.job_id],
+        foreignColumns: [jobs.id],
+        name: "mbox_files_job_id_fkey",
+      }).onDelete("cascade"),
+    };
+  },
+);
+
+export const rawEmails = analytics.table(
+  "raw_emails",
+  {
+    id: uuid().defaultRandom().primaryKey().notNull(),
+    file_id: uuid().notNull(),
+    custodian_email: text().notNull(),
+    message_id: text().notNull(),
+    from_address: text(),
+    from_display_name: text(),
+    to_addresses: jsonb().$type<string[]>(),
+    cc_addresses: jsonb().$type<string[]>(),
+    subject: text(),
+    body_text: text().default("").notNull(),
+    sent_at: timestamp({ withTimezone: true, mode: "string" }),
+    has_attachments: boolean().default(false).notNull(),
+    in_reply_to: text(),
+    references: text(),
+    gmail_thread_id: text(),
+    raw_headers: jsonb().$type<Record<string, string>>(),
+    // PR #3 — CRM pipeline state
+    llm_status: text().default("pending").notNull(),
+    ingest_status: text().default("pending").notNull(),
+    llm_enriched_at: timestamp({ withTimezone: true, mode: "string" }),
+    ingested_at: timestamp({ withTimezone: true, mode: "string" }),
+    created_at: timestamp({ withTimezone: true, mode: "string" })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    uqRawEmailsMessageId: uniqueIndex("uq_raw_emails_message_id").on(
+      table.message_id,
+    ),
+    idxRawEmailsFileId: index("idx_raw_emails_file_id").using(
+      "btree",
+      table.file_id.asc().nullsLast().op("uuid_ops"),
+    ),
+    idxRawEmailsSentAt: index("idx_raw_emails_sent_at").using(
+      "btree",
+      table.sent_at.asc().nullsLast().op("timestamptz_ops"),
+    ),
+    idxRawEmailsCustodianEmail: index("idx_raw_emails_custodian_email").using(
+      "btree",
+      table.custodian_email.asc().nullsLast().op("text_ops"),
+    ),
+    idxRawEmailsLlmStatus: index("idx_raw_emails_llm_status").using(
+      "btree",
+      table.llm_status.asc().nullsLast().op("text_ops"),
+    ),
+    idxRawEmailsIngestStatus: index("idx_raw_emails_ingest_status").using(
+      "btree",
+      table.ingest_status.asc().nullsLast().op("text_ops"),
+    ),
+    rawEmailsFileIdFkey: foreignKey({
+      columns: [table.file_id],
+      foreignColumns: [mboxFiles.id],
+      name: "raw_emails_file_id_fkey",
+    }).onDelete("cascade"),
+  }),
+);
+
+export const llmBatches = analytics.table(
+  "llm_batches",
+  {
+    id: uuid().defaultRandom().primaryKey().notNull(),
+    anthropic_batch_id: text().notNull(),
+    status: text().notNull(),
+    model: text().notNull(),
+    request_count: integer().notNull(),
+    custom_id_map: jsonb().$type<Record<string, string>>().notNull(),
+    submit_job_id: uuid(),
+    fetch_job_id: uuid(),
+    submitted_at: timestamp({ withTimezone: true, mode: "string" })
+      .defaultNow()
+      .notNull(),
+    ended_at: timestamp({ withTimezone: true, mode: "string" }),
+    fetched_at: timestamp({ withTimezone: true, mode: "string" }),
+    error: text(),
+  },
+  (table) => ({
+    uqLlmBatchesAnthropicBatchId: uniqueIndex(
+      "uq_llm_batches_anthropic_batch_id",
+    ).on(table.anthropic_batch_id),
+    idxLlmBatchesStatus: index("idx_llm_batches_status").using(
+      "btree",
+      table.status.asc().nullsLast().op("text_ops"),
+    ),
+    llmBatchesSubmitJobIdFkey: foreignKey({
+      columns: [table.submit_job_id],
+      foreignColumns: [jobs.id],
+      name: "llm_batches_submit_job_id_fkey",
+    }).onDelete("set null"),
+    llmBatchesFetchJobIdFkey: foreignKey({
+      columns: [table.fetch_job_id],
+      foreignColumns: [jobs.id],
+      name: "llm_batches_fetch_job_id_fkey",
+    }).onDelete("set null"),
+  }),
+);
+
+export const rawEmailEnrichments = analytics.table(
+  "raw_email_enrichments",
+  {
+    id: uuid().defaultRandom().primaryKey().notNull(),
+    raw_email_id: uuid().notNull(),
+    candidates: jsonb(),
+    domain_tag: text(),
+    needs_llm: boolean().notNull(),
+    body_snippet: text(),
+    extracted_at: timestamp({ withTimezone: true, mode: "string" })
+      .defaultNow()
+      .notNull(),
+    topics: jsonb().$type<string[]>(),
+    people: jsonb(),
+    llm_model: text(),
+    llm_batch_id: uuid(),
+    created_at: timestamp({ withTimezone: true, mode: "string" })
+      .defaultNow()
+      .notNull(),
+    updated_at: timestamp({ withTimezone: true, mode: "string" })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    uqRawEmailEnrichmentsRawEmailId: uniqueIndex(
+      "uq_raw_email_enrichments_raw_email_id",
+    ).on(table.raw_email_id),
+    idxRawEmailEnrichmentsNeedsLlm: index(
+      "idx_raw_email_enrichments_needs_llm",
+    ).using("btree", table.needs_llm.asc().nullsLast()),
+    idxRawEmailEnrichmentsLlmBatchId: index(
+      "idx_raw_email_enrichments_llm_batch_id",
+    ).using("btree", table.llm_batch_id.asc().nullsLast().op("uuid_ops")),
+    rawEmailEnrichmentsRawEmailIdFkey: foreignKey({
+      columns: [table.raw_email_id],
+      foreignColumns: [rawEmails.id],
+      name: "raw_email_enrichments_raw_email_id_fkey",
+    }).onDelete("cascade"),
+    rawEmailEnrichmentsLlmBatchIdFkey: foreignKey({
+      columns: [table.llm_batch_id],
+      foreignColumns: [llmBatches.id],
+      name: "raw_email_enrichments_llm_batch_id_fkey",
+    }).onDelete("set null"),
+  }),
+);
+
+export const domainClassifications = analytics.table(
+  "domain_classifications",
+  {
+    domain: text().primaryKey().notNull(),
+    name: text(),
+    industry: text(),
+    confidence: text().notNull(),
+    source: text().notNull(),
+    classified_at: timestamp({ withTimezone: true, mode: "string" })
+      .defaultNow()
+      .notNull(),
+  },
+);
+
 export const companyFinancials = pgTable(
   "company_financials",
   {
@@ -1617,6 +1843,9 @@ export const correspondents = pgTable(
     type: text(),
     is_primary: boolean().default(false).notNull(),
     source: text().default("manual").notNull(),
+    // MB-205: 'auto' = machine-discovered from MBOX (ETL may update/prune);
+    // 'manual' = human-added (ETL never touches). See RFC §3.4.
+    origin: text().default("auto").notNull(),
     last_edited_by_user_id: uuid(),
     last_edited_at: timestamp({ withTimezone: true, mode: "string" }),
     created_at: timestamp({ withTimezone: true, mode: "string" })
@@ -1843,7 +2072,238 @@ export const employerTopics = pgTable(
   }),
 );
 
-export const emails = pgTable(
+// ============================================================================
+// MB-205 — Overlay + identity tables. These stay in `public` (editable system
+// of record); the `analytics` schema (declared at top) holds the data plane.
+// ============================================================================
+
+// Durable, curatable domain → employer map. UNIQUE(domain) guarantees one
+// domain resolves to exactly one employer; supports one-employer-many-domains.
+// Makes email-sourced identity reprocess-stable (resolve once, reuse). RFC §6.
+export const employerDomains = pgTable(
+  "employer_domains",
+  {
+    id: uuid().defaultRandom().primaryKey().notNull(),
+    employer_id: uuid().notNull(),
+    domain: text().notNull(),
+    source: text().default("auto").notNull(), // 'auto' | 'manual'
+    created_at: timestamp({ withTimezone: true, mode: "string" })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    employerDomainsDomainKey: unique("employer_domains_domain_key").on(
+      table.domain,
+    ),
+    employerDomainsEmployerFkey: foreignKey({
+      columns: [table.employer_id],
+      foreignColumns: [employers.id],
+      name: "employer_domains_employer_id_fkey",
+    }).onDelete("cascade"),
+    allowReadEmployerDomains: pgPolicy("Allow read access on employer_domains", {
+      as: "permissive",
+      for: "select",
+      to: ["public"],
+    }),
+    allowInsertEmployerDomains: pgPolicy(
+      "Allow insert access on employer_domains",
+      { as: "permissive", for: "insert", to: ["public"] },
+    ),
+    allowUpdateEmployerDomains: pgPolicy(
+      "Allow update access on employer_domains",
+      { as: "permissive", for: "update", to: ["public"] },
+    ),
+    allowDeleteEmployerDomains: pgPolicy(
+      "Allow delete access on employer_domains",
+      { as: "permissive", for: "delete", to: ["public"], using: sql`true` },
+    ),
+  }),
+);
+
+// Curator-editable domain → name/industry/internal overrides. Replaces
+// scripts/domains.json. Editable in-app; survives every reprocess; takes
+// precedence over the LLM classifier. RFC §6.
+export const employerOverrides = pgTable(
+  "employer_overrides",
+  {
+    domain: text().primaryKey().notNull(),
+    // Nullable: an `excluded`-only row (dropped from ingest) has no employer.
+    employer_name: text(),
+    industry: text(),
+    internal: boolean().default(false).notNull(),
+    // Domains dropped from ingest entirely (replaces domains.json `_excluded`).
+    excluded: boolean().default(false).notNull(),
+    edited_by: uuid(),
+    edited_at: timestamp({ withTimezone: true, mode: "string" })
+      .defaultNow()
+      .notNull(),
+    created_at: timestamp({ withTimezone: true, mode: "string" })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    employerOverridesEditedByFkey: foreignKey({
+      columns: [table.edited_by],
+      foreignColumns: [users.id],
+      name: "employer_overrides_edited_by_fkey",
+    }).onDelete("set null"),
+    allowReadEmployerOverrides: pgPolicy(
+      "Allow read access on employer_overrides",
+      { as: "permissive", for: "select", to: ["public"] },
+    ),
+    allowInsertEmployerOverrides: pgPolicy(
+      "Allow insert access on employer_overrides",
+      { as: "permissive", for: "insert", to: ["public"] },
+    ),
+    allowUpdateEmployerOverrides: pgPolicy(
+      "Allow update access on employer_overrides",
+      { as: "permissive", for: "update", to: ["public"] },
+    ),
+    allowDeleteEmployerOverrides: pgPolicy(
+      "Allow delete access on employer_overrides",
+      { as: "permissive", for: "delete", to: ["public"], using: sql`true` },
+    ),
+  }),
+);
+
+// Human overlay for employer machine fields. NULL column = no override (use
+// the machine value on `employers`). ETL never reads/writes this. RFC §3.3.
+export const employerCuration = pgTable(
+  "employer_curation",
+  {
+    employer_id: uuid().primaryKey().notNull(),
+    name: text(),
+    industry: text(),
+    edited_by: uuid(),
+    edited_at: timestamp({ withTimezone: true, mode: "string" })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    employerCurationEmployerFkey: foreignKey({
+      columns: [table.employer_id],
+      foreignColumns: [employers.id],
+      name: "employer_curation_employer_id_fkey",
+    }).onDelete("cascade"),
+    employerCurationEditedByFkey: foreignKey({
+      columns: [table.edited_by],
+      foreignColumns: [users.id],
+      name: "employer_curation_edited_by_fkey",
+    }).onDelete("set null"),
+    allowReadEmployerCuration: pgPolicy(
+      "Allow read access on employer_curation",
+      { as: "permissive", for: "select", to: ["public"] },
+    ),
+    allowInsertEmployerCuration: pgPolicy(
+      "Allow insert access on employer_curation",
+      { as: "permissive", for: "insert", to: ["public"] },
+    ),
+    allowUpdateEmployerCuration: pgPolicy(
+      "Allow update access on employer_curation",
+      { as: "permissive", for: "update", to: ["public"] },
+    ),
+    allowDeleteEmployerCuration: pgPolicy(
+      "Allow delete access on employer_curation",
+      { as: "permissive", for: "delete", to: ["public"], using: sql`true` },
+    ),
+  }),
+);
+
+// Human overlay for correspondent machine fields. NOTE: is_primary is NOT here
+// — it stays on the base `correspondents` table so the partial unique index
+// `uq_correspondent_one_primary_per_employer` keeps enforcing one-primary on
+// the effective value. RFC §3.4.
+export const correspondentCuration = pgTable(
+  "correspondent_curation",
+  {
+    correspondent_id: uuid().primaryKey().notNull(),
+    name: text(),
+    title: text(),
+    phone: text(),
+    type: text(),
+    edited_by: uuid(),
+    edited_at: timestamp({ withTimezone: true, mode: "string" })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    correspondentCurationCorrespondentFkey: foreignKey({
+      columns: [table.correspondent_id],
+      foreignColumns: [correspondents.id],
+      name: "correspondent_curation_correspondent_id_fkey",
+    }).onDelete("cascade"),
+    correspondentCurationEditedByFkey: foreignKey({
+      columns: [table.edited_by],
+      foreignColumns: [users.id],
+      name: "correspondent_curation_edited_by_fkey",
+    }).onDelete("set null"),
+    allowReadCorrespondentCuration: pgPolicy(
+      "Allow read access on correspondent_curation",
+      { as: "permissive", for: "select", to: ["public"] },
+    ),
+    allowInsertCorrespondentCuration: pgPolicy(
+      "Allow insert access on correspondent_curation",
+      { as: "permissive", for: "insert", to: ["public"] },
+    ),
+    allowUpdateCorrespondentCuration: pgPolicy(
+      "Allow update access on correspondent_curation",
+      { as: "permissive", for: "update", to: ["public"] },
+    ),
+    allowDeleteCorrespondentCuration: pgPolicy(
+      "Allow delete access on correspondent_curation",
+      { as: "permissive", for: "delete", to: ["public"], using: sql`true` },
+    ),
+  }),
+);
+
+// Effective read surfaces (RFC §3): COALESCE the human overlay over the
+// machine base, per field. Created in the DB `WITH (security_invoker = on)` so
+// RLS keeps evaluating against the caller. All CRM reads go through these.
+// `.existing()` — the DDL lives in the migration, not generated by Drizzle.
+export const employerEffective = pgView("employer_effective", {
+  id: uuid("id").notNull(),
+  name: text("name").notNull(),
+  normalized_name: text("normalized_name").notNull(),
+  industry: text("industry"),
+  status: text("status").notNull(),
+  curation_status: text("curation_status").notNull(),
+  created_at: timestamp("created_at", {
+    withTimezone: true,
+    mode: "string",
+  }).notNull(),
+  updated_at: timestamp("updated_at", {
+    withTimezone: true,
+    mode: "string",
+  }).notNull(),
+}).existing();
+
+export const correspondentEffective = pgView("correspondent_effective", {
+  id: uuid("id").notNull(),
+  employer_id: uuid("employer_id").notNull(),
+  name: text("name").notNull(),
+  title: text("title"),
+  email: text("email"),
+  phone: text("phone"),
+  type: text("type"),
+  is_primary: boolean("is_primary").notNull(),
+  source: text("source").notNull(),
+  origin: text("origin").notNull(),
+  last_edited_by_user_id: uuid("last_edited_by_user_id"),
+  last_edited_at: timestamp("last_edited_at", {
+    withTimezone: true,
+    mode: "string",
+  }),
+  created_at: timestamp("created_at", {
+    withTimezone: true,
+    mode: "string",
+  }).notNull(),
+  updated_at: timestamp("updated_at", {
+    withTimezone: true,
+    mode: "string",
+  }).notNull(),
+}).existing();
+
+export const emails = analytics.table(
   "emails",
   {
     id: uuid().defaultRandom().primaryKey().notNull(),
@@ -1861,11 +2321,16 @@ export const emails = pgTable(
       .defaultNow()
       .notNull(),
     message_id: text(),
+    in_reply_to: text(),
   },
   (table) => ({
     uqEmailsMessageId: uniqueIndex("uq_emails_message_id")
       .on(table.message_id)
       .where(sql`message_id IS NOT NULL`),
+    idxEmailInReplyTo: index("idx_emails_in_reply_to").using(
+      "btree",
+      table.in_reply_to.asc().nullsLast().op("text_ops"),
+    ),
     idxEmailEmployerSent: index("idx_email_employer_sent").using(
       "btree",
       table.employer_id.asc().nullsLast().op("uuid_ops"),
@@ -1904,7 +2369,7 @@ export const emails = pgTable(
   }),
 );
 
-export const emailTopics = pgTable(
+export const emailTopics = analytics.table(
   "email_topics",
   {
     id: uuid().defaultRandom().primaryKey().notNull(),
@@ -1947,7 +2412,7 @@ export const emailTopics = pgTable(
   }),
 );
 
-export const emailParticipants = pgTable(
+export const emailParticipants = analytics.table(
   "email_participants",
   {
     id: uuid().defaultRandom().primaryKey().notNull(),

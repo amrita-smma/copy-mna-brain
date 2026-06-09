@@ -7,11 +7,23 @@ export interface VaultCredentials {
 }
 
 export interface ParsedEmail {
+  // Original (kept for backwards compatibility with the legacy vault_export
+  // handler — first address parsed from From / To headers).
   from_email: string | null;
   to_email: string | null;
   subject: string | null;
   body: string;
   sent_at: string | null;
+  // Extended fields used by vault_parse.
+  message_id: string | null;
+  from_display_name: string | null;
+  to_emails: string[];
+  cc_emails: string[];
+  in_reply_to: string | null;
+  references: string | null;
+  gmail_thread_id: string | null;
+  has_attachments: boolean;
+  raw_headers: Record<string, string>;
 }
 
 export interface VaultExportFile {
@@ -39,6 +51,17 @@ export interface VaultImportMessage {
 
 const VAULT_BASE = 'https://vault.googleapis.com/v1';
 const STORAGE_DOWNLOAD_BASE = 'https://storage.googleapis.com/download/storage/v1';
+
+export const VAULT_CUSTODIAN_EMAILS = [
+  'hendric.g@starcapital.co.id',
+  'dessi.sari@aldiracita.com',
+  'jien.lit@starcapital.co.id',
+  'zhang.hongtao@starcapital.co.id',
+  'cp.tei@starcapitalholdings.com',
+  'samuel.nathaniel@lifewithsun.com',
+  'christin.chandra@starcapital.co.id',
+  'chandra.limi@starcapital.co.id',
+];
 
 export function loadVaultCredentials(): VaultCredentials {
   const encoded = process.env.GOOGLE_VAULT_SERVICE_ACCOUNT;
@@ -233,6 +256,118 @@ function extractEmailAddress(header: string): string | null {
   return bare ? bare[0].trim() : null;
 }
 
+export interface EmailListEntry {
+  address: string;
+  displayName: string | null;
+}
+
+/**
+ * Parse a To/Cc/Bcc header that may contain multiple comma-separated entries,
+ * each optionally with a display name. Respects quoted strings and angle
+ * brackets so `"Doe, John" <jdoe@x.com>, bob@y.com` returns two entries.
+ */
+export function extractEmailList(header: string | undefined): EmailListEntry[] {
+  if (!header) return [];
+  const segments: string[] = [];
+  let buf = '';
+  let angleDepth = 0;
+  let inQuotes = false;
+  for (let i = 0; i < header.length; i++) {
+    const c = header[i];
+    if (c === '"' && header[i - 1] !== '\\') {
+      inQuotes = !inQuotes;
+      buf += c;
+      continue;
+    }
+    if (!inQuotes) {
+      if (c === '<') angleDepth++;
+      else if (c === '>') angleDepth = Math.max(0, angleDepth - 1);
+      else if (c === ',' && angleDepth === 0) {
+        segments.push(buf);
+        buf = '';
+        continue;
+      }
+    }
+    buf += c;
+  }
+  if (buf.trim()) segments.push(buf);
+
+  const out: EmailListEntry[] = [];
+  for (const seg of segments) {
+    const trimmed = seg.trim();
+    if (!trimmed) continue;
+    const address = extractEmailAddress(trimmed);
+    if (!address) continue;
+    let displayName: string | null = null;
+    const angleIdx = trimmed.indexOf('<');
+    if (angleIdx > 0) {
+      let name = trimmed.slice(0, angleIdx).trim();
+      if (name.startsWith('"') && name.endsWith('"')) name = name.slice(1, -1);
+      displayName = name.replace(/\\"/g, '"').trim() || null;
+    } else {
+      const paren = trimmed.match(/\(([^)]+)\)/);
+      if (paren) displayName = paren[1].trim() || null;
+    }
+    out.push({ address, displayName });
+  }
+  return out;
+}
+
+/**
+ * Strip wrapping angle brackets from an RFC 5322 Message-ID, In-Reply-To, etc.
+ * so storage is the bare canonical form. References (a chain) is treated
+ * differently — see parseMboxContent.
+ */
+export function stripAngleBrackets(s: string | undefined): string | null {
+  if (!s) return null;
+  const trimmed = s.trim();
+  if (!trimmed) return null;
+  if (trimmed.startsWith('<') && trimmed.endsWith('>')) {
+    const inner = trimmed.slice(1, -1).trim();
+    return inner || null;
+  }
+  return trimmed;
+}
+
+/**
+ * Walks MIME parts looking for any part that represents an attachment.
+ * Heuristics: Content-Disposition starts with 'attachment', or any header
+ * carries a name=/filename= parameter for a non-text/* content type.
+ */
+export function detectAttachments(
+  headers: Record<string, string>,
+  rawBody: string,
+): boolean {
+  const contentType = headers['content-type'] ?? '';
+  const contentDisposition = headers['content-disposition'] ?? '';
+
+  if (/^attachment\b/i.test(contentDisposition)) return true;
+  if (/\b(filename|name)\s*=/i.test(contentDisposition)) return true;
+  if (
+    /\b(filename|name)\s*=/i.test(contentType) &&
+    !/^text\/(plain|html)\b/i.test(contentType)
+  ) {
+    return true;
+  }
+
+  if (contentType.startsWith('multipart/')) {
+    const boundaryMatch = contentType.match(/boundary="?([^";,\s]+)"?/i);
+    if (!boundaryMatch) return false;
+    const boundary = boundaryMatch[1];
+    const parts = rawBody.split(`--${boundary}`);
+    for (const part of parts) {
+      const trimmed = part.trim();
+      if (!trimmed || trimmed === '--') continue;
+      const divider = trimmed.indexOf('\n\n');
+      if (divider === -1) continue;
+      const partHeaders = parseHeaders(trimmed.slice(0, divider));
+      const partBody = trimmed.slice(divider + 2);
+      if (detectAttachments(partHeaders, partBody)) return true;
+    }
+  }
+  return false;
+}
+
 function decodeQuotedPrintable(str: string): string {
   return str
     .replace(/=\r?\n/g, '')
@@ -362,12 +497,29 @@ export function parseMboxContent(mboxContent: string): ParsedEmail[] {
 
     if (!cleanBody.trim()) continue;
 
+    const fromList = extractEmailList(headers['from']);
+    const toList = extractEmailList(headers['to']);
+    const ccList = extractEmailList(headers['cc']);
+    const fromAddr = fromList[0]?.address ?? extractEmailAddress(headers['from'] ?? '');
+    const fromDisplay = fromList[0]?.displayName ?? null;
+
     emails.push({
-      from_email: extractEmailAddress(headers['from'] ?? ''),
-      to_email: extractEmailAddress(headers['to'] ?? ''),
+      from_email: fromAddr,
+      to_email: toList[0]?.address ?? extractEmailAddress(headers['to'] ?? ''),
       subject: headers['subject'] ?? null,
       body: cleanBody,
       sent_at: parseMessageDate(headers['date']),
+      message_id: stripAngleBrackets(headers['message-id']),
+      from_display_name: fromDisplay,
+      to_emails: toList.map((e) => e.address),
+      cc_emails: ccList.map((e) => e.address),
+      in_reply_to: stripAngleBrackets(headers['in-reply-to']),
+      // `References` is a space-separated chain of message-ids. Keep as-is
+      // for now (downstream can split on whitespace if needed).
+      references: headers['references']?.trim() || null,
+      gmail_thread_id: headers['x-gm-thrid']?.trim() || null,
+      has_attachments: detectAttachments(headers, rawBodyContent),
+      raw_headers: headers,
     });
   }
 

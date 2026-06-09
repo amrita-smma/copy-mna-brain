@@ -7,6 +7,8 @@ const AWS_REGION = process.env.AWS_REGION || 'ap-southeast-3';
 const AWS_ACCESS_KEY_ID = process.env.AWS_ACCESS_KEY_ID;
 const AWS_SECRET_ACCESS_KEY = process.env.AWS_SECRET_ACCESS_KEY;
 const S3_BUCKET = process.env.AWS_S3_BUCKET || 'mna-files';
+// Secondary bucket for archived Vault MBOX files. See vaultArchive handler.
+export const S3_MBOX_BUCKET = process.env.AWS_S3_MBOX_BUCKET || 'mbox-archive';
 // Optional custom endpoint for server→S3 operations (upload/download/delete).
 // Set to `http://localhost:9000` (host dev) or `http://minio:9000` (docker
 // network). Omit to use real AWS S3.
@@ -67,15 +69,18 @@ function createS3Client(kind: ClientKind = 'internal'): S3Client {
 export async function uploadFile(
   fileBuffer: Buffer | Uint8Array,
   key: string,
-  contentType: string
+  contentType: string,
+  bucket: string = S3_BUCKET,
+  contentEncoding?: string,
 ): Promise<string> {
   const s3Client = createS3Client();
 
   const command = new PutObjectCommand({
-    Bucket: S3_BUCKET,
+    Bucket: bucket,
     Key: key,
     Body: fileBuffer,
     ContentType: contentType,
+    ...(contentEncoding ? { ContentEncoding: contentEncoding } : {}),
   });
 
   await s3Client.send(command);
@@ -86,11 +91,11 @@ export async function uploadFile(
  * Delete a file from S3
  * @param key - The S3 object key (path)
  */
-export async function deleteFile(key: string): Promise<void> {
+export async function deleteFile(key: string, bucket: string = S3_BUCKET): Promise<void> {
   const s3Client = createS3Client();
 
   const command = new DeleteObjectCommand({
-    Bucket: S3_BUCKET,
+    Bucket: bucket,
     Key: key,
   });
 
@@ -148,11 +153,11 @@ export async function getUploadSignedUrl(
  * @param key - The S3 object key (path)
  * @returns The file content as a Buffer
  */
-export async function downloadFile(key: string): Promise<Buffer> {
+export async function downloadFile(key: string, bucket: string = S3_BUCKET): Promise<Buffer> {
   const s3Client = createS3Client();
 
   const command = new GetObjectCommand({
-    Bucket: S3_BUCKET,
+    Bucket: bucket,
     Key: key,
   });
 

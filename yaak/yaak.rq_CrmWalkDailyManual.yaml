@@ -1,0 +1,21 @@
+type: http_request
+model: http_request
+id: rq_CrmWalkDailyManual
+createdAt: 2026-06-02T00:00:00.000000
+updatedAt: 2026-06-02T00:00:00.000000
+workspaceId: wk_4yBsWJ5Tuh
+folderId: fl_CrmArchive
+authentication: {}
+authenticationType: null
+description: 'Manually trigger the daily backfill walker. count=3 archives up to 3 days at once.'
+headers:
+  - { enabled: true, name: Authorization, value: "Bearer ${[cron_secret]}", id: null }
+  - { enabled: true, name: Content-Type,  value: application/json,          id: null }
+method: POST
+name: "Archive — walk-daily (count=3)"
+bodyType: application/json
+body:
+  text: '{"count": 3}'
+urlParameters: []
+sortPriority: 3.0
+url: "${[base_url]}/api/crm/vault-archive/walk-daily"

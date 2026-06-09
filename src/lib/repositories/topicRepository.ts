@@ -146,4 +146,30 @@ export class TopicRepository {
     if (ids.length === 0) return [];
     return this.db.select().from(topics).where(inArray(topics.id, ids));
   }
+
+  /**
+   * Bulk upsert from a list of canonical slugs. Mirrors
+   * `crmIngest` step [4/7]. Returns the upserted rows so
+   * the caller can build a slug→id map for downstream `email_topics` inserts.
+   * The UPDATE is a no-op `name = EXCLUDED.name` forcing RETURNING for both
+   * new and existing rows.
+   */
+  async upsertBatch(slugs: string[]): Promise<Topic[]> {
+    if (slugs.length === 0) return [];
+    const CHUNK = 1000;
+    const out: Topic[] = [];
+    for (let i = 0; i < slugs.length; i += CHUNK) {
+      const chunk = slugs.slice(i, i + CHUNK).map((slug) => ({ name: slug, slug }));
+      const res = await this.db
+        .insert(topics)
+        .values(chunk)
+        .onConflictDoUpdate({
+          target: topics.slug,
+          set: { name: sql`EXCLUDED.name` },
+        })
+        .returning();
+      out.push(...res);
+    }
+    return out;
+  }
 }

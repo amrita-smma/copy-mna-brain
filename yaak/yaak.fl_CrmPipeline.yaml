@@ -1,0 +1,13 @@
+type: folder
+model: folder
+id: fl_CrmPipeline
+createdAt: 2026-06-02T00:00:00.000000
+updatedAt: 2026-06-02T00:00:00.000000
+workspaceId: wk_4yBsWJ5Tuh
+folderId: null
+authentication: {}
+authenticationType: null
+description: ''
+headers: []
+name: CRM Pipeline
+sortPriority: 20.0

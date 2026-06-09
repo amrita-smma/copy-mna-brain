@@ -1,0 +1,27 @@
+type: http_request
+model: http_request
+id: rq_CrmLlmSubmitBatch
+createdAt: 2026-06-02T00:00:00
+updatedAt: 2026-06-02T00:54:13.911775664
+workspaceId: wk_4yBsWJ5Tuh
+folderId: fl_CrmPipeline
+authentication: {}
+authenticationType: null
+body:
+  text: '{"limit": 100, "mode": "batch"}'
+bodyType: application/json
+description: 'Cron: 30 * * * *  — filter + extract + submit Anthropic batch'
+headers:
+- enabled: true
+  name: Authorization
+  value: Bearer ${[cron_secret]}
+  id: null
+- enabled: true
+  name: Content-Type
+  value: application/json
+  id: null
+method: POST
+name: 3 · crm-llm-submit batch [:30]
+sortPriority: 3.0
+url: ${[base_url]}/api/crm/crm-llm-submit
+urlParameters: []

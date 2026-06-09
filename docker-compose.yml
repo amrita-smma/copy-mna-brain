@@ -51,7 +51,8 @@ services:
       /bin/sh -c "
       mc alias set local http://minio:9000 minioadmin minioadmin;
       mc mb --ignore-existing local/mna-files;
-      echo 'bucket mna-files ready';
+      mc mb --ignore-existing local/mbox-archive;
+      echo 'buckets mna-files and mbox-archive ready';
       "
 
   app:
@@ -77,6 +78,7 @@ services:
       AWS_ACCESS_KEY_ID: minioadmin
       AWS_SECRET_ACCESS_KEY: minioadmin
       AWS_S3_BUCKET: mna-files
+      AWS_S3_MBOX_BUCKET: mbox-archive
       AWS_S3_ENDPOINT: http://minio:9000
       # Presigned URLs must be reachable from the browser, which can't resolve
       # `minio` — expose the host-mapped port instead.
@@ -89,10 +91,12 @@ services:
       # non-SELinux systems. Without it: EACCES on /app/package.json.
       - .:/app:z
       - app-node-modules:/app/node_modules
+      - data-pipeline-node-modules:/app/data-pipeline/node_modules
       - app-next-cache:/app/.next
 
 volumes:
   postgres-data:
   minio-data:
   app-node-modules:
+  data-pipeline-node-modules:
   app-next-cache:

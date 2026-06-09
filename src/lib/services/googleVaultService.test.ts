@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { parseMboxContent, classifyEmails } from './googleVaultService';
+import {
+  parseMboxContent,
+  classifyEmails,
+  extractEmailList,
+  stripAngleBrackets,
+  detectAttachments,
+} from './googleVaultService';
 
 const CUSTODIAN = 'alice@starcapital.co.id';
 const EXTERNAL = 'banker@externalfirm.com';
@@ -212,5 +218,220 @@ describe('classifyEmails', () => {
 
   it('returns [] for empty email list', () => {
     expect(classifyEmails([], custodianSet)).toEqual([]);
+  });
+});
+
+describe('extractEmailList', () => {
+  it('returns [] for undefined / empty input', () => {
+    expect(extractEmailList(undefined)).toEqual([]);
+    expect(extractEmailList('')).toEqual([]);
+  });
+
+  it('parses a single bare address', () => {
+    expect(extractEmailList('bob@y.com')).toEqual([
+      { address: 'bob@y.com', displayName: null },
+    ]);
+  });
+
+  it('parses a single address with display name in angle brackets', () => {
+    expect(extractEmailList('Bob Smith <bob@y.com>')).toEqual([
+      { address: 'bob@y.com', displayName: 'Bob Smith' },
+    ]);
+  });
+
+  it('parses a quoted display name containing a comma', () => {
+    expect(extractEmailList('"Doe, John" <jdoe@x.com>, bob@y.com')).toEqual([
+      { address: 'jdoe@x.com', displayName: 'Doe, John' },
+      { address: 'bob@y.com', displayName: null },
+    ]);
+  });
+
+  it('parses display name in parens for bare addresses', () => {
+    expect(extractEmailList('bob@y.com (Bob)')).toEqual([
+      { address: 'bob@y.com', displayName: 'Bob' },
+    ]);
+  });
+
+  it('handles multiple quoted-comma entries', () => {
+    const out = extractEmailList(
+      '"Doe, John" <jdoe@x.com>, "Smith, Jane" <jsmith@z.com>',
+    );
+    expect(out).toEqual([
+      { address: 'jdoe@x.com', displayName: 'Doe, John' },
+      { address: 'jsmith@z.com', displayName: 'Smith, Jane' },
+    ]);
+  });
+
+  it('skips segments without a parseable address', () => {
+    expect(extractEmailList('not an email, bob@y.com')).toEqual([
+      { address: 'bob@y.com', displayName: null },
+    ]);
+  });
+});
+
+describe('stripAngleBrackets', () => {
+  it('returns null for undefined / empty', () => {
+    expect(stripAngleBrackets(undefined)).toBeNull();
+    expect(stripAngleBrackets('')).toBeNull();
+    expect(stripAngleBrackets('   ')).toBeNull();
+  });
+
+  it('strips wrapping angle brackets', () => {
+    expect(stripAngleBrackets('<abc@x.com>')).toBe('abc@x.com');
+  });
+
+  it('leaves bare IDs unchanged', () => {
+    expect(stripAngleBrackets('abc@x.com')).toBe('abc@x.com');
+  });
+
+  it('trims whitespace', () => {
+    expect(stripAngleBrackets('  <abc@x.com>  ')).toBe('abc@x.com');
+  });
+});
+
+describe('detectAttachments', () => {
+  it('returns false for a plain text/plain email', () => {
+    expect(
+      detectAttachments({ 'content-type': 'text/plain' }, 'hello'),
+    ).toBe(false);
+  });
+
+  it('returns true when Content-Disposition is attachment', () => {
+    expect(
+      detectAttachments(
+        { 'content-disposition': 'attachment; filename="report.pdf"' },
+        '',
+      ),
+    ).toBe(true);
+  });
+
+  it('returns true for a multipart with an attached PDF part', () => {
+    const body =
+      '--bnd\n' +
+      'Content-Type: text/plain\n\n' +
+      'hello\n' +
+      '--bnd\n' +
+      'Content-Type: application/pdf; name="report.pdf"\n' +
+      'Content-Disposition: attachment; filename="report.pdf"\n\n' +
+      'PDFBYTES\n' +
+      '--bnd--\n';
+    expect(
+      detectAttachments(
+        { 'content-type': 'multipart/mixed; boundary="bnd"' },
+        body,
+      ),
+    ).toBe(true);
+  });
+
+  it('returns false for multipart/alternative (text + html, no attachment)', () => {
+    const body =
+      '--bnd\n' +
+      'Content-Type: text/plain\n\n' +
+      'hello\n' +
+      '--bnd\n' +
+      'Content-Type: text/html\n\n' +
+      '<p>hello</p>\n' +
+      '--bnd--\n';
+    expect(
+      detectAttachments(
+        { 'content-type': 'multipart/alternative; boundary="bnd"' },
+        body,
+      ),
+    ).toBe(false);
+  });
+});
+
+describe('parseMboxContent — extended fields', () => {
+  function mkMsgWithHeaders(extra: string, body = 'hello'): string {
+    return (
+      `From sender@x.com Mon Jan  1 00:00:00 2026\r\n` +
+      `From: sender@x.com\r\n` +
+      `To: receiver@y.com\r\n` +
+      `Subject: test\r\n` +
+      `Date: Mon, 1 Jan 2026 00:00:00 +0000\r\n` +
+      `${extra}` +
+      `\r\n` +
+      `${body}\r\n`
+    );
+  }
+
+  it('captures Message-ID, stripping angle brackets', () => {
+    const mbox = mkMsgWithHeaders('Message-ID: <abc123@mail.x.com>\r\n');
+    const [parsed] = parseMboxContent(mbox);
+    expect(parsed.message_id).toBe('abc123@mail.x.com');
+  });
+
+  it('leaves message_id null when the header is missing', () => {
+    const mbox = mkMsgWithHeaders('');
+    const [parsed] = parseMboxContent(mbox);
+    expect(parsed.message_id).toBeNull();
+  });
+
+  it('captures multi-recipient To with a quoted display name containing a comma', () => {
+    const mbox =
+      `From sender@x.com Mon Jan  1 00:00:00 2026\r\n` +
+      `From: "Sender Co." <sender@x.com>\r\n` +
+      `To: "Doe, John" <jdoe@x.com>, bob@y.com\r\n` +
+      `Subject: t\r\n` +
+      `Date: Mon, 1 Jan 2026 00:00:00 +0000\r\n` +
+      `\r\n` +
+      `hi\r\n`;
+    const [parsed] = parseMboxContent(mbox);
+    expect(parsed.to_emails).toEqual(['jdoe@x.com', 'bob@y.com']);
+    expect(parsed.from_display_name).toBe('Sender Co.');
+    // Backwards-compat: first address kept as to_email
+    expect(parsed.to_email).toBe('jdoe@x.com');
+  });
+
+  it('captures Cc list', () => {
+    const mbox = mkMsgWithHeaders(
+      'Cc: cc1@x.com, "Boss" <cc2@y.com>\r\n',
+    );
+    const [parsed] = parseMboxContent(mbox);
+    expect(parsed.cc_emails).toEqual(['cc1@x.com', 'cc2@y.com']);
+  });
+
+  it('captures In-Reply-To, References, X-Gm-Thrid', () => {
+    const mbox = mkMsgWithHeaders(
+      'In-Reply-To: <parent@mail.x.com>\r\n' +
+        'References: <a@mail.x.com> <b@mail.x.com> <c@mail.x.com>\r\n' +
+        'X-Gm-Thrid: 1234567890\r\n',
+    );
+    const [parsed] = parseMboxContent(mbox);
+    expect(parsed.in_reply_to).toBe('parent@mail.x.com');
+    expect(parsed.references).toBe(
+      '<a@mail.x.com> <b@mail.x.com> <c@mail.x.com>',
+    );
+    expect(parsed.gmail_thread_id).toBe('1234567890');
+  });
+
+  it('detects has_attachments in a multipart message', () => {
+    const mbox =
+      `From sender@x.com Mon Jan  1 00:00:00 2026\r\n` +
+      `From: sender@x.com\r\n` +
+      `To: receiver@y.com\r\n` +
+      `Subject: with attachment\r\n` +
+      `Date: Mon, 1 Jan 2026 00:00:00 +0000\r\n` +
+      `Content-Type: multipart/mixed; boundary="bnd"\r\n` +
+      `\r\n` +
+      `--bnd\r\n` +
+      `Content-Type: text/plain\r\n` +
+      `\r\n` +
+      `body\r\n` +
+      `--bnd\r\n` +
+      `Content-Type: application/pdf; name="x.pdf"\r\n` +
+      `Content-Disposition: attachment; filename="x.pdf"\r\n` +
+      `\r\n` +
+      `PDFBYTES\r\n` +
+      `--bnd--\r\n`;
+    const [parsed] = parseMboxContent(mbox);
+    expect(parsed.has_attachments).toBe(true);
+  });
+
+  it('populates raw_headers with the decoded header map', () => {
+    const mbox = mkMsgWithHeaders('Message-ID: <abc@x.com>\r\n');
+    const [parsed] = parseMboxContent(mbox);
+    expect(parsed.raw_headers['message-id']).toBe('<abc@x.com>');
+    expect(parsed.raw_headers['from']).toBe('sender@x.com');
   });
 });

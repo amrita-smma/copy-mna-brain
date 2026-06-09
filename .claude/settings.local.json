@@ -29,12 +29,14 @@
       "Bash(grep -v \"^$\")",
       "Bash(grep \"\\\\.ts$\")",
       "WebFetch(domain:developers.google.com)",
-      "Bash(grep -E \"\\\\.\\(tsx|ts|jsx|js\\)$\")",
-      "Bash(git *)",
-      "Bash(git -C /Users/nicoalimin/Code/sqe/mna-tracker show user/nicoalimin/adjust-dashboard:src/views/Dashboard.tsx)",
-      "Read(//tmp/**)",
-      "Bash(grep -E \"\\\\.\\(ts|tsx|js|jsx\\)$\")",
-      "Bash(grep -E \"\\\\.\\(tsx|ts\\)$\")"
+      "Bash(rtk grep *)",
+      "Bash(rtk git *)",
+      "Bash(GIT_EDITOR=true git rebase *)",
+      "Bash(rtk ls *)",
+      "Bash(rtk read *)",
+      "Bash(rtk find *)",
+      "Bash(git rerere *)",
+      "Bash(git rebase *)"
     ]
   }
 }

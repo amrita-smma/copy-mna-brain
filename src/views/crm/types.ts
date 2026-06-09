@@ -32,6 +32,11 @@ export interface EmployerSummary {
   primary_pic: PrimaryPic | null;
   email_count: number;
   last_contact_at: string | null;
+  // Median seconds between an inbound email from this firm and our next reply
+  // (null when there are no answered exchanges). response_pair_count is the
+  // sample size behind the median.
+  response_p50_seconds: number | null;
+  response_pair_count: number;
   topics: TopicChip[];
   team: TeamMemberSummary[];
 }

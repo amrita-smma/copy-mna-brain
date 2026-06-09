@@ -1,0 +1,21 @@
+type: http_request
+model: http_request
+id: rq_CrmLlmSubmitSync
+createdAt: 2026-06-02T00:00:00.000000
+updatedAt: 2026-06-02T00:00:00.000000
+workspaceId: wk_4yBsWJ5Tuh
+folderId: fl_CrmPipeline
+authentication: {}
+authenticationType: null
+description: 'sync mode: one messages.create per row inline — use for dev/test (no waiting for batch)'
+headers:
+  - { enabled: true, name: Authorization, value: "Bearer ${[cron_secret]}", id: null }
+  - { enabled: true, name: Content-Type,  value: application/json,          id: null }
+method: POST
+name: "3b · crm-llm-submit sync (dev/test)"
+bodyType: application/json
+body:
+  text: '{"limit": 10, "mode": "sync"}'
+urlParameters: []
+sortPriority: 3.5
+url: "${[base_url]}/api/crm/crm-llm-submit"

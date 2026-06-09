@@ -105,9 +105,14 @@ export function createPostgresClientFromEnv(
 }
 
 type PgClient = ReturnType<typeof postgres>;
-const globalForDb = globalThis as unknown as { __pg?: PgClient };
+const globalForDb = globalThis as unknown as {
+  __pg?: PgClient;
+  __db?: ReturnType<typeof makeDb>;
+};
 
-const client: PgClient = globalForDb.__pg ?? createPostgresClientFromEnv();
+function makeDb(client: PgClient) {
+  return drizzle(client, { schema });
+}
 
 // Note on timestamp shape: Drizzle's `timestamp({ mode: 'string' })` returns the
 // raw Postgres textual form (e.g. "2026-04-22 12:40:36.427054+00") rather than
@@ -117,13 +122,24 @@ const client: PgClient = globalForDb.__pg ?? createPostgresClientFromEnv();
 // If future code needs strict ISO, add `.$type<string>()` + a custom
 // `mapFromDriverValue` on the relevant timestamp columns in `schema.ts`.
 
-if (process.env.NODE_ENV !== 'production') {
-  globalForDb.__pg = client;
-}
-
-export const db = drizzle(client, { schema });
-export type DbClient = typeof db;
+export type DbClient = ReturnType<typeof makeDb>;
 
 export function createDb(): DbClient {
+  if (globalForDb.__db) return globalForDb.__db;
+
+  const client: PgClient = globalForDb.__pg ?? createPostgresClientFromEnv();
+  const db = makeDb(client);
+
+  if (process.env.NODE_ENV !== 'production') {
+    globalForDb.__pg = client;
+    globalForDb.__db = db;
+  }
+
   return db;
 }
+
+export const db = new Proxy({} as DbClient, {
+  get(_target, prop, receiver) {
+    return Reflect.get(createDb() as object, prop, receiver);
+  },
+}) as DbClient;

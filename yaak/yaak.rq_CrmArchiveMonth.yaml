@@ -1,0 +1,21 @@
+type: http_request
+model: http_request
+id: rq_CrmArchiveMonth
+createdAt: 2026-06-02T00:00:00.000000
+updatedAt: 2026-06-02T00:00:00.000000
+workspaceId: wk_4yBsWJ5Tuh
+folderId: fl_CrmArchive
+authentication: {}
+authenticationType: null
+description: 'Manually archive a single closed month. Idempotent — returns 409 if already done.'
+headers:
+  - { enabled: true, name: Authorization, value: "Bearer ${[cron_secret]}", id: null }
+  - { enabled: true, name: Content-Type,  value: application/json,          id: null }
+method: POST
+name: Archive — single month
+bodyType: application/json
+body:
+  text: '{"year": 2026, "month": 1}'
+urlParameters: []
+sortPriority: 1.0
+url: "${[base_url]}/api/crm/vault-archive"

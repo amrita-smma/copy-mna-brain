@@ -65,3 +65,9 @@ test-results/
 
 .pnpm-store/
 .pnpm-store
+
+# data-pipeline local build + SAM artifacts
+data-pipeline/dist/
+data-pipeline/.aws-sam/
+data-pipeline/sam-env.docker.json
+data-pipeline/template.local.yaml

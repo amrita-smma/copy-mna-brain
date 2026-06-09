@@ -11,10 +11,13 @@ import {
   parseMboxContent,
   classifyEmails,
   closeVaultMatter,
+  VAULT_CUSTODIAN_EMAILS,
 } from '@/lib/services/googleVaultService';
 import {
   EmployerRepository,
+  EmployerCurationRepository,
   CorrespondentRepository,
+  CorrespondentCurationRepository,
   EmployerNoteRepository,
   TopicRepository,
   EmailRepository,
@@ -32,16 +35,7 @@ export const VAULT_EXPORT_TIMEOUT_SECONDS = 1800; // 30 minutes
  */
 export const VAULT_SYNC_CADENCE_MS = 24 * 60 * 60 * 1000;
 
-export const VAULT_CUSTODIAN_EMAILS = [
-  'hendric.g@starcapital.co.id',
-  'dessi.sari@aldiracita.com',
-  'jien.lit@starcapital.co.id',
-  'zhang.hongtao@starcapital.co.id',
-  'cp.tei@starcapitalholdings.com',
-  'samuel.nathaniel@lifewithsun.com',
-  'christin.chandra@starcapital.co.id',
-  'chandra.limi@starcapital.co.id',
-];
+export { VAULT_CUSTODIAN_EMAILS };
 
 export interface VaultExportPayload {
   custodianEmails?: string[];
@@ -144,6 +138,8 @@ export async function runVaultExport(
     new TopicRepository(deps.db),
     new EmailRepository(deps.db),
     new EmployerTeamRepository(deps.db),
+    new EmployerCurationRepository(deps.db),
+    new CorrespondentCurationRepository(deps.db),
   );
 
   let filesDownloaded = 0;

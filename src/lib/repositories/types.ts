@@ -21,6 +21,11 @@ type TableMap = {
   deal_notes: typeof schema.dealNotes;
   deal_stage_history: typeof schema.dealStageHistory;
   files: typeof schema.files;
+  mbox_files: typeof schema.mboxFiles;
+  raw_emails: typeof schema.rawEmails;
+  raw_email_enrichments: typeof schema.rawEmailEnrichments;
+  llm_batches: typeof schema.llmBatches;
+  domain_classifications: typeof schema.domainClassifications;
   investment_thesis: typeof schema.investmentThesis;
   inven_cache: typeof schema.invenCache;
   jobs: typeof schema.jobs;
@@ -38,7 +43,11 @@ type TableMap = {
   api_keys: typeof schema.apiKeys;
   api_chat_conversations: typeof schema.apiChatConversations;
   employers: typeof schema.employers;
+  employer_domains: typeof schema.employerDomains;
+  employer_overrides: typeof schema.employerOverrides;
+  employer_curation: typeof schema.employerCuration;
   correspondents: typeof schema.correspondents;
+  correspondent_curation: typeof schema.correspondentCuration;
   correspondent_companies: typeof schema.correspondentCompanies;
   employer_notes: typeof schema.employerNotes;
   topics: typeof schema.topics;

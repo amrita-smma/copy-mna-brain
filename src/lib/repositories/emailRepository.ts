@@ -1,11 +1,19 @@
 import { and, desc, eq, gte, inArray, sql } from "drizzle-orm";
-import { correspondents, emailParticipants, emails, employers } from "@/lib/db/schema";
+import {
+  correspondents,
+  emailParticipants,
+  emails,
+  emailTopics,
+  employers,
+} from "@/lib/db/schema";
 import type { DbClient } from "./types";
 
 export type Email = typeof emails.$inferSelect;
 export type EmailInsert = typeof emails.$inferInsert;
 export type EmailParticipant = typeof emailParticipants.$inferSelect;
 export type EmailParticipantInsert = typeof emailParticipants.$inferInsert;
+export type EmailTopic = typeof emailTopics.$inferSelect;
+export type EmailTopicInsert = typeof emailTopics.$inferInsert;
 
 export class EmailRepository {
   constructor(private db: DbClient) {}
@@ -84,6 +92,82 @@ export class EmailRepository {
    * employers whose latest email is older than the threshold (or who have no
    * emails at all but were created earlier).
    */
+  /**
+   * Bulk insert with `ON CONFLICT (message_id) DO NOTHING`. Mirrors
+   * `crmIngest` email insert. Returns successfully-inserted
+   * rows (`{ id, message_id }`); caller can compute skipped count as
+   * `inputBatch.length - returned.length`.
+   *
+   * Quirk: drizzle 0.45 honors `where` on `onConflictDoNothing` even though
+   * it's deprecated; this is required to satisfy the partial unique index
+   * `WHERE message_id IS NOT NULL` on `emails.message_id`.
+   */
+  async insertBatchIgnoringDupes(
+    rows: EmailInsert[],
+  ): Promise<Array<{ id: string; message_id: string | null }>> {
+    if (rows.length === 0) return [];
+    const CHUNK = 1000;
+    const out: Array<{ id: string; message_id: string | null }> = [];
+    for (let i = 0; i < rows.length; i += CHUNK) {
+      const chunk = rows.slice(i, i + CHUNK);
+      const res = await this.db
+        .insert(emails)
+        .values(chunk)
+        .onConflictDoNothing({
+          target: emails.message_id,
+          where: sql`message_id IS NOT NULL`,
+        })
+        .returning({
+          id: emails.id,
+          message_id: emails.message_id,
+        });
+      out.push(...res);
+    }
+    return out;
+  }
+
+  /**
+   * Bulk insert participants, deduping on `UNIQUE(email_id, address, role)`.
+   * Mirrors `crmIngest` participant insert.
+   */
+  async insertParticipantsBatch(
+    rows: EmailParticipantInsert[],
+  ): Promise<EmailParticipant[]> {
+    if (rows.length === 0) return [];
+    const CHUNK = 1000;
+    const out: EmailParticipant[] = [];
+    for (let i = 0; i < rows.length; i += CHUNK) {
+      const chunk = rows.slice(i, i + CHUNK);
+      const res = await this.db
+        .insert(emailParticipants)
+        .values(chunk)
+        .onConflictDoNothing()
+        .returning();
+      out.push(...res);
+    }
+    return out;
+  }
+
+  /**
+   * Bulk insert email_topics, deduping on `UNIQUE(email_id, topic_id)`.
+   * Mirrors `crmIngest` email_topics insert.
+   */
+  async insertTopicsBatch(rows: EmailTopicInsert[]): Promise<EmailTopic[]> {
+    if (rows.length === 0) return [];
+    const CHUNK = 1000;
+    const out: EmailTopic[] = [];
+    for (let i = 0; i < rows.length; i += CHUNK) {
+      const chunk = rows.slice(i, i + CHUNK);
+      const res = await this.db
+        .insert(emailTopics)
+        .values(chunk)
+        .onConflictDoNothing()
+        .returning();
+      out.push(...res);
+    }
+    return out;
+  }
+
   async countStaleEmployers(thresholdIso: string): Promise<number> {
     const rows = await this.db
       .select({ n: sql<number>`COUNT(*)` })

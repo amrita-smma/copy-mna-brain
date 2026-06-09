@@ -341,50 +341,57 @@
     {
       "idx": 48,
       "version": "7",
-      "when": 1780444800000,
-      "tag": "20260603000000_add_promoted_reasons_to_companies",
-      "breakpoints": true
-    },
-    {
-      "idx": 49,
-      "version": "7",
-      "when": 1780531200000,
-      "tag": "20260604000000_normalize_promoted_reasons_to_strings",
-      "breakpoints": true
-    },
-    {
-      "idx": 50,
-      "version": "7",
-      "when": 1780534800000,
-      "tag": "20260604010000_change_promoted_reasons_to_text_array",
-      "breakpoints": true
-    },
-    {
-      "idx": 51,
-      "version": "7",
-      "when": 1780538400000,
-      "tag": "20260604020000_change_promoted_reasons_to_text",
-      "breakpoints": true
-    },
-    {
-      "idx": 52,
-      "version": "7",
       "when": 1780542000000,
       "tag": "20260604030000_add_pending_user_messages_to_workforce_queue",
       "breakpoints": true
     },
     {
-      "idx": 53,
+      "idx": 49,
       "version": "7",
       "when": 1780617600000,
       "tag": "20260605000000_company_analyses_add_logo_url",
       "breakpoints": true
     },
     {
-      "idx": 54,
+      "idx": 50,
       "version": "7",
       "when": 1780704000000,
       "tag": "20260606000000_add_api_keys_and_api_chat_conversations",
+      "breakpoints": true
+    },
+    {
+      "idx": 51,
+      "version": "7",
+      "when": 1780704000000,
+      "tag": "20260606000000_add_promoted_reasons_to_companies",
+      "breakpoints": true
+    },
+    {
+      "idx": 52,
+      "version": "7",
+      "when": 1780704001000,
+      "tag": "20260606000001_add_pipeline_job_types",
+      "breakpoints": true
+    },
+    {
+      "idx": 53,
+      "version": "7",
+      "when": 1780704002000,
+      "tag": "20260606000002_overlay_identity_tables",
+      "breakpoints": true
+    },
+    {
+      "idx": 54,
+      "version": "7",
+      "when": 1780704003000,
+      "tag": "20260606000003_effective_views",
+      "breakpoints": true
+    },
+    {
+      "idx": 55,
+      "version": "7",
+      "when": 1780704004000,
+      "tag": "20260606000004_seed_employer_overrides",
       "breakpoints": true
     }
   ]

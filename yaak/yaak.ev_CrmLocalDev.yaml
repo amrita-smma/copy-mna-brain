@@ -1,0 +1,17 @@
+type: environment
+model: environment
+id: ev_CrmLocalDev
+workspaceId: wk_4yBsWJ5Tuh
+createdAt: 2026-06-02T00:00:00.000000
+updatedAt: 2026-06-02T00:00:00.000000
+name: CRM Local Dev
+public: true
+base: false
+parentModel: environment
+parentId: null
+variables:
+  - { enabled: true, name: base_url,    value: "http://localhost:3000", id: null }
+  - { enabled: true, name: cron_secret, value: "",                      id: null }
+  - { enabled: true, name: job_id,      value: "",                      id: null }
+color: var(--color-blue)
+sortPriority: 5.0
