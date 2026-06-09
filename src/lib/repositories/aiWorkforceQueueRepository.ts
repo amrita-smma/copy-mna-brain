@@ -1,4 +1,4 @@
-import { and, desc, eq, lte, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, lte, sql } from 'drizzle-orm';
 import { aiWorkforceQueue } from '@/lib/db/schema';
 import type { HumanDecision, PendingUserMessage } from '@/lib/db/schema';
 import type { DbClient, Tables, TablesInsert, TablesUpdate } from './types';
@@ -75,6 +75,38 @@ export class AiWorkforceQueueRepository {
     return this.db
       .select()
       .from(aiWorkforceQueue)
+      .orderBy(desc(aiWorkforceQueue.created_at))
+      .limit(limit);
+  }
+
+  async listFiltered({
+    status,
+    agentName,
+    triggeredByUserId,
+    limit = 10,
+  }: {
+    status?: Status | Status[];
+    agentName?: string;
+    triggeredByUserId?: string;
+    limit?: number;
+  }): Promise<Row[]> {
+    const conditions = [];
+    if (status !== undefined) {
+      const statuses = Array.isArray(status) ? status : [status];
+      if (statuses.length === 0) return [];
+      conditions.push(inArray(aiWorkforceQueue.status, statuses));
+    }
+    if (agentName) {
+      conditions.push(eq(aiWorkforceQueue.agent_name, agentName));
+    }
+    if (triggeredByUserId) {
+      conditions.push(eq(aiWorkforceQueue.triggered_by_user_id, triggeredByUserId));
+    }
+
+    return this.db
+      .select()
+      .from(aiWorkforceQueue)
+      .where(conditions.length > 0 ? and(...conditions) : undefined)
       .orderBy(desc(aiWorkforceQueue.created_at))
       .limit(limit);
   }

@@ -19,6 +19,7 @@ import { promoteToL1 } from "./promote_to_l1";
 import { addCompanyToL0 } from "./add_company_to_l0";
 import { narrateStep } from "./narrate_step";
 import { reportProgress } from "./report_progress";
+import { getTaskProgress } from "./get_task_progress";
 import { emailResearchSummary } from "./email_research_summary";
 
 export {
@@ -38,6 +39,7 @@ export {
   addCompanyToL0,
   narrateStep,
   reportProgress,
+  getTaskProgress,
   emailResearchSummary,
 };
 
@@ -63,6 +65,7 @@ export const tools = [
   compareWithPastAcquisitions,
   getPastAcquisitionDetails,
   queryMeetingNotes,
+  getTaskProgress,
 ];
 
 /**
@@ -118,6 +121,7 @@ export function getToolDescriptions(): string {
     { name: "compare_with_past_acquisitions", description: "Compare a company against historical acquisition metrics" },
     { name: "get_past_acquisition_details", description: "Get detailed information about a specific past acquisition" },
     { name: "query_files", description: "Search and retrieve files related to companies, tags, or topics" },
+    { name: "get_task_progress", description: "Check the status and progress of recent AI Workforce tasks (filter by status or agent_name)" },
     { name: "propose_workforce_handoff", description: "Offer to send a write-heavy request (including L0→L1 promotions) to the AI Workforce via a confirmation card" },
     { name: "propose_bulk_drop_companies", description: "Propose dropping a batch of stale or out-of-mandate companies via an approval card with checkboxes" },
     { name: "propose_bulk_promote_companies", description: "Propose promoting a batch of L0 companies to L1 (or any stage) via an approval card with checkboxes, tags, and inline signals" },

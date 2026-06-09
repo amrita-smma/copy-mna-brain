@@ -600,3 +600,74 @@ describe('AiWorkforceQueueRepository.isTerminal', () => {
     ).toBe(false);
   });
 });
+
+describe('AiWorkforceQueueRepository.listFiltered', () => {
+  function makeListDb() {
+    const chain = {
+      from: vi.fn().mockReturnThis(),
+      where: vi.fn().mockReturnThis(),
+      orderBy: vi.fn().mockReturnThis(),
+      limit: vi.fn(),
+    };
+    const db = {
+      select: vi.fn().mockReturnValue(chain),
+    };
+    return { db, chain };
+  }
+
+  it('returns [] without hitting the DB when status is an empty array', async () => {
+    const { db } = makeListDb();
+    const repo = new AiWorkforceQueueRepository(db as never);
+
+    const result = await repo.listFiltered({ status: [] });
+
+    expect(result).toEqual([]);
+    expect(db.select).not.toHaveBeenCalled();
+  });
+
+  it('passes no WHERE clause when no filters are provided', async () => {
+    const { db, chain } = makeListDb();
+    chain.limit.mockResolvedValueOnce([]);
+
+    const repo = new AiWorkforceQueueRepository(db as never);
+    await repo.listFiltered({});
+
+    expect(chain.where).toHaveBeenCalledTimes(1);
+    expect(chain.where).toHaveBeenCalledWith(undefined);
+    expect(chain.limit).toHaveBeenCalledWith(10);
+  });
+
+  it('combines status, agentName, and triggeredByUserId into a single AND', async () => {
+    const { db, chain } = makeListDb();
+    const rows = [{ id: 'r1' }];
+    chain.limit.mockResolvedValueOnce(rows);
+
+    const repo = new AiWorkforceQueueRepository(db as never);
+    const result = await repo.listFiltered({
+      status: 'running',
+      agentName: 'chat_handoff',
+      triggeredByUserId: 'user-1',
+      limit: 5,
+    });
+
+    expect(result).toBe(rows);
+    expect(chain.where).toHaveBeenCalledTimes(1);
+    // We don't introspect the drizzle SQL fragment; we just verify a clause
+    // was attached and the limit propagated.
+    expect(chain.where.mock.calls[0][0]).toBeDefined();
+    expect(chain.limit).toHaveBeenCalledWith(5);
+  });
+
+  it('accepts a status array and forwards rows from the chain', async () => {
+    const { db, chain } = makeListDb();
+    chain.limit.mockResolvedValueOnce([{ id: 'a' }, { id: 'b' }]);
+
+    const repo = new AiWorkforceQueueRepository(db as never);
+    const result = await repo.listFiltered({
+      status: ['failed', 'rejected', 'timed_out'],
+    });
+
+    expect(result).toHaveLength(2);
+    expect(chain.where.mock.calls[0][0]).toBeDefined();
+  });
+});
