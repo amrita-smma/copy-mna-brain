@@ -13,8 +13,10 @@ const mockChatEndpoint = (page: Page) =>
     });
   });
 
-test.describe('AI Discovery page', () => {
-  test('Unauthenticated user opens AI Discovery', async ({ page }) => {
+// /ai-discovery now redirects to /dashboard, where the AI CoPilot lives as an
+// embedded side pane (AICopilotPane) rather than a standalone page.
+test.describe('AI Discovery', () => {
+  test('Unauthenticated user is redirected to login', async ({ page }) => {
     await mockAuthSession(page, null);
 
     await page.goto('/ai-discovery');
@@ -22,62 +24,31 @@ test.describe('AI Discovery page', () => {
     await expect(page).toHaveURL(/\/login/);
   });
 
-  test('Authenticated user views AI Discovery', async ({ page }) => {
+  test('Authenticated user lands on the dashboard with the AI CoPilot pane', async ({ page }) => {
     await mockAuthSession(page);
     await mockChatEndpoint(page);
+
     await page.goto('/ai-discovery');
 
-    await expect(page.getByRole('heading', { name: 'AI CoPilot', level: 1 })).toBeVisible();
-    await expect(page.getByText('Discover targets, analyze companies, and get intelligent insights instantly')).toBeVisible();
-    await expect(page.getByText('AI Powered').first()).toBeVisible();
+    // The route redirects to the dashboard.
+    await page.waitForURL('**/dashboard');
+    await expect(page).toHaveURL(/\/dashboard/);
 
-    // Tab bar: AI CoPilot (current) and AI File Dump (link). Scope to <main>
-    // because the sidebar also has an "AI File Dump" nav link.
-    const fileDumpLink = page.locator('main').getByRole('link', { name: /AI File Dump/ });
-    await expect(fileDumpLink).toBeVisible();
-    await expect(fileDumpLink).toHaveAttribute('href', '/ai-file-dump');
-
+    // The CoPilot pane: "AI CoPilot" label, the welcome heading, and the input.
+    await expect(page.getByText('AI CoPilot')).toBeVisible();
     await expect(
-      page.getByPlaceholder('Ask about companies, analysis, comparisons, or pipeline performance...'),
+      page.getByRole('heading', { name: /M&A discovery assistant/i, level: 1 }),
     ).toBeVisible();
-  });
-
-  test('User opens AI Discovery with ?tab=filedump', async ({ page }) => {
-    await mockAuthSession(page);
-    // Stub the ai-file-dump fetches so the target page renders without backend.
-    await page.route('**/api/ai-file-dump**', (route) =>
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ success: true, data: [] }),
-      }),
-    );
-
-    await page.goto('/ai-discovery?tab=filedump');
-    await page.waitForURL('**/ai-file-dump');
-    await expect(page).toHaveURL(/\/ai-file-dump/);
-  });
-
-  test('User clicks a suggestion chip', async ({ page }) => {
-    await mockAuthSession(page);
-    await mockChatEndpoint(page);
-    await page.goto('/ai-discovery');
-
-    const input = page.getByPlaceholder('Ask about companies, analysis, comparisons, or pipeline performance...');
-
-    const chip = page.locator('button.text-primary').first();
-    const chipLabel = (await chip.textContent())?.replace(/^"|"[,]?$/g, '').trim() ?? '';
-    await chip.click();
-
-    await expect(input).toHaveValue(chipLabel);
+    await expect(page.getByPlaceholder('Ask anything...')).toBeVisible();
   });
 
   test('Send button reflects input state', async ({ page }) => {
     await mockAuthSession(page);
     await mockChatEndpoint(page);
     await page.goto('/ai-discovery');
+    await page.waitForURL('**/dashboard');
 
-    const input = page.getByPlaceholder('Ask about companies, analysis, comparisons, or pipeline performance...');
+    const input = page.getByPlaceholder('Ask anything...');
     const sendBtn = input.locator('..').locator('button[type="submit"]');
 
     await expect(sendBtn).toBeDisabled();
@@ -89,8 +60,9 @@ test.describe('AI Discovery page', () => {
     await mockAuthSession(page);
     await mockChatEndpoint(page);
     await page.goto('/ai-discovery');
+    await page.waitForURL('**/dashboard');
 
-    const input = page.getByPlaceholder('Ask about companies, analysis, comparisons, or pipeline performance...');
+    const input = page.getByPlaceholder('Ask anything...');
     await input.fill('hello');
 
     const [req] = await Promise.all([
@@ -99,23 +71,5 @@ test.describe('AI Discovery page', () => {
     ]);
 
     expect(req.method()).toBe('POST');
-  });
-
-  test('User clicks the in-page AI File Dump tab', async ({ page }) => {
-    await mockAuthSession(page);
-    await mockChatEndpoint(page);
-    await page.route('**/api/ai-file-dump**', (route) =>
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ success: true, data: [] }),
-      }),
-    );
-
-    await page.goto('/ai-discovery');
-    // Use the in-page tab, not the sidebar nav link with the same text.
-    await page.locator('main').getByRole('link', { name: /AI File Dump/ }).click();
-    await page.waitForURL('**/ai-file-dump');
-    await expect(page).toHaveURL(/\/ai-file-dump/);
   });
 });

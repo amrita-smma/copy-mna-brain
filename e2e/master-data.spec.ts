@@ -48,12 +48,14 @@ const baseCompany = (overrides: Partial<Company>): Company => ({
   ...overrides,
 });
 
+// The Source filter matches on the literal `source` field. 3 inbound (co-1,
+// co-3, co-5) and 2 outbound (co-2, co-4).
 const MOCK_COMPANIES: Company[] = [
-  baseCompany({ id: 'co-1', target: 'Acme Corp', segment: 'Technology', pipeline_stage: 'L0', watchlist_status: 'Active' }),
-  baseCompany({ id: 'co-2', target: 'Globex', segment: 'Finance', pipeline_stage: 'L1', watchlist_status: 'Inactive' }),
-  baseCompany({ id: 'co-3', target: 'Initech', segment: 'Technology', pipeline_stage: 'L2', watchlist_status: 'Active' }),
-  baseCompany({ id: 'co-4', target: 'Umbrella', segment: 'Healthcare', pipeline_stage: 'L3', watchlist_status: 'Inactive' }),
-  baseCompany({ id: 'co-5', target: 'Stark Industries', segment: 'Manufacturing', pipeline_stage: 'L5', watchlist_status: 'Active' }),
+  baseCompany({ id: 'co-1', target: 'Acme Corp', segment: 'Technology', pipeline_stage: 'L0', source: 'inbound' }),
+  baseCompany({ id: 'co-2', target: 'Globex', segment: 'Finance', pipeline_stage: 'L1', source: 'outbound' }),
+  baseCompany({ id: 'co-3', target: 'Initech', segment: 'Technology', pipeline_stage: 'L2', source: 'inbound' }),
+  baseCompany({ id: 'co-4', target: 'Umbrella', segment: 'Healthcare', pipeline_stage: 'L3', source: 'outbound' }),
+  baseCompany({ id: 'co-5', target: 'Stark Industries', segment: 'Manufacturing', pipeline_stage: 'L5', source: 'inbound' }),
 ];
 
 const mockCompanies = (page: Page, companies: Company[]) =>
@@ -148,7 +150,7 @@ test.describe('Master Data page', () => {
       page.goto('/master-data'),
     ]);
 
-    // Only watchlist_status === 'Active' maps to inbound (co-1, co-3, co-5).
+    // source === 'inbound' for co-1, co-3, co-5.
     await page.getByRole('combobox').filter({ hasText: /Source|All Sources/ }).click();
     await page.getByRole('option', { name: 'Inbound' }).click();
 

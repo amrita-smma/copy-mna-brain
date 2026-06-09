@@ -46,15 +46,14 @@ const baseCompany = (overrides: Partial<Company>): Company => ({
   ...overrides,
 });
 
+// The dashboard caches /api/companies for the detail dialog and uses it for the
+// initial (pre-activity) stage counts. The stat cards / recap / feed, however,
+// are driven entirely by /api/dashboard/activity (see below).
 const MOCK_COMPANIES: Company[] = [
-  baseCompany({ id: 'co-1', target: 'Acme Corp', pipeline_stage: 'L0', source: 'inbound', l1_screening_result: 'pass' }),
-  baseCompany({ id: 'co-2', target: 'Globex', pipeline_stage: 'L0', source: 'outbound', l1_screening_result: 'pending' }),
-  baseCompany({ id: 'co-3', target: 'Initech', pipeline_stage: 'L1', source: 'inbound', l1_screening_result: 'pass' }),
-  baseCompany({ id: 'co-4', target: 'Umbrella', pipeline_stage: 'L1', source: 'outbound', l1_screening_result: 'fail' }),
-  baseCompany({ id: 'co-5', target: 'Stark Industries', pipeline_stage: 'L2', source: 'inbound' }),
-  baseCompany({ id: 'co-6', target: 'Wayne Enterprises', pipeline_stage: 'L3', source: 'outbound' }),
-  baseCompany({ id: 'co-7', target: 'Tyrell', pipeline_stage: 'L4', source: 'inbound' }),
-  baseCompany({ id: 'co-8', target: 'Wonka', pipeline_stage: 'L5', source: 'outbound' }),
+  baseCompany({ id: 'co-1', target: 'Acme Corp', pipeline_stage: 'L0', source: 'inbound' }),
+  baseCompany({ id: 'co-2', target: 'Globex', pipeline_stage: 'L0', source: 'inbound' }),
+  baseCompany({ id: 'co-3', target: 'Initech', pipeline_stage: 'L0', source: 'outbound' }),
+  baseCompany({ id: 'co-4', target: 'Umbrella', pipeline_stage: 'L0', source: 'outbound' }),
 ];
 
 const mockCompanies = (page: Page, companies: Company[]) =>
@@ -67,6 +66,114 @@ const mockCompanies = (page: Page, companies: Company[]) =>
     });
   });
 
+// ─── Dashboard activity mock ─────────────────────────────────────────────────
+// The stat cards derive their numbers from this payload:
+//   - each `newL0Companies` entry counts toward stage L0
+//   - each `pipelineMoves` entry counts toward its parsed target stage
+// The fixture below yields: Total 8, Inbound 4, Outbound 4, L0 4 / L5 2 → 50%.
+
+type ActivityPayload = {
+  newL0Companies: unknown[];
+  aiSourcedCompanies: unknown[];
+  pipelineMoves: unknown[];
+  slidesGenerated: unknown[];
+  droppedDeals: unknown[];
+  workforceJobs: unknown[];
+  newContacts: unknown[];
+  notesUpdated: unknown[];
+};
+
+const EMPTY_ACTIVITY: ActivityPayload = {
+  newL0Companies: [],
+  aiSourcedCompanies: [],
+  pipelineMoves: [],
+  slidesGenerated: [],
+  droppedDeals: [],
+  workforceJobs: [],
+  newContacts: [],
+  notesUpdated: [],
+};
+
+const newDeal = (id: string, target: string, source: string, event_at: string) => ({
+  id,
+  target,
+  project_name: null,
+  source,
+  segment: 'Technology',
+  geography: 'US',
+  remarks: null,
+  thesis_content: null,
+  event_at,
+  reason: 'created' as const,
+});
+
+const move = (id: string, company_id: string, target: string, action: string, source: string, created_at: string) => ({
+  id,
+  company_id,
+  action,
+  created_at,
+  target,
+  project_name: null,
+  segment: 'Technology',
+  geography: 'US',
+  source,
+  remarks: null,
+  thesis_content: null,
+});
+
+const MOCK_ACTIVITY: ActivityPayload = {
+  ...EMPTY_ACTIVITY,
+  // 4 new L0 deals (2 inbound, 2 outbound) → L0 = 4
+  newL0Companies: [
+    newDeal('co-1', 'Acme Corp', 'inbound', '2026-06-07T10:00:00Z'),
+    newDeal('co-2', 'Globex', 'inbound', '2026-06-06T10:00:00Z'),
+    newDeal('co-3', 'Initech', 'outbound', '2026-06-06T09:00:00Z'),
+    newDeal('co-4', 'Umbrella', 'outbound', '2026-06-05T10:00:00Z'),
+  ],
+  // 4 stage moves → L1 (in), L2 (out), L5 (in), L5 (out)
+  pipelineMoves: [
+    move('log-1', 'co-5', 'Stark Industries', 'PROMOTED_TO_L1', 'inbound', '2026-06-07T11:00:00Z'),
+    move('log-2', 'co-6', 'Wayne Enterprises', 'PROMOTED_FROM_L1_TO_L2', 'outbound', '2026-06-06T11:00:00Z'),
+    move('log-3', 'co-7', 'Tyrell', 'PROMOTED_TO_L5', 'inbound', '2026-06-06T08:00:00Z'),
+    move('log-4', 'co-8', 'Wonka', 'PROMOTED_FROM_L4_TO_L5', 'outbound', '2026-06-05T11:00:00Z'),
+  ],
+  droppedDeals: [
+    {
+      id: 'co-9',
+      target: 'Soylent',
+      project_name: null,
+      pipeline_stage: 'L2',
+      dropped_at: '2026-06-06T12:00:00Z',
+      dropped_reason: 'Out of thesis',
+      segment: 'Food',
+      geography: 'US',
+      source: 'inbound',
+      thesis_content: null,
+    },
+  ],
+};
+
+const mockActivity = (page: Page, activity: ActivityPayload) =>
+  page.route('**/api/dashboard/activity**', (route) => {
+    if (route.request().method() !== 'GET') return route.fallback();
+    return route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ data: activity }),
+    });
+  });
+
+/** Reads the big number in a stat card, scoped to the 4-card stat grid. */
+const statValue = (page: Page, label: string) =>
+  page
+    .locator('main')
+    .locator('div.grid')
+    .filter({ hasText: 'Total Deals' })
+    .first()
+    .locator('div.p-5')
+    .filter({ has: page.getByText(label, { exact: true }) })
+    .locator('p.text-3xl');
+
 test.describe('Dashboard page', () => {
   test('Unauthenticated user opens the dashboard', async ({ page }) => {
     await mockAuthSession(page, null);
@@ -76,33 +183,34 @@ test.describe('Dashboard page', () => {
     await expect(page).toHaveURL(/\/login/);
   });
 
-  test('Authenticated user views the dashboard with companies', async ({ page }) => {
+  test('Authenticated user views the dashboard with activity', async ({ page }) => {
     await mockAuthSession(page);
     await mockCompanies(page, MOCK_COMPANIES);
+    await mockActivity(page, MOCK_ACTIVITY);
     await page.goto('/dashboard');
 
     // Header
     await expect(page.getByRole('heading', { name: 'Dashboard', level: 1 })).toBeVisible();
     await expect(page.getByText('Real-time overview of your M&A deal pipeline')).toBeVisible();
 
-    // Stat cards - totals derived from MOCK_COMPANIES (8 total, 4 inbound,
-    // 4 outbound, 1/2 [L5/L0] = 50% conversion).
-    const totalDeals = page.locator('div').filter({ hasText: /^Total Deals$/ }).locator('..').locator('..');
-    await expect(totalDeals.getByText('8', { exact: true })).toBeVisible();
+    // Stat cards — derived from MOCK_ACTIVITY (8 total, 4 inbound, 4 outbound,
+    // L0 4 / L5 2 → 50% conversion).
+    await expect(statValue(page, 'Total Deals')).toHaveText('8');
+    await expect(statValue(page, 'Inbound')).toHaveText('4');
+    await expect(statValue(page, 'Outbound')).toHaveText('4');
+    await expect(statValue(page, 'Conversion')).toHaveText('50%');
 
-    const inbound = page.locator('div').filter({ hasText: /^Inbound$/ }).locator('..').locator('..');
-    await expect(inbound.getByText('4', { exact: true })).toBeVisible();
-    await expect(inbound.getByText('50% of total')).toBeVisible();
+    const conversionCard = page
+      .locator('main')
+      .locator('div.p-5')
+      .filter({ has: page.getByText('Conversion', { exact: true }) });
+    await expect(conversionCard.getByText('L0 → L5')).toBeVisible();
 
-    const outbound = page.locator('div').filter({ hasText: /^Outbound$/ }).locator('..').locator('..');
-    await expect(outbound.getByText('4', { exact: true })).toBeVisible();
-
-    const conversion = page.locator('div').filter({ hasText: /^Conversion$/ }).locator('..').locator('..');
-    await expect(conversion.getByText('50%', { exact: true })).toBeVisible();
-    await expect(conversion.getByText('L0 → L5')).toBeVisible();
-
-    // Pipeline stages — scope to <main> to avoid the sidebar's nav links.
+    // 7-Day Recap counters: 4 new deals, 1 dropped, 4 stage moves.
     const main = page.locator('main');
+    await expect(main.getByText('7-Day Recap')).toBeVisible();
+
+    // Pipeline Stages bar chart — one /pipeline?stage=Lx link per stage.
     await expect(main.getByText('Pipeline Stages')).toBeVisible();
     for (const stage of ['L0', 'L1', 'L2', 'L3', 'L4', 'L5']) {
       await expect(
@@ -110,62 +218,31 @@ test.describe('Dashboard page', () => {
       ).toBeVisible();
     }
 
-    // Company Overview table
-    await expect(page.getByText('Company Overview')).toBeVisible();
-    await expect(page.getByRole('columnheader', { name: 'Company' })).toBeVisible();
-    await expect(page.getByRole('columnheader', { name: 'Rev 2024' })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Acme Corp' })).toBeVisible();
-
-    // Recent Updates
-    await expect(page.getByText('Recent Updates')).toBeVisible();
+    // Activity Feed lists the events; Acme Corp appears as a clickable entry.
+    await expect(main.getByText('Activity Feed')).toBeVisible();
+    await expect(main.getByRole('button', { name: 'Acme Corp' })).toBeVisible();
   });
 
   test('User clicks a pipeline stage link on the dashboard', async ({ page }) => {
     await mockAuthSession(page);
     await mockCompanies(page, MOCK_COMPANIES);
+    await mockActivity(page, MOCK_ACTIVITY);
     await page.goto('/dashboard');
 
     const l2Link = page
       .locator('main')
       .getByRole('link')
-      .filter({ hasText: /^\d+.*L2/s })
+      .filter({ hasText: /^\d+[\s\S]*L2/ })
       .first();
     const href = await l2Link.getAttribute('href');
     expect(href).toBe('/pipeline?stage=L2');
   });
 
-  test('User pages through more than 10 companies', async ({ page }) => {
-    await mockAuthSession(page);
-    const many: Company[] = Array.from({ length: 12 }, (_, i) =>
-      baseCompany({
-        id: `co-${i + 1}`,
-        target: `Company ${i + 1}`,
-        pipeline_stage: 'L0',
-        source: i % 2 === 0 ? 'inbound' : 'outbound',
-      }),
-    );
-    await mockCompanies(page, many);
-    await page.goto('/dashboard');
-
-    await expect(page.getByText(/Page\s*1\s*of\s*2/)).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Company 1', exact: true })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Company 11', exact: true })).not.toBeVisible();
-
-    // Use evaluate-click to avoid the chatbot widget intercepting pointer
-    // coordinates over the pagination controls.
-    await page
-      .locator('button:has(svg.lucide-chevron-right)')
-      .first()
-      .evaluate((el) => (el as HTMLButtonElement).click());
-
-    await expect(page.getByText(/Page\s*2\s*of\s*2/)).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Company 11', exact: true })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Company 12', exact: true })).toBeVisible();
-  });
-
-  test('User clicks a company row on the dashboard', async ({ page }) => {
+  test('User clicks a company in the activity feed', async ({ page }) => {
     await mockAuthSession(page);
     await mockCompanies(page, MOCK_COMPANIES);
+    await mockActivity(page, MOCK_ACTIVITY);
+    // Single-company fetch fallback (the cache should already hold co-1).
     await page.route('**/api/companies/*', (route) =>
       route.fulfill({
         status: 200,
@@ -177,27 +254,26 @@ test.describe('Dashboard page', () => {
     );
     await page.goto('/dashboard');
 
-    await page.getByRole('button', { name: 'Acme Corp' }).click();
+    await page.locator('main').getByRole('button', { name: 'Acme Corp' }).click();
     await expect(page.getByRole('dialog')).toBeVisible();
   });
 
-  test('Dashboard loads with an empty company list', async ({ page }) => {
+  test('Dashboard loads with no activity in the period', async ({ page }) => {
     await mockAuthSession(page);
     await mockCompanies(page, []);
+    await mockActivity(page, EMPTY_ACTIVITY);
 
-    await Promise.all([
-      page.waitForResponse(
-        (res) => res.url().includes('/api/companies') && res.status() === 200,
-      ),
-      page.goto('/dashboard'),
-    ]);
+    await page.goto('/dashboard');
 
-    await expect(page.getByText('No companies in database yet.')).toBeVisible();
-    await expect(page.getByText('No companies yet').first()).toBeVisible();
+    const main = page.locator('main');
+    await expect(main.getByText('No pipeline activity in this period.')).toBeVisible();
+    await expect(main.getByText('No activity in this period')).toBeVisible();
+    await expect(statValue(page, 'Total Deals')).toHaveText('0');
   });
 
   test('Dashboard data fetch is still pending', async ({ page }) => {
     await mockAuthSession(page);
+    await mockActivity(page, MOCK_ACTIVITY);
     let release!: () => void;
     const gate = new Promise<void>((r) => {
       release = r;
