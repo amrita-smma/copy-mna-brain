@@ -94,6 +94,104 @@ export async function sendEmail(input: SendEmailInput): Promise<SendEmailResult>
   return { messageId: response.MessageId ?? '' };
 }
 
+export interface EmailAttachment {
+  filename: string;
+  content: Buffer;
+  contentType: string;
+}
+
+export interface SendEmailWithAttachmentInput extends SendEmailInput {
+  attachments: EmailAttachment[];
+}
+
+function buildRawMimeMessage(input: SendEmailWithAttachmentInput): Buffer {
+  const boundary = `=_MNABrain_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+  const fromAddress = input.from || DEFAULT_FROM_EMAIL;
+  const toAddresses = Array.isArray(input.to) ? input.to.join(', ') : input.to;
+  const replyTo = input.replyTo || DEFAULT_REPLY_TO;
+
+  const headers: string[] = [
+    `From: ${fromAddress}`,
+    `To: ${toAddresses}`,
+    `Subject: ${input.subject}`,
+    'MIME-Version: 1.0',
+    `Content-Type: multipart/mixed; boundary="${boundary}"`,
+  ];
+  if (replyTo) headers.push(`Reply-To: ${replyTo}`);
+
+  const altBoundary = `${boundary}_alt`;
+  const parts: string[] = [
+    headers.join('\r\n'),
+    '',
+    `--${boundary}`,
+    `Content-Type: multipart/alternative; boundary="${altBoundary}"`,
+    '',
+    `--${altBoundary}`,
+    'Content-Type: text/plain; charset=UTF-8',
+    'Content-Transfer-Encoding: 7bit',
+    '',
+    input.text,
+    '',
+    `--${altBoundary}`,
+    'Content-Type: text/html; charset=UTF-8',
+    'Content-Transfer-Encoding: 7bit',
+    '',
+    input.html,
+    '',
+    `--${altBoundary}--`,
+    '',
+  ];
+
+  for (const attachment of input.attachments) {
+    const base64 = attachment.content.toString('base64');
+    const wrapped = base64.match(/.{1,76}/g)?.join('\r\n') ?? base64;
+    parts.push(
+      `--${boundary}`,
+      `Content-Type: ${attachment.contentType}; name="${attachment.filename}"`,
+      `Content-Disposition: attachment; filename="${attachment.filename}"`,
+      'Content-Transfer-Encoding: base64',
+      '',
+      wrapped,
+      '',
+    );
+  }
+
+  parts.push(`--${boundary}--`, '');
+
+  return Buffer.from(parts.join('\r\n'), 'utf-8');
+}
+
+/**
+ * Send a transactional email via AWS SES with one or more file attachments.
+ * Uses the SES Raw email API since `Content.Simple` cannot carry attachments.
+ */
+export async function sendEmailWithAttachment(
+  input: SendEmailWithAttachmentInput,
+): Promise<SendEmailResult> {
+  const client = getSesClient();
+
+  const fromAddress = input.from || DEFAULT_FROM_EMAIL;
+  const toAddresses = Array.isArray(input.to) ? input.to : [input.to];
+
+  if (toAddresses.length === 0) {
+    throw new Error('sendEmailWithAttachment: at least one recipient is required');
+  }
+  if (!input.attachments || input.attachments.length === 0) {
+    throw new Error('sendEmailWithAttachment: at least one attachment is required');
+  }
+
+  const raw = buildRawMimeMessage(input);
+
+  const command = new SendEmailCommand({
+    FromEmailAddress: fromAddress,
+    Destination: { ToAddresses: toAddresses },
+    Content: { Raw: { Data: raw } },
+  });
+
+  const response = await client.send(command);
+  return { messageId: response.MessageId ?? '' };
+}
+
 /**
  * Reset the cached client. Test-only — exported so vitest can clear state
  * between test cases that mock env vars.

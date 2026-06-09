@@ -92,7 +92,13 @@ export async function POST(req: NextRequest) {
       chat = await copilotChatsService.create(userId);
     }
 
-    const contextData = await chatService.buildContext();
+    const contextData = await chatService.buildContext({
+      user: { name: session.user.name ?? null },
+    });
+    // Auth-sensitive values (the user's email) are NOT in `contextData`; they
+    // travel via `configurable` so tools can read them as parameters rather
+    // than parsing them out of LLM-facing instructions.
+    const userEmail = session.user.email ?? null;
 
     // The client posts the full UI message history; with a checkpointer we
     // only feed the latest user turn — prior state is rehydrated by the
@@ -171,7 +177,7 @@ export async function POST(req: NextRequest) {
         {
           version: 'v2',
           recursionLimit: 50,
-          configurable: { thread_id: chat.id },
+          configurable: { thread_id: chat.id, userEmail },
         },
       );
 
@@ -205,7 +211,7 @@ export async function POST(req: NextRequest) {
         { messages, additionalSystemContext: contextData || undefined },
         {
           recursionLimit: 50,
-          configurable: { thread_id: chat.id },
+          configurable: { thread_id: chat.id, userEmail },
         },
       );
 

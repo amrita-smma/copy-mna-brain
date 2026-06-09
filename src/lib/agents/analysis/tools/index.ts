@@ -19,6 +19,7 @@ import { promoteToL1 } from "./promote_to_l1";
 import { addCompanyToL0 } from "./add_company_to_l0";
 import { narrateStep } from "./narrate_step";
 import { reportProgress } from "./report_progress";
+import { emailResearchSummary } from "./email_research_summary";
 
 export {
   getDataSchema,
@@ -37,6 +38,7 @@ export {
   addCompanyToL0,
   narrateStep,
   reportProgress,
+  emailResearchSummary,
 };
 
 export {
@@ -74,6 +76,7 @@ export const chatOnlyTools = [
   proposeWorkforceHandoff,
   proposeBulkDropCompanies,
   proposeBulkPromoteCompanies,
+  emailResearchSummary,
 ];
 
 /**
@@ -118,6 +121,7 @@ export function getToolDescriptions(): string {
     { name: "propose_workforce_handoff", description: "Offer to send a write-heavy request (including L0→L1 promotions) to the AI Workforce via a confirmation card" },
     { name: "propose_bulk_drop_companies", description: "Propose dropping a batch of stale or out-of-mandate companies via an approval card with checkboxes" },
     { name: "propose_bulk_promote_companies", description: "Propose promoting a batch of L0 companies to L1 (or any stage) via an approval card with checkboxes, tags, and inline signals" },
+    { name: "email_research_summary", description: "Email the requesting user a PDF copy of a research summary that the agent has composed" },
   ];
 
   return toolInfo.map((t, i) => `${i + 1}. **${t.name}** - ${t.description}`).join("\n");

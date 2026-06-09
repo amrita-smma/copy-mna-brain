@@ -3,8 +3,9 @@ import {
   EmailService,
   buildResetUrl,
   renderForgotPasswordEmail,
+  renderResearchSummaryEmail,
 } from './emailService';
-import type { EmailSender } from './emailService';
+import type { AttachmentSender, EmailSender } from './emailService';
 
 describe('buildResetUrl', () => {
   it('appends the token as a URL-encoded query param', () => {
@@ -128,5 +129,118 @@ describe('EmailService.sendForgotPasswordEmail', () => {
         appUrl: 'https://x.com',
       }),
     ).rejects.toThrow('SES boom');
+  });
+});
+
+describe('renderResearchSummaryEmail', () => {
+  it('produces a subject prefixed with the title and a preview block in HTML/text', () => {
+    const out = renderResearchSummaryEmail({
+      title: 'Acme Corp',
+      summaryMarkdown: 'Strong margin profile. EBITDA up 30% YoY.',
+    });
+    expect(out.subject).toBe('Research summary: Acme Corp');
+    expect(out.html).toContain('Acme Corp');
+    expect(out.html).toContain('Strong margin profile');
+    expect(out.text).toContain('Strong margin profile');
+  });
+
+  it('escapes HTML in the title and preview body', () => {
+    const out = renderResearchSummaryEmail({
+      title: '<script>alert(1)</script>',
+      summaryMarkdown: '<img src=x onerror=alert(1)>',
+    });
+    expect(out.html).not.toContain('<script>alert(1)</script>');
+    expect(out.html).toContain('&lt;script&gt;');
+    expect(out.html).not.toContain('<img src=x');
+    expect(out.html).toContain('&lt;img');
+  });
+
+  it('truncates a long summary into a short preview with an ellipsis', () => {
+    const long = 'x'.repeat(500);
+    const out = renderResearchSummaryEmail({ title: 't', summaryMarkdown: long });
+    expect(out.text).toContain('…');
+  });
+});
+
+describe('EmailService.sendResearchSummaryEmail', () => {
+  let attachmentSender: AttachmentSender;
+  let service: EmailService;
+
+  beforeEach(() => {
+    attachmentSender = vi.fn().mockResolvedValue({ messageId: 'ses-pdf-1' });
+    service = new EmailService(vi.fn(), attachmentSender);
+  });
+
+  it('throws when required fields are missing', async () => {
+    await expect(
+      service.sendResearchSummaryEmail({
+        email: '',
+        title: 't',
+        summaryMarkdown: 's',
+        pdfBuffer: Buffer.from('x'),
+      }),
+    ).rejects.toThrow('email is required');
+
+    await expect(
+      service.sendResearchSummaryEmail({
+        email: 'a@b.com',
+        title: '',
+        summaryMarkdown: 's',
+        pdfBuffer: Buffer.from('x'),
+      }),
+    ).rejects.toThrow('title is required');
+
+    await expect(
+      service.sendResearchSummaryEmail({
+        email: 'a@b.com',
+        title: 't',
+        summaryMarkdown: '',
+        pdfBuffer: Buffer.from('x'),
+      }),
+    ).rejects.toThrow('summaryMarkdown is required');
+
+    await expect(
+      service.sendResearchSummaryEmail({
+        email: 'a@b.com',
+        title: 't',
+        summaryMarkdown: 's',
+        pdfBuffer: Buffer.alloc(0),
+      }),
+    ).rejects.toThrow('pdfBuffer is required');
+  });
+
+  it('attaches the PDF and uses a slugified filename by default', async () => {
+    const pdfBuffer = Buffer.from('%PDF-1.4 fake');
+    const result = await service.sendResearchSummaryEmail({
+      email: 'user@example.com',
+      title: 'Acme Corp Q1 review',
+      summaryMarkdown: 'Findings...',
+      pdfBuffer,
+    });
+
+    expect(result).toEqual({ messageId: 'ses-pdf-1' });
+    expect(attachmentSender).toHaveBeenCalledTimes(1);
+    const arg = vi.mocked(attachmentSender).mock.calls[0][0];
+    expect(arg.to).toBe('user@example.com');
+    expect(arg.subject).toBe('Research summary: Acme Corp Q1 review');
+    expect(arg.attachments).toHaveLength(1);
+    expect(arg.attachments[0].filename).toBe('acme-corp-q1-review.pdf');
+    expect(arg.attachments[0].content).toBe(pdfBuffer);
+    expect(arg.attachments[0].contentType).toBe('application/pdf');
+  });
+
+  it('uses a custom subject and filename when provided', async () => {
+    await service.sendResearchSummaryEmail({
+      email: 'user@example.com',
+      title: 'X',
+      summaryMarkdown: 'Y',
+      pdfBuffer: Buffer.from('z'),
+      subject: 'Custom subject',
+      filename: 'custom-name.pdf',
+    });
+
+    const arg = vi.mocked(attachmentSender).mock.calls[0][0];
+    expect(arg.subject).toBe('Custom subject');
+    expect(arg.attachments[0].filename).toBe('custom-name.pdf');
   });
 });

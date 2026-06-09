@@ -1,4 +1,10 @@
-import { sendEmail, type SendEmailInput, type SendEmailResult } from '@/lib/ses';
+import {
+  sendEmail,
+  sendEmailWithAttachment,
+  type SendEmailInput,
+  type SendEmailResult,
+  type SendEmailWithAttachmentInput,
+} from '@/lib/ses';
 
 const RESET_PATH = '/reset-password';
 
@@ -91,8 +97,83 @@ export function renderForgotPasswordEmail(input: {
   return { subject, html, text };
 }
 
+export interface ResearchSummaryEmailInput {
+  /** Recipient address — typically the requesting user's own email. */
+  email: string;
+  /** Heading used in the email body and PDF document title. */
+  title: string;
+  /**
+   * Markdown-ish summary text the agent already composed. Forwarded verbatim
+   * into the PDF body (rendered with light heading/bullet handling).
+   */
+  summaryMarkdown: string;
+  /** Pre-rendered PDF bytes to attach. */
+  pdfBuffer: Buffer;
+  /** Optional override for the email subject — defaults to `Research summary: <title>`. */
+  subject?: string;
+  /** Optional PDF attachment filename — defaults to a slug of the title. */
+  filename?: string;
+}
+
+export type AttachmentSender = (
+  input: SendEmailWithAttachmentInput,
+) => Promise<SendEmailResult>;
+
+export function renderResearchSummaryEmail(input: {
+  title: string;
+  summaryMarkdown: string;
+}): { subject: string; html: string; text: string } {
+  const subject = `Research summary: ${input.title}`;
+  const safeTitle = escapeHtml(input.title);
+  const preview = input.summaryMarkdown.length > 280
+    ? `${input.summaryMarkdown.slice(0, 280).trim()}…`
+    : input.summaryMarkdown;
+  const safePreview = escapeHtml(preview).replace(/\n/g, '<br />');
+
+  const html = `<!DOCTYPE html>
+<html>
+  <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background:#f4f4f5; padding:24px; color:#111;">
+    <div style="max-width:560px; margin:0 auto; background:#fff; border-radius:8px; padding:32px; border:1px solid #e4e4e7;">
+      <h1 style="margin:0 0 16px; font-size:20px;">${safeTitle}</h1>
+      <p style="margin:0 0 16px; line-height:1.5;">
+        Your research summary is ready. The full write-up is attached as a PDF.
+      </p>
+      <div style="margin:16px 0; padding:16px; background:#f9fafb; border-radius:6px; border:1px solid #e5e7eb; color:#374151; font-size:14px; line-height:1.5;">
+        ${safePreview}
+      </div>
+      <p style="margin:16px 0 0; color:#52525b; font-size:13px;">
+        Sent by Brain 2.0 Copilot at your request.
+      </p>
+    </div>
+  </body>
+</html>`;
+
+  const text = [
+    input.title,
+    '',
+    'Your research summary is ready. The full write-up is attached as a PDF.',
+    '',
+    preview,
+    '',
+    'Sent by Brain 2.0 Copilot at your request.',
+  ].join('\n');
+
+  return { subject, html, text };
+}
+
+function slugifyTitle(title: string): string {
+  return title
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 60) || 'research-summary';
+}
+
 export class EmailService {
-  constructor(private readonly sender: EmailSender = sendEmail) {}
+  constructor(
+    private readonly sender: EmailSender = sendEmail,
+    private readonly attachmentSender: AttachmentSender = sendEmailWithAttachment,
+  ) {}
 
   /**
    * Send the forgot-password email containing a reset link to the user.
@@ -115,6 +196,49 @@ export class EmailService {
       subject,
       html,
       text,
+    });
+  }
+
+  /**
+   * Send a research-summary email with the agent-composed write-up attached
+   * as a PDF. The HTML/text body carries a short preview so the message is
+   * useful even before opening the attachment.
+   */
+  async sendResearchSummaryEmail(
+    input: ResearchSummaryEmailInput,
+  ): Promise<SendEmailResult> {
+    if (!input.email) {
+      throw new Error('sendResearchSummaryEmail: email is required');
+    }
+    if (!input.title) {
+      throw new Error('sendResearchSummaryEmail: title is required');
+    }
+    if (!input.summaryMarkdown) {
+      throw new Error('sendResearchSummaryEmail: summaryMarkdown is required');
+    }
+    if (!input.pdfBuffer || input.pdfBuffer.length === 0) {
+      throw new Error('sendResearchSummaryEmail: pdfBuffer is required');
+    }
+
+    const { subject, html, text } = renderResearchSummaryEmail({
+      title: input.title,
+      summaryMarkdown: input.summaryMarkdown,
+    });
+
+    const filename = input.filename ?? `${slugifyTitle(input.title)}.pdf`;
+
+    return this.attachmentSender({
+      to: input.email,
+      subject: input.subject ?? subject,
+      html,
+      text,
+      attachments: [
+        {
+          filename,
+          content: input.pdfBuffer,
+          contentType: 'application/pdf',
+        },
+      ],
     });
   }
 }

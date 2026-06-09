@@ -98,4 +98,26 @@ describe('ChatService.buildContext', () => {
 
     expect(result).toBe('');
   });
+
+  it('includes a User context block with the signed-in user name when provided', async () => {
+    const result = await service.buildContext({ user: { name: 'Test User' } });
+    expect(result).toContain('## User context');
+    expect(result).toContain('Test User');
+  });
+
+  it('never injects the user email into the system context (it travels via runtime config instead)', async () => {
+    // Even if some caller passes an `email` accidentally, the type doesn't
+    // accept it and the context must not contain auth-sensitive values.
+    const result = await service.buildContext({
+      user: { name: 'Test User' } as { name?: string | null },
+    });
+    expect(result).not.toMatch(/@/);
+    expect(result).not.toMatch(/email/i);
+    expect(result).not.toMatch(/recipient_email/);
+  });
+
+  it('omits the User context block when no name is provided', async () => {
+    const result = await service.buildContext({ user: { name: null } });
+    expect(result).toBe('');
+  });
 });
