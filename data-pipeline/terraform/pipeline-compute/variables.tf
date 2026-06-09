@@ -43,7 +43,7 @@ variable "rds_db_username" {
 variable "github_repository" {
   description = "GitHub repository allowed to deploy pipeline Lambda code via OIDC, in owner/repo form."
   type        = string
-  default     = "kensenh/mna-brain"
+  default     = "sqeai/mna-brain"
 }
 
 variable "github_oidc_provider_arn" {
