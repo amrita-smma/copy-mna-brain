@@ -77,14 +77,26 @@ export const handler = async (
     //    One query regardless of how many days have passed — O(1) vs O(n) per day.
     const floorIso = dayWindow(floorDay.year, floorDay.month, floorDay.day).start.toISOString();
     const ceilingIso = dayWindow(ceiling.year, ceiling.month, ceiling.day).end.toISOString();
-    const coveredRows = await db.execute<{ window_start: string }>(
-      sql`SELECT window_start::text FROM analytics.vault_exports
+    const MAX_RETRIES = 3;
+    const coveredRows = await db.execute<{ window_start: string; status: string }>(
+      sql`SELECT window_start::text, status FROM analytics.vault_exports
           WHERE window_start >= ${floorIso}::timestamptz
             AND window_start <  ${ceilingIso}::timestamptz`,
     );
-    const coveredStarts = new Set(
-      coveredRows.map((r) => new Date(r.window_start).toISOString()),
-    );
+    const failureCounts = new Map<string, number>();
+    const coveredStarts = new Set<string>();
+    for (const r of coveredRows) {
+      const ws = new Date(r.window_start).toISOString();
+      if (r.status === 'failed') {
+        failureCounts.set(ws, (failureCounts.get(ws) ?? 0) + 1);
+      } else {
+        coveredStarts.add(ws);
+      }
+    }
+    // Windows that have hit the retry limit are also covered (give up).
+    for (const [ws, count] of failureCounts) {
+      if (count >= MAX_RETRIES) coveredStarts.add(ws);
+    }
 
     const dispatched: VaultArchiveStartResult['dispatched'] = [];
 

@@ -32,7 +32,7 @@ resource "aws_iam_policy" "rds_iam_connect" {
       Sid      = "RdsIamDbConnect"
       Effect   = "Allow"
       Action   = ["rds-db:connect"]
-      Resource = "arn:aws:rds-db:${var.aws_region}:${data.aws_caller_identity.current.account_id}:dbuser:${data.terraform_remote_state.rds.outputs.db_identifier}/${var.rds_db_username}"
+      Resource = "arn:aws:rds-db:${var.aws_region}:${data.aws_caller_identity.current.account_id}:dbuser:${data.aws_db_instance.mna.resource_id}/${var.rds_db_username}"
     }]
   })
 
@@ -65,7 +65,7 @@ resource "aws_iam_policy" "ssm_read" {
         "ssm:GetParameters",
         "ssm:GetParametersByPath",
       ]
-      Resource = "arn:aws:ssm:${var.aws_region}:${data.aws_caller_identity.current.account_id}:parameter/mna/${local.environment}/pipeline/*"
+      Resource = "arn:aws:ssm:${var.aws_region}:${data.aws_caller_identity.current.account_id}:parameter/mna/${local.environment}/pipeline*"
     }]
   })
 

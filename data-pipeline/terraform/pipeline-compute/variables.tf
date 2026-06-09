@@ -37,7 +37,7 @@ variable "alarm_email" {
 variable "rds_db_username" {
   description = "DB username the Lambda role will authenticate as via RDS IAM"
   type        = string
-  default     = "mnaapp"
+  default     = "mna_iam"
 }
 
 variable "github_repository" {

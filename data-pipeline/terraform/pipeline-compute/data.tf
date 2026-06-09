@@ -1,3 +1,8 @@
+# RDS instance — used to get DbiResourceId for rds-db:connect IAM policy ARNs
+data "aws_db_instance" "mna" {
+  db_instance_identifier = "mna-${local.environment}-postgres"
+}
+
 # Remote state: VPC
 data "terraform_remote_state" "vpc" {
   backend = "s3"

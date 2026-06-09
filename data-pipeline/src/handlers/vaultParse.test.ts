@@ -175,15 +175,10 @@ describe('runVaultParse', () => {
     setupS3WithStream(makeEmptyStream());
     // Default: streamMboxMessages yields nothing
     mocks.streamMboxMessages.mockReturnValue(makeMessageIterator([]));
-    // Set required env vars
-    process.env.AWS_ACCESS_KEY_ID = 'test-key';
-    process.env.AWS_SECRET_ACCESS_KEY = 'test-secret';
   });
 
   afterEach(() => {
     vi.clearAllMocks();
-    delete process.env.AWS_ACCESS_KEY_ID;
-    delete process.env.AWS_SECRET_ACCESS_KEY;
   });
 
   it('skips a file when markParsing returns null (already claimed)', async () => {
