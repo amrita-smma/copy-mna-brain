@@ -4,9 +4,22 @@ import {
   getWorkforceAgentGraph,
   HumanMessage,
 } from '@/lib/agents/analysis';
+import { ToolTimeoutError } from '@/lib/agents/withToolTimeout';
 import { AiWorkforceQueueRepository } from '@/lib/repositories';
+import { NotificationService } from '@/lib/services/notificationService';
+import type { NotificationKind } from '@/lib/notifications/types';
 import { createDb } from '@/lib/server/db';
 import { dispatcherTick } from './dispatcher';
+
+function isRateLimitError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  const msg = err.message;
+  return (
+    msg.includes('rate_limit') ||
+    msg.includes('429') ||
+    msg.includes('Rate limit')
+  );
+}
 
 /**
  * AI Workforce agent runtime (MB-147 Tier 3).
@@ -240,6 +253,24 @@ async function markFailedStep(
   await kickDispatcher(db);
 }
 
+// Appended via the dispatcher's read-modify-write on error.notifications, so
+// it merges with — and does not clobber — the markFailedStep payload above.
+async function dispatchNotificationStep(
+  runId: string,
+  kind: NotificationKind,
+  overrides: { title?: string; description?: string } = {},
+): Promise<void> {
+  'use step';
+  const db = createDb();
+  const repo = new AiWorkforceQueueRepository(db);
+  const service = new NotificationService(repo);
+  try {
+    await service.dispatch(runId, kind, overrides);
+  } catch (err) {
+    console.error('[runAgent] notification dispatch failed:', err);
+  }
+}
+
 // Reactive trigger: when the current run leaves status='running' (succeeded,
 // paused, or failed), kick the dispatcher so the next queued/resume_ready row
 // claims the slot immediately. The cron tick remains the liveness fallback.
@@ -286,6 +317,20 @@ export async function runAgent({ runId }: { runId: string }): Promise<void> {
       code: 'agent_execution_failed',
       message: err instanceof Error ? err.message : String(err),
     });
+    // Surface a critical notification so TaskCanvas shows actionable copy
+    // alongside the failure pill. addNotification merges into error.notifications,
+    // preserving the markFailedStep payload above.
+    if (err instanceof ToolTimeoutError) {
+      await dispatchNotificationStep(runId, 'request_timeout', {
+        description: `${err.toolName} did not respond within ${Math.round(err.timeoutMs / 1000)}s.`,
+      });
+    } else if (isRateLimitError(err)) {
+      await dispatchNotificationStep(runId, 'request_timeout', {
+        title: 'Rate limit reached',
+        description:
+          'The model API is throttling requests. Wait a moment and retry, or skip this step.',
+      });
+    }
     // Re-throw so the workflow itself is marked failed in WDK's run record.
     throw err;
   }

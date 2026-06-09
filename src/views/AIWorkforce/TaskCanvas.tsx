@@ -1,11 +1,15 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { AlertCircle, Inbox, RotateCcw, Send, Sparkles, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { TraceLine, TraceProgressBar, type InterventionDecisionInput } from './trace';
 import type { AvatarTone, TraceData } from './shared';
 import { avatarToneClass } from './shared';
+import { NotificationStack } from '@/components/notifications/NotificationStack';
+import type { TaskNotification } from '@/lib/notifications/types';
+import { useTaskNotifications } from './useTaskNotifications';
 
 interface TraceActorResponse {
   id: string;
@@ -179,7 +183,10 @@ export function TaskCanvas({
   const [composerSending, setComposerSending] = useState(false);
   const [composerError, setComposerError] = useState<string | null>(null);
   const [composerToast, setComposerToast] = useState<string | null>(null);
+  const [serverNotifications, setServerNotifications] = useState<TaskNotification[]>([]);
   const traceLoadedRef = useRef(false);
+  const { notifications, handleAction, handleDismiss, setSessionExpired } =
+    useTaskNotifications({ taskId, serverNotifications });
 
   useEffect(() => {
     if (!taskId) {
@@ -220,6 +227,7 @@ export function TaskCanvas({
     setComposerText('');
     setComposerError(null);
     setComposerToast(null);
+    setServerNotifications([]);
     traceLoadedRef.current = false;
   }, [taskId]);
 
@@ -240,6 +248,14 @@ export function TaskCanvas({
           fetch(`/api/workforce-queue/${taskId}/trace`),
         ]);
         if (cancelled) return;
+        // A 401 from either endpoint means the user's session has expired
+        // mid-task — surface the critical session_expired notification.
+        // The notification is client-side only because the poll itself can
+        // no longer reach the server.
+        if (taskRes.status === 401 || traceRes.status === 401) {
+          setSessionExpired();
+          return;
+        }
         if (taskRes.ok) {
           const data = (await taskRes.json()) as { item?: ApiQueueItem };
           if (data.item) setItem(data.item);
@@ -252,11 +268,13 @@ export function TaskCanvas({
           canDecide?: boolean;
           status?: WorkforceQueueStatus;
           actor?: TraceActorResponse;
+          notifications?: TaskNotification[];
         };
         if (cancelled) return;
         setTraceSteps(data.steps ?? []);
         setCanDecide(Boolean(data.canDecide));
         if (data.actor) setActor(data.actor);
+        setServerNotifications(data.notifications ?? []);
         setTraceError(null);
         traceLoadedRef.current = true;
       } catch (e) {
@@ -406,6 +424,7 @@ export function TaskCanvas({
   };
 
   return (
+    <>
     <main className="flex flex-col min-h-0 bg-card">
       <div className="flex-1 overflow-y-auto px-9 py-6">
         {/* Task header */}
@@ -646,5 +665,26 @@ export function TaskCanvas({
         )}
       </div>
     </main>
+    {/* Floating notification overlay — bottom-right, above everything.
+        Rendered via portal at document.body so a transformed ancestor
+        (DashboardLayout uses framer-motion which sets `transform`, creating
+        a new containing block) doesn't reframe the `fixed` positioning.
+        pointer-events-none on the wrapper keeps the empty space click-through;
+        individual cards re-enable their own pointer events. */}
+    {notifications.length > 0 && typeof document !== 'undefined'
+      ? createPortal(
+          <div className="pointer-events-none fixed bottom-6 right-6 z-[2147483647] w-[360px] max-w-[calc(100vw-3rem)]">
+            <div className="pointer-events-auto">
+              <NotificationStack
+                notifications={notifications}
+                onAction={handleAction}
+                onDismiss={handleDismiss}
+              />
+            </div>
+          </div>,
+          document.body,
+        )
+      : null}
+    </>
   );
 }

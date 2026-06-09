@@ -1,6 +1,10 @@
 import { and, desc, eq, inArray, lte, sql } from 'drizzle-orm';
 import { aiWorkforceQueue } from '@/lib/db/schema';
 import type { HumanDecision, PendingUserMessage } from '@/lib/db/schema';
+import type {
+  TaskErrorPayload,
+  TaskNotification,
+} from '@/lib/notifications/types';
 import type { DbClient, Tables, TablesInsert, TablesUpdate } from './types';
 
 // Single source of truth: rows come from Drizzle's $inferSelect on the table.
@@ -465,6 +469,75 @@ export class AiWorkforceQueueRepository {
       .where(eq(aiWorkforceQueue.id, id));
   }
 
+  // Notifications are persisted under `error.notifications` so the existing
+  // shape (e.g. { code: 'cancelled_by_user', ... }) is preserved untouched.
+  // Read-modify-write is wrapped in a tx with SELECT … FOR UPDATE so two
+  // concurrent appends don't lose one another's notification.
+  async addNotification(
+    id: string,
+    notification: TaskNotification,
+  ): Promise<Row> {
+    return this.db.transaction(async (tx) => {
+      const [current] = await tx
+        .select({ error: aiWorkforceQueue.error })
+        .from(aiWorkforceQueue)
+        .where(eq(aiWorkforceQueue.id, id))
+        .for('update')
+        .limit(1);
+      if (!current) throw new Error(`ai_workforce_queue row ${id} not found`);
+      const existing = toTaskErrorPayload(current.error);
+      const next: TaskErrorPayload = {
+        ...existing,
+        notifications: [...(existing.notifications ?? []), notification],
+      };
+      const [row] = await tx
+        .update(aiWorkforceQueue)
+        .set({ error: next as Row['error'] })
+        .where(eq(aiWorkforceQueue.id, id))
+        .returning();
+      if (!row) throw new Error(`ai_workforce_queue row ${id} not found`);
+      return row;
+    });
+  }
+
+  async dismissNotification(
+    id: string,
+    notificationId: string,
+  ): Promise<Row> {
+    return this.db.transaction(async (tx) => {
+      const [current] = await tx
+        .select({ error: aiWorkforceQueue.error })
+        .from(aiWorkforceQueue)
+        .where(eq(aiWorkforceQueue.id, id))
+        .for('update')
+        .limit(1);
+      if (!current) throw new Error(`ai_workforce_queue row ${id} not found`);
+      const existing = toTaskErrorPayload(current.error);
+      const dismissedAt = new Date().toISOString();
+      const next: TaskErrorPayload = {
+        ...existing,
+        notifications: (existing.notifications ?? []).map((n) =>
+          n.id === notificationId && n.dismissedAt === null
+            ? { ...n, dismissedAt }
+            : n,
+        ),
+      };
+      const [row] = await tx
+        .update(aiWorkforceQueue)
+        .set({ error: next as Row['error'] })
+        .where(eq(aiWorkforceQueue.id, id))
+        .returning();
+      if (!row) throw new Error(`ai_workforce_queue row ${id} not found`);
+      return row;
+    });
+  }
+
+  listNotifications(row: Row, { includeDismissed = false } = {}): TaskNotification[] {
+    const payload = toTaskErrorPayload(row.error);
+    const all = payload.notifications ?? [];
+    return includeDismissed ? all : all.filter((n) => n.dismissedAt === null);
+  }
+
   private async updateStatusOrThrow(
     id: string,
     patch: Partial<Row>,
@@ -481,4 +554,9 @@ export class AiWorkforceQueueRepository {
   static isTerminal(status: Status): boolean {
     return TERMINAL_STATUSES.includes(status);
   }
+}
+
+function toTaskErrorPayload(error: Row['error']): TaskErrorPayload {
+  if (!error || typeof error !== 'object' || Array.isArray(error)) return {};
+  return error as TaskErrorPayload;
 }

@@ -583,6 +583,150 @@ describe('AiWorkforceQueueRepository.consumePendingUserMessages', () => {
   });
 });
 
+describe('AiWorkforceQueueRepository notifications', () => {
+  function makeNotifTxMock(currentError: unknown) {
+    const selectChain = {
+      from: vi.fn().mockReturnThis(),
+      where: vi.fn().mockReturnThis(),
+      for: vi.fn().mockReturnThis(),
+      limit: vi.fn().mockResolvedValue([{ error: currentError }]),
+    };
+    const updateChain = {
+      set: vi.fn().mockReturnThis(),
+      where: vi.fn().mockReturnThis(),
+      returning: vi.fn(),
+    };
+    const tx = {
+      select: vi.fn().mockReturnValue(selectChain),
+      update: vi.fn().mockReturnValue(updateChain),
+    };
+    return { tx, selectChain, updateChain };
+  }
+
+  beforeEach(() => vi.clearAllMocks());
+
+  function makeNotif(overrides: Record<string, unknown> = {}) {
+    return {
+      id: 'n-1',
+      kind: 'request_timeout' as const,
+      severity: 'critical' as const,
+      title: 'Request timed out',
+      description: 'The upstream call did not respond in time.',
+      actions: [],
+      dismissible: true,
+      autoDismissMs: null,
+      dismissedAt: null,
+      createdAt: '2026-01-01T00:00:00Z',
+      ...overrides,
+    };
+  }
+
+  it('addNotification appends to an empty error payload', async () => {
+    const { db } = makeMockDb();
+    const { tx, updateChain } = makeNotifTxMock(null);
+    const newRow = { id: 'r-1', error: { notifications: [makeNotif()] } };
+    updateChain.returning.mockResolvedValueOnce([newRow]);
+    db.transaction.mockImplementation(
+      async (fn: (t: typeof tx) => Promise<unknown>) => fn(tx),
+    );
+
+    const repo = new AiWorkforceQueueRepository(db as never);
+    const result = await repo.addNotification('r-1', makeNotif());
+
+    expect(result).toBe(newRow);
+    expect(updateChain.set).toHaveBeenCalledTimes(1);
+    const patch = updateChain.set.mock.calls[0][0] as { error: { notifications: unknown[] } };
+    expect(patch.error.notifications).toHaveLength(1);
+  });
+
+  it('addNotification preserves other error keys (e.g. cancelled_by_user)', async () => {
+    const { db } = makeMockDb();
+    const existing = { code: 'something_else', other_field: true };
+    const { tx, updateChain } = makeNotifTxMock(existing);
+    updateChain.returning.mockResolvedValueOnce([{ id: 'r-1' }]);
+    db.transaction.mockImplementation(
+      async (fn: (t: typeof tx) => Promise<unknown>) => fn(tx),
+    );
+
+    const repo = new AiWorkforceQueueRepository(db as never);
+    await repo.addNotification('r-1', makeNotif());
+
+    const patch = updateChain.set.mock.calls[0][0] as { error: Record<string, unknown> };
+    expect(patch.error.code).toBe('something_else');
+    expect(patch.error.other_field).toBe(true);
+    expect(patch.error.notifications).toHaveLength(1);
+  });
+
+  it('addNotification throws when the row does not exist', async () => {
+    const { db } = makeMockDb();
+    const selectChain = {
+      from: vi.fn().mockReturnThis(),
+      where: vi.fn().mockReturnThis(),
+      for: vi.fn().mockReturnThis(),
+      limit: vi.fn().mockResolvedValue([]),
+    };
+    const tx = {
+      select: vi.fn().mockReturnValue(selectChain),
+      update: vi.fn(),
+    };
+    db.transaction.mockImplementation(
+      async (fn: (t: typeof tx) => Promise<unknown>) => fn(tx),
+    );
+
+    const repo = new AiWorkforceQueueRepository(db as never);
+    await expect(repo.addNotification('missing', makeNotif())).rejects.toThrow(
+      /ai_workforce_queue row missing not found/,
+    );
+  });
+
+  it('dismissNotification sets dismissedAt on the matching id only', async () => {
+    const { db } = makeMockDb();
+    const a = makeNotif({ id: 'a' });
+    const b = makeNotif({ id: 'b' });
+    const c = makeNotif({ id: 'c', dismissedAt: '2025-01-01T00:00:00Z' });
+    const { tx, updateChain } = makeNotifTxMock({ notifications: [a, b, c] });
+    updateChain.returning.mockResolvedValueOnce([{ id: 'r-1' }]);
+    db.transaction.mockImplementation(
+      async (fn: (t: typeof tx) => Promise<unknown>) => fn(tx),
+    );
+
+    const repo = new AiWorkforceQueueRepository(db as never);
+    await repo.dismissNotification('r-1', 'b');
+
+    const patch = updateChain.set.mock.calls[0][0] as {
+      error: { notifications: Array<{ id: string; dismissedAt: string | null }> };
+    };
+    const dismissed = patch.error.notifications.find((n) => n.id === 'b');
+    expect(dismissed?.dismissedAt).toBeTruthy();
+    expect(
+      patch.error.notifications.find((n) => n.id === 'a')?.dismissedAt,
+    ).toBeNull();
+    // Already-dismissed rows must not be overwritten.
+    expect(
+      patch.error.notifications.find((n) => n.id === 'c')?.dismissedAt,
+    ).toBe('2025-01-01T00:00:00Z');
+  });
+
+  it('listNotifications filters dismissed by default', () => {
+    const repo = new AiWorkforceQueueRepository({} as never);
+    const a = makeNotif({ id: 'a' });
+    const b = makeNotif({ id: 'b', dismissedAt: '2026-01-01T00:00:00Z' });
+    const row = { error: { notifications: [a, b] } } as never;
+
+    expect(repo.listNotifications(row).map((n) => n.id)).toEqual(['a']);
+    expect(
+      repo.listNotifications(row, { includeDismissed: true }).map((n) => n.id),
+    ).toEqual(['a', 'b']);
+  });
+
+  it('listNotifications tolerates null/non-object error payloads', () => {
+    const repo = new AiWorkforceQueueRepository({} as never);
+    expect(repo.listNotifications({ error: null } as never)).toEqual([]);
+    expect(repo.listNotifications({ error: 'oops' } as never)).toEqual([]);
+    expect(repo.listNotifications({ error: ['arr'] } as never)).toEqual([]);
+  });
+});
+
 describe('AiWorkforceQueueRepository.isTerminal', () => {
   it('classifies terminal vs non-terminal statuses', () => {
     expect(AiWorkforceQueueRepository.isTerminal('succeeded')).toBe(true);

@@ -41,11 +41,12 @@ export async function GET(
   try {
     const { id } = await params;
     const db = createDb();
-    const { aiWorkforceService } = createContainer(db);
+    const { aiWorkforceService, notificationService } = createContainer(db);
     const item = await aiWorkforceService.findById(id);
     if (!item) {
       return NextResponse.json({ error: 'Not found' }, { status: 404 });
     }
+    const notifications = await notificationService.list(id);
 
     const canDecide = item.triggered_by_user_id === session.user.id;
 
@@ -82,6 +83,7 @@ export async function GET(
         canDecide,
         status: item.status,
         actor,
+        notifications,
       });
     }
 
@@ -123,7 +125,13 @@ export async function GET(
       cancelled: isCancelled,
     });
 
-    return NextResponse.json({ steps, canDecide, status: item.status, actor });
+    return NextResponse.json({
+      steps,
+      canDecide,
+      status: item.status,
+      actor,
+      notifications,
+    });
   } catch (error: unknown) {
     const message =
       error instanceof Error

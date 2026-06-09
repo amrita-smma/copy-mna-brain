@@ -56,6 +56,7 @@ import { CopilotChatsService } from './copilotChatsService';
 import { DashboardActivityService } from './dashboardActivityService';
 import { ApiKeyService } from './apiKeyService';
 import { ApiChatConversationService } from './apiChatConversationService';
+import { NotificationService } from './notificationService';
 
 export interface Container {
   companyService: CompanyService;
@@ -80,6 +81,7 @@ export interface Container {
   dashboardActivityService: DashboardActivityService;
   apiKeyService: ApiKeyService;
   apiChatConversationService: ApiChatConversationService;
+  notificationService: NotificationService;
 }
 
 export function createContainer(db: DbClient): Container {
@@ -163,6 +165,7 @@ export function createContainer(db: DbClient): Container {
 
   const aiWorkforceQueueRepo = new AiWorkforceQueueRepository(db);
   const aiWorkforceService = new AiWorkforceService(aiWorkforceQueueRepo, db);
+  const notificationService = new NotificationService(aiWorkforceQueueRepo);
 
   const copilotChatsRepo = new CopilotChatsRepository(db);
   const copilotChatsService = new CopilotChatsService(copilotChatsRepo);
@@ -201,5 +204,6 @@ export function createContainer(db: DbClient): Container {
     dashboardActivityService,
     apiKeyService,
     apiChatConversationService,
+    notificationService,
   };
 }
