@@ -5,8 +5,9 @@ function booleanFlag(key: string, value: boolean) {
   return flag<boolean>({
     key,
     defaultValue: value,
-    decide: () => value,
-    adapter: vercelAdapter<boolean, any>(),
+    ...(process.env.FLAGS
+      ? { adapter: vercelAdapter<boolean, any>() }
+      : { decide: () => value }),
   });
 }
 
