@@ -72,6 +72,37 @@ describe('queryCompanies', () => {
     );
   });
 
+  it('forwards ownership, company_focus, source and status filters to the repository', async () => {
+    searchForAgentMock.mockResolvedValue([]);
+
+    await queryCompanies.invoke({
+      ownership: 'family office',
+      company_focus: 'SaaS',
+      source: 'inbound',
+      status: 'active',
+    });
+
+    expect(searchForAgentMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        ownership: 'family office',
+        companyFocus: 'SaaS',
+        source: 'inbound',
+        status: 'active',
+        limit: 20,
+      }),
+    );
+  });
+
+  it('forwards max_ebitda alongside min_ebitda to the repository', async () => {
+    searchForAgentMock.mockResolvedValue([]);
+
+    await queryCompanies.invoke({ min_ebitda: 5, max_ebitda: 50 });
+
+    expect(searchForAgentMock).toHaveBeenCalledWith(
+      expect.objectContaining({ minEbitda: 5, maxEbitda: 50, limit: 20 }),
+    );
+  });
+
   it('returns a formatted error when the search call throws', async () => {
     searchForAgentMock.mockRejectedValue(new Error('boom'));
 

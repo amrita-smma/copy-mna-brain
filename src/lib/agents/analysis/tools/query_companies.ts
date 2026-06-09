@@ -14,9 +14,14 @@ export const queryCompanies = tool(
     watchlist_status,
     stage,
     name,
+    ownership,
+    company_focus,
+    source,
+    status,
     min_revenue,
     max_revenue,
     min_ebitda,
+    max_ebitda,
     search_term,
     limit = 20,
   }: {
@@ -25,14 +30,19 @@ export const queryCompanies = tool(
     watchlist_status?: string;
     stage?: string;
     name?: string;
+    ownership?: string;
+    company_focus?: string;
+    source?: "inbound" | "outbound";
+    status?: "active" | "dropped";
     min_revenue?: number;
     max_revenue?: number;
     min_ebitda?: number;
+    max_ebitda?: number;
     search_term?: string;
     limit?: number;
   }) => {
     logger.debug(
-      `🔧 TOOL CALLED: query_companies(segment='${segment}', geography='${geography}', stage='${stage}', name='${name}', search='${search_term}')`
+      `🔧 TOOL CALLED: query_companies(segment='${segment}', geography='${geography}', stage='${stage}', name='${name}', ownership='${ownership}', source='${source}', status='${status}', search='${search_term}')`
     );
 
     try {
@@ -43,9 +53,14 @@ export const queryCompanies = tool(
         watchlistStatus: watchlist_status,
         stage,
         name,
+        ownership,
+        companyFocus: company_focus,
+        source,
+        status,
         minRevenue: min_revenue,
         maxRevenue: max_revenue,
         minEbitda: min_ebitda,
+        maxEbitda: max_ebitda,
         searchTerm: search_term,
         limit,
       });
@@ -96,9 +111,14 @@ Args:
     watchlist_status: Filter by status (e.g., "Active", "Inactive")
     stage: Filter by pipeline stage (exact match, one of: "market_screening", "L0", "L1", "L2", "L3", "L4", "L5")
     name: Filter by company name (partial, case-insensitive match against target or project_name)
+    ownership: Filter by ownership (partial match, e.g., "family office", "PE", "public")
+    company_focus: Filter by company focus (partial match)
+    source: Filter by deal origin (exact match, one of: "inbound", "outbound")
+    status: Filter by record status (exact match, one of: "active", "dropped"). Defaults to all if omitted.
     min_revenue: Minimum 2024 revenue in USD millions
     max_revenue: Maximum 2024 revenue in USD millions
     min_ebitda: Minimum 2024 EBITDA in USD millions
+    max_ebitda: Maximum 2024 EBITDA in USD millions
     search_term: Search across target name, segment, and company focus
     limit: Maximum number of results (default: 20, max: 50)
 
@@ -116,9 +136,26 @@ Returns:
         .string()
         .optional()
         .describe("Filter by company name (partial, matches target or project_name)"),
+      ownership: z
+        .string()
+        .optional()
+        .describe("Filter by ownership (partial match)"),
+      company_focus: z
+        .string()
+        .optional()
+        .describe("Filter by company focus (partial match)"),
+      source: z
+        .enum(["inbound", "outbound"])
+        .optional()
+        .describe("Filter by deal origin (exact match)"),
+      status: z
+        .enum(["active", "dropped"])
+        .optional()
+        .describe("Filter by record status (exact match)"),
       min_revenue: z.number().optional().describe("Minimum 2024 revenue (USD M)"),
       max_revenue: z.number().optional().describe("Maximum 2024 revenue (USD M)"),
       min_ebitda: z.number().optional().describe("Minimum 2024 EBITDA (USD M)"),
+      max_ebitda: z.number().optional().describe("Maximum 2024 EBITDA (USD M)"),
       search_term: z.string().optional().describe("Search term for name/segment"),
       limit: z.number().optional().default(20).describe("Max results to return"),
     }),

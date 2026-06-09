@@ -59,9 +59,14 @@ export interface CompanyAgentFilters {
   watchlistStatus?: string;
   stage?: string;
   name?: string;
+  ownership?: string;
+  companyFocus?: string;
+  source?: "inbound" | "outbound";
+  status?: "active" | "dropped";
   minRevenue?: number;
   maxRevenue?: number;
   minEbitda?: number;
+  maxEbitda?: number;
   searchTerm?: string;
   limit?: number;
 }
@@ -257,11 +262,26 @@ export class CompanyRepository {
         or(ilike(companies.target, term), ilike(companies.project_name, term)),
       );
     }
+    if (filters.ownership) {
+      conditions.push(ilike(companies.ownership, `%${filters.ownership}%`));
+    }
+    if (filters.companyFocus) {
+      conditions.push(
+        ilike(companies.company_focus, `%${filters.companyFocus}%`),
+      );
+    }
+    if (filters.source) {
+      conditions.push(eq(companies.source, filters.source));
+    }
+    if (filters.status) {
+      conditions.push(eq(companies.status, filters.status));
+    }
     // Revenue/EBITDA filters apply against fiscal_year 2024 rows in company_financials.
     const needsFinancialsJoin =
       filters.minRevenue !== undefined ||
       filters.maxRevenue !== undefined ||
-      filters.minEbitda !== undefined;
+      filters.minEbitda !== undefined ||
+      filters.maxEbitda !== undefined;
     if (needsFinancialsJoin) {
       conditions.push(eq(companyFinancials.fiscal_year, 2024));
     }
@@ -277,6 +297,9 @@ export class CompanyRepository {
     }
     if (filters.minEbitda !== undefined) {
       conditions.push(gte(companyFinancials.ebitda_usd_mn, filters.minEbitda));
+    }
+    if (filters.maxEbitda !== undefined) {
+      conditions.push(lte(companyFinancials.ebitda_usd_mn, filters.maxEbitda));
     }
     if (filters.searchTerm) {
       const term = `%${filters.searchTerm}%`;
