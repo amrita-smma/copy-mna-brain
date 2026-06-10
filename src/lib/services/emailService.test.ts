@@ -4,6 +4,11 @@ import {
   buildResetUrl,
   renderForgotPasswordEmail,
   renderResearchSummaryEmail,
+  renderTaskCompletedEmail,
+  renderTaskWaitingApprovalEmail,
+  renderTaskFailedEmail,
+  renderTaskProgressEmail,
+  renderTaskInsightEmail,
 } from './emailService';
 import type { AttachmentSender, EmailSender } from './emailService';
 
@@ -243,4 +248,170 @@ describe('EmailService.sendResearchSummaryEmail', () => {
     expect(arg.subject).toBe('Custom subject');
     expect(arg.attachments[0].filename).toBe('custom-name.pdf');
   });
+});
+
+// ── Notification renderers (MB-90) ───────────────────────────────────────────
+
+describe('renderTaskCompletedEmail', () => {
+  it('builds the ✅ Complete subject and includes the summary + View Results CTA', () => {
+    const out = renderTaskCompletedEmail({
+      taskName: 'Project Maple screening',
+      taskUrl: 'https://app.example.com/ai-workforce/tasks/r1',
+      summary: 'Found 5 strong candidates.',
+    });
+    expect(out.subject).toBe('✅ Project Maple screening — Complete');
+    expect(out.html).toContain('Found 5 strong candidates.');
+    expect(out.html).toContain('https://app.example.com/ai-workforce/tasks/r1');
+    expect(out.html).toContain('View Results');
+    expect(out.html).toContain('Successfully completed');
+    expect(out.text).toContain('Project Maple screening — Complete');
+  });
+
+  it('renders SUMMARY and RESULTS tables and the finished-at line', () => {
+    const out = renderTaskCompletedEmail({
+      taskName: 'Project Maple Screening',
+      taskUrl: 'https://app.example.com/ai-workforce/tasks/r1',
+      finishedAtLabel: 'Finished at 2:42 PM on April 28, 2026',
+      summaryRows: [
+        { label: 'Task', value: 'Screening 5 inbound targets' },
+        { label: 'Duration', value: '27 minutes' },
+      ],
+      resultRows: [
+        { label: 'Companies screened', value: '5' },
+        { label: 'Pass L0 (Financial)', value: '4 (80%)', highlight: true },
+      ],
+    });
+    expect(out.html).toContain('Finished at 2:42 PM on April 28, 2026');
+    expect(out.html).toContain('Summary');
+    expect(out.html).toContain('Screening 5 inbound targets');
+    expect(out.html).toContain('Results');
+    expect(out.html).toContain('Pass L0 (Financial)');
+    expect(out.html).toContain('4 (80%)');
+    expect(out.text).toContain('Companies screened: 5');
+  });
+
+  it('hides the free-text summary when structured result rows exist', () => {
+    const out = renderTaskCompletedEmail({
+      taskName: 'X',
+      summary: 'free text that should be hidden',
+      resultRows: [{ label: 'Companies screened', value: '5' }],
+    });
+    expect(out.html).not.toContain('free text that should be hidden');
+  });
+
+  it('omits everything optional when only a name is given', () => {
+    const out = renderTaskCompletedEmail({ taskName: 'X' });
+    expect(out.subject).toBe('✅ X — Complete');
+    expect(out.text).not.toContain('undefined');
+    expect(out.html).not.toContain('Summary');
+  });
+});
+
+describe('renderTaskWaitingApprovalEmail', () => {
+  it('builds the ⏳ Needs Your Approval subject around the action', () => {
+    const out = renderTaskWaitingApprovalEmail({
+      action: 'Promote NovaSpec Materials to L2',
+      taskName: 'Project Maple screening',
+    });
+    expect(out.subject).toBe('⏳ Promote NovaSpec Materials to L2 — Needs Your Approval');
+    expect(out.html).toContain('Project Maple screening');
+  });
+
+  it('renders the proposal card, change preview, and CTA when structured fields are given', () => {
+    const out = renderTaskWaitingApprovalEmail({
+      action: 'Promote NovaSpec Materials to L1',
+      taskName: 'Project Maple screening',
+      taskUrl: 'https://app.example.com/ai-workforce/tasks/r1',
+      company: 'NovaSpec Materials',
+      proposedAction: 'Move to stage L1',
+      reason: 'Passes all L1 criteria; ready for partner discussion',
+      changeField: 'Pipeline Stage',
+      beforeValue: 'L0',
+      afterValue: 'L1',
+    });
+    expect(out.html).toContain("What's being proposed");
+    expect(out.html).toContain('NovaSpec Materials');
+    expect(out.html).toContain('Move to stage L1');
+    expect(out.html).toContain('Change preview');
+    expect(out.html).toContain('Pipeline Stage');
+    // CTA button is present because a taskUrl was supplied.
+    expect(out.html).toContain('View Approval');
+    expect(out.html).toContain('https://app.example.com/ai-workforce/tasks/r1');
+    expect(out.text).toContain('Pipeline Stage: L0 → L1');
+  });
+
+  it('omits the CTA button when no taskUrl is given', () => {
+    const out = renderTaskWaitingApprovalEmail({ action: 'Approve X' });
+    expect(out.html).not.toContain('View Approval');
+  });
+});
+
+describe('renderTaskFailedEmail', () => {
+  it('uses Failed verb for agent failures', () => {
+    const out = renderTaskFailedEmail({ taskName: 'Project Maple screening', reason: 'boom' });
+    expect(out.subject).toBe('❌ Project Maple screening — Failed');
+    expect(out.html).toContain('boom');
+  });
+
+  it('uses Canceled verb when cancelled is true', () => {
+    const out = renderTaskFailedEmail({ taskName: 'Project Maple screening', cancelled: true });
+    expect(out.subject).toBe('❌ Project Maple screening — Canceled');
+    expect(out.text).toContain('canceled');
+  });
+});
+
+describe('renderTaskProgressEmail', () => {
+  it('puts the headline in the subject', () => {
+    const out = renderTaskProgressEmail({
+      taskName: 'Project Maple screening',
+      headline: '47 companies scanned',
+      progress: '47 companies scanned, 12 pass L0, 5 pass L1, continuing...',
+    });
+    expect(out.subject).toBe('⏳ Project Maple screening — 47 companies scanned');
+    expect(out.html).toContain('12 pass L0');
+  });
+
+  it('defaults the headline to Progress Update', () => {
+    const out = renderTaskProgressEmail({ taskName: 'X', progress: 'p' });
+    expect(out.subject).toBe('⏳ X — Progress Update');
+  });
+});
+
+describe('renderTaskInsightEmail', () => {
+  it('builds the passes-criteria subject with confidence in the body', () => {
+    const out = renderTaskInsightEmail({
+      companyName: 'NovaSpec Materials',
+      level: 'L1',
+      confidencePct: 94,
+    });
+    expect(out.subject).toBe('✅ NovaSpec Materials — Passes L1 Criteria');
+    expect(out.html).toContain('94% confidence');
+  });
+
+  it('rounds and omits confidence when absent', () => {
+    const out = renderTaskInsightEmail({ companyName: 'X', level: 'L2' });
+    expect(out.subject).toBe('✅ X — Passes L2 Criteria');
+    expect(out.html).not.toContain('confidence');
+  });
+});
+
+describe('EmailService notification methods', () => {
+  it('sendTaskCompletedEmail delegates to the sender with the rendered email', async () => {
+    const sender = vi.fn().mockResolvedValue({ messageId: 'm' });
+    const svc = new EmailService(sender as EmailSender);
+    await svc.sendTaskCompletedEmail({ email: 'u@e.com', taskName: 'T' });
+    expect(sender).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(sender).mock.calls[0][0]).toMatchObject({
+      to: 'u@e.com',
+      subject: '✅ T — Complete',
+    });
+  });
+
+  it('sendTaskWaitingApprovalEmail throws without an action', async () => {
+    const svc = new EmailService(vi.fn() as EmailSender);
+    await expect(
+      svc.sendTaskWaitingApprovalEmail({ email: 'u@e.com', action: '' }),
+    ).rejects.toThrow(/action is required/);
+  });
+
 });

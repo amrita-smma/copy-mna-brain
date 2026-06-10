@@ -22,3 +22,4 @@ export * from './aiWorkforceService';
 export * from './copilotChatsService';
 export * from './dashboardActivityService';
 export * from './notificationService';
+export * from './emailNotificationService';

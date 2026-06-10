@@ -25,3 +25,8 @@ export const crmGoogleVaultSyncEnabled = booleanFlag(
   "CRM_GOOGLE_VAULT_SYNC",
   process.env.CRM_GOOGLE_VAULT_SYNC === "true",
 );
+
+export const taskNotificationsEnabled = booleanFlag(
+  "TASK_NOTIFICATIONS_ENABLED",
+  process.env.TASK_NOTIFICATIONS_ENABLED === "true",
+);

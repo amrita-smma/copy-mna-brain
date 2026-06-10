@@ -7,13 +7,62 @@ export const SEND_EMAIL_TIMEOUT_SECONDS = 30;
  * produce. Add a new variant when you add a new transactional email — the
  * `switch` below is exhaustive, so TypeScript will flag any missing branch.
  */
-export type SendEmailPayload = {
-  kind: 'forgot_password';
-  to: string;
-  token: string;
-  appUrl: string;
-  ttlMinutes?: number;
-};
+export type SendEmailPayload =
+  | {
+      kind: 'forgot_password';
+      to: string;
+      token: string;
+      appUrl: string;
+      ttlMinutes?: number;
+    }
+  | {
+      kind: 'task_completed';
+      to: string;
+      taskName: string;
+      taskUrl?: string;
+      finishedAtLabel?: string;
+      summaryRows?: Array<{ label: string; value: string; highlight?: boolean }>;
+      resultRows?: Array<{ label: string; value: string; highlight?: boolean }>;
+      summary?: string;
+    }
+  | {
+      kind: 'task_waiting_approval';
+      to: string;
+      action: string;
+      taskName?: string;
+      taskUrl?: string;
+      company?: string;
+      proposedAction?: string;
+      reason?: string;
+      changeField?: string;
+      beforeValue?: string;
+      afterValue?: string;
+    }
+  | {
+      kind: 'task_failed';
+      to: string;
+      taskName: string;
+      reason?: string;
+      cancelled?: boolean;
+      taskUrl?: string;
+    }
+  | {
+      kind: 'task_progress';
+      to: string;
+      taskName: string;
+      progress: string;
+      headline?: string;
+      taskUrl?: string;
+    }
+  | {
+      kind: 'task_insight';
+      to: string;
+      companyName: string;
+      level: string;
+      detail?: string;
+      confidencePct?: number;
+      taskUrl?: string;
+    };
 
 export interface SendEmailJobResult {
   kind: SendEmailPayload['kind'];
@@ -56,11 +105,71 @@ export async function runSendEmail(
       });
       return { kind: 'forgot_password', to: payload.to, messageId };
     }
+    case 'task_completed': {
+      const { messageId } = await emailService.sendTaskCompletedEmail({
+        email: payload.to,
+        taskName: payload.taskName,
+        taskUrl: payload.taskUrl,
+        finishedAtLabel: payload.finishedAtLabel,
+        summaryRows: payload.summaryRows,
+        resultRows: payload.resultRows,
+        summary: payload.summary,
+      });
+      return { kind: 'task_completed', to: payload.to, messageId };
+    }
+    case 'task_waiting_approval': {
+      const { messageId } = await emailService.sendTaskWaitingApprovalEmail({
+        email: payload.to,
+        action: payload.action,
+        taskName: payload.taskName,
+        taskUrl: payload.taskUrl,
+        company: payload.company,
+        proposedAction: payload.proposedAction,
+        reason: payload.reason,
+        changeField: payload.changeField,
+        beforeValue: payload.beforeValue,
+        afterValue: payload.afterValue,
+      });
+      return { kind: 'task_waiting_approval', to: payload.to, messageId };
+    }
+    case 'task_failed': {
+      const { messageId } = await emailService.sendTaskFailedEmail({
+        email: payload.to,
+        taskName: payload.taskName,
+        reason: payload.reason,
+        cancelled: payload.cancelled,
+        taskUrl: payload.taskUrl,
+      });
+      return { kind: 'task_failed', to: payload.to, messageId };
+    }
+    case 'task_progress': {
+      const { messageId } = await emailService.sendTaskProgressEmail({
+        email: payload.to,
+        taskName: payload.taskName,
+        progress: payload.progress,
+        headline: payload.headline,
+        taskUrl: payload.taskUrl,
+      });
+      return { kind: 'task_progress', to: payload.to, messageId };
+    }
+    case 'task_insight': {
+      const { messageId } = await emailService.sendTaskInsightEmail({
+        email: payload.to,
+        companyName: payload.companyName,
+        level: payload.level,
+        detail: payload.detail,
+        confidencePct: payload.confidencePct,
+        taskUrl: payload.taskUrl,
+      });
+      return { kind: 'task_insight', to: payload.to, messageId };
+    }
     default: {
       // Exhaustiveness check — adding a new `kind` without a case here is a
       // compile-time error.
-      const _exhaustive: never = payload.kind;
-      throw new Error(`send_email: unsupported kind ${String(_exhaustive)}`);
+      const _exhaustive: never = payload;
+      throw new Error(
+        `send_email: unsupported kind ${String((_exhaustive as { kind?: unknown }).kind)}`,
+      );
     }
   }
 }

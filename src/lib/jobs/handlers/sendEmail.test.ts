@@ -100,4 +100,101 @@ describe('runSendEmail', () => {
       ),
     ).rejects.toThrow('SES rate limit');
   });
+
+  it('delegates task_completed to EmailService.sendTaskCompletedEmail', async () => {
+    const emailService = new EmailService(
+      vi.fn().mockResolvedValue({ messageId: 'm1' }),
+    );
+    const spy = vi.spyOn(emailService, 'sendTaskCompletedEmail');
+    const payload: SendEmailPayload = {
+      kind: 'task_completed',
+      to: 'u@e.com',
+      taskName: 'Project Maple',
+      taskUrl: 'https://x/t',
+      summary: 'done',
+    };
+    const result = await runSendEmail(payload, { emailService });
+    expect(spy).toHaveBeenCalledWith({
+      email: 'u@e.com',
+      taskName: 'Project Maple',
+      taskUrl: 'https://x/t',
+      summary: 'done',
+    });
+    expect(result).toEqual({ kind: 'task_completed', to: 'u@e.com', messageId: 'm1' });
+  });
+
+  it('delegates task_waiting_approval to EmailService', async () => {
+    const emailService = new EmailService(
+      vi.fn().mockResolvedValue({ messageId: 'm2' }),
+    );
+    const spy = vi.spyOn(emailService, 'sendTaskWaitingApprovalEmail');
+    await runSendEmail(
+      {
+        kind: 'task_waiting_approval',
+        to: 'u@e.com',
+        action: 'Promote X to L1',
+        company: 'X',
+        proposedAction: 'Move to stage L1',
+        reason: 'passes',
+        changeField: 'Pipeline Stage',
+        beforeValue: 'L0',
+        afterValue: 'L1',
+      },
+      { emailService },
+    );
+    expect(spy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        email: 'u@e.com',
+        action: 'Promote X to L1',
+        company: 'X',
+        beforeValue: 'L0',
+        afterValue: 'L1',
+      }),
+    );
+  });
+
+  it('delegates task_failed with the cancelled flag', async () => {
+    const emailService = new EmailService(
+      vi.fn().mockResolvedValue({ messageId: 'm3' }),
+    );
+    const spy = vi.spyOn(emailService, 'sendTaskFailedEmail');
+    await runSendEmail(
+      { kind: 'task_failed', to: 'u@e.com', taskName: 'T', cancelled: true },
+      { emailService },
+    );
+    expect(spy).toHaveBeenCalledWith({
+      email: 'u@e.com',
+      taskName: 'T',
+      reason: undefined,
+      cancelled: true,
+      taskUrl: undefined,
+    });
+  });
+
+  it('delegates task_progress and task_insight', async () => {
+    const emailService = new EmailService(
+      vi.fn().mockResolvedValue({ messageId: 'm4' }),
+    );
+    const progress = vi.spyOn(emailService, 'sendTaskProgressEmail');
+    const insight = vi.spyOn(emailService, 'sendTaskInsightEmail');
+
+    await runSendEmail(
+      { kind: 'task_progress', to: 'u@e.com', taskName: 'T', progress: '47 scanned' },
+      { emailService },
+    );
+    await runSendEmail(
+      { kind: 'task_insight', to: 'u@e.com', companyName: 'NovaSpec', level: 'L1', confidencePct: 94 },
+      { emailService },
+    );
+
+    expect(progress).toHaveBeenCalledOnce();
+    expect(insight).toHaveBeenCalledWith({
+      email: 'u@e.com',
+      companyName: 'NovaSpec',
+      level: 'L1',
+      detail: undefined,
+      confidencePct: 94,
+      taskUrl: undefined,
+    });
+  });
 });

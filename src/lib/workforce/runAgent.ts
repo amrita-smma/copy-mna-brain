@@ -5,7 +5,12 @@ import {
   HumanMessage,
 } from '@/lib/agents/analysis';
 import { ToolTimeoutError } from '@/lib/agents/withToolTimeout';
-import { AiWorkforceQueueRepository } from '@/lib/repositories';
+import {
+  AiWorkforceQueueRepository,
+  RoutinesRepository,
+  UserRepository,
+} from '@/lib/repositories';
+import { EmailNotificationService } from '@/lib/services/emailNotificationService';
 import { NotificationService } from '@/lib/services/notificationService';
 import type { NotificationKind } from '@/lib/notifications/types';
 import { createDb } from '@/lib/server/db';
@@ -124,7 +129,34 @@ type InvokeStepResult =
   | {
       kind: 'interrupted';
       reason: string;
+      // The gated tool that triggered the HITL pause, surfaced so the
+      // approval notification can render a structured proposal card.
+      toolName?: string;
+      toolArgs?: Record<string, unknown>;
     };
+
+// Build the interrupted step-result from a HITL actionRequest, capturing the
+// gated tool name + args so the approval notification can render a structured
+// proposal card. `description` is the human-readable headline fallback.
+function interruptedFrom(first: {
+  name?: string;
+  description?: unknown;
+  args?: unknown;
+}): Extract<InvokeStepResult, { kind: 'interrupted' }> {
+  const reason =
+    typeof first.description === 'string' && first.description.trim()
+      ? first.description
+      : `Awaiting approval for ${first.name ?? 'tool call'}`;
+  return {
+    kind: 'interrupted',
+    reason,
+    toolName: typeof first.name === 'string' ? first.name : undefined,
+    toolArgs:
+      first.args && typeof first.args === 'object'
+        ? (first.args as Record<string, unknown>)
+        : undefined,
+  };
+}
 
 async function invokeAgent(
   runId: string,
@@ -168,12 +200,7 @@ async function invokeAgent(
   // Hand off to the decision endpoint via status; don't finalize and don't
   // throw (we'd rather not call markFailed for a healthy pause).
   if (result.interrupt?.actionRequests?.length) {
-    const first = result.interrupt.actionRequests[0];
-    const reason =
-      typeof first.description === 'string' && first.description.trim()
-        ? first.description
-        : `Awaiting approval for ${first.name ?? 'tool call'}`;
-    return { kind: 'interrupted', reason };
+    return interruptedFrom(result.interrupt.actionRequests[0]);
   }
 
   // Resume branch only: drain any user updates that landed while the row
@@ -188,12 +215,7 @@ async function invokeAgent(
       { configurable: { thread_id: threadId }, recursionLimit: 50 },
     );
     if (finalResult.interrupt?.actionRequests?.length) {
-      const first = finalResult.interrupt.actionRequests[0];
-      const reason =
-        typeof first.description === 'string' && first.description.trim()
-          ? first.description
-          : `Awaiting approval for ${first.name ?? 'tool call'}`;
-      return { kind: 'interrupted', reason };
+      return interruptedFrom(finalResult.interrupt.actionRequests[0]);
     }
   }
 
@@ -230,15 +252,30 @@ async function finalize(
     tool_call_count: result.toolCallCount,
   });
   await kickDispatcher(db);
+  // Best-effort completion notification (MB-90). Skips cron runs internally —
+  // those roll up into the routine digest instead.
+  await makeNotifier(db).notifyTaskCompleted(runId);
 }
 
-async function markWaitingStep(runId: string, reason: string): Promise<void> {
+async function markWaitingStep(
+  runId: string,
+  reason: string,
+  toolName?: string,
+  toolArgs?: Record<string, unknown>,
+): Promise<void> {
   'use step';
   const db = createDb();
   const repo = new AiWorkforceQueueRepository(db);
   await repo.clearResumeToken(runId);
   await repo.markWaitingForHumanInput(runId, reason);
   await kickDispatcher(db);
+  // The reason is the human-readable fallback; toolName/toolArgs let the email
+  // render the structured proposal card (e.g. promote_to_l1 → L0→L1).
+  await makeNotifier(db).notifyTaskWaitingApproval(runId, {
+    action: reason,
+    toolName,
+    toolArgs,
+  });
 }
 
 async function markFailedStep(
@@ -251,6 +288,20 @@ async function markFailedStep(
   await repo.clearResumeToken(runId);
   await repo.markFailed(runId, errorPayload);
   await kickDispatcher(db);
+  const reason =
+    typeof errorPayload.message === 'string' ? errorPayload.message : undefined;
+  await makeNotifier(db).notifyTaskFailed(runId, { cancelled: false, reason });
+}
+
+// Build an EmailNotificationService bound to this step's db. Notifications are
+// best-effort — the service swallows its own errors, so this never throws into
+// the workflow.
+function makeNotifier(db: ReturnType<typeof createDb>): EmailNotificationService {
+  return new EmailNotificationService({
+    workforceRepo: new AiWorkforceQueueRepository(db),
+    routinesRepo: new RoutinesRepository(db),
+    userRepo: new UserRepository(db),
+  });
 }
 
 // Appended via the dispatcher's read-modify-write on error.notifications, so
@@ -306,7 +357,12 @@ export async function runAgent({ runId }: { runId: string }): Promise<void> {
     if (result.kind === 'interrupted') {
       // Healthy pause: HITL middleware caught a gated tool call. The decision
       // endpoint will re-enqueue the resume by writing status='resume_ready'.
-      await markWaitingStep(runId, result.reason);
+      await markWaitingStep(
+        runId,
+        result.reason,
+        result.toolName,
+        result.toolArgs,
+      );
       return;
     }
     await finalize(runId, result);

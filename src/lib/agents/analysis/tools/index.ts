@@ -19,6 +19,8 @@ import { promoteToL1 } from "./promote_to_l1";
 import { addCompanyToL0 } from "./add_company_to_l0";
 import { narrateStep } from "./narrate_step";
 import { reportProgress } from "./report_progress";
+import { notifyProgress } from "./notify_progress";
+import { flagInsight } from "./flag_insight";
 import { getTaskProgress } from "./get_task_progress";
 import { emailResearchSummary } from "./email_research_summary";
 
@@ -39,6 +41,8 @@ export {
   addCompanyToL0,
   narrateStep,
   reportProgress,
+  notifyProgress,
+  flagInsight,
   getTaskProgress,
   emailResearchSummary,
 };
@@ -104,6 +108,8 @@ export const workforceOnlyTools = [
   addCompanyToL0,
   narrateStep,
   reportProgress,
+  notifyProgress,
+  flagInsight,
 ];
 
 /**

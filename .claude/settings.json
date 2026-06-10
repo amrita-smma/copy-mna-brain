@@ -3,7 +3,17 @@
     "allow": [
       "Bash(curl -s -o /dev/null -w \"GET /api/workforce-queue → %{http_code}\\\\n\" http://localhost:3000/api/workforce-queue)",
       "Bash(curl -s -o /dev/null -w \"POST /api/workforce-queue/nonexistent-id/message → %{http_code}\\\\n\" -X POST -H 'Content-Type: application/json' -d '{\"text\":\"hello\"}' http://localhost:3000/api/workforce-queue/nonexistent-id/message)",
-      "Bash(grep -B2 -A8 \"TaskCanvas$\" src/views/AIWorkforce/WorkforceTasks.tsx)"
+      "Bash(sed -n '1,20p' scripts/db-ping.ts)",
+      "Bash(sed -n '1,40p' src/lib/server/db.ts)",
+      "Bash(awk '/function deriveInterventionProposal/,/^}/' src/lib/workforce/traceMapper.ts)",
+      "Bash(open /tmp/notif-preview/index.html)",
+      "Bash(perl -i -pe \"s{return s\\\\.replace\\\\\\(/\\\\[.*\\\\]/g, ' '\\\\\\);}{return s.replace\\(/[\\\\\\\\\\\\\\\\u202f\\\\\\\\\\\\\\\\u2009\\\\\\\\\\\\\\\\u00a0]/g, ' '\\);}\" src/lib/services/notificationService.ts)",
+      "Bash(sed -n '108,110p' src/lib/services/notificationService.ts)",
+      "Bash(grep -B2 -A8 \"TaskCanvas$\" src/views/AIWorkforce/WorkforceTasks.tsx)",
+      "Bash(perl -i -pe 's/NotificationService/EmailNotificationService/g' /Users/user/Documents/SM/mna-brain/src/lib/services/emailNotificationService.test.ts)",
+      "Bash(perl -i -pe \"s/emailEmailNotificationService/emailNotificationService/g\" /Users/user/Documents/SM/mna-brain/src/lib/services/emailNotificationService.test.ts)",
+      "Bash(git grep *)",
+      "Bash(perl -i -pe \"s|\\\\@/lib/services/notificationService|\\\\@/lib/services/emailNotificationService|g; s|\\\\\\\\bNotificationService\\\\\\\\b|EmailNotificationService|g\" /Users/user/Documents/SM/mna-brain/scripts/diagnose-notification.ts)"
     ]
   }
 }

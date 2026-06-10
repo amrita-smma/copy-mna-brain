@@ -1,7 +1,12 @@
 import { NextRequest, NextResponse, after } from 'next/server';
 import { auth } from '@/auth';
 import { createDb } from '@/lib/server/db';
-import { AiWorkforceQueueRepository } from '@/lib/repositories';
+import {
+  AiWorkforceQueueRepository,
+  RoutinesRepository,
+  UserRepository,
+} from '@/lib/repositories';
+import { EmailNotificationService } from '@/lib/services/emailNotificationService';
 import { dispatcherTick } from '@/lib/workforce';
 
 interface CancelBody {
@@ -74,11 +79,20 @@ export async function POST(
     }
 
     after(async () => {
+      const freshDb = createDb();
       try {
-        await dispatcherTick(createDb());
+        await dispatcherTick(freshDb);
       } catch (err) {
         console.error('[cancel] dispatcher kick failed:', err);
       }
+      // Best-effort cancellation notification (MB-90). The service no-ops when
+      // the feature flag is off and swallows its own errors.
+      const notifier = new EmailNotificationService({
+        workforceRepo: new AiWorkforceQueueRepository(freshDb),
+        routinesRepo: new RoutinesRepository(freshDb),
+        userRepo: new UserRepository(freshDb),
+      });
+      await notifier.notifyTaskFailed(id, { cancelled: true, reason });
     });
 
     return NextResponse.json({ item: cancelled });
