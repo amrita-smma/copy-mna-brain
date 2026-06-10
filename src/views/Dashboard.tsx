@@ -19,7 +19,6 @@ import {
   ArrowUpRight,
   Loader2,
   Layers,
-  Target,
   Activity,
   XCircle,
   ChevronRight,
@@ -27,6 +26,9 @@ import {
   FileText,
   CalendarIcon,
   Clock,
+  LayoutGrid,
+  Globe,
+  ArrowLeftRight,
 } from 'lucide-react';
 
 interface StageCounts {
@@ -46,13 +48,13 @@ const PIPELINE_STAGES: { stage: string; label: string; color: string }[] = [
   { stage: 'L5', label: 'Closing', color: 'bg-pink-500' },
 ];
 
-const stageBarColors: Record<string, { inbound: string; outbound: string }> = {
-  L0: { inbound: 'bg-blue-400/70', outbound: 'bg-blue-600/70' },
-  L1: { inbound: 'bg-violet-400/70', outbound: 'bg-violet-600/70' },
-  L2: { inbound: 'bg-amber-400/70', outbound: 'bg-amber-600/70' },
-  L3: { inbound: 'bg-emerald-400/70', outbound: 'bg-emerald-600/70' },
-  L4: { inbound: 'bg-cyan-400/70', outbound: 'bg-cyan-600/70' },
-  L5: { inbound: 'bg-pink-400/70', outbound: 'bg-pink-600/70' },
+// Solid pill colors for the L1–L5 stage columns (inbound = darker, outbound = lighter).
+const stagePillColors: Record<string, { inbound: string; outbound: string }> = {
+  L1: { inbound: 'bg-violet-500', outbound: 'bg-violet-300' },
+  L2: { inbound: 'bg-amber-500', outbound: 'bg-amber-300' },
+  L3: { inbound: 'bg-emerald-500', outbound: 'bg-emerald-300' },
+  L4: { inbound: 'bg-cyan-500', outbound: 'bg-cyan-300' },
+  L5: { inbound: 'bg-pink-500', outbound: 'bg-pink-300' },
 };
 
 type PresetKey = '7d' | '14d';
@@ -548,8 +550,11 @@ export default function Dashboard({ showCrm = false, showAiWorkforce = false }: 
   const displayInbound = displayStageCounts.reduce((s, x) => s + (x.inbound ?? 0), 0);
   const displayOutbound = displayStageCounts.reduce((s, x) => s + (x.outbound ?? 0), 0);
   const displayL0 = displayStageCounts[0]?.count || 0;
+  const displayL0Inbound = displayStageCounts[0]?.inbound ?? 0;
+  const displayL0Outbound = displayStageCounts[0]?.outbound ?? 0;
   const displayL5 = displayStageCounts.find(s => s.stage === 'L5')?.count ?? 0;
   const displayConversion = displayL0 > 0 ? Math.round((displayL5 / displayL0) * 100) : 0;
+  const pctOfTotal = (n: number) => (displayTotal > 0 ? Math.round((n / displayTotal) * 100) : 0);
 
   if (loading) {
     return (
@@ -710,63 +715,75 @@ export default function Dashboard({ showCrm = false, showAiWorkforce = false }: 
           </div>
         </div>
 
-        {/* Stat cards */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          <Card className="border bg-card">
-            <CardContent className="p-5">
-              <div className="flex items-center gap-3 mb-3">
-                <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-blue-500/10">
-                  <Target className="h-4 w-4 text-blue-500" />
+        {/* Overview section card */}
+        <Card className="border bg-gradient-to-br from-muted/40 to-muted/10">
+          <CardHeader className="pb-4">
+            <div className="flex items-center gap-2">
+              <LayoutGrid className="h-5 w-5 text-foreground" />
+              <CardTitle className="text-lg font-semibold">Overview</CardTitle>
+              <span className="text-sm text-muted-foreground">
+                {formatDate(dateRange.from)} – {formatDate(dateRange.to)}
+              </span>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+              {/* Total Deals */}
+              <div className="rounded-xl border bg-card p-5">
+                <div className="flex items-center gap-3 mb-3">
+                  <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-blue-500/10">
+                    <Globe className="h-4 w-4 text-blue-500" />
+                  </div>
+                  <p className="text-sm font-medium text-muted-foreground">Total Deals</p>
                 </div>
-                <p className="text-sm font-medium text-muted-foreground">Total Deals</p>
+                <p className="text-3xl font-semibold">{displayTotal}</p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  {activity ? 'Added in period' : 'Active in pipeline'}
+                </p>
               </div>
-              <p className="text-3xl font-semibold">{displayTotal}</p>
-              <p className="text-xs text-muted-foreground mt-1">
-                {activity ? 'Added in period' : 'Active in pipeline'}
-              </p>
-            </CardContent>
-          </Card>
-          <Card className="border bg-card">
-            <CardContent className="p-5">
-              <div className="flex items-center gap-3 mb-3">
-                <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-500/10">
-                  <ArrowUpRight className="h-4 w-4 text-emerald-500" />
+
+              {/* Inbound */}
+              <div className="rounded-xl border bg-card p-5">
+                <div className="flex items-center gap-3 mb-3">
+                  <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-500/10">
+                    <ArrowUpRight className="h-4 w-4 text-emerald-500" />
+                  </div>
+                  <p className="text-sm font-medium text-muted-foreground">Inbound</p>
                 </div>
-                <p className="text-sm font-medium text-muted-foreground">Inbound</p>
+                <p className="text-3xl font-semibold">{displayInbound}</p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  {displayTotal > 0 ? Math.round((displayInbound / displayTotal) * 100) : 0}% of total
+                </p>
               </div>
-              <p className="text-3xl font-semibold">{displayInbound}</p>
-              <p className="text-xs text-muted-foreground mt-1">
-                {displayTotal > 0 ? Math.round((displayInbound / displayTotal) * 100) : 0}% of total
-              </p>
-            </CardContent>
-          </Card>
-          <Card className="border bg-card">
-            <CardContent className="p-5">
-              <div className="flex items-center gap-3 mb-3">
-                <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-violet-500/10">
-                  <Activity className="h-4 w-4 text-violet-500" />
+
+              {/* Outbound */}
+              <div className="rounded-xl border bg-card p-5">
+                <div className="flex items-center gap-3 mb-3">
+                  <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-rose-500/10">
+                    <Activity className="h-4 w-4 text-rose-500" />
+                  </div>
+                  <p className="text-sm font-medium text-muted-foreground">Outbound</p>
                 </div>
-                <p className="text-sm font-medium text-muted-foreground">Outbound</p>
+                <p className="text-3xl font-semibold">{displayOutbound}</p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  {displayTotal > 0 ? Math.round((displayOutbound / displayTotal) * 100) : 0}% of total
+                </p>
               </div>
-              <p className="text-3xl font-semibold">{displayOutbound}</p>
-              <p className="text-xs text-muted-foreground mt-1">
-                {displayTotal > 0 ? Math.round((displayOutbound / displayTotal) * 100) : 0}% of total
-              </p>
-            </CardContent>
-          </Card>
-          <Card className="border bg-card">
-            <CardContent className="p-5">
-              <div className="flex items-center gap-3 mb-3">
-                <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-amber-500/10">
-                  <TrendingUp className="h-4 w-4 text-amber-500" />
+
+              {/* Conversion */}
+              <div className="rounded-xl border bg-card p-5">
+                <div className="flex items-center gap-3 mb-3">
+                  <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-amber-500/10">
+                    <ArrowLeftRight className="h-4 w-4 text-amber-500" />
+                  </div>
+                  <p className="text-sm font-medium text-muted-foreground">Conversion</p>
                 </div>
-                <p className="text-sm font-medium text-muted-foreground">Conversion</p>
+                <p className="text-3xl font-semibold">{displayConversion}%</p>
+                <p className="text-xs text-muted-foreground mt-1">L0 → L5</p>
               </div>
-              <p className="text-3xl font-semibold">{displayConversion}%</p>
-              <p className="text-xs text-muted-foreground mt-1">L0 → L5</p>
-            </CardContent>
-          </Card>
-        </div>
+            </div>
+          </CardContent>
+        </Card>
 
         {activityInitialising ? (
           <div className="flex items-center justify-center py-16">
@@ -1017,61 +1034,64 @@ export default function Dashboard({ showCrm = false, showAiWorkforce = false }: 
                     <p className="text-base font-medium">No pipeline activity in this period.</p>
                   </div>
                 ) : (
-                  <div className="flex items-end gap-4 justify-between" style={{ height: '300px' }}>
-                    {displayStageCounts.map((item) => {
-                      const maxCount = Math.max(...displayStageCounts.map(s => s.count), 1);
-                      const l0 = displayStageCounts[0]?.count || 1;
-                      const conversionPercentStage = l0 > 0 ? Math.round((item.count / l0) * 100) : 0;
-                      const barMaxHeight = 200;
-                      const minBarHeight = 80;
-                      const barHeight = Math.max((item.count / maxCount) * barMaxHeight, minBarHeight);
-                      const colors = stageBarColors[item.stage] || { inbound: 'bg-gray-400/70', outbound: 'bg-gray-600/70' };
-                      const inboundRatio = item.count > 0 ? (item.inbound || 0) / item.count : 0.5;
-                      const outboundRatio = item.count > 0 ? (item.outbound || 0) / item.count : 0.5;
-                      const segmentMinPx = 40;
-                      const remainingHeight = Math.max(0, barHeight - 2 * segmentMinPx);
-                      const inboundHeightPx = segmentMinPx + inboundRatio * remainingHeight;
-                      const outboundHeightPx = segmentMinPx + outboundRatio * remainingHeight;
-                      return (
-                        <Link
-                          key={item.stage}
-                          href={`/pipeline?stage=${item.stage}`}
-                          className="flex-1 flex flex-col items-center cursor-pointer group no-underline text-inherit"
-                        >
-                          <span className="text-xl font-semibold mb-2 transition-transform group-hover:scale-110">{item.count}</span>
-                          <Badge variant="secondary" className="mb-4 text-xs bg-muted/80 backdrop-blur-sm">
-                            {conversionPercentStage}%
-                          </Badge>
-                          <div
-                            className="w-full rounded-xl overflow-hidden flex flex-col transition-all duration-200 group-hover:scale-[1.02]"
-                            style={{ height: `${barHeight}px` }}
+                  <div className="flex items-stretch gap-3">
+                    {/* L0 · Sourcing — split into inbound / outbound */}
+                    <div className="flex w-[180px] shrink-0 flex-col gap-2">
+                      <p className="text-center text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                        L0 · Sourcing
+                      </p>
+                      <Link
+                        href="/pipeline?stage=L0"
+                        className="flex flex-1 flex-col items-center justify-center gap-0.5 rounded-xl bg-gradient-to-br from-indigo-400 to-indigo-600 p-3 text-white no-underline transition-transform hover:scale-[1.02]"
+                      >
+                        <span className="text-[10px] font-bold uppercase tracking-wide opacity-90">Inbound</span>
+                        <span className="text-2xl font-extrabold leading-none">{displayL0Inbound}</span>
+                        <span className="text-[10px] text-white/70">{pctOfTotal(displayL0Inbound)}% of total</span>
+                      </Link>
+                      <Link
+                        href="/pipeline?stage=L0"
+                        className="flex flex-1 flex-col items-center justify-center gap-0.5 rounded-xl bg-gradient-to-br from-blue-400 to-blue-600 p-3 text-white no-underline transition-transform hover:scale-[1.02]"
+                      >
+                        <span className="text-[10px] font-bold uppercase tracking-wide opacity-90">Outbound</span>
+                        <span className="text-2xl font-extrabold leading-none">{displayL0Outbound}</span>
+                        <span className="text-[10px] text-white/70">{pctOfTotal(displayL0Outbound)}% of total</span>
+                      </Link>
+                    </div>
+
+                    {/* divider */}
+                    <div className="w-px shrink-0 bg-border" />
+
+                    {/* L1 – L5 stage columns */}
+                    <div className="flex flex-1 items-stretch gap-2">
+                      {displayStageCounts.slice(1).map((item) => {
+                        const pills = stagePillColors[item.stage] ?? { inbound: 'bg-gray-400', outbound: 'bg-gray-300' };
+                        const conversionPercentStage = displayL0 > 0 ? Math.round((item.count / displayL0) * 100) : 0;
+                        return (
+                          <Link
+                            key={item.stage}
+                            href={`/pipeline?stage=${item.stage}`}
+                            className="group flex flex-1 flex-col items-center gap-1 no-underline text-inherit"
                           >
-                            <div
-                              className={`w-full ${colors.inbound} flex items-center justify-center shrink-0`}
-                              style={{ height: `${inboundHeightPx}px`, minHeight: segmentMinPx }}
-                            >
-                              <div className="text-white text-xs font-medium text-center px-1">
-                                <div className="opacity-80 text-[10px] uppercase tracking-wide">Inbound</div>
-                                <div className="font-semibold text-sm">{item.inbound || 0}</div>
+                            <div className="text-center">
+                              <div className="text-lg font-bold transition-transform group-hover:scale-110">{item.count}</div>
+                              <div className="text-[10px] text-muted-foreground">{conversionPercentStage}%</div>
+                            </div>
+                            <div className="flex w-full flex-1 flex-col gap-1">
+                              <div className={`flex items-center justify-between rounded-md px-2 py-1.5 text-[10px] font-bold text-white ${pills.inbound}`}>
+                                <span>IN</span>
+                                <span>{item.inbound || 0}</span>
+                              </div>
+                              <div className={`flex items-center justify-between rounded-md px-2 py-1.5 text-[10px] font-bold text-white ${pills.outbound}`}>
+                                <span>OUT</span>
+                                <span>{item.outbound || 0}</span>
                               </div>
                             </div>
-                            <div
-                              className={`w-full ${colors.outbound} flex items-center justify-center shrink-0`}
-                              style={{ height: `${outboundHeightPx}px`, minHeight: segmentMinPx }}
-                            >
-                              <div className="text-white text-xs font-medium text-center px-1">
-                                <div className="opacity-80 text-[10px] uppercase tracking-wide">Outbound</div>
-                                <div className="font-semibold text-sm">{item.outbound || 0}</div>
-                              </div>
-                            </div>
-                          </div>
-                          <div className="text-center mt-4">
-                            <div className="text-base font-bold">{item.stage}</div>
-                            <div className="text-xs text-muted-foreground">{item.label}</div>
-                          </div>
-                        </Link>
-                      );
-                    })}
+                            <div className="mt-1 text-sm font-bold">{item.stage}</div>
+                            <div className="text-center text-[10px] text-muted-foreground">{item.label}</div>
+                          </Link>
+                        );
+                      })}
+                    </div>
                   </div>
                 )}
               </CardContent>
