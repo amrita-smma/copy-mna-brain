@@ -70,7 +70,6 @@ import {
   Loader2,
   Pencil,
   Search,
-  Sparkles,
   Tag,
   Trash2,
   Upload,
@@ -78,7 +77,6 @@ import {
   Zap,
 } from "lucide-react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { Fragment, useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import posthog from "posthog-js";
@@ -717,7 +715,6 @@ export default function AIFileDump({
   showCrm = false,
   showAiWorkforce = false,
 }: AIFileDumpProps) {
-  const router = useRouter();
   const [meetingNotes, setMeetingNotes] = useState<MeetingNote[]>([]);
   const [prospectus, setProspectus] = useState<Prospectus[]>([]);
   const [bankerComms, setBankerComms] = useState<FileRecord[]>([]);
@@ -1438,26 +1435,6 @@ export default function AIFileDump({
               </p>
             </div>
           </div>
-        </div>
-
-        {/* Tab Navigation */}
-        <div className="inline-flex h-10 items-center justify-center rounded-md text-muted-foreground w-fit bg-muted/50 p-1 flex-shrink-0">
-          <button
-            type="button"
-            onClick={() => router.push("/ai-discovery")}
-            className="inline-flex items-center justify-center whitespace-nowrap rounded-sm px-3 py-1.5 text-sm font-medium ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 gap-2 text-purple-400/70 hover:text-purple-600 transition-all"
-          >
-            <Sparkles className="h-4 w-4" />
-            AI CoPilot
-          </button>
-          <button
-            type="button"
-            onClick={() => router.push("/ai-file-dump")}
-            className="inline-flex items-center justify-center whitespace-nowrap rounded-sm px-3 py-1.5 text-sm font-medium ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 gap-2 bg-teal-500/15 text-teal-600 shadow-sm transition-all"
-          >
-            <FileStack className="h-4 w-4" />
-            AI File Dump
-          </button>
         </div>
 
         {/* Upload Section */}
