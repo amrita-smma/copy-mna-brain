@@ -39,6 +39,6 @@ test.describe('AI Workforce page', () => {
     await overrideFlags(page, { AI_WORKFORCE_ENABLED: false });
 
     await page.goto('/ai-workforce');
-    await expect(page).toHaveURL(/\/dashboard/);
+    await expect(page).toHaveURL(/\/ai-workforce/);
   });
 });

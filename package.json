@@ -19,7 +19,11 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
-    "test:e2e:ui": "playwright test --ui"
+    "test:e2e:ui": "playwright test --ui",
+    "test:e2e:staging": "cross-env TEST_ENV=staging playwright test",
+    "test:e2e:staging:ui": "cross-env TEST_ENV=staging playwright test --ui",
+    "test:e2e:production": "cross-env TEST_ENV=production playwright test",
+    "test:e2e:production:ui": "cross-env TEST_ENV=production playwright test --ui"
   },
   "dependencies": {
     "@ai-sdk/langchain": "^2.0.72",
@@ -132,6 +136,7 @@
     "@types/react": "^18.3.23",
     "@types/react-dom": "^18.3.7",
     "autoprefixer": "^10.4.21",
+    "cross-env": "^10.1.0",
     "drizzle-kit": "^0.31.10",
     "eslint": "^9.32.0",
     "eslint-config-next": "^15.1.0",
