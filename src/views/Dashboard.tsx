@@ -468,7 +468,10 @@ export default function Dashboard({
   const [customFrom, setCustomFrom] = useState<Date | undefined>(undefined);
   const [customTo, setCustomTo] = useState<Date | undefined>(undefined);
   const [customPickerOpen, setCustomPickerOpen] = useState(false);
-  const [activeField, setActiveField] = useState<"from" | "to">("from");
+
+  // Which field the next calendar click will fill — drives the highlight on
+  // the From/To display fields. Range mode fills `from` first, then `to`.
+  const nextRangeField: 'from' | 'to' = customFrom && !customTo ? 'to' : 'from';
 
   // Feed
   const [feedFilter, setFeedFilter] = useState<FeedFilterKey>("all");
@@ -755,12 +758,9 @@ export default function Dashboard({
               open={customPickerOpen}
               onOpenChange={(open) => {
                 setCustomPickerOpen(open);
-                if (open) {
-                  setActiveField("from");
-                  if (dateRange.preset === "custom") {
-                    setCustomFrom(dateRange.from);
-                    setCustomTo(dateRange.to);
-                  }
+                if (open && dateRange.preset === 'custom') {
+                  setCustomFrom(dateRange.from);
+                  setCustomTo(dateRange.to);
                 }
               }}
             >
@@ -785,15 +785,13 @@ export default function Dashboard({
                 <div className="grid grid-cols-2 gap-2">
                   <div className="space-y-1">
                     <p className="text-xs text-muted-foreground">From</p>
-                    <button
-                      type="button"
-                      onClick={() => setActiveField("from")}
+                    <div
                       className={[
-                        "w-full flex items-center gap-2 rounded-md border px-3 py-2 text-sm transition-colors",
-                        activeField === "from"
-                          ? "border-primary ring-1 ring-primary bg-background"
-                          : "border-border bg-muted/40 hover:bg-muted",
-                      ].join(" ")}
+                        'w-full flex items-center gap-2 rounded-md border px-3 py-2 text-sm transition-colors',
+                        nextRangeField === 'from'
+                          ? 'border-primary ring-1 ring-primary bg-background'
+                          : 'border-border bg-muted/40',
+                      ].join(' ')}
                     >
                       <CalendarIcon className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
                       <span
@@ -807,19 +805,17 @@ export default function Dashboard({
                           ? customFrom.toLocaleDateString("en-GB")
                           : "DD/MM/YYYY"}
                       </span>
-                    </button>
+                    </div>
                   </div>
                   <div className="space-y-1">
                     <p className="text-xs text-muted-foreground">To</p>
-                    <button
-                      type="button"
-                      onClick={() => setActiveField("to")}
+                    <div
                       className={[
-                        "w-full flex items-center gap-2 rounded-md border px-3 py-2 text-sm transition-colors",
-                        activeField === "to"
-                          ? "border-primary ring-1 ring-primary bg-background"
-                          : "border-border bg-muted/40 hover:bg-muted",
-                      ].join(" ")}
+                        'w-full flex items-center gap-2 rounded-md border px-3 py-2 text-sm transition-colors',
+                        nextRangeField === 'to'
+                          ? 'border-primary ring-1 ring-primary bg-background'
+                          : 'border-border bg-muted/40',
+                      ].join(' ')}
                     >
                       <CalendarIcon className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
                       <span
@@ -831,35 +827,27 @@ export default function Dashboard({
                           ? customTo.toLocaleDateString("en-GB")
                           : "DD/MM/YYYY"}
                       </span>
-                    </button>
+                    </div>
                   </div>
                 </div>
-                {activeField === "from" ? (
-                  <Calendar
-                    mode="single"
-                    selected={customFrom}
-                    onSelect={(d) => {
-                      setCustomFrom(d);
-                      setActiveField("to");
-                    }}
-                    disabled={(d) =>
-                      d > new Date() || (customTo ? d > customTo : false)
-                    }
-                    initialFocus
-                  />
-                ) : (
-                  <Calendar
-                    mode="single"
-                    selected={customTo}
-                    onSelect={(d) => {
-                      setCustomTo(d);
-                    }}
-                    disabled={(d) =>
-                      d > new Date() || (customFrom ? d < customFrom : false)
-                    }
-                    initialFocus
-                  />
-                )}
+                <Calendar
+                  mode="range"
+                  defaultMonth={customFrom}
+                  selected={{ from: customFrom, to: customTo }}
+                  onSelect={(range) => {
+                    setCustomFrom(range?.from);
+                    setCustomTo(range?.to);
+                  }}
+                  disabled={(d) => d > new Date()}
+                  classNames={{
+                    // Highlight the picked start/end and the days in between with
+                    // a light background instead of the default solid primary fill.
+                    day_selected:
+                      'bg-primary/15 text-primary hover:bg-primary/25 focus:bg-primary/25 rounded-md',
+                    day_range_middle: 'aria-selected:bg-primary/10 aria-selected:text-foreground',
+                  }}
+                  initialFocus
+                />
                 <div className="flex gap-2 pt-1">
                   <Button
                     type="button"
