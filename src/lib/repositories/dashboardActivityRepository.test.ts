@@ -4,6 +4,8 @@ import { DashboardActivityRepository } from './dashboardActivityRepository';
 const mockDb = {
   select: vi.fn().mockReturnThis(),
   from: vi.fn().mockReturnThis(),
+  innerJoin: vi.fn().mockReturnThis(),
+  leftJoin: vi.fn().mockReturnThis(),
   where: vi.fn().mockReturnThis(),
   orderBy: vi.fn(),
 };
@@ -15,6 +17,8 @@ describe('DashboardActivityRepository.getDroppedDeals', () => {
     vi.clearAllMocks();
     mockDb.select.mockReturnThis();
     mockDb.from.mockReturnThis();
+    mockDb.innerJoin.mockReturnThis();
+    mockDb.leftJoin.mockReturnThis();
     mockDb.where.mockReturnThis();
     repo = new DashboardActivityRepository(mockDb as never);
   });
@@ -33,6 +37,19 @@ describe('DashboardActivityRepository.getDroppedDeals', () => {
     expect(selectArg).toHaveProperty('thesis_content');
   });
 
+  it('selects FY financials for the per-row summary', async () => {
+    mockDb.orderBy.mockResolvedValueOnce([]);
+
+    await repo.getDroppedDeals(new Date('2026-01-01'), new Date('2026-01-08'));
+
+    const selectArg = mockDb.select.mock.calls[0][0];
+    expect(selectArg).toHaveProperty('revenue_usd_mn');
+    expect(selectArg).toHaveProperty('ebitda_usd_mn');
+    expect(selectArg).toHaveProperty('ev_usd_mn');
+    // Financials come from a left join, so companies without figures still appear.
+    expect(mockDb.leftJoin).toHaveBeenCalledTimes(1);
+  });
+
   it('returns the rows produced by the query', async () => {
     const rows = [{ id: 'c1', target: 'Acme', dropped_at: '2026-01-05T00:00:00.000Z' }];
     mockDb.orderBy.mockResolvedValueOnce(rows);
@@ -40,5 +57,32 @@ describe('DashboardActivityRepository.getDroppedDeals', () => {
     const result = await repo.getDroppedDeals(new Date('2026-01-01'), new Date('2026-01-08'));
 
     expect(result).toEqual(rows);
+  });
+});
+
+describe('DashboardActivityRepository.getPipelineMoves', () => {
+  let repo: DashboardActivityRepository;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockDb.select.mockReturnThis();
+    mockDb.from.mockReturnThis();
+    mockDb.innerJoin.mockReturnThis();
+    mockDb.leftJoin.mockReturnThis();
+    mockDb.where.mockReturnThis();
+    repo = new DashboardActivityRepository(mockDb as never);
+  });
+
+  it('left-joins financials and selects them alongside the move metadata', async () => {
+    mockDb.orderBy.mockResolvedValueOnce([]);
+
+    await repo.getPipelineMoves(new Date('2026-01-01'), new Date('2026-01-08'));
+
+    const selectArg = mockDb.select.mock.calls[0][0];
+    expect(selectArg).toHaveProperty('action');
+    expect(selectArg).toHaveProperty('revenue_usd_mn');
+    expect(selectArg).toHaveProperty('ebitda_usd_mn');
+    expect(selectArg).toHaveProperty('ev_usd_mn');
+    expect(mockDb.leftJoin).toHaveBeenCalledTimes(1);
   });
 });

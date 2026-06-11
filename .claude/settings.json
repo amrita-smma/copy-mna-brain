@@ -13,7 +13,13 @@
       "Bash(perl -i -pe 's/NotificationService/EmailNotificationService/g' /Users/user/Documents/SM/mna-brain/src/lib/services/emailNotificationService.test.ts)",
       "Bash(perl -i -pe \"s/emailEmailNotificationService/emailNotificationService/g\" /Users/user/Documents/SM/mna-brain/src/lib/services/emailNotificationService.test.ts)",
       "Bash(git grep *)",
-      "Bash(perl -i -pe \"s|\\\\@/lib/services/notificationService|\\\\@/lib/services/emailNotificationService|g; s|\\\\\\\\bNotificationService\\\\\\\\b|EmailNotificationService|g\" /Users/user/Documents/SM/mna-brain/scripts/diagnose-notification.ts)"
+      "Bash(perl -i -pe \"s|\\\\@/lib/services/notificationService|\\\\@/lib/services/emailNotificationService|g; s|\\\\\\\\bNotificationService\\\\\\\\b|EmailNotificationService|g\" /Users/user/Documents/SM/mna-brain/scripts/diagnose-notification.ts)",
+      "Bash(awk 'NR>=440 && NR<=520 && /Table\\\\\\(|pgTable|= pgTable|export const/' src/lib/db/schema.ts)",
+      "Bash(sed -n '470,520p' src/lib/db/schema.ts)",
+      "Bash(awk -F: '$1>400 && $1<700')",
+      "Bash(echo \"=== total TS errors: $\\(npx tsc --noEmit -p tsconfig.json 2>&1)",
+      "Bash(echo \"=== TS errors: $\\(npx tsc --noEmit -p tsconfig.json 2>&1)",
+      "Bash(perl -pi -e 's/\\\\.leftJoin\\\\\\(companyFinancials, latestFinancialsOn\\\\\\(\\\\\\)\\\\\\)/.leftJoin\\(companyFinancials, this.latestFinancialsOn\\(\\)\\)/g' src/lib/repositories/dashboardActivityRepository.ts)"
     ]
   }
 }

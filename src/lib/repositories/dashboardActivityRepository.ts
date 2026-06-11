@@ -1,7 +1,9 @@
-import { and, desc, eq, gte, isNotNull, isNull, like, lte, or } from 'drizzle-orm';
+import { and, desc, eq, gte, isNotNull, isNull, like, lte, or, sql } from 'drizzle-orm';
+import { alias } from 'drizzle-orm/pg-core';
 import {
   aiWorkforceQueue,
   companies,
+  companyFinancials,
   companyLogs,
   companySlides,
   correspondents,
@@ -10,11 +12,56 @@ import {
 } from '@/lib/db/schema';
 import type { DbClient } from './types';
 
+/**
+ * Aliased copy of `company_financials` used only inside the correlated
+ * subquery that finds each company's most recent fiscal year. It must be a
+ * distinct alias so it doesn't collide with the outer `companyFinancials`
+ * join in the same statement.
+ */
+const latestFinancials = alias(companyFinancials, 'cf_latest');
+
+/**
+ * Financial columns selected from `company_financials` for feed rows.
+ * `financial_year` is the fiscal year the figures belong to (null when the
+ * left join finds no matching row), so the UI can label them without
+ * hardcoding the year on its side.
+ */
+type FeedFinancials = {
+  revenue_usd_mn: number | null;
+  ebitda_usd_mn: number | null;
+  ev_usd_mn: number | null;
+  financial_year: number | null;
+};
+
 export class DashboardActivityRepository {
   constructor(private db: DbClient) {}
 
+  /**
+   * Join condition that attaches the company's MOST RECENT financials row
+   * (highest `fiscal_year`) rather than a hardcoded year. Used as the ON clause
+   * for the `companyFinancials` left join across every feed query, so the
+   * Rev / EBITDA / EV summary always reflects the latest data on file and the
+   * reported year is carried through to the UI via `financial_year`.
+   *
+   * Built with the query builder (not a raw `sql` string) so the correlated
+   * subquery's FROM renders as `"company_financials" "cf_latest"` — a raw
+   * template would emit only the bare alias and reference a missing relation.
+   */
+  private latestFinancialsOn() {
+    return and(
+      eq(companyFinancials.company_id, companies.id),
+      eq(
+        companyFinancials.fiscal_year,
+        this.db
+          .select({ year: sql<number>`max(${latestFinancials.fiscal_year})` })
+          .from(latestFinancials)
+          .where(eq(latestFinancials.company_id, companies.id)),
+      ),
+    );
+  }
+
   async getNewL0Companies(from: Date, to: Date): Promise<
-    { id: string; target: string | null; project_name: string | null; source: string | null; segment: string | null; geography: string | null; remarks: string | null; thesis_content: string | null; event_at: string; reason: 'created' | 'demoted' }[]
+    ({ id: string; target: string | null; project_name: string | null; source: string | null; segment: string | null; geography: string | null; remarks: string | null; thesis_content: string | null; event_at: string; reason: 'created' | 'demoted' } & FeedFinancials)[]
   > {
     const fromIso = from.toISOString();
     const toIso = to.toISOString();
@@ -31,9 +78,14 @@ export class DashboardActivityRepository {
           geography: companies.geography,
           remarks: companies.remarks,
           thesis_content: companies.thesis_content,
+          revenue_usd_mn: companyFinancials.revenue_usd_mn,
+          ebitda_usd_mn: companyFinancials.ebitda_usd_mn,
+          ev_usd_mn: companyFinancials.ev_usd_mn,
+          financial_year: companyFinancials.fiscal_year,
           event_at: companies.created_at,
         })
         .from(companies)
+        .leftJoin(companyFinancials, this.latestFinancialsOn())
         .where(
           and(
             eq(companies.pipeline_stage, 'L0'),
@@ -53,10 +105,15 @@ export class DashboardActivityRepository {
           geography: companies.geography,
           remarks: companies.remarks,
           thesis_content: companies.thesis_content,
+          revenue_usd_mn: companyFinancials.revenue_usd_mn,
+          ebitda_usd_mn: companyFinancials.ebitda_usd_mn,
+          ev_usd_mn: companyFinancials.ev_usd_mn,
+          financial_year: companyFinancials.fiscal_year,
           event_at: companyLogs.created_at,
         })
         .from(companyLogs)
         .innerJoin(companies, eq(companyLogs.company_id, companies.id))
+        .leftJoin(companyFinancials, this.latestFinancialsOn())
         .where(
           and(
             like(companyLogs.action, '%_TO_L0'),
@@ -123,9 +180,14 @@ export class DashboardActivityRepository {
         source: companies.source,
         remarks: companies.remarks,
         thesis_content: companies.thesis_content,
+        revenue_usd_mn: companyFinancials.revenue_usd_mn,
+        ebitda_usd_mn: companyFinancials.ebitda_usd_mn,
+        ev_usd_mn: companyFinancials.ev_usd_mn,
+        financial_year: companyFinancials.fiscal_year,
       })
       .from(companyLogs)
       .innerJoin(companies, eq(companyLogs.company_id, companies.id))
+      .leftJoin(companyFinancials, this.latestFinancialsOn())
       .where(
         and(
           like(companyLogs.action, 'PROMOTED_%'),
@@ -169,8 +231,13 @@ export class DashboardActivityRepository {
         geography: companies.geography,
         source: companies.source,
         thesis_content: companies.thesis_content,
+        revenue_usd_mn: companyFinancials.revenue_usd_mn,
+        ebitda_usd_mn: companyFinancials.ebitda_usd_mn,
+        ev_usd_mn: companyFinancials.ev_usd_mn,
+        financial_year: companyFinancials.fiscal_year,
       })
       .from(companies)
+      .leftJoin(companyFinancials, this.latestFinancialsOn())
       .where(
         and(
           eq(companies.status, 'dropped'),
@@ -196,9 +263,14 @@ export class DashboardActivityRepository {
         source: companies.source,
         remarks: companies.remarks,
         thesis_content: companies.thesis_content,
+        revenue_usd_mn: companyFinancials.revenue_usd_mn,
+        ebitda_usd_mn: companyFinancials.ebitda_usd_mn,
+        ev_usd_mn: companyFinancials.ev_usd_mn,
+        financial_year: companyFinancials.fiscal_year,
       })
       .from(dealNotes)
       .innerJoin(companies, eq(dealNotes.deal_id, companies.id))
+      .leftJoin(companyFinancials, this.latestFinancialsOn())
       .where(
         and(
           gte(dealNotes.updated_at, from.toISOString()),
