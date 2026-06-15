@@ -37,6 +37,7 @@ export const analysisJobStatus = pgEnum("analysis_job_status", [
 ]);
 export const companyStatus = pgEnum("company_status", ["active", "dropped"]);
 export const dealOrigin = pgEnum("deal_origin", ["inbound", "outbound"]);
+export const dealType = pgEnum("deal_type", ["majority", "minority"]);
 export const jobStatus = pgEnum("job_status", [
   "pending",
   "running",
@@ -332,6 +333,21 @@ export const companies = pgTable(
     dropped_reason: text(),
     dropped_at: timestamp({ withTimezone: true, mode: "string" }),
     promoted_reasons: text(),
+    // Pipeline (HTML-parity) fields — inbound first.
+    deal_type: dealType().default("majority"),
+    originator: text(),
+    last_activity_at: timestamp({ withTimezone: true, mode: "string" }),
+    banker: text(),
+    // doc_type values are constrained in the app UI only (not a DB enum).
+    doc_type: text(),
+    stake: text(),
+    deal_size: text(),
+    // Free-text pipeline workflow status (inbound or outbound — source
+    // disambiguates). Stored values surface as reusable dropdown options on
+    // the FE; not constrained to an enum.
+    workflow_status: text(),
+    // Outbound-specific fields.
+    key_rationale: text(),
   },
   (table) => {
     return {

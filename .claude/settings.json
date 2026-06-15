@@ -19,7 +19,17 @@
       "Bash(awk -F: '$1>400 && $1<700')",
       "Bash(echo \"=== total TS errors: $\\(npx tsc --noEmit -p tsconfig.json 2>&1)",
       "Bash(echo \"=== TS errors: $\\(npx tsc --noEmit -p tsconfig.json 2>&1)",
-      "Bash(perl -pi -e 's/\\\\.leftJoin\\\\\\(companyFinancials, latestFinancialsOn\\\\\\(\\\\\\)\\\\\\)/.leftJoin\\(companyFinancials, this.latestFinancialsOn\\(\\)\\)/g' src/lib/repositories/dashboardActivityRepository.ts)"
+      "Bash(perl -pi -e 's/\\\\.leftJoin\\\\\\(companyFinancials, latestFinancialsOn\\\\\\(\\\\\\)\\\\\\)/.leftJoin\\(companyFinancials, this.latestFinancialsOn\\(\\)\\)/g' src/lib/repositories/dashboardActivityRepository.ts)",
+      "Bash(grep -E \"\\\\.\\(tsx|ts\\)$\")",
+      "Bash(echo \"EXIT: $?\")",
+      "Bash(echo \"MIGRATE_EXIT=$?\")",
+      "Bash(pnpm db:seed)",
+      "Bash(echo \"SEED_EXIT=$?\")",
+      "Bash(awk 'NR>=1198 && NR<=1560 && \\(/<\\\\/Table>/ || /ScreeningProgressPanel/ || /<\\\\/CardContent>/ || /totalPages > 1/ || /^[[:space:]]+\\\\\\)\\\\}/ \\)' src/views/Pipeline.tsx)",
+      "Bash(awk -F: '$1>=1198 && $1<=1600')",
+      "Bash(python3 -)",
+      "Bash(git rm *)",
+      "Bash(python3 -c \"import json; e=json.load\\(open\\('drizzle/migrations/meta/_journal.json'\\)\\)['entries']; print\\('\\\\n'.join\\(f\\\\\"{x['idx']} {x['tag']} when={x['when']}\\\\\" for x in e[-3:]\\)\\)\")"
     ]
   }
 }

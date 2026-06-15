@@ -400,6 +400,20 @@
       "when": 1781136001000,
       "tag": "20260611000001_employer_related_companies",
       "breakpoints": true
+    },
+    {
+      "idx": 57,
+      "version": "7",
+      "when": 1781308800000,
+      "tag": "20260613000000_add_inbound_pipeline_fields",
+      "breakpoints": true
+    },
+    {
+      "idx": 58,
+      "version": "7",
+      "when": 1781308801000,
+      "tag": "20260613000001_add_outbound_pipeline_fields",
+      "breakpoints": true
     }
   ]
 }

@@ -27,6 +27,15 @@ function makeCompany(overrides: Partial<Tables<'companies'>> = {}): Tables<'comp
     dropped_reason: null,
     dropped_at: null,
     promoted_reasons: null,
+    deal_type: null,
+    originator: null,
+    last_activity_at: null,
+    banker: null,
+    doc_type: null,
+    stake: null,
+    deal_size: null,
+    workflow_status: null,
+    key_rationale: null,
     ...overrides,
   };
 }
@@ -117,6 +126,111 @@ describe('splitCompanyDTO – project_name', () => {
   it('preserves null project_name in the company write fragment', () => {
     const result = splitCompanyDTO({ project_name: null });
     expect(result.company.project_name).toBeNull();
+  });
+});
+
+describe('toCompanyDTO – inbound pipeline fields', () => {
+  it('passes through the new inbound fields when set', () => {
+    const dto = toCompanyDTO(
+      makeCompany({
+        deal_type: 'majority',
+        originator: 'JW',
+        last_activity_at: '2026-06-10T00:00:00Z',
+        banker: 'Goldman Sachs',
+        doc_type: 'teaser',
+        stake: '60%',
+        deal_size: '$95M',
+        workflow_status: 'Teaser review',
+      }),
+      [],
+      [],
+      null,
+    );
+    expect(dto.deal_type).toBe('majority');
+    expect(dto.originator).toBe('JW');
+    expect(dto.last_activity_at).toBe('2026-06-10T00:00:00Z');
+    expect(dto.banker).toBe('Goldman Sachs');
+    expect(dto.doc_type).toBe('teaser');
+    expect(dto.stake).toBe('60%');
+    expect(dto.deal_size).toBe('$95M');
+    expect(dto.workflow_status).toBe('Teaser review');
+  });
+
+  it('defaults the new inbound fields to null', () => {
+    const dto = toCompanyDTO(makeCompany(), [], [], null);
+    expect(dto.deal_type).toBeNull();
+    expect(dto.originator).toBeNull();
+    expect(dto.last_activity_at).toBeNull();
+    expect(dto.banker).toBeNull();
+    expect(dto.doc_type).toBeNull();
+    expect(dto.stake).toBeNull();
+    expect(dto.deal_size).toBeNull();
+    expect(dto.workflow_status).toBeNull();
+  });
+});
+
+describe('splitCompanyDTO – inbound pipeline fields', () => {
+  it('routes the new inbound fields into the company write fragment', () => {
+    const result = splitCompanyDTO({
+      deal_type: 'minority',
+      originator: 'NK',
+      last_activity_at: '2026-06-12T00:00:00Z',
+      banker: 'JP Morgan',
+      doc_type: 'market_study',
+      stake: '25%',
+      deal_size: '$48M',
+      workflow_status: 'NDA pending',
+    });
+    expect(result.company.deal_type).toBe('minority');
+    expect(result.company.originator).toBe('NK');
+    expect(result.company.last_activity_at).toBe('2026-06-12T00:00:00Z');
+    expect(result.company.banker).toBe('JP Morgan');
+    expect(result.company.doc_type).toBe('market_study');
+    expect(result.company.stake).toBe('25%');
+    expect(result.company.deal_size).toBe('$48M');
+    expect(result.company.workflow_status).toBe('NDA pending');
+  });
+
+  it('preserves explicit null (clearing a field) and skips undefined', () => {
+    const result = splitCompanyDTO({ workflow_status: null });
+    expect(result.company.workflow_status).toBeNull();
+    expect('banker' in result.company).toBe(false);
+  });
+});
+
+describe('toCompanyDTO – outbound pipeline fields', () => {
+  it('passes through the new outbound fields when set', () => {
+    const dto = toCompanyDTO(
+      makeCompany({
+        key_rationale: 'Dominant supplier; strong strategic adjacency.',
+        workflow_status: 'Discussions ongoing',
+      }),
+      [],
+      [],
+      null,
+    );
+    expect(dto.key_rationale).toBe('Dominant supplier; strong strategic adjacency.');
+    expect(dto.workflow_status).toBe('Discussions ongoing');
+  });
+
+  it('defaults the new outbound fields to null', () => {
+    const dto = toCompanyDTO(makeCompany(), [], [], null);
+    expect(dto.key_rationale).toBeNull();
+  });
+});
+
+describe('splitCompanyDTO – outbound pipeline fields', () => {
+  it('routes the new outbound fields into the company write fragment', () => {
+    const result = splitCompanyDTO({
+      key_rationale: 'Niche IC packaging; high margin.',
+    });
+    expect(result.company.key_rationale).toBe('Niche IC packaging; high margin.');
+  });
+
+  it('preserves explicit null and skips undefined for outbound fields', () => {
+    const result = splitCompanyDTO({ key_rationale: null });
+    expect(result.company.key_rationale).toBeNull();
+    expect('banker' in result.company).toBe(false);
   });
 });
 

@@ -62,6 +62,7 @@ import {
   Star,
   Trash2,
   RotateCcw,
+  Pencil,
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -85,6 +86,13 @@ import PromoteDialog from "@/components/pipeline/PromoteDialog";
 import { DealStage, L1Status } from "@/lib/types";
 import { formatDistanceToNow } from "date-fns";
 import CompanyDetailDialog from "@/components/pipeline/CompanyDetailDialog";
+import UpdateCompanyDialog from "@/components/pipeline/UpdateCompanyDialog";
+import InboundCompaniesTable from "@/components/pipeline/InboundCompaniesTable";
+import OutboundCompaniesTable from "@/components/pipeline/OutboundCompaniesTable";
+import {
+  DEFAULT_INBOUND_STATUS_OPTIONS,
+  DEFAULT_OUTBOUND_STATUS_OPTIONS,
+} from "@/components/pipeline/StatusCombobox";
 import AIScreeningDialog from "@/components/pipeline/AIScreeningDialog";
 import MarketScreeningStatus from "@/components/pipeline/MarketScreeningStatus";
 import MarketScreeningResults from "@/components/pipeline/MarketScreeningResults";
@@ -102,11 +110,12 @@ import {
   runCompanyL1Filters,
   dropDeal,
   restoreDeal,
+  updateCompany,
 } from "@/lib/api/pipeline";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 
-interface PipelineCompany {
+export interface PipelineCompany {
   id: string;
   target: string;
   project_name: string | null;
@@ -138,6 +147,15 @@ interface PipelineCompany {
   promoted_reasons: string | null;
   ownership: string | null;
   geography: string | null;
+  deal_type: string | null;
+  originator: string | null;
+  last_activity_at: string | null;
+  banker: string | null;
+  doc_type: string | null;
+  stake: string | null;
+  deal_size: string | null;
+  workflow_status: string | null;
+  key_rationale: string | null;
   financials_raw?: import('@/lib/repositories').Tables<'company_financials'>[];
 }
 
@@ -296,8 +314,10 @@ export default function Pipeline({ showCrm = false, showAiWorkforce = false }: P
   // Sector filter
   const [sectorFilter, setSectorFilter] = useState<string>("all");
 
-  // Source filter
-  const [sourceFilter, setSourceFilter] = useState<string>("all");
+  // Source sub-tab (inbound / outbound)
+  const [sourceFilter, setSourceFilter] = useState<"inbound" | "outbound">(
+    "inbound",
+  );
 
   // Favorites state
   const [favoriteIds, setFavoriteIds] = useState<Set<string>>(new Set());
@@ -312,6 +332,10 @@ export default function Pipeline({ showCrm = false, showAiWorkforce = false }: P
   const [promotingCompany, setPromotingCompany] =
     useState<PipelineCompany | null>(null);
   const [dialogMode, setDialogMode] = useState<"promote" | "demote">("promote");
+
+  // Update company dialog state
+  const [editingCompany, setEditingCompany] =
+    useState<PipelineCompany | null>(null);
 
   // Drop deal dialog state
   const [dropDealCompany, setDropDealCompany] =
@@ -368,6 +392,15 @@ export default function Pipeline({ showCrm = false, showAiWorkforce = false }: P
           promoted_reasons: company.promoted_reasons ?? null,
           ownership: company.ownership ?? null,
           geography: company.geography ?? null,
+          deal_type: company.deal_type ?? null,
+          originator: company.originator ?? null,
+          last_activity_at: company.last_activity_at ?? null,
+          banker: company.banker ?? null,
+          doc_type: company.doc_type ?? null,
+          stake: company.stake ?? null,
+          deal_size: company.deal_size ?? null,
+          workflow_status: company.workflow_status ?? null,
+          key_rationale: company.key_rationale ?? null,
           financials_raw: company.financials_raw,
         })) || [];
 
@@ -460,7 +493,7 @@ export default function Pipeline({ showCrm = false, showAiWorkforce = false }: P
   // Reset page when filters change
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchQuery, sectorFilter, l1StatusFilter, activeTab, viewMode]);
+  }, [searchQuery, sectorFilter, l1StatusFilter, activeTab, viewMode, sourceFilter]);
 
   // Get unique sectors for filter
   const uniqueSectors = [
@@ -469,6 +502,37 @@ export default function Pipeline({ showCrm = false, showAiWorkforce = false }: P
 
   const isDropped = (c: PipelineCompany) => c.status === "dropped";
   const isActive = (c: PipelineCompany) => !isDropped(c);
+
+  // Workflow status options: per-source defaults ∪ distinct values already
+  // saved on the single `workflow_status` column.
+  const savedStatuses = companies
+    .map((c) => c.workflow_status)
+    .filter((s): s is string => !!s && s.trim() !== "");
+  const inboundStatusOptions = [
+    ...new Set([...DEFAULT_INBOUND_STATUS_OPTIONS, ...savedStatuses]),
+  ];
+  const outboundStatusOptions = [
+    ...new Set([...DEFAULT_OUTBOUND_STATUS_OPTIONS, ...savedStatuses]),
+  ];
+
+  // Persist a free-text workflow status change, optimistically first.
+  const handleStatusChange = async (
+    company: PipelineCompany,
+    next: string,
+  ) => {
+    setCompanies((prev) =>
+      prev.map((c) =>
+        c.id === company.id ? { ...c, workflow_status: next } : c,
+      ),
+    );
+    try {
+      await updateCompany(company.id, { workflow_status: next });
+    } catch (err: any) {
+      console.error("Failed to update status:", err);
+      toast.error("Failed to update status");
+      fetchCompanies({ silent: true });
+    }
+  };
 
   const filteredCompanies = companies.filter((company) => {
     const matchesStage = company.pipeline_stage === activeTab;
@@ -482,8 +546,7 @@ export default function Pipeline({ showCrm = false, showAiWorkforce = false }: P
       company.l1_screening_result === l1StatusFilter;
     const matchesSector =
       sectorFilter === "all" || company.segment === sectorFilter;
-    const matchesSource =
-      sourceFilter === "all" || company.source === sourceFilter;
+    const matchesSource = company.source === sourceFilter;
     const matchesView =
       viewMode === "dropped" ? isDropped(company) : isActive(company);
     return (
@@ -643,6 +706,30 @@ export default function Pipeline({ showCrm = false, showAiWorkforce = false }: P
     companies.filter((c) => c.pipeline_stage === stage && isActive(c)).length;
   const droppedStageCount = (stage: DealStage) =>
     companies.filter((c) => c.pipeline_stage === stage && isDropped(c)).length;
+  const sourceCount = (stage: DealStage, src: "inbound" | "outbound") =>
+    companies.filter(
+      (c) =>
+        c.pipeline_stage === stage &&
+        c.source === src &&
+        (viewMode === "dropped" ? isDropped(c) : isActive(c)),
+    ).length;
+
+  // "New" = recently added (created within the last NEW_WINDOW_DAYS days).
+  const NEW_WINDOW_DAYS = 7;
+  const isRecentlyAdded = (c: PipelineCompany) => {
+    if (!c.created_at) return false;
+    const created = new Date(c.created_at).getTime();
+    if (Number.isNaN(created)) return false;
+    return Date.now() - created <= NEW_WINDOW_DAYS * 86_400_000;
+  };
+  const sourceNewCount = (stage: DealStage, src: "inbound" | "outbound") =>
+    companies.filter(
+      (c) =>
+        c.pipeline_stage === stage &&
+        c.source === src &&
+        (viewMode === "dropped" ? isDropped(c) : isActive(c)) &&
+        isRecentlyAdded(c),
+    ).length;
 
   const handleRestoreDeal = async (company: PipelineCompany) => {
     try {
@@ -692,6 +779,77 @@ export default function Pipeline({ showCrm = false, showAiWorkforce = false }: P
           {droppedStageCount(stage)}
         </span>
       </button>
+    </div>
+  );
+
+  const SOURCE_TABS: {
+    value: "inbound" | "outbound";
+    label: string;
+    dot: string;
+    activeText: string;
+    activeBorder: string;
+    badge: string;
+  }[] = [
+    {
+      value: "inbound",
+      label: "Inbound",
+      dot: "bg-blue-600",
+      activeText: "text-blue-700",
+      activeBorder: "border-blue-700",
+      badge: "bg-blue-100 text-blue-700",
+    },
+    {
+      value: "outbound",
+      label: "Outbound",
+      dot: "bg-amber-600",
+      activeText: "text-amber-700",
+      activeBorder: "border-amber-700",
+      badge: "bg-amber-100 text-amber-700",
+    },
+  ];
+
+  const renderSourceTabs = (stage: DealStage) => (
+    <div className="flex items-stretch gap-1 border-b mb-4">
+      {SOURCE_TABS.map((t) => {
+        const active = sourceFilter === t.value;
+        const newCount = sourceNewCount(stage, t.value);
+        return (
+          <button
+            key={t.value}
+            type="button"
+            onClick={() => {
+              setSourceFilter(t.value);
+              setSelectedIds(new Set());
+              setCurrentPage(1);
+            }}
+            className={cn(
+              "flex items-center gap-2 px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-all",
+              active
+                ? cn(t.activeText, t.activeBorder)
+                : "text-muted-foreground border-transparent hover:text-foreground",
+            )}
+          >
+            <span className={cn("h-1.5 w-1.5 rounded-full", t.dot)} />
+            {t.label}
+            <span
+              className={cn(
+                "rounded-full px-1.5 py-0.5 text-xs font-semibold",
+                active ? t.badge : "bg-muted text-muted-foreground",
+              )}
+            >
+              {sourceCount(stage, t.value)}
+            </span>
+            {newCount > 0 && (
+              <span
+                className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-bold text-amber-700"
+                title={`${newCount} added in the last ${NEW_WINDOW_DAYS} days`}
+              >
+                {newCount} new
+              </span>
+            )}
+          </button>
+        );
+      })}
     </div>
   );
 
@@ -940,25 +1098,6 @@ export default function Pipeline({ showCrm = false, showAiWorkforce = false }: P
                                   ))}
                                 </SelectContent>
                               </Select>
-                              <Select
-                                value={sourceFilter}
-                                onValueChange={(v) => setSourceFilter(v as any)}
-                              >
-                                <SelectTrigger className="w-40">
-                                  <SelectValue placeholder="Source" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  <SelectItem value="all">
-                                    All Sources
-                                  </SelectItem>
-                                  <SelectItem value="inbound">
-                                    Inbound
-                                  </SelectItem>
-                                  <SelectItem value="outbound">
-                                    Outbound
-                                  </SelectItem>
-                                </SelectContent>
-                              </Select>
                             </div>
                             <div className="flex items-center gap-1.5 text-xs text-muted-foreground mb-4">
                               <Lightbulb className="h-3.5 w-3.5 text-amber-500 shrink-0" />
@@ -981,6 +1120,8 @@ export default function Pipeline({ showCrm = false, showAiWorkforce = false }: P
 
                             {renderViewToggle("L0")}
 
+                            {renderSourceTabs("L0")}
+
                             {loading ? (
                               <div className="flex items-center justify-center py-12">
                                 <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
@@ -990,336 +1131,119 @@ export default function Pipeline({ showCrm = false, showAiWorkforce = false }: P
                                 <Building2 className="h-12 w-12 mb-4 opacity-50" />
                                 <p>No companies in this stage</p>
                               </div>
+                            ) : sourceFilter === "inbound" ? (
+                              <>
+                                <div className="overflow-x-auto">
+                                  <InboundCompaniesTable
+                                    companies={paginatedCompanies}
+                                    viewMode={viewMode}
+                                    favoriteIds={favoriteIds}
+                                    togglingFavorite={togglingFavorite}
+                                    onToggleFavorite={handleToggleFavorite}
+                                    selectedIds={selectedIds}
+                                    onToggleSelect={toggleSelect}
+                                    updatingCompanyIds={updatingCompanyIds}
+                                    statusOptions={inboundStatusOptions}
+                                    sortField={sortField}
+                                    sortDirection={sortDirection}
+                                    onSort={toggleSort}
+                                    onOpenDetail={(company) => {
+                                      posthog.capture("company_detail_viewed", {
+                                        company_id: company.id,
+                                        company_name: company.target,
+                                        pipeline_stage: company.pipeline_stage,
+                                      });
+                                      setSelectedCompany(company);
+                                    }}
+                                    onStatusChange={handleStatusChange}
+                                    onUpdate={(company) =>
+                                      setEditingCompany(company)
+                                    }
+                                    onPromote={(company) => {
+                                      setDialogMode("promote");
+                                      setPromotingCompany(company);
+                                      setPromoteDialogOpen(true);
+                                    }}
+                                    onDrop={(company) =>
+                                      setDropDealCompany(company)
+                                    }
+                                    onRestore={handleRestoreDeal}
+                                  />
+                                </div>
+                                {totalPages > 1 && (
+                                  <div className="flex items-center justify-between mt-4 pt-4 border-t">
+                                    <p className="text-sm text-muted-foreground">
+                                      Page {currentPage} of {totalPages} (
+                                      {sortedCompanies.length} companies)
+                                    </p>
+                                    <div className="flex items-center gap-2">
+                                      <Button
+                                        variant="outline"
+                                        size="sm"
+                                        onClick={() =>
+                                          setCurrentPage((p) =>
+                                            Math.max(1, p - 1),
+                                          )
+                                        }
+                                        disabled={currentPage === 1}
+                                      >
+                                        <ChevronLeft className="h-4 w-4" />
+                                      </Button>
+                                      <Button
+                                        variant="outline"
+                                        size="sm"
+                                        onClick={() =>
+                                          setCurrentPage((p) =>
+                                            Math.min(totalPages, p + 1),
+                                          )
+                                        }
+                                        disabled={currentPage === totalPages}
+                                      >
+                                        <ChevronRight className="h-4 w-4" />
+                                      </Button>
+                                    </div>
+                                  </div>
+                                )}
+                              </>
                             ) : (
                               <>
                                 <div className="overflow-x-auto">
-                                  <Table>
-                                    <TableHeader>
-                                      <TableRow>
-                                        <TableHead className="w-[40px]"></TableHead>
-                                        <TableHead className="w-[50px]">
-                                          Select
-                                        </TableHead>
-                                        <TableHead>
-                                          <button
-                                            onClick={() => toggleSort("name")}
-                                            className="flex items-center hover:text-foreground transition-colors"
-                                          >
-                                            Company
-                                            <SortIcon field="name" />
-                                          </button>
-                                        </TableHead>
-                                        <TableHead>Project</TableHead>
-                                        <TableHead>
-                                          <button
-                                            onClick={() => toggleSort("sector")}
-                                            className="flex items-center hover:text-foreground transition-colors"
-                                          >
-                                            Sector
-                                            <SortIcon field="sector" />
-                                          </button>
-                                        </TableHead>
-                                        <TableHead>Geo</TableHead>
-                                        <TableHead>PIC</TableHead>
-                                        <TableHead>Created</TableHead>
-                                        <TableHead className="text-right">
-                                          Revenue 2023
-                                        </TableHead>
-                                        <TableHead className="text-right">
-                                          Revenue 2024
-                                        </TableHead>
-                                        <TableHead className="text-right">
-                                          <button
-                                            onClick={() =>
-                                              toggleSort("revenue")
-                                            }
-                                            className="flex items-center justify-end w-full hover:text-foreground transition-colors"
-                                          >
-                                            Revenue 2025
-                                            <SortIcon field="revenue" />
-                                          </button>
-                                        </TableHead>
-                                        <TableHead className="text-right">
-                                          EBITDA 2023
-                                        </TableHead>
-                                        <TableHead className="text-right">
-                                          EBITDA 2024
-                                        </TableHead>
-                                        <TableHead className="text-right">
-                                          <button
-                                            onClick={() => toggleSort("ebitda")}
-                                            className="flex items-center justify-end w-full hover:text-foreground transition-colors"
-                                          >
-                                            EBITDA 2025
-                                            <SortIcon field="ebitda" />
-                                          </button>
-                                        </TableHead>
-                                        <TableHead className="text-right">
-                                          <button
-                                            onClick={() =>
-                                              toggleSort("valuation")
-                                            }
-                                            className="flex items-center justify-end w-full hover:text-foreground transition-colors"
-                                          >
-                                            Valuation
-                                            <SortIcon field="valuation" />
-                                          </button>
-                                        </TableHead>
-                                        <TableHead className="text-center">
-                                          Source
-                                        </TableHead>
-                                        <TableHead className="text-right">
-                                          Actions
-                                        </TableHead>
-                                      </TableRow>
-                                    </TableHeader>
-                                    <TableBody>
-                                      {paginatedCompanies.map((company) => {
-                                        const isFav = favoriteIds.has(
-                                          company.id,
-                                        );
-                                        const isUpdating =
-                                          updatingCompanyIds.has(company.id);
-                                        return (
-                                          <TableRow
-                                            key={company.id}
-                                            className={cn(
-                                              "transition-colors",
-                                              isFav
-                                                ? "bg-amber-50/60 dark:bg-amber-900/10 hover:bg-amber-100/60 dark:hover:bg-amber-900/20"
-                                                : "hover:bg-muted/50",
-                                              isUpdating &&
-                                                "animate-pulse opacity-60",
-                                            )}
-                                          >
-                                            <TableCell className="pr-0">
-                                              <button
-                                                onClick={() =>
-                                                  handleToggleFavorite(
-                                                    company.id,
-                                                  )
-                                                }
-                                                disabled={
-                                                  togglingFavorite ===
-                                                  company.id
-                                                }
-                                                className={cn(
-                                                  "p-1 rounded-md transition-colors",
-                                                  isFav
-                                                    ? "text-amber-500 hover:text-amber-600"
-                                                    : "text-muted-foreground/40 hover:text-amber-400",
-                                                )}
-                                              >
-                                                <Star
-                                                  className={cn(
-                                                    "h-4 w-4",
-                                                    isFav && "fill-current",
-                                                  )}
-                                                />
-                                              </button>
-                                            </TableCell>
-                                            <TableCell>
-                                              <Checkbox
-                                                checked={selectedIds.has(
-                                                  company.id,
-                                                )}
-                                                onCheckedChange={() => {
-                                                  const newSet = new Set(
-                                                    selectedIds,
-                                                  );
-                                                  if (newSet.has(company.id)) {
-                                                    newSet.delete(company.id);
-                                                  } else {
-                                                    newSet.add(company.id);
-                                                  }
-                                                  setSelectedIds(newSet);
-                                                }}
-                                              />
-                                            </TableCell>
-                                            <TableCell>
-                                              {company.target ? (
-                                                <button
-                                                  onClick={() => {
-                                                    posthog.capture(
-                                                      "company_detail_viewed",
-                                                      {
-                                                        company_id: company.id,
-                                                        company_name: company.target,
-                                                        pipeline_stage: company.pipeline_stage,
-                                                      },
-                                                    );
-                                                    setSelectedCompany(company);
-                                                  }}
-                                                  className="font-medium text-left hover:text-primary hover:underline transition-colors"
-                                                >
-                                                  {company.target}
-                                                </button>
-                                              ) : (
-                                                <span className="text-muted-foreground">—</span>
-                                              )}
-                                            </TableCell>
-                                            <TableCell>
-                                              {company.project_name ? (
-                                                <button
-                                                  onClick={() => {
-                                                    posthog.capture(
-                                                      "company_detail_viewed",
-                                                      {
-                                                        company_id: company.id,
-                                                        company_name: company.target,
-                                                        pipeline_stage: company.pipeline_stage,
-                                                      },
-                                                    );
-                                                    setSelectedCompany(company);
-                                                  }}
-                                                  className="font-medium text-left hover:text-primary hover:underline transition-colors"
-                                                >
-                                                  {company.project_name}
-                                                </button>
-                                              ) : (
-                                                <span className="text-muted-foreground">—</span>
-                                              )}
-                                            </TableCell>
-                                            <TableCell>
-                                              <span className="text-muted-foreground">
-                                                {company.segment}
-                                              </span>
-                                            </TableCell>
-                                            <TableCell>
-                                              <span className="text-sm text-muted-foreground">
-                                                {company.geo || "-"}
-                                              </span>
-                                            </TableCell>
-                                            <TableCell>
-                                              <span className="text-sm text-muted-foreground">
-                                                {company.pic || "-"}
-                                              </span>
-                                            </TableCell>
-                                            <TableCell className="text-muted-foreground text-sm whitespace-nowrap">
-                                              {company.created_at
-                                                ? new Date(company.created_at).toLocaleDateString(
-                                                    undefined,
-                                                    { year: "numeric", month: "short", day: "numeric" },
-                                                  )
-                                                : "-"}
-                                            </TableCell>
-                                            <TableCell className="text-right font-mono">
-                                              {formatCurrency(
-                                                company.revenue_2023_usd_mn,
-                                              )}
-                                            </TableCell>
-                                            <TableCell className="text-right font-mono">
-                                              {formatCurrency(
-                                                company.revenue_2024_usd_mn,
-                                              )}
-                                            </TableCell>
-                                            <TableCell className="text-right font-mono">
-                                              {formatCurrency(
-                                                company.revenue_2025_usd_mn,
-                                              )}
-                                            </TableCell>
-                                            <TableCell className="text-right font-mono">
-                                              {formatCurrency(
-                                                company.ebitda_2023_usd_mn,
-                                              )}
-                                            </TableCell>
-                                            <TableCell className="text-right font-mono">
-                                              {formatCurrency(
-                                                company.ebitda_2024_usd_mn,
-                                              )}
-                                            </TableCell>
-                                            <TableCell className="text-right font-mono">
-                                              {formatCurrency(
-                                                company.ebitda_2025_usd_mn,
-                                              )}
-                                            </TableCell>
-                                            <TableCell className="text-right font-mono">
-                                              {formatCurrency(company.ev_2024)}
-                                            </TableCell>
-                                            <TableCell className="text-center">
-                                              {company.source ? (
-                                                <Badge
-                                                  variant="secondary"
-                                                  className={
-                                                    company.source === "inbound"
-                                                      ? "bg-emerald-500/20 text-emerald-600 hover:bg-emerald-500/30 capitalize"
-                                                      : "bg-blue-500/20 text-blue-600 hover:bg-blue-500/30 capitalize"
-                                                  }
-                                                >
-                                                  {company.source}
-                                                </Badge>
-                                              ) : (
-                                                <span className="text-muted-foreground">
-                                                  -
-                                                </span>
-                                              )}
-                                            </TableCell>
-                                            <TableCell className="text-right">
-                                              <DropdownMenu>
-                                                <DropdownMenuTrigger asChild>
-                                                  <Button
-                                                    variant="outline"
-                                                    size="sm"
-                                                    className="h-7 gap-1"
-                                                  >
-                                                    Actions
-                                                    <ChevronDown className="h-3 w-3" />
-                                                  </Button>
-                                                </DropdownMenuTrigger>
-                                                <DropdownMenuContent align="end">
-                                                  {viewMode === "dropped" ? (
-                                                    <DropdownMenuItem
-                                                      onClick={() =>
-                                                        handleRestoreDeal(
-                                                          company,
-                                                        )
-                                                      }
-                                                    >
-                                                      <RotateCcw className="mr-2 h-4 w-4" />
-                                                      Restore deal
-                                                    </DropdownMenuItem>
-                                                  ) : (
-                                                    <>
-                                                      <DropdownMenuItem
-                                                        onClick={() => {
-                                                          setDialogMode(
-                                                            "promote",
-                                                          );
-                                                          setPromotingCompany(
-                                                            company,
-                                                          );
-                                                          setPromoteDialogOpen(
-                                                            true,
-                                                          );
-                                                        }}
-                                                      >
-                                                        <ArrowRight className="mr-2 h-4 w-4" />
-                                                        Promote to L1
-                                                      </DropdownMenuItem>
-                                                      <DropdownMenuSeparator />
-                                                      <DropdownMenuItem
-                                                        onClick={() =>
-                                                          setDropDealCompany(
-                                                            company,
-                                                          )
-                                                        }
-                                                        className="text-destructive focus:text-destructive"
-                                                      >
-                                                        <Trash2 className="mr-2 h-4 w-4 text-destructive" />
-                                                        Drop deal
-                                                      </DropdownMenuItem>
-                                                    </>
-                                                  )}
-                                                </DropdownMenuContent>
-                                              </DropdownMenu>
-                                            </TableCell>
-                                          </TableRow>
-                                        );
-                                      })}
-                                    </TableBody>
-                                  </Table>
+                                  <OutboundCompaniesTable
+                                    companies={paginatedCompanies}
+                                    viewMode={viewMode}
+                                    favoriteIds={favoriteIds}
+                                    togglingFavorite={togglingFavorite}
+                                    onToggleFavorite={handleToggleFavorite}
+                                    selectedIds={selectedIds}
+                                    onToggleSelect={toggleSelect}
+                                    updatingCompanyIds={updatingCompanyIds}
+                                    statusOptions={outboundStatusOptions}
+                                    sortField={sortField}
+                                    sortDirection={sortDirection}
+                                    onSort={toggleSort}
+                                    onOpenDetail={(company) => {
+                                      posthog.capture("company_detail_viewed", {
+                                        company_id: company.id,
+                                        company_name: company.target,
+                                        pipeline_stage: company.pipeline_stage,
+                                      });
+                                      setSelectedCompany(company);
+                                    }}
+                                    onStatusChange={handleStatusChange}
+                                    onUpdate={(company) =>
+                                      setEditingCompany(company)
+                                    }
+                                    onPromote={(company) => {
+                                      setDialogMode("promote");
+                                      setPromotingCompany(company);
+                                      setPromoteDialogOpen(true);
+                                    }}
+                                    onDrop={(company) =>
+                                      setDropDealCompany(company)
+                                    }
+                                    onRestore={handleRestoreDeal}
+                                  />
                                 </div>
-
                                 {totalPages > 1 && (
                                   <div className="flex items-center justify-between mt-4 pt-4 border-t">
                                     <p className="text-sm text-muted-foreground">
@@ -1445,6 +1369,8 @@ export default function Pipeline({ showCrm = false, showAiWorkforce = false }: P
                       </div>
 
                       {renderViewToggle(stage)}
+
+                      {renderSourceTabs(stage)}
 
                       {/* Table for L1-L5 stages */}
                       {loading ? (
@@ -1710,6 +1636,15 @@ export default function Pipeline({ showCrm = false, showAiWorkforce = false }: P
                                               </Button>
                                             </DropdownMenuTrigger>
                                             <DropdownMenuContent align="end">
+                                              <DropdownMenuItem
+                                                onClick={() =>
+                                                  setEditingCompany(company)
+                                                }
+                                              >
+                                                <Pencil className="mr-2 h-4 w-4" />
+                                                Update
+                                              </DropdownMenuItem>
+                                              <DropdownMenuSeparator />
                                               {viewMode === "dropped" ? (
                                                 <DropdownMenuItem
                                                   onClick={() =>
@@ -1842,6 +1777,20 @@ export default function Pipeline({ showCrm = false, showAiWorkforce = false }: P
             open={!!selectedCompany}
             onOpenChange={(open) => !open && setSelectedCompany(null)}
             onUpdate={() => refetchAfterCompanyUpdate(selectedCompany.id)}
+          />
+        )}
+
+        {editingCompany && (
+          <UpdateCompanyDialog
+            company={editingCompany}
+            open={!!editingCompany}
+            onOpenChange={(open) => !open && setEditingCompany(null)}
+            onUpdate={() => refetchAfterCompanyUpdate(editingCompany.id)}
+            statusOptions={
+              editingCompany.source === "outbound"
+                ? outboundStatusOptions
+                : inboundStatusOptions
+            }
           />
         )}
 

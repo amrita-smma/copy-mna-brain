@@ -79,6 +79,11 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import UserCombobox from "@/components/pipeline/UserCombobox";
+import StatusCombobox, {
+  DEFAULT_INBOUND_STATUS_OPTIONS,
+  DEFAULT_OUTBOUND_STATUS_OPTIONS,
+} from "@/components/pipeline/StatusCombobox";
+import { normalizeStake } from "@/lib/stake";
 
 const OWNERSHIP_OPTIONS = [
   "Public",
@@ -96,6 +101,13 @@ const getStageLabel = (stage: string | null): string => {
 
 const websiteHref = (url: string) =>
   /^https?:\/\//i.test(url) ? url : `https://${url}`;
+
+/** timestamptz ISO string -> YYYY-MM-DD for <input type="date">. */
+const isoToDateInput = (iso: string | null | undefined): string => {
+  if (!iso) return "";
+  const d = new Date(iso);
+  return isNaN(d.getTime()) ? "" : d.toISOString().split("T")[0];
+};
 import {
   BarChart,
   Bar,
@@ -139,6 +151,15 @@ export interface CompanyData {
   promoted_reasons?: string | null;
   ownership: string | null;
   geography: string | null;
+  deal_type?: string | null;
+  originator?: string | null;
+  last_activity_at?: string | null;
+  banker?: string | null;
+  doc_type?: string | null;
+  stake?: string | null;
+  deal_size?: string | null;
+  workflow_status?: string | null;
+  key_rationale?: string | null;
   financials_raw?: Tables<'company_financials'>[];
 }
 
@@ -339,6 +360,16 @@ export default function CompanyDetailDialog({
     pipeline_stage: string;
     ev_2024: string;
     assigneeIds: string[];
+    // Pipeline (HTML-parity) fields
+    deal_type: string;
+    originator: string;
+    last_activity_at: string; // YYYY-MM-DD
+    workflow_status: string;
+    banker: string;
+    doc_type: string;
+    stake: string;
+    deal_size: string;
+    key_rationale: string;
   };
   const [isEditing, setIsEditing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -358,6 +389,15 @@ export default function CompanyDetailDialog({
       pipeline_stage: company.pipeline_stage ?? 'L0',
       ev_2024: company.ev_2024 != null ? String(company.ev_2024) : '',
       assigneeIds: assignees.map((u) => u.id),
+      deal_type: company.deal_type ?? '',
+      originator: company.originator ?? '',
+      last_activity_at: isoToDateInput(company.last_activity_at),
+      workflow_status: company.workflow_status ?? '',
+      banker: company.banker ?? '',
+      doc_type: company.doc_type ?? '',
+      stake: company.stake ?? '',
+      deal_size: company.deal_size ?? '',
+      key_rationale: company.key_rationale ?? '',
     });
     setIsEditing(true);
     if (allUsers.length === 0) {
@@ -422,6 +462,12 @@ export default function CompanyDetailDialog({
         setIsSaving(false);
         return;
       }
+      const stakeResult = normalizeStake(editForm.stake);
+      if ('error' in stakeResult) {
+        toast.error(stakeResult.error);
+        setIsSaving(false);
+        return;
+      }
       await Promise.all([
         updateCompany(company.id, {
           target: editForm.target.trim() || null,
@@ -433,6 +479,17 @@ export default function CompanyDetailDialog({
           segment: editForm.segment.trim() || null,
           pipeline_stage: editForm.pipeline_stage,
           ev_2024: evNum,
+          deal_type: editForm.deal_type || null,
+          originator: editForm.originator.trim() || null,
+          last_activity_at: editForm.last_activity_at
+            ? new Date(editForm.last_activity_at).toISOString()
+            : null,
+          workflow_status: editForm.workflow_status.trim() || null,
+          banker: editForm.banker.trim() || null,
+          doc_type: editForm.doc_type || null,
+          stake: stakeResult.value,
+          deal_size: editForm.deal_size.trim() || null,
+          key_rationale: editForm.key_rationale.trim() || null,
         }),
         setCompanyAssignees(company.id, editForm.assigneeIds),
       ]);
@@ -1353,6 +1410,188 @@ export default function CompanyDetailDialog({
                       <span className="text-sm text-muted-foreground">—</span>
                     )}
                   </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground">Deal Type</p>
+                    {isEditing && editForm ? (
+                      <Select
+                        value={editForm.deal_type || '__none__'}
+                        onValueChange={(v) =>
+                          setEditForm({ ...editForm, deal_type: v === '__none__' ? '' : v })
+                        }
+                        disabled={isSaving}
+                      >
+                        <SelectTrigger className="mt-1 h-7 text-sm">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="__none__">-</SelectItem>
+                          <SelectItem value="majority">Majority</SelectItem>
+                          <SelectItem value="minority">Minority</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    ) : (
+                      <p className="text-sm font-medium capitalize break-words">{company.deal_type || '—'}</p>
+                    )}
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground">Originator</p>
+                    {isEditing && editForm ? (
+                      <div className="mt-1">
+                        <StatusCombobox
+                          value={editForm.originator || null}
+                          options={allUsers
+                            .map((u) => u.name)
+                            .filter((n): n is string => !!n)}
+                          placeholder="Set originator…"
+                          searchPlaceholder="Search or type a name…"
+                          emptyText="No team members found."
+                          onChange={(v) => setEditForm({ ...editForm, originator: v })}
+                          disabled={isSaving}
+                        />
+                      </div>
+                    ) : (
+                      <p className="text-sm font-medium break-words">{company.originator || '—'}</p>
+                    )}
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground">Status</p>
+                    {isEditing && editForm ? (
+                      <div className="mt-1">
+                        <StatusCombobox
+                          value={editForm.workflow_status || null}
+                          options={
+                            company.source === 'outbound'
+                              ? DEFAULT_OUTBOUND_STATUS_OPTIONS
+                              : DEFAULT_INBOUND_STATUS_OPTIONS
+                          }
+                          placeholder={company.source === 'outbound' ? 'Set status…' : 'Unreviewed'}
+                          onChange={(v) => setEditForm({ ...editForm, workflow_status: v })}
+                          disabled={isSaving}
+                        />
+                      </div>
+                    ) : (
+                      <p className="text-sm font-medium break-words">{company.workflow_status || '—'}</p>
+                    )}
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground">Last Activity</p>
+                    {isEditing && editForm ? (
+                      <Input
+                        type="date"
+                        value={editForm.last_activity_at}
+                        onChange={(e) =>
+                          setEditForm({ ...editForm, last_activity_at: e.target.value })
+                        }
+                        disabled={isSaving}
+                        className="mt-1 h-7 text-sm"
+                      />
+                    ) : (
+                      <p className="text-sm font-medium break-words">
+                        {company.last_activity_at
+                          ? format(new Date(company.last_activity_at), 'MMM d, yyyy')
+                          : '—'}
+                      </p>
+                    )}
+                  </div>
+
+                  {company.source !== 'outbound' && (
+                    <>
+                      <div>
+                        <p className="text-xs text-muted-foreground">Banker / Source</p>
+                        {isEditing && editForm ? (
+                          <Input
+                            value={editForm.banker}
+                            onChange={(e) =>
+                              setEditForm({ ...editForm, banker: e.target.value })
+                            }
+                            disabled={isSaving}
+                            className="mt-1 h-7 text-sm"
+                          />
+                        ) : (
+                          <p className="text-sm font-medium break-words">{company.banker || '—'}</p>
+                        )}
+                      </div>
+                      <div>
+                        <p className="text-xs text-muted-foreground">Doc Type</p>
+                        {isEditing && editForm ? (
+                          <Select
+                            value={editForm.doc_type || '__none__'}
+                            onValueChange={(v) =>
+                              setEditForm({ ...editForm, doc_type: v === '__none__' ? '' : v })
+                            }
+                            disabled={isSaving}
+                          >
+                            <SelectTrigger className="mt-1 h-7 text-sm">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="__none__">-</SelectItem>
+                              <SelectItem value="teaser">Teaser</SelectItem>
+                              <SelectItem value="shopping_list">Shopping List</SelectItem>
+                              <SelectItem value="market_study">Market Study</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        ) : (
+                          <p className="text-sm font-medium capitalize break-words">
+                            {company.doc_type ? company.doc_type.replace(/_/g, ' ') : '—'}
+                          </p>
+                        )}
+                      </div>
+                      <div>
+                        <p className="text-xs text-muted-foreground">% Stake</p>
+                        {isEditing && editForm ? (
+                          <Input
+                            value={editForm.stake}
+                            onChange={(e) =>
+                              setEditForm({ ...editForm, stake: e.target.value })
+                            }
+                            placeholder="e.g. 51%"
+                            title="Target ownership percentage being pursued"
+                            disabled={isSaving}
+                            className="mt-1 h-7 text-sm"
+                          />
+                        ) : (
+                          <p className="text-sm font-medium break-words">{company.stake || '—'}</p>
+                        )}
+                      </div>
+                      <div>
+                        <p className="text-xs text-muted-foreground">Deal Size</p>
+                        {isEditing && editForm ? (
+                          <Input
+                            value={editForm.deal_size}
+                            onChange={(e) =>
+                              setEditForm({ ...editForm, deal_size: e.target.value })
+                            }
+                            disabled={isSaving}
+                            className="mt-1 h-7 text-sm"
+                          />
+                        ) : (
+                          <p className="text-sm font-medium break-words">{company.deal_size || '—'}</p>
+                        )}
+                      </div>
+                    </>
+                  )}
+
+                  {company.source === 'outbound' && (
+                    <div className="col-span-2">
+                      <p className="text-xs text-muted-foreground">Key Rationale</p>
+                      {isEditing && editForm ? (
+                        <Textarea
+                          value={editForm.key_rationale}
+                          onChange={(e) =>
+                            setEditForm({ ...editForm, key_rationale: e.target.value })
+                          }
+                          rows={3}
+                          disabled={isSaving}
+                          className="mt-1 text-sm resize-y"
+                        />
+                      ) : (
+                        <p className="text-sm font-medium break-words whitespace-pre-wrap">
+                          {company.key_rationale || '—'}
+                        </p>
+                      )}
+                    </div>
+                  )}
                 </div>
                 {isEditing && editForm && (
                   <div className="mt-4 flex justify-end gap-2">

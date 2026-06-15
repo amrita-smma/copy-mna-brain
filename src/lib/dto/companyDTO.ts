@@ -46,6 +46,17 @@ export interface CompanyDTO {
   dropped_at: string | null;
   promoted_reasons: string | null;
 
+  // ---- Pipeline (HTML-parity) fields ----
+  deal_type: string | null;
+  originator: string | null;
+  last_activity_at: string | null;
+  banker: string | null;
+  doc_type: string | null;
+  stake: string | null;
+  deal_size: string | null;
+  workflow_status: string | null;
+  key_rationale: string | null;
+
   remarks: string | null;
   thesis_content: string | null;
 
@@ -185,6 +196,15 @@ export function toCompanyDTO(
     dropped_reason: company.dropped_reason,
     dropped_at: company.dropped_at,
     promoted_reasons: company.promoted_reasons ?? null,
+    deal_type: company.deal_type ?? null,
+    originator: company.originator ?? null,
+    last_activity_at: company.last_activity_at ?? null,
+    banker: company.banker ?? null,
+    doc_type: company.doc_type ?? null,
+    stake: company.stake ?? null,
+    deal_size: company.deal_size ?? null,
+    workflow_status: company.workflow_status ?? null,
+    key_rationale: company.key_rationale ?? null,
     remarks: company.remarks,
     thesis_content: company.thesis_content,
     created_at: company.created_at,
@@ -310,6 +330,8 @@ export function splitCompanyDTO(dto: CompanyDTOInput): SplitCompanyWrite {
     'entry_id', 'watchlist_id', 'segment', 'target', 'project_name', 'segment_related_offerings',
     'company_focus', 'website', 'watchlist_status', 'comments', 'ownership',
     'geography', 'source', 'status', 'pipeline_stage', 'remarks', 'thesis_content',
+    'deal_type', 'originator', 'last_activity_at', 'banker', 'doc_type', 'stake',
+    'deal_size', 'workflow_status', 'key_rationale',
   ] as const;
   for (const k of coreKeys) {
     if (k in dto) {
