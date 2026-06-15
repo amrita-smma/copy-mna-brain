@@ -56,6 +56,8 @@ type TableMap = {
   email_topics: typeof schema.emailTopics;
   email_participants: typeof schema.emailParticipants;
   employer_team_members: typeof schema.employerTeamMembers;
+  employer_related_companies: typeof schema.employerRelatedCompanies;
+  employer_related_company_evidence: typeof schema.employerRelatedCompanyEvidence;
 };
 
 export type Tables<T extends keyof TableMap> = TableMap[T]["$inferSelect"];

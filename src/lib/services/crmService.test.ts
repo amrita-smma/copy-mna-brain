@@ -84,6 +84,17 @@ const correspondentCurationRepo = {
   clear: vi.fn(),
 };
 
+const relatedCompanyRepo = {
+  listForEmployer: vi.fn().mockResolvedValue([]),
+  createManual: vi.fn(),
+  deleteManual: vi.fn(),
+  findByCompanyId: vi.fn().mockResolvedValue([]),
+};
+
+const companyRepo = {
+  findById: vi.fn(),
+};
+
 function makeService(): CRMService {
   return new CRMService(
     employerRepo as never,
@@ -94,6 +105,8 @@ function makeService(): CRMService {
     teamRepo as never,
     employerCurationRepo as never,
     correspondentCurationRepo as never,
+    relatedCompanyRepo as never,
+    companyRepo as never,
   );
 }
 
@@ -145,6 +158,85 @@ describe('CRMService.getEmployerDetail', () => {
     expect(detail.notes).toHaveLength(1);
     expect(detail.topics).toHaveLength(1);
     expect(detail.team).toHaveLength(1);
+  });
+
+  it('collapses auto + manual rows for the same company into one (manual wins, evidence merged)', async () => {
+    employerRepo.findById.mockResolvedValue({ id: 'e1', name: 'GS' });
+    correspondentRepo.findByEmployerId.mockResolvedValue([]);
+    noteRepo.findByEmployerId.mockResolvedValue([]);
+    topicRepo.listForEmployer.mockResolvedValue([]);
+    teamRepo.listForEmployer.mockResolvedValue([]);
+    emailRepo.countByEmployer.mockResolvedValue(0);
+    emailRepo.findByEmployerId.mockResolvedValue([]);
+    relatedCompanyRepo.listForEmployer.mockResolvedValue([
+      {
+        id: 'rc-auto',
+        company_id: 'co-1',
+        normalized_company_name: 'techslurry',
+        source: 'auto',
+        evidence: [{ id: 'ev-1' }],
+      },
+      {
+        id: 'rc-manual',
+        company_id: 'co-1',
+        normalized_company_name: 'techslurry',
+        source: 'manual',
+        evidence: [],
+      },
+    ]);
+
+    const detail = await makeService().getEmployerDetail('e1');
+
+    expect(detail.related_companies).toHaveLength(1);
+    expect(detail.related_companies[0].id).toBe('rc-manual'); // manual wins
+    expect(detail.related_companies[0].evidence).toHaveLength(1); // auto evidence absorbed
+    expect(detail.related_companies[0].evidence_count).toBe(1);
+  });
+});
+
+describe('CRMService.addRelatedCompanyToEmployer', () => {
+  it('links a company from public.companies, snapshotting its target name', async () => {
+    employerRepo.findById.mockResolvedValue({ id: 'e1', name: 'GS' });
+    companyRepo.findById.mockResolvedValue({ id: 'co-1', target: 'TechSlurry Inc.' });
+    relatedCompanyRepo.findByCompanyId.mockResolvedValue([]);
+    relatedCompanyRepo.listForEmployer.mockResolvedValue([]);
+
+    await makeService().addRelatedCompanyToEmployer('e1', 'co-1');
+
+    expect(relatedCompanyRepo.createManual).toHaveBeenCalledWith(
+      expect.objectContaining({
+        employer_id: 'e1',
+        company_id: 'co-1',
+        company_name: 'TechSlurry Inc.',
+        normalized_company_name: 'techslurry', // legal suffix stripped by shared normalizer
+      }),
+    );
+  });
+
+  it('rejects when the company is already linked (auto or manual)', async () => {
+    employerRepo.findById.mockResolvedValue({ id: 'e1', name: 'GS' });
+    companyRepo.findById.mockResolvedValue({ id: 'co-1', target: 'TechSlurry' });
+    relatedCompanyRepo.findByCompanyId.mockResolvedValue([{ id: 'rc-auto' }]);
+
+    await expect(
+      makeService().addRelatedCompanyToEmployer('e1', 'co-1'),
+    ).rejects.toThrow(/already linked/);
+    expect(relatedCompanyRepo.createManual).not.toHaveBeenCalled();
+  });
+
+  it('throws when the company does not exist', async () => {
+    employerRepo.findById.mockResolvedValue({ id: 'e1', name: 'GS' });
+    companyRepo.findById.mockResolvedValue(undefined);
+    await expect(
+      makeService().addRelatedCompanyToEmployer('e1', 'missing'),
+    ).rejects.toThrow(/not found/);
+  });
+});
+
+describe('CRMService.removeRelatedCompanyFromEmployer', () => {
+  it('delegates to the repo hard-delete', async () => {
+    await makeService().removeRelatedCompanyFromEmployer('e1', 'rc-manual');
+    expect(relatedCompanyRepo.deleteManual).toHaveBeenCalledWith('e1', 'rc-manual');
   });
 });
 

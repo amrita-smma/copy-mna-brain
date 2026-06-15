@@ -168,6 +168,7 @@ export interface LlmPayload {
   candidates: Candidate[];
   want_topics: boolean;
   want_names: boolean;
+  want_related_companies: boolean;
 }
 
 export interface EnrichedEmail {
@@ -186,6 +187,7 @@ export interface EnrichedEmail {
 export interface ProcessEmailOptions {
   defaultRegion?: CountryCode;
   bodyChars?: number;
+  wantRelatedCompanies?: boolean;
 }
 
 export function processEmail(rec: ParsedEmail, opts: ProcessEmailOptions = {}): EnrichedEmail {
@@ -255,6 +257,8 @@ export function processEmail(rec: ParsedEmail, opts: ProcessEmailOptions = {}): 
 
   const needsTopic = tagFromDomain === null;
   const needsNames = candidates.length > 0;
+  const wantRelatedCompanies = opts.wantRelatedCompanies ?? false;
+  const needsLlm = needsTopic || needsNames || wantRelatedCompanies;
 
   return {
     message_id: rec.message_id,
@@ -265,16 +269,16 @@ export function processEmail(rec: ParsedEmail, opts: ProcessEmailOptions = {}): 
     cc,
     domain_tag: tagFromDomain,
     candidates,
-    needs_llm: needsTopic || needsNames,
-    llm_payload:
-      needsTopic || needsNames
-        ? {
-            body_snippet: body.slice(0, bodyChars),
-            candidates,
-            want_topics: needsTopic,
-            want_names: needsNames,
-          }
-        : null,
+    needs_llm: needsLlm,
+    llm_payload: needsLlm
+      ? {
+          body_snippet: body.slice(0, bodyChars),
+          candidates,
+          want_topics: needsTopic,
+          want_names: needsNames,
+          want_related_companies: wantRelatedCompanies,
+        }
+      : null,
   };
 }
 

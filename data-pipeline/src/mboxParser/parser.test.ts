@@ -115,6 +115,59 @@ describe('cleanBody', () => {
     const out = cleanBody('A\r\nB\rC');
     expect(out).toBe('A\nB\nC');
   });
+
+  it('preserves forwarded body after Gmail separator', () => {
+    const body = [
+      '---------- Forwarded message ---------',
+      'From: banker@gs.com',
+      'Date: Mon, 9 Jun 2026 10:00:00 +0000',
+      'Subject: TechSlurry acquisition opportunity',
+      'To: me@sqe.co.id',
+      '',
+      'We represent TechSlurry in a sell-side process.',
+    ].join('\n');
+    const out = cleanBody(body);
+    expect(out).toContain('We represent TechSlurry in a sell-side process.');
+    expect(out).not.toContain('banker@gs.com');
+    expect(out).not.toContain('Forwarded message');
+  });
+
+  it('preserves forwarded body after Outlook separator (real example: Fw: Industrial Gas)', () => {
+    const body = [
+      '________________________________',
+      'From: christin.chandra@starcapital.co.id',
+      'Sent: Friday, January 2, 2026 1:59 PM',
+      'To: team@sqe.co.id',
+      'Subject: Case Study Assignment – Industrial Gas Sector',
+      '',
+      'Please find the case study details below.',
+    ].join('\n');
+    const out = cleanBody(body);
+    expect(out).toContain('Please find the case study details below.');
+    expect(out).not.toContain('starcapital.co.id');
+    expect(out).not.toContain('________________________________');
+  });
+
+  it('preserves top note and forwarded body together', () => {
+    const body = [
+      'FYI, this looks interesting.',
+      '',
+      '________________________________',
+      'From: banker@gs.com',
+      'Sent: Friday, January 2, 2026',
+      'Subject: TechSlurry opportunity',
+      '',
+      'We represent TechSlurry in a sell-side process.',
+    ].join('\n');
+    const out = cleanBody(body);
+    expect(out).toContain('FYI, this looks interesting.');
+    expect(out).toContain('We represent TechSlurry in a sell-side process.');
+  });
+
+  it('still stops at "From: ..." in a regular reply context (no forwarding separator)', () => {
+    const out = cleanBody('My reply.\nFrom: someone@x.com\nbody');
+    expect(out).toBe('My reply.');
+  });
 });
 
 describe('extractSignature', () => {

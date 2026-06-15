@@ -21,6 +21,7 @@ import {
   UserCompanyFavoriteRepository,
   EmployerRepository,
   EmployerCurationRepository,
+  EmployerRelatedCompanyRepository,
   CorrespondentRepository,
   CorrespondentCurationRepository,
   EmployerNoteRepository,
@@ -152,6 +153,7 @@ export function createContainer(db: DbClient): Container {
   const employerTeamRepo = new EmployerTeamRepository(db);
   const employerCurationRepo = new EmployerCurationRepository(db);
   const correspondentCurationRepo = new CorrespondentCurationRepository(db);
+  const employerRelatedCompanyRepo = new EmployerRelatedCompanyRepository(db);
   const crmService = new CRMService(
     employerRepo,
     correspondentRepo,
@@ -161,6 +163,8 @@ export function createContainer(db: DbClient): Container {
     employerTeamRepo,
     employerCurationRepo,
     correspondentCurationRepo,
+    employerRelatedCompanyRepo,
+    companyRepo,
   );
 
   const aiWorkforceQueueRepo = new AiWorkforceQueueRepository(db);

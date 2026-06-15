@@ -17,6 +17,7 @@ export interface ExtractFields {
 export interface LlmResultFields {
   topics: string[];
   people: unknown;
+  related_companies?: unknown;
   llm_model: string;
   llm_batch_id: string | null;
 }
@@ -88,6 +89,7 @@ export class RawEmailEnrichmentRepository {
       .set({
         topics: fields.topics,
         people: fields.people as RawEmailEnrichment['people'],
+        related_companies: fields.related_companies as RawEmailEnrichment['related_companies'],
         llm_model: fields.llm_model,
         llm_batch_id: fields.llm_batch_id,
         updated_at: new Date().toISOString(),

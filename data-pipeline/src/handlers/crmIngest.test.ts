@@ -48,6 +48,21 @@ vi.mock('@/lib/repositories', () => ({
     insertParticipantsBatch = mocks.insertParticipantsBatch;
     insertTopicsBatch = mocks.insertTopicsBatch;
   },
+  CompanyRepository: class {
+    findAllIdAndTarget = vi.fn().mockResolvedValue([]);
+    findByNameFuzzy = vi.fn().mockResolvedValue(null);
+  },
+  EmployerRelatedCompanyRepository: class {
+    upsertAuto = vi.fn().mockResolvedValue('rc-1');
+    insertEvidence = vi.fn().mockResolvedValue(undefined);
+    refreshAggregates = vi.fn().mockResolvedValue(undefined);
+  },
+}));
+
+vi.mock('../helpers/matchRelatedCompany', () => ({
+  loadCompanyIndex: vi.fn().mockResolvedValue([]),
+  matchRelatedCompany: vi.fn().mockResolvedValue(null),
+  normalizeCompanyName: (s: string) => s.toLowerCase().trim(),
 }));
 
 vi.mock('../repositories', () => ({
@@ -106,6 +121,10 @@ function makeDb() {
     select: vi.fn().mockReturnThis(),
     from: vi.fn().mockReturnThis(),
     where: vi.fn().mockResolvedValue([]),
+    // Used by the excluded-rows terminal-status update and the
+    // missingMessageIds fallback lookup (both run outside the tx).
+    update: vi.fn().mockReturnThis(),
+    set: vi.fn().mockReturnThis(),
   };
 }
 

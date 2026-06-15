@@ -14,12 +14,13 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { format, formatDistanceToNow } from "date-fns";
-import { ChevronDown, Loader2, Mail } from "lucide-react";
+import { ChevronDown, Loader2, Mail, Plus, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import type {
   EmployerDetail,
   EmployerNote,
+  EmployerRelatedCompany,
   EmployerSummary,
   EmployerTopicAssignment,
   TeamMemberSummary,
@@ -288,6 +289,10 @@ function ExpandedTabs({
           Topics Tag{" "}
           <span className="ml-1 text-xs">({detail.topics.length})</span>
         </TabsTrigger>
+        <TabsTrigger value="related-companies" className={tabTriggerCls}>
+          Related Companies{" "}
+          <span className="ml-1 text-xs">({detail.related_companies.length})</span>
+        </TabsTrigger>
         <TabsTrigger value="notes" className={tabTriggerCls}>
           Notes
         </TabsTrigger>
@@ -361,6 +366,14 @@ function ExpandedTabs({
             onRefreshDetail();
             onRefreshList();
           }}
+        />
+      </TabsContent>
+
+      <TabsContent value="related-companies" className="px-5 pb-5 pt-4">
+        <RelatedCompaniesTab
+          employerId={employerId}
+          companies={detail.related_companies}
+          onChanged={onRefreshDetail}
         />
       </TabsContent>
 
@@ -627,6 +640,280 @@ function NotesTab({
           </ul>
         </div>
       )}
+    </div>
+  );
+}
+
+const CONFIDENCE_BADGE: Record<string, string> = {
+  high: "bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300",
+  medium: "bg-orange-50 text-orange-700 border-orange-200 dark:bg-orange-950/40 dark:text-orange-300",
+  low: "text-muted-foreground",
+};
+
+function RelatedCompaniesTab({
+  employerId,
+  companies,
+  onChanged,
+}: {
+  employerId: string;
+  companies: EmployerRelatedCompany[];
+  onChanged: () => void;
+}) {
+  const [expanded, setExpanded] = useState<string | null>(null);
+  const [removing, setRemoving] = useState<string | null>(null);
+
+  const handleAdd = async (companyId: string) => {
+    const res = await fetch(
+      `/api/crm/employers/${employerId}/related-companies`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ companyId }),
+      },
+    );
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      toast.error(json.error || "Failed to add company");
+      return;
+    }
+    toast.success("Company linked");
+    onChanged();
+  };
+
+  const handleRemove = async (id: string) => {
+    setRemoving(id);
+    const res = await fetch(
+      `/api/crm/employers/${employerId}/related-companies/${id}`,
+      { method: "DELETE" },
+    );
+    setRemoving(null);
+    if (!res.ok) {
+      toast.error("Failed to remove company");
+      return;
+    }
+    toast.success("Company removed");
+    onChanged();
+  };
+
+  return (
+    <div>
+      <div className="mb-3 flex items-center justify-between gap-2">
+        <div className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+          Related Companies ({companies.length})
+        </div>
+        <RelatedCompanyPicker onSelect={handleAdd} />
+      </div>
+      {companies.length === 0 ? (
+        <div className="py-6 text-sm text-muted-foreground">
+          No related companies yet. Use “Add company” to link one.
+        </div>
+      ) : (
+      <div className="divide-y">
+        {companies.map((c) => (
+          <div key={c.id} className="py-3">
+            <div className="flex items-start justify-between gap-2">
+              <div className="flex-1 min-w-0">
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <span className="text-sm font-bold truncate">{c.company_name}</span>
+                  <Badge
+                    variant="outline"
+                    className={cn(
+                      "h-4 px-1.5 text-[9px] font-semibold uppercase",
+                      c.source === "auto"
+                        ? "border-orange-200 bg-orange-50 text-orange-700 dark:bg-orange-950/40 dark:text-orange-300"
+                        : "text-muted-foreground",
+                    )}
+                  >
+                    {c.source}
+                  </Badge>
+                  {c.source !== "manual" && (
+                    <Badge
+                      variant="outline"
+                      className={cn(
+                        "h-4 px-1.5 text-[9px] font-semibold",
+                        CONFIDENCE_BADGE[c.confidence] ?? "text-muted-foreground",
+                      )}
+                    >
+                      {c.confidence}
+                    </Badge>
+                  )}
+                </div>
+                {c.reason_summary && (
+                  <div className="mt-0.5 text-xs text-muted-foreground">
+                    {c.reason_summary}
+                  </div>
+                )}
+                <div className="mt-0.5 flex items-center gap-2 text-[10px] text-muted-foreground">
+                  {c.evidence_count > 0 && (
+                    <span>{c.evidence_count} evidence</span>
+                  )}
+                  {c.last_seen_at && (
+                    <span>
+                      Last: {format(new Date(c.last_seen_at), "MMM d, yyyy")}
+                    </span>
+                  )}
+                </div>
+              </div>
+              <div className="flex flex-shrink-0 items-center gap-2">
+                {c.evidence.length > 0 && (
+                  <button
+                    type="button"
+                    className="text-[10px] font-semibold text-indigo-600 hover:underline"
+                    onClick={() =>
+                      setExpanded(expanded === c.id ? null : c.id)
+                    }
+                  >
+                    {expanded === c.id ? "Hide" : "Show"} evidence
+                  </button>
+                )}
+                {c.source === "manual" && (
+                  <button
+                    type="button"
+                    aria-label="Remove company"
+                    disabled={removing === c.id}
+                    className="text-muted-foreground hover:text-red-600 disabled:opacity-50"
+                    onClick={() => handleRemove(c.id)}
+                  >
+                    {removing === c.id ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <X className="h-3.5 w-3.5" />
+                    )}
+                  </button>
+                )}
+              </div>
+            </div>
+            {expanded === c.id && (
+              <div className="mt-2 space-y-1.5">
+                {c.evidence.map((e) => (
+                  <div
+                    key={e.id}
+                    className="rounded border bg-muted/40 px-3 py-2 text-xs"
+                  >
+                    {e.matched_text && (
+                      <blockquote className="mb-1 border-l-2 border-indigo-300 pl-2 italic text-muted-foreground">
+                        "{e.matched_text}"
+                      </blockquote>
+                    )}
+                    <div className="text-[10px] text-muted-foreground">
+                      {e.reason_summary ?? e.reason}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+      )}
+      <div className="mt-3 text-[10px] text-muted-foreground">
+        <Badge
+          variant="outline"
+          className="mr-1 h-4 border-orange-200 bg-orange-50 px-1.5 text-[10px] font-semibold text-orange-700 dark:bg-orange-950/40 dark:text-orange-300"
+        >
+          auto
+        </Badge>{" "}
+        detected from email evidence — suggestions only, not guaranteed truth
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Company combobox backed by `GET /api/companies?lite=true&q=` (Master Data /
+ * public.companies). Returns the picked company's id to the parent.
+ */
+function RelatedCompanyPicker({
+  onSelect,
+}: {
+  onSelect: (companyId: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const [debounced, setDebounced] = useState("");
+  const [items, setItems] = useState<Array<{ id: string; target: string | null }>>(
+    [],
+  );
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    const h = setTimeout(() => setDebounced(query.trim()), 200);
+    return () => clearTimeout(h);
+  }, [query]);
+
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    setLoading(true);
+    const params = new URLSearchParams({ lite: "true", limit: "50" });
+    if (debounced) params.set("q", debounced);
+    fetch(`/api/companies?${params.toString()}`)
+      .then((r) => r.json())
+      .then((j) => {
+        if (cancelled) return;
+        const rows = (j.data ?? []) as Array<{ id: string; target: string | null }>;
+        setItems(rows.filter((c) => c.target));
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, debounced]);
+
+  if (!open) {
+    return (
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        className="h-7 gap-1 text-xs"
+        onClick={() => setOpen(true)}
+      >
+        <Plus className="h-3 w-3" /> Add company
+      </Button>
+    );
+  }
+
+  return (
+    <div className="relative w-56">
+      <Input
+        autoFocus
+        placeholder="Search Master Data…"
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+        onBlur={() => setTimeout(() => setOpen(false), 150)}
+        className="h-7 text-xs"
+      />
+      <div className="absolute right-0 z-50 mt-1 max-h-64 w-full overflow-y-auto rounded-md border bg-popover p-1 shadow-md">
+        {loading ? (
+          <div className="py-3 text-center text-xs text-muted-foreground">
+            Loading…
+          </div>
+        ) : items.length === 0 ? (
+          <div className="py-3 text-center text-xs text-muted-foreground">
+            {debounced ? "No matching company" : "Type to search"}
+          </div>
+        ) : (
+          items.map((c) => (
+            <button
+              key={c.id}
+              type="button"
+              className="flex w-full items-center rounded p-1.5 text-left text-sm hover:bg-muted"
+              onMouseDown={(e) => {
+                e.preventDefault();
+                onSelect(c.id);
+                setOpen(false);
+                setQuery("");
+              }}
+            >
+              {c.target}
+            </button>
+          ))
+        )}
+      </div>
     </div>
   );
 }

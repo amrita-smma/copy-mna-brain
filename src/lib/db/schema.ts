@@ -1555,6 +1555,7 @@ export const rawEmailEnrichments = analytics.table(
       .notNull(),
     topics: jsonb().$type<string[]>(),
     people: jsonb(),
+    related_companies: jsonb(),
     llm_model: text(),
     llm_batch_id: uuid(),
     created_at: timestamp({ withTimezone: true, mode: "string" })
@@ -2069,6 +2070,126 @@ export const employerTopics = pgTable(
       "Allow delete access on employer_topics",
       { as: "permissive", for: "delete", to: ["public"], using: sql`true` },
     ),
+  }),
+);
+
+// ─── MB-208: employer_related_companies (public) ─────────────────────────────
+// Aggregate: one row per (banker employer × detected target company).
+// Evidence lives in analytics.employerRelatedCompanyEvidence (below).
+export const employerRelatedCompanies = pgTable(
+  "employer_related_companies",
+  {
+    id: uuid().defaultRandom().primaryKey().notNull(),
+    employer_id: uuid().notNull(),
+    company_id: uuid(),
+    company_name: text().notNull(),
+    normalized_company_name: text().notNull(),
+    source: text().default("auto").notNull(),
+    confidence: text().default("medium").notNull(),
+    reason: text().notNull(),
+    reason_summary: text(),
+    evidence_count: integer().default(0).notNull(),
+    first_seen_at: timestamp({ withTimezone: true, mode: "string" }),
+    last_seen_at: timestamp({ withTimezone: true, mode: "string" }),
+    dismissed_at: timestamp({ withTimezone: true, mode: "string" }),
+    created_at: timestamp({ withTimezone: true, mode: "string" })
+      .defaultNow()
+      .notNull(),
+    updated_at: timestamp({ withTimezone: true, mode: "string" })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    uqErcEmployerCompanySource: unique("uq_erc_employer_company_source").on(
+      table.employer_id,
+      table.normalized_company_name,
+      table.source,
+    ),
+    idxErcEmployerId: index("idx_erc_employer_id").using(
+      "btree",
+      table.employer_id.asc().nullsLast().op("uuid_ops"),
+    ),
+    idxErcCompanyId: index("idx_erc_company_id").using(
+      "btree",
+      table.company_id.asc().nullsLast().op("uuid_ops"),
+    ),
+    ercEmployerFkey: foreignKey({
+      columns: [table.employer_id],
+      foreignColumns: [employers.id],
+      name: "employer_related_companies_employer_id_fkey",
+    }).onDelete("cascade"),
+    ercCompanyFkey: foreignKey({
+      columns: [table.company_id],
+      foreignColumns: [companies.id],
+      name: "employer_related_companies_company_id_fkey",
+    }).onDelete("set null"),
+    allowReadErc: pgPolicy("Allow read access on employer_related_companies", {
+      as: "permissive",
+      for: "select",
+      to: ["public"],
+    }),
+    allowInsertErc: pgPolicy(
+      "Allow insert access on employer_related_companies",
+      { as: "permissive", for: "insert", to: ["public"] },
+    ),
+    allowUpdateErc: pgPolicy(
+      "Allow update access on employer_related_companies",
+      { as: "permissive", for: "update", to: ["public"] },
+    ),
+    allowDeleteErc: pgPolicy(
+      "Allow delete access on employer_related_companies",
+      { as: "permissive", for: "delete", to: ["public"], using: sql`true` },
+    ),
+  }),
+);
+
+// Evidence table for explainability. Lives in analytics because it FKs to
+// analytics.emails and analytics.raw_emails — analytics→public is allowed.
+export const employerRelatedCompanyEvidence = analytics.table(
+  "employer_related_company_evidence",
+  {
+    id: uuid().defaultRandom().primaryKey().notNull(),
+    related_company_id: uuid().notNull(),
+    email_id: uuid(),
+    raw_email_id: uuid(),
+    matched_text: text(),
+    reason: text().notNull(),
+    reason_summary: text(),
+    keywords: jsonb().$type<string[]>(),
+    confidence: text().default("medium").notNull(),
+    created_at: timestamp({ withTimezone: true, mode: "string" })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    uqErce: unique("uq_erce_company_email_text").on(
+      table.related_company_id,
+      table.raw_email_id,
+      table.matched_text,
+    ),
+    idxErceRelatedCompanyId: index("idx_erce_related_company_id").using(
+      "btree",
+      table.related_company_id.asc().nullsLast().op("uuid_ops"),
+    ),
+    idxErceEmailId: index("idx_erce_email_id").using(
+      "btree",
+      table.email_id.asc().nullsLast().op("uuid_ops"),
+    ),
+    erceRelatedCompanyFkey: foreignKey({
+      columns: [table.related_company_id],
+      foreignColumns: [employerRelatedCompanies.id],
+      name: "erce_related_company_id_fkey",
+    }).onDelete("cascade"),
+    erceEmailFkey: foreignKey({
+      columns: [table.email_id],
+      foreignColumns: [emails.id],
+      name: "erce_email_id_fkey",
+    }).onDelete("cascade"),
+    erceRawEmailFkey: foreignKey({
+      columns: [table.raw_email_id],
+      foreignColumns: [rawEmails.id],
+      name: "erce_raw_email_id_fkey",
+    }).onDelete("cascade"),
   }),
 );
 

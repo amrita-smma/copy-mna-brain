@@ -1,4 +1,5 @@
 import type {
+  CompanyRepository,
   Correspondent,
   CorrespondentInsert,
   CorrespondentCurationRepository,
@@ -10,15 +11,18 @@ import type {
   EmployerNote,
   EmployerNoteInsert,
   EmployerNoteRepository,
+  EmployerRelatedCompanyRepository,
   EmployerRepository,
   EmployerSummary,
   EmployerTeamRepository,
   EmployerTopicAssignment,
   EmployerUpdate,
+  RelatedCompanyWithEvidence,
   TeamMember,
   Topic,
   TopicRepository,
 } from "@/lib/repositories";
+import { normalizeCompanyName } from "@/lib/crm/normalizeCompanyName";
 
 export class DuplicateEmployerError extends Error {
   constructor(message: string) {
@@ -34,6 +38,44 @@ export class EmployerNotFoundError extends Error {
   }
 }
 
+/**
+ * Collapse auto + manual rows that point at the same company into one display
+ * row. The `source` column is part of the UNIQUE key, so the same company can
+ * legitimately exist as both an auto suggestion and a manual link; we show it
+ * once. Keyed on `company_id` (the reliable "same company" signal — auto and
+ * manual normalize different source strings), falling back to the normalized
+ * name for unmatched auto rows. The manual row wins, but absorbs the auto row's
+ * evidence so the "why was this detected" trail isn't lost.
+ */
+function dedupeRelatedCompanies(
+  rows: RelatedCompanyWithEvidence[],
+): RelatedCompanyWithEvidence[] {
+  const groups = new Map<string, RelatedCompanyWithEvidence[]>();
+  for (const r of rows) {
+    const key = r.company_id ?? `name:${r.normalized_company_name}`;
+    const arr = groups.get(key) ?? [];
+    arr.push(r);
+    groups.set(key, arr);
+  }
+
+  const out: RelatedCompanyWithEvidence[] = [];
+  for (const group of groups.values()) {
+    if (group.length === 1) {
+      out.push(group[0]);
+      continue;
+    }
+    const primary =
+      group.find((r) => r.source === "manual") ?? group[0];
+    const mergedEvidence = group.flatMap((r) => r.evidence);
+    out.push({
+      ...primary,
+      evidence: mergedEvidence,
+      evidence_count: mergedEvidence.length,
+    });
+  }
+  return out;
+}
+
 export interface EmployerDetail {
   employer: Employer;
   primary_pic: Correspondent | null;
@@ -43,6 +85,7 @@ export interface EmployerDetail {
   team: TeamMember[];
   email_count: number;
   last_contact_at: string | null;
+  related_companies: RelatedCompanyWithEvidence[];
 }
 
 export interface CRMInsights {
@@ -101,6 +144,8 @@ export class CRMService {
     // machine base columns the ETL owns.
     private employerCurationRepo: EmployerCurationRepository,
     private correspondentCurationRepo: CorrespondentCurationRepository,
+    private relatedCompanyRepo: EmployerRelatedCompanyRepository,
+    private companyRepo: CompanyRepository,
   ) {}
 
   // ─── Employers ───────────────────────────────────────────────────────────
@@ -119,7 +164,7 @@ export class CRMService {
     const employer = await this.employerRepo.findById(id);
     if (!employer) throw new EmployerNotFoundError(id);
 
-    const [correspondents, notes, topics, team, emailCount, emails] =
+    const [correspondents, notes, topics, team, emailCount, emails, relatedCompanies] =
       await Promise.all([
         this.correspondentRepo.findByEmployerId(id),
         this.noteRepo.findByEmployerId(id),
@@ -127,6 +172,7 @@ export class CRMService {
         this.teamRepo.listForEmployer(id),
         this.emailRepo.countByEmployer(id),
         this.emailRepo.findByEmployerId(id, { limit: 1 }),
+        this.relatedCompanyRepo.listForEmployer(id),
       ]);
 
     const primary_pic =
@@ -141,6 +187,7 @@ export class CRMService {
       team,
       email_count: emailCount,
       last_contact_at: emails[0]?.sent_at ?? null,
+      related_companies: dedupeRelatedCompanies(relatedCompanies),
     };
   }
 
@@ -431,6 +478,51 @@ export class CRMService {
     topicId: string,
   ): Promise<void> {
     await this.topicRepo.removeFromEmployer(employerId, topicId);
+  }
+
+  // ─── Related companies (manual) ──────────────────────────────────────────
+
+  /**
+   * Manually link a company (from `public.companies`) to an employer. The
+   * company name is snapshotted from `companies.target`. Rejects if a
+   * non-dismissed row already links the same company (auto OR manual) so the
+   * tab never shows a user-created duplicate.
+   */
+  async addRelatedCompanyToEmployer(
+    employerId: string,
+    companyId: string,
+  ): Promise<RelatedCompanyWithEvidence[]> {
+    const employer = await this.employerRepo.findById(employerId);
+    if (!employer) throw new EmployerNotFoundError(employerId);
+
+    const company = await this.companyRepo.findById(companyId);
+    if (!company) throw new Error("Company not found");
+    const name = (company.target ?? "").trim();
+    if (!name) throw new Error("Company has no name");
+
+    const existing = await this.relatedCompanyRepo.findByCompanyId(
+      employerId,
+      companyId,
+    );
+    if (existing.length > 0) throw new Error("Company already linked");
+
+    await this.relatedCompanyRepo.createManual({
+      employer_id: employerId,
+      company_id: companyId,
+      company_name: name,
+      normalized_company_name: normalizeCompanyName(name),
+    });
+    return dedupeRelatedCompanies(
+      await this.relatedCompanyRepo.listForEmployer(employerId),
+    );
+  }
+
+  /** Hard-delete a manual related company link. No-op for auto rows. */
+  async removeRelatedCompanyFromEmployer(
+    employerId: string,
+    relatedCompanyId: string,
+  ): Promise<void> {
+    await this.relatedCompanyRepo.deleteManual(employerId, relatedCompanyId);
   }
 
   // ─── Team members ────────────────────────────────────────────────────────

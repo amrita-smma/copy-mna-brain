@@ -393,6 +393,13 @@
       "when": 1780704004000,
       "tag": "20260606000004_seed_employer_overrides",
       "breakpoints": true
+    },
+    {
+      "idx": 56,
+      "version": "7",
+      "when": 1781136001000,
+      "tag": "20260611000001_employer_related_companies",
+      "breakpoints": true
     }
   ]
 }

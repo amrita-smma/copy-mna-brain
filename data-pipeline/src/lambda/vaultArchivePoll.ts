@@ -71,7 +71,19 @@ export const handler = async (
     const token = await getVaultAccessToken(creds, subject);
 
     // 2. Poll the export status exactly once.
-    const status = await pollVaultExport(token, row.matter_id, row.export_id);
+    let status: Awaited<ReturnType<typeof pollVaultExport>>;
+    try {
+      status = await pollVaultExport(token, row.matter_id, row.export_id);
+    } catch (err) {
+      // Matter was closed before we could poll — treat as terminal failure.
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg.includes('FAILED_PRECONDITION') || msg.includes('state OPEN')) {
+        await setStatus(db, row.id, 'failed');
+        log(`matter already closed, cannot poll — status=failed`);
+        return { ok: true, action: 'failed' };
+      }
+      throw err;
+    }
     log(`poll result: ${status.status}`);
 
     if (status.status === 'IN_PROGRESS') {

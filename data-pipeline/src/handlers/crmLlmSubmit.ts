@@ -194,7 +194,7 @@ export async function runCrmLlmSubmit(
       }
 
       const parsed = toParsedEmail(row);
-      const enriched = processEmail(parsed, {});
+      const enriched = processEmail(parsed, { wantRelatedCompanies: true });
       await enrichmentRepo.upsertExtract(row.id, {
         candidates: enriched.candidates,
         domain_tag: enriched.domain_tag,
@@ -269,6 +269,7 @@ export async function runCrmLlmSubmit(
         await enrichmentRepo.setLlmResult(rawEmailId, {
           topics: llmOut.topics ?? [],
           people,
+          related_companies: llmOut.related_companies ?? [],
           llm_model: model,
           llm_batch_id: null,
         });

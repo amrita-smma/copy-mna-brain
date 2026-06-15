@@ -14,8 +14,10 @@ import {
   VAULT_CUSTODIAN_EMAILS,
 } from '@/lib/services/googleVaultService';
 import {
+  CompanyRepository,
   EmployerRepository,
   EmployerCurationRepository,
+  EmployerRelatedCompanyRepository,
   CorrespondentRepository,
   CorrespondentCurationRepository,
   EmployerNoteRepository,
@@ -140,6 +142,8 @@ export async function runVaultExport(
     new EmployerTeamRepository(deps.db),
     new EmployerCurationRepository(deps.db),
     new CorrespondentCurationRepository(deps.db),
+    new EmployerRelatedCompanyRepository(deps.db),
+    new CompanyRepository(deps.db),
   );
 
   let filesDownloaded = 0;

@@ -58,6 +58,7 @@ export {
   type EnrichmentResult,
   type LlmExtraction,
   type LlmPerson,
+  type LlmRelatedCompany,
   type QueueEntry,
 } from './llmEnrich';
 

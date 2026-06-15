@@ -4,6 +4,8 @@ import {
   emailParticipants,
   emails,
   employers,
+  employerCuration,
+  employerDomains,
   employerEffective,
   employerTeamMembers,
   employerTopics,
@@ -87,6 +89,8 @@ export class EmployerRepository {
       searchPattern
         ? or(
             ilike(employers.name, searchPattern),
+            sql`EXISTS (SELECT 1 FROM ${employerCuration} WHERE ${employerCuration.employer_id} = ${employers.id} AND ${employerCuration.name} ILIKE ${searchPattern})`,
+            sql`EXISTS (SELECT 1 FROM ${employerDomains} WHERE ${employerDomains.employer_id} = ${employers.id} AND ${employerDomains.domain} ILIKE ${searchPattern})`,
             sql`EXISTS (SELECT 1 FROM ${correspondents} WHERE ${correspondents.employer_id} = ${employers.id} AND (${correspondents.name} ILIKE ${searchPattern} OR ${correspondents.email} ILIKE ${searchPattern}))`,
           )
         : undefined,

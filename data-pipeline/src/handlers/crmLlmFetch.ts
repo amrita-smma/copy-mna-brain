@@ -134,6 +134,7 @@ export async function runCrmLlmFetch(
         await enrichmentRepo.setLlmResult(rawEmailId, {
           topics: llmOut.topics ?? [],
           people,
+          related_companies: llmOut.related_companies ?? [],
           llm_model: batch.model,
           llm_batch_id: batch.id,
         });

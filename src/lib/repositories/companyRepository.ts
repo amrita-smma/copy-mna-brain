@@ -229,6 +229,10 @@ export class CompanyRepository {
   }
 
   async findByNameFuzzy(namePart: string): Promise<Tables<"companies"> | null> {
+    // Floor at 5 chars to avoid short acronyms (e.g. "ENJ", "SEB") spuriously
+    // substring-matching unrelated companies. Callers that pass a short name
+    // get null and store free text rather than a wrong link.
+    if (namePart.trim().length < 5) return null;
     const [row] = await this.db
       .select()
       .from(companies)

@@ -36,3 +36,4 @@ export * from './apiChatConversationRepository';
 export * from './agentRunEventsRepository';
 export * from './routinesRepository';
 export * from './dashboardActivityRepository';
+export * from './employerRelatedCompanyRepository';

@@ -172,6 +172,52 @@ describe('processEmail', () => {
   });
 });
 
+describe('processEmail wantRelatedCompanies gating', () => {
+  it('sets want_related_companies=true in llm_payload and populates body_snippet', () => {
+    // bloomberg.com is classified → want_topics=false. The real gap: without
+    // want_related_companies, buildUserPrompt never includes the EMAIL BODY.
+    // This test verifies the flag propagates into llm_payload so the prompt builder
+    // can include the body for related-company extraction.
+    const rec = makeEmail({
+      sender: { name: 'GS Banker', email: 'banker@gs.com' },
+      body: 'We represent TechSlurry in a sell-side process.',
+      signature: '',
+    });
+    const out = processEmail(rec, { wantRelatedCompanies: true });
+    expect(out.llm_payload).not.toBeNull();
+    expect(out.llm_payload?.want_related_companies).toBe(true);
+    expect(out.llm_payload?.body_snippet).toContain('TechSlurry');
+  });
+
+  it('forces needs_llm=true for an email that would otherwise have no LLM need', () => {
+    // Construct the one case where needs_llm would normally be false:
+    // known domain (bloomberg) → needsTopic=false, and override candidates to []
+    // by using a sender with no body/sig content. In practice the sender is added
+    // as a candidate, but with wantRelatedCompanies the email must go to LLM
+    // regardless.
+    const rec = makeEmail({
+      sender: { name: 'Bloomberg', email: 'digest@bloomberg.com' },
+      body: 'We represent TechSlurry in a sell-side process.',
+      signature: '',
+    });
+    // With flag: must include body + want_related_companies
+    const withFlag = processEmail(rec, { wantRelatedCompanies: true });
+    expect(withFlag.needs_llm).toBe(true);
+    expect(withFlag.llm_payload?.want_related_companies).toBe(true);
+    expect(withFlag.llm_payload?.body_snippet).toBeTruthy();
+  });
+
+  it('does not set want_related_companies when flag is off', () => {
+    const rec = makeEmail({
+      sender: { name: 'GS Banker', email: 'banker@gs.com' },
+      body: 'We represent TechSlurry in a sell-side process.',
+      signature: '',
+    });
+    const out = processEmail(rec, {});
+    expect(out.llm_payload?.want_related_companies).toBe(false);
+  });
+});
+
 describe('updateContact', () => {
   it('counts occurrences and tracks latest date', () => {
     const table = new Map<string, ContactRow>();

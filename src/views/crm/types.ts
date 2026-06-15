@@ -70,6 +70,33 @@ export interface EmployerTopicAssignment {
   is_highlight: boolean;
 }
 
+export interface RelatedCompanyEvidence {
+  id: string;
+  matched_text: string | null;
+  reason: string;
+  reason_summary: string | null;
+  keywords: string[] | null;
+  confidence: string;
+  created_at: string | null;
+  email_id: string | null;
+}
+
+export interface EmployerRelatedCompany {
+  id: string;
+  employer_id: string;
+  company_id: string | null;
+  company_name: string;
+  source: string;
+  confidence: string;
+  reason: string;
+  reason_summary: string | null;
+  evidence_count: number;
+  first_seen_at: string | null;
+  last_seen_at: string | null;
+  dismissed_at: string | null;
+  evidence: RelatedCompanyEvidence[];
+}
+
 export interface EmployerDetail {
   employer: {
     id: string;
@@ -84,6 +111,7 @@ export interface EmployerDetail {
   team: TeamMemberSummary[];
   email_count: number;
   last_contact_at: string | null;
+  related_companies: EmployerRelatedCompany[];
 }
 
 export interface Insights {

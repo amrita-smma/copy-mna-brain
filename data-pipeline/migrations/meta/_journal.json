@@ -36,6 +36,13 @@
       "when": 1780711201000,
       "tag": "20260606020001_make_mbox_files_job_id_nullable",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1781136000000,
+      "tag": "20260611000000_related_companies_analytics",
+      "breakpoints": true
     }
   ]
 }

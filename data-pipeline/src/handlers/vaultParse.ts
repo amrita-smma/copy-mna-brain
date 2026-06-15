@@ -25,6 +25,7 @@ export const VAULT_PARSE_TIMEOUT_SECONDS = 1800; // 30 minutes
 export const INSERT_BATCH_SIZE = 1000;
 export const DEFAULT_LIMIT = 20;
 export const MAX_LIMIT = 100;
+export const PROGRESS_EVERY = 100; // log a progress line every N messages
 
 export interface VaultParsePayload {
   fileIds?: string[];
@@ -221,6 +222,10 @@ export async function runVaultParse(
     }
 
     try {
+      log(
+        `parsing ${file.id} custodian=${file.custodian_email} s3=${file.s3_key} size=${file.size_bytes}`,
+      );
+
       // 3. Open S3 → gunzip stream; feed into mboxParser without buffering the
       // entire decompressed file. Peak memory ≈ largest single message.
       const gunzipStream = await openS3GunzipStream(file.s3_key, file.s3_bucket);
@@ -230,6 +235,7 @@ export async function runVaultParse(
       let insertedHere = 0;
       let skippedHere = 0;
       let synthesizedHere = 0;
+      let seenHere = 0;
 
       const flushBatch = async (): Promise<void> => {
         if (batch.length === 0) return;
@@ -244,7 +250,13 @@ export async function runVaultParse(
         const { row, synthesized } = buildRawEmailRow(file, email);
         if (synthesized) synthesizedHere++;
         batch.push(row);
+        seenHere++;
         if (batch.length >= INSERT_BATCH_SIZE) await flushBatch();
+        if (seenHere % PROGRESS_EVERY === 0) {
+          log(
+            `progress ${file.id} seen=${seenHere} inserted=${insertedHere} skipped=${skippedHere} elapsed=${Date.now() - started}ms`,
+          );
+        }
       }
       await flushBatch();
 

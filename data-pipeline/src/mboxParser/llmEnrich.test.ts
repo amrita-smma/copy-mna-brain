@@ -20,6 +20,7 @@ function makeEntry(overrides: Partial<QueueEntry['payload']> = {}): QueueEntry {
       candidates: [],
       want_topics: false,
       want_names: false,
+      want_related_companies: false,
       ...overrides,
     },
   };
@@ -114,6 +115,34 @@ describe('mergePeopleWithCandidates', () => {
 
   it('returns [] when LLM returned no people', () => {
     expect(mergePeopleWithCandidates([], candidates)).toEqual([]);
+  });
+});
+
+describe('buildUserPrompt related_companies', () => {
+  it('includes related companies task when want_related_companies is true', () => {
+    const out = buildUserPrompt(
+      makeEntry({ want_related_companies: true, body_snippet: 'We represent TechSlurry.' }),
+    );
+    expect(out).toContain('3. Extract related target/opportunity companies');
+  });
+
+  it('includes SUBJECT section when want_related_companies is true', () => {
+    const entry = makeEntry({ want_related_companies: true, body_snippet: 'body' });
+    entry.subject = 'TechSlurry acquisition opportunity';
+    const out = buildUserPrompt(entry);
+    expect(out).toContain('SUBJECT:\nTechSlurry acquisition opportunity');
+  });
+
+  it('includes EMAIL BODY when want_related_companies is true even if want_topics is false', () => {
+    const out = buildUserPrompt(
+      makeEntry({ want_related_companies: true, want_topics: false, body_snippet: 'deal body text' }),
+    );
+    expect(out).toContain('EMAIL BODY:\ndeal body text');
+  });
+
+  it('does not include related companies task when flag is false', () => {
+    const out = buildUserPrompt(makeEntry({ want_related_companies: false }));
+    expect(out).not.toContain('related target');
   });
 });
 

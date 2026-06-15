@@ -90,6 +90,27 @@ describe('RawEmailEnrichmentRepository.setLlmResult', () => {
       }),
     ).rejects.toThrow(/not found/);
   });
+
+  it('persists related_companies when provided', async () => {
+    const db = makeDb();
+    const relatedCompanies = [
+      { company_name: 'TechSlurry', matched_text: 'We represent TechSlurry', reason: 'explicit_pitch', reason_summary: 'Banker represents this company', keywords: ['sell-side'], confidence: 'high' },
+    ];
+    db.returning.mockResolvedValueOnce([
+      { id: 'e1', raw_email_id: 'r1', related_companies: relatedCompanies },
+    ]);
+    const repo = new RawEmailEnrichmentRepository(db as never);
+    const out = await repo.setLlmResult('r1', {
+      topics: [],
+      people: [],
+      related_companies: relatedCompanies,
+      llm_model: 'claude-haiku-4-5',
+      llm_batch_id: null,
+    });
+    const setCall = db.set.mock.calls[0][0];
+    expect(setCall).toHaveProperty('related_companies');
+    expect(out).toMatchObject({ related_companies: relatedCompanies });
+  });
 });
 
 describe('RawEmailEnrichmentRepository.listReadyForIngest', () => {

@@ -14,13 +14,16 @@ import {
   RawEmailEnrichmentRepository,
 } from '../repositories';
 import {
+  CompanyRepository,
   CorrespondentRepository,
   EmailRepository,
   EmployerDomainRepository,
   EmployerOverrideRepository,
   EmployerRepository,
+  EmployerRelatedCompanyRepository,
   TopicRepository,
 } from '@/lib/repositories';
+import { loadCompanyIndex, matchRelatedCompany, normalizeCompanyName } from '../helpers/matchRelatedCompany';
 import type { DbClient, Tables } from '@/lib/repositories';
 import type { EnrichedPerson } from '../mboxParser';
 
@@ -48,6 +51,7 @@ export interface CrmIngestResult {
   participants_inserted: number;
   email_topics_inserted: number;
   employer_topics_inserted: number;
+  related_companies_evidence_inserted: number;
   /** Analytics marts refreshed after this ingest (RFC MB-205 §Phase 5). */
   marts_refreshed: string[];
 }
@@ -168,6 +172,8 @@ export async function runCrmIngest(
   const emailRepo = new EmailRepository(deps.db);
   const overrideRepo = new EmployerOverrideRepository(deps.db);
   const employerDomainRepo = new EmployerDomainRepository(deps.db);
+  const companyRepo = new CompanyRepository(deps.db);
+  const relatedCompanyRepo = new EmployerRelatedCompanyRepository(deps.db);
 
   const result: CrmIngestResult = {
     rows_ingested: 0,
@@ -180,6 +186,7 @@ export async function runCrmIngest(
     participants_inserted: 0,
     email_topics_inserted: 0,
     employer_topics_inserted: 0,
+    related_companies_evidence_inserted: 0,
     marts_refreshed: [],
   };
 
@@ -220,6 +227,18 @@ export async function runCrmIngest(
   const rowsToIngest = targets.filter((r) => !isExcluded(r.from_address));
   result.rows_excluded = targets.length - rowsToIngest.length;
 
+  // Mark excluded rows terminal so the drain never re-fetches them. Without
+  // this they stay ingest_status='pending' forever and reappear every run.
+  const excludedIds = targets
+    .filter((r) => isExcluded(r.from_address))
+    .map((r) => r.id);
+  if (excludedIds.length > 0) {
+    await deps.db
+      .update(rawEmailsTable)
+      .set({ ingest_status: 'filtered' })
+      .where(inArray(rawEmailsTable.id, excludedIds));
+  }
+
   if (rowsToIngest.length === 0) {
     log('all targets excluded by domain');
     return result;
@@ -254,6 +273,10 @@ export async function runCrmIngest(
     `ingest set: ${rowsToIngest.length} emails / ${uniqueDomains.size} domains / ${uniqueSlugs.size} topics`,
   );
 
+  // Hoisted so the related-companies step (outside the tx) can read them.
+  const midToEmailId = new Map<string, string>();
+  const domainToEmployerId = new Map<string, string>();
+
   await deps.db.transaction(async (tx) => {
     // PgTransaction is API-compatible with DbClient for our query patterns,
     // but missing the `$client` property TS expects on PostgresJsDatabase.
@@ -282,7 +305,6 @@ export async function runCrmIngest(
 
     // Resolve-once (RFC §6): domains mapped in a prior run reuse their stable
     // employer_id; we only resolve + create employers for unseen domains.
-    const domainToEmployerId = new Map<string, string>();
     for (const d of uniqueDomains) {
       const existing = persistedDomainToEmployerId.get(d);
       if (existing) domainToEmployerId.set(d, existing);
@@ -440,7 +462,6 @@ export async function runCrmIngest(
     result.emails_inserted = insertedEmails.length;
     result.emails_skipped_dupe = emailInserts.length - insertedEmails.length;
 
-    const midToEmailId = new Map<string, string>();
     for (const e of insertedEmails) {
       if (e.message_id) midToEmailId.set(e.message_id, e.id);
     }
@@ -536,6 +557,83 @@ export async function runCrmIngest(
       );
     result.rows_ingested = rowsToIngest.length;
   });
+
+  // Related companies — runs OUTSIDE the main tx for the same reason marts do:
+  // it makes many small round-trips (upsertAuto, insertEvidence, refreshAggregates)
+  // that would hold the main transaction's locks unnecessarily long. midToEmailId
+  // is already populated from the committed inserts above.
+  log('[8] related_companies');
+  const companyIndex = await loadCompanyIndex(companyRepo);
+  log(`[8] company index loaded: ${companyIndex.length} companies`);
+
+  // On re-ingest (rawEmailIds path), emails already exist in analytics.emails so
+  // insertBatchIgnoringDupes skips them and they never land in midToEmailId. Fall
+  // back to a DB lookup for any message_id not already resolved.
+  const missingMessageIds = rowsToIngest
+    .map((r) => r.message_id)
+    .filter((mid): mid is string => !!mid && !midToEmailId.has(mid));
+  if (missingMessageIds.length > 0) {
+    const existingEmails = await deps.db
+      .select({ id: emailsTable.id, message_id: emailsTable.message_id })
+      .from(emailsTable)
+      .where(inArray(emailsTable.message_id, missingMessageIds));
+    for (const e of existingEmails) {
+      if (e.message_id) midToEmailId.set(e.message_id, e.id);
+    }
+  }
+
+  const affectedRelatedCompanyIds = new Set<string>();
+  let rcEmailsProcessed = 0;
+  for (const r of rowsToIngest) {
+    const emailId = midToEmailId.get(r.message_id);
+    if (!emailId) continue;
+    const enrichRec = enrichmentByRawId.get(r.id);
+    if (!enrichRec) continue;
+    const relatedCompanies = (enrichRec.related_companies as import('../mboxParser').LlmRelatedCompany[] | null) ?? [];
+    if (relatedCompanies.length === 0) continue;
+
+    const senderDomain = domainOf(r.from_address ?? '');
+    const employerId = domainToEmployerId.get(senderDomain);
+    if (!employerId) continue;
+
+    rcEmailsProcessed++;
+    for (const rc of relatedCompanies) {
+      if (!rc.company_name?.trim()) continue;
+      try {
+        const companyId = await matchRelatedCompany(rc.company_name, companyRepo, companyIndex);
+        const normalizedName = normalizeCompanyName(rc.company_name);
+        const relatedCompanyId = await relatedCompanyRepo.upsertAuto({
+          employer_id: employerId,
+          company_id: companyId,
+          company_name: rc.company_name,
+          normalized_company_name: normalizedName,
+          source: 'auto',
+          reason: rc.reason,
+          reason_summary: rc.reason_summary ?? null,
+        });
+        await relatedCompanyRepo.insertEvidence({
+          related_company_id: relatedCompanyId,
+          email_id: emailId,
+          raw_email_id: r.id,
+          matched_text: rc.matched_text ?? null,
+          reason: rc.reason,
+          reason_summary: rc.reason_summary ?? null,
+          keywords: rc.keywords ?? [],
+          confidence: rc.confidence,
+        });
+        affectedRelatedCompanyIds.add(relatedCompanyId);
+        result.related_companies_evidence_inserted++;
+        log(`[8] "${rc.company_name}" (${rc.confidence}) from ${senderDomain} → ${companyId ? 'matched' : 'free-text'}`);
+      } catch (err) {
+        console.error(`[crm-ingest] related company ${rc.company_name} for raw_email ${r.id} failed:`, err);
+      }
+    }
+  }
+  log(`[8] emails with related companies: ${rcEmailsProcessed}, evidence inserted: ${result.related_companies_evidence_inserted}, aggregates to refresh: ${affectedRelatedCompanyIds.size}`);
+  for (const id of affectedRelatedCompanyIds) {
+    await relatedCompanyRepo.refreshAggregates(id);
+  }
+  log(`[8] related_companies done`);
 
   // Marts are precomputed read models over analytics.emails — keep them in step
   // with the data just ingested. Runs OUTSIDE the tx above (REFRESH …

@@ -297,6 +297,9 @@ export function extractBody(headers: Headers, rawBody: string): string {
 // "-----Original Message-----", "From: ...", and mobile signatures.
 const QUOTE_INTRO_RE =
   /^\s*(on .+wrote:|le .+a écrit\s*:|am .+schrieb.*:|pada .+menulis:|-{2,}\s*original message\s*-{2,}|from:\s.+|sent from my .+)$/i;
+// Gmail: "---------- Forwarded message ---------"
+// Outlook: "________________________________" (32 underscores)
+const FORWARDED_SEPARATOR_RE = /^(-{3,}\s*forwarded message\s*-{3,}|_{10,})$/i;
 const URL_RE = /https?:\/\/\S+|www\.\S+/g;
 const WHITESPACE_RE = /[ \t]+/g;
 const MULTI_NEWLINE_RE = /\n{3,}/g;
@@ -346,9 +349,19 @@ export function cleanBody(text: string, dropUrls = false): string {
   let s = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n').replace(ZERO_WIDTH_RE, '');
 
   const lines: string[] = [];
+  let inForwardedHeader = false;
   for (const line of s.split('\n')) {
     const stripped = line.trim();
     if (stripped.startsWith('>')) continue;
+    if (FORWARDED_SEPARATOR_RE.test(stripped)) {
+      inForwardedHeader = true;
+      continue;
+    }
+    if (inForwardedHeader) {
+      // Skip From/Sent/Date/To/Subject metadata lines; resume on first blank line
+      if (stripped === '') inForwardedHeader = false;
+      continue;
+    }
     if (QUOTE_INTRO_RE.test(stripped)) break;
     if (stripped === '--' || line.replace(/\s+$/, '') === '-- ') break;
     lines.push(line);

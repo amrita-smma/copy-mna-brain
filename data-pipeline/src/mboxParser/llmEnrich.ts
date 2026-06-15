@@ -20,6 +20,7 @@ export interface QueueEntry {
     candidates: Candidate[];
     want_topics: boolean;
     want_names: boolean;
+    want_related_companies: boolean;
   };
 }
 
@@ -31,9 +32,19 @@ export interface LlmPerson {
   candidate_indices: number[];
 }
 
+export interface LlmRelatedCompany {
+  company_name: string;
+  matched_text: string;
+  reason: 'explicit_pitch' | 'company_mention' | 'deal_keyword_context' | 'process_reference' | 'other';
+  reason_summary: string;
+  keywords: string[];
+  confidence: 'high' | 'medium' | 'low';
+}
+
 export interface LlmExtraction {
   topics: string[];
   people: LlmPerson[];
+  related_companies: LlmRelatedCompany[];
 }
 
 // After merging LLM output back with the deterministic email/phone values.
@@ -100,8 +111,28 @@ export const EMAIL_EXTRACTION_SCHEMA = {
         required: ['name', 'role', 'company', 'candidate_indices'],
       },
     },
+    related_companies: {
+      type: 'array',
+      description:
+        'Target or opportunity companies mentioned in a deal-relevant context. Empty array if nothing qualifies. See RELATED COMPANIES RULES.',
+      items: {
+        type: 'object',
+        properties: {
+          company_name: { type: 'string', description: 'Short company name, no email addresses.' },
+          matched_text: { type: 'string', description: 'Brief excerpt from subject/body (≤300 chars).' },
+          reason: {
+            type: 'string',
+            enum: ['explicit_pitch', 'company_mention', 'deal_keyword_context', 'process_reference', 'other'],
+          },
+          reason_summary: { type: 'string', description: 'One sentence.' },
+          keywords: { type: 'array', items: { type: 'string' }, description: '0-8 deal keywords found near the mention.' },
+          confidence: { type: 'string', enum: ['high', 'medium', 'low'] },
+        },
+        required: ['company_name', 'matched_text', 'reason', 'reason_summary', 'keywords', 'confidence'],
+      },
+    },
   },
-  required: ['topics', 'people'],
+  required: ['topics', 'people', 'related_companies'],
 } as const;
 
 // ─── Prompts (verbatim from the Python original — well-tested phrasing) ──────
@@ -163,6 +194,27 @@ AVOID — NEVER emit topics about:
 If no GOOD topic applies to this email, return an empty topics list. Do not pad with
 procedural tags to hit the 1-5 minimum.
 
+RELATED COMPANIES RULES:
+Extract ONLY companies that are THEMSELVES the subject of a transaction — being sold, acquired, or receiving investment. Empty array if nothing qualifies.
+
+INCLUDE:
+- Explicit sell-side / M&A mandate: "We represent X", "Mandated for X", "sell-side process for X", "X is for sale", "disposal of X", "carve-out of X", "acquisition of X", "merger involving X"
+- VC / PE investment target: "term sheet for X", "Series A/B/C for X", "investing in X", "investment opportunity in X", "deal for X", "round for X"
+- Named deal projects (codenames): "Project Alpha", "Project Domino" — only when it clearly refers to a live deal, not a generic phrase
+
+EXCLUDE — NEVER extract:
+- The sender's own bank, advisory firm, or any other bank / advisor involved in the process
+- The acquirer or buyer (the company paying, not the target being bought)
+- Holding companies, blank-cheque SPVs, or generic fund names without a named operating company
+- Service providers in the deal (law firms, accounting firms, consultants, printers)
+- Market comparables or valuation benchmarks ("similar to X", "like X trades at…")
+- Companies mentioned only as background context or market colour
+- Casual conference / social mentions ("I met X at an event", "X was in the news")
+- People names, sector names, geographic names
+
+Use 'high' ONLY for explicit mandate / pitch language. Use 'medium' for clear deal-keyword context. Use 'low' for plausible but ambiguous signals.
+If nothing qualifies, return [].
+
 Output must be valid JSON matching the requested schema.`;
 
 // Build the per-entry user prompt. Order matches the Python version exactly:
@@ -182,6 +234,11 @@ export function buildUserPrompt(entry: QueueEntry): string {
       '2. Extract 0-5 business-substance topic tags from the EMAIL BODY (see TOPIC RULES). Empty list is acceptable when nothing substantive applies.',
     );
   }
+  if (payload.want_related_companies) {
+    instructions.push(
+      '3. Extract related target/opportunity companies from the SUBJECT and EMAIL BODY (see RELATED COMPANIES RULES). Return [] if nothing qualifies.',
+    );
+  }
   sections.push(`TASK:\n${instructions.join('\n')}`);
 
   if (payload.want_names && payload.candidates.length > 0) {
@@ -193,7 +250,11 @@ export function buildUserPrompt(entry: QueueEntry): string {
     sections.push(`CANDIDATES:\n${candLines.join('\n')}`);
   }
 
-  if (payload.want_topics) {
+  if (entry.subject && (payload.want_topics || payload.want_related_companies)) {
+    sections.push(`SUBJECT:\n${entry.subject}`);
+  }
+
+  if (payload.want_topics || payload.want_related_companies) {
     // Topics don't need 6000 chars; truncate further for cheaper calls.
     const body = payload.body_snippet.slice(0, 2000);
     sections.push(`EMAIL BODY:\n${body}`);
