@@ -2,10 +2,10 @@ import NextAuth from 'next-auth';
 import Credentials from 'next-auth/providers/credentials';
 import { createDb } from '@/lib/server/db';
 import { createContainer } from '@/lib/services';
+import { authConfig } from '@/auth.config';
 
 export const { handlers, signIn, signOut, auth } = NextAuth({
-  session: { strategy: 'jwt' },
-  pages: { signIn: '/login' },
+  ...authConfig,
   providers: [
     Credentials({
       credentials: {
@@ -64,24 +64,6 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       },
     }),
   ],
-  callbacks: {
-    async jwt({ token, user }) {
-      if (user) {
-        token.id = user.id;
-        token.name = user.name;
-        token.email = user.email;
-      }
-      return token;
-    },
-    async session({ session, token }) {
-      if (session.user) {
-        session.user.id = token.id as string;
-        session.user.name = (token.name as string) ?? session.user.name;
-        session.user.email = (token.email as string) ?? session.user.email;
-      }
-      return session;
-    },
-  },
 });
 
 declare module 'next-auth' {
