@@ -54,7 +54,7 @@ function ChatInput({ isExpanded }: { isExpanded: boolean }) {
     <div className="p-4 border-t bg-muted shrink-0">
       <motion.div
         className="mx-auto"
-        animate={{ maxWidth: isExpanded ? '48rem' : '100%' }}
+        animate={{ maxWidth: isExpanded ? '95%' : '100%' }}
         transition={{ duration: 0.3, ease: 'easeInOut' }}
       >
         <form
@@ -99,7 +99,7 @@ function ChatContent({ isExpanded }: { isExpanded: boolean }) {
         <motion.div
           className="flex flex-col gap-2"
           animate={{
-            maxWidth: isExpanded ? '48rem' : '100%',
+            maxWidth: isExpanded ? '95%' : '100%',
             marginLeft: isExpanded ? 'auto' : 0,
             marginRight: isExpanded ? 'auto' : 0,
           }}
