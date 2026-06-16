@@ -731,7 +731,7 @@ export default function Dashboard({
     const denom = promoted + dropped;
     return {
       label: `${stage.stage} → ${PIPELINE_STAGES[i + 1].stage}`,
-      pct: Math.round((promoted / denom) * 100),
+      pct: denom > 0 ? Math.round((promoted / denom) * 100) : 0,
       promoted,
       denom,
     };
