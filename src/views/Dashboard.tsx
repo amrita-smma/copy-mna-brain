@@ -40,9 +40,9 @@ import {
   LayoutGrid,
   Globe,
   ArrowLeftRight,
-  Sparkles,
 } from "lucide-react";
 import { useChatContext } from "@/components/chat/ChatProvider";
+import { AskAIButton } from "@/components/chat/AskAIButton";
 
 interface StageCounts {
   stage: string;
@@ -326,25 +326,6 @@ const eventTypeLabels: Record<FeedEventType, string> = {
 
 // ─── Ask-AI button ───────────────────────────────────────────────────────────
 
-function AskAIButton({
-  onClick,
-  label,
-}: {
-  onClick: () => void;
-  label: string;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-label={label}
-      title={label}
-      className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-purple-500 transition-colors hover:bg-purple-500/10 hover:text-purple-600 dark:hover:text-purple-400"
-    >
-      <Sparkles className="h-3.5 w-3.5" />
-    </button>
-  );
-}
 
 // ─── Notes modal ─────────────────────────────────────────────────────────────
 
@@ -631,16 +612,16 @@ export default function Dashboard({
 
   // ─── Copilot quick-analysis ─────────────────────────────────────────────────
 
-  const { sendMessage } = useChatContext();
+  const { analyzeWithAI } = useChatContext();
 
   const askCopilot = useCallback(
     (topic: string) => {
       const range = `${formatDate(dateRange.from)} – ${formatDate(dateRange.to)}`;
-      sendMessage({
-        text: `In the current period (${range}), analyze the ${topic} and provide insights.`,
-      });
+      analyzeWithAI(
+        `In the current period (${range}), analyze the ${topic} and provide insights.`,
+      );
     },
-    [sendMessage, dateRange.from, dateRange.to],
+    [analyzeWithAI, dateRange.from, dateRange.to],
   );
 
   // ─── Recap derivations ──────────────────────────────────────────────────────
@@ -734,20 +715,6 @@ export default function Dashboard({
   const displayL0 = displayStageCounts[0]?.count || 0;
   const displayL0Inbound = displayStageCounts[0]?.inbound ?? 0;
   const displayL0Outbound = displayStageCounts[0]?.outbound ?? 0;
-  const stageConversions = PIPELINE_STAGES.slice(0, -1).map((stage, i) => {
-    const from = displayStageCounts.find((s) => s.stage === stage.stage)?.count ?? 0;
-    const to =
-      displayStageCounts.find((s) => s.stage === PIPELINE_STAGES[i + 1].stage)
-        ?.count ?? 0;
-    return {
-      label: `${stage.stage} → ${PIPELINE_STAGES[i + 1].stage}`,
-      pct: from > 0 ? Math.round((to / from) * 100) : 0,
-      from,
-      to,
-    };
-  });
-  const pctOfTotal = (n: number) =>
-    displayTotal > 0 ? Math.round((n / displayTotal) * 100) : 0;
   const droppedByStage = (activity?.droppedDeals ?? []).reduce(
     (acc, d) => {
       const stage = d.pipeline_stage ?? "L0";
@@ -756,6 +723,21 @@ export default function Dashboard({
     },
     {} as Record<string, number>,
   );
+  const stageConversions = PIPELINE_STAGES.slice(0, -1).map((stage, i) => {
+    const promoted =
+      displayStageCounts.find((s) => s.stage === PIPELINE_STAGES[i + 1].stage)
+        ?.count ?? 0;
+    const dropped = droppedByStage[stage.stage] ?? 0;
+    const denom = promoted + dropped;
+    return {
+      label: `${stage.stage} → ${PIPELINE_STAGES[i + 1].stage}`,
+      pct: denom > 0 ? Math.round((promoted / denom) * 100) : 100,
+      promoted,
+      denom,
+    };
+  });
+  const pctOfTotal = (n: number) =>
+    displayTotal > 0 ? Math.round((n / displayTotal) * 100) : 0;
 
   if (loading) {
     return (
@@ -942,13 +924,19 @@ export default function Dashboard({
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
               {/* Total Deals */}
               <div className="rounded-xl border bg-card p-5">
-                <div className="flex items-center gap-3 mb-3">
-                  <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-blue-500/10">
-                    <Globe className="h-4 w-4 text-blue-500" />
+                <div className="flex items-center justify-between gap-3 mb-3">
+                  <div className="flex items-center gap-3">
+                    <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-blue-500/10">
+                      <Globe className="h-4 w-4 text-blue-500" />
+                    </div>
+                    <p className="text-sm font-medium text-muted-foreground">
+                      Total Deals
+                    </p>
                   </div>
-                  <p className="text-sm font-medium text-muted-foreground">
-                    Total Deals
-                  </p>
+                  <AskAIButton
+                    label="Analyze total deals with AI"
+                    onClick={() => askCopilot("total deals")}
+                  />
                 </div>
                 <p className="text-3xl font-semibold">{displayTotal}</p>
                 <p className="text-xs text-muted-foreground mt-1">
@@ -958,13 +946,19 @@ export default function Dashboard({
 
               {/* Inbound */}
               <div className="rounded-xl border bg-card p-5">
-                <div className="flex items-center gap-3 mb-3">
-                  <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-500/10">
-                    <ArrowUpRight className="h-4 w-4 text-emerald-500" />
+                <div className="flex items-center justify-between gap-3 mb-3">
+                  <div className="flex items-center gap-3">
+                    <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-500/10">
+                      <ArrowUpRight className="h-4 w-4 text-emerald-500" />
+                    </div>
+                    <p className="text-sm font-medium text-muted-foreground">
+                      Inbound
+                    </p>
                   </div>
-                  <p className="text-sm font-medium text-muted-foreground">
-                    Inbound
-                  </p>
+                  <AskAIButton
+                    label="Analyze inbound deals with AI"
+                    onClick={() => askCopilot("inbound deals")}
+                  />
                 </div>
                 <p className="text-3xl font-semibold">{displayInbound}</p>
                 <p className="text-xs text-muted-foreground mt-1">
@@ -977,13 +971,19 @@ export default function Dashboard({
 
               {/* Outbound */}
               <div className="rounded-xl border bg-card p-5">
-                <div className="flex items-center gap-3 mb-3">
-                  <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-rose-500/10">
-                    <Activity className="h-4 w-4 text-rose-500" />
+                <div className="flex items-center justify-between gap-3 mb-3">
+                  <div className="flex items-center gap-3">
+                    <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-rose-500/10">
+                      <Activity className="h-4 w-4 text-rose-500" />
+                    </div>
+                    <p className="text-sm font-medium text-muted-foreground">
+                      Outbound
+                    </p>
                   </div>
-                  <p className="text-sm font-medium text-muted-foreground">
-                    Outbound
-                  </p>
+                  <AskAIButton
+                    label="Analyze outbound deals with AI"
+                    onClick={() => askCopilot("outbound deals")}
+                  />
                 </div>
                 <p className="text-3xl font-semibold">{displayOutbound}</p>
                 <p className="text-xs text-muted-foreground mt-1">
@@ -996,13 +996,19 @@ export default function Dashboard({
 
               {/* Conversion */}
               <div className="rounded-xl border bg-card p-5">
-                <div className="flex items-center gap-3 mb-3">
-                  <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-amber-500/10">
-                    <ArrowLeftRight className="h-4 w-4 text-amber-500" />
+                <div className="flex items-center justify-between gap-3 mb-3">
+                  <div className="flex items-center gap-3">
+                    <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-amber-500/10">
+                      <ArrowLeftRight className="h-4 w-4 text-amber-500" />
+                    </div>
+                    <p className="text-sm font-medium text-muted-foreground">
+                      Conversion
+                    </p>
                   </div>
-                  <p className="text-sm font-medium text-muted-foreground">
-                    Conversion
-                  </p>
+                  <AskAIButton
+                    label="Analyze conversion rates with AI"
+                    onClick={() => askCopilot("stage conversion rates")}
+                  />
                 </div>
                 <div className="space-y-1.5">
                   {stageConversions.map((sc) => (
@@ -1016,7 +1022,7 @@ export default function Dashboard({
                       <span className="flex items-baseline gap-1.5">
                         <span className="text-sm font-semibold">{sc.pct}%</span>
                         <span className="text-[10px] text-muted-foreground">
-                          {sc.to}/{sc.from}
+                          {sc.promoted}/{sc.denom}
                         </span>
                       </span>
                     </div>
@@ -1414,16 +1420,22 @@ export default function Dashboard({
             {/* ── Pipeline Stages ────────────────────────────────────────────── */}
             <Card className="border bg-card">
               <CardHeader className="pb-2">
-                <div className="flex items-center gap-3">
-                  <CardTitle className="flex items-center gap-3 text-lg font-semibold">
-                    <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10">
-                      <TrendingUp className="h-4 w-4 text-primary" />
-                    </div>
-                    Pipeline Stages
-                  </CardTitle>
-                  <span className="text-sm text-muted-foreground">
-                    {formatDate(dateRange.from)} – {formatDate(dateRange.to)}
-                  </span>
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-3">
+                    <CardTitle className="flex items-center gap-3 text-lg font-semibold">
+                      <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10">
+                        <TrendingUp className="h-4 w-4 text-primary" />
+                      </div>
+                      Pipeline Stages
+                    </CardTitle>
+                    <span className="text-sm text-muted-foreground">
+                      {formatDate(dateRange.from)} – {formatDate(dateRange.to)}
+                    </span>
+                  </div>
+                  <AskAIButton
+                    label="Analyze pipeline stages with AI"
+                    onClick={() => askCopilot("pipeline stage distribution")}
+                  />
                 </div>
               </CardHeader>
               <CardContent className="pt-4">

@@ -13,6 +13,16 @@ import {
   type ReactNode,
 } from "react";
 import { toast } from "sonner";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 const CHAT_API = "/api/chat";
 
@@ -85,6 +95,13 @@ interface ChatContextValue extends ReturnType<typeof useChat> {
   chats: CopilotChatSummary[];
   refreshChats: () => Promise<void>;
   isLoadingMessages: boolean;
+  /**
+   * Entry point for every "Analyze using AI" trigger. Sends the prompt to the
+   * copilot immediately when idle; when a response is already streaming it
+   * opens a confirmation dialog offering to stop the current response and
+   * replace it with this analysis.
+   */
+  analyzeWithAI: (text: string) => void;
 }
 
 const ChatContext = createContext<ChatContextValue | null>(null);
@@ -292,6 +309,63 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     setMessages([]);
   }, [setChatId, setMessages]);
 
+  // A prompt that's queued behind a still-streaming response. Non-null while
+  // the "stop & replace" confirmation dialog is open.
+  const [pendingAnalysis, setPendingAnalysis] = useState<string | null>(null);
+
+  const analyzeWithAI = useCallback((text: string) => {
+    const status = chatStateRef.current.status;
+    const busy = status === "streaming" || status === "submitted";
+    if (busy) {
+      setPendingAnalysis(text);
+    } else {
+      chatStateRef.current.sendMessage({ text });
+    }
+  }, []);
+
+  const confirmPendingAnalysis = useCallback(async () => {
+    const text = pendingAnalysis;
+    setPendingAnalysis(null);
+    if (text == null) return;
+
+    // Fully stop the in-flight run BEFORE starting the new turn. stop() aborts
+    // the fetch (which propagates to the server via req.signal), but we also
+    // wait for useChat's status to actually settle out of streaming/submitted —
+    // otherwise the new send races the dying run and both stream into the same
+    // thread concurrently (the cascade of duplicate thinking/tool blocks).
+    try {
+      await chatStateRef.current.stop();
+    } catch {
+      // stop() can reject if there's nothing in flight — safe to ignore.
+    }
+
+    const settled = await new Promise<boolean>((resolve) => {
+      let attempts = 0;
+      const check = () => {
+        const status = chatStateRef.current.status;
+        if (status !== "streaming" && status !== "submitted") {
+          resolve(true);
+          return;
+        }
+        if (attempts++ >= 50) {
+          resolve(false); // ~5s cap; bail rather than hang forever
+          return;
+        }
+        setTimeout(check, 100);
+      };
+      check();
+    });
+
+    if (!settled) {
+      toast.error("Couldn't stop the current response", {
+        description: "Please try again in a moment.",
+      });
+      return;
+    }
+
+    chatStateRef.current.sendMessage({ text });
+  }, [pendingAnalysis]);
+
   const value = useMemo<ChatContextValue>(
     () => ({
       ...chat,
@@ -301,11 +375,47 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       chats,
       refreshChats,
       isLoadingMessages,
+      analyzeWithAI,
     }),
-    [chat, chatId, setChatId, newChat, chats, refreshChats, isLoadingMessages],
+    [
+      chat,
+      chatId,
+      setChatId,
+      newChat,
+      chats,
+      refreshChats,
+      isLoadingMessages,
+      analyzeWithAI,
+    ],
   );
 
-  return <ChatContext.Provider value={value}>{children}</ChatContext.Provider>;
+  return (
+    <ChatContext.Provider value={value}>
+      {children}
+      <AlertDialog
+        open={pendingAnalysis !== null}
+        onOpenChange={(open) => {
+          if (!open) setPendingAnalysis(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Stop the current response?</AlertDialogTitle>
+            <AlertDialogDescription>
+              The AI is still responding. Starting this analysis will stop the
+              current response and replace it with the new one.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Keep current</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmPendingAnalysis}>
+              Stop &amp; analyze
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </ChatContext.Provider>
+  );
 }
 
 export function useChatContext(): ChatContextValue {

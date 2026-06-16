@@ -178,6 +178,10 @@ export async function POST(req: NextRequest) {
           version: 'v2',
           recursionLimit: 50,
           configurable: { thread_id: chat.id, userEmail },
+          // Propagate client disconnects (the UI's stop()/aborted fetch) down
+          // into LangGraph so the underlying Anthropic request is cancelled and
+          // the graph stops executing — not just the SSE stream to the client.
+          signal: req.signal,
         },
       );
 
@@ -186,6 +190,17 @@ export async function POST(req: NextRequest) {
       // the client picks it up via useChat's onData and updates the sidebar
       // without waiting for the agent stream to finish or polling the DB.
       const stream = createUIMessageStream({
+        // The client aborting mid-stream surfaces here as an AbortError once
+        // the signal propagates through LangGraph. That's expected teardown,
+        // not a real failure — swallow it so it doesn't reach the (already
+        // gone) client or pollute logs.
+        onError: (error) => {
+          if (req.signal.aborted || (error as Error)?.name === 'AbortError') {
+            return '';
+          }
+          console.error(error);
+          return 'Internal server error';
+        },
         execute: async ({ writer }) => {
           writer.merge(toUIMessageStream(eventStream));
           if (titlePromise) {
@@ -212,6 +227,7 @@ export async function POST(req: NextRequest) {
         {
           recursionLimit: 50,
           configurable: { thread_id: chat.id, userEmail },
+          signal: req.signal,
         },
       );
 

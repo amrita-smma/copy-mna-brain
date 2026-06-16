@@ -82,6 +82,8 @@ import { toast } from "sonner";
 import posthog from "posthog-js";
 import { getCompanies } from "@/lib/api/pipeline";
 import { MatchedCompanyCombobox, AUTO as COMBOBOX_AUTO, type CompanyOption as ComboboxOption } from "@/components/Files/MatchedCompanyCombobox";
+import { useChatContext } from "@/components/chat/ChatProvider";
+import { AskAIButton } from "@/components/chat/AskAIButton";
 import { HitlReviewDialog } from "@/components/Files/HitlReviewDialog";
 
 const AUTO = COMBOBOX_AUTO;
@@ -715,6 +717,7 @@ export default function AIFileDump({
   showCrm = false,
   showAiWorkforce = false,
 }: AIFileDumpProps) {
+  const { analyzeWithAI } = useChatContext();
   const [meetingNotes, setMeetingNotes] = useState<MeetingNote[]>([]);
   const [prospectus, setProspectus] = useState<Prospectus[]>([]);
   const [bankerComms, setBankerComms] = useState<FileRecord[]>([]);
@@ -1434,6 +1437,15 @@ export default function AIFileDump({
                 them
               </p>
             </div>
+            <AskAIButton
+              variant="button"
+              label="Analyze using AI"
+              onClick={() =>
+                analyzeWithAI(
+                  "Analyze the files in the AI File Dump and summarize the key takeaways across them.",
+                )
+              }
+            />
           </div>
         </div>
 

@@ -122,6 +122,8 @@ import {
 import { FinancialCharts } from "@/components/pipeline/FinancialCharts";
 import type { Tables } from "@/lib/repositories";
 import { MarkdownRenderer } from "@/components/chat/MarkdownRenderer";
+import { useChatContext } from "@/components/chat/ChatProvider";
+import { AskAIButton } from "@/components/chat/AskAIButton";
 
 export interface CompanyData {
   id: string;
@@ -330,6 +332,7 @@ export default function CompanyDetailDialog({
   onUpdate,
 }: CompanyDetailDialogProps) {
   const router = useRouter();
+  const { analyzeWithAI } = useChatContext();
   const [company, setCompany] = useState<CompanyData>(companyProp);
   // Only re-sync from the prop when a *different* company is opened. Some
   // parents (e.g. MarketScreeningResults) rebuild the `company` prop as a new
@@ -1024,6 +1027,16 @@ export default function CompanyDetailDialog({
                         ? "Regenerate AI Card"
                         : "Generate AI Company Card"}
                   </Button>
+                  <AskAIButton
+                    variant="button"
+                    label="Analyze using AI"
+                    onClick={() => {
+                      analyzeWithAI(
+                        `Analyze ${company.target || "this company"} and provide insights about it as a potential deal.`,
+                      );
+                      onOpenChange(false);
+                    }}
+                  />
                 </div>
               </div>
             </div>

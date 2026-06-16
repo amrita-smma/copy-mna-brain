@@ -2,7 +2,11 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 // Hoisted mock fns so the module-level vi.mock factories can reference them.
 const mocks = vi.hoisted(() => ({
-  createAgent: vi.fn((_config: Record<string, unknown>) => ({ __agent: true })),
+  createAgent: vi.fn((_config: Record<string, unknown>) => ({
+    __agent: true,
+    streamEvents: vi.fn().mockResolvedValue('event-stream'),
+    invoke: vi.fn().mockResolvedValue({ messages: [] }),
+  })),
   humanInTheLoopMiddleware: vi.fn(() => ({ __middleware: true })),
   postgresSaverCtor: vi.fn(),
   postgresSaverSetup: vi.fn().mockResolvedValue(undefined),
@@ -112,6 +116,50 @@ describe('getStatelessAgentGraph', () => {
     const graph = await getStatelessAgentGraph();
     expect(graph).toBeNull();
     expect(mocks.createAgent).not.toHaveBeenCalled();
+  });
+});
+
+describe('AgentGraph abort signal forwarding', () => {
+  beforeEach(() => {
+    resetAgent();
+    mocks.createAgent.mockClear();
+    process.env.ANTHROPIC_API_KEY = 'test-key';
+  });
+
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('forwards the abort signal to the underlying agent on streamEvents', async () => {
+    const graph = await getStatelessAgentGraph();
+    const controller = new AbortController();
+
+    await graph!.streamEvents(
+      { messages: [], additionalSystemContext: undefined },
+      { version: 'v2', signal: controller.signal },
+    );
+
+    const underlying = mocks.createAgent.mock.results[0].value;
+    expect(underlying.streamEvents).toHaveBeenCalledWith(
+      { messages: [] },
+      expect.objectContaining({ signal: controller.signal }),
+    );
+  });
+
+  it('forwards the abort signal to the underlying agent on invoke', async () => {
+    const graph = await getStatelessAgentGraph();
+    const controller = new AbortController();
+
+    await graph!.invoke(
+      { messages: [], additionalSystemContext: undefined },
+      { signal: controller.signal },
+    );
+
+    const underlying = mocks.createAgent.mock.results[0].value;
+    expect(underlying.invoke).toHaveBeenCalledWith(
+      { messages: [] },
+      expect.objectContaining({ signal: controller.signal }),
+    );
   });
 });
 

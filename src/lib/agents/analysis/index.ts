@@ -342,6 +342,12 @@ export interface InvokeOptions {
 export interface InvokeConfig {
   recursionLimit?: number;
   configurable?: Record<string, unknown>;
+  /**
+   * Abort signal forwarded to the underlying LangGraph run. When it fires
+   * (e.g. the client disconnects or hits the UI stop button), LangChain
+   * cancels the in-flight model request and halts graph execution.
+   */
+  signal?: AbortSignal;
 }
 
 export interface InvokeResult {

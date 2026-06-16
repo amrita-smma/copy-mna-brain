@@ -4,6 +4,8 @@ import { useState, useEffect } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import DashboardLayout from '@/components/layout/DashboardLayout';
 import { MarkdownRenderer } from '@/components/chat/MarkdownRenderer';
+import { useChatContext } from '@/components/chat/ChatProvider';
+import { AskAIButton } from '@/components/chat/AskAIButton';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
@@ -312,6 +314,7 @@ interface CompanyDetailProps {
 export default function CompanyDetail({ showCrm = false, showAiWorkforce = false }: CompanyDetailProps) {
   const params = useParams();
   const router = useRouter();
+  const { analyzeWithAI } = useChatContext();
   const searchParams = useSearchParams();
   const companyId = params.dealId as string;
   const returnTo = searchParams.get('from') || '/pipeline';
@@ -1007,6 +1010,15 @@ export default function CompanyDetail({ showCrm = false, showAiWorkforce = false
                   ? 'Regenerate AI Card'
                   : 'Generate AI Company Card'}
             </Button>
+            <AskAIButton
+              variant="button"
+              label="Analyze using AI"
+              onClick={() =>
+                analyzeWithAI(
+                  `Analyze ${company?.target || 'this company'} and provide insights about it as a potential deal.`,
+                )
+              }
+            />
           </div>
         </div>
 

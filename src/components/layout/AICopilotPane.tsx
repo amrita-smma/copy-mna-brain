@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Sparkles, Maximize2, Minimize2, Send, LoaderCircle, PenLine } from 'lucide-react';
+import { Sparkles, Maximize2, Minimize2, Send, Square, PenLine } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -41,7 +41,7 @@ function ScrollContent({ children }: { children: React.ReactNode }) {
 
 function ChatInput({ isExpanded }: { isExpanded: boolean }) {
   const [input, setInput] = useState('');
-  const { sendMessage, status } = useChatContext();
+  const { sendMessage, status, stop } = useChatContext();
   const isBusy = status === 'streaming' || status === 'submitted';
 
   const handleSubmit = () => {
@@ -71,18 +71,27 @@ function ChatInput({ isExpanded }: { isExpanded: boolean }) {
               className="flex-1 text-sm border-0 bg-transparent focus-visible:ring-0 focus-visible:ring-offset-0"
               disabled={isBusy}
             />
-            <Button
-              type="submit"
-              size="sm"
-              disabled={!input.trim() || isBusy}
-              className="bg-purple-600 hover:bg-purple-700 shrink-0 rounded-xl"
-            >
-              {isBusy ? (
-                <LoaderCircle className="h-4 w-4 animate-spin" />
-              ) : (
+            {isBusy ? (
+              <Button
+                type="button"
+                size="sm"
+                onClick={() => stop()}
+                aria-label="Stop generating"
+                title="Stop generating"
+                className="bg-red-600 hover:bg-red-700 shrink-0 rounded-xl"
+              >
+                <Square className="h-4 w-4 fill-current" />
+              </Button>
+            ) : (
+              <Button
+                type="submit"
+                size="sm"
+                disabled={!input.trim()}
+                className="bg-purple-600 hover:bg-purple-700 shrink-0 rounded-xl"
+              >
                 <Send className="h-4 w-4" />
-              )}
-            </Button>
+              </Button>
+            )}
           </div>
         </form>
       </motion.div>
