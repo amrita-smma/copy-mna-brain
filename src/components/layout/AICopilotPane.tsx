@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Sparkles, Maximize2, Minimize2, Send, LoaderCircle, PenLine } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { Button } from '@/components/ui/button';
@@ -117,30 +117,98 @@ function ChatContent({ isExpanded }: { isExpanded: boolean }) {
   );
 }
 
+export const COPILOT_MIN_WIDTH = 320;
+export const COPILOT_MAX_WIDTH = 720;
+export const COPILOT_DEFAULT_WIDTH = 384;
+
 interface AICopilotPaneProps {
   isExpanded: boolean;
   onToggleExpand: () => void;
+  width?: number;
+  onResize?: (width: number) => void;
   className?: string;
 }
 
-export function AICopilotPane({ isExpanded, onToggleExpand, className }: AICopilotPaneProps) {
+export function AICopilotPane({
+  isExpanded,
+  onToggleExpand,
+  width = COPILOT_DEFAULT_WIDTH,
+  onResize,
+  className,
+}: AICopilotPaneProps) {
   const { newChat } = useChatContext();
+  const [isDragging, setIsDragging] = useState(false);
+  const dragState = useRef<{ startX: number; startWidth: number } | null>(null);
+
+  const handleResizeStart = useCallback(
+    (e: React.MouseEvent) => {
+      if (isExpanded || !onResize) return;
+      e.preventDefault();
+      dragState.current = { startX: e.clientX, startWidth: width };
+      setIsDragging(true);
+    },
+    [isExpanded, onResize, width],
+  );
+
+  useEffect(() => {
+    if (!isDragging) return;
+
+    const handleMove = (e: MouseEvent) => {
+      if (!dragState.current) return;
+      // Pane is docked to the right edge, so dragging left widens it.
+      const delta = dragState.current.startX - e.clientX;
+      const next = Math.min(
+        COPILOT_MAX_WIDTH,
+        Math.max(COPILOT_MIN_WIDTH, dragState.current.startWidth + delta),
+      );
+      onResize?.(next);
+    };
+    const handleUp = () => {
+      dragState.current = null;
+      setIsDragging(false);
+    };
+
+    window.addEventListener('mousemove', handleMove);
+    window.addEventListener('mouseup', handleUp);
+    const prevUserSelect = document.body.style.userSelect;
+    document.body.style.userSelect = 'none';
+    document.body.style.cursor = 'col-resize';
+
+    return () => {
+      window.removeEventListener('mousemove', handleMove);
+      window.removeEventListener('mouseup', handleUp);
+      document.body.style.userSelect = prevUserSelect;
+      document.body.style.cursor = '';
+    };
+  }, [isDragging, onResize]);
 
   return (
     <motion.div
       className={cn(
-        'flex flex-col bg-background border-l h-full sticky top-0 overflow-hidden',
+        'relative flex flex-col bg-background border-l h-full sticky top-0 overflow-hidden',
         className
       )}
       initial={false}
       animate={{
-        width: isExpanded ? '100%' : 384,
+        width: isExpanded ? '100%' : width,
       }}
       transition={{
-        duration: 0.3,
+        duration: isDragging ? 0 : 0.3,
         ease: [0.4, 0, 0.2, 1],
       }}
     >
+      {!isExpanded && onResize && (
+        <div
+          role="separator"
+          aria-orientation="vertical"
+          onMouseDown={handleResizeStart}
+          className={cn(
+            'absolute left-0 top-0 z-20 h-full w-1.5 -translate-x-1/2 cursor-col-resize',
+            'transition-colors hover:bg-purple-500/40',
+            isDragging && 'bg-purple-500/60',
+          )}
+        />
+      )}
       <motion.div
         className="flex items-center justify-between p-3 border-b bg-background/80 backdrop-blur-xl shrink-0 sticky top-0 z-10"
         layout

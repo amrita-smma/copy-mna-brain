@@ -35,8 +35,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/button';
 import { ThemeToggle } from '@/components/theme-toggle';
 import { LivingBackground } from '@/components/LivingBackground';
-import { AICopilotPane } from './AICopilotPane';
-import { ChatProvider } from '@/components/chat/ChatProvider';
+import { AICopilotPane, COPILOT_DEFAULT_WIDTH } from './AICopilotPane';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useLocalStorage } from '@/hooks/useLocalStorage';
 
@@ -61,6 +60,7 @@ export default function DashboardLayout({ children, showCrm = false, showAiWorkf
   const { user, signOut } = useAuth();
   const [isMainExpanded, setIsMainExpanded] = useLocalStorage('layout:main-expanded', false);
   const [isCopilotExpanded, setIsCopilotExpanded] = useLocalStorage('layout:copilot-expanded', false);
+  const [copilotWidth, setCopilotWidth] = useLocalStorage('layout:copilot-width', COPILOT_DEFAULT_WIDTH);
 
   const isOnAiWorkforce = pathname.startsWith('/ai-workforce');
   const showCopilotPane = !isOnAiWorkforce;
@@ -191,8 +191,11 @@ export default function DashboardLayout({ children, showCrm = false, showAiWorkf
           </Sidebar>
 
           <SidebarInset className="flex flex-1 min-w-0 h-screen overflow-hidden">
-            <ChatProvider>
-              <div className="flex flex-1 min-w-0 h-full">
+            {/* ChatProvider lives at the app root (providers.tsx) so the
+                copilot conversation persists across page navigation. Do not
+                re-wrap it here — a nested provider remounts per page and
+                resets the chat. */}
+            <div className="flex flex-1 min-w-0 h-full">
                 <motion.div
                   className="flex flex-col min-w-0 h-full overflow-hidden"
                   initial={false}
@@ -272,11 +275,12 @@ export default function DashboardLayout({ children, showCrm = false, showAiWorkf
                     <AICopilotPane
                       isExpanded={isCopilotExpanded}
                       onToggleExpand={() => setIsCopilotExpanded(!isCopilotExpanded)}
+                      width={copilotWidth}
+                      onResize={setCopilotWidth}
                     />
                   </motion.div>
                 )}
               </div>
-            </ChatProvider>
           </SidebarInset>
         </div>
       </SidebarProvider>

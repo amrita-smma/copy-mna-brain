@@ -275,21 +275,26 @@ export default function MasterData({ showCrm = false, showAiWorkforce = false }:
     return matchesSearch && matchesStage && matchesSector && matchesSource;
   });
 
+  const droppedCompanies = companies.filter(c => c.status === 'dropped');
   const activeCompanies = companies.filter(c =>
+    c.status !== 'dropped' &&
     ['L0', 'L1', 'L2', 'L3', 'L4', 'L5'].includes(c.current_stage as string)
   );
 
+  const countActiveAtStage = (stage: string) =>
+    companies.filter(c => c.status !== 'dropped' && c.current_stage === stage).length;
+
   const stats = {
-    total: activeCompanies.length + 0,
+    total: activeCompanies.length + droppedCompanies.length,
     active: activeCompanies.length,
-    drop: 0,
+    drop: droppedCompanies.length,
     byStage: {
-      L0: companies.filter(c => c.current_stage === 'L0').length,
-      L1: companies.filter(c => c.current_stage === 'L1').length,
-      L2: companies.filter(c => c.current_stage === 'L2').length,
-      L3: companies.filter(c => c.current_stage === 'L3').length,
-      L4: companies.filter(c => c.current_stage === 'L4').length,
-      L5: companies.filter(c => c.current_stage === 'L5').length,
+      L0: countActiveAtStage('L0'),
+      L1: countActiveAtStage('L1'),
+      L2: countActiveAtStage('L2'),
+      L3: countActiveAtStage('L3'),
+      L4: countActiveAtStage('L4'),
+      L5: countActiveAtStage('L5'),
     },
   };
 

@@ -40,7 +40,9 @@ import {
   LayoutGrid,
   Globe,
   ArrowLeftRight,
+  Sparkles,
 } from "lucide-react";
+import { useChatContext } from "@/components/chat/ChatProvider";
 
 interface StageCounts {
   stage: string;
@@ -321,6 +323,28 @@ const eventTypeLabels: Record<FeedEventType, string> = {
   dropped: "Dropped",
   note_updated: "Note Updated",
 };
+
+// ─── Ask-AI button ───────────────────────────────────────────────────────────
+
+function AskAIButton({
+  onClick,
+  label,
+}: {
+  onClick: () => void;
+  label: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label={label}
+      title={label}
+      className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-purple-500 transition-colors hover:bg-purple-500/10 hover:text-purple-600 dark:hover:text-purple-400"
+    >
+      <Sparkles className="h-3.5 w-3.5" />
+    </button>
+  );
+}
 
 // ─── Notes modal ─────────────────────────────────────────────────────────────
 
@@ -605,6 +629,20 @@ export default function Dashboard({
     setCustomPickerOpen(false);
   };
 
+  // ─── Copilot quick-analysis ─────────────────────────────────────────────────
+
+  const { sendMessage } = useChatContext();
+
+  const askCopilot = useCallback(
+    (topic: string) => {
+      const range = `${formatDate(dateRange.from)} – ${formatDate(dateRange.to)}`;
+      sendMessage({
+        text: `In the current period (${range}), analyze the ${topic} and provide insights.`,
+      });
+    },
+    [sendMessage, dateRange.from, dateRange.to],
+  );
+
   // ─── Recap derivations ──────────────────────────────────────────────────────
 
   const recapDropped = activity?.droppedDeals ?? [];
@@ -696,12 +734,28 @@ export default function Dashboard({
   const displayL0 = displayStageCounts[0]?.count || 0;
   const displayL0Inbound = displayStageCounts[0]?.inbound ?? 0;
   const displayL0Outbound = displayStageCounts[0]?.outbound ?? 0;
-  const displayL5 =
-    displayStageCounts.find((s) => s.stage === "L5")?.count ?? 0;
-  const displayConversion =
-    displayL0 > 0 ? Math.round((displayL5 / displayL0) * 100) : 0;
+  const stageConversions = PIPELINE_STAGES.slice(0, -1).map((stage, i) => {
+    const from = displayStageCounts.find((s) => s.stage === stage.stage)?.count ?? 0;
+    const to =
+      displayStageCounts.find((s) => s.stage === PIPELINE_STAGES[i + 1].stage)
+        ?.count ?? 0;
+    return {
+      label: `${stage.stage} → ${PIPELINE_STAGES[i + 1].stage}`,
+      pct: from > 0 ? Math.round((to / from) * 100) : 0,
+      from,
+      to,
+    };
+  });
   const pctOfTotal = (n: number) =>
     displayTotal > 0 ? Math.round((n / displayTotal) * 100) : 0;
+  const droppedByStage = (activity?.droppedDeals ?? []).reduce(
+    (acc, d) => {
+      const stage = d.pipeline_stage ?? "L0";
+      acc[stage] = (acc[stage] ?? 0) + 1;
+      return acc;
+    },
+    {} as Record<string, number>,
+  );
 
   if (loading) {
     return (
@@ -950,8 +1004,24 @@ export default function Dashboard({
                     Conversion
                   </p>
                 </div>
-                <p className="text-3xl font-semibold">{displayConversion}%</p>
-                <p className="text-xs text-muted-foreground mt-1">L0 → L5</p>
+                <div className="space-y-1.5">
+                  {stageConversions.map((sc) => (
+                    <div
+                      key={sc.label}
+                      className="flex items-center justify-between"
+                    >
+                      <span className="text-xs text-muted-foreground">
+                        {sc.label}
+                      </span>
+                      <span className="flex items-baseline gap-1.5">
+                        <span className="text-sm font-semibold">{sc.pct}%</span>
+                        <span className="text-[10px] text-muted-foreground">
+                          {sc.to}/{sc.from}
+                        </span>
+                      </span>
+                    </div>
+                  ))}
+                </div>
               </div>
             </div>
           </CardContent>
@@ -990,9 +1060,15 @@ export default function Dashboard({
                 {/* 3 summary counters */}
                 <div className="grid grid-cols-3 gap-4">
                   <div className="rounded-lg border border-red-200 bg-red-50/50 dark:border-red-900/50 dark:bg-red-950/20 p-4">
-                    <p className="text-xs font-semibold text-red-600 dark:text-red-400 uppercase tracking-wide">
-                      Dropped
-                    </p>
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-xs font-semibold text-red-600 dark:text-red-400 uppercase tracking-wide">
+                        Dropped
+                      </p>
+                      <AskAIButton
+                        label="Analyze dropped deals with AI"
+                        onClick={() => askCopilot("dropped deals")}
+                      />
+                    </div>
                     <p className="text-3xl font-bold mt-1">
                       {recapDropped.length}
                     </p>
@@ -1001,9 +1077,15 @@ export default function Dashboard({
                     </p>
                   </div>
                   <div className="rounded-lg border border-emerald-200 bg-emerald-50/50 dark:border-emerald-900/50 dark:bg-emerald-950/20 p-4">
-                    <p className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 uppercase tracking-wide">
-                      New Deals
-                    </p>
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 uppercase tracking-wide">
+                        New Deals
+                      </p>
+                      <AskAIButton
+                        label="Analyze new deals with AI"
+                        onClick={() => askCopilot("new deals")}
+                      />
+                    </div>
                     <div className="flex items-end gap-4 mt-2">
                       <div>
                         <p className="text-3xl font-bold leading-none">
@@ -1121,9 +1203,15 @@ export default function Dashboard({
                     </div>
                   </div>
                   <div className="rounded-lg border border-blue-200 bg-blue-50/50 dark:border-blue-900/50 dark:bg-blue-950/20 p-4">
-                    <p className="text-xs font-semibold text-blue-600 dark:text-blue-400 uppercase tracking-wide">
-                      Stage Moves
-                    </p>
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-xs font-semibold text-blue-600 dark:text-blue-400 uppercase tracking-wide">
+                        Stage Moves
+                      </p>
+                      <AskAIButton
+                        label="Analyze stage moves with AI"
+                        onClick={() => askCopilot("stage moves")}
+                      />
+                    </div>
                     <p className="text-3xl font-bold mt-1">
                       {recapStageMoves.length}
                     </p>
@@ -1381,6 +1469,12 @@ export default function Dashboard({
                           {pctOfTotal(displayL0Outbound)}% of total
                         </span>
                       </Link>
+                      {(droppedByStage["L0"] ?? 0) > 0 && (
+                        <div className="flex items-center justify-between rounded-md bg-red-500/10 px-2 py-1 text-[10px] font-bold text-red-600 dark:text-red-400">
+                          <span>DROPPED</span>
+                          <span>{droppedByStage["L0"]}</span>
+                        </div>
+                      )}
                     </div>
 
                     {/* divider */}
@@ -1425,6 +1519,12 @@ export default function Dashboard({
                                 <span>{item.outbound || 0}</span>
                               </div>
                             </div>
+                            {(droppedByStage[item.stage] ?? 0) > 0 && (
+                              <div className="flex w-full items-center justify-between rounded-md bg-red-500/10 px-2 py-1 text-[10px] font-bold text-red-600 dark:text-red-400">
+                                <span>DROPPED</span>
+                                <span>{droppedByStage[item.stage]}</span>
+                              </div>
+                            )}
                             <div className="mt-1 text-sm font-bold">
                               {item.stage}
                             </div>
