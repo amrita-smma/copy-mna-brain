@@ -2,6 +2,7 @@
 
 import { Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useLayoutControl } from "@/components/layout/LayoutControlContext";
 
 interface AskAIButtonProps {
   /** Click handler — the consumer wires this to `sendMessage(...)` from `useChatContext`. */
@@ -26,11 +27,21 @@ export function AskAIButton({
   variant = "icon",
   className,
 }: AskAIButtonProps) {
+  const { focusCopilot } = useLayoutControl();
+
+  // Every analyze trigger first focuses the copilot (reveal the pane, collapse
+  // the left nav) so the response is immediately visible, then runs the
+  // consumer's send handler.
+  const handleClick = () => {
+    focusCopilot();
+    onClick();
+  };
+
   if (variant === "button") {
     return (
       <button
         type="button"
-        onClick={onClick}
+        onClick={handleClick}
         aria-label={label}
         title={label}
         className={cn(
@@ -47,7 +58,7 @@ export function AskAIButton({
   return (
     <button
       type="button"
-      onClick={onClick}
+      onClick={handleClick}
       aria-label={label}
       title={label}
       className={cn(

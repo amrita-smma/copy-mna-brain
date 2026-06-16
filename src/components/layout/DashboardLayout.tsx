@@ -36,6 +36,7 @@ import { Button } from '@/components/ui/button';
 import { ThemeToggle } from '@/components/theme-toggle';
 import { LivingBackground } from '@/components/LivingBackground';
 import { AICopilotPane, COPILOT_DEFAULT_WIDTH } from './AICopilotPane';
+import { LayoutControlProvider } from './LayoutControlContext';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useLocalStorage } from '@/hooks/useLocalStorage';
 
@@ -256,7 +257,9 @@ export default function DashboardLayout({ children, showCrm = false, showAiWorkf
                     )}
                   </AnimatePresence>
                   <main className="flex-1 overflow-auto min-w-0 w-full">
-                    {children}
+                    <LayoutControlProvider revealCopilot={() => setIsMainExpanded(false)}>
+                      {children}
+                    </LayoutControlProvider>
                   </main>
                 </motion.div>
                 {showCopilotPane && !isMainExpanded && (
