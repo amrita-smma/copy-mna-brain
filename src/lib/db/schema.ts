@@ -2992,6 +2992,11 @@ export const copilotChats = pgTable(
       .defaultNow()
       .notNull(),
     archived_at: timestamp({ withTimezone: true, mode: "string" }),
+    // First user message of the chat (raw text) and a SHA-256 of its
+    // normalized form. Set once on the first turn; powers the chat cache that
+    // detects when a brand-new chat repeats an earlier question.
+    first_user_message: text(),
+    first_user_message_hash: text(),
   },
   (table) => {
     return {
@@ -3000,6 +3005,9 @@ export const copilotChats = pgTable(
         table.user_id.asc().nullsLast().op("uuid_ops"),
         table.last_active_at.desc().nullsFirst().op("timestamptz_ops"),
       ),
+      idxCopilotChatsFirstMsgHash: index(
+        "idx_copilot_chats_first_msg_hash",
+      ).using("btree", table.first_user_message_hash.asc().nullsLast()),
       copilotChatsUserIdFkey: foreignKey({
         columns: [table.user_id],
         foreignColumns: [users.id],

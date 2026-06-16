@@ -12,6 +12,7 @@ import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { ChatMessageBubble, LoadingBubble } from "./ChatMessageBubble";
 import { useChatContext } from "./ChatProvider";
+import { CachedChatPreview } from "./CachedChatPreview";
 
 const WELCOME_MESSAGE = `# Hello! I'm your M&A discovery assistant. I can help you with
 
@@ -93,6 +94,7 @@ export function ChatInput(props: {
   suggestionChips?: string[];
   onChipClick?: (chip: string) => void;
   className?: string;
+  inputRef?: React.Ref<HTMLInputElement>;
 }) {
   const chips = props.suggestionChips ?? SUGGESTION_CHIPS;
   return (
@@ -105,6 +107,7 @@ export function ChatInput(props: {
     >
       <div className="flex gap-2">
         <Input
+          ref={props.inputRef}
           value={props.value}
           onChange={props.onChange}
           placeholder={props.placeholder ?? CHAT_INPUT_PLACEHOLDER}
@@ -249,17 +252,18 @@ export function ChatLayout(props: {
  */
 function ChatInputContainer({ placeholder }: { placeholder?: string }) {
   const [input, setInput] = useState("");
-  const { sendMessage, status } = useChatContext();
+  const { sendWithCacheCheck, status, chatInputRef } = useChatContext();
   const isBusy = status === "streaming" || status === "submitted";
 
   return (
     <div className="max-w-5xl mx-auto space-y-3">
       <ChatInput
+        inputRef={chatInputRef}
         value={input}
         onChange={(e) => setInput(e.target.value)}
         onSubmit={() => {
           if (!input.trim()) return;
-          sendMessage({ text: input });
+          sendWithCacheCheck(input);
           setInput("");
         }}
         loading={isBusy}
@@ -280,7 +284,8 @@ export function ChatWindow(props: {
   footerClassName?: string;
 }) {
   const [isHydrated, setIsHydrated] = useState(false);
-  const { messages, status, newChat, isLoadingMessages } = useChatContext();
+  const { messages, status, newChat, isLoadingMessages, cacheHit } =
+    useChatContext();
 
   useEffect(() => {
     setIsHydrated(true);
@@ -304,6 +309,11 @@ export function ChatWindow(props: {
           <div className="flex items-center justify-center h-full min-h-[300px] text-muted-foreground gap-2">
             <LoaderCircle className="h-5 w-5 animate-spin" />
             <span className="text-sm">Loading chat…</span>
+          </div>
+        ) : cacheHit ? (
+          <div className="flex flex-col min-w-0 max-w-[768px] mx-auto pb-12 w-full">
+            <WelcomeMessage />
+            <CachedChatPreview />
           </div>
         ) : messages.length === 0 ? (
           <div className="flex flex-col min-w-0 max-w-[768px] mx-auto pb-12 w-full">

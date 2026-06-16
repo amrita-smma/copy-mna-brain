@@ -8,6 +8,7 @@ import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 import { useChatContext } from '@/components/chat/ChatProvider';
 import { ChatMessageBubble, LoadingBubble } from '@/components/chat/ChatMessageBubble';
+import { CachedChatPreview } from '@/components/chat/CachedChatPreview';
 import { StickToBottom, useStickToBottomContext } from 'use-stick-to-bottom';
 import { motion, AnimatePresence } from 'framer-motion';
 import type { UIMessage } from '@ai-sdk/react';
@@ -41,12 +42,12 @@ function ScrollContent({ children }: { children: React.ReactNode }) {
 
 function ChatInput({ isExpanded }: { isExpanded: boolean }) {
   const [input, setInput] = useState('');
-  const { sendMessage, status, stop } = useChatContext();
+  const { sendWithCacheCheck, status, stop, chatInputRef } = useChatContext();
   const isBusy = status === 'streaming' || status === 'submitted';
 
   const handleSubmit = () => {
     if (!input.trim()) return;
-    sendMessage({ text: input });
+    sendWithCacheCheck(input);
     setInput('');
   };
 
@@ -65,6 +66,7 @@ function ChatInput({ isExpanded }: { isExpanded: boolean }) {
         >
           <div className="flex gap-2 p-2 bg-background rounded-2xl border">
             <Input
+              ref={chatInputRef}
               value={input}
               onChange={(e) => setInput(e.target.value)}
               placeholder="Ask anything..."
@@ -115,6 +117,7 @@ function ChatContent({ isExpanded }: { isExpanded: boolean }) {
           transition={{ duration: 0.3, ease: 'easeInOut' }}
         >
           <ChatMessageBubble message={welcomeUIMessage} />
+          <CachedChatPreview />
           {messages.map((message) => (
             <ChatMessageBubble key={message.id} message={message} />
           ))}

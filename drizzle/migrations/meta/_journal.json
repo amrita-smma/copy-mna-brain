@@ -414,6 +414,13 @@
       "when": 1781308801000,
       "tag": "20260613000001_add_outbound_pipeline_fields",
       "breakpoints": true
+    },
+    {
+      "idx": 59,
+      "version": "7",
+      "when": 1781568000000,
+      "tag": "20260616000000_add_first_message_cache_to_copilot_chats",
+      "breakpoints": true
     }
   ]
 }

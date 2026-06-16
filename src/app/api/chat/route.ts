@@ -1,8 +1,9 @@
 import { after, NextRequest, NextResponse } from 'next/server';
-import { getAgentGraph, AIMessage } from '@/lib/agents/analysis';
+import { getAgentGraph, AIMessage, extractFirstTurn } from '@/lib/agents/analysis';
 import { ChatAnthropic } from '@langchain/anthropic';
 import { createDb } from '@/lib/server/db';
 import { createContainer } from '@/lib/services';
+import { isCacheableResponse } from '@/lib/services/copilotChatsService';
 import {
   CopilotChatNotFoundError,
   CopilotChatForbiddenError,
@@ -153,14 +154,35 @@ export async function POST(req: NextRequest) {
     // alive until the promise resolves. Intentionally NOT going through the
     // jobs table: title generation is a one-shot side effect with no need
     // for status tracking, retry, or visibility.
+    const firstUserText = (normalizedLast.parts ?? [])
+      .filter((p): p is { type: 'text'; text: string } => p.type === 'text' && 'text' in p)
+      .map((p) => p.text)
+      .join('\n');
+
+    // First turn of a brand-new chat → cache it AFTER the run finishes, never at
+    // the start. Once the response stream closes we read the persisted turn-1
+    // and only record the cache key when the assistant produced a complete,
+    // substantial answer (`isCacheableResponse`). This keeps partial/aborted/
+    // errored runs out of the cache. Gated on `!requestedChatId` so we never
+    // touch a resumed thread.
+    if (!requestedChatId) {
+      after(async () => {
+        try {
+          const finalMessages = await agent.getMessages(chat.id);
+          const { assistantText } = extractFirstTurn(finalMessages);
+          if (isCacheableResponse(assistantText)) {
+            await copilotChatsService.recordFirstMessage(chat.id, firstUserText);
+          }
+        } catch (err) {
+          console.error('[chat] failed to record cache entry:', err);
+        }
+      });
+    }
+
     const shouldGenerateTitle = !chat.title;
     const apiKey = process.env.ANTHROPIC_API_KEY;
     let titlePromise: Promise<string | null> | null = null;
     if (shouldGenerateTitle && apiKey) {
-      const firstUserText = (normalizedLast.parts ?? [])
-        .filter((p): p is { type: 'text'; text: string } => p.type === 'text' && 'text' in p)
-        .map((p) => p.text)
-        .join('\n');
       titlePromise = generateAndSaveTitle({
         chatId: chat.id,
         firstUserMessage: firstUserText,

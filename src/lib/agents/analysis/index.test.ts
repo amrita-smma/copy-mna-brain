@@ -59,6 +59,7 @@ vi.mock('@/lib/server/db', () => ({
 
 import {
   extractMessageText,
+  extractFirstTurn,
   getStatelessAgentGraph,
   resetAgent,
 } from '@/lib/agents/analysis';
@@ -66,6 +67,9 @@ import type { BaseMessage } from '@langchain/core/messages';
 
 // Minimal stand-in for a message — extractMessageText only reads `.content`.
 const msg = (content: unknown) => ({ content }) as unknown as BaseMessage;
+// Stand-in that also carries a role, for extractFirstTurn (uses _getType()).
+const typed = (type: 'human' | 'ai' | 'tool', content: unknown) =>
+  ({ content, _getType: () => type }) as unknown as BaseMessage;
 
 describe('getStatelessAgentGraph', () => {
   beforeEach(() => {
@@ -202,5 +206,68 @@ describe('extractMessageText', () => {
   it('returns empty string for undefined or empty content', () => {
     expect(extractMessageText(undefined)).toBe('');
     expect(extractMessageText(msg([]))).toBe('');
+  });
+});
+
+describe('extractFirstTurn', () => {
+  it('returns the first human and first ai message, ignoring later turns', () => {
+    const messages = [
+      typed('human', 'first question'),
+      typed('ai', 'first answer'),
+      typed('human', 'second question'),
+      typed('ai', 'second answer'),
+    ];
+    expect(extractFirstTurn(messages)).toEqual({
+      userText: 'first question',
+      assistantText: 'first answer',
+    });
+  });
+
+  it('skips tool messages when picking the first ai message', () => {
+    const messages = [
+      typed('human', 'q'),
+      typed('tool', 'tool output'),
+      typed('ai', 'the answer'),
+    ];
+    expect(extractFirstTurn(messages)).toEqual({
+      userText: 'q',
+      assistantText: 'the answer',
+    });
+  });
+
+  it('returns the FULL assistant reply across a tool-using turn, not the first blob', () => {
+    // Real tool turn: AI tool-call (no text) → Tool result → AI final answer.
+    const messages = [
+      typed('human', 'q'),
+      typed('ai', ''), // tool-call message, empty text
+      typed('tool', 'tool output'),
+      typed('ai', 'the full final answer'),
+    ];
+    expect(extractFirstTurn(messages).assistantText).toBe('the full final answer');
+  });
+
+  it('concatenates interim and final assistant text within the first turn', () => {
+    const messages = [
+      typed('human', 'q'),
+      typed('ai', 'Let me check.'),
+      typed('tool', 'result'),
+      typed('ai', 'The answer is X.'),
+      typed('human', 'follow up'),
+      typed('ai', 'ignored second-turn answer'),
+    ];
+    expect(extractFirstTurn(messages).assistantText).toBe(
+      'Let me check.\n\nThe answer is X.',
+    );
+  });
+
+  it('returns empty assistantText when there is no ai message yet', () => {
+    expect(extractFirstTurn([typed('human', 'pending question')])).toEqual({
+      userText: 'pending question',
+      assistantText: '',
+    });
+  });
+
+  it('returns empty strings for an empty thread', () => {
+    expect(extractFirstTurn([])).toEqual({ userText: '', assistantText: '' });
   });
 });

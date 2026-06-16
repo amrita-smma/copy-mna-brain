@@ -573,6 +573,28 @@ export class AgentGraph {
   }
 
   /**
+   * Seed a thread's checkpoint with an initial set of messages without running
+   * the model. Used to fork a cached turn-1 (first question + first answer)
+   * into a brand-new thread the caller owns, so the user can continue from
+   * there with the prior context in place. `messages` is appended via the
+   * graph's add-reducer; on a fresh thread that yields exactly these messages.
+   */
+  async seedMessages(threadId: string, messages: BaseMessage[]): Promise<void> {
+    // updateState is marked @internal in LangChain v1 typings (return type
+    // `never`) but it's the documented LangGraph API and works at runtime.
+    const agent = this.defaultAgent as unknown as {
+      updateState: (
+        config: { configurable: { thread_id: string } },
+        values: { messages: BaseMessage[] },
+      ) => Promise<unknown>;
+    };
+    await agent.updateState(
+      { configurable: { thread_id: threadId } },
+      { messages },
+    );
+  }
+
+  /**
    * Read raw checkpoint tuple data for a thread: the persisted message list
    * plus any pending writes (e.g. unresolved `__interrupt__` entries from
    * humanInTheLoopMiddleware). Used by the trace endpoint to render both
@@ -794,6 +816,40 @@ export function extractMessageText(message: BaseMessage | undefined): string {
       .join("");
   }
   return "";
+}
+
+/**
+ * Pull the strict turn-1 of a thread: the FIRST human message, and the FULL
+ * assistant reply to it. A tool-using turn is stored as several messages
+ * (AI with tool_calls → Tool result → AI with the final answer), so the
+ * assistant text is every `ai` message between the first human and the next
+ * human — concatenated — NOT just the first AI blob (which is often only a
+ * tool call with little or no text). Later turns are deliberately ignored;
+ * they carry context that could mislead a reused answer. Either field is `""`
+ * when that message type is absent.
+ */
+export function extractFirstTurn(messages: BaseMessage[]): {
+  userText: string;
+  assistantText: string;
+} {
+  const firstHumanIdx = messages.findIndex((m) => m._getType() === "human");
+  if (firstHumanIdx === -1) {
+    return { userText: "", assistantText: "" };
+  }
+
+  const assistantParts: string[] = [];
+  for (let i = firstHumanIdx + 1; i < messages.length; i++) {
+    const kind = messages[i]._getType();
+    if (kind === "human") break; // next turn starts — stop.
+    if (kind !== "ai") continue; // skip tool results etc.
+    const text = extractMessageText(messages[i]);
+    if (text.trim()) assistantParts.push(text);
+  }
+
+  return {
+    userText: extractMessageText(messages[firstHumanIdx]),
+    assistantText: assistantParts.join("\n\n"),
+  };
 }
 
 export { HumanMessage, AIMessage };

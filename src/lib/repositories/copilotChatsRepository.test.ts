@@ -91,4 +91,37 @@ describe('CopilotChatsRepository', () => {
 
     expect(mockDb.set).toHaveBeenCalledWith({ title: 'My title' });
   });
+
+  it('recordFirstMessage writes the message and hash', async () => {
+    mockDb.where.mockResolvedValueOnce(undefined);
+
+    await repo.recordFirstMessage('c1', 'Hello there', 'abc123');
+
+    expect(mockDb.update).toHaveBeenCalledTimes(1);
+    expect(mockDb.set).toHaveBeenCalledWith({
+      first_user_message: 'Hello there',
+      first_user_message_hash: 'abc123',
+    });
+  });
+
+  it('findLatestFirstMessageMatch returns the most recent match', async () => {
+    const row = { id: 'c1', first_user_message_hash: 'abc123' };
+    mockDb.orderBy.mockReturnThis();
+    mockDb.limit.mockResolvedValueOnce([row]);
+
+    const result = await repo.findLatestFirstMessageMatch('abc123');
+
+    expect(result).toEqual(row);
+    expect(mockDb.orderBy).toHaveBeenCalledTimes(1);
+    expect(mockDb.limit).toHaveBeenCalledWith(1);
+  });
+
+  it('findLatestFirstMessageMatch returns null when there is no match', async () => {
+    mockDb.orderBy.mockReturnThis();
+    mockDb.limit.mockResolvedValueOnce([]);
+
+    const result = await repo.findLatestFirstMessageMatch('nohash');
+
+    expect(result).toBeNull();
+  });
 });

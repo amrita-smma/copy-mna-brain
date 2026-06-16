@@ -11,6 +11,7 @@ import {
   useRef,
   useState,
   type ReactNode,
+  type RefObject,
 } from "react";
 import { toast } from "sonner";
 import {
@@ -88,6 +89,20 @@ export interface CopilotChatSummary {
   created_at: string;
 }
 
+/**
+ * A cached prior chat whose first message matches what the user is about to
+ * send in a brand-new chat. Rendered inline as a dotted-bordered preview (see
+ * CachedChatPreview) offering "continue from chat" or "start fresh".
+ */
+export interface CachedChatHit {
+  chatId: string;
+  createdAt: string;
+  firstUserMessage: string;
+  firstAssistantMessage: string;
+  /** The message the user typed, replayed verbatim on "start fresh". */
+  pendingText: string;
+}
+
 interface ChatContextValue extends ReturnType<typeof useChat> {
   chatId: string | null;
   setChatId: (id: string | null) => void;
@@ -102,6 +117,21 @@ interface ChatContextValue extends ReturnType<typeof useChat> {
    * replace it with this analysis.
    */
   analyzeWithAI: (text: string) => void;
+  /**
+   * Send the first message of a chat with a cache pre-check. For a brand-new
+   * chat it looks up a prior chat that started with the same question and, on
+   * a hit, surfaces an inline cached preview instead of sending. Falls back to
+   * a normal send for existing chats or on lookup failure.
+   */
+  sendWithCacheCheck: (text: string) => void;
+  /** The active cached-chat hit to preview inline, or null. */
+  cacheHit: CachedChatHit | null;
+  /** Fork the cached turn-1 into a new owned chat and focus the input. */
+  continueFromCached: () => void;
+  /** Discard the cached preview and run the agent on the original message. */
+  startFreshFromCached: () => void;
+  /** Ref the active chat input registers so we can focus it programmatically. */
+  chatInputRef: RefObject<HTMLInputElement | null>;
 }
 
 const ChatContext = createContext<ChatContextValue | null>(null);
@@ -125,6 +155,13 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 
   const [chats, setChats] = useState<CopilotChatSummary[]>([]);
   const [isLoadingMessages, setIsLoadingMessages] = useState(false);
+  // A cached chat that started with the same first message as the one the user
+  // is about to send in a brand-new chat. Non-null while the inline cached
+  // preview is shown (offering "continue from chat" or "start fresh").
+  const [cacheHit, setCacheHit] = useState<CachedChatHit | null>(null);
+  // The active chat input registers itself here so "continue from chat" can
+  // return focus to the chat bar.
+  const chatInputRef = useRef<HTMLInputElement | null>(null);
   // Indirection so the transport closure (memoized once) can always call the
   // latest refreshChats without re-creating the transport.
   const refreshChatsRef = useRef<() => Promise<void>>(() => Promise.resolve());
@@ -221,6 +258,9 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   // assistant reply (whether from a still-running agent or another client)
   // shows up automatically.
   useEffect(() => {
+    // Any chat switch (including back to "new chat") drops a pending cached
+    // preview — it only ever applies to the brand-new chat it was raised for.
+    setCacheHit(null);
     if (!chatId) {
       chatStateRef.current.stop();
       setMessages([]);
@@ -307,21 +347,107 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   const newChat = useCallback(() => {
     setChatId(null);
     setMessages([]);
+    // Starting a new chat discards any pending cached-chat preview.
+    setCacheHit(null);
   }, [setChatId, setMessages]);
+
+  // Entry point for sending the FIRST message of a chat. For a brand-new chat
+  // (no chatId yet) it first asks the server whether the same question was
+  // already answered; on a hit it opens the warning dialog instead of sending.
+  // Any other case (existing chat, empty text, or lookup failure) sends
+  // immediately so caching never blocks the normal flow.
+  const sendWithCacheCheck = useCallback(async (text: string) => {
+    const trimmed = text.trim();
+    if (chatIdRef.current || !trimmed) {
+      chatStateRef.current.sendMessage({ text });
+      return;
+    }
+    try {
+      const res = await fetch('/api/chat/cache-check', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: trimmed }),
+      });
+      if (res.ok) {
+        const { data } = (await res.json()) as {
+          data?: {
+            hit?: boolean;
+            chatId?: string;
+            createdAt?: string;
+            firstUserMessage?: string;
+            firstAssistantMessage?: string;
+          };
+        };
+        if (data?.hit && data.chatId) {
+          setCacheHit({
+            chatId: data.chatId,
+            createdAt: data.createdAt ?? '',
+            firstUserMessage: data.firstUserMessage ?? '',
+            firstAssistantMessage: data.firstAssistantMessage ?? '',
+            pendingText: text,
+          });
+          return;
+        }
+      }
+    } catch (err) {
+      console.error('[chat] cache-check failed:', err);
+    }
+    chatStateRef.current.sendMessage({ text });
+  }, []);
+
+  // "Continue from chat" — fork the cached turn-1 into a new chat owned by the
+  // current user, switch to it (the chat-load effect renders the seeded
+  // question + answer), and focus the chat bar so the user can keep typing.
+  // Never opens the source thread directly.
+  const continueFromCached = useCallback(async () => {
+    const hit = cacheHit;
+    setCacheHit(null);
+    if (!hit) return;
+    try {
+      const res = await fetch('/api/copilot/chats/fork', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sourceChatId: hit.chatId }),
+      });
+      if (!res.ok) throw new Error(`fork failed: ${res.status}`);
+      const { data } = (await res.json()) as { data?: { chatId?: string } };
+      if (!data?.chatId) throw new Error('fork returned no chatId');
+      await refreshChats();
+      setChatId(data.chatId);
+      // Defer focus until after the chat-load effect has re-rendered the input.
+      requestAnimationFrame(() => chatInputRef.current?.focus());
+    } catch (err) {
+      console.error('[chat] fork failed:', err);
+      toast.error("Couldn't open the cached chat", {
+        description: 'Please try again in a moment.',
+      });
+    }
+  }, [cacheHit, refreshChats, setChatId]);
+
+  // "Start fresh" — ignore the cache and send the original message as a new chat.
+  const startFreshFromCached = useCallback(() => {
+    const hit = cacheHit;
+    setCacheHit(null);
+    if (!hit) return;
+    chatStateRef.current.sendMessage({ text: hit.pendingText });
+  }, [cacheHit]);
 
   // A prompt that's queued behind a still-streaming response. Non-null while
   // the "stop & replace" confirmation dialog is open.
   const [pendingAnalysis, setPendingAnalysis] = useState<string | null>(null);
 
-  const analyzeWithAI = useCallback((text: string) => {
-    const status = chatStateRef.current.status;
-    const busy = status === "streaming" || status === "submitted";
-    if (busy) {
-      setPendingAnalysis(text);
-    } else {
-      chatStateRef.current.sendMessage({ text });
-    }
-  }, []);
+  const analyzeWithAI = useCallback(
+    (text: string) => {
+      const status = chatStateRef.current.status;
+      const busy = status === "streaming" || status === "submitted";
+      if (busy) {
+        setPendingAnalysis(text);
+      } else {
+        void sendWithCacheCheck(text);
+      }
+    },
+    [sendWithCacheCheck],
+  );
 
   const confirmPendingAnalysis = useCallback(async () => {
     const text = pendingAnalysis;
@@ -376,6 +502,11 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       refreshChats,
       isLoadingMessages,
       analyzeWithAI,
+      sendWithCacheCheck,
+      cacheHit,
+      continueFromCached,
+      startFreshFromCached,
+      chatInputRef,
     }),
     [
       chat,
@@ -386,6 +517,10 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       refreshChats,
       isLoadingMessages,
       analyzeWithAI,
+      sendWithCacheCheck,
+      cacheHit,
+      continueFromCached,
+      startFreshFromCached,
     ],
   );
 

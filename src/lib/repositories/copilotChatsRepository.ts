@@ -47,4 +47,38 @@ export class CopilotChatsRepository {
       .set({ title })
       .where(eq(copilotChats.id, id));
   }
+
+  /** Persist the chat's first user message and the hash used for cache lookups. */
+  async recordFirstMessage(
+    id: string,
+    message: string,
+    hash: string,
+  ): Promise<void> {
+    await this.db
+      .update(copilotChats)
+      .set({ first_user_message: message, first_user_message_hash: hash })
+      .where(eq(copilotChats.id, id));
+  }
+
+  /**
+   * Find the most recently active, non-archived chat whose first user message
+   * matches the given hash. Global (not scoped to a user) so any prior answer
+   * can be reused. Returns null when there's no match.
+   */
+  async findLatestFirstMessageMatch(
+    hash: string,
+  ): Promise<CopilotChatRow | null> {
+    const [row] = await this.db
+      .select()
+      .from(copilotChats)
+      .where(
+        and(
+          eq(copilotChats.first_user_message_hash, hash),
+          isNull(copilotChats.archived_at),
+        ),
+      )
+      .orderBy(desc(copilotChats.last_active_at))
+      .limit(1);
+    return row ?? null;
+  }
 }

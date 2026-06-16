@@ -3,6 +3,8 @@ import {
   CopilotChatsService,
   CopilotChatNotFoundError,
   CopilotChatForbiddenError,
+  hashFirstMessage,
+  isCacheableResponse,
 } from './copilotChatsService';
 import type { CopilotChatsRepository } from '@/lib/repositories';
 
@@ -13,6 +15,8 @@ describe('CopilotChatsService', () => {
     getById: ReturnType<typeof vi.fn>;
     touchLastActive: ReturnType<typeof vi.fn>;
     setTitle: ReturnType<typeof vi.fn>;
+    recordFirstMessage: ReturnType<typeof vi.fn>;
+    findLatestFirstMessageMatch: ReturnType<typeof vi.fn>;
   };
   let service: CopilotChatsService;
 
@@ -23,6 +27,8 @@ describe('CopilotChatsService', () => {
       getById: vi.fn(),
       touchLastActive: vi.fn(),
       setTitle: vi.fn(),
+      recordFirstMessage: vi.fn(),
+      findLatestFirstMessageMatch: vi.fn(),
     };
     service = new CopilotChatsService(repo as unknown as CopilotChatsRepository);
   });
@@ -65,6 +71,74 @@ describe('CopilotChatsService', () => {
       await expect(service.assertOwnedBy('c1', 'u1')).rejects.toBeInstanceOf(
         CopilotChatForbiddenError,
       );
+    });
+  });
+
+  describe('hashFirstMessage', () => {
+    it('treats trim/case/whitespace differences as equal', () => {
+      expect(hashFirstMessage('Hello   World ')).toBe(hashFirstMessage('hello world'));
+    });
+
+    it('produces different hashes for different questions', () => {
+      expect(hashFirstMessage('What is our thesis?')).not.toBe(
+        hashFirstMessage('What is the pipeline?'),
+      );
+    });
+  });
+
+  describe('isCacheableResponse', () => {
+    it('rejects responses with 6 or fewer words', () => {
+      expect(isCacheableResponse('one two three four five six')).toBe(false);
+      expect(isCacheableResponse('short answer')).toBe(false);
+      expect(isCacheableResponse('   ')).toBe(false);
+    });
+
+    it('accepts responses with more than 6 words', () => {
+      expect(isCacheableResponse('one two three four five six seven')).toBe(true);
+    });
+
+    it('ignores extra whitespace when counting words', () => {
+      expect(isCacheableResponse('  a  b   c d e f ')).toBe(false);
+      expect(isCacheableResponse('a b c d e f g h')).toBe(true);
+    });
+  });
+
+  describe('recordFirstMessage', () => {
+    it('stores the raw message with its normalized hash', async () => {
+      await service.recordFirstMessage('c1', 'Hello World');
+
+      expect(repo.recordFirstMessage).toHaveBeenCalledWith(
+        'c1',
+        'Hello World',
+        hashFirstMessage('Hello World'),
+      );
+    });
+
+    it('no-ops on a blank message', async () => {
+      await service.recordFirstMessage('c1', '   ');
+
+      expect(repo.recordFirstMessage).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('findCachedFirstTurn', () => {
+    it('looks up by the normalized hash and returns the match', async () => {
+      const row = { id: 'c9' };
+      repo.findLatestFirstMessageMatch.mockResolvedValueOnce(row);
+
+      const result = await service.findCachedFirstTurn(' Hello World ');
+
+      expect(repo.findLatestFirstMessageMatch).toHaveBeenCalledWith(
+        hashFirstMessage('hello world'),
+      );
+      expect(result).toEqual(row);
+    });
+
+    it('returns null without hitting the repo for a blank message', async () => {
+      const result = await service.findCachedFirstTurn('  ');
+
+      expect(result).toBeNull();
+      expect(repo.findLatestFirstMessageMatch).not.toHaveBeenCalled();
     });
   });
 });
