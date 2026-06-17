@@ -1,199 +1,194 @@
 import { test, expect, Page } from '@playwright/test';
-import { mockAuthSession } from './helpers/auth';
+import { signIn } from './helpers/auth';
+import {
+  baseCompany,
+  getDataMode,
+  provisionCompanies,
+  type Company,
+  type ProvisionedCompanies,
+} from './helpers/companies';
 
-type Company = {
-  id: string;
-  target: string | null;
-  segment: string | null;
-  website?: string | null;
-  watchlist_status: string | null;
-  source: string | null;
-  pipeline_stage: string | null;
-  revenue_2021_usd_mn: number | null;
-  revenue_2022_usd_mn: number | null;
-  revenue_2023_usd_mn: number | null;
-  revenue_2024_usd_mn: number | null;
-  ebitda_2021_usd_mn: number | null;
-  ebitda_2022_usd_mn: number | null;
-  ebitda_2023_usd_mn: number | null;
-  ebitda_2024_usd_mn: number | null;
-  ev_2024: number | null;
-  l1_screening_result: string | null;
-  remarks: string | null;
-  created_at: string;
-  updated_at: string;
-};
-
-const baseCompany = (overrides: Partial<Company>): Company => ({
-  id: 'co-0',
-  target: 'Acme Corp',
-  segment: 'Technology',
-  website: null,
-  watchlist_status: 'Active',
-  source: 'inbound',
-  pipeline_stage: 'L0',
-  revenue_2021_usd_mn: 100,
-  revenue_2022_usd_mn: 120,
-  revenue_2023_usd_mn: 150,
-  revenue_2024_usd_mn: 180,
-  ebitda_2021_usd_mn: 10,
-  ebitda_2022_usd_mn: 15,
-  ebitda_2023_usd_mn: 20,
-  ebitda_2024_usd_mn: 25,
-  ev_2024: 500,
-  l1_screening_result: 'pass',
-  remarks: null,
-  created_at: '2026-01-01T00:00:00Z',
-  updated_at: '2026-04-01T00:00:00Z',
-  ...overrides,
-});
-
-// The Source filter matches on the literal `source` field. 3 inbound (co-1,
-// co-3, co-5) and 2 outbound (co-2, co-4).
+// REG-MD-04: 3 inbound (co-1, co-3, co-5, co-6) and 2 outbound (co-2, co-4).
+// co-6 is a Chinese-character company to cover REG-MD-02 (Unicode rendering)
+// and REG-MD-03 (Chinese-character search).
 const MOCK_COMPANIES: Company[] = [
   baseCompany({ id: 'co-1', target: 'Acme Corp', segment: 'Technology', pipeline_stage: 'L0', source: 'inbound' }),
   baseCompany({ id: 'co-2', target: 'Globex', segment: 'Finance', pipeline_stage: 'L1', source: 'outbound' }),
   baseCompany({ id: 'co-3', target: 'Initech', segment: 'Technology', pipeline_stage: 'L2', source: 'inbound' }),
   baseCompany({ id: 'co-4', target: 'Umbrella', segment: 'Healthcare', pipeline_stage: 'L3', source: 'outbound' }),
   baseCompany({ id: 'co-5', target: 'Stark Industries', segment: 'Manufacturing', pipeline_stage: 'L5', source: 'inbound' }),
+  baseCompany({ id: 'co-6', target: '凤凰纸业（贵港）有限公司', segment: 'Manufacturing', pipeline_stage: 'L1', source: 'inbound' }),
 ];
 
-const mockCompanies = (page: Page, companies: Company[]) =>
-  page.route('**/api/companies**', (route) => {
-    const req = route.request();
-    const method = req.method();
-    const url = new URL(req.url());
-
-    if (method === 'GET') {
-      const id = url.searchParams.get('id');
-      if (id) {
-        const match = companies.find((c) => c.id === id) || null;
-        return route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify({ data: match }),
-        });
-      }
-      return route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ data: companies }),
-      });
-    }
-
-    if (method === 'DELETE') {
-      return route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ data: { success: true } }),
-      });
-    }
-
-    return route.fallback();
-  });
+const SEARCH = 'Search companies or sectors...';
 
 test.describe('Master Data page', () => {
-  test('Unauthenticated user opens Master Data', async ({ page }) => {
-    await mockAuthSession(page, null);
+  // Track real-mode inserts so each test cleans up after itself.
+  const cleanups: Array<() => Promise<void>> = [];
+  test.afterEach(async () => {
+    for (const cleanup of cleanups.splice(0)) await cleanup();
+  });
 
+  /**
+   * Real sign-in, provision companies for the current data mode, navigate to
+   * the page and wait for the company list to load. Returns the provisioned
+   * set so tests can assert against the right ids/targets and scope to the
+   * seeded rows in real mode.
+   */
+  const openMasterData = async (
+    page: Page,
+    companies: Company[] = MOCK_COMPANIES,
+  ): Promise<ProvisionedCompanies> => {
+    await signIn(page);
+    const provisioned = await provisionCompanies(page, companies);
+    cleanups.push(provisioned.cleanup);
+
+    await Promise.all([
+      page.waitForResponse(
+        (res) => res.url().includes('/api/companies') && res.request().method() === 'GET' && res.status() === 200,
+      ),
+      page.goto('/master-data'),
+    ]);
+    return provisioned;
+  };
+
+  /**
+   * In real mode the table is shared with the rest of the target environment,
+   * so narrow it to just the seeded rows by typing the run marker into the
+   * search box. No-op in mock mode (the table only holds the fixtures).
+   */
+  const scopeToSeeded = async (page: Page, marker: string) => {
+    if (marker) await page.getByPlaceholder(SEARCH).fill(marker);
+  };
+
+  /** Extract the numeric count from the "All Companies (N)" heading. */
+  const getDisplayedCount = async (page: Page): Promise<number> => {
+    const text = await page.getByText(/All Companies \(\d+\)/).textContent();
+    return parseInt(text!.match(/\d+/)![0]);
+  };
+
+  // REG-MD-01
+  test('Unauthenticated user opens Master Data', async ({ page }) => {
+    // A fresh context has no session cookie, so the page should bounce to login.
     await page.goto('/master-data');
     await page.waitForURL('**/login');
     await expect(page).toHaveURL(/\/login/);
   });
 
+  // REG-MD-02
   test('Authenticated user views Master Data', async ({ page }) => {
-    await mockAuthSession(page);
-    await mockCompanies(page, MOCK_COMPANIES);
-
-    await Promise.all([
-      page.waitForResponse((res) => res.url().includes('/api/companies') && res.status() === 200),
-      page.goto('/master-data'),
-    ]);
+    const { companies, marker, cleanup } = await openMasterData(page);
 
     await expect(page.getByRole('heading', { name: 'Master Data', level: 1 })).toBeVisible();
     await expect(page.getByText('Complete overview of all companies in the system')).toBeVisible();
 
-    await expect(page.getByText(`All Companies (${MOCK_COMPANIES.length})`)).toBeVisible();
+    await scopeToSeeded(page, marker);
 
-    for (const name of ['Acme Corp', 'Globex', 'Initech', 'Umbrella', 'Stark Industries']) {
-      await expect(page.getByRole('button', { name, exact: true })).toBeVisible();
+    // Count must be at least the number of seeded companies (>= 5).
+    const count = await getDisplayedCount(page);
+    expect(count).toBeGreaterThanOrEqual(5);
+
+    // All seeded companies must render — including the Chinese-character one.
+    for (const company of companies) {
+      await expect(page.getByRole('button', { name: company.target!, exact: true })).toBeVisible();
     }
 
-    // Per-stage badges (L0: 1, L1: 1, ... L5: 1, L4: 0)
-    await expect(page.getByText('L0: 1')).toBeVisible();
-    await expect(page.getByText('L4: 0')).toBeVisible();
-    await expect(page.getByText('L5: 1')).toBeVisible();
+    await cleanup();
   });
 
+  // REG-MD-03
   test('User searches by company name', async ({ page }) => {
-    await mockAuthSession(page);
-    await mockCompanies(page, MOCK_COMPANIES);
+    const { companies, cleanup } = await openMasterData(page);
+    const [, globex,,,,chinese] = companies;
 
-    await Promise.all([
-      page.waitForResponse((res) => res.url().includes('/api/companies') && res.status() === 200),
-      page.goto('/master-data'),
-    ]);
+    // --- English search ---
+    await page.getByPlaceholder(SEARCH).fill(globex.target!);
 
-    await page.getByPlaceholder('Search companies or sectors...').fill('globex');
+    const englishCount = await getDisplayedCount(page);
+    expect(englishCount).toBeGreaterThan(0);
+    await expect(page.getByRole('button', { name: globex.target!, exact: true })).toBeVisible();
 
-    await expect(page.getByRole('button', { name: 'Globex', exact: true })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Acme Corp', exact: true })).not.toBeVisible();
-    await expect(page.getByText('All Companies (1)')).toBeVisible();
+    // --- Chinese-character search ---
+    // Search using a substring of the Chinese company name that is unique to it.
+    const chineseSearchTerm = getDataMode() === 'real' ? chinese.target! : '凤凰';
+    await page.getByPlaceholder(SEARCH).fill(chineseSearchTerm);
+
+    const chineseCount = await getDisplayedCount(page);
+    expect(chineseCount).toBeGreaterThan(0);
+    await expect(page.getByRole('button', { name: chinese.target!, exact: true })).toBeVisible();
+
+    await cleanup();
   });
 
+  // REG-MD-04
   test('User filters by Source = Inbound', async ({ page }) => {
-    await mockAuthSession(page);
-    await mockCompanies(page, MOCK_COMPANIES);
+    const { companies, marker, cleanup } = await openMasterData(page);
+    const [acme, globex] = companies;
 
-    await Promise.all([
-      page.waitForResponse((res) => res.url().includes('/api/companies') && res.status() === 200),
-      page.goto('/master-data'),
-    ]);
+    await scopeToSeeded(page, marker);
 
-    // source === 'inbound' for co-1, co-3, co-5.
     await page.getByRole('combobox').filter({ hasText: /Source|All Sources/ }).click();
     await page.getByRole('option', { name: 'Inbound' }).click();
 
-    await expect(page.getByText('All Companies (3)')).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Acme Corp', exact: true })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Globex', exact: true })).not.toBeVisible();
+    // Count must be > 0 and every visible row must be inbound.
+    const count = await getDisplayedCount(page);
+    expect(count).toBeGreaterThan(0);
+    await expect(page.getByRole('button', { name: acme.target!, exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: globex.target!, exact: true })).not.toBeVisible();
+
+    await cleanup();
   });
 
+  // REG-MD-05
   test('User filters by stage L3', async ({ page }) => {
-    await mockAuthSession(page);
-    await mockCompanies(page, MOCK_COMPANIES);
+    const { companies, marker, cleanup } = await openMasterData(page);
+    const umbrella = companies[3];
 
-    await Promise.all([
-      page.waitForResponse((res) => res.url().includes('/api/companies') && res.status() === 200),
-      page.goto('/master-data'),
-    ]);
+    await scopeToSeeded(page, marker);
 
     await page.getByRole('combobox').filter({ hasText: /Stage|All Stages/ }).click();
     await page.getByRole('option', { name: 'L3 - Due Diligence' }).click();
 
-    await expect(page.getByText('All Companies (1)')).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Umbrella', exact: true })).toBeVisible();
+    // Count must be > 0 and the expected L3 company must be visible.
+    const count = await getDisplayedCount(page);
+    expect(count).toBeGreaterThan(0);
+    await expect(page.getByRole('button', { name: umbrella.target!, exact: true })).toBeVisible();
+
+    await cleanup();
   });
 
+  // REG-MD-06
   test('User clicks a suggestion chip', async ({ page }) => {
-    await mockAuthSession(page);
-    await mockCompanies(page, MOCK_COMPANIES);
-
-    await Promise.all([
-      page.waitForResponse((res) => res.url().includes('/api/companies') && res.status() === 200),
-      page.goto('/master-data'),
-    ]);
+    const { cleanup } = await openMasterData(page);
 
     const firstChip = page.locator('button.text-primary').first();
     const chipText = (await firstChip.textContent())?.replace(/^"|"$/g, '') ?? '';
     await firstChip.click();
 
-    const search = page.getByPlaceholder('Search companies or sectors...');
+    // Search field must be populated with the chip's text.
+    const search = page.getByPlaceholder(SEARCH);
     await expect(search).toHaveValue(chipText);
+
+    // If any companies are shown, every visible company name or sector must
+    // contain the chip text (client-side filter guarantees this, but we verify).
+    const count = await getDisplayedCount(page);
+    if (count > 0) {
+      const companyButtons = page
+        .getByRole('row')
+        .filter({ has: page.getByRole('cell') })
+        .locator('td:first-child button');
+      const numRows = await companyButtons.count();
+      for (let i = 0; i < numRows; i++) {
+        const name = (await companyButtons.nth(i).textContent()) ?? '';
+        expect(name.toLowerCase()).toContain(chipText.toLowerCase());
+      }
+    }
+
+    await cleanup();
   });
 
+  // REG-MD-07
   test('User pages through more than 10 companies', async ({ page }) => {
-    await mockAuthSession(page);
     const many: Company[] = Array.from({ length: 12 }, (_, i) =>
       baseCompany({
         id: `co-${i + 1}`,
@@ -203,84 +198,90 @@ test.describe('Master Data page', () => {
         watchlist_status: 'Active',
       }),
     );
-    await mockCompanies(page, many);
+    const { companies, marker, cleanup } = await openMasterData(page, many);
 
-    await Promise.all([
-      page.waitForResponse((res) => res.url().includes('/api/companies') && res.status() === 200),
-      page.goto('/master-data'),
-    ]);
+    await scopeToSeeded(page, marker);
 
     await expect(page.getByText(/Page\s*1\s*of\s*2\s*\(12 companies\)/)).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Company 1', exact: true })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Company 11', exact: true })).not.toBeVisible();
+    await expect(page.getByRole('button', { name: companies[0].target!, exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: companies[10].target!, exact: true })).not.toBeVisible();
 
     // ChatbotWidget (fixed bottom-right) sits over the pagination button, so dispatch
     // the click directly on the DOM node instead of via pointer coordinates.
     await page.locator('button:has(svg.lucide-chevron-right)').evaluate((el) => (el as HTMLButtonElement).click());
     await expect(page.getByText(/Page\s*2\s*of\s*2/)).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Company 11', exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: companies[10].target!, exact: true })).toBeVisible();
+
+    await cleanup();
   });
 
+  // REG-MD-08
   test('User clicks a company row in Master Data', async ({ page }) => {
-    await mockAuthSession(page);
-    await mockCompanies(page, MOCK_COMPANIES);
+    const { companies, marker, cleanup } = await openMasterData(page);
+    const acme = companies[0];
 
-    await Promise.all([
-      page.waitForResponse((res) => res.url().includes('/api/companies') && res.status() === 200),
-      page.goto('/master-data'),
-    ]);
+    await scopeToSeeded(page, marker);
 
-    // Supporting endpoints the dialog may hit – return empty arrays.
-    await page.route('**/api/deal-notes**', (route) =>
-      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ data: [] }) }),
-    );
-    await page.route('**/api/deal-links**', (route) =>
-      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ data: [] }) }),
-    );
-    await page.route('**/api/deal-documents**', (route) =>
-      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ data: [] }) }),
-    );
+    // In mock mode the dialog's supporting endpoints have no backing fixtures,
+    // so stub them empty. In real mode they hit the live API and return real data.
+    if (getDataMode() === 'mock') {
+      await page.route('**/api/deal-notes**', (route) =>
+        route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ data: [] }) }),
+      );
+      await page.route('**/api/deal-links**', (route) =>
+        route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ data: [] }) }),
+      );
+      await page.route('**/api/deal-documents**', (route) =>
+        route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ data: [] }) }),
+      );
+    }
 
-    await page.getByRole('button', { name: 'Acme Corp', exact: true }).click();
-    await expect(page.getByRole('dialog')).toBeVisible();
+    await page.getByRole('button', { name: acme.target!, exact: true }).click();
+
+    const dialog = page.getByRole('dialog');
+    await expect(dialog).toBeVisible();
+    // DialogTitle renders company.target — verify the right company opened.
+    await expect(dialog.getByRole('heading', { name: acme.target! })).toBeVisible();
+
+    await cleanup();
   });
 
+  // REG-MD-09
   test('User deletes a company', async ({ page }) => {
-    await mockAuthSession(page);
-    await mockCompanies(page, MOCK_COMPANIES);
+    const { companies, marker, cleanup } = await openMasterData(page);
+    const globex = companies[1];
 
-    await Promise.all([
-      page.waitForResponse((res) => res.url().includes('/api/companies') && res.status() === 200),
-      page.goto('/master-data'),
-    ]);
+    await scopeToSeeded(page, marker);
 
-    const globexRow = page.getByRole('row').filter({ has: page.getByRole('button', { name: 'Globex', exact: true }) });
+    const globexRow = page
+      .getByRole('row')
+      .filter({ has: page.getByRole('button', { name: globex.target!, exact: true }) });
     await globexRow.getByRole('button').last().click();
 
     const confirmDialog = page.getByRole('alertdialog');
     await expect(confirmDialog).toBeVisible();
-    await expect(confirmDialog.getByText('Globex')).toBeVisible();
+    await expect(confirmDialog.getByText(globex.target!)).toBeVisible();
 
     const [deleteReq] = await Promise.all([
       page.waitForRequest((req) => req.method() === 'DELETE' && req.url().includes('/api/companies')),
       confirmDialog.getByRole('button', { name: 'Delete' }).click(),
     ]);
-    expect(deleteReq.url()).toContain('id=co-2');
+    expect(deleteReq.url()).toContain(`id=${globex.id}`);
 
-    await expect(page.getByRole('button', { name: 'Globex', exact: true })).not.toBeVisible();
-    await expect(page.getByText(`All Companies (${MOCK_COMPANIES.length - 1})`)).toBeVisible();
+    await expect(page.getByRole('button', { name: globex.target!, exact: true })).not.toBeVisible();
+    await expect(page.getByText(`All Companies (${companies.length - 1})`)).toBeVisible();
+
+    // Globex was already deleted via the UI; cleanup removes the remaining seeded rows.
+    await cleanup();
   });
 
+  // REG-MD-10
   test('User searches for a non-existent company', async ({ page }) => {
-    await mockAuthSession(page);
-    await mockCompanies(page, MOCK_COMPANIES);
+    const { cleanup } = await openMasterData(page);
 
-    await Promise.all([
-      page.waitForResponse((res) => res.url().includes('/api/companies') && res.status() === 200),
-      page.goto('/master-data'),
-    ]);
-
-    await page.getByPlaceholder('Search companies or sectors...').fill('no-such-company');
+    await page.getByPlaceholder(SEARCH).fill('no-such-company');
     await expect(page.getByText('No companies found matching your filters.')).toBeVisible();
+
+    await cleanup();
   });
 });

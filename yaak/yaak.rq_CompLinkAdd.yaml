@@ -1,0 +1,43 @@
+type: http_request
+model: http_request
+id: rq_CompLinkAdd
+createdAt: 2026-06-11T00:00:00
+updatedAt: 2026-06-11T00:00:00
+workspaceId: wk_4yBsWJ5Tuh
+folderId: fl_Companies
+authentication: {}
+authenticationType: null
+body:
+  text: |-
+    {
+      "url": "https://example.com/deck.pdf",
+      "title": "Investor Deck 2025",
+      "stage": "l1"
+    }
+bodyType: application/json
+description: POST /api/companies/:id/links — attach a URL link to a deal at a specific stage.
+headers:
+- enabled: true
+  name: Content-Type
+  value: application/json
+  id: null
+method: POST
+name: Add link
+sortPriority: 14.0
+url: ${[base_url]}/api/companies/${[company_id]}/links
+urlParameters: []
+settingSendCookies:
+  enabled: false
+  value: true
+settingStoreCookies:
+  enabled: false
+  value: true
+settingValidateCertificates:
+  enabled: false
+  value: true
+settingFollowRedirects:
+  enabled: false
+  value: true
+settingRequestTimeout:
+  enabled: false
+  value: 0

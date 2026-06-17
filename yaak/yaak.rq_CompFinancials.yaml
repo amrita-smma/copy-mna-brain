@@ -1,0 +1,46 @@
+type: http_request
+model: http_request
+id: rq_CompFinancials
+createdAt: 2026-06-11T00:00:00
+updatedAt: 2026-06-11T00:00:00
+workspaceId: wk_4yBsWJ5Tuh
+folderId: fl_Companies
+authentication: {}
+authenticationType: null
+body:
+  text: |-
+    {
+      "rows": [
+        { "fiscal_year": 2023, "revenue_usd_mn": 45.2, "ebitda_usd_mn": 8.1 },
+        { "fiscal_year": 2024, "revenue_usd_mn": 52.0, "ebitda_usd_mn": 10.4 }
+      ],
+      "deletedYears": [],
+      "logAction": "UPDATED_FINANCIALS"
+    }
+bodyType: application/json
+description: PUT /api/companies/:id/financials — upsert annual financial rows (revenue/EBITDA). Optionally delete rows by fiscal year via deletedYears.
+headers:
+- enabled: true
+  name: Content-Type
+  value: application/json
+  id: null
+method: PUT
+name: Update financials
+sortPriority: 13.0
+url: ${[base_url]}/api/companies/${[company_id]}/financials
+urlParameters: []
+settingSendCookies:
+  enabled: false
+  value: true
+settingStoreCookies:
+  enabled: false
+  value: true
+settingValidateCertificates:
+  enabled: false
+  value: true
+settingFollowRedirects:
+  enabled: false
+  value: true
+settingRequestTimeout:
+  enabled: false
+  value: 0

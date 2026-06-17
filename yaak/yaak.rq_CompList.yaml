@@ -1,0 +1,89 @@
+type: http_request
+model: http_request
+id: rq_CompList
+createdAt: 2026-06-11T00:00:00
+updatedAt: 2026-06-11T00:00:00
+workspaceId: wk_4yBsWJ5Tuh
+folderId: fl_Companies
+authentication: {}
+authenticationType: null
+body: {}
+bodyType: null
+description: GET /api/companies — list/search companies. Supports filtering by stage, text search, pagination, and more.
+headers: []
+method: GET
+name: List companies
+sortPriority: 1.0
+url: ${[base_url]}/api/companies
+urlParameters:
+- enabled: false
+  name: id
+  value: ''
+  id: null
+- enabled: false
+  name: stage
+  value: sourcing
+  id: null
+- enabled: false
+  name: stageIn
+  value: sourcing,l1
+  id: null
+- enabled: false
+  name: excludeStage
+  value: dropped
+  id: null
+- enabled: false
+  name: stageNotNull
+  value: 'true'
+  id: null
+- enabled: false
+  name: excludeDropped
+  value: 'true'
+  id: null
+- enabled: false
+  name: createdAfter
+  value: 2026-01-01
+  id: null
+- enabled: false
+  name: orderBy
+  value: updated_at
+  id: null
+- enabled: false
+  name: orderDir
+  value: desc
+  id: null
+- enabled: false
+  name: limit
+  value: '20'
+  id: null
+- enabled: false
+  name: offset
+  value: '0'
+  id: null
+- enabled: false
+  name: countOnly
+  value: 'true'
+  id: null
+- enabled: false
+  name: lite
+  value: 'true'
+  id: null
+- enabled: false
+  name: q
+  value: acme
+  id: null
+settingSendCookies:
+  enabled: false
+  value: true
+settingStoreCookies:
+  enabled: false
+  value: true
+settingValidateCertificates:
+  enabled: false
+  value: true
+settingFollowRedirects:
+  enabled: false
+  value: true
+settingRequestTimeout:
+  enabled: false
+  value: 0

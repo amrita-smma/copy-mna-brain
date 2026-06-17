@@ -1,0 +1,27 @@
+type: http_request
+model: http_request
+id: rq_CompDropBulk
+createdAt: 2026-06-11T00:00:00.000000
+updatedAt: 2026-06-11T00:00:00.000000
+workspaceId: wk_4yBsWJ5Tuh
+folderId: fl_Companies
+authentication: {}
+authenticationType: null
+description: 'POST /api/companies/drop-bulk — drop multiple deals at once. Returns 409 with droppedIds if any are already dropped.'
+headers:
+  - { enabled: true, name: Content-Type, value: application/json, id: null }
+method: POST
+name: Drop bulk
+bodyType: application/json
+body:
+  text: |-
+    {
+      "deals": [
+        { "id": "company-uuid-1", "currentStage": "sourcing" },
+        { "id": "company-uuid-2", "currentStage": "l1" }
+      ],
+      "reason": "Portfolio overlap"
+    }
+urlParameters: []
+sortPriority: 11.0
+url: "${[base_url]}/api/companies/drop-bulk"

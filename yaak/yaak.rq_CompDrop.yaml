@@ -1,0 +1,42 @@
+type: http_request
+model: http_request
+id: rq_CompDrop
+createdAt: 2026-06-11T00:00:00
+updatedAt: 2026-06-11T00:00:00
+workspaceId: wk_4yBsWJ5Tuh
+folderId: fl_Companies
+authentication: {}
+authenticationType: null
+body:
+  text: |-
+    {
+      "currentStage": "sourcing",
+      "reason": "Not a strategic fit"
+    }
+bodyType: application/json
+description: POST /api/companies/:id/drop — move a deal to the dropped stage.
+headers:
+- enabled: true
+  name: Content-Type
+  value: application/json
+  id: null
+method: POST
+name: Drop deal
+sortPriority: 8.0
+url: ${[base_url]}/api/companies/${[company_id]}/drop
+urlParameters: []
+settingSendCookies:
+  enabled: false
+  value: true
+settingStoreCookies:
+  enabled: false
+  value: true
+settingValidateCertificates:
+  enabled: false
+  value: true
+settingFollowRedirects:
+  enabled: false
+  value: true
+settingRequestTimeout:
+  enabled: false
+  value: 0

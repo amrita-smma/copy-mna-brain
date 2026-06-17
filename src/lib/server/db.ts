@@ -130,10 +130,14 @@ export function createDb(): DbClient {
   const client: PgClient = globalForDb.__pg ?? createPostgresClientFromEnv();
   const db = makeDb(client);
 
-  if (process.env.NODE_ENV !== 'production') {
-    globalForDb.__pg = client;
-    globalForDb.__db = db;
-  }
+  // Cache the pool on the module global unconditionally. Each
+  // `createPostgresClientFromEnv()` opens its own pool (`max` connections), so
+  // creating a fresh client per request leaks connections until Postgres hits
+  // `max_connections` ("sorry, too many clients already"). A single shared
+  // pool is correct for both a long-lived `next start` server and serverless
+  // (where the global persists per warm invocation and reuses connections).
+  globalForDb.__pg = client;
+  globalForDb.__db = db;
 
   return db;
 }

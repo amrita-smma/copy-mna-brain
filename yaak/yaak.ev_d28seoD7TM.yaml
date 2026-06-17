@@ -3,7 +3,7 @@ model: environment
 id: ev_d28seoD7TM
 workspaceId: wk_4yBsWJ5Tuh
 createdAt: 2026-04-23T07:39:21.678403
-updatedAt: 2026-06-06T10:22:15.618691
+updatedAt: 2026-06-11T07:53:07.663872400
 name: Global Variables
 public: true
 base: true
@@ -14,7 +14,7 @@ variables:
   name: apiKey
   value: ''
   id: var_apikey_chat
-- enabled: false
+- enabled: true
   name: sessionCookie
   value: ''
   id: var_session_cookie
@@ -26,5 +26,17 @@ variables:
   name: conversationId
   value: ''
   id: var_conversation_id
+- enabled: true
+  name: company_id
+  value: ''
+  id: var_company_id
+- enabled: true
+  name: base_url
+  value: https://mna-stg.sqe.co.id
+  id: wCJ6aXYMfI
+- enabled: true
+  name: baseUrl
+  value: ''
+  id: FK8jNQJWdW
 color: null
 sortPriority: 0.0

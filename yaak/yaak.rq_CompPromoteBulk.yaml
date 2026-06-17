@@ -1,0 +1,45 @@
+type: http_request
+model: http_request
+id: rq_CompPromoteBulk
+createdAt: 2026-06-11T00:00:00
+updatedAt: 2026-06-11T00:00:00
+workspaceId: wk_4yBsWJ5Tuh
+folderId: fl_Companies
+authentication: {}
+authenticationType: null
+body:
+  text: |-
+    {
+      "deals": [
+        { "id": "company-uuid-1", "currentStage": "sourcing" },
+        { "id": "company-uuid-2", "currentStage": "sourcing" }
+      ],
+      "nextStage": "l1"
+    }
+bodyType: application/json
+description: POST /api/companies/promote-bulk — promote multiple deals to the same next stage at once. Returns 409 with droppedIds if any are already dropped.
+headers:
+- enabled: true
+  name: Content-Type
+  value: application/json
+  id: null
+method: POST
+name: Promote bulk
+sortPriority: 12.0
+url: ${[base_url]}/api/companies/promote-bulk
+urlParameters: []
+settingSendCookies:
+  enabled: false
+  value: true
+settingStoreCookies:
+  enabled: false
+  value: true
+settingValidateCertificates:
+  enabled: false
+  value: true
+settingFollowRedirects:
+  enabled: false
+  value: true
+settingRequestTimeout:
+  enabled: false
+  value: 0

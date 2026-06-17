@@ -94,8 +94,17 @@ export async function POST(req: NextRequest) {
     const data = await companyService.createFromDTO(company, logAction);
     return NextResponse.json({ data });
   } catch (error: unknown) {
+    const cause = error instanceof Error ? error.cause : undefined;
+    console.error('[POST /api/companies]', cause ?? error);
+    // Surface the underlying DB error (drizzle wraps the real Postgres message
+    // in `.cause`) so callers/tests see the actual failure, not just
+    // "Failed query: ...".
     const message =
-      error instanceof Error ? error.message : "Failed to create company";
+      cause instanceof Error
+        ? cause.message
+        : error instanceof Error
+          ? error.message
+          : "Failed to create company";
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }

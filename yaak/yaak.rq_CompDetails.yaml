@@ -1,0 +1,33 @@
+type: http_request
+model: http_request
+id: rq_CompDetails
+createdAt: 2026-06-11T00:00:00
+updatedAt: 2026-06-11T00:00:00
+workspaceId: wk_4yBsWJ5Tuh
+folderId: fl_Companies
+authentication: {}
+authenticationType: null
+body: {}
+bodyType: null
+description: GET /api/companies/:id/details — fetch full detail view for a single company.
+headers: []
+method: GET
+name: Get company details
+sortPriority: 5.0
+url: ${[base_url]}/api/companies/${[company_id]}/details
+urlParameters: []
+settingSendCookies:
+  enabled: false
+  value: true
+settingStoreCookies:
+  enabled: false
+  value: true
+settingValidateCertificates:
+  enabled: false
+  value: true
+settingFollowRedirects:
+  enabled: false
+  value: true
+settingRequestTimeout:
+  enabled: false
+  value: 0

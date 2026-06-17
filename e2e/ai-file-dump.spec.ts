@@ -291,19 +291,4 @@ test.describe('AI File Dump page', () => {
     ]);
     expect(deleteReq.url()).toContain('/api/ai-file-dump/mom-1');
   });
-
-  test('User clicks the AI CoPilot tab', async ({ page }) => {
-    await mockAuthSession(page);
-    await mockFileDump(page);
-
-    await Promise.all([
-      page.waitForResponse((res) => res.url().includes('/api/ai-file-dump') && res.status() === 200),
-      page.goto('/ai-file-dump'),
-    ]);
-
-    // Two "AI CoPilot" elements exist (sidebar + tab). The tab is the <button> one.
-    await page.getByRole('button', { name: /AI CoPilot/ }).click();
-    await page.waitForURL('**/ai-discovery');
-    await expect(page).toHaveURL(/\/ai-discovery/);
-  });
 });

@@ -1,0 +1,46 @@
+type: http_request
+model: http_request
+id: rq_CompCreate
+createdAt: 2026-06-11T00:00:00
+updatedAt: 2026-06-11T08:05:45.127453700
+workspaceId: wk_4yBsWJ5Tuh
+folderId: fl_Companies
+authentication: {}
+authenticationType: null
+body:
+  text: |-
+    {
+      "company": {
+        "target": "Fanta",
+        "stage": "sourcing",
+        "description": "Industrial Food and Beverage"
+      },
+      "logAction": "CREATED"
+    }
+bodyType: application/json
+description: POST /api/companies — create a new company.
+headers:
+- enabled: true
+  name: Content-Type
+  value: application/json
+  id: null
+method: POST
+name: Create company
+sortPriority: 2.0
+url: ${[base_url]}/api/companies
+urlParameters: []
+settingSendCookies:
+  enabled: false
+  value: true
+settingStoreCookies:
+  enabled: false
+  value: true
+settingValidateCertificates:
+  enabled: false
+  value: true
+settingFollowRedirects:
+  enabled: false
+  value: true
+settingRequestTimeout:
+  enabled: false
+  value: 0

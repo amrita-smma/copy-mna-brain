@@ -1,0 +1,45 @@
+type: http_request
+model: http_request
+id: rq_CompPromote
+createdAt: 2026-06-11T00:00:00
+updatedAt: 2026-06-11T00:00:00
+workspaceId: wk_4yBsWJ5Tuh
+folderId: fl_Companies
+authentication: {}
+authenticationType: null
+body:
+  text: |-
+    {
+      "currentStage": "sourcing",
+      "nextStage": "l1",
+      "note": "Strong initial screen",
+      "assigneeIds": [],
+      "promotionReason": "Meets size and sector criteria"
+    }
+bodyType: application/json
+description: POST /api/companies/:id/promote — advance a deal to the next pipeline stage.
+headers:
+- enabled: true
+  name: Content-Type
+  value: application/json
+  id: null
+method: POST
+name: Promote deal
+sortPriority: 10.0
+url: ${[base_url]}/api/companies/${[company_id]}/promote
+urlParameters: []
+settingSendCookies:
+  enabled: false
+  value: true
+settingStoreCookies:
+  enabled: false
+  value: true
+settingValidateCertificates:
+  enabled: false
+  value: true
+settingFollowRedirects:
+  enabled: false
+  value: true
+settingRequestTimeout:
+  enabled: false
+  value: 0

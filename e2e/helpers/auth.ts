@@ -1,4 +1,5 @@
 import type { Page } from '@playwright/test';
+import { getTestCredentials } from './credentials';
 
 export const MOCK_USER = {
   id: 'test-user-id',
@@ -48,6 +49,23 @@ export const mockAuthSession = async (
       currentUser = user;
     },
   };
+};
+
+/**
+ * Perform a *real* credentials sign-in against the target environment — no
+ * NextAuth mocking. Reads the env-specific test user from `getTestCredentials`
+ * (LOCAL_/STAGING_/PRODUCTION_TEST_EMAIL+PASSWORD, picked by `TEST_ENV`),
+ * submits the login form, and waits for the post-login redirect to the
+ * dashboard. This sets the real session cookie, so subsequent data fetches
+ * (e.g. `/api/companies`) hit the real API and return real data.
+ */
+export const signIn = async (page: Page) => {
+  const { email, password } = getTestCredentials();
+  await page.goto('/login', { waitUntil: 'domcontentloaded' });
+  await page.locator('#signin-email').fill(email);
+  await page.locator('#signin-password').fill(password);
+  await page.getByRole('button', { name: 'Sign In' }).click();
+  await page.waitForURL('**/dashboard');
 };
 
 /**

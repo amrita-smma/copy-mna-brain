@@ -1,0 +1,32 @@
+type: folder
+model: folder
+id: fl_Companies
+createdAt: 2026-06-11T00:00:00
+updatedAt: 2026-06-11T00:00:00
+workspaceId: wk_4yBsWJ5Tuh
+folderId: null
+authentication: {}
+authenticationType: null
+description: Companies CRUD — pipeline stage management, financials, notes, links, assignees. Gated by NextAuth session; paste your browser session cookie into the session_cookie variable.
+headers:
+- enabled: true
+  name: Cookie
+  value: ${[sessionCookie]}
+  id: null
+name: Companies
+sortPriority: 30.0
+settingSendCookies:
+  enabled: false
+  value: true
+settingStoreCookies:
+  enabled: false
+  value: true
+settingValidateCertificates:
+  enabled: false
+  value: true
+settingFollowRedirects:
+  enabled: false
+  value: true
+settingRequestTimeout:
+  enabled: false
+  value: 0

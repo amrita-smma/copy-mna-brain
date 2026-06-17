@@ -1,0 +1,41 @@
+type: http_request
+model: http_request
+id: rq_CompAssigneesPut
+createdAt: 2026-06-11T00:00:00
+updatedAt: 2026-06-11T00:00:00
+workspaceId: wk_4yBsWJ5Tuh
+folderId: fl_Companies
+authentication: {}
+authenticationType: null
+body:
+  text: |-
+    {
+      "userIds": ["user-uuid-1", "user-uuid-2"]
+    }
+bodyType: application/json
+description: PUT /api/companies/:id/assignees — replace the full assignee list with the provided userIds.
+headers:
+- enabled: true
+  name: Content-Type
+  value: application/json
+  id: null
+method: PUT
+name: Set assignees
+sortPriority: 7.0
+url: ${[base_url]}/api/companies/${[company_id]}/assignees
+urlParameters: []
+settingSendCookies:
+  enabled: false
+  value: true
+settingStoreCookies:
+  enabled: false
+  value: true
+settingValidateCertificates:
+  enabled: false
+  value: true
+settingFollowRedirects:
+  enabled: false
+  value: true
+settingRequestTimeout:
+  enabled: false
+  value: 0
