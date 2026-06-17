@@ -12,11 +12,13 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { toast } from 'sonner';
-import { Loader2, Plus, Zap, Target, Sparkles, Trash2, ArrowUpDown, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, Eye, EyeOff, Star } from 'lucide-react';
+import { Loader2, Plus, Zap, Target, Sparkles, Trash2, ArrowUpDown, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, Eye, EyeOff } from 'lucide-react';
 import CompanyDetailDialog from './CompanyDetailDialog';
+import { AskAIButton } from '@/components/chat/AskAIButton';
+import { useChatContext } from '@/components/chat/ChatProvider';
 import { cn } from '@/lib/utils';
 import { DealStage } from '@/lib/types';
-import { bulkUpdateCompanies, deleteCompanyById, getCompanies, getFavoriteCompanies, toggleFavoriteCompany } from '@/lib/api/pipeline';
+import { bulkUpdateCompanies, deleteCompanyById, getCompanies, getFavoriteCompanies } from '@/lib/api/pipeline';
 import { useAuth } from '@/hooks/useAuth';
 
 interface MarketScreeningResult {
@@ -83,6 +85,7 @@ const ITEMS_PER_PAGE = 10;
 
 export default function MarketScreeningResults({ refreshTrigger, onAddedToPipeline, collapsed = false, onToggleCollapse }: MarketScreeningResultsProps) {
   const { user } = useAuth();
+  const { analyzeWithAI } = useChatContext();
   const [results, setResults] = useState<MarketScreeningResult[]>([]);
   const [loading, setLoading] = useState(true);
   const [adding, setAdding] = useState(false);
@@ -97,9 +100,8 @@ export default function MarketScreeningResults({ refreshTrigger, onAddedToPipeli
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1);
 
-  // Favorites state
+  // Favorites state (used for row highlighting + sort ordering)
   const [favoriteIds, setFavoriteIds] = useState<Set<string>>(new Set());
-  const [togglingFavorite, setTogglingFavorite] = useState<string | null>(null);
 
   const fetchResults = async (opts: { silent?: boolean } = {}) => {
     try {
@@ -191,20 +193,6 @@ export default function MarketScreeningResults({ refreshTrigger, onAddedToPipeli
     } catch (error: any) {
       console.error('Error dismissing result:', error);
       toast.error('Failed to dismiss result');
-    }
-  };
-
-  const handleToggleFavorite = async (companyId: string) => {
-    if (!user?.id) return;
-    setTogglingFavorite(companyId);
-    try {
-      const updated = await toggleFavoriteCompany(user.id, companyId);
-      setFavoriteIds(new Set(updated || []));
-    } catch (error: any) {
-      console.error('Error toggling favorite:', error);
-      toast.error('Failed to update favorite');
-    } finally {
-      setTogglingFavorite(null);
     }
   };
 
@@ -452,18 +440,15 @@ export default function MarketScreeningResults({ refreshTrigger, onAddedToPipeli
                         )}
                       >
                         <TableCell className="pr-0">
-                          <button
-                            onClick={() => handleToggleFavorite(result.id)}
-                            disabled={togglingFavorite === result.id}
-                            className={cn(
-                              "p-1 rounded-md transition-colors",
-                              isFav
-                                ? "text-amber-500 hover:text-amber-600"
-                                : "text-muted-foreground/40 hover:text-amber-400"
-                            )}
-                          >
-                            <Star className={cn("h-4 w-4", isFav && "fill-current")} />
-                          </button>
+                          <AskAIButton
+                            variant="icon"
+                            label="Analyze using AI"
+                            onClick={() =>
+                              analyzeWithAI(
+                                `Analyze ${result.target || "this company"} and provide insights about it as a potential deal.`
+                              )
+                            }
+                          />
                         </TableCell>
                         <TableCell>
                           <Checkbox

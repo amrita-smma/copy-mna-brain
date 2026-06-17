@@ -1032,7 +1032,7 @@ export default function CompanyDetailDialog({
                     label="Analyze using AI"
                     onClick={() => {
                       analyzeWithAI(
-                        `Analyze ${company.target || "this company"} and provide insights about it as a potential deal.`,
+                        `Analyze ${company.target || company.project_name || "this company"} and provide insights about it as a potential deal.`,
                       );
                       onOpenChange(false);
                     }}

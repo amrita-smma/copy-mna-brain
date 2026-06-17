@@ -19,7 +19,6 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
-  Star,
   ArrowUpDown,
   ArrowUp,
   ArrowDown,
@@ -33,6 +32,8 @@ import { cn } from "@/lib/utils";
 import type { Tables } from "@/lib/repositories";
 import type { PipelineCompany } from "@/views/Pipeline";
 import StatusCombobox from "@/components/pipeline/StatusCombobox";
+import { AskAIButton } from "@/components/chat/AskAIButton";
+import { useChatContext } from "@/components/chat/ChatProvider";
 
 const DEAL_TYPE_LABEL: Record<string, string> = {
   majority: "Majority",
@@ -110,8 +111,6 @@ export default function OutboundCompaniesTable({
   companies,
   viewMode,
   favoriteIds,
-  togglingFavorite,
-  onToggleFavorite,
   selectedIds,
   onToggleSelect,
   updatingCompanyIds,
@@ -127,6 +126,7 @@ export default function OutboundCompaniesTable({
   onRestore,
 }: OutboundCompaniesTableProps) {
   const isDropped = viewMode === "dropped";
+  const { analyzeWithAI } = useChatContext();
 
   const SortIcon = ({ field }: { field: string }) => {
     if (sortField !== field)
@@ -194,18 +194,15 @@ export default function OutboundCompaniesTable({
               )}
             >
               <TableCell className="pr-0">
-                <button
-                  onClick={() => onToggleFavorite(company.id)}
-                  disabled={togglingFavorite === company.id}
-                  className={cn(
-                    "p-1 rounded-md transition-colors",
-                    isFav
-                      ? "text-amber-500 hover:text-amber-600"
-                      : "text-muted-foreground/40 hover:text-amber-400",
-                  )}
-                >
-                  <Star className={cn("h-4 w-4", isFav && "fill-current")} />
-                </button>
+                <AskAIButton
+                  variant="icon"
+                  label="Analyze using AI"
+                  onClick={() =>
+                    analyzeWithAI(
+                      `Analyze ${company.target || company.project_name || "this company"} and provide insights about it as a potential deal.`,
+                    )
+                  }
+                />
               </TableCell>
               <TableCell>
                 <Checkbox
