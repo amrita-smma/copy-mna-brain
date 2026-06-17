@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ResetPasswordTokenRepository, UserRepository } from '@/lib/repositories';
 import type { Tables } from '@/lib/repositories';
-import { AuthService } from './authService';
+import { AuthService, UserNotRegisteredError } from './authService';
 import { hashPassword } from './password';
 
 type User = Tables<'users'>;
@@ -94,11 +94,14 @@ describe('AuthService.signInWithGoogleToken', () => {
     expect(userRepo.findByEmail).not.toHaveBeenCalled();
   });
 
-  it('throws when no local account matches the verified email', async () => {
+  it('throws a UserNotRegisteredError when no local account matches the verified email', async () => {
     verifyGoogleIdTokenMock.mockResolvedValue('ghost@example.com');
     vi.mocked(userRepo.findByEmail).mockResolvedValue(undefined);
+    await expect(service.signInWithGoogleToken('good-token')).rejects.toBeInstanceOf(
+      UserNotRegisteredError,
+    );
     await expect(service.signInWithGoogleToken('good-token')).rejects.toThrow(
-      'No account found for this Google email',
+      'Your user is not registered in the system, please contact the MnA team',
     );
     expect(userRepo.findByEmail).toHaveBeenCalledWith('ghost@example.com');
   });

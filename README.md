@@ -114,27 +114,50 @@ The Google Vault MBOX archive + parse pipeline and the CRM ingest pipeline (enri
 
 The app (`public` schema) overlays human curation on top of `analytics` mart data via `employer_effective` and `correspondent_effective` views. Cross-schema dependency is one-directional: `analytics` reads `public` effective views; nothing in `public` depends on `analytics`.
 
-## Google SSO sign-in (dashboard token exchange)
+## Google SSO sign-in
 
-The dashboard can be opened with a Google-issued ID token in the URL:
-`https://mna.sqe.co.id/dashboard?token=eyJ...`. This logs the user in without a
-password while reusing the existing NextAuth JWT session.
+Google is used for **authentication only** — a successful SSO flow proves the
+caller owns the email, never grants access on its own. The user must already
+exist in the `users` table; unknown emails are rejected with the message
+*"Your user is not registered in the system, please contact the MnA team"*.
+No account is ever auto-provisioned. After sign-in the session is the identical
+NextAuth JWT a password login produces, so the rest of the app is unchanged.
 
-End-to-end shape:
+Both entry points below verify the same Google-issued ID token server-side
+(`AuthService.signInWithGoogleToken` → `verifyGoogleIdToken`,
+`src/lib/services/googleToken.ts`, backed by `google-auth-library`), extract the
+verified email, and look the user up by email.
 
-1. `GoogleSsoTokenGate` (`src/components/auth/GoogleSsoTokenGate.tsx`) wraps the
-   dashboard page. If a `token` query param is present it blocks rendering and
-   calls `useAuth().signInWithGoogleToken(token)`.
-2. That triggers the `google-sso` Credentials provider in `src/auth.ts`, whose
-   `authorize` calls `AuthService.signInWithGoogleToken`.
-3. `AuthService.signInWithGoogleToken` validates the token against Google via
-   `verifyGoogleIdToken` (`src/lib/services/googleToken.ts`, backed by
-   `google-auth-library`), extracts the verified email, and looks the user up by
-   email. Unknown emails are rejected — no account is auto-provisioned.
-4. On success NextAuth mints the same JWT session as a password sign-in; the gate
-   strips `token` from the URL and renders the dashboard.
+### Login-page button (`/login`)
 
-Set `GOOGLE_CLIENT_ID` so the token's `aud` claim is enforced against this app.
+The primary entry point. `GoogleSignInButton`
+(`src/components/GoogleSignInButton.tsx`) renders the Google Identity Services
+"Sign in with Google" button using `NEXT_PUBLIC_GOOGLE_CLIENT_ID`. On success
+Google hands the page an ID token (the GIS credential), and the login page:
+
+1. POSTs the token to `POST /api/auth/google-signin` (public route). This
+   verifies the token and confirms a local account exists, returning
+   `{ data: { email } }`, or `403` with the exact "not registered" message, or
+   `401` for an untrusted token. Its only job is to surface a precise,
+   user-facing reason — the NextAuth provider collapses every failure into an
+   opaque `CredentialsSignin` code.
+2. On success calls `useAuth().signInWithGoogleToken(token)`, which triggers the
+   `google-sso` Credentials provider in `src/auth.ts` to establish the session,
+   then redirects to `/chat`.
+
+The button is hidden when `NEXT_PUBLIC_GOOGLE_CLIENT_ID` is unset, leaving only
+email/password sign-in.
+
+### Dashboard token exchange (`/dashboard?token=eyJ...`)
+
+The dashboard can also be opened with a Google ID token in the URL.
+`GoogleSsoTokenGate` (`src/components/auth/GoogleSsoTokenGate.tsx`) wraps the
+dashboard page: if a `token` query param is present it blocks rendering, calls
+`useAuth().signInWithGoogleToken(token)` (same `google-sso` provider), then
+strips `token` from the URL and renders the dashboard.
+
+Set `GOOGLE_CLIENT_ID` (server) so the token's `aud` claim is enforced against
+this app, and `NEXT_PUBLIC_GOOGLE_CLIENT_ID` (browser) for the login button.
 Signature, issuer, expiry and `email_verified` are always checked.
 
 ## External Chat API (`/api/v1/chat`)

@@ -8,6 +8,19 @@ import type { SendEmailPayload } from '@/lib/jobs/handlers/sendEmail';
 const RESET_TOKEN_TTL_MS = 60 * 60 * 1000;
 const RESET_TOKEN_TTL_MINUTES = Math.round(RESET_TOKEN_TTL_MS / 60_000);
 
+/**
+ * Raised when a Google SSO flow authenticates a real Google identity whose
+ * verified email has no matching local account. Google SSO is authentication
+ * only — it proves the caller owns the email, but it never provisions access.
+ * The message is surfaced verbatim to the user on the login page.
+ */
+export class UserNotRegisteredError extends Error {
+  constructor() {
+    super('Your user is not registered in the system, please contact the MnA team');
+    this.name = 'UserNotRegisteredError';
+  }
+}
+
 export class AuthService {
   constructor(
     private readonly userRepo: UserRepository,
@@ -29,12 +42,13 @@ export class AuthService {
    * NextAuth JWT session flow takes over, identical to password sign-in.
    *
    * No account is auto-provisioned: just like the credentials flow, an unknown
-   * email is rejected so only pre-existing users can authenticate.
+   * email is rejected with `UserNotRegisteredError` so only pre-existing users
+   * can authenticate.
    */
   async signInWithGoogleToken(token: string) {
     const email = await verifyGoogleIdToken(token);
     const user = await this.userRepo.findByEmail(email);
-    if (!user) throw new Error('No account found for this Google email');
+    if (!user) throw new UserNotRegisteredError();
     return user;
   }
 

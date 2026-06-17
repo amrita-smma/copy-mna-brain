@@ -11,6 +11,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { LivingBackground } from '@/components/LivingBackground';
+import { GoogleSignInButton } from '@/components/GoogleSignInButton';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Loader2, AlertCircle } from 'lucide-react';
 import posthog from 'posthog-js';
@@ -20,7 +21,7 @@ export default function LoginPage() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
-  const { signIn, user, loading } = useAuth();
+  const { signIn, signInWithGoogleToken, user, loading } = useAuth();
   const { resolvedTheme } = useTheme();
   const router = useRouter();
   const logoSrc = '/logo-light.png';
@@ -30,6 +31,18 @@ export default function LoginPage() {
       router.replace('/chat');
     }
   }, [user, loading, router]);
+
+  const completeSignIn = (signedInEmail: string, method: 'password' | 'google') => {
+    const normalizedEmail = signedInEmail.toLowerCase().trim();
+    posthog.identify(normalizedEmail, {
+      email: normalizedEmail,
+    });
+    posthog.capture('user_signed_in', {
+      email: normalizedEmail,
+      method,
+    });
+    router.push('/chat');
+  };
 
   const handleSignIn = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -42,15 +55,46 @@ export default function LoginPage() {
       setError(error.message);
       setIsLoading(false);
     } else {
-      const normalizedEmail = email.toLowerCase().trim();
-      posthog.identify(normalizedEmail, {
-        email: normalizedEmail,
-      });
-      posthog.capture('user_signed_in', {
-        email: normalizedEmail,
-      });
-      router.push('/chat');
+      completeSignIn(email, 'password');
     }
+  };
+
+  const handleGoogleCredential = async (token: string) => {
+    setError(null);
+    setIsLoading(true);
+
+    // Pre-flight: verify the Google token and confirm the email maps to a
+    // registered user, so we can show the precise "not registered" message
+    // (the NextAuth provider only returns an opaque failure code).
+    let signedInEmail = '';
+    try {
+      const res = await fetch('/api/auth/google-signin', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token }),
+      });
+      const body = await res.json();
+      if (!res.ok) {
+        setError(body?.error ?? 'Google sign-in failed');
+        setIsLoading(false);
+        return;
+      }
+      signedInEmail = body?.data?.email ?? '';
+    } catch {
+      setError('Google sign-in failed');
+      setIsLoading(false);
+      return;
+    }
+
+    // The pre-flight passed — establish the session through NextAuth.
+    const { error } = await signInWithGoogleToken(token);
+    if (error) {
+      setError(error.message);
+      setIsLoading(false);
+      return;
+    }
+
+    completeSignIn(signedInEmail, 'google');
   };
 
 
@@ -146,6 +190,16 @@ export default function LoginPage() {
               )}
             </Button>
           </form>
+
+          <div className="my-4 flex items-center gap-3">
+            <span className="h-px flex-1 bg-black/10 dark:bg-white/15" />
+            <span className="text-xs font-medium uppercase tracking-[0.15em] text-black/50 dark:text-white/50">
+              Or
+            </span>
+            <span className="h-px flex-1 bg-black/10 dark:bg-white/15" />
+          </div>
+
+          <GoogleSignInButton onCredential={handleGoogleCredential} disabled={isLoading} />
         </CardContent>
         <CardFooter className="flex justify-center w-full text-center text-xs font-medium uppercase tracking-[0.15em] text-black/60 dark:text-white/60">
           SECURED BY NEURAL CORE LOGIC
