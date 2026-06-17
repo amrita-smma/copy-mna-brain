@@ -14,7 +14,7 @@ import type { DbClient, Tables } from '@/lib/repositories';
 import { z } from 'zod';
 import { getPostHogClient } from '@/lib/posthog-server';
 
-export const AI_SCREENING_TIMEOUT_SECONDS = 240;
+export const AI_SCREENING_TIMEOUT_SECONDS = 480; // 8 minutes
 
 const ScreeningResultSchema = z.object({
   result: z.enum(['pass', 'fail', 'inconclusive', 'error']),

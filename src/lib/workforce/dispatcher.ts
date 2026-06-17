@@ -39,7 +39,11 @@ export async function dispatcherTick(db: DbClient): Promise<DispatchResult> {
   return { outcome: 'claimed', runId: claimed.id };
 }
 
-export const DEFAULT_REAPER_STALENESS_SECONDS = 5 * 60; // 5 minutes
+// Workforce runs execute as durable Vercel Workflows rather than rows in the
+// `jobs` table, so their "timeout" is how long a claimed run may go without a
+// heartbeat before the reaper marks it failed. Set to 30 minutes to give
+// long agent loops room to run (vs. the 8-minute budget for regular jobs).
+export const DEFAULT_REAPER_STALENESS_SECONDS = 30 * 60; // 30 minutes
 
 export interface ReapResult {
   reaped: string[];

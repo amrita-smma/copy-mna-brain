@@ -132,7 +132,7 @@ export const jobs = pgTable(
     payload: jsonb().$type<Record<string, unknown>>().default({}).notNull(),
     result: jsonb().$type<unknown>(),
     error: text(),
-    timeout_seconds: integer().default(240).notNull(),
+    timeout_seconds: integer().default(480).notNull(),
     created_at: timestamp({ withTimezone: true, mode: "string" })
       .defaultNow()
       .notNull(),

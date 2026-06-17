@@ -38,7 +38,7 @@ const SLIDE_SYSTEM_PROMPT = `You are an expert M&A presentation designer. You ge
 - Body text: 9-11px. Headers: 12-14px. Slide title: 16-18px. Table text: 9-10px.
 - Prefer 2-column or 3-column layouts to fit more content horizontally rather than stacking vertically.`;
 
-export const SLIDE_GENERATION_TIMEOUT_SECONDS = 60;
+export const SLIDE_GENERATION_TIMEOUT_SECONDS = 480; // 8 minutes
 
 export interface SlideGenerationPayload {
   instruction: string;

@@ -8,7 +8,7 @@ import { CompanyFinancialRepository, CompanyRepository, InvestmentThesisReposito
 import type { DbClient } from '@/lib/repositories';
 import { getPostHogClient } from '@/lib/posthog-server';
 
-export const MARKET_SCREENING_TIMEOUT_SECONDS = 300;
+export const MARKET_SCREENING_TIMEOUT_SECONDS = 480; // 8 minutes
 
 export interface MarketScreeningPayload {
   thesis: string;

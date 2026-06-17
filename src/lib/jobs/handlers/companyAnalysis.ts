@@ -13,7 +13,7 @@ import {
 import type { DbClient, Tables } from "@/lib/repositories";
 import { z } from "zod";
 
-export const COMPANY_ANALYSIS_TIMEOUT_SECONDS = 300;
+export const COMPANY_ANALYSIS_TIMEOUT_SECONDS = 480; // 8 minutes
 
 const CompanyAnalysisResultSchema = z.object({
   business_overview: z.string(),
