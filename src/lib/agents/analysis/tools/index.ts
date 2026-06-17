@@ -7,6 +7,7 @@ import { getDataSchema } from "./get_data_schema";
 import { queryCompanies } from "./query_companies";
 import { getCompanyStats } from "./get_company_stats";
 import { getCompanyDetails } from "./get_company_details";
+import { lookupCrm } from "./lookup_crm";
 import { webSearch } from "./web_search";
 import { queryPastAcquisitions } from "./query_past_acquisitions";
 import { compareWithPastAcquisitions } from "./compare_with_past_acquisitions";
@@ -29,6 +30,7 @@ export {
   queryCompanies,
   getCompanyStats,
   getCompanyDetails,
+  lookupCrm,
   webSearch,
   queryPastAcquisitions,
   compareWithPastAcquisitions,
@@ -64,6 +66,7 @@ export const tools = [
   queryCompanies,
   getCompanyStats,
   getCompanyDetails,
+  lookupCrm,
   webSearch,
   queryPastAcquisitions,
   compareWithPastAcquisitions,
@@ -122,6 +125,7 @@ export function getToolDescriptions(): string {
     { name: "query_companies", description: "Search and filter companies by segment, geography, revenue, EBITDA, and other criteria" },
     { name: "get_company_stats", description: "Get aggregate statistics and breakdowns by segment or geography" },
     { name: "get_company_details", description: "Get detailed information about a specific company by name" },
+    { name: "lookup_crm", description: "Look up CRM firms and their bankers (correspondents) by firm name, banker name, or email" },
     { name: "web_search", description: "Search the web for company data, financials, market info, and external benchmarks" },
     { name: "query_past_acquisitions", description: "Query historical M&A deals by sector, country, status, or year" },
     { name: "compare_with_past_acquisitions", description: "Compare a company against historical acquisition metrics" },
