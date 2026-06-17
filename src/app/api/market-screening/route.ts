@@ -1,21 +1,32 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { auth } from '@/auth';
 import { getStatelessAgentGraph } from '@/lib/agents/analysis';
 import { createDb } from '@/lib/server/db';
-import { createContainer } from '@/lib/services';
-import type { MarketScreeningPayload } from '@/lib/jobs/handlers/marketScreening';
+import { enqueueAgentRun } from '@/lib/workforce';
 
 export async function POST(request: NextRequest) {
   try {
-    const body = (await request.json()) as MarketScreeningPayload;
-    if (!body.thesis) {
-      return NextResponse.json({ error: 'Investment thesis is required' }, { status: 400 });
-    }
+    const session = await auth();
+    const userId = session?.user?.id ?? null;
+
+    const body = await request.json().catch(() => ({})) as Record<string, unknown>;
+    const thesisOverride = typeof body.thesis === 'string' ? body.thesis : null;
+    const sourcesCount = typeof body.sourcesCount === 'number' ? body.sourcesCount : 5;
+
+    const prompt = thesisOverride
+      ? `Run market screening using this investment thesis: ${thesisOverride}\n\nUse the run_market_screening tool and pass sources_count=${sourcesCount}.`
+      : `Run the market scan. Use the run_market_screening tool with sources_count=${sourcesCount} to discover new acquisition targets matching our active investment thesis.`;
 
     const db = createDb();
-    const { marketScreeningService } = createContainer(db);
-    const { jobId } = await marketScreeningService.dispatch(body);
+    const { runId } = await enqueueAgentRun(db, {
+      agentName: 'analysis',
+      triggerSource: 'api',
+      input: { prompt, title: 'Market Screening' },
+      priority: 1,
+      triggeredByUserId: userId,
+    });
 
-    return NextResponse.json({ jobId }, { status: 202 });
+    return NextResponse.json({ runId }, { status: 202 });
   } catch (error: unknown) {
     console.error('Market screening error:', error);
     const message = error instanceof Error ? error.message : 'Internal server error';

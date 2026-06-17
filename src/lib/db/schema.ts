@@ -2933,7 +2933,7 @@ export const routines = pgTable(
     enabled: boolean().default(true).notNull(),
     last_fired_at: timestamp({ withTimezone: true, mode: "string" }),
     next_fire_at: timestamp({ withTimezone: true, mode: "string" }),
-    created_by: uuid().notNull(),
+    created_by: uuid(),
     updated_by: uuid(),
     created_at: timestamp({ withTimezone: true, mode: "string" })
       .defaultNow()
@@ -2942,6 +2942,7 @@ export const routines = pgTable(
       .defaultNow()
       .notNull(),
     archived_at: timestamp({ withTimezone: true, mode: "string" }),
+    is_system: boolean().default(false).notNull(),
   },
   (table) => {
     return {

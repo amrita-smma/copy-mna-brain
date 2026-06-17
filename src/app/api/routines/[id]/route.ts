@@ -115,6 +115,9 @@ export async function PATCH(
     if (!existing) {
       return NextResponse.json({ error: 'Not found' }, { status: 404 });
     }
+    if ((existing as Record<string, unknown>).is_system) {
+      return NextResponse.json({ error: 'System routines cannot be modified' }, { status: 403 });
+    }
 
     const patch: Record<string, unknown> = { updated_by: userId };
     if (parsed.data.title !== undefined) patch.title = parsed.data.title;
@@ -180,6 +183,9 @@ export async function DELETE(
     const existing = await repo.findById(id);
     if (!existing) {
       return NextResponse.json({ error: 'Not found' }, { status: 404 });
+    }
+    if ((existing as Record<string, unknown>).is_system) {
+      return NextResponse.json({ error: 'System routines cannot be archived' }, { status: 403 });
     }
     const row = await repo.archive(id);
     return NextResponse.json({ item: row });

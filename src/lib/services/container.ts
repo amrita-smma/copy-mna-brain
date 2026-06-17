@@ -33,12 +33,14 @@ import {
   DashboardActivityRepository,
   ApiKeyRepository,
   ApiChatConversationRepository,
+  RoutinesRepository,
 } from '@/lib/repositories';
 import { JobDispatcher } from './jobDispatcher';
 import { CompanyService } from './companyService';
 import { ScreeningService } from './screeningService';
 import { CriteriaService } from './criteriaService';
 import { InvestmentThesisService } from './investmentThesisService';
+import { MarketScanningRoutineService } from './marketScanningRoutineService';
 import { DealDocumentService } from './dealDocumentService';
 import { DealNoteService } from './dealNoteService';
 import { DealLinkService } from './dealLinkService';
@@ -64,6 +66,7 @@ export interface Container {
   screeningService: ScreeningService;
   criteriaService: CriteriaService;
   investmentThesisService: InvestmentThesisService;
+  marketScanningRoutineService: MarketScanningRoutineService;
   dealDocumentService: DealDocumentService;
   dealNoteService: DealNoteService;
   dealLinkService: DealLinkService;
@@ -109,7 +112,12 @@ export function createContainer(db: DbClient): Container {
 
   const criteriaService = new CriteriaService(criteriaRepo);
   const screeningService = new ScreeningService(screeningRepo);
-  const investmentThesisService = new InvestmentThesisService(thesisRepo);
+  const routinesRepo = new RoutinesRepository(db);
+  const marketScanningRoutineService = new MarketScanningRoutineService(routinesRepo);
+  const investmentThesisService = new InvestmentThesisService(
+    thesisRepo,
+    marketScanningRoutineService,
+  );
   const dealNoteService = new DealNoteService(dealNoteRepo);
   const dealLinkService = new DealLinkService(dealLinkRepo);
   const jobService = new JobService(jobRepo, screeningRepo);
@@ -190,6 +198,7 @@ export function createContainer(db: DbClient): Container {
     screeningService,
     criteriaService,
     investmentThesisService,
+    marketScanningRoutineService,
     dealDocumentService,
     dealNoteService,
     dealLinkService,

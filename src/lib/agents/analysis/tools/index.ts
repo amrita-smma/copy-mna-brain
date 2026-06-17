@@ -24,6 +24,7 @@ import { notifyProgress } from "./notify_progress";
 import { flagInsight } from "./flag_insight";
 import { getTaskProgress } from "./get_task_progress";
 import { emailResearchSummary } from "./email_research_summary";
+import { runMarketScreeningTool } from "./run_market_screening";
 
 export {
   getDataSchema,
@@ -47,6 +48,7 @@ export {
   flagInsight,
   getTaskProgress,
   emailResearchSummary,
+  runMarketScreeningTool,
 };
 
 export {
@@ -109,6 +111,7 @@ export const chatOnlyTools = [
 export const workforceOnlyTools = [
   promoteToL1,
   addCompanyToL0,
+  runMarketScreeningTool,
   narrateStep,
   reportProgress,
   notifyProgress,
