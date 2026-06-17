@@ -1,6 +1,6 @@
 'use client';
 
-import { CSSProperties, ReactNode, useEffect, useRef, useState } from 'react';
+import { ReactNode, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
@@ -333,17 +333,17 @@ export default function DashboardLayout({ children, showCrm = false, showAiWorkf
 }
 
 /**
- * Full-bleed mobile (PWA) shell. The header pins to the top and the chat input
- * floats just above the on-screen keyboard, while the bottom nav stays at the
- * true viewport bottom.
+ * Full-bleed mobile (PWA) shell with ChatGPT-like keyboard behavior.
  *
- * The trick is the visual viewport: when the keyboard opens it shrinks the
- * *visual* viewport but not the `100dvh` layout viewport, so the browser would
- * otherwise scroll the whole page up (dragging the header off-screen and
- * lifting the nav). We instead size the shell to the visual viewport height so
- * everything inside it — header, messages, input — stays in the visible area,
- * and render the bottom nav as a separate `fixed` element pinned to the true
- * bottom so the keyboard simply covers it rather than raising it.
+ * When the keyboard is closed:
+ * - Content fills the screen above the bottom nav
+ * - Bottom nav is visible at the bottom
+ *
+ * When a chat textbox is focused:
+ * - Entire mobile frame snaps to the visual viewport (space above keyboard)
+ * - Bottom nav remains pinned at the bottom of that visible frame
+ * - Chat input remains in the main area, directly above the nav
+ * - Only chat content scrolls
  */
 function MobileShell({
   isChatRoute,
@@ -352,57 +352,53 @@ function MobileShell({
   isChatRoute: boolean;
   children: ReactNode;
 }) {
-  const { height, offsetTop, keyboardInset } = useVisualViewport();
-  const navRef = useRef<HTMLDivElement>(null);
-  const [navHeight, setNavHeight] = useState(0);
+  const { viewportHeight, offsetTop, isKeyboardOpen } = useVisualViewport();
+  const isKeyboardMode = isChatRoute && isKeyboardOpen;
 
-  // Measure the bottom nav (its height varies with the safe-area inset) so the
-  // shell can reserve exactly that much space below the input when the keyboard
-  // is closed.
+  // Bare-bones mobile frame: lock page scrolling and let only in-app regions
+  // scroll. For chat, that means the message list is the only scroll container.
   useEffect(() => {
-    const el = navRef.current;
-    if (!el) return;
-    const measure = () => setNavHeight(el.offsetHeight);
-    measure();
-    const ro = new ResizeObserver(measure);
-    ro.observe(el);
-    return () => ro.disconnect();
+    const htmlOverflow = document.documentElement.style.overflow;
+    const bodyOverflow = document.body.style.overflow;
+    const bodyOverscrollBehavior = document.body.style.overscrollBehavior;
+
+    document.documentElement.style.overflow = 'hidden';
+    document.body.style.overflow = 'hidden';
+    document.body.style.overscrollBehavior = 'none';
+
+    return () => {
+      document.documentElement.style.overflow = htmlOverflow;
+      document.body.style.overflow = bodyOverflow;
+      document.body.style.overscrollBehavior = bodyOverscrollBehavior;
+    };
   }, []);
 
-  // The keyboard is "open" once it covers meaningfully more than the bottom nav.
-  const keyboardOpen = keyboardInset > navHeight + 40;
-
-  const shellStyle: CSSProperties =
-    height != null
-      ? {
-          height: `${height}px`,
-          transform: `translateY(${offsetTop}px)`,
-          // While the keyboard is up the nav is hidden behind it, so we don't
-          // reserve room for it — the input sits flush against the keyboard.
-          paddingBottom: keyboardOpen ? 0 : navHeight,
-        }
-      : { paddingBottom: navHeight };
+  // Keyboard mode: use the visual viewport frame (smaller visible screen above
+  // keyboard). Non-keyboard mode: use the normal full dynamic viewport.
+  const shellTop = isKeyboardMode ? offsetTop : 0;
+  const shellHeight =
+    isKeyboardMode && viewportHeight != null ? `${viewportHeight}px` : '100dvh';
 
   return (
-    <>
-      {/* Flat, full-bleed shell: no decorative floating background or card
-          chrome — the mobile PWA reads as a single solid surface. */}
-      <div
-        className="fixed inset-x-0 top-0 z-10 flex h-[100dvh] w-full flex-col overflow-hidden bg-background"
-        style={shellStyle}
+    <div
+      className="fixed inset-x-0 z-10 grid min-h-0 bg-background"
+      style={{
+        top: shellTop,
+        height: shellHeight,
+        gridTemplateRows: 'minmax(0, 1fr) auto',
+      }}
+    >
+      <main
+        className={cn(
+          'min-h-0 min-w-0 flex flex-col',
+          isChatRoute ? 'overflow-hidden' : 'overflow-auto',
+        )}
       >
-        <main
-          className={cn(
-            'flex-1 min-w-0 overscroll-x-none',
-            isChatRoute ? 'overflow-hidden' : 'overflow-auto',
-          )}
-        >
-          {children}
-        </main>
-      </div>
-      <div ref={navRef} className="fixed inset-x-0 bottom-0 z-20">
+        {children}
+      </main>
+      <div className="shrink-0">
         <MobileBottomNav />
       </div>
-    </>
+    </div>
   );
 }

@@ -1,55 +1,98 @@
 import * as React from 'react';
 
-export interface VisualViewportMetrics {
-  /**
-   * Height of the visual viewport (the area not covered by the on-screen
-   * keyboard) in px, or `null` until the first measurement / on browsers
-   * without `window.visualViewport`. Callers should fall back to a CSS
-   * `100dvh` value while this is `null`.
-   */
-  height: number | null;
-  /** Top offset of the visual viewport relative to the layout viewport. */
+export interface VisualViewportState {
+  /** Current visible viewport height in pixels, or null before measurement */
+  viewportHeight: number | null;
+  /** Top edge of the visible viewport relative to the layout viewport */
   offsetTop: number;
-  /**
-   * Height of the on-screen keyboard (or other interactive widget) currently
-   * covering the bottom of the layout viewport, in px. `0` when no keyboard is
-   * open.
-   */
-  keyboardInset: number;
+  /** Whether a textbox is focused, which is the app's keyboard mode toggle */
+  isKeyboardOpen: boolean;
 }
 
-const EMPTY: VisualViewportMetrics = { height: null, offsetTop: 0, keyboardInset: 0 };
-
 /**
- * Tracks the browser's visual viewport so a full-screen layout can resize
- * itself to the space *above* the on-screen keyboard. On mobile the keyboard
- * shrinks the visual viewport (not the `100dvh` layout viewport), so reading it
- * is the only reliable, cross-browser way to know how much room the keyboard
- * is taking.
+ * Tracks the mobile visual viewport and whether the app should be in
+ * "keyboard mode".
+ *
+ * Keyboard mode is intentionally focus-driven. If an editable textbox is
+ * focused, the chat should behave like a smaller screen above the keyboard and
+ * hide mobile chrome. When focus leaves the textbox, the normal mobile nav mode
+ * comes back.
  */
-export function useVisualViewport(): VisualViewportMetrics {
-  const [metrics, setMetrics] = React.useState<VisualViewportMetrics>(EMPTY);
+export function useVisualViewport(): VisualViewportState {
+  const [state, setState] = React.useState<VisualViewportState>({
+    viewportHeight: null,
+    offsetTop: 0,
+    isKeyboardOpen: false,
+  });
 
   React.useEffect(() => {
-    const vv = typeof window !== 'undefined' ? window.visualViewport : null;
-    if (!vv) {
-      setMetrics(EMPTY);
-      return;
-    }
+    const vv = window.visualViewport;
+    const inputFocusedRef = { current: false };
+    const timeouts: number[] = [];
+    let frame = 0;
+
+    const isEditableElement = (target: EventTarget | null) => {
+      if (!(target instanceof HTMLElement)) return false;
+      const tagName = target.tagName.toLowerCase();
+      return (
+        tagName === 'input' ||
+        tagName === 'textarea' ||
+        target.isContentEditable
+      );
+    };
 
     const update = () => {
-      const keyboardInset = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
-      setMetrics({ height: vv.height, offsetTop: vv.offsetTop, keyboardInset });
+      const viewportHeight = Math.round(vv?.height ?? window.innerHeight);
+      const offsetTop = Math.round(vv?.offsetTop ?? 0);
+      const isKeyboardOpen = inputFocusedRef.current;
+
+      setState((prev) => {
+        if (
+          prev.viewportHeight === viewportHeight &&
+          prev.offsetTop === offsetTop &&
+          prev.isKeyboardOpen === isKeyboardOpen
+        ) {
+          return prev;
+        }
+        return { viewportHeight, offsetTop, isKeyboardOpen };
+      });
+    };
+
+    const updateDuringKeyboardAnimation = () => {
+      update();
+      frame = window.requestAnimationFrame(update);
+      for (const delay of [50, 100, 200, 350, 600]) {
+        timeouts.push(window.setTimeout(update, delay));
+      }
+    };
+
+    const handleFocusIn = (event: FocusEvent) => {
+      inputFocusedRef.current = isEditableElement(event.target);
+      updateDuringKeyboardAnimation();
+    };
+
+    const handleFocusOut = () => {
+      inputFocusedRef.current = false;
+      timeouts.push(window.setTimeout(update, 100));
     };
 
     update();
-    vv.addEventListener('resize', update);
-    vv.addEventListener('scroll', update);
+    vv?.addEventListener('resize', update);
+    vv?.addEventListener('scroll', update);
+    window.addEventListener('resize', update);
+    document.addEventListener('focusin', handleFocusIn);
+    document.addEventListener('focusout', handleFocusOut);
+
     return () => {
-      vv.removeEventListener('resize', update);
-      vv.removeEventListener('scroll', update);
+      window.cancelAnimationFrame(frame);
+      timeouts.forEach((timeout) => window.clearTimeout(timeout));
+      vv?.removeEventListener('resize', update);
+      vv?.removeEventListener('scroll', update);
+      window.removeEventListener('resize', update);
+      document.removeEventListener('focusin', handleFocusIn);
+      document.removeEventListener('focusout', handleFocusOut);
     };
   }, []);
 
-  return metrics;
+  return state;
 }
