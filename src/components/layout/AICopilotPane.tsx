@@ -59,6 +59,23 @@ function ChatInput({ isExpanded }: { isExpanded: boolean }) {
     setInput('');
   };
 
+  // Opening the mobile keyboard triggers layout shifts (visual-viewport resize,
+  // bottom-nav hide) that can momentarily drop focus from the input. Re-assert
+  // focus across the keyboard-animation window so the user can type right away —
+  // but only when focus was dropped to nowhere, never stealing it from another
+  // control the user deliberately tapped.
+  const handleFocus = () => {
+    const reassert = () => {
+      const active = document.activeElement;
+      if (active === null || active === document.body) {
+        chatInputRef.current?.focus();
+      }
+    };
+    for (const delay of [50, 150, 300, 600]) {
+      window.setTimeout(reassert, delay);
+    }
+  };
+
   return (
     <div className="p-4 border-t bg-muted shrink-0">
       <motion.div
@@ -77,6 +94,7 @@ function ChatInput({ isExpanded }: { isExpanded: boolean }) {
               ref={chatInputRef}
               value={input}
               onChange={(e) => setInput(e.target.value)}
+              onFocus={handleFocus}
               placeholder="Ask anything..."
               autoComplete="off"
               autoCorrect="off"

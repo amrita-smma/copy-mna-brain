@@ -385,7 +385,9 @@ function MobileShell({
       style={{
         top: shellTop,
         height: shellHeight,
-        gridTemplateRows: 'minmax(0, 1fr) auto',
+        // In keyboard mode the bottom nav is hidden, so the main area takes the
+        // entire visible frame above the keyboard.
+        gridTemplateRows: isKeyboardMode ? 'minmax(0, 1fr)' : 'minmax(0, 1fr) auto',
       }}
     >
       <main
@@ -396,9 +398,11 @@ function MobileShell({
       >
         {children}
       </main>
-      <div className="shrink-0">
-        <MobileBottomNav />
-      </div>
+      {!isKeyboardMode && (
+        <div className="shrink-0">
+          <MobileBottomNav />
+        </div>
+      )}
     </div>
   );
 }
