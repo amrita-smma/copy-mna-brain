@@ -78,6 +78,10 @@ function ChatInput({ isExpanded }: { isExpanded: boolean }) {
               value={input}
               onChange={(e) => setInput(e.target.value)}
               placeholder="Ask anything..."
+              autoComplete="off"
+              autoCorrect="off"
+              spellCheck={false}
+              enterKeyHint="send"
               className="flex-1 text-sm border-0 bg-transparent focus-visible:ring-0 focus-visible:ring-offset-0"
               disabled={isBusy}
             />

@@ -37,11 +37,16 @@ const navItems: MobileNavItem[] = [
   },
 ];
 
-export function MobileBottomNav() {
+export function MobileBottomNav({ className }: { className?: string }) {
   const pathname = usePathname();
 
   return (
-    <nav className="z-20 flex shrink-0 items-stretch border-t border-border bg-background/80 backdrop-blur-xl pb-[env(safe-area-inset-bottom)]">
+    <nav
+      className={cn(
+        'z-20 flex shrink-0 items-stretch border-t border-border bg-background/80 backdrop-blur-xl pb-[env(safe-area-inset-bottom)]',
+        className,
+      )}
+    >
       {navItems.map((item) => {
         const active = item.isActive(pathname);
         return (

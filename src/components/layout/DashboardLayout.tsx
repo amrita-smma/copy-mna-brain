@@ -1,6 +1,6 @@
 'use client';
 
-import { ReactNode, useEffect } from 'react';
+import { CSSProperties, ReactNode, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
@@ -41,6 +41,7 @@ import { MobileBottomNav } from './MobileBottomNav';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useLocalStorage } from '@/hooks/useLocalStorage';
 import { useIsMobile } from '@/hooks/use-mobile';
+import { useVisualViewport } from '@/hooks/use-visual-viewport';
 
 
 interface DashboardLayoutProps {
@@ -89,29 +90,19 @@ export default function DashboardLayout({ children, showCrm = false, showAiWorkf
   if (isMobile) {
     return (
       <ProtectedRoute>
-        {/* Flat, full-bleed shell: no decorative floating background or card
-            chrome — the mobile PWA reads as a single solid surface. */}
-        <div className="flex h-[100dvh] w-full flex-col overflow-hidden bg-background">
-          <main
-            className={cn(
-              'flex-1 min-w-0 overscroll-x-none',
-              isChatRoute ? 'overflow-hidden' : 'overflow-auto',
-            )}
-          >
-            {isChatRoute ? (
-              <AICopilotPane
-                isExpanded
-                onToggleExpand={() => {}}
-                hideExpandToggle
-                showHistoryButton
-                className="border-l-0"
-              />
-            ) : (
-              children
-            )}
-          </main>
-          <MobileBottomNav />
-        </div>
+        <MobileShell isChatRoute={isChatRoute}>
+          {isChatRoute ? (
+            <AICopilotPane
+              isExpanded
+              onToggleExpand={() => {}}
+              hideExpandToggle
+              showHistoryButton
+              className="border-l-0"
+            />
+          ) : (
+            children
+          )}
+        </MobileShell>
       </ProtectedRoute>
     );
   }
@@ -338,5 +329,80 @@ export default function DashboardLayout({ children, showCrm = false, showAiWorkf
         </div>
       </SidebarProvider>
     </ProtectedRoute>
+  );
+}
+
+/**
+ * Full-bleed mobile (PWA) shell. The header pins to the top and the chat input
+ * floats just above the on-screen keyboard, while the bottom nav stays at the
+ * true viewport bottom.
+ *
+ * The trick is the visual viewport: when the keyboard opens it shrinks the
+ * *visual* viewport but not the `100dvh` layout viewport, so the browser would
+ * otherwise scroll the whole page up (dragging the header off-screen and
+ * lifting the nav). We instead size the shell to the visual viewport height so
+ * everything inside it — header, messages, input — stays in the visible area,
+ * and render the bottom nav as a separate `fixed` element pinned to the true
+ * bottom so the keyboard simply covers it rather than raising it.
+ */
+function MobileShell({
+  isChatRoute,
+  children,
+}: {
+  isChatRoute: boolean;
+  children: ReactNode;
+}) {
+  const { height, offsetTop, keyboardInset } = useVisualViewport();
+  const navRef = useRef<HTMLDivElement>(null);
+  const [navHeight, setNavHeight] = useState(0);
+
+  // Measure the bottom nav (its height varies with the safe-area inset) so the
+  // shell can reserve exactly that much space below the input when the keyboard
+  // is closed.
+  useEffect(() => {
+    const el = navRef.current;
+    if (!el) return;
+    const measure = () => setNavHeight(el.offsetHeight);
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  // The keyboard is "open" once it covers meaningfully more than the bottom nav.
+  const keyboardOpen = keyboardInset > navHeight + 40;
+
+  const shellStyle: CSSProperties =
+    height != null
+      ? {
+          height: `${height}px`,
+          transform: `translateY(${offsetTop}px)`,
+          // While the keyboard is up the nav is hidden behind it, so we don't
+          // reserve room for it — the input sits flush against the keyboard.
+          paddingBottom: keyboardOpen ? 0 : navHeight,
+        }
+      : { paddingBottom: navHeight };
+
+  return (
+    <>
+      {/* Flat, full-bleed shell: no decorative floating background or card
+          chrome — the mobile PWA reads as a single solid surface. */}
+      <div
+        className="fixed inset-x-0 top-0 z-10 flex h-[100dvh] w-full flex-col overflow-hidden bg-background"
+        style={shellStyle}
+      >
+        <main
+          className={cn(
+            'flex-1 min-w-0 overscroll-x-none',
+            isChatRoute ? 'overflow-hidden' : 'overflow-auto',
+          )}
+        >
+          {children}
+        </main>
+      </div>
+      <div ref={navRef} className="fixed inset-x-0 bottom-0 z-20">
+        <MobileBottomNav />
+      </div>
+    </>
   );
 }
