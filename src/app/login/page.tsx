@@ -27,7 +27,7 @@ export default function LoginPage() {
 
   useEffect(() => {
     if (!loading && user) {
-      router.replace('/dashboard');
+      router.replace('/chat');
     }
   }, [user, loading, router]);
 
@@ -49,7 +49,7 @@ export default function LoginPage() {
       posthog.capture('user_signed_in', {
         email: normalizedEmail,
       });
-      router.push('/dashboard');
+      router.push('/chat');
     }
   };
 

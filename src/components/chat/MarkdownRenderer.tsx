@@ -49,10 +49,10 @@ export function MarkdownRenderer({ content, className, variant = 'chat' }: Markd
 
           // Lists
           ul: ({ children }) => (
-            <ul className={cn("my-2 ml-4 list-disc marker:text-muted-foreground", isCard ? "space-y-1.5" : "space-y-1")}>{children}</ul>
+            <ul className={cn("my-2 pl-5 list-disc list-outside marker:text-muted-foreground", isCard ? "space-y-1.5" : "space-y-1")}>{children}</ul>
           ),
           ol: ({ children }) => (
-            <ol className={cn("my-2 ml-4 list-decimal marker:text-muted-foreground", isCard ? "space-y-1.5" : "space-y-1")}>{children}</ol>
+            <ol className={cn("my-2 pl-5 list-decimal list-outside marker:text-muted-foreground", isCard ? "space-y-1.5" : "space-y-1")}>{children}</ol>
           ),
           li: ({ children }) => (
             <li className={cn(isCard ? "text-foreground leading-snug" : "text-foreground/90")}>{children}</li>
