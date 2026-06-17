@@ -29,7 +29,12 @@
       "Bash(awk -F: '$1>=1198 && $1<=1600')",
       "Bash(python3 -)",
       "Bash(git rm *)",
-      "Bash(python3 -c \"import json; e=json.load\\(open\\('drizzle/migrations/meta/_journal.json'\\)\\)['entries']; print\\('\\\\n'.join\\(f\\\\\"{x['idx']} {x['tag']} when={x['when']}\\\\\" for x in e[-3:]\\)\\)\")"
+      "Bash(python3 -c \"import json; e=json.load\\(open\\('drizzle/migrations/meta/_journal.json'\\)\\)['entries']; print\\('\\\\n'.join\\(f\\\\\"{x['idx']} {x['tag']} when={x['when']}\\\\\" for x in e[-3:]\\)\\)\")",
+      "Bash(sips -g pixelWidth -g pixelHeight public/logo-light.png public/favicon.png)",
+      "Bash(mkdir -p public/icons)",
+      "Bash(sips -z 192 192 public/logo-light.png --out public/icons/icon-192.png)",
+      "Bash(sips -z 512 512 public/logo-light.png --out public/icons/icon-512.png)",
+      "Bash(sips -z 180 180 public/logo-light.png --out public/icons/apple-icon-180.png)"
     ]
   }
 }
