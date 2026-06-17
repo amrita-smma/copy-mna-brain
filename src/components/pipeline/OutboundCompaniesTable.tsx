@@ -172,7 +172,7 @@ export default function OutboundCompaniesTable({
           ) : (
             <TableHead className="min-w-[160px]">Status</TableHead>
           )}
-          <TableHead className="max-w-[200px]">Additional Remarks</TableHead>
+          <TableHead className="min-w-[320px] max-w-[400px]">Additional Remarks</TableHead>
           <TableHead>Created</TableHead>
           <TableHead>{isDropped ? "Dropped On" : "Last Activity"}</TableHead>
           <TableHead className="text-right">Actions</TableHead>
@@ -314,10 +314,10 @@ export default function OutboundCompaniesTable({
                   />
                 </TableCell>
               )}
-              <TableCell className="max-w-[200px]">
+              <TableCell className="min-w-[320px] max-w-[400px] align-top">
                 {company.remarks ? (
                   <p
-                    className="text-xs text-muted-foreground truncate"
+                    className="text-xs text-muted-foreground whitespace-normal break-words"
                     title={company.remarks}
                   >
                     {company.remarks}

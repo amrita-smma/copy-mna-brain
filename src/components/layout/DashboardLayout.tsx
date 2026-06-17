@@ -62,6 +62,7 @@ export default function DashboardLayout({ children, showCrm = false, showAiWorkf
   const pathname = usePathname();
   const { user, signOut } = useAuth();
   const isMobile = useIsMobile();
+  const [isSidebarOpen, setIsSidebarOpen] = useLocalStorage('layout:sidebar-open', false);
   const [isMainExpanded, setIsMainExpanded] = useLocalStorage('layout:main-expanded', false);
   const [isCopilotExpanded, setIsCopilotExpanded] = useLocalStorage('layout:copilot-expanded', false);
   const [copilotWidth, setCopilotWidth] = useLocalStorage('layout:copilot-width', COPILOT_DEFAULT_WIDTH);
@@ -128,7 +129,7 @@ export default function DashboardLayout({ children, showCrm = false, showAiWorkf
   return (
     <ProtectedRoute>
       <LivingBackground variant="default" />
-      <SidebarProvider>
+      <SidebarProvider open={isSidebarOpen} onOpenChange={setIsSidebarOpen}>
         <div className="relative z-10 flex min-h-screen w-full">
           <Sidebar collapsible="icon" className="border-r border-sidebar-border bg-white/70 dark:bg-[hsl(220,20%,8%)]/70 backdrop-blur-xl">
             <SidebarHeader className="border-b border-sidebar-border p-2 group-data-[state=expanded]:p-4">
