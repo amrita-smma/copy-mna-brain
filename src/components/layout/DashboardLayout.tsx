@@ -1,6 +1,6 @@
 'use client';
 
-import { ReactNode } from 'react';
+import { ReactNode, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
@@ -68,6 +68,17 @@ export default function DashboardLayout({ children, showCrm = false, showAiWorkf
 
   const isOnAiWorkforce = pathname.startsWith('/ai-workforce');
   const showCopilotPane = !isOnAiWorkforce;
+  const isChatRoute = pathname.startsWith('/chat');
+
+  // On desktop, landing on the dedicated /chat route opens the copilot in its
+  // expanded (full-screen) view. We react only to entering the route, so a
+  // user who manually collapses the pane while staying on /chat is respected.
+  useEffect(() => {
+    if (isChatRoute && !isMobile) {
+      setIsCopilotExpanded(true);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isChatRoute, isMobile]);
 
   // Mobile (PWA) experience: drop the desktop sidebar/chrome in favour of an
   // Instagram-style bottom nav with three destinations — the activity feed
@@ -75,7 +86,6 @@ export default function DashboardLayout({ children, showCrm = false, showAiWorkf
   // renders the full-screen AI CoPilot (with chat history in a slide-in
   // drawer); every other tab renders its page content above the bottom nav.
   if (isMobile) {
-    const isChatRoute = pathname.startsWith('/chat');
     return (
       <ProtectedRoute>
         {/* Flat, full-bleed shell: no decorative floating background or card

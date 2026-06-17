@@ -962,7 +962,7 @@ export default function Dashboard({
             </div>
           </CardHeader>
           <CardContent>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="grid grid-cols-[repeat(auto-fit,minmax(180px,1fr))] gap-4">
               {/* Total Deals */}
               <div className="rounded-xl border bg-card p-5">
                 <div className="flex items-center justify-between gap-3 mb-3">
@@ -1105,7 +1105,7 @@ export default function Dashboard({
 
               <CardContent className="space-y-6">
                 {/* 3 summary counters */}
-                <div className="grid grid-cols-3 gap-4">
+                <div className="grid grid-cols-[repeat(auto-fit,minmax(200px,1fr))] gap-4">
                   <div className="rounded-lg border border-red-200 bg-red-50/50 dark:border-red-900/50 dark:bg-red-950/20 p-4">
                     <div className="flex items-center justify-between gap-2">
                       <p className="text-xs font-semibold text-red-600 dark:text-red-400 uppercase tracking-wide">
@@ -1269,7 +1269,7 @@ export default function Dashboard({
                 </div>
 
                 {/* 3 detail columns side-by-side */}
-                <div className="grid grid-cols-3 gap-6">
+                <div className="grid grid-cols-[repeat(auto-fit,minmax(220px,1fr))] gap-6">
                   {/* Dropped Deals Column */}
                   <div className="space-y-3">
                     <div className="flex items-center gap-2">
@@ -1488,7 +1488,7 @@ export default function Dashboard({
                     </p>
                   </div>
                 ) : (
-                  <div className="flex items-stretch gap-3">
+                  <div className="flex items-stretch gap-3 overflow-x-auto">
                     {/* L0 · Sourcing — split into inbound / outbound */}
                     <div className="flex w-[180px] shrink-0 flex-col gap-2">
                       <p className="text-center text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
@@ -1534,7 +1534,7 @@ export default function Dashboard({
                     <div className="w-px shrink-0 bg-border" />
 
                     {/* L1 – L5 stage columns */}
-                    <div className="flex flex-1 items-stretch gap-2">
+                    <div className="flex flex-1 items-stretch gap-2 min-w-[360px]">
                       {displayStageCounts.slice(1).map((item) => {
                         const pills = stagePillColors[item.stage] ?? {
                           inbound: "bg-gray-400",
