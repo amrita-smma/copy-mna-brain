@@ -6,6 +6,7 @@ import DashboardLayout from '@/components/layout/DashboardLayout';
 import { MarkdownRenderer } from '@/components/chat/MarkdownRenderer';
 import { useChatContext } from '@/components/chat/ChatProvider';
 import { AskAIButton } from '@/components/chat/AskAIButton';
+import { useIsMobile } from '@/hooks/use-mobile';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
@@ -316,10 +317,20 @@ export default function CompanyDetail({ showCrm = false, showAiWorkforce = false
   const router = useRouter();
   const { analyzeWithAI } = useChatContext();
   const searchParams = useSearchParams();
+  const isMobile = useIsMobile();
   const companyId = params.dealId as string;
   const returnTo = searchParams.get('from') || '/pipeline';
 
   const [company, setCompany] = useState<CompanyData | null>(null);
+
+  // "Analyze using AI" sends the prompt to the shared copilot. On mobile the
+  // copilot lives on the Chat tab, so jump there to watch the response stream.
+  const handleAnalyzeWithAI = () => {
+    analyzeWithAI(
+      `Analyze ${company?.target || 'this company'} and provide insights about it as a potential deal.`,
+    );
+    if (isMobile) router.push('/chat');
+  };
   const [stageHistory, setStageHistory] = useState<StageHistory[]>([]);
   const [notes, setNotes] = useState<DealNote[]>([]);
   const [links, setLinks] = useState<DealLink[]>([]);
@@ -938,7 +949,7 @@ export default function CompanyDetail({ showCrm = false, showAiWorkforce = false
     <DashboardLayout showCrm={showCrm} showAiWorkforce={showAiWorkforce}>
       <div className="p-6 space-y-6">
         {/* Header */}
-        <div className="flex items-center justify-between gap-6">
+        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between md:gap-6">
           <div className="flex items-center gap-4">
             <Button variant="ghost" size="icon" onClick={() => router.push(returnTo)} className="shrink-0">
               <ArrowLeft className="h-5 w-5" />
@@ -981,7 +992,7 @@ export default function CompanyDetail({ showCrm = false, showAiWorkforce = false
             </div>
           </div>
           {/* Action buttons */}
-          <div className="flex items-center gap-2 shrink-0 self-center">
+          <div className="flex flex-wrap items-center gap-2 md:shrink-0 md:self-center">
             {analysis?.status === 'completed' && (
               <Button
                 variant="outline"
@@ -1013,11 +1024,7 @@ export default function CompanyDetail({ showCrm = false, showAiWorkforce = false
             <AskAIButton
               variant="button"
               label="Analyze using AI"
-              onClick={() =>
-                analyzeWithAI(
-                  `Analyze ${company?.target || 'this company'} and provide insights about it as a potential deal.`,
-                )
-              }
+              onClick={handleAnalyzeWithAI}
             />
           </div>
         </div>

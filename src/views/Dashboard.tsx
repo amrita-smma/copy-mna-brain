@@ -1,7 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { useIsMobile } from "@/hooks/use-mobile";
 import DashboardLayout from "@/components/layout/DashboardLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -463,6 +465,8 @@ export default function Dashboard({
     null,
   );
   const [dialogOpen, setDialogOpen] = useState(false);
+  const router = useRouter();
+  const isMobile = useIsMobile();
 
   // Date range
   const defaultRange = presetToRange("7d");
@@ -567,6 +571,12 @@ export default function Dashboard({
 
   const handleCompanyClick = useCallback(
     async (id: string) => {
+      // On mobile, open the full-screen company profile instead of the dialog.
+      // Back returns here to the activity feed (dashboard).
+      if (isMobile) {
+        router.push(`/pipeline/${id}?from=/dashboard`);
+        return;
+      }
       const cached = companies.find((c: any) => c.id === id);
       if (cached) {
         setSelectedCompany(cached as CompanyData);
@@ -586,7 +596,7 @@ export default function Dashboard({
         console.error("Failed to load company details", err);
       }
     },
-    [companies],
+    [companies, isMobile, router],
   );
 
   useEffect(() => {
@@ -655,10 +665,41 @@ export default function Dashboard({
     return allFeedEvents.filter((e) => e.type === typeMap[feedFilter]);
   }, [allFeedEvents, feedFilter]);
 
+  // Infinite scroll: render the feed in pages, revealing more as the user
+  // scrolls the page (no inner scroll container).
+  const FEED_PAGE_SIZE = 10;
+  const [feedVisibleCount, setFeedVisibleCount] = useState(FEED_PAGE_SIZE);
+
+  // Reset the window whenever the underlying list changes (filter switch or a
+  // fresh activity fetch).
+  useEffect(() => {
+    setFeedVisibleCount(FEED_PAGE_SIZE);
+  }, [feedFilter, allFeedEvents]);
+
+  const hasMoreFeed = feedVisibleCount < filteredFeedEvents.length;
+
   const groupedFeedEvents = useMemo(
-    () => groupEventsByDate(filteredFeedEvents),
-    [filteredFeedEvents],
+    () => groupEventsByDate(filteredFeedEvents.slice(0, feedVisibleCount)),
+    [filteredFeedEvents, feedVisibleCount],
   );
+
+  const feedSentinelRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!hasMoreFeed) return;
+    const el = feedSentinelRef.current;
+    if (!el) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting) {
+          setFeedVisibleCount((c) => c + FEED_PAGE_SIZE);
+        }
+      },
+      { rootMargin: "200px" },
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [hasMoreFeed, groupedFeedEvents]);
 
   // ─── Date-filtered pipeline stage counts ────────────────────────────────────
 
@@ -758,7 +799,7 @@ export default function Dashboard({
     <DashboardLayout showCrm={showCrm} showAiWorkforce={showAiWorkforce}>
       <div className="p-6 lg:p-8 space-y-8 animate-fade-in">
         {/* Header */}
-        <div className="flex items-start justify-between gap-6">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between sm:gap-6">
           <div>
             <div className="flex items-center gap-3 mb-2">
               <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-foreground/10">
@@ -774,7 +815,7 @@ export default function Dashboard({
           </div>
 
           {/* Global date range filter */}
-          <div className="flex items-center gap-1 p-1 bg-muted/50 rounded-lg border border-border/50 shrink-0 mt-1">
+          <div className="flex flex-wrap items-center gap-1 p-1 bg-muted/50 rounded-lg border border-border/50 shrink-0 self-start sm:mt-1">
             {(["7d", "14d"] as PresetKey[]).map((key) => (
               <button
                 key={key}
@@ -909,8 +950,8 @@ export default function Dashboard({
           </div>
         </div>
 
-        {/* Overview section card */}
-        <Card className="border bg-gradient-to-br from-muted/40 to-muted/10">
+        {/* Overview section card — hidden on mobile (Activity Feed only) */}
+        <Card className="hidden md:block border bg-gradient-to-br from-muted/40 to-muted/10">
           <CardHeader className="pb-4">
             <div className="flex items-center gap-2">
               <LayoutGrid className="h-5 w-5 text-foreground" />
@@ -1045,7 +1086,7 @@ export default function Dashboard({
         ) : activity ? (
           <>
             {/* ── 7-Day Recap Section ─────────────────────────────────────────────── */}
-            <Card className="border bg-card">
+            <Card className="hidden md:block border bg-card">
               <CardHeader className="pb-4">
                 <div className="flex items-center gap-2">
                   <CalendarIcon className="h-5 w-5 text-muted-foreground" />
@@ -1418,7 +1459,7 @@ export default function Dashboard({
             </Card>
 
             {/* ── Pipeline Stages ────────────────────────────────────────────── */}
-            <Card className="border bg-card">
+            <Card className="hidden md:block border bg-card">
               <CardHeader className="pb-2">
                 <div className="flex items-center justify-between gap-3">
                   <div className="flex items-center gap-3">
@@ -1553,101 +1594,100 @@ export default function Dashboard({
             </Card>
 
             {/* ── Activity Feed ──────────────────────────────────────────────── */}
-            <Card className="border bg-card">
-              <CardHeader className="pb-4">
-                <div className="space-y-4">
-                  <div className="flex items-center gap-2">
-                    <Clock className="h-5 w-5 text-muted-foreground" />
-                    <CardTitle className="text-lg font-semibold">
-                      Activity Feed
-                    </CardTitle>
+            {/* No outer card: a plain section header followed by one card per
+                activity, revealed via infinite scroll on the page scroller. */}
+            <section className="space-y-4">
+              <div className="space-y-4">
+                <div className="flex items-center gap-2">
+                  <Clock className="h-5 w-5 text-muted-foreground" />
+                  <h2 className="text-lg font-semibold">Activity Feed</h2>
+                  <span className="text-sm text-muted-foreground">
+                    {formatDate(dateRange.from)} – {formatDate(dateRange.to)}
+                  </span>
+                </div>
+
+                {/* Filter pills */}
+                <div className="flex flex-wrap items-center gap-2">
+                  {(
+                    [
+                      "all",
+                      "new",
+                      "moved",
+                      "dropped",
+                      "notes",
+                    ] as FeedFilterKey[]
+                  ).map((key) => (
+                    <button
+                      key={key}
+                      type="button"
+                      onClick={() => setFeedFilter(key)}
+                      className={[
+                        "h-7 px-3 text-xs font-medium rounded-full transition-colors",
+                        feedFilter === key
+                          ? "bg-primary text-primary-foreground"
+                          : "bg-muted text-muted-foreground hover:text-foreground",
+                      ].join(" ")}
+                    >
+                      {key === "all"
+                        ? "All"
+                        : key === "new"
+                          ? "New"
+                          : key === "moved"
+                            ? "Moved"
+                            : key === "dropped"
+                              ? "Dropped"
+                              : "Notes"}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Events — one card each, no inner scroll */}
+              <div className="space-y-4">
+                {filteredFeedEvents.length === 0 ? (
+                  <div className="text-center py-12 text-muted-foreground">
+                    <p className="text-sm">No activity in this period</p>
+                  </div>
+                ) : (
+                  groupedFeedEvents.map(({ dateLabel, events }) => (
+                    <div key={dateLabel} className="space-y-3">
+                      {/* Date header */}
+                      <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                        {new Date(events[0]?.event_at)
+                          .toLocaleDateString("en-US", {
+                            month: "short",
+                            day: "numeric",
+                            year: "numeric",
+                          })
+                          .toUpperCase()
+                          .replace(",", "")}
+                      </p>
+
+                      {/* Events for this date */}
+                      {events.map((event) => (
+                        <FeedEventRow
+                          key={event.id}
+                          event={event}
+                          onCompanyClick={handleCompanyClick}
+                        />
+                      ))}
+                    </div>
+                  ))
+                )}
+
+                {/* Infinite scroll sentinel — pulls the next page into view */}
+                {hasMoreFeed && <div ref={feedSentinelRef} className="h-1" />}
+
+                {/* End of feed marker */}
+                {!hasMoreFeed && filteredFeedEvents.length > 0 && (
+                  <div className="text-center py-8">
                     <span className="text-sm text-muted-foreground">
-                      {formatDate(dateRange.from)} – {formatDate(dateRange.to)}
+                      — End of recent activity —
                     </span>
                   </div>
-
-                  {/* Filter pills */}
-                  <div className="flex items-center gap-2">
-                    {(
-                      [
-                        "all",
-                        "new",
-                        "moved",
-                        "dropped",
-                        "notes",
-                      ] as FeedFilterKey[]
-                    ).map((key) => (
-                      <button
-                        key={key}
-                        type="button"
-                        onClick={() => setFeedFilter(key)}
-                        className={[
-                          "h-7 px-3 text-xs font-medium rounded-full transition-colors",
-                          feedFilter === key
-                            ? "bg-primary text-primary-foreground"
-                            : "bg-muted text-muted-foreground hover:text-foreground",
-                        ].join(" ")}
-                      >
-                        {key === "all"
-                          ? "All"
-                          : key === "new"
-                            ? "New"
-                            : key === "moved"
-                              ? "Moved"
-                              : key === "dropped"
-                                ? "Dropped"
-                                : "Notes"}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              </CardHeader>
-
-              <CardContent className="pt-0">
-                {/* Events — scrollable canvas capped at ~70vh */}
-                <div className="space-y-0 max-h-[70vh] overflow-y-auto pr-1">
-                  {groupedFeedEvents.length === 0 ? (
-                    <div className="text-center py-12 text-muted-foreground">
-                      <p className="text-sm">No activity in this period</p>
-                    </div>
-                  ) : (
-                    groupedFeedEvents.map(({ dateLabel, events }) => (
-                      <div key={dateLabel}>
-                        {/* Date header */}
-                        <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide pt-4 pb-2">
-                          {new Date(events[0]?.event_at)
-                            .toLocaleDateString("en-US", {
-                              month: "short",
-                              day: "numeric",
-                              year: "numeric",
-                            })
-                            .toUpperCase()
-                            .replace(",", "")}
-                        </p>
-
-                        {/* Events for this date */}
-                        {events.map((event) => (
-                          <FeedEventRow
-                            key={event.id}
-                            event={event}
-                            onCompanyClick={handleCompanyClick}
-                          />
-                        ))}
-                      </div>
-                    ))
-                  )}
-
-                  {/* End of feed marker */}
-                  {groupedFeedEvents.length > 0 && (
-                    <div className="text-center py-8">
-                      <span className="text-sm text-muted-foreground">
-                        — End of recent activity —
-                      </span>
-                    </div>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
+                )}
+              </div>
+            </section>
           </>
         ) : null}
       </div>
@@ -1736,7 +1776,7 @@ function FeedEventRow({ event, onCompanyClick }: FeedEventRowProps) {
       : (event.remarks ?? null);
 
   return (
-    <div className="flex items-start gap-3 py-3 border-b border-border/40 last:border-b-0">
+    <div className="flex items-start gap-3 rounded-lg border bg-card p-4 shadow-sm">
       {/* Color dot */}
       <div className="mt-1.5 shrink-0">
         <div className={`h-2.5 w-2.5 rounded-full ${dotColors[event.type]}`} />

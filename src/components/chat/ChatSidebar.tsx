@@ -36,8 +36,26 @@ function ChatTitle({ label }: { label: string }) {
   );
 }
 
-export function ChatSidebar({ className }: { className?: string }) {
+export function ChatSidebar({
+  className,
+  onNavigate,
+}: {
+  className?: string;
+  /** Called after the user starts a new chat or selects an existing one.
+   *  Used by the mobile drawer to close itself once a chat is chosen. */
+  onNavigate?: () => void;
+}) {
   const { chatId, setChatId, newChat, chats } = useChatContext();
+
+  const handleNewChat = () => {
+    newChat();
+    onNavigate?.();
+  };
+
+  const handleSelect = (id: string) => {
+    setChatId(id);
+    onNavigate?.();
+  };
 
   return (
     <aside
@@ -48,7 +66,7 @@ export function ChatSidebar({ className }: { className?: string }) {
     >
       <div className="p-3 border-b flex-shrink-0">
         <Button
-          onClick={newChat}
+          onClick={handleNewChat}
           variant="default"
           className="w-full gap-2 bg-gradient-to-r from-purple-600 to-purple-500 hover:from-purple-700 hover:to-purple-600"
         >
@@ -70,7 +88,7 @@ export function ChatSidebar({ className }: { className?: string }) {
               <li key={c.id}>
                 <button
                   type="button"
-                  onClick={() => setChatId(c.id)}
+                  onClick={() => handleSelect(c.id)}
                   className={cn(
                     "w-full flex items-start gap-2 rounded-md px-3 py-2 text-left text-sm transition-colors",
                     isActive

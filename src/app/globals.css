@@ -118,6 +118,14 @@
     @apply bg-background text-foreground antialiased;
     font-feature-settings: "rlig" 1, "calt" 1;
   }
+
+  /* Disable the horizontal overscroll navigation gesture (e.g. swipe from the
+     left edge to go "back") so the installed mobile PWA behaves like a native
+     app. Vertical overscroll (pull-to-refresh chrome aside) is untouched. */
+  html,
+  body {
+    overscroll-behavior-x: none;
+  }
 }
 
 /* Custom scrollbar */

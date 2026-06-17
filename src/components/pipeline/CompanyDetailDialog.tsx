@@ -995,7 +995,7 @@ export default function CompanyDetailDialog({
                     {analysis.business_overview.replace(/^-\s+\*\*[^*]+\*\*:\s*/m, "").replace(/\n[\s\S]*/m, "").trim()}
                   </p>
                 )}
-                <div className="flex items-center gap-2 mt-2">
+                <div className="flex flex-wrap items-center gap-2 mt-2">
                   {analysis?.status === "completed" && (
                     <Button
                       variant="outline"

@@ -64,12 +64,12 @@ export function LoadingBubble() {
   return (
     <div className="flex gap-4 mb-6">
       {/* Avatar */}
-      <div className="flex-shrink-0 h-10 w-10 rounded-xl flex items-center justify-center bg-gradient-to-br from-purple-500 to-purple-600 shadow-lg">
+      <div className="flex-shrink-0 h-10 w-10 rounded-xl hidden md:flex items-center justify-center bg-gradient-to-br from-purple-500 to-purple-600 shadow-lg">
         <Bot className="h-5 w-5 text-white" />
       </div>
 
       {/* Thinking Indicator */}
-      <div className="flex-1 min-w-0 max-w-[80%] flex flex-col items-start">
+      <div className="flex-1 min-w-0 max-w-full md:max-w-[80%] flex flex-col items-start">
         <ThinkingIndicator />
       </div>
     </div>
@@ -120,7 +120,7 @@ function ChatMessageBubbleImpl(props: ChatMessageBubbleProps) {
         <div className="flex-shrink-0 h-10 w-10 rounded-xl flex items-center justify-center bg-primary">
           <User className="h-5 w-5 text-primary-foreground" />
         </div>
-        <div className="flex-1 min-w-0 max-w-[80%] flex flex-col items-end">
+        <div className="flex-1 min-w-0 max-w-full md:max-w-[80%] flex flex-col items-end">
           <div className="rounded-2xl px-5 py-4 w-full min-w-0 overflow-auto break-words bg-primary text-primary-foreground">
             <MarkdownRenderer
               content={textContent}
@@ -405,12 +405,12 @@ function ChatMessageBubbleImpl(props: ChatMessageBubbleProps) {
   return (
     <div className="flex gap-4 mb-6 min-w-0">
       {/* Avatar */}
-      <div className="flex-shrink-0 h-10 w-10 rounded-xl flex items-center justify-center bg-gradient-to-br from-purple-500 to-purple-600 shadow-lg">
+      <div className="flex-shrink-0 h-10 w-10 rounded-xl hidden md:flex items-center justify-center bg-gradient-to-br from-purple-500 to-purple-600 shadow-lg">
         <Bot className="h-5 w-5 text-white" />
       </div>
 
       {/* Message Content */}
-      <div className="flex-1 min-w-0 max-w-[80%] flex flex-col items-start gap-2">
+      <div className="flex-1 min-w-0 max-w-full md:max-w-[80%] flex flex-col items-start gap-2">
         {/* Tool Results - All tools behind a single collapsible */}
         {toolParts.length > 0 && (
           <Collapsible
@@ -550,9 +550,10 @@ function ChatMessageBubbleImpl(props: ChatMessageBubbleProps) {
           </div>
         )}
 
-        {/* Response Text - Final answer inside the chat bubble */}
+        {/* Response Text - Final answer. On mobile it lays out as plain
+            full-width text (no card); from md+ it keeps the bubble card. */}
         {hasResponseContent && (
-          <div className="rounded-2xl px-5 py-4 w-full min-w-0 overflow-auto break-words bg-card border shadow-sm text-card-foreground">
+          <div className="w-full min-w-0 overflow-auto break-words md:rounded-2xl md:px-5 md:py-4 md:bg-card md:border md:shadow-sm md:text-card-foreground">
             <MarkdownRenderer content={responseText} />
           </div>
         )}

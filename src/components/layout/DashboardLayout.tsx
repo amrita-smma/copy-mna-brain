@@ -37,8 +37,10 @@ import { ThemeToggle } from '@/components/theme-toggle';
 import { LivingBackground } from '@/components/LivingBackground';
 import { AICopilotPane, COPILOT_DEFAULT_WIDTH } from './AICopilotPane';
 import { LayoutControlProvider } from './LayoutControlContext';
+import { MobileBottomNav } from './MobileBottomNav';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useLocalStorage } from '@/hooks/useLocalStorage';
+import { useIsMobile } from '@/hooks/use-mobile';
 
 
 interface DashboardLayoutProps {
@@ -59,12 +61,49 @@ const baseNavigation = [
 export default function DashboardLayout({ children, showCrm = false, showAiWorkforce = false }: DashboardLayoutProps) {
   const pathname = usePathname();
   const { user, signOut } = useAuth();
+  const isMobile = useIsMobile();
   const [isMainExpanded, setIsMainExpanded] = useLocalStorage('layout:main-expanded', false);
   const [isCopilotExpanded, setIsCopilotExpanded] = useLocalStorage('layout:copilot-expanded', false);
   const [copilotWidth, setCopilotWidth] = useLocalStorage('layout:copilot-width', COPILOT_DEFAULT_WIDTH);
 
   const isOnAiWorkforce = pathname.startsWith('/ai-workforce');
   const showCopilotPane = !isOnAiWorkforce;
+
+  // Mobile (PWA) experience: drop the desktop sidebar/chrome in favour of an
+  // Instagram-style bottom nav with three destinations — the activity feed
+  // (dashboard), the AI chat, and company search (master data). The Chat tab
+  // renders the full-screen AI CoPilot (with chat history in a slide-in
+  // drawer); every other tab renders its page content above the bottom nav.
+  if (isMobile) {
+    const isChatRoute = pathname.startsWith('/chat');
+    return (
+      <ProtectedRoute>
+        {/* Flat, full-bleed shell: no decorative floating background or card
+            chrome — the mobile PWA reads as a single solid surface. */}
+        <div className="flex h-[100dvh] w-full flex-col overflow-hidden bg-background">
+          <main
+            className={cn(
+              'flex-1 min-w-0 overscroll-x-none',
+              isChatRoute ? 'overflow-hidden' : 'overflow-auto',
+            )}
+          >
+            {isChatRoute ? (
+              <AICopilotPane
+                isExpanded
+                onToggleExpand={() => {}}
+                hideExpandToggle
+                showHistoryButton
+                className="border-l-0"
+              />
+            ) : (
+              children
+            )}
+          </main>
+          <MobileBottomNav />
+        </div>
+      </ProtectedRoute>
+    );
+  }
 
   const filteredNavigation = baseNavigation.filter((item) => {
     if (item.href === '/crm') return showCrm;

@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import DashboardLayout from '@/components/layout/DashboardLayout';
 import CompanyDetailDialog, { type CompanyData } from '@/components/pipeline/CompanyDetailDialog';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -51,6 +52,7 @@ import {
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
 import { useToast } from '@/hooks/use-toast';
+import { useIsMobile } from '@/hooks/use-mobile';
 
 interface CompanyWithDeal {
   id: string;
@@ -132,7 +134,21 @@ export default function MasterData({ showCrm = false, showAiWorkforce = false }:
   const [selectedCompany, setSelectedCompany] = useState<CompanyData | null>(null);
   const [loadingDialog, setLoadingDialog] = useState(false);
   const { toast } = useToast();
-  const itemsPerPage = 10;
+  const router = useRouter();
+  const isMobile = useIsMobile();
+
+  // On mobile, a company opens its own full-screen profile page (with a back
+  // button to the Search list). On desktop it opens the detail dialog.
+  const openCompany = (companyId: string) => {
+    if (isMobile) {
+      router.push(`/pipeline/${companyId}?from=/master-data`);
+    } else {
+      void openCompanyDialog(companyId);
+    }
+  };
+  // Mobile shows companies as cards, paginated 5 at a time; desktop keeps the
+  // dense table at 10 per page.
+  const itemsPerPage = isMobile ? 5 : 10;
 
   const openCompanyDialog = async (companyId: string) => {
     setLoadingDialog(true);
@@ -186,7 +202,7 @@ export default function MasterData({ showCrm = false, showAiWorkforce = false }:
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchQuery, stageFilter, sectorFilter, sourceFilter]);
+  }, [searchQuery, stageFilter, sectorFilter, sourceFilter, isMobile]);
 
   const fetchCompanies = async (opts: { silent?: boolean } = {}) => {
     try {
@@ -420,7 +436,7 @@ export default function MasterData({ showCrm = false, showAiWorkforce = false }:
                 </SelectContent>
               </Select>
             </div>
-            <div className="flex items-center gap-2 text-xs text-muted-foreground mt-1.5">
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground mt-1.5">
               <Lightbulb className="h-3.5 w-3.5 text-amber-500 shrink-0" />
               <span>Try:</span>
               {SEARCH_SUGGESTION_CHIPS.map((chip, i) => (
@@ -452,6 +468,105 @@ export default function MasterData({ showCrm = false, showAiWorkforce = false }:
               <div className="text-center py-12 text-muted-foreground">
                 <Building2 className="mx-auto h-12 w-12 mb-4 opacity-50" />
                 <p>No companies found matching your filters.</p>
+              </div>
+            ) : isMobile ? (
+              <div className="space-y-3">
+                {paginatedCompanies.map((company) => {
+                  const displayStage = getDisplayStage(company);
+                  return (
+                    <div key={company.id} className="rounded-lg border bg-card p-4">
+                      <div className="flex items-start justify-between gap-2">
+                        <button
+                          type="button"
+                          onClick={() => openCompany(company.id)}
+                          disabled={!company.name}
+                          className="font-medium text-left hover:text-primary transition-colors disabled:opacity-50"
+                        >
+                          {company.name || '—'}
+                        </button>
+                        <AlertDialog>
+                          <AlertDialogTrigger asChild>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8 shrink-0 text-muted-foreground hover:text-destructive"
+                              disabled={deletingId === company.id}
+                            >
+                              {deletingId === company.id ? (
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                              ) : (
+                                <Trash2 className="h-4 w-4" />
+                              )}
+                            </Button>
+                          </AlertDialogTrigger>
+                          <AlertDialogContent>
+                            <AlertDialogHeader>
+                              <AlertDialogTitle>Delete &ldquo;{company.name}&rdquo;?</AlertDialogTitle>
+                              <AlertDialogDescription>
+                                This will permanently delete this company and all related data
+                                including deal history, notes, documents, links, screening results,
+                                and AI analyses. This action cannot be undone.
+                              </AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter>
+                              <AlertDialogCancel>Cancel</AlertDialogCancel>
+                              <AlertDialogAction
+                                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                                onClick={() => deleteCompany(company.id, company.name)}
+                              >
+                                Delete
+                              </AlertDialogAction>
+                            </AlertDialogFooter>
+                          </AlertDialogContent>
+                        </AlertDialog>
+                      </div>
+                      {company.project_name && (
+                        <p className="mt-0.5 text-xs text-muted-foreground">{company.project_name}</p>
+                      )}
+                      <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                        {displayStage ? (
+                          <Badge className={`${stageColors[displayStage as DealStage | 'Acquired']} text-white`}>
+                            {displayStage === 'Acquired'
+                              ? 'Acquired'
+                              : `${displayStage} - ${stageLabels[displayStage as DealStage]}`}
+                          </Badge>
+                        ) : (
+                          <Badge variant="outline">Not in Pipeline</Badge>
+                        )}
+                        {company.status === 'dropped' && <Badge variant="destructive">Dropped</Badge>}
+                        {company.status === 'active' && <Badge variant="default">Active</Badge>}
+                        <Badge variant="outline">{company.sector || '-'}</Badge>
+                        <Badge variant="secondary" className="capitalize">{company.source || '-'}</Badge>
+                      </div>
+                      <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-1.5 text-xs">
+                        <div className="flex justify-between gap-2">
+                          <span className="text-muted-foreground">Rev 2025</span>
+                          <span className="font-mono">{formatCurrency(company.revenue_2025)}</span>
+                        </div>
+                        <div className="flex justify-between gap-2">
+                          <span className="text-muted-foreground">EBITDA 2025</span>
+                          <span className="font-mono">{formatCurrency(company.ebitda_2025)}</span>
+                        </div>
+                        <div className="flex justify-between gap-2">
+                          <span className="text-muted-foreground">Valuation</span>
+                          <span className="font-mono">{formatCurrency(company.valuation)}</span>
+                        </div>
+                        <div className="flex justify-between gap-2">
+                          <span className="text-muted-foreground">Geo</span>
+                          <span>{company.geo || '-'}</span>
+                        </div>
+                        <div className="flex justify-between gap-2">
+                          <span className="text-muted-foreground">PIC</span>
+                          <span>{company.pic || '-'}</span>
+                        </div>
+                        <div className="flex justify-between gap-2">
+                          <span className="text-muted-foreground">Added</span>
+                          <span>{new Date(company.created_at).toLocaleDateString()}</span>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             ) : (
               <div className="overflow-x-auto">

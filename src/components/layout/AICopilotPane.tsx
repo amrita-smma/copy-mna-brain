@@ -1,12 +1,20 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Sparkles, Maximize2, Minimize2, Send, Square, PenLine } from 'lucide-react';
+import { Sparkles, Maximize2, Minimize2, Send, Square, PenLine, History } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetTrigger,
+} from '@/components/ui/sheet';
 import { cn } from '@/lib/utils';
 import { useChatContext } from '@/components/chat/ChatProvider';
+import { ChatSidebar } from '@/components/chat/ChatSidebar';
 import { ChatMessageBubble, LoadingBubble } from '@/components/chat/ChatMessageBubble';
 import { CachedChatPreview } from '@/components/chat/CachedChatPreview';
 import { StickToBottom, useStickToBottomContext } from 'use-stick-to-bottom';
@@ -139,6 +147,16 @@ interface AICopilotPaneProps {
   width?: number;
   onResize?: (width: number) => void;
   className?: string;
+  /**
+   * Hide the expand/collapse toggle. Used by the mobile layout, where the
+   * copilot is always full-screen and there is nothing to expand into.
+   */
+  hideExpandToggle?: boolean;
+  /**
+   * Show a chat-history button that opens the chat list in a slide-in drawer.
+   * Used by the mobile layout, which has no room for a persistent sidebar.
+   */
+  showHistoryButton?: boolean;
 }
 
 export function AICopilotPane({
@@ -147,8 +165,11 @@ export function AICopilotPane({
   width = COPILOT_DEFAULT_WIDTH,
   onResize,
   className,
+  hideExpandToggle = false,
+  showHistoryButton = false,
 }: AICopilotPaneProps) {
   const { newChat } = useChatContext();
+  const [historyOpen, setHistoryOpen] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const dragState = useRef<{ startX: number; startWidth: number } | null>(null);
 
@@ -226,6 +247,29 @@ export function AICopilotPane({
         layout
       >
         <div className="flex items-center gap-2">
+          {showHistoryButton && (
+            <Sheet open={historyOpen} onOpenChange={setHistoryOpen}>
+              <SheetTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 w-7 p-0"
+                  aria-label="Chat history"
+                >
+                  <History className="h-4 w-4" />
+                </Button>
+              </SheetTrigger>
+              <SheetContent side="left" className="flex w-72 flex-col p-0">
+                <SheetHeader className="p-4 pb-0">
+                  <SheetTitle>Chat history</SheetTitle>
+                </SheetHeader>
+                <ChatSidebar
+                  className="w-full flex-1 border-r-0"
+                  onNavigate={() => setHistoryOpen(false)}
+                />
+              </SheetContent>
+            </Sheet>
+          )}
           <motion.div
             className="flex h-7 w-7 items-center justify-center rounded-lg bg-purple-500/10"
             whileHover={{ scale: 1.05 }}
@@ -256,40 +300,42 @@ export function AICopilotPane({
               <p>New chat</p>
             </TooltipContent>
           </Tooltip>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <motion.div
-                whileHover={{ scale: 1.1 }}
-                whileTap={{ scale: 0.9 }}
-              >
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={onToggleExpand}
-                  className="h-7 w-7 p-0"
+          {!hideExpandToggle && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <motion.div
+                  whileHover={{ scale: 1.1 }}
+                  whileTap={{ scale: 0.9 }}
                 >
-                  <AnimatePresence mode="wait" initial={false}>
-                    <motion.div
-                      key={isExpanded ? 'minimize' : 'maximize'}
-                      initial={{ rotate: -90, opacity: 0 }}
-                      animate={{ rotate: 0, opacity: 1 }}
-                      exit={{ rotate: 90, opacity: 0 }}
-                      transition={{ duration: 0.15 }}
-                    >
-                      {isExpanded ? (
-                        <Minimize2 className="h-4 w-4" />
-                      ) : (
-                        <Maximize2 className="h-4 w-4" />
-                      )}
-                    </motion.div>
-                  </AnimatePresence>
-                </Button>
-              </motion.div>
-            </TooltipTrigger>
-            <TooltipContent side="bottom">
-              <p>{isExpanded ? 'Collapse' : 'Expand'}</p>
-            </TooltipContent>
-          </Tooltip>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={onToggleExpand}
+                    className="h-7 w-7 p-0"
+                  >
+                    <AnimatePresence mode="wait" initial={false}>
+                      <motion.div
+                        key={isExpanded ? 'minimize' : 'maximize'}
+                        initial={{ rotate: -90, opacity: 0 }}
+                        animate={{ rotate: 0, opacity: 1 }}
+                        exit={{ rotate: 90, opacity: 0 }}
+                        transition={{ duration: 0.15 }}
+                      >
+                        {isExpanded ? (
+                          <Minimize2 className="h-4 w-4" />
+                        ) : (
+                          <Maximize2 className="h-4 w-4" />
+                        )}
+                      </motion.div>
+                    </AnimatePresence>
+                  </Button>
+                </motion.div>
+              </TooltipTrigger>
+              <TooltipContent side="bottom">
+                <p>{isExpanded ? 'Collapse' : 'Expand'}</p>
+              </TooltipContent>
+            </Tooltip>
+          )}
         </div>
       </motion.div>
       <ChatContent isExpanded={isExpanded} />
