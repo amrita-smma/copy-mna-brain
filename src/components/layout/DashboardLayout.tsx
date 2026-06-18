@@ -78,6 +78,7 @@ export default function DashboardLayout({ children, showCrm = false, showAiWorkf
   useEffect(() => {
     if (isChatRoute && !isMobile) {
       setIsCopilotExpanded(true);
+      setIsMainExpanded(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isChatRoute, isMobile]);
@@ -267,7 +268,7 @@ export default function DashboardLayout({ children, showCrm = false, showAiWorkf
                           <Button
                             variant="ghost"
                             size="sm"
-                            onClick={() => setIsMainExpanded(!isMainExpanded)}
+                            onClick={() => { setIsMainExpanded(!isMainExpanded); if (!isMainExpanded) setIsCopilotExpanded(false); }}
                             className="h-7 gap-1.5 text-xs text-muted-foreground hover:text-foreground"
                           >
                             <AnimatePresence mode="wait" initial={false}>
@@ -323,7 +324,7 @@ export default function DashboardLayout({ children, showCrm = false, showAiWorkf
                   >
                     <AICopilotPane
                       isExpanded={isCopilotExpanded}
-                      onToggleExpand={() => setIsCopilotExpanded(!isCopilotExpanded)}
+                      onToggleExpand={() => { setIsCopilotExpanded(!isCopilotExpanded); if (!isCopilotExpanded) setIsMainExpanded(false); }}
                       width={copilotWidth}
                       onResize={setCopilotWidth}
                     />
