@@ -1,4 +1,5 @@
 import * as crypto from 'node:crypto';
+import { Readable } from 'node:stream';
 
 export interface VaultCredentials {
   client_email: string;
@@ -216,6 +217,24 @@ export async function downloadExportFile(token: string, file: VaultExportFile): 
   return Buffer.from(await resp.arrayBuffer());
 }
 
+export async function downloadExportFileStream(
+  token: string,
+  file: VaultExportFile,
+): Promise<Readable> {
+  const encodedObject = encodeURIComponent(file.objectName);
+  const url = `${STORAGE_DOWNLOAD_BASE}/b/${file.bucketName}/o/${encodedObject}?alt=media`;
+  const resp = await fetch(url, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!resp.ok) {
+    throw new Error(`Failed to download export file ${file.objectName}: ${resp.status}`);
+  }
+  if (!resp.body) {
+    throw new Error(`Failed to download export file ${file.objectName}: empty response body`);
+  }
+  return Readable.fromWeb(resp.body as never);
+}
+
 // ─── MBOX + MIME parsing ──────────────────────────────────────────────────────
 
 function decodeHeaderWord(encoded: string): string {
@@ -225,8 +244,9 @@ function decodeHeaderWord(encoded: string): string {
       if (encoding.toUpperCase() === 'B') {
         return Buffer.from(text, 'base64').toString('utf-8');
       } else {
-        const qp = text.replace(/_/g, ' ').replace(/=([0-9A-Fa-f]{2})/g, (__, hex) =>
-          String.fromCharCode(parseInt(hex, 16)),
+        const qp = text.replace(/_/g, ' ').replace(
+          /=([0-9A-Fa-f]{2})/g,
+          (_match: string, hex: string) => String.fromCharCode(parseInt(hex, 16)),
         );
         return qp;
       }

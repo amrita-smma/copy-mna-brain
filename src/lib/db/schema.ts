@@ -1449,6 +1449,9 @@ export const mboxFiles = analytics.table(
         "btree",
         table.job_id.asc().nullsLast().op("uuid_ops"),
       ),
+      mboxFilesS3KeyUnique: unique("mbox_files_s3_key_unique").on(
+        table.s3_key,
+      ),
       mboxFilesJobIdFkey: foreignKey({
         columns: [table.job_id],
         foreignColumns: [jobs.id],

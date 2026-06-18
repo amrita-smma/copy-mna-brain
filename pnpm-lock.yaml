@@ -384,6 +384,9 @@ importers:
       drizzle-orm:
         specifier: '*'
         version: 0.45.2(@opentelemetry/api@1.9.1)(@types/pg@8.20.0)(better-sqlite3@11.10.0)(pg@8.20.0)(postgres@3.4.9)
+      unzipper:
+        specifier: '*'
+        version: 0.10.14
     devDependencies:
       '@types/adm-zip':
         specifier: '*'
@@ -391,6 +394,9 @@ importers:
       '@types/node':
         specifier: '*'
         version: 22.19.17
+      '@types/unzipper':
+        specifier: '*'
+        version: 0.10.11
       dotenv:
         specifier: '*'
         version: 16.6.1

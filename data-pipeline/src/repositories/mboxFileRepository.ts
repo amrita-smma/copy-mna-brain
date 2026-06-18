@@ -13,6 +13,15 @@ export class MboxFileRepository {
     return row;
   }
 
+  async insertIgnore(data: MboxFileInsert): Promise<MboxFile | null> {
+    const [row] = await this.db
+      .insert(mboxFiles)
+      .values(data)
+      .onConflictDoNothing({ target: mboxFiles.s3_key })
+      .returning();
+    return row ?? null;
+  }
+
   async findById(id: string): Promise<MboxFile | null> {
     const [row] = await this.db
       .select()

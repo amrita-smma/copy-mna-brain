@@ -10,6 +10,7 @@ function makeDb() {
     limit: vi.fn(),
     insert: vi.fn().mockReturnThis(),
     values: vi.fn().mockReturnThis(),
+    onConflictDoNothing: vi.fn().mockReturnThis(),
     returning: vi.fn(),
     update: vi.fn().mockReturnThis(),
     set: vi.fn().mockReturnThis(),
@@ -34,6 +35,45 @@ describe('MboxFileRepository.insert', () => {
     });
     expect(row).toMatchObject({ id: 'mb1' });
     expect(db.values).toHaveBeenCalled();
+  });
+});
+
+describe('MboxFileRepository.insertIgnore', () => {
+  it('returns the inserted row when s3_key is new', async () => {
+    const db = makeDb();
+    db.returning.mockResolvedValueOnce([{ id: 'mb1', s3_key: 'foo' }]);
+    const repo = new MboxFileRepository(db as never);
+    const row = await repo.insertIgnore({
+      source: 'vault',
+      s3_bucket: 'mbox-archive',
+      s3_key: 'foo',
+      size_bytes: 100,
+      custodian_email: 'a@b.com',
+      window_start: '2026-03-01T00:00:00Z',
+      window_end: '2026-04-01T00:00:00Z',
+      mode: 'monthly',
+      job_id: 'job1',
+    });
+    expect(row).toMatchObject({ id: 'mb1' });
+    expect(db.onConflictDoNothing).toHaveBeenCalled();
+  });
+
+  it('returns null when s3_key already exists', async () => {
+    const db = makeDb();
+    db.returning.mockResolvedValueOnce([]);
+    const repo = new MboxFileRepository(db as never);
+    const row = await repo.insertIgnore({
+      source: 'vault',
+      s3_bucket: 'mbox-archive',
+      s3_key: 'foo',
+      size_bytes: 100,
+      custodian_email: 'a@b.com',
+      window_start: '2026-03-01T00:00:00Z',
+      window_end: '2026-04-01T00:00:00Z',
+      mode: 'monthly',
+      job_id: 'job1',
+    });
+    expect(row).toBeNull();
   });
 });
 

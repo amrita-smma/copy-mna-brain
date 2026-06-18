@@ -1,18 +1,19 @@
 import { loadSecretsFromSsm } from '../secrets';
 import * as zlib from 'node:zlib';
-import AdmZip from 'adm-zip';
 import { sql } from 'drizzle-orm';
 import { createLambdaDb } from '../db';
 import { Upload } from '@aws-sdk/lib-storage';
 import { S3Client } from '@aws-sdk/client-s3';
-import { Readable } from 'node:stream';
+import { Transform } from 'node:stream';
+import * as unzipper from 'unzipper';
 import {
   loadVaultCredentials,
   getVaultAccessToken,
   pollVaultExport,
-  downloadExportFile,
+  downloadExportFileStream,
   closeVaultMatter,
   VAULT_CUSTODIAN_EMAILS,
+  type VaultExportFile,
 } from '@/lib/services/googleVaultService';
 import { inferCustodianFromEntry, buildS3Key } from '../handlers/vaultArchive';
 import { S3_MBOX_BUCKET } from '@/lib/s3';
@@ -39,6 +40,120 @@ async function setStatus(
         SET status = ${status}, updated_at = now()
         WHERE id = ${id}`,
   );
+}
+
+async function claimForProcessing(
+  db: Awaited<ReturnType<typeof createLambdaDb>>['db'],
+  id: string,
+): Promise<boolean> {
+  const rows = await db.execute(
+    sql`UPDATE analytics.vault_exports
+        SET status = 'processing', updated_at = now()
+        WHERE id = ${id}
+          AND status = 'exporting'
+        RETURNING id`,
+  );
+  return rows.length > 0;
+}
+
+function byteCounter(onBytes: (bytes: number) => void): Transform {
+  return new Transform({
+    transform(chunk: Buffer, _encoding, callback) {
+      onBytes(chunk.length);
+      callback(null, chunk);
+    },
+  });
+}
+
+async function processZipFile(
+  opts: {
+    token: string;
+    file: VaultExportFile;
+    row: VaultExportsRow;
+    s3: S3Client;
+    mboxRepo: MboxFileRepository;
+    year: number;
+    month: number;
+    day?: number;
+    windowStartIso: string;
+    windowEndIso: string;
+  },
+): Promise<number> {
+  let filesUploaded = 0;
+  let mboxEntries = 0;
+
+  const zipStream = await downloadExportFileStream(opts.token, opts.file);
+  const parser = zipStream.pipe(unzipper.Parse({ forceStream: true }));
+
+  for await (const entry of parser) {
+    const entryPath = entry.path;
+    if (entry.type === 'Directory' || !entryPath.endsWith('.mbox')) {
+      await entry.autodrain().promise();
+      continue;
+    }
+
+    mboxEntries++;
+    const gzip = zlib.createGzip();
+    let compressedSize = 0;
+    const compressedCounter = byteCounter((bytes) => {
+      compressedSize += bytes;
+    });
+
+    const basename = entryPath.split('/').pop() ?? entryPath;
+    const custodian = inferCustodianFromEntry(entryPath, VAULT_CUSTODIAN_EMAILS);
+    const s3Key = buildS3Key(
+      opts.year,
+      opts.month,
+      opts.row.mode as 'monthly' | 'daily',
+      custodian,
+      opts.row.export_id,
+      basename,
+      opts.day,
+    );
+
+    const uploadBody = entry.pipe(gzip).pipe(compressedCounter);
+    const upload = new Upload({
+      client: opts.s3,
+      params: {
+        Bucket: S3_MBOX_BUCKET,
+        Key: s3Key,
+        Body: uploadBody,
+        ContentType: 'application/x-mbox',
+        ContentEncoding: 'gzip',
+      },
+    });
+    await upload.done();
+    log(`uploaded ${s3Key} (${compressedSize} bytes compressed)`);
+    const uncompressedSize =
+      (entry.vars as { uncompressedSize?: number }).uncompressedSize ??
+      entry.extra?.uncompressedSize ??
+      null;
+
+    const inserted = await opts.mboxRepo.insertIgnore({
+      source: 'vault',
+      s3_bucket: S3_MBOX_BUCKET,
+      s3_key: s3Key,
+      size_bytes: compressedSize,
+      uncompressed_size_bytes: uncompressedSize,
+      custodian_email: custodian,
+      window_start: opts.windowStartIso,
+      window_end: opts.windowEndIso,
+      vault_matter_id: opts.row.matter_id,
+      vault_export_id: opts.row.export_id,
+      mode: opts.row.mode,
+      job_id: null,
+      parse_status: 'pending',
+    });
+
+    if (inserted) {
+      filesUploaded++;
+    } else {
+      log(`skipped duplicate mbox_files row for ${s3Key}`);
+    }
+  }
+
+  log(`${opts.file.objectName}: ${mboxEntries} MBOX entries`);
+  return filesUploaded;
 }
 
 export const handler = async (
@@ -104,6 +219,12 @@ export const handler = async (
     }
 
     // status.status === 'COMPLETED'
+    const claimed = await claimForProcessing(db, row.id);
+    if (!claimed) {
+      log(`export ${row.export_id} was already claimed by another invocation`);
+      return { ok: true, action: 'claimed_elsewhere' };
+    }
+
     const region = process.env.AWS_REGION || 'ap-southeast-3';
     const endpoint = process.env.AWS_S3_ENDPOINT;
     const forcePathStyle = process.env.AWS_S3_FORCE_PATH_STYLE === 'true';
@@ -126,61 +247,18 @@ export const handler = async (
       for (const file of status.files) {
         if (!file.objectName.endsWith('.zip')) continue;
         log(`downloading ${file.objectName}`);
-        const zipBuffer = await downloadExportFile(token, file);
-
-        let zip: AdmZip;
-        try {
-          zip = new AdmZip(zipBuffer);
-        } catch (err) {
-          console.error(`[vault-archive-poll] failed to open zip ${file.objectName}:`, err);
-          throw err;
-        }
-
-        const mboxEntries = zip.getEntries().filter((e) => e.entryName.endsWith('.mbox'));
-        log(`${file.objectName}: ${mboxEntries.length} MBOX entries`);
-
-        for (const entry of mboxEntries) {
-          const mboxBuffer = entry.getData();
-          const uncompressedSize = mboxBuffer.length;
-          const gzipped = zlib.gzipSync(mboxBuffer);
-          const compressedSize = gzipped.length;
-
-          const basename = entry.entryName.split('/').pop() ?? entry.entryName;
-          const custodian = inferCustodianFromEntry(entry.entryName, VAULT_CUSTODIAN_EMAILS);
-          const s3Key = buildS3Key(year, month, row.mode as 'monthly' | 'daily', custodian, row.export_id, basename, day);
-
-          // Use @aws-sdk/lib-storage Upload for multipart S3 upload.
-          const upload = new Upload({
-            client: s3,
-            params: {
-              Bucket: S3_MBOX_BUCKET,
-              Key: s3Key,
-              Body: Readable.from(gzipped),
-              ContentType: 'application/x-mbox',
-              ContentEncoding: 'gzip',
-            },
-          });
-          await upload.done();
-          log(`uploaded ${s3Key} (${compressedSize} bytes compressed)`);
-
-          await mboxRepo.insert({
-            source: 'vault',
-            s3_bucket: S3_MBOX_BUCKET,
-            s3_key: s3Key,
-            size_bytes: compressedSize,
-            uncompressed_size_bytes: uncompressedSize,
-            custodian_email: custodian,
-            window_start: windowStartIso,
-            window_end: windowEndIso,
-            vault_matter_id: row.matter_id,
-            vault_export_id: row.export_id,
-            mode: row.mode,
-            job_id: null,
-            parse_status: 'pending',
-          });
-
-          filesUploaded++;
-        }
+        filesUploaded += await processZipFile({
+          token,
+          file,
+          row,
+          s3,
+          mboxRepo,
+          year,
+          month,
+          day,
+          windowStartIso,
+          windowEndIso,
+        });
       }
     } catch (err) {
       // Even on upload failure, close the matter (terminal path).

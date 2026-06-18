@@ -17,13 +17,15 @@
     "@aws-sdk/client-s3": "*",
     "@aws-sdk/client-ssm": "*",
     "@aws-sdk/lib-storage": "*",
-    "@aws-sdk/rds-signer": "*"
+    "@aws-sdk/rds-signer": "*",
+    "unzipper": "*"
   },
   "devDependencies": {
     "typescript": "*",
     "vitest": "*",
     "@types/node": "*",
     "@types/adm-zip": "*",
+    "@types/unzipper": "*",
     "esbuild": "*",
     "tsx": "*",
     "dotenv": "*"

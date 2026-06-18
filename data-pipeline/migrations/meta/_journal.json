@@ -43,6 +43,13 @@
       "when": 1781136000000,
       "tag": "20260611000000_related_companies_analytics",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1781654400000,
+      "tag": "20260617000000_mbox_file_idempotency_and_vault_processing",
+      "breakpoints": true
     }
   ]
 }
