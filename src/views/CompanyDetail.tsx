@@ -957,10 +957,11 @@ export default function CompanyDetail({ showCrm = false, showAiWorkforce = false
       <div className="p-6 space-y-6">
         {/* Header */}
         <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between md:gap-6">
-          <div className="flex items-center gap-4">
+          <div className="flex flex-col items-start gap-3 md:flex-row md:items-center md:gap-4">
             <Button variant="ghost" size="icon" onClick={() => router.push(returnTo)} className="shrink-0">
               <ArrowLeft className="h-5 w-5" />
             </Button>
+            <div className="flex items-center gap-4 min-w-0">
             {/* Logo / Acronym */}
             <div className="h-16 w-16 rounded-full bg-violet-100 dark:bg-violet-900/40 flex items-center justify-center shrink-0 overflow-hidden border border-violet-200 dark:border-violet-700">
               {analysis?.logo_url ? (
@@ -996,6 +997,7 @@ export default function CompanyDetail({ showCrm = false, showAiWorkforce = false
                 )}
                 {company.status === 'dropped' && <Badge variant="destructive">Dropped</Badge>}
               </div>
+            </div>
             </div>
           </div>
           {/* Action buttons */}

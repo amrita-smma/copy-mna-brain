@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useIsMobile } from "@/hooks/use-mobile";
@@ -21,8 +21,11 @@ import {
 } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
 import { getCompanies } from "@/lib/api/pipeline";
-import { getDashboardActivity } from "@/lib/api/dashboard";
-import type { DashboardActivity } from "@/lib/services/dashboardActivityService";
+import { getDashboardActivity, getDashboardFeed } from "@/lib/api/dashboard";
+import type {
+  DashboardActivity,
+  FeedFilter,
+} from "@/lib/services/dashboardActivityService";
 import CompanyDetailDialog, {
   type CompanyData,
 } from "@/components/pipeline/CompanyDetailDialog";
@@ -813,8 +816,9 @@ export default function Dashboard({
             </p>
           </div>
 
-          {/* Global date range filter */}
-          <div className="flex flex-wrap items-center gap-1 p-1 bg-muted/50 rounded-lg border border-border/50 shrink-0 self-start sm:mt-1">
+          {/* Global date range filter — desktop only; the mobile feed scrolls
+              infinitely and has no date window. */}
+          <div className="hidden md:flex flex-wrap items-center gap-1 p-1 bg-muted/50 rounded-lg border border-border/50 shrink-0 self-start sm:mt-1">
             {(["7d", "14d"] as PresetKey[]).map((key) => (
               <button
                 key={key}
@@ -1074,8 +1078,11 @@ export default function Dashboard({
           </CardContent>
         </Card>
 
+        {/* Mobile activity feed — infinite scroll, no date window. */}
+        <MobileActivityFeed onCompanyClick={handleCompanyClick} />
+
         {activityInitialising ? (
-          <div className="flex items-center justify-center py-16">
+          <div className="hidden md:flex items-center justify-center py-16">
             <div className="flex flex-col items-center gap-3">
               <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
               <p className="text-sm text-muted-foreground">
@@ -1767,6 +1774,9 @@ export default function Dashboard({
 interface FeedEventRowProps {
   event: FeedEvent;
   onCompanyClick: (id: string) => void;
+  /** When provided, renders a contextual "Analyze using AI" pill inside the card. */
+  analyzeLabel?: string;
+  onAnalyze?: () => void;
 }
 
 const eventTypeBadgeStyles: Record<FeedEventType, string> = {
@@ -1827,7 +1837,12 @@ function FinancialSummary({
   );
 }
 
-function FeedEventRow({ event, onCompanyClick }: FeedEventRowProps) {
+function FeedEventRow({
+  event,
+  onCompanyClick,
+  analyzeLabel,
+  onAnalyze,
+}: FeedEventRowProps) {
   const inlineNote =
     event.type === "note_updated"
       ? event.note_content
@@ -1923,7 +1938,230 @@ function FeedEventRow({ event, onCompanyClick }: FeedEventRowProps) {
             </Badge>
           )}
         </div>
+
+        {/* Contextual "Analyze using AI" — only rendered when wired by the caller. */}
+        {onAnalyze && analyzeLabel && (
+          <AskAIButton
+            variant="button"
+            label={analyzeLabel}
+            onClick={onAnalyze}
+            className="mt-2 w-full justify-center"
+          />
+        )}
       </div>
+    </div>
+  );
+}
+
+// ─── Mobile activity feed ──────────────────────────────────────────────────────
+
+const FEED_FILTER_LABELS: Record<FeedFilterKey, string> = {
+  all: "All",
+  new: "New",
+  moved: "Moved",
+  dropped: "Dropped",
+  notes: "Notes",
+};
+
+const FEED_FILTER_TO_API: Record<FeedFilterKey, FeedFilter> = {
+  all: "all",
+  new: "new_deal",
+  moved: "stage_move",
+  dropped: "dropped",
+  notes: "note_updated",
+};
+
+/** Contextual one-line label for the per-card "Analyze using AI" pill. */
+function feedAnalysisLabel(event: FeedEvent): string {
+  const name = event.company_name;
+  switch (event.type) {
+    case "new_deal":
+      return `Analyze why ${name} was added`;
+    case "dropped":
+      return `Analyze why ${name} was dropped`;
+    case "stage_move":
+      return `Analyze ${name}'s stage move`;
+    case "note_updated":
+      return `Analyze ${name}'s note update`;
+  }
+}
+
+/** The richer prompt actually sent to the copilot for a given feed event. */
+function feedAnalysisPrompt(event: FeedEvent): string {
+  const name = event.company_name;
+  switch (event.type) {
+    case "new_deal":
+      return `Analyze why ${name} was added to the deal pipeline and assess the opportunity.`;
+    case "dropped":
+      return `Analyze why ${name} was dropped${
+        event.dropped_stage ? ` at ${event.dropped_stage}` : ""
+      }${
+        event.dropped_reason ? ` (reason: ${event.dropped_reason})` : ""
+      } and whether that was the right call.`;
+    case "stage_move":
+      return `Analyze why ${name}${
+        event.from_stage && event.to_stage
+          ? ` moved from ${event.from_stage} to ${event.to_stage}`
+          : " advanced in the pipeline"
+      } and what it means for the deal.`;
+    case "note_updated":
+      return `Analyze the latest note update on ${name} and summarize the key takeaways.`;
+  }
+}
+
+const MOBILE_FEED_PAGE_SIZE = 15;
+
+// A feed window with no date selector reaches back far enough to cover the
+// entire history; "to" is clamped to now at fetch time.
+const MOBILE_FEED_FROM = new Date("2000-01-01T00:00:00.000Z");
+
+function MobileActivityFeed({
+  onCompanyClick,
+}: {
+  onCompanyClick: (id: string) => void;
+}) {
+  const { analyzeWithAI } = useChatContext();
+  const isMobile = useIsMobile();
+  const [filter, setFilter] = useState<FeedFilterKey>("all");
+  const [events, setEvents] = useState<FeedEvent[]>([]);
+  const [offset, setOffset] = useState(0);
+  const [hasMore, setHasMore] = useState(true);
+  const [loading, setLoading] = useState(false);
+  const [initialised, setInitialised] = useState(false);
+  const sentinelRef = useRef<HTMLDivElement | null>(null);
+
+  // Guards against a stale in-flight request applying its results after the
+  // filter changed (each filter switch bumps the token).
+  const requestToken = useRef(0);
+
+  const loadPage = useCallback(
+    async (nextOffset: number, replace: boolean, token: number) => {
+      setLoading(true);
+      try {
+        const page = await getDashboardFeed({
+          from: MOBILE_FEED_FROM,
+          to: new Date(),
+          offset: nextOffset,
+          limit: MOBILE_FEED_PAGE_SIZE,
+          filter: FEED_FILTER_TO_API[filter],
+        });
+        if (token !== requestToken.current) return;
+        setEvents((prev) =>
+          replace ? page.events : [...prev, ...page.events],
+        );
+        setHasMore(page.hasMore);
+        setOffset(nextOffset + page.events.length);
+      } catch (err) {
+        console.error("Error loading activity feed:", err);
+        if (token === requestToken.current) setHasMore(false);
+      } finally {
+        if (token === requestToken.current) {
+          setLoading(false);
+          setInitialised(true);
+        }
+      }
+    },
+    [filter],
+  );
+
+  // Reset and reload whenever the filter changes (including first mount).
+  // Desktop never fetches — the feed is mobile-only.
+  useEffect(() => {
+    if (!isMobile) return;
+    const token = ++requestToken.current;
+    setEvents([]);
+    setOffset(0);
+    setHasMore(true);
+    setInitialised(false);
+    loadPage(0, true, token);
+  }, [loadPage, isMobile]);
+
+  // Infinite scroll — fetch the next page as the sentinel nears the viewport.
+  useEffect(() => {
+    const node = sentinelRef.current;
+    if (!node || !hasMore || loading || !initialised) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting) {
+          loadPage(offset, false, requestToken.current);
+        }
+      },
+      { rootMargin: "200px" },
+    );
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [hasMore, loading, initialised, offset, loadPage]);
+
+  const grouped = useMemo(() => groupEventsByDate(events), [events]);
+
+  if (!isMobile) return null;
+
+  return (
+    <div className="md:hidden space-y-4">
+      {/* Filter pills */}
+      <div className="flex flex-wrap items-center gap-2">
+        {(["all", "new", "moved", "dropped", "notes"] as FeedFilterKey[]).map(
+          (key) => (
+            <button
+              key={key}
+              type="button"
+              onClick={() => setFilter(key)}
+              className={[
+                "h-7 px-3 text-xs font-medium rounded-full transition-colors",
+                filter === key
+                  ? "bg-primary text-primary-foreground"
+                  : "bg-muted text-muted-foreground hover:text-foreground",
+              ].join(" ")}
+            >
+              {FEED_FILTER_LABELS[key]}
+            </button>
+          ),
+        )}
+      </div>
+
+      {!initialised && events.length === 0 ? (
+        <div className="flex items-center justify-center py-16">
+          <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+        </div>
+      ) : events.length === 0 ? (
+        <div className="text-center py-12 text-muted-foreground">
+          <p className="text-sm">No activity yet</p>
+        </div>
+      ) : (
+        <>
+          {grouped.map(({ dateLabel, events: dayEvents }) => (
+            <div key={dateLabel} className="space-y-3">
+              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                {new Date(dayEvents[0]?.event_at)
+                  .toLocaleDateString("en-US", {
+                    month: "short",
+                    day: "numeric",
+                    year: "numeric",
+                  })
+                  .toUpperCase()
+                  .replace(",", "")}
+              </p>
+              {dayEvents.map((event) => (
+                <FeedEventRow
+                  key={event.id}
+                  event={event}
+                  onCompanyClick={onCompanyClick}
+                  analyzeLabel={feedAnalysisLabel(event)}
+                  onAnalyze={() => analyzeWithAI(feedAnalysisPrompt(event))}
+                />
+              ))}
+            </div>
+          ))}
+
+          {/* Infinite-scroll sentinel + loading indicator */}
+          {hasMore && <div ref={sentinelRef} className="h-1" />}
+          {loading && events.length > 0 && (
+            <div className="flex items-center justify-center py-4">
+              <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+            </div>
+          )}
+        </>
+      )}
     </div>
   );
 }

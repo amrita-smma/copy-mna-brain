@@ -53,6 +53,8 @@ import {
 } from '@/components/ui/alert-dialog';
 import { useToast } from '@/hooks/use-toast';
 import { useIsMobile } from '@/hooks/use-mobile';
+import { useChatContext } from '@/components/chat/ChatProvider';
+import { AskAIButton } from '@/components/chat/AskAIButton';
 
 interface CompanyWithDeal {
   id: string;
@@ -134,6 +136,7 @@ export default function MasterData({ showCrm = false, showAiWorkforce = false }:
   const [selectedCompany, setSelectedCompany] = useState<CompanyData | null>(null);
   const [loadingDialog, setLoadingDialog] = useState(false);
   const { toast } = useToast();
+  const { analyzeWithAI } = useChatContext();
   const router = useRouter();
   const isMobile = useIsMobile();
 
@@ -341,48 +344,50 @@ export default function MasterData({ showCrm = false, showAiWorkforce = false }:
           </div>
         </div>
 
-        {/* Stats Cards */}
-        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4">
-          <Card>
-            <CardContent className="pt-4">
-              <div className="flex items-center gap-2">
-                <Database className="h-4 w-4 text-muted-foreground" />
-                <span className="text-sm text-muted-foreground">Total</span>
-              </div>
-              <p className="text-2xl font-bold mt-1">{stats.total}</p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="pt-4">
-              <div className="flex items-center gap-2">
-                <Building2 className="h-4 w-4 text-blue-500" />
-                <span className="text-sm text-muted-foreground">Active</span>
-              </div>
-              <p className="text-2xl font-bold mt-1">{stats.active}</p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="pt-4">
-              <div className="flex items-center gap-2">
-                <CheckCircle2 className="h-4 w-4 text-green-500" />
-                <span className="text-sm text-muted-foreground">Drop</span>
-              </div>
-              <p className="text-2xl font-bold mt-1">{stats.drop}</p>
-            </CardContent>
-          </Card>
-          <Card className="col-span-2">
-            <CardContent className="pt-4">
-              <div className="text-sm text-muted-foreground mb-2">By Stage</div>
-              <div className="flex gap-2 flex-wrap">
-                {Object.entries(stats.byStage).map(([stage, count]) => (
-                  <Badge key={stage} variant="secondary" className="text-xs">
-                    {stage}: {count}
-                  </Badge>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
-        </div>
+        {/* Stats Cards — hidden on mobile to keep the view focused on search */}
+        {!isMobile && (
+          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4">
+            <Card>
+              <CardContent className="pt-4">
+                <div className="flex items-center gap-2">
+                  <Database className="h-4 w-4 text-muted-foreground" />
+                  <span className="text-sm text-muted-foreground">Total</span>
+                </div>
+                <p className="text-2xl font-bold mt-1">{stats.total}</p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="pt-4">
+                <div className="flex items-center gap-2">
+                  <Building2 className="h-4 w-4 text-blue-500" />
+                  <span className="text-sm text-muted-foreground">Active</span>
+                </div>
+                <p className="text-2xl font-bold mt-1">{stats.active}</p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="pt-4">
+                <div className="flex items-center gap-2">
+                  <CheckCircle2 className="h-4 w-4 text-green-500" />
+                  <span className="text-sm text-muted-foreground">Drop</span>
+                </div>
+                <p className="text-2xl font-bold mt-1">{stats.drop}</p>
+              </CardContent>
+            </Card>
+            <Card className="col-span-2">
+              <CardContent className="pt-4">
+                <div className="text-sm text-muted-foreground mb-2">By Stage</div>
+                <div className="flex gap-2 flex-wrap">
+                  {Object.entries(stats.byStage).map(([stage, count]) => (
+                    <Badge key={stage} variant="secondary" className="text-xs">
+                      {stage}: {count}
+                    </Badge>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        )}
 
         {/* Filters */}
         <Card>
@@ -399,42 +404,47 @@ export default function MasterData({ showCrm = false, showAiWorkforce = false }:
                   />
                 </div>
               </div>
-              <Select value={stageFilter} onValueChange={setStageFilter}>
-                <SelectTrigger className="w-[150px]">
-                  <SelectValue placeholder="Stage" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Stages</SelectItem>
-                  <SelectItem value="L0">L0 - Sourcing</SelectItem>
-                  <SelectItem value="L1">L1 - Screening</SelectItem>
-                  <SelectItem value="L2">L2 - Initial Review</SelectItem>
-                  <SelectItem value="L3">L3 - Due Diligence</SelectItem>
-                  <SelectItem value="L4">L4 - Negotiation</SelectItem>
-                  <SelectItem value="L5">L5 - Closing</SelectItem>
-                  <SelectItem value="Acquired">Acquired</SelectItem>
-                </SelectContent>
-              </Select>
-              <Select value={sectorFilter} onValueChange={setSectorFilter}>
-                <SelectTrigger className="w-[150px]">
-                  <SelectValue placeholder="Sector" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Sectors</SelectItem>
-                  {uniqueSectors.map(sector => (
-                    <SelectItem key={sector} value={sector}>{sector}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <Select value={sourceFilter} onValueChange={setSourceFilter}>
-                <SelectTrigger className="w-[150px]">
-                  <SelectValue placeholder="Source" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Sources</SelectItem>
-                  <SelectItem value="inbound">Inbound</SelectItem>
-                  <SelectItem value="outbound">Outbound</SelectItem>
-                </SelectContent>
-              </Select>
+              {/* Dropdown filters are hidden on mobile — search only there */}
+              {!isMobile && (
+                <>
+                  <Select value={stageFilter} onValueChange={setStageFilter}>
+                    <SelectTrigger className="w-[150px]">
+                      <SelectValue placeholder="Stage" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Stages</SelectItem>
+                      <SelectItem value="L0">L0 - Sourcing</SelectItem>
+                      <SelectItem value="L1">L1 - Screening</SelectItem>
+                      <SelectItem value="L2">L2 - Initial Review</SelectItem>
+                      <SelectItem value="L3">L3 - Due Diligence</SelectItem>
+                      <SelectItem value="L4">L4 - Negotiation</SelectItem>
+                      <SelectItem value="L5">L5 - Closing</SelectItem>
+                      <SelectItem value="Acquired">Acquired</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <Select value={sectorFilter} onValueChange={setSectorFilter}>
+                    <SelectTrigger className="w-[150px]">
+                      <SelectValue placeholder="Sector" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Sectors</SelectItem>
+                      {uniqueSectors.map(sector => (
+                        <SelectItem key={sector} value={sector}>{sector}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Select value={sourceFilter} onValueChange={setSourceFilter}>
+                    <SelectTrigger className="w-[150px]">
+                      <SelectValue placeholder="Source" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Sources</SelectItem>
+                      <SelectItem value="inbound">Inbound</SelectItem>
+                      <SelectItem value="outbound">Outbound</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </>
+              )}
             </div>
             <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground mt-1.5">
               <Lightbulb className="h-3.5 w-3.5 text-amber-500 shrink-0" />
@@ -474,51 +484,37 @@ export default function MasterData({ showCrm = false, showAiWorkforce = false }:
                 {paginatedCompanies.map((company) => {
                   const displayStage = getDisplayStage(company);
                   return (
-                    <div key={company.id} className="rounded-lg border bg-card p-4">
+                    <div
+                      key={company.id}
+                      role="button"
+                      tabIndex={company.name ? 0 : -1}
+                      onClick={() => company.name && openCompany(company.id)}
+                      onKeyDown={(e) => {
+                        if (company.name && (e.key === 'Enter' || e.key === ' ')) {
+                          e.preventDefault();
+                          openCompany(company.id);
+                        }
+                      }}
+                      className="rounded-lg border bg-card p-4 transition-colors hover:bg-muted/40 hover:border-primary/40 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    >
                       <div className="flex items-start justify-between gap-2">
-                        <button
-                          type="button"
-                          onClick={() => openCompany(company.id)}
-                          disabled={!company.name}
-                          className="font-medium text-left hover:text-primary transition-colors disabled:opacity-50"
-                        >
+                        <span className="font-medium">
                           {company.name || '—'}
-                        </button>
-                        <AlertDialog>
-                          <AlertDialogTrigger asChild>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-8 w-8 shrink-0 text-muted-foreground hover:text-destructive"
-                              disabled={deletingId === company.id}
-                            >
-                              {deletingId === company.id ? (
-                                <Loader2 className="h-4 w-4 animate-spin" />
-                              ) : (
-                                <Trash2 className="h-4 w-4" />
-                              )}
-                            </Button>
-                          </AlertDialogTrigger>
-                          <AlertDialogContent>
-                            <AlertDialogHeader>
-                              <AlertDialogTitle>Delete &ldquo;{company.name}&rdquo;?</AlertDialogTitle>
-                              <AlertDialogDescription>
-                                This will permanently delete this company and all related data
-                                including deal history, notes, documents, links, screening results,
-                                and AI analyses. This action cannot be undone.
-                              </AlertDialogDescription>
-                            </AlertDialogHeader>
-                            <AlertDialogFooter>
-                              <AlertDialogCancel>Cancel</AlertDialogCancel>
-                              <AlertDialogAction
-                                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                                onClick={() => deleteCompany(company.id, company.name)}
-                              >
-                                Delete
-                              </AlertDialogAction>
-                            </AlertDialogFooter>
-                          </AlertDialogContent>
-                        </AlertDialog>
+                        </span>
+                        <span
+                          className="shrink-0"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <AskAIButton
+                            variant="icon"
+                            label="Analyze using AI"
+                            onClick={() =>
+                              analyzeWithAI(
+                                `Analyze ${company.name || 'this company'} and provide insights about it as a potential deal.`,
+                              )
+                            }
+                          />
+                        </span>
                       </div>
                       {company.project_name && (
                         <p className="mt-0.5 text-xs text-muted-foreground">{company.project_name}</p>

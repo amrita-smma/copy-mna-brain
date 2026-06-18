@@ -60,66 +60,71 @@ export class DashboardActivityRepository {
     );
   }
 
-  async getNewL0Companies(from: Date, to: Date): Promise<
+  async getNewL0Companies(from: Date, to: Date, limit?: number): Promise<
     ({ id: string; target: string | null; project_name: string | null; source: string | null; segment: string | null; geography: string | null; remarks: string | null; thesis_content: string | null; event_at: string; reason: 'created' | 'demoted' } & FeedFinancials)[]
   > {
     const fromIso = from.toISOString();
     const toIso = to.toISOString();
 
-    const [created, demoted] = await Promise.all([
-      // Newly created companies that started at L0
-      this.db
-        .select({
-          id: companies.id,
-          target: companies.target,
-          project_name: companies.project_name,
-          source: companies.source,
-          segment: companies.segment,
-          geography: companies.geography,
-          remarks: companies.remarks,
-          thesis_content: companies.thesis_content,
-          revenue_usd_mn: companyFinancials.revenue_usd_mn,
-          ebitda_usd_mn: companyFinancials.ebitda_usd_mn,
-          ev_usd_mn: companyFinancials.ev_usd_mn,
-          financial_year: companyFinancials.fiscal_year,
-          event_at: companies.created_at,
-        })
-        .from(companies)
-        .leftJoin(companyFinancials, this.latestFinancialsOn())
-        .where(
-          and(
-            eq(companies.pipeline_stage, 'L0'),
-            gte(companies.created_at, fromIso),
-            lte(companies.created_at, toIso),
-          ),
+    // Cap each sub-query at `limit`: the merged result is sorted desc and sliced
+    // by the caller, so no individual source needs more than `limit` rows.
+    const createdQuery = this.db
+      .select({
+        id: companies.id,
+        target: companies.target,
+        project_name: companies.project_name,
+        source: companies.source,
+        segment: companies.segment,
+        geography: companies.geography,
+        remarks: companies.remarks,
+        thesis_content: companies.thesis_content,
+        revenue_usd_mn: companyFinancials.revenue_usd_mn,
+        ebitda_usd_mn: companyFinancials.ebitda_usd_mn,
+        ev_usd_mn: companyFinancials.ev_usd_mn,
+        financial_year: companyFinancials.fiscal_year,
+        event_at: companies.created_at,
+      })
+      .from(companies)
+      .leftJoin(companyFinancials, this.latestFinancialsOn())
+      .where(
+        and(
+          eq(companies.pipeline_stage, 'L0'),
+          gte(companies.created_at, fromIso),
+          lte(companies.created_at, toIso),
         ),
+      )
+      .orderBy(desc(companies.created_at));
 
-      // Companies moved/demoted back to L0 via a promotion log
-      this.db
-        .select({
-          id: companies.id,
-          target: companies.target,
-          project_name: companies.project_name,
-          source: companies.source,
-          segment: companies.segment,
-          geography: companies.geography,
-          remarks: companies.remarks,
-          thesis_content: companies.thesis_content,
-          revenue_usd_mn: companyFinancials.revenue_usd_mn,
-          ebitda_usd_mn: companyFinancials.ebitda_usd_mn,
-          ev_usd_mn: companyFinancials.ev_usd_mn,
-          financial_year: companyFinancials.fiscal_year,
-          event_at: companyLogs.created_at,
-        })
-        .from(companyLogs)
-        .innerJoin(companies, eq(companyLogs.company_id, companies.id))
-        .leftJoin(companyFinancials, this.latestFinancialsOn())
-        .where(
-          and(
-            like(companyLogs.action, '%_TO_L0'),
-            logDateInRange(fromIso, toIso),
-          ),
+    const demotedQuery = this.db
+      .select({
+        id: companies.id,
+        target: companies.target,
+        project_name: companies.project_name,
+        source: companies.source,
+        segment: companies.segment,
+        geography: companies.geography,
+        remarks: companies.remarks,
+        thesis_content: companies.thesis_content,
+        revenue_usd_mn: companyFinancials.revenue_usd_mn,
+        ebitda_usd_mn: companyFinancials.ebitda_usd_mn,
+        ev_usd_mn: companyFinancials.ev_usd_mn,
+        financial_year: companyFinancials.fiscal_year,
+        event_at: companyLogs.created_at,
+      })
+      .from(companyLogs)
+      .innerJoin(companies, eq(companyLogs.company_id, companies.id))
+      .leftJoin(companyFinancials, this.latestFinancialsOn())
+      .where(
+        and(
+          like(companyLogs.action, '%_TO_L0'),
+          logDateInRange(fromIso, toIso),
         ),
+      )
+      .orderBy(sql`${companyLogs.created_at} desc nulls last`);
+
+    const [created, demoted] = await Promise.all([
+      limit != null ? createdQuery.limit(limit) : createdQuery,
+      limit != null ? demotedQuery.limit(limit) : demotedQuery,
     ]);
 
     // Merge, deduplicate by id keeping the most recent event, then sort desc
@@ -137,9 +142,10 @@ export class DashboardActivityRepository {
       }
     }
 
-    return Array.from(map.values()).sort((a, b) =>
+    const merged = Array.from(map.values()).sort((a, b) =>
       b.event_at.localeCompare(a.event_at),
     );
+    return limit != null ? merged.slice(0, limit) : merged;
   }
 
   async getAiSourcedCompanies(from: Date, to: Date) {
@@ -164,10 +170,10 @@ export class DashboardActivityRepository {
       .orderBy(desc(companies.updated_at));
   }
 
-  async getPipelineMoves(from: Date, to: Date) {
+  async getPipelineMoves(from: Date, to: Date, limit?: number) {
     const fromIso = from.toISOString();
     const toIso = to.toISOString();
-    return this.db
+    const query = this.db
       .select({
         id: companyLogs.id,
         company_id: companyLogs.company_id,
@@ -194,7 +200,8 @@ export class DashboardActivityRepository {
           logDateInRange(fromIso, toIso),
         ),
       )
-      .orderBy(desc(companies.updated_at));
+      .orderBy(sql`${companyLogs.created_at} desc nulls last`);
+    return limit != null ? query.limit(limit) : query;
   }
 
   async getSlidesGenerated(from: Date, to: Date) {
@@ -218,8 +225,8 @@ export class DashboardActivityRepository {
       .orderBy(desc(companySlides.created_at));
   }
 
-  async getDroppedDeals(from: Date, to: Date) {
-    return this.db
+  async getDroppedDeals(from: Date, to: Date, limit?: number) {
+    const query = this.db
       .select({
         id: companies.id,
         target: companies.target,
@@ -246,10 +253,11 @@ export class DashboardActivityRepository {
         ),
       )
       .orderBy(desc(companies.dropped_at));
+    return limit != null ? query.limit(limit) : query;
   }
 
-  async getNotesUpdated(from: Date, to: Date) {
-    return this.db
+  async getNotesUpdated(from: Date, to: Date, limit?: number) {
+    const query = this.db
       .select({
         id: dealNotes.id,
         company_id: dealNotes.deal_id,
@@ -278,6 +286,7 @@ export class DashboardActivityRepository {
         ),
       )
       .orderBy(desc(dealNotes.updated_at));
+    return limit != null ? query.limit(limit) : query;
   }
 
   async getWorkforceJobs(from: Date, to: Date) {

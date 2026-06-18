@@ -163,6 +163,52 @@ const mockActivity = (page: Page, activity: ActivityPayload) =>
     });
   });
 
+// ─── Mobile activity feed mock ───────────────────────────────────────────────
+// The mobile feed paginates over /api/dashboard/feed (offset/limit), newest
+// first. The fixture below yields 20 events so the first page (limit 15) leaves
+// more, exercising infinite scroll.
+
+type FeedEvent = {
+  id: string;
+  type: 'new_deal' | 'stage_move' | 'dropped' | 'note_updated';
+  company_id: string;
+  company_name: string;
+  segment: string | null;
+  geography: string | null;
+  source: string | null;
+  event_at: string;
+  dropped_stage?: string | null;
+  dropped_reason?: string | null;
+};
+
+const FEED_EVENTS: FeedEvent[] = Array.from({ length: 20 }, (_, i) => ({
+  id: `feed-${i}`,
+  type: i === 0 ? 'dropped' : 'new_deal',
+  company_id: `co-feed-${i}`,
+  company_name: `Feed Co ${i}`,
+  segment: 'Technology',
+  geography: 'US',
+  source: i % 2 === 0 ? 'inbound' : 'outbound',
+  // Descending timestamps so the merged stream is already newest-first.
+  event_at: new Date(Date.UTC(2026, 5, 18, 0, 0, 0) - i * 3_600_000).toISOString(),
+  ...(i === 0 ? { dropped_stage: 'L2', dropped_reason: 'Out of thesis' } : {}),
+}));
+
+const mockFeed = (page: Page, events: FeedEvent[]) =>
+  page.route('**/api/dashboard/feed?**', (route) => {
+    if (route.request().method() !== 'GET') return route.fallback();
+    const url = new URL(route.request().url());
+    const offset = Number(url.searchParams.get('offset')) || 0;
+    const limit = Number(url.searchParams.get('limit')) || 15;
+    const slice = events.slice(offset, offset + limit);
+    const hasMore = offset + limit < events.length;
+    return route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ data: { events: slice, hasMore } }),
+    });
+  });
+
 /** Reads the big number in a stat card, scoped to the 4-card stat grid. */
 const statValue = (page: Page, label: string) =>
   page
@@ -269,6 +315,38 @@ test.describe('Dashboard page', () => {
     await expect(main.getByText('No pipeline activity in this period.')).toBeVisible();
     await expect(main.getByText('No activity in this period')).toBeVisible();
     await expect(statValue(page, 'Total Deals')).toHaveText('0');
+  });
+
+  test('Mobile activity feed scrolls infinitely with no date selector', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await mockAuthSession(page);
+    await mockCompanies(page, MOCK_COMPANIES);
+    await mockActivity(page, MOCK_ACTIVITY);
+    await mockFeed(page, FEED_EVENTS);
+
+    await page.goto('/dashboard');
+
+    const main = page.locator('main');
+
+    // The date-range selector is desktop-only — hidden on mobile.
+    await expect(main.getByRole('button', { name: '7 days' })).toBeHidden();
+
+    // First page renders (newest first). The newest event is a dropped deal
+    // with a contextual "Analyze why ... was dropped" pill.
+    await expect(main.getByRole('button', { name: 'Feed Co 0' })).toBeVisible();
+    await expect(
+      main.getByRole('button', { name: 'Analyze why Feed Co 0 was dropped' }),
+    ).toBeVisible();
+
+    // A page-2 event is not present until we scroll to the bottom.
+    await expect(main.getByRole('button', { name: 'Feed Co 18' })).toHaveCount(0);
+
+    // Scroll to the bottom to trip the infinite-scroll sentinel.
+    await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+
+    await expect(main.getByRole('button', { name: 'Feed Co 18' })).toBeVisible();
   });
 
   test('Dashboard data fetch is still pending', async ({ page }) => {

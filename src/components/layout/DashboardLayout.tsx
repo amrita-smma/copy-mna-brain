@@ -306,7 +306,12 @@ export default function DashboardLayout({ children, showCrm = false, showAiWorkf
                 {showCopilotPane && !isMainExpanded && (
                   <motion.div
                     className={cn(
-                      'h-full',
+                      // min-w-0 lets the pane shrink below its content's intrinsic
+                      // width; without it, long/unbreakable chat content forces the
+                      // flex item wider than the viewport in full-screen mode, which
+                      // pushes the header's collapse icon off-screen (clipped by the
+                      // parent's overflow-hidden).
+                      'h-full min-w-0',
                       isCopilotExpanded ? 'flex-1' : ''
                     )}
                     initial={{ opacity: 0, x: 50 }}

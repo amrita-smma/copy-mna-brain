@@ -1,8 +1,10 @@
 "use client";
 
 import { Sparkles } from "lucide-react";
+import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { useLayoutControl } from "@/components/layout/LayoutControlContext";
+import { useIsMobile } from "@/hooks/use-mobile";
 
 interface AskAIButtonProps {
   /** Click handler — the consumer wires this to `sendMessage(...)` from `useChatContext`. */
@@ -28,13 +30,21 @@ export function AskAIButton({
   className,
 }: AskAIButtonProps) {
   const { focusCopilot } = useLayoutControl();
+  const isMobile = useIsMobile();
+  const router = useRouter();
 
-  // Every analyze trigger first focuses the copilot (reveal the pane, collapse
-  // the left nav) so the response is immediately visible, then runs the
-  // consumer's send handler.
+  // Every analyze trigger runs the consumer's send handler (the chat lives in a
+  // root provider, so the message persists across navigation) and then surfaces
+  // the copilot so the response is immediately visible. On mobile there is no
+  // side pane — the copilot is its own full-screen route — so navigate there.
+  // On desktop, reveal the copilot pane (and collapse the left nav).
   const handleClick = () => {
-    focusCopilot();
     onClick();
+    if (isMobile) {
+      router.push("/chat");
+      return;
+    }
+    focusCopilot();
   };
 
   if (variant === "button") {
