@@ -328,7 +328,6 @@ const eventTypeLabels: Record<FeedEventType, string> = {
 
 // ─── Ask-AI button ───────────────────────────────────────────────────────────
 
-
 // ─── Notes modal ─────────────────────────────────────────────────────────────
 
 interface NotesModalProps {
@@ -480,7 +479,7 @@ export default function Dashboard({
 
   // Which field the next calendar click will fill — drives the highlight on
   // the From/To display fields. Range mode fills `from` first, then `to`.
-  const nextRangeField: 'from' | 'to' = customFrom && !customTo ? 'to' : 'from';
+  const nextRangeField: "from" | "to" = customFrom && !customTo ? "to" : "from";
 
   // Feed
   const [feedFilter, setFeedFilter] = useState<FeedFilterKey>("all");
@@ -645,6 +644,23 @@ export default function Dashboard({
   const recapNewOutbound = recapNewDeals.filter(
     (c) => c.source?.toLowerCase() !== "inbound",
   );
+
+  // Recap columns render their full list inside a fixed-height scroll box, which
+  // bloats the DOM when a date range has hundreds of items. Cap each column at a
+  // page size and reveal more on demand.
+  const RECAP_PAGE_SIZE = 10;
+  const [recapDroppedCount, setRecapDroppedCount] = useState(RECAP_PAGE_SIZE);
+  const [recapNewDealsCount, setRecapNewDealsCount] = useState(RECAP_PAGE_SIZE);
+  const [recapStageMovesCount, setRecapStageMovesCount] =
+    useState(RECAP_PAGE_SIZE);
+
+  // Reset the windows whenever a fresh activity payload arrives (e.g. date-range
+  // change), so a new range never inherits a previously expanded count.
+  useEffect(() => {
+    setRecapDroppedCount(RECAP_PAGE_SIZE);
+    setRecapNewDealsCount(RECAP_PAGE_SIZE);
+    setRecapStageMovesCount(RECAP_PAGE_SIZE);
+  }, [activity]);
 
   // ─── Feed derivations ───────────────────────────────────────────────────────
 
@@ -835,7 +851,7 @@ export default function Dashboard({
               open={customPickerOpen}
               onOpenChange={(open) => {
                 setCustomPickerOpen(open);
-                if (open && dateRange.preset === 'custom') {
+                if (open && dateRange.preset === "custom") {
                   setCustomFrom(dateRange.from);
                   setCustomTo(dateRange.to);
                 }
@@ -864,11 +880,11 @@ export default function Dashboard({
                     <p className="text-xs text-muted-foreground">From</p>
                     <div
                       className={[
-                        'w-full flex items-center gap-2 rounded-md border px-3 py-2 text-sm transition-colors',
-                        nextRangeField === 'from'
-                          ? 'border-primary ring-1 ring-primary bg-background'
-                          : 'border-border bg-muted/40',
-                      ].join(' ')}
+                        "w-full flex items-center gap-2 rounded-md border px-3 py-2 text-sm transition-colors",
+                        nextRangeField === "from"
+                          ? "border-primary ring-1 ring-primary bg-background"
+                          : "border-border bg-muted/40",
+                      ].join(" ")}
                     >
                       <CalendarIcon className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
                       <span
@@ -888,11 +904,11 @@ export default function Dashboard({
                     <p className="text-xs text-muted-foreground">To</p>
                     <div
                       className={[
-                        'w-full flex items-center gap-2 rounded-md border px-3 py-2 text-sm transition-colors',
-                        nextRangeField === 'to'
-                          ? 'border-primary ring-1 ring-primary bg-background'
-                          : 'border-border bg-muted/40',
-                      ].join(' ')}
+                        "w-full flex items-center gap-2 rounded-md border px-3 py-2 text-sm transition-colors",
+                        nextRangeField === "to"
+                          ? "border-primary ring-1 ring-primary bg-background"
+                          : "border-border bg-muted/40",
+                      ].join(" ")}
                     >
                       <CalendarIcon className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
                       <span
@@ -920,8 +936,9 @@ export default function Dashboard({
                     // Highlight the picked start/end and the days in between with
                     // a light background instead of the default solid primary fill.
                     day_selected:
-                      'bg-primary/15 text-primary hover:bg-primary/25 focus:bg-primary/25 rounded-md',
-                    day_range_middle: 'aria-selected:bg-primary/10 aria-selected:text-foreground',
+                      "bg-primary/15 text-primary hover:bg-primary/25 focus:bg-primary/25 rounded-md",
+                    day_range_middle:
+                      "aria-selected:bg-primary/10 aria-selected:text-foreground",
                   }}
                   initialFocus
                 />
@@ -1284,51 +1301,65 @@ export default function Dashboard({
                           No dropped deals
                         </p>
                       ) : (
-                        recapDropped.map((d) => (
-                          <div
-                            key={d.id}
-                            className="flex items-start gap-2 p-2 rounded-lg hover:bg-muted/40 transition-colors cursor-pointer"
-                            onClick={() => handleCompanyClick(d.id)}
-                          >
-                            <div className="flex h-6 w-6 items-center justify-center rounded bg-red-100 dark:bg-red-900/30 shrink-0">
-                              <XCircle className="h-3.5 w-3.5 text-red-500" />
-                            </div>
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-start justify-between gap-2">
-                                <p className="text-sm font-medium truncate">
-                                  {d.target || d.project_name || "—"}
-                                </p>
-                                <span className="text-xs text-muted-foreground shrink-0">
-                                  {formatShortDate(d.dropped_at)}
-                                </span>
+                        <>
+                          {recapDropped.slice(0, recapDroppedCount).map((d) => (
+                            <div
+                              key={d.id}
+                              className="flex items-start gap-2 p-2 rounded-lg hover:bg-muted/40 transition-colors cursor-pointer"
+                              onClick={() => handleCompanyClick(d.id)}
+                            >
+                              <div className="flex h-6 w-6 items-center justify-center rounded bg-red-100 dark:bg-red-900/30 shrink-0">
+                                <XCircle className="h-3.5 w-3.5 text-red-500" />
                               </div>
-                              <div className="flex items-center gap-1.5 mt-1 flex-wrap">
-                                <SourceChip source={d.source} />
-                                {d.segment && (
-                                  <Badge
-                                    variant="secondary"
-                                    className="text-[10px] px-1.5 py-0 h-4"
-                                  >
-                                    {d.segment}
-                                  </Badge>
-                                )}
-                                {d.geography && (
-                                  <Badge
-                                    variant="outline"
-                                    className="text-[10px] px-1.5 py-0 h-4"
-                                  >
-                                    {d.geography}
-                                  </Badge>
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-start justify-between gap-2">
+                                  <p className="text-sm font-medium truncate">
+                                    {d.target || d.project_name || "—"}
+                                  </p>
+                                  <span className="text-xs text-muted-foreground shrink-0">
+                                    {formatShortDate(d.dropped_at)}
+                                  </span>
+                                </div>
+                                <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+                                  <SourceChip source={d.source} />
+                                  {d.segment && (
+                                    <Badge
+                                      variant="secondary"
+                                      className="text-[10px] px-1.5 py-0 h-4"
+                                    >
+                                      {d.segment}
+                                    </Badge>
+                                  )}
+                                  {d.geography && (
+                                    <Badge
+                                      variant="outline"
+                                      className="text-[10px] px-1.5 py-0 h-4"
+                                    >
+                                      {d.geography}
+                                    </Badge>
+                                  )}
+                                </div>
+                                {d.pipeline_stage && (
+                                  <p className="text-xs text-muted-foreground mt-1">
+                                    Dropped at {d.pipeline_stage}
+                                  </p>
                                 )}
                               </div>
-                              {d.pipeline_stage && (
-                                <p className="text-xs text-muted-foreground mt-1">
-                                  Dropped at {d.pipeline_stage}
-                                </p>
-                              )}
                             </div>
-                          </div>
-                        ))
+                          ))}
+                          {recapDropped.length > recapDroppedCount && (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setRecapDroppedCount((c) => c + RECAP_PAGE_SIZE)
+                              }
+                              className="w-full text-xs font-medium text-primary hover:underline py-1.5"
+                            >
+                              Show more (
+                              {recapDropped.length - recapDroppedCount} more)
+                            </button>
+                          )}
+                        </>
                       )}
                     </div>
                   </div>
@@ -1347,48 +1378,66 @@ export default function Dashboard({
                           No new deals
                         </p>
                       ) : (
-                        recapNewDeals.map((c) => (
-                          <div
-                            key={`${c.id}-${c.event_at}`}
-                            className="flex items-start gap-2 p-2 rounded-lg hover:bg-muted/40 transition-colors cursor-pointer"
-                            onClick={() => handleCompanyClick(c.id)}
-                          >
-                            <div className="flex h-6 w-6 items-center justify-center rounded bg-emerald-100 dark:bg-emerald-900/30 shrink-0">
-                              <span className="text-emerald-600 dark:text-emerald-400 text-sm font-bold">
-                                +
-                              </span>
-                            </div>
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-start justify-between gap-2">
-                                <p className="text-sm font-medium truncate">
-                                  {c.target || c.project_name || "—"}
-                                </p>
-                                <span className="text-xs text-muted-foreground shrink-0">
-                                  {formatShortDate(c.event_at)}
-                                </span>
+                        <>
+                          {recapNewDeals
+                            .slice(0, recapNewDealsCount)
+                            .map((c) => (
+                              <div
+                                key={`${c.id}-${c.event_at}`}
+                                className="flex items-start gap-2 p-2 rounded-lg hover:bg-muted/40 transition-colors cursor-pointer"
+                                onClick={() => handleCompanyClick(c.id)}
+                              >
+                                <div className="flex h-6 w-6 items-center justify-center rounded bg-emerald-100 dark:bg-emerald-900/30 shrink-0">
+                                  <span className="text-emerald-600 dark:text-emerald-400 text-sm font-bold">
+                                    +
+                                  </span>
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-start justify-between gap-2">
+                                    <p className="text-sm font-medium truncate">
+                                      {c.target || c.project_name || "—"}
+                                    </p>
+                                    <span className="text-xs text-muted-foreground shrink-0">
+                                      {formatShortDate(c.event_at)}
+                                    </span>
+                                  </div>
+                                  <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+                                    <SourceChip source={c.source} />
+                                    {c.segment && (
+                                      <Badge
+                                        variant="secondary"
+                                        className="text-[10px] px-1.5 py-0 h-4"
+                                      >
+                                        {c.segment}
+                                      </Badge>
+                                    )}
+                                    {c.geography && (
+                                      <Badge
+                                        variant="outline"
+                                        className="text-[10px] px-1.5 py-0 h-4"
+                                      >
+                                        {c.geography}
+                                      </Badge>
+                                    )}
+                                  </div>
+                                </div>
                               </div>
-                              <div className="flex items-center gap-1.5 mt-1 flex-wrap">
-                                <SourceChip source={c.source} />
-                                {c.segment && (
-                                  <Badge
-                                    variant="secondary"
-                                    className="text-[10px] px-1.5 py-0 h-4"
-                                  >
-                                    {c.segment}
-                                  </Badge>
-                                )}
-                                {c.geography && (
-                                  <Badge
-                                    variant="outline"
-                                    className="text-[10px] px-1.5 py-0 h-4"
-                                  >
-                                    {c.geography}
-                                  </Badge>
-                                )}
-                              </div>
-                            </div>
-                          </div>
-                        ))
+                            ))}
+                          {recapNewDeals.length > recapNewDealsCount && (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setRecapNewDealsCount(
+                                  (c) => c + RECAP_PAGE_SIZE,
+                                )
+                              }
+                              className="w-full text-xs font-medium text-primary hover:underline py-1.5"
+                            >
+                              Show more (
+                              {recapNewDeals.length - recapNewDealsCount} more)
+                            </button>
+                          )}
+                        </>
                       )}
                     </div>
                   </div>
@@ -1407,50 +1456,72 @@ export default function Dashboard({
                           No stage movements
                         </p>
                       ) : (
-                        recapStageMoves.map((m) => {
-                          const { from: fromStage, to: toStage } =
-                            parsePipelineMoveAction(m.action);
-                          return (
-                            <div
-                              key={m.id}
-                              className="flex items-start gap-2 p-2 rounded-lg hover:bg-muted/40 transition-colors cursor-pointer"
-                              onClick={() =>
-                                m.company_id && handleCompanyClick(m.company_id)
-                              }
-                            >
-                              <div className="flex-1 min-w-0">
-                                <div className="flex items-start justify-between gap-2">
-                                  <p className="text-sm font-medium truncate">
-                                    {m.target || m.project_name || "—"}
-                                  </p>
-                                  <div className="flex items-center gap-1 shrink-0">
-                                    {fromStage && (
-                                      <StageChip stage={fromStage} />
-                                    )}
-                                    {fromStage && toStage && (
-                                      <ChevronRight className="h-3 w-3 text-muted-foreground" />
-                                    )}
-                                    {toStage && <StageChip stage={toStage} />}
-                                    <span className="text-xs text-muted-foreground ml-1">
-                                      {formatShortDate(m.created_at)}
-                                    </span>
+                        <>
+                          {recapStageMoves
+                            .slice(0, recapStageMovesCount)
+                            .map((m) => {
+                              const { from: fromStage, to: toStage } =
+                                parsePipelineMoveAction(m.action);
+                              return (
+                                <div
+                                  key={m.id}
+                                  className="flex items-start gap-2 p-2 rounded-lg hover:bg-muted/40 transition-colors cursor-pointer"
+                                  onClick={() =>
+                                    m.company_id &&
+                                    handleCompanyClick(m.company_id)
+                                  }
+                                >
+                                  <div className="flex-1 min-w-0">
+                                    <div className="flex items-start justify-between gap-2">
+                                      <p className="text-sm font-medium truncate">
+                                        {m.target || m.project_name || "—"}
+                                      </p>
+                                      <div className="flex items-center gap-1 shrink-0">
+                                        {fromStage && (
+                                          <StageChip stage={fromStage} />
+                                        )}
+                                        {fromStage && toStage && (
+                                          <ChevronRight className="h-3 w-3 text-muted-foreground" />
+                                        )}
+                                        {toStage && (
+                                          <StageChip stage={toStage} />
+                                        )}
+                                        <span className="text-xs text-muted-foreground ml-1">
+                                          {formatShortDate(m.created_at)}
+                                        </span>
+                                      </div>
+                                    </div>
+                                    <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+                                      <SourceChip source={m.source} />
+                                      {m.geography && (
+                                        <Badge
+                                          variant="outline"
+                                          className="text-[10px] px-1.5 py-0 h-4"
+                                        >
+                                          {m.geography}
+                                        </Badge>
+                                      )}
+                                    </div>
                                   </div>
                                 </div>
-                                <div className="flex items-center gap-1.5 mt-1 flex-wrap">
-                                  <SourceChip source={m.source} />
-                                  {m.geography && (
-                                    <Badge
-                                      variant="outline"
-                                      className="text-[10px] px-1.5 py-0 h-4"
-                                    >
-                                      {m.geography}
-                                    </Badge>
-                                  )}
-                                </div>
-                              </div>
-                            </div>
-                          );
-                        })
+                              );
+                            })}
+                          {recapStageMoves.length > recapStageMovesCount && (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setRecapStageMovesCount(
+                                  (c) => c + RECAP_PAGE_SIZE,
+                                )
+                              }
+                              className="w-full text-xs font-medium text-primary hover:underline py-1.5"
+                            >
+                              Show more (
+                              {recapStageMoves.length - recapStageMovesCount}{" "}
+                              more)
+                            </button>
+                          )}
+                        </>
                       )}
                     </div>
                   </div>
