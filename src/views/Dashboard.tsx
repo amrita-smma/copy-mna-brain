@@ -1945,7 +1945,7 @@ function FeedEventRow({
             variant="button"
             label={analyzeLabel}
             onClick={onAnalyze}
-            className="mt-2 w-full justify-center"
+            className="mt-2 h-auto max-w-full self-start whitespace-normal py-1 text-left"
           />
         )}
       </div>
