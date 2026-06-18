@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useIsMobile } from "@/hooks/use-mobile";
@@ -143,6 +143,7 @@ interface FeedEvent {
   from_stage?: string | null;
   to_stage?: string | null;
   dropped_stage?: string | null;
+  dropped_reason?: string | null;
   remarks?: string | null;
   thesis_content?: string | null;
   note_content?: string | null;
@@ -215,6 +216,7 @@ function buildFeedEvents(activity: DashboardActivity): FeedEvent[] {
       source: d.source ?? null,
       event_at: d.dropped_at,
       dropped_stage: d.pipeline_stage ?? null,
+      dropped_reason: d.dropped_reason ?? null,
       thesis_content: d.thesis_content ?? null,
       revenue_usd_mn: d.revenue_usd_mn ?? null,
       ebitda_usd_mn: d.ebitda_usd_mn ?? null,
@@ -681,8 +683,7 @@ export default function Dashboard({
     return allFeedEvents.filter((e) => e.type === typeMap[feedFilter]);
   }, [allFeedEvents, feedFilter]);
 
-  // Infinite scroll: render the feed in pages, revealing more as the user
-  // scrolls the page (no inner scroll container).
+  // Render the feed in pages, revealing more on demand via a "Show More" action.
   const FEED_PAGE_SIZE = 10;
   const [feedVisibleCount, setFeedVisibleCount] = useState(FEED_PAGE_SIZE);
 
@@ -698,24 +699,6 @@ export default function Dashboard({
     () => groupEventsByDate(filteredFeedEvents.slice(0, feedVisibleCount)),
     [filteredFeedEvents, feedVisibleCount],
   );
-
-  const feedSentinelRef = useRef<HTMLDivElement | null>(null);
-
-  useEffect(() => {
-    if (!hasMoreFeed) return;
-    const el = feedSentinelRef.current;
-    if (!el) return;
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (entries[0]?.isIntersecting) {
-          setFeedVisibleCount((c) => c + FEED_PAGE_SIZE);
-        }
-      },
-      { rootMargin: "200px" },
-    );
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, [hasMoreFeed, groupedFeedEvents]);
 
   // ─── Date-filtered pipeline stage counts ────────────────────────────────────
 
@@ -1665,20 +1648,20 @@ export default function Dashboard({
             </Card>
 
             {/* ── Activity Feed ──────────────────────────────────────────────── */}
-            {/* No outer card: a plain section header followed by one card per
-                activity, revealed via infinite scroll on the page scroller. */}
-            <section className="space-y-4">
-              <div className="space-y-4">
+            <Card className="hidden md:block border bg-card">
+              <CardHeader className="pb-4">
                 <div className="flex items-center gap-2">
                   <Clock className="h-5 w-5 text-muted-foreground" />
-                  <h2 className="text-lg font-semibold">Activity Feed</h2>
+                  <CardTitle className="text-lg font-semibold">
+                    Activity Feed
+                  </CardTitle>
                   <span className="text-sm text-muted-foreground">
                     {formatDate(dateRange.from)} – {formatDate(dateRange.to)}
                   </span>
                 </div>
 
                 {/* Filter pills */}
-                <div className="flex flex-wrap items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2 pt-3">
                   {(
                     [
                       "all",
@@ -1711,54 +1694,58 @@ export default function Dashboard({
                     </button>
                   ))}
                 </div>
-              </div>
+              </CardHeader>
 
-              {/* Events — one card each, no inner scroll */}
-              <div className="space-y-4">
+              {/* Events — one card each, capped height with inner scroll */}
+              <CardContent className="space-y-4 max-h-[600px] overflow-y-auto">
                 {filteredFeedEvents.length === 0 ? (
                   <div className="text-center py-12 text-muted-foreground">
                     <p className="text-sm">No activity in this period</p>
                   </div>
                 ) : (
-                  groupedFeedEvents.map(({ dateLabel, events }) => (
-                    <div key={dateLabel} className="space-y-3">
-                      {/* Date header */}
-                      <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-                        {new Date(events[0]?.event_at)
-                          .toLocaleDateString("en-US", {
-                            month: "short",
-                            day: "numeric",
-                            year: "numeric",
-                          })
-                          .toUpperCase()
-                          .replace(",", "")}
-                      </p>
+                  <>
+                    {groupedFeedEvents.map(({ dateLabel, events }) => (
+                      <div key={dateLabel} className="space-y-3">
+                        {/* Date header */}
+                        <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                          {new Date(events[0]?.event_at)
+                            .toLocaleDateString("en-US", {
+                              month: "short",
+                              day: "numeric",
+                              year: "numeric",
+                            })
+                            .toUpperCase()
+                            .replace(",", "")}
+                        </p>
 
-                      {/* Events for this date */}
-                      {events.map((event) => (
-                        <FeedEventRow
-                          key={event.id}
-                          event={event}
-                          onCompanyClick={handleCompanyClick}
-                        />
-                      ))}
-                    </div>
-                  ))
+                        {/* Events for this date */}
+                        {events.map((event) => (
+                          <FeedEventRow
+                            key={event.id}
+                            event={event}
+                            onCompanyClick={handleCompanyClick}
+                          />
+                        ))}
+                      </div>
+                    ))}
+
+                    {/* Show More — reveal the next page of activity */}
+                    {hasMoreFeed && (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setFeedVisibleCount((c) => c + FEED_PAGE_SIZE)
+                        }
+                        className="w-full text-sm font-medium text-primary hover:underline py-2"
+                      >
+                        Show More (
+                        {filteredFeedEvents.length - feedVisibleCount} more)
+                      </button>
+                    )}
+                  </>
                 )}
-
-                {/* Infinite scroll sentinel — pulls the next page into view */}
-                {hasMoreFeed && <div ref={feedSentinelRef} className="h-1" />}
-
-                {/* End of feed marker */}
-                {!hasMoreFeed && filteredFeedEvents.length > 0 && (
-                  <div className="text-center py-8">
-                    <span className="text-sm text-muted-foreground">
-                      — End of recent activity —
-                    </span>
-                  </div>
-                )}
-              </div>
-            </section>
+              </CardContent>
+            </Card>
           </>
         ) : null}
       </div>
@@ -1883,6 +1870,18 @@ function FeedEventRow({ event, onCompanyClick }: FeedEventRowProps) {
             </>
           )}
         </div>
+
+        {/* Dropped reason */}
+        {event.type === "dropped" && event.dropped_reason && (
+          <p className="text-xs leading-relaxed line-clamp-3">
+            <span className="font-semibold text-red-600 dark:text-red-400">
+              Reason:
+            </span>{" "}
+            <span className="text-muted-foreground">
+              {event.dropped_reason}
+            </span>
+          </p>
+        )}
 
         {/* Inline note / remarks */}
         {inlineNote && (
