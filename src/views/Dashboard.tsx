@@ -306,8 +306,8 @@ function SourceChip({ source }: { source: string | null | undefined }) {
       variant="secondary"
       className={
         isInbound
-          ? "text-[10px] px-1.5 py-0 h-4 capitalize bg-emerald-500/20 text-emerald-600 hover:bg-emerald-500/30"
-          : "text-[10px] px-1.5 py-0 h-4 capitalize bg-blue-500/20 text-blue-600 hover:bg-blue-500/30"
+          ? "text-[10px] px-1.5 py-0.5 min-h-4 capitalize bg-emerald-500/20 text-emerald-600 hover:bg-emerald-500/30"
+          : "text-[10px] px-1.5 py-0.5 min-h-4 capitalize bg-blue-500/20 text-blue-600 hover:bg-blue-500/30"
       }
     >
       {source}
@@ -1320,7 +1320,7 @@ export default function Dashboard({
                                     {c.segment && (
                                       <Badge
                                         variant="secondary"
-                                        className="text-[10px] px-1.5 py-0 h-4"
+                                        className="text-[10px] px-1.5 py-0.5 min-h-4"
                                       >
                                         {c.segment}
                                       </Badge>
@@ -1328,7 +1328,7 @@ export default function Dashboard({
                                     {c.geography && (
                                       <Badge
                                         variant="outline"
-                                        className="text-[10px] px-1.5 py-0 h-4"
+                                        className="text-[10px] px-1.5 py-0.5 min-h-4"
                                       >
                                         {c.geography}
                                       </Badge>
@@ -1394,7 +1394,7 @@ export default function Dashboard({
                                   {d.segment && (
                                     <Badge
                                       variant="secondary"
-                                      className="text-[10px] px-1.5 py-0 h-4"
+                                      className="text-[10px] px-1.5 py-0.5 min-h-4"
                                     >
                                       {d.segment}
                                     </Badge>
@@ -1402,7 +1402,7 @@ export default function Dashboard({
                                   {d.geography && (
                                     <Badge
                                       variant="outline"
-                                      className="text-[10px] px-1.5 py-0 h-4"
+                                      className="text-[10px] px-1.5 py-0.5 min-h-4"
                                     >
                                       {d.geography}
                                     </Badge>
@@ -1487,7 +1487,7 @@ export default function Dashboard({
                                       {m.geography && (
                                         <Badge
                                           variant="outline"
-                                          className="text-[10px] px-1.5 py-0 h-4"
+                                          className="text-[10px] px-1.5 py-0.5 min-h-4"
                                         >
                                           {m.geography}
                                         </Badge>
@@ -1732,6 +1732,11 @@ export default function Dashboard({
                             key={event.id}
                             event={event}
                             onCompanyClick={handleCompanyClick}
+                            analyzeLabel={feedAnalysisLabel(event)}
+                            onAnalyze={() =>
+                              analyzeWithAI(feedAnalysisPrompt(event))
+                            }
+                            analyzeVariant="icon"
                           />
                         ))}
                       </div>
@@ -1775,9 +1780,11 @@ export default function Dashboard({
 interface FeedEventRowProps {
   event: FeedEvent;
   onCompanyClick: (id: string) => void;
-  /** When provided, renders a contextual "Analyze using AI" pill inside the card. */
+  /** When provided, renders a contextual "Analyze using AI" trigger inside the card. */
   analyzeLabel?: string;
   onAnalyze?: () => void;
+  /** "button" (mobile) renders the full-width labelled pill; "icon" (desktop) the compact sparkles icon. */
+  analyzeVariant?: "icon" | "button";
 }
 
 const eventTypeBadgeStyles: Record<FeedEventType, string> = {
@@ -1843,6 +1850,7 @@ function FeedEventRow({
   onCompanyClick,
   analyzeLabel,
   onAnalyze,
+  analyzeVariant = "button",
 }: FeedEventRowProps) {
   const inlineNote =
     event.type === "note_updated"
@@ -1858,14 +1866,23 @@ function FeedEventRow({
 
       {/* Content */}
       <div className="flex-1 min-w-0 space-y-1.5">
-        {/* Company name */}
-        <button
-          type="button"
-          onClick={() => onCompanyClick(event.company_id)}
-          className="text-sm font-semibold text-left hover:text-primary transition-colors block"
-        >
-          {event.company_name}
-        </button>
+        {/* Company name + desktop analyze icon (top-right) */}
+        <div className="flex items-start justify-between gap-2">
+          <button
+            type="button"
+            onClick={() => onCompanyClick(event.company_id)}
+            className="text-sm font-semibold text-left hover:text-primary transition-colors"
+          >
+            {event.company_name}
+          </button>
+          {onAnalyze && analyzeLabel && analyzeVariant === "icon" && (
+            <AskAIButton
+              variant="icon"
+              label={analyzeLabel}
+              onClick={onAnalyze}
+            />
+          )}
+        </div>
 
         {/* Event detail line */}
         <div className="flex items-center gap-2 flex-wrap">
@@ -1925,7 +1942,7 @@ function FeedEventRow({
           {event.geography && (
             <Badge
               variant="outline"
-              className="text-[10px] px-1.5 py-0 h-4 font-normal"
+              className="text-[10px] px-1.5 py-0.5 min-h-4 font-normal"
             >
               {event.geography}
             </Badge>
@@ -1933,20 +1950,20 @@ function FeedEventRow({
           {event.segment && (
             <Badge
               variant="outline"
-              className="text-[10px] px-1.5 py-0 h-4 font-normal"
+              className="text-[10px] px-1.5 py-0.5 min-h-4 font-normal"
             >
               {event.segment}
             </Badge>
           )}
         </div>
 
-        {/* Contextual "Analyze using AI" — only rendered when wired by the caller. */}
-        {onAnalyze && analyzeLabel && (
+        {/* Mobile "Analyze using AI" pill — bottom of card */}
+        {onAnalyze && analyzeLabel && analyzeVariant === "button" && (
           <AskAIButton
             variant="button"
             label={analyzeLabel}
             onClick={onAnalyze}
-            className="mt-2 w-full justify-center"
+            className="mt-0.5 w-full justify-center"
           />
         )}
       </div>
@@ -2149,6 +2166,7 @@ function MobileActivityFeed({
                   onCompanyClick={onCompanyClick}
                   analyzeLabel={feedAnalysisLabel(event)}
                   onAnalyze={() => analyzeWithAI(feedAnalysisPrompt(event))}
+                  analyzeVariant="button"
                 />
               ))}
             </div>

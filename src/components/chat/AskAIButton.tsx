@@ -55,11 +55,11 @@ export function AskAIButton({
         aria-label={label}
         title={label}
         className={cn(
-          "inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md border border-purple-500/30 px-2.5 text-xs font-medium text-purple-600 transition-colors hover:bg-purple-500/10 dark:text-purple-400",
+          "inline-flex min-h-7 shrink-0 items-center gap-1.5 rounded-md border border-purple-500/30 px-2.5 py-1 text-xs font-medium leading-tight text-purple-600 transition-colors hover:bg-purple-500/10 dark:text-purple-400",
           className,
         )}
       >
-        <Sparkles className="h-3.5 w-3.5" />
+        <Sparkles className="h-3.5 w-3.5 shrink-0" />
         {label}
       </button>
     );
