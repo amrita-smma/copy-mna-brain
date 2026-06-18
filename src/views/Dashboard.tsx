@@ -1113,23 +1113,6 @@ export default function Dashboard({
               <CardContent className="space-y-6">
                 {/* 3 summary counters */}
                 <div className="grid grid-cols-[repeat(auto-fit,minmax(200px,1fr))] gap-4">
-                  <div className="rounded-lg border border-red-200 bg-red-50/50 dark:border-red-900/50 dark:bg-red-950/20 p-4">
-                    <div className="flex items-center justify-between gap-2">
-                      <p className="text-xs font-semibold text-red-600 dark:text-red-400 uppercase tracking-wide">
-                        Dropped
-                      </p>
-                      <AskAIButton
-                        label="Analyze dropped deals with AI"
-                        onClick={() => askCopilot("dropped deals")}
-                      />
-                    </div>
-                    <p className="text-3xl font-bold mt-1">
-                      {recapDropped.length}
-                    </p>
-                    <p className="text-xs text-muted-foreground mt-0.5">
-                      deals removed
-                    </p>
-                  </div>
                   <div className="rounded-lg border border-emerald-200 bg-emerald-50/50 dark:border-emerald-900/50 dark:bg-emerald-950/20 p-4">
                     <div className="flex items-center justify-between gap-2">
                       <p className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 uppercase tracking-wide">
@@ -1256,6 +1239,23 @@ export default function Dashboard({
                       </Popover>
                     </div>
                   </div>
+                  <div className="rounded-lg border border-red-200 bg-red-50/50 dark:border-red-900/50 dark:bg-red-950/20 p-4">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-xs font-semibold text-red-600 dark:text-red-400 uppercase tracking-wide">
+                        Dropped
+                      </p>
+                      <AskAIButton
+                        label="Analyze dropped deals with AI"
+                        onClick={() => askCopilot("dropped deals")}
+                      />
+                    </div>
+                    <p className="text-3xl font-bold mt-1">
+                      {recapDropped.length}
+                    </p>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      deals removed
+                    </p>
+                  </div>
                   <div className="rounded-lg border border-blue-200 bg-blue-50/50 dark:border-blue-900/50 dark:bg-blue-950/20 p-4">
                     <div className="flex items-center justify-between gap-2">
                       <p className="text-xs font-semibold text-blue-600 dark:text-blue-400 uppercase tracking-wide">
@@ -1277,82 +1277,6 @@ export default function Dashboard({
 
                 {/* 3 detail columns side-by-side */}
                 <div className="grid grid-cols-[repeat(auto-fit,minmax(220px,1fr))] gap-6">
-                  {/* Dropped Deals Column */}
-                  <div className="space-y-3">
-                    <div className="flex items-center gap-2">
-                      <span className="h-2 w-2 rounded-full bg-red-500" />
-                      <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
-                        Dropped Deals
-                      </span>
-                    </div>
-                    <div className="space-y-2 max-h-[360px] overflow-y-auto pr-1">
-                      {recapDropped.length === 0 ? (
-                        <p className="text-xs text-muted-foreground py-2">
-                          No dropped deals
-                        </p>
-                      ) : (
-                        <>
-                          {recapDropped.slice(0, recapDroppedCount).map((d) => (
-                            <div
-                              key={d.id}
-                              className="flex items-start gap-2 p-2 rounded-lg hover:bg-muted/40 transition-colors cursor-pointer"
-                              onClick={() => handleCompanyClick(d.id)}
-                            >
-                              <div className="flex h-6 w-6 items-center justify-center rounded bg-red-100 dark:bg-red-900/30 shrink-0">
-                                <XCircle className="h-3.5 w-3.5 text-red-500" />
-                              </div>
-                              <div className="flex-1 min-w-0">
-                                <div className="flex items-start justify-between gap-2">
-                                  <p className="text-sm font-medium truncate">
-                                    {d.target || d.project_name || "—"}
-                                  </p>
-                                  <span className="text-xs text-muted-foreground shrink-0">
-                                    {formatShortDate(d.dropped_at)}
-                                  </span>
-                                </div>
-                                <div className="flex items-center gap-1.5 mt-1 flex-wrap">
-                                  <SourceChip source={d.source} />
-                                  {d.segment && (
-                                    <Badge
-                                      variant="secondary"
-                                      className="text-[10px] px-1.5 py-0 h-4"
-                                    >
-                                      {d.segment}
-                                    </Badge>
-                                  )}
-                                  {d.geography && (
-                                    <Badge
-                                      variant="outline"
-                                      className="text-[10px] px-1.5 py-0 h-4"
-                                    >
-                                      {d.geography}
-                                    </Badge>
-                                  )}
-                                </div>
-                                {d.pipeline_stage && (
-                                  <p className="text-xs text-muted-foreground mt-1">
-                                    Dropped at {d.pipeline_stage}
-                                  </p>
-                                )}
-                              </div>
-                            </div>
-                          ))}
-                          {recapDropped.length > recapDroppedCount && (
-                            <button
-                              type="button"
-                              onClick={() =>
-                                setRecapDroppedCount((c) => c + RECAP_PAGE_SIZE)
-                              }
-                              className="w-full text-xs font-medium text-primary hover:underline py-1.5"
-                            >
-                              Show more (
-                              {recapDropped.length - recapDroppedCount} more)
-                            </button>
-                          )}
-                        </>
-                      )}
-                    </div>
-                  </div>
 
                   {/* New Deals Column */}
                   <div className="space-y-3">
@@ -1425,6 +1349,83 @@ export default function Dashboard({
                             >
                               Show more (
                               {recapNewDeals.length - recapNewDealsCount} more)
+                            </button>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Dropped Deals Column */}
+                  <div className="space-y-3">
+                    <div className="flex items-center gap-2">
+                      <span className="h-2 w-2 rounded-full bg-red-500" />
+                      <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                        Dropped Deals
+                      </span>
+                    </div>
+                    <div className="space-y-2 max-h-[360px] overflow-y-auto pr-1">
+                      {recapDropped.length === 0 ? (
+                        <p className="text-xs text-muted-foreground py-2">
+                          No dropped deals
+                        </p>
+                      ) : (
+                        <>
+                          {recapDropped.slice(0, recapDroppedCount).map((d) => (
+                            <div
+                              key={d.id}
+                              className="flex items-start gap-2 p-2 rounded-lg hover:bg-muted/40 transition-colors cursor-pointer"
+                              onClick={() => handleCompanyClick(d.id)}
+                            >
+                              <div className="flex h-6 w-6 items-center justify-center rounded bg-red-100 dark:bg-red-900/30 shrink-0">
+                                <XCircle className="h-3.5 w-3.5 text-red-500" />
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-start justify-between gap-2">
+                                  <p className="text-sm font-medium truncate">
+                                    {d.target || d.project_name || "—"}
+                                  </p>
+                                  <span className="text-xs text-muted-foreground shrink-0">
+                                    {formatShortDate(d.dropped_at)}
+                                  </span>
+                                </div>
+                                <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+                                  <SourceChip source={d.source} />
+                                  {d.segment && (
+                                    <Badge
+                                      variant="secondary"
+                                      className="text-[10px] px-1.5 py-0 h-4"
+                                    >
+                                      {d.segment}
+                                    </Badge>
+                                  )}
+                                  {d.geography && (
+                                    <Badge
+                                      variant="outline"
+                                      className="text-[10px] px-1.5 py-0 h-4"
+                                    >
+                                      {d.geography}
+                                    </Badge>
+                                  )}
+                                </div>
+                                {d.pipeline_stage && (
+                                  <p className="text-xs text-muted-foreground mt-1">
+                                    Dropped at {d.pipeline_stage}
+                                  </p>
+                                )}
+                              </div>
+                            </div>
+                          ))}
+                          {recapDropped.length > recapDroppedCount && (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setRecapDroppedCount((c) => c + RECAP_PAGE_SIZE)
+                              }
+                              className="w-full text-xs font-medium text-primary hover:underline py-1.5"
+                            >
+                              Show more (
+                              {recapDropped.length - recapDroppedCount} more)
                             </button>
                           )}
                         </>
@@ -1945,7 +1946,7 @@ function FeedEventRow({
             variant="button"
             label={analyzeLabel}
             onClick={onAnalyze}
-            className="mt-2 h-auto max-w-full self-start whitespace-normal py-1 text-left"
+            className="mt-2 w-full justify-center"
           />
         )}
       </div>
