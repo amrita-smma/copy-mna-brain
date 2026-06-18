@@ -80,6 +80,7 @@ import {
   getCompanyDetails,
   getScreenings,
   getUsers,
+  getBankerNames,
   setCompanyAssignees,
   updateCompany,
   type UserSummary,
@@ -378,6 +379,7 @@ export default function CompanyDetail({ showCrm = false, showAiWorkforce = false
   const [isSaving, setIsSaving] = useState(false);
   const [editForm, setEditForm] = useState<EditForm | null>(null);
   const [allUsers, setAllUsers] = useState<UserSummary[]>([]);
+  const [bankerOptions, setBankerOptions] = useState<string[]>([]);
   const [allUsersLoading, setAllUsersLoading] = useState(false);
   const [assignees, setAssignees] = useState<UserSummary[]>([]);
 
@@ -405,6 +407,11 @@ export default function CompanyDetail({ showCrm = false, showAiWorkforce = false
       key_rationale: company.key_rationale ?? '',
     });
     setIsEditing(true);
+    if (bankerOptions.length === 0) {
+      getBankerNames()
+        .then(setBankerOptions)
+        .catch((err) => console.error('Failed to load bankers:', err));
+    }
     if (allUsers.length === 0) {
       setAllUsersLoading(true);
       try {
@@ -1310,7 +1317,7 @@ export default function CompanyDetail({ showCrm = false, showAiWorkforce = false
                     <div>
                       <p className="text-xs text-muted-foreground">Banker / Source</p>
                       {isEditing && editForm ? (
-                        <Input value={editForm.banker} onChange={(e) => setEditForm({ ...editForm, banker: e.target.value })} disabled={isSaving} className="mt-1 h-7 text-sm" />
+                        <StatusCombobox value={editForm.banker || null} options={bankerOptions} placeholder="Set banker…" searchPlaceholder="Search or add a banker…" emptyText="No bankers yet." onChange={(v) => setEditForm({ ...editForm, banker: v })} disabled={isSaving} className="mt-1" />
                       ) : (
                         <p className="text-sm font-medium break-words">{company.banker || '—'}</p>
                       )}

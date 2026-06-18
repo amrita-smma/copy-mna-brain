@@ -29,7 +29,15 @@ export async function GET(req: NextRequest) {
       : undefined;
     const countOnly = parseBool(params.get("countOnly"));
     const lite = parseBool(params.get("lite"));
+    const bankers = parseBool(params.get("bankers"));
     const q = params.get("q")?.trim() || undefined;
+
+    if (bankers) {
+      // Distinct banker names that power the creatable "Banker / Source"
+      // combobox in the pipeline edit dialogs.
+      const data = await companyService.listBankerNames();
+      return NextResponse.json({ data });
+    }
 
     if (countOnly) {
       const count = await companyService.count({

@@ -145,6 +145,14 @@ export async function getUsers() {
   return apiRequest<UserSummary[]>('/api/users');
 }
 
+/**
+ * Distinct banker ("Banker / Source") values already saved across companies,
+ * for the creatable combobox in the pipeline edit dialogs.
+ */
+export async function getBankerNames(): Promise<string[]> {
+  return apiRequest<string[]>('/api/companies?bankers=true');
+}
+
 export async function getCompanyAssignees(id: string) {
   return apiRequest<UserSummary[]>(`/api/companies/${encodeURIComponent(id)}/assignees`);
 }

@@ -81,6 +81,14 @@ export class CompanyService {
     return this.companyRepo.count(filters);
   }
 
+  /**
+   * Distinct banker names for the creatable "Banker / Source" combobox —
+   * see `CompanyRepository.findBankerNames`.
+   */
+  listBankerNames() {
+    return this.companyRepo.findBankerNames();
+  }
+
   findDetails(id: string) {
     return this.companyRepo.findDetails(id);
   }

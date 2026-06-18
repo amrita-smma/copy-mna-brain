@@ -26,6 +26,7 @@ import {
   updateCompany,
   updateCompanyFinancials,
   getUsers,
+  getBankerNames,
   type FinancialEditRow,
   type UserSummary,
 } from "@/lib/api/pipeline";
@@ -146,6 +147,7 @@ export default function UpdateCompanyDialog({
   const [form, setForm] = useState<Form>(() => buildForm(company));
   const [isSaving, setIsSaving] = useState(false);
   const [allUsers, setAllUsers] = useState<UserSummary[]>([]);
+  const [bankerOptions, setBankerOptions] = useState<string[]>([]);
   const isOutbound = company.source === "outbound";
 
   useEffect(() => {
@@ -160,6 +162,14 @@ export default function UpdateCompanyDialog({
       .then(setAllUsers)
       .catch((err) => console.error("Failed to load users:", err));
   }, [open, allUsers.length]);
+
+  // Load existing banker names once, to suggest Banker / Source values.
+  useEffect(() => {
+    if (!open || bankerOptions.length > 0) return;
+    getBankerNames()
+      .then(setBankerOptions)
+      .catch((err) => console.error("Failed to load bankers:", err));
+  }, [open, bankerOptions.length]);
 
   const set = <K extends keyof Form>(key: K, value: Form[K]) =>
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -394,11 +404,14 @@ export default function UpdateCompanyDialog({
                 />
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="u_banker">Banker / Source</Label>
-                <Input
-                  id="u_banker"
-                  value={form.banker}
-                  onChange={(e) => set("banker", e.target.value)}
+                <Label>Banker / Source</Label>
+                <StatusCombobox
+                  value={form.banker || null}
+                  options={bankerOptions}
+                  placeholder="Set banker…"
+                  searchPlaceholder="Search or add a banker…"
+                  emptyText="No bankers yet."
+                  onChange={(v) => set("banker", v)}
                   disabled={isSaving}
                 />
               </div>

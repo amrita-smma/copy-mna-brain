@@ -220,6 +220,29 @@ export class CompanyRepository {
     return rows.map((c) => c.target ?? "").filter(Boolean);
   }
 
+  /**
+   * Distinct, non-empty `banker` values already saved across all companies —
+   * feeds the creatable "Banker / Source" combobox so a banker entered on one
+   * deal can be reused on another instead of being retyped (which risks
+   * spelling drift). Deduped case-insensitively, keeping the first-seen
+   * casing, and sorted case-insensitively for a stable dropdown.
+   */
+  async findBankerNames(): Promise<string[]> {
+    const rows = await this.db
+      .select({ banker: companies.banker })
+      .from(companies);
+    const byKey = new Map<string, string>();
+    for (const r of rows) {
+      const value = r.banker?.trim();
+      if (value && !byKey.has(value.toLowerCase())) {
+        byKey.set(value.toLowerCase(), value);
+      }
+    }
+    return Array.from(byKey.values()).sort((a, b) =>
+      a.toLowerCase().localeCompare(b.toLowerCase()),
+    );
+  }
+
   async findAllIdAndTarget(): Promise<
     Array<{ id: string; target: string | null; project_name: string | null }>
   > {
