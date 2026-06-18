@@ -24,12 +24,15 @@ import {
   ArrowDown,
   ChevronDown,
   ArrowRight,
+  ArrowLeft,
   Pencil,
   Trash2,
   RotateCcw,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Tables } from "@/lib/repositories";
+import type { DealStage } from "@/lib/types";
+import { PIPELINE_STAGES } from "@/lib/constants";
 import type { PipelineCompany } from "@/views/Pipeline";
 import StatusCombobox from "@/components/pipeline/StatusCombobox";
 import { AskAIButton } from "@/components/chat/AskAIButton";
@@ -88,6 +91,7 @@ const formatDate = (iso: string | null | undefined) => {
 
 interface OutboundCompaniesTableProps {
   companies: PipelineCompany[];
+  stage: DealStage;
   viewMode: "active" | "dropped";
   favoriteIds: Set<string>;
   togglingFavorite: string | null;
@@ -103,12 +107,14 @@ interface OutboundCompaniesTableProps {
   onStatusChange: (company: PipelineCompany, next: string) => void;
   onUpdate: (company: PipelineCompany) => void;
   onPromote: (company: PipelineCompany) => void;
+  onDemote: (company: PipelineCompany) => void;
   onDrop: (company: PipelineCompany) => void;
   onRestore: (company: PipelineCompany) => void;
 }
 
 export default function OutboundCompaniesTable({
   companies,
+  stage,
   viewMode,
   favoriteIds,
   selectedIds,
@@ -122,11 +128,19 @@ export default function OutboundCompaniesTable({
   onStatusChange,
   onUpdate,
   onPromote,
+  onDemote,
   onDrop,
   onRestore,
 }: OutboundCompaniesTableProps) {
   const isDropped = viewMode === "dropped";
   const { analyzeWithAI } = useChatContext();
+  const stageIndex = PIPELINE_STAGES.indexOf(stage);
+  const promoteTarget =
+    stageIndex >= 0 && stageIndex < PIPELINE_STAGES.length - 1
+      ? PIPELINE_STAGES[stageIndex + 1]
+      : null;
+  const demoteTarget =
+    stageIndex > 0 ? PIPELINE_STAGES[stageIndex - 1] : null;
 
   const SortIcon = ({ field }: { field: string }) => {
     if (sortField !== field)
@@ -357,10 +371,18 @@ export default function OutboundCompaniesTable({
                       </>
                     ) : (
                       <>
-                        <DropdownMenuItem onClick={() => onPromote(company)}>
-                          <ArrowRight className="mr-2 h-4 w-4" />
-                          Promote to L1
-                        </DropdownMenuItem>
+                        {promoteTarget && (
+                          <DropdownMenuItem onClick={() => onPromote(company)}>
+                            <ArrowRight className="mr-2 h-4 w-4" />
+                            Promote to {promoteTarget}
+                          </DropdownMenuItem>
+                        )}
+                        {demoteTarget && (
+                          <DropdownMenuItem onClick={() => onDemote(company)}>
+                            <ArrowLeft className="mr-2 h-4 w-4" />
+                            Demote to {demoteTarget}
+                          </DropdownMenuItem>
+                        )}
                         <DropdownMenuItem onClick={() => onUpdate(company)}>
                           <Pencil className="mr-2 h-4 w-4" />
                           Update

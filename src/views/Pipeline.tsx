@@ -24,14 +24,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
 import { toast } from "sonner";
 import {
   Search,
@@ -49,28 +41,12 @@ import {
   Loader2,
   Plus,
   Sparkles,
-  ArrowUpDown,
-  ArrowUp,
-  ArrowDown,
-  ArrowRight,
-  ArrowLeft,
   ChevronDown,
   ChevronUp,
   Lightbulb,
   Eye,
   EyeOff,
-  Star,
-  Trash2,
-  RotateCcw,
-  Pencil,
 } from "lucide-react";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -84,7 +60,6 @@ import {
 import { SEARCH_SUGGESTION_CHIPS } from "@/lib/constants";
 import PromoteDialog from "@/components/pipeline/PromoteDialog";
 import { DealStage, L1Status } from "@/lib/types";
-import { formatDistanceToNow } from "date-fns";
 import CompanyDetailDialog from "@/components/pipeline/CompanyDetailDialog";
 import UpdateCompanyDialog from "@/components/pipeline/UpdateCompanyDialog";
 import InboundCompaniesTable from "@/components/pipeline/InboundCompaniesTable";
@@ -219,15 +194,6 @@ const stageColors: Record<
   },
 };
 
-const formatCurrency = (value: number | null) => {
-  if (value === null || value === undefined) return "-";
-  // Values are stored in millions
-  if (Math.abs(value) >= 1000) {
-    const billions = value / 1000;
-    return `$${billions.toFixed(2)}B`;
-  }
-  return `$${value.toFixed(2)}M`;
-};
 
 const getRevenueChange = (year2: number | null, year3: number | null) => {
   if (year2 === null || year3 === null || year2 === 0) return null;
@@ -611,16 +577,6 @@ export default function Pipeline({ showCrm = false, showAiWorkforce = false }: P
       setSortField(field);
       setSortDirection("asc");
     }
-  };
-
-  const SortIcon = ({ field }: { field: string }) => {
-    if (sortField !== field)
-      return <ArrowUpDown className="h-3 w-3 ml-1 opacity-50" />;
-    return sortDirection === "asc" ? (
-      <ArrowUp className="h-3 w-3 ml-1" />
-    ) : (
-      <ArrowDown className="h-3 w-3 ml-1" />
-    );
   };
 
   const totalPages = Math.max(
@@ -1136,6 +1092,7 @@ export default function Pipeline({ showCrm = false, showAiWorkforce = false }: P
                                 <div className="overflow-x-auto">
                                   <InboundCompaniesTable
                                     companies={paginatedCompanies}
+                                    stage="L0"
                                     viewMode={viewMode}
                                     favoriteIds={favoriteIds}
                                     togglingFavorite={togglingFavorite}
@@ -1161,6 +1118,11 @@ export default function Pipeline({ showCrm = false, showAiWorkforce = false }: P
                                     }
                                     onPromote={(company) => {
                                       setDialogMode("promote");
+                                      setPromotingCompany(company);
+                                      setPromoteDialogOpen(true);
+                                    }}
+                                    onDemote={(company) => {
+                                      setDialogMode("demote");
                                       setPromotingCompany(company);
                                       setPromoteDialogOpen(true);
                                     }}
@@ -1210,6 +1172,7 @@ export default function Pipeline({ showCrm = false, showAiWorkforce = false }: P
                                 <div className="overflow-x-auto">
                                   <OutboundCompaniesTable
                                     companies={paginatedCompanies}
+                                    stage="L0"
                                     viewMode={viewMode}
                                     favoriteIds={favoriteIds}
                                     togglingFavorite={togglingFavorite}
@@ -1235,6 +1198,11 @@ export default function Pipeline({ showCrm = false, showAiWorkforce = false }: P
                                     }
                                     onPromote={(company) => {
                                       setDialogMode("promote");
+                                      setPromotingCompany(company);
+                                      setPromoteDialogOpen(true);
+                                    }}
+                                    onDemote={(company) => {
+                                      setDialogMode("demote");
                                       setPromotingCompany(company);
                                       setPromoteDialogOpen(true);
                                     }}
@@ -1382,352 +1350,120 @@ export default function Pipeline({ showCrm = false, showAiWorkforce = false }: P
                           <Building2 className="h-12 w-12 mb-4 opacity-50" />
                           <p>No companies in this stage</p>
                         </div>
+                      ) : sourceFilter === "inbound" ? (
+                        <>
+                          <div className="overflow-x-auto">
+                            <InboundCompaniesTable
+                              companies={paginatedCompanies}
+                              stage={stage}
+                              viewMode={viewMode}
+                              favoriteIds={favoriteIds}
+                              togglingFavorite={togglingFavorite}
+                              onToggleFavorite={handleToggleFavorite}
+                              selectedIds={selectedIds}
+                              onToggleSelect={toggleSelect}
+                              updatingCompanyIds={updatingCompanyIds}
+                              statusOptions={inboundStatusOptions}
+                              sortField={sortField}
+                              sortDirection={sortDirection}
+                              onSort={toggleSort}
+                              onOpenDetail={(company) => {
+                                posthog.capture("company_detail_viewed", {
+                                  company_id: company.id,
+                                  company_name: company.target,
+                                  pipeline_stage: company.pipeline_stage,
+                                });
+                                setSelectedCompany(company);
+                              }}
+                              onStatusChange={handleStatusChange}
+                              onUpdate={(company) => setEditingCompany(company)}
+                              onPromote={(company) => {
+                                setDialogMode("promote");
+                                setPromotingCompany(company);
+                                setPromoteDialogOpen(true);
+                              }}
+                              onDemote={(company) => {
+                                setDialogMode("demote");
+                                setPromotingCompany(company);
+                                setPromoteDialogOpen(true);
+                              }}
+                              onDrop={(company) => setDropDealCompany(company)}
+                              onRestore={handleRestoreDeal}
+                            />
+                          </div>
+                          {totalPages > 1 && (
+                            <div className="flex items-center justify-between mt-4 pt-4 border-t">
+                              <p className="text-sm text-muted-foreground">
+                                Page {currentPage} of {totalPages} (
+                                {sortedCompanies.length} companies)
+                              </p>
+                              <div className="flex items-center gap-2">
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() =>
+                                    setCurrentPage((p) => Math.max(1, p - 1))
+                                  }
+                                  disabled={currentPage === 1}
+                                >
+                                  <ChevronLeft className="h-4 w-4" />
+                                </Button>
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() =>
+                                    setCurrentPage((p) =>
+                                      Math.min(totalPages, p + 1),
+                                    )
+                                  }
+                                  disabled={currentPage === totalPages}
+                                >
+                                  <ChevronRight className="h-4 w-4" />
+                                </Button>
+                              </div>
+                            </div>
+                          )}
+                        </>
                       ) : (
                         <>
                           <div className="overflow-x-auto">
-                            <Table>
-                              <TableHeader>
-                                <TableRow>
-                                  <TableHead className="w-[40px]"></TableHead>
-                                  <TableHead>
-                                    <button
-                                      onClick={() => toggleSort("name")}
-                                      className="flex items-center hover:text-foreground transition-colors"
-                                    >
-                                      Company
-                                      <SortIcon field="name" />
-                                    </button>
-                                  </TableHead>
-                                  <TableHead>Project</TableHead>
-                                  <TableHead>
-                                    <button
-                                      onClick={() => toggleSort("sector")}
-                                      className="flex items-center hover:text-foreground transition-colors"
-                                    >
-                                      Sector
-                                      <SortIcon field="sector" />
-                                    </button>
-                                  </TableHead>
-                                  <TableHead>Geo</TableHead>
-                                  <TableHead>PIC</TableHead>
-                                  <TableHead>Created</TableHead>
-                                  <TableHead className="text-right">
-                                    Rev 2023
-                                  </TableHead>
-                                  <TableHead className="text-right">
-                                    Rev 2024
-                                  </TableHead>
-                                  <TableHead className="text-right">
-                                    Rev 2025
-                                  </TableHead>
-                                  <TableHead className="text-right">
-                                    EBITDA 2023
-                                  </TableHead>
-                                  <TableHead className="text-right">
-                                    EBITDA 2024
-                                  </TableHead>
-                                  <TableHead className="text-right">
-                                    EBITDA 2025
-                                  </TableHead>
-                                  <TableHead>
-                                    <button
-                                      onClick={() => toggleSort("valuation")}
-                                      className="flex items-center hover:text-foreground transition-colors"
-                                    >
-                                      Valuation
-                                      <SortIcon field="valuation" />
-                                    </button>
-                                  </TableHead>
-                                  <TableHead className="max-w-[200px]">
-                                    Remarks
-                                  </TableHead>
-                                  <TableHead>
-                                    <button
-                                      onClick={() => toggleSort("updated")}
-                                      className="flex items-center hover:text-foreground transition-colors"
-                                    >
-                                      Updated
-                                      <SortIcon field="updated" />
-                                    </button>
-                                  </TableHead>
-                                  <TableHead className="text-right">
-                                    Actions
-                                  </TableHead>
-                                </TableRow>
-                              </TableHeader>
-                              <TableBody>
-                                {(() => {
-                                  const paginatedCompanies =
-                                    sortedCompanies.slice(
-                                      (currentPage - 1) * itemsPerPage,
-                                      currentPage * itemsPerPage,
-                                    );
-
-                                  return paginatedCompanies.map((company) => {
-                                    const isFav = favoriteIds.has(company.id);
-                                    const isUpdating = updatingCompanyIds.has(
-                                      company.id,
-                                    );
-                                    return (
-                                      <TableRow
-                                        key={company.id}
-                                        className={cn(
-                                          "transition-colors",
-                                          isFav
-                                            ? "bg-amber-50/60 dark:bg-amber-900/10 hover:bg-amber-100/60 dark:hover:bg-amber-900/20"
-                                            : "hover:bg-muted/50",
-                                          isUpdating &&
-                                            "animate-pulse opacity-60",
-                                        )}
-                                      >
-                                        <TableCell className="pr-0">
-                                          <button
-                                            onClick={() =>
-                                              handleToggleFavorite(company.id)
-                                            }
-                                            disabled={
-                                              togglingFavorite === company.id
-                                            }
-                                            className={cn(
-                                              "p-1 rounded-md transition-colors",
-                                              isFav
-                                                ? "text-amber-500 hover:text-amber-600"
-                                                : "text-muted-foreground/40 hover:text-amber-400",
-                                            )}
-                                          >
-                                            <Star
-                                              className={cn(
-                                                "h-4 w-4",
-                                                isFav && "fill-current",
-                                              )}
-                                            />
-                                          </button>
-                                        </TableCell>
-                                        <TableCell>
-                                          {company.target ? (
-                                            <button
-                                              onClick={() => {
-                                                posthog.capture(
-                                                  "company_detail_viewed",
-                                                  {
-                                                    company_id: company.id,
-                                                    company_name: company.target,
-                                                    pipeline_stage: company.pipeline_stage,
-                                                  },
-                                                );
-                                                setSelectedCompany(company);
-                                              }}
-                                              className="font-medium text-left hover:text-primary hover:underline transition-colors"
-                                            >
-                                              {company.target}
-                                            </button>
-                                          ) : (
-                                            <span className="text-muted-foreground">—</span>
-                                          )}
-                                        </TableCell>
-                                        <TableCell>
-                                          {company.project_name ? (
-                                            <button
-                                              onClick={() => {
-                                                posthog.capture(
-                                                  "company_detail_viewed",
-                                                  {
-                                                    company_id: company.id,
-                                                    company_name: company.target,
-                                                    pipeline_stage: company.pipeline_stage,
-                                                  },
-                                                );
-                                                setSelectedCompany(company);
-                                              }}
-                                              className="font-medium text-left hover:text-primary hover:underline transition-colors"
-                                            >
-                                              {company.project_name}
-                                            </button>
-                                          ) : (
-                                            <span className="text-muted-foreground">—</span>
-                                          )}
-                                        </TableCell>
-                                        <TableCell>
-                                          <Badge variant="outline">
-                                            {company.segment}
-                                          </Badge>
-                                        </TableCell>
-                                        <TableCell>
-                                          <span className="text-sm text-muted-foreground">
-                                            {company.geo || "-"}
-                                          </span>
-                                        </TableCell>
-                                        <TableCell>
-                                          <span className="text-sm text-muted-foreground">
-                                            {company.pic || "-"}
-                                          </span>
-                                        </TableCell>
-                                        <TableCell className="text-muted-foreground text-sm whitespace-nowrap">
-                                          {company.created_at
-                                            ? new Date(company.created_at).toLocaleDateString(
-                                                undefined,
-                                                { year: "numeric", month: "short", day: "numeric" },
-                                              )
-                                            : "-"}
-                                        </TableCell>
-                                        <TableCell className="text-right font-mono">
-                                          {formatCurrency(
-                                            company.revenue_2022_usd_mn,
-                                          )}
-                                        </TableCell>
-                                        <TableCell className="text-right font-mono">
-                                          {formatCurrency(
-                                            company.revenue_2023_usd_mn,
-                                          )}
-                                        </TableCell>
-                                        <TableCell className="text-right font-mono">
-                                          {formatCurrency(
-                                            company.revenue_2024_usd_mn,
-                                          )}
-                                        </TableCell>
-                                        <TableCell className="text-right font-mono">
-                                          {formatCurrency(
-                                            company.ebitda_2022_usd_mn,
-                                          )}
-                                        </TableCell>
-                                        <TableCell className="text-right font-mono">
-                                          {formatCurrency(
-                                            company.ebitda_2023_usd_mn,
-                                          )}
-                                        </TableCell>
-                                        <TableCell className="text-right font-mono">
-                                          {formatCurrency(
-                                            company.ebitda_2024_usd_mn,
-                                          )}
-                                        </TableCell>
-                                        <TableCell className="text-right font-mono">
-                                          {formatCurrency(company.ev_2024)}
-                                        </TableCell>
-                                        <TableCell className="max-w-[200px]">
-                                          {company.remarks ? (
-                                            <p
-                                              className="text-xs text-muted-foreground truncate"
-                                              title={company.remarks}
-                                            >
-                                              {company.remarks}
-                                            </p>
-                                          ) : (
-                                            <span className="text-xs text-muted-foreground">
-                                              -
-                                            </span>
-                                          )}
-                                        </TableCell>
-                                        <TableCell className="text-muted-foreground text-sm">
-                                          {formatDistanceToNow(
-                                            new Date(company.updated_at),
-                                            { addSuffix: true },
-                                          )}
-                                        </TableCell>
-                                        <TableCell className="text-right">
-                                          <DropdownMenu>
-                                            <DropdownMenuTrigger asChild>
-                                              <Button
-                                                variant="outline"
-                                                size="sm"
-                                                className="h-7 gap-1"
-                                              >
-                                                Actions
-                                                <ChevronDown className="h-3 w-3" />
-                                              </Button>
-                                            </DropdownMenuTrigger>
-                                            <DropdownMenuContent align="end">
-                                              <DropdownMenuItem
-                                                onClick={() =>
-                                                  setEditingCompany(company)
-                                                }
-                                              >
-                                                <Pencil className="mr-2 h-4 w-4" />
-                                                Update
-                                              </DropdownMenuItem>
-                                              <DropdownMenuSeparator />
-                                              {viewMode === "dropped" ? (
-                                                <DropdownMenuItem
-                                                  onClick={() =>
-                                                    handleRestoreDeal(company)
-                                                  }
-                                                >
-                                                  <RotateCcw className="mr-2 h-4 w-4" />
-                                                  Restore deal
-                                                </DropdownMenuItem>
-                                              ) : (
-                                                <>
-                                                  {stage !== "L5" && (
-                                                    <DropdownMenuItem
-                                                      onClick={() => {
-                                                        setDialogMode(
-                                                          "promote",
-                                                        );
-                                                        setPromotingCompany(
-                                                          company,
-                                                        );
-                                                        setPromoteDialogOpen(
-                                                          true,
-                                                        );
-                                                      }}
-                                                    >
-                                                      <ArrowRight className="mr-2 h-4 w-4" />
-                                                      Promote to{" "}
-                                                      {
-                                                        STAGES[
-                                                          STAGES.indexOf(
-                                                            stage,
-                                                          ) + 1
-                                                        ]
-                                                      }
-                                                    </DropdownMenuItem>
-                                                  )}
-                                                  {STAGES.indexOf(stage) >
-                                                    0 && (
-                                                    <DropdownMenuItem
-                                                      onClick={() => {
-                                                        setDialogMode("demote");
-                                                        setPromotingCompany(
-                                                          company,
-                                                        );
-                                                        setPromoteDialogOpen(
-                                                          true,
-                                                        );
-                                                      }}
-                                                    >
-                                                      <ArrowLeft className="mr-2 h-4 w-4" />
-                                                      Demote to{" "}
-                                                      {
-                                                        STAGES[
-                                                          STAGES.indexOf(
-                                                            stage,
-                                                          ) - 1
-                                                        ]
-                                                      }
-                                                    </DropdownMenuItem>
-                                                  )}
-                                                  <DropdownMenuSeparator />
-                                                  <DropdownMenuItem
-                                                    onClick={() =>
-                                                      setDropDealCompany(
-                                                        company,
-                                                      )
-                                                    }
-                                                    className="text-destructive focus:text-destructive"
-                                                  >
-                                                    <Trash2 className="mr-2 h-4 w-4 text-destructive" />
-                                                    Drop deal
-                                                  </DropdownMenuItem>
-                                                </>
-                                              )}
-                                            </DropdownMenuContent>
-                                          </DropdownMenu>
-                                        </TableCell>
-                                      </TableRow>
-                                    );
-                                  });
-                                })()}
-                              </TableBody>
-                            </Table>
+                            <OutboundCompaniesTable
+                              companies={paginatedCompanies}
+                              stage={stage}
+                              viewMode={viewMode}
+                              favoriteIds={favoriteIds}
+                              togglingFavorite={togglingFavorite}
+                              onToggleFavorite={handleToggleFavorite}
+                              selectedIds={selectedIds}
+                              onToggleSelect={toggleSelect}
+                              updatingCompanyIds={updatingCompanyIds}
+                              statusOptions={outboundStatusOptions}
+                              sortField={sortField}
+                              sortDirection={sortDirection}
+                              onSort={toggleSort}
+                              onOpenDetail={(company) => {
+                                posthog.capture("company_detail_viewed", {
+                                  company_id: company.id,
+                                  company_name: company.target,
+                                  pipeline_stage: company.pipeline_stage,
+                                });
+                                setSelectedCompany(company);
+                              }}
+                              onStatusChange={handleStatusChange}
+                              onUpdate={(company) => setEditingCompany(company)}
+                              onPromote={(company) => {
+                                setDialogMode("promote");
+                                setPromotingCompany(company);
+                                setPromoteDialogOpen(true);
+                              }}
+                              onDemote={(company) => {
+                                setDialogMode("demote");
+                                setPromotingCompany(company);
+                                setPromoteDialogOpen(true);
+                              }}
+                              onDrop={(company) => setDropDealCompany(company)}
+                              onRestore={handleRestoreDeal}
+                            />
                           </div>
                           {totalPages > 1 && (
                             <div className="flex items-center justify-between mt-4 pt-4 border-t">

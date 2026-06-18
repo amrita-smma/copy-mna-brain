@@ -22,6 +22,9 @@ export const ANALYSIS_IN_PROGRESS_STATUSES: readonly AnalysisJobStatus[] = ['pen
 export const isAnalysisInProgress = (status: AnalysisJobStatus | null | undefined): boolean =>
   status != null && ANALYSIS_IN_PROGRESS_STATUSES.includes(status);
 
+/** Ordered pipeline stages (excludes market_screening). Source of truth for promote/demote navigation. */
+export const PIPELINE_STAGES: DealStage[] = ['L0', 'L1', 'L2', 'L3', 'L4', 'L5'];
+
 export const STAGE_LABELS: Record<DealStage | 'Acquired', string> = {
   market_screening: 'Market Scanning',
   L0: 'Sourcing',
