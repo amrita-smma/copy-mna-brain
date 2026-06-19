@@ -36,12 +36,10 @@ data "aws_ami" "ubuntu_22" {
 # `terraform output -raw neo4j_password`.
 resource "random_password" "neo4j" {
   length           = 32
-  special          = true
-  override_special = ""
+  special          = false
   min_lower        = 4
   min_upper        = 4
   min_numeric      = 4
-  min_special      = 0
 }
 
 resource "aws_iam_role" "neo4j_server" {
