@@ -49,7 +49,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(result.existing);
     }
 
-    return NextResponse.json({ jobId: result.jobId }, { status: 202 });
+    // Card generation now runs on the AI Workforce; return the queue run id.
+    return NextResponse.json({ runId: result.runId }, { status: 202 });
   } catch (error) {
     console.error('POST company-analysis error:', error);
     return NextResponse.json(

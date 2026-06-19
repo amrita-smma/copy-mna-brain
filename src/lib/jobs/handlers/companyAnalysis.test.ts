@@ -44,7 +44,7 @@ vi.mock('@/lib/repositories', () => ({
   },
 }));
 
-import { runCompanyAnalysis } from './companyAnalysis';
+import { generateCompanyCard, runCompanyAnalysis } from './companyAnalysis';
 
 const VALID_ANALYSIS_JSON = JSON.stringify({
   business_overview: 'overview',
@@ -93,5 +93,44 @@ describe('runCompanyAnalysis', () => {
       expect.objectContaining({ status: 'completed', business_overview: 'overview' }),
     );
     expect(result).toEqual({});
+  });
+});
+
+describe('generateCompanyCard', () => {
+  it('returns the parsed related companies and the analysed company name', async () => {
+    mocks.updateByCompanyId.mockResolvedValue({ id: 'analysis-1' } as Tables<'company_analyses'>);
+    mocks.invoke.mockResolvedValue({
+      messages: [
+        {
+          content: JSON.stringify({
+            business_overview: 'overview',
+            business_model_summary: 'summary',
+            key_takeaways: 'takeaways',
+            investment_highlights: 'highlights',
+            investment_risks: 'risks',
+            diligence_priorities: 'priorities',
+            related_companies: [
+              { name: 'Beta Supplier', relation_type: 'SUPPLIER', notes: 'wafers' },
+              { name: 'Gamma Ventures', relation_type: 'INVESTED_IN' },
+            ],
+          }),
+        },
+      ],
+    });
+
+    const result = await generateCompanyCard(
+      { companyId: 'co-1' },
+      { db: {} as never },
+    );
+
+    expect(result.companyName).toBe('Acme Corp');
+    expect(result.relatedCompanies).toEqual([
+      { name: 'Beta Supplier', relation_type: 'SUPPLIER', notes: 'wafers' },
+      { name: 'Gamma Ventures', relation_type: 'INVESTED_IN' },
+    ]);
+    // No jobs row in the workforce path: the analysis is persisted with a null job_id.
+    expect(mocks.upsertByCompanyId).toHaveBeenCalledWith(
+      expect.objectContaining({ company_id: 'co-1', status: 'processing', job_id: null }),
+    );
   });
 });

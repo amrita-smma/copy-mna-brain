@@ -542,7 +542,7 @@ describe('FileService.approve', () => {
       companyFxAdjustmentRepo,
     );
     vi.mocked(criteriaRepo.findAll).mockResolvedValue([]);
-    vi.mocked(companyAnalysisService.dispatch).mockResolvedValue({ jobId: 'job-1' });
+    vi.mocked(companyAnalysisService.dispatch).mockResolvedValue({ runId: 'run-1' });
   });
 
   it('creates a new company from AI data when create_company_from_ai is true', async () => {

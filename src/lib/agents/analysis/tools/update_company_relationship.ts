@@ -3,7 +3,7 @@ import { z } from "zod";
 import { logger } from "../../logger";
 import { createDb } from "@/lib/server/db";
 import { createContainer } from "@/lib/services";
-import { CompanyRepository, type Tables } from "@/lib/repositories";
+import type { ResolvedCompany } from "@/lib/services";
 import {
   RELATION_TYPES,
   type RelationType,
@@ -67,44 +67,18 @@ export const updateCompanyRelationship = tool(
 
     try {
       const db = createDb();
-      const companyRepo = new CompanyRepository(db);
-      const { companyService, companyGraphService } = createContainer(db);
+      const { companyRelationshipService } = createContainer(db);
 
-      // Resolve a company by name, creating a `discovered` row when absent.
-      // Returns the row plus whether it was newly created (for the report).
-      const resolve = async (
-        name: string,
-      ): Promise<{ row: Tables<"companies">; created: boolean }> => {
-        const existing = await companyRepo.findByNameFuzzy(name);
-        if (existing) return { row: existing, created: false };
-        const created = await companyService.create(
-          {
-            target: name,
-            pipeline_stage: DISCOVERED_STAGE,
-            status: "active",
-          } as never,
-          "CREATED_AS_DISCOVERED",
-        );
-        logger.debug(`✓ Created discovered company "${name}" (${created.id})`);
-        return { row: created, created: true };
-      };
-
-      const source = await resolve(trimmedSource);
-      const target = await resolve(trimmedTarget);
-
-      await companyGraphService.relateCompanies({
-        source: source.row,
-        target: target.row,
+      const { source, target } = await companyRelationshipService.linkByName({
+        sourceName: trimmedSource,
+        targetName: trimmedTarget,
         type: relation_type,
         notes: notes?.trim() || undefined,
         evidence: evidence?.trim() || undefined,
         date: date?.trim() || undefined,
       });
 
-      const noteCreated = (
-        label: string,
-        r: { row: Tables<"companies">; created: boolean },
-      ) =>
+      const noteCreated = (label: string, r: ResolvedCompany) =>
         r.created
           ? `${label} "${r.row.target}" was not on record — created it as a "${DISCOVERED_STAGE}" company (id: ${r.row.id}).`
           : null;

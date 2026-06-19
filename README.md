@@ -414,16 +414,18 @@ it.**
   row no longer exists. Use it to repair drift (e.g. after writes that bypassed
   the mirror). Like all async work it reports lifecycle through `jobs` /
   `job_logs`.
-- **Agent-authored relationships.** The analysis agent's
-  `update_company_relationship` tool (workforce-only, auto-executing) records a
-  directed edge between two companies (`source --[INVESTED_IN|PARTNER|SUPPLIER]-->
-  target`) via `CompanyGraphService.relateCompanies`. Each side is matched by
-  name (`CompanyRepository.findByNameFuzzy`); a company with no match is
-  auto-created in Postgres at the **`discovered`** pipeline stage — a stage
-  reserved for companies that surface only through a relationship, not through
-  the L0–L5 deal pipeline. Discovered companies get their own section in the
-  Master Data view (`src/views/MasterData.tsx`). `relateCompanies` upserts both
-  nodes before the edge so the relation always attaches.
+- **Agent-authored relationships.** Linking logic lives in
+  `CompanyRelationshipService.linkByName` (services layer): it records a directed
+  edge between two companies (`source --[INVESTED_IN|PARTNER|SUPPLIER]--> target`)
+  via `CompanyGraphService.relateCompanies`. Each side is matched by name
+  (`CompanyRepository.findByNameFuzzy`); a company with no match is auto-created
+  in Postgres at the **`discovered`** pipeline stage — a stage reserved for
+  companies that surface only through a relationship, not through the L0–L5 deal
+  pipeline. Discovered companies get their own section in the Master Data view
+  (`src/views/MasterData.tsx`). `relateCompanies` upserts both nodes before the
+  edge so the relation always attaches. Two workforce-only tools drive this:
+  `update_company_relationship` (a single explicit edge) and
+  `generate_company_card` (one edge per related company a Company Card surfaces).
 
 - **Visualizer (`src/views/CompanyGraph.tsx`).** The `/graph` canvas
   (`react-force-graph-2d`) supports client-side filtering on company metadata
@@ -439,14 +441,23 @@ Connection is configured via `NEO4J_URI` / `NEO4J_USER` / `NEO4J_PASSWORD`
 
 ## Async jobs
 
-Long-running compute (AI screening, company analysis, market screening,
-slide generation) is dispatched via `JobDispatcher`/`dispatchJob`, which
-inserts a row into the `jobs` table and schedules the work via Next.js
-`after()`. The runner transitions the row through
-`pending → running → completed | failed | timed_out`, and every state change
-is appended to `job_logs`. Transactional email is the one async path that
-runs through Vercel Queues instead — see the forgot-password section above
-for the rationale.
+Long-running compute (AI screening, market screening, slide generation) is
+dispatched via `JobDispatcher`/`dispatchJob`, which inserts a row into the
+`jobs` table and schedules the work via Next.js `after()`. The runner
+transitions the row through `pending → running → completed | failed | timed_out`,
+and every state change is appended to `job_logs`. Transactional email is the one
+async path that runs through Vercel Queues instead — see the forgot-password
+section above for the rationale.
+
+**Company Card generation** no longer uses the `jobs` table. `POST
+/api/company-analysis` → `CompanyAnalysisService.dispatch` now enqueues an **AI
+Workforce** run (`ai_workforce_queue`, `agent_name: 'company_card'`) whose
+instruction drives the `generate_company_card` workforce tool. The tool
+researches the company, persists the structured card to `company_analyses`
+(which the Company Card UI polls via `GET /api/company-analysis`), and links the
+company's related suppliers/partners/investors into the relationship graph
+(creating unknown ones as `discovered`). The legacy `runCompanyAnalysis` job
+wrapper remains for backward compatibility but is no longer dispatched.
 
 ### Stuck-job cleanup scheduler
 

@@ -19,6 +19,7 @@ import { proposeBulkPromoteCompanies } from "./propose_bulk_promote_companies";
 import { promoteToL1 } from "./promote_to_l1";
 import { addCompanyToL0 } from "./add_company_to_l0";
 import { updateCompanyRelationship } from "./update_company_relationship";
+import { generateCompanyCard } from "./generate_company_card";
 import { narrateStep } from "./narrate_step";
 import { reportProgress } from "./report_progress";
 import { notifyProgress } from "./notify_progress";
@@ -44,6 +45,7 @@ export {
   promoteToL1,
   addCompanyToL0,
   updateCompanyRelationship,
+  generateCompanyCard,
   narrateStep,
   reportProgress,
   notifyProgress,
@@ -114,6 +116,7 @@ export const workforceOnlyTools = [
   promoteToL1,
   addCompanyToL0,
   updateCompanyRelationship,
+  generateCompanyCard,
   runMarketScreeningTool,
   narrateStep,
   reportProgress,

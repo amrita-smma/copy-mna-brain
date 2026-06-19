@@ -38,6 +38,7 @@ import {
 import { JobDispatcher } from './jobDispatcher';
 import { CompanyService } from './companyService';
 import { CompanyGraphService } from './companyGraphService';
+import { CompanyRelationshipService } from './companyRelationshipService';
 import { createNeo4jDriver } from '@/lib/neo4j';
 import { CompanyRelationRepository } from '@/lib/repositories/companyRelationRepository';
 import { ScreeningService } from './screeningService';
@@ -67,6 +68,7 @@ import { NotificationService } from './notificationService';
 export interface Container {
   companyService: CompanyService;
   companyGraphService: CompanyGraphService;
+  companyRelationshipService: CompanyRelationshipService;
   screeningService: ScreeningService;
   criteriaService: CriteriaService;
   investmentThesisService: InvestmentThesisService;
@@ -136,7 +138,7 @@ export function createContainer(db: DbClient): Container {
   const userService = new UserService(userRepo, userFavoriteRepo);
   const chatService = new ChatService(thesisRepo, criteriaRepo);
 
-  const companyAnalysisService = new CompanyAnalysisService(companyAnalysisRepo, jobDispatcher);
+  const companyAnalysisService = new CompanyAnalysisService(companyAnalysisRepo, companyRepo, db);
   const aiScreeningService = new AIScreeningService(screeningRepo, jobDispatcher);
   const marketScreeningService = new MarketScreeningService(jobDispatcher);
   const slideService = new SlideService(companySlidesRepo, jobDispatcher);
@@ -152,6 +154,11 @@ export function createContainer(db: DbClient): Container {
     companyScreeningDerivedRepo,
   );
   const companyGraphService = new CompanyGraphService(companyGraphRepo, jobDispatcher);
+  const companyRelationshipService = new CompanyRelationshipService(
+    companyRepo,
+    companyService,
+    companyGraphService,
+  );
   const dealDocumentService = new DealDocumentService(dealDocRepo);
   const fileService = new FileService(
     db,
@@ -208,6 +215,7 @@ export function createContainer(db: DbClient): Container {
   return {
     companyService,
     companyGraphService,
+    companyRelationshipService,
     screeningService,
     criteriaService,
     investmentThesisService,

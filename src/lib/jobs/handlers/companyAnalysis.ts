@@ -11,9 +11,25 @@ import {
   CompanyScreeningDerivedRepository,
 } from "@/lib/repositories";
 import type { DbClient, Tables } from "@/lib/repositories";
+import {
+  RELATION_TYPES,
+  type RelationType,
+} from "@/lib/repositories/companyRelationRepository";
 import { z } from "zod";
 
 export const COMPANY_ANALYSIS_TIMEOUT_SECONDS = 480; // 8 minutes
+
+const RelatedCompanySchema = z.object({
+  name: z.string(),
+  relation_type: z.enum(
+    RELATION_TYPES as unknown as [RelationType, ...RelationType[]],
+  ),
+  notes: z.string().optional(),
+  evidence: z.string().optional(),
+});
+
+/** A company surfaced by a card as related to the analysed company. */
+export type RelatedCompany = z.infer<typeof RelatedCompanySchema>;
 
 const CompanyAnalysisResultSchema = z.object({
   business_overview: z.string(),
@@ -32,6 +48,7 @@ const CompanyAnalysisResultSchema = z.object({
       }),
     )
     .optional(),
+  related_companies: z.array(RelatedCompanySchema).optional(),
 });
 
 type CompanyAnalysisResult = z.infer<typeof CompanyAnalysisResultSchema>;
@@ -39,6 +56,15 @@ type CompanyAnalysisResult = z.infer<typeof CompanyAnalysisResultSchema>;
 export interface CompanyAnalysisPayload {
   companyId: string;
   source?: string;
+}
+
+/** Result of generating a company card: the saved record plus the related
+ * companies the agent surfaced (to be linked into the relationship graph by
+ * the caller) and the analysed company's display name. */
+export interface CompanyCardResult {
+  analysis: Tables<"company_analyses">;
+  relatedCompanies: RelatedCompany[];
+  companyName: string;
 }
 
 const ANALYSIS_PROMPT_TEMPLATE = `You are a senior M&A analyst preparing a comprehensive Company Card for an acquisition target. Your job is to research the company thoroughly using ALL available tools, then produce a structured analysis.
@@ -104,6 +130,14 @@ Define the 3-7 most critical unknowns to resolve before advancing investment:
 - Prioritize items that could be deal-breakers
 - Include financial, operational, legal, and commercial dimensions
 
+### 7. Related Companies
+Identify other companies that "{companyName}" has a concrete business relationship with — its notable suppliers, partners/collaborators, and investors/owners. For each, classify the relationship FROM "{companyName}" TO the related company using exactly one of these types:
+- **SUPPLIER**: "{companyName}" supplies products/services to the related company (the related company is a customer/downstream).
+- **PARTNER**: "{companyName}" has a partnership, JV, alliance, or significant commercial collaboration with the related company.
+- **INVESTED_IN**: "{companyName}" has invested in / owns a stake in the related company.
+
+Only include companies you have a real basis for from your research — do NOT invent relationships. It is fine to return an empty list if none are evident. Use the company's commonly-known name (no legal suffixes needed).
+
 ## Response Format
 
 Respond ONLY with a JSON object. Each section value should be a markdown string with bullet points.
@@ -117,7 +151,8 @@ Respond ONLY with a JSON object. Each section value should be a markdown string 
   "investment_risks": "- **Customer Concentration**: ...\\n- **Regulatory Exposure**: ...\\n...",
   "diligence_priorities": "1. Question one?\\n2. Question two?\\n...",
   "logo_url": "https://...",
-  "sources_used": [{"type": "database"}, {"type": "web", "url": "https://...", "title": "..."}, {"type": "inven"}, {"type": "{source}"}]
+  "sources_used": [{"type": "database"}, {"type": "web", "url": "https://...", "title": "..."}, {"type": "inven"}, {"type": "{source}"}],
+  "related_companies": [{"name": "Some Customer Inc", "relation_type": "SUPPLIER", "notes": "Key wafer supplier relationship", "evidence": "https://..."}]
 }
 \`\`\`
 
@@ -189,11 +224,23 @@ function buildCompanyContext(
   return lines.join("\n");
 }
 
-export async function runCompanyAnalysis(
+/**
+ * Generate (or regenerate) a Company Card: research the company on the
+ * stateless analysis agent, parse the structured 6-section result, and persist
+ * it to `company_analyses`. Returns the saved record plus any related
+ * companies the agent surfaced — the caller decides how to link those into the
+ * relationship graph.
+ *
+ * Decoupled from the jobs table: `jobId` is optional. The Company Card now runs
+ * on the AI Workforce (see `generate_company_card` tool), which has no jobs row;
+ * the legacy `runCompanyAnalysis` job wrapper still threads its job id through.
+ */
+export async function generateCompanyCard(
   payload: CompanyAnalysisPayload,
-  deps: { db: DbClient; job: Tables<"jobs"> },
-): Promise<Tables<"company_analyses">> {
+  deps: { db: DbClient; jobId?: string | null },
+): Promise<CompanyCardResult> {
   const { companyId, source } = payload;
+  const jobId = deps.jobId ?? null;
 
   if (!companyId) throw new Error("Missing required field: companyId");
 
@@ -212,7 +259,7 @@ export async function runCompanyAnalysis(
     company_id: companyId,
     status: "processing",
     error_message: null,
-    job_id: deps.job.id,
+    job_id: jobId,
   });
 
   const agent = await getStatelessAgentGraph();
@@ -226,6 +273,7 @@ export async function runCompanyAnalysis(
     );
   }
 
+  const companyName = company.target || company.project_name || "Unknown";
   const companyContext = buildCompanyContext(company, financials, screening);
   const toolDescriptions = getToolDescriptions();
 
@@ -233,16 +281,19 @@ export async function runCompanyAnalysis(
     "{toolDescriptions}",
     toolDescriptions,
   )
-    .replace("{companyName}", company.target || "Unknown")
-    .replace("{companyName}", company.target || "Unknown")
+    .replaceAll("{companyName}", companyName)
     .replace("{companyContext}", companyContext)
     .replace("{source}", source || "files");
+
+  // The stateless graph has no checkpointer, so thread_id is only a trace
+  // label — use the job id when present, else a company-scoped fallback.
+  const threadId = jobId ?? `company-card-${companyId}`;
 
   let agentResult;
   try {
     agentResult = await agent.invoke(
       { messages: [new HumanMessage(prompt)] },
-      { configurable: { thread_id: deps.job.id } },
+      { configurable: { thread_id: threadId } },
     );
   } catch (err) {
     const message = (err as Error).message || "Unknown error";
@@ -271,7 +322,7 @@ export async function runCompanyAnalysis(
         console.error(
           "[companyAnalysis] failed to parse agent output into structured format",
           {
-            jobId: deps.job.id,
+            jobId,
             companyId,
             contentIsArray: Array.isArray(lastMsg?.content),
             contentPreview: content.slice(0, 500),
@@ -288,7 +339,7 @@ export async function runCompanyAnalysis(
       console.error(
         "[companyAnalysis] agent output contained no JSON object",
         {
-          jobId: deps.job.id,
+          jobId,
           companyId,
           contentIsArray: Array.isArray(lastMsg?.content),
           contentPreview: content.slice(0, 500),
@@ -315,5 +366,25 @@ export async function runCompanyAnalysis(
     error_message: null,
   });
 
-  return updated;
+  return {
+    analysis: updated,
+    relatedCompanies: analysisResult.related_companies ?? [],
+    companyName,
+  };
+}
+
+/**
+ * Legacy jobs-table entrypoint. The Company Card now runs on the AI Workforce
+ * (`generate_company_card` tool); this wrapper is kept for the `company_analysis`
+ * job type and returns just the saved record for backward compatibility.
+ */
+export async function runCompanyAnalysis(
+  payload: CompanyAnalysisPayload,
+  deps: { db: DbClient; job: Tables<"jobs"> },
+): Promise<Tables<"company_analyses">> {
+  const { analysis } = await generateCompanyCard(payload, {
+    db: deps.db,
+    jobId: deps.job.id,
+  });
+  return analysis;
 }

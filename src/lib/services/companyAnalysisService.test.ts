@@ -1,13 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { CompanyAnalysisRepository } from '@/lib/repositories';
+import type { CompanyAnalysisRepository, CompanyRepository } from '@/lib/repositories';
 import type { Tables } from '@/lib/repositories';
-import type { JobDispatcher } from './jobDispatcher';
-import { CompanyAnalysisService } from './companyAnalysisService';
+import { CompanyAnalysisService, COMPANY_CARD_AGENT_NAME } from './companyAnalysisService';
 
-vi.mock('@/lib/jobs/handlers/companyAnalysis', () => ({
-  runCompanyAnalysis: vi.fn(),
-  COMPANY_ANALYSIS_TIMEOUT_SECONDS: 300,
-}));
+const { enqueueAgentRun } = vi.hoisted(() => ({ enqueueAgentRun: vi.fn() }));
+vi.mock('@/lib/workforce', () => ({ enqueueAgentRun }));
 
 type Analysis = Tables<'company_analyses'>;
 
@@ -31,51 +28,67 @@ function makeAnalysis(overrides: Partial<Analysis> = {}): Analysis {
   } as Analysis;
 }
 
-function makeRepoStub(): CompanyAnalysisRepository {
-  return {
-    findByCompanyId: vi.fn(),
-    findCompletedByCompanyId: vi.fn(),
-    insert: vi.fn(),
-    upsertByCompanyId: vi.fn(),
-    updateByCompanyId: vi.fn(),
-    deleteByCompanyId: vi.fn(),
-  } as unknown as CompanyAnalysisRepository;
-}
+const findCompletedByCompanyId = vi.fn();
+const findById = vi.fn();
 
-function makeDispatcherStub(): JobDispatcher {
-  return {
-    dispatch: vi.fn(),
-  } as unknown as JobDispatcher;
+function makeService(): CompanyAnalysisService {
+  return new CompanyAnalysisService(
+    { findCompletedByCompanyId } as unknown as CompanyAnalysisRepository,
+    { findById } as unknown as CompanyRepository,
+    {} as never,
+  );
 }
 
 describe('CompanyAnalysisService.dispatch', () => {
-  let repo: CompanyAnalysisRepository;
-  let dispatcher: JobDispatcher;
   let service: CompanyAnalysisService;
 
   beforeEach(() => {
-    repo = makeRepoStub();
-    dispatcher = makeDispatcherStub();
-    service = new CompanyAnalysisService(repo, dispatcher);
+    findCompletedByCompanyId.mockReset();
+    findById.mockReset();
+    enqueueAgentRun.mockReset();
+    service = makeService();
   });
 
   it('returns the existing analysis when one is already completed (idempotent)', async () => {
     const existing = makeAnalysis({ status: 'completed' });
-    vi.mocked(repo.findCompletedByCompanyId).mockResolvedValue(existing);
+    findCompletedByCompanyId.mockResolvedValue(existing);
 
-    const result = await service.dispatch({ companyId: 'company-1' } as any);
+    const result = await service.dispatch({ companyId: 'company-1' });
 
     expect(result).toEqual({ existing });
-    expect(dispatcher.dispatch).not.toHaveBeenCalled();
+    expect(enqueueAgentRun).not.toHaveBeenCalled();
   });
 
-  it('dispatches a new job when no completed analysis exists', async () => {
-    vi.mocked(repo.findCompletedByCompanyId).mockResolvedValue(undefined);
-    vi.mocked(dispatcher.dispatch).mockResolvedValue({ jobId: 'job-new' });
+  it('enqueues an AI Workforce run when no completed analysis exists', async () => {
+    findCompletedByCompanyId.mockResolvedValue(undefined);
+    findById.mockResolvedValue({ id: 'company-1', target: 'Acme Corp' });
+    enqueueAgentRun.mockResolvedValue({ runId: 'run-new', created: true });
 
-    const result = await service.dispatch({ companyId: 'company-1' } as any);
+    const result = await service.dispatch({ companyId: 'company-1', source: 'files' });
 
-    expect(dispatcher.dispatch).toHaveBeenCalledOnce();
-    expect(result).toEqual({ jobId: 'job-new' });
+    expect(result).toEqual({ runId: 'run-new' });
+    expect(enqueueAgentRun).toHaveBeenCalledOnce();
+    const [, input] = enqueueAgentRun.mock.calls[0];
+    expect(input).toMatchObject({
+      agentName: COMPANY_CARD_AGENT_NAME,
+      triggerSource: 'api',
+      triggerMeta: { company_id: 'company-1', source: 'files' },
+    });
+    // The instruction names the company and the tool + id the worker must call.
+    expect(input.input.company_id).toBe('company-1');
+    expect(input.input.prompt).toMatch(/Acme Corp/);
+    expect(input.input.prompt).toMatch(/generate_company_card/);
+    expect(input.input.prompt).toContain('company-1');
+  });
+
+  it('falls back to a generic company label when the company row is missing', async () => {
+    findCompletedByCompanyId.mockResolvedValue(undefined);
+    findById.mockResolvedValue(null);
+    enqueueAgentRun.mockResolvedValue({ runId: 'run-2', created: true });
+
+    await service.dispatch({ companyId: 'company-9' });
+
+    const [, input] = enqueueAgentRun.mock.calls[0];
+    expect(input.input.prompt).toMatch(/the company/);
   });
 });

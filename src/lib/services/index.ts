@@ -1,6 +1,7 @@
 export * from './container';
 export * from './jobDispatcher';
 export * from './companyService';
+export * from './companyRelationshipService';
 export * from './screeningService';
 export * from './criteriaService';
 export * from './investmentThesisService';
