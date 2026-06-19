@@ -17,6 +17,7 @@ import { useChatContext } from '@/components/chat/ChatProvider';
 import { ChatSidebar } from '@/components/chat/ChatSidebar';
 import { ChatMessageBubble, LoadingBubble } from '@/components/chat/ChatMessageBubble';
 import { CachedChatPreview } from '@/components/chat/CachedChatPreview';
+import { ChatSuggestions } from '@/components/chat/ChatSuggestions';
 import { StickToBottom, useStickToBottomContext } from 'use-stick-to-bottom';
 import { motion, AnimatePresence } from 'framer-motion';
 import type { UIMessage } from '@ai-sdk/react';
@@ -132,7 +133,7 @@ function ChatInput({ isExpanded }: { isExpanded: boolean }) {
 }
 
 function ChatContent({ isExpanded }: { isExpanded: boolean }) {
-  const { messages, status } = useChatContext();
+  const { messages, status, cacheHit } = useChatContext();
 
   return (
     <StickToBottom className="flex-1 flex flex-col min-h-0">
@@ -147,6 +148,9 @@ function ChatContent({ isExpanded }: { isExpanded: boolean }) {
           transition={{ duration: 0.3, ease: 'easeInOut' }}
         >
           <ChatMessageBubble message={welcomeUIMessage} />
+          {messages.length === 0 && !cacheHit && (
+            <ChatSuggestions className="mt-1 grid-cols-1" />
+          )}
           <CachedChatPreview />
           {messages.map((message) => (
             <ChatMessageBubble key={message.id} message={message} />

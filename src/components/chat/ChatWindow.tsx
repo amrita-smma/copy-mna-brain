@@ -13,6 +13,7 @@ import { cn } from "@/lib/utils";
 import { ChatMessageBubble, LoadingBubble } from "./ChatMessageBubble";
 import { useChatContext } from "./ChatProvider";
 import { CachedChatPreview } from "./CachedChatPreview";
+import { ChatSuggestions } from "./ChatSuggestions";
 
 const WELCOME_MESSAGE = `# Hello! I'm your M&A discovery assistant. I can help you with
 
@@ -318,6 +319,7 @@ export function ChatWindow(props: {
         ) : messages.length === 0 ? (
           <div className="flex flex-col min-w-0 max-w-[768px] mx-auto pb-12 w-full">
             <WelcomeMessage />
+            <ChatSuggestions className="mt-4 px-2" />
           </div>
         ) : (
           <ChatMessages
