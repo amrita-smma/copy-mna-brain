@@ -126,7 +126,7 @@ export function ChatInput(props: {
           )}
         </Button>
       </div>
-      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
         <Lightbulb className="h-3.5 w-3.5 text-amber-500 shrink-0" />
         <span>Try:</span>
         {chips.map((chip, i) => (
@@ -134,7 +134,7 @@ export function ChatInput(props: {
             key={i}
             type="button"
             onClick={() => props.onChipClick?.(chip)}
-            className="text-primary hover:underline"
+            className="text-left text-primary hover:underline"
           >
             &quot;{chip}&quot;{i < chips.length - 1 ? "," : ""}
           </button>

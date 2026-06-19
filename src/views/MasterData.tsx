@@ -531,7 +531,12 @@ export default function MasterData({ showCrm = false, showAiWorkforce = false }:
                         )}
                         {company.status === 'dropped' && <Badge variant="destructive">Dropped</Badge>}
                         {company.status === 'active' && <Badge variant="default">Active</Badge>}
-                        <Badge variant="outline">{company.sector || '-'}</Badge>
+                        <Badge
+                          variant="outline"
+                          className="text-sm px-2.5 py-1 whitespace-normal break-words text-left leading-snug"
+                        >
+                          {company.sector || '-'}
+                        </Badge>
                         <Badge variant="secondary" className="capitalize">{company.source || '-'}</Badge>
                       </div>
                       <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-1.5 text-xs">
@@ -572,7 +577,7 @@ export default function MasterData({ showCrm = false, showAiWorkforce = false }:
                       <TableHead>Company</TableHead>
                       <TableHead>Project</TableHead>
                       <TableHead>Status</TableHead>
-                      <TableHead>Sector</TableHead>
+                      <TableHead className="min-w-[200px]">Sector</TableHead>
                       <TableHead>Source</TableHead>
                       <TableHead>Geo</TableHead>
                       <TableHead>Stage</TableHead>
@@ -635,8 +640,13 @@ export default function MasterData({ showCrm = false, showAiWorkforce = false }:
                               <span className="text-muted-foreground">—</span>
                             )}
                           </TableCell>
-                          <TableCell>
-                            <Badge variant="outline">{company.sector || '-'}</Badge>
+                          <TableCell className="min-w-[200px]">
+                            <Badge
+                              variant="outline"
+                              className="text-sm px-2.5 py-1 rounded-md whitespace-normal break-words text-left leading-snug"
+                            >
+                              {company.sector || '-'}
+                            </Badge>
                           </TableCell>
                           <TableCell>
                             <Badge variant="secondary" className="capitalize">

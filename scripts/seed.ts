@@ -1034,6 +1034,56 @@ const seedCompanies: SeedCompany[] = [
       { fiscal_year: 2024, revenue_usd_mn: 620, ebitda_usd_mn: 95, ev_usd_mn: 1100 },
     ],
   },
+
+  // ── LONG-SEGMENT worst cases (chip overflow validation) ───────────────────
+  // Dropped within the last few days so they surface in the Dashboard "Dropped"
+  // recap + feed (those filter on dropped_at within the 7/14-day window).
+  {
+    entry_id: 9031,
+    target: 'C-Hawk Technology',
+    segment: 'Semiconductor Equipment – OEM Sub-system & Component Manufacturing',
+    company_focus: 'OEM sub-systems and precision components for fab equipment',
+    website: 'https://c-hawk.example',
+    geography: 'United States',
+    ownership: 'Private',
+    pipeline_stage: 'L0',
+    status: 'dropped',
+    watchlist_status: 'Dropped',
+    source: 'inbound',
+    deal_type: 'majority',
+    banker: 'Goldman Sachs',
+    originator: 'James Wong',
+    doc_type: 'teaser',
+    workflow_status: 'Teaser review',
+    dropped_reason:
+      'Customer concentration in a single fab-equipment OEM; thesis fit limited.',
+    dropped_at: '2026-06-16T09:30:00Z',
+    last_activity_at: '2026-06-16T09:30:00Z',
+    financials: [{ fiscal_year: 2024, revenue_usd_mn: 64, ebitda_usd_mn: 8.2 }],
+  },
+  {
+    entry_id: 9032,
+    project_name: 'Project Bold',
+    segment: 'UHP Chemicals and Gases – Front End Semiconductor',
+    company_focus: 'Ultra-high-purity process chemicals and gases for front-end fabs',
+    website: 'https://project-bold.example',
+    geography: 'South Korea',
+    ownership: 'Private',
+    pipeline_stage: 'L0',
+    status: 'dropped',
+    watchlist_status: 'Dropped',
+    source: 'inbound',
+    deal_type: 'majority',
+    banker: 'JP Morgan',
+    originator: 'Nur Khairusy',
+    doc_type: 'teaser',
+    workflow_status: 'Teaser review',
+    dropped_reason:
+      'Sellers anchored valuation materially above comparable UHP-chemicals transactions.',
+    dropped_at: '2026-06-17T11:15:00Z',
+    last_activity_at: '2026-06-17T11:15:00Z',
+    financials: [{ fiscal_year: 2024, revenue_usd_mn: 120, ebitda_usd_mn: 19 }],
+  },
 ];
 
 async function main() {

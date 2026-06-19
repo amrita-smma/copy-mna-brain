@@ -1320,7 +1320,7 @@ export default function Dashboard({
                                     {c.segment && (
                                       <Badge
                                         variant="secondary"
-                                        className="text-[10px] px-1.5 py-0.5 min-h-4"
+                                        className="text-[10px] px-1.5 py-0.5 min-h-4 rounded-md whitespace-normal break-words text-left leading-snug"
                                       >
                                         {c.segment}
                                       </Badge>
@@ -1328,7 +1328,7 @@ export default function Dashboard({
                                     {c.geography && (
                                       <Badge
                                         variant="outline"
-                                        className="text-[10px] px-1.5 py-0.5 min-h-4"
+                                        className="text-[10px] px-1.5 py-0.5 min-h-4 rounded-md whitespace-normal break-words text-left leading-snug"
                                       >
                                         {c.geography}
                                       </Badge>
@@ -1394,7 +1394,7 @@ export default function Dashboard({
                                   {d.segment && (
                                     <Badge
                                       variant="secondary"
-                                      className="text-[10px] px-1.5 py-0.5 min-h-4"
+                                      className="text-[10px] px-1.5 py-0.5 min-h-4 rounded-md whitespace-normal break-words text-left leading-snug"
                                     >
                                       {d.segment}
                                     </Badge>
@@ -1402,7 +1402,7 @@ export default function Dashboard({
                                   {d.geography && (
                                     <Badge
                                       variant="outline"
-                                      className="text-[10px] px-1.5 py-0.5 min-h-4"
+                                      className="text-[10px] px-1.5 py-0.5 min-h-4 rounded-md whitespace-normal break-words text-left leading-snug"
                                     >
                                       {d.geography}
                                     </Badge>
@@ -1487,7 +1487,7 @@ export default function Dashboard({
                                       {m.geography && (
                                         <Badge
                                           variant="outline"
-                                          className="text-[10px] px-1.5 py-0.5 min-h-4"
+                                          className="text-[10px] px-1.5 py-0.5 min-h-4 rounded-md whitespace-normal break-words text-left leading-snug"
                                         >
                                           {m.geography}
                                         </Badge>
@@ -1942,7 +1942,7 @@ function FeedEventRow({
           {event.geography && (
             <Badge
               variant="outline"
-              className="text-[10px] px-1.5 py-0.5 min-h-4 font-normal"
+              className="text-[10px] px-1.5 py-0.5 min-h-4 font-normal rounded-md whitespace-normal break-words text-left leading-snug"
             >
               {event.geography}
             </Badge>
@@ -1950,7 +1950,7 @@ function FeedEventRow({
           {event.segment && (
             <Badge
               variant="outline"
-              className="text-[10px] px-1.5 py-0.5 min-h-4 font-normal"
+              className="text-[10px] px-1.5 py-0.5 min-h-4 font-normal rounded-md whitespace-normal break-words text-left leading-snug"
             >
               {event.segment}
             </Badge>
