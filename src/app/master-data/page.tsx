@@ -1,10 +1,7 @@
 import MasterData from '@/views/MasterData';
-import { crmEnabled, aiWorkforceEnabled } from '@/lib/flags';
+import { companyGraphEnabled } from '@/lib/flags';
 
 export default async function MasterDataPage() {
-  const [showCrm, showAiWorkforce] = await Promise.all([
-    crmEnabled().then(Boolean),
-    aiWorkforceEnabled().then(Boolean),
-  ]);
-  return <MasterData showCrm={showCrm} showAiWorkforce={showAiWorkforce} />;
+  const showCompanyGraph = await companyGraphEnabled().then(Boolean);
+  return <MasterData showCompanyGraph={showCompanyGraph} />;
 }

@@ -449,6 +449,20 @@
       "when": 1781654403000,
       "tag": "20260617000003_add_origination_triage_fields",
       "breakpoints": true
+    },
+    {
+      "idx": 64,
+      "version": "7",
+      "when": 1781827200000,
+      "tag": "20260619000000_add_graph_sync_job_type",
+      "breakpoints": true
+    },
+    {
+      "idx": 65,
+      "version": "7",
+      "when": 1781827201000,
+      "tag": "20260619000001_add_discovered_pipeline_stage",
+      "breakpoints": true
     }
   ]
 }

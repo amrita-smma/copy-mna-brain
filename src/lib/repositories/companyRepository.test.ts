@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { CompanyRepository } from './companyRepository';
+import type { Tables } from './types';
+import type { CompanyGraphMirror } from './companyRelationRepository';
 
 /** Build a db whose `select(...).from(...)` resolves to the given rows. */
 function makeDb(rows: Array<{ banker: string | null }>) {
@@ -7,6 +9,154 @@ function makeDb(rows: Array<{ banker: string | null }>) {
   const selectMock = vi.fn().mockReturnValue({ from: fromMock });
   return { db: { select: selectMock } as never, selectMock, fromMock };
 }
+
+/**
+ * Build a db whose insert/update chains resolve to `rows` via `.returning()`
+ * and whose delete chain resolves. Mirrors the chains CompanyRepository uses.
+ */
+function makeWriteDb(rows: Array<Partial<Tables<'companies'>>>) {
+  const returning = vi.fn().mockResolvedValue(rows);
+  const insert = vi.fn().mockReturnValue({
+    values: vi.fn().mockReturnValue({ returning }),
+  });
+  const update = vi.fn().mockReturnValue({
+    set: vi.fn().mockReturnValue({ where: vi.fn().mockReturnValue({ returning }) }),
+  });
+  const deleteWhere = vi.fn().mockResolvedValue(undefined);
+  const del = vi.fn().mockReturnValue({ where: deleteWhere });
+  return { db: { insert, update, delete: del } as never };
+}
+
+function makeMirror(): CompanyGraphMirror & {
+  upsertCompany: ReturnType<typeof vi.fn>;
+  deleteCompany: ReturnType<typeof vi.fn>;
+} {
+  return {
+    upsertCompany: vi.fn().mockResolvedValue(undefined),
+    deleteCompany: vi.fn().mockResolvedValue(undefined),
+  };
+}
+
+function row(overrides: Partial<Tables<'companies'>> = {}): Partial<Tables<'companies'>> {
+  return {
+    id: 'c1',
+    target: 'Acme Corp',
+    project_name: null,
+    segment: 'technology',
+    geography: 'Indonesia',
+    ownership: 'Public',
+    ...overrides,
+  };
+}
+
+describe('CompanyRepository graph mirror', () => {
+  it('upserts the inserted company onto the graph with mapped fields', async () => {
+    const { db } = makeWriteDb([row()]);
+    const mirror = makeMirror();
+    const repo = new CompanyRepository(db, mirror);
+
+    await repo.insert(row() as never);
+
+    expect(mirror.upsertCompany).toHaveBeenCalledWith({
+      id: 'c1',
+      name: 'Acme Corp',
+      segment: 'technology',
+      geography: 'Indonesia',
+      ownership: 'public', // normalized to lowercase
+    });
+  });
+
+  it('falls back to project_name then "(unnamed)" for the node name', async () => {
+    const { db } = makeWriteDb([
+      row({ id: 'c2', target: null, project_name: 'Project Phoenix' }),
+    ]);
+    const mirror = makeMirror();
+    const repo = new CompanyRepository(db, mirror);
+
+    await repo.insert(row() as never);
+
+    expect(mirror.upsertCompany).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'c2', name: 'Project Phoenix' }),
+    );
+  });
+
+  it('drops unknown ownership values to undefined', async () => {
+    const { db } = makeWriteDb([row({ ownership: 'state-owned' })]);
+    const mirror = makeMirror();
+    const repo = new CompanyRepository(db, mirror);
+
+    await repo.insert(row() as never);
+
+    expect(mirror.upsertCompany).toHaveBeenCalledWith(
+      expect.objectContaining({ ownership: undefined }),
+    );
+  });
+
+  it('mirrors every returned row on update', async () => {
+    const { db } = makeWriteDb([row()]);
+    const mirror = makeMirror();
+    const repo = new CompanyRepository(db, mirror);
+
+    await repo.update('c1', { geography: 'Singapore' });
+
+    expect(mirror.upsertCompany).toHaveBeenCalledTimes(1);
+    expect(mirror.upsertCompany).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'c1' }),
+    );
+  });
+
+  it('mirrors each returned row on updateMany', async () => {
+    const { db } = makeWriteDb([row({ id: 'c1' }), row({ id: 'c2' })]);
+    const mirror = makeMirror();
+    const repo = new CompanyRepository(db, mirror);
+
+    await repo.updateMany(['c1', 'c2'], { pipeline_stage: 'L1' as never });
+
+    expect(mirror.upsertCompany).toHaveBeenCalledTimes(2);
+  });
+
+  it('removes the node from the graph on delete', async () => {
+    const { db } = makeWriteDb([]);
+    const mirror = makeMirror();
+    const repo = new CompanyRepository(db, mirror);
+
+    await repo.delete('c1');
+
+    expect(mirror.deleteCompany).toHaveBeenCalledWith('c1');
+  });
+
+  it('does not touch the graph when no mirror is wired', async () => {
+    const { db } = makeWriteDb([row()]);
+    const repo = new CompanyRepository(db);
+
+    await expect(repo.insert(row() as never)).resolves.toBeDefined();
+    await expect(repo.delete('c1')).resolves.toBeUndefined();
+  });
+
+  it('swallows mirror failures so the Postgres write still succeeds', async () => {
+    const { db } = makeWriteDb([row()]);
+    const mirror = makeMirror();
+    mirror.upsertCompany.mockRejectedValue(new Error('neo4j down'));
+    const repo = new CompanyRepository(db, mirror);
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    const result = await repo.insert(row() as never);
+
+    expect(result).toMatchObject({ id: 'c1' });
+    expect(errSpy).toHaveBeenCalled();
+    errSpy.mockRestore();
+  });
+
+  it('skips the empty-list insertMany without mirroring', async () => {
+    const { db } = makeWriteDb([]);
+    const mirror = makeMirror();
+    const repo = new CompanyRepository(db, mirror);
+
+    await repo.insertMany([]);
+
+    expect(mirror.upsertCompany).not.toHaveBeenCalled();
+  });
+});
 
 describe('CompanyRepository.findBankerNames', () => {
   it('returns [] when no companies have a banker', async () => {

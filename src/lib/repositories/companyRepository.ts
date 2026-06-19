@@ -31,6 +31,10 @@ import {
 import type { AnyPgColumn } from "drizzle-orm/pg-core";
 import type { DbClient, Tables, TablesInsert, TablesUpdate } from "./types";
 import type { DealStage } from "@/lib/types";
+import {
+  companyRowToGraphNode,
+  type CompanyGraphMirror,
+} from "./companyRelationRepository";
 
 export interface CompanyFilters {
   id?: string;
@@ -130,7 +134,46 @@ function buildFilterWhere(filters: CompanyFilters): SQL | undefined {
 }
 
 export class CompanyRepository {
-  constructor(private readonly db: DbClient) {}
+  /**
+   * @param db    Postgres client — the source of truth.
+   * @param graph Optional Neo4j mirror. When wired (by the container), every
+   *   company write is reflected onto the graph so Neo4j follows Postgres:
+   *   inserts/updates upsert the node, deletes remove it. Graph failures are
+   *   best-effort and never fail the Postgres write. Left undefined in unit
+   *   tests and in contexts without a graph backend (e.g. job handlers).
+   */
+  constructor(
+    private readonly db: DbClient,
+    private readonly graph?: CompanyGraphMirror,
+  ) {}
+
+  /** Upsert the given company rows onto the graph node, swallowing failures. */
+  private async mirrorUpsert(rows: Tables<"companies">[]): Promise<void> {
+    if (!this.graph || rows.length === 0) return;
+    try {
+      await Promise.all(
+        rows.map((row) => this.graph!.upsertCompany(companyRowToGraphNode(row))),
+      );
+    } catch (err) {
+      console.error(
+        "[CompanyRepository] failed to mirror company upsert to graph DB",
+        err,
+      );
+    }
+  }
+
+  /** Remove the company node from the graph, swallowing failures. */
+  private async mirrorDelete(id: string): Promise<void> {
+    if (!this.graph) return;
+    try {
+      await this.graph.deleteCompany(id);
+    } catch (err) {
+      console.error(
+        `[CompanyRepository] failed to mirror company ${id} deletion to graph DB`,
+        err,
+      );
+    }
+  }
 
   async findById(id: string): Promise<Tables<"companies">> {
     const [row] = await this.db
@@ -359,23 +402,27 @@ export class CompanyRepository {
     company: TablesInsert<"companies">,
   ): Promise<Tables<"companies">> {
     const [row] = await this.db.insert(companies).values(company).returning();
+    await this.mirrorUpsert([row]);
     return row;
   }
 
   async insertMany(list: TablesInsert<"companies">[]): Promise<void> {
     if (list.length === 0) return;
-    await this.db.insert(companies).values(list);
+    const rows = await this.db.insert(companies).values(list).returning();
+    await this.mirrorUpsert(rows);
   }
 
   async update(
     id: string,
     updates: TablesUpdate<"companies">,
   ): Promise<Tables<"companies">[]> {
-    return this.db
+    const rows = await this.db
       .update(companies)
       .set(updates)
       .where(eq(companies.id, id))
       .returning();
+    await this.mirrorUpsert(rows);
+    return rows;
   }
 
   async updateMany(
@@ -383,11 +430,13 @@ export class CompanyRepository {
     updates: TablesUpdate<"companies">,
   ): Promise<Tables<"companies">[]> {
     if (ids.length === 0) return [];
-    return this.db
+    const rows = await this.db
       .update(companies)
       .set(updates)
       .where(inArray(companies.id, ids))
       .returning();
+    await this.mirrorUpsert(rows);
+    return rows;
   }
 
   async countUnreviewed(source?: string): Promise<number> {
@@ -413,6 +462,7 @@ export class CompanyRepository {
 
   async delete(id: string): Promise<void> {
     await this.db.delete(companies).where(eq(companies.id, id));
+    await this.mirrorDelete(id);
   }
 
   async findAssignees(

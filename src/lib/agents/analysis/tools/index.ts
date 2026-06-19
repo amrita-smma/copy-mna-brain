@@ -18,6 +18,7 @@ import { proposeBulkDropCompanies } from "./propose_bulk_drop_companies";
 import { proposeBulkPromoteCompanies } from "./propose_bulk_promote_companies";
 import { promoteToL1 } from "./promote_to_l1";
 import { addCompanyToL0 } from "./add_company_to_l0";
+import { updateCompanyRelationship } from "./update_company_relationship";
 import { narrateStep } from "./narrate_step";
 import { reportProgress } from "./report_progress";
 import { notifyProgress } from "./notify_progress";
@@ -42,6 +43,7 @@ export {
   proposeBulkPromoteCompanies,
   promoteToL1,
   addCompanyToL0,
+  updateCompanyRelationship,
   narrateStep,
   reportProgress,
   notifyProgress,
@@ -111,6 +113,7 @@ export const chatOnlyTools = [
 export const workforceOnlyTools = [
   promoteToL1,
   addCompanyToL0,
+  updateCompanyRelationship,
   runMarketScreeningTool,
   narrateStep,
   reportProgress,

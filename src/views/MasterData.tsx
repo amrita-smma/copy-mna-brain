@@ -87,6 +87,7 @@ const stageLabels: Record<DealStage | 'Acquired', string> = {
   L3: 'Due Diligence',
   L4: 'Negotiation',
   L5: 'Closing',
+  discovered: 'Discovered',
   Acquired: 'Acquired',
 };
 
@@ -98,6 +99,7 @@ const stageColors: Record<DealStage | 'Acquired', string> = {
   L3: 'bg-stage-l3',
   L4: 'bg-stage-l4',
   L5: 'bg-stage-l5',
+  discovered: 'bg-amber-500',
   Acquired: 'bg-green-600',
 };
 
@@ -111,6 +113,31 @@ const formatCurrency = (value: number | null): string => {
   return `$${value.toFixed(2)}M`;
 };
 
+// Normalize a raw company API row into the flat shape this view renders.
+// Shared by the main pipeline fetch and the "discovered" section fetch.
+const toCompanyWithDeal = (company: any): CompanyWithDeal => ({
+  id: company.id,
+  name: company.target || '',
+  project_name: company.project_name ?? null,
+  sector: company.segment || '',
+  geo: company.geography || company.geo || null,
+  source: company.source ?? '',
+  revenue_2022: company.revenue_2022_usd_mn,
+  revenue_2023: company.revenue_2023_usd_mn,
+  revenue_2024: company.revenue_2024_usd_mn,
+  revenue_2025: company.revenue_2025_usd_mn,
+  ebitda_2022: company.ebitda_2022_usd_mn,
+  ebitda_2023: company.ebitda_2023_usd_mn,
+  ebitda_2024: company.ebitda_2024_usd_mn,
+  ebitda_2025: company.ebitda_2025_usd_mn,
+  valuation: company.ev_2024,
+  pic: company.pic ?? null,
+  created_at: company.created_at,
+  current_stage: company.pipeline_stage as DealStage | null,
+  is_active: company.pipeline_stage !== null && company.pipeline_stage !== 'Acquired',
+  status: company.status ?? null,
+});
+
 const getRevenueChange = (year2: number | null, year3: number | null): { direction: 'up' | 'down' | 'flat'; percent: number } => {
   if (!year2 || !year3) return { direction: 'flat', percent: 0 };
   const change = ((year3 - year2) / year2) * 100;
@@ -120,12 +147,14 @@ const getRevenueChange = (year2: number | null, year3: number | null): { directi
 };
 
 interface MasterDataProps {
-  showCrm?: boolean;
-  showAiWorkforce?: boolean;
+  showCompanyGraph?: boolean;
 }
 
-export default function MasterData({ showCrm = false, showAiWorkforce = false }: MasterDataProps) {
+export default function MasterData({ showCompanyGraph = false }: MasterDataProps) {
   const [companies, setCompanies] = useState<CompanyWithDeal[]>([]);
+  // Companies the relationship-graph tooling auto-created (stage "discovered").
+  // They sit outside the L0–L5 pipeline, so they get their own section below.
+  const [discoveredCompanies, setDiscoveredCompanies] = useState<CompanyWithDeal[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [stageFilter, setStageFilter] = useState<string>('all');
@@ -209,37 +238,24 @@ export default function MasterData({ showCrm = false, showAiWorkforce = false }:
 
   const fetchCompanies = async (opts: { silent?: boolean } = {}) => {
     try {
-      const data = await getCompanies({
-        stageIn: ['L0', 'L1', 'L2', 'L3', 'L4', 'L5'],
-        orderBy: 'created_at',
-        orderDir: 'desc',
-      });
+      const [data, discovered] = await Promise.all([
+        getCompanies({
+          stageIn: ['L0', 'L1', 'L2', 'L3', 'L4', 'L5'],
+          orderBy: 'created_at',
+          orderDir: 'desc',
+        }),
+        getCompanies({
+          stageIn: ['discovered'],
+          orderBy: 'created_at',
+          orderDir: 'desc',
+        }),
+      ]);
 
       if (data) {
-        const formatted = data
-          .map((company: any) => ({
-            id: company.id,
-            name: company.target || '',
-            project_name: company.project_name ?? null,
-            sector: company.segment || '',
-            geo: company.geography || company.geo || null,
-            source: company.source ?? '',
-            revenue_2022: company.revenue_2022_usd_mn,
-            revenue_2023: company.revenue_2023_usd_mn,
-            revenue_2024: company.revenue_2024_usd_mn,
-            revenue_2025: company.revenue_2025_usd_mn,
-            ebitda_2022: company.ebitda_2022_usd_mn,
-            ebitda_2023: company.ebitda_2023_usd_mn,
-            ebitda_2024: company.ebitda_2024_usd_mn,
-            ebitda_2025: company.ebitda_2025_usd_mn,
-            valuation: company.ev_2024,
-            pic: company.pic ?? null,
-            created_at: company.created_at,
-            current_stage: company.pipeline_stage as DealStage | null,
-            is_active: company.pipeline_stage !== null && company.pipeline_stage !== 'Acquired',
-            status: company.status ?? null,
-          }));
-        setCompanies(formatted);
+        setCompanies(data.map(toCompanyWithDeal));
+      }
+      if (discovered) {
+        setDiscoveredCompanies(discovered.map(toCompanyWithDeal));
       }
     } catch (error) {
       console.error('Error fetching companies:', error);
@@ -325,7 +341,7 @@ export default function MasterData({ showCrm = false, showAiWorkforce = false }:
 
   if (loading) {
     return (
-      <DashboardLayout showCrm={showCrm} showAiWorkforce={showAiWorkforce}>
+      <DashboardLayout showCompanyGraph={showCompanyGraph}>
         <div className="flex h-full items-center justify-center">
           <Loader2 className="h-8 w-8 animate-spin text-primary" />
         </div>
@@ -334,7 +350,7 @@ export default function MasterData({ showCrm = false, showAiWorkforce = false }:
   }
 
   return (
-    <DashboardLayout showCrm={showCrm} showAiWorkforce={showAiWorkforce}>
+    <DashboardLayout showCompanyGraph={showCompanyGraph}>
       <div className="p-6 space-y-6 animate-fade-in">
         {/* Header */}
         <div className="flex items-center justify-between">
@@ -797,6 +813,49 @@ export default function MasterData({ showCrm = false, showAiWorkforce = false }:
             )}
           </CardContent>
         </Card>
+
+        {/* Discovered Companies — auto-created via the relationship graph,
+            outside the L0–L5 pipeline. Shown as their own section. */}
+        {discoveredCompanies.length > 0 && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Lightbulb className="h-5 w-5 text-amber-500" />
+                Discovered Companies ({discoveredCompanies.length})
+              </CardTitle>
+              <p className="text-sm text-muted-foreground">
+                Companies surfaced through the relationship graph. Not yet part of the L0–L5 deal pipeline.
+              </p>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                {discoveredCompanies.map((company) => (
+                  <button
+                    key={company.id}
+                    type="button"
+                    onClick={() => company.name && openCompany(company.id)}
+                    disabled={!company.name || loadingDialog}
+                    className="rounded-lg border bg-card p-4 text-left transition-colors hover:bg-muted/40 hover:border-primary/40 disabled:opacity-50"
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-medium">{company.name || '—'}</span>
+                      <Badge className={`${stageColors.discovered} text-white`}>
+                        {stageLabels.discovered}
+                      </Badge>
+                    </div>
+                    <div className="mt-2 flex flex-wrap items-center gap-1.5 text-xs">
+                      <Badge variant="outline">{company.sector || '-'}</Badge>
+                      <span className="text-muted-foreground">{company.geo || 'Unknown geo'}</span>
+                    </div>
+                    <p className="mt-2 text-xs text-muted-foreground">
+                      Added {new Date(company.created_at).toLocaleDateString()}
+                    </p>
+                  </button>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         {selectedCompany && (
           <CompanyDetailDialog

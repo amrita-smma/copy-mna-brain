@@ -922,3 +922,6 @@ describe("CompanyService dropped-company writes", () => {
     });
   });
 });
+
+// Graph mirroring moved to the repository layer (CompanyRepository writes
+// through to Neo4j on every operation); see companyRepository.test.ts.

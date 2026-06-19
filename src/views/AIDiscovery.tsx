@@ -12,11 +12,10 @@ import { ChatSidebar } from '@/components/chat/ChatSidebar';
 import { cn } from '@/lib/utils';
 
 interface AIDiscoveryProps {
-  showCrm?: boolean;
-  showAiWorkforce?: boolean;
+  showCompanyGraph?: boolean;
 }
 
-export default function AIDiscovery({ showCrm = false, showAiWorkforce = false }: AIDiscoveryProps) {
+export default function AIDiscovery({ showCompanyGraph = false }: AIDiscoveryProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
 
@@ -28,7 +27,7 @@ export default function AIDiscovery({ showCrm = false, showAiWorkforce = false }
   }, [searchParams, router]);
 
   return (
-    <DashboardLayout showCrm={showCrm} showAiWorkforce={showAiWorkforce}>
+    <DashboardLayout showCompanyGraph={showCompanyGraph}>
       <div className="flex flex-col h-screen p-6">
         {/* Header - AI CoPilot */}
         <div className="relative mb-6 flex-shrink-0">

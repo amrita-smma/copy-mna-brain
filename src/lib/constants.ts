@@ -25,6 +25,13 @@ export const isAnalysisInProgress = (status: AnalysisJobStatus | null | undefine
 /** Ordered pipeline stages (excludes market_screening). Source of truth for promote/demote navigation. */
 export const PIPELINE_STAGES: DealStage[] = ['L0', 'L1', 'L2', 'L3', 'L4', 'L5'];
 
+/**
+ * Stage given to companies the relationship-graph tooling auto-creates as one
+ * side of an edge. They sit outside the L0–L5 pipeline and get their own
+ * Master Data section.
+ */
+export const DISCOVERED_STAGE: DealStage = 'discovered';
+
 export const STAGE_LABELS: Record<DealStage | 'Acquired', string> = {
   market_screening: 'Market Scanning',
   L0: 'Sourcing',
@@ -33,5 +40,6 @@ export const STAGE_LABELS: Record<DealStage | 'Acquired', string> = {
   L3: 'Due Diligence',
   L4: 'Negotiation',
   L5: 'Closing',
+  discovered: 'Discovered',
   Acquired: 'Acquired',
 };

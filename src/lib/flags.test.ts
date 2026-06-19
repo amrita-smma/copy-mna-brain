@@ -28,10 +28,10 @@ vi.mock("@flags-sdk/vercel", () => ({
   }),
 }));
 
-async function loadCrmEnabled() {
+async function loadCompanyGraphEnabled() {
   vi.resetModules();
-  const { crmEnabled } = await import("./flags");
-  return crmEnabled;
+  const { companyGraphEnabled } = await import("./flags");
+  return companyGraphEnabled;
 }
 
 describe("Feature Flags", () => {
@@ -46,32 +46,32 @@ describe("Feature Flags", () => {
     process.env = originalEnv;
   });
 
-  describe("crmEnabled", () => {
-    it("should return true when FLAGS contains CRM_ENABLED", async () => {
-      process.env.FLAGS = JSON.stringify({ "CRM_ENABLED": true });
-      const crmEnabled = await loadCrmEnabled();
-      const result = await crmEnabled();
+  describe("companyGraphEnabled", () => {
+    it("should return true when FLAGS contains COMPANY_GRAPH_ENABLED", async () => {
+      process.env.FLAGS = JSON.stringify({ "COMPANY_GRAPH_ENABLED": true });
+      const companyGraphEnabled = await loadCompanyGraphEnabled();
+      const result = await companyGraphEnabled();
       expect(result).toBe(true);
     });
 
     it("should return false when FLAGS is not set", async () => {
       delete process.env.FLAGS;
-      const crmEnabled = await loadCrmEnabled();
-      const result = await crmEnabled();
+      const companyGraphEnabled = await loadCompanyGraphEnabled();
+      const result = await companyGraphEnabled();
       expect(result).toBe(false);
     });
 
-    it("should return false when FLAGS contains CRM_ENABLED: false", async () => {
-      process.env.FLAGS = JSON.stringify({ "CRM_ENABLED": false });
-      const crmEnabled = await loadCrmEnabled();
-      const result = await crmEnabled();
+    it("should return false when FLAGS contains COMPANY_GRAPH_ENABLED: false", async () => {
+      process.env.FLAGS = JSON.stringify({ "COMPANY_GRAPH_ENABLED": false });
+      const companyGraphEnabled = await loadCompanyGraphEnabled();
+      const result = await companyGraphEnabled();
       expect(result).toBe(false);
     });
 
     it("should return false when FLAGS does not contain the key", async () => {
       process.env.FLAGS = JSON.stringify({ "other-flag": true });
-      const crmEnabled = await loadCrmEnabled();
-      const result = await crmEnabled();
+      const companyGraphEnabled = await loadCompanyGraphEnabled();
+      const result = await companyGraphEnabled();
       expect(result).toBe(false);
     });
   });

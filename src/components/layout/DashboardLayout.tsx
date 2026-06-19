@@ -28,6 +28,7 @@ import {
   FileStack,
   Maximize2,
   Minimize2,
+  Network,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { ProtectedRoute } from '@/components/auth/ProtectedRoute';
@@ -46,8 +47,7 @@ import { useVisualViewport } from '@/hooks/use-visual-viewport';
 
 interface DashboardLayoutProps {
   children: ReactNode;
-  showCrm?: boolean;
-  showAiWorkforce?: boolean;
+  showCompanyGraph?: boolean;
 }
 
 const baseNavigation = [
@@ -57,9 +57,10 @@ const baseNavigation = [
   { name: 'CRM', href: '/crm', icon: Users, color: 'indigo' as const },
   { name: 'AI File Dump', href: '/ai-file-dump', icon: FileStack, color: 'teal' as const },
   { name: 'AI Workforce', href: '/ai-workforce', icon: Users, color: 'orange' as const },
+  { name: 'Company Graph', href: '/graph', icon: Network, color: 'cyan' as const },
 ];
 
-export default function DashboardLayout({ children, showCrm = false, showAiWorkforce = false }: DashboardLayoutProps) {
+export default function DashboardLayout({ children, showCompanyGraph = false }: DashboardLayoutProps) {
   const pathname = usePathname();
   const { user, signOut } = useAuth();
   const isMobile = useIsMobile();
@@ -109,8 +110,7 @@ export default function DashboardLayout({ children, showCrm = false, showAiWorkf
   }
 
   const filteredNavigation = baseNavigation.filter((item) => {
-    if (item.href === '/crm') return showCrm;
-    if (item.href === '/ai-workforce') return showAiWorkforce;
+    if (item.href === '/graph') return showCompanyGraph;
     return true;
   });
 
@@ -152,6 +152,7 @@ export default function DashboardLayout({ children, showCrm = false, showAiWorkf
                       const isTeal = item.color === 'teal';
                       const isIndigo = item.color === 'indigo';
                       const isOrange = item.color === 'orange';
+                      const isCyan = item.color === 'cyan';
                       const isDisabled = 'disabled' in item && item.disabled;
 
                       return (
@@ -165,10 +166,12 @@ export default function DashboardLayout({ children, showCrm = false, showAiWorkf
                               isTeal && !isDisabled && 'text-teal-400 hover:text-teal-300 hover:bg-teal-500/10',
                               isIndigo && !isDisabled && 'text-indigo-400 hover:text-indigo-300 hover:bg-indigo-500/10',
                               isOrange && !isDisabled && 'text-orange-400 hover:text-orange-300 hover:bg-orange-500/10',
+                              isCyan && !isDisabled && 'text-cyan-400 hover:text-cyan-300 hover:bg-cyan-500/10',
                               isActive && !isColored && 'bg-sidebar-accent text-sidebar-accent-foreground',
                               isActive && isTeal && 'bg-teal-500/20 text-teal-300',
                               isActive && isIndigo && 'bg-indigo-500/20 text-indigo-300',
-                              isActive && isOrange && 'bg-orange-500/20 text-orange-300'
+                              isActive && isOrange && 'bg-orange-500/20 text-orange-300',
+                              isActive && isCyan && 'bg-cyan-500/20 text-cyan-300'
                             )}
                           >
                             {isDisabled ? (
@@ -177,7 +180,8 @@ export default function DashboardLayout({ children, showCrm = false, showAiWorkf
                                   'h-4 w-4',
                                   isTeal && 'text-teal-400',
                                   isIndigo && 'text-indigo-400',
-                                  isOrange && 'text-orange-400'
+                                  isOrange && 'text-orange-400',
+                                  isCyan && 'text-cyan-400'
                                 )} />
                                 <span>{item.name}</span>
                               </div>
@@ -187,7 +191,8 @@ export default function DashboardLayout({ children, showCrm = false, showAiWorkf
                                   'h-4 w-4',
                                   isTeal && 'text-teal-400',
                                   isIndigo && 'text-indigo-400',
-                                  isOrange && 'text-orange-400'
+                                  isOrange && 'text-orange-400',
+                                  isCyan && 'text-cyan-400'
                                 )} />
                                 <span>{item.name}</span>
                               </Link>

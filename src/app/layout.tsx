@@ -2,7 +2,6 @@ import type { Metadata, Viewport } from 'next';
 import './globals.css';
 import { Providers } from '@/components/providers';
 import { ServiceWorkerRegister } from '@/components/service-worker-register';
-import { aiWorkforceEnabled } from '@/lib/flags';
 
 export const metadata: Metadata = {
   title: 'BRAIN 2.0',
@@ -29,20 +28,16 @@ export const viewport: Viewport = {
   interactiveWidget: 'resizes-content',
 };
 
-export default async function RootLayout({
+export default function RootLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  const featureFlags = {
-    aiWorkforceEnabled: Boolean(await aiWorkforceEnabled()),
-  };
-
   return (
     <html lang="en" suppressHydrationWarning>
       <body className="font-sans antialiased">
         <ServiceWorkerRegister />
-        <Providers featureFlags={featureFlags}>{children}</Providers>
+        <Providers>{children}</Providers>
       </body>
     </html>
   );

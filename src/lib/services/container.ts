@@ -37,6 +37,9 @@ import {
 } from '@/lib/repositories';
 import { JobDispatcher } from './jobDispatcher';
 import { CompanyService } from './companyService';
+import { CompanyGraphService } from './companyGraphService';
+import { createNeo4jDriver } from '@/lib/neo4j';
+import { CompanyRelationRepository } from '@/lib/repositories/companyRelationRepository';
 import { ScreeningService } from './screeningService';
 import { CriteriaService } from './criteriaService';
 import { InvestmentThesisService } from './investmentThesisService';
@@ -63,6 +66,7 @@ import { NotificationService } from './notificationService';
 
 export interface Container {
   companyService: CompanyService;
+  companyGraphService: CompanyGraphService;
   screeningService: ScreeningService;
   criteriaService: CriteriaService;
   investmentThesisService: InvestmentThesisService;
@@ -91,7 +95,14 @@ export interface Container {
 export function createContainer(db: DbClient): Container {
   const jobDispatcher = new JobDispatcher(db, createDb);
 
-  const companyRepo = new CompanyRepository(db);
+  // Neo4j mirror: the relationship-graph repo doubles as the write-through
+  // mirror for company writes. The driver is a cached global singleton and is
+  // only touched when a company is actually written, so wiring it in adds no
+  // cost to graph-less requests. Postgres stays the source of truth — Neo4j
+  // follows every insert/update/delete that flows through CompanyRepository.
+  const companyGraphRepo = new CompanyRelationRepository(createNeo4jDriver());
+
+  const companyRepo = new CompanyRepository(db, companyGraphRepo);
   const companyLogRepo = new CompanyLogRepository(db);
   const screeningRepo = new ScreeningRepository(db);
   const criteriaRepo = new CriteriaRepository(db);
@@ -140,6 +151,7 @@ export function createContainer(db: DbClient): Container {
     companyFxAdjustmentRepo,
     companyScreeningDerivedRepo,
   );
+  const companyGraphService = new CompanyGraphService(companyGraphRepo, jobDispatcher);
   const dealDocumentService = new DealDocumentService(dealDocRepo);
   const fileService = new FileService(
     db,
@@ -195,6 +207,7 @@ export function createContainer(db: DbClient): Container {
 
   return {
     companyService,
+    companyGraphService,
     screeningService,
     criteriaService,
     investmentThesisService,

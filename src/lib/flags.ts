@@ -11,16 +11,6 @@ function booleanFlag(key: string, value: boolean) {
   });
 }
 
-export const crmEnabled = booleanFlag(
-  "CRM_ENABLED",
-  process.env.CRM_ENABLED === "true",
-);
-
-export const aiWorkforceEnabled = booleanFlag(
-  "AI_WORKFORCE_ENABLED",
-  process.env.AI_WORKFORCE_ENABLED === "true",
-);
-
 export const crmGoogleVaultSyncEnabled = booleanFlag(
   "CRM_GOOGLE_VAULT_SYNC",
   process.env.CRM_GOOGLE_VAULT_SYNC === "true",
@@ -29,4 +19,9 @@ export const crmGoogleVaultSyncEnabled = booleanFlag(
 export const taskNotificationsEnabled = booleanFlag(
   "TASK_NOTIFICATIONS_ENABLED",
   process.env.TASK_NOTIFICATIONS_ENABLED === "true",
+);
+
+export const companyGraphEnabled = booleanFlag(
+  "COMPANY_GRAPH_ENABLED",
+  process.env.COMPANY_GRAPH_ENABLED === "true",
 );

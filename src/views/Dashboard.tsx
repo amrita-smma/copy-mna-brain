@@ -451,13 +451,11 @@ function NotesModal({ event, onClose }: NotesModalProps) {
 // ─── Main Dashboard ───────────────────────────────────────────────────────────
 
 interface DashboardProps {
-  showCrm?: boolean;
-  showAiWorkforce?: boolean;
+  showCompanyGraph?: boolean;
 }
 
 export default function Dashboard({
-  showCrm = false,
-  showAiWorkforce = false,
+  showCompanyGraph = false,
 }: DashboardProps) {
   const [loading, setLoading] = useState(true);
   const [activityInitialising, setActivityInitialising] = useState(true);
@@ -784,7 +782,7 @@ export default function Dashboard({
 
   if (loading) {
     return (
-      <DashboardLayout showCrm={showCrm} showAiWorkforce={showAiWorkforce}>
+      <DashboardLayout showCompanyGraph={showCompanyGraph}>
         <div className="flex h-full items-center justify-center">
           <div className="flex flex-col items-center gap-4">
             <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
@@ -798,7 +796,7 @@ export default function Dashboard({
   }
 
   return (
-    <DashboardLayout showCrm={showCrm} showAiWorkforce={showAiWorkforce}>
+    <DashboardLayout showCompanyGraph={showCompanyGraph}>
       <div className="p-6 lg:p-8 space-y-8 animate-fade-in">
         {/* Header */}
         <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between sm:gap-6">

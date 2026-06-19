@@ -1,17 +1,14 @@
 import { Suspense } from 'react';
 import Dashboard from '@/views/Dashboard';
 import { GoogleSsoTokenGate } from '@/components/auth/GoogleSsoTokenGate';
-import { crmEnabled, aiWorkforceEnabled } from '@/lib/flags';
+import { companyGraphEnabled } from '@/lib/flags';
 
 export default async function DashboardPage() {
-  const [showCrm, showAiWorkforce] = await Promise.all([
-    crmEnabled().then(Boolean),
-    aiWorkforceEnabled().then(Boolean),
-  ]);
+  const showCompanyGraph = await companyGraphEnabled().then(Boolean);
   return (
     <Suspense fallback={null}>
       <GoogleSsoTokenGate>
-        <Dashboard showCrm={showCrm} showAiWorkforce={showAiWorkforce} />
+        <Dashboard showCompanyGraph={showCompanyGraph} />
       </GoogleSsoTokenGate>
     </Suspense>
   );

@@ -76,20 +76,17 @@ Rules:
 
 ## Feature Flags
 
-Feature flags live in `src/lib/flags.ts` (e.g. `crmEnabled`, `aiWorkforceEnabled`).
+Feature flags live in `src/lib/flags.ts` (e.g. `companyGraphEnabled`).
 
 **Server components (Next.js pages)** — fetch flags with `await` and pass as boolean props:
 
 ```ts
 // src/app/some-page/page.tsx
-import { crmEnabled, aiWorkforceEnabled } from '@/lib/flags';
+import { companyGraphEnabled } from '@/lib/flags';
 
 export default async function SomePage() {
-  const [showCrm, showAiWorkforce] = await Promise.all([
-    crmEnabled().then(Boolean),
-    aiWorkforceEnabled().then(Boolean),
-  ]);
-  return <SomeView showCrm={showCrm} showAiWorkforce={showAiWorkforce} />;
+  const showCompanyGraph = await companyGraphEnabled().then(Boolean);
+  return <SomeView showCompanyGraph={showCompanyGraph} />;
 }
 ```
 
@@ -97,20 +94,19 @@ export default async function SomePage() {
 
 ```ts
 interface SomeViewProps {
-  showCrm?: boolean;
-  showAiWorkforce?: boolean;
+  showCompanyGraph?: boolean;
 }
 
-export default function SomeView({ showCrm = false, showAiWorkforce = false }: SomeViewProps) {
+export default function SomeView({ showCompanyGraph = false }: SomeViewProps) {
   return (
-    <DashboardLayout showCrm={showCrm} showAiWorkforce={showAiWorkforce}>
+    <DashboardLayout showCompanyGraph={showCompanyGraph}>
       ...
     </DashboardLayout>
   );
 }
 ```
 
-**`DashboardLayout`** — filters `baseNavigation` based on the boolean props. Do NOT use `useFeatureFlags` inside `DashboardLayout` or any view; all flag resolution happens server-side in the page file.
+**`DashboardLayout`** — filters `baseNavigation` based on the boolean props. All flag resolution happens server-side in the page file; do not resolve flags inside `DashboardLayout` or any view. When a view has multiple render branches (loading, error, empty states), every `<DashboardLayout>` it renders must receive the same flag props, or the nav item will flicker in and out across states.
 
 When adding a new feature-flagged nav item:
 1. Add the flag function to `src/lib/flags.ts`

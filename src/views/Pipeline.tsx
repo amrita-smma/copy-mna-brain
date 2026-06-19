@@ -150,6 +150,7 @@ const stageDescriptions: Record<DealStage, string> = {
   L3: "Deep Dive - Detailed analysis",
   L4: "Due Diligence - Final verification",
   L5: "Closing - Deal completion",
+  discovered: "Discovered - Surfaced via the relationship graph",
 };
 
 const stageColors: Record<
@@ -198,6 +199,12 @@ const stageColors: Record<
     bgLight: "bg-stage-l5/15",
     textLight: "text-stage-l5",
   },
+  discovered: {
+    bg: "bg-amber-500",
+    text: "text-white",
+    bgLight: "bg-amber-500/15",
+    textLight: "text-amber-600",
+  },
 };
 
 
@@ -240,11 +247,10 @@ const L1StatusBadge = ({ status }: { status: L1Status | null }) => {
 };
 
 interface PipelineProps {
-  showCrm?: boolean;
-  showAiWorkforce?: boolean;
+  showCompanyGraph?: boolean;
 }
 
-export default function Pipeline({ showCrm = false, showAiWorkforce = false }: PipelineProps) {
+export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
   const { user } = useAuth();
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -894,7 +900,7 @@ export default function Pipeline({ showCrm = false, showAiWorkforce = false }: P
   };
 
   return (
-    <DashboardLayout showCrm={showCrm} showAiWorkforce={showAiWorkforce}>
+    <DashboardLayout showCompanyGraph={showCompanyGraph}>
       <div className="p-6 space-y-6 animate-fade-in">
         <div className="flex items-center justify-between">
           <div>

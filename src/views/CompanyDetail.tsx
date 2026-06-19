@@ -309,11 +309,10 @@ const formatCurrency = (value: number | null) => {
 };
 
 interface CompanyDetailProps {
-  showCrm?: boolean;
-  showAiWorkforce?: boolean;
+  showCompanyGraph?: boolean;
 }
 
-export default function CompanyDetail({ showCrm = false, showAiWorkforce = false }: CompanyDetailProps) {
+export default function CompanyDetail({ showCompanyGraph = false }: CompanyDetailProps) {
   const params = useParams();
   const router = useRouter();
   const { analyzeWithAI } = useChatContext();
@@ -919,7 +918,7 @@ export default function CompanyDetail({ showCrm = false, showAiWorkforce = false
 
   if (loading) {
     return (
-      <DashboardLayout showCrm={showCrm} showAiWorkforce={showAiWorkforce}>
+      <DashboardLayout showCompanyGraph={showCompanyGraph}>
         <div className="flex items-center justify-center h-full">
           <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
         </div>
@@ -929,7 +928,7 @@ export default function CompanyDetail({ showCrm = false, showAiWorkforce = false
 
   if (!company) {
     return (
-      <DashboardLayout showCrm={showCrm} showAiWorkforce={showAiWorkforce}>
+      <DashboardLayout showCompanyGraph={showCompanyGraph}>
         <div className="flex flex-col items-center justify-center h-full gap-4">
           <p className="text-muted-foreground">Company not found</p>
           <Button onClick={() => router.push(returnTo)}>
@@ -953,7 +952,7 @@ export default function CompanyDetail({ showCrm = false, showAiWorkforce = false
     : null;
 
   return (
-    <DashboardLayout showCrm={showCrm} showAiWorkforce={showAiWorkforce}>
+    <DashboardLayout showCompanyGraph={showCompanyGraph}>
       <div className="p-6 space-y-6">
         {/* Header */}
         <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between md:gap-6">

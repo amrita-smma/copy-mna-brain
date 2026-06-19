@@ -1,5 +1,5 @@
-import { notFound, redirect } from 'next/navigation';
-import { crmEnabled, aiWorkforceEnabled } from '@/lib/flags';
+import { notFound } from 'next/navigation';
+import { companyGraphEnabled } from '@/lib/flags';
 import AIWorkforce from '@/views/AIWorkforce';
 
 type TabKey = 'copilot' | 'workforce' | 'ingestion';
@@ -53,14 +53,7 @@ export default async function AIWorkforcePage({
 }: {
   params: Promise<{ slug?: string[] }>;
 }) {
-  const [showCrm, isEnabled] = await Promise.all([
-    crmEnabled().then(Boolean),
-    aiWorkforceEnabled(),
-  ]);
-
-  if (!isEnabled) {
-    redirect('/dashboard');
-  }
+  const showCompanyGraph = await companyGraphEnabled().then(Boolean);
 
   const { slug } = await params;
   const parsed = parseSlug(slug);
@@ -70,8 +63,7 @@ export default async function AIWorkforcePage({
 
   return (
     <AIWorkforce
-      showCrm={showCrm}
-      showAiWorkforce={true}
+      showCompanyGraph={showCompanyGraph}
       initialTab={parsed.initialTab}
       initialChatId={parsed.initialChatId}
       initialTaskId={parsed.initialTaskId}

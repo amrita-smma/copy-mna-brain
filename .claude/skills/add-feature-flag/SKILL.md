@@ -61,15 +61,14 @@ Only wire this flag into the pages and views where the feature appears.
 **Page file** (`src/app/<route>/page.tsx`) — add the flag to the `Promise.all` array and pass the result as a boolean prop:
 
 ```ts
-import { crmEnabled, aiWorkforceEnabled, myFeatureEnabled } from '@/lib/flags';
+import { companyGraphEnabled, myFeatureEnabled } from '@/lib/flags';
 
 export default async function SomePage() {
-  const [showCrm, showAiWorkforce, showMyFeature] = await Promise.all([
-    crmEnabled().then(Boolean),
-    aiWorkforceEnabled().then(Boolean),
+  const [showCompanyGraph, showMyFeature] = await Promise.all([
+    companyGraphEnabled().then(Boolean),
     myFeatureEnabled().then(Boolean),
   ]);
-  return <SomeView showCrm={showCrm} showAiWorkforce={showAiWorkforce} showMyFeature={showMyFeature} />;
+  return <SomeView showCompanyGraph={showCompanyGraph} showMyFeature={showMyFeature} />;
 }
 ```
 
@@ -77,14 +76,13 @@ export default async function SomePage() {
 
 ```ts
 interface SomeViewProps {
-  showCrm?: boolean;
-  showAiWorkforce?: boolean;
+  showCompanyGraph?: boolean;
   showMyFeature?: boolean;    // add here
 }
 
-export default function SomeView({ showCrm = false, showAiWorkforce = false, showMyFeature = false }: SomeViewProps) {
+export default function SomeView({ showCompanyGraph = false, showMyFeature = false }: SomeViewProps) {
   return (
-    <DashboardLayout showCrm={showCrm} showAiWorkforce={showAiWorkforce}>
+    <DashboardLayout showCompanyGraph={showCompanyGraph}>
       {showMyFeature && <MyFeatureComponent />}
     </DashboardLayout>
   );
@@ -105,15 +103,13 @@ This involves more files because every page that renders `DashboardLayout` must 
 // src/components/layout/DashboardLayout.tsx
 interface DashboardLayoutProps {
   children: React.ReactNode;
-  showCrm?: boolean;
-  showAiWorkforce?: boolean;
+  showCompanyGraph?: boolean;
   showMyFeature?: boolean;    // add
 }
 
-export default function DashboardLayout({ children, showCrm = false, showAiWorkforce = false, showMyFeature = false }: DashboardLayoutProps) {
+export default function DashboardLayout({ children, showCompanyGraph = false, showMyFeature = false }: DashboardLayoutProps) {
   const filteredNavigation = baseNavigation.filter((item) => {
-    if (item.href === '/crm') return showCrm;
-    if (item.href === '/ai-workforce') return showAiWorkforce;
+    if (item.href === '/graph') return showCompanyGraph;
     if (item.href === '/my-feature') return showMyFeature;   // add
     return true;
   });
@@ -123,20 +119,20 @@ export default function DashboardLayout({ children, showCrm = false, showAiWorkf
 
 ### 2. Thread through every page that uses `DashboardLayout`
 
-Run `grep -rl "DashboardLayout\|showCrm" src/app --include="*.tsx"` to find all affected pages. For each one, add the flag to the `Promise.all` call and forward it as a prop to the view. The view must then pass it through to `<DashboardLayout>`.
+Run `grep -rl "DashboardLayout\|showCompanyGraph" src/app --include="*.tsx"` to find all affected pages. For each one, add the flag to the `Promise.all` call and forward it as a prop to the view. The view must then pass it through to `<DashboardLayout>`.
 
 Current pages that need updating (as of writing):
 - `src/app/dashboard/page.tsx`
 - `src/app/pipeline/page.tsx`
 - `src/app/pipeline/[dealId]/page.tsx`
 - `src/app/pipeline/[dealId]/slides/page.tsx`
-- `src/app/ai-discovery/page.tsx`
+- `src/app/chat/page.tsx`
 - `src/app/ai-file-dump/page.tsx`
 - `src/app/master-data/page.tsx`
 - `src/app/crm/page.tsx`
 - `src/app/ai-workforce/[[...slug]]/page.tsx`
 
-> **Why every page?** The sidebar is rendered inside `DashboardLayout` on every route, so every page that renders the layout must resolve the flag server-side and pass it down. Client-side flag resolution (`useFeatureFlags`) is explicitly banned in this codebase.
+> **Why every page?** The sidebar is rendered inside `DashboardLayout` on every route, so every page that renders the layout must resolve the flag server-side and pass it down. A view with multiple render branches (loading/error/empty) must forward the flag to **every** `<DashboardLayout>` it renders, or the nav item flickers across states. Client-side flag resolution is banned in this codebase.
 
 ---
 

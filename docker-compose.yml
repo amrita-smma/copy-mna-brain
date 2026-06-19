@@ -94,9 +94,28 @@ services:
       - data-pipeline-node-modules:/app/data-pipeline/node_modules
       - app-next-cache:/app/.next
 
+  neo4j:
+    image: neo4j:5-community
+    container_name: mna-neo4j
+    restart: unless-stopped
+    environment:
+      NEO4J_AUTH: neo4j/password
+    ports:
+      - "7474:7474"   # HTTP browser console
+      - "7687:7687"   # Bolt protocol
+    volumes:
+      - neo4j-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "wget -O - -q http://localhost:7474 || exit 1"]
+      interval: 10s
+      timeout: 10s
+      retries: 20
+      start_period: 30s
+
 volumes:
   postgres-data:
   minio-data:
+  neo4j-data:
   app-node-modules:
   data-pipeline-node-modules:
   app-next-cache:

@@ -63,6 +63,7 @@ export const jobType = pgEnum("job_type", [
   "attachment_triage",
   "attachment_extract",
   "attachment_upload",
+  "graph_sync",
 ]);
 export const l1Result = pgEnum("l1_result", ["pass", "fail", "inconclusive"]);
 export const pipelineStage = pgEnum("pipeline_stage", [
@@ -73,6 +74,9 @@ export const pipelineStage = pgEnum("pipeline_stage", [
   "L3",
   "L4",
   "L5",
+  // Companies auto-created as one side of a relationship-graph edge. Not part
+  // of the L0–L5 deal pipeline; surfaced in its own Master Data section.
+  "discovered",
 ]);
 export const screeningState = pgEnum("screening_state", [
   "pending",

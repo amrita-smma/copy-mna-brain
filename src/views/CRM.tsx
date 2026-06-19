@@ -27,14 +27,12 @@ import type {
 import { LAST_CONTACT_LABELS, PAGE_SIZE, TOPIC_SUGGESTIONS } from "./crm/utils";
 
 interface CRMProps {
-  showCrm?: boolean;
-  showAiWorkforce?: boolean;
+  showCompanyGraph?: boolean;
   showVaultSync?: boolean;
 }
 
 export default function CRM({
-  showCrm = false,
-  showAiWorkforce = false,
+  showCompanyGraph = false,
   showVaultSync = false,
 }: CRMProps) {
   const router = useRouter();
@@ -234,7 +232,7 @@ export default function CRM({
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
   return (
-    <DashboardLayout showCrm={showCrm} showAiWorkforce={showAiWorkforce}>
+    <DashboardLayout showCompanyGraph={showCompanyGraph}>
       <datalist id="topic-suggestions">
         {TOPIC_SUGGESTIONS.map((t) => (
           <option key={t} value={t} />

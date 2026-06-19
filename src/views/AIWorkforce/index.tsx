@@ -13,8 +13,7 @@ import { WorkforceTasks } from './WorkforceTasks';
 type TabKey = 'copilot' | 'workforce' | 'ingestion';
 
 interface AIWorkforceProps {
-  showCrm?: boolean;
-  showAiWorkforce?: boolean;
+  showCompanyGraph?: boolean;
   initialTab?: TabKey;
   initialChatId?: string | null;
   initialTaskId?: string | null;
@@ -27,8 +26,7 @@ const tabs: { key: TabKey; label: string; icon: typeof Sparkles; dot?: boolean }
 ];
 
 export default function AIWorkforce({
-  showCrm = false,
-  showAiWorkforce = false,
+  showCompanyGraph = false,
   initialTab = 'workforce',
   initialChatId = null,
   initialTaskId = null,
@@ -64,7 +62,7 @@ export default function AIWorkforce({
   }, [initialChatId, activeTab, chatId, setChatId, router]);
 
   return (
-    <DashboardLayout showCrm={showCrm} showAiWorkforce={showAiWorkforce}>
+    <DashboardLayout showCompanyGraph={showCompanyGraph}>
       <div className="flex flex-col h-full">
         {/* Header */}
         <div className="flex-shrink-0 px-8 pt-8 pb-4 bg-card">

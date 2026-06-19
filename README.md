@@ -392,6 +392,51 @@ calls to `enqueueSendEmail` will fail and the catch block in
 `AuthService.forgetPassword` will swallow the error (which preserves the
 user-facing flow but means no email is sent locally — fine for dev).
 
+## Relationship graph (Neo4j)
+
+The relationship graph (`/graph`, served by `GET /api/graph`) is backed by
+Neo4j and visualizes companies as nodes with `INVESTED_IN` / `PARTNER` /
+`SUPPLIER` edges. **Postgres `companies` is the source of truth; Neo4j follows
+it.**
+
+- **Write-through mirror (repository layer).** `CompanyRepository` takes an
+  optional `CompanyGraphMirror` (the `CompanyRelationRepository`, wired in
+  `container.ts`). Every company write — `insert`, `insertMany`, `update`,
+  `updateMany`, `delete` — mirrors to the graph: writes `MERGE` a node
+  (mapping `target`→`name`, plus `segment`/`geography`/`ownership`/
+  `pipeline_stage`→`pipelineStage`/`status`), deletes
+  `DETACH DELETE` it. The mirror is **best-effort**: a Neo4j failure is logged
+  and never fails the Postgres write. Repos constructed without a mirror (e.g.
+  inside job handlers) simply skip it.
+- **Full reconciliation.** `POST /api/graph/sync` dispatches a `graph_sync`
+  background job (`CompanyGraphService.dispatchSync` → `runGraphSync`) that
+  `MERGE`s a node for every company and prunes any graph node whose Postgres
+  row no longer exists. Use it to repair drift (e.g. after writes that bypassed
+  the mirror). Like all async work it reports lifecycle through `jobs` /
+  `job_logs`.
+- **Agent-authored relationships.** The analysis agent's
+  `update_company_relationship` tool (workforce-only, auto-executing) records a
+  directed edge between two companies (`source --[INVESTED_IN|PARTNER|SUPPLIER]-->
+  target`) via `CompanyGraphService.relateCompanies`. Each side is matched by
+  name (`CompanyRepository.findByNameFuzzy`); a company with no match is
+  auto-created in Postgres at the **`discovered`** pipeline stage — a stage
+  reserved for companies that surface only through a relationship, not through
+  the L0–L5 deal pipeline. Discovered companies get their own section in the
+  Master Data view (`src/views/MasterData.tsx`). `relateCompanies` upserts both
+  nodes before the edge so the relation always attaches.
+
+- **Visualizer (`src/views/CompanyGraph.tsx`).** The `/graph` canvas
+  (`react-force-graph-2d`) supports client-side filtering on company metadata
+  (ownership, geography, **pipeline stage**, **status** — active vs dropped) and
+  on edges (relationship type, has-evidence, date range). **Right-clicking a
+  node** opens a context menu with *"Display only connected companies"*, which
+  pins that node and restricts the graph to it plus its direct neighbours
+  (companies sharing an edge in either direction); a chip in the filter sidebar
+  clears the pin.
+
+Connection is configured via `NEO4J_URI` / `NEO4J_USER` / `NEO4J_PASSWORD`
+(see `src/lib/neo4j.ts`).
+
 ## Async jobs
 
 Long-running compute (AI screening, company analysis, market screening,
