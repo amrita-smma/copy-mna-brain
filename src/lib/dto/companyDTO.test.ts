@@ -36,6 +36,9 @@ function makeCompany(overrides: Partial<Tables<'companies'>> = {}): Tables<'comp
     deal_size: null,
     workflow_status: null,
     key_rationale: null,
+    review_state: 'reviewed',
+    banker_source: null,
+    possible_duplicate_company_id: null,
     ...overrides,
   };
 }

@@ -32,6 +32,10 @@ const ENTRIES: Record<string, string> = {
   vaultParse: 'vault-parse',
   vaultArchiveStart: 'vault-archive-start',
   vaultArchivePoll: 'vault-archive-poll',
+  attachmentGate: 'attachment-gate',
+  attachmentFetch: 'attachment-fetch',
+  attachmentTriage: 'attachment-triage',
+  attachmentUpload: 'attachment-upload',
 };
 
 async function main() {

@@ -3,6 +3,8 @@
 // ParsedEmail with a cleaned body and parsed addresses. Filtering lives in
 // ./filter.ts; the public entrypoint that combines parse + filter is index.ts.
 
+import * as crypto from 'node:crypto';
+
 export interface ParsedAddress {
   name: string;
   email: string;
@@ -222,6 +224,7 @@ const HTML_TAG_RE = /<[a-zA-Z][^>]*>/;
 
 interface MimePart {
   contentType: string;
+  contentTypeRaw: string;
   charset: string;
   encoding: string;
   body: string;
@@ -229,7 +232,8 @@ interface MimePart {
 }
 
 function walkMime(headers: Headers, body: string): MimePart[] {
-  const { type, params } = parseContentType(getHeader(headers, 'content-type') || 'text/plain');
+  const contentTypeHeader = getHeader(headers, 'content-type') || 'text/plain';
+  const { type, params } = parseContentType(contentTypeHeader);
   const encoding = getHeader(headers, 'content-transfer-encoding');
   const disposition = getHeader(headers, 'content-disposition') || '';
 
@@ -237,6 +241,7 @@ function walkMime(headers: Headers, body: string): MimePart[] {
     return [
       {
         contentType: type,
+        contentTypeRaw: contentTypeHeader,
         charset: params.charset || 'utf-8',
         encoding,
         body,
@@ -289,6 +294,96 @@ export function extractBody(headers: Headers, rawBody: string): string {
   }
   if (htmlParts.length > 0) return stripHtml(htmlParts.join('\n'));
   return '';
+}
+
+// ─── Attachment extraction (MB-214) ─────────────────────────────────────────
+
+export const ATTACHMENT_MIME_ALLOWLIST = new Set<string>([
+  'application/pdf',
+  'application/msword',
+  'application/vnd.ms-excel',
+  'application/vnd.ms-powerpoint',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+]);
+
+export const ATTACHMENT_MIN_BYTES = 20_000;
+export const ATTACHMENT_MAX_BYTES = 25_000_000;
+
+export interface AttachmentMeta {
+  part_index: number;
+  filename: string | null;
+  mime_type: string;
+  encoding: string;
+  content_hash: string;
+  size_bytes: number;
+}
+
+function parseFilename(disposition: string, contentType: string): string | null {
+  const dispMatch = disposition.match(/filename\*?=(?:UTF-8'')?["']?([^"';\r\n]+)["']?/i);
+  if (dispMatch) return decodeURIComponent(dispMatch[1].trim());
+  const ctMatch = contentType.match(/name=["']?([^"';\r\n]+)["']?/i);
+  if (ctMatch) return ctMatch[1].trim();
+  return null;
+}
+
+export function extractAttachments(headers: Headers, rawBody: string): AttachmentMeta[] {
+  const parts = walkMime(headers, rawBody);
+  const result: AttachmentMeta[] = [];
+  let globalIndex = 0;
+
+  for (const part of parts) {
+    const index = globalIndex++;
+    if (!part.disposition.toLowerCase().includes('attachment')) continue;
+
+    const mimeType = part.contentType.split(';')[0].trim().toLowerCase();
+    if (!ATTACHMENT_MIME_ALLOWLIST.has(mimeType)) continue;
+
+    const approxBytes = Math.floor(part.body.length * 3 / 4);
+    if (approxBytes < ATTACHMENT_MIN_BYTES || approxBytes > ATTACHMENT_MAX_BYTES) continue;
+
+    const contentHash = crypto.createHash('sha256').update(part.body).digest('hex');
+
+    result.push({
+      part_index: index,
+      filename: parseFilename(part.disposition, part.contentTypeRaw),
+      mime_type: mimeType,
+      encoding: part.encoding,
+      content_hash: contentHash,
+      size_bytes: approxBytes,
+    });
+  }
+
+  return result;
+}
+
+export interface RawAttachmentPart {
+  mime_type: string;
+  encoding: string;
+  content_hash: string;
+  body: string;
+}
+
+/**
+ * Walk MIME parts and return raw attachment bodies (for P2 decode+upload).
+ * No MIME/size filtering — returns ALL attachment parts so attachmentFetch
+ * can match by content_hash regardless of the P1 allowlist.
+ */
+export function extractRawAttachmentParts(headers: Headers, rawBody: string): RawAttachmentPart[] {
+  const parts = walkMime(headers, rawBody);
+  const result: RawAttachmentPart[] = [];
+  for (const part of parts) {
+    if (!part.disposition.toLowerCase().includes('attachment')) continue;
+    const mimeType = part.contentType.split(';')[0].trim().toLowerCase();
+    result.push({
+      mime_type: mimeType,
+      encoding: part.encoding,
+      content_hash: crypto.createHash('sha256').update(part.body).digest('hex'),
+      body: part.body,
+    });
+  }
+  return result;
 }
 
 // ─── Body cleaning ───────────────────────────────────────────────────────────

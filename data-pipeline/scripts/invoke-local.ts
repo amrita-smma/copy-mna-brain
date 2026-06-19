@@ -32,6 +32,11 @@ const HANDLERS = [
   'vaultParse',
   'vaultArchiveStart',
   'vaultArchivePoll',
+  'attachmentGate',
+  'attachmentFetch',
+  'attachmentTriage',
+  'attachmentExtract',
+  'attachmentUpload',
 ] as const;
 
 type HandlerName = (typeof HANDLERS)[number];

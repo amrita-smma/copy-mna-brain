@@ -23,9 +23,15 @@ export {
   cleanBody,
   extractSignature,
   extractBody,
+  extractAttachments,
+  extractRawAttachmentParts,
   stripHtml,
   parseHeaders,
+  ATTACHMENT_MIME_ALLOWLIST,
+  ATTACHMENT_MIN_BYTES,
+  ATTACHMENT_MAX_BYTES,
 } from './parser';
+export type { AttachmentMeta, RawAttachmentPart } from './parser';
 export {
   shouldSkip,
   isAutoReply,

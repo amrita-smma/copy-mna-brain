@@ -28,7 +28,7 @@ import {
   type RawFxRow,
 } from "./fxBackfill";
 
-export type FileTypeOverride = 'mom' | 'prospectus' | 'other';
+export type FileTypeOverride = 'mom' | 'prospectus' | 'other' | 'shopping_list' | 'market_study';
 
 const generateSystemPrompt = (
   companies_list: string,
@@ -69,7 +69,7 @@ ${userRawNotes}
    - **Project**: A codename with no known underlying company (e.g. "Project Phoenix", "Project Utopia"). Goes into 'project_name' only; leave 'company_name' null.
    - **Project-in-Company**: A codename explicitly associated with a known company in the document (e.g. "Project Tulia (PT Sinar Mas)"). Set both 'company_name' and 'project_name'.
    Actively scan for project codenames even if they don't match the Known Companies list — treat them as valid detected entities.
-4. **Categorize File Type**: Choose between "prospectus", "mom", "banker_communications", and "other" file type. Use "banker_communications" if the file appears to be an email export (CSV or MBOX format containing email threads, especially from bankers or investment professionals).
+4. **Categorize File Type**: Choose between "prospectus", "mom", "banker_communications", "shopping_list", "market_study", and "other" file type. Use "banker_communications" if the file appears to be an email export (CSV or MBOX format containing email threads, especially from bankers or investment professionals). Use "shopping_list" if the file is a target list or deal pipeline of companies being considered for acquisition. Use "market_study" if the file is a market landscape, sector overview, or industry analysis.
 5. Final Output must be a valid JSON block containing:
    - summary: A concise overview of the meeting/document.
    - key_points: Array of main takeaways.

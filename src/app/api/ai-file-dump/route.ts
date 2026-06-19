@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createDb } from '@/lib/server/db';
 import { createContainer } from '@/lib/services';
 
-const FILE_TYPE_OVERRIDES = ['mom', 'prospectus', 'other'] as const;
+const FILE_TYPE_OVERRIDES = ['mom', 'prospectus', 'other', 'shopping_list', 'market_study'] as const;
 type FileTypeOverrideValue = (typeof FILE_TYPE_OVERRIDES)[number];
 
 function parseFileTypeOverride(value: unknown): FileTypeOverrideValue | undefined {
@@ -20,6 +20,8 @@ export async function POST(request: NextRequest) {
       contentType,
       raw_notes: userRawNotes,
       file_type_override: rawFileTypeOverride,
+      origin_email: rawOriginEmail,
+      banker_source: rawBankerSource,
     } = await request.json();
 
     if (!key || !fileName) {
@@ -30,6 +32,10 @@ export async function POST(request: NextRequest) {
     }
 
     const fileTypeOverride = parseFileTypeOverride(rawFileTypeOverride);
+    const originEmail = rawOriginEmail === true;
+    const bankerSource = typeof rawBankerSource === 'string' && rawBankerSource.trim()
+      ? rawBankerSource.trim()
+      : undefined;
 
     const db = createDb();
     const { fileService } = createContainer(db);
@@ -39,6 +45,8 @@ export async function POST(request: NextRequest) {
       contentType,
       userRawNotes,
       fileTypeOverride,
+      originEmail,
+      bankerSource,
     );
 
     return NextResponse.json({ success: true, data });

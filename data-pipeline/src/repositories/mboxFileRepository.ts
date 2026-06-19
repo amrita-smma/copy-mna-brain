@@ -54,6 +54,15 @@ export class MboxFileRepository {
       .limit(limit);
   }
 
+  /** All files regardless of parse_status — used for force-reparse backfills. */
+  async listAll(limit: number = 50): Promise<MboxFile[]> {
+    return this.db
+      .select()
+      .from(mboxFiles)
+      .orderBy(asc(mboxFiles.created_at))
+      .limit(limit);
+  }
+
   /**
    * Files that fall inside `[start, end)` — used to report what's already on
    * disk for a given calendar window without scanning the jobs table.

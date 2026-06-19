@@ -58,6 +58,11 @@ export const jobType = pgEnum("job_type", [
   "crm_llm_fetch",
   "crm_domain_classify",
   "crm_ingest",
+  "attachment_gate",
+  "attachment_fetch",
+  "attachment_triage",
+  "attachment_extract",
+  "attachment_upload",
 ]);
 export const l1Result = pgEnum("l1_result", ["pass", "fail", "inconclusive"]);
 export const pipelineStage = pgEnum("pipeline_stage", [
@@ -348,6 +353,10 @@ export const companies = pgTable(
     workflow_status: text(),
     // Outbound-specific fields.
     key_rationale: text(),
+    // MB-223/224/225/226 — origination pipeline triage
+    review_state: text().default("reviewed").notNull(),
+    banker_source: text(),
+    possible_duplicate_company_id: uuid(),
   },
   (table) => {
     return {
@@ -383,6 +392,15 @@ export const companies = pgTable(
         "btree",
         table.target.asc().nullsLast().op("text_ops"),
       ),
+      idxCompaniesReviewState: index("idx_companies_review_state").using(
+        "btree",
+        table.review_state.asc().nullsLast().op("text_ops"),
+      ),
+      companiesPossibleDuplicateFkey: foreignKey({
+        columns: [table.possible_duplicate_company_id],
+        foreignColumns: [table.id],
+        name: "companies_possible_duplicate_fkey",
+      }).onDelete("set null"),
       idxCompaniesWatchlistId: index("idx_companies_watchlist_id").using(
         "btree",
         table.watchlist_id.asc().nullsLast().op("int4_ops"),
@@ -1356,6 +1374,7 @@ export const files = pgTable(
       .default([]),
     file_date: date(),
     file_type: varchar().default("mom").notNull(),
+    origin_email: boolean().default(false).notNull(),
   },
   (table) => {
     return {
@@ -1619,6 +1638,60 @@ export const domainClassifications = analytics.table(
       .defaultNow()
       .notNull(),
   },
+);
+
+export const emailAttachments = analytics.table(
+  "email_attachments",
+  {
+    id: uuid().defaultRandom().primaryKey().notNull(),
+    file_id: uuid().notNull(),
+    message_id: text().notNull(),
+    part_index: integer().notNull(),
+    filename: text(),
+    mime_type: text(),
+    size_bytes: integer(),
+    content_hash: text().notNull(),
+    encoding: text(),
+    state: text().default("metadata_only").notNull(),
+    gate_reason: text(),
+    s3_bucket: text(),
+    s3_key: text(),
+    doc_type: text(),
+    triage_confidence: text(),
+    extracted: jsonb(),
+    error: text(),
+    created_at: timestamp({ withTimezone: true, mode: "string" })
+      .defaultNow()
+      .notNull(),
+    updated_at: timestamp({ withTimezone: true, mode: "string" })
+      .defaultNow()
+      .notNull(),
+    fetched_at: timestamp({ withTimezone: true, mode: "string" }),
+    triaged_at: timestamp({ withTimezone: true, mode: "string" }),
+    extracted_at: timestamp({ withTimezone: true, mode: "string" }),
+  },
+  (table) => ({
+    uqEmailAttachmentsMsgHash: uniqueIndex("uq_email_attachments_msg_hash").on(
+      table.message_id,
+      table.content_hash,
+    ),
+    idxEmailAttachmentsState: index("idx_email_attachments_state").using(
+      "btree",
+      table.state.asc().nullsLast().op("text_ops"),
+    ),
+    idxEmailAttachmentsFileId: index("idx_email_attachments_file_id").using(
+      "btree",
+      table.file_id.asc().nullsLast().op("uuid_ops"),
+    ),
+    idxEmailAttachmentsContentHash: index(
+      "idx_email_attachments_content_hash",
+    ).using("btree", table.content_hash.asc().nullsLast().op("text_ops")),
+    emailAttachmentsFileIdFkey: foreignKey({
+      columns: [table.file_id],
+      foreignColumns: [mboxFiles.id],
+      name: "email_attachments_file_id_fkey",
+    }).onDelete("cascade"),
+  }),
 );
 
 export const companyFinancials = pgTable(

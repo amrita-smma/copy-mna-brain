@@ -390,6 +390,18 @@ export class CompanyRepository {
       .returning();
   }
 
+  async countUnreviewed(source?: string): Promise<number> {
+    const conditions = [eq(companies.review_state, 'unreviewed'), eq(companies.status, 'active')];
+    if (source && source !== 'all') {
+      conditions.push(eq(companies.source, source as 'inbound' | 'outbound'));
+    }
+    const [row] = await this.db
+      .select({ value: drizzleCount() })
+      .from(companies)
+      .where(and(...conditions));
+    return Number(row?.value ?? 0);
+  }
+
   async findDroppedIds(ids: string[]): Promise<string[]> {
     if (ids.length === 0) return [];
     const rows = await this.db

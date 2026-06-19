@@ -61,6 +61,16 @@ export class CompanyService {
     return this.companyRepo.findById(id);
   }
 
+  findByNameFuzzy(namePart: string) {
+    return this.companyRepo.findByNameFuzzy(namePart);
+  }
+
+  async markPossibleDuplicate(id: string, possibleDuplicateCompanyId: string): Promise<void> {
+    await this.companyRepo.update(id, {
+      possible_duplicate_company_id: possibleDuplicateCompanyId,
+    });
+  }
+
   list(filters: Omit<CompanyFilters, 'id'>) {
     return this.companyRepo.findAll(filters);
   }
@@ -369,6 +379,24 @@ export class CompanyService {
           : `PROMOTED_TO_${nextStage}`,
       })),
     );
+  }
+
+  // MB-223/225 — origination triage
+
+  async bulkMarkReviewed(ids: string[]): Promise<void> {
+    if (ids.length === 0) return;
+    await this.companyRepo.updateMany(ids, { review_state: 'reviewed' } as never);
+    await this.companyLogRepo.insertMany(
+      ids.map((id) => ({ company_id: id, action: 'TRIAGE_KEPT' })),
+    );
+  }
+
+  async drop(id: string, reason?: string): Promise<void> {
+    await this.dropDeal(id, 'L0', reason);
+  }
+
+  async countUnreviewed(source?: string): Promise<number> {
+    return this.companyRepo.countUnreviewed(source);
   }
 
   async restoreDeal(id: string, currentStage: string | undefined) {

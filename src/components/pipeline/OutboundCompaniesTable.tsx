@@ -98,6 +98,8 @@ interface OutboundCompaniesTableProps {
   onToggleFavorite: (id: string) => void;
   selectedIds: Set<string>;
   onToggleSelect: (id: string) => void;
+  visibleSelectionState: boolean | "indeterminate";
+  onToggleSelectAllVisible: () => void;
   updatingCompanyIds: Set<string>;
   statusOptions: string[];
   sortField: string | null;
@@ -119,6 +121,8 @@ export default function OutboundCompaniesTable({
   favoriteIds,
   selectedIds,
   onToggleSelect,
+  visibleSelectionState,
+  onToggleSelectAllVisible,
   updatingCompanyIds,
   statusOptions,
   sortField,
@@ -168,8 +172,14 @@ export default function OutboundCompaniesTable({
     <Table>
       <TableHeader>
         <TableRow>
+          <TableHead className="w-[50px]">
+            <Checkbox
+              aria-label="Select all visible companies"
+              checked={visibleSelectionState}
+              onCheckedChange={onToggleSelectAllVisible}
+            />
+          </TableHead>
           <TableHead className="w-[40px]"></TableHead>
-          <TableHead className="w-[50px]">Select</TableHead>
           <SortHead field="name" label="Company" />
           <TableHead>Project</TableHead>
           <SortHead field="sector" label="Segment" />
@@ -207,6 +217,12 @@ export default function OutboundCompaniesTable({
                 isUpdating && "animate-pulse opacity-60",
               )}
             >
+              <TableCell>
+                <Checkbox
+                  checked={selectedIds.has(company.id)}
+                  onCheckedChange={() => onToggleSelect(company.id)}
+                />
+              </TableCell>
               <TableCell className="pr-0">
                 <AskAIButton
                   variant="icon"
@@ -216,12 +232,6 @@ export default function OutboundCompaniesTable({
                       `Analyze ${company.target || company.project_name || "this company"} and provide insights about it as a potential deal.`,
                     )
                   }
-                />
-              </TableCell>
-              <TableCell>
-                <Checkbox
-                  checked={selectedIds.has(company.id)}
-                  onCheckedChange={() => onToggleSelect(company.id)}
                 />
               </TableCell>
               <TableCell>

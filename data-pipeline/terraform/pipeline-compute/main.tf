@@ -51,6 +51,34 @@ locals {
       memory_heavy = true
       input        = jsonencode({})
     }
+    attachment-gate = {
+      handler      = "attachmentGate.handler"
+      schedule     = "cron(55 * * * ? *)"
+      description  = "Promote email attachment metadata rows that pass deal-originator gates"
+      memory_heavy = false
+      input        = jsonencode({ limit = 5000 })
+    }
+    attachment-fetch = {
+      handler      = "attachmentFetch.handler"
+      schedule     = "cron(0 * * * ? *)"
+      description  = "Fetch and upload gated email attachment bytes from archived mbox files"
+      memory_heavy = true
+      input        = jsonencode({ limit = 1000 })
+    }
+    attachment-triage = {
+      handler      = "attachmentTriage.handler"
+      schedule     = "cron(5 * * * ? *)"
+      description  = "Classify fetched email attachments before AFD upload"
+      memory_heavy = false
+      input        = jsonencode({ limit = 500 })
+    }
+    attachment-upload = {
+      handler      = "attachmentUpload.handler"
+      schedule     = "cron(10 * * * ? *)"
+      description  = "Upload deal-relevant email attachments into AI File Dump"
+      memory_heavy = false
+      input        = jsonencode({ limit = 200 })
+    }
   }
 
   # Shared environment variables injected into every Lambda

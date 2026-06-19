@@ -1,5 +1,6 @@
 "use client";
 
+import { Fragment } from "react";
 import {
   Table,
   TableBody,
@@ -29,6 +30,9 @@ import {
   Trash2,
   RotateCcw,
   Landmark,
+  Inbox,
+  CheckCircle2,
+  XCircle,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Tables } from "@/lib/repositories";
@@ -38,6 +42,7 @@ import type { PipelineCompany } from "@/views/Pipeline";
 import StatusCombobox from "@/components/pipeline/StatusCombobox";
 import { AskAIButton } from "@/components/chat/AskAIButton";
 import { useChatContext } from "@/components/chat/ChatProvider";
+import { DuplicatePopup } from "@/components/pipeline/DuplicatePopup";
 
 const DEAL_TYPE_LABEL: Record<string, string> = {
   majority: "Majority",
@@ -86,6 +91,8 @@ interface InboundCompaniesTableProps {
   onToggleFavorite: (id: string) => void;
   selectedIds: Set<string>;
   onToggleSelect: (id: string) => void;
+  visibleSelectionState: boolean | "indeterminate";
+  onToggleSelectAllVisible: () => void;
   updatingCompanyIds: Set<string>;
   statusOptions: string[];
   sortField: string | null;
@@ -93,6 +100,8 @@ interface InboundCompaniesTableProps {
   onSort: (field: string) => void;
   onOpenDetail: (company: PipelineCompany) => void;
   onStatusChange: (company: PipelineCompany, next: string) => void;
+  onTriageAll?: () => void;
+  onKeep?: (company: PipelineCompany) => void | Promise<void>;
   onUpdate: (company: PipelineCompany) => void;
   onPromote: (company: PipelineCompany) => void;
   onDemote: (company: PipelineCompany) => void;
@@ -107,6 +116,8 @@ export default function InboundCompaniesTable({
   favoriteIds,
   selectedIds,
   onToggleSelect,
+  visibleSelectionState,
+  onToggleSelectAllVisible,
   updatingCompanyIds,
   statusOptions,
   sortField,
@@ -114,6 +125,8 @@ export default function InboundCompaniesTable({
   onSort,
   onOpenDetail,
   onStatusChange,
+  onTriageAll,
+  onKeep,
   onUpdate,
   onPromote,
   onDemote,
@@ -152,15 +165,122 @@ export default function InboundCompaniesTable({
     </TableHead>
   );
 
+  const tableColumnCount = isDropped ? 20 : 19;
+  const unreviewedCompanies = isDropped
+    ? []
+    : companies.filter((company) => company.review_state === "unreviewed");
+  const reviewedCompanies = isDropped
+    ? []
+    : companies.filter((company) => company.review_state !== "unreviewed");
+  const showReviewGroups =
+    !isDropped &&
+    (unreviewedCompanies.length > 0 || reviewedCompanies.length > 0);
+  const groupedCompanies = showReviewGroups
+    ? [...unreviewedCompanies, ...reviewedCompanies]
+    : companies;
+
+  const sectionHeader = (kind: "unreviewed" | "reviewed") => {
+    const count =
+      kind === "unreviewed"
+        ? unreviewedCompanies.length
+        : reviewedCompanies.length;
+    const isUnreviewed = kind === "unreviewed";
+    const Icon = isUnreviewed ? Inbox : CheckCircle2;
+
+    return (
+      <TableRow className="select-none">
+        <TableCell
+          colSpan={tableColumnCount}
+          className={cn(
+            "border-y px-4 py-2 text-xs font-semibold",
+            isUnreviewed
+              ? "border-amber-200 bg-amber-50/90 text-amber-900"
+              : "border-slate-200 bg-slate-50 text-slate-600",
+          )}
+        >
+          <div className="flex items-center gap-3">
+            <span
+              className={cn(
+                "inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full border",
+                isUnreviewed
+                  ? "border-amber-200 bg-amber-100 text-amber-700"
+                  : "border-slate-200 bg-white text-slate-500",
+              )}
+            >
+              <Icon className="h-3.5 w-3.5" />
+            </span>
+            <div className="flex min-w-fit items-center gap-2">
+              <span className="uppercase tracking-wide">
+                {isUnreviewed ? "Unreviewed" : "Reviewed"}
+              </span>
+              <span
+                className={cn(
+                  "rounded-full border px-2 py-0.5 text-[11px] leading-none",
+                  isUnreviewed
+                    ? "border-amber-200 bg-white/70 text-amber-800"
+                    : "border-slate-200 bg-white text-slate-600",
+                )}
+              >
+                {count} {count === 1 ? "company" : "companies"}
+              </span>
+              <span
+                className={cn(
+                  "hidden text-[11px] font-medium normal-case tracking-normal md:inline",
+                  isUnreviewed ? "text-amber-700" : "text-slate-500",
+                )}
+              >
+                {isUnreviewed
+                  ? "from banker emails this week"
+                  : "active companies"}
+              </span>
+            </div>
+            <span
+              className={cn(
+                "h-px flex-1",
+                isUnreviewed ? "bg-amber-200" : "bg-slate-200",
+              )}
+            />
+            {isUnreviewed && onTriageAll && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="h-7 px-2 text-[11px] font-semibold uppercase tracking-wide text-amber-700 hover:bg-amber-100 hover:text-amber-900"
+                onClick={onTriageAll}
+              >
+                Triage all &gt;
+              </Button>
+            )}
+          </div>
+        </TableCell>
+      </TableRow>
+    );
+  };
+
+  const sectionGap = () => (
+    <TableRow className="select-none hover:bg-transparent">
+      <TableCell
+        colSpan={tableColumnCount}
+        className="h-3 border-0 bg-background p-0"
+      />
+    </TableRow>
+  );
+
   return (
     <Table>
       <TableHeader>
         <TableRow>
+          <TableHead className="w-[50px]">
+            <Checkbox
+              aria-label="Select all visible companies"
+              checked={visibleSelectionState}
+              onCheckedChange={onToggleSelectAllVisible}
+            />
+          </TableHead>
           <TableHead className="w-[40px]"></TableHead>
-          <TableHead className="w-[50px]">Select</TableHead>
           <SortHead field="name" label="Company" />
           <TableHead>Project</TableHead>
-          <TableHead>Banker / Source</TableHead>
+          <TableHead className="min-w-[160px]">Banker / Source</TableHead>
           <SortHead field="sector" label="Sector" />
           <TableHead>Geo</TableHead>
           <TableHead>Deal Type</TableHead>
@@ -178,29 +298,67 @@ export default function InboundCompaniesTable({
           ) : (
             <TableHead className="min-w-[160px]">Status</TableHead>
           )}
-          <TableHead className="min-w-[320px] max-w-[400px]">Additional Remarks</TableHead>
+          <TableHead className="min-w-[320px] max-w-[400px]">
+            Additional Remarks
+          </TableHead>
           <TableHead>Created</TableHead>
           <TableHead>{isDropped ? "Dropped On" : "Last Activity"}</TableHead>
           <TableHead className="text-right">Actions</TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
-        {companies.map((company) => {
+        {groupedCompanies.map((company, index) => {
           const isFav = favoriteIds.has(company.id);
           const isUpdating = updatingCompanyIds.has(company.id);
+          const bankerLabel = company.banker ?? company.banker_source;
           const rev = latestFin(company.financials_raw, "revenue_usd_mn");
           const ebitda = latestFin(company.financials_raw, "ebitda_usd_mn");
+          const isUnreviewed = company.review_state === "unreviewed";
+          const hasFinancials =
+            rev.value != null ||
+            ebitda.value != null ||
+            company.revenue_2024_usd_mn != null ||
+            company.ebitda_2024_usd_mn != null;
+          const hasFlags =
+            isUnreviewed &&
+            (!!company.possible_duplicate_company_id || !hasFinancials);
+          const previousCompany = groupedCompanies[index - 1];
+          const startsUnreviewedSection =
+            showReviewGroups &&
+            isUnreviewed &&
+            (!previousCompany ||
+              previousCompany.review_state !== "unreviewed");
+          const startsReviewedSection =
+            showReviewGroups &&
+            !isUnreviewed &&
+            (!previousCompany ||
+              previousCompany.review_state === "unreviewed");
+
           return (
-            <TableRow
-              key={company.id}
-              className={cn(
-                "transition-colors",
-                isFav
-                  ? "bg-amber-50/60 dark:bg-amber-900/10 hover:bg-amber-100/60 dark:hover:bg-amber-900/20"
-                  : "hover:bg-muted/50",
-                isUpdating && "animate-pulse opacity-60",
+            <Fragment key={company.id}>
+              {startsUnreviewedSection && sectionHeader("unreviewed")}
+              {startsReviewedSection && (
+                <>
+                  {unreviewedCompanies.length > 0 && sectionGap()}
+                  {sectionHeader("reviewed")}
+                </>
               )}
-            >
+              <TableRow
+                className={cn(
+                  "transition-colors",
+                  isUnreviewed && "border-l-2 border-l-amber-400",
+                  isFav
+                    ? "bg-amber-50/60 dark:bg-amber-900/10 hover:bg-amber-100/60 dark:hover:bg-amber-900/20"
+                    : "hover:bg-muted/50",
+                  isUpdating && "animate-pulse opacity-60",
+                )}
+              >
+              <TableCell>
+                <Checkbox
+                  checked={selectedIds.has(company.id)}
+                  onCheckedChange={() => onToggleSelect(company.id)}
+                />
+              </TableCell>
               <TableCell className="pr-0">
                 <AskAIButton
                   variant="icon"
@@ -213,19 +371,32 @@ export default function InboundCompaniesTable({
                 />
               </TableCell>
               <TableCell>
-                <Checkbox
-                  checked={selectedIds.has(company.id)}
-                  onCheckedChange={() => onToggleSelect(company.id)}
-                />
-              </TableCell>
-              <TableCell>
                 {company.target ? (
-                  <button
-                    onClick={() => onOpenDetail(company)}
-                    className="font-medium text-left hover:text-primary hover:underline transition-colors"
-                  >
-                    {company.target}
-                  </button>
+                  <>
+                    <button
+                      onClick={() => onOpenDetail(company)}
+                      className="font-medium text-left hover:text-primary hover:underline transition-colors"
+                    >
+                      {company.target}
+                    </button>
+                    {hasFlags && (
+                      <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
+                        {company.possible_duplicate_company_id && (
+                          <DuplicatePopup
+                            possibleDuplicateId={
+                              company.possible_duplicate_company_id
+                            }
+                          />
+                        )}
+                        {!hasFinancials && (
+                          <span className="inline-flex items-center gap-1 text-xs font-medium text-red-600">
+                            <XCircle className="h-3.5 w-3.5" />
+                            Financials missing
+                          </span>
+                        )}
+                      </div>
+                    )}
+                  </>
                 ) : (
                   <span className="text-muted-foreground">—</span>
                 )}
@@ -242,11 +413,14 @@ export default function InboundCompaniesTable({
                   <span className="text-muted-foreground">—</span>
                 )}
               </TableCell>
-              <TableCell>
-                {company.banker ? (
-                  <span className="inline-flex items-center gap-1.5 rounded-md bg-muted px-2 py-0.5 text-xs text-muted-foreground">
-                    <Landmark className="h-3 w-3" />
-                    {company.banker}
+              <TableCell className="max-w-[220px]">
+                {bankerLabel ? (
+                  <span
+                    className="inline-flex max-w-full items-center gap-1.5 rounded-md bg-muted px-2 py-0.5 text-xs text-muted-foreground"
+                    title={bankerLabel}
+                  >
+                    <Landmark className="h-3 w-3 shrink-0" />
+                    <span className="min-w-0 truncate">{bankerLabel}</span>
                   </span>
                 ) : (
                   <span className="text-muted-foreground">—</span>
@@ -394,6 +568,15 @@ export default function InboundCompaniesTable({
                       </>
                     ) : (
                       <>
+                        {isUnreviewed && onKeep && (
+                          <>
+                            <DropdownMenuItem onClick={() => onKeep(company)}>
+                              <CheckCircle2 className="mr-2 h-4 w-4 text-green-600" />
+                              Keep
+                            </DropdownMenuItem>
+                            <DropdownMenuSeparator />
+                          </>
+                        )}
                         {promoteTarget && (
                           <DropdownMenuItem onClick={() => onPromote(company)}>
                             <ArrowRight className="mr-2 h-4 w-4" />
@@ -424,6 +607,7 @@ export default function InboundCompaniesTable({
                 </DropdownMenu>
               </TableCell>
             </TableRow>
+            </Fragment>
           );
         })}
       </TableBody>

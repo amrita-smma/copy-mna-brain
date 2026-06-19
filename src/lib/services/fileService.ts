@@ -2,6 +2,7 @@ import { downloadFile, getSignedUrl } from '@/lib/s3';
 import { deleteFile } from '@/lib/s3';
 import { extractTextFromFile } from '@/lib/fileExtractor';
 import { processFileContent, type FileTypeOverride } from '@/lib/agents/file_processing';
+import type { CompanyDTOInput } from '@/lib/dto/companyDTO';
 import type {
   CompanyFinancialRepository,
   CompanyFxAdjustmentRepository,
@@ -108,6 +109,8 @@ export class FileService {
     contentType: string,
     rawNotes?: string,
     fileTypeOverride?: FileTypeOverride,
+    originEmail?: boolean,
+    bankerSource?: string,
   ) {
     const buffer = await downloadFile(key);
     const fileType = contentType || 'application/octet-stream';
@@ -117,6 +120,7 @@ export class FileService {
       file_link: key,
       processing_status: 'processing',
       file_type: fileTypeOverride ?? 'other',
+      origin_email: originEmail ?? false,
     });
 
     let rawText = '';
@@ -143,6 +147,71 @@ export class FileService {
       // they have no prospectus_summary to diff and no financials to upsert.
       const effectiveFileType = fileTypeOverride ?? structuredResult?.file_type ?? 'other';
       const requiresReview = effectiveFileType === 'prospectus';
+
+      // MB-225 connector: auto-create unreviewed pipeline company from email attachments.
+      // Only fires when: (a) file came from email pipeline, (b) AFD extracted content,
+      // (c) file type indicates a real deal doc (not generic "other").
+      if (originEmail && structuredResult && effectiveFileType !== 'other' && effectiveFileType !== 'banker_communications') {
+        try {
+          const summary = (structuredResult as Record<string, unknown>).prospectus_summary as ProspectusSummary | undefined;
+          const companySource = effectiveFileType === 'market_study' ? 'outbound' : 'inbound';
+          const matchedCompany = (matched_companies as Array<{ id?: string; type?: string }>)
+            .find((m) => m?.id && (m.type === undefined || m.type === 'company'));
+          let companyId = matchedCompany?.id ?? null;
+          let companyRecord = companyId ? await this.companyService.findById(companyId) : null;
+
+          if (!companyRecord && summary) {
+            const fuzzyName = summary.company_name ?? summary.project_name ?? '';
+            companyRecord = await this.companyService.findByNameFuzzy(fuzzyName);
+            companyId = companyRecord?.id ?? null;
+          }
+
+          if (companyRecord && companyId) {
+            await this.companyService.updateFromDTO(
+              companyId,
+              this.buildEmailAttachmentCompanyMergeInput(
+                summary,
+                effectiveFileType,
+                companySource,
+                bankerSource,
+              ),
+              `merged_from_email_attachment:${initialData.id}`,
+            );
+            const refreshed = await this.companyService.findById(companyId);
+            matched_companies = [{
+              id: refreshed.id,
+              target: refreshed.target ?? undefined,
+              name: refreshed.target ?? refreshed.project_name ?? undefined,
+              type: 'company',
+              similarity: 1,
+            }];
+          } else {
+            const created = await this.companyService.createFromDTO({
+              pipeline_stage: 'L0',
+              status: 'active',
+              review_state: 'unreviewed',
+              ...this.buildEmailAttachmentCompanyMergeInput(
+                summary,
+                effectiveFileType,
+                companySource,
+                bankerSource,
+              ),
+            }, `auto_created_from_email_attachment:${initialData.id}`);
+
+            // Write the new company back into matched_companies so approve()
+            // takes the update branch rather than creating a duplicate.
+            matched_companies = [{
+              id: created.id,
+              target: created.target ?? undefined,
+              name: created.target ?? undefined,
+              type: 'company',
+              similarity: 1,
+            }];
+          }
+        } catch (err) {
+          console.error('[fileService] Failed to merge/create email-origin company:', err);
+        }
+      }
 
       await this.fileRepo.updatePartial(initialData.id, {
         raw_notes: rawText,
@@ -414,6 +483,74 @@ export class FileService {
     } catch (err) {
       console.error('Error in ai-screening flow:', err);
     }
+  }
+
+  private buildEmailAttachmentCompanyMergeInput(
+    summary: ProspectusSummary | undefined,
+    effectiveFileType: string,
+    companySource: 'inbound' | 'outbound',
+    bankerSource?: string,
+  ): CompanyDTOInput {
+    const hasOwn = (obj: object, key: string) =>
+      Object.prototype.hasOwnProperty.call(obj, key);
+    const input: CompanyDTOInput = {
+      source: companySource,
+      doc_type: effectiveFileType,
+      banker_source: bankerSource ?? null,
+    };
+
+    if (summary) {
+      const summaryFieldMap: Array<[keyof ProspectusSummary, keyof CompanyDTOInput]> = [
+        ['company_name', 'target'],
+        ['project_name', 'project_name'],
+        ['segment', 'segment'],
+        ['segment_related_offerings', 'segment_related_offerings'],
+        ['company_focus', 'company_focus'],
+        ['website', 'website'],
+        ['watchlist_status', 'watchlist_status'],
+        ['comments', 'comments'],
+        ['ownership', 'ownership'],
+        ['geography', 'geography'],
+        ['remarks', 'remarks'],
+      ];
+      for (const [summaryKey, dtoKey] of summaryFieldMap) {
+        if (hasOwn(summary, summaryKey)) {
+          input[dtoKey] = summary[summaryKey] as never;
+        }
+      }
+    }
+
+    // TODO(MB-225): Replace this fixed-year DTO bridge with normalized
+    // financial row upserts. `CompanyDTOInput` is currently shaped around
+    // legacy flat fields (revenue_2021_usd_mn ... revenue_2025_usd_mn), so
+    // email-origin auto-merge can only map the years exposed by that DTO.
+    // The cleaner path is accepting `financials` as rows here and letting
+    // CompanyService apply them via companyFinancialRepo.bulkUpsertForCompany.
+    for (const row of summary?.financials ?? []) {
+      if (!row || ![2021, 2022, 2023, 2024, 2025].includes(row.fiscal_year)) {
+        continue;
+      }
+      const year = row.fiscal_year;
+      const suffix = `${year}` as '2021' | '2022' | '2023' | '2024' | '2025';
+      if (hasOwn(row, 'revenue_usd_mn')) {
+        input[`revenue_${suffix}_usd_mn` as keyof CompanyDTOInput] =
+          row.revenue_usd_mn as never;
+      }
+      if (hasOwn(row, 'ebitda_usd_mn')) {
+        input[`ebitda_${suffix}_usd_mn` as keyof CompanyDTOInput] =
+          row.ebitda_usd_mn as never;
+      }
+      if (year === 2024) {
+        if (hasOwn(row, 'ev_usd_mn')) {
+          input.ev_2024 = row.ev_usd_mn;
+        }
+        if (hasOwn(row, 'ev_ebitda')) {
+          input.ev_ebitda_2024 = row.ev_ebitda;
+        }
+      }
+    }
+
+    return input;
   }
 
   private parseStructuredNotes(raw: string | null): Record<string, unknown> | null {

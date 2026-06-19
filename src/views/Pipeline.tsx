@@ -73,6 +73,9 @@ import MarketScreeningStatus from "@/components/pipeline/MarketScreeningStatus";
 import MarketScreeningResults from "@/components/pipeline/MarketScreeningResults";
 import ScreeningProgressPanel from "@/components/pipeline/ScreeningProgressPanel";
 import { CollapsibleSection } from "@/components/common/CollapsibleSection";
+import { TriageBanner } from "@/components/pipeline/TriageBanner";
+import { BulkTriageModal } from "@/components/pipeline/BulkTriageModal";
+import { DuplicatePopup } from "@/components/pipeline/DuplicatePopup";
 import { cn } from "@/lib/utils";
 import posthog from "posthog-js";
 import { useAuth } from "@/hooks/useAuth";
@@ -131,6 +134,9 @@ export interface PipelineCompany {
   deal_size: string | null;
   workflow_status: string | null;
   key_rationale: string | null;
+  review_state: string;
+  banker_source: string | null;
+  possible_duplicate_company_id: string | null;
   financials_raw?: import('@/lib/repositories').Tables<'company_financials'>[];
 }
 
@@ -280,10 +286,10 @@ export default function Pipeline({ showCrm = false, showAiWorkforce = false }: P
   // Sector filter
   const [sectorFilter, setSectorFilter] = useState<string>("all");
 
-  // Source sub-tab (inbound / outbound)
-  const [sourceFilter, setSourceFilter] = useState<"inbound" | "outbound">(
-    "inbound",
-  );
+  // Source sub-tab (replaces filter dropdown — real tabs now)
+  const [sourceFilter, setSourceFilter] = useState<"inbound" | "outbound">("inbound");
+  const [showUnreviewedOnly, setShowUnreviewedOnly] = useState(false);
+  const [docTypeFilter, setDocTypeFilter] = useState<string>("all");
 
   // Favorites state
   const [favoriteIds, setFavoriteIds] = useState<Set<string>>(new Set());
@@ -308,6 +314,7 @@ export default function Pipeline({ showCrm = false, showAiWorkforce = false }: P
     useState<PipelineCompany | null>(null);
   const [dropReason, setDropReason] = useState("");
   const [isDropping, setIsDropping] = useState(false);
+  const [showTriageModal, setShowTriageModal] = useState(false);
 
   const fetchCompanies = async (opts: { silent?: boolean } = {}) => {
     if (!opts.silent) setLoading(true);
@@ -367,6 +374,10 @@ export default function Pipeline({ showCrm = false, showAiWorkforce = false }: P
           deal_size: company.deal_size ?? null,
           workflow_status: company.workflow_status ?? null,
           key_rationale: company.key_rationale ?? null,
+          review_state: company.review_state ?? "reviewed",
+          banker_source: company.banker_source ?? null,
+          possible_duplicate_company_id:
+            company.possible_duplicate_company_id ?? null,
           financials_raw: company.financials_raw,
         })) || [];
 
@@ -513,6 +524,10 @@ export default function Pipeline({ showCrm = false, showAiWorkforce = false }: P
     const matchesSector =
       sectorFilter === "all" || company.segment === sectorFilter;
     const matchesSource = company.source === sourceFilter;
+    const matchesDocType =
+      docTypeFilter === "all" || company.doc_type === docTypeFilter;
+    const matchesUnreviewedOnly =
+      !showUnreviewedOnly || company.review_state === "unreviewed";
     const matchesView =
       viewMode === "dropped" ? isDropped(company) : isActive(company);
     return (
@@ -521,6 +536,8 @@ export default function Pipeline({ showCrm = false, showAiWorkforce = false }: P
       matchesL1Status &&
       matchesSector &&
       matchesSource &&
+      matchesDocType &&
+      matchesUnreviewedOnly &&
       matchesView
     );
   });
@@ -587,6 +604,63 @@ export default function Pipeline({ showCrm = false, showAiWorkforce = false }: P
     (currentPage - 1) * itemsPerPage,
     currentPage * itemsPerPage,
   );
+  const splitInboundReviewSections =
+    activeTab === "L0" && sourceFilter === "inbound" && viewMode !== "dropped";
+  const visibleCompanies = splitInboundReviewSections
+    ? sortedCompanies
+    : paginatedCompanies;
+  const allVisibleSelected =
+    visibleCompanies.length > 0 &&
+    visibleCompanies.every((company) => selectedIds.has(company.id));
+  const someVisibleSelected = visibleCompanies.some((company) =>
+    selectedIds.has(company.id),
+  );
+  const visibleSelectionState = allVisibleSelected
+    ? true
+    : someVisibleSelected
+      ? "indeterminate"
+      : false;
+
+  const toggleSelectAllVisible = () => {
+    if (allVisibleSelected) {
+      const next = new Set(selectedIds);
+      visibleCompanies.forEach((company) => next.delete(company.id));
+      setSelectedIds(next);
+      return;
+    }
+
+    const next = new Set(selectedIds);
+    visibleCompanies.forEach((company) => next.add(company.id));
+    setSelectedIds(next);
+  };
+
+  // MB-225: unreviewed from ALL sorted companies for modal, visible rows for table split
+  const allUnreviewedCompanies = sortedCompanies.filter(
+    (c) => c.review_state === "unreviewed",
+  );
+  const unreviewedCompanies = visibleCompanies.filter(
+    (c) => c.review_state === "unreviewed",
+  );
+  const showUnreviewed =
+    activeTab === "L0" &&
+    sourceFilter === "inbound" &&
+    !showUnreviewedOnly &&
+    docTypeFilter === "all" &&
+    unreviewedCompanies.length > 0;
+
+  // Handler for bulk triage confirm
+  async function handleTriageConfirm(
+    decisions: Array<{ id: string; action: "keep" | "drop"; reason?: string }>,
+  ) {
+    const res = await fetch("/api/companies/triage", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ decisions }),
+    });
+    if (!res.ok) throw new Error("Triage failed");
+    await fetchCompanies({ silent: true });
+    toast.success("Triage applied");
+  }
 
   useEffect(() => {
     setCurrentPage(1);
@@ -819,29 +893,6 @@ export default function Pipeline({ showCrm = false, showAiWorkforce = false }: P
     setSelectedIds(newSet);
   };
 
-  const toggleSelectAll = () => {
-    const stageCompanies = filteredCompanies.filter(
-      (c) => c.pipeline_stage === activeTab,
-    );
-    if (
-      selectedIds.size === stageCompanies.length &&
-      stageCompanies.length > 0
-    ) {
-      setSelectedIds(new Set());
-    } else {
-      setSelectedIds(new Set(stageCompanies.map((c) => c.id)));
-    }
-  };
-
-  const isAllSelected = () => {
-    const stageCompanies = filteredCompanies.filter(
-      (c) => c.pipeline_stage === activeTab,
-    );
-    return (
-      stageCompanies.length > 0 && selectedIds.size === stageCompanies.length
-    );
-  };
-
   return (
     <DashboardLayout showCrm={showCrm} showAiWorkforce={showAiWorkforce}>
       <div className="p-6 space-y-6 animate-fade-in">
@@ -966,6 +1017,21 @@ export default function Pipeline({ showCrm = false, showAiWorkforce = false }: P
                                   <ChevronDown className="h-3.5 w-3.5" />
                                 )}
                               </Button>
+                              {/* MB-223: Triage Unreviewed — persistent header button */}
+                              {allUnreviewedCompanies.length > 0 && (
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="gap-1.5 border-amber-300 text-amber-700 hover:bg-amber-50"
+                                  onClick={() => setShowTriageModal(true)}
+                                >
+                                  <CheckCircle2 className="h-4 w-4" />
+                                  Triage Unreviewed
+                                  <span className="ml-0.5 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-amber-400 px-1 text-[10px] font-bold text-white">
+                                    {allUnreviewedCompanies.length}
+                                  </span>
+                                </Button>
+                              )}
                               {showL0Pipeline && (
                                 <Button
                                   onClick={openAIScreening}
@@ -985,44 +1051,62 @@ export default function Pipeline({ showCrm = false, showAiWorkforce = false }: P
                           </div>
                         </CardHeader>
                         {showL0Pipeline && (
-                          <CardContent>
-                            {/* Header with Select All */}
-                            <div className="flex items-center justify-between mb-4">
-                              <div className="flex items-center gap-2">
-                                <Checkbox
-                                  checked={
-                                    selectedIds.size > 0 &&
-                                    paginatedCompanies.every((c) =>
-                                      selectedIds.has(c.id),
-                                    )
-                                  }
-                                  onCheckedChange={() => {
-                                    if (
-                                      selectedIds.size > 0 &&
-                                      paginatedCompanies.every((c) =>
-                                        selectedIds.has(c.id),
-                                      )
-                                    ) {
-                                      setSelectedIds(new Set());
-                                    } else {
-                                      const newSet = new Set(selectedIds);
-                                      paginatedCompanies.forEach((c) =>
-                                        newSet.add(c.id),
-                                      );
-                                      setSelectedIds(newSet);
-                                    }
-                                  }}
-                                  id="select-all"
-                                />
-                                <label
-                                  htmlFor="select-all"
-                                  className="text-sm font-medium cursor-pointer"
-                                >
-                                  Select All
-                                </label>
-                              </div>
+                          <CardContent className="px-0 pb-0">
+                            {/* MB-225: Inbound / Outbound sub-tabs */}
+                            <div className="flex border-b px-6">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setSourceFilter("inbound");
+                                  setShowUnreviewedOnly(false);
+                                  setDocTypeFilter("all");
+                                  setSelectedIds(new Set());
+                                  setCurrentPage(1);
+                                }}
+                                className={cn(
+                                  "flex items-center gap-2 px-3 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors",
+                                  sourceFilter === "inbound"
+                                    ? "border-blue-600 text-blue-700"
+                                    : "border-transparent text-muted-foreground hover:text-foreground",
+                                )}
+                              >
+                                <span className="h-2 w-2 rounded-full bg-blue-600 shrink-0" />
+                                Inbound
+                                <span className="rounded-full bg-blue-100 px-1.5 py-0.5 text-[10.5px] font-semibold text-blue-700">
+                                  {sourceCount("L0", "inbound")}
+                                </span>
+                                {allUnreviewedCompanies.length > 0 && sourceFilter !== "outbound" && (
+                                  <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-bold text-amber-700">
+                                    {allUnreviewedCompanies.length} new
+                                  </span>
+                                )}
+                              </button>
+                              <div className="my-2 w-px bg-border mx-1" />
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setSourceFilter("outbound");
+                                  setShowUnreviewedOnly(false);
+                                  setDocTypeFilter("all");
+                                  setSelectedIds(new Set());
+                                  setCurrentPage(1);
+                                }}
+                                className={cn(
+                                  "flex items-center gap-2 px-3 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors",
+                                  sourceFilter === "outbound"
+                                    ? "border-amber-600 text-amber-700"
+                                    : "border-transparent text-muted-foreground hover:text-foreground",
+                                )}
+                              >
+                                <span className="h-2 w-2 rounded-full bg-amber-500 shrink-0" />
+                                Outbound
+                                <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[10.5px] font-semibold text-amber-700">
+                                  {sourceCount("L0", "outbound")}
+                                </span>
+                              </button>
                             </div>
 
+                            <div className="px-6 pt-4">
                             {/* Filters */}
                             <div className="flex items-center gap-4 mb-1.5 flex-wrap">
                               <div className="relative flex-1 max-w-sm">
@@ -1054,6 +1138,38 @@ export default function Pipeline({ showCrm = false, showAiWorkforce = false }: P
                                   ))}
                                 </SelectContent>
                               </Select>
+                              {/* MB-225: Doc Type filter — only on inbound */}
+                              {sourceFilter === "inbound" && (
+                                <Select
+                                  value={docTypeFilter}
+                                  onValueChange={setDocTypeFilter}
+                                >
+                                  <SelectTrigger className="w-40">
+                                    <SelectValue placeholder="Doc Type" />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="all">All Doc Types</SelectItem>
+                                    <SelectItem value="teaser">Teaser</SelectItem>
+                                    <SelectItem value="shopping_list">Shopping List</SelectItem>
+                                    <SelectItem value="market_study">Market Study</SelectItem>
+                                  </SelectContent>
+                                </Select>
+                              )}
+                              {/* MB-225: Unreviewed only toggle */}
+                              {sourceFilter === "inbound" && (
+                                <Button
+                                  variant={showUnreviewedOnly ? "default" : "outline"}
+                                  size="sm"
+                                  className={cn(
+                                    "h-9 gap-1.5 text-xs",
+                                    showUnreviewedOnly && "bg-amber-500 hover:bg-amber-600 border-amber-500",
+                                  )}
+                                  onClick={() => setShowUnreviewedOnly(!showUnreviewedOnly)}
+                                >
+                                  <AlertCircle className="h-3.5 w-3.5" />
+                                  Unreviewed only
+                                </Button>
+                              )}
                             </div>
                             <div className="flex items-center gap-1.5 text-xs text-muted-foreground mb-4">
                               <Lightbulb className="h-3.5 w-3.5 text-amber-500 shrink-0" />
@@ -1076,7 +1192,13 @@ export default function Pipeline({ showCrm = false, showAiWorkforce = false }: P
 
                             {renderViewToggle("L0")}
 
-                            {renderSourceTabs("L0")}
+                            {/* MB-224: Triage Banner */}
+                            {sourceFilter === "inbound" && (
+                              <TriageBanner
+                                companies={sortedCompanies}
+                                onTriageClick={() => setShowTriageModal(true)}
+                              />
+                            )}
 
                             {loading ? (
                               <div className="flex items-center justify-center py-12">
@@ -1091,7 +1213,7 @@ export default function Pipeline({ showCrm = false, showAiWorkforce = false }: P
                               <>
                                 <div className="overflow-x-auto">
                                   <InboundCompaniesTable
-                                    companies={paginatedCompanies}
+                                    companies={visibleCompanies}
                                     stage="L0"
                                     viewMode={viewMode}
                                     favoriteIds={favoriteIds}
@@ -1099,6 +1221,12 @@ export default function Pipeline({ showCrm = false, showAiWorkforce = false }: P
                                     onToggleFavorite={handleToggleFavorite}
                                     selectedIds={selectedIds}
                                     onToggleSelect={toggleSelect}
+                                    visibleSelectionState={
+                                      visibleSelectionState
+                                    }
+                                    onToggleSelectAllVisible={
+                                      toggleSelectAllVisible
+                                    }
                                     updatingCompanyIds={updatingCompanyIds}
                                     statusOptions={inboundStatusOptions}
                                     sortField={sortField}
@@ -1113,6 +1241,14 @@ export default function Pipeline({ showCrm = false, showAiWorkforce = false }: P
                                       setSelectedCompany(company);
                                     }}
                                     onStatusChange={handleStatusChange}
+                                    onTriageAll={() =>
+                                      setShowTriageModal(true)
+                                    }
+                                    onKeep={(company) =>
+                                      handleTriageConfirm([
+                                        { id: company.id, action: "keep" },
+                                      ])
+                                    }
                                     onUpdate={(company) =>
                                       setEditingCompany(company)
                                     }
@@ -1132,7 +1268,7 @@ export default function Pipeline({ showCrm = false, showAiWorkforce = false }: P
                                     onRestore={handleRestoreDeal}
                                   />
                                 </div>
-                                {totalPages > 1 && (
+                                {!splitInboundReviewSections && totalPages > 1 && (
                                   <div className="flex items-center justify-between mt-4 pt-4 border-t">
                                     <p className="text-sm text-muted-foreground">
                                       Page {currentPage} of {totalPages} (
@@ -1179,6 +1315,12 @@ export default function Pipeline({ showCrm = false, showAiWorkforce = false }: P
                                     onToggleFavorite={handleToggleFavorite}
                                     selectedIds={selectedIds}
                                     onToggleSelect={toggleSelect}
+                                    visibleSelectionState={
+                                      visibleSelectionState
+                                    }
+                                    onToggleSelectAllVisible={
+                                      toggleSelectAllVisible
+                                    }
                                     updatingCompanyIds={updatingCompanyIds}
                                     statusOptions={outboundStatusOptions}
                                     sortField={sortField}
@@ -1248,6 +1390,7 @@ export default function Pipeline({ showCrm = false, showAiWorkforce = false }: P
                                 )}
                               </>
                             )}
+                            </div> {/* px-6 pt-4 */}
                           </CardContent>
                         )}
                       </Card>
@@ -1362,6 +1505,8 @@ export default function Pipeline({ showCrm = false, showAiWorkforce = false }: P
                               onToggleFavorite={handleToggleFavorite}
                               selectedIds={selectedIds}
                               onToggleSelect={toggleSelect}
+                              visibleSelectionState={visibleSelectionState}
+                              onToggleSelectAllVisible={toggleSelectAllVisible}
                               updatingCompanyIds={updatingCompanyIds}
                               statusOptions={inboundStatusOptions}
                               sortField={sortField}
@@ -1436,6 +1581,8 @@ export default function Pipeline({ showCrm = false, showAiWorkforce = false }: P
                               onToggleFavorite={handleToggleFavorite}
                               selectedIds={selectedIds}
                               onToggleSelect={toggleSelect}
+                              visibleSelectionState={visibleSelectionState}
+                              onToggleSelectAllVisible={toggleSelectAllVisible}
                               updatingCompanyIds={updatingCompanyIds}
                               statusOptions={outboundStatusOptions}
                               sortField={sortField}
@@ -1539,6 +1686,14 @@ export default function Pipeline({ showCrm = false, showAiWorkforce = false }: P
             setScreeningProgressRefresh((prev) => prev + 1);
             fetchCompanies();
           }}
+        />
+
+        {/* MB-223: Bulk Triage Modal */}
+        <BulkTriageModal
+          open={showTriageModal}
+          companies={allUnreviewedCompanies}
+          onClose={() => setShowTriageModal(false)}
+          onConfirm={handleTriageConfirm}
         />
 
         {promotingCompany && (

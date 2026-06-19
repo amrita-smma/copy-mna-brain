@@ -13,7 +13,7 @@ tsx scripts/build-drizzle-journal.ts data-pipeline/migrations
 ### Schema split
 
 - `public` schema — app system-of-record: `employers`, `correspondents`, `users`, `jobs`, overlays (`employer_domains`, `employer_overrides`, `employer_curation`, `correspondent_curation`), effective views, control plane.
-- `analytics` schema — pipeline-owned: `mbox_files`, `raw_emails`, `raw_email_enrichments`, `llm_batches`, `domain_classifications`, `emails`, `email_participants`, `email_topics`. Marts: `mart_crm`, `mart_mom`, `mart_topics`.
+- `analytics` schema — pipeline-owned: `mbox_files`, `raw_emails`, `raw_email_enrichments`, `llm_batches`, `domain_classifications`, `emails`, `email_participants`, `email_topics`, `email_attachments`. Marts: `mart_crm`, `mart_mom`, `mart_topics`.
 
 Cross-schema dependency is one-directional: `analytics` dim views read `public` effective views; nothing in `public` depends on `analytics`.
 

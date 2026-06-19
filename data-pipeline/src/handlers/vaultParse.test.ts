@@ -18,6 +18,8 @@ const mocks = vi.hoisted(() => ({
   markFailed: vi.fn(),
   // RawEmailRepository methods
   insertBatch: vi.fn(),
+  // EmailAttachmentRepository methods
+  upsertBatch: vi.fn(),
   // mboxParser.streamMboxMessages
   streamMboxMessages: vi.fn(),
 }));
@@ -49,6 +51,9 @@ vi.mock('../repositories', () => ({
   },
   RawEmailRepository: class {
     insertBatch = mocks.insertBatch;
+  },
+  EmailAttachmentRepository: class {
+    upsertBatch = mocks.upsertBatch;
   },
 }));
 
@@ -171,6 +176,7 @@ describe('runVaultParse', () => {
     mocks.markParsed.mockResolvedValue(makeFile({ parse_status: 'parsed' }));
     mocks.markFailed.mockResolvedValue(makeFile({ parse_status: 'failed' }));
     mocks.insertBatch.mockResolvedValue([]);
+    mocks.upsertBatch.mockResolvedValue([]);
     // Default: S3 returns an empty stream
     setupS3WithStream(makeEmptyStream());
     // Default: streamMboxMessages yields nothing
@@ -298,5 +304,191 @@ describe('runVaultParse', () => {
 
     expect(mocks.markParsing).not.toHaveBeenCalled();
     expect(result.files_processed).toBe(1);
+  });
+
+  // ── MB-214: attachment metadata capture ─────────────────────────────────────
+
+  it('[MB-214] upserts attachment metadata for a qualifying PDF part', async () => {
+    // Build a multipart raw body with a ≥20 KB base64 PDF attachment.
+    // Use \n (not \r\n): real mbox goes through parseRawMessage which normalises
+    // \r\n→\n; detectAttachments uses indexOf('\n\n') which fails on \r\n\r\n.
+    const pdfBytes = Buffer.alloc(25_000, 0x41); // 25 KB of 'A'
+    const b64 = pdfBytes.toString('base64');
+    const boundary = 'BOUND001';
+    const rawBody = [
+      `--${boundary}`,
+      `Content-Type: text/plain`,
+      ``,
+      `Hello`,
+      `--${boundary}`,
+      `Content-Type: application/pdf; name="report.pdf"`,
+      `Content-Transfer-Encoding: base64`,
+      `Content-Disposition: attachment; filename="report.pdf"`,
+      ``,
+      b64,
+      `--${boundary}--`,
+    ].join('\n');
+
+    mocks.listPending.mockResolvedValueOnce([makeFile()]);
+    mocks.streamMboxMessages.mockReturnValueOnce(makeMessageIterator([
+      makeRawMessage({
+        headers: {
+          'content-type': [`multipart/mixed; boundary="${boundary}"`],
+          'message-id': ['<pdf-msg@test.com>'],
+        },
+        rawBody,
+      }),
+    ]));
+    mocks.insertBatch.mockResolvedValueOnce([{ id: 'r1', message_id: '<pdf-msg@test.com>' }]);
+    mocks.upsertBatch.mockResolvedValueOnce([{ id: 'att-1' }]);
+
+    const result = await runVaultParse(
+      {},
+      { db: {} as never, job: { id: 'job-1' } as never },
+    );
+
+    expect(result.attachments_captured).toBe(1);
+    expect(mocks.upsertBatch).toHaveBeenCalledOnce();
+    const [rows] = mocks.upsertBatch.mock.calls[0] as [Array<Record<string, unknown>>];
+    expect(rows).toHaveLength(1);
+    expect(rows[0].mime_type).toBe('application/pdf');
+    expect(rows[0].state).toBe('metadata_only');
+    expect(rows[0].file_id).toBe('mb1');
+    // Must use the resolved message_id (stripped of angle-brackets by vaultParse)
+    expect(rows[0].message_id).toBe('pdf-msg@test.com');
+  });
+
+  it('[MB-214] uses the synthesized sha256: message_id for header-less messages', async () => {
+    // A message with NO Message-ID header but with a qualifying PDF attachment.
+    const pdfBytes = Buffer.alloc(25_000, 0x42);
+    const b64 = pdfBytes.toString('base64');
+    const boundary = 'BOUND002';
+    const rawBody = [
+      `--${boundary}`,
+      `Content-Type: text/plain`,
+      ``,
+      `No id email`,
+      `--${boundary}`,
+      `Content-Type: application/pdf; name="im.pdf"`,
+      `Content-Transfer-Encoding: base64`,
+      `Content-Disposition: attachment; filename="im.pdf"`,
+      ``,
+      b64,
+      `--${boundary}--`,
+    ].join('\n');
+
+    mocks.listPending.mockResolvedValueOnce([makeFile()]);
+    mocks.streamMboxMessages.mockReturnValueOnce(makeMessageIterator([
+      makeRawMessage({
+        headers: {
+          'content-type': [`multipart/mixed; boundary="${boundary}"`],
+          'message-id': [], // explicitly empty — vaultParse will synthesize one
+        },
+        rawBody,
+      }),
+    ]));
+    // insertBatch returns a row whose message_id is the synthesized value.
+    // We don't know it in advance so capture the call instead.
+    mocks.insertBatch.mockImplementationOnce(async (rows: Array<{ message_id: string }>) => rows);
+    mocks.upsertBatch.mockResolvedValueOnce([{ id: 'att-2' }]);
+
+    await runVaultParse({}, { db: {} as never, job: { id: 'job-1' } as never });
+
+    expect(mocks.upsertBatch).toHaveBeenCalledOnce();
+    const [attRows] = mocks.upsertBatch.mock.calls[0] as [Array<Record<string, unknown>>];
+    const [emailRows] = mocks.insertBatch.mock.calls[0] as [Array<Record<string, unknown>>];
+
+    // The attachment's message_id must equal the raw_email's message_id.
+    expect(emailRows[0].message_id).toMatch(/^sha256:/);
+    expect(attRows[0].message_id).toBe(emailRows[0].message_id);
+  });
+
+  it('[MB-214] dedupes identical attachment parts within one message before upsert', async () => {
+    // Two MIME parts with the same bytes in one message would crash Postgres
+    // ("ON CONFLICT cannot affect row a second time"). vaultParse must dedupe.
+    const pdfBytes = Buffer.alloc(25_000, 0x44);
+    const b64 = pdfBytes.toString('base64');
+    const boundary = 'BOUND_DEDUP';
+    const rawBody = [
+      `--${boundary}`,
+      `Content-Type: application/pdf; name="a.pdf"`,
+      `Content-Transfer-Encoding: base64`,
+      `Content-Disposition: attachment; filename="a.pdf"`,
+      ``,
+      b64,
+      `--${boundary}`,
+      // Identical bytes → same content_hash
+      `Content-Type: application/pdf; name="a_copy.pdf"`,
+      `Content-Transfer-Encoding: base64`,
+      `Content-Disposition: attachment; filename="a_copy.pdf"`,
+      ``,
+      b64,
+      `--${boundary}--`,
+    ].join('\n');
+
+    mocks.listPending.mockResolvedValueOnce([makeFile()]);
+    mocks.streamMboxMessages.mockReturnValueOnce(makeMessageIterator([
+      makeRawMessage({
+        headers: {
+          'content-type': [`multipart/mixed; boundary="${boundary}"`],
+          'message-id': ['<dedup@test.com>'],
+        },
+        rawBody,
+      }),
+    ]));
+    mocks.insertBatch.mockResolvedValueOnce([{ id: 'r1', message_id: 'dedup@test.com' }]);
+    mocks.upsertBatch.mockResolvedValueOnce([{ id: 'att-dedup' }]);
+
+    await runVaultParse({}, { db: {} as never, job: { id: 'job-1' } as never });
+
+    expect(mocks.upsertBatch).toHaveBeenCalledOnce();
+    const [rows] = mocks.upsertBatch.mock.calls[0] as [Array<Record<string, unknown>>];
+    // Only 1 row despite 2 identical parts — deduped by (message_id, content_hash)
+    expect(rows).toHaveLength(1);
+  });
+
+  it('[MB-214] re-parse is idempotent — upsertBatch is called again and upsert handles dedup', async () => {
+    const pdfBytes = Buffer.alloc(25_000, 0x43);
+    const b64 = pdfBytes.toString('base64');
+    const boundary = 'BOUND003';
+    const rawBody = [
+      `--${boundary}`,
+      `Content-Type: application/pdf; name="deck.pdf"`,
+      `Content-Transfer-Encoding: base64`,
+      `Content-Disposition: attachment; filename="deck.pdf"`,
+      ``,
+      b64,
+      `--${boundary}--`,
+    ].join('\n');
+
+    const rawMsg = makeRawMessage({
+      headers: {
+        'content-type': [`multipart/mixed; boundary="${boundary}"`],
+        'message-id': ['<idempotent@test.com>'],
+      },
+      rawBody,
+    });
+
+    // First parse
+    mocks.listPending.mockResolvedValueOnce([makeFile()]);
+    mocks.streamMboxMessages.mockReturnValueOnce(makeMessageIterator([rawMsg]));
+    mocks.insertBatch.mockResolvedValueOnce([{ id: 'r1', message_id: 'idempotent@test.com' }]);
+    mocks.upsertBatch.mockResolvedValueOnce([{ id: 'att-3' }]);
+    await runVaultParse({}, { db: {} as never, job: { id: 'job-1' } as never });
+
+    // Second parse (re-run)
+    mocks.listPending.mockResolvedValueOnce([makeFile()]);
+    mocks.streamMboxMessages.mockReturnValueOnce(makeMessageIterator([rawMsg]));
+    mocks.insertBatch.mockResolvedValueOnce([{ id: 'r1', message_id: 'idempotent@test.com' }]);
+    mocks.upsertBatch.mockResolvedValueOnce([{ id: 'att-3' }]);
+    await runVaultParse({}, { db: {} as never, job: { id: 'job-1' } as never });
+
+    // Both parses called upsertBatch with identical rows — idempotency is enforced
+    // by the ON CONFLICT DO UPDATE in the repository, not by vaultParse itself.
+    expect(mocks.upsertBatch).toHaveBeenCalledTimes(2);
+    const firstRows = mocks.upsertBatch.mock.calls[0][0] as Array<Record<string, unknown>>;
+    const secondRows = mocks.upsertBatch.mock.calls[1][0] as Array<Record<string, unknown>>;
+    expect(firstRows[0].content_hash).toBe(secondRows[0].content_hash);
+    expect(firstRows[0].message_id).toBe(secondRows[0].message_id);
   });
 });

@@ -1,7 +1,5 @@
 import * as crypto from 'node:crypto';
-import * as zlib from 'node:zlib';
-import { Readable } from 'node:stream';
-import { S3Client, GetObjectCommand } from '@aws-sdk/client-s3';
+import { openS3GunzipStream } from '../s3Stream';
 import {
   extractEmailList,
   stripAngleBrackets,
@@ -12,9 +10,11 @@ import {
   parseMessage,
   getHeader,
   getAllHeaders,
+  extractAttachments,
   type RawMessage,
 } from '../mboxParser';
-import { MboxFileRepository, RawEmailRepository } from '../repositories';
+import { MboxFileRepository, RawEmailRepository, EmailAttachmentRepository } from '../repositories';
+import type { EmailAttachmentInsert } from '../repositories';
 import type {
   DbClient,
   Tables,
@@ -31,6 +31,10 @@ export interface VaultParsePayload {
   fileIds?: string[];
   limit?: number;
   force?: boolean;
+  // Backfill mode: re-stream already-parsed files to capture data added by
+  // later pipeline stages (e.g. attachment metadata). Does NOT reset
+  // parse_status — raw_email upserts are idempotent (ON CONFLICT DO NOTHING).
+  reparse?: boolean;
 }
 
 export interface VaultParseResult {
@@ -40,11 +44,13 @@ export interface VaultParseResult {
   raw_emails_inserted: number;
   raw_emails_skipped_dupe: number;
   raw_emails_synthesized_id: number;
+  attachments_captured: number;
 }
 
 // Normalised email representation built from a RawMessage. Mirrors the fields
 // that buildRawEmailRow needs so we don't depend on googleVaultService.ParsedEmail.
-interface ExtractedEmail {
+// Exported for use by attachmentFetch (resolveRawMessageId).
+export interface ExtractedEmail {
   message_id: string | null;
   from_email: string | null;
   from_display_name: string | null;
@@ -68,7 +74,7 @@ const debug = (msg: string) => console.debug(`[vault-parse] ${msg}`);
  * (first value wins) for compatibility with googleVaultService utilities that
  * operate on a flat header map.
  */
-function flattenHeaders(headers: RawMessage['headers']): Record<string, string> {
+export function flattenHeaders(headers: RawMessage['headers']): Record<string, string> {
   const out: Record<string, string> = {};
   for (const [key, vals] of Object.entries(headers)) {
     if (vals.length > 0) out[key] = vals[0];
@@ -144,42 +150,17 @@ function buildRawEmailRow(
   };
 }
 
-/**
- * Open the gzipped MBOX from S3 and return an AsyncIterable of Buffers so
- * streamMboxMessages can consume it without buffering the whole file.
- */
-async function openS3GunzipStream(
-  s3Key: string,
-  s3Bucket: string,
-): Promise<AsyncIterable<Buffer>> {
-  const region = process.env.AWS_REGION || 'ap-southeast-3';
-  const endpoint = process.env.AWS_S3_ENDPOINT;
-  const forcePathStyle = process.env.AWS_S3_FORCE_PATH_STYLE === 'true';
-
-  const s3 = new S3Client({
-    region,
-    ...(endpoint ? { endpoint, forcePathStyle } : {}),
-  });
-
-  const response = await s3.send(
-    new GetObjectCommand({ Bucket: s3Bucket, Key: s3Key }),
-  );
-
-  const body = response.Body as Readable;
-  const gunzip = zlib.createGunzip();
-  body.pipe(gunzip);
-  return gunzip;
-}
-
 export async function runVaultParse(
   payload: VaultParsePayload,
   deps: { db: DbClient; job: Tables<'jobs'> },
 ): Promise<VaultParseResult> {
   const force = payload.force === true;
+  const reparse = payload.reparse === true;
   const limit = Math.max(1, Math.min(MAX_LIMIT, payload.limit ?? DEFAULT_LIMIT));
 
   const mboxRepo = new MboxFileRepository(deps.db);
   const rawRepo = new RawEmailRepository(deps.db);
+  const attachmentRepo = new EmailAttachmentRepository(deps.db);
 
   // 1. Resolve the target file set.
   let targets: Tables<'mbox_files'>[] = [];
@@ -188,6 +169,11 @@ export async function runVaultParse(
       const row = await mboxRepo.findById(id);
       if (row) targets.push(row);
     }
+  } else if (reparse) {
+    // reparse=true: re-stream all files regardless of parse_status, to backfill
+    // data added by later pipeline stages (e.g. email_attachments). Raw email
+    // upserts are idempotent; only new side-effects (attachment rows) land.
+    targets = await mboxRepo.listAll(limit);
   } else {
     targets = await mboxRepo.listPending(limit, force);
   }
@@ -203,15 +189,16 @@ export async function runVaultParse(
     raw_emails_inserted: 0,
     raw_emails_skipped_dupe: 0,
     raw_emails_synthesized_id: 0,
+    attachments_captured: 0,
   };
 
   for (const target of targets) {
     const started = Date.now();
     let file = target;
 
-    // 2. Claim (or skip if not in a retryable state). With force=true, bypass
-    // the claim entirely and process whatever state the file is in.
-    if (!force) {
+    // 2. Claim (or skip if not in a retryable state). Bypass the claim when
+    // force=true (retry failed files) or reparse=true (backfill all files).
+    if (!force && !reparse) {
       const claimed = await mboxRepo.markParsing(file.id, ['pending']);
       if (!claimed) {
         debug(`skip ${file.id}: not in retryable state`);
@@ -232,9 +219,11 @@ export async function runVaultParse(
 
       // 4. Stream messages → extract fields → batch insert.
       let batch: TablesInsert<'raw_emails'>[] = [];
+      let attachmentBatch: EmailAttachmentInsert[] = [];
       let insertedHere = 0;
       let skippedHere = 0;
       let synthesizedHere = 0;
+      let attachmentsHere = 0;
       let seenHere = 0;
 
       const flushBatch = async (): Promise<void> => {
@@ -245,13 +234,52 @@ export async function runVaultParse(
         batch = [];
       };
 
+      const flushAttachments = async (): Promise<void> => {
+        if (attachmentBatch.length === 0) return;
+        // Dedupe within the batch by (message_id, content_hash) — two identical
+        // parts in one message would otherwise trigger "ON CONFLICT DO UPDATE
+        // cannot affect row a second time" in Postgres.
+        const seen = new Set<string>();
+        const deduped = attachmentBatch.filter((r) => {
+          const key = `${r.message_id}:${r.content_hash}`;
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        });
+        const upserted = await attachmentRepo.upsertBatch(deduped);
+        attachmentsHere += upserted.length;
+        attachmentBatch = [];
+      };
+
       for await (const raw of streamMboxMessages(gunzipStream)) {
         const email = extractEmail(raw);
         const { row, synthesized } = buildRawEmailRow(file, email);
         if (synthesized) synthesizedHere++;
         batch.push(row);
         seenHere++;
+
+        // ⚠️ Use row.message_id (the resolved/synthesized id), NOT email.message_id
+        // (which is null for header-less messages). This ensures the gate join
+        // and P2 re-stream match work correctly for every message.
+        if (email.has_attachments) {
+          const metas = extractAttachments(raw.headers, raw.rawBody);
+          for (const meta of metas) {
+            attachmentBatch.push({
+              file_id: file.id,
+              message_id: row.message_id,
+              part_index: meta.part_index,
+              filename: meta.filename,
+              mime_type: meta.mime_type,
+              size_bytes: meta.size_bytes,
+              content_hash: meta.content_hash,
+              encoding: meta.encoding,
+              state: 'metadata_only',
+            });
+          }
+        }
+
         if (batch.length >= INSERT_BATCH_SIZE) await flushBatch();
+        if (attachmentBatch.length >= INSERT_BATCH_SIZE) await flushAttachments();
         if (seenHere % PROGRESS_EVERY === 0) {
           log(
             `progress ${file.id} seen=${seenHere} inserted=${insertedHere} skipped=${skippedHere} elapsed=${Date.now() - started}ms`,
@@ -259,6 +287,7 @@ export async function runVaultParse(
         }
       }
       await flushBatch();
+      await flushAttachments();
 
       // 5. Mark parsed.
       await mboxRepo.markParsed(file.id, insertedHere);
@@ -271,6 +300,7 @@ export async function runVaultParse(
       result.raw_emails_inserted += insertedHere;
       result.raw_emails_skipped_dupe += skippedHere;
       result.raw_emails_synthesized_id += synthesizedHere;
+      result.attachments_captured += attachmentsHere;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       console.error(`[vault-parse] failed ${file.id}:`, err);

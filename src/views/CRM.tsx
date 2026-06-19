@@ -3,8 +3,10 @@
 import DashboardLayout from "@/components/layout/DashboardLayout";
 import { Input } from "@/components/ui/input";
 import { AlertTriangle, Loader2, Search, Users, X } from "lucide-react";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
+import { useAuth } from "@/hooks/useAuth";
 
 import { AddContactDialog } from "./crm/AddContactDialog";
 import { CurationDialog } from "./crm/CurationDialog";
@@ -35,6 +37,9 @@ export default function CRM({
   showAiWorkforce = false,
   showVaultSync = false,
 }: CRMProps) {
+  const router = useRouter();
+  const { user, loading: authLoading } = useAuth();
+  const userId = user?.id ?? null;
   const [employers, setEmployers] = useState<EmployerSummary[]>([]);
   const [total, setTotal] = useState(0);
   const [insights, setInsights] = useState<Insights | null>(null);
@@ -65,6 +70,11 @@ export default function CRM({
 
   const [curationOpen, setCurationOpen] = useState(false);
 
+  const handleUnauthorized = useCallback(() => {
+    toast.error("Your session has expired. Please sign in again.");
+    router.replace("/login");
+  }, [router]);
+
   // ─── Debounce search ──────────────────────────────────────────────────────
   useEffect(() => {
     const handle = setTimeout(() => setDebouncedSearch(search.trim()), 250);
@@ -73,6 +83,7 @@ export default function CRM({
 
   // ─── Fetch employers ──────────────────────────────────────────────────────
   const fetchEmployers = useCallback(async () => {
+    if (authLoading || !userId) return;
     setLoading(true);
     try {
       const params = new URLSearchParams();
@@ -85,19 +96,34 @@ export default function CRM({
       params.set("limit", String(PAGE_SIZE));
       params.set("offset", String((page - 1) * PAGE_SIZE));
 
-      const res = await fetch(`/api/crm?${params.toString()}`);
+      const res = await fetch(`/api/crm?${params.toString()}`, {
+        credentials: "same-origin",
+      });
       const json = await res.json();
+      if (res.status === 401) {
+        handleUnauthorized();
+        return;
+      }
       if (!res.ok) throw new Error(json.error || "Failed to load CRM");
       setEmployers(json.data);
       setTotal(json.total);
       setInsights(json.insights);
     } catch (err) {
-      console.error(err);
       toast.error((err as Error).message);
     } finally {
       setLoading(false);
     }
-  }, [debouncedSearch, lastContact, customDate, topicFilter, teamFilter, page]);
+  }, [
+    authLoading,
+    userId,
+    debouncedSearch,
+    lastContact,
+    customDate,
+    topicFilter,
+    teamFilter,
+    page,
+    handleUnauthorized,
+  ]);
 
   useEffect(() => {
     fetchEmployers();
@@ -105,22 +131,44 @@ export default function CRM({
 
   // ─── Load filter sources ──────────────────────────────────────────────────
   useEffect(() => {
-    fetch("/api/crm/topics")
-      .then((r) => r.json())
-      .then((j) => setTopics(j.data ?? []))
+    if (authLoading || !userId) return;
+    fetch("/api/crm/topics", { credentials: "same-origin" })
+      .then(async (r) => {
+        const j = await r.json();
+        if (r.status === 401) {
+          handleUnauthorized();
+          return null;
+        }
+        return j;
+      })
+      .then((j) => j && setTopics(j.data ?? []))
       .catch(() => undefined);
-    fetch("/api/crm/team-users")
-      .then((r) => r.json())
-      .then((j) => setTeamUsers(j.data ?? []))
+    fetch("/api/crm/team-users", { credentials: "same-origin" })
+      .then(async (r) => {
+        const j = await r.json();
+        if (r.status === 401) {
+          handleUnauthorized();
+          return null;
+        }
+        return j;
+      })
+      .then((j) => j && setTeamUsers(j.data ?? []))
       .catch(() => undefined);
-  }, []);
+  }, [authLoading, userId, handleUnauthorized]);
 
   // ─── Card expand / detail load ────────────────────────────────────────────
   const loadDetail = useCallback(async (id: string) => {
+    if (authLoading || !userId) return;
     setLoadingDetail(id);
     try {
-      const res = await fetch(`/api/crm/employers/${id}`);
+      const res = await fetch(`/api/crm/employers/${id}`, {
+        credentials: "same-origin",
+      });
       const json = await res.json();
+      if (res.status === 401) {
+        handleUnauthorized();
+        return;
+      }
       if (!res.ok) throw new Error(json.error || "Failed to load employer");
       setDetails((prev) => ({ ...prev, [id]: json.data }));
     } catch (err) {
@@ -128,7 +176,7 @@ export default function CRM({
     } finally {
       setLoadingDetail(null);
     }
-  }, []);
+  }, [authLoading, userId, handleUnauthorized]);
 
   const toggleExpand = (id: string) => {
     if (expandedId === id) {

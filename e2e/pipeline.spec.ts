@@ -21,6 +21,10 @@ type Company = {
   l1_screening_result: string | null;
   pic?: string | null;
   remarks: string | null;
+  review_state: string;
+  doc_type: string | null;
+  banker_source: string | null;
+  possible_duplicate_company_id: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -45,6 +49,10 @@ const baseCompany = (overrides: Partial<Company>): Company => ({
   l1_screening_result: null,
   pic: null,
   remarks: null,
+  review_state: 'reviewed',
+  doc_type: null,
+  banker_source: null,
+  possible_duplicate_company_id: null,
   created_at: '2026-01-01T00:00:00Z',
   updated_at: '2026-04-01T00:00:00Z',
   ...overrides,
@@ -68,6 +76,30 @@ const mockApis = async (page: Page, companies: Company[], opts?: { favorites?: s
     const req = route.request();
     const method = req.method();
     const url = new URL(req.url());
+
+    if (url.pathname === '/api/companies/triage') {
+      if (method === 'GET') {
+        const source = url.searchParams.get('source');
+        const count = companies.filter(
+          (c) =>
+            c.review_state === 'unreviewed' &&
+            (!source || source === 'all' || c.source === source),
+        ).length;
+        return route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ data: { count } }),
+        });
+      }
+
+      if (method === 'POST') {
+        return route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ success: true }),
+        });
+      }
+    }
 
     if (method === 'GET') {
       if (url.searchParams.get('countOnly') === 'true') {
@@ -272,5 +304,103 @@ test.describe('Pipeline page', () => {
     ]);
 
     await expect(page.getByText('No companies in this stage')).toBeVisible();
+  });
+
+  test('User triages unreviewed inbound companies', async ({ page }) => {
+    const companies = [
+      baseCompany({
+        id: 'triage-1',
+        target: 'PT Sinar Teknologi',
+        segment: 'Technology',
+        source: 'inbound',
+        pipeline_stage: 'L0',
+        review_state: 'unreviewed',
+        doc_type: 'teaser',
+        banker_source: 'Goldman Sachs',
+      }),
+      baseCompany({
+        id: 'triage-2',
+        target: 'BrightStar Energy',
+        segment: 'Energy',
+        source: 'inbound',
+        pipeline_stage: 'L0',
+        review_state: 'unreviewed',
+        doc_type: 'shopping_list',
+        banker_source: 'UBS',
+        revenue_2024_usd_mn: null,
+        ebitda_2024_usd_mn: null,
+      }),
+      baseCompany({
+        id: 'reviewed-1',
+        target: 'Reviewed Industrials',
+        segment: 'Manufacturing',
+        source: 'inbound',
+        pipeline_stage: 'L0',
+      }),
+      baseCompany({
+        id: 'market-1',
+        target: 'Indonesia Data Centers',
+        segment: 'Infrastructure',
+        source: 'outbound',
+        pipeline_stage: 'L0',
+        doc_type: 'market_study',
+      }),
+    ];
+
+    await mockAuthSession(page);
+    await mockApis(page, companies);
+    let triagePayload: unknown = null;
+    await page.route('**/api/companies/triage', (route) => {
+      if (route.request().method() === 'POST') {
+        triagePayload = JSON.parse(route.request().postData() || '{}');
+        return route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ success: true }),
+        });
+      }
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ data: { count: 2 } }),
+      });
+    });
+
+    await Promise.all([
+      page.waitForResponse((res) => res.url().includes('/api/companies') && !res.url().includes('countOnly') && res.status() === 200),
+      page.goto('/pipeline?stage=L0'),
+    ]);
+
+    await expect(page.getByRole('button', { name: /Triage Unreviewed\s+2/ })).toBeVisible();
+    await expect(page.getByText('2 new companies from banker emails')).toBeVisible();
+
+    await page.getByRole('button', { name: /Triage Unreviewed\s+2/ }).click();
+    await expect(page.getByRole('dialog', { name: 'Triage Unreviewed Companies' })).toBeVisible();
+    await expect(page.getByText('PT Sinar Teknologi')).toBeVisible();
+    await expect(page.getByText('Goldman Sachs')).toBeVisible();
+
+    await page
+      .locator('div')
+      .filter({ hasText: 'PT Sinar Teknologi' })
+      .getByRole('button', { name: 'Keep' })
+      .first()
+      .click();
+    await page
+      .locator('div')
+      .filter({ hasText: 'BrightStar Energy' })
+      .getByRole('button', { name: 'Drop' })
+      .first()
+      .click();
+    await page.getByRole('combobox').filter({ hasText: 'Select reason' }).click();
+    await page.getByRole('option', { name: 'Insufficient information' }).click();
+
+    await page.getByRole('button', { name: 'Apply 2 decisions' }).click();
+
+    expect(triagePayload).toEqual({
+      decisions: [
+        { id: 'triage-1', action: 'keep' },
+        { id: 'triage-2', action: 'drop', reason: 'Insufficient information' },
+      ],
+    });
   });
 });

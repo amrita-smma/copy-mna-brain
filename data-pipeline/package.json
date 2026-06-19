@@ -8,7 +8,11 @@
     "./handlers/crmLlmFetch": "./src/handlers/crmLlmFetch.ts",
     "./handlers/crmLlmSubmit": "./src/handlers/crmLlmSubmit.ts",
     "./handlers/vaultArchive": "./src/handlers/vaultArchive.ts",
-    "./handlers/vaultParse": "./src/handlers/vaultParse.ts"
+    "./handlers/vaultParse": "./src/handlers/vaultParse.ts",
+    "./handlers/attachmentGate": "./src/handlers/attachmentGate.ts",
+    "./handlers/attachmentFetch": "./src/handlers/attachmentFetch.ts",
+    "./handlers/attachmentTriage": "./src/handlers/attachmentTriage.ts",
+    "./handlers/attachmentUpload": "./src/handlers/attachmentUpload.ts"
   },
   "dependencies": {
     "adm-zip": "*",

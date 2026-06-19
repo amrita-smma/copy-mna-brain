@@ -161,21 +161,32 @@ type SeedCompany = {
   ownership: string;
   pipeline_stage: 'market_screening' | 'L0' | 'L1' | 'L2' | 'L3' | 'L4' | 'L5';
   status: 'active' | 'dropped';
+  source?: 'inbound' | 'outbound';
+  review_state?: 'reviewed' | 'unreviewed';
+  doc_type?:
+    | 'prospectus'
+    | 'im'
+    | 'teaser'
+    | 'mom'
+    | 'financial_model'
+    | 'financial_statement'
+    | 'shopping_list'
+    | 'market_study';
+  banker_source?: string;
+  remarks?: string;
+  possible_duplicate_entry_id?: number;
   watchlist_status: string;
   dropped_reason?: string;
   dropped_at?: string;
   // Pipeline (HTML-parity) fields
-  source?: 'inbound' | 'outbound';
   deal_type?: 'majority' | 'minority';
   originator?: string;
   last_activity_at?: string;
   banker?: string;
-  doc_type?: 'teaser' | 'shopping_list' | 'market_study';
   stake?: string;
   deal_size?: string;
   workflow_status?: string;
   key_rationale?: string;
-  remarks?: string;
   financials: Array<{
     fiscal_year: number;
     revenue_usd_mn?: number;
@@ -185,6 +196,217 @@ type SeedCompany = {
 };
 
 const seedCompanies: SeedCompany[] = [
+  {
+    entry_id: 9020,
+    target: 'PT Sinar Teknologi',
+    project_name: 'Project Sinar',
+    segment: 'Technology',
+    company_focus: 'Indonesian industrial IoT platform for plant operations',
+    website: 'https://sinartech.example',
+    geography: 'Indonesia',
+    ownership: 'Private',
+    pipeline_stage: 'L0',
+    status: 'active',
+    source: 'inbound',
+    review_state: 'unreviewed',
+    doc_type: 'teaser',
+    banker_source: 'Goldman Sachs',
+    remarks: 'Seed triage: extracted from Goldman Sachs teaser; complete 2024 financials.',
+    watchlist_status: 'New',
+    financials: [
+      { fiscal_year: 2024, revenue_usd_mn: 42.0, ebitda_usd_mn: 7.4, ev_usd_mn: 128 },
+    ],
+  },
+  {
+    entry_id: 9021,
+    target: 'Mega Retail Group',
+    project_name: 'Project Mega',
+    segment: 'Retail',
+    company_focus: 'Multi-format specialty retail chain across Java',
+    website: 'https://megaretail.example',
+    geography: 'Indonesia',
+    ownership: 'Family-owned',
+    pipeline_stage: 'L0',
+    status: 'active',
+    source: 'inbound',
+    review_state: 'unreviewed',
+    doc_type: 'teaser',
+    banker_source: 'JP Morgan',
+    remarks: 'Seed triage: missing financials path.',
+    watchlist_status: 'New',
+    financials: [],
+  },
+  {
+    entry_id: 9022,
+    target: 'BrightStar Energy',
+    project_name: 'Project BrightStar',
+    segment: 'Energy',
+    company_focus: 'Commercial solar EPC and maintenance platform',
+    website: 'https://brightstarenergy.example',
+    geography: 'Indonesia',
+    ownership: 'Private',
+    pipeline_stage: 'L0',
+    status: 'active',
+    source: 'inbound',
+    review_state: 'unreviewed',
+    doc_type: 'shopping_list',
+    banker_source: 'UBS',
+    remarks: 'Seed triage: target came from banker shopping list.',
+    watchlist_status: 'New',
+    financials: [
+      { fiscal_year: 2024, revenue_usd_mn: 31.5, ebitda_usd_mn: 4.8, ev_usd_mn: 96 },
+    ],
+  },
+  {
+    entry_id: 9023,
+    target: 'Nusantara Health',
+    project_name: 'Project Nusantara',
+    segment: 'Healthcare',
+    company_focus: 'Primary care clinic chain with employer contracts',
+    website: 'https://nusantarahealth.example',
+    geography: 'Indonesia',
+    ownership: 'Private',
+    pipeline_stage: 'L0',
+    status: 'active',
+    source: 'inbound',
+    review_state: 'unreviewed',
+    doc_type: 'shopping_list',
+    banker_source: 'Citi',
+    remarks: 'Seed triage: possible duplicate flag points to Lumen Diagnostics.',
+    possible_duplicate_entry_id: 9012,
+    watchlist_status: 'New',
+    financials: [
+      { fiscal_year: 2024, revenue_usd_mn: 25.1, ebitda_usd_mn: 3.2, ev_usd_mn: 82 },
+    ],
+  },
+  {
+    entry_id: 9024,
+    target: 'Pacific Chemicals Ltd',
+    project_name: 'Project Pacific',
+    segment: 'Chemicals',
+    company_focus: 'Specialty additives and packaging chemicals across APAC',
+    website: 'https://pacificchemicals.example',
+    geography: 'Asia Pacific',
+    ownership: 'Corporate carve-out',
+    pipeline_stage: 'L0',
+    status: 'active',
+    source: 'inbound',
+    review_state: 'unreviewed',
+    doc_type: 'market_study',
+    banker_source: 'Deutsche Bank',
+    remarks: 'Seed triage: inbound market study case, actively pitched by banker.',
+    watchlist_status: 'New',
+    financials: [
+      { fiscal_year: 2024, revenue_usd_mn: 88.4, ebitda_usd_mn: 13.5, ev_usd_mn: 280 },
+    ],
+  },
+  {
+    entry_id: 9025,
+    target: 'ASEAN Plastics Co',
+    project_name: 'Project ASEAN Plastics',
+    segment: 'Chemicals',
+    company_focus: 'Regional plastics compounding benchmark from market study',
+    website: 'https://aseanplastics.example',
+    geography: 'Southeast Asia',
+    ownership: 'Private',
+    pipeline_stage: 'L0',
+    status: 'active',
+    source: 'outbound',
+    review_state: 'unreviewed',
+    doc_type: 'market_study',
+    banker_source: 'Deutsche Bank',
+    remarks: 'Seed triage: outbound market intel generated from market study.',
+    watchlist_status: 'New',
+    financials: [
+      { fiscal_year: 2024, revenue_usd_mn: 72.0, ebitda_usd_mn: 9.9, ev_usd_mn: 190 },
+    ],
+  },
+  {
+    entry_id: 9026,
+    target: 'Reviewed Teaser Co',
+    project_name: 'Project Reviewed Teaser',
+    segment: 'Business Services',
+    company_focus: 'B2B compliance workflow software',
+    website: 'https://reviewedteaser.example',
+    geography: 'Singapore',
+    ownership: 'PE-backed',
+    pipeline_stage: 'L0',
+    status: 'active',
+    source: 'inbound',
+    review_state: 'reviewed',
+    doc_type: 'teaser',
+    banker_source: 'Morgan Stanley',
+    remarks: 'Seed triage: already kept by analyst.',
+    watchlist_status: 'Active',
+    financials: [
+      { fiscal_year: 2024, revenue_usd_mn: 37.8, ebitda_usd_mn: 6.0, ev_usd_mn: 150 },
+    ],
+  },
+  {
+    entry_id: 9027,
+    target: 'Reviewed Shopping List Co',
+    project_name: 'Project Reviewed List',
+    segment: 'Logistics',
+    company_focus: 'Last-mile delivery route optimization provider',
+    website: 'https://reviewedlist.example',
+    geography: 'Malaysia',
+    ownership: 'Private',
+    pipeline_stage: 'L0',
+    status: 'active',
+    source: 'inbound',
+    review_state: 'reviewed',
+    doc_type: 'shopping_list',
+    banker_source: 'Citi',
+    remarks: 'Seed triage: reviewed inbound shopping-list-origin company.',
+    watchlist_status: 'Active',
+    financials: [
+      { fiscal_year: 2024, revenue_usd_mn: 22.6, ebitda_usd_mn: 2.9, ev_usd_mn: 68 },
+    ],
+  },
+  {
+    entry_id: 9028,
+    target: 'Reviewed Market Intel Co',
+    project_name: 'Project Reviewed Intel',
+    segment: 'Infrastructure',
+    company_focus: 'Data center services benchmark from market study',
+    website: 'https://reviewedintel.example',
+    geography: 'Indonesia',
+    ownership: 'Private',
+    pipeline_stage: 'L0',
+    status: 'active',
+    source: 'outbound',
+    review_state: 'reviewed',
+    doc_type: 'market_study',
+    banker_source: 'HSBC',
+    remarks: 'Seed triage: reviewed outbound market-intel company.',
+    watchlist_status: 'Active',
+    financials: [
+      { fiscal_year: 2024, revenue_usd_mn: 56.2, ebitda_usd_mn: 8.1, ev_usd_mn: 210 },
+    ],
+  },
+  {
+    entry_id: 9029,
+    target: 'Dropped Unreviewed Co',
+    project_name: 'Project Dropped Seed',
+    segment: 'Consumer',
+    company_focus: 'Specialty retail concept below mandate size',
+    website: 'https://droppedunreviewed.example',
+    geography: 'Thailand',
+    ownership: 'Private',
+    pipeline_stage: 'L0',
+    status: 'dropped',
+    source: 'inbound',
+    review_state: 'unreviewed',
+    doc_type: 'teaser',
+    banker_source: 'Bank of America',
+    remarks: 'Seed triage: dropped row for dropped-view coverage.',
+    watchlist_status: 'Dropped',
+    dropped_reason: 'Seed coverage: dropped before triage completion.',
+    dropped_at: '2026-06-01T10:00:00Z',
+    financials: [
+      { fiscal_year: 2024, revenue_usd_mn: 8.7, ebitda_usd_mn: 0.6, ev_usd_mn: 24 },
+    ],
+  },
   {
     entry_id: 9001,
     project_name: 'Project Atlas',
@@ -871,20 +1093,22 @@ async function main() {
           ownership: c.ownership,
           pipeline_stage: c.pipeline_stage,
           status: c.status,
+          source: c.source ?? null,
+          review_state: c.review_state ?? 'reviewed',
+          doc_type: c.doc_type ?? null,
+          banker_source: c.banker_source ?? null,
+          remarks: c.remarks ?? null,
           watchlist_status: c.watchlist_status,
           dropped_reason: c.dropped_reason ?? null,
           dropped_at: c.dropped_at ?? null,
-          source: c.source ?? null,
           deal_type: c.deal_type ?? null,
           originator: c.originator ?? null,
           last_activity_at: c.last_activity_at ?? null,
-          banker: c.banker ?? null,
-          doc_type: c.doc_type ?? null,
+          banker: c.banker ?? c.banker_source ?? null,
           stake: c.stake ?? null,
           deal_size: c.deal_size ?? null,
           workflow_status: c.workflow_status ?? null,
           key_rationale: c.key_rationale ?? null,
-          remarks: c.remarks ?? null,
         })
         .returning({ id: companies.id });
       if (!inserted) continue;
@@ -903,6 +1127,22 @@ async function main() {
           })),
         );
       }
+    }
+
+    const companyIdByEntryId = new Map(
+      insertedCompanies.map((c) => [c.entry_id, c.id]),
+    );
+    for (const c of seedCompanies) {
+      if (!c.possible_duplicate_entry_id) continue;
+      const id = companyIdByEntryId.get(c.entry_id);
+      const possibleDuplicateId = companyIdByEntryId.get(
+        c.possible_duplicate_entry_id,
+      );
+      if (!id || !possibleDuplicateId) continue;
+      await db
+        .update(companies)
+        .set({ possible_duplicate_company_id: possibleDuplicateId })
+        .where(eq(companies.id, id));
     }
     console.log(`  ✓ ${seedCompanies.length} companies (+ financials)`);
 

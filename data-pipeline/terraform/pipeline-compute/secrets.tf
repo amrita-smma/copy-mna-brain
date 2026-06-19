@@ -24,6 +24,28 @@ resource "aws_ssm_parameter" "google_vault_service_account" {
   tags = local.common_tags
 }
 
+resource "aws_ssm_parameter" "admin_secret" {
+  name        = "/mna/${local.environment}/pipeline/ADMIN_SECRET"
+  description = "Shared internal API secret for attachment-upload server-to-server calls"
+  type        = "SecureString"
+  value       = "PLACEHOLDER — set via AWS Console or CLI before first attachment-upload run"
+  lifecycle {
+    ignore_changes = [value]
+  }
+  tags = local.common_tags
+}
+
+resource "aws_ssm_parameter" "internal_api_url" {
+  name        = "/mna/${local.environment}/pipeline/INTERNAL_API_URL"
+  description = "Base URL for the deployed app, used by attachment-upload to call AI File Dump"
+  type        = "String"
+  value       = "PLACEHOLDER — set to the deployed app URL before first attachment-upload run"
+  lifecycle {
+    ignore_changes = [value]
+  }
+  tags = local.common_tags
+}
+
 resource "aws_ssm_parameter" "db_host" {
   name        = "/mna/${local.environment}/pipeline/DB_HOST"
   description = "RDS endpoint for pipeline Lambdas"

@@ -166,7 +166,9 @@ function makeAIScreeningServiceStub(): AIScreeningService {
 function makeCompanyServiceStub(): CompanyService {
   return {
     findById: vi.fn().mockResolvedValue(makeCompany()),
+    findByNameFuzzy: vi.fn().mockResolvedValue(null),
     createFromDTO: vi.fn().mockResolvedValue({ id: 'company-new' }),
+    markPossibleDuplicate: vi.fn().mockResolvedValue(undefined),
     updateFromDTO: vi.fn().mockResolvedValue({ id: 'company-1' }),
     listIdAndTargetPage: vi.fn(),
   } as unknown as CompanyService;
@@ -202,6 +204,7 @@ describe('FileService.processUpload', () => {
   let criteriaRepo: CriteriaRepository;
   let screeningRepo: ScreeningRepository;
   let companyFinancialRepo: CompanyFinancialRepository;
+  let companyService: CompanyService;
   let service: FileService;
 
   beforeEach(() => {
@@ -211,6 +214,7 @@ describe('FileService.processUpload', () => {
     criteriaRepo = makeCriteriaRepoStub();
     screeningRepo = makeScreeningRepoStub();
     companyFinancialRepo = makeCompanyFinancialRepoStub();
+    companyService = makeCompanyServiceStub();
     service = new FileService(
       null as unknown as DbClient,
       fileRepo,
@@ -219,7 +223,7 @@ describe('FileService.processUpload', () => {
       criteriaRepo,
       screeningRepo,
       companyFinancialRepo,
-      makeCompanyServiceStub(),
+      companyService,
       makeCompanyFxAdjustmentRepoStub(),
     );
 
@@ -402,6 +406,93 @@ describe('FileService.processUpload', () => {
     expect(fileRepo.updatePartial).toHaveBeenCalledWith(
       'file-1',
       expect.objectContaining({ file_type: 'other' }),
+    );
+  });
+
+  it('merges email-origin attachment data into an existing matched company', async () => {
+    vi.mocked(processFileContent).mockResolvedValue({
+      file_type: 'teaser',
+      matched_companies: [{ id: 'company-existing', type: 'company' }],
+      prospectus_summary: {
+        company_name: 'Acme Corp',
+        segment: 'Industrial Tech',
+        financials: [
+          {
+            fiscal_year: 2024,
+            revenue_usd_mn: 42,
+            ev_usd_mn: 120,
+          },
+        ],
+      },
+    } as never);
+    vi.mocked(companyService.findById).mockResolvedValue(
+      makeCompany({ id: 'company-existing', target: 'Acme Corp' }),
+    );
+
+    await service.processUpload(
+      'uploads/teaser.pdf',
+      'teaser.pdf',
+      'application/pdf',
+      undefined,
+      undefined,
+      true,
+      'Goldman Sachs',
+    );
+
+    expect(companyService.updateFromDTO).toHaveBeenCalledWith(
+      'company-existing',
+      expect.objectContaining({
+        target: 'Acme Corp',
+        segment: 'Industrial Tech',
+        doc_type: 'teaser',
+        banker_source: 'Goldman Sachs',
+        revenue_2024_usd_mn: 42,
+        ev_2024: 120,
+      }),
+      'merged_from_email_attachment:file-1',
+    );
+    const updates = vi.mocked(companyService.updateFromDTO).mock.calls[0]?.[1] as Record<string, unknown>;
+    expect(updates.website).toBeUndefined();
+    expect(updates.ebitda_2024_usd_mn).toBeUndefined();
+    expect(companyService.createFromDTO).not.toHaveBeenCalled();
+    expect(fileRepo.updatePartial).toHaveBeenCalledWith(
+      'file-1',
+      expect.objectContaining({
+        matched_companies: expect.arrayContaining([
+          expect.objectContaining({ id: 'company-existing' }),
+        ]),
+      }),
+    );
+  });
+
+  it('creates an unreviewed email-origin company when no existing company matches', async () => {
+    vi.mocked(processFileContent).mockResolvedValue({
+      file_type: 'teaser',
+      prospectus_summary: { company_name: 'Acme Corp' },
+    } as never);
+    vi.mocked(companyService.findByNameFuzzy).mockResolvedValue(null as never);
+    vi.mocked(companyService.createFromDTO).mockResolvedValue({
+      id: 'company-new',
+      target: 'Acme Corp',
+    } as never);
+
+    await service.processUpload(
+      'uploads/teaser.pdf',
+      'teaser.pdf',
+      'application/pdf',
+      undefined,
+      undefined,
+      true,
+      'Goldman Sachs',
+    );
+
+    expect(companyService.createFromDTO).toHaveBeenCalledWith(
+      expect.objectContaining({
+        target: 'Acme Corp',
+        review_state: 'unreviewed',
+        banker_source: 'Goldman Sachs',
+      }),
+      'auto_created_from_email_attachment:file-1',
     );
   });
 });

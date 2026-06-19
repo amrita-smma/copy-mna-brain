@@ -56,6 +56,10 @@ export interface CompanyDTO {
   deal_size: string | null;
   workflow_status: string | null;
   key_rationale: string | null;
+  // MB-223/224/225/226 origination triage
+  review_state: string;
+  banker_source: string | null;
+  possible_duplicate_company_id: string | null;
 
   remarks: string | null;
   thesis_content: string | null;
@@ -205,6 +209,9 @@ export function toCompanyDTO(
     deal_size: company.deal_size ?? null,
     workflow_status: company.workflow_status ?? null,
     key_rationale: company.key_rationale ?? null,
+    review_state: company.review_state ?? 'reviewed',
+    banker_source: company.banker_source ?? null,
+    possible_duplicate_company_id: company.possible_duplicate_company_id ?? null,
     remarks: company.remarks,
     thesis_content: company.thesis_content,
     created_at: company.created_at,
@@ -331,7 +338,8 @@ export function splitCompanyDTO(dto: CompanyDTOInput): SplitCompanyWrite {
     'company_focus', 'website', 'watchlist_status', 'comments', 'ownership',
     'geography', 'source', 'status', 'pipeline_stage', 'remarks', 'thesis_content',
     'deal_type', 'originator', 'last_activity_at', 'banker', 'doc_type', 'stake',
-    'deal_size', 'workflow_status', 'key_rationale',
+    'deal_size', 'workflow_status', 'key_rationale', 'review_state', 'banker_source',
+    'possible_duplicate_company_id',
   ] as const;
   for (const k of coreKeys) {
     if (k in dto) {
