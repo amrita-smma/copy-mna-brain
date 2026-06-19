@@ -37,7 +37,7 @@ data "aws_ami" "ubuntu_22" {
 resource "random_password" "neo4j" {
   length           = 32
   special          = true
-  override_special = "!#$%&*()-_=+[]{}<>:?"
+  override_special = ".!"
   min_lower        = 4
   min_upper        = 4
   min_numeric      = 4
