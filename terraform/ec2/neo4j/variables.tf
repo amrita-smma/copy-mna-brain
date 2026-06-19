@@ -62,7 +62,7 @@ variable "neo4j_version" {
 variable "neo4j_username" {
   description = "Neo4j admin username. Neo4j ships with a built-in 'neo4j' superuser; changing this provisions an additional admin role."
   type        = string
-  default     = "mna-brain-neo4j"
+  default     = "mnabrainneo4j"
 
   validation {
     condition     = can(regex("^[a-zA-Z][a-zA-Z0-9_]{2,31}$", var.neo4j_username))
