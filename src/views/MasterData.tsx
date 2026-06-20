@@ -161,6 +161,7 @@ export default function MasterData({ showCompanyGraph = false }: MasterDataProps
   const [sectorFilter, setSectorFilter] = useState<string>('all');
   const [sourceFilter, setSourceFilter] = useState<string>('all');
   const [currentPage, setCurrentPage] = useState(1);
+  const [discoveredPage, setDiscoveredPage] = useState(1);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [selectedCompany, setSelectedCompany] = useState<CompanyData | null>(null);
   const [loadingDialog, setLoadingDialog] = useState(false);
@@ -234,6 +235,7 @@ export default function MasterData({ showCompanyGraph = false }: MasterDataProps
 
   useEffect(() => {
     setCurrentPage(1);
+    setDiscoveredPage(1);
   }, [searchQuery, stageFilter, sectorFilter, sourceFilter, isMobile]);
 
   const fetchCompanies = async (opts: { silent?: boolean } = {}) => {
@@ -337,6 +339,25 @@ export default function MasterData({ showCompanyGraph = false }: MasterDataProps
   const paginatedCompanies = filteredCompanies.slice(
     (currentPage - 1) * itemsPerPage,
     currentPage * itemsPerPage
+  );
+
+  // Discovered companies follow the same text search as the main table and are
+  // paginated independently (their own page cursor) using the same page size.
+  const filteredDiscovered = discoveredCompanies.filter((company) => {
+    const q = searchQuery.toLowerCase();
+    return (
+      company.name.toLowerCase().includes(q) ||
+      (company.project_name || '').toLowerCase().includes(q) ||
+      company.sector.toLowerCase().includes(q)
+    );
+  });
+  const discoveredTotalPages = Math.max(
+    1,
+    Math.ceil(filteredDiscovered.length / itemsPerPage),
+  );
+  const paginatedDiscovered = filteredDiscovered.slice(
+    (discoveredPage - 1) * itemsPerPage,
+    discoveredPage * itemsPerPage,
   );
 
   if (loading) {
@@ -821,38 +842,70 @@ export default function MasterData({ showCompanyGraph = false }: MasterDataProps
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Lightbulb className="h-5 w-5 text-amber-500" />
-                Discovered Companies ({discoveredCompanies.length})
+                Discovered Companies ({filteredDiscovered.length})
               </CardTitle>
               <p className="text-sm text-muted-foreground">
                 Companies surfaced through the relationship graph. Not yet part of the L0–L5 deal pipeline.
               </p>
             </CardHeader>
             <CardContent>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                {discoveredCompanies.map((company) => (
-                  <button
-                    key={company.id}
-                    type="button"
-                    onClick={() => company.name && openCompany(company.id)}
-                    disabled={!company.name || loadingDialog}
-                    className="rounded-lg border bg-card p-4 text-left transition-colors hover:bg-muted/40 hover:border-primary/40 disabled:opacity-50"
-                  >
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="font-medium">{company.name || '—'}</span>
-                      <Badge className={`${stageColors.discovered} text-white`}>
-                        {stageLabels.discovered}
-                      </Badge>
-                    </div>
-                    <div className="mt-2 flex flex-wrap items-center gap-1.5 text-xs">
-                      <Badge variant="outline">{company.sector || '-'}</Badge>
-                      <span className="text-muted-foreground">{company.geo || 'Unknown geo'}</span>
-                    </div>
-                    <p className="mt-2 text-xs text-muted-foreground">
-                      Added {new Date(company.created_at).toLocaleDateString()}
-                    </p>
-                  </button>
-                ))}
-              </div>
+              {filteredDiscovered.length === 0 ? (
+                <div className="text-center py-12 text-muted-foreground">
+                  <Building2 className="mx-auto h-12 w-12 mb-4 opacity-50" />
+                  <p>No discovered companies match your search.</p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                  {paginatedDiscovered.map((company) => (
+                    <button
+                      key={company.id}
+                      type="button"
+                      onClick={() => company.name && openCompany(company.id)}
+                      disabled={!company.name || loadingDialog}
+                      className="rounded-lg border bg-card p-4 text-left transition-colors hover:bg-muted/40 hover:border-primary/40 disabled:opacity-50"
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-medium">{company.name || '—'}</span>
+                        <Badge className={`${stageColors.discovered} text-white`}>
+                          {stageLabels.discovered}
+                        </Badge>
+                      </div>
+                      <div className="mt-2 flex flex-wrap items-center gap-1.5 text-xs">
+                        <Badge variant="outline">{company.sector || '-'}</Badge>
+                        <span className="text-muted-foreground">{company.geo || 'Unknown geo'}</span>
+                      </div>
+                      <p className="mt-2 text-xs text-muted-foreground">
+                        Added {new Date(company.created_at).toLocaleDateString()}
+                      </p>
+                    </button>
+                  ))}
+                </div>
+              )}
+              {filteredDiscovered.length > 0 && (
+                <div className="flex items-center justify-between mt-4 pt-4 border-t">
+                  <p className="text-sm text-muted-foreground">
+                    Page {discoveredPage} of {discoveredTotalPages} ({filteredDiscovered.length} companies)
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setDiscoveredPage((p) => Math.max(1, p - 1))}
+                      disabled={discoveredPage === 1}
+                    >
+                      <ChevronLeft className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setDiscoveredPage((p) => Math.min(discoveredTotalPages, p + 1))}
+                      disabled={discoveredPage === discoveredTotalPages}
+                    >
+                      <ChevronRight className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
+              )}
             </CardContent>
           </Card>
         )}
