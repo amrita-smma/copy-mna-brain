@@ -3,7 +3,7 @@ import { createDb } from '@/lib/server/db';
 import { createContainer } from '@/lib/services';
 import type { FeedFilter } from '@/lib/services/dashboardActivityService';
 
-const VALID_FILTERS: FeedFilter[] = ['all', 'new_deal', 'stage_move', 'dropped', 'note_updated'];
+const VALID_FILTERS: FeedFilter[] = ['all', 'new_deal', 'stage_move', 'dropped', 'note_updated', 'ai_discovered'];
 const DEFAULT_LIMIT = 15;
 const MAX_LIMIT = 50;
 

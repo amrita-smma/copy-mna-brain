@@ -148,6 +148,43 @@ export class DashboardActivityRepository {
     return limit != null ? merged.slice(0, limit) : merged;
   }
 
+  /**
+   * Companies the relationship-graph tooling auto-created at the `discovered`
+   * stage (the "AI Discovered Companies" surfaced in Master Data), created
+   * within the window. Mirrors the `created` half of `getNewL0Companies` but
+   * keyed on the `discovered` pipeline stage so the activity feed can show an
+   * event whenever one is added.
+   */
+  async getDiscoveredCompanies(from: Date, to: Date, limit?: number) {
+    const query = this.db
+      .select({
+        id: companies.id,
+        target: companies.target,
+        project_name: companies.project_name,
+        source: companies.source,
+        segment: companies.segment,
+        geography: companies.geography,
+        remarks: companies.remarks,
+        thesis_content: companies.thesis_content,
+        revenue_usd_mn: companyFinancials.revenue_usd_mn,
+        ebitda_usd_mn: companyFinancials.ebitda_usd_mn,
+        ev_usd_mn: companyFinancials.ev_usd_mn,
+        financial_year: companyFinancials.fiscal_year,
+        event_at: companies.created_at,
+      })
+      .from(companies)
+      .leftJoin(companyFinancials, this.latestFinancialsOn())
+      .where(
+        and(
+          eq(companies.pipeline_stage, 'discovered'),
+          gte(companies.created_at, from.toISOString()),
+          lte(companies.created_at, to.toISOString()),
+        ),
+      )
+      .orderBy(desc(companies.created_at));
+    return limit != null ? query.limit(limit) : query;
+  }
+
   async getAiSourcedCompanies(from: Date, to: Date) {
     const fromIso = from.toISOString();
     const toIso = to.toISOString();

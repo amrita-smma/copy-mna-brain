@@ -2,6 +2,7 @@ import type { DashboardActivityRepository } from '@/lib/repositories/dashboardAc
 
 export type NewL0Company = Awaited<ReturnType<DashboardActivityRepository['getNewL0Companies']>>[number];
 export type AiSourcedCompany = Awaited<ReturnType<DashboardActivityRepository['getAiSourcedCompanies']>>[number];
+export type DiscoveredCompany = Awaited<ReturnType<DashboardActivityRepository['getDiscoveredCompanies']>>[number];
 export type PipelineMove = Awaited<ReturnType<DashboardActivityRepository['getPipelineMoves']>>[number];
 export type SlideGenerated = Awaited<ReturnType<DashboardActivityRepository['getSlidesGenerated']>>[number];
 export type DroppedDeal = Awaited<ReturnType<DashboardActivityRepository['getDroppedDeals']>>[number];
@@ -12,6 +13,7 @@ export type NoteUpdated = Awaited<ReturnType<DashboardActivityRepository['getNot
 export interface DashboardActivity {
   newL0Companies: NewL0Company[];
   aiSourcedCompanies: AiSourcedCompany[];
+  discoveredCompanies: DiscoveredCompany[];
   pipelineMoves: PipelineMove[];
   slidesGenerated: SlideGenerated[];
   droppedDeals: DroppedDeal[];
@@ -22,7 +24,7 @@ export interface DashboardActivity {
 
 // ─── Activity feed ────────────────────────────────────────────────────────────
 
-export type FeedEventType = 'new_deal' | 'stage_move' | 'dropped' | 'note_updated';
+export type FeedEventType = 'new_deal' | 'stage_move' | 'dropped' | 'note_updated' | 'ai_discovered';
 
 /** Filter keys accepted by the feed endpoint. `all` merges every event type. */
 export type FeedFilter = 'all' | FeedEventType;
@@ -89,6 +91,7 @@ export class DashboardActivityService {
     const [
       newL0Companies,
       aiSourcedCompanies,
+      discoveredCompanies,
       pipelineMoves,
       slidesGenerated,
       droppedDeals,
@@ -98,6 +101,7 @@ export class DashboardActivityService {
     ] = await Promise.all([
       this.repo.getNewL0Companies(from, to),
       this.repo.getAiSourcedCompanies(from, to),
+      this.repo.getDiscoveredCompanies(from, to),
       this.repo.getPipelineMoves(from, to),
       this.repo.getSlidesGenerated(from, to),
       this.repo.getDroppedDeals(from, to),
@@ -109,6 +113,7 @@ export class DashboardActivityService {
     return {
       newL0Companies,
       aiSourcedCompanies,
+      discoveredCompanies,
       pipelineMoves,
       slidesGenerated,
       droppedDeals,
@@ -134,14 +139,22 @@ export class DashboardActivityService {
     const cap = offset + limit + 1;
     const want = (type: FeedEventType) => filter === 'all' || filter === type;
 
-    const [newL0Companies, pipelineMoves, droppedDeals, notesUpdated] = await Promise.all([
-      want('new_deal') ? this.repo.getNewL0Companies(from, to, cap) : Promise.resolve([]),
-      want('stage_move') ? this.repo.getPipelineMoves(from, to, cap) : Promise.resolve([]),
-      want('dropped') ? this.repo.getDroppedDeals(from, to, cap) : Promise.resolve([]),
-      want('note_updated') ? this.repo.getNotesUpdated(from, to, cap) : Promise.resolve([]),
-    ]);
+    const [newL0Companies, pipelineMoves, droppedDeals, notesUpdated, discoveredCompanies] =
+      await Promise.all([
+        want('new_deal') ? this.repo.getNewL0Companies(from, to, cap) : Promise.resolve([]),
+        want('stage_move') ? this.repo.getPipelineMoves(from, to, cap) : Promise.resolve([]),
+        want('dropped') ? this.repo.getDroppedDeals(from, to, cap) : Promise.resolve([]),
+        want('note_updated') ? this.repo.getNotesUpdated(from, to, cap) : Promise.resolve([]),
+        want('ai_discovered') ? this.repo.getDiscoveredCompanies(from, to, cap) : Promise.resolve([]),
+      ]);
 
-    const all = buildFeedEvents({ newL0Companies, pipelineMoves, droppedDeals, notesUpdated });
+    const all = buildFeedEvents({
+      newL0Companies,
+      pipelineMoves,
+      droppedDeals,
+      notesUpdated,
+      discoveredCompanies,
+    });
     const hasMore = all.length > offset + limit;
     const events = all.slice(offset, offset + limit);
 
@@ -160,8 +173,29 @@ export function buildFeedEvents(activity: {
   pipelineMoves: PipelineMove[];
   droppedDeals: DroppedDeal[];
   notesUpdated: NoteUpdated[];
+  discoveredCompanies: DiscoveredCompany[];
 }): FeedEvent[] {
   const events: FeedEvent[] = [];
+
+  for (const c of activity.discoveredCompanies) {
+    if (!c.event_at) continue;
+    events.push({
+      id: `discovered-${c.id}-${c.event_at}`,
+      type: 'ai_discovered',
+      company_id: c.id,
+      company_name: c.target || c.project_name || '—',
+      segment: c.segment ?? null,
+      geography: c.geography ?? null,
+      source: c.source ?? null,
+      event_at: c.event_at,
+      remarks: c.remarks ?? null,
+      thesis_content: c.thesis_content ?? null,
+      revenue_usd_mn: c.revenue_usd_mn ?? null,
+      ebitda_usd_mn: c.ebitda_usd_mn ?? null,
+      ev_usd_mn: c.ev_usd_mn ?? null,
+      financial_year: c.financial_year ?? null,
+    });
+  }
 
   for (const c of activity.newL0Companies) {
     events.push({

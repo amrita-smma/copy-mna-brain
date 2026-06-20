@@ -131,8 +131,13 @@ function formatShortDate(dateStr: string | null | undefined): string {
 
 // ─── Feed types ──────────────────────────────────────────────────────────────
 
-type FeedEventType = "new_deal" | "stage_move" | "dropped" | "note_updated";
-type FeedFilterKey = "all" | "new" | "moved" | "dropped" | "notes";
+type FeedEventType =
+  | "new_deal"
+  | "stage_move"
+  | "dropped"
+  | "note_updated"
+  | "ai_discovered";
+type FeedFilterKey = "all" | "new" | "moved" | "dropped" | "notes" | "discovered";
 
 interface FeedEvent {
   id: string;
@@ -166,6 +171,26 @@ function formatUsdMn(value: number | null | undefined): string | null {
 
 function buildFeedEvents(activity: DashboardActivity): FeedEvent[] {
   const events: FeedEvent[] = [];
+
+  for (const c of activity.discoveredCompanies) {
+    if (!c.event_at) continue;
+    events.push({
+      id: `discovered-${c.id}-${c.event_at}`,
+      type: "ai_discovered",
+      company_id: c.id,
+      company_name: c.target || c.project_name || "—",
+      segment: c.segment ?? null,
+      geography: c.geography ?? null,
+      source: c.source ?? null,
+      event_at: c.event_at,
+      remarks: c.remarks ?? null,
+      thesis_content: c.thesis_content ?? null,
+      revenue_usd_mn: c.revenue_usd_mn ?? null,
+      ebitda_usd_mn: c.ebitda_usd_mn ?? null,
+      ev_usd_mn: c.ev_usd_mn ?? null,
+      financial_year: c.financial_year ?? null,
+    });
+  }
 
   for (const c of activity.newL0Companies) {
     events.push({
@@ -322,6 +347,7 @@ const dotColors: Record<FeedEventType, string> = {
   stage_move: "bg-emerald-500",
   dropped: "bg-red-500",
   note_updated: "bg-amber-500",
+  ai_discovered: "bg-violet-500",
 };
 
 const eventTypeLabels: Record<FeedEventType, string> = {
@@ -329,6 +355,7 @@ const eventTypeLabels: Record<FeedEventType, string> = {
   stage_move: "Stage Move",
   dropped: "Dropped",
   note_updated: "Note Updated",
+  ai_discovered: "AI Discovered",
 };
 
 // ─── Ask-AI button ───────────────────────────────────────────────────────────
@@ -680,6 +707,7 @@ export default function Dashboard({
       moved: "stage_move",
       dropped: "dropped",
       notes: "note_updated",
+      discovered: "ai_discovered",
     };
     return allFeedEvents.filter((e) => e.type === typeMap[feedFilter]);
   }, [allFeedEvents, feedFilter]);
@@ -1675,6 +1703,7 @@ export default function Dashboard({
                       "moved",
                       "dropped",
                       "notes",
+                      "discovered",
                     ] as FeedFilterKey[]
                   ).map((key) => (
                     <button
@@ -1688,15 +1717,7 @@ export default function Dashboard({
                           : "bg-muted text-muted-foreground hover:text-foreground",
                       ].join(" ")}
                     >
-                      {key === "all"
-                        ? "All"
-                        : key === "new"
-                          ? "New"
-                          : key === "moved"
-                            ? "Moved"
-                            : key === "dropped"
-                              ? "Dropped"
-                              : "Notes"}
+                      {FEED_FILTER_LABELS[key]}
                     </button>
                   ))}
                 </div>
@@ -1793,6 +1814,8 @@ const eventTypeBadgeStyles: Record<FeedEventType, string> = {
   dropped: "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300",
   note_updated:
     "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300",
+  ai_discovered:
+    "bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300",
 };
 
 const eventTypeBadgeLabels: Record<FeedEventType, string> = {
@@ -1800,6 +1823,7 @@ const eventTypeBadgeLabels: Record<FeedEventType, string> = {
   stage_move: "STAGE MOVE",
   dropped: "DROPPED",
   note_updated: "NOTE UPDATED",
+  ai_discovered: "AI DISCOVERED",
 };
 
 // ─── Financial summary row ────────────────────────────────────────────────────
@@ -1977,6 +2001,7 @@ const FEED_FILTER_LABELS: Record<FeedFilterKey, string> = {
   moved: "Moved",
   dropped: "Dropped",
   notes: "Notes",
+  discovered: "Discovered",
 };
 
 const FEED_FILTER_TO_API: Record<FeedFilterKey, FeedFilter> = {
@@ -1985,6 +2010,7 @@ const FEED_FILTER_TO_API: Record<FeedFilterKey, FeedFilter> = {
   moved: "stage_move",
   dropped: "dropped",
   notes: "note_updated",
+  discovered: "ai_discovered",
 };
 
 /** Contextual one-line label for the per-card "Analyze using AI" pill. */
@@ -1999,6 +2025,8 @@ function feedAnalysisLabel(event: FeedEvent): string {
       return `Analyze ${name}'s stage move`;
     case "note_updated":
       return `Analyze ${name}'s note update`;
+    case "ai_discovered":
+      return `Analyze why ${name} was discovered`;
   }
 }
 
@@ -2022,6 +2050,8 @@ function feedAnalysisPrompt(event: FeedEvent): string {
       } and what it means for the deal.`;
     case "note_updated":
       return `Analyze the latest note update on ${name} and summarize the key takeaways.`;
+    case "ai_discovered":
+      return `Analyze why ${name} was surfaced as an AI-discovered company through the relationship graph and assess whether it's worth pursuing as a deal.`;
   }
 }
 
@@ -2116,7 +2146,9 @@ function MobileActivityFeed({
     <div className="md:hidden space-y-4">
       {/* Filter pills */}
       <div className="flex flex-wrap items-center gap-2">
-        {(["all", "new", "moved", "dropped", "notes"] as FeedFilterKey[]).map(
+        {(
+          ["all", "new", "moved", "dropped", "notes", "discovered"] as FeedFilterKey[]
+        ).map(
           (key) => (
             <button
               key={key}

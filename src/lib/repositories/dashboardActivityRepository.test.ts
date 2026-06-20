@@ -86,3 +86,53 @@ describe('DashboardActivityRepository.getPipelineMoves', () => {
     expect(mockDb.leftJoin).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('DashboardActivityRepository.getDiscoveredCompanies', () => {
+  let repo: DashboardActivityRepository;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockDb.select.mockReturnThis();
+    mockDb.from.mockReturnThis();
+    mockDb.innerJoin.mockReturnThis();
+    mockDb.leftJoin.mockReturnThis();
+    mockDb.where.mockReturnThis();
+    repo = new DashboardActivityRepository(mockDb as never);
+  });
+
+  it('selects company + FY financials and uses created_at as event_at', async () => {
+    mockDb.orderBy.mockResolvedValueOnce([]);
+
+    await repo.getDiscoveredCompanies(new Date('2026-01-01'), new Date('2026-01-08'));
+
+    const selectArg = mockDb.select.mock.calls[0][0];
+    expect(selectArg).toHaveProperty('target');
+    expect(selectArg).toHaveProperty('event_at');
+    expect(selectArg).toHaveProperty('revenue_usd_mn');
+    expect(selectArg).toHaveProperty('ebitda_usd_mn');
+    expect(selectArg).toHaveProperty('ev_usd_mn');
+    // Financials come from a left join so companies without figures still appear.
+    expect(mockDb.leftJoin).toHaveBeenCalledTimes(1);
+  });
+
+  it('caps the result with limit when provided', async () => {
+    const limited = vi.fn().mockResolvedValueOnce([]);
+    mockDb.orderBy.mockReturnValueOnce({ limit: limited });
+
+    await repo.getDiscoveredCompanies(new Date('2026-01-01'), new Date('2026-01-08'), 5);
+
+    expect(limited).toHaveBeenCalledWith(5);
+  });
+
+  it('returns the rows produced by the query', async () => {
+    const rows = [{ id: 'd1', target: 'Beta', event_at: '2026-01-05T00:00:00.000Z' }];
+    mockDb.orderBy.mockResolvedValueOnce(rows);
+
+    const result = await repo.getDiscoveredCompanies(
+      new Date('2026-01-01'),
+      new Date('2026-01-08'),
+    );
+
+    expect(result).toEqual(rows);
+  });
+});

@@ -11,6 +11,7 @@ class MockRepo {
   getPipelineMoves = vi.fn();
   getDroppedDeals = vi.fn();
   getNotesUpdated = vi.fn();
+  getDiscoveredCompanies = vi.fn();
   getAiSourcedCompanies = vi.fn();
   getSlidesGenerated = vi.fn();
   getWorkforceJobs = vi.fn();
@@ -100,6 +101,24 @@ function noteRow(id: string, updatedAt: string) {
   };
 }
 
+function discoveredRow(id: string, eventAt: string) {
+  return {
+    id,
+    target: `Discovered ${id}`,
+    project_name: null,
+    source: null,
+    segment: null,
+    geography: null,
+    remarks: null,
+    thesis_content: null,
+    revenue_usd_mn: null,
+    ebitda_usd_mn: null,
+    ev_usd_mn: null,
+    financial_year: null,
+    event_at: eventAt,
+  };
+}
+
 describe('DashboardActivityService.getFeed', () => {
   let repo: MockRepo;
   let service: DashboardActivityService;
@@ -110,6 +129,14 @@ describe('DashboardActivityService.getFeed', () => {
     repo.getPipelineMoves.mockReset();
     repo.getDroppedDeals.mockReset();
     repo.getNotesUpdated.mockReset();
+    repo.getDiscoveredCompanies.mockReset();
+    // Default every feed source to empty so each test only stubs what it asserts
+    // on; the merged stream is built from whichever sources return rows.
+    repo.getNewL0Companies.mockResolvedValue([]);
+    repo.getPipelineMoves.mockResolvedValue([]);
+    repo.getDroppedDeals.mockResolvedValue([]);
+    repo.getNotesUpdated.mockResolvedValue([]);
+    repo.getDiscoveredCompanies.mockResolvedValue([]);
     service = new DashboardActivityService(
       repo as unknown as DashboardActivityRepository,
     );
@@ -150,6 +177,7 @@ describe('DashboardActivityService.getFeed', () => {
     expect(repo.getPipelineMoves).toHaveBeenCalledWith(FROM, TO, 46);
     expect(repo.getDroppedDeals).toHaveBeenCalledWith(FROM, TO, 46);
     expect(repo.getNotesUpdated).toHaveBeenCalledWith(FROM, TO, 46);
+    expect(repo.getDiscoveredCompanies).toHaveBeenCalledWith(FROM, TO, 46);
   });
 
   it('reports hasMore when more rows exist than the page window', async () => {
@@ -213,10 +241,35 @@ describe('DashboardActivityService.getFeed', () => {
     expect(repo.getNewL0Companies).not.toHaveBeenCalled();
     expect(repo.getDroppedDeals).not.toHaveBeenCalled();
     expect(repo.getNotesUpdated).not.toHaveBeenCalled();
+    expect(repo.getDiscoveredCompanies).not.toHaveBeenCalled();
     expect(events).toHaveLength(1);
     expect(events[0].type).toBe('stage_move');
     expect(events[0].from_stage).toBe('L1');
     expect(events[0].to_stage).toBe('L2');
+  });
+
+  it('emits ai_discovered events and only queries that source when filtered', async () => {
+    repo.getDiscoveredCompanies.mockResolvedValue([
+      discoveredRow('x', '2026-06-15T00:00:00.000Z'),
+    ]);
+
+    const { events } = await service.getFeed({
+      from: FROM,
+      to: TO,
+      offset: 0,
+      limit: 10,
+      filter: 'ai_discovered',
+    });
+
+    expect(repo.getDiscoveredCompanies).toHaveBeenCalledTimes(1);
+    expect(repo.getNewL0Companies).not.toHaveBeenCalled();
+    expect(repo.getPipelineMoves).not.toHaveBeenCalled();
+    expect(repo.getDroppedDeals).not.toHaveBeenCalled();
+    expect(repo.getNotesUpdated).not.toHaveBeenCalled();
+    expect(events).toHaveLength(1);
+    expect(events[0].type).toBe('ai_discovered');
+    expect(events[0].company_id).toBe('x');
+    expect(events[0].company_name).toBe('Discovered x');
   });
 
   it('surfaces the dropped stage and reason on dropped events', async () => {
