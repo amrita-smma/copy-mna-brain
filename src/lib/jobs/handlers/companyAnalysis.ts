@@ -138,6 +138,8 @@ Identify other companies that "{companyName}" has a concrete business relationsh
 
 Only include companies you have a real basis for from your research — do NOT invent relationships. It is fine to return an empty list if none are evident. Use the company's commonly-known name (no legal suffixes needed).
 
+**CRITICAL — return ONLY companies/organizations, never people:** Every entry in \`related_companies\` MUST be a company, business, or organization (e.g. a corporation, firm, fund, or institutional entity). Do NOT include the names of individual persons — founders, executives, board members, employees, advisors, or any other named human. If a relationship is tied to a person (e.g. an individual angel investor or a named founder), exclude it unless you can attribute it to an actual company/fund. When in doubt about whether an entity is a company or a person, leave it out.
+
 ## Response Format
 
 Respond ONLY with a JSON object. Each section value should be a markdown string with bullet points.
