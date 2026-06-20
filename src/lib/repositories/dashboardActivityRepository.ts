@@ -149,11 +149,11 @@ export class DashboardActivityRepository {
   }
 
   /**
-   * Companies the relationship-graph tooling auto-created at the `discovered`
-   * stage (the "AI Discovered Companies" surfaced in Master Data), created
-   * within the window. Mirrors the `created` half of `getNewL0Companies` but
-   * keyed on the `discovered` pipeline stage so the activity feed can show an
-   * event whenever one is added.
+   * Companies the AI added to the `market_screening` stage (the "AI Discovered"
+   * activity), created within the window. Mirrors the `created` half of
+   * `getNewL0Companies` but keyed on the `market_screening` pipeline stage so the
+   * activity feed can show an event whenever one is added. Relationship-graph
+   * auto-created `discovered` companies are intentionally excluded.
    */
   async getDiscoveredCompanies(from: Date, to: Date, limit?: number) {
     const query = this.db
@@ -176,7 +176,7 @@ export class DashboardActivityRepository {
       .leftJoin(companyFinancials, this.latestFinancialsOn())
       .where(
         and(
-          eq(companies.pipeline_stage, 'discovered'),
+          eq(companies.pipeline_stage, 'market_screening'),
           gte(companies.created_at, from.toISOString()),
           lte(companies.created_at, to.toISOString()),
         ),
