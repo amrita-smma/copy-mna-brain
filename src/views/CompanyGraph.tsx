@@ -24,6 +24,12 @@ import { getCompanies } from '@/lib/api/pipeline';
 import CompanyDetailDialog, {
   type CompanyData,
 } from '@/components/pipeline/CompanyDetailDialog';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import type {
   GraphData,
   GraphLink,
@@ -266,6 +272,18 @@ export default function CompanyGraph({
   // ─── Company detail modal ───────────────────────────────────────────────────
   const [selectedCompany, setSelectedCompany] = useState<CompanyData | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
+
+  // ─── Edge (relationship) detail modal ───────────────────────────────────────
+  // Holds the clicked link plus the resolved endpoint names, captured at click
+  // time so the dialog content is stable even after the simulation re-runs.
+  const [selectedLink, setSelectedLink] = useState<{
+    label: string;
+    evidence?: string;
+    date?: string;
+    sourceName: string;
+    targetName: string;
+  } | null>(null);
+  const [linkDialogOpen, setLinkDialogOpen] = useState(false);
 
   useEffect(() => {
     import('react-force-graph-2d').then((mod) => setForceGraph2D(() => mod.default));
@@ -554,6 +572,33 @@ export default function CompanyGraph({
   const handleNodeRightClick = (node: GraphNode, event: MouseEvent) => {
     event.preventDefault();
     setContextMenu({ node, x: event.clientX, y: event.clientY });
+  };
+
+  // Resolve an endpoint (string id or mutated node ref) to its company name.
+  const nodeNameById = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const n of graphData.nodes) map.set(n.id, n.name);
+    return map;
+  }, [graphData.nodes]);
+
+  // Open the relationship detail dialog for a clicked edge. Endpoint names are
+  // resolved now (force-graph mutates source/target into node refs, so we read
+  // a name off the ref when present and fall back to the id lookup).
+  const handleLinkClick = (link: GraphLink) => {
+    const sourceId = endpointId(link.source);
+    const targetId = endpointId(link.target);
+    const nameOf = (endpoint: string | GraphNode, id: string) =>
+      (typeof endpoint === 'object' ? endpoint.name : undefined) ??
+      nodeNameById.get(id) ??
+      id;
+    setSelectedLink({
+      label: link.label,
+      evidence: link.evidence,
+      date: link.date,
+      sourceName: nameOf(link.source, sourceId),
+      targetName: nameOf(link.target, targetId),
+    });
+    setLinkDialogOpen(true);
   };
 
   // Toggle the "connected only" filter for the right-clicked node. Selecting a
@@ -988,6 +1033,7 @@ export default function CompanyGraph({
                 linkDirectionalArrowColor={(link: GraphLink) =>
                   RELATION_COLORS[link.label as RelationType] ?? '#64748b'
                 }
+                onLinkClick={(link: GraphLink) => handleLinkClick(link)}
                 onNodeHover={(node: GraphNode | null) => setHovered(node)}
                 cooldownTicks={100}
                 onEngineStop={() => {
@@ -1036,6 +1082,73 @@ export default function CompanyGraph({
           onOpenChange={setDialogOpen}
           onUpdate={() => {}}
         />
+      )}
+
+      {selectedLink && (
+        <Dialog open={linkDialogOpen} onOpenChange={setLinkDialogOpen}>
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <span
+                  className="inline-block h-2.5 w-2.5 rounded-full shrink-0"
+                  style={{
+                    background:
+                      RELATION_COLORS[selectedLink.label as RelationType] ??
+                      '#64748b',
+                  }}
+                />
+                {RELATION_LABELS[selectedLink.label as RelationType] ??
+                  selectedLink.label}
+              </DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4 text-sm">
+              <div className="flex items-center gap-2 font-medium">
+                <span>{selectedLink.sourceName}</span>
+                <span className="text-muted-foreground">&rarr;</span>
+                <span>{selectedLink.targetName}</span>
+              </div>
+              <div className="space-y-1">
+                <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                  Added
+                </p>
+                <p>
+                  {selectedLink.date ? (
+                    new Date(selectedLink.date).toLocaleDateString(undefined, {
+                      year: 'numeric',
+                      month: 'long',
+                      day: 'numeric',
+                    })
+                  ) : (
+                    <span className="text-muted-foreground">Not recorded</span>
+                  )}
+                </p>
+              </div>
+              <div className="space-y-1">
+                <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                  Evidence
+                </p>
+                {selectedLink.evidence ? (
+                  /^https?:\/\//.test(selectedLink.evidence) ? (
+                    <a
+                      href={selectedLink.evidence}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="break-all text-indigo-600 underline hover:text-indigo-800"
+                    >
+                      {selectedLink.evidence}
+                    </a>
+                  ) : (
+                    <p className="whitespace-pre-wrap break-words">
+                      {selectedLink.evidence}
+                    </p>
+                  )
+                ) : (
+                  <p className="text-muted-foreground">No evidence recorded</p>
+                )}
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
       )}
     </DashboardLayout>
   );
