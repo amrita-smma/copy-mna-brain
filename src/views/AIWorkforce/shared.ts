@@ -118,6 +118,11 @@ export type TraceData = {
   title: string;
   description: string;
   timestamp: string;
+  // Full, untruncated text of a final-response step (the agent's closing
+  // report). `description` is truncated for the inline card; this holds the
+  // complete markdown so the UI can render it in a popup. Set only on
+  // text-only steps (no tool calls) with non-empty content.
+  fullReport?: string;
   toolCalls?: ToolCall[];
   // Summarises the step's outcomes (e.g. "5 matches", "1 eliminated") for
   // the meta row. Empty/undefined for steps with no resolved tool calls.

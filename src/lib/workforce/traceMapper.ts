@@ -438,7 +438,8 @@ export function buildTrace(input: BuildTraceInput): TraceData[] {
       (tc) => tc?.name !== "narrate_step" && tc?.name !== "report_progress",
     );
 
-    const desc = truncate(coerceContent(ai.content ?? ""), DESCRIPTION_MAX);
+    const aiContent = coerceContent(ai.content ?? "");
+    const desc = truncate(aiContent, DESCRIPTION_MAX);
 
     let anyRunning = false;
     const mappedToolCalls: ToolCall[] = realToolCalls.map((tc): ToolCall => {
@@ -525,9 +526,18 @@ export function buildTrace(input: BuildTraceInput): TraceData[] {
     // (per the workforce system prompt), lift the outcome line into the
     // card. Belt-and-braces alongside the prompt requirement.
     if (!narration && realToolCalls.length === 0) {
-      const parsed = parseFinalReport(coerceContent(ai.content ?? ""));
+      const parsed = parseFinalReport(aiContent);
       if (parsed) narration = parsed;
     }
+
+    // A text-only step (no real tool calls) carries the agent's prose — for
+    // the closing turn this is the final report. `description` is truncated
+    // for the inline card; keep the full markdown so the UI can render it in
+    // a popup ("View full report"). Capped to avoid oversized payloads.
+    const fullReport =
+      realToolCalls.length === 0 && aiContent.trim().length > 0
+        ? truncate(aiContent, 50000)
+        : undefined;
 
     // Prefer narration when present; fall back to derived defaults.
     const autoTitle =
@@ -547,6 +557,7 @@ export function buildTrace(input: BuildTraceInput): TraceData[] {
       title,
       description,
       timestamp: baseTimestamp,
+      ...(fullReport ? { fullReport } : {}),
       toolCalls: mappedToolCalls.length > 0 ? mappedToolCalls : undefined,
       ...(outcomeChips.length > 0 ? { outcomeChips } : {}),
       ...(liveRows ? { liveRows } : {}),

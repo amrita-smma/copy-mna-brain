@@ -49,6 +49,47 @@ describe("buildTrace", () => {
     expect(steps[0].toolCalls).toBeUndefined();
   });
 
+  it("exposes the full untruncated report on a text-only step", () => {
+    // Longer than DESCRIPTION_MAX (280) so description is truncated but
+    // fullReport keeps the whole markdown for the popup.
+    const report = "# Company Card\n\n" + "Lots of detail. ".repeat(40);
+    const steps = buildTrace({
+      messages: [ai(report)],
+      pendingWrites: [],
+      humanDecisions: [],
+      actor: ACTOR,
+      startedAt: STARTED,
+    });
+    expect(steps[0].fullReport).toBe(report);
+    expect(steps[0].description.length).toBeLessThan(report.length);
+  });
+
+  it("does not set fullReport on a tool-call step", () => {
+    const steps = buildTrace({
+      messages: [
+        ai("calling tool", [
+          { id: "c-1", name: "promote_company", args: { id: "acme" } },
+        ]),
+      ],
+      pendingWrites: [],
+      humanDecisions: [],
+      actor: ACTOR,
+      startedAt: STARTED,
+    });
+    expect(steps[0].fullReport).toBeUndefined();
+  });
+
+  it("does not set fullReport on an empty text step", () => {
+    const steps = buildTrace({
+      messages: [ai("   ")],
+      pendingWrites: [],
+      humanDecisions: [],
+      actor: ACTOR,
+      startedAt: STARTED,
+    });
+    expect(steps[0].fullReport).toBeUndefined();
+  });
+
   it("assigns sequential stepNumbers starting at 1", () => {
     const steps = buildTrace({
       messages: [ai("turn one"), ai("turn two"), ai("turn three")],

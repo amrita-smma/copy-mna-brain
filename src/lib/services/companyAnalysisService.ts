@@ -29,9 +29,14 @@ export class CompanyAnalysisService {
    * Idempotent on a *completed* card: if one already exists we return it
    * without enqueueing. Regeneration deletes the row first (see delete), so a
    * fresh run is enqueued.
+   *
+   * `triggeredByUserId` is the logged-in user who clicked "Generate Company
+   * Card". It owns the resulting AI Workforce run so the task is attributed to
+   * them (not "System") in the UI and the completion email goes to them.
    */
   async dispatch(
     payload: CompanyAnalysisPayload,
+    triggeredByUserId?: string | null,
   ): Promise<{ runId: string } | { existing: Tables<'company_analyses'> }> {
     const existing = await this.companyAnalysisRepo.findCompletedByCompanyId(payload.companyId);
     if (existing) return { existing };
@@ -57,7 +62,7 @@ export class CompanyAnalysisService {
         prompt: instruction,
         company_id: payload.companyId,
       },
-      triggeredByUserId: null,
+      triggeredByUserId: triggeredByUserId ?? null,
     });
 
     return { runId };

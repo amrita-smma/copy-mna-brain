@@ -64,7 +64,10 @@ describe('CompanyAnalysisService.dispatch', () => {
     findById.mockResolvedValue({ id: 'company-1', target: 'Acme Corp' });
     enqueueAgentRun.mockResolvedValue({ runId: 'run-new', created: true });
 
-    const result = await service.dispatch({ companyId: 'company-1', source: 'files' });
+    const result = await service.dispatch(
+      { companyId: 'company-1', source: 'files' },
+      'user-42',
+    );
 
     expect(result).toEqual({ runId: 'run-new' });
     expect(enqueueAgentRun).toHaveBeenCalledOnce();
@@ -73,12 +76,25 @@ describe('CompanyAnalysisService.dispatch', () => {
       agentName: COMPANY_CARD_AGENT_NAME,
       triggerSource: 'api',
       triggerMeta: { company_id: 'company-1', source: 'files' },
+      // The run is owned by the user who triggered it, not "System".
+      triggeredByUserId: 'user-42',
     });
     // The instruction names the company and the tool + id the worker must call.
     expect(input.input.company_id).toBe('company-1');
     expect(input.input.prompt).toMatch(/Acme Corp/);
     expect(input.input.prompt).toMatch(/generate_company_card/);
     expect(input.input.prompt).toContain('company-1');
+  });
+
+  it('defaults triggeredByUserId to null when no user is provided', async () => {
+    findCompletedByCompanyId.mockResolvedValue(undefined);
+    findById.mockResolvedValue({ id: 'company-1', target: 'Acme Corp' });
+    enqueueAgentRun.mockResolvedValue({ runId: 'run-new', created: true });
+
+    await service.dispatch({ companyId: 'company-1' });
+
+    const [, input] = enqueueAgentRun.mock.calls[0];
+    expect(input.triggeredByUserId).toBeNull();
   });
 
   it('falls back to a generic company label when the company row is missing', async () => {

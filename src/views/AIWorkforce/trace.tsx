@@ -10,6 +10,7 @@ import {
   ChevronRight,
   Database,
   FileSearch,
+  FileText,
   GitCompare,
   Globe,
   History,
@@ -24,6 +25,12 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { MarkdownRenderer } from '@/components/chat/MarkdownRenderer';
 import { avatarToneClass } from './shared';
 import type {
@@ -88,6 +95,7 @@ export function TraceLine({
   onDecision?: (input: InterventionDecisionInput) => void | Promise<void>;
   canDecide?: boolean;
 }) {
+  const [reportOpen, setReportOpen] = useState(false);
   const isDone =
     step.status === 'done' || step.status === 'intervention-resolved';
   const isActive =
@@ -193,6 +201,17 @@ export function TraceLine({
               </span>
             </div>
           )}
+
+          {step.fullReport && (
+            <button
+              type="button"
+              onClick={() => setReportOpen(true)}
+              className="mt-2.5 inline-flex items-center gap-1.5 rounded-md border border-violet-200 bg-violet-50 px-2.5 py-1 text-[11px] font-semibold text-violet-700 hover:bg-violet-100 hover:border-violet-300 transition-colors"
+            >
+              <FileText className="h-3 w-3" strokeWidth={2.5} />
+              View full report
+            </button>
+          )}
         </div>
 
         {step.toolCalls && step.toolCalls.length > 0 && (
@@ -239,6 +258,20 @@ export function TraceLine({
           </div>
         )}
       </div>
+
+      {step.fullReport && (
+        <Dialog open={reportOpen} onOpenChange={setReportOpen}>
+          <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <FileText className="h-4 w-4 text-violet-600" />
+                {step.title}
+              </DialogTitle>
+            </DialogHeader>
+            <MarkdownRenderer content={step.fullReport} variant="card" />
+          </DialogContent>
+        </Dialog>
+      )}
     </div>
   );
 }

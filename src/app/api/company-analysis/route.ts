@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { auth } from '@/auth';
 import { createDb } from '@/lib/server/db';
 import { createContainer } from '@/lib/services';
 import type { CompanyAnalysisPayload } from '@/lib/jobs/handlers/companyAnalysis';
@@ -33,6 +34,11 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
+    const session = await auth();
+    if (!session?.user?.id) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
     const body = (await request.json()) as CompanyAnalysisPayload;
     if (!body.companyId) {
       return NextResponse.json(
@@ -43,7 +49,9 @@ export async function POST(request: NextRequest) {
 
     const db = createDb();
     const { companyAnalysisService } = createContainer(db);
-    const result = await companyAnalysisService.dispatch(body);
+    // Attribute the workforce run to the user who clicked "Generate Company
+    // Card" so it shows as their task (not "System") and they get the email.
+    const result = await companyAnalysisService.dispatch(body, session.user.id);
 
     if ('existing' in result) {
       return NextResponse.json(result.existing);
