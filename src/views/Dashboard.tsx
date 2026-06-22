@@ -48,6 +48,7 @@ import {
 } from "lucide-react";
 import { useChatContext } from "@/components/chat/ChatProvider";
 import { AskAIButton } from "@/components/chat/AskAIButton";
+import { companyDisplayName } from "@/lib/companyDisplay";
 
 interface StageCounts {
   stage: string;
@@ -178,7 +179,7 @@ function buildFeedEvents(activity: DashboardActivity): FeedEvent[] {
       id: `discovered-${c.id}-${c.event_at}`,
       type: "ai_discovered",
       company_id: c.id,
-      company_name: c.target || c.project_name || "—",
+      company_name: companyDisplayName(c, "—"),
       segment: c.segment ?? null,
       geography: c.geography ?? null,
       source: c.source ?? null,
@@ -197,7 +198,7 @@ function buildFeedEvents(activity: DashboardActivity): FeedEvent[] {
       id: `new-${c.id}-${c.event_at}`,
       type: "new_deal",
       company_id: c.id,
-      company_name: c.target || c.project_name || "—",
+      company_name: companyDisplayName(c, "—"),
       segment: c.segment ?? null,
       geography: c.geography ?? null,
       source: c.source ?? null,
@@ -216,7 +217,7 @@ function buildFeedEvents(activity: DashboardActivity): FeedEvent[] {
       id: `move-${m.id}`,
       type: "stage_move",
       company_id: m.company_id ?? "",
-      company_name: m.target || m.project_name || "—",
+      company_name: companyDisplayName(m, "—"),
       segment: m.segment ?? null,
       geography: m.geography ?? null,
       source: m.source ?? null,
@@ -238,7 +239,7 @@ function buildFeedEvents(activity: DashboardActivity): FeedEvent[] {
       id: `dropped-${d.id}`,
       type: "dropped",
       company_id: d.id,
-      company_name: d.target || d.project_name || "—",
+      company_name: companyDisplayName(d, "—"),
       segment: d.segment ?? null,
       geography: d.geography ?? null,
       source: d.source ?? null,
@@ -259,7 +260,7 @@ function buildFeedEvents(activity: DashboardActivity): FeedEvent[] {
       id: `note-${n.id}`,
       type: "note_updated",
       company_id: n.company_id,
-      company_name: n.target || n.project_name || "—",
+      company_name: companyDisplayName(n, "—"),
       segment: n.segment ?? null,
       geography: n.geography ?? null,
       source: n.source ?? null,
@@ -1187,7 +1188,7 @@ export default function Dashboard({
                                 >
                                   <div className="flex-1 min-w-0">
                                     <p className="text-xs font-semibold truncate">
-                                      {c.target || c.project_name || "—"}
+                                      {companyDisplayName(c, "—")}
                                     </p>
                                     <div className="flex flex-wrap gap-1 mt-1">
                                       {c.segment && (
@@ -1239,7 +1240,7 @@ export default function Dashboard({
                                 >
                                   <div className="flex-1 min-w-0">
                                     <p className="text-xs font-semibold truncate">
-                                      {c.target || c.project_name || "—"}
+                                      {companyDisplayName(c, "—")}
                                     </p>
                                     <div className="flex flex-wrap gap-1 mt-1">
                                       {c.segment && (
@@ -1335,7 +1336,7 @@ export default function Dashboard({
                                 <div className="flex-1 min-w-0">
                                   <div className="flex items-start justify-between gap-2">
                                     <p className="text-sm font-medium truncate">
-                                      {c.target || c.project_name || "—"}
+                                      {companyDisplayName(c, "—")}
                                     </p>
                                     <span className="text-xs text-muted-foreground shrink-0">
                                       {formatShortDate(c.event_at)}
@@ -1409,7 +1410,7 @@ export default function Dashboard({
                               <div className="flex-1 min-w-0">
                                 <div className="flex items-start justify-between gap-2">
                                   <p className="text-sm font-medium truncate">
-                                    {d.target || d.project_name || "—"}
+                                    {companyDisplayName(d, "—")}
                                   </p>
                                   <span className="text-xs text-muted-foreground shrink-0">
                                     {formatShortDate(d.dropped_at)}
@@ -1491,7 +1492,7 @@ export default function Dashboard({
                                   <div className="flex-1 min-w-0">
                                     <div className="flex items-start justify-between gap-2">
                                       <p className="text-sm font-medium truncate">
-                                        {m.target || m.project_name || "—"}
+                                        {companyDisplayName(m, "—")}
                                       </p>
                                       <div className="flex items-center gap-1 shrink-0">
                                         {fromStage && (

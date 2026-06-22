@@ -37,6 +37,7 @@ import type { PipelineCompany } from "@/views/Pipeline";
 import StatusCombobox from "@/components/pipeline/StatusCombobox";
 import { AskAIButton } from "@/components/chat/AskAIButton";
 import { useChatContext } from "@/components/chat/ChatProvider";
+import { companyDisplayName } from "@/lib/companyDisplay";
 
 const DEAL_TYPE_LABEL: Record<string, string> = {
   majority: "Majority",
@@ -206,6 +207,7 @@ export default function OutboundCompaniesTable({
         {companies.map((company) => {
           const isFav = favoriteIds.has(company.id);
           const isUpdating = updatingCompanyIds.has(company.id);
+          const displayName = companyDisplayName(company, "this company");
           return (
             <TableRow
               key={company.id}
@@ -229,7 +231,7 @@ export default function OutboundCompaniesTable({
                   label="Analyze using AI"
                   onClick={() =>
                     analyzeWithAI(
-                      `Analyze ${company.target || company.project_name || "this company"} and provide insights about it as a potential deal.`,
+                      `Analyze ${displayName} and provide insights about it as a potential deal.`,
                     )
                   }
                 />

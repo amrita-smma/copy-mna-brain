@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { AlertTriangle, X, ExternalLink } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { companyDisplayName } from "@/lib/companyDisplay";
 import {
   Popover,
   PopoverContent,
@@ -58,7 +59,7 @@ export function DuplicatePopup({ possibleDuplicateId }: DuplicatePopupProps) {
             <p className="text-muted-foreground text-xs">Loading…</p>
           ) : (
             <>
-              <p className="font-medium">{company.target ?? company.project_name ?? "Unknown"}</p>
+              <p className="font-medium">{companyDisplayName(company)}</p>
               <div className="mt-1 flex flex-wrap gap-1 text-xs text-muted-foreground">
                 {company.segment && <span>{company.segment}</span>}
                 {company.geography && <span>· {company.geography}</span>}

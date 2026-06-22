@@ -17,6 +17,7 @@ import CompanyDetailDialog from './CompanyDetailDialog';
 import { AskAIButton } from '@/components/chat/AskAIButton';
 import { useChatContext } from '@/components/chat/ChatProvider';
 import { cn } from '@/lib/utils';
+import { companyDisplayName } from '@/lib/companyDisplay';
 import { DealStage } from '@/lib/types';
 import { bulkUpdateCompanies, deleteCompanyById, getCompanies, getFavoriteCompanies } from '@/lib/api/pipeline';
 import { useAuth } from '@/hooks/useAuth';
@@ -24,6 +25,7 @@ import { useAuth } from '@/hooks/useAuth';
 interface MarketScreeningResult {
   id: string;
   target: string | null;
+  project_name?: string | null;
   segment: string | null;
   website: string | null;
   pipeline_stage: string;
@@ -217,10 +219,10 @@ export default function MarketScreeningResults({ refreshTrigger, onAddedToPipeli
       let aVal: any = 0;
       let bVal: any = 0;
 
-      switch (sortField) {
+        switch (sortField) {
         case 'target':
-          aVal = (a.target || '').toLowerCase();
-          bVal = (b.target || '').toLowerCase();
+          aVal = companyDisplayName(a, '').toLowerCase();
+          bVal = companyDisplayName(b, '').toLowerCase();
           break;
         case 'segment':
           aVal = (a.segment || '').toLowerCase();
@@ -429,6 +431,7 @@ export default function MarketScreeningResults({ refreshTrigger, onAddedToPipeli
                 <TableBody>
                   {paginatedResults.map((result) => {
                     const isFav = favoriteIds.has(result.id);
+                    const displayName = companyDisplayName(result, "this company");
                     return (
                       <TableRow
                         key={result.id}
@@ -445,7 +448,7 @@ export default function MarketScreeningResults({ refreshTrigger, onAddedToPipeli
                             label="Analyze using AI"
                             onClick={() =>
                               analyzeWithAI(
-                                `Analyze ${result.target || "this company"} and provide insights about it as a potential deal.`
+                                `Analyze ${displayName} and provide insights about it as a potential deal.`
                               )
                             }
                           />
@@ -465,7 +468,7 @@ export default function MarketScreeningResults({ refreshTrigger, onAddedToPipeli
                               }}
                               className="font-medium text-left hover:text-purple-600 dark:hover:text-purple-400 transition-colors"
                             >
-                              {result.target}
+                              {displayName === "this company" ? "—" : displayName}
                             </button>
                           </div>
                         </TableCell>

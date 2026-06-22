@@ -19,11 +19,13 @@ import {
   prepareScreenings,
   updateCriteria,
 } from '@/lib/api/pipeline';
+import { companyDisplayName } from '@/lib/companyDisplay';
 
 interface Company {
   id: string;
   name: string;
   target?: string | null;
+  project_name?: string | null;
   segment?: string | null;
   geography?: string | null;
   company_focus?: string | null;
@@ -227,7 +229,7 @@ export default function AIScreeningDialog({
             screeningId: entry.id,
             company: {
               id: company.id,
-              name: company.target || company.name,
+              name: companyDisplayName(company, company.name || ''),
               segment: company.segment,
               geography: company.geography,
               company_focus: company.company_focus,

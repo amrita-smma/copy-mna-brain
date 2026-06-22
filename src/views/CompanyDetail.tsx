@@ -7,6 +7,7 @@ import { MarkdownRenderer } from '@/components/chat/MarkdownRenderer';
 import { useChatContext } from '@/components/chat/ChatProvider';
 import { AskAIButton } from '@/components/chat/AskAIButton';
 import { useIsMobile } from '@/hooks/use-mobile';
+import { companyDisplayName, companyInitials } from '@/lib/companyDisplay';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
@@ -327,7 +328,7 @@ export default function CompanyDetail({ showCompanyGraph = false }: CompanyDetai
   // copilot lives on the Chat tab, so jump there to watch the response stream.
   const handleAnalyzeWithAI = () => {
     analyzeWithAI(
-      `Analyze ${company?.target || 'this company'} and provide insights about it as a potential deal.`,
+      `Analyze ${companyDisplayName(company, 'this company')} and provide insights about it as a potential deal.`,
     );
     if (isMobile) router.push('/chat');
   };
@@ -940,12 +941,8 @@ export default function CompanyDetail({ showCompanyGraph = false }: CompanyDetai
     );
   }
 
-  const logoInitial = (company.target || 'U')
-    .trim()
-    .split(/\s+/)
-    .slice(0, 2)
-    .map((w) => w[0]?.toUpperCase() ?? '')
-    .join('');
+  const displayName = companyDisplayName(company, 'Unnamed Company');
+  const logoInitial = companyInitials(company);
 
   const overviewFirstLine = analysis?.business_overview
     ? analysis.business_overview.replace(/^-\s+\*\*[^*]+\*\*:\s*/m, '').replace(/\n[\s\S]*/m, '').trim()
@@ -966,7 +963,7 @@ export default function CompanyDetail({ showCompanyGraph = false }: CompanyDetai
               {analysis?.logo_url ? (
                 <img
                   src={analysis.logo_url}
-                  alt={company.target ?? ''}
+                  alt={displayName}
                   className="h-full w-full object-cover"
                   onError={(e) => {
                     (e.currentTarget as HTMLImageElement).style.display = 'none';
@@ -985,7 +982,7 @@ export default function CompanyDetail({ showCompanyGraph = false }: CompanyDetai
             <div className="min-w-0">
               <div className="flex items-center gap-2 flex-wrap">
                 <h1 className="text-2xl font-bold leading-tight">
-                  {company.target || 'Unnamed Company'}
+                  {displayName}
                 </h1>
                 {company.segment && <Badge variant="outline">{company.segment}</Badge>}
                 <Badge variant="outline">{getStageLabel(company.pipeline_stage)}</Badge>

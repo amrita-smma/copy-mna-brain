@@ -43,6 +43,7 @@ import StatusCombobox from "@/components/pipeline/StatusCombobox";
 import { AskAIButton } from "@/components/chat/AskAIButton";
 import { useChatContext } from "@/components/chat/ChatProvider";
 import { DuplicatePopup } from "@/components/pipeline/DuplicatePopup";
+import { companyDisplayName } from "@/lib/companyDisplay";
 
 const DEAL_TYPE_LABEL: Record<string, string> = {
   majority: "Majority",
@@ -314,6 +315,7 @@ export default function InboundCompaniesTable({
           const rev = latestFin(company.financials_raw, "revenue_usd_mn");
           const ebitda = latestFin(company.financials_raw, "ebitda_usd_mn");
           const isUnreviewed = company.review_state === "unreviewed";
+          const displayName = companyDisplayName(company, "this company");
           const hasFinancials =
             rev.value != null ||
             ebitda.value != null ||
@@ -365,7 +367,7 @@ export default function InboundCompaniesTable({
                   label="Analyze using AI"
                   onClick={() =>
                     analyzeWithAI(
-                      `Analyze ${company.target || company.project_name || "this company"} and provide insights about it as a potential deal.`,
+                      `Analyze ${displayName} and provide insights about it as a potential deal.`,
                     )
                   }
                 />

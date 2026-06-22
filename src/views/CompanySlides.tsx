@@ -32,6 +32,7 @@ import {
 } from 'lucide-react';
 import { getCompanies } from '@/lib/api/pipeline';
 import { waitForJob } from '@/lib/jobs/useJob';
+import { companyDisplayName } from '@/lib/companyDisplay';
 
 async function generateSlideHtml(body: {
   instruction: string;
@@ -72,6 +73,7 @@ interface SlideRow {
 interface CompanyData {
   id: string;
   target: string | null;
+  project_name: string | null;
   segment: string | null;
   pipeline_stage: string | null;
   website: string | null;
@@ -118,7 +120,7 @@ interface CompanyAnalysis {
 
 function buildCompanyContext(company: CompanyData, analysis: CompanyAnalysis | null): string {
   const lines: string[] = [];
-  lines.push(`Company: ${company.target || 'Unknown'}`);
+  lines.push(`Company: ${companyDisplayName(company)}`);
   if (company.segment) lines.push(`Segment: ${company.segment}`);
   if (company.geography) lines.push(`Geography: ${company.geography}`);
   if (company.ownership) lines.push(`Ownership: ${company.ownership}`);
@@ -480,35 +482,36 @@ export default function CompanySlides({ showCompanyGraph = false }: CompanySlide
     if (!company) return;
     setInitializing(true);
     const ctx = buildCompanyContext(company, analysis);
+    const companyName = companyDisplayName(company);
 
     const defaults: { title: string; instruction: string }[] = [
       {
         title: 'Executive Summary',
-        instruction: `Create an Executive Summary slide for "${company.target}". Include: company name as title, key metrics (Revenue, EBITDA, EV, EV/EBITDA multiple) in callout boxes at the top, a brief business description, key investment highlights as bullet points on the left, and key risks on the right. Use the financial data and analysis provided. Make it data-dense and professional.`,
+        instruction: `Create an Executive Summary slide for "${companyName}". Include: company name as title, key metrics (Revenue, EBITDA, EV, EV/EBITDA multiple) in callout boxes at the top, a brief business description, key investment highlights as bullet points on the left, and key risks on the right. Use the financial data and analysis provided. Make it data-dense and professional.`,
       },
       {
         title: 'Shareholding Structure',
-        instruction: `Create a Shareholding Structure slide for "${company.target}". Show the ownership breakdown: who owns the company, percentage stakes of major shareholders, and the type of ownership (${company.ownership || 'Private'}). Use a visual layout with boxes or a pie-chart-style representation using HTML/CSS to show ownership percentages. Include shareholder names, stake percentages, and any known institutional/PE/founder holdings. If exact data is unavailable, infer from ownership type and any context provided. Use a clean professional layout with a summary table.`,
+        instruction: `Create a Shareholding Structure slide for "${companyName}". Show the ownership breakdown: who owns the company, percentage stakes of major shareholders, and the type of ownership (${company.ownership || 'Private'}). Use a visual layout with boxes or a pie-chart-style representation using HTML/CSS to show ownership percentages. Include shareholder names, stake percentages, and any known institutional/PE/founder holdings. If exact data is unavailable, infer from ownership type and any context provided. Use a clean professional layout with a summary table.`,
       },
       {
         title: 'Current Company Structure',
-        instruction: `Create a Current Company Structure slide for "${company.target}". Show the organizational/corporate hierarchy using HTML/CSS boxes and arrows: parent company, subsidiaries, divisions, and key business units. Include geography (${company.geography || 'N/A'}), segment (${company.segment || 'N/A'}), and any known operational structure. Use boxes connected by lines/arrows to show the corporate tree. If exact structure is unknown, infer a plausible structure from the business overview, segment, and geography.`,
+        instruction: `Create a Current Company Structure slide for "${companyName}". Show the organizational/corporate hierarchy using HTML/CSS boxes and arrows: parent company, subsidiaries, divisions, and key business units. Include geography (${company.geography || 'N/A'}), segment (${company.segment || 'N/A'}), and any known operational structure. Use boxes connected by lines/arrows to show the corporate tree. If exact structure is unknown, infer a plausible structure from the business overview, segment, and geography.`,
       },
       {
         title: 'Products/Services & Customer Distribution',
-        instruction: `Create a Products/Services & Customer Distribution slide for "${company.target}". Split into two sections: LEFT side shows product/service breakdown with categories, descriptions, and revenue contribution estimates; RIGHT side shows customer distribution by segment, geography, or type. Use the company focus (${company.company_focus || 'N/A'}), segment (${company.segment || 'N/A'}), geography (${company.geography || 'N/A'}), and business overview to infer products and customer mix. Use card-based or table layouts. If exact data is unavailable, provide plausible estimates based on the industry and segment.`,
+        instruction: `Create a Products/Services & Customer Distribution slide for "${companyName}". Split into two sections: LEFT side shows product/service breakdown with categories, descriptions, and revenue contribution estimates; RIGHT side shows customer distribution by segment, geography, or type. Use the company focus (${company.company_focus || 'N/A'}), segment (${company.segment || 'N/A'}), geography (${company.geography || 'N/A'}), and business overview to infer products and customer mix. Use card-based or table layouts. If exact data is unavailable, provide plausible estimates based on the industry and segment.`,
       },
       {
         title: 'Historical Financials',
-        instruction: `Create a Historical Financials slide for "${company.target}" that summarizes the company's financial data in a professional table. Include rows for: Revenue (2021-2024), EBITDA (2021-2024), EBITDA Margin (2021-2024), and Enterprise Value (2024). Show year-over-year growth rates where possible. Use the following data — Revenue: ${[company.revenue_2021_usd_mn, company.revenue_2022_usd_mn, company.revenue_2023_usd_mn, company.revenue_2024_usd_mn].map((v, i) => v != null ? `$${v}M (${2021 + i})` : `N/A (${2021 + i})`).join(', ')}; EBITDA: ${[company.ebitda_2021_usd_mn, company.ebitda_2022_usd_mn, company.ebitda_2023_usd_mn, company.ebitda_2024_usd_mn].map((v, i) => v != null ? `$${v}M (${2021 + i})` : `N/A (${2021 + i})`).join(', ')}; EBITDA Margins: ${[company.ebitda_margin_2021, company.ebitda_margin_2022, company.ebitda_margin_2023, company.ebitda_margin_2024].map((v, i) => v != null ? `${(v * 100).toFixed(1)}% (${2021 + i})` : `N/A (${2021 + i})`).join(', ')}; EV 2024: ${company.ev_2024 != null ? `$${company.ev_2024}M` : 'N/A'}. Format as a clean HTML table with alternating row colors, bold headers, and a summary row at the bottom highlighting key ratios like EV/EBITDA and EV/Revenue. Include YoY growth bars or indicators where data permits.`,
+        instruction: `Create a Historical Financials slide for "${companyName}" that summarizes the company's financial data in a professional table. Include rows for: Revenue (2021-2024), EBITDA (2021-2024), EBITDA Margin (2021-2024), and Enterprise Value (2024). Show year-over-year growth rates where possible. Use the following data — Revenue: ${[company.revenue_2021_usd_mn, company.revenue_2022_usd_mn, company.revenue_2023_usd_mn, company.revenue_2024_usd_mn].map((v, i) => v != null ? `$${v}M (${2021 + i})` : `N/A (${2021 + i})`).join(', ')}; EBITDA: ${[company.ebitda_2021_usd_mn, company.ebitda_2022_usd_mn, company.ebitda_2023_usd_mn, company.ebitda_2024_usd_mn].map((v, i) => v != null ? `$${v}M (${2021 + i})` : `N/A (${2021 + i})`).join(', ')}; EBITDA Margins: ${[company.ebitda_margin_2021, company.ebitda_margin_2022, company.ebitda_margin_2023, company.ebitda_margin_2024].map((v, i) => v != null ? `${(v * 100).toFixed(1)}% (${2021 + i})` : `N/A (${2021 + i})`).join(', ')}; EV 2024: ${company.ev_2024 != null ? `$${company.ev_2024}M` : 'N/A'}. Format as a clean HTML table with alternating row colors, bold headers, and a summary row at the bottom highlighting key ratios like EV/EBITDA and EV/Revenue. Include YoY growth bars or indicators where data permits.`,
       },
       {
         title: 'Indicative Valuation',
-        instruction: `Create an Indicative Valuation slide for "${company.target}". Show a valuation summary using multiple methodologies: EV/Revenue multiple, EV/EBITDA multiple, and comparable transaction analysis. Use the available data — EV 2024: ${company.ev_2024 != null ? `$${company.ev_2024}M` : 'N/A'}, Revenue 2024: ${company.revenue_2024_usd_mn != null ? `$${company.revenue_2024_usd_mn}M` : 'N/A'}, EBITDA 2024: ${company.ebitda_2024_usd_mn != null ? `$${company.ebitda_2024_usd_mn}M` : 'N/A'}. Include: implied multiples, a valuation range (low/mid/high) using a football-field-style horizontal bar chart in HTML/CSS, and key assumptions. Show the implied enterprise value range prominently. Use professional M&A valuation formatting.`,
+        instruction: `Create an Indicative Valuation slide for "${companyName}". Show a valuation summary using multiple methodologies: EV/Revenue multiple, EV/EBITDA multiple, and comparable transaction analysis. Use the available data — EV 2024: ${company.ev_2024 != null ? `$${company.ev_2024}M` : 'N/A'}, Revenue 2024: ${company.revenue_2024_usd_mn != null ? `$${company.revenue_2024_usd_mn}M` : 'N/A'}, EBITDA 2024: ${company.ebitda_2024_usd_mn != null ? `$${company.ebitda_2024_usd_mn}M` : 'N/A'}. Include: implied multiples, a valuation range (low/mid/high) using a football-field-style horizontal bar chart in HTML/CSS, and key assumptions. Show the implied enterprise value range prominently. Use professional M&A valuation formatting.`,
       },
       {
         title: 'Company Overview',
-        instruction: `Create a Company Overview slide for "${company.target}". Include: company name and logo placeholder, founding year (if known), headquarters/geography (${company.geography || 'N/A'}), industry/segment (${company.segment || 'N/A'}), ownership (${company.ownership || 'N/A'}), website (${company.website || 'N/A'}), company focus (${company.company_focus || 'N/A'}), number of employees (if known), and a brief description of what the company does. Use a clean two-column layout: left side with key facts in a structured list/table, right side with a business description and market positioning summary. Make it the definitive "at a glance" overview of the company.`,
+        instruction: `Create a Company Overview slide for "${companyName}". Include: company name and logo placeholder, founding year (if known), headquarters/geography (${company.geography || 'N/A'}), industry/segment (${company.segment || 'N/A'}), ownership (${company.ownership || 'N/A'}), website (${company.website || 'N/A'}), company focus (${company.company_focus || 'N/A'}), number of employees (if known), and a brief description of what the company does. Use a clean two-column layout: left side with key facts in a structured list/table, right side with a business description and market positioning summary. Make it the definitive "at a glance" overview of the company.`,
       },
     ];
 
@@ -699,7 +702,7 @@ export default function CompanySlides({ showCompanyGraph = false }: CompanySlide
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `${company?.target ?? 'slides'}.pptx`;
+      a.download = `${companyDisplayName(company, 'slides')}.pptx`;
       a.click();
       URL.revokeObjectURL(url);
       toast.success('PPTX exported');
@@ -760,7 +763,7 @@ export default function CompanySlides({ showCompanyGraph = false }: CompanySlide
             </Button>
             <div className="flex items-center gap-2">
               <Presentation className="h-5 w-5 text-primary" />
-              <h1 className="text-lg font-semibold">{company.target} — Slide Builder</h1>
+              <h1 className="text-lg font-semibold">{companyDisplayName(company)} — Slide Builder</h1>
             </div>
           </div>
           <div className="flex items-center gap-2">

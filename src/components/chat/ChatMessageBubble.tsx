@@ -1,6 +1,7 @@
 import { type UIMessage } from "@ai-sdk/react";
 import { memo, useState, useEffect } from "react";
 import { cn } from "@/lib/utils";
+import { companyDisplayName } from "@/lib/companyDisplay";
 import { Bot, User, ChevronDown, ChevronRight, Wrench, Loader2, FileText, X, Sparkles, FileSearch, Brain, AlertTriangle } from "lucide-react";
 import { MarkdownRenderer } from "./MarkdownRenderer";
 import {
@@ -736,7 +737,7 @@ function ChatMessageBubbleImpl(props: ChatMessageBubbleProps) {
                                 <div className="flex flex-wrap gap-1.5">
                                   {previewNote.matched_companies.map((company, i) => (
                                     <Badge key={i} variant="outline" className="text-xs">
-                                      {typeof company === 'string' ? company : company.name || company.target || 'Unknown'}
+                                      {typeof company === 'string' ? company : companyDisplayName(company)}
                                     </Badge>
                                   ))}
                                 </div>

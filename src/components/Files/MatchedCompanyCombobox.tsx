@@ -16,6 +16,7 @@ import {
 } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 import { getCompaniesLite } from "@/lib/api/pipeline";
+import { companyDisplayName } from "@/lib/companyDisplay";
 import { Check, ChevronsUpDown } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 
@@ -99,8 +100,8 @@ export function MatchedCompanyCombobox({
     value === AUTO
       ? placeholder
       : (() => {
-          const target = picked?.target ?? fallbackPicked?.name ?? null;
-          const project = picked?.project_name ?? fallbackPicked?.projectName ?? null;
+          const target = picked?.target?.trim() || fallbackPicked?.name?.trim() || "";
+          const project = picked?.project_name?.trim() || fallbackPicked?.projectName?.trim() || "";
           if (target && project) return `${target} (${project})`;
           return target || project || placeholder;
         })();
@@ -142,8 +143,8 @@ export function MatchedCompanyCombobox({
                 // Pick the primary label: target if it exists, otherwise
                 // project_name. The secondary line shows whichever is left
                 // (or nothing if only one exists).
-                const primary = c.target || c.project_name;
-                const secondary = c.target && c.project_name ? c.project_name : null;
+                const primary = companyDisplayName(c, "");
+                const secondary = c.target?.trim() && c.project_name?.trim() ? c.project_name.trim() : null;
                 return (
                   <CommandItem key={c.id} value={c.id} onSelect={() => { onChange(c.id); setOpen(false); }}>
                     <Check className={cn("mr-2 h-4 w-4 shrink-0", value === c.id ? "opacity-100" : "opacity-0")} />

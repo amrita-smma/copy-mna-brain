@@ -19,6 +19,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { companyDisplayName } from "@/lib/companyDisplay";
 
 const DROP_REASONS = [
   "Outside thesis",
@@ -131,6 +132,7 @@ export function BulkTriageModal({ open, companies, onClose, onConfirm }: BulkTri
           <div className="space-y-2">
             {companies.map((company) => {
               const decision = decisions[company.id] ?? "pending";
+              const displayName = companyDisplayName(company);
               return (
                 <div
                   key={company.id}
@@ -146,7 +148,7 @@ export function BulkTriageModal({ open, companies, onClose, onConfirm }: BulkTri
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2 flex-wrap">
                         <span className="font-medium truncate">
-                          {company.target ?? company.project_name ?? "Unknown"}
+                          {displayName}
                         </span>
                         {company.doc_type && (
                           <span className={`inline-flex items-center rounded border px-1.5 py-0.5 text-[11px] font-medium ${DOC_TYPE_COLORS[company.doc_type] ?? "bg-muted text-muted-foreground border-border"}`}>

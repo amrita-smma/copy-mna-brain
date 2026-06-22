@@ -77,6 +77,7 @@ import { TriageBanner } from "@/components/pipeline/TriageBanner";
 import { BulkTriageModal } from "@/components/pipeline/BulkTriageModal";
 import { DuplicatePopup } from "@/components/pipeline/DuplicatePopup";
 import { cn } from "@/lib/utils";
+import { companyDisplayName } from "@/lib/companyDisplay";
 import posthog from "posthog-js";
 import { useAuth } from "@/hooks/useAuth";
 import {
@@ -521,7 +522,7 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
     const matchesStage = company.pipeline_stage === activeTab;
     const q = searchQuery.toLowerCase();
     const matchesSearch =
-      company.target.toLowerCase().includes(q) ||
+      companyDisplayName(company, "").toLowerCase().includes(q) ||
       (company.project_name || "").toLowerCase().includes(q) ||
       (company.segment || "").toLowerCase().includes(q);
     const matchesL1Status =
@@ -697,7 +698,7 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
       .filter((c) => selectedIds.has(c.id))
       .map((c) => ({
         id: c.id,
-        name: c.target,
+        name: companyDisplayName(c, ""),
         sector: c.segment || "",
         revenue_year1: c.revenue_2022_usd_mn,
         revenue_year2: c.revenue_2023_usd_mn,
@@ -772,10 +773,10 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
       await restoreDeal(company.id, { currentStage: company.pipeline_stage });
       posthog.capture("deal_restored", {
         deal_id: company.id,
-        company_name: company.target,
+        company_name: companyDisplayName(company, ""),
         to_stage: company.pipeline_stage,
       });
-      toast.success(`Restored ${[company.target, company.project_name].filter(Boolean).join(' — ') || 'company'}`);
+      toast.success(`Restored ${companyDisplayName(company, "company")}`);
       fetchCompanies();
     } catch (err: any) {
       console.error("Error restoring deal:", err);
@@ -1241,7 +1242,7 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
                                     onOpenDetail={(company) => {
                                       posthog.capture("company_detail_viewed", {
                                         company_id: company.id,
-                                        company_name: company.target,
+                                        company_name: companyDisplayName(company, ""),
                                         pipeline_stage: company.pipeline_stage,
                                       });
                                       setSelectedCompany(company);
@@ -1335,7 +1336,7 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
                                     onOpenDetail={(company) => {
                                       posthog.capture("company_detail_viewed", {
                                         company_id: company.id,
-                                        company_name: company.target,
+                                        company_name: companyDisplayName(company, ""),
                                         pipeline_stage: company.pipeline_stage,
                                       });
                                       setSelectedCompany(company);
@@ -1521,7 +1522,7 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
                               onOpenDetail={(company) => {
                                 posthog.capture("company_detail_viewed", {
                                   company_id: company.id,
-                                  company_name: company.target,
+                                  company_name: companyDisplayName(company, ""),
                                   pipeline_stage: company.pipeline_stage,
                                 });
                                 setSelectedCompany(company);
@@ -1597,7 +1598,7 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
                               onOpenDetail={(company) => {
                                 posthog.capture("company_detail_viewed", {
                                   company_id: company.id,
-                                  company_name: company.target,
+                                  company_name: companyDisplayName(company, ""),
                                   pipeline_stage: company.pipeline_stage,
                                 });
                                 setSelectedCompany(company);
@@ -1707,7 +1708,7 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
             open={promoteDialogOpen}
             onOpenChange={setPromoteDialogOpen}
             dealId={promotingCompany.id}
-            companyName={promotingCompany.target}
+            companyName={companyDisplayName(promotingCompany, "this company")}
             currentStage={promotingCompany.pipeline_stage}
             nextStage={
               dialogMode === "demote"
@@ -1740,7 +1741,7 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
               <AlertDialogTitle>Drop deal?</AlertDialogTitle>
               <AlertDialogDescription>
                 Are you sure you want to drop{" "}
-                <span className="font-medium">{dropDealCompany ? [dropDealCompany.target, dropDealCompany.project_name].filter(Boolean).join(' — ') || 'this company' : 'this company'}</span>?
+                <span className="font-medium">{companyDisplayName(dropDealCompany, "this company")}</span>?
                 This will remove the deal from the pipeline.
               </AlertDialogDescription>
             </AlertDialogHeader>
@@ -1774,11 +1775,11 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
                     });
                     posthog.capture("deal_dropped", {
                       deal_id: dropDealCompany.id,
-                      company_name: dropDealCompany.target,
+                      company_name: companyDisplayName(dropDealCompany, ""),
                       from_stage: dropDealCompany.pipeline_stage,
                       has_reason: dropReason.trim() !== "",
                     });
-                    toast.success(`Dropped ${[dropDealCompany.target, dropDealCompany.project_name].filter(Boolean).join(' — ') || 'company'}`);
+                    toast.success(`Dropped ${companyDisplayName(dropDealCompany, "company")}`);
                     setDropDealCompany(null);
                     setDropReason("");
                     fetchCompanies();

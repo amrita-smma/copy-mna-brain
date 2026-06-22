@@ -56,6 +56,7 @@ import { useToast } from '@/hooks/use-toast';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { useChatContext } from '@/components/chat/ChatProvider';
 import { AskAIButton } from '@/components/chat/AskAIButton';
+import { companyDisplayName } from '@/lib/companyDisplay';
 
 interface CompanyWithDeal {
   id: string;
@@ -548,14 +549,15 @@ export default function MasterData({ showCompanyGraph = false }: MasterDataProps
               <div className="space-y-3">
                 {paginatedCompanies.map((company) => {
                   const displayStage = getDisplayStage(company);
+                  const canOpenCompany = Boolean(company.name || company.project_name);
                   return (
                     <div
                       key={company.id}
                       role="button"
-                      tabIndex={company.name ? 0 : -1}
-                      onClick={() => company.name && openCompany(company.id)}
+                      tabIndex={canOpenCompany ? 0 : -1}
+                      onClick={() => canOpenCompany && openCompany(company.id)}
                       onKeyDown={(e) => {
-                        if (company.name && (e.key === 'Enter' || e.key === ' ')) {
+                        if (canOpenCompany && (e.key === 'Enter' || e.key === ' ')) {
                           e.preventDefault();
                           openCompany(company.id);
                         }
@@ -575,7 +577,7 @@ export default function MasterData({ showCompanyGraph = false }: MasterDataProps
                             label="Analyze using AI"
                             onClick={() =>
                               analyzeWithAI(
-                                `Analyze ${company.name || 'this company'} and provide insights about it as a potential deal.`,
+                                `Analyze ${companyDisplayName(company, 'this company')} and provide insights about it as a potential deal.`,
                               )
                             }
                           />
@@ -809,7 +811,7 @@ export default function MasterData({ showCompanyGraph = false }: MasterDataProps
                               </AlertDialogTrigger>
                               <AlertDialogContent>
                                 <AlertDialogHeader>
-                                  <AlertDialogTitle>Delete &ldquo;{company.name}&rdquo;?</AlertDialogTitle>
+                                  <AlertDialogTitle>Delete &ldquo;{companyDisplayName(company, 'this company')}&rdquo;?</AlertDialogTitle>
                                   <AlertDialogDescription>
                                     This will permanently delete this company and all related data
                                     including deal history, notes, documents, links, screening results,
@@ -820,7 +822,7 @@ export default function MasterData({ showCompanyGraph = false }: MasterDataProps
                                   <AlertDialogCancel>Cancel</AlertDialogCancel>
                                   <AlertDialogAction
                                     className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                                    onClick={() => deleteCompany(company.id, company.name)}
+                                    onClick={() => deleteCompany(company.id, companyDisplayName(company, 'this company'))}
                                   >
                                     Delete
                                   </AlertDialogAction>
@@ -884,49 +886,52 @@ export default function MasterData({ showCompanyGraph = false }: MasterDataProps
                 </div>
               ) : (
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                  {paginatedDiscovered.map((company) => (
-                    <div
-                      key={company.id}
-                      className="flex flex-col rounded-lg border bg-card p-4"
-                    >
-                      <button
-                        type="button"
-                        onClick={() => company.name && openCompany(company.id)}
-                        disabled={!company.name || loadingDialog}
-                        className="-m-4 mb-0 rounded-t-lg p-4 pb-0 text-left transition-colors hover:bg-muted/40 disabled:opacity-50"
+                  {paginatedDiscovered.map((company) => {
+                    const displayName = companyDisplayName(company, '');
+                    return (
+                      <div
+                        key={company.id}
+                        className="flex flex-col rounded-lg border bg-card p-4"
                       >
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="font-medium">{company.name || '—'}</span>
-                          <Badge className={`${stageColors.discovered} text-white`}>
-                            {stageLabels.discovered}
-                          </Badge>
-                        </div>
-                        <div className="mt-2 flex flex-wrap items-center gap-1.5 text-xs">
-                          <Badge variant="outline">{company.sector || '-'}</Badge>
-                          <span className="text-muted-foreground">{company.geo || 'Unknown geo'}</span>
-                        </div>
-                        <p className="mt-2 text-xs text-muted-foreground">
-                          Added {new Date(company.created_at).toLocaleDateString()}
-                        </p>
-                      </button>
-                      <div className="mt-3 pt-3 border-t">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="w-full"
-                          onClick={() => company.name && addDiscoveredToL0(company.id, company.name)}
-                          disabled={!company.name || addingToL0Id === company.id}
+                        <button
+                          type="button"
+                          onClick={() => displayName && openCompany(company.id)}
+                          disabled={!displayName || loadingDialog}
+                          className="-m-4 mb-0 rounded-t-lg p-4 pb-0 text-left transition-colors hover:bg-muted/40 disabled:opacity-50"
                         >
-                          {addingToL0Id === company.id ? (
-                            <Loader2 className="h-4 w-4 animate-spin" />
-                          ) : (
-                            <ArrowRight className="h-4 w-4" />
-                          )}
-                          Add to L0
-                        </Button>
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="font-medium">{displayName || '—'}</span>
+                            <Badge className={`${stageColors.discovered} text-white`}>
+                              {stageLabels.discovered}
+                            </Badge>
+                          </div>
+                          <div className="mt-2 flex flex-wrap items-center gap-1.5 text-xs">
+                            <Badge variant="outline">{company.sector || '-'}</Badge>
+                            <span className="text-muted-foreground">{company.geo || 'Unknown geo'}</span>
+                          </div>
+                          <p className="mt-2 text-xs text-muted-foreground">
+                            Added {new Date(company.created_at).toLocaleDateString()}
+                          </p>
+                        </button>
+                        <div className="mt-3 pt-3 border-t">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="w-full"
+                            onClick={() => displayName && addDiscoveredToL0(company.id, displayName)}
+                            disabled={!displayName || addingToL0Id === company.id}
+                          >
+                            {addingToL0Id === company.id ? (
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                              <ArrowRight className="h-4 w-4" />
+                            )}
+                            Add to L0
+                          </Button>
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
               {filteredDiscovered.length > 0 && (

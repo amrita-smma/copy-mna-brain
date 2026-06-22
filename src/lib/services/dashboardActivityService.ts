@@ -1,4 +1,5 @@
 import type { DashboardActivityRepository } from '@/lib/repositories/dashboardActivityRepository';
+import { companyDisplayName } from '@/lib/companyDisplay';
 
 export type NewL0Company = Awaited<ReturnType<DashboardActivityRepository['getNewL0Companies']>>[number];
 export type AiSourcedCompany = Awaited<ReturnType<DashboardActivityRepository['getAiSourcedCompanies']>>[number];
@@ -183,7 +184,7 @@ export function buildFeedEvents(activity: {
       id: `discovered-${c.id}-${c.event_at}`,
       type: 'ai_discovered',
       company_id: c.id,
-      company_name: c.target || c.project_name || '—',
+      company_name: companyDisplayName(c, '—'),
       segment: c.segment ?? null,
       geography: c.geography ?? null,
       source: c.source ?? null,
@@ -202,7 +203,7 @@ export function buildFeedEvents(activity: {
       id: `new-${c.id}-${c.event_at}`,
       type: 'new_deal',
       company_id: c.id,
-      company_name: c.target || c.project_name || '—',
+      company_name: companyDisplayName(c, '—'),
       segment: c.segment ?? null,
       geography: c.geography ?? null,
       source: c.source ?? null,
@@ -221,7 +222,7 @@ export function buildFeedEvents(activity: {
       id: `move-${m.id}`,
       type: 'stage_move',
       company_id: m.company_id ?? '',
-      company_name: m.target || m.project_name || '—',
+      company_name: companyDisplayName(m, '—'),
       segment: m.segment ?? null,
       geography: m.geography ?? null,
       source: m.source ?? null,
@@ -243,7 +244,7 @@ export function buildFeedEvents(activity: {
       id: `dropped-${d.id}`,
       type: 'dropped',
       company_id: d.id,
-      company_name: d.target || d.project_name || '—',
+      company_name: companyDisplayName(d, '—'),
       segment: d.segment ?? null,
       geography: d.geography ?? null,
       source: d.source ?? null,
@@ -264,7 +265,7 @@ export function buildFeedEvents(activity: {
       id: `note-${n.id}`,
       type: 'note_updated',
       company_id: n.company_id,
-      company_name: n.target || n.project_name || '—',
+      company_name: companyDisplayName(n, '—'),
       segment: n.segment ?? null,
       geography: n.geography ?? null,
       source: n.source ?? null,

@@ -85,6 +85,7 @@ import StatusCombobox, {
   DEFAULT_OUTBOUND_STATUS_OPTIONS,
 } from "@/components/pipeline/StatusCombobox";
 import { normalizeStake } from "@/lib/stake";
+import { companyDisplayName, companyInitials } from "@/lib/companyDisplay";
 
 const OWNERSHIP_OPTIONS = [
   "Public",
@@ -947,12 +948,8 @@ export default function CompanyDetailDialog({
     }
   };
 
-  const logoInitial = (company.target || "U")
-    .trim()
-    .split(/\s+/)
-    .slice(0, 2)
-    .map((w) => w[0]?.toUpperCase() ?? "")
-    .join("");
+  const displayName = companyDisplayName(company, "Unknown Company");
+  const logoInitial = companyInitials(company);
 
   return (
     <>
@@ -966,7 +963,7 @@ export default function CompanyDetailDialog({
                 {analysis?.logo_url ? (
                   <img
                     src={analysis.logo_url}
-                    alt={company.target ?? ""}
+                    alt={displayName}
                     className="h-full w-full object-cover"
                     onError={(e) => {
                       (e.currentTarget as HTMLImageElement).style.display = "none";
@@ -985,7 +982,7 @@ export default function CompanyDetailDialog({
               <div className="flex-1 min-w-0 pr-8">
                 <div className="flex items-center gap-2 flex-wrap">
                   <DialogTitle className="text-xl font-bold leading-tight">
-                    {company.target || "Unknown Company"}
+                    {displayName}
                   </DialogTitle>
                   {company.segment && (
                     <Badge variant="outline" className="text-xs">{company.segment}</Badge>
@@ -1039,7 +1036,7 @@ export default function CompanyDetailDialog({
                     label="Analyze using AI"
                     onClick={() => {
                       analyzeWithAI(
-                        `Analyze ${company.target || company.project_name || "this company"} and provide insights about it as a potential deal.`,
+                        `Analyze ${companyDisplayName(company, "this company")} and provide insights about it as a potential deal.`,
                       );
                       onOpenChange(false);
                     }}

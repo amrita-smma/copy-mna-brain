@@ -22,6 +22,7 @@ import {
   emailParticipants,
   emails,
   employers,
+  files,
   investmentThesis,
   userCompanyFavorites,
   users,
@@ -277,6 +278,28 @@ const seedCompanies: SeedCompany[] = [
     watchlist_status: 'New',
     financials: [
       { fiscal_year: 2024, revenue_usd_mn: 25.1, ebitda_usd_mn: 3.2, ev_usd_mn: 82 },
+    ],
+  },
+  {
+    entry_id: 9033,
+    target: '',
+    project_name: 'Project Nameless Teaser',
+    segment: 'Industrial Services',
+    company_focus: 'Predictive maintenance services for heavy equipment fleets',
+    website: 'https://namelessteaser.example',
+    geography: 'Indonesia',
+    ownership: 'Private',
+    pipeline_stage: 'L0',
+    status: 'active',
+    source: 'inbound',
+    review_state: 'unreviewed',
+    doc_type: 'teaser',
+    banker_source: 'Morgan Stanley',
+    remarks:
+      'Seed coverage: company target name intentionally empty; UI should display the project name.',
+    watchlist_status: 'New',
+    financials: [
+      { fiscal_year: 2024, revenue_usd_mn: 18.6, ebitda_usd_mn: 2.7, ev_usd_mn: 54 },
     ],
   },
   {
@@ -1086,6 +1109,90 @@ const seedCompanies: SeedCompany[] = [
   },
 ];
 
+type SeedAfdFile = {
+  file_name: string;
+  file_link: string;
+  raw_notes: string;
+  structured_notes: Record<string, unknown>;
+  tags: string[];
+  processing_status: 'completed' | 'awaiting_review';
+  file_date: string;
+  file_type: 'mom' | 'prospectus' | 'banker_communications' | 'other';
+  matched_entry_ids: number[];
+};
+
+const seedAfdFiles: SeedAfdFile[] = [
+  {
+    file_name: 'Seed AFD - Project Nameless Teaser.pdf',
+    file_link: 'seed/afd/project-nameless-teaser.pdf',
+    raw_notes:
+      'Teaser for Project Nameless Teaser. Target name is intentionally omitted by the banker.',
+    structured_notes: {
+      file_type: 'prospectus',
+      summary:
+        'Seed prospectus where the company target name is empty but the project name is available.',
+      prospectus_summary: {
+        company_name: null,
+        project_name: 'Project Nameless Teaser',
+        segment: 'Industrial Services',
+        geography: 'Indonesia',
+      },
+      tags: ['seed', 'prospectus', 'project-name-only'],
+      matched_companies: [],
+      file_date: '2026-06-18',
+    },
+    tags: ['seed', 'prospectus', 'project-name-only'],
+    processing_status: 'awaiting_review',
+    file_date: '2026-06-18',
+    file_type: 'prospectus',
+    matched_entry_ids: [9033],
+  },
+  {
+    file_name: 'Seed AFD - Blue Harbor IC Notes.docx',
+    file_link: 'seed/afd/blue-harbor-ic-notes.docx',
+    raw_notes:
+      'Investment committee notes for Blue Harbor Logistics, including diligence actions and banker follow-ups.',
+    structured_notes: {
+      file_type: 'mom',
+      summary: 'Seed meeting note for Blue Harbor IC discussion.',
+      key_points: [
+        'Customer references are positive.',
+        'Need to validate 2024 EBITDA bridge.',
+      ],
+      action_items: [
+        'Request customer cohort data.',
+        'Schedule technical diligence call.',
+      ],
+      tags: ['seed', 'meeting-note', 'ic'],
+      matched_companies: [],
+      file_date: '2026-06-19',
+    },
+    tags: ['seed', 'meeting-note', 'ic'],
+    processing_status: 'completed',
+    file_date: '2026-06-19',
+    file_type: 'mom',
+    matched_entry_ids: [9002],
+  },
+  {
+    file_name: 'Seed AFD - Project Bold Banker Email.eml',
+    file_link: 'seed/afd/project-bold-banker-email.eml',
+    raw_notes:
+      'Banker email from JP Morgan on Project Bold valuation expectations and process timing.',
+    structured_notes: {
+      file_type: 'banker_communications',
+      summary: 'Seed banker communication for Project Bold.',
+      tags: ['seed', 'banker-communications'],
+      matched_companies: [],
+      file_date: '2026-06-17',
+    },
+    tags: ['seed', 'banker-communications'],
+    processing_status: 'completed',
+    file_date: '2026-06-17',
+    file_type: 'banker_communications',
+    matched_entry_ids: [9032],
+  },
+];
+
 async function main() {
   const { createPostgresClientFromEnv } = await import('../src/lib/server/db');
   const client = createPostgresClientFromEnv({
@@ -1195,6 +1302,45 @@ async function main() {
         .where(eq(companies.id, id));
     }
     console.log(`  ✓ ${seedCompanies.length} companies (+ financials)`);
+
+    // AI File Dump — seed a few processed files, including one matched to a
+    // project-name-only company. Identified by distinctive file names.
+    const seedAfdFileNames = seedAfdFiles.map((file) => file.file_name);
+    await db.delete(files).where(inArray(files.file_name, seedAfdFileNames));
+    await db.insert(files).values(
+      seedAfdFiles.map((file) => {
+        const matchedCompanies = file.matched_entry_ids.flatMap((entryId) => {
+          const id = companyIdByEntryId.get(entryId);
+          const company = seedCompanies.find((c) => c.entry_id === entryId);
+          if (!id || !company) return [];
+          const name = company.target?.trim() || company.project_name?.trim() || `entry_id ${entryId}`;
+          return [{
+            id,
+            target: company.target || undefined,
+            name,
+            type: 'company',
+            similarity: 1,
+          }];
+        });
+        const structuredNotes = {
+          ...file.structured_notes,
+          matched_companies: matchedCompanies,
+        };
+        return {
+          file_name: file.file_name,
+          file_link: file.file_link,
+          raw_notes: file.raw_notes,
+          structured_notes: JSON.stringify(structuredNotes, null, 2),
+          tags: file.tags,
+          processing_status: file.processing_status,
+          matched_companies: matchedCompanies,
+          file_date: file.file_date,
+          file_type: file.file_type,
+          origin_email: false,
+        };
+      }),
+    );
+    console.log(`  ✓ ${seedAfdFiles.length} AI File Dump files`);
 
     // Favorites — link the seed user to a subset of the seeded companies via the
     // user_company_favorites join table (replaces the removed users.favorite_companies jsonb).
