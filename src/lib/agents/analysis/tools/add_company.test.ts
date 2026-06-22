@@ -24,22 +24,23 @@ vi.mock("@/lib/repositories", async (importOriginal) => {
   };
 });
 
-import { addCompanyToL0 } from "./add_company_to_l0";
+import { addCompany } from "./add_company";
 
-// Helper widens `source` to string so we can cover the schema-rejection test
-// with an out-of-enum value; the tool's runtime invoke accepts it (LangChain
-// validates inside) and the schema layer throws as expected.
+// Helper widens enum-constrained fields to string so we can cover the
+// schema-rejection tests with out-of-enum values; the tool's runtime invoke
+// accepts them (LangChain validates inside) and the schema layer throws.
 async function call(args: {
   target: string;
+  stage?: string;
   segment?: string;
   geography?: string;
   source?: string;
   note?: string;
 }) {
-  return addCompanyToL0.invoke(args as never);
+  return addCompany.invoke(args as never);
 }
 
-describe("add_company_to_l0 (workforce tool)", () => {
+describe("add_company (workforce tool)", () => {
   beforeEach(() => {
     findByNameFuzzy.mockReset();
     create.mockReset();
@@ -59,11 +60,14 @@ describe("add_company_to_l0 (workforce tool)", () => {
   });
 
   it("rejects an unknown source value via the schema layer", async () => {
-    // z.enum(['inbound', 'outbound']) rejects bad values before the tool body
-    // runs, so the LangChain runtime throws rather than the tool returning a
-    // string. Either way, no insert happens — that's the contract we care
-    // about.
     await expect(call({ target: "Acme", source: "scraped" })).rejects.toThrow(
+      /did not match expected schema/i,
+    );
+    expect(create).not.toHaveBeenCalled();
+  });
+
+  it("rejects an unknown stage value via the schema layer", async () => {
+    await expect(call({ target: "Acme", stage: "L2" })).rejects.toThrow(
       /did not match expected schema/i,
     );
     expect(create).not.toHaveBeenCalled();
@@ -97,7 +101,7 @@ describe("add_company_to_l0 (workforce tool)", () => {
     expect(create).not.toHaveBeenCalled();
   });
 
-  it("inserts a new L0 row with logAction 'CREATED_AS_L0' on the happy path", async () => {
+  it("defaults to the 'discovered' stage with logAction 'CREATED_AS_DISCOVERED' when no stage is given", async () => {
     findByNameFuzzy.mockResolvedValueOnce(null);
     create.mockResolvedValueOnce({ id: "c-new" });
 
@@ -113,13 +117,40 @@ describe("add_company_to_l0 (workforce tool)", () => {
         segment: "specialty chemicals",
         geography: "Korea",
         source: "inbound",
-        pipeline_stage: "L0",
+        pipeline_stage: "discovered",
         status: "active",
       }),
+      "CREATED_AS_DISCOVERED",
+    );
+    expect(String(result)).toMatch(
+      /Added "NovaSpec Materials" to the database at discovered/,
+    );
+    expect(String(result)).toMatch(/id: c-new/);
+  });
+
+  it("inserts at L0 with logAction 'CREATED_AS_L0' when stage is explicitly L0", async () => {
+    findByNameFuzzy.mockResolvedValueOnce(null);
+    create.mockResolvedValueOnce({ id: "c-new" });
+
+    const result = await call({ target: "Acme", stage: "L0" });
+
+    expect(create).toHaveBeenCalledWith(
+      expect.objectContaining({ pipeline_stage: "L0", status: "active" }),
       "CREATED_AS_L0",
     );
-    expect(String(result)).toMatch(/Added "NovaSpec Materials" to the pipeline at L0/);
-    expect(String(result)).toMatch(/id: c-new/);
+    expect(String(result)).toMatch(/to the database at L0/);
+  });
+
+  it("inserts at market_screening with logAction 'CREATED_AS_MARKET_SCREENING'", async () => {
+    findByNameFuzzy.mockResolvedValueOnce(null);
+    create.mockResolvedValueOnce({ id: "c-new" });
+
+    await call({ target: "ScanCo", stage: "market_screening" });
+
+    expect(create).toHaveBeenCalledWith(
+      expect.objectContaining({ pipeline_stage: "market_screening" }),
+      "CREATED_AS_MARKET_SCREENING",
+    );
   });
 
   it("defaults source to inbound and omits empty optional fields", async () => {
@@ -132,10 +163,10 @@ describe("add_company_to_l0 (workforce tool)", () => {
       expect.objectContaining({
         target: "Bare Co",
         source: "inbound",
-        pipeline_stage: "L0",
+        pipeline_stage: "discovered",
         status: "active",
       }),
-      "CREATED_AS_L0",
+      "CREATED_AS_DISCOVERED",
     );
     const args = create.mock.calls[0][0] as Record<string, unknown>;
     expect(args.segment).toBeUndefined();
@@ -150,7 +181,7 @@ describe("add_company_to_l0 (workforce tool)", () => {
 
     expect(create).toHaveBeenCalledWith(
       expect.objectContaining({ source: "outbound" }),
-      "CREATED_AS_L0",
+      "CREATED_AS_DISCOVERED",
     );
   });
 

@@ -17,8 +17,9 @@ import { proposeWorkforceHandoff } from "./propose_workforce_handoff";
 import { proposeBulkDropCompanies } from "./propose_bulk_drop_companies";
 import { proposeBulkPromoteCompanies } from "./propose_bulk_promote_companies";
 import { promoteToL1 } from "./promote_to_l1";
-import { addCompanyToL0 } from "./add_company_to_l0";
+import { addCompany } from "./add_company";
 import { updateCompanyRelationship } from "./update_company_relationship";
+import { generateRelationshipGraph } from "./generate_relationship_graph";
 import { generateCompanyCard } from "./generate_company_card";
 import { narrateStep } from "./narrate_step";
 import { reportProgress } from "./report_progress";
@@ -43,8 +44,9 @@ export {
   proposeBulkDropCompanies,
   proposeBulkPromoteCompanies,
   promoteToL1,
-  addCompanyToL0,
+  addCompany,
   updateCompanyRelationship,
+  generateRelationshipGraph,
   generateCompanyCard,
   narrateStep,
   reportProgress,
@@ -114,8 +116,9 @@ export const chatOnlyTools = [
  */
 export const workforceOnlyTools = [
   promoteToL1,
-  addCompanyToL0,
+  addCompany,
   updateCompanyRelationship,
+  generateRelationshipGraph,
   generateCompanyCard,
   runMarketScreeningTool,
   narrateStep,

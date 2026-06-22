@@ -22,7 +22,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { deleteCompanyById, getCompanies } from '@/lib/api/pipeline';
+import { deleteCompanyById, getCompanies, updateCompany } from '@/lib/api/pipeline';
 import {
   Database,
   Search,
@@ -36,6 +36,7 @@ import {
   ChevronRight,
   Trash2,
   Lightbulb,
+  ArrowRight,
 } from 'lucide-react';
 import type { DealStage } from '@/lib/types';
 import { SEARCH_SUGGESTION_CHIPS } from '@/lib/constants';
@@ -163,6 +164,7 @@ export default function MasterData({ showCompanyGraph = false }: MasterDataProps
   const [currentPage, setCurrentPage] = useState(1);
   const [discoveredPage, setDiscoveredPage] = useState(1);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [addingToL0Id, setAddingToL0Id] = useState<string | null>(null);
   const [selectedCompany, setSelectedCompany] = useState<CompanyData | null>(null);
   const [loadingDialog, setLoadingDialog] = useState(false);
   const { toast } = useToast();
@@ -285,6 +287,32 @@ export default function MasterData({ showCompanyGraph = false }: MasterDataProps
       });
     } finally {
       setDeletingId(null);
+    }
+  };
+
+  // Move a relationship-graph "discovered" company into the L0 deal pipeline.
+  // Removes it from the discovered list and refetches so it appears in the
+  // main pipeline table.
+  const addDiscoveredToL0 = async (companyId: string, companyName: string) => {
+    setAddingToL0Id(companyId);
+    try {
+      await updateCompany(companyId, { pipeline_stage: 'L0' });
+
+      setDiscoveredCompanies((prev) => prev.filter((c) => c.id !== companyId));
+      toast({
+        title: 'Added to L0',
+        description: `"${companyName}" is now in the L0 pipeline (Sourcing).`,
+      });
+      fetchCompanies({ silent: true });
+    } catch (error: any) {
+      console.error('Error adding discovered company to L0:', error);
+      toast({
+        title: 'Could not add to L0',
+        description: error.message || 'Please try again.',
+        variant: 'destructive',
+      });
+    } finally {
+      setAddingToL0Id(null);
     }
   };
 
@@ -857,27 +885,47 @@ export default function MasterData({ showCompanyGraph = false }: MasterDataProps
               ) : (
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                   {paginatedDiscovered.map((company) => (
-                    <button
+                    <div
                       key={company.id}
-                      type="button"
-                      onClick={() => company.name && openCompany(company.id)}
-                      disabled={!company.name || loadingDialog}
-                      className="rounded-lg border bg-card p-4 text-left transition-colors hover:bg-muted/40 hover:border-primary/40 disabled:opacity-50"
+                      className="flex flex-col rounded-lg border bg-card p-4"
                     >
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="font-medium">{company.name || '—'}</span>
-                        <Badge className={`${stageColors.discovered} text-white`}>
-                          {stageLabels.discovered}
-                        </Badge>
+                      <button
+                        type="button"
+                        onClick={() => company.name && openCompany(company.id)}
+                        disabled={!company.name || loadingDialog}
+                        className="-m-4 mb-0 rounded-t-lg p-4 pb-0 text-left transition-colors hover:bg-muted/40 disabled:opacity-50"
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="font-medium">{company.name || '—'}</span>
+                          <Badge className={`${stageColors.discovered} text-white`}>
+                            {stageLabels.discovered}
+                          </Badge>
+                        </div>
+                        <div className="mt-2 flex flex-wrap items-center gap-1.5 text-xs">
+                          <Badge variant="outline">{company.sector || '-'}</Badge>
+                          <span className="text-muted-foreground">{company.geo || 'Unknown geo'}</span>
+                        </div>
+                        <p className="mt-2 text-xs text-muted-foreground">
+                          Added {new Date(company.created_at).toLocaleDateString()}
+                        </p>
+                      </button>
+                      <div className="mt-3 pt-3 border-t">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="w-full"
+                          onClick={() => company.name && addDiscoveredToL0(company.id, company.name)}
+                          disabled={!company.name || addingToL0Id === company.id}
+                        >
+                          {addingToL0Id === company.id ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <ArrowRight className="h-4 w-4" />
+                          )}
+                          Add to L0
+                        </Button>
                       </div>
-                      <div className="mt-2 flex flex-wrap items-center gap-1.5 text-xs">
-                        <Badge variant="outline">{company.sector || '-'}</Badge>
-                        <span className="text-muted-foreground">{company.geo || 'Unknown geo'}</span>
-                      </div>
-                      <p className="mt-2 text-xs text-muted-foreground">
-                        Added {new Date(company.created_at).toLocaleDateString()}
-                      </p>
-                    </button>
+                    </div>
                   ))}
                 </div>
               )}
