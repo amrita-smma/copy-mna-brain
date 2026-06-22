@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
   listDistinctNeedsExtractHashes: vi.fn(),
+  findDoneByHash: vi.fn(),
   markExtracted: vi.fn(),
   markFailed: vi.fn(),
   downloadFile: vi.fn(),
@@ -11,6 +12,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock('../repositories', () => ({
   EmailAttachmentRepository: class {
     listDistinctNeedsExtractHashes = mocks.listDistinctNeedsExtractHashes;
+    findDoneByHash = mocks.findDoneByHash;
     markExtracted = mocks.markExtracted;
     markFailed = mocks.markFailed;
   },
@@ -62,6 +64,7 @@ describe('runAttachmentUpload', () => {
     });
     mocks.markExtracted.mockResolvedValue(undefined);
     mocks.markFailed.mockResolvedValue(undefined);
+    mocks.findDoneByHash.mockResolvedValue(null);
     mocks.downloadFile.mockResolvedValue(Buffer.alloc(1000));
   });
 

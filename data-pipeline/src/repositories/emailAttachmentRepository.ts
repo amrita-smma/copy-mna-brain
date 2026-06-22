@@ -220,7 +220,18 @@ export class EmailAttachmentRepository {
         filename: emailAttachments.filename,
         s3_key: emailAttachments.s3_key,
         s3_bucket: emailAttachments.s3_bucket,
-        banker_source: sql<string | null>`coalesce(${domainClassifications.name}, ${rawEmails.from_display_name})`,
+        // Prefer the resolved firm, then fall back through sender identity.
+        banker_source: sql<string | null>`
+          case
+            when nullif(${domainClassifications.name}, '') is not null
+              then nullif(${domainClassifications.name}, '')
+            when nullif(lower(split_part(${rawEmails.from_address}, '@', 2)), '') is not null
+              then nullif(lower(split_part(${rawEmails.from_address}, '@', 2)), '')
+            when nullif(${rawEmails.from_display_name}, '') is not null
+              then nullif(${rawEmails.from_display_name}, '')
+            else ${rawEmails.from_address}
+          end
+        `,
       })
       .from(emailAttachments)
       .leftJoin(rawEmails, eq(rawEmails.message_id, emailAttachments.message_id))
