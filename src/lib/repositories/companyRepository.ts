@@ -36,6 +36,65 @@ import {
   type CompanyGraphMirror,
 } from "./companyRelationRepository";
 
+// Common legal/entity suffixes peeled off a company name before fuzzy
+// matching so "Acme Ltd.", "Acme Co." and "Acme" collapse to the same base.
+// Matched case-insensitively, with or without a trailing period, and only
+// when preceded by whitespace/comma so embedded letters (e.g. "Cisco") survive.
+const COMPANY_NAME_SUFFIXES = [
+  "ltd",
+  "limited",
+  "co",
+  "company",
+  "inc",
+  "incorporated",
+  "llc",
+  "llp",
+  "corp",
+  "corporation",
+  "group",
+  "holdings",
+  "holding",
+  "gmbh",
+  "ag",
+  "sa",
+  "spa",
+  "plc",
+  "pte",
+  "pvt",
+  "bv",
+  "nv",
+  "sdn",
+  "bhd",
+  "tbk",
+] as const;
+
+/**
+ * Normalize a company name for fuzzy matching by stripping a leading
+ * Indonesian "PT" entity marker and any trailing legal/entity suffixes
+ * (Ltd., Co., Inc., Sdn Bhd, Tbk, ...). Exported for unit testing.
+ */
+export function stripCompanySuffix(name: string): string {
+  let result = name.trim();
+  // Drop a leading "PT" / "PT." entity marker (common in Indonesia).
+  result = result.replace(/^pt\.?\s+/i, "").trim();
+  // Peel trailing suffix tokens repeatedly so multi-word endings like
+  // "Sdn Bhd" or "Holdings Ltd." are fully removed.
+  let changed = true;
+  while (changed) {
+    changed = false;
+    const stripped = result.replace(/[.,]+$/g, "").trim();
+    for (const suffix of COMPANY_NAME_SUFFIXES) {
+      const re = new RegExp(`[\\s,]+${suffix}$`, "i");
+      if (re.test(stripped)) {
+        result = stripped.replace(re, "").trim();
+        changed = true;
+        break;
+      }
+    }
+  }
+  return result.replace(/[.,]+$/g, "").trim();
+}
+
 export interface CompanyFilters {
   id?: string;
   stage?: string;
@@ -295,16 +354,23 @@ export class CompanyRepository {
   }
 
   async findByNameFuzzy(namePart: string): Promise<Tables<"companies"> | null> {
+    const trimmed = namePart.trim();
     // Floor at 5 chars to avoid short acronyms (e.g. "ENJ", "SEB") spuriously
     // substring-matching unrelated companies. Callers that pass a short name
     // get null and store free text rather than a wrong link.
-    if (namePart.trim().length < 5) return null;
+    if (trimmed.length < 5) return null;
+    // Strip legal/entity suffixes (Ltd., Co., Inc., PT, Tbk, ...) so a new
+    // "Acme Ltd." matches an existing "Acme Co." — same base name, different
+    // ending. Substring-match on the base then catches it in either direction.
+    // Fall back to the full name if stripping leaves too little to match on.
+    const base = stripCompanySuffix(trimmed);
+    const term = base.length >= 3 ? base : trimmed;
     const [row] = await this.db
       .select()
       .from(companies)
       .where(or(
-        ilike(companies.target, `%${namePart}%`),
-        ilike(companies.project_name, `%${namePart}%`),
+        ilike(companies.target, `%${term}%`),
+        ilike(companies.project_name, `%${term}%`),
       ))
       .limit(1);
     return row ?? null;

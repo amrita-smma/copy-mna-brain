@@ -1,7 +1,16 @@
 import { describe, expect, it, vi } from 'vitest';
-import { CompanyRepository } from './companyRepository';
+import { CompanyRepository, stripCompanySuffix } from './companyRepository';
 import type { Tables } from './types';
 import type { CompanyGraphMirror } from './companyRelationRepository';
+
+/** Build a db whose `select().from().where().limit()` resolves to `rows`. */
+function makeFuzzyDb(rows: Array<Partial<Tables<'companies'>>>) {
+  const limit = vi.fn().mockResolvedValue(rows);
+  const where = vi.fn().mockReturnValue({ limit });
+  const from = vi.fn().mockReturnValue({ where });
+  const select = vi.fn().mockReturnValue({ from });
+  return { db: { select } as never, select, from, where, limit };
+}
 
 /** Build a db whose `select(...).from(...)` resolves to the given rows. */
 function makeDb(rows: Array<{ banker: string | null }>) {
@@ -182,5 +191,64 @@ describe('CompanyRepository.findBankerNames', () => {
       'JP Morgan',
       'UBS',
     ]);
+  });
+});
+
+describe('stripCompanySuffix', () => {
+  it('strips common trailing legal suffixes regardless of trailing period', () => {
+    expect(stripCompanySuffix('Acme Ltd.')).toBe('Acme');
+    expect(stripCompanySuffix('Acme Ltd')).toBe('Acme');
+    expect(stripCompanySuffix('Acme Co.')).toBe('Acme');
+    expect(stripCompanySuffix('Acme Inc')).toBe('Acme');
+    expect(stripCompanySuffix('Acme Corporation')).toBe('Acme');
+    expect(stripCompanySuffix('Acme LLC')).toBe('Acme');
+  });
+
+  it('collapses different endings of the same name to the same base', () => {
+    expect(stripCompanySuffix('Acme Ltd.')).toBe(stripCompanySuffix('Acme Co.'));
+  });
+
+  it('peels multi-word and stacked endings', () => {
+    expect(stripCompanySuffix('Widget Sdn Bhd')).toBe('Widget');
+    expect(stripCompanySuffix('Widget Holdings Ltd.')).toBe('Widget');
+  });
+
+  it('drops a leading Indonesian PT marker and trailing Tbk', () => {
+    expect(stripCompanySuffix('PT Bank Mandiri Tbk')).toBe('Bank Mandiri');
+    expect(stripCompanySuffix('PT. Astra')).toBe('Astra');
+  });
+
+  it('does not strip suffix letters embedded inside a word', () => {
+    expect(stripCompanySuffix('Cisco')).toBe('Cisco');
+    expect(stripCompanySuffix('Incognito')).toBe('Incognito');
+  });
+
+  it('leaves a name with no recognized suffix unchanged', () => {
+    expect(stripCompanySuffix('Northwind Traders')).toBe('Northwind Traders');
+  });
+});
+
+describe('CompanyRepository.findByNameFuzzy', () => {
+  it('returns null without querying when the name is under 5 chars', async () => {
+    const { db, select } = makeFuzzyDb([]);
+    const repo = new CompanyRepository(db);
+
+    expect(await repo.findByNameFuzzy('ENJ')).toBeNull();
+    expect(select).not.toHaveBeenCalled();
+  });
+
+  it('returns the matched row when one exists', async () => {
+    const match = { id: 'c9', target: 'Acme Co.' };
+    const { db } = makeFuzzyDb([match]);
+    const repo = new CompanyRepository(db);
+
+    expect(await repo.findByNameFuzzy('Acme Ltd.')).toEqual(match);
+  });
+
+  it('returns null when the query finds no row', async () => {
+    const { db } = makeFuzzyDb([]);
+    const repo = new CompanyRepository(db);
+
+    expect(await repo.findByNameFuzzy('Nonexistent Holdings Ltd.')).toBeNull();
   });
 });
