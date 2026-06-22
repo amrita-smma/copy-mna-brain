@@ -6,6 +6,7 @@ import { getSignedUrl as awsGetSignedUrl } from '@aws-sdk/s3-request-presigner';
 const AWS_REGION = process.env.AWS_REGION || 'ap-southeast-3';
 const AWS_ACCESS_KEY_ID = process.env.AWS_ACCESS_KEY_ID;
 const AWS_SECRET_ACCESS_KEY = process.env.AWS_SECRET_ACCESS_KEY;
+const AWS_SESSION_TOKEN = process.env.AWS_SESSION_TOKEN;
 const S3_BUCKET = process.env.AWS_S3_BUCKET || 'mna-files';
 // Secondary bucket for archived Vault MBOX files. See vaultArchive handler.
 export const S3_MBOX_BUCKET = process.env.AWS_S3_MBOX_BUCKET || 'mbox-archive';
@@ -40,18 +41,24 @@ export function buildContentDisposition(fileName: string): string {
 }
 
 function createS3Client(kind: ClientKind = 'internal'): S3Client {
-  if (!AWS_ACCESS_KEY_ID || !AWS_SECRET_ACCESS_KEY) {
+  const endpoint = kind === 'presigner' ? AWS_S3_PUBLIC_ENDPOINT : AWS_S3_ENDPOINT;
+  const hasExplicitCredentials = AWS_ACCESS_KEY_ID && AWS_SECRET_ACCESS_KEY;
+
+  if (endpoint && !hasExplicitCredentials) {
     throw new Error('AWS credentials not configured. Set AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY environment variables.');
   }
 
-  const endpoint = kind === 'presigner' ? AWS_S3_PUBLIC_ENDPOINT : AWS_S3_ENDPOINT;
-
   return new S3Client({
     region: AWS_REGION,
-    credentials: {
-      accessKeyId: AWS_ACCESS_KEY_ID,
-      secretAccessKey: AWS_SECRET_ACCESS_KEY,
-    },
+    ...(hasExplicitCredentials
+      ? {
+          credentials: {
+            accessKeyId: AWS_ACCESS_KEY_ID,
+            secretAccessKey: AWS_SECRET_ACCESS_KEY,
+            ...(AWS_SESSION_TOKEN ? { sessionToken: AWS_SESSION_TOKEN } : {}),
+          },
+        }
+      : {}),
     ...(endpoint && { endpoint }),
     // If an explicit endpoint is set (MinIO/LocalStack), default to path-style
     // unless explicitly overridden.

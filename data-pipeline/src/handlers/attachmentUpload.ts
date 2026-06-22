@@ -7,11 +7,15 @@ export const DEFAULT_LIMIT = 200;
 
 // Internal API base URL — must be reachable from the Lambda execution environment.
 // Locally: http://localhost:3000. Production: set INTERNAL_API_URL env var.
-const INTERNAL_API_URL = process.env.INTERNAL_API_URL ?? 'http://localhost:3000';
+function internalApiUrl(): string {
+  return process.env.INTERNAL_API_URL ?? 'http://localhost:3000';
+}
 
 // Session-mode routes accept X-Api-Secret for server-to-server calls.
 // See src/proxy.ts — classifyApiRoute('/api/ai-file-dump') → 'session'.
-const ADMIN_SECRET = process.env.ADMIN_SECRET ?? '';
+function adminSecret(): string {
+  return process.env.ADMIN_SECRET ?? '';
+}
 
 // Sanitise a filename for use in S3 keys and AFD display.
 function sanitiseFilename(name: string): string {
@@ -45,8 +49,8 @@ async function getPresignedUploadUrl(
 ): Promise<{ uploadUrl: string; key: string }> {
   const params = new URLSearchParams({ fileName, contentType });
   const res = await fetch(
-    `${INTERNAL_API_URL}/api/ai-file-dump/upload-url?${params}`,
-    { headers: { 'x-api-secret': ADMIN_SECRET } },
+    `${internalApiUrl()}/api/ai-file-dump/upload-url?${params}`,
+    { headers: { 'x-api-secret': adminSecret() } },
   );
   if (!res.ok) {
     const text = await res.text();
@@ -88,11 +92,11 @@ async function notifyAfd(opts: {
     body.banker_source = opts.bankerSource;
   }
 
-  const res = await fetch(`${INTERNAL_API_URL}/api/ai-file-dump`, {
+  const res = await fetch(`${internalApiUrl()}/api/ai-file-dump`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'x-api-secret': ADMIN_SECRET,
+      'x-api-secret': adminSecret(),
     },
     body: JSON.stringify(body),
   });
@@ -121,7 +125,7 @@ export async function runAttachmentUpload(
   const limit = Math.max(1, payload.limit ?? DEFAULT_LIMIT);
   const repo = new EmailAttachmentRepository(deps.db);
 
-  log(`starting job=${deps.job.id} limit=${limit} api=${INTERNAL_API_URL}`);
+  log(`starting job=${deps.job.id} limit=${limit} api=${internalApiUrl()}`);
 
   const result: AttachmentUploadResult = { evaluated: 0, uploaded: 0, failed: 0 };
 
@@ -137,6 +141,26 @@ export async function runAttachmentUpload(
     result.evaluated++;
 
     try {
+      // Cross-run dedupe: if an identical attachment hash was already pushed to
+      // AFD in a previous batch, reuse that AFD key instead of creating another
+      // file row. Grouping alone only dedupes rows selected in the current run.
+      const existing = await repo.findDoneByHash(group.content_hash);
+      const existingAfdKey = existing?.extracted &&
+        typeof existing.extracted === 'object' &&
+        !Array.isArray(existing.extracted)
+        ? (existing.extracted as { afd_key?: unknown }).afd_key
+        : undefined;
+      if (typeof existingAfdKey === 'string' && existingAfdKey.length > 0) {
+        await repo.markExtracted(group.ids, {
+          afd_key: existingAfdKey,
+          deduped_from_attachment_id: existing.id,
+          uploaded_at: new Date().toISOString(),
+        });
+        result.uploaded++;
+        log(`deduped ${group.ids.length} rows to existing AFD key (hash=${group.content_hash.slice(0, 8)})`);
+        continue;
+      }
+
       // 1. Download decoded bytes from mbox-archive S3.
       const bytes = await downloadFile(group.s3_key, group.s3_bucket);
 

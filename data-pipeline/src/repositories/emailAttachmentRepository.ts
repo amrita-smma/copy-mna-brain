@@ -271,6 +271,21 @@ export class EmailAttachmentRepository {
       .where(inArray(emailAttachments.id, ids));
   }
 
+  async findDoneByHash(contentHash: string): Promise<EmailAttachment | null> {
+    const [row] = await this.db
+      .select()
+      .from(emailAttachments)
+      .where(
+        and(
+          eq(emailAttachments.content_hash, contentHash),
+          eq(emailAttachments.state, 'done'),
+          sql`${emailAttachments.extracted}->>'afd_key' IS NOT NULL`,
+        ),
+      )
+      .limit(1);
+    return row ?? null;
+  }
+
   async findByMessageIdAndHash(messageId: string, contentHash: string): Promise<EmailAttachment | null> {
     const [row] = await this.db
       .select()
