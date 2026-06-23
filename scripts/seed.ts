@@ -1191,6 +1191,54 @@ const seedAfdFiles: SeedAfdFile[] = [
     file_type: 'banker_communications',
     matched_entry_ids: [9032],
   },
+  // Extra prospectus rows with a mix of statuses so the "awaiting review
+  // pinned to top" sort is visible in the AI File Dump table.
+  {
+    file_name: 'Seed AFD - Aaa Completed Teaser.pdf',
+    file_link: 'seed/afd/aaa-completed-teaser.pdf',
+    raw_notes: 'Completed prospectus whose name sorts first alphabetically.',
+    structured_notes: {
+      file_type: 'prospectus',
+      summary: 'Seed completed prospectus used to verify sort ordering.',
+      prospectus_summary: {
+        company_name: 'Aaa Completed Co',
+        project_name: 'Project Aaa',
+        segment: 'Industrial Services',
+        geography: 'Indonesia',
+      },
+      tags: ['seed', 'prospectus', 'sort-check'],
+      matched_companies: [],
+      file_date: '2026-06-21',
+    },
+    tags: ['seed', 'prospectus', 'sort-check'],
+    processing_status: 'completed',
+    file_date: '2026-06-21',
+    file_type: 'prospectus',
+    matched_entry_ids: [],
+  },
+  {
+    file_name: 'Seed AFD - Zzz Awaiting Teaser.pdf',
+    file_link: 'seed/afd/zzz-awaiting-teaser.pdf',
+    raw_notes: 'Awaiting-review prospectus whose name sorts last alphabetically.',
+    structured_notes: {
+      file_type: 'prospectus',
+      summary: 'Seed awaiting-review prospectus used to verify sort ordering.',
+      prospectus_summary: {
+        company_name: 'Zzz Awaiting Co',
+        project_name: 'Project Zzz',
+        segment: 'Industrial Services',
+        geography: 'Indonesia',
+      },
+      tags: ['seed', 'prospectus', 'sort-check'],
+      matched_companies: [],
+      file_date: '2026-06-20',
+    },
+    tags: ['seed', 'prospectus', 'sort-check'],
+    processing_status: 'awaiting_review',
+    file_date: '2026-06-20',
+    file_type: 'prospectus',
+    matched_entry_ids: [],
+  },
 ];
 
 async function main() {

@@ -1343,6 +1343,11 @@ export default function AIFileDump({
           return fileNameMatch || tagsMatch || companiesMatch;
         })
         .sort((a, b) => {
+          // Always surface files awaiting review at the top of the table.
+          const aAwaiting = a.processing_status === "awaiting_review";
+          const bAwaiting = b.processing_status === "awaiting_review";
+          if (aAwaiting !== bAwaiting) return aAwaiting ? -1 : 1;
+
           const aValue = a[sortField];
           const bValue = b[sortField];
 
