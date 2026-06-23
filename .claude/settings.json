@@ -34,7 +34,16 @@
       "Bash(mkdir -p public/icons)",
       "Bash(sips -z 192 192 public/logo-light.png --out public/icons/icon-192.png)",
       "Bash(sips -z 512 512 public/logo-light.png --out public/icons/icon-512.png)",
-      "Bash(sips -z 180 180 public/logo-light.png --out public/icons/apple-icon-180.png)"
+      "Bash(sips -z 180 180 public/logo-light.png --out public/icons/apple-icon-180.png)",
+      "Bash(find /Users/user/Documents/SM/mna-brain -iname \"*insights*\" -not -path \"*/node_modules/*\" 2>/dev/null; echo \"---broader---\"; find /Users/user -iname \"insights-dashboard.html\" -not -path \"*/node_modules/*\" 2>/dev/null | head; echo \"---html files in repo---\"; find /Users/user/Documents/SM/mna-brain -iname \"*.html\" -not -path \"*/node_modules/*\" 2>/dev/null | head -20)",
+      "Read(//Users/user/**)",
+      "Bash(PGPASSWORD=postgres psql -h localhost -p 5440 -U postgres -d mna -tAc \"SELECT to_regclass\\('public.employer_related_companies'\\);\")",
+      "Bash(node -e \"const p=require\\('./package.json'\\); console.log\\(Object.entries\\(p.scripts\\).filter\\(\\([k,v]\\)=>/seed|migrat|db:|tsx|script/.test\\(k+v\\)\\).map\\(\\([k,v]\\)=>k+': '+v\\).join\\('\\\\n'\\)\\)\")",
+      "Bash(pnpm db:seed:banker-source)",
+      "Bash(xargs sed -n '1,40p')",
+      "Bash(git -C /Users/user/Documents/SM/mna-brain log --all --oneline --grep=\"AI Workforce\\\\|AI Screened\\\\|L0\")",
+      "Bash(git pull *)",
+      "Bash(git branch *)"
     ]
   }
 }

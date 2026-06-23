@@ -5,27 +5,27 @@ import { createDb } from "@/lib/server/db";
 import { createContainer } from "@/lib/services";
 import { CompanyRepository } from "@/lib/repositories";
 
-// Stages the agent is allowed to add a company at. All sit BELOW L1, so none
-// require a HITL approval — they are triage/intake stages, not commitments:
-//   - discovered        — DEFAULT. A company surfaced by the agent that is not
-//                          (yet) a committed pipeline target. "Add this company"
-//                          with no stage qualifier lands here.
-//   - market_screening  — AI market-scan output ("Market Scanning"); use when
-//                          the instruction frames the company as an
-//                          AI-discovered scan result.
-//   - L0                — the first committed pipeline stage ("Sourcing"). Only
-//                          use when the instruction EXPLICITLY says L0 / the
-//                          pipeline (e.g. "add Acme to L0", "source Acme").
-const ADDABLE_STAGES = ["discovered", "market_screening", "L0"] as const;
+// Stages the agent is allowed to add a company at. Both sit BELOW L1, so neither
+// requires a HITL approval — they are triage/intake stages, not commitments:
+//   - market_screening  — DEFAULT. AI-screened intake ("AI Screened Companies" /
+//                          "Market Scanning"). Any company the AI Workforce
+//                          surfaces lands here unless told otherwise.
+//   - discovered        — a company surfaced via the relationship graph that is
+//                          not a market-scan find. Use when the instruction
+//                          frames the company as a graph/relationship discovery.
+// The AI Workforce must NEVER add directly to L0 (the first committed pipeline
+// stage, "Sourcing"). Entry into L0+ happens through the gated promote flow /
+// human action, never as a raw intake write.
+const ADDABLE_STAGES = ["market_screening", "discovered"] as const;
 type AddableStage = (typeof ADDABLE_STAGES)[number];
-const DEFAULT_STAGE: AddableStage = "discovered";
+const DEFAULT_STAGE: AddableStage = "market_screening";
 
 const DEFAULT_SOURCE = "inbound" as const;
 const ALLOWED_SOURCES = ["inbound", "outbound"] as const;
 
 // Per-stage company_logs action so the activity feed / audit trail can tell how
-// a company entered (mirrors CREATED_AS_DISCOVERED used by the relationship
-// tooling and CREATED_AS_L0 used by the AI-sourced feed).
+// a company entered (CREATED_AS_MARKET_SCREENING for AI-screened intake;
+// CREATED_AS_DISCOVERED mirrors what the relationship tooling records).
 function logActionFor(stage: AddableStage): string {
   return `CREATED_AS_${stage.toUpperCase()}`;
 }
@@ -34,15 +34,16 @@ function logActionFor(stage: AddableStage): string {
  * Add a newly surfaced company to the database at a chosen intake stage.
  *
  * Workforce-only write tool. AUTO-EXECUTES (no HITL gate) — every stage this
- * tool can write to (`discovered`, `market_screening`, `L0`) sits below L1, so
- * it is triage/intake, not a commitment. Promotions into L1+ still go through
- * the gated `promote_to_l1` / HITL middleware. See the gating policy in
+ * tool can write to (`market_screening`, `discovered`) sits below L1, so it is
+ * triage/intake, not a commitment. The tool CANNOT write to L0 or any committed
+ * pipeline stage; entry into L0+ goes through the gated `promote_to_l1` / HITL
+ * middleware or human action. See the gating policy in
  * `src/lib/agents/analysis/index.ts`.
  *
  * Stage policy:
- *   - Default is `discovered`. A bare "add this company" must NOT enter the L0
- *     pipeline — only land it at L0 when the instruction explicitly says so.
- *   - `market_screening` is for AI market-scan results.
+ *   - Default is `market_screening` ("AI Screened Companies"). Any company the
+ *     AI Workforce surfaces lands in the AI-screened intake bucket, never in L0.
+ *   - `discovered` is for relationship-graph / non-scan surfacing.
  *
  * Idempotency: refuses to create a duplicate when a fuzzy match against
  * existing `target` or `project_name` is found. The agent should fall back to
@@ -122,21 +123,20 @@ export const addCompany = tool(
   },
   {
     name: "add_company",
-    description: `Add a newly surfaced company to the database at a chosen intake stage.
+    description: `Add a newly surfaced company to the database at an intake stage.
 
-This is the workforce-side execution of a company intake. Every stage this tool writes to sits below L1, so no human approval is required and the tool executes immediately. To later move a company up the pipeline (L0 → L1+), use \`promote_to_l1\` (which is gated by human approval).
+This is the workforce-side execution of a company intake. Every stage this tool writes to sits below L1, so no human approval is required and the tool executes immediately. The tool CANNOT add to L0 or any committed pipeline stage — to move a company into the pipeline (→ L0/L1+), use \`promote_to_l1\` (which is gated by human approval).
 
 ## Choosing the stage (IMPORTANT)
 
-- **discovered** (DEFAULT): a company you surfaced that is not a committed pipeline target. A bare "add this company" / "add Acme" with NO stage qualifier MUST use this. Do NOT put companies into the L0 pipeline by default.
-- **market_screening**: an AI market-scan result ("Market Scanning"). Use when the instruction frames the company as an AI-discovered / market-scan find.
-- **L0**: the first committed pipeline stage ("Sourcing"). ONLY use when the instruction EXPLICITLY says L0 / asks to source the company into the pipeline (e.g. "add Acme to L0", "source Acme into the pipeline").
+- **market_screening** (DEFAULT): the "AI Screened Companies" intake bucket ("Market Scanning"). Any company you surface lands here. A bare "add this company" / "add Acme" MUST use this. NEVER add a company directly to the L0 pipeline — that is not an option here.
+- **discovered**: a company surfaced via the relationship graph that is not a market-scan find. Use only when the instruction frames the company as a graph/relationship discovery.
 
 Before inserting, the tool fuzzy-matches the target name against existing companies (target or project_name). If a match is found, no row is inserted; the tool returns the existing record so the agent can decide whether to update instead.
 
 Args:
     target: Company name to record. Required.
-    stage: Intake stage — one of "discovered" (default), "market_screening", or "L0". Defaults to "discovered"; only set "L0" when explicitly requested.
+    stage: Intake stage — one of "market_screening" (default) or "discovered". Defaults to "market_screening". L0 is NOT accepted.
     segment: Optional sector/segment classification (e.g. "specialty chemicals").
     geography: Optional country/region (e.g. "Korea", "EU").
     source: Optional origin tag. One of "inbound" or "outbound"; defaults to "inbound".
@@ -152,7 +152,7 @@ Returns:
         .enum(ADDABLE_STAGES)
         .optional()
         .describe(
-          'Intake stage: "discovered" (default), "market_screening", or "L0". Only use "L0" when explicitly requested.',
+          'Intake stage: "market_screening" (default, the "AI Screened Companies" bucket) or "discovered". L0 is not accepted — the workforce never adds directly to the committed pipeline.',
         ),
       segment: z
         .string()

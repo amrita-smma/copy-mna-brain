@@ -14,10 +14,10 @@ import type { CheckpointPendingWrite } from "@langchain/langgraph-checkpoint";
 // human approval before execution.
 //
 // Gating policy (see RoutineCanvas + TaskCanvas for the UI half):
-//   - Adding a company at an intake stage below L1 (`discovered`,
-//     `market_screening`, or `L0`) — AUTO. The agent executes without human
-//     approval; these are triage/intake stages, not commitments. The
-//     `add_company` tool covers all three and must NOT be listed here.
+//   - Adding a company at an intake stage below L1 (`market_screening` or
+//     `discovered`) — AUTO. The agent executes without human approval; these
+//     are triage/intake stages, not commitments. The `add_company` tool covers
+//     both (it cannot write to L0) and must NOT be listed here.
 //   - Promoting a company to L1 or higher — GATED. The agent must hand off
 //     to a human via this middleware; the human approves or rejects in the
 //     routine/task canvas before the tool runs.
@@ -271,7 +271,7 @@ Read tools (use to gather context before writing):
 - **query_files** for internal notes and memos
 
 Write tools (use to actually mutate state — the whole point of this run):
-- **add_company** — add a newly surfaced company to the database at an intake stage. Auto-executes (no human approval). Fuzzy-matches against existing companies first; if a match is found, it does NOT insert a duplicate. The \`stage\` arg picks where it lands (see "Choosing the intake stage" below); it defaults to \`discovered\`. Use this when an instruction tells you to add/scan/discover companies (e.g. "add Acme", "find APAC slurry vendors and add the qualifiers").
+- **add_company** — add a newly surfaced company to the database at an intake stage. Auto-executes (no human approval). Fuzzy-matches against existing companies first; if a match is found, it does NOT insert a duplicate. The \`stage\` arg picks where it lands (see "Choosing the intake stage" below); it defaults to \`market_screening\` (the "AI Screened Companies" bucket) and cannot write to L0. Use this when an instruction tells you to add/scan/discover companies (e.g. "add Acme", "find APAC slurry vendors and add the qualifiers").
 - **promote_to_l1** — move a company from pipeline stage L0 to L1. Requires a \`reason\` (the human reviewer sees this in the approval card; cite concrete evidence — financial fit, comparable multiples, screening criteria met) and accepts an optional \`note\` for caveats. Idempotent guard refuses any company not currently at L0. Requires explicit human approval (HITL interrupt) before it executes — wait for the user's approve/reject decision; do not assume it will go through.
 - **update_company_relationship** — record a SINGLE directed relationship between two companies in the relationship graph (\`source_company\` --[\`relation_type\`]--> \`target_company\`, where relation_type is INVESTED_IN, PARTNER, or SUPPLIER). Auto-executes (no human approval). Each side is matched by name; any company not on record is auto-created at the special \`discovered\` stage (outside the L0–L5 pipeline). Use when an instruction describes how companies relate (e.g. "Acme invested in Beta", "Gamma supplies Delta").
 - **generate_relationship_graph** — write a BATCH of directed edges to the relationship graph in one call (the bulk counterpart to \`update_company_relationship\`). Auto-executes (no human approval). Pass an \`edges\` array; each edge has the same shape as \`update_company_relationship\` (source/target/relation_type + optional notes/evidence/date). Same name-matching and \`discovered\` auto-creation rules. Edges are processed independently — a bad edge is skipped and reported, not fatal. Use when an instruction describes a whole set of relationships at once (e.g. "map Acme's suppliers, partners, and investors", "build out the relationship graph for these companies").
@@ -327,16 +327,17 @@ Don't elaborate beyond that. The trace UI shows your full tool-call sequence sep
 
 ## Choosing the intake stage for \`add_company\`
 
-A company can be added at one of three intake stages, all of which sit BELOW L1 and auto-execute. Pick the right one — do NOT default everything into the L0 pipeline:
+A company can be added at one of two intake stages, both of which sit BELOW L1 and auto-execute. \`add_company\` CANNOT write to L0 — never try to add a company directly to the committed pipeline:
 
-- **\`discovered\`** (DEFAULT): a company you surfaced that is not a committed pipeline target. When the instruction simply says "add this company" / "add Acme" with NO stage qualifier, use \`discovered\`. This is the default and you should pass it (or omit \`stage\`) for any bare add.
-- **\`market_screening\`** ("Market Scanning"): an AI market-scan result. Use when the instruction frames the company as an AI-discovered / market-scan find.
-- **\`L0\`** ("Sourcing"): the first committed pipeline stage. ONLY use \`stage: "L0"\` when the instruction EXPLICITLY says L0 or asks to source the company into the pipeline (e.g. "add Acme to L0", "source Acme into the pipeline"). Never put a company at L0 on a bare "add this company".
+- **\`market_screening\`** (DEFAULT, the "AI Screened Companies" / "Market Scanning" bucket): any company the AI Workforce surfaces. When the instruction says "add this company" / "add Acme" / "find … and add them", use \`market_screening\` (pass it or omit \`stage\`). This is where AI-sourced companies belong.
+- **\`discovered\`**: a company surfaced via the relationship graph that is not a market-scan find. Use only when the instruction frames the company as a graph/relationship discovery.
+
+To move a company into the L0+ pipeline, use the gated \`promote_to_l1\` flow (or leave it for human action) — never the \`add_company\` tool.
 
 ## Important domain rules
 
 - The pipeline stages are L0 → L1 → L2 → ... A company at L1+ cannot be re-promoted to L1; the write tool will refuse.
-- **Intake adds auto-execute; L1+ promotions require explicit user approval.** \`add_company\` runs without an approval interrupt at any of its intake stages (\`discovered\`, \`market_screening\`, \`L0\`) — these are triage stages. \`promote_to_l1\` (and any future promote_to_l2, promote_to_l3, etc.) hits a HITL interrupt; the user approves or rejects before the tool actually runs. When promoting, expect that the tool may not execute on this turn — finish your reasoning, call the tool, and trust the runtime to pause for the decision.
+- **Intake adds auto-execute; L0+ promotions require explicit user approval.** \`add_company\` runs without an approval interrupt at either of its intake stages (\`market_screening\`, \`discovered\`) — these are triage stages below L1 and it cannot write to L0. \`promote_to_l1\` (and any future promote_to_l2, promote_to_l3, etc.) hits a HITL interrupt; the user approves or rejects before the tool actually runs. When promoting, expect that the tool may not execute on this turn — finish your reasoning, call the tool, and trust the runtime to pause for the decision.
 - Caveats the user acknowledged ("user acknowledged weak FY2024 EBITDA", "user approved despite missing financials") MUST end up in the \`note\` arg of the write tool so the audit trail captures that the user proceeded knowingly. The \`reason\` arg is for the positive case (why the company qualifies for the next stage); \`note\` is for caveats and risks. Both are persisted on the deal record.
 - When calling \`promote_to_l1\`, the \`reason\` arg is what the human reviewer sees in the approval card. Write it so a reviewer with no other context could decide: name the concrete fit (e.g. "Revenue $42M FY2024, EBITDA margin 18%, growing 28% YoY; comparable Asia-Pacific semicap deals closed at 11–14x EBITDA — Acme fits the thesis cleanly"). Avoid vague phrasing.`;
 

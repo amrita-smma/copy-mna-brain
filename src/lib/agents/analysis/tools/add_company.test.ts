@@ -101,7 +101,7 @@ describe("add_company (workforce tool)", () => {
     expect(create).not.toHaveBeenCalled();
   });
 
-  it("defaults to the 'discovered' stage with logAction 'CREATED_AS_DISCOVERED' when no stage is given", async () => {
+  it("defaults to the 'market_screening' stage with logAction 'CREATED_AS_MARKET_SCREENING' when no stage is given", async () => {
     findByNameFuzzy.mockResolvedValueOnce(null);
     create.mockResolvedValueOnce({ id: "c-new" });
 
@@ -117,28 +117,35 @@ describe("add_company (workforce tool)", () => {
         segment: "specialty chemicals",
         geography: "Korea",
         source: "inbound",
-        pipeline_stage: "discovered",
+        pipeline_stage: "market_screening",
         status: "active",
       }),
-      "CREATED_AS_DISCOVERED",
+      "CREATED_AS_MARKET_SCREENING",
     );
     expect(String(result)).toMatch(
-      /Added "NovaSpec Materials" to the database at discovered/,
+      /Added "NovaSpec Materials" to the database at market_screening/,
     );
     expect(String(result)).toMatch(/id: c-new/);
   });
 
-  it("inserts at L0 with logAction 'CREATED_AS_L0' when stage is explicitly L0", async () => {
+  it("refuses to add directly to L0 — the schema layer rejects it", async () => {
+    await expect(call({ target: "Acme", stage: "L0" })).rejects.toThrow(
+      /did not match expected schema/i,
+    );
+    expect(create).not.toHaveBeenCalled();
+  });
+
+  it("inserts at the 'discovered' stage with logAction 'CREATED_AS_DISCOVERED' when explicitly requested", async () => {
     findByNameFuzzy.mockResolvedValueOnce(null);
     create.mockResolvedValueOnce({ id: "c-new" });
 
-    const result = await call({ target: "Acme", stage: "L0" });
+    const result = await call({ target: "GraphCo", stage: "discovered" });
 
     expect(create).toHaveBeenCalledWith(
-      expect.objectContaining({ pipeline_stage: "L0", status: "active" }),
-      "CREATED_AS_L0",
+      expect.objectContaining({ pipeline_stage: "discovered", status: "active" }),
+      "CREATED_AS_DISCOVERED",
     );
-    expect(String(result)).toMatch(/to the database at L0/);
+    expect(String(result)).toMatch(/to the database at discovered/);
   });
 
   it("inserts at market_screening with logAction 'CREATED_AS_MARKET_SCREENING'", async () => {
@@ -163,10 +170,10 @@ describe("add_company (workforce tool)", () => {
       expect.objectContaining({
         target: "Bare Co",
         source: "inbound",
-        pipeline_stage: "discovered",
+        pipeline_stage: "market_screening",
         status: "active",
       }),
-      "CREATED_AS_DISCOVERED",
+      "CREATED_AS_MARKET_SCREENING",
     );
     const args = create.mock.calls[0][0] as Record<string, unknown>;
     expect(args.segment).toBeUndefined();
@@ -181,7 +188,7 @@ describe("add_company (workforce tool)", () => {
 
     expect(create).toHaveBeenCalledWith(
       expect.objectContaining({ source: "outbound" }),
-      "CREATED_AS_DISCOVERED",
+      "CREATED_AS_MARKET_SCREENING",
     );
   });
 
