@@ -166,6 +166,7 @@ export class CompanyService {
    * the composed DTO so the FE can round-trip without a refetch.
    */
   async createFromDTO(input: CompanyDTOInput, logAction?: string): Promise<CompanyDTO> {
+    this.assertHasCompanyIdentity(input);
     const split = splitCompanyDTO(input);
     const inserted = await this.companyRepo.insert(
       split.company as TablesInsert<'companies'>,
@@ -217,6 +218,15 @@ export class CompanyService {
         company_id: companyId,
         ...split.screening,
       });
+    }
+  }
+
+  private assertHasCompanyIdentity(input: CompanyDTOInput): void {
+    const hasTarget = typeof input.target === 'string' && input.target.trim().length > 0;
+    const hasProjectName =
+      typeof input.project_name === 'string' && input.project_name.trim().length > 0;
+    if (!hasTarget && !hasProjectName) {
+      throw new Error('Company requires either target or project_name.');
     }
   }
 

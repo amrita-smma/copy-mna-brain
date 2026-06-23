@@ -139,6 +139,32 @@ describe("CompanyService.create", () => {
   });
 });
 
+describe("CompanyService.createFromDTO", () => {
+  it("requires either target or project_name", async () => {
+    const repos = makeRepos();
+    const service = buildService(repos);
+
+    await expect(
+      service.createFromDTO({ target: " ", project_name: "" } as any),
+    ).rejects.toThrow("Company requires either target or project_name.");
+    expect(repos.companyRepo.insert).not.toHaveBeenCalled();
+  });
+
+  it("allows project-only company creation", async () => {
+    const repos = makeRepos();
+    vi.mocked(repos.companyRepo.insert).mockResolvedValue(
+      makeCompany({ target: null, project_name: "Project Falcon" }),
+    );
+    const service = buildService(repos);
+
+    await service.createFromDTO({ project_name: "Project Falcon" } as any);
+
+    expect(repos.companyRepo.insert).toHaveBeenCalledWith(
+      expect.objectContaining({ project_name: "Project Falcon" }),
+    );
+  });
+});
+
 describe("CompanyService.delete", () => {
   it("deletes each S3 file before removing the DB record", async () => {
     const repos = makeRepos();

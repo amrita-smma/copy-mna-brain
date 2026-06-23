@@ -1,22 +1,31 @@
 import { downloadFile, getSignedUrl } from '@/lib/s3';
 import { deleteFile } from '@/lib/s3';
+import { sql } from 'drizzle-orm';
 import { extractTextFromFile } from '@/lib/fileExtractor';
 import { processFileContent, type FileTypeOverride } from '@/lib/agents/file_processing';
 import type { CompanyDTOInput } from '@/lib/dto/companyDTO';
-import type {
+import { createNeo4jDriver } from '@/lib/neo4j';
+import { CompanyRelationRepository } from '@/lib/repositories/companyRelationRepository';
+import {
+  CompanyRepository,
+  CompanyLogRepository,
   CompanyFinancialRepository,
   CompanyFxAdjustmentRepository,
-  DbClient,
-  FileRepository,
-  CriteriaRepository,
-  ScreeningRepository,
-  Tables,
-  TablesInsert,
+  CompanyScreeningDerivedRepository,
+  DealDocumentRepository,
+  DealNoteRepository,
+  DealLinkRepository,
+  type DbClient,
+  type FileRepository,
+  type CriteriaRepository,
+  type ScreeningRepository,
+  type Tables,
+  type TablesInsert,
 } from '@/lib/repositories';
 import type { CompanyAnalysisService } from './companyAnalysisService';
 import type { AIScreeningService } from './aiScreeningService';
 import type { CRMService } from './crmService';
-import type { CompanyService } from './companyService';
+import { CompanyService } from './companyService';
 
 export interface ApproveFileInput {
   file_type: FileTypeOverride;
@@ -154,60 +163,14 @@ export class FileService {
       if (originEmail && structuredResult && effectiveFileType !== 'other' && effectiveFileType !== 'banker_communications') {
         try {
           const summary = (structuredResult as Record<string, unknown>).prospectus_summary as ProspectusSummary | undefined;
-          const companySource = effectiveFileType === 'market_study' ? 'outbound' : 'inbound';
-          const matchedCompany = (matched_companies as Array<{ id?: string; type?: string }>)
-            .find((m) => m?.id && (m.type === undefined || m.type === 'company'));
-          let companyId = matchedCompany?.id ?? null;
-          let companyRecord = companyId ? await this.companyService.findById(companyId) : null;
-
-          if (!companyRecord && summary) {
-            const fuzzyName = summary.company_name ?? summary.project_name ?? '';
-            companyRecord = await this.companyService.findByNameFuzzy(fuzzyName);
-            companyId = companyRecord?.id ?? null;
-          }
-
-          if (companyRecord && companyId) {
-            await this.companyService.updateFromDTO(
-              companyId,
-              this.buildEmailAttachmentCompanyMergeInput(
-                summary,
-                effectiveFileType,
-                companySource,
-                bankerSource,
-              ),
-              `merged_from_email_attachment:${initialData.id}`,
-            );
-            const refreshed = await this.companyService.findById(companyId);
-            matched_companies = [{
-              id: refreshed.id,
-              target: refreshed.target ?? undefined,
-              name: refreshed.target ?? refreshed.project_name ?? undefined,
-              type: 'company',
-              similarity: 1,
-            }];
-          } else {
-            const created = await this.companyService.createFromDTO({
-              pipeline_stage: 'L0',
-              status: 'active',
-              review_state: 'unreviewed',
-              ...this.buildEmailAttachmentCompanyMergeInput(
-                summary,
-                effectiveFileType,
-                companySource,
-                bankerSource,
-              ),
-            }, `auto_created_from_email_attachment:${initialData.id}`);
-
-            // Write the new company back into matched_companies so approve()
-            // takes the update branch rather than creating a duplicate.
-            matched_companies = [{
-              id: created.id,
-              target: created.target ?? undefined,
-              name: created.target ?? undefined,
-              type: 'company',
-              similarity: 1,
-            }];
-          }
+          matched_companies = await this.mergeEmailOriginAttachmentCompany({
+            matchedCompanies: matched_companies,
+            summary,
+            effectiveFileType,
+            companySource: 'inbound',
+            bankerSource,
+            fileId: initialData.id,
+          });
         } catch (err) {
           console.error('[fileService] Failed to merge/create email-origin company:', err);
         }
@@ -493,6 +456,11 @@ export class FileService {
   ): CompanyDTOInput {
     const hasOwn = (obj: object, key: string) =>
       Object.prototype.hasOwnProperty.call(obj, key);
+    const cleanText = (value: unknown): string | undefined => {
+      if (typeof value !== 'string') return undefined;
+      const trimmed = value.trim();
+      return trimmed.length > 0 ? trimmed : undefined;
+    };
     const input: CompanyDTOInput = {
       source: companySource,
       doc_type: effectiveFileType,
@@ -515,7 +483,10 @@ export class FileService {
       ];
       for (const [summaryKey, dtoKey] of summaryFieldMap) {
         if (hasOwn(summary, summaryKey)) {
-          input[dtoKey] = summary[summaryKey] as never;
+          const cleaned = cleanText(summary[summaryKey]);
+          if (cleaned !== undefined) {
+            input[dtoKey] = cleaned as never;
+          }
         }
       }
     }
@@ -551,6 +522,116 @@ export class FileService {
     }
 
     return input;
+  }
+
+  private async mergeEmailOriginAttachmentCompany(opts: {
+    matchedCompanies: unknown[];
+    summary: ProspectusSummary | undefined;
+    effectiveFileType: string;
+    companySource: 'inbound' | 'outbound';
+    bankerSource?: string;
+    fileId: string;
+  }): Promise<unknown[]> {
+    const identityName = this.emailAttachmentCompanyIdentityName(opts.summary);
+    return this.withEmailAttachmentCompanyLock(identityName, async (companyService) => {
+      const matchedCompany = (opts.matchedCompanies as Array<{ id?: string; type?: string }>)
+        .find((m) => m?.id && (m.type === undefined || m.type === 'company'));
+      let companyId = matchedCompany?.id ?? null;
+      let companyRecord = companyId ? await companyService.findById(companyId) : null;
+
+      if (!companyRecord && identityName) {
+        companyRecord = await companyService.findByNameFuzzy(identityName);
+        companyId = companyRecord?.id ?? null;
+      }
+
+      if (companyRecord && companyId) {
+        await companyService.updateFromDTO(
+          companyId,
+          this.buildEmailAttachmentCompanyMergeInput(
+            opts.summary,
+            opts.effectiveFileType,
+            companyRecord.source ?? opts.companySource,
+            opts.bankerSource,
+          ),
+          `merged_from_email_attachment:${opts.fileId}`,
+        );
+        const refreshed = await companyService.findById(companyId);
+        return [this.companyMatchPayload(refreshed)];
+      }
+
+      if (!identityName) {
+        console.warn(
+          `[fileService] Skipping email-origin company auto-create for file ${opts.fileId}: no company/project name extracted`,
+        );
+        return opts.matchedCompanies;
+      }
+
+      const created = await companyService.createFromDTO({
+        pipeline_stage: 'L0',
+        status: 'active',
+        review_state: 'unreviewed',
+        ...this.buildEmailAttachmentCompanyMergeInput(
+          opts.summary,
+          opts.effectiveFileType,
+          opts.companySource,
+          opts.bankerSource,
+        ),
+      }, `auto_created_from_email_attachment:${opts.fileId}`);
+
+      // Write the new company back into matched_companies so approve() takes
+      // the update branch rather than creating a duplicate.
+      return [this.companyMatchPayload(created)];
+    });
+  }
+
+  private emailAttachmentCompanyIdentityName(summary: ProspectusSummary | undefined): string | null {
+    const companyName = summary?.company_name?.trim();
+    if (companyName) return companyName;
+    const projectName = summary?.project_name?.trim();
+    return projectName || null;
+  }
+
+  private companyMatchPayload(company: Pick<Tables<'companies'>, 'id' | 'target' | 'project_name'>) {
+    const displayName = company.target ?? company.project_name ?? undefined;
+    return {
+      id: company.id,
+      target: company.target ?? undefined,
+      name: displayName,
+      type: 'company',
+      similarity: 1,
+    };
+  }
+
+  private async withEmailAttachmentCompanyLock<T>(
+    identityName: string | null,
+    fn: (companyService: CompanyService) => Promise<T>,
+  ): Promise<T> {
+    const transaction = (this.db as unknown as {
+      transaction?: <R>(cb: (tx: DbClient & { execute: (query: unknown) => Promise<unknown> }) => Promise<R>) => Promise<R>;
+    } | null)?.transaction;
+    if (!identityName || !transaction) {
+      return fn(this.companyService);
+    }
+
+    const lockKey = `email-attachment-company:${identityName.toLowerCase().replace(/\s+/g, ' ').trim()}`;
+    return transaction.call(this.db, async (tx) => {
+      await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${lockKey}, 0))`);
+      return fn(this.buildCompanyService(tx));
+    });
+  }
+
+  private buildCompanyService(db: DbClient): CompanyService {
+    const companyGraphRepo = new CompanyRelationRepository(createNeo4jDriver());
+    return new CompanyService(
+      new CompanyRepository(db, companyGraphRepo),
+      new CompanyLogRepository(db),
+      new DealDocumentRepository(db),
+      new DealNoteRepository(db),
+      new DealLinkRepository(db),
+      new CompanyFinancialRepository(db),
+      new CompanyFxAdjustmentRepository(db),
+      new CompanyScreeningDerivedRepository(db),
+    );
   }
 
   private parseStructuredNotes(raw: string | null): Record<string, unknown> | null {
