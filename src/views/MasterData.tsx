@@ -133,7 +133,13 @@ const toCompanyWithDeal = (company: any): CompanyWithDeal => ({
   ebitda_2024: company.ebitda_2024_usd_mn,
   ebitda_2025: company.ebitda_2025_usd_mn,
   valuation: company.ev_2024,
-  pic: company.pic ?? null,
+  pic:
+    Array.isArray(company.assignees) && company.assignees.length > 0
+      ? company.assignees
+          .map((a: { name: string | null }) => a.name)
+          .filter(Boolean)
+          .join(', ')
+      : (company.pic ?? null),
   created_at: company.created_at,
   current_stage: company.pipeline_stage as DealStage | null,
   is_active: company.pipeline_stage !== null && company.pipeline_stage !== 'Acquired',
