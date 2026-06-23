@@ -4,6 +4,11 @@ import type {
   FeedFilter,
   FeedPage,
 } from '@/lib/services/dashboardActivityService';
+import type {
+  DashboardInsights,
+  InsightsSettings,
+  InsightsSettingsWithMeta,
+} from '@/lib/services/dashboardInsightsService';
 
 export async function getDashboardActivity(params: {
   from: Date;
@@ -32,4 +37,33 @@ export async function getDashboardFeed(params: {
   search.set('limit', String(params.limit));
   if (params.filter) search.set('filter', params.filter);
   return apiRequest<FeedPage>(`/api/dashboard/feed?${search.toString()}`);
+}
+
+/** Fetch the aggregated Insights dashboard (funnel, breakdowns, AI throughput). */
+export async function getDashboardInsights(params: {
+  from: Date;
+  to: Date;
+}): Promise<DashboardInsights> {
+  const search = new URLSearchParams();
+  search.set('from', params.from.toISOString());
+  search.set('to', params.to.toISOString());
+  return apiRequest<DashboardInsights>(
+    `/api/dashboard/insights?${search.toString()}`,
+  );
+}
+
+/** Fetch the editable Insights settings (funnel targets + conversion band) plus
+ * audit metadata (who last changed them, and when). */
+export async function getInsightsSettings(): Promise<InsightsSettingsWithMeta> {
+  return apiRequest<InsightsSettingsWithMeta>('/api/dashboard/insights/settings');
+}
+
+/** Persist updated Insights settings; returns the sanitised, saved value + meta. */
+export async function updateInsightsSettings(
+  settings: InsightsSettings,
+): Promise<InsightsSettingsWithMeta> {
+  return apiRequest<InsightsSettingsWithMeta>('/api/dashboard/insights/settings', {
+    method: 'PUT',
+    body: JSON.stringify(settings),
+  });
 }

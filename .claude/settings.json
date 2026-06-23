@@ -43,7 +43,12 @@
       "Bash(xargs sed -n '1,40p')",
       "Bash(git -C /Users/user/Documents/SM/mna-brain log --all --oneline --grep=\"AI Workforce\\\\|AI Screened\\\\|L0\")",
       "Bash(git pull *)",
-      "Bash(git branch *)"
+      "Bash(git branch *)",
+      "Bash(python3 -m json.tool .claude/settings.json)",
+      "Bash(awk '/pipeline_stage: .\\(L1|L2|L3|L4|L5\\)./{found=NR} found && NR>=found-12 && NR<=found+2 {print NR\": \"$0}' scripts/seed.ts)",
+      "WebFetch(domain:github.com)",
+      "Bash(node -e \"const p=require\\('./node_modules/country-to-iso/package.json'\\); console.log\\('main:',p.main,'| types:',p.types||p.typings,'| module:',p.module\\)\")",
+      "Bash(node -e ' *)"
     ]
   }
 }

@@ -31,6 +31,8 @@ import {
   AiWorkforceQueueRepository,
   CopilotChatsRepository,
   DashboardActivityRepository,
+  DashboardInsightsRepository,
+  AppSettingsRepository,
   ApiKeyRepository,
   ApiChatConversationRepository,
   RoutinesRepository,
@@ -61,6 +63,7 @@ import { CRMService } from './crmService';
 import { AiWorkforceService } from './aiWorkforceService';
 import { CopilotChatsService } from './copilotChatsService';
 import { DashboardActivityService } from './dashboardActivityService';
+import { DashboardInsightsService } from './dashboardInsightsService';
 import { ApiKeyService } from './apiKeyService';
 import { ApiChatConversationService } from './apiChatConversationService';
 import { NotificationService } from './notificationService';
@@ -89,6 +92,7 @@ export interface Container {
   aiWorkforceService: AiWorkforceService;
   copilotChatsService: CopilotChatsService;
   dashboardActivityService: DashboardActivityService;
+  dashboardInsightsService: DashboardInsightsService;
   apiKeyService: ApiKeyService;
   apiChatConversationService: ApiChatConversationService;
   notificationService: NotificationService;
@@ -204,6 +208,13 @@ export function createContainer(db: DbClient): Container {
   const dashboardActivityRepo = new DashboardActivityRepository(db);
   const dashboardActivityService = new DashboardActivityService(dashboardActivityRepo);
 
+  const dashboardInsightsRepo = new DashboardInsightsRepository(db);
+  const appSettingsRepo = new AppSettingsRepository(db);
+  const dashboardInsightsService = new DashboardInsightsService(
+    dashboardInsightsRepo,
+    appSettingsRepo,
+  );
+
   const apiKeyRepo = new ApiKeyRepository(db);
   const apiKeyService = new ApiKeyService(apiKeyRepo);
 
@@ -236,6 +247,7 @@ export function createContainer(db: DbClient): Container {
     aiWorkforceService,
     copilotChatsService,
     dashboardActivityService,
+    dashboardInsightsService,
     apiKeyService,
     apiChatConversationService,
     notificationService,

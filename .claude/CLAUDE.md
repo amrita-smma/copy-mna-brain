@@ -50,6 +50,14 @@ When processing asynchronous tasks, put them in the jobs table and store state c
 Update the README.md when an architecture change happens.
 Unit tests should be added for every change to the backend side of the project, which is in src/lib
 
+## Country Codes
+
+Country values (`companies.geography`) are stored as free-text country **names**, not codes. When rendering a flag, do not hardcode a flag emoji per country — resolve the name to its **ISO 3166-1 alpha-2** code with the `country-to-iso` library (`countryToAlpha2("South Korea")` → `"KR"`; it tolerates inconsistent inputs like `USA`/`United States`), then derive the emoji from that code via Unicode regional indicator symbols (`0x1F1E6 + (charCode - 'A')`). Values that aren't countries (e.g. `"Asia Pacific"`) return `null` → fall back to a globe. Avoid hand-maintained name→code maps; only add a tiny alias for genuinely ambiguous names the library can't resolve (e.g. bare `"Korea"` → `"South Korea"`).
+
+## Database Seeding
+
+The primary local dev seeder is `scripts/seed.ts` (run via `pnpm db:seed`). Do **not** add new standalone seed scripts for individual features — extend `seed.ts` (its `seedCompanies` / related fixtures) instead, so feature seed data stays consolidated under a single command. A few separate seeders exist for distinct purposes (`db:seed:crm`, `db:seed:neo4j`, and the bad-EBITDA HITL fixture); don't add to that list — fold new data into `seed.ts`.
+
 ## Database Migrations
 
 When adding a new Drizzle migration file under `drizzle/migrations/`, you must also register it in `drizzle/migrations/meta/_journal.json`. Add an entry to the `entries` array with the correct `idx`, `when` (Unix ms timestamp), `tag` (matching the migration filename without `.sql`), and `breakpoints: true`. Failing to update the journal will cause Drizzle to ignore the migration.

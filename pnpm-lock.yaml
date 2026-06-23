@@ -167,6 +167,9 @@ importers:
       cmdk:
         specifier: ^1.1.1
         version: 1.1.1(@types/react-dom@18.3.7(@types/react@18.3.28))(@types/react@18.3.28)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      country-to-iso:
+        specifier: ^1.6.3
+        version: 1.6.3
       cron-parser:
         specifier: ^5.5.0
         version: 5.5.0
@@ -4622,6 +4625,9 @@ packages:
 
   core-util-is@1.0.3:
     resolution: {integrity: sha512-ZQBvi1DcpJ4GDqanjucZ2Hj3wEO5pZDS89BWbkcrvdxksJorwUDDZamX9ldFkp9aw2lmBDLgkObEA4DWNJ9FYQ==}
+
+  country-to-iso@1.6.3:
+    resolution: {integrity: sha512-M7ZOcaJTwG2wWK9KF7fFjoNmA6+B9GmaiIXd9wFPdmlx3G9fKItaVN+a1NhOAKNAjPSVA2V02hPm5DPJ8lHPHg==}
 
   crc-32@1.2.2:
     resolution: {integrity: sha512-ROmzCKrTnOwybPcJApAA6WBWij23HVfGVNKqqrZpuyZOHqK2CwHSvpGuyt/UNNvaIjEd8X5IFGp4Mh+Ie1IHJQ==}
@@ -13840,6 +13846,8 @@ snapshots:
   core-js@3.49.0: {}
 
   core-util-is@1.0.3: {}
+
+  country-to-iso@1.6.3: {}
 
   crc-32@1.2.2: {}
 

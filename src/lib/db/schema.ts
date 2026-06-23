@@ -3175,3 +3175,16 @@ export const apiChatConversations = pgTable(
     };
   },
 );
+
+// Generic application settings as a key/value store. Each row holds one JSON
+// config blob (e.g. the Insights dashboard targets / conversion band).
+// Read and written via AppSettingsRepository.
+export const appSettings = pgTable("app_settings", {
+  key: text().primaryKey().notNull(),
+  value: jsonb().$type<unknown>().notNull(),
+  updated_at: timestamp({ withTimezone: true, mode: "string" })
+    .defaultNow()
+    .notNull(),
+  // User who made the latest change (null when set by a system/internal caller).
+  updated_by: uuid().references(() => users.id, { onDelete: "set null" }),
+});

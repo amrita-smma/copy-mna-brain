@@ -29,6 +29,7 @@ import type {
 import CompanyDetailDialog, {
   type CompanyData,
 } from "@/components/pipeline/CompanyDetailDialog";
+import InsightsModule from "@/components/dashboard/InsightsModule";
 import {
   Building2,
   TrendingUp,
@@ -1793,6 +1794,12 @@ export default function Dashboard({
             </Card>
           </>
         ) : null}
+
+        {/* ── Insights ──────────────────────────────────────────────────────
+            Self-contained module: fetches its own aggregated metrics for the
+            active date range (funnel, stale deals, banker/segment/country
+            breakdowns, AI throughput). Desktop-only, like the sections above. */}
+        <InsightsModule from={dateRange.from} to={dateRange.to} />
       </div>
 
       {selectedCompany && (

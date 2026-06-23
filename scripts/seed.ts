@@ -459,6 +459,7 @@ const seedCompanies: SeedCompany[] = [
     pipeline_stage: 'L1',
     status: 'active',
     watchlist_status: 'Active',
+    banker_source: 'Goldman Sachs',
     financials: [
       { fiscal_year: 2023, revenue_usd_mn: 120.0, ebitda_usd_mn: 14.8 },
       { fiscal_year: 2024, revenue_usd_mn: 134.5, ebitda_usd_mn: 18.1, ev_usd_mn: 410 },
@@ -494,6 +495,7 @@ const seedCompanies: SeedCompany[] = [
     pipeline_stage: 'L2',
     status: 'active',
     watchlist_status: 'Active',
+    banker_source: 'JP Morgan',
     financials: [
       { fiscal_year: 2022, revenue_usd_mn: 4.1 },
       { fiscal_year: 2023, revenue_usd_mn: 8.4, ebitda_usd_mn: -1.2 },
@@ -512,6 +514,7 @@ const seedCompanies: SeedCompany[] = [
     pipeline_stage: 'L1',
     status: 'active',
     watchlist_status: 'Active',
+    banker_source: 'Citi',
     financials: [
       { fiscal_year: 2022, revenue_usd_mn: 48.2, ebitda_usd_mn: 6.9, ev_usd_mn: 190 },
       { fiscal_year: 2023, revenue_usd_mn: 61.0, ebitda_usd_mn: 9.1 },
@@ -550,6 +553,7 @@ const seedCompanies: SeedCompany[] = [
     pipeline_stage: 'L1',
     status: 'active',
     watchlist_status: 'Active',
+    banker_source: 'Morgan Stanley',
     financials: [
       { fiscal_year: 2022, revenue_usd_mn: 37.2, ebitda_usd_mn: 5.9, ev_usd_mn: 195 },
       { fiscal_year: 2023, revenue_usd_mn: 44.7, ebitda_usd_mn: 7.8 },
