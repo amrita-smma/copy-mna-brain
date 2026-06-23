@@ -788,6 +788,7 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
     <div className="inline-flex items-center gap-1 rounded-lg bg-muted p-1 mb-4">
       <button
         type="button"
+        data-testid="pipeline-view-active-button"
         onClick={() => setViewMode("active")}
         className={cn(
           "flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm transition-all",
@@ -803,6 +804,7 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
       </button>
       <button
         type="button"
+        data-testid="pipeline-view-dropped-button"
         onClick={() => setViewMode("dropped")}
         className={cn(
           "flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm transition-all",
@@ -854,6 +856,7 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
           <button
             key={t.value}
             type="button"
+            data-testid={`pipeline-source-${t.value}-tab`}
             onClick={() => {
               setSourceFilter(t.value);
               setSelectedIds(new Set());
@@ -917,10 +920,11 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
           onValueChange={handleTabChange}
           className="w-full"
         >
-          <TabsList className="grid w-full grid-cols-6">
+          <TabsList data-testid="pipeline-stage-tabs" className="grid w-full grid-cols-6">
             {STAGES.map((stage) => (
               <TabsTrigger
                 key={stage}
+                data-testid={`pipeline-tab-${stage.toLowerCase()}`}
                 value={stage}
                 className={`relative transition-all ${
                   activeTab === stage
@@ -1005,6 +1009,7 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
                             </div>
                             <div className="flex flex-wrap items-center gap-2 ml-auto">
                               <Button
+                                data-testid="pipeline-l0-toggle-visibility-button"
                                 variant="ghost"
                                 size="sm"
                                 onClick={() =>
@@ -1027,6 +1032,7 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
                               {/* MB-223: Triage Unreviewed — persistent header button */}
                               {allUnreviewedCompanies.length > 0 && (
                                 <Button
+                                  data-testid="pipeline-triage-unreviewed-button"
                                   variant="outline"
                                   size="sm"
                                   className="gap-1.5 border-amber-300 text-amber-700 hover:bg-amber-50"
@@ -1041,6 +1047,7 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
                               )}
                               {showL0Pipeline && (
                                 <Button
+                                  data-testid="pipeline-ai-screening-button"
                                   onClick={openAIScreening}
                                   className="bg-gradient-to-r from-purple-600 to-purple-500 hover:from-purple-700 hover:to-purple-600 shadow-md transition-all hover:scale-[1.02]"
                                 >
@@ -1049,7 +1056,7 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
                                 </Button>
                               )}
                               <Link href="/ai-file-dump">
-                                <Button>
+                                <Button data-testid="pipeline-add-company-button">
                                   <Plus className="mr-2 h-4 w-4" />
                                   Add Company
                                 </Button>
@@ -1063,6 +1070,7 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
                             <div className="flex border-b px-6">
                               <button
                                 type="button"
+                                data-testid="pipeline-l0-inbound-tab"
                                 onClick={() => {
                                   setSourceFilter("inbound");
                                   setShowUnreviewedOnly(false);
@@ -1091,6 +1099,7 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
                               <div className="my-2 w-px bg-border mx-1" />
                               <button
                                 type="button"
+                                data-testid="pipeline-l0-outbound-tab"
                                 onClick={() => {
                                   setSourceFilter("outbound");
                                   setShowUnreviewedOnly(false);
@@ -1165,6 +1174,7 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
                               {/* MB-225: Unreviewed only toggle */}
                               {sourceFilter === "inbound" && (
                                 <Button
+                                  data-testid="pipeline-l0-unreviewed-only-button"
                                   variant={showUnreviewedOnly ? "default" : "outline"}
                                   size="sm"
                                   className={cn(
@@ -1283,6 +1293,7 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
                                     </p>
                                     <div className="flex items-center gap-2">
                                       <Button
+                                        data-testid="pipeline-pagination-prev-button"
                                         variant="outline"
                                         size="sm"
                                         onClick={() =>
@@ -1295,6 +1306,7 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
                                         <ChevronLeft className="h-4 w-4" />
                                       </Button>
                                       <Button
+                                        data-testid="pipeline-pagination-next-button"
                                         variant="outline"
                                         size="sm"
                                         onClick={() =>
@@ -1369,6 +1381,7 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
                                     </p>
                                     <div className="flex items-center gap-2">
                                       <Button
+                                        data-testid="pipeline-pagination-prev-button"
                                         variant="outline"
                                         size="sm"
                                         onClick={() =>
@@ -1381,6 +1394,7 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
                                         <ChevronLeft className="h-4 w-4" />
                                       </Button>
                                       <Button
+                                        data-testid="pipeline-pagination-next-button"
                                         variant="outline"
                                         size="sm"
                                         onClick={() =>
@@ -1551,6 +1565,7 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
                               </p>
                               <div className="flex items-center gap-2">
                                 <Button
+                                  data-testid="pipeline-pagination-prev-button"
                                   variant="outline"
                                   size="sm"
                                   onClick={() =>
@@ -1561,6 +1576,7 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
                                   <ChevronLeft className="h-4 w-4" />
                                 </Button>
                                 <Button
+                                  data-testid="pipeline-pagination-next-button"
                                   variant="outline"
                                   size="sm"
                                   onClick={() =>
@@ -1627,6 +1643,7 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
                               </p>
                               <div className="flex items-center gap-2">
                                 <Button
+                                  data-testid="pipeline-pagination-prev-button"
                                   variant="outline"
                                   size="sm"
                                   onClick={() =>
@@ -1637,6 +1654,7 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
                                   <ChevronLeft className="h-4 w-4" />
                                 </Button>
                                 <Button
+                                  data-testid="pipeline-pagination-next-button"
                                   variant="outline"
                                   size="sm"
                                   onClick={() =>
@@ -1758,10 +1776,11 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
               />
             </div>
             <AlertDialogFooter>
-              <AlertDialogCancel disabled={isDropping}>
+              <AlertDialogCancel data-testid="drop-deal-cancel-button" disabled={isDropping}>
                 Cancel
               </AlertDialogCancel>
               <AlertDialogAction
+                data-testid="drop-deal-confirm-button"
                 disabled={isDropping}
                 className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
                 onClick={async (e) => {

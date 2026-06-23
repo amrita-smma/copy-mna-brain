@@ -55,8 +55,8 @@ export const mockAuthSession = async (
  * Perform a *real* credentials sign-in against the target environment — no
  * NextAuth mocking. Reads the env-specific test user from `getTestCredentials`
  * (LOCAL_/STAGING_/PRODUCTION_TEST_EMAIL+PASSWORD, picked by `TEST_ENV`),
- * submits the login form, and waits for the post-login redirect to the
- * dashboard. This sets the real session cookie, so subsequent data fetches
+ * submits the login form, and waits for the post-login redirect to the chat
+ * page. This sets the real session cookie, so subsequent data fetches
  * (e.g. `/api/companies`) hit the real API and return real data.
  */
 export const signIn = async (page: Page) => {
@@ -65,7 +65,7 @@ export const signIn = async (page: Page) => {
   await page.locator('#signin-email').fill(email);
   await page.locator('#signin-password').fill(password);
   await page.getByRole('button', { name: 'Sign In' }).click();
-  await page.waitForURL('**/dashboard');
+  await page.waitForURL('**/chat');
 };
 
 /**
@@ -116,7 +116,7 @@ export const mockNextAuthSignIn = async (
     }
     const url = opts.errorCode
       ? `http://localhost:3000/login?error=${opts.errorCode}`
-      : opts.redirectUrl ?? 'http://localhost:3000/dashboard';
+      : opts.redirectUrl ?? 'http://localhost:3000/chat';
     return route.fulfill({
       status: 200,
       contentType: 'application/json',

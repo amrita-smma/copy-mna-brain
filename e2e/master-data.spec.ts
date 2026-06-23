@@ -1,5 +1,6 @@
 import { test, expect, Page } from '@playwright/test';
 import { signIn } from './helpers/auth';
+import { collapseCopilot } from './helpers/layout';
 import {
   baseCompany,
   getDataMode,
@@ -39,6 +40,8 @@ test.describe('Master Data page', () => {
     page: Page,
     companies: Company[] = MOCK_COMPANIES,
   ): Promise<ProvisionedCompanies> => {
+    // Keep the AI CoPilot pane collapsed; expanded, it hides the page content.
+    await collapseCopilot(page);
     await signIn(page);
     const provisioned = await provisionCompanies(page, companies);
     cleanups.push(provisioned.cleanup);
@@ -169,18 +172,25 @@ test.describe('Master Data page', () => {
     const search = page.getByPlaceholder(SEARCH);
     await expect(search).toHaveValue(chipText);
 
-    // If any companies are shown, every visible company name or sector must
-    // contain the chip text (client-side filter guarantees this, but we verify).
+    // If any companies are shown, every visible row must contain the chip text
+    // in its company name OR its sector — the list filter matches on either
+    // (see MasterData `matchesSearch`), so checking the name alone is wrong.
     const count = await getDisplayedCount(page);
     if (count > 0) {
-      const companyButtons = page
+      const needle = chipText.toLowerCase();
+      const rows = page
         .getByRole('row')
-        .filter({ has: page.getByRole('cell') })
-        .locator('td:first-child button');
-      const numRows = await companyButtons.count();
+        .filter({ has: page.locator('td:first-child button') });
+      const numRows = await rows.count();
       for (let i = 0; i < numRows; i++) {
-        const name = (await companyButtons.nth(i).textContent()) ?? '';
-        expect(name.toLowerCase()).toContain(chipText.toLowerCase());
+        const row = rows.nth(i);
+        const name = (await row.locator('td:first-child button').textContent()) ?? '';
+        // Sector is the 4th column (Company, Project, Status, Sector).
+        const sector = (await row.locator('td:nth-child(4)').textContent()) ?? '';
+        expect(
+          name.toLowerCase().includes(needle) || sector.toLowerCase().includes(needle),
+          `Row "${name.trim()}" (sector "${sector.trim()}") should contain "${chipText}" in its name or sector`,
+        ).toBe(true);
       }
     }
 

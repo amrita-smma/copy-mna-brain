@@ -36,6 +36,11 @@ export default defineConfig({
   use: {
     baseURL,
     trace: 'on-first-retry',
+    // The app registers a service worker (src/components/service-worker-register.tsx)
+    // that intercepts navigations and serves a cached offline fallback on any
+    // fetch failure. In tests that causes stale content and "couldn't load"
+    // flake, so block it — specs always hit the network/mocks directly.
+    serviceWorkers: 'block',
   },
   projects: [
     {

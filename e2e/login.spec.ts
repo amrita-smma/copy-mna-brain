@@ -34,7 +34,7 @@ test.describe('Login page', () => {
 
   test('User signs in with valid credentials', async ({ page }) => {
     await signIn(page);
-    await expect(page).toHaveURL(/\/dashboard/);
+    await expect(page).toHaveURL(/\/chat/);
   });
 
   test('Form disabled while submitting', async ({ page }) => {
@@ -59,10 +59,9 @@ test.describe('Login page', () => {
   });
 
   test('Authenticated user navigates to the login page', async ({ page }) => {
-    await signIn(page); // sets a real session cookie, lands on /dashboard
+    await signIn(page); // sets a real session cookie, lands on /chat
 
     await page.goto('/login', { waitUntil: 'domcontentloaded' });
-    await page.waitForURL('**/dashboard');
-    await expect(page).toHaveURL(/\/dashboard/);
+    await expect(page).toHaveURL(/\/chat/);
   });
 });

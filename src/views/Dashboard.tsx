@@ -850,6 +850,7 @@ export default function Dashboard({
               <button
                 key={key}
                 type="button"
+                data-testid={`dashboard-date-preset-${key}`}
                 onClick={() => applyPreset(key)}
                 className={[
                   "h-7 px-3 text-xs font-medium rounded-md transition-colors",
@@ -874,6 +875,7 @@ export default function Dashboard({
               <PopoverTrigger asChild>
                 <button
                   type="button"
+                  data-testid="dashboard-date-preset-custom"
                   className={[
                     "h-7 px-3 text-xs font-medium rounded-md transition-colors flex items-center gap-1.5",
                     dateRange.preset === "custom" || customPickerOpen
@@ -959,6 +961,7 @@ export default function Dashboard({
                 <div className="flex gap-2 pt-1">
                   <Button
                     type="button"
+                    data-testid="dashboard-custom-date-cancel-button"
                     variant="outline"
                     size="sm"
                     className="flex-1 h-8 text-xs"
@@ -968,6 +971,7 @@ export default function Dashboard({
                   </Button>
                   <Button
                     type="button"
+                    data-testid="dashboard-custom-date-apply-button"
                     size="sm"
                     className="flex-1 h-8 text-xs"
                     disabled={!customFrom || !customTo}
@@ -982,7 +986,7 @@ export default function Dashboard({
         </div>
 
         {/* Overview section card — hidden on mobile (Activity Feed only) */}
-        <Card className="hidden md:block border bg-gradient-to-br from-muted/40 to-muted/10">
+        <Card data-testid="dashboard-overview-card" className="hidden md:block border bg-gradient-to-br from-muted/40 to-muted/10">
           <CardHeader className="pb-4">
             <div className="flex items-center gap-2">
               <LayoutGrid className="h-5 w-5 text-foreground" />
@@ -995,7 +999,7 @@ export default function Dashboard({
           <CardContent>
             <div className="grid grid-cols-[repeat(auto-fit,minmax(180px,1fr))] gap-4">
               {/* Total Deals */}
-              <div className="rounded-xl border bg-card p-5">
+              <div data-testid="dashboard-total-deals-card" className="rounded-xl border bg-card p-5">
                 <div className="flex items-center justify-between gap-3 mb-3">
                   <div className="flex items-center gap-3">
                     <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-blue-500/10">
@@ -1017,7 +1021,7 @@ export default function Dashboard({
               </div>
 
               {/* Inbound */}
-              <div className="rounded-xl border bg-card p-5">
+              <div data-testid="dashboard-inbound-deals-card" className="rounded-xl border bg-card p-5">
                 <div className="flex items-center justify-between gap-3 mb-3">
                   <div className="flex items-center gap-3">
                     <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-500/10">
@@ -1042,7 +1046,7 @@ export default function Dashboard({
               </div>
 
               {/* Outbound */}
-              <div className="rounded-xl border bg-card p-5">
+              <div data-testid="dashboard-outbound-deals-card" className="rounded-xl border bg-card p-5">
                 <div className="flex items-center justify-between gap-3 mb-3">
                   <div className="flex items-center gap-3">
                     <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-rose-500/10">
@@ -1067,7 +1071,7 @@ export default function Dashboard({
               </div>
 
               {/* Conversion */}
-              <div className="rounded-xl border bg-card p-5">
+              <div data-testid="dashboard-conversion-card" className="rounded-xl border bg-card p-5">
                 <div className="flex items-center justify-between gap-3 mb-3">
                   <div className="flex items-center gap-3">
                     <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-amber-500/10">
@@ -1120,11 +1124,11 @@ export default function Dashboard({
         ) : activity ? (
           <>
             {/* ── 7-Day Recap Section ─────────────────────────────────────────────── */}
-            <Card className="hidden md:block border bg-card">
+            <Card className="hidden md:block border bg-card" data-testid="recap-section">
               <CardHeader className="pb-4">
                 <div className="flex items-center gap-2">
                   <CalendarIcon className="h-5 w-5 text-muted-foreground" />
-                  <CardTitle className="text-lg font-semibold">
+                  <CardTitle className="text-lg font-semibold" data-testid="recap-title">
                     {dateRange.preset === "7d"
                       ? "7-Day Recap"
                       : dateRange.preset === "14d"
@@ -1142,7 +1146,7 @@ export default function Dashboard({
                 <div className="grid grid-cols-[repeat(auto-fit,minmax(200px,1fr))] gap-4">
                   <div className="rounded-lg border border-emerald-200 bg-emerald-50/50 dark:border-emerald-900/50 dark:bg-emerald-950/20 p-4">
                     <div className="flex items-center justify-between gap-2">
-                      <p className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 uppercase tracking-wide">
+                      <p className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 uppercase tracking-wide" data-testid="recap-new-deals-heading">
                         New Deals
                       </p>
                       <AskAIButton
@@ -1162,7 +1166,7 @@ export default function Dashboard({
                       <div className="w-px h-8 bg-emerald-200 dark:bg-emerald-800/50 self-center" />
                       <Popover>
                         <PopoverTrigger asChild>
-                          <button type="button" className="text-left">
+                          <button type="button" data-testid="recap-new-deals-inbound-trigger" className="text-left">
                             <p className="text-xl font-bold text-violet-600 dark:text-violet-400 leading-none underline decoration-dotted underline-offset-2">
                               {recapNewInbound.length}
                             </p>
@@ -1214,7 +1218,7 @@ export default function Dashboard({
                       </Popover>
                       <Popover>
                         <PopoverTrigger asChild>
-                          <button type="button" className="text-left">
+                          <button type="button" data-testid="recap-new-deals-outbound-trigger" className="text-left">
                             <p className="text-xl font-bold text-blue-600 dark:text-blue-400 leading-none underline decoration-dotted underline-offset-2">
                               {recapNewOutbound.length}
                             </p>
@@ -1268,7 +1272,7 @@ export default function Dashboard({
                   </div>
                   <div className="rounded-lg border border-red-200 bg-red-50/50 dark:border-red-900/50 dark:bg-red-950/20 p-4">
                     <div className="flex items-center justify-between gap-2">
-                      <p className="text-xs font-semibold text-red-600 dark:text-red-400 uppercase tracking-wide">
+                      <p className="text-xs font-semibold text-red-600 dark:text-red-400 uppercase tracking-wide" data-testid="recap-dropped-heading">
                         Dropped
                       </p>
                       <AskAIButton
@@ -1285,7 +1289,7 @@ export default function Dashboard({
                   </div>
                   <div className="rounded-lg border border-blue-200 bg-blue-50/50 dark:border-blue-900/50 dark:bg-blue-950/20 p-4">
                     <div className="flex items-center justify-between gap-2">
-                      <p className="text-xs font-semibold text-blue-600 dark:text-blue-400 uppercase tracking-wide">
+                      <p className="text-xs font-semibold text-blue-600 dark:text-blue-400 uppercase tracking-wide" data-testid="recap-stage-moves-heading">
                         Stage Moves
                       </p>
                       <AskAIButton
@@ -1309,7 +1313,7 @@ export default function Dashboard({
                   <div className="space-y-3">
                     <div className="flex items-center gap-2">
                       <span className="h-2 w-2 rounded-full bg-emerald-500" />
-                      <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                      <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide" data-testid="recap-new-deals-this-week-heading">
                         New Deals This Week
                       </span>
                     </div>
@@ -1367,6 +1371,7 @@ export default function Dashboard({
                           {recapNewDeals.length > recapNewDealsCount && (
                             <button
                               type="button"
+                              data-testid="recap-new-deals-show-more-button"
                               onClick={() =>
                                 setRecapNewDealsCount(
                                   (c) => c + RECAP_PAGE_SIZE,
@@ -1387,7 +1392,7 @@ export default function Dashboard({
                   <div className="space-y-3">
                     <div className="flex items-center gap-2">
                       <span className="h-2 w-2 rounded-full bg-red-500" />
-                      <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                      <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide" data-testid="recap-dropped-deals-heading">
                         Dropped Deals
                       </span>
                     </div>
@@ -1446,6 +1451,7 @@ export default function Dashboard({
                           {recapDropped.length > recapDroppedCount && (
                             <button
                               type="button"
+                              data-testid="recap-dropped-deals-show-more-button"
                               onClick={() =>
                                 setRecapDroppedCount((c) => c + RECAP_PAGE_SIZE)
                               }
@@ -1464,7 +1470,7 @@ export default function Dashboard({
                   <div className="space-y-3">
                     <div className="flex items-center gap-2">
                       <span className="h-2 w-2 rounded-full bg-blue-500" />
-                      <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                      <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide" data-testid="recap-pipeline-stage-movements-heading">
                         Pipeline Stage Movements
                       </span>
                     </div>
@@ -1527,6 +1533,7 @@ export default function Dashboard({
                           {recapStageMoves.length > recapStageMovesCount && (
                             <button
                               type="button"
+                              data-testid="recap-stage-moves-show-more-button"
                               onClick={() =>
                                 setRecapStageMovesCount(
                                   (c) => c + RECAP_PAGE_SIZE,
@@ -1548,7 +1555,7 @@ export default function Dashboard({
             </Card>
 
             {/* ── Pipeline Stages ────────────────────────────────────────────── */}
-            <Card className="hidden md:block border bg-card">
+            <Card data-testid="dashboard-pipeline-stages-card" className="hidden md:block border bg-card">
               <CardHeader className="pb-2">
                 <div className="flex items-center justify-between gap-3">
                   <div className="flex items-center gap-3">
@@ -1584,6 +1591,7 @@ export default function Dashboard({
                         L0 · Sourcing
                       </p>
                       <Link
+                        data-testid="dashboard-stage-l0-inbound-link"
                         href="/pipeline?stage=L0"
                         className="flex flex-1 flex-col items-center justify-center gap-0.5 rounded-xl bg-gradient-to-br from-indigo-400 to-indigo-600 p-3 text-white no-underline transition-transform hover:scale-[1.02]"
                       >
@@ -1598,6 +1606,7 @@ export default function Dashboard({
                         </span>
                       </Link>
                       <Link
+                        data-testid="dashboard-stage-l0-outbound-link"
                         href="/pipeline?stage=L0"
                         className="flex flex-1 flex-col items-center justify-center gap-0.5 rounded-xl bg-gradient-to-br from-blue-400 to-blue-600 p-3 text-white no-underline transition-transform hover:scale-[1.02]"
                       >
@@ -1636,6 +1645,7 @@ export default function Dashboard({
                         return (
                           <Link
                             key={item.stage}
+                            data-testid={`dashboard-stage-${item.stage.toLowerCase()}-link`}
                             href={`/pipeline?stage=${item.stage}`}
                             className="group flex flex-1 flex-col items-center gap-1 no-underline text-inherit"
                           >
@@ -1683,7 +1693,7 @@ export default function Dashboard({
             </Card>
 
             {/* ── Activity Feed ──────────────────────────────────────────────── */}
-            <Card className="hidden md:block border bg-card">
+            <Card data-testid="dashboard-activity-feed-card" className="hidden md:block border bg-card">
               <CardHeader className="pb-4">
                 <div className="flex items-center gap-2">
                   <Clock className="h-5 w-5 text-muted-foreground" />
@@ -1710,6 +1720,7 @@ export default function Dashboard({
                     <button
                       key={key}
                       type="button"
+                      data-testid={`dashboard-feed-filter-${key}`}
                       onClick={() => setFeedFilter(key)}
                       className={[
                         "h-7 px-3 text-xs font-medium rounded-full transition-colors",
@@ -1766,6 +1777,7 @@ export default function Dashboard({
                     {hasMoreFeed && (
                       <button
                         type="button"
+                        data-testid="dashboard-feed-show-more-button"
                         onClick={() =>
                           setFeedVisibleCount((c) => c + FEED_PAGE_SIZE)
                         }
@@ -1893,6 +1905,7 @@ function FeedEventRow({
         <div className="flex items-start justify-between gap-2">
           <button
             type="button"
+            data-testid={`feed-event-company-button-${event.company_id}`}
             onClick={() => onCompanyClick(event.company_id)}
             className="text-sm font-semibold text-left hover:text-primary transition-colors"
           >
@@ -2154,6 +2167,7 @@ function MobileActivityFeed({
             <button
               key={key}
               type="button"
+              data-testid={`mobile-feed-filter-${key}`}
               onClick={() => setFilter(key)}
               className={[
                 "h-7 px-3 text-xs font-medium rounded-full transition-colors",
