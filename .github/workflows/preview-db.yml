@@ -16,7 +16,7 @@ env:
 jobs:
   setup:
     if: github.event.action == 'opened'
-    runs-on: ubuntu-latest
+    runs-on: codebuild-mna-brain-runner-${{ github.run_id }}-${{ github.run_attempt }}
     steps:
       - name: Checkout PR head
         uses: actions/checkout@v4
@@ -143,7 +143,7 @@ jobs:
 
   migrate:
     if: github.event.action == 'synchronize' || github.event.action == 'reopened'
-    runs-on: ubuntu-latest
+    runs-on: codebuild-mna-brain-runner-${{ github.run_id }}-${{ github.run_attempt }}
     steps:
       - name: Checkout PR head
         uses: actions/checkout@v4
@@ -188,7 +188,7 @@ jobs:
 
   teardown:
     if: github.event.action == 'closed'
-    runs-on: ubuntu-latest
+    runs-on: codebuild-mna-brain-runner-${{ github.run_id }}-${{ github.run_attempt }}
     steps:
       - name: Checkout PR head
         uses: actions/checkout@v4

@@ -48,7 +48,7 @@ jobs:
   plan:
     name: Plan Lambda Code Deploy
     if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
+    runs-on: codebuild-mna-brain-runner-${{ github.run_id }}-${{ github.run_attempt }}
     permissions:
       contents: read
 
@@ -92,7 +92,7 @@ jobs:
   deploy:
     name: Deploy Lambda Code
     if: github.event_name != 'pull_request'
-    runs-on: ubuntu-latest
+    runs-on: codebuild-mna-brain-runner-${{ github.run_id }}-${{ github.run_attempt }}
     permissions:
       contents: read
       id-token: write
