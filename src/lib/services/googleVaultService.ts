@@ -57,7 +57,6 @@ export const VAULT_CUSTODIAN_EMAILS = [
   'hendric.g@starcapital.co.id',
   'dessi.sari@aldiracita.com',
   'jien.lit@starcapital.co.id',
-  'zhang.hongtao@starcapital.co.id',
   'cp.tei@starcapitalholdings.com',
   'samuel.nathaniel@lifewithsun.com',
   'christin.chandra@starcapital.co.id',
