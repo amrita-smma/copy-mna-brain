@@ -1729,7 +1729,7 @@ export default function CompanyDetail({ showCompanyGraph = false }: CompanyDetai
 
       {/* Document preview dialog */}
       <Dialog open={!!(previewDoc || previewMatchedFile)} onOpenChange={(open) => !open && handleClosePreview()}>
-        <DialogContent className="max-w-4xl max-h-[90vh] overflow-hidden flex flex-col">
+        <DialogContent className="flex flex-col w-screen h-screen max-w-none sm:rounded-none border-0 overflow-hidden">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <FileText className="h-5 w-5" />
@@ -1738,13 +1738,14 @@ export default function CompanyDetail({ showCompanyGraph = false }: CompanyDetai
           </DialogHeader>
           <div className="flex-1 min-h-0 overflow-auto">
             {loadingPreview ? (
-              <div className="flex h-[400px] w-full items-center justify-center bg-muted/30 rounded-md border">
+              <div className="flex h-full w-full items-center justify-center bg-muted/30 rounded-md border">
                 <Loader2 className="h-8 w-8 animate-spin text-primary" />
               </div>
             ) : previewUrl && (previewDoc || previewMatchedFile) ? (
               <FilePreview
                 url={previewUrl}
                 fileName={previewDoc?.file_name ?? previewMatchedFile?.file_name ?? ''}
+                fileKey={previewDoc?.file_path ?? previewMatchedFile?.file_link}
                 onDownload={() =>
                   previewMatchedFile
                     ? downloadMatchedFile(previewMatchedFile)
@@ -1752,7 +1753,7 @@ export default function CompanyDetail({ showCompanyGraph = false }: CompanyDetai
                 }
               />
             ) : (
-              <div className="flex h-[400px] w-full items-center justify-center bg-muted/30 rounded-md border text-muted-foreground">
+              <div className="flex h-full w-full items-center justify-center bg-muted/30 rounded-md border text-muted-foreground">
                 Preview not available
               </div>
             )}

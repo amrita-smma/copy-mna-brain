@@ -19,6 +19,7 @@ import {
   ResetPasswordTokenRepository,
   UserRepository,
   UserCompanyFavoriteRepository,
+  RecentFileRepository,
   EmployerRepository,
   EmployerCurationRepository,
   EmployerRelatedCompanyRepository,
@@ -48,6 +49,7 @@ import { CriteriaService } from './criteriaService';
 import { InvestmentThesisService } from './investmentThesisService';
 import { MarketScanningRoutineService } from './marketScanningRoutineService';
 import { DealDocumentService } from './dealDocumentService';
+import { RecentFileService } from './recentFileService';
 import { DealNoteService } from './dealNoteService';
 import { DealLinkService } from './dealLinkService';
 import { CompanyAnalysisService } from './companyAnalysisService';
@@ -77,6 +79,7 @@ export interface Container {
   investmentThesisService: InvestmentThesisService;
   marketScanningRoutineService: MarketScanningRoutineService;
   dealDocumentService: DealDocumentService;
+  recentFileService: RecentFileService;
   dealNoteService: DealNoteService;
   dealLinkService: DealLinkService;
   companyAnalysisService: CompanyAnalysisService;
@@ -123,6 +126,7 @@ export function createContainer(db: DbClient): Container {
   const userRepo = new UserRepository(db);
   const resetTokenRepo = new ResetPasswordTokenRepository(db);
   const userFavoriteRepo = new UserCompanyFavoriteRepository(db);
+  const recentFileRepo = new RecentFileRepository(db);
   const companyFinancialRepo = new CompanyFinancialRepository(db);
   const companyFxAdjustmentRepo = new CompanyFxAdjustmentRepository(db);
   const companyScreeningDerivedRepo = new CompanyScreeningDerivedRepository(db);
@@ -164,6 +168,7 @@ export function createContainer(db: DbClient): Container {
     companyGraphService,
   );
   const dealDocumentService = new DealDocumentService(dealDocRepo);
+  const recentFileService = new RecentFileService(recentFileRepo);
   const fileService = new FileService(
     db,
     fileRepo,
@@ -232,6 +237,7 @@ export function createContainer(db: DbClient): Container {
     investmentThesisService,
     marketScanningRoutineService,
     dealDocumentService,
+    recentFileService,
     dealNoteService,
     dealLinkService,
     companyAnalysisService,

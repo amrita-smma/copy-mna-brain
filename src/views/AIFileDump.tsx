@@ -137,6 +137,7 @@ export function matchCompanyByFilename(
 interface FileRecord {
   id: string;
   file_name: string;
+  file_link: string;
   raw_notes: string | null;
   structured_notes: string | null;
   processing_status: "pending" | "processing" | "awaiting_review" | "completed" | "failed";
@@ -560,38 +561,41 @@ function FileTable({
                                   <Eye className="h-4 w-4" />
                                 </Button>
                               </DialogTrigger>
-                              <DialogContent className="max-w-3xl max-h-[80vh]">
+                              <DialogContent className="flex flex-col w-screen h-screen max-w-none sm:rounded-none border-0">
                                 <DialogHeader>
                                   <DialogTitle>
                                     {note.file_name} - Details
                                   </DialogTitle>
                                 </DialogHeader>
-                                <div className="grid md:grid-cols-2 gap-6 mt-4 overflow-hidden">
-                                  <div className="flex flex-col gap-2">
+                                <div className="grid md:grid-cols-2 gap-6 mt-4 flex-1 min-h-0 overflow-hidden">
+                                  <div className="flex flex-col gap-2 min-h-0">
                                     <h3 className="text-sm font-semibold flex items-center gap-2">
                                       <FileText className="h-4 w-4" />
                                       File Preview
                                     </h3>
                                     {note.signed_url ? (
-                                      <FilePreview
-                                        url={note.signed_url}
-                                        onDownload={() =>
-                                          onDownload(note.id, note.file_name)
-                                        }
-                                        fileName={note.file_name}
-                                      />
+                                      <div className="flex-1 min-h-0">
+                                        <FilePreview
+                                          url={note.signed_url}
+                                          onDownload={() =>
+                                            onDownload(note.id, note.file_name)
+                                          }
+                                          fileName={note.file_name}
+                                          fileKey={note.file_link}
+                                        />
+                                      </div>
                                     ) : (
-                                      <div className="flex h-[400px] w-full items-center justify-center bg-muted/30 rounded-md border text-muted-foreground">
+                                      <div className="flex flex-1 min-h-0 w-full items-center justify-center bg-muted/30 rounded-md border text-muted-foreground">
                                         Preview not available (Link missing)
                                       </div>
                                     )}
                                   </div>
-                                  <div className="flex flex-col gap-2">
+                                  <div className="flex flex-col gap-2 min-h-0">
                                     <h3 className="text-sm font-semibold flex items-center gap-2">
                                       <Bot className="h-4 w-4" />
                                       AI Structured Notes
                                     </h3>
-                                    <ScrollArea className="h-[400px] w-full rounded-md border p-4 bg-muted/30">
+                                    <ScrollArea className="flex-1 min-h-0 w-full rounded-md border p-4 bg-muted/30">
                                       <div className="space-y-4 text-sm">
                                         {renderStructuredNotes(note)}
                                       </div>

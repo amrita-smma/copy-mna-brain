@@ -636,7 +636,7 @@ function ChatMessageBubbleImpl(props: ChatMessageBubbleProps) {
 
       {/* Files Preview Dialog */}
       <Dialog open={!!previewNote} onOpenChange={(open) => !open && handleClosePreview()}>
-        <DialogContent className="max-w-5xl max-h-[90vh] overflow-hidden">
+        <DialogContent className="flex flex-col w-screen h-screen max-w-none sm:rounded-none border-0">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <FileText className="h-5 w-5" />
@@ -650,36 +650,43 @@ function ChatMessageBubbleImpl(props: ChatMessageBubbleProps) {
           </DialogHeader>
 
           {/* Side-by-side layout */}
-          <div className="grid md:grid-cols-2 gap-6 mt-4 overflow-hidden">
+          <div className="grid md:grid-cols-2 gap-6 mt-4 flex-1 min-h-0 overflow-hidden">
             {/* Left: File Preview */}
-            <div className="flex flex-col gap-2">
+            <div className="flex flex-col gap-2 min-h-0">
               <h3 className="text-sm font-semibold flex items-center gap-2">
                 <FileSearch className="h-4 w-4" />
                 File Preview
               </h3>
               {loadingPreview ? (
-                <div className="flex h-[400px] w-full items-center justify-center bg-muted/30 rounded-md border">
+                <div className="flex flex-1 min-h-0 w-full items-center justify-center bg-muted/30 rounded-md border">
                   <Loader2 className="h-8 w-8 animate-spin text-primary" />
                 </div>
               ) : previewUrl ? (
-                <FilePreview
-                  url={previewUrl}
-                  fileName={previewNote?.file_name || ""}
-                />
+                <div className="flex-1 min-h-0">
+                  <FilePreview
+                    url={previewUrl}
+                    fileName={previewNote?.file_name || ""}
+                    fileKey={
+                      previewNote?.file_link && !previewNote.file_link.startsWith("http")
+                        ? previewNote.file_link
+                        : undefined
+                    }
+                  />
+                </div>
               ) : (
-                <div className="flex h-[400px] w-full items-center justify-center bg-muted/30 rounded-md border text-muted-foreground">
+                <div className="flex flex-1 min-h-0 w-full items-center justify-center bg-muted/30 rounded-md border text-muted-foreground">
                   Preview not available
                 </div>
               )}
             </div>
 
             {/* Right: AI Structured Notes */}
-            <div className="flex flex-col gap-2">
+            <div className="flex flex-col gap-2 min-h-0">
               <h3 className="text-sm font-semibold flex items-center gap-2">
                 <Sparkles className="h-4 w-4" />
                 AI Structured Notes
               </h3>
-              <ScrollArea className="h-[400px] w-full rounded-md border p-4 bg-muted/30">
+              <ScrollArea className="flex-1 min-h-0 w-full rounded-md border p-4 bg-muted/30">
                 {previewNote?.structured_notes ? (
                   <div className="space-y-4 text-sm">
                     {(() => {

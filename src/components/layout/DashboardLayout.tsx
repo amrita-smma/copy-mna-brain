@@ -29,6 +29,7 @@ import {
   Maximize2,
   Minimize2,
   Network,
+  Presentation,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { ProtectedRoute } from '@/components/auth/ProtectedRoute';
@@ -56,6 +57,7 @@ const baseNavigation = [
   { name: 'Master Data', href: '/master-data', icon: Database, color: 'default' as const },
   { name: 'CRM', href: '/crm', icon: Users, color: 'indigo' as const },
   { name: 'AI File Dump', href: '/ai-file-dump', icon: FileStack, color: 'teal' as const },
+  { name: 'Presentation', href: '/presentation', icon: Presentation, color: 'default' as const },
   { name: 'AI Workforce', href: '/ai-workforce', icon: Users, color: 'orange' as const },
   { name: 'Company Graph', href: '/graph', icon: Network, color: 'cyan' as const },
 ];

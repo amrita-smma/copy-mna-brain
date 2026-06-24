@@ -1860,6 +1860,40 @@ export const userCompanyFavorites = pgTable(
   },
 );
 
+// MB-260: per-user history of files opened in the Presentation page. One row
+// per (user, file_key); re-opening a file bumps opened_at via upsert so the
+// list stays a deduped, most-recent-first feed.
+export const recentFiles = pgTable(
+  "recent_files",
+  {
+    id: uuid().defaultRandom().primaryKey().notNull(),
+    user_id: uuid().notNull(),
+    file_name: text().notNull(),
+    file_key: text().notNull(),
+    opened_at: timestamp({ withTimezone: true, mode: "string" })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => {
+    return {
+      idxRecentFilesUserOpened: index("idx_recent_files_user_opened").using(
+        "btree",
+        table.user_id.asc().nullsLast().op("uuid_ops"),
+        table.opened_at.desc().nullsLast().op("timestamptz_ops"),
+      ),
+      recentFilesUserIdFkey: foreignKey({
+        columns: [table.user_id],
+        foreignColumns: [users.id],
+        name: "recent_files_user_id_fkey",
+      }).onDelete("cascade"),
+      recentFilesUserIdFileKeyKey: unique("recent_files_user_id_file_key_key").on(
+        table.user_id,
+        table.file_key,
+      ),
+    };
+  },
+);
+
 // ============================================================================
 // CRM v2 — employers, correspondents, topics, emails. Replaces the legacy
 // `contacts` / `contact_messages` model.

@@ -17,6 +17,7 @@ export * from './jobRepository';
 export * from './userRepository';
 export * from './resetPasswordTokenRepository';
 export * from './userCompanyFavoriteRepository';
+export * from './recentFileRepository';
 export * from './pastAcquisitionRepository';
 export * from './invenCacheRepository';
 export * from './employerRepository';

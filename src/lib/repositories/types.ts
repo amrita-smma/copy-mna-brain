@@ -34,6 +34,7 @@ type TableMap = {
   reset_password_tokens: typeof schema.resetPasswordTokens;
   screenings: typeof schema.screenings;
   user_company_favorites: typeof schema.userCompanyFavorites;
+  recent_files: typeof schema.recentFiles;
   users: typeof schema.users;
   ai_workforce_queue: typeof schema.aiWorkforceQueue;
   agent_run_events: typeof schema.agentRunEvents;
