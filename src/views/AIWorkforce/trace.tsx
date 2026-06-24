@@ -203,7 +203,7 @@ export function TraceLine({
             </div>
           )}
 
-          {step.fullReport && (
+          {step.fullReport && isLast && (
             <button
               type="button"
               onClick={() => setReportOpen(true)}
@@ -260,7 +260,7 @@ export function TraceLine({
         )}
       </div>
 
-      {step.fullReport && (
+      {step.fullReport && isLast && (
         <Dialog open={reportOpen} onOpenChange={setReportOpen}>
           <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">
             <DialogHeader>
