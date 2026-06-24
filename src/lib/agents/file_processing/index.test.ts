@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
   toFile: vi.fn(),
   stream: vi.fn(),
   getAllCompanyReferences: vi.fn(),
+  createAgent: vi.fn(),
 }));
 
 vi.mock('@anthropic-ai/sdk', () => {
@@ -20,7 +21,10 @@ vi.mock('@langchain/anthropic', () => ({
 }));
 
 vi.mock('langchain', () => ({
-  createAgent: vi.fn(() => ({ stream: mocks.stream })),
+  createAgent: (...args: unknown[]) => {
+    mocks.createAgent(...args);
+    return { stream: mocks.stream };
+  },
 }));
 
 vi.mock('@/lib/fuzzySearch', () => ({
@@ -49,11 +53,16 @@ function streamReturning(content: string) {
   })();
 }
 
+function jsonBlock(payload: object): string {
+  return '```json\n' + JSON.stringify(payload) + '\n```';
+}
+
 beforeEach(() => {
   process.env.ANTHROPIC_API_KEY = 'test-key';
   mocks.getAllCompanyReferences.mockResolvedValue([]);
   mocks.toFile.mockResolvedValue('FILE');
   mocks.deleteFile.mockResolvedValue(undefined);
+  mocks.createAgent.mockReset();
   mocks.stream.mockImplementation(() => Promise.resolve(streamReturning(JSON_BLOCK)));
 });
 
@@ -98,3 +107,200 @@ describe('processFileContent (Files API for PDFs)', () => {
     expect(mocks.deleteFile).not.toHaveBeenCalled();
   });
 });
+
+describe('processFileContent (filename hint)', () => {
+  it('includes filename prefix in the human message for non-PDF content', async () => {
+    await processFileContent('raw text', Buffer.from('x'), 'text/plain', '', undefined, 'Acme Corp - IM.pdf');
+
+    const firstMessage = mocks.stream.mock.calls[0][0].messages[0];
+    expect(firstMessage.content).toContain('Filename: Acme Corp - IM.pdf');
+  });
+
+  it('includes filename in the text block of the PDF human message', async () => {
+    mocks.upload.mockResolvedValueOnce({ id: 'file_b' });
+
+    await processFileContent('', Buffer.from('pdf'), 'application/pdf', '', undefined, 'Project Tulia Teaser.pdf');
+
+    const firstMessage = mocks.stream.mock.calls[0][0].messages[0];
+    const textBlock = firstMessage.content.find((b: { type: string }) => b.type === 'text');
+    expect(textBlock.text).toContain('Filename: Project Tulia Teaser.pdf');
+  });
+
+  it('includes filename in the system prompt', async () => {
+    await processFileContent('raw text', Buffer.from('x'), 'text/plain', '', undefined, 'Acme Corp - IM.pdf');
+
+    const systemPrompt: string = mocks.createAgent.mock.calls[0][0].systemPrompt;
+    expect(systemPrompt).toContain('Acme Corp - IM.pdf');
+    expect(systemPrompt).toContain('File Name Hint');
+  });
+
+  it('omits filename hint from system prompt when no fileName is given', async () => {
+    await processFileContent('raw text', Buffer.from('x'), 'text/plain', '');
+
+    const systemPrompt: string = mocks.createAgent.mock.calls[0][0].systemPrompt;
+    expect(systemPrompt).not.toContain('File Name Hint');
+  });
+
+  it('omits filename prefix in the human message when no fileName is given', async () => {
+    await processFileContent('raw text', Buffer.from('x'), 'text/plain', '');
+
+    const firstMessage = mocks.stream.mock.calls[0][0].messages[0];
+    expect(firstMessage.content).not.toContain('Filename:');
+  });
+});
+
+describe('processFileContent (generic name denylist)', () => {
+  it('strips generic phrases from companies_detected', async () => {
+    mocks.stream.mockImplementationOnce(() =>
+      Promise.resolve(
+        streamReturning(
+          jsonBlock({
+            file_type: 'other',
+            summary: 's',
+            companies_detected: ['Project Overview', 'Acme Corp'],
+            company_notes: [],
+          }),
+        ),
+      ),
+    );
+
+    const result = await processFileContent('raw text', Buffer.from('x'), 'text/plain', '');
+
+    const names = (result.matched_companies as Array<{ name: string }>).map((m) => m.name);
+    expect(names).not.toContain('Project Overview');
+    expect(names).toContain('Acme Corp');
+  });
+
+  it('ignores the prospectus fallback when project_name is a generic phrase', async () => {
+    mocks.stream.mockImplementationOnce(() =>
+      Promise.resolve(
+        streamReturning(
+          jsonBlock({
+            file_type: 'prospectus',
+            summary: 's',
+            companies_detected: [],
+            company_notes: [],
+            prospectus_summary: {
+              company_name: null,
+              project_name: 'Company Overview',
+            },
+          }),
+        ),
+      ),
+    );
+
+    const result = await processFileContent('raw text', Buffer.from('x'), 'text/plain', '');
+
+    expect((result.matched_companies as unknown[]).length).toBe(0);
+  });
+
+  it('keeps a real project codename from the prospectus fallback', async () => {
+    mocks.stream.mockImplementationOnce(() =>
+      Promise.resolve(
+        streamReturning(
+          jsonBlock({
+            file_type: 'prospectus',
+            summary: 's',
+            companies_detected: [],
+            company_notes: [],
+            prospectus_summary: {
+              company_name: null,
+              project_name: 'Project Atlas',
+            },
+          }),
+        ),
+      ),
+    );
+
+    const result = await processFileContent('raw text', Buffer.from('x'), 'text/plain', '');
+
+    const names = (result.matched_companies as Array<{ name: string }>).map((m) => m.name);
+    expect(names).toContain('Project Atlas');
+  });
+
+  it('system prompt warns the model not to classify section headings', async () => {
+    await processFileContent('raw text', Buffer.from('x'), 'text/plain', '');
+
+    const systemPrompt: string = mocks.createAgent.mock.calls[0][0].systemPrompt;
+    expect(systemPrompt).toContain('Project Overview');
+    expect(systemPrompt).toContain('Executive Summary');
+    expect(systemPrompt).toContain('Do NOT classify document section headings');
+  });
+
+  it('nulls out generic company_name in prospectus_summary before returning', async () => {
+    mocks.stream.mockImplementationOnce(() =>
+      Promise.resolve(
+        streamReturning(
+          jsonBlock({
+            file_type: 'prospectus',
+            summary: 's',
+            companies_detected: [],
+            company_notes: [],
+            prospectus_summary: {
+              company_name: 'Company Overview',
+              project_name: null,
+              financials: [],
+              fx_adjustments: [],
+            },
+          }),
+        ),
+      ),
+    );
+
+    const result = await processFileContent('raw text', Buffer.from('x'), 'text/plain', '');
+
+    expect(result.prospectus_summary?.company_name).toBeNull();
+  });
+
+  it('nulls out generic project_name in prospectus_summary before returning', async () => {
+    mocks.stream.mockImplementationOnce(() =>
+      Promise.resolve(
+        streamReturning(
+          jsonBlock({
+            file_type: 'prospectus',
+            summary: 's',
+            companies_detected: [],
+            company_notes: [],
+            prospectus_summary: {
+              company_name: null,
+              project_name: 'Executive Summary',
+              financials: [],
+              fx_adjustments: [],
+            },
+          }),
+        ),
+      ),
+    );
+
+    const result = await processFileContent('raw text', Buffer.from('x'), 'text/plain', '');
+
+    expect(result.prospectus_summary?.project_name).toBeNull();
+  });
+
+  it('preserves a real company_name in prospectus_summary', async () => {
+
+    mocks.stream.mockImplementationOnce(() =>
+      Promise.resolve(
+        streamReturning(
+          jsonBlock({
+            file_type: 'prospectus',
+            summary: 's',
+            companies_detected: [],
+            company_notes: [],
+            prospectus_summary: {
+              company_name: 'PT Sinar Mas',
+              project_name: null,
+              financials: [],
+              fx_adjustments: [],
+            },
+          }),
+        ),
+      ),
+    );
+
+    const result = await processFileContent('raw text', Buffer.from('x'), 'text/plain', '');
+
+    expect(result.prospectus_summary?.company_name).toBe('PT Sinar Mas');
+  });
+});
+

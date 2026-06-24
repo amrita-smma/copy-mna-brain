@@ -3,6 +3,7 @@ import { deleteFile } from '@/lib/s3';
 import { sql } from 'drizzle-orm';
 import { extractTextFromFile } from '@/lib/fileExtractor';
 import { processFileContent, type FileTypeOverride } from '@/lib/agents/file_processing';
+import { isGenericDocumentPhrase } from '@/lib/agents/file_processing/genericNameDenylist';
 import type { CompanyDTOInput } from '@/lib/dto/companyDTO';
 import { createNeo4jDriver } from '@/lib/neo4j';
 import { CompanyRelationRepository } from '@/lib/repositories/companyRelationRepository';
@@ -26,6 +27,15 @@ import type { CompanyAnalysisService } from './companyAnalysisService';
 import type { AIScreeningService } from './aiScreeningService';
 import type { CRMService } from './crmService';
 import { CompanyService } from './companyService';
+
+/**
+ * File types that describe a deal target (a company/project genuinely offered
+ * for sale) and may therefore mint a company row. Only sale-offering documents
+ * qualify — financial statements, legal agreements, MoMs, and buyer/sponsor/
+ * advisor material describe counterparties or process, NOT companies on sale,
+ * and must never auto-create a company. (MB-300)
+ */
+const DEAL_TARGET_FILE_TYPES = new Set<string>(['prospectus']);
 
 export interface ApproveFileInput {
   file_type: FileTypeOverride;
@@ -77,6 +87,20 @@ type ProspectusSummary = {
     forex_change_vs_prior: number | null;
     revenue_cagr_domestic: number | null;
   }>;
+};
+
+type FinancialStatementSummary = {
+  company_name?: string | null;
+  financials?: Array<{
+    fiscal_year: number;
+    revenue_usd_mn: number | null;
+    ebitda_usd_mn: number | null;
+    ev_usd_mn: number | null;
+    ebitda_margin: number | null;
+    ev_ebitda: number | null;
+    revenue_cagr_vs_prior: number | null;
+  }>;
+  fx_adjustments?: unknown[];
 };
 
 export class FileService {
@@ -143,24 +167,27 @@ export class FileService {
         rawText = await extractTextFromFile(buffer, fileType, fileName);
       }
 
-      structuredResult = await processFileContent(rawText, buffer, fileType, rawNotes ?? '', fileTypeOverride);
+      structuredResult = await processFileContent(rawText, buffer, fileType, rawNotes ?? '', fileTypeOverride, fileName);
 
       if (structuredResult) {
         tags = structuredResult.tags || [];
         matched_companies = structuredResult.matched_companies || [];
       }
 
-      // Only prospectus files require HITL review (the duplicate-company /
-      // financial-enrichment gate from MB-122). MoM, banker_communications,
-      // and other file types auto-complete to match pre-MB-122 behavior —
-      // they have no prospectus_summary to diff and no financials to upsert.
+      // Only deal-target (sale-offering) files require HITL review (the
+      // duplicate-company / financial-enrichment gate from MB-122). MoM,
+      // banker_communications, financial statements, legal documents, and
+      // other file types auto-complete to match pre-MB-122 behavior — they
+      // have no prospectus_summary to diff and no financials to upsert.
       const effectiveFileType = fileTypeOverride ?? structuredResult?.file_type ?? 'other';
-      const requiresReview = effectiveFileType === 'prospectus';
+      const requiresReview = DEAL_TARGET_FILE_TYPES.has(effectiveFileType);
 
       // MB-225 connector: auto-create unreviewed pipeline company from email attachments.
       // Only fires when: (a) file came from email pipeline, (b) AFD extracted content,
-      // (c) file type indicates a real deal doc (not generic "other").
-      if (originEmail && structuredResult && effectiveFileType !== 'other' && effectiveFileType !== 'banker_communications') {
+      // (c) the file is a sale offering describing a deal target. Financial
+      // statements, legal docs, and buyer/sponsor/advisor material must NOT
+      // auto-create a company — they describe counterparties, not targets. (MB-300)
+      if (originEmail && structuredResult && DEAL_TARGET_FILE_TYPES.has(effectiveFileType)) {
         try {
           const summary = (structuredResult as Record<string, unknown>).prospectus_summary as ProspectusSummary | undefined;
           matched_companies = await this.mergeEmailOriginAttachmentCompany({
@@ -173,6 +200,21 @@ export class FileService {
           });
         } catch (err) {
           console.error('[fileService] Failed to merge/create email-origin company:', err);
+        }
+      }
+
+      // MB-300: financial statements update company_financials for matched existing
+      // deal targets but never create new company rows.
+      if (originEmail && structuredResult && effectiveFileType === 'financial_statement') {
+        try {
+          const fss = (structuredResult as Record<string, unknown>).financial_statement_summary as FinancialStatementSummary | undefined;
+          await this.mergeFinancialStatementCompanyFinancials({
+            matchedCompanies: matched_companies,
+            financialStatementSummary: fss,
+            fileId: initialData.id,
+          });
+        } catch (err) {
+          console.error('[fileService] Failed to merge financial statement financials:', err);
         }
       }
 
@@ -307,28 +349,34 @@ export class FileService {
     let companyRecord: Tables<'companies'> | null = null;
 
     if (!companyId && input.create_company_from_ai && summary) {
-      const insertData: TablesInsert<'companies'> = {
-        pipeline_stage: 'L0',
-        target: summary.company_name ?? null,
-        project_name: summary.project_name ?? null,
-        thesis_content: null,
-        segment: summary.segment ?? null,
-        segment_related_offerings: summary.segment_related_offerings ?? null,
-        company_focus: summary.company_focus ?? null,
-        website: summary.website ?? null,
-        watchlist_status: summary.watchlist_status ?? null,
-        comments: summary.comments ?? null,
-        ownership: summary.ownership ?? null,
-        geography: summary.geography ?? null,
-        remarks: summary.remarks ?? null,
-        source: 'inbound',
-      };
-      const created = await this.companyService.createFromDTO(
-        insertData as Parameters<typeof this.companyService.createFromDTO>[0],
-        `created_from_file:${fileId}`,
-      );
-      companyId = created.id;
-      companyRecord = await this.companyService.findById(companyId);
+      const safeTarget = summary.company_name && !isGenericDocumentPhrase(summary.company_name)
+        ? summary.company_name : null;
+      const safeProjectName = summary.project_name && !isGenericDocumentPhrase(summary.project_name)
+        ? summary.project_name : null;
+      if (safeTarget || safeProjectName) {
+        const insertData: TablesInsert<'companies'> = {
+          pipeline_stage: 'L0',
+          target: safeTarget,
+          project_name: safeProjectName,
+          thesis_content: null,
+          segment: summary.segment ?? null,
+          segment_related_offerings: summary.segment_related_offerings ?? null,
+          company_focus: summary.company_focus ?? null,
+          website: summary.website ?? null,
+          watchlist_status: summary.watchlist_status ?? null,
+          comments: summary.comments ?? null,
+          ownership: summary.ownership ?? null,
+          geography: summary.geography ?? null,
+          remarks: summary.remarks ?? null,
+          source: 'inbound',
+        };
+        const created = await this.companyService.createFromDTO(
+          insertData as Parameters<typeof this.companyService.createFromDTO>[0],
+          `created_from_file:${fileId}`,
+        );
+        companyId = created.id;
+        companyRecord = await this.companyService.findById(companyId);
+      }
     } else if (companyId) {
       companyRecord = await this.companyService.findById(companyId);
       const updates = input.company_field_updates ?? {};
@@ -485,6 +533,9 @@ export class FileService {
         if (hasOwn(summary, summaryKey)) {
           const cleaned = cleanText(summary[summaryKey]);
           if (cleaned !== undefined) {
+            if ((summaryKey === 'company_name' || summaryKey === 'project_name') && isGenericDocumentPhrase(cleaned)) {
+              continue;
+            }
             input[dtoKey] = cleaned as never;
           }
         }
@@ -586,9 +637,9 @@ export class FileService {
 
   private emailAttachmentCompanyIdentityName(summary: ProspectusSummary | undefined): string | null {
     const companyName = summary?.company_name?.trim();
-    if (companyName) return companyName;
+    if (companyName && !isGenericDocumentPhrase(companyName)) return companyName;
     const projectName = summary?.project_name?.trim();
-    return projectName || null;
+    return projectName && !isGenericDocumentPhrase(projectName) ? projectName : null;
   }
 
   private companyMatchPayload(company: Pick<Tables<'companies'>, 'id' | 'target' | 'project_name'>) {
@@ -632,6 +683,43 @@ export class FileService {
       new CompanyFxAdjustmentRepository(db),
       new CompanyScreeningDerivedRepository(db),
     );
+  }
+
+  private async mergeFinancialStatementCompanyFinancials(opts: {
+    matchedCompanies: unknown[];
+    financialStatementSummary: FinancialStatementSummary | undefined;
+    fileId: string;
+  }): Promise<void> {
+    // Resolve company from matched_companies (fuzzy search already ran — use the id).
+    const matchedCompany = (opts.matchedCompanies as Array<{ id?: string | null; type?: string }>)
+      .find((m) => m?.id && (m.type === undefined || m.type === 'company'));
+    let companyId = matchedCompany?.id ?? null;
+
+    // Fallback: fuzzy match by company_name from the financial_statement_summary.
+    if (!companyId && opts.financialStatementSummary?.company_name) {
+      const found = await this.companyService.findByNameFuzzy(opts.financialStatementSummary.company_name);
+      companyId = found?.id ?? null;
+    }
+
+    if (!companyId) {
+      console.warn(`[fileService] financial_statement ${opts.fileId}: no matching company found, skipping financials upsert`);
+      return;
+    }
+
+    const rows = (opts.financialStatementSummary?.financials ?? []).filter(
+      (r) => r && Number.isInteger(r.fiscal_year) && (
+        r.revenue_usd_mn !== null || r.ebitda_usd_mn !== null || r.ev_usd_mn !== null ||
+        r.ebitda_margin !== null || r.ev_ebitda !== null || r.revenue_cagr_vs_prior !== null
+      ),
+    );
+
+    if (rows.length === 0) {
+      console.warn(`[fileService] financial_statement ${opts.fileId}: no financial rows extracted for company ${companyId}`);
+      return;
+    }
+
+    await this.companyFinancialRepo.bulkUpsertForCompany(companyId, rows);
+    console.log(`[fileService] financial_statement ${opts.fileId}: upserted ${rows.length} financial row(s) for company ${companyId}`);
   }
 
   private parseStructuredNotes(raw: string | null): Record<string, unknown> | null {

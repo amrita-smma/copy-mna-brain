@@ -19,6 +19,7 @@ import { logger } from "../logger";
  */
 const FILES_API_BETA = "files-api-2025-04-14" as const;
 import { getAllCompanyReferences } from "@/lib/fuzzySearch";
+import { isGenericDocumentPhrase } from "./genericNameDenylist";
 import {
   applyFxBackfill,
   normalizeFxRow,
@@ -34,6 +35,7 @@ const generateSystemPrompt = (
   companies_list: string,
   userRawNotes: string,
   fileTypeOverride?: FileTypeOverride,
+  fileName?: string,
 ) => `You are a specialized M&A File Processing Assistant. Your task is to analyze raw text extracted from meeting documents (like PPTX slides) and transform it into a highly structured format.
 
 ## Objectives:
@@ -46,10 +48,23 @@ const generateSystemPrompt = (
 7. **Categorize The File Type**: Identify the file type of the document.
 8. **Extract Prospectus Summary**: If the file type is "prospectus", extract a detailed summary of the prospectus.
 9. **Extract Banker Communications**: If the file type is "banker_communications", extract all email communications with their participants.
+10. **Extract Financial Statement Summary**: If the file type is "financial_statement", extract the company name and financial figures.
 
 ## Known Companies:
 ${companies_list}
 ${
+  fileName
+    ? `
+## File Name Hint:
+The original filename is: "${fileName}"
+Use this as a weak fallback signal when identifying the company or project name. M&A filenames often contain the target company name or project codename (e.g. "Acme Corp - IM.pdf", "Project Tulia Teaser.pdf"). Rules:
+- Prefer names extracted from document content over the filename.
+- Only fall back to the filename if the document body yields no clear company_name or project_name.
+- Ignore generic tokens like "teaser", "IM", "CIM", "final", "v2", "draft", "deck", file extensions, and dates.
+- Never override a confidently-extracted company_name with a filename-derived guess.
+`
+    : ''
+}${
   fileTypeOverride
     ? `
 ## User-Specified File Type:
@@ -69,7 +84,17 @@ ${userRawNotes}
    - **Project**: A codename with no known underlying company (e.g. "Project Phoenix", "Project Utopia"). Goes into 'project_name' only; leave 'company_name' null.
    - **Project-in-Company**: A codename explicitly associated with a known company in the document (e.g. "Project Tulia (PT Sinar Mas)"). Set both 'company_name' and 'project_name'.
    Actively scan for project codenames even if they don't match the Known Companies list — treat them as valid detected entities.
-4. **Categorize File Type**: Choose between "prospectus", "mom", "banker_communications", "shopping_list", "market_study", and "other" file type. Use "banker_communications" if the file appears to be an email export (CSV or MBOX format containing email threads, especially from bankers or investment professionals). Use "shopping_list" if the file is a target list or deal pipeline of companies being considered for acquisition. Use "market_study" if the file is a market landscape, sector overview, or industry analysis.
+   **IMPORTANT — Do NOT classify document section headings as company or project names.** Common false positives to reject: "Project Overview", "Project Summary", "Project Background", "Company Overview", "Company Profile", "Business Overview", "Executive Summary", "Transaction Overview", "Transaction Summary", "Deal Overview", "Investment Highlights", "Financial Summary", "Management Overview", "Market Overview", "Opportunity Overview", "Sector Overview". A real project codename is a unique proper name chosen to identify a deal (e.g. "Project Tulia", "Project Phoenix", "Project Atlas") — not a generic document structure phrase. If the only candidate is a generic heading, leave 'project_name' null.
+4. **Categorize File Type**: Choose ONE of "prospectus", "financial_statement", "legal_document", "mom", "banker_communications", "shopping_list", "market_study", or "other".
+   - **prospectus**: ONLY for a document that OFFERS A COMPANY OR BUSINESS FOR SALE to prospective buyers — a teaser, information memorandum (IM), confidential information memorandum (CIM), sale prospectus, or pitch deck marketing a target. The defining test: *is this document presenting a company/asset that is up for acquisition?* If you are not sure a company is being offered for sale, it is NOT a prospectus.
+   - **financial_statement**: audited or management financial statements, annual reports, AFS, balance sheets, P&L, or cash-flow statements presented on their own. These describe a company's finances but do NOT offer it for sale.
+   - **legal_document**: SPAs, share/stock purchase agreements, term sheets, credit agreements, commitment papers, NDAs, and other transaction legal documents.
+   - **mom**: meeting minutes, meeting notes, or call summaries.
+   - **banker_communications**: an email export (CSV or MBOX) containing email threads, especially from bankers or investment professionals.
+   - **shopping_list**: a target list or deal pipeline of companies being considered for acquisition.
+   - **market_study**: a market landscape, sector overview, or industry analysis.
+   - **other**: anything that does not fit above — INCLUDING documents about a BUYER, ACQUIRER, SPONSOR, LENDER, INVESTMENT BANK, or LAW FIRM (e.g. a sponsor/buyer overview deck, a lender presentation, an advisor profile). These parties are NOT companies being sold.
+   **CRITICAL — a document containing financial figures is NOT automatically a prospectus.** Financial statements, SPAs, and buyer/sponsor decks all contain revenue/EBITDA/balance-sheet figures but are NOT sale offerings. Only "prospectus" describes a deal target; misclassifying these other documents as "prospectus" wrongly registers a buyer, lender, or advisor as a company on sale. Classify as "prospectus" ONLY when a company is genuinely being offered for sale.
 5. Final Output must be a valid JSON block containing:
    - summary: A concise overview of the meeting/document.
    - key_points: Array of main takeaways.
@@ -79,6 +104,7 @@ ${userRawNotes}
    - company_notes: Array of objects { "company_name": "...", "note": "..." } containing the specific context for that company.
    - file_date: A string representing the meeting date in YYYY-MM-DD format. If not found, return null.
    - prospectus_summary: Detailed variables of the prospectus file type. Only exist if the file type is "prospectus". Please take a look at the example output below to see the structure of the prospectus_summary.
+   - financial_statement_summary: Extracted financial data from the document. Only present when file_type is "financial_statement". Contains the company name and financials/fx_adjustments arrays in the same structure as prospectus_summary.
    - communications: Array of email communications extracted from banker communications files. Only exists if the file type is "banker_communications". Each communication should have: from_email, from_name, to_email, to_name, subject, body, sent_at (in ISO 8601 format if available), company (if the sender/recipient is associated with a company).
 
 ## Output Format:
@@ -107,6 +133,21 @@ Your response should end with a JSON block in this format:
       "company": "Example Bank"
     }
   ],
+  "financial_statement_summary": {
+    "company_name": "Legal entity name of the company whose financials are reported. Null if genuinely unclear.",
+    "financials": [
+      {
+        "fiscal_year": 2024,
+        "revenue_usd_mn": "<numeric or null>",
+        "ebitda_usd_mn": "<numeric or null>",
+        "ev_usd_mn": "<numeric or null>",
+        "ebitda_margin": "<decimal or null>",
+        "ev_ebitda": "<numeric or null>",
+        "revenue_cagr_vs_prior": "<decimal or null>"
+      }
+    ],
+    "fx_adjustments": []
+  },
   "prospectus_summary": {
     "company_name": "Legal entity name if the document identifies one (e.g. 'Acme Corp'). Null if only a project codename is known.",
     "project_name": "Project codename if present (e.g. 'Project Phoenix'). Null if no codename is used. Set this even when company_name is also known.",
@@ -148,6 +189,7 @@ Your response should end with a JSON block in this format:
 \`\`\`
 
 ## Prospectus Summary Rules:
+- \`company_name\` and \`project_name\` MUST identify the company or project being OFFERED FOR SALE (the deal target). NEVER set them to a buyer, acquirer, sponsor, lender, investment bank, or law firm named in the document. If the document is not offering a specific company for sale, leave both \`null\`.
 - \`financials\` is an array with one object per fiscal year that the document explicitly reports. Years are flexible (typically the most recent 3-5 reported years; valid range 1990..2100). Use \`null\` for individual fields the document does not provide; omit the year entry entirely if the document reports nothing for it.
 - All \`*_usd_mn\` fields are in millions of USD.
 - \`revenue_cagr_vs_prior\` is YoY growth of revenue versus the immediately prior fiscal_year row in this same array. Leave it \`null\` for the earliest year. Express as a decimal (e.g. 0.12 for 12%).
@@ -164,6 +206,12 @@ Your response should end with a JSON block in this format:
   - \`assumed_forex\` MUST be filled. Units: local currency per 1 USD (e.g. KRW 1370/USD → 1370; IDR 16100/USD → 16100). Use a rate quoted in the document if available, otherwise the period-average spot rate for that fiscal year from your training knowledge. Do not leave it null.
   - You MAY leave \`revenue_usd_mn\` and \`ebitda_usd_mn\` \`null\` when the document only reports local-currency figures. The server will derive them as \`<local_in_mn> / assumed_forex\`.
 - Do NOT extract derived screening fields (any \`l0_*\`, \`l1_*\`, segment revenue ratios, priority-geo flags, drop counts, screening rationales, etc.). Those are computed downstream by the screening pipeline.
+
+## Financial Statement Summary Rules:
+- Only populate \`financial_statement_summary\` when \`file_type\` is \`"financial_statement"\`.
+- \`company_name\` is the legal entity whose financials are being reported (e.g. "Frontier Resources Pte. Ltd."). This may be a buyer, seller, or any company — do NOT restrict to deal targets.
+- \`financials\` and \`fx_adjustments\` follow the exact same rules as \`prospectus_summary.financials\` and \`fx_adjustments\` above.
+- Omit \`financial_statement_summary\` entirely (or set to null) for all other file types.
 
 Always prioritize accuracy. Only list a company in 'companies_detected' if you are sure it matches one in the provided known list.`;
 
@@ -200,6 +248,7 @@ export async function processFileContent(
   contentType: string,
   userRawNotes: string,
   fileTypeOverride?: FileTypeOverride,
+  fileName?: string,
 ) {
   const startedAt = Date.now();
   const apiKey = process.env.ANTHROPIC_API_KEY;
@@ -225,11 +274,12 @@ export async function processFileContent(
   const agent = createAgent({
     model: llm,
     tools: [],
-    systemPrompt: generateSystemPrompt(allNames, userRawNotes, fileTypeOverride),
+    systemPrompt: generateSystemPrompt(allNames, userRawNotes, fileTypeOverride, fileName),
   });
 
+  const fileNamePrefix = fileName ? `Filename: ${fileName}\n\n` : '';
   let inputs = {
-    messages: [new HumanMessage(`Raw Content to process:\n\n${rawText}`)] as BaseMessage[],
+    messages: [new HumanMessage(`${fileNamePrefix}Raw Content to process:\n\n${rawText}`)] as BaseMessage[],
   };
 
   let lastMessage: BaseMessage | null = null;
@@ -251,7 +301,7 @@ export async function processFileContent(
         messages: [new HumanMessage({
           content: [{
             type: 'text',
-            text: 'Analyze the following document.',
+            text: fileName ? `Filename: ${fileName}\n\nAnalyze the following document.` : 'Analyze the following document.',
           },
           {
             type: "file",
@@ -294,18 +344,21 @@ export async function processFileContent(
 
       const finalMatchedCompanies: any[] = [];
       let companiesDetected: string[] = Array.isArray(parsed.companies_detected)
-        ? parsed.companies_detected.filter((n: unknown): n is string => typeof n === 'string' && n.length > 0)
+        ? parsed.companies_detected.filter(
+            (n: unknown): n is string =>
+              typeof n === 'string' && n.length > 0 && !isGenericDocumentPhrase(n),
+          )
         : [];
       if (companiesDetected.length === 0 && parsed.file_type === 'prospectus') {
         const fallbackName = parsed.prospectus_summary?.company_name || parsed.prospectus_summary?.project_name;
-        if (fallbackName) companiesDetected = [fallbackName];
+        if (fallbackName && !isGenericDocumentPhrase(fallbackName)) companiesDetected = [fallbackName];
       }
 
       for (const detectedName of companiesDetected) {
         const match = allReferences.find(r => r.name.toLowerCase() === (detectedName as string).toLowerCase());
         if (match) {
           finalMatchedCompanies.push(match);
-        } else {
+        } else if (!isGenericDocumentPhrase(detectedName)) {
           finalMatchedCompanies.push({
             id: null,
             name: detectedName,
@@ -388,6 +441,64 @@ export async function processFileContent(
             r.ebitda_margin !== null || r.ev_ebitda !== null || r.revenue_cagr_vs_prior !== null,
         );
         parsed.prospectus_summary.fx_adjustments = fxRows;
+
+        // Null out section-header phrases so they can't flow into company creation.
+        if (isGenericDocumentPhrase(parsed.prospectus_summary.company_name ?? '')) {
+          parsed.prospectus_summary.company_name = null;
+        }
+        if (isGenericDocumentPhrase(parsed.prospectus_summary.project_name ?? '')) {
+          parsed.prospectus_summary.project_name = null;
+        }
+      }
+
+      // Parse and FX-backfill financial_statement_summary.financials.
+      if (parsed.file_type === 'financial_statement' && parsed.financial_statement_summary) {
+        const fss = parsed.financial_statement_summary;
+
+        const financialRowsRaw: FinancialRow[] = Array.isArray(fss.financials)
+          ? fss.financials
+              .filter((r: any) => r && Number.isInteger(r.fiscal_year))
+              .map((r: any): FinancialRow => ({
+                fiscal_year: r.fiscal_year as number,
+                revenue_usd_mn: r.revenue_usd_mn ?? null,
+                ebitda_usd_mn: r.ebitda_usd_mn ?? null,
+                ev_usd_mn: r.ev_usd_mn ?? null,
+                ebitda_margin: r.ebitda_margin ?? null,
+                ev_ebitda: r.ev_ebitda ?? null,
+                revenue_cagr_vs_prior: r.revenue_cagr_vs_prior ?? null,
+              }))
+          : [];
+
+        const fxRows: FxRow[] = Array.isArray(fss.fx_adjustments)
+          ? fss.fx_adjustments
+              .filter(
+                (r: any) =>
+                  r &&
+                  Number.isInteger(r.fiscal_year) &&
+                  typeof r.currency === 'string' &&
+                  r.currency.length > 0,
+              )
+              .map((r: any) => normalizeFxRow(r as RawFxRow))
+          : [];
+
+        applyFxBackfill(financialRowsRaw, fxRows);
+
+        const warnings = validateFxConsistency(financialRowsRaw, fxRows);
+        for (const w of warnings) {
+          logger.warn(
+            `[financial_statement] FX inconsistency FY${w.fiscal_year} ${w.field}: ` +
+              `reported_usd=${w.reported_usd_mn} vs local/forex=${w.derived_usd_mn.toFixed(2)} ` +
+              `(divergence ${(w.divergence_ratio * 100).toFixed(1)}%). ` +
+              `Trusting USD; ${w.field}_local recomputed to ${w.resolved_local_mn.toFixed(0)}.`,
+          );
+        }
+
+        parsed.financial_statement_summary.financials = financialRowsRaw.filter(
+          (r: FinancialRow) =>
+            r.revenue_usd_mn !== null || r.ebitda_usd_mn !== null || r.ev_usd_mn !== null ||
+            r.ebitda_margin !== null || r.ev_ebitda !== null || r.revenue_cagr_vs_prior !== null,
+        );
+        parsed.financial_statement_summary.fx_adjustments = fxRows;
       }
 
       return parsed;
