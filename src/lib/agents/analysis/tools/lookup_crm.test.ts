@@ -3,6 +3,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 const employerListMock = vi.fn();
 const findByEmployerIdMock = vi.fn();
 const listForEmployerMock = vi.fn();
+const noteFindByEmployerIdMock = vi.fn();
+const topicListForEmployerMock = vi.fn();
+const teamListForEmployerMock = vi.fn();
+const emailFindByEmployerIdMock = vi.fn();
 
 vi.mock("@/lib/server/db", () => ({
   createDb: vi.fn(() => ({})),
@@ -18,11 +22,34 @@ vi.mock("@/lib/repositories", () => ({
   EmployerRelatedCompanyRepository: function EmployerRelatedCompanyRepository() {
     return { listForEmployer: listForEmployerMock };
   },
+  EmployerNoteRepository: function EmployerNoteRepository() {
+    return { findByEmployerId: noteFindByEmployerIdMock };
+  },
+  TopicRepository: function TopicRepository() {
+    return { listForEmployer: topicListForEmployerMock };
+  },
+  EmployerTeamRepository: function EmployerTeamRepository() {
+    return { listForEmployer: teamListForEmployerMock };
+  },
+  EmailRepository: function EmailRepository() {
+    return { findByEmployerId: emailFindByEmployerIdMock };
+  },
 }));
 
 import { lookupCrm } from "./lookup_crm";
 
+// Default every secondary lookup to empty so individual tests only set up the
+// repos they care about.
 afterEach(() => vi.clearAllMocks());
+
+function emptyRelations() {
+  findByEmployerIdMock.mockResolvedValue([]);
+  listForEmployerMock.mockResolvedValue([]);
+  noteFindByEmployerIdMock.mockResolvedValue([]);
+  topicListForEmployerMock.mockResolvedValue([]);
+  teamListForEmployerMock.mockResolvedValue([]);
+  emailFindByEmployerIdMock.mockResolvedValue([]);
+}
 
 describe("lookupCrm", () => {
   it("asks for input when the query is blank", async () => {
@@ -49,6 +76,7 @@ describe("lookupCrm", () => {
         last_contact_at: "2026-06-01T00:00:00.000Z",
       },
     ]);
+    emptyRelations();
     findByEmployerIdMock.mockResolvedValue([
       {
         name: "Jane Doe",
@@ -86,6 +114,63 @@ describe("lookupCrm", () => {
     expect(result).toContain("Acme Corp (confidence: high)");
   });
 
+  it("renders topics, team coverage, recent emails, and notes", async () => {
+    employerListMock.mockResolvedValue([
+      {
+        id: "emp-1",
+        name: "Evercore",
+        industry: "Investment Banking",
+        status: "inbound",
+        email_count: 3,
+        last_contact_at: "2026-06-01T00:00:00.000Z",
+      },
+    ]);
+    emptyRelations();
+    topicListForEmployerMock.mockResolvedValue([
+      { id: "t1", topic_id: "t1", name: "Acquisition", slug: "acquisition", source: "auto", is_highlight: true },
+      { id: "t2", topic_id: "t2", name: "Financing", slug: "financing", source: "manual", is_highlight: false },
+    ]);
+    teamListForEmployerMock.mockResolvedValue([
+      { id: "u1", name: "Alice Banker", email: "alice@firm.com" },
+      { id: "u2", name: "Bob Analyst", email: null },
+    ]);
+    emailFindByEmployerIdMock.mockResolvedValue([
+      {
+        subject: "Intro call follow-up",
+        sent_at: "2026-06-01T09:00:00.000Z",
+        direction: "inbound",
+        from_display_name: "Jane Doe",
+        from_address: "jane@evercore.com",
+      },
+      {
+        subject: null,
+        sent_at: "2026-05-28T09:00:00.000Z",
+        direction: "outbound",
+        from_display_name: null,
+        from_address: "us@ourfirm.com",
+      },
+    ]);
+    noteFindByEmployerIdMock.mockResolvedValue([
+      { content: "Discussed potential CMP slurry deal.", created_at: "2026-05-30T00:00:00.000Z" },
+    ]);
+
+    const result = (await lookupCrm.invoke({ query: "Evercore" })) as string;
+
+    expect(emailFindByEmployerIdMock).toHaveBeenCalledWith("emp-1", { limit: 5 });
+    // Topics — highlighted topic is bolded.
+    expect(result).toContain("**Topics:** **Acquisition**, Financing");
+    // Team coverage.
+    expect(result).toContain("- Alice Banker (alice@firm.com)");
+    expect(result).toContain("- Bob Analyst");
+    // Recent emails — direction, date, subject, sender.
+    expect(result).toContain("### Recent emails");
+    expect(result).toContain("2026-06-01 ↘ received — Intro call follow-up (from Jane Doe)");
+    expect(result).toContain("2026-05-28 ↗ sent — (no subject)");
+    // Notes.
+    expect(result).toContain("### Notes");
+    expect(result).toContain("2026-05-30: Discussed potential CMP slurry deal.");
+  });
+
   it("dedupes linked companies that appear under multiple sources", async () => {
     employerListMock.mockResolvedValue([
       {
@@ -97,7 +182,7 @@ describe("lookupCrm", () => {
         last_contact_at: null,
       },
     ]);
-    findByEmployerIdMock.mockResolvedValue([]);
+    emptyRelations();
     listForEmployerMock.mockResolvedValue([
       {
         company_id: "co-1",
@@ -121,7 +206,7 @@ describe("lookupCrm", () => {
     expect(result.match(/Acme Corp/g)?.length).toBe(1);
   });
 
-  it("notes when a firm has no bankers on record", async () => {
+  it("notes when a firm has no related records on file", async () => {
     employerListMock.mockResolvedValue([
       {
         id: "emp-2",
@@ -132,12 +217,15 @@ describe("lookupCrm", () => {
         last_contact_at: null,
       },
     ]);
-    findByEmployerIdMock.mockResolvedValue([]);
-    listForEmployerMock.mockResolvedValue([]);
+    emptyRelations();
 
     const result = (await lookupCrm.invoke({ query: "Lonely" })) as string;
     expect(result).toContain("_No bankers/correspondents on record._");
     expect(result).toContain("_No linked pipeline companies on record._");
+    expect(result).toContain("**Topics:** _No topics on record._");
+    expect(result).toContain("_No team members assigned._");
+    expect(result).toContain("_No emails on record._");
+    expect(result).toContain("_No notes on record._");
   });
 
   it("passes through an explicit in-range limit", async () => {
