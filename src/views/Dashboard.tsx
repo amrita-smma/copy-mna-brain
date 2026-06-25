@@ -9,6 +9,11 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import {
   Dialog,
   DialogContent,
   DialogHeader,
@@ -156,6 +161,7 @@ interface FeedEvent {
   dropped_reason?: string | null;
   remarks?: string | null;
   thesis_content?: string | null;
+  promoted_reasons?: string | null;
   note_content?: string | null;
   note_stage?: string | null;
   revenue_usd_mn?: number | null;
@@ -204,6 +210,8 @@ function buildFeedEvents(activity: DashboardActivity): FeedEvent[] {
       geography: c.geography ?? null,
       source: c.source ?? null,
       event_at: c.event_at,
+      remarks: c.remarks ?? null,
+      thesis_content: c.thesis_content ?? null,
       revenue_usd_mn: c.revenue_usd_mn ?? null,
       ebitda_usd_mn: c.ebitda_usd_mn ?? null,
       ev_usd_mn: c.ev_usd_mn ?? null,
@@ -227,6 +235,7 @@ function buildFeedEvents(activity: DashboardActivity): FeedEvent[] {
       to_stage: toStage,
       remarks: m.remarks ?? null,
       thesis_content: m.thesis_content ?? null,
+      promoted_reasons: m.promoted_reasons ?? null,
       revenue_usd_mn: m.revenue_usd_mn ?? null,
       ebitda_usd_mn: m.ebitda_usd_mn ?? null,
       ev_usd_mn: m.ev_usd_mn ?? null,
@@ -247,6 +256,7 @@ function buildFeedEvents(activity: DashboardActivity): FeedEvent[] {
       event_at: d.dropped_at,
       dropped_stage: d.pipeline_stage ?? null,
       dropped_reason: d.dropped_reason ?? null,
+      remarks: d.remarks ?? null,
       thesis_content: d.thesis_content ?? null,
       revenue_usd_mn: d.revenue_usd_mn ?? null,
       ebitda_usd_mn: d.ebitda_usd_mn ?? null,
@@ -1328,46 +1338,55 @@ export default function Dashboard({
                           {recapNewDeals
                             .slice(0, recapNewDealsCount)
                             .map((c) => (
-                              <div
-                                key={`${c.id}-${c.event_at}`}
-                                className="flex items-start gap-2 p-2 rounded-lg hover:bg-muted/40 transition-colors cursor-pointer"
-                                onClick={() => handleCompanyClick(c.id)}
-                              >
-                                <div className="flex h-6 w-6 items-center justify-center rounded bg-emerald-100 dark:bg-emerald-900/30 shrink-0">
-                                  <span className="text-emerald-600 dark:text-emerald-400 text-sm font-bold">
-                                    +
-                                  </span>
-                                </div>
-                                <div className="flex-1 min-w-0">
-                                  <div className="flex items-start justify-between gap-2">
-                                    <p className="text-sm font-medium truncate">
-                                      {companyDisplayName(c, "—")}
-                                    </p>
-                                    <span className="text-xs text-muted-foreground shrink-0">
-                                      {formatShortDate(c.event_at)}
-                                    </span>
+                              <Tooltip key={`${c.id}-${c.event_at}`}>
+                                <TooltipTrigger asChild>
+                                  <div
+                                    className="flex items-start gap-2 p-2 rounded-lg hover:bg-muted/40 transition-colors cursor-pointer"
+                                    onClick={() => handleCompanyClick(c.id)}
+                                  >
+                                    <div className="flex h-6 w-6 items-center justify-center rounded bg-emerald-100 dark:bg-emerald-900/30 shrink-0">
+                                      <span className="text-emerald-600 dark:text-emerald-400 text-sm font-bold">
+                                        +
+                                      </span>
+                                    </div>
+                                    <div className="flex-1 min-w-0">
+                                      <div className="flex items-start justify-between gap-2">
+                                        <p className="text-sm font-medium truncate">
+                                          {companyDisplayName(c, "—")}
+                                        </p>
+                                        <span className="text-xs text-muted-foreground shrink-0">
+                                          {formatShortDate(c.event_at)}
+                                        </span>
+                                      </div>
+                                      <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+                                        <SourceChip source={c.source} />
+                                        {c.segment && (
+                                          <Badge
+                                            variant="secondary"
+                                            className="text-[10px] px-1.5 py-0.5 min-h-4 rounded-md whitespace-normal break-words text-left leading-snug"
+                                          >
+                                            {c.segment}
+                                          </Badge>
+                                        )}
+                                        {c.geography && (
+                                          <Badge
+                                            variant="outline"
+                                            className="text-[10px] px-1.5 py-0.5 min-h-4 rounded-md whitespace-normal break-words text-left leading-snug"
+                                          >
+                                            {c.geography}
+                                          </Badge>
+                                        )}
+                                      </div>
+                                    </div>
                                   </div>
-                                  <div className="flex items-center gap-1.5 mt-1 flex-wrap">
-                                    <SourceChip source={c.source} />
-                                    {c.segment && (
-                                      <Badge
-                                        variant="secondary"
-                                        className="text-[10px] px-1.5 py-0.5 min-h-4 rounded-md whitespace-normal break-words text-left leading-snug"
-                                      >
-                                        {c.segment}
-                                      </Badge>
-                                    )}
-                                    {c.geography && (
-                                      <Badge
-                                        variant="outline"
-                                        className="text-[10px] px-1.5 py-0.5 min-h-4 rounded-md whitespace-normal break-words text-left leading-snug"
-                                      >
-                                        {c.geography}
-                                      </Badge>
-                                    )}
-                                  </div>
-                                </div>
-                              </div>
+                                </TooltipTrigger>
+                                {c.remarks && (
+                                  <TooltipContent className="max-w-xs space-y-1">
+                                    <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Remarks</p>
+                                    <p className="text-xs leading-relaxed">{c.remarks}</p>
+                                  </TooltipContent>
+                                )}
+                              </Tooltip>
                             ))}
                           {recapNewDeals.length > recapNewDealsCount && (
                             <button
@@ -1405,49 +1424,58 @@ export default function Dashboard({
                       ) : (
                         <>
                           {recapDropped.slice(0, recapDroppedCount).map((d) => (
-                            <div
-                              key={d.id}
-                              className="flex items-start gap-2 p-2 rounded-lg hover:bg-muted/40 transition-colors cursor-pointer"
-                              onClick={() => handleCompanyClick(d.id)}
-                            >
-                              <div className="flex h-6 w-6 items-center justify-center rounded bg-red-100 dark:bg-red-900/30 shrink-0">
-                                <XCircle className="h-3.5 w-3.5 text-red-500" />
-                              </div>
-                              <div className="flex-1 min-w-0">
-                                <div className="flex items-start justify-between gap-2">
-                                  <p className="text-sm font-medium truncate">
-                                    {companyDisplayName(d, "—")}
-                                  </p>
-                                  <span className="text-xs text-muted-foreground shrink-0">
-                                    {formatShortDate(d.dropped_at)}
-                                  </span>
+                            <Tooltip key={d.id}>
+                              <TooltipTrigger asChild>
+                                <div
+                                  className="flex items-start gap-2 p-2 rounded-lg hover:bg-muted/40 transition-colors cursor-pointer"
+                                  onClick={() => handleCompanyClick(d.id)}
+                                >
+                                  <div className="flex h-6 w-6 items-center justify-center rounded bg-red-100 dark:bg-red-900/30 shrink-0">
+                                    <XCircle className="h-3.5 w-3.5 text-red-500" />
+                                  </div>
+                                  <div className="flex-1 min-w-0">
+                                    <div className="flex items-start justify-between gap-2">
+                                      <p className="text-sm font-medium truncate">
+                                        {companyDisplayName(d, "—")}
+                                      </p>
+                                      <span className="text-xs text-muted-foreground shrink-0">
+                                        {formatShortDate(d.dropped_at)}
+                                      </span>
+                                    </div>
+                                    <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+                                      <SourceChip source={d.source} />
+                                      {d.segment && (
+                                        <Badge
+                                          variant="secondary"
+                                          className="text-[10px] px-1.5 py-0.5 min-h-4 rounded-md whitespace-normal break-words text-left leading-snug"
+                                        >
+                                          {d.segment}
+                                        </Badge>
+                                      )}
+                                      {d.geography && (
+                                        <Badge
+                                          variant="outline"
+                                          className="text-[10px] px-1.5 py-0.5 min-h-4 rounded-md whitespace-normal break-words text-left leading-snug"
+                                        >
+                                          {d.geography}
+                                        </Badge>
+                                      )}
+                                    </div>
+                                    {d.pipeline_stage && (
+                                      <p className="text-xs text-muted-foreground mt-1">
+                                        Dropped at {d.pipeline_stage}
+                                      </p>
+                                    )}
+                                  </div>
                                 </div>
-                                <div className="flex items-center gap-1.5 mt-1 flex-wrap">
-                                  <SourceChip source={d.source} />
-                                  {d.segment && (
-                                    <Badge
-                                      variant="secondary"
-                                      className="text-[10px] px-1.5 py-0.5 min-h-4 rounded-md whitespace-normal break-words text-left leading-snug"
-                                    >
-                                      {d.segment}
-                                    </Badge>
-                                  )}
-                                  {d.geography && (
-                                    <Badge
-                                      variant="outline"
-                                      className="text-[10px] px-1.5 py-0.5 min-h-4 rounded-md whitespace-normal break-words text-left leading-snug"
-                                    >
-                                      {d.geography}
-                                    </Badge>
-                                  )}
-                                </div>
-                                {d.pipeline_stage && (
-                                  <p className="text-xs text-muted-foreground mt-1">
-                                    Dropped at {d.pipeline_stage}
-                                  </p>
-                                )}
-                              </div>
-                            </div>
+                              </TooltipTrigger>
+                              {d.dropped_reason && (
+                                <TooltipContent className="max-w-xs space-y-1">
+                                  <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Dropped Reason</p>
+                                  <p className="text-xs leading-relaxed">{d.dropped_reason}</p>
+                                </TooltipContent>
+                              )}
+                            </Tooltip>
                           ))}
                           {recapDropped.length > recapDroppedCount && (
                             <button
@@ -1488,47 +1516,58 @@ export default function Dashboard({
                               const { from: fromStage, to: toStage } =
                                 parsePipelineMoveAction(m.action);
                               return (
-                                <div
-                                  key={m.id}
-                                  className="flex items-start gap-2 p-2 rounded-lg hover:bg-muted/40 transition-colors cursor-pointer"
-                                  onClick={() =>
-                                    m.company_id &&
-                                    handleCompanyClick(m.company_id)
-                                  }
-                                >
-                                  <div className="flex-1 min-w-0">
-                                    <div className="flex items-start justify-between gap-2">
-                                      <p className="text-sm font-medium truncate">
-                                        {companyDisplayName(m, "—")}
-                                      </p>
-                                      <div className="flex items-center gap-1 shrink-0">
-                                        {fromStage && (
-                                          <StageChip stage={fromStage} />
-                                        )}
-                                        {fromStage && toStage && (
-                                          <ChevronRight className="h-3 w-3 text-muted-foreground" />
-                                        )}
-                                        {toStage && (
-                                          <StageChip stage={toStage} />
-                                        )}
-                                        <span className="text-xs text-muted-foreground ml-1">
-                                          {formatShortDate(m.created_at)}
-                                        </span>
+                                <Tooltip key={m.id}>
+                                  <TooltipTrigger asChild>
+                                    <div
+                                      className="flex items-start gap-2 p-2 rounded-lg hover:bg-muted/40 transition-colors cursor-pointer"
+                                      onClick={() =>
+                                        m.company_id &&
+                                        handleCompanyClick(m.company_id)
+                                      }
+                                    >
+                                      <div className="flex-1 min-w-0">
+                                        <div className="flex items-start justify-between gap-2">
+                                          <p className="text-sm font-medium truncate">
+                                            {companyDisplayName(m, "—")}
+                                          </p>
+                                          <div className="flex items-center gap-1 shrink-0">
+                                            {fromStage && (
+                                              <StageChip stage={fromStage} />
+                                            )}
+                                            {fromStage && toStage && (
+                                              <ChevronRight className="h-3 w-3 text-muted-foreground" />
+                                            )}
+                                            {toStage && (
+                                              <StageChip stage={toStage} />
+                                            )}
+                                            <span className="text-xs text-muted-foreground ml-1">
+                                              {formatShortDate(m.created_at)}
+                                            </span>
+                                          </div>
+                                        </div>
+                                        <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+                                          <SourceChip source={m.source} />
+                                          {m.geography && (
+                                            <Badge
+                                              variant="outline"
+                                              className="text-[10px] px-1.5 py-0.5 min-h-4 rounded-md whitespace-normal break-words text-left leading-snug"
+                                            >
+                                              {m.geography}
+                                            </Badge>
+                                          )}
+                                        </div>
                                       </div>
                                     </div>
-                                    <div className="flex items-center gap-1.5 mt-1 flex-wrap">
-                                      <SourceChip source={m.source} />
-                                      {m.geography && (
-                                        <Badge
-                                          variant="outline"
-                                          className="text-[10px] px-1.5 py-0.5 min-h-4 rounded-md whitespace-normal break-words text-left leading-snug"
-                                        >
-                                          {m.geography}
-                                        </Badge>
-                                      )}
-                                    </div>
-                                  </div>
-                                </div>
+                                  </TooltipTrigger>
+                                  {(m.promoted_reasons || m.remarks) && (
+                                    <TooltipContent className="max-w-xs space-y-1">
+                                      <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                                        {m.promoted_reasons ? "Promoted Reason" : "Remarks"}
+                                      </p>
+                                      <p className="text-xs leading-relaxed">{m.promoted_reasons ?? m.remarks}</p>
+                                    </TooltipContent>
+                                  )}
+                                </Tooltip>
                               );
                             })}
                           {recapStageMoves.length > recapStageMovesCount && (
@@ -1897,10 +1936,30 @@ function FeedEventRow({
   const inlineNote =
     event.type === "note_updated"
       ? event.note_content
-      : (event.remarks ?? null);
+      : event.type === "stage_move"
+        ? (event.promoted_reasons ?? event.remarks ?? null)
+        : (event.remarks ?? null);
+
+  const inlineLabel =
+    event.type === "note_updated"
+      ? null
+      : event.type === "stage_move"
+        ? (event.promoted_reasons ? "Promoted Reason" : "Remarks")
+        : "Remarks";
 
   return (
-    <div className="flex items-start gap-3 rounded-lg border bg-card p-4 shadow-sm">
+    <div
+      role="button"
+      tabIndex={0}
+      onClick={() => onCompanyClick(event.company_id)}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onCompanyClick(event.company_id);
+        }
+      }}
+      className="flex items-start gap-3 rounded-lg border bg-card p-4 shadow-sm cursor-pointer transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+    >
       {/* Color dot */}
       <div className="mt-1.5 shrink-0">
         <div className={`h-2.5 w-2.5 rounded-full ${dotColors[event.type]}`} />
@@ -1913,21 +1972,24 @@ function FeedEventRow({
           <button
             type="button"
             data-testid={`feed-event-company-button-${event.company_id}`}
-            onClick={() => onCompanyClick(event.company_id)}
+            onClick={(e) => e.stopPropagation()}
             className="text-sm font-semibold text-left hover:text-primary transition-colors"
           >
             {event.company_name}
           </button>
           {onAnalyze && analyzeLabel && analyzeVariant === "icon" && (
-            <AskAIButton
-              variant="icon"
-              label={analyzeLabel}
-              onClick={onAnalyze}
-            />
+            <span onClick={(e) => e.stopPropagation()}>
+              <AskAIButton
+                variant="icon"
+                label={analyzeLabel}
+                onClick={onAnalyze}
+              />
+            </span>
           )}
         </div>
 
-        {/* Event detail line */}
+        {/* Event detail line — only rendered for event types that have chips */}
+        {(event.type === "stage_move" || event.type === "dropped") && (
         <div className="flex items-center gap-2 flex-wrap">
           {event.type === "stage_move" && (
             <>
@@ -1946,24 +2008,24 @@ function FeedEventRow({
             </>
           )}
         </div>
+        )}
 
         {/* Dropped reason */}
         {event.type === "dropped" && event.dropped_reason && (
-          <p className="text-xs leading-relaxed line-clamp-3">
-            <span className="font-semibold text-red-600 dark:text-red-400">
-              Reason:
-            </span>{" "}
-            <span className="text-muted-foreground">
-              {event.dropped_reason}
-            </span>
-          </p>
+          <div className="space-y-0.5">
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Dropped Reason</p>
+            <p className="text-xs text-muted-foreground leading-relaxed line-clamp-3">{event.dropped_reason}</p>
+          </div>
         )}
 
         {/* Inline note / remarks */}
         {inlineNote && (
-          <p className="text-xs text-muted-foreground leading-relaxed line-clamp-3">
-            {inlineNote}
-          </p>
+          <div className="space-y-0.5">
+            {inlineLabel && (
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{inlineLabel}</p>
+            )}
+            <p className="text-xs text-muted-foreground leading-relaxed line-clamp-3">{inlineNote}</p>
+          </div>
         )}
 
         {/* Financial summary — Rev / EBITDA / EV for the company's reported year */}
@@ -2002,12 +2064,14 @@ function FeedEventRow({
 
         {/* Mobile "Analyze using AI" pill — bottom of card */}
         {onAnalyze && analyzeLabel && analyzeVariant === "button" && (
-          <AskAIButton
-            variant="button"
-            label={analyzeLabel}
-            onClick={onAnalyze}
-            className="mt-0.5 w-full justify-center"
-          />
+          <span onClick={(e) => e.stopPropagation()}>
+            <AskAIButton
+              variant="button"
+              label={analyzeLabel}
+              onClick={onAnalyze}
+              className="mt-0.5 w-full justify-center"
+            />
+          </span>
         )}
       </div>
     </div>

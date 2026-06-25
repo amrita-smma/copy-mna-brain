@@ -50,6 +50,7 @@ export interface FeedEvent {
   dropped_reason?: string | null;
   remarks?: string | null;
   thesis_content?: string | null;
+  promoted_reasons?: string | null;
   note_content?: string | null;
   note_stage?: string | null;
   revenue_usd_mn?: number | null;
@@ -208,6 +209,8 @@ export function buildFeedEvents(activity: {
       geography: c.geography ?? null,
       source: c.source ?? null,
       event_at: c.event_at,
+      remarks: c.remarks ?? null,
+      thesis_content: c.thesis_content ?? null,
       revenue_usd_mn: c.revenue_usd_mn ?? null,
       ebitda_usd_mn: c.ebitda_usd_mn ?? null,
       ev_usd_mn: c.ev_usd_mn ?? null,
@@ -231,6 +234,7 @@ export function buildFeedEvents(activity: {
       to_stage: toStage,
       remarks: m.remarks ?? null,
       thesis_content: m.thesis_content ?? null,
+      promoted_reasons: m.promoted_reasons ?? null,
       revenue_usd_mn: m.revenue_usd_mn ?? null,
       ebitda_usd_mn: m.ebitda_usd_mn ?? null,
       ev_usd_mn: m.ev_usd_mn ?? null,
