@@ -2,11 +2,15 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createDb } from '@/lib/server/db';
 import { createContainer } from '@/lib/services';
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   try {
     const db = createDb();
     const { investmentThesisService } = createContainer(db);
-    const data = await investmentThesisService.findActive();
+    // `?all=1` returns every thesis ("Track"); default returns the active one.
+    const all = req.nextUrl.searchParams.get('all');
+    const data = all
+      ? await investmentThesisService.list()
+      : await investmentThesisService.findActive();
     return NextResponse.json({ data });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : 'Failed to fetch investment thesis';

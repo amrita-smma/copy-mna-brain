@@ -55,6 +55,7 @@ import { DealLinkService } from './dealLinkService';
 import { CompanyAnalysisService } from './companyAnalysisService';
 import { AIScreeningService } from './aiScreeningService';
 import { MarketScreeningService } from './marketScreeningService';
+import { TrackMatchingService } from './trackMatchingService';
 import { SlideService } from './slideService';
 import { FileService } from './fileService';
 import { ChatService } from './chatService';
@@ -85,6 +86,7 @@ export interface Container {
   companyAnalysisService: CompanyAnalysisService;
   aiScreeningService: AIScreeningService;
   marketScreeningService: MarketScreeningService;
+  trackMatchingService: TrackMatchingService;
   slideService: SlideService;
   fileService: FileService;
   chatService: ChatService;
@@ -149,6 +151,7 @@ export function createContainer(db: DbClient): Container {
   const companyAnalysisService = new CompanyAnalysisService(companyAnalysisRepo, companyRepo, db);
   const aiScreeningService = new AIScreeningService(screeningRepo, jobDispatcher);
   const marketScreeningService = new MarketScreeningService(jobDispatcher);
+  const trackMatchingService = new TrackMatchingService(jobDispatcher);
   const slideService = new SlideService(companySlidesRepo, jobDispatcher);
 
   const companyService = new CompanyService(
@@ -160,6 +163,7 @@ export function createContainer(db: DbClient): Container {
     companyFinancialRepo,
     companyFxAdjustmentRepo,
     companyScreeningDerivedRepo,
+    trackMatchingService,
   );
   const companyGraphService = new CompanyGraphService(companyGraphRepo, jobDispatcher);
   const companyRelationshipService = new CompanyRelationshipService(
@@ -179,6 +183,7 @@ export function createContainer(db: DbClient): Container {
     companyFinancialRepo,
     companyService,
     companyFxAdjustmentRepo,
+    trackMatchingService,
   );
 
   const employerRepo = new EmployerRepository(db);
@@ -243,6 +248,7 @@ export function createContainer(db: DbClient): Container {
     companyAnalysisService,
     aiScreeningService,
     marketScreeningService,
+    trackMatchingService,
     slideService,
     fileService,
     chatService,

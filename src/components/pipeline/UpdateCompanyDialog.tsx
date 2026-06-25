@@ -36,6 +36,8 @@ import StatusCombobox, {
 } from "@/components/pipeline/StatusCombobox";
 import type { Tables } from "@/lib/repositories";
 import { normalizeStake } from "@/lib/stake";
+import TrackMultiSelect from "@/components/pipeline/TrackMultiSelect";
+import type { TrackLike } from "@/lib/tracks/matchTracks";
 
 /** Fields the dialog reads from a pipeline company. PipelineCompany is assignable. */
 export interface UpdateCompanyData {
@@ -55,11 +57,14 @@ export interface UpdateCompanyData {
   deal_size: string | null;
   workflow_status: string | null;
   key_rationale: string | null;
+  matched_track_ids?: string[] | null;
   financials_raw?: Tables<"company_financials">[];
 }
 
 interface UpdateCompanyDialogProps {
   company: UpdateCompanyData;
+  /** Available tracks (investment theses) for the Matched Tracks selector. */
+  tracks: TrackLike[];
   open: boolean;
   onOpenChange: (open: boolean) => void;
   /** Called after a successful save so the parent can refetch. */
@@ -87,6 +92,7 @@ type Form = {
   ebitda: string;
   ebitda_year: string;
   key_rationale: string;
+  matched_track_ids: string[];
 };
 
 /** timestamptz ISO string -> YYYY-MM-DD for <input type="date">. */
@@ -134,11 +140,13 @@ const buildForm = (c: UpdateCompanyData): Form => {
     ebitda: ebitda.value != null ? String(ebitda.value) : "",
     ebitda_year: ebitda.year != null ? String(ebitda.year) : "",
     key_rationale: c.key_rationale ?? "",
+    matched_track_ids: c.matched_track_ids ?? [],
   };
 };
 
 export default function UpdateCompanyDialog({
   company,
+  tracks,
   open,
   onOpenChange,
   onUpdate,
@@ -244,6 +252,7 @@ export default function UpdateCompanyDialog({
         stake: stakeResult.value,
         deal_size: form.deal_size.trim() || null,
         key_rationale: form.key_rationale.trim() || null,
+        matched_track_ids: form.matched_track_ids,
       });
       if (financialRows.length > 0) {
         await updateCompanyFinancials(company.id, { rows: financialRows });
@@ -477,6 +486,19 @@ export default function UpdateCompanyDialog({
               disabled={isSaving}
             />
           </div>
+          {tracks.length > 0 && (
+            <div className="col-span-2 space-y-1.5">
+              <Label>Matched Tracks</Label>
+              <TrackMultiSelect
+                tracks={tracks}
+                value={form.matched_track_ids}
+                onChange={(next) => set("matched_track_ids", next)}
+                placeholder="Auto-matched — select to override…"
+                disabled={isSaving}
+              />
+            </div>
+          )}
+
           <div className="col-span-2 space-y-1.5">
             <Label>Status</Label>
             <StatusCombobox

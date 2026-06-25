@@ -64,6 +64,7 @@ export const jobType = pgEnum("job_type", [
   "attachment_extract",
   "attachment_upload",
   "graph_sync",
+  "track_matching",
 ]);
 export const l1Result = pgEnum("l1_result", ["pass", "fail", "inconclusive"]);
 export const pipelineStage = pgEnum("pipeline_stage", [
@@ -361,6 +362,9 @@ export const companies = pgTable(
     review_state: text().default("reviewed").notNull(),
     banker_source: text(),
     possible_duplicate_company_id: uuid(),
+    // Investment-thesis ("Track") ids this company is manually matched to.
+    // Empty array → the UI falls back to auto-suggested tracks.
+    matched_track_ids: jsonb().$type<string[]>().default([]),
   },
   (table) => {
     return {
@@ -766,6 +770,8 @@ export const investmentThesis = pgTable(
     id: uuid().defaultRandom().primaryKey().notNull(),
     title: text().notNull(),
     content: text().notNull(),
+    // Person in charge of this thesis ("Track"). Free-text (team member name).
+    pic: text(),
     is_active: boolean().default(true),
     scan_frequency: text().default("weekly"),
     last_scan_at: timestamp({ withTimezone: true, mode: "string" }),

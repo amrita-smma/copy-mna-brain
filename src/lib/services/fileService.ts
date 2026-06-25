@@ -27,6 +27,7 @@ import type { CompanyAnalysisService } from './companyAnalysisService';
 import type { AIScreeningService } from './aiScreeningService';
 import type { CRMService } from './crmService';
 import { CompanyService } from './companyService';
+import type { TrackMatchingService } from './trackMatchingService';
 
 /**
  * File types that describe a deal target (a company/project genuinely offered
@@ -116,6 +117,9 @@ export class FileService {
     private readonly companyFinancialRepo: CompanyFinancialRepository,
     private readonly companyService: CompanyService,
     private readonly companyFxAdjustmentRepo: CompanyFxAdjustmentRepository,
+    // Passed to transaction-scoped CompanyService instances so AI File Dump
+    // inbound companies entering L0 also trigger agent-driven track matching.
+    private readonly trackMatchingService?: TrackMatchingService,
   ) {}
 
   setCRMService(crmService: CRMService) {
@@ -682,6 +686,7 @@ export class FileService {
       new CompanyFinancialRepository(db),
       new CompanyFxAdjustmentRepository(db),
       new CompanyScreeningDerivedRepository(db),
+      this.trackMatchingService,
     );
   }
 

@@ -20,6 +20,13 @@ import {
   type CompanyDTO,
   type CompanyDTOInput,
 } from '@/lib/dto/companyDTO';
+import type { TrackMatchingService } from './trackMatchingService';
+
+const L0_STAGE: DealStage = 'L0';
+// Stages above L0. A move into L0 from one of these is a *demotion*, not a fresh
+// entry, so it must NOT re-trigger track matching (the company was matched when
+// it first entered L0).
+const POST_L0_STAGES: ReadonlySet<string> = new Set(['L1', 'L2', 'L3', 'L4', 'L5']);
 
 export interface FinancialUpsertInput {
   fiscal_year: number;
@@ -55,10 +62,28 @@ export class CompanyService {
     private readonly companyFinancialRepo: CompanyFinancialRepository,
     private readonly companyFxAdjustmentRepo: CompanyFxAdjustmentRepository,
     private readonly companyScreeningDerivedRepo: CompanyScreeningDerivedRepository,
+    // Optional: when present, a company entering L0 triggers agent-driven track
+    // matching. Left out in contexts that never create/promote (e.g. read-only).
+    private readonly trackMatchingService?: TrackMatchingService,
   ) {}
 
   findById(id: string) {
     return this.companyRepo.findById(id);
+  }
+
+  /**
+   * Fire the agent-driven track-matching job for a company that just entered
+   * L0. Awaited so the job row is committed before the request returns (the
+   * actual matching still runs after the response via `after()`); a dispatch
+   * hiccup is logged but never fails the create/promote.
+   */
+  private async dispatchTrackMatching(companyId: string): Promise<void> {
+    if (!this.trackMatchingService) return;
+    try {
+      await this.trackMatchingService.dispatch({ companyId });
+    } catch (err) {
+      console.error('[CompanyService] track-matching dispatch failed:', err);
+    }
   }
 
   findByNameFuzzy(namePart: string) {
@@ -174,6 +199,9 @@ export class CompanyService {
     await this.applyChildWrites(inserted.id, split);
     if (logAction) {
       await this.companyLogRepo.insert({ company_id: inserted.id, action: logAction });
+    }
+    if (inserted.pipeline_stage === L0_STAGE) {
+      await this.dispatchTrackMatching(inserted.id);
     }
     return this.findByIdDTO(inserted.id);
   }
@@ -310,6 +338,11 @@ export class CompanyService {
     }
     if (assigneeIds !== undefined) {
       await this.companyRepo.setAssignees(id, assigneeIds);
+    }
+    // Match on entry into L0 from a pre-L0 stage (sourcing/discovery), but not
+    // when a company is demoted back into L0 from L1+.
+    if (nextStage === L0_STAGE && !POST_L0_STAGES.has(currentStage ?? '')) {
+      await this.dispatchTrackMatching(id);
     }
   }
 

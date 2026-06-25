@@ -465,6 +465,19 @@ and every state change is appended to `job_logs`. Transactional email is the one
 async path that runs through Vercel Queues instead — see the forgot-password
 section above for the rationale.
 
+**Investment Tracks & matching.** Investment theses are managed as multiple
+**Tracks** (backed by the `investment_thesis` table; `title` = name, `content` =
+thesis, plus `pic` and the scan cadence). Track Settings (Pipeline header) CRUDs
+them; the AI Market Scanner's Configure dialog selects which Tracks are active
+(`is_active`) for scanning. When a company **enters L0** (created at L0 or
+promoted to L0), `CompanyService` dispatches a `track_matching` job
+(`TrackMatchingService.dispatch` → `runTrackMatching`) that asks the analysis
+agent which Tracks the company fits and persists the result to
+`companies.matched_track_ids` (falling back to a keyword heuristic when the agent
+is unavailable). Matching is computed **once at L0 entry** — the UI shows the
+persisted ids and never recomputes live, so pills stay stable when theses change.
+Users can override the assignment per company in the Update Company dialog.
+
 **Company Card generation** no longer uses the `jobs` table. `POST
 /api/company-analysis` → `CompanyAnalysisService.dispatch` now enqueues an **AI
 Workforce** run (`ai_workforce_queue`, `agent_name: 'company_card'`) whose

@@ -60,6 +60,8 @@ export interface CompanyDTO {
   review_state: string;
   banker_source: string | null;
   possible_duplicate_company_id: string | null;
+  // Investment-thesis ("Track") ids this company is manually matched to.
+  matched_track_ids: string[];
 
   remarks: string | null;
   thesis_content: string | null;
@@ -212,6 +214,7 @@ export function toCompanyDTO(
     review_state: company.review_state ?? 'reviewed',
     banker_source: company.banker_source ?? null,
     possible_duplicate_company_id: company.possible_duplicate_company_id ?? null,
+    matched_track_ids: company.matched_track_ids ?? [],
     remarks: company.remarks,
     thesis_content: company.thesis_content,
     created_at: company.created_at,
@@ -339,7 +342,7 @@ export function splitCompanyDTO(dto: CompanyDTOInput): SplitCompanyWrite {
     'geography', 'source', 'status', 'pipeline_stage', 'remarks', 'thesis_content',
     'deal_type', 'originator', 'last_activity_at', 'banker', 'doc_type', 'stake',
     'deal_size', 'workflow_status', 'key_rationale', 'review_state', 'banker_source',
-    'possible_duplicate_company_id',
+    'possible_duplicate_company_id', 'matched_track_ids',
   ] as const;
   for (const k of coreKeys) {
     if (k in dto) {

@@ -66,6 +66,7 @@ import {
 } from '@/components/ui/dialog';
 import { CompanyAnalysisSection } from '@/components/pipeline/CompanyAnalysisSection';
 import { AICompanyCardLoading } from '@/components/pipeline/AICompanyCardLoading';
+import CompanyOverviewSlide from '@/components/pipeline/CompanyOverviewSlide';
 import FilePreview from '@/components/Files/FilePreview';
 import { FinancialCharts } from '@/components/pipeline/FinancialCharts';
 import { DealStage } from '@/lib/types';
@@ -592,14 +593,19 @@ export default function CompanyDetail({ showCompanyGraph = false }: CompanyDetai
       const res = await fetch(`/api/company-analysis?companyId=${companyId}`);
       if (res.ok) {
         const data = await res.json();
-        setAnalysis(data);
-        // If still processing, poll until complete
-        if (isAnalysisInProgress(data.status)) {
-          setAnalysisGenerating(true);
-          pollAnalysis();
+        if (data && data.status) {
+          setAnalysis(data);
+          // If still processing, poll until complete
+          if (isAnalysisInProgress(data.status)) {
+            setAnalysisGenerating(true);
+            pollAnalysis();
+          }
+          return;
         }
       }
-      // 404 is fine — no analysis yet
+      // No analysis exists yet → generate it the first time the deal is opened
+      // (this content powers the Overview slide).
+      generateAnalysis();
     } catch (error) {
       console.error('Error fetching analysis:', error);
     }
@@ -1066,12 +1072,38 @@ export default function CompanyDetail({ showCompanyGraph = false }: CompanyDetai
         )}
 
         {/* Content */}
-        <Tabs defaultValue="company-card" className="w-full">
-          <TabsList className="grid grid-cols-3 max-w-lg">
-            <TabsTrigger value="company-card">Company Card</TabsTrigger>
+        <Tabs defaultValue="overview" className="w-full">
+          <TabsList className="grid grid-cols-4 max-w-2xl">
+            <TabsTrigger value="overview">Overview</TabsTrigger>
+            <TabsTrigger value="company-card">Details</TabsTrigger>
             <TabsTrigger value="filters">L1 Screening</TabsTrigger>
             <TabsTrigger value="attachments">Attachments</TabsTrigger>
           </TabsList>
+
+          {/* Overview — read-only L0→L1 submission slide, powered by the AI
+              Company Card. Auto-generates on first open; shows the generating
+              state until ready. */}
+          <TabsContent value="overview" className="space-y-6 mt-6">
+            {analysisGenerating && !analysis?.business_overview ? (
+              <AICompanyCardLoading />
+            ) : analysis?.status === 'failed' ? (
+              <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-6 flex flex-col items-center justify-center gap-3">
+                <AlertCircle className="h-6 w-6 text-destructive" />
+                <div className="text-center">
+                  <h3 className="text-base font-semibold text-destructive">Generation Failed</h3>
+                  <p className="text-sm text-muted-foreground mt-1">
+                    {analysis.error_message || 'An error occurred while generating the overview.'}
+                  </p>
+                </div>
+                <Button variant="outline" size="sm" onClick={regenerateAnalysis} disabled={analysisGenerating}>
+                  <Sparkles className="h-4 w-4 mr-2" />
+                  Retry
+                </Button>
+              </div>
+            ) : (
+              <CompanyOverviewSlide company={company} analysis={analysis} />
+            )}
+          </TabsContent>
 
           <TabsContent value="company-card" className="space-y-6 mt-6">
             {/* AI Market Scanning Remarks */}

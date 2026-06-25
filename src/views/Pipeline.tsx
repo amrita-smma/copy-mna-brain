@@ -46,6 +46,7 @@ import {
   Lightbulb,
   Eye,
   EyeOff,
+  Settings,
 } from "lucide-react";
 import {
   AlertDialog,
@@ -64,6 +65,9 @@ import CompanyDetailDialog from "@/components/pipeline/CompanyDetailDialog";
 import UpdateCompanyDialog from "@/components/pipeline/UpdateCompanyDialog";
 import InboundCompaniesTable from "@/components/pipeline/InboundCompaniesTable";
 import OutboundCompaniesTable from "@/components/pipeline/OutboundCompaniesTable";
+import TrackSettingsDialog from "@/components/pipeline/TrackSettingsDialog";
+import TrackMultiSelect from "@/components/pipeline/TrackMultiSelect";
+import { resolveTrackIds } from "@/lib/tracks/matchTracks";
 import {
   DEFAULT_INBOUND_STATUS_OPTIONS,
   DEFAULT_OUTBOUND_STATUS_OPTIONS,
@@ -90,6 +94,8 @@ import {
   dropDeal,
   restoreDeal,
   updateCompany,
+  getTracks,
+  type Track,
 } from "@/lib/api/pipeline";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
@@ -138,6 +144,7 @@ export interface PipelineCompany {
   review_state: string;
   banker_source: string | null;
   possible_duplicate_company_id: string | null;
+  matched_track_ids: string[];
   financials_raw?: import('@/lib/repositories').Tables<'company_financials'>[];
 }
 
@@ -298,6 +305,13 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
   const [showUnreviewedOnly, setShowUnreviewedOnly] = useState(false);
   const [docTypeFilter, setDocTypeFilter] = useState<string>("all");
 
+  // Tracks (investment theses) + matched-track filter
+  const [tracks, setTracks] = useState<Track[]>([]);
+  const [trackSettingsOpen, setTrackSettingsOpen] = useState(false);
+  const [trackFilter, setTrackFilter] = useState<string[]>([]);
+  // Bumped after Track Settings saves so the AI Market Scanning banner refetches.
+  const [tracksRefreshKey, setTracksRefreshKey] = useState(0);
+
   // Favorites state
   const [favoriteIds, setFavoriteIds] = useState<Set<string>>(new Set());
   const [togglingFavorite, setTogglingFavorite] = useState<string | null>(null);
@@ -385,6 +399,7 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
           banker_source: company.banker_source ?? null,
           possible_duplicate_company_id:
             company.possible_duplicate_company_id ?? null,
+          matched_track_ids: company.matched_track_ids ?? [],
           financials_raw: company.financials_raw,
         })) || [];
 
@@ -474,10 +489,20 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
     router.push(`/pipeline?stage=${value}`);
   };
 
+  // Load tracks (investment theses) once, for matching + filtering + editing.
+  const fetchTracks = () => {
+    getTracks()
+      .then(setTracks)
+      .catch((err) => console.error("Failed to load tracks:", err));
+  };
+  useEffect(() => {
+    fetchTracks();
+  }, []);
+
   // Reset page when filters change
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchQuery, sectorFilter, l1StatusFilter, activeTab, viewMode, sourceFilter]);
+  }, [searchQuery, sectorFilter, l1StatusFilter, activeTab, viewMode, sourceFilter, trackFilter]);
 
   // Get unique sectors for filter
   const uniqueSectors = [
@@ -537,6 +562,9 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
       !showUnreviewedOnly || company.review_state === "unreviewed";
     const matchesView =
       viewMode === "dropped" ? isDropped(company) : isActive(company);
+    const matchesTrack =
+      trackFilter.length === 0 ||
+      resolveTrackIds(company, tracks).some((id) => trackFilter.includes(id));
     return (
       matchesStage &&
       matchesSearch &&
@@ -545,7 +573,8 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
       matchesSource &&
       matchesDocType &&
       matchesUnreviewedOnly &&
-      matchesView
+      matchesView &&
+      matchesTrack
     );
   });
 
@@ -913,6 +942,14 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
               Track companies through all stages
             </p>
           </div>
+          <Button
+            variant="outline"
+            onClick={() => setTrackSettingsOpen(true)}
+            className="gap-2"
+          >
+            <Settings className="h-4 w-4" />
+            Track Settings
+          </Button>
         </div>
 
         <Tabs
@@ -978,6 +1015,7 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
                         onToggle={() =>
                           setShowMarketScanning(!showMarketScanning)
                         }
+                        refreshKey={tracksRefreshKey}
                       />
 
                       {/* AI-Discovered Companies Results */}
@@ -1154,6 +1192,17 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
                                   ))}
                                 </SelectContent>
                               </Select>
+                              {/* Filter by matched Track */}
+                              {tracks.length > 0 && (
+                                <TrackMultiSelect
+                                  tracks={tracks}
+                                  value={trackFilter}
+                                  onChange={setTrackFilter}
+                                  variant="filter"
+                                  placeholder="All Tracks"
+                                  className="w-44 h-9"
+                                />
+                              )}
                               {/* MB-225: Doc Type filter — only on inbound */}
                               {sourceFilter === "inbound" && (
                                 <Select
@@ -1231,6 +1280,7 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
                                 <div className="overflow-x-auto">
                                   <InboundCompaniesTable
                                     companies={visibleCompanies}
+                                    tracks={tracks}
                                     stage="L0"
                                     viewMode={viewMode}
                                     favoriteIds={favoriteIds}
@@ -1327,6 +1377,7 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
                                 <div className="overflow-x-auto">
                                   <OutboundCompaniesTable
                                     companies={paginatedCompanies}
+                                    tracks={tracks}
                                     stage="L0"
                                     viewMode={viewMode}
                                     favoriteIds={favoriteIds}
@@ -1519,6 +1570,7 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
                           <div className="overflow-x-auto">
                             <InboundCompaniesTable
                               companies={paginatedCompanies}
+                              tracks={tracks}
                               stage={stage}
                               viewMode={viewMode}
                               favoriteIds={favoriteIds}
@@ -1597,6 +1649,7 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
                           <div className="overflow-x-auto">
                             <OutboundCompaniesTable
                               companies={paginatedCompanies}
+                              tracks={tracks}
                               stage={stage}
                               viewMode={viewMode}
                               favoriteIds={favoriteIds}
@@ -1691,6 +1744,7 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
         {editingCompany && (
           <UpdateCompanyDialog
             company={editingCompany}
+            tracks={tracks}
             open={!!editingCompany}
             onOpenChange={(open) => !open && setEditingCompany(null)}
             onUpdate={() => refetchAfterCompanyUpdate(editingCompany.id)}
@@ -1701,6 +1755,15 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
             }
           />
         )}
+
+        <TrackSettingsDialog
+          open={trackSettingsOpen}
+          onOpenChange={setTrackSettingsOpen}
+          onSaved={() => {
+            fetchTracks();
+            setTracksRefreshKey((k) => k + 1);
+          }}
+        />
 
         <AIScreeningDialog
           open={showScreeningDialog}

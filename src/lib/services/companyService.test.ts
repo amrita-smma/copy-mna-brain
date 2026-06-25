@@ -101,7 +101,14 @@ function makeRepos() {
   };
 }
 
-function buildService(repos: ReturnType<typeof makeRepos>) {
+function makeTrackMatchingService() {
+  return { dispatch: vi.fn().mockResolvedValue({ jobId: 'job-1' }) };
+}
+
+function buildService(
+  repos: ReturnType<typeof makeRepos>,
+  trackMatchingService?: ReturnType<typeof makeTrackMatchingService>,
+) {
   return new CompanyService(
     repos.companyRepo,
     repos.companyLogRepo,
@@ -111,6 +118,7 @@ function buildService(repos: ReturnType<typeof makeRepos>) {
     repos.companyFinancialRepo,
     repos.companyFxAdjustmentRepo,
     repos.companyScreeningDerivedRepo,
+    trackMatchingService as never,
   );
 }
 
@@ -191,6 +199,64 @@ describe("CompanyService.delete", () => {
 
     expect(deleteFile).not.toHaveBeenCalled();
     expect(repos.companyRepo.delete).toHaveBeenCalledWith("company-1");
+  });
+});
+
+describe("CompanyService — track matching on L0 entry", () => {
+  it("dispatches track matching when a company is created at L0", async () => {
+    const repos = makeRepos();
+    vi.mocked(repos.companyRepo.insert).mockResolvedValue(
+      makeCompany({ id: "c-new", pipeline_stage: "L0" }),
+    );
+    const trackMatching = makeTrackMatchingService();
+    const service = buildService(repos, trackMatching);
+
+    await service.createFromDTO({ target: "Acme" } as any);
+
+    expect(trackMatching.dispatch).toHaveBeenCalledWith({ companyId: "c-new" });
+  });
+
+  it("does NOT dispatch when a company is created at a non-L0 stage", async () => {
+    const repos = makeRepos();
+    vi.mocked(repos.companyRepo.insert).mockResolvedValue(
+      makeCompany({ id: "c-mkt", pipeline_stage: "market_screening" }),
+    );
+    const trackMatching = makeTrackMatchingService();
+    const service = buildService(repos, trackMatching);
+
+    await service.createFromDTO({ target: "Acme" } as any);
+
+    expect(trackMatching.dispatch).not.toHaveBeenCalled();
+  });
+
+  it("dispatches track matching when a company is promoted to L0 from a pre-L0 stage", async () => {
+    const repos = makeRepos();
+    const trackMatching = makeTrackMatchingService();
+    const service = buildService(repos, trackMatching);
+
+    await service.promote("company-1", "market_screening", "L0");
+
+    expect(trackMatching.dispatch).toHaveBeenCalledWith({ companyId: "company-1" });
+  });
+
+  it("does NOT dispatch when a company is demoted into L0 from L1", async () => {
+    const repos = makeRepos();
+    const trackMatching = makeTrackMatchingService();
+    const service = buildService(repos, trackMatching);
+
+    await service.promote("company-1", "L1", "L0");
+
+    expect(trackMatching.dispatch).not.toHaveBeenCalled();
+  });
+
+  it("does NOT dispatch when promoting to a non-L0 stage", async () => {
+    const repos = makeRepos();
+    const trackMatching = makeTrackMatchingService();
+    const service = buildService(repos, trackMatching);
+
+    await service.promote("company-1", "L1", "L2");
+
+    expect(trackMatching.dispatch).not.toHaveBeenCalled();
   });
 });
 

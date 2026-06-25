@@ -38,11 +38,46 @@ import StatusCombobox from "@/components/pipeline/StatusCombobox";
 import { AskAIButton } from "@/components/chat/AskAIButton";
 import { useChatContext } from "@/components/chat/ChatProvider";
 import { companyDisplayName } from "@/lib/companyDisplay";
+import {
+  resolveTrackIds,
+  trackDisplayName,
+  type TrackLike,
+} from "@/lib/tracks/matchTracks";
 
 const DEAL_TYPE_LABEL: Record<string, string> = {
   majority: "Majority",
   minority: "Minority",
 };
+
+/** Matched-track pills for a company (manual matches, else auto-suggested). */
+function MatchedTracksCell({
+  company,
+  tracks,
+}: {
+  company: PipelineCompany;
+  tracks: TrackLike[];
+}) {
+  const ids = resolveTrackIds(company, tracks);
+  if (ids.length === 0) return <span className="text-muted-foreground">—</span>;
+  return (
+    <div className="flex flex-wrap gap-1 max-w-[180px]">
+      {ids.map((id) => {
+        const track = tracks.find((t) => t.id === id);
+        if (!track) return null;
+        return (
+          <Badge
+            key={id}
+            variant="secondary"
+            className="font-normal text-[10px] px-1.5 py-0 max-w-full truncate"
+            title={track.title ?? undefined}
+          >
+            {trackDisplayName(track)}
+          </Badge>
+        );
+      })}
+    </div>
+  );
+}
 
 const formatCurrency = (value: number | null | undefined) => {
   if (value === null || value === undefined) return "-";
@@ -92,6 +127,7 @@ const formatDate = (iso: string | null | undefined) => {
 
 interface OutboundCompaniesTableProps {
   companies: PipelineCompany[];
+  tracks: TrackLike[];
   stage: DealStage;
   viewMode: "active" | "dropped";
   favoriteIds: Set<string>;
@@ -117,6 +153,7 @@ interface OutboundCompaniesTableProps {
 
 export default function OutboundCompaniesTable({
   companies,
+  tracks,
   stage,
   viewMode,
   favoriteIds,
@@ -184,6 +221,7 @@ export default function OutboundCompaniesTable({
           <SortHead field="name" label="Company" />
           <TableHead>Project</TableHead>
           <SortHead field="sector" label="Segment" />
+          <TableHead className="min-w-[150px]">Matched Tracks</TableHead>
           <TableHead>Deal Type</TableHead>
           <TableHead className="max-w-[260px]">Key Rationale</TableHead>
           <TableHead className="min-w-[180px]">Financial Info</TableHead>
@@ -264,6 +302,9 @@ export default function OutboundCompaniesTable({
                 <span className="text-sm text-muted-foreground">
                   {company.segment || "-"}
                 </span>
+              </TableCell>
+              <TableCell>
+                <MatchedTracksCell company={company} tracks={tracks} />
               </TableCell>
               <TableCell>
                 {company.deal_type ? (

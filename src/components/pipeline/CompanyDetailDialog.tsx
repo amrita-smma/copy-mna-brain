@@ -53,6 +53,7 @@ import {
 } from "lucide-react";
 import { CompanyAnalysisSection } from "@/components/pipeline/CompanyAnalysisSection";
 import { AICompanyCardLoading } from "@/components/pipeline/AICompanyCardLoading";
+import CompanyOverviewSlide from "@/components/pipeline/CompanyOverviewSlide";
 import FilePreview from "@/components/Files/FilePreview";
 import { DealStage } from "@/lib/types";
 import { STAGE_LABELS, isAnalysisInProgress } from "@/lib/constants";
@@ -542,7 +543,7 @@ export default function CompanyDetailDialog({
   const [loadingPreview, setLoadingPreview] = useState(false);
 
   const [activeTab, setActiveTab] = useState<
-    "overview" | "filters" | "attachments"
+    "overview" | "details" | "filters" | "attachments"
   >("overview");
 
   useEffect(() => {
@@ -597,11 +598,19 @@ export default function CompanyDetailDialog({
       const res = await fetch(`/api/company-analysis?companyId=${company.id}`);
       if (res.ok) {
         const data = await res.json();
-        setAnalysis(data);
-        if (isAnalysisInProgress(data.status)) {
-          setAnalysisGenerating(true);
-          pollAnalysis();
+        if (data && data.status) {
+          setAnalysis(data);
+          if (isAnalysisInProgress(data.status)) {
+            setAnalysisGenerating(true);
+            pollAnalysis();
+          }
+          return;
         }
+      }
+      // No analysis exists yet → generate it the first time the deal is opened
+      // (this content powers the Overview slide). Skip for dropped deals.
+      if (company.status !== "dropped") {
+        generateAnalysis();
       }
     } catch (error) {
       console.error("Error fetching analysis:", error);
@@ -626,7 +635,7 @@ export default function CompanyDetailDialog({
         clearInterval(interval);
         setAnalysisGenerating(false);
       }
-    }, 5000);
+    }, 2500);
     setTimeout(() => {
       clearInterval(interval);
       setAnalysisGenerating(false);
@@ -680,7 +689,7 @@ export default function CompanyDetailDialog({
   };
 
   const scrollToAICardAndRun = (forceRegenerate = false) => {
-    setActiveTab("overview");
+    setActiveTab("details");
     if (forceRegenerate || analysis?.status === "completed") {
       regenerateAnalysis();
     } else {
@@ -954,7 +963,7 @@ export default function CompanyDetailDialog({
   return (
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="max-w-2xl h-[85vh] overflow-hidden flex flex-col p-0 gap-0">
+        <DialogContent className="w-[80vw] max-w-[80vw] h-[85vh] overflow-hidden flex flex-col p-0 gap-0">
           {/* Header */}
           <div className="px-6 pt-5 pb-4 shrink-0">
             <div className="flex items-center gap-4">
@@ -1088,18 +1097,26 @@ export default function CompanyDetailDialog({
           <Tabs
             value={activeTab}
             onValueChange={(v) =>
-              setActiveTab(v as "overview" | "filters" | "attachments")
+              setActiveTab(
+                v as "overview" | "details" | "filters" | "attachments",
+              )
             }
             className="flex flex-col flex-1 min-h-0"
           >
             {/* Tab bar pinned to top */}
             <div className="shrink-0 border-b bg-background">
-              <TabsList className="w-full h-auto rounded-none bg-transparent p-0 grid grid-cols-3">
+              <TabsList className="w-full h-auto rounded-none bg-transparent p-0 grid grid-cols-4">
                 <TabsTrigger
                   value="overview"
                   className="rounded-none border-b-2 border-transparent data-[state=active]:border-accent data-[state=active]:text-accent data-[state=active]:bg-transparent py-3 text-sm font-medium"
                 >
                   Overview
+                </TabsTrigger>
+                <TabsTrigger
+                  value="details"
+                  className="rounded-none border-b-2 border-transparent data-[state=active]:border-accent data-[state=active]:text-accent data-[state=active]:bg-transparent py-3 text-sm font-medium"
+                >
+                  Details
                 </TabsTrigger>
                 <TabsTrigger
                   value="filters"
@@ -1119,7 +1136,40 @@ export default function CompanyDetailDialog({
             <div className="flex-1 min-h-0 overflow-y-auto px-6">
               <div className="h-2" />
 
+            {/* Overview — read-only L0→L1 submission slide, powered by the AI
+                Company Card. Auto-generates on first open; shows the generating
+                state until ready. */}
             <TabsContent value="overview" className="space-y-4 pb-4">
+              {analysisGenerating && !analysis?.business_overview ? (
+                <AICompanyCardLoading />
+              ) : analysis?.status === "failed" ? (
+                <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-6 flex flex-col items-center justify-center gap-3">
+                  <AlertCircle className="h-6 w-6 text-destructive" />
+                  <div className="text-center">
+                    <h3 className="text-base font-semibold text-destructive">
+                      Generation Failed
+                    </h3>
+                    <p className="text-sm text-muted-foreground mt-1">
+                      {analysis.error_message ??
+                        "An error occurred while generating the overview."}
+                    </p>
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => scrollToAICardAndRun(true)}
+                    disabled={analysisGenerating}
+                  >
+                    <Sparkles className="h-4 w-4 mr-2" />
+                    Retry
+                  </Button>
+                </div>
+              ) : (
+                <CompanyOverviewSlide company={company} analysis={analysis} />
+              )}
+            </TabsContent>
+
+            <TabsContent value="details" className="space-y-4 pb-4">
               {/* AI Market Scanning Remarks - only for outbound deals */}
               {company.source?.toLowerCase() === "outbound" && (
                   <Card className="border-purple-200 dark:border-purple-800/50 bg-gradient-to-br from-purple-50/50 to-violet-50/30 dark:from-purple-950/20 dark:to-violet-950/10">

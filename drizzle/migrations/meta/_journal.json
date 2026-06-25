@@ -477,6 +477,27 @@
       "when": 1782172800000,
       "tag": "20260623000000_add_recent_files_table",
       "breakpoints": true
+    },
+    {
+      "idx": 68,
+      "version": "7",
+      "when": 1782259200000,
+      "tag": "20260624000000_add_companies_matched_track_ids",
+      "breakpoints": true
+    },
+    {
+      "idx": 69,
+      "version": "7",
+      "when": 1782345600000,
+      "tag": "20260625000000_add_investment_thesis_pic",
+      "breakpoints": true
+    },
+    {
+      "idx": 70,
+      "version": "7",
+      "when": 1782345601000,
+      "tag": "20260625000001_add_track_matching_job_type",
+      "breakpoints": true
     }
   ]
 }

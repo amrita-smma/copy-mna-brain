@@ -39,6 +39,7 @@ function makeCompany(overrides: Partial<Tables<'companies'>> = {}): Tables<'comp
     review_state: 'reviewed',
     banker_source: null,
     possible_duplicate_company_id: null,
+    matched_track_ids: null,
     ...overrides,
   };
 }
@@ -253,5 +254,32 @@ describe('formatCompanyDisplay', () => {
   it('returns fallback when both are null', () => {
     expect(formatCompanyDisplay({ target: null, project_name: null })).toBe('Unknown');
     expect(formatCompanyDisplay({ target: null, project_name: null }, 'N/A')).toBe('N/A');
+  });
+});
+
+describe('matched_track_ids', () => {
+  it('passes matched_track_ids through toCompanyDTO when set', () => {
+    const dto = toCompanyDTO(
+      makeCompany({ matched_track_ids: ['t1', 't2'] }),
+      [],
+      [],
+      null,
+    );
+    expect(dto.matched_track_ids).toEqual(['t1', 't2']);
+  });
+
+  it('defaults matched_track_ids to an empty array when null', () => {
+    const dto = toCompanyDTO(makeCompany({ matched_track_ids: null }), [], [], null);
+    expect(dto.matched_track_ids).toEqual([]);
+  });
+
+  it('routes matched_track_ids into the company write fragment', () => {
+    const result = splitCompanyDTO({ matched_track_ids: ['t1', 't2'] });
+    expect(result.company.matched_track_ids).toEqual(['t1', 't2']);
+  });
+
+  it('preserves clearing matched_track_ids to an empty array', () => {
+    const result = splitCompanyDTO({ matched_track_ids: [] });
+    expect(result.company.matched_track_ids).toEqual([]);
   });
 });

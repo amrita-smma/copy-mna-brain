@@ -294,6 +294,58 @@ export async function saveInvestmentThesis(payload: {
   });
 }
 
+// ── Tracks (backed by the investment_thesis table) ──────────────────────────
+export interface Track {
+  id: string;
+  title: string | null;
+  content: string | null;
+  pic?: string | null;
+  is_active?: boolean | null;
+  scan_frequency?: string | null;
+  sources_count?: number | null;
+  last_scan_at?: string | null;
+  next_scan_at?: string | null;
+}
+
+/** All tracks (investment theses), newest first. */
+export async function getTracks(): Promise<Track[]> {
+  return apiRequest<Track[]>('/api/investment-thesis?all=1');
+}
+
+/**
+ * Configure the AI market scanner: the active thesis set + shared scan cadence
+ * and companies-per-scan. Returns the full thesis list (with updated is_active).
+ */
+export async function configureMarketScan(payload: {
+  thesisIds: string[];
+  scan_frequency?: string;
+  sources_count?: number;
+}): Promise<Track[]> {
+  return apiRequest<Track[]>('/api/investment-thesis/active', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+/** Create (no id) or update (with id) a track. */
+export async function saveTrack(payload: {
+  id?: string;
+  title: string;
+  content: string;
+  pic?: string | null;
+}) {
+  return apiRequest<Track>('/api/investment-thesis', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function deleteTrack(id: string) {
+  return apiRequest<{ id: string }>(`/api/investment-thesis/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+  });
+}
+
 export async function getFavoriteCompanies(userId: string): Promise<string[]> {
   return apiRequest<string[]>(`/api/users/${encodeURIComponent(userId)}/favorites`);
 }

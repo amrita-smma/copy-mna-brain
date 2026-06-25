@@ -44,11 +44,46 @@ import { AskAIButton } from "@/components/chat/AskAIButton";
 import { useChatContext } from "@/components/chat/ChatProvider";
 import { DuplicatePopup } from "@/components/pipeline/DuplicatePopup";
 import { companyDisplayName } from "@/lib/companyDisplay";
+import {
+  resolveTrackIds,
+  trackDisplayName,
+  type TrackLike,
+} from "@/lib/tracks/matchTracks";
 
 const DEAL_TYPE_LABEL: Record<string, string> = {
   majority: "Majority",
   minority: "Minority",
 };
+
+/** Matched-track pills for a company (manual matches, else auto-suggested). */
+function MatchedTracksCell({
+  company,
+  tracks,
+}: {
+  company: PipelineCompany;
+  tracks: TrackLike[];
+}) {
+  const ids = resolveTrackIds(company, tracks);
+  if (ids.length === 0) return <span className="text-muted-foreground">—</span>;
+  return (
+    <div className="flex flex-wrap gap-1 max-w-[180px]">
+      {ids.map((id) => {
+        const track = tracks.find((t) => t.id === id);
+        if (!track) return null;
+        return (
+          <Badge
+            key={id}
+            variant="secondary"
+            className="font-normal text-[10px] px-1.5 py-0 max-w-full truncate"
+            title={track.title ?? undefined}
+          >
+            {trackDisplayName(track)}
+          </Badge>
+        );
+      })}
+    </div>
+  );
+}
 
 const formatCurrency = (value: number | null | undefined) => {
   if (value === null || value === undefined) return "-";
@@ -85,6 +120,7 @@ const latestFin = (
 
 interface InboundCompaniesTableProps {
   companies: PipelineCompany[];
+  tracks: TrackLike[];
   stage: DealStage;
   viewMode: "active" | "dropped";
   favoriteIds: Set<string>;
@@ -112,6 +148,7 @@ interface InboundCompaniesTableProps {
 
 export default function InboundCompaniesTable({
   companies,
+  tracks,
   stage,
   viewMode,
   favoriteIds,
@@ -166,7 +203,7 @@ export default function InboundCompaniesTable({
     </TableHead>
   );
 
-  const tableColumnCount = isDropped ? 20 : 19;
+  const tableColumnCount = isDropped ? 21 : 20;
   const unreviewedCompanies = isDropped
     ? []
     : companies.filter((company) => company.review_state === "unreviewed");
@@ -284,6 +321,7 @@ export default function InboundCompaniesTable({
           <TableHead className="min-w-[160px]">Banker / Source</TableHead>
           <SortHead field="sector" label="Sector" />
           <TableHead>Geo</TableHead>
+          <TableHead className="min-w-[150px]">Matched Tracks</TableHead>
           <TableHead>Deal Type</TableHead>
           <SortHead field="revenue" label="Revenue" />
           <SortHead field="ebitda" label="EBITDA" />
@@ -437,6 +475,9 @@ export default function InboundCompaniesTable({
                 <span className="text-sm text-muted-foreground">
                   {company.geo || "-"}
                 </span>
+              </TableCell>
+              <TableCell>
+                <MatchedTracksCell company={company} tracks={tracks} />
               </TableCell>
               <TableCell>
                 {company.deal_type ? (

@@ -10,7 +10,6 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@/components/ui/dialog';
-import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import {
   Select,
@@ -22,113 +21,87 @@ import {
 import { Input } from '@/components/ui/input';
 import { toast } from 'sonner';
 import { Loader2, Settings, Radar, Play, Sparkles, EyeOff, Eye, ChevronUp, ChevronDown } from 'lucide-react';
-import { getActiveInvestmentThesis, saveInvestmentThesis } from '@/lib/api/pipeline';
+import { getTracks, configureMarketScan, type Track } from '@/lib/api/pipeline';
+import { trackDisplayName } from '@/lib/tracks/matchTracks';
+import TrackMultiSelect from '@/components/pipeline/TrackMultiSelect';
 import { waitForJob } from '@/lib/jobs/useJob';
-
-interface InvestmentThesis {
-  id: string;
-  title: string;
-  content: string;
-  is_active: boolean;
-  scan_frequency: string;
-  last_scan_at: string | null;
-  next_scan_at: string | null;
-  sources_count: number;
-}
 
 interface MarketScreeningStatusProps {
   onScanComplete: () => void;
   newCandidatesCount: number;
   isVisible: boolean;
   onToggle: () => void;
+  /** Bumped by the parent (e.g. after Track Settings saves) to force a track refetch. */
+  refreshKey?: number;
 }
 
-export default function MarketScreeningStatus({ onScanComplete, newCandidatesCount, isVisible, onToggle }: MarketScreeningStatusProps) {
-  const [thesis, setThesis] = useState<InvestmentThesis | null>(null);
+export default function MarketScreeningStatus({ onScanComplete, newCandidatesCount, isVisible, onToggle, refreshKey = 0 }: MarketScreeningStatusProps) {
+  const [tracks, setTracks] = useState<Track[]>([]);
   const [loading, setLoading] = useState(true);
   const [scanning, setScanning] = useState(false);
   const [showThesisDialog, setShowThesisDialog] = useState(false);
 
-  // Form state
-  const [thesisTitle, setThesisTitle] = useState('');
-  const [thesisContent, setThesisContent] = useState('');
+  // Configuration form state
+  const [selectedThesisIds, setSelectedThesisIds] = useState<string[]>([]);
   const [scanFrequency, setScanFrequency] = useState('weekly');
   const [sourcesCount, setSourcesCount] = useState(5);
 
-  const fetchThesis = async () => {
-    try {
-      const data = await getActiveInvestmentThesis();
+  // The active scanning set drives the live badge + scan stats.
+  const activeTracks = tracks.filter((t) => t.is_active);
+  const primaryThesis = activeTracks[0] ?? null;
 
-      if (data) {
-        setThesis(data as InvestmentThesis);
-        setThesisTitle(data.title ?? '');
-        setThesisContent(data.content ?? '');
-        setScanFrequency(data.scan_frequency ?? 'weekly');
-        setSourcesCount(data.sources_count ?? 5);
-      }
+  const fetchTracks = async () => {
+    try {
+      const data = await getTracks();
+      setTracks(data);
+      const active = data.filter((t) => t.is_active);
+      setSelectedThesisIds(active.map((t) => t.id));
+      setScanFrequency(active[0]?.scan_frequency ?? 'weekly');
+      setSourcesCount(active[0]?.sources_count ?? 5);
     } catch (error: any) {
-      console.error('Error fetching thesis:', error);
+      console.error('Error fetching tracks:', error);
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchThesis();
-  }, []);
+    fetchTracks();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [refreshKey]);
 
   const saveThesis = async () => {
+    if (!selectedThesisIds.length) {
+      toast.error('Select at least one thesis to scan');
+      return;
+    }
     try {
-      if (!thesisContent.trim()) {
-        toast.error('Please enter an investment thesis');
-        return;
-      }
-
-      if (thesis) {
-        await saveInvestmentThesis({
-          id: thesis.id,
-          title: thesisTitle,
-          content: thesisContent,
-          scan_frequency: scanFrequency,
-          sources_count: sourcesCount,
-        });
-        toast.success('Investment thesis updated');
-      } else {
-        // Create new thesis
-        const nextScan = new Date();
-        if (scanFrequency === 'daily') {
-          nextScan.setDate(nextScan.getDate() + 1);
-        } else if (scanFrequency === 'weekly') {
-          nextScan.setDate(nextScan.getDate() + 7);
-        } else {
-          nextScan.setMonth(nextScan.getMonth() + 1);
-        }
-
-        const data = await saveInvestmentThesis({
-          title: thesisTitle || 'Default Thesis',
-          content: thesisContent,
-          scan_frequency: scanFrequency,
-          sources_count: sourcesCount,
-          next_scan_at: nextScan.toISOString(),
-        });
-        setThesis(data as InvestmentThesis);
-        toast.success('Investment thesis created');
-      }
-
+      const updated = await configureMarketScan({
+        thesisIds: selectedThesisIds,
+        scan_frequency: scanFrequency,
+        sources_count: sourcesCount,
+      });
+      setTracks(updated);
+      toast.success('Market scan configuration saved');
       setShowThesisDialog(false);
-      fetchThesis();
     } catch (error: any) {
-      console.error('Error saving thesis:', error);
-      toast.error('Failed to save thesis');
+      console.error('Error saving scan configuration:', error);
+      toast.error('Failed to save configuration');
     }
   };
 
   const runScan = async () => {
-    if (!thesis) {
-      toast.error('Please set up an investment thesis first');
+    if (!activeTracks.length) {
+      toast.error('Select at least one thesis to scan first');
       setShowThesisDialog(true);
       return;
     }
+
+    // Scan the combined active theses in one pass.
+    const combinedThesis = activeTracks
+      .map((t) => t.content)
+      .filter(Boolean)
+      .join('\n\n---\n\n');
 
     setScanning(true);
     try {
@@ -138,9 +111,8 @@ export default function MarketScreeningStatus({ onScanComplete, newCandidatesCou
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          thesisId: thesis.id,
-          thesis: thesis.content,
-          sourcesCount: thesis.sources_count,
+          thesis: combinedThesis,
+          sourcesCount: primaryThesis?.sources_count ?? sourcesCount,
         }),
       });
 
@@ -159,7 +131,7 @@ export default function MarketScreeningStatus({ onScanComplete, newCandidatesCou
         } else {
           toast.info(result.message || 'No new companies found');
         }
-        fetchThesis();
+        fetchTracks();
         onScanComplete();
       } else {
         throw new Error(job.error || `Market screening ${job.status}`);
@@ -180,7 +152,8 @@ export default function MarketScreeningStatus({ onScanComplete, newCandidatesCou
     );
   }
 
-  const isActive = thesis?.is_active && thesis?.content;
+  const isActive = activeTracks.length > 0;
+  const activeThesisLabel = activeTracks.map(trackDisplayName).join(', ');
 
   return (
     <div className="border border-purple-100 dark:border-purple-900/20 rounded-xl p-3 bg-purple-50/50 dark:bg-purple-950/10 backdrop-blur-sm w-full">
@@ -207,8 +180,12 @@ export default function MarketScreeningStatus({ onScanComplete, newCandidatesCou
                 </div>
               )}
             </div>
-            <p className="text-xs text-muted-foreground whitespace-nowrap truncate">
-              Powered by AI thesis matching
+            <p className="text-xs text-muted-foreground whitespace-nowrap truncate" title={activeThesisLabel || undefined}>
+              {isActive
+                ? activeTracks.length === 1
+                  ? activeThesisLabel
+                  : `${activeTracks.length} theses active`
+                : 'Powered by AI thesis matching'}
             </p>
           </div>
 
@@ -234,7 +211,7 @@ export default function MarketScreeningStatus({ onScanComplete, newCandidatesCou
                 LAST SCAN COMPLETED
               </span>
               <span className="text-xs font-semibold text-foreground/90 whitespace-nowrap">
-                {thesis?.last_scan_at ? format(new Date(thesis.last_scan_at), 'MMM d, yyyy, hh:mm a') : '-'}
+                {primaryThesis?.last_scan_at ? format(new Date(primaryThesis.last_scan_at), 'MMM d, yyyy, hh:mm a') : '-'}
               </span>
             </div>
 
@@ -243,7 +220,7 @@ export default function MarketScreeningStatus({ onScanComplete, newCandidatesCou
                 NEXT SCAN
               </span>
               <span className="text-xs font-semibold text-foreground/90 whitespace-nowrap">
-                {thesis?.next_scan_at ? format(new Date(thesis.next_scan_at), 'MMM d, yyyy, hh:mm a') : '-'}
+                {primaryThesis?.next_scan_at ? format(new Date(primaryThesis.next_scan_at), 'MMM d, yyyy, hh:mm a') : '-'}
               </span>
             </div>
 
@@ -268,40 +245,29 @@ export default function MarketScreeningStatus({ onScanComplete, newCandidatesCou
                   Configure
                 </Button>
               </DialogTrigger>
-              <DialogContent className="max-w-2xl">
+              <DialogContent className="max-w-xl">
                 <DialogHeader>
                   <DialogTitle>Investment Thesis Configuration</DialogTitle>
                   <DialogDescription>
-                    Define your investment criteria. AI will search for companies matching this thesis.
+                    Choose which theses to scan. AI will search for companies matching the selected
+                    theses. Author thesis content in Track Settings.
                   </DialogDescription>
                 </DialogHeader>
 
                 <div className="space-y-4 mt-4">
-                  <div>
-                    <Label htmlFor="thesis-title">Thesis Name</Label>
-                    <Input
-                      id="thesis-title"
-                      value={thesisTitle}
-                      onChange={(e) => setThesisTitle(e.target.value)}
-                      placeholder="e.g., Healthcare SaaS Mid-Market"
+                  <div className="space-y-1.5">
+                    <Label>Theses</Label>
+                    <TrackMultiSelect
+                      tracks={tracks}
+                      value={selectedThesisIds}
+                      onChange={setSelectedThesisIds}
+                      placeholder="Select theses to scan…"
                     />
-                  </div>
-
-                  <div>
-                    <Label htmlFor="thesis-content">Investment Thesis</Label>
-                    <Textarea
-                      id="thesis-content"
-                      value={thesisContent}
-                      onChange={(e) => setThesisContent(e.target.value)}
-                      placeholder="Describe your ideal investment target in detail. Include:
-    - Target sectors and industries
-    - Revenue range and growth requirements
-    - EBITDA margins expectations
-    - Geographic focus
-    - Business model characteristics
-    - Value creation opportunities"
-                      rows={8}
-                    />
+                    {tracks.length === 0 && (
+                      <p className="text-xs text-muted-foreground">
+                        No theses yet — create one in Track Settings on the Pipeline page.
+                      </p>
+                    )}
                   </div>
 
                   <div className="grid grid-cols-2 gap-4">
@@ -337,7 +303,7 @@ export default function MarketScreeningStatus({ onScanComplete, newCandidatesCou
                       Cancel
                     </Button>
                     <Button onClick={saveThesis}>
-                      Save Thesis
+                      Save Configuration
                     </Button>
                   </div>
                 </div>

@@ -51,7 +51,16 @@
       "Bash(awk '/pipeline_stage: .\\(L1|L2|L3|L4|L5\\)./{found=NR} found && NR>=found-12 && NR<=found+2 {print NR\": \"$0}' scripts/seed.ts)",
       "WebFetch(domain:github.com)",
       "Bash(node -e \"const p=require\\('./node_modules/country-to-iso/package.json'\\); console.log\\('main:',p.main,'| types:',p.types||p.typings,'| module:',p.module\\)\")",
-      "Bash(node -e ' *)"
+      "Bash(node -e ' *)",
+      "Bash(sed -n '260,310p' src/views/Pipeline.tsx)",
+      "Bash(sed -n '515,560p' src/views/Pipeline.tsx)",
+      "Bash(sed -n '1,100p' src/lib/jobs/handlers/marketScreening.ts)",
+      "Bash(sed -n '1,90p' src/lib/services/companyService.ts)",
+      "Bash(sed -n '48,60p' src/lib/db/schema.ts)",
+      "Bash(sed -n '1,60p' src/lib/jobs/dispatch.ts)",
+      "Bash(sed -n '122,140p' src/lib/agents/analysis/index.ts)",
+      "Bash(sed -n '48,80p' src/lib/services/companyService.ts)",
+      "Bash(grep -nE \"^#{2,3} \" README.md)"
     ]
   }
 }

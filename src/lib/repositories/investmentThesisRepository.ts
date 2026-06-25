@@ -1,4 +1,4 @@
-import { desc, eq } from 'drizzle-orm';
+import { desc, eq, inArray } from 'drizzle-orm';
 import { investmentThesis } from '@/lib/db/schema';
 import type { DbClient, Tables, TablesInsert, TablesUpdate } from './types';
 
@@ -24,6 +24,42 @@ export class InvestmentThesisRepository {
       .where(eq(investmentThesis.is_active, true))
       .orderBy(desc(investmentThesis.updated_at))
       .limit(limit);
+  }
+
+  /** All theses ("Tracks"), newest first. Used by the Track Settings manager. */
+  async findAll(): Promise<Tables<'investment_thesis'>[]> {
+    return this.db
+      .select()
+      .from(investmentThesis)
+      .orderBy(desc(investmentThesis.created_at));
+  }
+
+  async deleteById(id: string): Promise<void> {
+    await this.db.delete(investmentThesis).where(eq(investmentThesis.id, id));
+  }
+
+  /**
+   * Set the active scanning set: marks the given theses active and every other
+   * thesis inactive. Passing `[]` deactivates all theses.
+   */
+  async setActive(ids: string[]): Promise<void> {
+    await this.db.update(investmentThesis).set({ is_active: false });
+    if (ids.length === 0) return;
+    await this.db
+      .update(investmentThesis)
+      .set({ is_active: true })
+      .where(inArray(investmentThesis.id, ids));
+  }
+
+  async updateMany(
+    ids: string[],
+    updates: TablesUpdate<'investment_thesis'>,
+  ): Promise<void> {
+    if (ids.length === 0) return;
+    await this.db
+      .update(investmentThesis)
+      .set(updates)
+      .where(inArray(investmentThesis.id, ids));
   }
 
   async insert(data: TablesInsert<'investment_thesis'>): Promise<Tables<'investment_thesis'>> {
