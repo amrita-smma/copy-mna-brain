@@ -23,17 +23,16 @@ describe('DashboardActivityRepository.getDroppedDeals', () => {
     repo = new DashboardActivityRepository(mockDb as never);
   });
 
-  it('does not select the general-purpose remarks column', async () => {
+  it('selects the core dropped-deal fields', async () => {
     mockDb.orderBy.mockResolvedValueOnce([]);
 
     await repo.getDroppedDeals(new Date('2026-01-01'), new Date('2026-01-08'));
 
     const selectArg = mockDb.select.mock.calls[0][0];
-    expect(selectArg).not.toHaveProperty('remarks');
-    // The fields the dropped-deals feed actually relies on remain selected.
     expect(selectArg).toHaveProperty('target');
     expect(selectArg).toHaveProperty('dropped_at');
     expect(selectArg).toHaveProperty('dropped_reason');
+    expect(selectArg).toHaveProperty('remarks');
     expect(selectArg).toHaveProperty('thesis_content');
   });
 
