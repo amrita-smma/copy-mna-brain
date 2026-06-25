@@ -1972,7 +1972,7 @@ function FeedEventRow({
           <button
             type="button"
             data-testid={`feed-event-company-button-${event.company_id}`}
-            onClick={(e) => e.stopPropagation()}
+            onClick={(e) => { e.stopPropagation(); onCompanyClick(event.company_id); }}
             className="text-sm font-semibold text-left hover:text-primary transition-colors"
           >
             {event.company_name}
