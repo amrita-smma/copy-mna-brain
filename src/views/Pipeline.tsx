@@ -93,7 +93,6 @@ import {
   restoreDeal,
   updateCompany,
   getTracks,
-  getUsers,
   getScreenings,
   type Track,
 } from "@/lib/api/pipeline";
@@ -325,9 +324,6 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
   const [showUnreviewedOnly, setShowUnreviewedOnly] = useState(false);
   const [docTypeFilter, setDocTypeFilter] = useState<string>("all");
 
-  // Team-member names, for the inline Deal Sponsor/Captain combobox.
-  const [userOptions, setUserOptions] = useState<string[]>([]);
-
   // Tracks (investment theses) + matched-track filter
   const [tracks, setTracks] = useState<Track[]>([]);
   const [trackSettingsOpen, setTrackSettingsOpen] = useState(false);
@@ -520,17 +516,6 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
     fetchTracks();
   }, []);
 
-  // Load team-member names once, for the Deal Sponsor/Captain combobox.
-  useEffect(() => {
-    getUsers()
-      .then((users) =>
-        setUserOptions(
-          users.map((u) => u.name).filter((n): n is string => !!n),
-        ),
-      )
-      .catch((err) => console.error("Failed to load users:", err));
-  }, []);
-
   // Reset page when filters change
   useEffect(() => {
     setCurrentPage(1);
@@ -581,26 +566,6 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
     } catch (err: any) {
       console.error("Failed to update status:", err);
       toast.error("Failed to update status");
-      fetchCompanies({ silent: true });
-    }
-  };
-
-  // Persist a Deal Sponsor/Captain override (per-company; never touches Track
-  // Settings), optimistically first. `field` is chosen by the table from stage.
-  const handleDealLeadChange = async (
-    company: PipelineCompany,
-    field: "deal_sponsor" | "deal_captain",
-    next: string,
-  ) => {
-    const value = next.trim() || null;
-    setCompanies((prev) =>
-      prev.map((c) => (c.id === company.id ? { ...c, [field]: value } : c)),
-    );
-    try {
-      await updateCompany(company.id, { [field]: value });
-    } catch (err: any) {
-      console.error("Failed to update deal lead:", err);
-      toast.error("Failed to update");
       fetchCompanies({ silent: true });
     }
   };
@@ -1448,8 +1413,6 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
                                     onToggleFavorite={handleToggleFavorite}
                                     updatingCompanyIds={updatingCompanyIds}
                                     statusOptions={inboundStatusOptions}
-                                    userOptions={userOptions}
-                                    onDealLeadChange={handleDealLeadChange}
                                     onRunScreening={runScreeningForCompany}
                                     runningScreeningCompanyIds={runningScreeningCompanyIds}
                                     sortField={sortField}
@@ -1546,8 +1509,6 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
                                     onToggleFavorite={handleToggleFavorite}
                                     updatingCompanyIds={updatingCompanyIds}
                                     statusOptions={outboundStatusOptions}
-                                    userOptions={userOptions}
-                                    onDealLeadChange={handleDealLeadChange}
                                     onRunScreening={runScreeningForCompany}
                                     runningScreeningCompanyIds={runningScreeningCompanyIds}
                                     sortField={sortField}
@@ -1703,8 +1664,6 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
                               onToggleFavorite={handleToggleFavorite}
                               updatingCompanyIds={updatingCompanyIds}
                               statusOptions={inboundStatusOptions}
-                              userOptions={userOptions}
-                              onDealLeadChange={handleDealLeadChange}
                               onRunScreening={runScreeningForCompany}
                               runningScreeningCompanyIds={runningScreeningCompanyIds}
                               sortField={sortField}
@@ -1789,8 +1748,6 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
                               onToggleFavorite={handleToggleFavorite}
                               updatingCompanyIds={updatingCompanyIds}
                               statusOptions={outboundStatusOptions}
-                              userOptions={userOptions}
-                              onDealLeadChange={handleDealLeadChange}
                               onRunScreening={runScreeningForCompany}
                               runningScreeningCompanyIds={runningScreeningCompanyIds}
                               sortField={sortField}

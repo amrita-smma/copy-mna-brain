@@ -48,45 +48,27 @@ import {
 } from "@/lib/tracks/matchTracks";
 
 /**
- * Editable Deal Sponsor (L0–L2) / Deal Captain (L3+) cell. The stored
+ * Read-only Deal Sponsor (L0–L2) / Deal Captain (L3+) cell. The stored
  * per-company override wins; when empty, the matched Track's PIC shows as the
- * (muted) default. Picking a person persists the override — it never touches
- * Track Settings.
+ * (muted) default. Editing happens only in the company card, never inline.
  */
 function DealLeadCell({
   company,
   tracks,
   stage,
-  userOptions,
-  onChange,
-  disabled,
 }: {
   company: PipelineCompany;
   tracks: TrackLike[];
   stage: DealStage;
-  userOptions: string[];
-  onChange: (company: PipelineCompany, field: "deal_sponsor" | "deal_captain", value: string) => void;
-  disabled?: boolean;
 }) {
   const field = dealLeadField(stage);
   const stored = company[field];
   const fallbackPics = matchedTrackPics(company, tracks);
   const fallback = fallbackPics.length > 0 ? fallbackPics.join(", ") : null;
-  if (disabled) {
-    return (
-      <span className="text-sm text-muted-foreground">{stored || fallback || "—"}</span>
-    );
-  }
   return (
-    <StatusCombobox
-      variant="cell"
-      value={stored}
-      options={userOptions}
-      placeholder={fallback ?? `Set ${dealLeadLabel(stage)}…`}
-      searchPlaceholder="Search or type a name…"
-      emptyText="No team members found."
-      onChange={(next) => onChange(company, field, next)}
-    />
+    <span className="text-sm text-muted-foreground">
+      {stored || fallback || "—"}
+    </span>
   );
 }
 
@@ -181,8 +163,6 @@ interface OutboundCompaniesTableProps {
   onToggleFavorite: (id: string) => void;
   updatingCompanyIds: Set<string>;
   statusOptions: string[];
-  /** Team-member names suggested in the Deal Sponsor/Captain combobox. */
-  userOptions: string[];
   sortField: string | null;
   sortDirection: "asc" | "desc";
   onSort: (field: string) => void;
@@ -191,11 +171,6 @@ interface OutboundCompaniesTableProps {
   onColumnFilterChange: (field: string, values: string[]) => void;
   onOpenDetail: (company: PipelineCompany) => void;
   onStatusChange: (company: PipelineCompany, next: string) => void;
-  onDealLeadChange: (
-    company: PipelineCompany,
-    field: "deal_sponsor" | "deal_captain",
-    next: string,
-  ) => void;
   onUpdate: (company: PipelineCompany) => void;
   onPromote: (company: PipelineCompany) => void;
   onDemote: (company: PipelineCompany) => void;
@@ -213,7 +188,6 @@ export default function OutboundCompaniesTable({
   favoriteIds,
   updatingCompanyIds,
   statusOptions,
-  userOptions,
   sortField,
   sortDirection,
   onSort,
@@ -222,7 +196,6 @@ export default function OutboundCompaniesTable({
   onColumnFilterChange,
   onOpenDetail,
   onStatusChange,
-  onDealLeadChange,
   onUpdate,
   onPromote,
   onDemote,
@@ -365,9 +338,6 @@ export default function OutboundCompaniesTable({
                   company={company}
                   tracks={tracks}
                   stage={stage}
-                  userOptions={userOptions}
-                  onChange={onDealLeadChange}
-                  disabled={isDropped}
                 />
               </TableCell>
               <TableCell>
