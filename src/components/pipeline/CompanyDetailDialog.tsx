@@ -385,6 +385,7 @@ export default function CompanyDetailDialog({
     key_rationale: string;
     deal_sponsor: string;
     deal_captain: string;
+    entered_by: string;
   };
   const [isEditing, setIsEditing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -413,6 +414,7 @@ export default function CompanyDetailDialog({
       key_rationale: company.key_rationale ?? '',
       deal_sponsor: company.deal_sponsor ?? '',
       deal_captain: company.deal_captain ?? '',
+      entered_by: company.entered_by ?? '',
     });
     setIsEditing(true);
     if (bankerOptions.length === 0) {
@@ -505,6 +507,7 @@ export default function CompanyDetailDialog({
           key_rationale: editForm.key_rationale.trim() || null,
           deal_sponsor: editForm.deal_sponsor.trim() || null,
           deal_captain: editForm.deal_captain.trim() || null,
+          entered_by: editForm.entered_by.trim() || null,
         });
       const refreshedCompany = await getCompanies({ id: company.id });
       if (refreshedCompany) {
@@ -1581,7 +1584,23 @@ export default function CompanyDetailDialog({
                   </div>
                   <div>
                     <p className="text-xs text-muted-foreground">Entered by</p>
-                    <p className="text-sm font-medium break-words">{company.entered_by || '—'}</p>
+                    {isEditing && editForm ? (
+                      <div className="mt-1">
+                        <StatusCombobox
+                          value={editForm.entered_by || null}
+                          options={userOptions}
+                          placeholder="Set entered by…"
+                          searchPlaceholder="Search or type a name…"
+                          emptyText="No team members found."
+                          onChange={(v) =>
+                            setEditForm({ ...editForm, entered_by: v })
+                          }
+                          disabled={isSaving}
+                        />
+                      </div>
+                    ) : (
+                      <p className="text-sm font-medium break-words">{company.entered_by || '—'}</p>
+                    )}
                   </div>
                   <div>
                     <p className="text-xs text-muted-foreground">Status</p>
