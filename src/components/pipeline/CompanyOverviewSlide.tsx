@@ -2,6 +2,7 @@
 
 import { Building2, TrendingUp, FileBarChart, ClipboardCheck, ArrowRight } from "lucide-react";
 import { MarkdownRenderer } from "@/components/chat/MarkdownRenderer";
+import { companyDisplayTitle } from "@/lib/companyDisplay";
 
 /**
  * Read-only "L0 → L1 Submission" overview slide. The narrative sections are
@@ -120,9 +121,7 @@ export default function CompanyOverviewSlide({
   company: OverviewSlideCompany;
   analysis: OverviewSlideAnalysis | null;
 }) {
-  const projectName = company.project_name && company.project_name.trim();
-  const companyName = company.target || "Company";
-  const title = projectName ? `${projectName} / ${companyName}` : companyName;
+  const title = companyDisplayTitle(company, "Company");
   const sector = company.segment || "—";
   const currentStage = (company.pipeline_stage || "L0").toUpperCase();
   const financials = buildFinancials(company);
