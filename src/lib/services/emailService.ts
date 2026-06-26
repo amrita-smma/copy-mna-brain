@@ -527,6 +527,44 @@ export function renderTaskInsightEmail(input: {
   return { subject, html, text };
 }
 
+export interface AgentEmailInput {
+  /** Recipient address. Callers (the send_email tool) must have already
+   * validated this against the platform user whitelist. */
+  email: string;
+  subject: string;
+  /** Plain-text body composed by the agent. Newlines become <br /> in HTML. */
+  body: string;
+}
+
+/**
+ * Render a generic agent-composed email. Used by the `send_email` tool so the
+ * agent can send free-form messages (the body is supplied by the model) while
+ * still sharing the branded notification shell. The body is plain text — it is
+ * HTML-escaped before interpolation, so no markup leaks through.
+ */
+const AGENT_EMAIL_DISCLAIMER =
+  'This email was auto-generated using BRAIN.';
+
+export function renderAgentEmail(input: {
+  subject: string;
+  body: string;
+}): { subject: string; html: string; text: string } {
+  const safeBody = escapeHtml(input.body).replace(/\n/g, '<br />');
+  const disclaimerHtml = `<p style="margin:24px 0 0; padding-top:16px; border-top:1px solid #efeff2; color:#a1a1aa; font-size:12px; font-style:italic; line-height:1.5;">${escapeHtml(
+    AGENT_EMAIL_DISCLAIMER,
+  )}</p>`;
+  const html = renderNotificationShell({
+    bannerTitle: 'Brain 2.0',
+    accent: '#6d5ef5',
+    accentDark: '#5a4bd6',
+    bodyHtml: `<h1 style="margin:0 0 16px; font-size:22px; line-height:1.25;">${escapeHtml(input.subject)}</h1>
+      <div style="margin:0; line-height:1.6; color:#374151; font-size:15px;">${safeBody}</div>
+      ${disclaimerHtml}`,
+  });
+  const text = `${input.body}\n\n—\n${AGENT_EMAIL_DISCLAIMER}`;
+  return { subject: input.subject, html, text };
+}
+
 function slugifyTitle(title: string): string {
   return title
     .toLowerCase()
@@ -671,6 +709,19 @@ export class EmailService {
     }
     if (!input.level) throw new Error('sendTaskInsightEmail: level is required');
     const { subject, html, text } = renderTaskInsightEmail(input);
+    return this.sender({ to: input.email, subject, html, text });
+  }
+
+  /**
+   * Send a generic agent-composed email. The recipient MUST be a registered
+   * platform user — that whitelist check lives in the `send_email` tool, not
+   * here, so this method just renders and sends.
+   */
+  async sendAgentEmail(input: AgentEmailInput): Promise<SendEmailResult> {
+    if (!input.email) throw new Error('sendAgentEmail: email is required');
+    if (!input.subject) throw new Error('sendAgentEmail: subject is required');
+    if (!input.body) throw new Error('sendAgentEmail: body is required');
+    const { subject, html, text } = renderAgentEmail(input);
     return this.sender({ to: input.email, subject, html, text });
   }
 

@@ -28,6 +28,7 @@ import { notifyProgress } from "./notify_progress";
 import { flagInsight } from "./flag_insight";
 import { getTaskProgress } from "./get_task_progress";
 import { emailResearchSummary } from "./email_research_summary";
+import { sendEmailTool } from "./send_email";
 import { runMarketScreeningTool } from "./run_market_screening";
 
 export {
@@ -56,6 +57,7 @@ export {
   flagInsight,
   getTaskProgress,
   emailResearchSummary,
+  sendEmailTool,
   runMarketScreeningTool,
 };
 
@@ -98,6 +100,7 @@ export const chatOnlyTools = [
   proposeBulkDropCompanies,
   proposeBulkPromoteCompanies,
   emailResearchSummary,
+  sendEmailTool,
 ];
 
 /**
@@ -128,6 +131,7 @@ export const workforceOnlyTools = [
   reportProgress,
   notifyProgress,
   flagInsight,
+  sendEmailTool,
 ];
 
 /**
@@ -152,6 +156,7 @@ export function getToolDescriptions(): string {
     { name: "propose_bulk_drop_companies", description: "Propose dropping a batch of stale or out-of-mandate companies via an approval card with checkboxes" },
     { name: "propose_bulk_promote_companies", description: "Propose promoting a batch of L0 companies to L1 (or any stage) via an approval card with checkboxes, tags, and inline signals" },
     { name: "email_research_summary", description: "Email the requesting user a PDF copy of a research summary that the agent has composed" },
+    { name: "send_email", description: "Send a free-form email (subject + body) to one or more platform users; recipients are restricted to registered users of the platform" },
   ];
 
   return toolInfo.map((t, i) => `${i + 1}. **${t.name}** - ${t.description}`).join("\n");
