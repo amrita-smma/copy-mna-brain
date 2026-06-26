@@ -558,8 +558,15 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
     const matchesSource = company.source === sourceFilter;
     const matchesDocType =
       docTypeFilter === "all" || company.doc_type === docTypeFilter;
-    const matchesUnreviewedOnly =
-      !showUnreviewedOnly || company.review_state === "unreviewed";
+    // L0 inbound is split across two sub-tabs: the Unreviewed tab shows only
+    // unreviewed companies, the Inbound tab shows only reviewed ones. Outbound
+    // and the L1-L5 stages are unaffected by review state.
+    const matchesReviewState =
+      activeTab !== "L0" || sourceFilter !== "inbound"
+        ? true
+        : showUnreviewedOnly
+          ? company.review_state === "unreviewed"
+          : company.review_state !== "unreviewed";
     const matchesView =
       viewMode === "dropped" ? isDropped(company) : isActive(company);
     const matchesTrack =
@@ -572,7 +579,7 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
       matchesSector &&
       matchesSource &&
       matchesDocType &&
-      matchesUnreviewedOnly &&
+      matchesReviewState &&
       matchesView &&
       matchesTrack
     );
@@ -670,19 +677,16 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
     setSelectedIds(next);
   };
 
-  // MB-225: unreviewed from ALL sorted companies for modal, visible rows for table split
-  const allUnreviewedCompanies = sortedCompanies.filter(
-    (c) => c.review_state === "unreviewed",
+  // MB-225: unreviewed inbound companies for the current stage/view — independent
+  // of the active sub-tab so the Unreviewed tab badge and triage modal stay correct
+  // even while the Inbound (reviewed-only) tab is selected.
+  const allUnreviewedCompanies = companies.filter(
+    (c) =>
+      c.pipeline_stage === activeTab &&
+      c.source === "inbound" &&
+      c.review_state === "unreviewed" &&
+      (viewMode === "dropped" ? isDropped(c) : isActive(c)),
   );
-  const unreviewedCompanies = visibleCompanies.filter(
-    (c) => c.review_state === "unreviewed",
-  );
-  const showUnreviewed =
-    activeTab === "L0" &&
-    sourceFilter === "inbound" &&
-    !showUnreviewedOnly &&
-    docTypeFilter === "all" &&
-    unreviewedCompanies.length > 0;
 
   // Handler for bulk triage confirm
   async function handleTriageConfirm(
@@ -1104,8 +1108,32 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
                         </CardHeader>
                         {showL0Pipeline && (
                           <CardContent className="px-0 pb-0">
-                            {/* MB-225: Inbound / Outbound sub-tabs */}
+                            {/* MB-225: Unreviewed / Inbound / Outbound sub-tabs */}
                             <div className="flex border-b px-6">
+                              <button
+                                type="button"
+                                data-testid="pipeline-l0-unreviewed-tab"
+                                onClick={() => {
+                                  setSourceFilter("inbound");
+                                  setShowUnreviewedOnly(true);
+                                  setDocTypeFilter("all");
+                                  setSelectedIds(new Set());
+                                  setCurrentPage(1);
+                                }}
+                                className={cn(
+                                  "flex items-center gap-2 px-3 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors",
+                                  sourceFilter === "inbound" && showUnreviewedOnly
+                                    ? "border-amber-600 text-amber-700"
+                                    : "border-transparent text-muted-foreground hover:text-foreground",
+                                )}
+                              >
+                                <span className="h-2 w-2 rounded-full bg-amber-500 shrink-0" />
+                                Inbound Pending Review
+                                <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[10.5px] font-semibold text-amber-700">
+                                  {allUnreviewedCompanies.length}
+                                </span>
+                              </button>
+                              <div className="my-2 w-px bg-border mx-1" />
                               <button
                                 type="button"
                                 data-testid="pipeline-l0-inbound-tab"
@@ -1118,7 +1146,7 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
                                 }}
                                 className={cn(
                                   "flex items-center gap-2 px-3 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors",
-                                  sourceFilter === "inbound"
+                                  sourceFilter === "inbound" && !showUnreviewedOnly
                                     ? "border-blue-600 text-blue-700"
                                     : "border-transparent text-muted-foreground hover:text-foreground",
                                 )}
@@ -1128,11 +1156,6 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
                                 <span className="rounded-full bg-blue-100 px-1.5 py-0.5 text-[10.5px] font-semibold text-blue-700">
                                   {sourceCount("L0", "inbound")}
                                 </span>
-                                {allUnreviewedCompanies.length > 0 && sourceFilter !== "outbound" && (
-                                  <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-bold text-amber-700">
-                                    {allUnreviewedCompanies.length} new
-                                  </span>
-                                )}
                               </button>
                               <div className="my-2 w-px bg-border mx-1" />
                               <button
@@ -1220,22 +1243,6 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
                                   </SelectContent>
                                 </Select>
                               )}
-                              {/* MB-225: Unreviewed only toggle */}
-                              {sourceFilter === "inbound" && (
-                                <Button
-                                  data-testid="pipeline-l0-unreviewed-only-button"
-                                  variant={showUnreviewedOnly ? "default" : "outline"}
-                                  size="sm"
-                                  className={cn(
-                                    "h-9 gap-1.5 text-xs",
-                                    showUnreviewedOnly && "bg-amber-500 hover:bg-amber-600 border-amber-500",
-                                  )}
-                                  onClick={() => setShowUnreviewedOnly(!showUnreviewedOnly)}
-                                >
-                                  <AlertCircle className="h-3.5 w-3.5" />
-                                  Unreviewed only
-                                </Button>
-                              )}
                             </div>
                             <div className="flex items-center gap-1.5 text-xs text-muted-foreground mb-4">
                               <Lightbulb className="h-3.5 w-3.5 text-amber-500 shrink-0" />
@@ -1283,6 +1290,7 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
                                     tracks={tracks}
                                     stage="L0"
                                     viewMode={viewMode}
+                                    groupByReviewState={false}
                                     favoriteIds={favoriteIds}
                                     togglingFavorite={togglingFavorite}
                                     onToggleFavorite={handleToggleFavorite}

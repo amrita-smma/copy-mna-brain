@@ -137,6 +137,8 @@ interface InboundCompaniesTableProps {
   onSort: (field: string) => void;
   onOpenDetail: (company: PipelineCompany) => void;
   onStatusChange: (company: PipelineCompany, next: string) => void;
+  /** Group rows into Unreviewed/Reviewed sections with banner headers. Default true. */
+  groupByReviewState?: boolean;
   onTriageAll?: () => void;
   onKeep?: (company: PipelineCompany) => void | Promise<void>;
   onUpdate: (company: PipelineCompany) => void;
@@ -163,6 +165,7 @@ export default function InboundCompaniesTable({
   onSort,
   onOpenDetail,
   onStatusChange,
+  groupByReviewState = true,
   onTriageAll,
   onKeep,
   onUpdate,
@@ -211,6 +214,7 @@ export default function InboundCompaniesTable({
     ? []
     : companies.filter((company) => company.review_state !== "unreviewed");
   const showReviewGroups =
+    groupByReviewState &&
     !isDropped &&
     (unreviewedCompanies.length > 0 || reviewedCompanies.length > 0);
   const groupedCompanies = showReviewGroups
