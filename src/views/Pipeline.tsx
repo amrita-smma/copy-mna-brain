@@ -28,7 +28,6 @@ import {
   Search,
   ChevronLeft,
   ChevronRight,
-  Building2,
   TrendingUp,
   TrendingDown,
   Minus,
@@ -316,6 +315,11 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
   // Sector filter
   const [sectorFilter, setSectorFilter] = useState<string>("all");
 
+  // Per-column multi-select filters (field -> selected values)
+  const [columnFilters, setColumnFilters] = useState<Record<string, string[]>>(
+    {},
+  );
+
   // Source sub-tab (replaces filter dropdown — real tabs now)
   const [sourceFilter, setSourceFilter] = useState<"inbound" | "outbound">("inbound");
   const [showUnreviewedOnly, setShowUnreviewedOnly] = useState(false);
@@ -530,7 +534,22 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
   // Reset page when filters change
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchQuery, sectorFilter, l1StatusFilter, activeTab, viewMode, sourceFilter, trackFilter]);
+  }, [searchQuery, sectorFilter, l1StatusFilter, activeTab, viewMode, sourceFilter, trackFilter, columnFilters]);
+
+  // Clear per-column filters when the underlying pool changes, since their
+  // option lists (and therefore selections) no longer apply.
+  useEffect(() => {
+    setColumnFilters({});
+  }, [activeTab, viewMode, sourceFilter]);
+
+  const handleColumnFilterChange = (field: string, values: string[]) => {
+    setColumnFilters((prev) => {
+      const next = { ...prev };
+      if (values.length === 0) delete next[field];
+      else next[field] = values;
+      return next;
+    });
+  };
 
   const isDropped = (c: PipelineCompany) => c.status === "dropped";
   const isActive = (c: PipelineCompany) => !isDropped(c);
@@ -586,6 +605,72 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
     }
   };
 
+  // Value accessors for per-column multi-select filters. The returned string is
+  // matched against the user's selected values; `null` means "no value" and is
+  // surfaced as a "—" option.
+  const COLUMN_FILTER_ACCESSORS: Record<
+    string,
+    (c: PipelineCompany) => string | null
+  > = {
+    sector: (c) => c.segment || null,
+    geo: (c) => c.geo || null,
+    deal_type: (c) => c.deal_type || null,
+    status: (c) => c.workflow_status || null,
+    entered_by: (c) => c.entered_by || null,
+    banker: (c) => c.banker ?? c.banker_source ?? null,
+    stake: (c) => c.stake || null,
+  };
+
+  const EMPTY_FILTER_VALUE = "__empty__";
+
+  // Pool the column-filter option lists are derived from: everything in the
+  // current stage/source/view, before search and the column filters themselves.
+  const columnFilterPool = companies.filter(
+    (company) =>
+      company.pipeline_stage === activeTab &&
+      company.source === sourceFilter &&
+      (viewMode === "dropped" ? isDropped(company) : isActive(company)),
+  );
+
+  const getColumnFilterOptions = (field: string) => {
+    const accessor = COLUMN_FILTER_ACCESSORS[field];
+    if (!accessor) return [];
+    const values = new Set<string>();
+    let hasEmpty = false;
+    for (const company of columnFilterPool) {
+      const raw = accessor(company);
+      if (raw === null || raw.trim() === "") hasEmpty = true;
+      else values.add(raw);
+    }
+    const labelFor = (value: string) =>
+      field === "deal_type"
+        ? value.charAt(0).toUpperCase() + value.slice(1)
+        : value;
+    const options = [...values]
+      .sort((a, b) => a.localeCompare(b))
+      .map((value) => ({ value, label: labelFor(value) }));
+    if (hasEmpty) options.push({ value: EMPTY_FILTER_VALUE, label: "—" });
+    return options;
+  };
+
+  const filterOptions: Record<string, { value: string; label: string }[]> =
+    Object.fromEntries(
+      Object.keys(COLUMN_FILTER_ACCESSORS).map((field) => [
+        field,
+        getColumnFilterOptions(field),
+      ]),
+    );
+
+  const matchesColumnFilters = (company: PipelineCompany) =>
+    Object.entries(columnFilters).every(([field, selected]) => {
+      if (selected.length === 0) return true;
+      const accessor = COLUMN_FILTER_ACCESSORS[field];
+      if (!accessor) return true;
+      const raw = accessor(company);
+      const value = raw === null || raw.trim() === "" ? EMPTY_FILTER_VALUE : raw;
+      return selected.includes(value);
+    });
+
   const filteredCompanies = companies.filter((company) => {
     const matchesStage = company.pipeline_stage === activeTab;
     const q = searchQuery.toLowerCase();
@@ -627,7 +712,8 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
       matchesDocType &&
       matchesReviewState &&
       matchesView &&
-      matchesTrack
+      matchesTrack &&
+      matchesColumnFilters(company)
     );
   });
 
@@ -650,6 +736,38 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
       case "sector":
         aVal = (a.segment || "").toLowerCase();
         bVal = (b.segment || "").toLowerCase();
+        break;
+      case "geo":
+        aVal = (a.geo || "").toLowerCase();
+        bVal = (b.geo || "").toLowerCase();
+        break;
+      case "deal_type":
+        aVal = (a.deal_type || "").toLowerCase();
+        bVal = (b.deal_type || "").toLowerCase();
+        break;
+      case "stake":
+        aVal = (a.stake || "").toLowerCase();
+        bVal = (b.stake || "").toLowerCase();
+        break;
+      case "status":
+        aVal = (a.workflow_status || "").toLowerCase();
+        bVal = (b.workflow_status || "").toLowerCase();
+        break;
+      case "entered_by":
+        aVal = (a.entered_by || "").toLowerCase();
+        bVal = (b.entered_by || "").toLowerCase();
+        break;
+      case "banker":
+        aVal = (a.banker ?? a.banker_source ?? "").toLowerCase();
+        bVal = (b.banker ?? b.banker_source ?? "").toLowerCase();
+        break;
+      case "created":
+        aVal = a.created_at ? new Date(a.created_at).getTime() : 0;
+        bVal = b.created_at ? new Date(b.created_at).getTime() : 0;
+        break;
+      case "last_activity":
+        aVal = a.last_activity_at ? new Date(a.last_activity_at).getTime() : 0;
+        bVal = b.last_activity_at ? new Date(b.last_activity_at).getTime() : 0;
         break;
       case "revenue":
         aVal = a.revenue_2024_usd_mn || 0;
@@ -1316,11 +1434,6 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
                               <div className="flex items-center justify-center py-12">
                                 <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
                               </div>
-                            ) : sortedCompanies.length === 0 ? (
-                              <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
-                                <Building2 className="h-12 w-12 mb-4 opacity-50" />
-                                <p>No companies in this stage</p>
-                              </div>
                             ) : sourceFilter === "inbound" ? (
                               <>
                                 <div className="overflow-x-auto">
@@ -1342,6 +1455,9 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
                                     sortField={sortField}
                                     sortDirection={sortDirection}
                                     onSort={toggleSort}
+                                    columnFilters={columnFilters}
+                                    filterOptions={filterOptions}
+                                    onColumnFilterChange={handleColumnFilterChange}
                                     onOpenDetail={(company) => {
                                       posthog.capture("company_detail_viewed", {
                                         company_id: company.id,
@@ -1437,6 +1553,9 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
                                     sortField={sortField}
                                     sortDirection={sortDirection}
                                     onSort={toggleSort}
+                                    columnFilters={columnFilters}
+                                    filterOptions={filterOptions}
+                                    onColumnFilterChange={handleColumnFilterChange}
                                     onOpenDetail={(company) => {
                                       posthog.capture("company_detail_viewed", {
                                         company_id: company.id,
@@ -1571,11 +1690,6 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
                         <div className="flex items-center justify-center py-12">
                           <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
                         </div>
-                      ) : sortedCompanies.length === 0 ? (
-                        <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
-                          <Building2 className="h-12 w-12 mb-4 opacity-50" />
-                          <p>No companies in this stage</p>
-                        </div>
                       ) : sourceFilter === "inbound" ? (
                         <>
                           <div className="overflow-x-auto">
@@ -1596,6 +1710,9 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
                               sortField={sortField}
                               sortDirection={sortDirection}
                               onSort={toggleSort}
+                              columnFilters={columnFilters}
+                              filterOptions={filterOptions}
+                              onColumnFilterChange={handleColumnFilterChange}
                               onOpenDetail={(company) => {
                                 posthog.capture("company_detail_viewed", {
                                   company_id: company.id,
@@ -1679,6 +1796,9 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
                               sortField={sortField}
                               sortDirection={sortDirection}
                               onSort={toggleSort}
+                              columnFilters={columnFilters}
+                              filterOptions={filterOptions}
+                              onColumnFilterChange={handleColumnFilterChange}
                               onOpenDetail={(company) => {
                                 posthog.capture("company_detail_viewed", {
                                   company_id: company.id,

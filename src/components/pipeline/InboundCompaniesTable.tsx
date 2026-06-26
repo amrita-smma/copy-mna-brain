@@ -19,9 +19,6 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
-  ArrowUpDown,
-  ArrowUp,
-  ArrowDown,
   MoreVertical,
   ArrowRight,
   ArrowLeft,
@@ -35,6 +32,7 @@ import {
   Sparkles,
   Loader2,
 } from "lucide-react";
+import { ColumnHeader, type FilterOption } from "@/components/pipeline/ColumnHeader";
 import { cn } from "@/lib/utils";
 import { useNearRightEdge } from "@/hooks/useNearRightEdge";
 import type { Tables } from "@/lib/repositories";
@@ -181,6 +179,9 @@ interface InboundCompaniesTableProps {
   sortField: string | null;
   sortDirection: "asc" | "desc";
   onSort: (field: string) => void;
+  columnFilters: Record<string, string[]>;
+  filterOptions: Record<string, FilterOption[]>;
+  onColumnFilterChange: (field: string, values: string[]) => void;
   onOpenDetail: (company: PipelineCompany) => void;
   onStatusChange: (company: PipelineCompany, next: string) => void;
   onDealLeadChange: (
@@ -213,6 +214,9 @@ export default function InboundCompaniesTable({
   sortField,
   sortDirection,
   onSort,
+  columnFilters,
+  filterOptions,
+  onColumnFilterChange,
   onOpenDetail,
   onStatusChange,
   onDealLeadChange,
@@ -238,34 +242,29 @@ export default function InboundCompaniesTable({
   const demoteTarget =
     stageIndex > 0 ? PIPELINE_STAGES[stageIndex - 1] : null;
 
-  const SortIcon = ({ field }: { field: string }) => {
-    if (sortField !== field)
-      return <ArrowUpDown className="h-3 w-3 ml-1 opacity-50" />;
-    return sortDirection === "asc" ? (
-      <ArrowUp className="h-3 w-3 ml-1" />
-    ) : (
-      <ArrowDown className="h-3 w-3 ml-1" />
-    );
-  };
-
-  const SortHead = ({
-    field,
+  const Col = ({
     label,
     className,
+    sort,
+    filter,
   }: {
-    field: string;
     label: string;
     className?: string;
+    sort?: string;
+    filter?: string;
   }) => (
-    <TableHead className={className}>
-      <button
-        onClick={() => onSort(field)}
-        className="flex items-center hover:text-foreground transition-colors"
-      >
-        {label}
-        <SortIcon field={field} />
-      </button>
-    </TableHead>
+    <ColumnHeader
+      label={label}
+      className={className}
+      sortField={sort}
+      activeSortField={sortField}
+      sortDirection={sortDirection}
+      onSort={sort ? onSort : undefined}
+      filterField={filter}
+      filterOptions={filter ? filterOptions[filter] ?? [] : undefined}
+      selectedValues={filter ? columnFilters[filter] ?? [] : undefined}
+      onFilterChange={filter ? onColumnFilterChange : undefined}
+    />
   );
 
   // colSpan for the section header / gap rows. Recount if columns change.
@@ -377,40 +376,63 @@ export default function InboundCompaniesTable({
       <TableHeader>
         <TableRow>
           <TableHead className="w-[40px] sticky left-0 z-20 bg-card"></TableHead>
-          <SortHead
-            field="name"
+          <Col
             label="Company"
+            sort="name"
             className="sticky left-[40px] z-20 bg-card border-r"
           />
           <TableHead>{picColumnLabel}</TableHead>
-          <TableHead>Entered by</TableHead>
-          <TableHead className="min-w-[160px]">Banker / Source</TableHead>
-          <SortHead field="sector" label="Sector" />
-          <TableHead>Geo</TableHead>
+          <Col label="Entered by" sort="entered_by" filter="entered_by" />
+          <Col
+            label="Banker / Source"
+            sort="banker"
+            filter="banker"
+            className="min-w-[160px]"
+          />
+          <Col label="Sector" sort="sector" filter="sector" />
+          <Col label="Geo" sort="geo" filter="geo" />
           <TableHead className="min-w-[150px]">Matched Tracks</TableHead>
-          <TableHead>Deal Type</TableHead>
-          <SortHead field="revenue" label="Revenue" />
-          <SortHead field="ebitda" label="EBITDA" />
-          <SortHead field="valuation" label="Valuation" />
-          <TableHead>% Stake</TableHead>
+          <Col label="Deal Type" sort="deal_type" filter="deal_type" />
+          <Col label="Revenue" sort="revenue" />
+          <Col label="EBITDA" sort="ebitda" />
+          <Col label="Valuation" sort="valuation" />
+          <Col label="% Stake" sort="stake" filter="stake" />
           {isDropped ? (
             <>
               <TableHead>Source</TableHead>
               <TableHead>Drop Reason</TableHead>
             </>
           ) : (
-            <TableHead className="min-w-[160px]">Status</TableHead>
+            <Col
+              label="Status"
+              sort="status"
+              filter="status"
+              className="min-w-[160px]"
+            />
           )}
           <TableHead className="min-w-[320px] max-w-[400px]">
             Additional Remarks
           </TableHead>
-          <TableHead>Created</TableHead>
-          <TableHead>{isDropped ? "Dropped On" : "Last Activity"}</TableHead>
+          <Col label="Created" sort="created" />
+          <Col
+            label={isDropped ? "Dropped On" : "Last Activity"}
+            sort={isDropped ? undefined : "last_activity"}
+          />
           <TableHead className="w-[44px] sticky right-0 z-20 bg-transparent" />
 
         </TableRow>
       </TableHeader>
       <TableBody>
+        {groupedCompanies.length === 0 && (
+          <TableRow className="hover:bg-transparent">
+            <TableCell
+              colSpan={tableColumnCount}
+              className="h-32 text-center text-sm text-muted-foreground"
+            >
+              No companies match the current filters.
+            </TableCell>
+          </TableRow>
+        )}
         {groupedCompanies.map((company, index) => {
           const isFav = favoriteIds.has(company.id);
           const stickyBg = isFav
