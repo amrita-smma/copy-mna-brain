@@ -59,7 +59,6 @@ import {
 import PromoteDialog from "@/components/pipeline/PromoteDialog";
 import { DealStage, L1Status } from "@/lib/types";
 import CompanyDetailDialog from "@/components/pipeline/CompanyDetailDialog";
-import UpdateCompanyDialog from "@/components/pipeline/UpdateCompanyDialog";
 import InboundCompaniesTable from "@/components/pipeline/InboundCompaniesTable";
 import OutboundCompaniesTable from "@/components/pipeline/OutboundCompaniesTable";
 import TrackSettingsDialog from "@/components/pipeline/TrackSettingsDialog";
@@ -284,6 +283,9 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
   const [sectorFilterValue, setSectorFilterValue] = useState<string>("all");
   const [selectedCompany, setSelectedCompany] =
     useState<PipelineCompany | null>(null);
+  // When true, the company detail dialog opens directly into the Details tab
+  // with the Company Information card in inline edit mode (the "Update" action).
+  const [openDetailInEdit, setOpenDetailInEdit] = useState(false);
   const [showScreeningDialog, setShowScreeningDialog] = useState(false);
   const [screeningCompanyIds, setScreeningCompanyIds] = useState<string[]>([]);
   const [marketScreeningRefresh, setMarketScreeningRefresh] = useState(0);
@@ -342,10 +344,6 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
   const [promotingCompany, setPromotingCompany] =
     useState<PipelineCompany | null>(null);
   const [dialogMode, setDialogMode] = useState<"promote" | "demote">("promote");
-
-  // Update company dialog state
-  const [editingCompany, setEditingCompany] =
-    useState<PipelineCompany | null>(null);
 
   // Drop deal dialog state
   const [dropDealCompany, setDropDealCompany] =
@@ -1350,6 +1348,7 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
                                         company_name: companyDisplayName(company, ""),
                                         pipeline_stage: company.pipeline_stage,
                                       });
+                                      setOpenDetailInEdit(false);
                                       setSelectedCompany(company);
                                     }}
                                     onStatusChange={handleStatusChange}
@@ -1361,9 +1360,10 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
                                         { id: company.id, action: "keep" },
                                       ])
                                     }
-                                    onUpdate={(company) =>
-                                      setEditingCompany(company)
-                                    }
+                                    onUpdate={(company) => {
+                                      setOpenDetailInEdit(true);
+                                      setSelectedCompany(company);
+                                    }}
                                     onPromote={(company) => {
                                       setDialogMode("promote");
                                       setPromotingCompany(company);
@@ -1443,12 +1443,14 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
                                         company_name: companyDisplayName(company, ""),
                                         pipeline_stage: company.pipeline_stage,
                                       });
+                                      setOpenDetailInEdit(false);
                                       setSelectedCompany(company);
                                     }}
                                     onStatusChange={handleStatusChange}
-                                    onUpdate={(company) =>
-                                      setEditingCompany(company)
-                                    }
+                                    onUpdate={(company) => {
+                                      setOpenDetailInEdit(true);
+                                      setSelectedCompany(company);
+                                    }}
                                     onPromote={(company) => {
                                       setDialogMode("promote");
                                       setPromotingCompany(company);
@@ -1518,6 +1520,7 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
                             (c) => c.id === companyId,
                           );
                           if (company) {
+                            setOpenDetailInEdit(false);
                             setSelectedCompany(company);
                           }
                         }}
@@ -1599,10 +1602,14 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
                                   company_name: companyDisplayName(company, ""),
                                   pipeline_stage: company.pipeline_stage,
                                 });
+                                setOpenDetailInEdit(false);
                                 setSelectedCompany(company);
                               }}
                               onStatusChange={handleStatusChange}
-                              onUpdate={(company) => setEditingCompany(company)}
+                              onUpdate={(company) => {
+                                setOpenDetailInEdit(true);
+                                setSelectedCompany(company);
+                              }}
                               onPromote={(company) => {
                                 setDialogMode("promote");
                                 setPromotingCompany(company);
@@ -1678,10 +1685,14 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
                                   company_name: companyDisplayName(company, ""),
                                   pipeline_stage: company.pipeline_stage,
                                 });
+                                setOpenDetailInEdit(false);
                                 setSelectedCompany(company);
                               }}
                               onStatusChange={handleStatusChange}
-                              onUpdate={(company) => setEditingCompany(company)}
+                              onUpdate={(company) => {
+                                setOpenDetailInEdit(true);
+                                setSelectedCompany(company);
+                              }}
                               onPromote={(company) => {
                                 setDialogMode("promote");
                                 setPromotingCompany(company);
@@ -1744,23 +1755,15 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
           <CompanyDetailDialog
             company={selectedCompany}
             open={!!selectedCompany}
-            onOpenChange={(open) => !open && setSelectedCompany(null)}
+            onOpenChange={(open) => {
+              if (!open) {
+                setSelectedCompany(null);
+                setOpenDetailInEdit(false);
+              }
+            }}
             onUpdate={() => refetchAfterCompanyUpdate(selectedCompany.id)}
-          />
-        )}
-
-        {editingCompany && (
-          <UpdateCompanyDialog
-            company={editingCompany}
-            tracks={tracks}
-            open={!!editingCompany}
-            onOpenChange={(open) => !open && setEditingCompany(null)}
-            onUpdate={() => refetchAfterCompanyUpdate(editingCompany.id)}
-            statusOptions={
-              editingCompany.source === "outbound"
-                ? outboundStatusOptions
-                : inboundStatusOptions
-            }
+            initialTab={openDetailInEdit ? "details" : "overview"}
+            initialEditing={openDetailInEdit}
           />
         )}
 

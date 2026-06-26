@@ -317,6 +317,10 @@ interface CompanyDetailDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onUpdate: () => void;
+  /** Tab to show when the dialog first opens. Defaults to "overview". */
+  initialTab?: "overview" | "details" | "filters" | "attachments";
+  /** When true, the Company Information card opens in inline edit mode. */
+  initialEditing?: boolean;
 }
 
 const formatCurrency = (value: number | null | undefined) => {
@@ -342,6 +346,8 @@ export default function CompanyDetailDialog({
   open,
   onOpenChange,
   onUpdate,
+  initialTab = "overview",
+  initialEditing = false,
 }: CompanyDetailDialogProps) {
   const router = useRouter();
   const { analyzeWithAI } = useChatContext();
@@ -553,13 +559,23 @@ export default function CompanyDetailDialog({
 
   const [activeTab, setActiveTab] = useState<
     "overview" | "details" | "filters" | "attachments"
-  >("overview");
+  >(initialTab);
 
   useEffect(() => {
     if (open) {
       fetchDetails();
       fetchAnalysis();
     }
+  }, [open, company.id]);
+
+  // When opened via the "Update" action, jump straight to the Details tab with
+  // the Company Information card already in inline edit mode.
+  useEffect(() => {
+    if (open && initialEditing) {
+      setActiveTab("details");
+      startEditing();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, company.id]);
 
   // Load tracks once the dialog opens, to resolve the Deal Sponsor / Captain
