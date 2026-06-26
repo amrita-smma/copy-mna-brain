@@ -86,7 +86,7 @@ import StatusCombobox, {
   DEFAULT_OUTBOUND_STATUS_OPTIONS,
 } from "@/components/pipeline/StatusCombobox";
 import { normalizeStake } from "@/lib/stake";
-import { companyDisplayName, companyInitials } from "@/lib/companyDisplay";
+import { companyDisplayName, companyDisplayTitle, companyInitials } from "@/lib/companyDisplay";
 
 const OWNERSHIP_OPTIONS = [
   "Public",
@@ -958,6 +958,7 @@ export default function CompanyDetailDialog({
   };
 
   const displayName = companyDisplayName(company, "Unknown Company");
+  const displayTitle = companyDisplayTitle(company, "Unknown Company");
   const logoInitial = companyInitials(company);
 
   return (
@@ -991,7 +992,7 @@ export default function CompanyDetailDialog({
               <div className="flex-1 min-w-0 pr-8">
                 <div className="flex items-center gap-2 flex-wrap">
                   <DialogTitle className="text-xl font-bold leading-tight">
-                    {displayName}
+                    {displayTitle}
                   </DialogTitle>
                   {company.segment && (
                     <Badge variant="outline" className="text-xs">{company.segment}</Badge>

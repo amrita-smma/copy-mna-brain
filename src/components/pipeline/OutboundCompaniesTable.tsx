@@ -39,7 +39,7 @@ import type { PipelineCompany } from "@/views/Pipeline";
 import StatusCombobox from "@/components/pipeline/StatusCombobox";
 import { AskAIButton } from "@/components/chat/AskAIButton";
 import { useChatContext } from "@/components/chat/ChatProvider";
-import { companyDisplayName } from "@/lib/companyDisplay";
+import { companyDisplayName, companyDisplayTitle } from "@/lib/companyDisplay";
 import {
   resolveTrackIds,
   trackDisplayName,
@@ -223,7 +223,6 @@ export default function OutboundCompaniesTable({
             label="Company"
             className="sticky left-[40px] z-20 bg-card border-r"
           />
-          <TableHead>Project</TableHead>
           <SortHead field="sector" label="Segment" />
           <TableHead className="min-w-[150px]">Matched Tracks</TableHead>
           <TableHead>Deal Type</TableHead>
@@ -253,6 +252,7 @@ export default function OutboundCompaniesTable({
             : "bg-card group-hover:bg-muted";
           const isUpdating = updatingCompanyIds.has(company.id);
           const displayName = companyDisplayName(company, "this company");
+          const displayTitle = companyDisplayTitle(company, "");
           return (
             <TableRow
               key={company.id}
@@ -276,24 +276,12 @@ export default function OutboundCompaniesTable({
                 />
               </TableCell>
               <TableCell className={cn("sticky left-[40px] z-10 border-r", stickyBg)}>
-                {company.target ? (
+                {displayTitle ? (
                   <button
                     onClick={() => onOpenDetail(company)}
                     className="font-medium text-left hover:text-primary hover:underline transition-colors"
                   >
-                    {company.target}
-                  </button>
-                ) : (
-                  <span className="text-muted-foreground">—</span>
-                )}
-              </TableCell>
-              <TableCell>
-                {company.project_name ? (
-                  <button
-                    onClick={() => onOpenDetail(company)}
-                    className="font-medium text-left hover:text-primary hover:underline transition-colors"
-                  >
-                    {company.project_name}
+                    {displayTitle}
                   </button>
                 ) : (
                   <span className="text-muted-foreground">—</span>

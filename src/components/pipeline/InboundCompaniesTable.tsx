@@ -45,7 +45,7 @@ import StatusCombobox from "@/components/pipeline/StatusCombobox";
 import { AskAIButton } from "@/components/chat/AskAIButton";
 import { useChatContext } from "@/components/chat/ChatProvider";
 import { DuplicatePopup } from "@/components/pipeline/DuplicatePopup";
-import { companyDisplayName } from "@/lib/companyDisplay";
+import { companyDisplayName, companyDisplayTitle } from "@/lib/companyDisplay";
 import {
   resolveTrackIds,
   trackDisplayName,
@@ -213,7 +213,7 @@ export default function InboundCompaniesTable({
     </TableHead>
   );
 
-  const tableColumnCount = isDropped ? 20 : 19;
+  const tableColumnCount = isDropped ? 19 : 18;
   const unreviewedCompanies = isDropped
     ? []
     : companies.filter((company) => company.review_state === "unreviewed");
@@ -325,7 +325,6 @@ export default function InboundCompaniesTable({
             label="Company"
             className="sticky left-[40px] z-20 bg-card border-r"
           />
-          <TableHead>Project</TableHead>
           <TableHead className="min-w-[160px]">Banker / Source</TableHead>
           <SortHead field="sector" label="Sector" />
           <TableHead>Geo</TableHead>
@@ -366,6 +365,7 @@ export default function InboundCompaniesTable({
           const ebitda = latestFin(company.financials_raw, "ebitda_usd_mn");
           const isUnreviewed = company.review_state === "unreviewed";
           const displayName = companyDisplayName(company, "this company");
+          const displayTitle = companyDisplayTitle(company, "");
           const hasFinancials =
             rev.value != null ||
             ebitda.value != null ||
@@ -417,13 +417,13 @@ export default function InboundCompaniesTable({
                 />
               </TableCell>
               <TableCell className={cn("sticky left-[40px] z-10 border-r", stickyBg)}>
-                {company.target ? (
+                {displayTitle ? (
                   <>
                     <button
                       onClick={() => onOpenDetail(company)}
                       className="font-medium text-left hover:text-primary hover:underline transition-colors"
                     >
-                      {company.target}
+                      {displayTitle}
                     </button>
                     {hasFlags && (
                       <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
@@ -443,18 +443,6 @@ export default function InboundCompaniesTable({
                       </div>
                     )}
                   </>
-                ) : (
-                  <span className="text-muted-foreground">—</span>
-                )}
-              </TableCell>
-              <TableCell>
-                {company.project_name ? (
-                  <button
-                    onClick={() => onOpenDetail(company)}
-                    className="font-medium text-left hover:text-primary hover:underline transition-colors"
-                  >
-                    {company.project_name}
-                  </button>
                 ) : (
                   <span className="text-muted-foreground">—</span>
                 )}

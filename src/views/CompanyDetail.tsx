@@ -7,7 +7,7 @@ import { MarkdownRenderer } from '@/components/chat/MarkdownRenderer';
 import { useChatContext } from '@/components/chat/ChatProvider';
 import { AskAIButton } from '@/components/chat/AskAIButton';
 import { useIsMobile } from '@/hooks/use-mobile';
-import { companyDisplayName, companyInitials } from '@/lib/companyDisplay';
+import { companyDisplayName, companyDisplayTitle, companyInitials } from '@/lib/companyDisplay';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
@@ -948,6 +948,7 @@ export default function CompanyDetail({ showCompanyGraph = false }: CompanyDetai
   }
 
   const displayName = companyDisplayName(company, 'Unnamed Company');
+  const displayTitle = companyDisplayTitle(company, 'Unnamed Company');
   const logoInitial = companyInitials(company);
 
   const overviewFirstLine = analysis?.business_overview
@@ -988,7 +989,7 @@ export default function CompanyDetail({ showCompanyGraph = false }: CompanyDetai
             <div className="min-w-0">
               <div className="flex items-center gap-2 flex-wrap">
                 <h1 className="text-2xl font-bold leading-tight">
-                  {displayName}
+                  {displayTitle}
                 </h1>
                 {company.segment && <Badge variant="outline">{company.segment}</Badge>}
                 <Badge variant="outline">{getStageLabel(company.pipeline_stage)}</Badge>
