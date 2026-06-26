@@ -1,6 +1,7 @@
 import {
   sendEmail,
   sendEmailWithAttachment,
+  DEFAULT_FROM_EMAIL,
   type SendEmailInput,
   type SendEmailResult,
   type SendEmailWithAttachmentInput,
@@ -545,23 +546,45 @@ export interface AgentEmailInput {
 const AGENT_EMAIL_DISCLAIMER =
   'This email was auto-generated using BRAIN.';
 
+/** Display name every agent-composed email is sent on behalf of. */
+export const AGENT_EMAIL_SENDER_NAME = 'MnA Brain 2.0';
+
+/** Public URL of the app, surfaced in agent-composed emails. */
+export const APP_URL = 'https://mna.sqe.co.id';
+
+/**
+ * Build the SES "From" header for agent emails so they are always sent on
+ * behalf of "MnA Brain 2.0". Reuses the verified sender address from
+ * DEFAULT_FROM_EMAIL (which may be either a bare address or already in
+ * "Name <addr>" form) and just overrides the display name.
+ */
+export function buildAgentFromAddress(defaultFrom: string): string {
+  const match = defaultFrom.match(/<([^>]+)>/);
+  const address = (match ? match[1] : defaultFrom).trim();
+  return `${AGENT_EMAIL_SENDER_NAME} <${address}>`;
+}
+
 export function renderAgentEmail(input: {
   subject: string;
   body: string;
 }): { subject: string; html: string; text: string } {
   const safeBody = escapeHtml(input.body).replace(/\n/g, '<br />');
+  const safeUrl = escapeHtml(APP_URL);
   const disclaimerHtml = `<p style="margin:24px 0 0; padding-top:16px; border-top:1px solid #efeff2; color:#a1a1aa; font-size:12px; font-style:italic; line-height:1.5;">${escapeHtml(
     AGENT_EMAIL_DISCLAIMER,
-  )}</p>`;
+  )}<br />Open the app: <a href="${safeUrl}" style="color:#6d5ef5;">${safeUrl}</a></p>`;
   const html = renderNotificationShell({
-    bannerTitle: 'Brain 2.0',
+    bannerTitle: AGENT_EMAIL_SENDER_NAME,
     accent: '#6d5ef5',
     accentDark: '#5a4bd6',
     bodyHtml: `<h1 style="margin:0 0 16px; font-size:22px; line-height:1.25;">${escapeHtml(input.subject)}</h1>
       <div style="margin:0; line-height:1.6; color:#374151; font-size:15px;">${safeBody}</div>
       ${disclaimerHtml}`,
+    ctaUrl: APP_URL,
+    ctaLabel: 'Open MnA Brain 2.0',
+    footer: `Sent on behalf of ${AGENT_EMAIL_SENDER_NAME}.`,
   });
-  const text = `${input.body}\n\n—\n${AGENT_EMAIL_DISCLAIMER}`;
+  const text = `${input.body}\n\n—\n${AGENT_EMAIL_DISCLAIMER}\nOpen the app: ${APP_URL}`;
   return { subject: input.subject, html, text };
 }
 
@@ -722,7 +745,13 @@ export class EmailService {
     if (!input.subject) throw new Error('sendAgentEmail: subject is required');
     if (!input.body) throw new Error('sendAgentEmail: body is required');
     const { subject, html, text } = renderAgentEmail(input);
-    return this.sender({ to: input.email, subject, html, text });
+    return this.sender({
+      to: input.email,
+      subject,
+      html,
+      text,
+      from: buildAgentFromAddress(DEFAULT_FROM_EMAIL),
+    });
   }
 
 }

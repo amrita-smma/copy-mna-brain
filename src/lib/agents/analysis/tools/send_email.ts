@@ -121,10 +121,12 @@ IMPORTANT — recipients are restricted to a whitelist: only email addresses tha
 
 Use this when the user asks you to email a colleague/teammate something specific (a note, a heads-up, a summary in prose). For emailing the signed-in user a formatted research PDF, use email_research_summary instead.
 
+VOICE — always write and sign the email on behalf of the app, "MnA Brain 2.0", NOT as the human user. Do NOT sign off with an individual person's name (e.g. avoid "Thank you, Nico" / "Best, <user>"). If you include a closing/signature, sign as "MnA Brain 2.0" (e.g. "Thanks, MnA Brain 2.0"). Write in the app's voice as an automated assistant.
+
 Args:
     to: Required. One or more recipient email addresses. Each must belong to a registered platform user, or it is rejected.
     subject: Required. The email subject line.
-    body: Required. The plain-text email body (newlines are preserved). Markdown is NOT rendered — write plain prose.
+    body: Required. The plain-text email body (newlines are preserved). Markdown is NOT rendered — write plain prose. Sign off as "MnA Brain 2.0", never as an individual person.
 
 Returns:
     A confirmation string listing who it was sent to and which addresses were skipped (non-platform), or an error string starting with **Error:**.`,
