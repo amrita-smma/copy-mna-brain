@@ -53,12 +53,17 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import UserCombobox from '@/components/pipeline/UserCombobox';
 import StatusCombobox, {
   DEFAULT_INBOUND_STATUS_OPTIONS,
   DEFAULT_OUTBOUND_STATUS_OPTIONS,
 } from '@/components/pipeline/StatusCombobox';
 import { normalizeStake } from '@/lib/stake';
+import {
+  matchedTrackPics,
+  dealLeadField,
+  dealLeadLabel,
+  effectiveDealLead,
+} from '@/lib/tracks/matchTracks';
 import {
   Dialog,
   DialogContent,
@@ -79,13 +84,13 @@ import {
   deleteDealLink,
   deleteDealNote,
   getCompanies,
-  getCompanyAssignees,
   getCompanyDetails,
   getScreenings,
-  getUsers,
   getBankerNames,
-  setCompanyAssignees,
+  getTracks,
+  getUsers,
   updateCompany,
+  type Track,
   type UserSummary,
 } from '@/lib/api/pipeline';
 
@@ -158,7 +163,7 @@ interface CompanyData {
   dropped_at?: string | null;
   promoted_reasons?: string | null;
   deal_type?: string | null;
-  originator?: string | null;
+  entered_by?: string | null;
   last_activity_at?: string | null;
   banker?: string | null;
   doc_type?: string | null;
@@ -166,6 +171,9 @@ interface CompanyData {
   deal_size?: string | null;
   workflow_status?: string | null;
   key_rationale?: string | null;
+  matched_track_ids?: string[] | null;
+  deal_sponsor?: string | null;
+  deal_captain?: string | null;
   financials_raw?: import('@/lib/repositories').Tables<'company_financials'>[];
 }
 
@@ -340,6 +348,7 @@ export default function CompanyDetail({ showCompanyGraph = false }: CompanyDetai
   const [documents, setDocuments] = useState<DealDocument[]>([]);
   const [matchedFiles, setMatchedFiles] = useState<MatchedFile[]>([]);
   const [screenings, setScreenings] = useState<Screening[]>([]);
+  const [tracks, setTracks] = useState<Track[]>([]);
   const [loading, setLoading] = useState(true);
   const [analysis, setAnalysis] = useState<CompanyAnalysis | null>(null);
   const [analysisGenerating, setAnalysisGenerating] = useState(false);
@@ -374,10 +383,8 @@ export default function CompanyDetail({ showCompanyGraph = false }: CompanyDetai
     segment: string;
     pipeline_stage: string;
     ev_2024: string;
-    assigneeIds: string[];
     // Pipeline (HTML-parity) fields
     deal_type: string;
-    originator: string;
     last_activity_at: string; // YYYY-MM-DD
     workflow_status: string;
     banker: string;
@@ -385,14 +392,14 @@ export default function CompanyDetail({ showCompanyGraph = false }: CompanyDetai
     stake: string;
     deal_size: string;
     key_rationale: string;
+    deal_sponsor: string;
+    deal_captain: string;
   };
   const [isEditing, setIsEditing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [editForm, setEditForm] = useState<EditForm | null>(null);
-  const [allUsers, setAllUsers] = useState<UserSummary[]>([]);
   const [bankerOptions, setBankerOptions] = useState<string[]>([]);
-  const [allUsersLoading, setAllUsersLoading] = useState(false);
-  const [assignees, setAssignees] = useState<UserSummary[]>([]);
+  const [userOptions, setUserOptions] = useState<string[]>([]);
 
   const startEditing = async () => {
     if (!company) return;
@@ -406,9 +413,7 @@ export default function CompanyDetail({ showCompanyGraph = false }: CompanyDetai
       segment: company.segment ?? '',
       pipeline_stage: company.pipeline_stage ?? 'L0',
       ev_2024: company.ev_2024 != null ? String(company.ev_2024) : '',
-      assigneeIds: assignees.map((u) => u.id),
       deal_type: company.deal_type ?? '',
-      originator: company.originator ?? '',
       last_activity_at: isoToDateInput(company.last_activity_at),
       workflow_status: company.workflow_status ?? '',
       banker: company.banker ?? '',
@@ -416,6 +421,8 @@ export default function CompanyDetail({ showCompanyGraph = false }: CompanyDetai
       stake: company.stake ?? '',
       deal_size: company.deal_size ?? '',
       key_rationale: company.key_rationale ?? '',
+      deal_sponsor: company.deal_sponsor ?? '',
+      deal_captain: company.deal_captain ?? '',
     });
     setIsEditing(true);
     if (bankerOptions.length === 0) {
@@ -423,17 +430,12 @@ export default function CompanyDetail({ showCompanyGraph = false }: CompanyDetai
         .then(setBankerOptions)
         .catch((err) => console.error('Failed to load bankers:', err));
     }
-    if (allUsers.length === 0) {
-      setAllUsersLoading(true);
-      try {
-        const list = await getUsers();
-        setAllUsers(list);
-      } catch (err) {
-        console.error('Failed to load users:', err);
-        toast.error('Failed to load users');
-      } finally {
-        setAllUsersLoading(false);
-      }
+    if (userOptions.length === 0) {
+      getUsers()
+        .then((users: UserSummary[]) =>
+          setUserOptions(users.map((u) => u.name).filter((n): n is string => !!n)),
+        )
+        .catch((err) => console.error('Failed to load users:', err));
     }
   };
 
@@ -492,36 +494,30 @@ export default function CompanyDetail({ showCompanyGraph = false }: CompanyDetai
         setIsSaving(false);
         return;
       }
-      await Promise.all([
-        updateCompany(company.id, {
-          target: editForm.target.trim() || null,
-          project_name: editForm.project_name.trim() || null,
-          website: editForm.website.trim() || null,
-          geography: editForm.geography.trim() || null,
-          source: editForm.source || null,
-          ownership: editForm.ownership || null,
-          segment: editForm.segment.trim() || null,
-          pipeline_stage: editForm.pipeline_stage,
-          ev_2024: evNum,
-          deal_type: editForm.deal_type || null,
-          originator: editForm.originator.trim() || null,
-          last_activity_at: editForm.last_activity_at
-            ? new Date(editForm.last_activity_at).toISOString()
-            : null,
-          workflow_status: editForm.workflow_status.trim() || null,
-          banker: editForm.banker.trim() || null,
-          doc_type: editForm.doc_type || null,
-          stake: stakeResult.value,
-          deal_size: editForm.deal_size.trim() || null,
-          key_rationale: editForm.key_rationale.trim() || null,
-        }),
-        setCompanyAssignees(company.id, editForm.assigneeIds),
-      ]);
-      const [refreshedAssignees, refreshedCompany] = await Promise.all([
-        getCompanyAssignees(company.id),
-        getCompanies({ id: company.id }),
-      ]);
-      setAssignees(refreshedAssignees);
+      await updateCompany(company.id, {
+        target: editForm.target.trim() || null,
+        project_name: editForm.project_name.trim() || null,
+        website: editForm.website.trim() || null,
+        geography: editForm.geography.trim() || null,
+        source: editForm.source || null,
+        ownership: editForm.ownership || null,
+        segment: editForm.segment.trim() || null,
+        pipeline_stage: editForm.pipeline_stage,
+        ev_2024: evNum,
+        deal_type: editForm.deal_type || null,
+        last_activity_at: editForm.last_activity_at
+          ? new Date(editForm.last_activity_at).toISOString()
+          : null,
+        workflow_status: editForm.workflow_status.trim() || null,
+        banker: editForm.banker.trim() || null,
+        doc_type: editForm.doc_type || null,
+        stake: stakeResult.value,
+        deal_size: editForm.deal_size.trim() || null,
+        key_rationale: editForm.key_rationale.trim() || null,
+        deal_sponsor: editForm.deal_sponsor.trim() || null,
+        deal_captain: editForm.deal_captain.trim() || null,
+      });
+      const refreshedCompany = await getCompanies({ id: company.id });
       if (refreshedCompany) {
         setCompany((prev) =>
           prev ? { ...prev, ...(refreshedCompany as CompanyData) } : (refreshedCompany as CompanyData),
@@ -544,6 +540,13 @@ export default function CompanyDetail({ showCompanyGraph = false }: CompanyDetai
     }
   }, [companyId]);
 
+  // Load tracks to resolve the Deal Sponsor / Captain (the matched Track's PIC).
+  useEffect(() => {
+    getTracks()
+      .then(setTracks)
+      .catch((err) => console.error('Failed to load tracks:', err));
+  }, []);
+
   useEffect(() => stopAnalysisPoll, []);
 
   const fetchCompany = async (opts: { silent?: boolean } = {}) => {
@@ -556,9 +559,6 @@ export default function CompanyDetail({ showCompanyGraph = false }: CompanyDetai
           fetchDetails((data as CompanyData).target?.trim() || null);
           fetchAnalysis();
         }
-        getCompanyAssignees(companyId)
-          .then(setAssignees)
-          .catch((err) => console.error('Failed to load assignees:', err));
       }
     } catch (error) {
       console.error('Error fetching company:', error);
@@ -1351,20 +1351,37 @@ export default function CompanyDetail({ showCompanyGraph = false }: CompanyDetai
                   )}
                 </div>
                 <div>
-                  <p className="text-xs text-muted-foreground">PIC</p>
-                  {isEditing && editForm ? (
-                    <div className="mt-1">
-                      <UserCombobox users={allUsers} selectedUserIds={editForm.assigneeIds} onChange={(ids) => setEditForm({ ...editForm, assigneeIds: ids })} loading={allUsersLoading} disabled={isSaving} />
-                    </div>
-                  ) : assignees.length > 0 ? (
-                    <div className="flex flex-wrap gap-1 mt-0.5">
-                      {assignees.map((u) => (
-                        <span key={u.id} className="inline-flex items-center rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-foreground">{u.name}</span>
-                      ))}
-                    </div>
-                  ) : (
-                    <span className="text-sm text-muted-foreground">—</span>
-                  )}
+                  {(() => {
+                    const stage =
+                      isEditing && editForm ? editForm.pipeline_stage : company.pipeline_stage;
+                    const field = dealLeadField(stage);
+                    const pics = matchedTrackPics(company, tracks);
+                    const fallback = pics.length > 0 ? pics.join(', ') : null;
+                    return (
+                      <>
+                        <p className="text-xs text-muted-foreground">{dealLeadLabel(stage)}</p>
+                        {isEditing && editForm ? (
+                          <div className="mt-1">
+                            <StatusCombobox
+                              value={editForm[field] || null}
+                              options={userOptions}
+                              placeholder={
+                                fallback ? `${fallback} (from track)` : `Set ${dealLeadLabel(stage)}…`
+                              }
+                              searchPlaceholder="Search or type a name…"
+                              emptyText="No team members found."
+                              onChange={(v) => setEditForm({ ...editForm, [field]: v })}
+                              disabled={isSaving}
+                            />
+                          </div>
+                        ) : (
+                          <p className="text-sm font-medium break-words">
+                            {effectiveDealLead(company, stage, tracks) ?? '—'}
+                          </p>
+                        )}
+                      </>
+                    );
+                  })()}
                 </div>
                 <div>
                   <p className="text-xs text-muted-foreground">Deal Type</p>
@@ -1382,14 +1399,8 @@ export default function CompanyDetail({ showCompanyGraph = false }: CompanyDetai
                   )}
                 </div>
                 <div>
-                  <p className="text-xs text-muted-foreground">Originator</p>
-                  {isEditing && editForm ? (
-                    <div className="mt-1">
-                      <StatusCombobox value={editForm.originator || null} options={allUsers.map((u) => u.name).filter((n): n is string => !!n)} placeholder="Set originator…" searchPlaceholder="Search or type a name…" emptyText="No team members found." onChange={(v) => setEditForm({ ...editForm, originator: v })} disabled={isSaving} />
-                    </div>
-                  ) : (
-                    <p className="text-sm font-medium break-words">{company.originator || '—'}</p>
-                  )}
+                  <p className="text-xs text-muted-foreground">Entered by</p>
+                  <p className="text-sm font-medium break-words">{company.entered_by || '—'}</p>
                 </div>
                 <div>
                   <p className="text-xs text-muted-foreground">Status</p>

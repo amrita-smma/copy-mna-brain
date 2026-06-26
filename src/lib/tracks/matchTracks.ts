@@ -11,6 +11,8 @@ export interface TrackLike {
   id: string;
   title: string | null;
   content: string | null;
+  /** Person in charge of the track (investment_thesis.pic). */
+  pic?: string | null;
 }
 
 export interface MatchableCompany {
@@ -87,6 +89,57 @@ export function resolveTrackIds(
   if (!manual || manual.length === 0) return [];
   const known = new Set(tracks.map((t) => t.id));
   return manual.filter((id) => known.has(id));
+}
+
+/**
+ * Distinct, non-empty PIC names of the tracks a company is matched to. Drives
+ * the pipeline "Deal Sponsor" (L0–L2) / "Deal Captain" (L3+) columns, which
+ * both surface the matched Track's PIC.
+ */
+export function matchedTrackPics(
+  company: MatchableCompany,
+  tracks: TrackLike[],
+): string[] {
+  const ids = resolveTrackIds(company, tracks);
+  const pics = ids
+    .map((id) => tracks.find((t) => t.id === id)?.pic?.trim())
+    .filter((p): p is string => !!p);
+  return [...new Set(pics)];
+}
+
+export type DealLeadField = 'deal_sponsor' | 'deal_captain';
+
+/**
+ * Which per-company column backs the Deal Sponsor/Captain at a given stage:
+ * "deal_sponsor" at L0–L2, "deal_captain" at L3+.
+ */
+export function dealLeadField(stage: string | null | undefined): DealLeadField {
+  return stage === 'L0' || stage === 'L1' || stage === 'L2'
+    ? 'deal_sponsor'
+    : 'deal_captain';
+}
+
+/** Column label for the Deal Sponsor/Captain at a given stage. */
+export function dealLeadLabel(stage: string | null | undefined): string {
+  return dealLeadField(stage) === 'deal_sponsor' ? 'Deal Sponsor' : 'Deal Captain';
+}
+
+/**
+ * Effective Deal Sponsor/Captain for display: the per-company override when
+ * set, else the matched Track's PIC(s). Returns null when neither is present.
+ */
+export function effectiveDealLead(
+  company: MatchableCompany & {
+    deal_sponsor?: string | null;
+    deal_captain?: string | null;
+  },
+  stage: string | null | undefined,
+  tracks: TrackLike[],
+): string | null {
+  const stored = company[dealLeadField(stage)]?.trim();
+  if (stored) return stored;
+  const pics = matchedTrackPics(company, tracks);
+  return pics.length > 0 ? pics.join(', ') : null;
 }
 
 /** Short display label for a track pill (name truncated at the first em/en dash). */

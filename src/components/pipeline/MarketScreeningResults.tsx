@@ -417,7 +417,7 @@ export default function MarketScreeningResults({ refreshTrigger, onAddedToPipeli
                     <TableHead className="w-[50px]">Select</TableHead>
                     <TableHead><SortButton field="target" label="Company" /></TableHead>
                     <TableHead><SortButton field="segment" label="Sector" /></TableHead>
-                    <TableHead>PIC</TableHead>
+                    <TableHead>Deal Sponsor</TableHead>
                     <TableHead className="text-right"><SortButton field="revenue_2023" label="Rev 2023" align="right" /></TableHead>
                     <TableHead className="text-right"><SortButton field="revenue_2024" label="Rev 2024" align="right" /></TableHead>
                     <TableHead className="text-right"><SortButton field="revenue_2025" label="Rev 2025" align="right" /></TableHead>

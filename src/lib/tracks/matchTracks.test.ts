@@ -3,6 +3,7 @@ import {
   suggestTrackIds,
   resolveTrackIds,
   trackDisplayName,
+  matchedTrackPics,
   type TrackLike,
   type MatchableCompany,
 } from './matchTracks';
@@ -12,11 +13,13 @@ const TRACKS: TrackLike[] = [
     id: 'semi',
     title: 'Semiconductor & Materials — APAC Inbound',
     content: 'CMP, photoresist, wet chemicals, lithography, advanced packaging',
+    pic: 'Alice',
   },
   {
     id: 'renew',
     title: 'Renewables — Southeast Asia',
     content: 'Solar, battery storage, grid infrastructure, hydropower',
+    pic: 'Bob',
   },
 ];
 
@@ -68,6 +71,41 @@ describe('resolveTrackIds', () => {
       matched_track_ids: [],
     };
     expect(resolveTrackIds(company, TRACKS)).toEqual([]);
+  });
+});
+
+describe('matchedTrackPics', () => {
+  it('returns the PIC of the single matched track', () => {
+    const company: MatchableCompany = { matched_track_ids: ['semi'] };
+    expect(matchedTrackPics(company, TRACKS)).toEqual(['Alice']);
+  });
+
+  it('returns distinct PICs across multiple matched tracks', () => {
+    const company: MatchableCompany = { matched_track_ids: ['semi', 'renew'] };
+    expect(matchedTrackPics(company, TRACKS)).toEqual(['Alice', 'Bob']);
+  });
+
+  it('dedupes when two matched tracks share a PIC', () => {
+    const tracks: TrackLike[] = [
+      { id: 'a', title: 'A', content: null, pic: 'Alice' },
+      { id: 'b', title: 'B', content: null, pic: 'Alice' },
+    ];
+    const company: MatchableCompany = { matched_track_ids: ['a', 'b'] };
+    expect(matchedTrackPics(company, tracks)).toEqual(['Alice']);
+  });
+
+  it('skips tracks with an empty or missing PIC', () => {
+    const tracks: TrackLike[] = [
+      { id: 'a', title: 'A', content: null, pic: '  ' },
+      { id: 'b', title: 'B', content: null, pic: null },
+      { id: 'c', title: 'C', content: null, pic: 'Carol' },
+    ];
+    const company: MatchableCompany = { matched_track_ids: ['a', 'b', 'c'] };
+    expect(matchedTrackPics(company, tracks)).toEqual(['Carol']);
+  });
+
+  it('returns [] when the company has no matched tracks', () => {
+    expect(matchedTrackPics({ matched_track_ids: [] }, TRACKS)).toEqual([]);
   });
 });
 

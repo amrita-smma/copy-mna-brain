@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { auth } from '@/auth';
 import { createDb } from '@/lib/server/db';
 import { createContainer } from '@/lib/services';
 import type { ApproveFileInput } from '@/lib/services/fileService';
@@ -19,9 +20,13 @@ export async function POST(request: NextRequest, context: RouteContext) {
       return NextResponse.json({ error: 'file_type is required' }, { status: 400 });
     }
 
+    // Stamp who uploaded the file as the company's `entered_by`.
+    const session = await auth();
+    const enteredBy = session?.user?.name ?? null;
+
     const db = createDb();
     const { fileService } = createContainer(db);
-    const result = await fileService.approve(id, body);
+    const result = await fileService.approve(id, body, enteredBy);
 
     return NextResponse.json({ success: true, data: result });
   } catch (error) {

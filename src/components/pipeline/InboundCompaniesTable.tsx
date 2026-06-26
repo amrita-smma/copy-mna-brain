@@ -49,8 +49,54 @@ import { companyDisplayName, companyDisplayTitle } from "@/lib/companyDisplay";
 import {
   resolveTrackIds,
   trackDisplayName,
+  matchedTrackPics,
+  dealLeadField,
+  dealLeadLabel,
   type TrackLike,
 } from "@/lib/tracks/matchTracks";
+
+/**
+ * Editable Deal Sponsor (L0–L2) / Deal Captain (L3+) cell. The stored
+ * per-company override wins; when empty, the matched Track's PIC shows as the
+ * (muted) default. Picking a person persists the override — it never touches
+ * Track Settings.
+ */
+function DealLeadCell({
+  company,
+  tracks,
+  stage,
+  userOptions,
+  onChange,
+  disabled,
+}: {
+  company: PipelineCompany;
+  tracks: TrackLike[];
+  stage: DealStage;
+  userOptions: string[];
+  onChange: (company: PipelineCompany, field: "deal_sponsor" | "deal_captain", value: string) => void;
+  disabled?: boolean;
+}) {
+  const field = dealLeadField(stage);
+  const stored = company[field];
+  const fallbackPics = matchedTrackPics(company, tracks);
+  const fallback = fallbackPics.length > 0 ? fallbackPics.join(", ") : null;
+  if (disabled) {
+    return (
+      <span className="text-sm text-muted-foreground">{stored || fallback || "—"}</span>
+    );
+  }
+  return (
+    <StatusCombobox
+      variant="cell"
+      value={stored}
+      options={userOptions}
+      placeholder={fallback ?? `Set ${dealLeadLabel(stage)}…`}
+      searchPlaceholder="Search or type a name…"
+      emptyText="No team members found."
+      onChange={(next) => onChange(company, field, next)}
+    />
+  );
+}
 
 const DEAL_TYPE_LABEL: Record<string, string> = {
   majority: "Majority",
@@ -130,11 +176,18 @@ interface InboundCompaniesTableProps {
   onToggleFavorite: (id: string) => void;
   updatingCompanyIds: Set<string>;
   statusOptions: string[];
+  /** Team-member names suggested in the Deal Sponsor/Captain combobox. */
+  userOptions: string[];
   sortField: string | null;
   sortDirection: "asc" | "desc";
   onSort: (field: string) => void;
   onOpenDetail: (company: PipelineCompany) => void;
   onStatusChange: (company: PipelineCompany, next: string) => void;
+  onDealLeadChange: (
+    company: PipelineCompany,
+    field: "deal_sponsor" | "deal_captain",
+    next: string,
+  ) => void;
   /** Group rows into Unreviewed/Reviewed sections with banner headers. Default true. */
   groupByReviewState?: boolean;
   onTriageAll?: () => void;
@@ -156,11 +209,13 @@ export default function InboundCompaniesTable({
   favoriteIds,
   updatingCompanyIds,
   statusOptions,
+  userOptions,
   sortField,
   sortDirection,
   onSort,
   onOpenDetail,
   onStatusChange,
+  onDealLeadChange,
   groupByReviewState = true,
   onTriageAll,
   onKeep,
@@ -213,7 +268,9 @@ export default function InboundCompaniesTable({
     </TableHead>
   );
 
+  // colSpan for the section header / gap rows. Recount if columns change.
   const tableColumnCount = isDropped ? 19 : 18;
+  const picColumnLabel = dealLeadLabel(stage);
   const unreviewedCompanies = isDropped
     ? []
     : companies.filter((company) => company.review_state === "unreviewed");
@@ -325,6 +382,8 @@ export default function InboundCompaniesTable({
             label="Company"
             className="sticky left-[40px] z-20 bg-card border-r"
           />
+          <TableHead>{picColumnLabel}</TableHead>
+          <TableHead>Entered by</TableHead>
           <TableHead className="min-w-[160px]">Banker / Source</TableHead>
           <SortHead field="sector" label="Sector" />
           <TableHead>Geo</TableHead>
@@ -334,8 +393,6 @@ export default function InboundCompaniesTable({
           <SortHead field="ebitda" label="EBITDA" />
           <SortHead field="valuation" label="Valuation" />
           <TableHead>% Stake</TableHead>
-          <TableHead>PIC</TableHead>
-          <TableHead>Originator</TableHead>
           {isDropped ? (
             <>
               <TableHead>Source</TableHead>
@@ -447,6 +504,21 @@ export default function InboundCompaniesTable({
                   <span className="text-muted-foreground">—</span>
                 )}
               </TableCell>
+              <TableCell>
+                <DealLeadCell
+                  company={company}
+                  tracks={tracks}
+                  stage={stage}
+                  userOptions={userOptions}
+                  onChange={onDealLeadChange}
+                  disabled={isDropped}
+                />
+              </TableCell>
+              <TableCell>
+                <span className="text-sm text-muted-foreground">
+                  {company.entered_by || "—"}
+                </span>
+              </TableCell>
               <TableCell className="max-w-[220px]">
                 {bankerLabel ? (
                   <span
@@ -518,16 +590,6 @@ export default function InboundCompaniesTable({
               <TableCell>
                 <span className="text-sm text-muted-foreground">
                   {company.stake || "-"}
-                </span>
-              </TableCell>
-              <TableCell>
-                <span className="text-sm text-muted-foreground">
-                  {company.pic || "-"}
-                </span>
-              </TableCell>
-              <TableCell>
-                <span className="text-sm text-muted-foreground">
-                  {company.originator || "-"}
                 </span>
               </TableCell>
               {isDropped ? (

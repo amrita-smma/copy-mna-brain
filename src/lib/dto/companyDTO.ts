@@ -49,6 +49,12 @@ export interface CompanyDTO {
   // ---- Pipeline (HTML-parity) fields ----
   deal_type: string | null;
   originator: string | null;
+  // Who entered the company: "AI Email Scanning" or the uploader's name.
+  entered_by: string | null;
+  // Deal Sponsor (L0–L2) / Deal Captain (L3+) — per-company override of the
+  // matched Track's PIC. Empty falls back to the Track PIC for display.
+  deal_sponsor: string | null;
+  deal_captain: string | null;
   last_activity_at: string | null;
   banker: string | null;
   doc_type: string | null;
@@ -204,6 +210,9 @@ export function toCompanyDTO(
     promoted_reasons: company.promoted_reasons ?? null,
     deal_type: company.deal_type ?? null,
     originator: company.originator ?? null,
+    entered_by: company.entered_by ?? null,
+    deal_sponsor: company.deal_sponsor ?? null,
+    deal_captain: company.deal_captain ?? null,
     last_activity_at: company.last_activity_at ?? null,
     banker: company.banker ?? null,
     doc_type: company.doc_type ?? null,
@@ -340,7 +349,8 @@ export function splitCompanyDTO(dto: CompanyDTOInput): SplitCompanyWrite {
     'entry_id', 'watchlist_id', 'segment', 'target', 'project_name', 'segment_related_offerings',
     'company_focus', 'website', 'watchlist_status', 'comments', 'ownership',
     'geography', 'source', 'status', 'pipeline_stage', 'remarks', 'thesis_content',
-    'deal_type', 'originator', 'last_activity_at', 'banker', 'doc_type', 'stake',
+    'deal_type', 'originator', 'entered_by', 'deal_sponsor', 'deal_captain',
+    'last_activity_at', 'banker', 'doc_type', 'stake',
     'deal_size', 'workflow_status', 'key_rationale', 'review_state', 'banker_source',
     'possible_duplicate_company_id', 'matched_track_ids',
   ] as const;

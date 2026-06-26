@@ -29,6 +29,9 @@ function makeCompany(overrides: Partial<Tables<'companies'>> = {}): Tables<'comp
     promoted_reasons: null,
     deal_type: null,
     originator: null,
+    entered_by: null,
+    deal_sponsor: null,
+    deal_captain: null,
     last_activity_at: null,
     banker: null,
     doc_type: null,
@@ -254,6 +257,59 @@ describe('formatCompanyDisplay', () => {
   it('returns fallback when both are null', () => {
     expect(formatCompanyDisplay({ target: null, project_name: null })).toBe('Unknown');
     expect(formatCompanyDisplay({ target: null, project_name: null }, 'N/A')).toBe('N/A');
+  });
+});
+
+describe('entered_by', () => {
+  it('passes entered_by through toCompanyDTO when set', () => {
+    const dto = toCompanyDTO(
+      makeCompany({ entered_by: 'AI Email Scanning' }),
+      [],
+      [],
+      null,
+    );
+    expect(dto.entered_by).toBe('AI Email Scanning');
+  });
+
+  it('defaults entered_by to null', () => {
+    const dto = toCompanyDTO(makeCompany(), [], [], null);
+    expect(dto.entered_by).toBeNull();
+  });
+
+  it('routes entered_by into the company write fragment', () => {
+    const result = splitCompanyDTO({ entered_by: 'Jane Doe' });
+    expect(result.company.entered_by).toBe('Jane Doe');
+  });
+
+  it('preserves explicit null (clearing entered_by) and skips undefined', () => {
+    const result = splitCompanyDTO({ entered_by: null });
+    expect(result.company.entered_by).toBeNull();
+    expect('entered_by' in splitCompanyDTO({}).company).toBe(false);
+  });
+});
+
+describe('deal_sponsor / deal_captain', () => {
+  it('passes both through toCompanyDTO when set', () => {
+    const dto = toCompanyDTO(
+      makeCompany({ deal_sponsor: 'Dicki Sujadi', deal_captain: 'Alex Lee' }),
+      [],
+      [],
+      null,
+    );
+    expect(dto.deal_sponsor).toBe('Dicki Sujadi');
+    expect(dto.deal_captain).toBe('Alex Lee');
+  });
+
+  it('defaults both to null', () => {
+    const dto = toCompanyDTO(makeCompany(), [], [], null);
+    expect(dto.deal_sponsor).toBeNull();
+    expect(dto.deal_captain).toBeNull();
+  });
+
+  it('routes both into the company write fragment', () => {
+    const result = splitCompanyDTO({ deal_sponsor: 'Dicki Sujadi', deal_captain: null });
+    expect(result.company.deal_sponsor).toBe('Dicki Sujadi');
+    expect(result.company.deal_captain).toBeNull();
   });
 });
 

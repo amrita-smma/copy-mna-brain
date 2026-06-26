@@ -318,6 +318,35 @@ describe("CompanyService.promote", () => {
     await service.promote("company-1", "L1", "L2", undefined, "  ");
     expect(repos.dealLinkRepo.insert).not.toHaveBeenCalled();
   });
+
+  it("copies Deal Sponsor into Deal Captain on promotion into L3 when captain is empty", async () => {
+    vi.mocked(repos.companyRepo.findById).mockResolvedValue(
+      makeCompany({ deal_sponsor: "Dicki Sujadi", deal_captain: null }),
+    );
+    await service.promote("company-1", "L2", "L3");
+    expect(repos.companyRepo.update).toHaveBeenCalledWith(
+      "company-1",
+      expect.objectContaining({ pipeline_stage: "L3", deal_captain: "Dicki Sujadi" }),
+    );
+  });
+
+  it("does not overwrite an existing Deal Captain on promotion into L3+", async () => {
+    vi.mocked(repos.companyRepo.findById).mockResolvedValue(
+      makeCompany({ deal_sponsor: "Dicki Sujadi", deal_captain: "Someone Else" }),
+    );
+    await service.promote("company-1", "L2", "L3");
+    const updates = vi.mocked(repos.companyRepo.update).mock.calls[0][1];
+    expect(updates).not.toHaveProperty("deal_captain");
+  });
+
+  it("does not set Deal Captain when promoting within L0–L2", async () => {
+    vi.mocked(repos.companyRepo.findById).mockResolvedValue(
+      makeCompany({ deal_sponsor: "Dicki Sujadi", deal_captain: null }),
+    );
+    await service.promote("company-1", "L1", "L2");
+    const updates = vi.mocked(repos.companyRepo.update).mock.calls[0][1];
+    expect(updates).not.toHaveProperty("deal_captain");
+  });
 });
 
 describe("CompanyService.promote (promotion reason)", () => {

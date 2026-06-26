@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { auth } from "@/auth";
 import { createDb } from "@/lib/server/db";
 import { createContainer } from "@/lib/services";
 
@@ -99,6 +100,12 @@ export async function POST(req: NextRequest) {
     const { company, logAction } = await req.json();
     // `company` is a flat CompanyDTOInput — split across companies +
     // company_financials + company_fx_adjustments + company_screening_derived.
+    // Stamp the acting user as `entered_by` unless the caller set it explicitly
+    // (e.g. an automated source providing its own label).
+    if (company && (company.entered_by === undefined || company.entered_by === null)) {
+      const session = await auth();
+      if (session?.user?.name) company.entered_by = session.user.name;
+    }
     const data = await companyService.createFromDTO(company, logAction);
     return NextResponse.json({ data });
   } catch (error: unknown) {

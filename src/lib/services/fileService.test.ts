@@ -492,6 +492,7 @@ describe('FileService.processUpload', () => {
         source: 'inbound',
         review_state: 'unreviewed',
         banker_source: 'Goldman Sachs',
+        entered_by: 'AI Email Scanning',
       }),
       'auto_created_from_email_attachment:file-1',
     );
@@ -957,6 +958,46 @@ describe('FileService.approve', () => {
 
     expect(companyService.createFromDTO).toHaveBeenCalledWith(
       expect.objectContaining({ target: 'Acme Corp', source: 'inbound' }),
+      'created_from_file:file-1',
+    );
+  });
+
+  it('stamps entered_by with the uploader name when creating from AI data', async () => {
+    vi.mocked(fileRepo.findById).mockResolvedValue(
+      makeFile({ id: 'file-1', structured_notes: prospectusNotes }),
+    );
+    vi.mocked(companyService.createFromDTO).mockResolvedValue({ id: 'company-new' } as never);
+    vi.mocked(companyService.findById).mockResolvedValue(makeCompany({ id: 'company-new' }));
+
+    const input: ApproveFileInput = {
+      file_type: 'prospectus',
+      matched_company_id: null,
+      create_company_from_ai: true,
+    };
+    await service.approve('file-1', input, 'Jane Doe');
+
+    expect(companyService.createFromDTO).toHaveBeenCalledWith(
+      expect.objectContaining({ entered_by: 'Jane Doe' }),
+      'created_from_file:file-1',
+    );
+  });
+
+  it('defaults entered_by to null when no uploader name is provided', async () => {
+    vi.mocked(fileRepo.findById).mockResolvedValue(
+      makeFile({ id: 'file-1', structured_notes: prospectusNotes }),
+    );
+    vi.mocked(companyService.createFromDTO).mockResolvedValue({ id: 'company-new' } as never);
+    vi.mocked(companyService.findById).mockResolvedValue(makeCompany({ id: 'company-new' }));
+
+    const input: ApproveFileInput = {
+      file_type: 'prospectus',
+      matched_company_id: null,
+      create_company_from_ai: true,
+    };
+    await service.approve('file-1', input);
+
+    expect(companyService.createFromDTO).toHaveBeenCalledWith(
+      expect.objectContaining({ entered_by: null }),
       'created_from_file:file-1',
     );
   });

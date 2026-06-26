@@ -38,6 +38,13 @@ import type { TrackMatchingService } from './trackMatchingService';
  */
 const DEAL_TARGET_FILE_TYPES = new Set<string>(['prospectus']);
 
+/**
+ * `entered_by` value stamped on companies auto-created from banker email
+ * attachments (no human enters these). Manual create/upload flows stamp the
+ * acting user's name instead.
+ */
+export const AI_EMAIL_SCANNING_ENTERED_BY = 'AI Email Scanning';
+
 export interface ApproveFileInput {
   file_type: FileTypeOverride;
   matched_company_id: string | null;
@@ -344,7 +351,7 @@ export class FileService {
     };
   }
 
-  async approve(fileId: string, input: ApproveFileInput) {
+  async approve(fileId: string, input: ApproveFileInput, enteredBy?: string | null) {
     const file = await this.fileRepo.findById(fileId);
     const parsedNotes = this.parseStructuredNotes(file.structured_notes);
     const summary = parsedNotes?.prospectus_summary as ProspectusSummary | undefined;
@@ -373,6 +380,7 @@ export class FileService {
           geography: summary.geography ?? null,
           remarks: summary.remarks ?? null,
           source: 'inbound',
+          entered_by: enteredBy ?? null,
         };
         const created = await this.companyService.createFromDTO(
           insertData as Parameters<typeof this.companyService.createFromDTO>[0],
@@ -625,6 +633,7 @@ export class FileService {
         pipeline_stage: 'L0',
         status: 'active',
         review_state: 'unreviewed',
+        entered_by: AI_EMAIL_SCANNING_ENTERED_BY,
         ...this.buildEmailAttachmentCompanyMergeInput(
           opts.summary,
           opts.effectiveFileType,

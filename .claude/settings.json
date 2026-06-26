@@ -60,7 +60,11 @@
       "Bash(sed -n '1,60p' src/lib/jobs/dispatch.ts)",
       "Bash(sed -n '122,140p' src/lib/agents/analysis/index.ts)",
       "Bash(sed -n '48,80p' src/lib/services/companyService.ts)",
-      "Bash(grep -nE \"^#{2,3} \" README.md)"
+      "Bash(grep -nE \"^#{2,3} \" README.md)",
+      "Bash(rg -rn \"\\\\.approve\\\\\\(\" src/app src/lib --type ts)",
+      "Bash(rg -rn \"createCompany\\\\\\(\" src --type ts --type tsx)",
+      "Bash(rg -rn \"createCompany\\\\b\" src/components src/views --type ts)",
+      "Bash(rg -rln \"originator:\" src --type ts --type tsx)"
     ]
   }
 }

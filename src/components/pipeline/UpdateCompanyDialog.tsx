@@ -25,8 +25,8 @@ import { Loader2, Check } from "lucide-react";
 import {
   updateCompany,
   updateCompanyFinancials,
-  getUsers,
   getBankerNames,
+  getUsers,
   type FinancialEditRow,
   type UserSummary,
 } from "@/lib/api/pipeline";
@@ -37,7 +37,12 @@ import StatusCombobox, {
 import type { Tables } from "@/lib/repositories";
 import { normalizeStake } from "@/lib/stake";
 import TrackMultiSelect from "@/components/pipeline/TrackMultiSelect";
-import type { TrackLike } from "@/lib/tracks/matchTracks";
+import {
+  matchedTrackPics,
+  dealLeadField,
+  dealLeadLabel,
+  type TrackLike,
+} from "@/lib/tracks/matchTracks";
 
 /** Fields the dialog reads from a pipeline company. PipelineCompany is assignable. */
 export interface UpdateCompanyData {
@@ -47,9 +52,9 @@ export interface UpdateCompanyData {
   segment: string | null;
   geography: string | null;
   source: string | null;
+  pipeline_stage?: string | null;
   remarks: string | null;
   deal_type: string | null;
-  originator: string | null;
   last_activity_at: string | null;
   banker: string | null;
   doc_type: string | null;
@@ -58,6 +63,8 @@ export interface UpdateCompanyData {
   workflow_status: string | null;
   key_rationale: string | null;
   matched_track_ids?: string[] | null;
+  deal_sponsor?: string | null;
+  deal_captain?: string | null;
   financials_raw?: Tables<"company_financials">[];
 }
 
@@ -79,7 +86,6 @@ type Form = {
   segment: string;
   geography: string;
   deal_type: string;
-  originator: string;
   last_activity_at: string; // YYYY-MM-DD for the date input
   workflow_status: string;
   remarks: string;
@@ -93,6 +99,8 @@ type Form = {
   ebitda_year: string;
   key_rationale: string;
   matched_track_ids: string[];
+  deal_sponsor: string;
+  deal_captain: string;
 };
 
 /** timestamptz ISO string -> YYYY-MM-DD for <input type="date">. */
@@ -127,7 +135,6 @@ const buildForm = (c: UpdateCompanyData): Form => {
     segment: c.segment ?? "",
     geography: c.geography ?? "",
     deal_type: c.deal_type ?? "",
-    originator: c.originator ?? "",
     last_activity_at: isoToDateInput(c.last_activity_at),
     workflow_status: c.workflow_status ?? "",
     remarks: c.remarks ?? "",
@@ -141,6 +148,8 @@ const buildForm = (c: UpdateCompanyData): Form => {
     ebitda_year: ebitda.year != null ? String(ebitda.year) : "",
     key_rationale: c.key_rationale ?? "",
     matched_track_ids: c.matched_track_ids ?? [],
+    deal_sponsor: c.deal_sponsor ?? "",
+    deal_captain: c.deal_captain ?? "",
   };
 };
 
@@ -154,22 +163,14 @@ export default function UpdateCompanyDialog({
 }: UpdateCompanyDialogProps) {
   const [form, setForm] = useState<Form>(() => buildForm(company));
   const [isSaving, setIsSaving] = useState(false);
-  const [allUsers, setAllUsers] = useState<UserSummary[]>([]);
   const [bankerOptions, setBankerOptions] = useState<string[]>([]);
+  const [userOptions, setUserOptions] = useState<string[]>([]);
   const isOutbound = company.source === "outbound";
 
   useEffect(() => {
     if (open) setForm(buildForm(company));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, company.id]);
-
-  // Load team members once, to suggest Originator values.
-  useEffect(() => {
-    if (!open || allUsers.length > 0) return;
-    getUsers()
-      .then(setAllUsers)
-      .catch((err) => console.error("Failed to load users:", err));
-  }, [open, allUsers.length]);
 
   // Load existing banker names once, to suggest Banker / Source values.
   useEffect(() => {
@@ -178,6 +179,18 @@ export default function UpdateCompanyDialog({
       .then(setBankerOptions)
       .catch((err) => console.error("Failed to load bankers:", err));
   }, [open, bankerOptions.length]);
+
+  // Load team-member names once, to suggest Deal Sponsor/Captain values.
+  useEffect(() => {
+    if (!open || userOptions.length > 0) return;
+    getUsers()
+      .then((users: UserSummary[]) =>
+        setUserOptions(
+          users.map((u) => u.name).filter((n): n is string => !!n),
+        ),
+      )
+      .catch((err) => console.error("Failed to load users:", err));
+  }, [open, userOptions.length]);
 
   const set = <K extends keyof Form>(key: K, value: Form[K]) =>
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -241,7 +254,6 @@ export default function UpdateCompanyDialog({
         segment: form.segment.trim() || null,
         geography: form.geography.trim() || null,
         deal_type: form.deal_type || null,
-        originator: form.originator.trim() || null,
         last_activity_at: form.last_activity_at
           ? new Date(form.last_activity_at).toISOString()
           : null,
@@ -253,6 +265,8 @@ export default function UpdateCompanyDialog({
         deal_size: form.deal_size.trim() || null,
         key_rationale: form.key_rationale.trim() || null,
         matched_track_ids: form.matched_track_ids,
+        deal_sponsor: form.deal_sponsor.trim() || null,
+        deal_captain: form.deal_captain.trim() || null,
       });
       if (financialRows.length > 0) {
         await updateCompanyFinancials(company.id, { rows: financialRows });
@@ -463,20 +477,6 @@ export default function UpdateCompanyDialog({
           )}
 
           <div className="space-y-1.5">
-            <Label>Originator</Label>
-            <StatusCombobox
-              value={form.originator || null}
-              options={allUsers
-                .map((u) => u.name)
-                .filter((n): n is string => !!n)}
-              placeholder="Set originator…"
-              searchPlaceholder="Search or type a name…"
-              emptyText="No team members found."
-              onChange={(v) => set("originator", v)}
-              disabled={isSaving}
-            />
-          </div>
-          <div className="space-y-1.5">
             <Label htmlFor="u_last_activity">Last Activity</Label>
             <Input
               id="u_last_activity"
@@ -498,6 +498,36 @@ export default function UpdateCompanyDialog({
               />
             </div>
           )}
+
+          {/* Deal Sponsor (L0–L2) / Deal Captain (L3+) — per-company override
+              of the matched Track's PIC; the Track's PIC shows as the default
+              placeholder when no override is set. */}
+          {(() => {
+            const field = dealLeadField(company.pipeline_stage);
+            const pics = matchedTrackPics(
+              { matched_track_ids: form.matched_track_ids },
+              tracks,
+            );
+            const fallback = pics.length > 0 ? pics.join(", ") : null;
+            return (
+              <div className="col-span-2 space-y-1.5">
+                <Label>{dealLeadLabel(company.pipeline_stage)}</Label>
+                <StatusCombobox
+                  value={form[field] || null}
+                  options={userOptions}
+                  placeholder={
+                    fallback
+                      ? `${fallback} (from track)`
+                      : `Set ${dealLeadLabel(company.pipeline_stage)}…`
+                  }
+                  searchPlaceholder="Search or type a name…"
+                  emptyText="No team members found."
+                  onChange={(v) => set(field, v)}
+                  disabled={isSaving}
+                />
+              </div>
+            );
+          })()}
 
           <div className="col-span-2 space-y-1.5">
             <Label>Status</Label>

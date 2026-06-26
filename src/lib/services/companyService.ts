@@ -307,12 +307,25 @@ export class CompanyService {
     const companyUpdate: TablesUpdate<'companies'> = {
       pipeline_stage: nextStage as DealStage,
     };
-    if (trimmedPromotionReason) {
+    // Deal Captain is shown from L3 onwards; on entry to L3+ it inherits the
+    // Deal Sponsor unless a captain has already been set.
+    const entersCaptainStage =
+      nextStage === 'L3' || nextStage === 'L4' || nextStage === 'L5';
+    if (trimmedPromotionReason || entersCaptainStage) {
       const existing = await this.companyRepo.findById(id);
-      const prior = existing.promoted_reasons?.trim() || '';
-      companyUpdate.promoted_reasons = prior
-        ? `${prior}\n\n${trimmedPromotionReason}`
-        : trimmedPromotionReason;
+      if (trimmedPromotionReason) {
+        const prior = existing.promoted_reasons?.trim() || '';
+        companyUpdate.promoted_reasons = prior
+          ? `${prior}\n\n${trimmedPromotionReason}`
+          : trimmedPromotionReason;
+      }
+      if (
+        entersCaptainStage &&
+        !existing.deal_captain?.trim() &&
+        existing.deal_sponsor?.trim()
+      ) {
+        companyUpdate.deal_captain = existing.deal_sponsor;
+      }
     }
     await this.companyRepo.update(id, companyUpdate);
     await this.companyLogRepo.insert({

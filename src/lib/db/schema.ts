@@ -346,6 +346,15 @@ export const companies = pgTable(
     // Pipeline (HTML-parity) fields — inbound first.
     deal_type: dealType().default("majority"),
     originator: text(),
+    // Who entered the company into the pipeline: the literal "AI Email
+    // Scanning" for email-attachment auto-creates, else the name of the
+    // person who manually enters/uploads it.
+    entered_by: text(),
+    // Deal Sponsor (shown at L0–L2) and Deal Captain (shown at L3+). Override
+    // the matched Track's PIC per company; empty falls back to the Track PIC
+    // for display. Deal Captain inherits Deal Sponsor on promotion into L3+.
+    deal_sponsor: text(),
+    deal_captain: text(),
     last_activity_at: timestamp({ withTimezone: true, mode: "string" }),
     banker: text(),
     // doc_type values are constrained in the app UI only (not a DB enum).
