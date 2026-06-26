@@ -851,22 +851,48 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
   const renderViewToggle = () => {
     const isDroppedView = viewMode === "dropped";
     return (
-      <Button
-        type="button"
-        variant="outline"
-        size="sm"
-        data-testid="pipeline-view-toggle-button"
-        onClick={() => setViewMode(isDroppedView ? "active" : "dropped")}
-        className="ml-auto shrink-0 h-9 gap-2"
-      >
-        <span
+      <div className="ml-auto shrink-0 inline-flex h-9 items-center rounded-md border p-0.5">
+        <button
+          type="button"
+          data-testid="pipeline-view-toggle-active"
+          aria-pressed={!isDroppedView}
+          onClick={() => setViewMode("active")}
           className={cn(
-            "h-2 w-2 rounded-full shrink-0",
-            isDroppedView ? "bg-red-500" : "bg-emerald-500",
+            "inline-flex items-center gap-1.5 rounded-sm px-3 h-full text-sm font-medium transition-colors",
+            !isDroppedView
+              ? "bg-emerald-500 text-white"
+              : "text-muted-foreground hover:text-emerald-600",
           )}
-        />
-        {isDroppedView ? "Dropped" : "Active"}
-      </Button>
+        >
+          <span
+            className={cn(
+              "h-2 w-2 rounded-full shrink-0",
+              !isDroppedView ? "bg-white" : "bg-emerald-500",
+            )}
+          />
+          Active
+        </button>
+        <button
+          type="button"
+          data-testid="pipeline-view-toggle-dropped"
+          aria-pressed={isDroppedView}
+          onClick={() => setViewMode("dropped")}
+          className={cn(
+            "inline-flex items-center gap-1.5 rounded-sm px-3 h-full text-sm font-medium transition-colors",
+            isDroppedView
+              ? "bg-red-500 text-white"
+              : "text-muted-foreground hover:text-red-600",
+          )}
+        >
+          <span
+            className={cn(
+              "h-2 w-2 rounded-full shrink-0",
+              isDroppedView ? "bg-white" : "bg-red-500",
+            )}
+          />
+          Dropped
+        </button>
+      </div>
     );
   };
 
