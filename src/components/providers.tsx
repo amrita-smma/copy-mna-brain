@@ -7,6 +7,7 @@ import { Toaster as Sonner } from '@/components/ui/sonner';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { AuthProvider } from '@/hooks/useAuth';
 import { ChatProvider } from '@/components/chat/ChatProvider';
+import { PresentationViewerProvider } from '@/components/presentation/PresentationViewerContext';
 import { ThemeProvider } from 'next-themes';
 
 const queryClient = new QueryClient();
@@ -21,11 +22,13 @@ export function Providers({ children }: ProvidersProps) {
       <AuthProvider>
         <ThemeProvider attribute="class" defaultTheme="light" enableSystem={false}>
           <ChatProvider>
-            <TooltipProvider>
-              <Toaster />
-              <Sonner />
-              {children}
-            </TooltipProvider>
+            <PresentationViewerProvider>
+              <TooltipProvider>
+                <Toaster />
+                <Sonner />
+                {children}
+              </TooltipProvider>
+            </PresentationViewerProvider>
           </ChatProvider>
         </ThemeProvider>
       </AuthProvider>

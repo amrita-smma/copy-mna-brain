@@ -2,7 +2,7 @@ import { type UIMessage } from "@ai-sdk/react";
 import { memo, useState, useEffect } from "react";
 import { cn } from "@/lib/utils";
 import { companyDisplayName } from "@/lib/companyDisplay";
-import { Bot, User, ChevronDown, ChevronRight, Wrench, Loader2, FileText, X, Sparkles, FileSearch, Brain, AlertTriangle } from "lucide-react";
+import { User, ChevronDown, ChevronRight, Wrench, Loader2, FileText, X, Sparkles, FileSearch, Brain, AlertTriangle } from "lucide-react";
 import { MarkdownRenderer } from "./MarkdownRenderer";
 import {
   Collapsible,
@@ -63,14 +63,9 @@ function ThinkingIndicator() {
 
 export function LoadingBubble() {
   return (
-    <div className="flex gap-4 mb-6">
-      {/* Avatar */}
-      <div className="flex-shrink-0 h-10 w-10 rounded-xl hidden md:flex items-center justify-center bg-gradient-to-br from-purple-500 to-purple-600 shadow-lg">
-        <Bot className="h-5 w-5 text-white" />
-      </div>
-
+    <div className="flex mb-6">
       {/* Thinking Indicator */}
-      <div className="flex-1 min-w-0 max-w-full md:max-w-[80%] flex flex-col items-start">
+      <div className="flex-1 min-w-0 flex flex-col items-start px-5">
         <ThinkingIndicator />
       </div>
     </div>
@@ -404,14 +399,9 @@ function ChatMessageBubbleImpl(props: ChatMessageBubbleProps) {
 
   // For assistant messages, render parts with switch statement
   return (
-    <div className="flex gap-4 mb-6 min-w-0">
-      {/* Avatar */}
-      <div className="flex-shrink-0 h-10 w-10 rounded-xl hidden md:flex items-center justify-center bg-gradient-to-br from-purple-500 to-purple-600 shadow-lg">
-        <Bot className="h-5 w-5 text-white" />
-      </div>
-
-      {/* Message Content */}
-      <div className="flex-1 min-w-0 max-w-full md:max-w-[80%] flex flex-col items-start gap-2">
+    <div className="flex mb-6 min-w-0">
+      {/* Message Content — flat, full-width with symmetric horizontal padding */}
+      <div className="flex-1 min-w-0 flex flex-col items-start gap-2 px-0 md:px-2">
         {/* Tool Results - All tools behind a single collapsible */}
         {toolParts.length > 0 && (
           <Collapsible
@@ -551,10 +541,10 @@ function ChatMessageBubbleImpl(props: ChatMessageBubbleProps) {
           </div>
         )}
 
-        {/* Response Text - Final answer. On mobile it lays out as plain
-            full-width text (no card); from md+ it keeps the bubble card. */}
+        {/* Response Text - Final answer. Rendered as plain full-width text
+            with no card/bubble, flat against the background. */}
         {hasResponseContent && (
-          <div className="w-full min-w-0 overflow-auto break-words md:rounded-2xl md:px-5 md:py-4 md:bg-card md:border md:shadow-sm md:text-card-foreground">
+          <div className="w-full min-w-0 overflow-auto break-words">
             <MarkdownRenderer content={responseText} />
           </div>
         )}

@@ -188,7 +188,7 @@ export default function DashboardLayout({ children, showCompanyGraph = false }: 
                                 <span>{item.name}</span>
                               </div>
                             ) : (
-                              <Link href={item.href}>
+                              <Link href={item.href} onClick={() => setIsCopilotExpanded(false)}>
                                 <item.icon className={cn(
                                   'h-4 w-4',
                                   isTeal && 'text-teal-400',

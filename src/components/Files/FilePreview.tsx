@@ -37,6 +37,7 @@ export default function FilePreview({ url, onDownload, fileName, fileKey }: File
       if (extension === 'txt') return 'text';
       if (extension === 'md') return 'markdown';
       if (extension === 'png' || extension === 'jpg' || extension === 'jpeg') return 'image';
+      if (extension === 'pptx' || extension === 'ppt') return 'pptx';
       return 'unknown';
     };
 
@@ -65,7 +66,7 @@ export default function FilePreview({ url, onDownload, fileName, fileKey }: File
       }
     };
 
-    if (type === 'image' || type === 'pdf' || type === 'unknown') {
+    if (type === 'image' || type === 'pdf' || type === 'pptx' || type === 'unknown') {
       setLoading(false);
     } else {
       fetchContent();
@@ -131,6 +132,18 @@ export default function FilePreview({ url, onDownload, fileName, fileKey }: File
       );
     }
 
+    if (fileType === 'pptx') {
+      return (
+        <div className="h-full w-full rounded-md border overflow-hidden">
+          <iframe
+            src={`https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(url)}`}
+            className="w-full h-full"
+            title={fileName || 'Presentation'}
+          />
+        </div>
+      );
+    }
+
     if (fileType === 'image') {
       return (
         <div className="h-full w-full rounded-md border overflow-auto bg-muted/20 flex items-center justify-center p-4">
@@ -173,7 +186,7 @@ export default function FilePreview({ url, onDownload, fileName, fileKey }: File
         <FileText className="h-12 w-12 text-muted-foreground opacity-50" />
         <div className="text-center">
           <p className="font-medium">No preview available</p>
-          <p className="text-sm text-muted-foreground">Supported previews: PDF, DOCX, TXT, MD, PNG, JPG, JPEG</p>
+          <p className="text-sm text-muted-foreground">Supported previews: PDF, DOCX, PPTX, TXT, MD, PNG, JPG, JPEG</p>
         </div>
         <Button variant="outline" onClick={handleDownload} disabled={!onDownload || downloading}>
           {downloading ? (

@@ -20,6 +20,9 @@ import { cn } from "@/lib/utils";
 import { Check, ChevronDown, X } from "lucide-react";
 import { trackDisplayName, type TrackLike } from "@/lib/tracks/matchTracks";
 
+/** Sentinel id used to filter companies that have no matched tracks. */
+export const UNASSIGNED_TRACK_ID = "__unassigned__";
+
 interface TrackMultiSelectProps {
   tracks: TrackLike[];
   /** Currently-selected track ids. */
@@ -30,6 +33,8 @@ interface TrackMultiSelectProps {
   /** "input" = form field with tag chips; "filter" = compact toolbar button. */
   variant?: "input" | "filter";
   className?: string;
+  /** When true, adds an "Unassigned" option (companies with no tracks). */
+  includeUnassigned?: boolean;
 }
 
 export default function TrackMultiSelect({
@@ -40,6 +45,7 @@ export default function TrackMultiSelect({
   placeholder = "Select tracks…",
   variant = "input",
   className,
+  includeUnassigned = false,
 }: TrackMultiSelectProps) {
   const [open, setOpen] = useState(false);
   const selected = new Set(value);
@@ -47,12 +53,17 @@ export default function TrackMultiSelect({
   const toggle = (id: string) =>
     onChange(value.includes(id) ? value.filter((v) => v !== id) : [...value, id]);
 
+  const labelForId = (id: string) => {
+    if (id === UNASSIGNED_TRACK_ID) return "Unassigned";
+    const t = tracks.find((x) => x.id === id);
+    return t ? trackDisplayName(t) : null;
+  };
+
   const triggerLabel = () => {
     if (value.length === 0) return placeholder;
     if (variant === "filter") {
       if (value.length === 1) {
-        const t = tracks.find((x) => x.id === value[0]);
-        return t ? trackDisplayName(t) : "1 track";
+        return labelForId(value[0]) ?? "1 track";
       }
       return `${value.length} tracks`;
     }
@@ -131,6 +142,25 @@ export default function TrackMultiSelect({
                   <span className="truncate">{trackDisplayName(t)}</span>
                 </CommandItem>
               ))}
+              {includeUnassigned && (
+                <CommandItem
+                  value="Unassigned"
+                  onSelect={() => toggle(UNASSIGNED_TRACK_ID)}
+                  className="group"
+                >
+                  <Check
+                    className={cn(
+                      "mr-2 h-4 w-4",
+                      selected.has(UNASSIGNED_TRACK_ID)
+                        ? "opacity-100"
+                        : "opacity-0",
+                    )}
+                  />
+                  <span className="truncate italic text-muted-foreground group-data-[selected=true]:text-white">
+                    Unassigned
+                  </span>
+                </CommandItem>
+              )}
             </CommandGroup>
           </CommandList>
         </Command>

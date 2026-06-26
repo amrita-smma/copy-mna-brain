@@ -188,19 +188,6 @@ export default function MarketScreeningStatus({ onScanComplete, newCandidatesCou
                 : 'Powered by AI thesis matching'}
             </p>
           </div>
-
-          {isVisible && (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={onToggle}
-              className="hidden xl:flex text-muted-foreground hover:text-foreground ml-1 h-6 px-2 shrink-0 gap-1"
-            >
-              <EyeOff className="h-3.5 w-3.5" />
-              <span className="text-[10px]">Hide</span>
-              <ChevronUp className="h-3 w-3 opacity-50" />
-            </Button>
-          )}
         </div>
 
         {/* Middle Section: Stats */}
@@ -235,9 +222,10 @@ export default function MarketScreeningStatus({ onScanComplete, newCandidatesCou
           </div>
         )}
 
-        {/* Right Section: Actions */}
-        {isVisible && (
-          <div className="flex flex-col gap-2 shrink-0 ml-auto">
+        {/* Right Section: Actions + visibility toggle (always rightmost) */}
+        <div className="flex items-center gap-3 shrink-0 ml-auto">
+          {isVisible && (
+          <div className="flex flex-col gap-2 shrink-0">
             <Dialog open={showThesisDialog} onOpenChange={setShowThesisDialog}>
               <DialogTrigger asChild>
                 <Button variant="outline" size="sm">
@@ -328,20 +316,28 @@ export default function MarketScreeningStatus({ onScanComplete, newCandidatesCou
               )}
             </Button>
           </div>
-        )}
-
-        {!isVisible && (
+          )}
           <Button
             variant="ghost"
             size="sm"
             onClick={onToggle}
-            className="ml-auto flex text-muted-foreground hover:text-foreground h-7 px-3 shrink-0 gap-1.5"
+            className="flex text-muted-foreground hover:text-foreground h-7 px-3 shrink-0 gap-1.5"
           >
-            <Eye className="h-3.5 w-3.5" />
-            <span className="text-xs font-medium">Show</span>
-            <ChevronDown className="h-3 w-3 opacity-50" />
+            {isVisible ? (
+              <EyeOff className="h-3.5 w-3.5" />
+            ) : (
+              <Eye className="h-3.5 w-3.5" />
+            )}
+            <span className="text-xs font-medium">
+              {isVisible ? 'Hide' : 'Show'}
+            </span>
+            {isVisible ? (
+              <ChevronUp className="h-3 w-3 opacity-50" />
+            ) : (
+              <ChevronDown className="h-3 w-3 opacity-50" />
+            )}
           </Button>
-        )}
+        </div>
       </div>
     </div>
   );

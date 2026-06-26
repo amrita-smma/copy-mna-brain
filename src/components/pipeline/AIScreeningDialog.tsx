@@ -16,36 +16,14 @@ import {
   createCriteria,
   deleteCriteria,
   getCriterias,
-  prepareScreenings,
   updateCriteria,
 } from '@/lib/api/pipeline';
-import { companyDisplayName } from '@/lib/companyDisplay';
-
-interface Company {
-  id: string;
-  name: string;
-  target?: string | null;
-  project_name?: string | null;
-  segment?: string | null;
-  geography?: string | null;
-  company_focus?: string | null;
-  ownership?: string | null;
-  website?: string | null;
-  revenue_2022_usd_mn?: number | null;
-  revenue_2023_usd_mn?: number | null;
-  revenue_2024_usd_mn?: number | null;
-  ebitda_2022_usd_mn?: number | null;
-  ebitda_2023_usd_mn?: number | null;
-  ebitda_2024_usd_mn?: number | null;
-  ev_2024?: number | null;
-}
-
-
+import { runAIScreeningForCompanies, type AIScreeningCompanyInput } from '@/lib/aiScreeningClient';
 
 interface AIScreeningDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  companies: Company[];
+  companies: AIScreeningCompanyInput[];
   onComplete: () => void;
 }
 
@@ -192,62 +170,18 @@ export default function AIScreeningDialog({
     setIsScreening(true);
 
     try {
-      const screeningEntries = await prepareScreenings(
-        companies.map((c) => c.id),
-        criteria.map((c) => c.id)
+      const { companyCount, criteriaCount } = await runAIScreeningForCompanies(
+        companies,
+        criteria,
       );
 
-      // Capture AI screening started event
-      posthog.capture('ai_screening_started', {
-        company_count: companies.length,
-        criteria_count: criteria.length,
-        total_screenings: screeningEntries.length,
-      });
-
-      toast.success(`Started AI screening for ${companies.length} companies with ${criteria.length} criteria`);
+      toast.success(
+        `Started AI screening for ${companyCount} ${companyCount === 1 ? 'company' : 'companies'} with ${criteriaCount} criteria`,
+      );
 
       // Close the dialog immediately - progress will be shown in Pipeline view
       onOpenChange(false);
       onComplete();
-
-      // Step 2: Dispatch one job per (company, criteria) pair. The job handler
-      // writes the screening row's final state on completion; we don't poll
-      // here — the pipeline view re-reads screenings after onComplete().
-      screeningEntries.forEach((entry) => {
-        const company = companies.find((c) => c.id === entry.company_id);
-        const criterion = criteria.find((c) => c.id === entry.criteria_id);
-
-        if (!company || !criterion) return;
-
-        void fetch('/api/ai-screening', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            companyId: company.id,
-            criteriaId: criterion.id,
-            criteriaPrompt: criterion.prompt,
-            screeningId: entry.id,
-            company: {
-              id: company.id,
-              name: companyDisplayName(company, company.name || ''),
-              segment: company.segment,
-              geography: company.geography,
-              company_focus: company.company_focus,
-              ownership: company.ownership,
-              website: company.website,
-              revenue_2022_usd_mn: company.revenue_2022_usd_mn,
-              revenue_2023_usd_mn: company.revenue_2023_usd_mn,
-              revenue_2024_usd_mn: company.revenue_2024_usd_mn,
-              ebitda_2022_usd_mn: company.ebitda_2022_usd_mn,
-              ebitda_2023_usd_mn: company.ebitda_2023_usd_mn,
-              ebitda_2024_usd_mn: company.ebitda_2024_usd_mn,
-              ev_2024: company.ev_2024,
-            },
-          }),
-        }).catch((err) => {
-          console.error(`Failed to dispatch screening ${company.id}/${criterion.id}:`, err);
-        });
-      });
     } catch (error: any) {
       console.error('Screening error:', error);
       toast.error(error.message || 'Failed to start AI screening');
@@ -265,7 +199,11 @@ export default function AIScreeningDialog({
               <Sparkles className="h-5 w-5 text-white" />
             </div>
             <div>
-              <DialogTitle className="text-xl">AI Screening</DialogTitle>
+              <DialogTitle className="text-xl">
+                {companies.length === 0
+                  ? "AI Screening Criteria"
+                  : "AI Screening"}
+              </DialogTitle>
               <DialogDescription>
                 Configure screening criteria in natural language
               </DialogDescription>
@@ -410,29 +348,35 @@ export default function AIScreeningDialog({
         {/* Footer */}
         <div className="flex items-center justify-between pt-4 border-t">
           <span className="text-sm text-muted-foreground">
-            {companies.length} companies selected, {criteria.length} criteria
+            {companies.length > 0
+              ? `${companies.length} ${companies.length === 1 ? "company" : "companies"} selected, ${criteria.length} criteria`
+              : `${criteria.length} criteria`}
           </span>
           <div className="flex gap-2">
             <Button variant="outline" onClick={() => onOpenChange(false)}>
-              Cancel
+              {companies.length === 0 ? "Done" : "Cancel"}
             </Button>
-            <Button
-              onClick={runScreening}
-              disabled={isScreening || isLoadingCriteria || criteria.length === 0}
-              className="bg-gradient-to-r from-purple-600 to-purple-500"
-            >
-              {isScreening ? (
-                <>
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  Starting...
-                </>
-              ) : (
-                <>
-                  <Sparkles className="h-4 w-4 mr-2" />
-                  Run AI Screening
-                </>
-              )}
-            </Button>
+            {companies.length > 0 && (
+              <Button
+                onClick={runScreening}
+                disabled={
+                  isScreening || isLoadingCriteria || criteria.length === 0
+                }
+                className="bg-gradient-to-r from-purple-600 to-purple-500"
+              >
+                {isScreening ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    Starting...
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="h-4 w-4 mr-2" />
+                    Run AI Screening
+                  </>
+                )}
+              </Button>
+            )}
           </div>
         </div>
       </DialogContent>

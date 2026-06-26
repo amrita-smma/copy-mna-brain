@@ -11,7 +11,6 @@ import {
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -23,7 +22,7 @@ import {
   ArrowUpDown,
   ArrowUp,
   ArrowDown,
-  ChevronDown,
+  MoreVertical,
   ArrowRight,
   ArrowLeft,
   Pencil,
@@ -33,8 +32,11 @@ import {
   Inbox,
   CheckCircle2,
   XCircle,
+  Sparkles,
+  Loader2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useNearRightEdge } from "@/hooks/useNearRightEdge";
 import type { Tables } from "@/lib/repositories";
 import type { DealStage } from "@/lib/types";
 import { PIPELINE_STAGES } from "@/lib/constants";
@@ -126,10 +128,6 @@ interface InboundCompaniesTableProps {
   favoriteIds: Set<string>;
   togglingFavorite: string | null;
   onToggleFavorite: (id: string) => void;
-  selectedIds: Set<string>;
-  onToggleSelect: (id: string) => void;
-  visibleSelectionState: boolean | "indeterminate";
-  onToggleSelectAllVisible: () => void;
   updatingCompanyIds: Set<string>;
   statusOptions: string[];
   sortField: string | null;
@@ -146,6 +144,8 @@ interface InboundCompaniesTableProps {
   onDemote: (company: PipelineCompany) => void;
   onDrop: (company: PipelineCompany) => void;
   onRestore: (company: PipelineCompany) => void;
+  onRunScreening?: (company: PipelineCompany) => void;
+  runningScreeningCompanyIds?: Set<string>;
 }
 
 export default function InboundCompaniesTable({
@@ -154,10 +154,6 @@ export default function InboundCompaniesTable({
   stage,
   viewMode,
   favoriteIds,
-  selectedIds,
-  onToggleSelect,
-  visibleSelectionState,
-  onToggleSelectAllVisible,
   updatingCompanyIds,
   statusOptions,
   sortField,
@@ -173,9 +169,12 @@ export default function InboundCompaniesTable({
   onDemote,
   onDrop,
   onRestore,
+  onRunScreening,
+  runningScreeningCompanyIds,
 }: InboundCompaniesTableProps) {
   const isDropped = viewMode === "dropped";
   const { analyzeWithAI } = useChatContext();
+  const { nearEdge, edgeHandlers } = useNearRightEdge();
   const stageIndex = PIPELINE_STAGES.indexOf(stage);
   const promoteTarget =
     stageIndex >= 0 && stageIndex < PIPELINE_STAGES.length - 1
@@ -194,8 +193,16 @@ export default function InboundCompaniesTable({
     );
   };
 
-  const SortHead = ({ field, label }: { field: string; label: string }) => (
-    <TableHead>
+  const SortHead = ({
+    field,
+    label,
+    className,
+  }: {
+    field: string;
+    label: string;
+    className?: string;
+  }) => (
+    <TableHead className={className}>
       <button
         onClick={() => onSort(field)}
         className="flex items-center hover:text-foreground transition-colors"
@@ -206,7 +213,7 @@ export default function InboundCompaniesTable({
     </TableHead>
   );
 
-  const tableColumnCount = isDropped ? 21 : 20;
+  const tableColumnCount = isDropped ? 20 : 19;
   const unreviewedCompanies = isDropped
     ? []
     : companies.filter((company) => company.review_state === "unreviewed");
@@ -309,18 +316,15 @@ export default function InboundCompaniesTable({
   );
 
   return (
-    <Table>
+    <Table {...edgeHandlers}>
       <TableHeader>
         <TableRow>
-          <TableHead className="w-[50px]">
-            <Checkbox
-              aria-label="Select all visible companies"
-              checked={visibleSelectionState}
-              onCheckedChange={onToggleSelectAllVisible}
-            />
-          </TableHead>
-          <TableHead className="w-[40px]"></TableHead>
-          <SortHead field="name" label="Company" />
+          <TableHead className="w-[40px] sticky left-0 z-20 bg-card"></TableHead>
+          <SortHead
+            field="name"
+            label="Company"
+            className="sticky left-[40px] z-20 bg-card border-r"
+          />
           <TableHead>Project</TableHead>
           <TableHead className="min-w-[160px]">Banker / Source</TableHead>
           <SortHead field="sector" label="Sector" />
@@ -346,12 +350,16 @@ export default function InboundCompaniesTable({
           </TableHead>
           <TableHead>Created</TableHead>
           <TableHead>{isDropped ? "Dropped On" : "Last Activity"}</TableHead>
-          <TableHead className="text-right">Actions</TableHead>
+          <TableHead className="w-[44px] sticky right-0 z-20 bg-transparent" />
+
         </TableRow>
       </TableHeader>
       <TableBody>
         {groupedCompanies.map((company, index) => {
           const isFav = favoriteIds.has(company.id);
+          const stickyBg = isFav
+            ? "bg-amber-50 group-hover:bg-amber-100 dark:bg-amber-950 dark:group-hover:bg-amber-900"
+            : "bg-card group-hover:bg-muted";
           const isUpdating = updatingCompanyIds.has(company.id);
           const bankerLabel = company.banker ?? company.banker_source;
           const rev = latestFin(company.financials_raw, "revenue_usd_mn");
@@ -389,7 +397,7 @@ export default function InboundCompaniesTable({
               )}
               <TableRow
                 className={cn(
-                  "transition-colors",
+                  "group transition-colors",
                   isUnreviewed && "border-l-2 border-l-amber-400",
                   isFav
                     ? "bg-amber-50/60 dark:bg-amber-900/10 hover:bg-amber-100/60 dark:hover:bg-amber-900/20"
@@ -397,13 +405,7 @@ export default function InboundCompaniesTable({
                   isUpdating && "animate-pulse opacity-60",
                 )}
               >
-              <TableCell>
-                <Checkbox
-                  checked={selectedIds.has(company.id)}
-                  onCheckedChange={() => onToggleSelect(company.id)}
-                />
-              </TableCell>
-              <TableCell className="pr-0">
+              <TableCell className={cn("pr-0 sticky left-0 z-10", stickyBg)}>
                 <AskAIButton
                   variant="icon"
                   label="Analyze using AI"
@@ -414,7 +416,7 @@ export default function InboundCompaniesTable({
                   }
                 />
               </TableCell>
-              <TableCell>
+              <TableCell className={cn("sticky left-[40px] z-10 border-r", stickyBg)}>
                 {company.target ? (
                   <>
                     <button
@@ -592,12 +594,19 @@ export default function InboundCompaniesTable({
                   ? formatDate(company.dropped_at)
                   : formatDate(company.last_activity_at)}
               </TableCell>
-              <TableCell className="text-right">
+              <TableCell className="text-right sticky right-0 z-10 bg-transparent">
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
-                    <Button variant="outline" size="sm" className="h-7 gap-1">
-                      Actions
-                      <ChevronDown className="h-3 w-3" />
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      aria-label="Actions"
+                      className={cn(
+                        "h-7 w-7 transition-opacity group-hover:opacity-100 data-[state=open]:opacity-100",
+                        nearEdge ? "opacity-100" : "opacity-0",
+                      )}
+                    >
+                      <MoreVertical className="h-4 w-4" />
                     </Button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end">
@@ -615,6 +624,27 @@ export default function InboundCompaniesTable({
                       </>
                     ) : (
                       <>
+                        {onRunScreening && (
+                          <>
+                            {runningScreeningCompanyIds?.has(company.id) ? (
+                              <DropdownMenuItem
+                                disabled
+                                className="text-muted-foreground"
+                              >
+                                <Loader2 className="mr-2 h-4 w-4 animate-spin text-purple-600" />
+                                AI Screening Running
+                              </DropdownMenuItem>
+                            ) : (
+                              <DropdownMenuItem
+                                onClick={() => onRunScreening(company)}
+                              >
+                                <Sparkles className="mr-2 h-4 w-4 text-purple-600" />
+                                Run AI Screening
+                              </DropdownMenuItem>
+                            )}
+                            <DropdownMenuSeparator />
+                          </>
+                        )}
                         {isUnreviewed && onKeep && (
                           <>
                             <DropdownMenuItem onClick={() => onKeep(company)}>

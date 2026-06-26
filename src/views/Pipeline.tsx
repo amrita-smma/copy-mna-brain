@@ -16,7 +16,6 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Checkbox } from "@/components/ui/checkbox";
 import {
   Select,
   SelectContent,
@@ -43,7 +42,6 @@ import {
   Sparkles,
   ChevronDown,
   ChevronUp,
-  Lightbulb,
   Eye,
   EyeOff,
   Settings,
@@ -58,7 +56,6 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { SEARCH_SUGGESTION_CHIPS } from "@/lib/constants";
 import PromoteDialog from "@/components/pipeline/PromoteDialog";
 import { DealStage, L1Status } from "@/lib/types";
 import CompanyDetailDialog from "@/components/pipeline/CompanyDetailDialog";
@@ -66,8 +63,11 @@ import UpdateCompanyDialog from "@/components/pipeline/UpdateCompanyDialog";
 import InboundCompaniesTable from "@/components/pipeline/InboundCompaniesTable";
 import OutboundCompaniesTable from "@/components/pipeline/OutboundCompaniesTable";
 import TrackSettingsDialog from "@/components/pipeline/TrackSettingsDialog";
-import TrackMultiSelect from "@/components/pipeline/TrackMultiSelect";
+import TrackMultiSelect, {
+  UNASSIGNED_TRACK_ID,
+} from "@/components/pipeline/TrackMultiSelect";
 import { resolveTrackIds } from "@/lib/tracks/matchTracks";
+import { DOC_TYPE_OPTIONS } from "@/lib/constants";
 import {
   DEFAULT_INBOUND_STATUS_OPTIONS,
   DEFAULT_OUTBOUND_STATUS_OPTIONS,
@@ -95,8 +95,13 @@ import {
   restoreDeal,
   updateCompany,
   getTracks,
+  getScreenings,
   type Track,
 } from "@/lib/api/pipeline";
+import {
+  runAIScreeningForCompanies,
+  toAIScreeningCompany,
+} from "@/lib/aiScreeningClient";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 
@@ -275,10 +280,15 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
   const [sectorFilterValue, setSectorFilterValue] = useState<string>("all");
   const [selectedCompany, setSelectedCompany] =
     useState<PipelineCompany | null>(null);
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [showScreeningDialog, setShowScreeningDialog] = useState(false);
+  const [screeningCompanyIds, setScreeningCompanyIds] = useState<string[]>([]);
   const [marketScreeningRefresh, setMarketScreeningRefresh] = useState(0);
   const [screeningProgressRefresh, setScreeningProgressRefresh] = useState(0);
+  const [pendingScreeningCompanyIds, setPendingScreeningCompanyIds] = useState<
+    Set<string>
+  >(new Set());
+  const [startingScreeningCompanyIds, setStartingScreeningCompanyIds] =
+    useState<Set<string>>(new Set());
   const [newCandidatesCount, setNewCandidatesCount] = useState(0);
 
   // Section visibility
@@ -484,7 +494,6 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
     });
 
     setActiveTab(value as DealStage);
-    setSelectedIds(new Set());
     setCurrentPage(1);
     router.push(`/pipeline?stage=${value}`);
   };
@@ -503,11 +512,6 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
   useEffect(() => {
     setCurrentPage(1);
   }, [searchQuery, sectorFilter, l1StatusFilter, activeTab, viewMode, sourceFilter, trackFilter]);
-
-  // Get unique sectors for filter
-  const uniqueSectors = [
-    ...new Set(companies.map((c) => c.segment).filter(Boolean)),
-  ].sort();
 
   const isDropped = (c: PipelineCompany) => c.status === "dropped";
   const isActive = (c: PipelineCompany) => !isDropped(c);
@@ -569,9 +573,12 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
           : company.review_state !== "unreviewed";
     const matchesView =
       viewMode === "dropped" ? isDropped(company) : isActive(company);
+    const companyTrackIds = resolveTrackIds(company, tracks);
     const matchesTrack =
       trackFilter.length === 0 ||
-      resolveTrackIds(company, tracks).some((id) => trackFilter.includes(id));
+      (trackFilter.includes(UNASSIGNED_TRACK_ID) &&
+        companyTrackIds.length === 0) ||
+      companyTrackIds.some((id) => trackFilter.includes(id));
     return (
       matchesStage &&
       matchesSearch &&
@@ -652,30 +659,6 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
   const visibleCompanies = splitInboundReviewSections
     ? sortedCompanies
     : paginatedCompanies;
-  const allVisibleSelected =
-    visibleCompanies.length > 0 &&
-    visibleCompanies.every((company) => selectedIds.has(company.id));
-  const someVisibleSelected = visibleCompanies.some((company) =>
-    selectedIds.has(company.id),
-  );
-  const visibleSelectionState = allVisibleSelected
-    ? true
-    : someVisibleSelected
-      ? "indeterminate"
-      : false;
-
-  const toggleSelectAllVisible = () => {
-    if (allVisibleSelected) {
-      const next = new Set(selectedIds);
-      visibleCompanies.forEach((company) => next.delete(company.id));
-      setSelectedIds(next);
-      return;
-    }
-
-    const next = new Set(selectedIds);
-    visibleCompanies.forEach((company) => next.add(company.id));
-    setSelectedIds(next);
-  };
 
   // MB-225: unreviewed inbound companies for the current stage/view — independent
   // of the active sub-tab so the Unreviewed tab badge and triage modal stay correct
@@ -706,6 +689,44 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
     setCurrentPage(1);
   }, [activeTab, searchQuery, sectorFilter, l1StatusFilter]);
 
+  useEffect(() => {
+    let cancelled = false;
+
+    const fetchPendingScreenings = async () => {
+      try {
+        const data = await getScreenings({ onlyL0: true });
+        if (cancelled) return;
+
+        const pendingIds = new Set(
+          data
+            .filter((screening: { state: string }) => screening.state === "pending")
+            .map((screening: { company_id: string }) => screening.company_id),
+        );
+        setPendingScreeningCompanyIds(pendingIds);
+        setStartingScreeningCompanyIds((prev) => {
+          const next = new Set(prev);
+          pendingIds.forEach((id) => next.delete(id));
+          return next.size === prev.size ? prev : next;
+        });
+      } catch (error) {
+        console.error("Error fetching pending screenings:", error);
+      }
+    };
+
+    fetchPendingScreenings();
+    const interval = setInterval(fetchPendingScreenings, 5000);
+
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [screeningProgressRefresh]);
+
+  const runningScreeningCompanyIds = new Set([
+    ...pendingScreeningCompanyIds,
+    ...startingScreeningCompanyIds,
+  ]);
+
   const runL1Filters = async (dealId: string) => {
     try {
       const data = await runCompanyL1Filters(dealId);
@@ -718,30 +739,44 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
     }
   };
 
-  const openAIScreening = () => {
-    if (selectedIds.size === 0) {
-      toast.error("Please select at least one company");
-      return;
-    }
+  const openScreeningCriteria = () => {
+    setScreeningCompanyIds([]);
     setShowScreeningDialog(true);
   };
 
-  const getSelectedCompaniesForScreening = () => {
-    return filteredCompanies
-      .filter((c) => selectedIds.has(c.id))
-      .map((c) => ({
-        id: c.id,
-        name: companyDisplayName(c, ""),
-        sector: c.segment || "",
-        revenue_year1: c.revenue_2022_usd_mn,
-        revenue_year2: c.revenue_2023_usd_mn,
-        revenue_year3: c.revenue_2024_usd_mn,
-        ebitda_year1: c.ebitda_2022_usd_mn,
-        ebitda_year2: c.ebitda_2023_usd_mn,
-        ebitda_year3: c.ebitda_2024_usd_mn,
-        valuation: c.ev_2024,
-        source: "pipeline",
-      }));
+  const runScreeningForCompany = async (company: PipelineCompany) => {
+    if (runningScreeningCompanyIds.has(company.id)) return;
+
+    setStartingScreeningCompanyIds((prev) => new Set(prev).add(company.id));
+
+    try {
+      await runAIScreeningForCompanies([toAIScreeningCompany(company)]);
+      setStartingScreeningCompanyIds((prev) => {
+        const next = new Set(prev);
+        next.delete(company.id);
+        return next;
+      });
+      setPendingScreeningCompanyIds((prev) => new Set(prev).add(company.id));
+      toast.success(
+        `Started AI screening for ${companyDisplayName(company, "this company")}`,
+      );
+      setScreeningProgressRefresh((prev) => prev + 1);
+      fetchCompanies({ silent: true });
+    } catch (error: any) {
+      console.error("Screening error:", error);
+      setStartingScreeningCompanyIds((prev) => {
+        const next = new Set(prev);
+        next.delete(company.id);
+        return next;
+      });
+      toast.error(error.message || "Failed to start AI screening");
+    }
+  };
+
+  const getCompaniesForScreening = () => {
+    return companies
+      .filter((c) => screeningCompanyIds.includes(c.id))
+      .map(toAIScreeningCompany);
   };
 
   const promoteToNextStage = async (
@@ -772,10 +807,6 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
 
   const stageCount = (stage: DealStage) =>
     companies.filter((c) => c.pipeline_stage === stage && isActive(c)).length;
-  const activeStageCount = (stage: DealStage) =>
-    companies.filter((c) => c.pipeline_stage === stage && isActive(c)).length;
-  const droppedStageCount = (stage: DealStage) =>
-    companies.filter((c) => c.pipeline_stage === stage && isDropped(c)).length;
   const sourceCount = (stage: DealStage, src: "inbound" | "outbound") =>
     companies.filter(
       (c) =>
@@ -817,42 +848,27 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
     }
   };
 
-  const renderViewToggle = (stage: DealStage) => (
-    <div className="inline-flex items-center gap-1 rounded-lg bg-muted p-1 mb-4">
-      <button
+  const renderViewToggle = () => {
+    const isDroppedView = viewMode === "dropped";
+    return (
+      <Button
         type="button"
-        data-testid="pipeline-view-active-button"
-        onClick={() => setViewMode("active")}
-        className={cn(
-          "flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm transition-all",
-          viewMode === "active"
-            ? "bg-background text-foreground font-medium shadow-sm"
-            : "text-muted-foreground hover:text-foreground",
-        )}
+        variant="outline"
+        size="sm"
+        data-testid="pipeline-view-toggle-button"
+        onClick={() => setViewMode(isDroppedView ? "active" : "dropped")}
+        className="ml-auto shrink-0 h-9 gap-2"
       >
-        Active
-        <span className="text-xs text-muted-foreground">
-          {activeStageCount(stage)}
-        </span>
-      </button>
-      <button
-        type="button"
-        data-testid="pipeline-view-dropped-button"
-        onClick={() => setViewMode("dropped")}
-        className={cn(
-          "flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm transition-all",
-          viewMode === "dropped"
-            ? "bg-background text-foreground font-medium shadow-sm"
-            : "text-muted-foreground hover:text-foreground",
-        )}
-      >
-        Dropped
-        <span className="text-xs text-muted-foreground">
-          {droppedStageCount(stage)}
-        </span>
-      </button>
-    </div>
-  );
+        <span
+          className={cn(
+            "h-2 w-2 rounded-full shrink-0",
+            isDroppedView ? "bg-red-500" : "bg-emerald-500",
+          )}
+        />
+        {isDroppedView ? "Dropped" : "Active"}
+      </Button>
+    );
+  };
 
   const SOURCE_TABS: {
     value: "inbound" | "outbound";
@@ -892,7 +908,6 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
             data-testid={`pipeline-source-${t.value}-tab`}
             onClick={() => {
               setSourceFilter(t.value);
-              setSelectedIds(new Set());
               setCurrentPage(1);
             }}
             className={cn(
@@ -925,16 +940,6 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
       })}
     </div>
   );
-
-  const toggleSelect = (id: string) => {
-    const newSet = new Set(selectedIds);
-    if (newSet.has(id)) {
-      newSet.delete(id);
-    } else {
-      newSet.add(id);
-    }
-    setSelectedIds(newSet);
-  };
 
   return (
     <DashboardLayout showCompanyGraph={showCompanyGraph}>
@@ -1050,6 +1055,39 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
                               </div>
                             </div>
                             <div className="flex flex-wrap items-center gap-2 ml-auto">
+                              {/* MB-223: Triage Unreviewed — persistent header button */}
+                              {allUnreviewedCompanies.length > 0 && (
+                                <Button
+                                  data-testid="pipeline-triage-unreviewed-button"
+                                  variant="outline"
+                                  size="sm"
+                                  className="gap-1.5 border-amber-300 text-amber-700 hover:bg-amber-50"
+                                  onClick={() => setShowTriageModal(true)}
+                                >
+                                  <CheckCircle2 className="h-4 w-4" />
+                                  Triage Unreviewed
+                                  <span className="ml-0.5 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-amber-400 px-1 text-[10px] font-bold text-white">
+                                    {allUnreviewedCompanies.length}
+                                  </span>
+                                </Button>
+                              )}
+                              {showL0Pipeline && (
+                                <Button
+                                  data-testid="pipeline-ai-screening-button"
+                                  onClick={openScreeningCriteria}
+                                  className="bg-gradient-to-r from-purple-600 to-purple-500 hover:from-purple-700 hover:to-purple-600 shadow-md transition-all hover:scale-[1.02]"
+                                >
+                                  <Sparkles className="mr-2 h-4 w-4" />
+                                  AI Screening Criteria
+                                </Button>
+                              )}
+                              <Link href="/ai-file-dump">
+                                <Button data-testid="pipeline-add-company-button">
+                                  <Plus className="mr-2 h-4 w-4" />
+                                  Add Company
+                                </Button>
+                              </Link>
+                              {/* Visibility toggle — always rightmost */}
                               <Button
                                 data-testid="pipeline-l0-toggle-visibility-button"
                                 variant="ghost"
@@ -1071,38 +1109,6 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
                                   <ChevronDown className="h-3.5 w-3.5" />
                                 )}
                               </Button>
-                              {/* MB-223: Triage Unreviewed — persistent header button */}
-                              {allUnreviewedCompanies.length > 0 && (
-                                <Button
-                                  data-testid="pipeline-triage-unreviewed-button"
-                                  variant="outline"
-                                  size="sm"
-                                  className="gap-1.5 border-amber-300 text-amber-700 hover:bg-amber-50"
-                                  onClick={() => setShowTriageModal(true)}
-                                >
-                                  <CheckCircle2 className="h-4 w-4" />
-                                  Triage Unreviewed
-                                  <span className="ml-0.5 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-amber-400 px-1 text-[10px] font-bold text-white">
-                                    {allUnreviewedCompanies.length}
-                                  </span>
-                                </Button>
-                              )}
-                              {showL0Pipeline && (
-                                <Button
-                                  data-testid="pipeline-ai-screening-button"
-                                  onClick={openAIScreening}
-                                  className="bg-gradient-to-r from-purple-600 to-purple-500 hover:from-purple-700 hover:to-purple-600 shadow-md transition-all hover:scale-[1.02]"
-                                >
-                                  <Sparkles className="mr-2 h-4 w-4" />
-                                  AI Screening ({selectedIds.size} selected)
-                                </Button>
-                              )}
-                              <Link href="/ai-file-dump">
-                                <Button data-testid="pipeline-add-company-button">
-                                  <Plus className="mr-2 h-4 w-4" />
-                                  Add Company
-                                </Button>
-                              </Link>
                             </div>
                           </div>
                         </CardHeader>
@@ -1117,7 +1123,6 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
                                   setSourceFilter("inbound");
                                   setShowUnreviewedOnly(true);
                                   setDocTypeFilter("all");
-                                  setSelectedIds(new Set());
                                   setCurrentPage(1);
                                 }}
                                 className={cn(
@@ -1141,7 +1146,6 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
                                   setSourceFilter("inbound");
                                   setShowUnreviewedOnly(false);
                                   setDocTypeFilter("all");
-                                  setSelectedIds(new Set());
                                   setCurrentPage(1);
                                 }}
                                 className={cn(
@@ -1165,7 +1169,6 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
                                   setSourceFilter("outbound");
                                   setShowUnreviewedOnly(false);
                                   setDocTypeFilter("all");
-                                  setSelectedIds(new Set());
                                   setCurrentPage(1);
                                 }}
                                 className={cn(
@@ -1197,24 +1200,6 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
                                   className="pl-9"
                                 />
                               </div>
-                              <Select
-                                value={sectorFilter}
-                                onValueChange={setSectorFilter}
-                              >
-                                <SelectTrigger className="w-40">
-                                  <SelectValue placeholder="Sector" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  <SelectItem value="all">
-                                    All Sectors
-                                  </SelectItem>
-                                  {uniqueSectors.map((sector) => (
-                                    <SelectItem key={sector} value={sector}>
-                                      {sector}
-                                    </SelectItem>
-                                  ))}
-                                </SelectContent>
-                              </Select>
                               {/* Filter by matched Track */}
                               {tracks.length > 0 && (
                                 <TrackMultiSelect
@@ -1224,46 +1209,35 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
                                   variant="filter"
                                   placeholder="All Tracks"
                                   className="w-44 h-9"
+                                  includeUnassigned
                                 />
                               )}
-                              {/* MB-225: Doc Type filter — only on inbound */}
+                              {/* Origin (document type) filter — only on inbound */}
                               {sourceFilter === "inbound" && (
                                 <Select
                                   value={docTypeFilter}
                                   onValueChange={setDocTypeFilter}
                                 >
-                                  <SelectTrigger className="w-40">
-                                    <SelectValue placeholder="Doc Type" />
+                                  <SelectTrigger className="w-40 h-9">
+                                    <SelectValue placeholder="Origin" />
                                   </SelectTrigger>
                                   <SelectContent>
-                                    <SelectItem value="all">All Doc Types</SelectItem>
-                                    <SelectItem value="teaser">Teaser</SelectItem>
-                                    <SelectItem value="shopping_list">Shopping List</SelectItem>
-                                    <SelectItem value="market_study">Market Study</SelectItem>
+                                    <SelectItem value="all">
+                                      All Origins
+                                    </SelectItem>
+                                    {DOC_TYPE_OPTIONS.map((opt) => (
+                                      <SelectItem
+                                        key={opt.value}
+                                        value={opt.value}
+                                      >
+                                        {opt.label}
+                                      </SelectItem>
+                                    ))}
                                   </SelectContent>
                                 </Select>
                               )}
+                              {renderViewToggle()}
                             </div>
-                            <div className="flex items-center gap-1.5 text-xs text-muted-foreground mb-4">
-                              <Lightbulb className="h-3.5 w-3.5 text-amber-500 shrink-0" />
-                              <span>Try:</span>
-                              {SEARCH_SUGGESTION_CHIPS.map((chip, i) => (
-                                <span key={chip}>
-                                  <button
-                                    type="button"
-                                    onClick={() => setSearchQuery(chip)}
-                                    className="text-primary hover:underline"
-                                  >
-                                    &quot;{chip}&quot;
-                                  </button>
-                                  {i < SEARCH_SUGGESTION_CHIPS.length - 1
-                                    ? ","
-                                    : ""}
-                                </span>
-                              ))}
-                            </div>
-
-                            {renderViewToggle("L0")}
 
                             {/* MB-224: Triage Banner */}
                             {sourceFilter === "inbound" && (
@@ -1294,16 +1268,10 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
                                     favoriteIds={favoriteIds}
                                     togglingFavorite={togglingFavorite}
                                     onToggleFavorite={handleToggleFavorite}
-                                    selectedIds={selectedIds}
-                                    onToggleSelect={toggleSelect}
-                                    visibleSelectionState={
-                                      visibleSelectionState
-                                    }
-                                    onToggleSelectAllVisible={
-                                      toggleSelectAllVisible
-                                    }
                                     updatingCompanyIds={updatingCompanyIds}
                                     statusOptions={inboundStatusOptions}
+                                    onRunScreening={runScreeningForCompany}
+                                    runningScreeningCompanyIds={runningScreeningCompanyIds}
                                     sortField={sortField}
                                     sortDirection={sortDirection}
                                     onSort={toggleSort}
@@ -1391,16 +1359,10 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
                                     favoriteIds={favoriteIds}
                                     togglingFavorite={togglingFavorite}
                                     onToggleFavorite={handleToggleFavorite}
-                                    selectedIds={selectedIds}
-                                    onToggleSelect={toggleSelect}
-                                    visibleSelectionState={
-                                      visibleSelectionState
-                                    }
-                                    onToggleSelectAllVisible={
-                                      toggleSelectAllVisible
-                                    }
                                     updatingCompanyIds={updatingCompanyIds}
                                     statusOptions={outboundStatusOptions}
+                                    onRunScreening={runScreeningForCompany}
+                                    runningScreeningCompanyIds={runningScreeningCompanyIds}
                                     sortField={sortField}
                                     sortDirection={sortDirection}
                                     onSort={toggleSort}
@@ -1507,22 +1469,6 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
                             className="pl-9"
                           />
                         </div>
-                        <Select
-                          value={sectorFilter}
-                          onValueChange={setSectorFilter}
-                        >
-                          <SelectTrigger className="w-40">
-                            <SelectValue placeholder="Sector" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="all">All Sectors</SelectItem>
-                            {uniqueSectors.map((sector) => (
-                              <SelectItem key={sector} value={sector}>
-                                {sector}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
                         {stage === "L1" && (
                           <Select
                             value={l1StatusFilter}
@@ -1541,25 +1487,8 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
                             </SelectContent>
                           </Select>
                         )}
+                        {renderViewToggle()}
                       </div>
-                      <div className="flex items-center gap-2 text-xs text-muted-foreground mt-1.5 mb-4">
-                        <Lightbulb className="h-3.5 w-3.5 text-amber-500 shrink-0" />
-                        <span>Try:</span>
-                        {SEARCH_SUGGESTION_CHIPS.map((chip, i) => (
-                          <span key={chip}>
-                            <button
-                              type="button"
-                              onClick={() => setSearchQuery(chip)}
-                              className="text-primary hover:underline"
-                            >
-                              &quot;{chip}&quot;
-                            </button>
-                            {i < SEARCH_SUGGESTION_CHIPS.length - 1 ? "," : ""}
-                          </span>
-                        ))}
-                      </div>
-
-                      {renderViewToggle(stage)}
 
                       {renderSourceTabs(stage)}
 
@@ -1584,12 +1513,10 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
                               favoriteIds={favoriteIds}
                               togglingFavorite={togglingFavorite}
                               onToggleFavorite={handleToggleFavorite}
-                              selectedIds={selectedIds}
-                              onToggleSelect={toggleSelect}
-                              visibleSelectionState={visibleSelectionState}
-                              onToggleSelectAllVisible={toggleSelectAllVisible}
                               updatingCompanyIds={updatingCompanyIds}
                               statusOptions={inboundStatusOptions}
+                              onRunScreening={runScreeningForCompany}
+                              runningScreeningCompanyIds={runningScreeningCompanyIds}
                               sortField={sortField}
                               sortDirection={sortDirection}
                               onSort={toggleSort}
@@ -1663,12 +1590,10 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
                               favoriteIds={favoriteIds}
                               togglingFavorite={togglingFavorite}
                               onToggleFavorite={handleToggleFavorite}
-                              selectedIds={selectedIds}
-                              onToggleSelect={toggleSelect}
-                              visibleSelectionState={visibleSelectionState}
-                              onToggleSelectAllVisible={toggleSelectAllVisible}
                               updatingCompanyIds={updatingCompanyIds}
                               statusOptions={outboundStatusOptions}
+                              onRunScreening={runScreeningForCompany}
+                              runningScreeningCompanyIds={runningScreeningCompanyIds}
                               sortField={sortField}
                               sortDirection={sortDirection}
                               onSort={toggleSort}
@@ -1776,9 +1701,9 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
         <AIScreeningDialog
           open={showScreeningDialog}
           onOpenChange={setShowScreeningDialog}
-          companies={getSelectedCompaniesForScreening()}
+          companies={getCompaniesForScreening()}
           onComplete={() => {
-            setSelectedIds(new Set());
+            setScreeningCompanyIds([]);
             setScreeningProgressRefresh((prev) => prev + 1);
             fetchCompanies();
           }}

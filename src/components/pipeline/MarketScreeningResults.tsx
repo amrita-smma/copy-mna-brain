@@ -300,20 +300,6 @@ export default function MarketScreeningResults({ refreshTrigger, onAddedToPipeli
         </div>
 
         <div className="flex items-center gap-2">
-          {/* Toggle button */}
-          {onToggleCollapse && (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={onToggleCollapse}
-              className="h-7 gap-1.5 text-xs text-muted-foreground hover:text-foreground shrink-0"
-            >
-              {collapsed ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}
-              {collapsed ? 'Show' : 'Hide'}
-              {collapsed ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronUp className="h-3.5 w-3.5" />}
-            </Button>
-          )}
-
           {!collapsed && (
             <Button
               onClick={addToL0}
@@ -331,6 +317,20 @@ export default function MarketScreeningResults({ refreshTrigger, onAddedToPipeli
                   Add to L0 ({selectedIds.size})
                 </>
               )}
+            </Button>
+          )}
+
+          {/* Visibility toggle — always rightmost */}
+          {onToggleCollapse && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={onToggleCollapse}
+              className="h-7 gap-1.5 text-xs text-muted-foreground hover:text-foreground shrink-0"
+            >
+              {collapsed ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}
+              {collapsed ? 'Show' : 'Hide'}
+              {collapsed ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronUp className="h-3.5 w-3.5" />}
             </Button>
           )}
         </div>

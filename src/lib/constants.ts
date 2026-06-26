@@ -1,9 +1,6 @@
 import type { analysisJobStatus } from './db/schema';
 import type { DealStage } from './types';
 
-/** Clickable suggestions shown below "Search companies or sectors..." inputs */
-export const SEARCH_SUGGESTION_CHIPS = ['Semiconductor', 'Petrochemical', 'Daejoo', 'Wanhua'] as const;
-
 export const ANALYSIS_JOB_STATUS = ['pending', 'processing', 'completed', 'failed'] as const;
 export type AnalysisJobStatus = (typeof ANALYSIS_JOB_STATUS)[number];
 
@@ -31,6 +28,24 @@ export const PIPELINE_STAGES: DealStage[] = ['L0', 'L1', 'L2', 'L3', 'L4', 'L5']
  * Master Data section.
  */
 export const DISCOVERED_STAGE: DealStage = 'discovered';
+
+/**
+ * Possible "Origin" values for a deal — i.e. the document/source the company
+ * was sourced from. Stored on `companies.doc_type` (plain text, constrained in
+ * the UI only). Used by the Pipeline "Origin" filter and elsewhere.
+ */
+export const DOC_TYPE_OPTIONS: { value: string; label: string }[] = [
+  { value: 'teaser', label: 'Teaser' },
+  { value: 'im', label: 'Information Memorandum' },
+  { value: 'prospectus', label: 'Prospectus' },
+  { value: 'mom', label: 'MOM' },
+  { value: 'financial_model', label: 'Financial Model' },
+  { value: 'financial_statement', label: 'Financial Statement' },
+  { value: 'shopping_list', label: 'Shopping List' },
+  { value: 'market_study', label: 'Market Study' },
+  { value: 'market_research', label: 'Market Research' },
+  { value: 'ai_screening', label: 'AI Screening' },
+];
 
 export const STAGE_LABELS: Record<DealStage | 'Acquired', string> = {
   market_screening: 'Market Scanning',

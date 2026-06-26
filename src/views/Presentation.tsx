@@ -15,20 +15,16 @@ import {
   Maximize2,
 } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { formatDistanceToNow } from "date-fns";
-import { useLocalStorage } from "@/hooks/useLocalStorage";
+import {
+  usePresentationViewer,
+  fileKind,
+} from "@/components/presentation/PresentationViewerContext";
 
 interface PresentationProps {
   showCompanyGraph?: boolean;
 }
-
-interface StoredFile {
-  key: string;
-  name: string;
-}
-
-const LAST_FILE_KEY = "presentation:last-file";
 
 interface RecentFileItem {
   id: string;
@@ -39,45 +35,36 @@ interface RecentFileItem {
 
 const PAGE_SIZE = 10;
 
-function fileKind(name: string): "pdf" | "pptx" | "other" {
-  const ext = name.split(".").pop()?.toLowerCase();
-  if (ext === "pdf") return "pdf";
-  if (ext === "pptx" || ext === "ppt") return "pptx";
-  return "other";
-}
-
 export default function Presentation({ showCompanyGraph = false }: PresentationProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const key = searchParams.get("key");
   const urlParam = searchParams.get("url");
   const name = searchParams.get("name") ?? "";
-  const hasSelection = !!(key || urlParam);
 
-  // Persist the open file so returning to the Presentation tab (e.g. via the
-  // sidebar, which navigates to /presentation with no query params) reopens it
-  // instead of dropping back to the recent list.
-  const [lastFile, setLastFile] = useLocalStorage<StoredFile | null>(LAST_FILE_KEY, null);
+  // The viewer itself (signed URL + iframe) lives in a session-persistent host
+  // so it never reloads when switching tabs. This page only drives selection
+  // and renders the surrounding chrome + a placeholder for the iframe.
+  const {
+    hydrated,
+    currentFile,
+    signedUrl,
+    downloadUrl,
+    loading: viewerLoading,
+    error: viewerError,
+    openFile,
+    clearFile,
+    registerViewport,
+    requestFullscreen,
+  } = usePresentationViewer();
 
-  // Remember key-based selections (they re-sign fresh on reopen).
+  // Apply a URL-based selection (deep links, "open in presentation" buttons).
+  // With no params we keep whatever file is already open, so returning to the
+  // tab via the sidebar restores the live viewer instead of resetting it.
   useEffect(() => {
-    if (key) setLastFile({ key, name });
-  }, [key, name, setLastFile]);
-
-  // With no file selected, restore the last-opened one if we have it.
-  const restoring = !hasSelection && !!lastFile?.key;
-  useEffect(() => {
-    if (hasSelection || !lastFile?.key) return;
-    const params = new URLSearchParams({ key: lastFile.key, name: lastFile.name });
-    router.replace(`/presentation?${params.toString()}`);
-  }, [hasSelection, lastFile, router]);
-
-  // Viewer state (when a file is selected).
-  const viewerRef = useRef<HTMLDivElement>(null);
-  const [signedUrl, setSignedUrl] = useState<string | null>(null);
-  const [downloadUrl, setDownloadUrl] = useState<string | null>(null);
-  const [viewerLoading, setViewerLoading] = useState(false);
-  const [viewerError, setViewerError] = useState<string | null>(null);
+    if (key) openFile({ key, name });
+    else if (urlParam) openFile({ url: urlParam, name });
+  }, [key, urlParam, name, openFile]);
 
   // Recent list state (when nothing is selected).
   const [recent, setRecent] = useState<RecentFileItem[]>([]);
@@ -85,51 +72,9 @@ export default function Presentation({ showCompanyGraph = false }: PresentationP
   const [page, setPage] = useState(1);
   const [listLoading, setListLoading] = useState(true);
 
-  // Resolve a fresh signed URL for the selected file and record the open.
-  useEffect(() => {
-    if (!hasSelection) return;
-    let cancelled = false;
-    setViewerLoading(true);
-    setViewerError(null);
-    setSignedUrl(null);
-    setDownloadUrl(null);
+  const hasParamSelection = !!(key || urlParam);
+  const showViewer = !!currentFile || hasParamSelection;
 
-    const run = async () => {
-      try {
-        let resolved = urlParam;
-        let download = urlParam;
-        if (key) {
-          const res = await fetch(
-            `/api/recent-files/signed-url?key=${encodeURIComponent(key)}&name=${encodeURIComponent(name)}`,
-          );
-          const payload = await res.json();
-          if (!res.ok) throw new Error(payload?.error || "Failed to load file");
-          resolved = payload.data.url as string;
-          download = payload.data.downloadUrl as string;
-          // Record the open so it surfaces in the recently-opened list.
-          fetch("/api/recent-files", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ fileName: name, fileKey: key }),
-          }).catch(() => {});
-        }
-        if (!cancelled) {
-          setSignedUrl(resolved);
-          setDownloadUrl(download);
-        }
-      } catch (err) {
-        if (!cancelled) setViewerError((err as Error).message || "Failed to load file");
-      } finally {
-        if (!cancelled) setViewerLoading(false);
-      }
-    };
-    run();
-    return () => {
-      cancelled = true;
-    };
-  }, [hasSelection, key, urlParam, name]);
-
-  // Load the paginated recent-files list when no file is selected.
   const loadRecent = useCallback(async (p: number) => {
     setListLoading(true);
     try {
@@ -148,32 +93,42 @@ export default function Presentation({ showCompanyGraph = false }: PresentationP
   }, []);
 
   useEffect(() => {
-    if (!hasSelection && !restoring) loadRecent(page);
-  }, [hasSelection, restoring, page, loadRecent]);
+    if (hydrated && !showViewer) loadRecent(page);
+  }, [hydrated, showViewer, page, loadRecent]);
 
-  const openFile = (item: RecentFileItem) => {
+  const openRecent = (item: RecentFileItem) => {
+    openFile({ key: item.file_key, name: item.file_name });
     const params = new URLSearchParams({ key: item.file_key, name: item.file_name });
-    router.push(`/presentation?${params.toString()}`);
+    router.replace(`/presentation?${params.toString()}`);
   };
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
-  const enterFullscreen = () => {
-    viewerRef.current?.requestFullscreen?.();
+  // Clear the persisted file before showing the list, otherwise it would
+  // immediately reopen on the next render.
+  const goToRecent = () => {
+    clearFile();
+    router.replace("/presentation");
   };
 
-  // Clear the persisted file before showing the list, otherwise the restore
-  // effect would immediately reopen it.
-  const goToRecent = () => {
-    setLastFile(null);
-    router.push("/presentation");
-  };
+  // While the persisted selection is still hydrating, avoid flashing the recent
+  // list (the viewer is about to render).
+  if (!hydrated) {
+    return (
+      <DashboardLayout showCompanyGraph={showCompanyGraph}>
+        <div className="flex h-full items-center justify-center">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        </div>
+      </DashboardLayout>
+    );
+  }
 
   // ---------------------------------------------------------------------------
   // File viewer
   // ---------------------------------------------------------------------------
-  if (hasSelection) {
-    const kind = fileKind(name);
+  if (showViewer) {
+    const displayName = currentFile?.name ?? name;
+    const kind = fileKind(displayName);
     const canFullscreen = !!signedUrl && (kind === "pdf" || kind === "pptx");
 
     return (
@@ -181,12 +136,7 @@ export default function Presentation({ showCompanyGraph = false }: PresentationP
         <div className="flex h-full min-h-0 flex-col">
           <div className="flex items-center justify-between gap-2 border-b px-4 py-2.5">
             <div className="flex min-w-0 items-center gap-3">
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={goToRecent}
-                className="gap-1.5"
-              >
+              <Button variant="ghost" size="sm" onClick={goToRecent} className="gap-1.5">
                 <ArrowLeft className="h-4 w-4" />
                 Recent files
               </Button>
@@ -196,12 +146,12 @@ export default function Presentation({ showCompanyGraph = false }: PresentationP
                 ) : (
                   <FileText className="h-4 w-4 flex-shrink-0 text-muted-foreground" />
                 )}
-                <span className="truncate text-sm font-medium">{name || "File"}</span>
+                <span className="truncate text-sm font-medium">{displayName || "File"}</span>
               </div>
             </div>
             <div className="flex flex-shrink-0 items-center gap-2">
               {canFullscreen && (
-                <Button variant="outline" size="sm" className="gap-1.5" onClick={enterFullscreen}>
+                <Button variant="outline" size="sm" className="gap-1.5" onClick={requestFullscreen}>
                   <Maximize2 className="h-4 w-4" />
                   Fullscreen
                 </Button>
@@ -211,7 +161,7 @@ export default function Presentation({ showCompanyGraph = false }: PresentationP
                   href={(downloadUrl || signedUrl) as string}
                   target="_blank"
                   rel="noreferrer"
-                  download={name || undefined}
+                  download={displayName || undefined}
                 >
                   <Button variant="outline" size="sm" className="gap-1.5">
                     <Download className="h-4 w-4" />
@@ -222,57 +172,25 @@ export default function Presentation({ showCompanyGraph = false }: PresentationP
             </div>
           </div>
 
-          <div ref={viewerRef} className="min-h-0 flex-1 bg-muted/20">
-            {viewerLoading ? (
+          {/*
+            Placeholder the persistent viewer host overlays. The iframe itself
+            is rendered once at the app root so it survives tab switches; here we
+            only reserve the space. A local loader covers the brief window before
+            the host's signed URL resolves.
+          */}
+          <div ref={registerViewport} className="relative min-h-0 flex-1 bg-muted/20">
+            {viewerLoading && (
               <div className="flex h-full w-full items-center justify-center">
                 <Loader2 className="h-8 w-8 animate-spin text-primary" />
               </div>
-            ) : viewerError ? (
+            )}
+            {viewerError && !viewerLoading && (
               <div className="flex h-full w-full flex-col items-center justify-center gap-2 text-muted-foreground">
                 <FileText className="h-10 w-10 opacity-50" />
                 <p>{viewerError}</p>
               </div>
-            ) : signedUrl && kind === "pdf" ? (
-              <iframe src={signedUrl} className="h-full w-full" title={name || "PDF"} />
-            ) : signedUrl && kind === "pptx" ? (
-              <iframe
-                src={`https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(signedUrl)}`}
-                className="h-full w-full"
-                title={name || "Presentation"}
-              />
-            ) : signedUrl ? (
-              <div className="flex h-full w-full flex-col items-center justify-center gap-4 text-muted-foreground">
-                <FileType2 className="h-12 w-12 opacity-50" />
-                <div className="text-center">
-                  <p className="font-medium text-foreground">Preview not supported</p>
-                  <p className="text-sm">Only PDF and PPTX files can be displayed here.</p>
-                </div>
-                <a
-                  href={(downloadUrl || signedUrl) as string}
-                  target="_blank"
-                  rel="noreferrer"
-                  download={name || undefined}
-                >
-                  <Button variant="outline" className="gap-1.5">
-                    <Download className="h-4 w-4" />
-                    Download file
-                  </Button>
-                </a>
-              </div>
-            ) : null}
+            )}
           </div>
-        </div>
-      </DashboardLayout>
-    );
-  }
-
-  // While restoring the persisted file, show a loader instead of flashing the
-  // recent list (the redirect effect is about to swap in the viewer).
-  if (restoring) {
-    return (
-      <DashboardLayout showCompanyGraph={showCompanyGraph}>
-        <div className="flex h-full items-center justify-center">
-          <Loader2 className="h-8 w-8 animate-spin text-primary" />
         </div>
       </DashboardLayout>
     );
@@ -316,7 +234,7 @@ export default function Presentation({ showCompanyGraph = false }: PresentationP
                 return (
                   <li key={item.id}>
                     <button
-                      onClick={() => openFile(item)}
+                      onClick={() => openRecent(item)}
                       className="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-muted/50"
                     >
                       {kind === "pptx" ? (

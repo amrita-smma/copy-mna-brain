@@ -223,7 +223,7 @@ export default function ScreeningProgressPanel({
 
   return (
     <Card className="border-purple-200 bg-gradient-to-r from-purple-50/50 to-blue-50/50 dark:from-purple-950/20 dark:to-blue-950/20 dark:border-purple-800">
-      <CardHeader className="pb-3">
+      <CardHeader className="pb-6">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Sparkles className="h-5 w-5 text-purple-600" />
@@ -235,6 +235,12 @@ export default function ScreeningProgressPanel({
             </div>
           </div>
           <div className="flex items-center gap-2">
+            {passedCount > 0 && (
+              <Badge variant="secondary" className="bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300">
+                {passedCount} ready for L1
+              </Badge>
+            )}
+            {/* Visibility toggle — always rightmost */}
             {onToggleCollapse && (
               <Button
                 variant="ghost"
@@ -246,11 +252,6 @@ export default function ScreeningProgressPanel({
                 {collapsed ? 'Show' : 'Hide'}
                 {collapsed ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronUp className="h-3.5 w-3.5" />}
               </Button>
-            )}
-            {passedCount > 0 && (
-              <Badge variant="secondary" className="bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300">
-                {passedCount} ready for L1
-              </Badge>
             )}
           </div>
         </div>
