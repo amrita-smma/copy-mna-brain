@@ -136,6 +136,28 @@ export class AiWorkforceQueueRepository {
     return row ?? null;
   }
 
+  // Find the most recent non-terminal run for a given agent + company. Used to
+  // cancel an in-flight Company Card generation (whose runId the client may not
+  // have, e.g. after a page reload) by matching trigger_meta.company_id.
+  async findActiveByCompanyId(
+    agentName: string,
+    companyId: string,
+  ): Promise<Row | null> {
+    const [row] = await this.db
+      .select()
+      .from(aiWorkforceQueue)
+      .where(
+        and(
+          eq(aiWorkforceQueue.agent_name, agentName),
+          sql`${aiWorkforceQueue.trigger_meta}->>'company_id' = ${companyId}`,
+          sql`${aiWorkforceQueue.status} NOT IN ('succeeded', 'failed', 'rejected', 'timed_out')`,
+        ),
+      )
+      .orderBy(desc(aiWorkforceQueue.created_at))
+      .limit(1);
+    return row ?? null;
+  }
+
   // ─────────────────────────────────────────────────────────────────────
   // MB-147 surface — queue mechanics: idempotency, atomic claim, reaper
   // ─────────────────────────────────────────────────────────────────────

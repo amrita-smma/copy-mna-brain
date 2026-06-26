@@ -1,7 +1,16 @@
-import { Loader2, Sparkles } from 'lucide-react';
+import { Loader2, Sparkles, X } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Button } from '@/components/ui/button';
 
-export function AICompanyCardLoading() {
+interface AICompanyCardLoadingProps {
+  onCancel?: () => void;
+  cancelling?: boolean;
+}
+
+export function AICompanyCardLoading({
+  onCancel,
+  cancelling = false,
+}: AICompanyCardLoadingProps = {}) {
   return (
     <div className="rounded-lg border-2 border-accent/50 bg-accent/10 p-6 space-y-6 relative overflow-hidden">
       {/* Animated gradient overlay */}
@@ -30,6 +39,22 @@ export function AICompanyCardLoading() {
               <span className="h-2 w-2 rounded-full bg-accent animate-bounce" style={{ animationDelay: '150ms' }} />
               <span className="h-2 w-2 rounded-full bg-accent animate-bounce" style={{ animationDelay: '300ms' }} />
             </div>
+            {onCancel && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="mt-4 gap-1.5"
+                onClick={onCancel}
+                disabled={cancelling}
+              >
+                {cancelling ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <X className="h-3.5 w-3.5" />
+                )}
+                Cancel
+              </Button>
+            )}
           </div>
         </div>
       </div>

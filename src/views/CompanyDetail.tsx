@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import DashboardLayout from '@/components/layout/DashboardLayout';
 import { MarkdownRenderer } from '@/components/chat/MarkdownRenderer';
@@ -44,6 +44,7 @@ import {
   Presentation,
   Pencil,
   Check,
+  X,
 } from 'lucide-react';
 import {
   Select,
@@ -342,6 +343,15 @@ export default function CompanyDetail({ showCompanyGraph = false }: CompanyDetai
   const [loading, setLoading] = useState(true);
   const [analysis, setAnalysis] = useState<CompanyAnalysis | null>(null);
   const [analysisGenerating, setAnalysisGenerating] = useState(false);
+  const [analysisCancelling, setAnalysisCancelling] = useState(false);
+  const analysisPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const stopAnalysisPoll = () => {
+    if (analysisPollRef.current) {
+      clearInterval(analysisPollRef.current);
+      analysisPollRef.current = null;
+    }
+  };
 
   const [newNote, setNewNote] = useState('');
   const [newLinkUrl, setNewLinkUrl] = useState('');
@@ -534,6 +544,8 @@ export default function CompanyDetail({ showCompanyGraph = false }: CompanyDetai
     }
   }, [companyId]);
 
+  useEffect(() => stopAnalysisPoll, []);
+
   const fetchCompany = async (opts: { silent?: boolean } = {}) => {
     if (!opts.silent) setLoading(true);
     try {
@@ -612,6 +624,7 @@ export default function CompanyDetail({ showCompanyGraph = false }: CompanyDetai
   };
 
   const pollAnalysis = () => {
+    stopAnalysisPoll();
     const interval = setInterval(async () => {
       try {
         const res = await fetch(`/api/company-analysis?companyId=${companyId}`);
@@ -620,18 +633,21 @@ export default function CompanyDetail({ showCompanyGraph = false }: CompanyDetai
           setAnalysis(data);
           if (!isAnalysisInProgress(data.status)) {
             setAnalysisGenerating(false);
-            clearInterval(interval);
+            stopAnalysisPoll();
           }
         }
       } catch {
-        clearInterval(interval);
+        stopAnalysisPoll();
         setAnalysisGenerating(false);
       }
     }, 5000);
+    analysisPollRef.current = interval;
     // Clean up after 5 minutes max
     setTimeout(() => {
-      clearInterval(interval);
-      setAnalysisGenerating(false);
+      if (analysisPollRef.current === interval) {
+        stopAnalysisPoll();
+        setAnalysisGenerating(false);
+      }
     }, 300000);
   };
 
@@ -686,6 +702,33 @@ export default function CompanyDetail({ showCompanyGraph = false }: CompanyDetai
 
     // Generate fresh
     await generateAnalysis();
+  };
+
+  const cancelAnalysis = async () => {
+    if (!companyId) return;
+    setAnalysisCancelling(true);
+    try {
+      const res = await fetch('/api/company-analysis/cancel', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ companyId }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || 'Failed to cancel generation');
+      }
+      stopAnalysisPoll();
+      setAnalysis(null);
+      setAnalysisGenerating(false);
+      toast.success('Company Card generation cancelled');
+    } catch (error) {
+      console.error('Error cancelling analysis:', error);
+      toast.error(
+        (error as Error).message || 'Failed to cancel Company Card generation',
+      );
+    } finally {
+      setAnalysisCancelling(false);
+    }
   };
 
   const addNote = async () => {
@@ -1016,23 +1059,43 @@ export default function CompanyDetail({ showCompanyGraph = false }: CompanyDetai
                 Generate Slides
               </Button>
             )}
-            <Button
-              size="sm"
-              className="bg-accent hover:bg-accent/90 text-accent-foreground gap-2"
-              onClick={analysis?.status === 'completed' ? regenerateAnalysis : generateAnalysis}
-              disabled={analysisGenerating}
-            >
-              {analysisGenerating ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
+            {analysisGenerating ? (
+              <div className="flex items-center gap-2">
+                <Button
+                  size="sm"
+                  className="bg-accent hover:bg-accent/90 text-accent-foreground gap-2"
+                  disabled
+                >
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Generating...
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-2"
+                  onClick={cancelAnalysis}
+                  disabled={analysisCancelling}
+                >
+                  {analysisCancelling ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <X className="h-4 w-4" />
+                  )}
+                  Cancel
+                </Button>
+              </div>
+            ) : (
+              <Button
+                size="sm"
+                className="bg-accent hover:bg-accent/90 text-accent-foreground gap-2"
+                onClick={analysis?.status === 'completed' ? regenerateAnalysis : generateAnalysis}
+              >
                 <Sparkles className="h-4 w-4" />
-              )}
-              {analysisGenerating
-                ? 'Generating...'
-                : analysis?.status === 'completed'
+                {analysis?.status === 'completed'
                   ? 'Regenerate AI Card'
                   : 'Generate AI Company Card'}
-            </Button>
+              </Button>
+            )}
             <AskAIButton
               variant="button"
               label="Analyze using AI"
@@ -1086,7 +1149,10 @@ export default function CompanyDetail({ showCompanyGraph = false }: CompanyDetai
               state until ready. */}
           <TabsContent value="overview" className="space-y-6 mt-6">
             {analysisGenerating && !analysis?.business_overview ? (
-              <AICompanyCardLoading />
+              <AICompanyCardLoading
+                onCancel={cancelAnalysis}
+                cancelling={analysisCancelling}
+              />
             ) : analysis?.status === 'failed' ? (
               <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-6 flex flex-col items-center justify-center gap-3">
                 <AlertCircle className="h-6 w-6 text-destructive" />
@@ -1423,7 +1489,10 @@ export default function CompanyDetail({ showCompanyGraph = false }: CompanyDetai
 
             {/* AI Company Card Section */}
             {analysisGenerating ? (
-              <AICompanyCardLoading />
+              <AICompanyCardLoading
+                onCancel={cancelAnalysis}
+                cancelling={analysisCancelling}
+              />
             ) : analysis?.status === 'failed' ? (
               <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-12 flex flex-col items-center justify-center gap-4">
                 <AlertCircle className="h-8 w-8 text-destructive" />

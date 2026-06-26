@@ -1,6 +1,7 @@
 import type { CompanyAnalysisRepository, CompanyRepository } from '@/lib/repositories';
 import type { Tables } from '@/lib/repositories';
 import type { DbClient } from '@/lib/repositories';
+import { AiWorkforceQueueRepository } from '@/lib/repositories';
 import type { CompanyAnalysisPayload } from '@/lib/jobs/handlers/companyAnalysis';
 import { enqueueAgentRun } from '@/lib/workforce';
 
@@ -66,6 +67,46 @@ export class CompanyAnalysisService {
     });
 
     return { runId };
+  }
+
+  /**
+   * Cancel an in-flight Company Card generation for a company.
+   *
+   * Finds the non-terminal AI Workforce run for this company (matched on
+   * trigger_meta.company_id, so it works even when the client doesn't hold the
+   * runId — e.g. after a reload) and flips it to a terminal cancelled state.
+   * Also clears the `company_analyses` row so the UI resets back to the
+   * "Generate AI Company Card" state.
+   *
+   * Returns whether a running queue row was found and cancelled.
+   */
+  async cancelDispatch(
+    companyId: string,
+    cancelledByUserId?: string | null,
+  ): Promise<{ cancelled: boolean }> {
+    const queueRepo = new AiWorkforceQueueRepository(this.db);
+    const active = await queueRepo.findActiveByCompanyId(
+      COMPANY_CARD_AGENT_NAME,
+      companyId,
+    );
+
+    let cancelled = false;
+    if (active) {
+      const row = await queueRepo.cancelById(active.id, {
+        userId: cancelledByUserId ?? null,
+        reason: 'Company Card generation cancelled by user',
+      });
+      cancelled = row != null;
+    }
+
+    // Drop any in-progress analysis row so the UI returns to the pre-generation
+    // state. A completed card is left untouched.
+    const existing = await this.companyAnalysisRepo.findByCompanyId(companyId);
+    if (existing && existing.status !== 'completed') {
+      await this.companyAnalysisRepo.deleteByCompanyId(companyId);
+    }
+
+    return { cancelled };
   }
 
   delete(companyId: string) {

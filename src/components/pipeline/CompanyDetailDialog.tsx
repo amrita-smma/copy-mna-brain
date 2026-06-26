@@ -50,6 +50,7 @@ import {
   Presentation,
   Pencil,
   Check,
+  X,
 } from "lucide-react";
 import { CompanyAnalysisSection } from "@/components/pipeline/CompanyAnalysisSection";
 import { AICompanyCardLoading } from "@/components/pipeline/AICompanyCardLoading";
@@ -528,6 +529,15 @@ export default function CompanyDetailDialog({
   // Analysis states
   const [analysis, setAnalysis] = useState<CompanyAnalysis | null>(null);
   const [analysisGenerating, setAnalysisGenerating] = useState(false);
+  const [analysisCancelling, setAnalysisCancelling] = useState(false);
+  const analysisPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const stopAnalysisPoll = () => {
+    if (analysisPollRef.current) {
+      clearInterval(analysisPollRef.current);
+      analysisPollRef.current = null;
+    }
+  };
 
   // Form states
   const [newNote, setNewNote] = useState("");
@@ -552,6 +562,8 @@ export default function CompanyDetailDialog({
       fetchAnalysis();
     }
   }, [open, company.id]);
+
+  useEffect(() => stopAnalysisPoll, []);
 
   const fetchDetails = async () => {
     setLoading(true);
@@ -618,6 +630,7 @@ export default function CompanyDetailDialog({
   };
 
   const pollAnalysis = () => {
+    stopAnalysisPoll();
     const interval = setInterval(async () => {
       try {
         const res = await fetch(
@@ -628,17 +641,20 @@ export default function CompanyDetailDialog({
           setAnalysis(data);
           if (!isAnalysisInProgress(data.status)) {
             setAnalysisGenerating(false);
-            clearInterval(interval);
+            stopAnalysisPoll();
           }
         }
       } catch {
-        clearInterval(interval);
+        stopAnalysisPoll();
         setAnalysisGenerating(false);
       }
     }, 2500);
+    analysisPollRef.current = interval;
     setTimeout(() => {
-      clearInterval(interval);
-      setAnalysisGenerating(false);
+      if (analysisPollRef.current === interval) {
+        stopAnalysisPoll();
+        setAnalysisGenerating(false);
+      }
     }, 300000);
   };
 
@@ -694,6 +710,32 @@ export default function CompanyDetailDialog({
       regenerateAnalysis();
     } else {
       generateAnalysis();
+    }
+  };
+
+  const cancelAnalysis = async () => {
+    setAnalysisCancelling(true);
+    try {
+      const res = await fetch("/api/company-analysis/cancel", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ companyId: company.id }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || "Failed to cancel generation");
+      }
+      stopAnalysisPoll();
+      setAnalysis(null);
+      setAnalysisGenerating(false);
+      toast.success("Company Card generation cancelled");
+    } catch (error) {
+      console.error("Error cancelling analysis:", error);
+      toast.error(
+        (error as Error).message || "Failed to cancel Company Card generation",
+      );
+    } finally {
+      setAnalysisCancelling(false);
     }
   };
 
@@ -1024,23 +1066,43 @@ export default function CompanyDetailDialog({
                       Generate Slides
                     </Button>
                   )}
-                  <Button
-                    size="sm"
-                    className="bg-accent hover:bg-accent/90 text-accent-foreground gap-1.5 h-7 text-xs"
-                    onClick={() => scrollToAICardAndRun()}
-                    disabled={analysisGenerating}
-                  >
-                    {analysisGenerating ? (
-                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    ) : (
+                  {analysisGenerating ? (
+                    <div className="flex items-center gap-1.5">
+                      <Button
+                        size="sm"
+                        className="bg-accent hover:bg-accent/90 text-accent-foreground gap-1.5 h-7 text-xs"
+                        disabled
+                      >
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        Generating...
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="gap-1.5 h-7 text-xs"
+                        onClick={cancelAnalysis}
+                        disabled={analysisCancelling}
+                      >
+                        {analysisCancelling ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <X className="h-3.5 w-3.5" />
+                        )}
+                        Cancel
+                      </Button>
+                    </div>
+                  ) : (
+                    <Button
+                      size="sm"
+                      className="bg-accent hover:bg-accent/90 text-accent-foreground gap-1.5 h-7 text-xs"
+                      onClick={() => scrollToAICardAndRun()}
+                    >
                       <Sparkles className="h-3.5 w-3.5" />
-                    )}
-                    {analysisGenerating
-                      ? "Generating..."
-                      : analysis?.status === "completed"
+                      {analysis?.status === "completed"
                         ? "Regenerate AI Card"
                         : "Generate AI Company Card"}
-                  </Button>
+                    </Button>
+                  )}
                   <AskAIButton
                     variant="button"
                     label="Analyze using AI"
@@ -1142,7 +1204,10 @@ export default function CompanyDetailDialog({
                 state until ready. */}
             <TabsContent value="overview" className="space-y-4 pb-4">
               {analysisGenerating && !analysis?.business_overview ? (
-                <AICompanyCardLoading />
+                <AICompanyCardLoading
+                  onCancel={cancelAnalysis}
+                  cancelling={analysisCancelling}
+                />
               ) : analysis?.status === "failed" ? (
                 <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-6 flex flex-col items-center justify-center gap-3">
                   <AlertCircle className="h-6 w-6 text-destructive" />
@@ -1718,7 +1783,10 @@ export default function CompanyDetailDialog({
               {(analysisGenerating || analysis) && (
                 <div>
                   {analysisGenerating && !analysis?.business_overview ? (
-                    <AICompanyCardLoading />
+                    <AICompanyCardLoading
+                      onCancel={cancelAnalysis}
+                      cancelling={analysisCancelling}
+                    />
                   ) : analysis?.status === "failed" ? (
                     <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-6 flex flex-col items-center justify-center gap-3">
                       <AlertCircle className="h-6 w-6 text-destructive" />
