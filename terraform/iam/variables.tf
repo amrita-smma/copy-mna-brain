@@ -34,15 +34,11 @@ locals {
       mna_maintainers_users = [
         "dicki.sujadi",
         "kensen.huang",
-        "evelyn.njoto",
-        "zeya.firdaus",
       ]
       ses_send_email_users = [
         "dicki.sujadi",
         "kensen.huang",
         "nico.alimin",
-        "evelyn.njoto",
-        "zeya.firdaus",
       ]
       tags = {
         Environment = "staging"
@@ -61,8 +57,6 @@ locals {
         "dicki.sujadi",
         "kensen.huang",
         "nico.alimin",
-        "evelyn.njoto",
-        "zeya.firdaus",
       ]
       tags = {
         Environment = "production"
