@@ -80,13 +80,13 @@ function droppedRow(id: string, droppedAt: string) {
   };
 }
 
-function noteRow(id: string, updatedAt: string) {
+function noteRow(id: string, createdAt: string) {
   return {
     id,
     company_id: `co-${id}`,
     content: 'note',
     stage: 'L1',
-    updated_at: updatedAt,
+    created_at: createdAt,
     target: `Note ${id}`,
     project_name: null,
     segment: null,

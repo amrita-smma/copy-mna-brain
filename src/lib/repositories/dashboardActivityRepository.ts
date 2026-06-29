@@ -319,7 +319,7 @@ export class DashboardActivityRepository {
         company_id: dealNotes.deal_id,
         content: dealNotes.content,
         stage: dealNotes.stage,
-        updated_at: dealNotes.updated_at,
+        created_at: dealNotes.created_at,
         target: companies.target,
         project_name: companies.project_name,
         segment: companies.segment,
@@ -337,11 +337,11 @@ export class DashboardActivityRepository {
       .leftJoin(companyFinancials, this.latestFinancialsOn())
       .where(
         and(
-          gte(dealNotes.updated_at, from.toISOString()),
-          lte(dealNotes.updated_at, to.toISOString()),
+          gte(dealNotes.created_at, from.toISOString()),
+          lte(dealNotes.created_at, to.toISOString()),
         ),
       )
-      .orderBy(desc(dealNotes.updated_at));
+      .orderBy(desc(dealNotes.created_at));
     return limit != null ? query.limit(limit) : query;
   }
 

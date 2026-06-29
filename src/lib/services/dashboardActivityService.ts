@@ -264,7 +264,7 @@ export function buildFeedEvents(activity: {
   }
 
   for (const n of activity.notesUpdated) {
-    if (!n.updated_at) continue;
+    if (!n.created_at) continue;
     events.push({
       id: `note-${n.id}`,
       type: 'note_updated',
@@ -273,7 +273,7 @@ export function buildFeedEvents(activity: {
       segment: n.segment ?? null,
       geography: n.geography ?? null,
       source: n.source ?? null,
-      event_at: n.updated_at,
+      event_at: n.created_at,
       note_content: n.content ?? null,
       note_stage: n.stage ?? null,
       remarks: n.remarks ?? null,
