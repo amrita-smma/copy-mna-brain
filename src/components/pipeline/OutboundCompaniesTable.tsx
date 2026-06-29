@@ -430,7 +430,7 @@ export default function OutboundCompaniesTable({
                   ? formatDate(company.dropped_at)
                   : formatDate(company.last_activity_at)}
               </TableCell>
-              <TableCell className="min-w-[300px] max-w-[390px] align-top">
+              <TableCell className="h-px min-w-[300px] max-w-[390px] align-top">
                 {onAnalyzeAiOpinion ? (
                   <AiOpinionCell
                     company={company}

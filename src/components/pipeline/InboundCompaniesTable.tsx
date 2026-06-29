@@ -27,7 +27,6 @@ import {
   RotateCcw,
   Landmark,
   Inbox,
-  CheckCircle2,
   XCircle,
   Sparkles,
   Loader2,
@@ -248,13 +247,8 @@ export default function InboundCompaniesTable({
     ? [...unreviewedCompanies, ...reviewedCompanies]
     : companies;
 
-  const sectionHeader = (kind: "unreviewed" | "reviewed") => {
-    const count =
-      kind === "unreviewed"
-        ? unreviewedCompanies.length
-        : reviewedCompanies.length;
-    const isUnreviewed = kind === "unreviewed";
-    const Icon = isUnreviewed ? Inbox : CheckCircle2;
+  const sectionHeader = () => {
+    const count = unreviewedCompanies.length;
 
     return (
       <TableRow className="select-none">
@@ -262,54 +256,24 @@ export default function InboundCompaniesTable({
           colSpan={tableColumnCount}
           className={cn(
             "border-y px-4 py-2 text-xs font-semibold",
-            isUnreviewed
-              ? "border-amber-200 bg-amber-50/90 text-amber-900"
-              : "border-slate-200 bg-slate-50 text-slate-600",
+            "border-amber-200 bg-amber-50/90 text-amber-900",
           )}
         >
           <div className="flex items-center gap-3">
-            <span
-              className={cn(
-                "inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full border",
-                isUnreviewed
-                  ? "border-amber-200 bg-amber-100 text-amber-700"
-                  : "border-slate-200 bg-white text-slate-500",
-              )}
-            >
-              <Icon className="h-3.5 w-3.5" />
+            <span className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-amber-200 bg-amber-100 text-amber-700">
+              <Inbox className="h-3.5 w-3.5" />
             </span>
             <div className="flex min-w-fit items-center gap-2">
-              <span className="uppercase tracking-wide">
-                {isUnreviewed ? "Unreviewed" : "Reviewed"}
-              </span>
-              <span
-                className={cn(
-                  "rounded-full border px-2 py-0.5 text-[11px] leading-none",
-                  isUnreviewed
-                    ? "border-amber-200 bg-white/70 text-amber-800"
-                    : "border-slate-200 bg-white text-slate-600",
-                )}
-              >
+              <span className="uppercase tracking-wide">Unreviewed</span>
+              <span className="rounded-full border border-amber-200 bg-white/70 px-2 py-0.5 text-[11px] leading-none text-amber-800">
                 {count} {count === 1 ? "company" : "companies"}
               </span>
-              <span
-                className={cn(
-                  "hidden text-[11px] font-medium normal-case tracking-normal md:inline",
-                  isUnreviewed ? "text-amber-700" : "text-slate-500",
-                )}
-              >
-                {isUnreviewed
-                  ? "from banker emails this week"
-                  : "active companies"}
+              <span className="hidden text-[11px] font-medium normal-case tracking-normal text-amber-700 md:inline">
+                from banker emails this week
               </span>
             </div>
-            <span
-              className={cn(
-                "h-px flex-1",
-                isUnreviewed ? "bg-amber-200" : "bg-slate-200",
-              )}
-            />
-            {isUnreviewed && onTriageAll && (
+            <span className="h-px flex-1 bg-amber-200" />
+            {onTriageAll && (
               <Button
                 type="button"
                 variant="ghost"
@@ -436,13 +400,10 @@ export default function InboundCompaniesTable({
 
           return (
             <Fragment key={company.id}>
-              {startsUnreviewedSection && sectionHeader("unreviewed")}
-              {startsReviewedSection && (
-                <>
-                  {unreviewedCompanies.length > 0 && sectionGap()}
-                  {sectionHeader("reviewed")}
-                </>
-              )}
+              {startsUnreviewedSection && sectionHeader()}
+              {startsReviewedSection &&
+                unreviewedCompanies.length > 0 &&
+                sectionGap()}
               <TableRow
                 className={cn(
                   "group transition-colors",
@@ -633,7 +594,7 @@ export default function InboundCompaniesTable({
                   ? formatDate(company.dropped_at)
                   : formatDate(company.last_activity_at)}
               </TableCell>
-              <TableCell className="min-w-[300px] max-w-[390px] align-top">
+              <TableCell className="h-px min-w-[300px] max-w-[390px] align-top">
                 {onAnalyzeAiOpinion ? (
                   <AiOpinionCell
                     company={company}
