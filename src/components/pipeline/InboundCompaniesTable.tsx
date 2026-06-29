@@ -456,14 +456,19 @@ export default function InboundCompaniesTable({
               <TableRow
                 className={cn(
                   "group transition-colors",
-                  isUnreviewed && "border-l-2 border-l-amber-400",
                   isFav
                     ? "bg-amber-50/60 dark:bg-amber-900/10 hover:bg-amber-100/60 dark:hover:bg-amber-900/20"
                     : "hover:bg-muted/50",
                   isUpdating && "animate-pulse opacity-60",
                 )}
               >
-              <TableCell className={cn("pr-0 sticky left-0 z-10", stickyBg)}>
+              <TableCell
+                className={cn(
+                  "pr-0 sticky left-0 z-10",
+                  isUnreviewed && "border-l-2 border-l-amber-400",
+                  stickyBg,
+                )}
+              >
                 <AskAIButton
                   variant="icon"
                   label="Analyze using AI"
