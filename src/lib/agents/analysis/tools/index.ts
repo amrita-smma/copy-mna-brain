@@ -22,6 +22,7 @@ import { addCompany } from "./add_company";
 import { updateCompanyRelationship } from "./update_company_relationship";
 import { generateRelationshipGraph } from "./generate_relationship_graph";
 import { generateCompanyCard } from "./generate_company_card";
+import { updateCompanyCardSection } from "./update_company_card_section";
 import { narrateStep } from "./narrate_step";
 import { reportProgress } from "./report_progress";
 import { notifyProgress } from "./notify_progress";
@@ -51,6 +52,7 @@ export {
   updateCompanyRelationship,
   generateRelationshipGraph,
   generateCompanyCard,
+  updateCompanyCardSection,
   narrateStep,
   reportProgress,
   notifyProgress,
@@ -101,6 +103,7 @@ export const chatOnlyTools = [
   proposeBulkPromoteCompanies,
   emailResearchSummary,
   sendEmailTool,
+  updateCompanyCardSection,
 ];
 
 /**
@@ -157,6 +160,7 @@ export function getToolDescriptions(): string {
     { name: "propose_bulk_promote_companies", description: "Propose promoting a batch of L0 companies to L1 (or any stage) via an approval card with checkboxes, tags, and inline signals" },
     { name: "email_research_summary", description: "Email the requesting user a PDF copy of a research summary that the agent has composed" },
     { name: "send_email", description: "Send a free-form email (subject + body) to one or more platform users; recipients are restricted to registered users of the platform" },
+    { name: "update_company_card_section", description: "Overwrite a single section (e.g. business overview, investment thesis, risks) of a company's AI Company Card / Overview slide with rewritten markdown" },
   ];
 
   return toolInfo.map((t, i) => `${i + 1}. **${t.name}** - ${t.description}`).join("\n");

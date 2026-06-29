@@ -73,7 +73,11 @@ import {
 } from '@/components/ui/dialog';
 import { CompanyAnalysisSection } from '@/components/pipeline/CompanyAnalysisSection';
 import { AICompanyCardLoading } from '@/components/pipeline/AICompanyCardLoading';
-import CompanyOverviewSlide from '@/components/pipeline/CompanyOverviewSlide';
+import CompanyOverviewSlide, {
+  type AnalysisSectionKey,
+  type EditSectionRequest,
+} from '@/components/pipeline/CompanyOverviewSlide';
+import { useLayoutControl } from '@/components/layout/LayoutControlContext';
 import FilePreview from '@/components/Files/FilePreview';
 import { FinancialCharts } from '@/components/pipeline/FinancialCharts';
 import { DealStage } from '@/lib/types';
@@ -330,6 +334,7 @@ export default function CompanyDetail({ showCompanyGraph = false }: CompanyDetai
   const params = useParams();
   const router = useRouter();
   const { analyzeWithAI } = useChatContext();
+  const { focusCopilot } = useLayoutControl();
   const searchParams = useSearchParams();
   const isMobile = useIsMobile();
   const companyId = params.dealId as string;
@@ -357,12 +362,82 @@ export default function CompanyDetail({ showCompanyGraph = false }: CompanyDetai
   const [analysisGenerating, setAnalysisGenerating] = useState(false);
   const [analysisCancelling, setAnalysisCancelling] = useState(false);
   const analysisPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [editingSectionKey, setEditingSectionKey] =
+    useState<AnalysisSectionKey | null>(null);
+  const sectionEditPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const stopAnalysisPoll = () => {
     if (analysisPollRef.current) {
       clearInterval(analysisPollRef.current);
       analysisPollRef.current = null;
     }
+  };
+
+  const stopSectionEditPoll = () => {
+    if (sectionEditPollRef.current) {
+      clearInterval(sectionEditPollRef.current);
+      sectionEditPollRef.current = null;
+    }
+  };
+
+  // Right-click → "Edit with AI" on an Overview slide section. Hands the copilot
+  // a tightly-scoped prompt (company_id + section + current content + change) so
+  // it rewrites ONLY that section via update_company_card_section, then polls the
+  // analysis row until the new content lands and refreshes the slide in place.
+  const handleEditSection = (req: EditSectionRequest) => {
+    if (!companyId) return;
+    const name = companyDisplayName(company, 'this company');
+    const previousContent = req.currentContent;
+    const prompt = `Edit the "${req.sectionTitle}" section of the AI Company Card for ${name} (company_id: ${companyId}).
+
+Current "${req.sectionTitle}" content:
+"""
+${previousContent || '(this section is currently empty)'}
+"""
+
+Requested change: ${req.instruction}
+
+Rewrite ONLY this section to satisfy the request. Keep it factual and in the same concise markdown bullet style as the existing card. Then persist it by calling update_company_card_section with company_id "${companyId}", section "${req.sectionKey}", and the rewritten markdown as the content. Do not modify any other section.`;
+
+    analyzeWithAI(prompt);
+    if (isMobile) {
+      router.push('/chat');
+    } else {
+      focusCopilot();
+    }
+    toast.info(`Sent to AI CoPilot — updating "${req.sectionTitle}"…`);
+
+    setEditingSectionKey(req.sectionKey);
+    stopSectionEditPoll();
+    let attempts = 0;
+    const interval = setInterval(async () => {
+      attempts++;
+      try {
+        const res = await fetch(`/api/company-analysis?companyId=${companyId}`);
+        if (res.ok) {
+          const data = (await res.json()) as CompanyAnalysis;
+          const next = data?.[req.sectionKey];
+          if (
+            data &&
+            typeof next === 'string' &&
+            next.trim() !== previousContent.trim()
+          ) {
+            setAnalysis(data);
+            setEditingSectionKey(null);
+            stopSectionEditPoll();
+            toast.success(`Updated "${req.sectionTitle}"`);
+            return;
+          }
+        }
+      } catch {
+        // transient — keep polling until the cap
+      }
+      if (attempts >= 48) {
+        stopSectionEditPoll();
+        setEditingSectionKey(null);
+      }
+    }, 2500);
+    sectionEditPollRef.current = interval;
   };
 
   const [newNote, setNewNote] = useState('');
@@ -558,7 +633,12 @@ export default function CompanyDetail({ showCompanyGraph = false }: CompanyDetai
       .catch((err) => console.error('Failed to load tracks:', err));
   }, []);
 
-  useEffect(() => stopAnalysisPoll, []);
+  useEffect(() => {
+    return () => {
+      stopAnalysisPoll();
+      stopSectionEditPoll();
+    };
+  }, []);
 
   const fetchCompany = async (opts: { silent?: boolean } = {}) => {
     if (!opts.silent) setLoading(true);
@@ -1179,7 +1259,12 @@ export default function CompanyDetail({ showCompanyGraph = false }: CompanyDetai
                 </Button>
               </div>
             ) : (
-              <CompanyOverviewSlide company={company} analysis={analysis} />
+              <CompanyOverviewSlide
+                company={company}
+                analysis={analysis}
+                onEditSection={handleEditSection}
+                editingSectionKey={editingSectionKey}
+              />
             )}
           </TabsContent>
 

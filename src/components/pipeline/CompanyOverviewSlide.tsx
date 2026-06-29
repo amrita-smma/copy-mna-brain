@@ -1,8 +1,29 @@
 "use client";
 
-import { Building2, TrendingUp, FileBarChart, ClipboardCheck, ArrowRight } from "lucide-react";
+import { useState } from "react";
+import {
+  Building2,
+  TrendingUp,
+  FileBarChart,
+  ClipboardCheck,
+  ArrowRight,
+  Sparkles,
+  Pencil,
+  Send,
+  Loader2,
+  X,
+} from "lucide-react";
 import { MarkdownRenderer } from "@/components/chat/MarkdownRenderer";
 import { companyDisplayTitle } from "@/lib/companyDisplay";
+import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu";
 
 /**
  * Read-only "L0 → L1 Submission" overview slide. The narrative sections are
@@ -46,6 +67,16 @@ export interface OverviewSlideAnalysis {
   investment_highlights: string | null;
   investment_risks: string | null;
   diligence_priorities: string | null;
+}
+
+/** The AI-narrative card sections that can be edited in place via the copilot. */
+export type AnalysisSectionKey = keyof OverviewSlideAnalysis;
+
+export interface EditSectionRequest {
+  sectionKey: AnalysisSectionKey;
+  sectionTitle: string;
+  currentContent: string;
+  instruction: string;
 }
 
 const STAGES = ["L0", "L1", "L2", "L3", "L4", "L5"] as const;
@@ -114,12 +145,162 @@ function AIText({ content, placeholder }: { content: string | null; placeholder:
   return <p className="text-[12px] italic text-muted-foreground">{placeholder}</p>;
 }
 
+/**
+ * Wraps an AI-narrative block so it can be refined in place. Right-clicking (or
+ * hovering and clicking the floating "Edit" pill) opens an inline prompt; on
+ * submit it bubbles a targeted edit request up to the parent, which forwards it
+ * to the AI CoPilot. When `isEditing` is set, the block shows a busy overlay
+ * while the copilot rewrites the section.
+ */
+function EditableSection({
+  sectionKey,
+  sectionTitle,
+  currentContent,
+  isEditing,
+  onEditSection,
+  children,
+}: {
+  sectionKey: AnalysisSectionKey;
+  sectionTitle: string;
+  currentContent: string | null;
+  isEditing: boolean;
+  onEditSection?: (req: EditSectionRequest) => void;
+  children: React.ReactNode;
+}) {
+  const [open, setOpen] = useState(false);
+  const [instruction, setInstruction] = useState("");
+
+  // No handler wired (e.g. read-only contexts) → render the content untouched.
+  if (!onEditSection) return <>{children}</>;
+
+  const close = () => {
+    setOpen(false);
+    setInstruction("");
+  };
+
+  const submit = () => {
+    const trimmed = instruction.trim();
+    if (!trimmed) return;
+    onEditSection({
+      sectionKey,
+      sectionTitle,
+      currentContent: currentContent ?? "",
+      instruction: trimmed,
+    });
+    close();
+  };
+
+  return (
+    <div className="relative">
+      <ContextMenu>
+        <ContextMenuTrigger asChild>
+          <div
+            className={cn(
+              "group/edit relative rounded-md -mx-1.5 px-1.5 py-1 transition-colors",
+              "hover:bg-blue-50/60 dark:hover:bg-blue-950/20",
+              open &&
+                "bg-blue-50/60 ring-1 ring-blue-200 dark:bg-blue-950/20 dark:ring-blue-800",
+            )}
+          >
+            {children}
+            {!open && !isEditing && (
+              <button
+                type="button"
+                onClick={() => setOpen(true)}
+                title={`Edit "${sectionTitle}" with AI`}
+                aria-label={`Edit "${sectionTitle}" with AI`}
+                className="absolute right-1 top-1 hidden items-center gap-1 rounded border border-blue-300 bg-white/90 px-1.5 py-0.5 text-[10px] font-medium text-blue-700 shadow-sm group-hover/edit:inline-flex dark:border-blue-700 dark:bg-card dark:text-blue-300"
+              >
+                <Pencil className="h-3 w-3" />
+                Edit
+              </button>
+            )}
+          </div>
+        </ContextMenuTrigger>
+        <ContextMenuContent>
+          <ContextMenuItem onSelect={() => setOpen(true)}>
+            <Sparkles className="mr-2 h-3.5 w-3.5 text-purple-500" />
+            Edit with AI
+          </ContextMenuItem>
+        </ContextMenuContent>
+      </ContextMenu>
+
+      {open && (
+        <div className="mt-1.5 rounded-md border border-blue-200 bg-blue-50/50 p-2 dark:border-blue-800 dark:bg-blue-950/20">
+          <div className="mb-1 flex items-center gap-1 text-[11px] font-semibold text-blue-800 dark:text-blue-300">
+            <Sparkles className="h-3 w-3" />
+            Edit &ldquo;{sectionTitle}&rdquo; with AI CoPilot
+          </div>
+          <Textarea
+            autoFocus
+            value={instruction}
+            onChange={(e) => setInstruction(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                e.preventDefault();
+                submit();
+              } else if (e.key === "Escape") {
+                e.preventDefault();
+                close();
+              }
+            }}
+            rows={2}
+            placeholder={`Describe the change — e.g. "Make this more concise" or "Add detail on customer concentration"`}
+            className="min-h-0 text-[12px]"
+          />
+          <div className="mt-1.5 flex items-center justify-end gap-1.5">
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-6 px-2 text-[11px]"
+              onClick={close}
+            >
+              <X className="mr-1 h-3 w-3" />
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              className="h-6 gap-1 bg-purple-600 px-2 text-[11px] text-white hover:bg-purple-700"
+              onClick={submit}
+              disabled={!instruction.trim()}
+            >
+              <Send className="h-3 w-3" />
+              Send to CoPilot
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {isEditing && (
+        <div className="absolute inset-0 z-10 flex items-center justify-center rounded-md bg-white/70 backdrop-blur-[1px] dark:bg-card/70">
+          <div className="flex items-center gap-2 rounded-full border border-blue-200 bg-white px-3 py-1 text-[11px] font-medium text-blue-700 shadow-sm dark:border-blue-800 dark:bg-card dark:text-blue-300">
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            Updating with AI…
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function CompanyOverviewSlide({
   company,
   analysis,
+  onEditSection,
+  editingSectionKey,
 }: {
   company: OverviewSlideCompany;
   analysis: OverviewSlideAnalysis | null;
+  /**
+   * Called when the user submits an inline AI edit for a card section. The
+   * parent forwards a targeted prompt to the AI CoPilot. When omitted, sections
+   * render read-only (no context menu / edit affordance).
+   */
+  onEditSection?: (req: EditSectionRequest) => void;
+  /** The section currently being rewritten by the copilot (shows a busy overlay). */
+  editingSectionKey?: AnalysisSectionKey | null;
 }) {
   const title = companyDisplayTitle(company, "Company");
   const sector = company.segment || "—";
@@ -197,10 +378,18 @@ export default function CompanyOverviewSlide({
         <div className="space-y-5">
           <section>
             <SectionHeading icon={Building2} index={1} title="Target Overview" />
-            <AIText
-              content={analysis?.business_overview ?? null}
-              placeholder="Target overview will appear here once the AI Company Card is generated."
-            />
+            <EditableSection
+              sectionKey="business_overview"
+              sectionTitle="Target Overview"
+              currentContent={analysis?.business_overview ?? null}
+              isEditing={editingSectionKey === "business_overview"}
+              onEditSection={onEditSection}
+            >
+              <AIText
+                content={analysis?.business_overview ?? null}
+                placeholder="Target overview will appear here once the AI Company Card is generated."
+              />
+            </EditableSection>
             {company.ownership && (
               <p className="mt-2 text-[11.5px] text-muted-foreground">
                 <span className="font-semibold">Shareholding:</span>{" "}
@@ -259,16 +448,32 @@ export default function CompanyOverviewSlide({
         <div className="space-y-5">
           <section>
             <SectionHeading icon={TrendingUp} index={2} title="Investment Thesis" />
-            <AIText
-              content={analysis?.investment_highlights ?? null}
-              placeholder="Investment highlights will appear here once the AI Company Card is generated."
-            />
+            <EditableSection
+              sectionKey="investment_highlights"
+              sectionTitle="Investment Thesis"
+              currentContent={analysis?.investment_highlights ?? null}
+              isEditing={editingSectionKey === "investment_highlights"}
+              onEditSection={onEditSection}
+            >
+              <AIText
+                content={analysis?.investment_highlights ?? null}
+                placeholder="Investment highlights will appear here once the AI Company Card is generated."
+              />
+            </EditableSection>
             {analysis?.business_model_summary && (
               <div className="mt-2">
                 <div className="text-[11px] font-bold text-blue-900 dark:text-blue-300">
                   Business model &amp; value chain
                 </div>
-                <AIText content={analysis.business_model_summary} placeholder="" />
+                <EditableSection
+                  sectionKey="business_model_summary"
+                  sectionTitle="Business Model & Value Chain"
+                  currentContent={analysis.business_model_summary}
+                  isEditing={editingSectionKey === "business_model_summary"}
+                  onEditSection={onEditSection}
+                >
+                  <AIText content={analysis.business_model_summary} placeholder="" />
+                </EditableSection>
               </div>
             )}
           </section>
@@ -291,15 +496,31 @@ export default function CompanyOverviewSlide({
           <div className="text-[11px] font-bold text-blue-900 dark:text-blue-300">
             L1 scope of work / diligence priorities
           </div>
-          <AIText
-            content={analysis?.diligence_priorities ?? null}
-            placeholder="Diligence priorities will appear here once the AI Company Card is generated."
-          />
+          <EditableSection
+            sectionKey="diligence_priorities"
+            sectionTitle="L1 Scope of Work / Diligence Priorities"
+            currentContent={analysis?.diligence_priorities ?? null}
+            isEditing={editingSectionKey === "diligence_priorities"}
+            onEditSection={onEditSection}
+          >
+            <AIText
+              content={analysis?.diligence_priorities ?? null}
+              placeholder="Diligence priorities will appear here once the AI Company Card is generated."
+            />
+          </EditableSection>
           <div className="mt-2 text-[11px] font-bold text-red-600">Kill criteria</div>
-          <AIText
-            content={analysis?.investment_risks ?? null}
-            placeholder="Investment risks will appear here once the AI Company Card is generated."
-          />
+          <EditableSection
+            sectionKey="investment_risks"
+            sectionTitle="Kill Criteria / Investment Risks"
+            currentContent={analysis?.investment_risks ?? null}
+            isEditing={editingSectionKey === "investment_risks"}
+            onEditSection={onEditSection}
+          >
+            <AIText
+              content={analysis?.investment_risks ?? null}
+              placeholder="Investment risks will appear here once the AI Company Card is generated."
+            />
+          </EditableSection>
         </section>
       </div>
 

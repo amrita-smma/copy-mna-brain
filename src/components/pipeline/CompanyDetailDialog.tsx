@@ -54,7 +54,10 @@ import {
 } from "lucide-react";
 import { CompanyAnalysisSection } from "@/components/pipeline/CompanyAnalysisSection";
 import { AICompanyCardLoading } from "@/components/pipeline/AICompanyCardLoading";
-import CompanyOverviewSlide from "@/components/pipeline/CompanyOverviewSlide";
+import CompanyOverviewSlide, {
+  type AnalysisSectionKey,
+  type EditSectionRequest,
+} from "@/components/pipeline/CompanyOverviewSlide";
 import FilePreview from "@/components/Files/FilePreview";
 import { DealStage } from "@/lib/types";
 import { STAGE_LABELS, isAnalysisInProgress } from "@/lib/constants";
@@ -137,6 +140,7 @@ import type { Tables } from "@/lib/repositories";
 import { MarkdownRenderer } from "@/components/chat/MarkdownRenderer";
 import { useChatContext } from "@/components/chat/ChatProvider";
 import { AskAIButton } from "@/components/chat/AskAIButton";
+import { useLayoutControl } from "@/components/layout/LayoutControlContext";
 
 export interface CompanyData {
   id: string;
@@ -413,6 +417,7 @@ export default function CompanyDetailDialog({
 }: CompanyDetailDialogProps) {
   const router = useRouter();
   const { analyzeWithAI } = useChatContext();
+  const { focusCopilot } = useLayoutControl();
   const [company, setCompany] = useState<CompanyData>(companyProp);
   // Only re-sync from the prop when a *different* company is opened. Some
   // parents (e.g. MarketScreeningResults) rebuild the `company` prop as a new
@@ -619,12 +624,83 @@ export default function CompanyDetailDialog({
   const [analysisGenerating, setAnalysisGenerating] = useState(false);
   const [analysisCancelling, setAnalysisCancelling] = useState(false);
   const analysisPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // The card section the copilot is currently rewriting (drives the slide's
+  // busy overlay). Cleared when the new content lands or the wait times out.
+  const [editingSectionKey, setEditingSectionKey] =
+    useState<AnalysisSectionKey | null>(null);
+  const sectionEditPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const stopAnalysisPoll = () => {
     if (analysisPollRef.current) {
       clearInterval(analysisPollRef.current);
       analysisPollRef.current = null;
     }
+  };
+
+  const stopSectionEditPoll = () => {
+    if (sectionEditPollRef.current) {
+      clearInterval(sectionEditPollRef.current);
+      sectionEditPollRef.current = null;
+    }
+  };
+
+  // Right-click → "Edit with AI" on an Overview slide section. We hand the
+  // copilot a tightly-scoped prompt (company_id + section key + current content
+  // + the requested change) so it can rewrite ONLY that section via the
+  // update_company_card_section tool, then poll the analysis row until the new
+  // content lands and refresh the slide in place.
+  const handleEditSection = (req: EditSectionRequest) => {
+    const name = companyDisplayName(company, "this company");
+    const previousContent = req.currentContent;
+    const prompt = `Edit the "${req.sectionTitle}" section of the AI Company Card for ${name} (company_id: ${company.id}).
+
+Current "${req.sectionTitle}" content:
+"""
+${previousContent || "(this section is currently empty)"}
+"""
+
+Requested change: ${req.instruction}
+
+Rewrite ONLY this section to satisfy the request. Keep it factual and in the same concise markdown bullet style as the existing card. Then persist it by calling update_company_card_section with company_id "${company.id}", section "${req.sectionKey}", and the rewritten markdown as the content. Do not modify any other section.`;
+
+    analyzeWithAI(prompt);
+    focusCopilot();
+    toast.info(`Sent to AI CoPilot — updating "${req.sectionTitle}"…`);
+
+    setEditingSectionKey(req.sectionKey);
+    stopSectionEditPoll();
+    let attempts = 0;
+    const interval = setInterval(async () => {
+      attempts++;
+      try {
+        const res = await fetch(
+          `/api/company-analysis?companyId=${company.id}`,
+        );
+        if (res.ok) {
+          const data = (await res.json()) as CompanyAnalysis;
+          const next = data?.[req.sectionKey];
+          if (
+            data &&
+            typeof next === "string" &&
+            next.trim() !== previousContent.trim()
+          ) {
+            setAnalysis(data);
+            setEditingSectionKey(null);
+            stopSectionEditPoll();
+            toast.success(`Updated "${req.sectionTitle}"`);
+            return;
+          }
+        }
+      } catch {
+        // transient — keep polling until the cap
+      }
+      if (attempts >= 48) {
+        // ~2 min cap; the copilot may still finish, but stop blocking the UI.
+        stopSectionEditPoll();
+        setEditingSectionKey(null);
+      }
+    }, 2500);
+    sectionEditPollRef.current = interval;
   };
 
   // Form states
@@ -680,7 +756,12 @@ export default function CompanyDetailDialog({
       .catch((err) => console.error("Failed to load tracks:", err));
   }, [open, tracks.length]);
 
-  useEffect(() => stopAnalysisPoll, []);
+  useEffect(() => {
+    return () => {
+      stopAnalysisPoll();
+      stopSectionEditPoll();
+    };
+  }, []);
 
   const fetchDetails = async () => {
     setLoading(true);
@@ -1344,7 +1425,12 @@ export default function CompanyDetailDialog({
                   </Button>
                 </div>
               ) : (
-                <CompanyOverviewSlide company={company} analysis={analysis} />
+                <CompanyOverviewSlide
+                  company={company}
+                  analysis={analysis}
+                  onEditSection={handleEditSection}
+                  editingSectionKey={editingSectionKey}
+                />
               )}
             </TabsContent>
 
