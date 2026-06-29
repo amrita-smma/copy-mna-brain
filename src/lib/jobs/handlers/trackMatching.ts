@@ -31,8 +31,16 @@ function lastAiText(messages: unknown[]): string {
   return extractMessageText(aiMessages[aiMessages.length - 1] as never);
 }
 
-/** Parse a `{ "trackIds": [...] }` (or bare array) of ids from the agent reply. */
-function parseTrackIds(text: string): string[] {
+/**
+ * Parse a `{ "trackIds": [...] }` (or bare array) of ids from the agent reply.
+ *
+ * Returns `null` when no parseable id list could be found (e.g. the agent
+ * replied with prose). This is distinct from an empty array `[]`, which means
+ * the agent explicitly decided no tracks fit. The caller uses `null` to fall
+ * back to the keyword heuristic, so a company never ends up silently unmatched
+ * just because the reply wasn't valid JSON.
+ */
+function parseTrackIds(text: string): string[] | null {
   try {
     const objMatch = text.match(/\{[\s\S]*"trackIds"[\s\S]*\}/);
     if (objMatch) {
@@ -45,9 +53,9 @@ function parseTrackIds(text: string): string[] {
       if (Array.isArray(parsed)) return parsed.map(String);
     }
   } catch {
-    /* fall through to caller's fallback */
+    /* fall through to caller's heuristic fallback */
   }
-  return [];
+  return null;
 }
 
 function buildPrompt(
@@ -108,11 +116,16 @@ export async function runTrackMatching(
       const result = await agent.invoke({
         messages: [new HumanMessage(buildPrompt(company, tracks))],
       });
-      const ids = parseTrackIds(lastAiText(result.messages)).filter((id) =>
-        known.has(id),
-      );
-      matchedIds = ids;
-      via = 'agent';
+      const parsed = parseTrackIds(lastAiText(result.messages));
+      // Only trust the agent when it returned a parseable id list (even an
+      // empty one — that's a deliberate "no fit"). An unparseable reply leaves
+      // `matchedIds` null so we fall through to the keyword heuristic below.
+      if (parsed !== null) {
+        matchedIds = parsed.filter((id) => known.has(id));
+        via = 'agent';
+      } else {
+        console.warn('[trackMatching] agent reply unparseable, using heuristic');
+      }
     } catch (err) {
       console.error('[trackMatching] agent matching failed, using heuristic:', err);
     }

@@ -38,7 +38,6 @@ import {
   FileText,
   Loader2,
   Plus,
-  Sparkles,
   ChevronDown,
   ChevronUp,
   Eye,
@@ -62,6 +61,14 @@ import UpdateCompanyDialog from "@/components/pipeline/UpdateCompanyDialog";
 import InboundCompaniesTable from "@/components/pipeline/InboundCompaniesTable";
 import OutboundCompaniesTable from "@/components/pipeline/OutboundCompaniesTable";
 import TrackSettingsDialog from "@/components/pipeline/TrackSettingsDialog";
+import L0AddCompany from "@/components/pipeline/L0AddCompany";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import TrackMultiSelect, {
   UNASSIGNED_TRACK_ID,
 } from "@/components/pipeline/TrackMultiSelect";
@@ -151,7 +158,7 @@ export interface PipelineCompany {
   banker_source: string | null;
   possible_duplicate_company_id: string | null;
   matched_track_ids: string[];
-  financials_raw?: import('@/lib/repositories').Tables<'company_financials'>[];
+  financials_raw?: import("@/lib/repositories").Tables<"company_financials">[];
 }
 
 const STAGES: DealStage[] = ["L0", "L1", "L2", "L3", "L4", "L5"];
@@ -228,7 +235,6 @@ const stageColors: Record<
   },
 };
 
-
 const getRevenueChange = (year2: number | null, year3: number | null) => {
   if (year2 === null || year3 === null || year2 === 0) return null;
   return ((year3 - year2) / year2) * 100;
@@ -303,8 +309,14 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
   // Section visibility
   const [showL0Pipeline, setShowL0Pipeline] = useState(true);
   const [showMarketScanning, setShowMarketScanning] = useState(true);
-  const [showMarketResults, setShowMarketResults] = useLocalStorage('pipeline:show-market-results', true);
-  const [showScreeningProgress, setShowScreeningProgress] = useLocalStorage('pipeline:show-screening-progress', true);
+  const [showMarketResults, setShowMarketResults] = useLocalStorage(
+    "pipeline:show-market-results",
+    true,
+  );
+  const [showScreeningProgress, setShowScreeningProgress] = useLocalStorage(
+    "pipeline:show-screening-progress",
+    true,
+  );
 
   // Sorting state
   const [sortField, setSortField] = useState<string | null>(null);
@@ -325,13 +337,16 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
   );
 
   // Source sub-tab (replaces filter dropdown — real tabs now)
-  const [sourceFilter, setSourceFilter] = useState<"inbound" | "outbound">("inbound");
+  const [sourceFilter, setSourceFilter] = useState<"inbound" | "outbound">(
+    "inbound",
+  );
   const [showUnreviewedOnly, setShowUnreviewedOnly] = useState(false);
   const [docTypeFilter, setDocTypeFilter] = useState<string>("all");
 
   // Tracks (investment theses) + matched-track filter
   const [tracks, setTracks] = useState<Track[]>([]);
   const [trackSettingsOpen, setTrackSettingsOpen] = useState(false);
+  const [addCompanyOpen, setAddCompanyOpen] = useState(false);
   const [trackFilter, setTrackFilter] = useState<string[]>([]);
   // Bumped after Track Settings saves so the AI Market Scanning banner refetches.
   const [tracksRefreshKey, setTracksRefreshKey] = useState(0);
@@ -351,10 +366,10 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
   const [dialogMode, setDialogMode] = useState<"promote" | "demote">("promote");
 
   // Update company dialog state
-  const [editingCompany, setEditingCompany] =
-    useState<PipelineCompany | null>(null);
+  const [editingCompany, setEditingCompany] = useState<PipelineCompany | null>(
+    null,
+  );
   const [editAndPromote, setEditAndPromote] = useState(false);
-
 
   // Drop deal dialog state
   const [dropDealCompany, setDropDealCompany] =
@@ -530,7 +545,16 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
   // Reset page when filters change
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchQuery, sectorFilter, l1StatusFilter, activeTab, viewMode, sourceFilter, trackFilter, columnFilters]);
+  }, [
+    searchQuery,
+    sectorFilter,
+    l1StatusFilter,
+    activeTab,
+    viewMode,
+    sourceFilter,
+    trackFilter,
+    columnFilters,
+  ]);
 
   // Clear per-column filters when the underlying pool changes, since their
   // option lists (and therefore selections) no longer apply.
@@ -563,10 +587,7 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
   ];
 
   // Persist a free-text workflow status change, optimistically first.
-  const handleStatusChange = async (
-    company: PipelineCompany,
-    next: string,
-  ) => {
+  const handleStatusChange = async (company: PipelineCompany, next: string) => {
     setCompanies((prev) =>
       prev.map((c) =>
         c.id === company.id ? { ...c, workflow_status: next } : c,
@@ -647,7 +668,8 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
       const accessor = COLUMN_FILTER_ACCESSORS[field];
       if (!accessor) return true;
       const raw = accessor(company);
-      const value = raw === null || raw.trim() === "" ? EMPTY_FILTER_VALUE : raw;
+      const value =
+        raw === null || raw.trim() === "" ? EMPTY_FILTER_VALUE : raw;
       return selected.includes(value);
     });
 
@@ -711,8 +733,8 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
 
     switch (sortField) {
       case "name":
-        aVal = `${a.target} ${a.project_name ?? ''}`.trim().toLowerCase();
-        bVal = `${b.target} ${b.project_name ?? ''}`.trim().toLowerCase();
+        aVal = `${a.target} ${a.project_name ?? ""}`.trim().toLowerCase();
+        bVal = `${b.target} ${b.project_name ?? ""}`.trim().toLowerCase();
         break;
       case "sector":
         aVal = (a.segment || "").toLowerCase();
@@ -846,7 +868,9 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
 
         const pendingIds = new Set(
           data
-            .filter((screening: { state: string }) => screening.state === "pending")
+            .filter(
+              (screening: { state: string }) => screening.state === "pending",
+            )
             .map((screening: { company_id: string }) => screening.company_id),
         );
         setPendingScreeningCompanyIds(pendingIds);
@@ -884,10 +908,6 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
       console.error("Error running filters:", error);
       toast.error("Failed to run filters");
     }
-  };
-
-  const openScreeningCriteria = () => {
-    setTrackSettingsOpen(true);
   };
 
   const runScreeningForCompany = async (company: PipelineCompany) => {
@@ -1135,7 +1155,10 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
           onValueChange={handleTabChange}
           className="w-full"
         >
-          <TabsList data-testid="pipeline-stage-tabs" className="grid w-full grid-cols-6">
+          <TabsList
+            data-testid="pipeline-stage-tabs"
+            className="grid w-full grid-cols-6"
+          >
             {STAGES.map((stage) => (
               <TabsTrigger
                 key={stage}
@@ -1242,14 +1265,12 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
                                 </Button>
                               )}
                               {showL0Pipeline && (
-                                <Button
-                                  data-testid="pipeline-ai-screening-button"
-                                  onClick={openScreeningCriteria}
-                                  className="bg-gradient-to-r from-purple-600 to-purple-500 hover:from-purple-700 hover:to-purple-600 shadow-md transition-all hover:scale-[1.02]"
-                                >
-                                  <Sparkles className="mr-2 h-4 w-4" />
-                                  AI Screening Criteria
-                                </Button>
+                                <Link href="/ai-file-dump">
+                                  <Button data-testid="pipeline-add-company-button">
+                                    <Plus className="mr-2 h-4 w-4" />
+                                    Add Company
+                                  </Button>
+                                </Link>
                               )}
                               {/* Visibility toggle — always rightmost */}
                               <Button
@@ -1291,7 +1312,8 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
                                 }}
                                 className={cn(
                                   "flex items-center gap-2 px-3 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors",
-                                  sourceFilter === "inbound" && showUnreviewedOnly
+                                  sourceFilter === "inbound" &&
+                                    showUnreviewedOnly
                                     ? "border-amber-600 text-amber-700"
                                     : "border-transparent text-muted-foreground hover:text-foreground",
                                 )}
@@ -1314,7 +1336,8 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
                                 }}
                                 className={cn(
                                   "flex items-center gap-2 px-3 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors",
-                                  sourceFilter === "inbound" && !showUnreviewedOnly
+                                  sourceFilter === "inbound" &&
+                                    !showUnreviewedOnly
                                     ? "border-blue-600 text-blue-700"
                                     : "border-transparent text-muted-foreground hover:text-foreground",
                                 )}
@@ -1349,258 +1372,283 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
                                 </span>
                               </button>
                             </div>
-
                             <div className="px-6 pt-4">
-                            {/* Filters */}
-                            <div className="flex items-center gap-4 mb-1.5 flex-wrap">
-                              <div className="relative flex-1 max-w-sm">
-                                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                                <Input
-                                  placeholder="Search companies or sectors..."
-                                  value={searchQuery}
-                                  onChange={(e) =>
-                                    setSearchQuery(e.target.value)
-                                  }
-                                  className="pl-9"
-                                />
-                              </div>
-                              {/* Filter by matched Track */}
-                              {tracks.length > 0 && (
-                                <TrackMultiSelect
-                                  tracks={tracks}
-                                  value={trackFilter}
-                                  onChange={setTrackFilter}
-                                  variant="filter"
-                                  placeholder="All Tracks"
-                                  className="w-44 h-9"
-                                  includeUnassigned
-                                />
-                              )}
-                              {/* Origin (document type) filter — only on inbound */}
-                              {sourceFilter === "inbound" && (
-                                <Select
-                                  value={docTypeFilter}
-                                  onValueChange={setDocTypeFilter}
-                                >
-                                  <SelectTrigger className="w-40 h-9">
-                                    <SelectValue placeholder="Origin" />
-                                  </SelectTrigger>
-                                  <SelectContent>
-                                    <SelectItem value="all">
-                                      All Origins
-                                    </SelectItem>
-                                    {DOC_TYPE_OPTIONS.map((opt) => (
-                                      <SelectItem
-                                        key={opt.value}
-                                        value={opt.value}
-                                      >
-                                        {opt.label}
+                              {/* Filters */}
+                              <div className="flex items-center gap-4 mb-1.5 flex-wrap">
+                                <div className="relative flex-1 max-w-sm">
+                                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                                  <Input
+                                    placeholder="Search companies or sectors..."
+                                    value={searchQuery}
+                                    onChange={(e) =>
+                                      setSearchQuery(e.target.value)
+                                    }
+                                    className="pl-9"
+                                  />
+                                </div>
+                                {/* Filter by matched Track */}
+                                {tracks.length > 0 && (
+                                  <TrackMultiSelect
+                                    tracks={tracks}
+                                    value={trackFilter}
+                                    onChange={setTrackFilter}
+                                    variant="filter"
+                                    placeholder="All Tracks"
+                                    className="w-44 h-9"
+                                    includeUnassigned
+                                  />
+                                )}
+                                {/* Origin (document type) filter — only on inbound */}
+                                {sourceFilter === "inbound" && (
+                                  <Select
+                                    value={docTypeFilter}
+                                    onValueChange={setDocTypeFilter}
+                                  >
+                                    <SelectTrigger className="w-40 h-9">
+                                      <SelectValue placeholder="Origin" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      <SelectItem value="all">
+                                        All Origins
                                       </SelectItem>
-                                    ))}
-                                  </SelectContent>
-                                </Select>
-                              )}
-                              {renderViewToggle()}
-                            </div>
-
-                            {/* MB-224: Triage Banner */}
-                            {sourceFilter === "inbound" && (
-                              <TriageBanner
-                                companies={sortedCompanies}
-                                onTriageClick={() => setShowTriageModal(true)}
-                              />
-                            )}
-
-                            {loading ? (
-                              <div className="flex items-center justify-center py-12">
-                                <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+                                      {DOC_TYPE_OPTIONS.map((opt) => (
+                                        <SelectItem
+                                          key={opt.value}
+                                          value={opt.value}
+                                        >
+                                          {opt.label}
+                                        </SelectItem>
+                                      ))}
+                                    </SelectContent>
+                                  </Select>
+                                )}
+                                {renderViewToggle()}
                               </div>
-                            ) : sourceFilter === "inbound" ? (
-                              <>
-                                <div className="overflow-x-auto">
-                                  <InboundCompaniesTable
-                                    companies={visibleCompanies}
-                                    tracks={tracks}
-                                    stage="L0"
-                                    viewMode={viewMode}
-                                    groupByReviewState={false}
-                                    favoriteIds={favoriteIds}
-                                    togglingFavorite={togglingFavorite}
-                                    onToggleFavorite={handleToggleFavorite}
-                                    updatingCompanyIds={updatingCompanyIds}
-                                    statusOptions={inboundStatusOptions}
-                                    onRunScreening={runScreeningForCompany}
-                                    runningScreeningCompanyIds={runningScreeningCompanyIds}
-                                    sortField={sortField}
-                                    sortDirection={sortDirection}
-                                    onSort={toggleSort}
-                                    columnFilters={columnFilters}
-                                    filterOptions={filterOptions}
-                                    onColumnFilterChange={handleColumnFilterChange}
-                                    onOpenDetail={(company) => {
-                                      posthog.capture("company_detail_viewed", {
-                                        company_id: company.id,
-                                        company_name: companyDisplayName(company, ""),
-                                        pipeline_stage: company.pipeline_stage,
-                                      });
-                                      setOpenDetailInEdit(false);
-                                      setSelectedCompany(company);
-                                    }}
-                                    onStatusChange={handleStatusChange}
-                                    onTriageAll={() =>
-                                      setShowTriageModal(true)
-                                    }
-                                    onKeep={(company) => {
-                                      setEditAndPromote(true);
-                                      setEditingCompany(company);
-                                    }}
-                                    onUpdate={(company) => {
-                                      setOpenDetailInEdit(true);
-                                      setSelectedCompany(company);
-                                    }}
-                                    onPromote={(company) => {
-                                      setDialogMode("promote");
-                                      setPromotingCompany(company);
-                                      setPromoteDialogOpen(true);
-                                    }}
-                                    onDemote={(company) => {
-                                      setDialogMode("demote");
-                                      setPromotingCompany(company);
-                                      setPromoteDialogOpen(true);
-                                    }}
-                                    onDrop={(company) =>
-                                      setDropDealCompany(company)
-                                    }
-                                    onRestore={handleRestoreDeal}
-                                  />
+
+                              {/* MB-224: Triage Banner */}
+                              {sourceFilter === "inbound" && (
+                                <TriageBanner
+                                  companies={sortedCompanies}
+                                  onTriageClick={() => setShowTriageModal(true)}
+                                />
+                              )}
+
+                              {loading ? (
+                                <div className="flex items-center justify-center py-12">
+                                  <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
                                 </div>
-                                {!splitInboundReviewSections && totalPages > 1 && (
-                                  <div className="flex items-center justify-between mt-4 pt-4 border-t">
-                                    <p className="text-sm text-muted-foreground">
-                                      Page {currentPage} of {totalPages} (
-                                      {sortedCompanies.length} companies)
-                                    </p>
-                                    <div className="flex items-center gap-2">
-                                      <Button
-                                        data-testid="pipeline-pagination-prev-button"
-                                        variant="outline"
-                                        size="sm"
-                                        onClick={() =>
-                                          setCurrentPage((p) =>
-                                            Math.max(1, p - 1),
-                                          )
-                                        }
-                                        disabled={currentPage === 1}
-                                      >
-                                        <ChevronLeft className="h-4 w-4" />
-                                      </Button>
-                                      <Button
-                                        data-testid="pipeline-pagination-next-button"
-                                        variant="outline"
-                                        size="sm"
-                                        onClick={() =>
-                                          setCurrentPage((p) =>
-                                            Math.min(totalPages, p + 1),
-                                          )
-                                        }
-                                        disabled={currentPage === totalPages}
-                                      >
-                                        <ChevronRight className="h-4 w-4" />
-                                      </Button>
-                                    </div>
+                              ) : sourceFilter === "inbound" ? (
+                                <>
+                                  <div className="overflow-x-auto">
+                                    <InboundCompaniesTable
+                                      companies={visibleCompanies}
+                                      tracks={tracks}
+                                      stage="L0"
+                                      viewMode={viewMode}
+                                      groupByReviewState={false}
+                                      favoriteIds={favoriteIds}
+                                      togglingFavorite={togglingFavorite}
+                                      onToggleFavorite={handleToggleFavorite}
+                                      updatingCompanyIds={updatingCompanyIds}
+                                      statusOptions={inboundStatusOptions}
+                                      onRunScreening={runScreeningForCompany}
+                                      runningScreeningCompanyIds={
+                                        runningScreeningCompanyIds
+                                      }
+                                      sortField={sortField}
+                                      sortDirection={sortDirection}
+                                      onSort={toggleSort}
+                                      columnFilters={columnFilters}
+                                      filterOptions={filterOptions}
+                                      onColumnFilterChange={
+                                        handleColumnFilterChange
+                                      }
+                                      onOpenDetail={(company) => {
+                                        posthog.capture(
+                                          "company_detail_viewed",
+                                          {
+                                            company_id: company.id,
+                                            company_name: companyDisplayName(
+                                              company,
+                                              "",
+                                            ),
+                                            pipeline_stage:
+                                              company.pipeline_stage,
+                                          },
+                                        );
+                                        setOpenDetailInEdit(false);
+                                        setSelectedCompany(company);
+                                      }}
+                                      onStatusChange={handleStatusChange}
+                                      onTriageAll={() =>
+                                        setShowTriageModal(true)
+                                      }
+                                      onKeep={(company) => {
+                                        setEditAndPromote(true);
+                                        setEditingCompany(company);
+                                      }}
+                                      onUpdate={(company) => {
+                                        setOpenDetailInEdit(true);
+                                        setSelectedCompany(company);
+                                      }}
+                                      onPromote={(company) => {
+                                        setDialogMode("promote");
+                                        setPromotingCompany(company);
+                                        setPromoteDialogOpen(true);
+                                      }}
+                                      onDemote={(company) => {
+                                        setDialogMode("demote");
+                                        setPromotingCompany(company);
+                                        setPromoteDialogOpen(true);
+                                      }}
+                                      onDrop={(company) =>
+                                        setDropDealCompany(company)
+                                      }
+                                      onRestore={handleRestoreDeal}
+                                    />
                                   </div>
-                                )}
-                              </>
-                            ) : (
-                              <>
-                                <div className="overflow-x-auto">
-                                  <OutboundCompaniesTable
-                                    companies={paginatedCompanies}
-                                    tracks={tracks}
-                                    stage="L0"
-                                    viewMode={viewMode}
-                                    favoriteIds={favoriteIds}
-                                    togglingFavorite={togglingFavorite}
-                                    onToggleFavorite={handleToggleFavorite}
-                                    updatingCompanyIds={updatingCompanyIds}
-                                    statusOptions={outboundStatusOptions}
-                                    onRunScreening={runScreeningForCompany}
-                                    runningScreeningCompanyIds={runningScreeningCompanyIds}
-                                    sortField={sortField}
-                                    sortDirection={sortDirection}
-                                    onSort={toggleSort}
-                                    columnFilters={columnFilters}
-                                    filterOptions={filterOptions}
-                                    onColumnFilterChange={handleColumnFilterChange}
-                                    onOpenDetail={(company) => {
-                                      posthog.capture("company_detail_viewed", {
-                                        company_id: company.id,
-                                        company_name: companyDisplayName(company, ""),
-                                        pipeline_stage: company.pipeline_stage,
-                                      });
-                                      setOpenDetailInEdit(false);
-                                      setSelectedCompany(company);
-                                    }}
-                                    onStatusChange={handleStatusChange}
-                                    onUpdate={(company) => {
-                                      setOpenDetailInEdit(true);
-                                      setSelectedCompany(company);
-                                    }}
-                                    onPromote={(company) => {
-                                      setDialogMode("promote");
-                                      setPromotingCompany(company);
-                                      setPromoteDialogOpen(true);
-                                    }}
-                                    onDemote={(company) => {
-                                      setDialogMode("demote");
-                                      setPromotingCompany(company);
-                                      setPromoteDialogOpen(true);
-                                    }}
-                                    onDrop={(company) =>
-                                      setDropDealCompany(company)
-                                    }
-                                    onRestore={handleRestoreDeal}
-                                  />
-                                </div>
-                                {totalPages > 1 && (
-                                  <div className="flex items-center justify-between mt-4 pt-4 border-t">
-                                    <p className="text-sm text-muted-foreground">
-                                      Page {currentPage} of {totalPages} (
-                                      {sortedCompanies.length} companies)
-                                    </p>
-                                    <div className="flex items-center gap-2">
-                                      <Button
-                                        data-testid="pipeline-pagination-prev-button"
-                                        variant="outline"
-                                        size="sm"
-                                        onClick={() =>
-                                          setCurrentPage((p) =>
-                                            Math.max(1, p - 1),
-                                          )
-                                        }
-                                        disabled={currentPage === 1}
-                                      >
-                                        <ChevronLeft className="h-4 w-4" />
-                                      </Button>
-                                      <Button
-                                        data-testid="pipeline-pagination-next-button"
-                                        variant="outline"
-                                        size="sm"
-                                        onClick={() =>
-                                          setCurrentPage((p) =>
-                                            Math.min(totalPages, p + 1),
-                                          )
-                                        }
-                                        disabled={currentPage === totalPages}
-                                      >
-                                        <ChevronRight className="h-4 w-4" />
-                                      </Button>
-                                    </div>
+                                  {!splitInboundReviewSections &&
+                                    totalPages > 1 && (
+                                      <div className="flex items-center justify-between mt-4 pt-4 border-t">
+                                        <p className="text-sm text-muted-foreground">
+                                          Page {currentPage} of {totalPages} (
+                                          {sortedCompanies.length} companies)
+                                        </p>
+                                        <div className="flex items-center gap-2">
+                                          <Button
+                                            data-testid="pipeline-pagination-prev-button"
+                                            variant="outline"
+                                            size="sm"
+                                            onClick={() =>
+                                              setCurrentPage((p) =>
+                                                Math.max(1, p - 1),
+                                              )
+                                            }
+                                            disabled={currentPage === 1}
+                                          >
+                                            <ChevronLeft className="h-4 w-4" />
+                                          </Button>
+                                          <Button
+                                            data-testid="pipeline-pagination-next-button"
+                                            variant="outline"
+                                            size="sm"
+                                            onClick={() =>
+                                              setCurrentPage((p) =>
+                                                Math.min(totalPages, p + 1),
+                                              )
+                                            }
+                                            disabled={
+                                              currentPage === totalPages
+                                            }
+                                          >
+                                            <ChevronRight className="h-4 w-4" />
+                                          </Button>
+                                        </div>
+                                      </div>
+                                    )}
+                                </>
+                              ) : (
+                                <>
+                                  <div className="overflow-x-auto">
+                                    <OutboundCompaniesTable
+                                      companies={paginatedCompanies}
+                                      tracks={tracks}
+                                      stage="L0"
+                                      viewMode={viewMode}
+                                      favoriteIds={favoriteIds}
+                                      togglingFavorite={togglingFavorite}
+                                      onToggleFavorite={handleToggleFavorite}
+                                      updatingCompanyIds={updatingCompanyIds}
+                                      statusOptions={outboundStatusOptions}
+                                      onRunScreening={runScreeningForCompany}
+                                      runningScreeningCompanyIds={
+                                        runningScreeningCompanyIds
+                                      }
+                                      sortField={sortField}
+                                      sortDirection={sortDirection}
+                                      onSort={toggleSort}
+                                      columnFilters={columnFilters}
+                                      filterOptions={filterOptions}
+                                      onColumnFilterChange={
+                                        handleColumnFilterChange
+                                      }
+                                      onOpenDetail={(company) => {
+                                        posthog.capture(
+                                          "company_detail_viewed",
+                                          {
+                                            company_id: company.id,
+                                            company_name: companyDisplayName(
+                                              company,
+                                              "",
+                                            ),
+                                            pipeline_stage:
+                                              company.pipeline_stage,
+                                          },
+                                        );
+                                        setOpenDetailInEdit(false);
+                                        setSelectedCompany(company);
+                                      }}
+                                      onStatusChange={handleStatusChange}
+                                      onUpdate={(company) => {
+                                        setOpenDetailInEdit(true);
+                                        setSelectedCompany(company);
+                                      }}
+                                      onPromote={(company) => {
+                                        setDialogMode("promote");
+                                        setPromotingCompany(company);
+                                        setPromoteDialogOpen(true);
+                                      }}
+                                      onDemote={(company) => {
+                                        setDialogMode("demote");
+                                        setPromotingCompany(company);
+                                        setPromoteDialogOpen(true);
+                                      }}
+                                      onDrop={(company) =>
+                                        setDropDealCompany(company)
+                                      }
+                                      onRestore={handleRestoreDeal}
+                                    />
                                   </div>
-                                )}
-                              </>
-                            )}
-                            </div> {/* px-6 pt-4 */}
+                                  {totalPages > 1 && (
+                                    <div className="flex items-center justify-between mt-4 pt-4 border-t">
+                                      <p className="text-sm text-muted-foreground">
+                                        Page {currentPage} of {totalPages} (
+                                        {sortedCompanies.length} companies)
+                                      </p>
+                                      <div className="flex items-center gap-2">
+                                        <Button
+                                          data-testid="pipeline-pagination-prev-button"
+                                          variant="outline"
+                                          size="sm"
+                                          onClick={() =>
+                                            setCurrentPage((p) =>
+                                              Math.max(1, p - 1),
+                                            )
+                                          }
+                                          disabled={currentPage === 1}
+                                        >
+                                          <ChevronLeft className="h-4 w-4" />
+                                        </Button>
+                                        <Button
+                                          data-testid="pipeline-pagination-next-button"
+                                          variant="outline"
+                                          size="sm"
+                                          onClick={() =>
+                                            setCurrentPage((p) =>
+                                              Math.min(totalPages, p + 1),
+                                            )
+                                          }
+                                          disabled={currentPage === totalPages}
+                                        >
+                                          <ChevronRight className="h-4 w-4" />
+                                        </Button>
+                                      </div>
+                                    </div>
+                                  )}
+                                </>
+                              )}
+                            </div>{" "}
+                            {/* px-6 pt-4 */}
                           </CardContent>
                         )}
                       </Card>
@@ -1680,7 +1728,9 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
                               updatingCompanyIds={updatingCompanyIds}
                               statusOptions={inboundStatusOptions}
                               onRunScreening={runScreeningForCompany}
-                              runningScreeningCompanyIds={runningScreeningCompanyIds}
+                              runningScreeningCompanyIds={
+                                runningScreeningCompanyIds
+                              }
                               sortField={sortField}
                               sortDirection={sortDirection}
                               onSort={toggleSort}
@@ -1764,7 +1814,9 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
                               updatingCompanyIds={updatingCompanyIds}
                               statusOptions={outboundStatusOptions}
                               onRunScreening={runScreeningForCompany}
-                              runningScreeningCompanyIds={runningScreeningCompanyIds}
+                              runningScreeningCompanyIds={
+                                runningScreeningCompanyIds
+                              }
                               sortField={sortField}
                               sortDirection={sortDirection}
                               onSort={toggleSort}
@@ -1892,6 +1944,26 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
           }}
         />
 
+        <Dialog open={addCompanyOpen} onOpenChange={setAddCompanyOpen}>
+          <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>Add Company to L0 Pipeline</DialogTitle>
+              <DialogDescription>
+                Add a single company manually or import multiple from a
+                CSV/Excel file. New L0 companies are matched to tracks
+                automatically.
+              </DialogDescription>
+            </DialogHeader>
+            <L0AddCompany
+              onSuccess={() => {
+                setAddCompanyOpen(false);
+                fetchCompanies();
+                fetchNewCandidatesCount();
+              }}
+            />
+          </DialogContent>
+        </Dialog>
+
         {/* MB-223: Bulk Triage Modal */}
         <BulkTriageModal
           open={showTriageModal}
@@ -1946,8 +2018,10 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
               <AlertDialogTitle>Drop deal?</AlertDialogTitle>
               <AlertDialogDescription>
                 Are you sure you want to drop{" "}
-                <span className="font-medium">{companyDisplayName(dropDealCompany, "this company")}</span>?
-                This will remove the deal from the pipeline.
+                <span className="font-medium">
+                  {companyDisplayName(dropDealCompany, "this company")}
+                </span>
+                ? This will remove the deal from the pipeline.
               </AlertDialogDescription>
             </AlertDialogHeader>
             <div className="mt-2">
@@ -1963,7 +2037,10 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
               />
             </div>
             <AlertDialogFooter>
-              <AlertDialogCancel data-testid="drop-deal-cancel-button" disabled={isDropping}>
+              <AlertDialogCancel
+                data-testid="drop-deal-cancel-button"
+                disabled={isDropping}
+              >
                 Cancel
               </AlertDialogCancel>
               <AlertDialogAction
@@ -1985,7 +2062,9 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
                       from_stage: dropDealCompany.pipeline_stage,
                       has_reason: dropReason.trim() !== "",
                     });
-                    toast.success(`Dropped ${companyDisplayName(dropDealCompany, "company")}`);
+                    toast.success(
+                      `Dropped ${companyDisplayName(dropDealCompany, "company")}`,
+                    );
                     setDropDealCompany(null);
                     setDropReason("");
                     fetchCompanies();

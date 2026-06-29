@@ -91,7 +91,7 @@ import {
   dealLeadField,
   dealLeadLabel,
   effectiveDealLead,
-  resolveTrackIds,
+  persistedTrackIds,
   trackDisplayName,
 } from "@/lib/tracks/matchTracks";
 import TrackMultiSelect from "@/components/pipeline/TrackMultiSelect";
@@ -1879,7 +1879,7 @@ export default function CompanyDetailDialog({
                       </div>
                     ) : (
                       (() => {
-                        const ids = resolveTrackIds(company, tracks);
+                        const ids = persistedTrackIds(company, tracks);
                         const matched = ids
                           .map((id) => tracks.find((t) => t.id === id))
                           .filter((t): t is Track => !!t);

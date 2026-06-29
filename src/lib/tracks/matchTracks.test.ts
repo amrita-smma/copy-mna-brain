@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   suggestTrackIds,
   resolveTrackIds,
+  persistedTrackIds,
   buildTrackScreeningGroups,
   trackDisplayName,
   matchedTrackPics,
@@ -96,6 +97,35 @@ describe('resolveTrackIds', () => {
       matched_track_ids: [],
     };
     expect(resolveTrackIds(company, TRACKS)).toEqual([]);
+  });
+});
+
+describe('persistedTrackIds', () => {
+  it('returns the persisted matched_track_ids', () => {
+    const company: MatchableCompany = { matched_track_ids: ['renew'] };
+    expect(persistedTrackIds(company, TRACKS)).toEqual(['renew']);
+  });
+
+  it('drops persisted ids for tracks that no longer exist', () => {
+    const company: MatchableCompany = { matched_track_ids: ['renew', 'deleted'] };
+    expect(persistedTrackIds(company, TRACKS)).toEqual(['renew']);
+  });
+
+  it('never falls back to the keyword heuristic when nothing is persisted', () => {
+    // Same input that resolveTrackIds would auto-suggest "semi" for — but the
+    // persisted-only view stays empty, so saving Track Settings cannot
+    // retroactively fill the Matched Tracks column.
+    const company: MatchableCompany = {
+      segment: 'Photoresist solvents',
+      matched_track_ids: [],
+    };
+    expect(persistedTrackIds(company, TRACKS)).toEqual([]);
+    expect(resolveTrackIds(company, TRACKS)).toEqual(['semi']);
+  });
+
+  it('returns [] when matched_track_ids is absent (no heuristic)', () => {
+    const company: MatchableCompany = { segment: 'Renewable Energy — Hydropower' };
+    expect(persistedTrackIds(company, TRACKS)).toEqual([]);
   });
 });
 

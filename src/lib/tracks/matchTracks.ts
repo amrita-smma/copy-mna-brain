@@ -95,6 +95,22 @@ export function resolveTrackIds(
   return suggestTrackIds(company, tracks);
 }
 
+/**
+ * Track ids actually *persisted* on the company (assigned by the agent when it
+ * entered L0, or set manually), filtered to tracks that still exist. Unlike
+ * {@link resolveTrackIds} this never falls back to the live keyword heuristic —
+ * so it reflects only what was committed at L0 entry and does NOT change when
+ * the track list is edited/saved. Use this for the "Matched Tracks" display
+ * (pills) so saving Track Settings can't retroactively "fill in" matches.
+ */
+export function persistedTrackIds(
+  company: MatchableCompany,
+  tracks: TrackLike[],
+): string[] {
+  const known = new Set(tracks.map((t) => t.id));
+  return (company.matched_track_ids ?? []).filter((id) => known.has(id));
+}
+
 /** A screening criterion as far as track matching cares: its owning Track. */
 export interface CriterionLike {
   id: string;

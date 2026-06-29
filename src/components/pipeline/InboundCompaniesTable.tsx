@@ -46,6 +46,7 @@ import { DuplicatePopup } from "@/components/pipeline/DuplicatePopup";
 import { companyDisplayName, companyDisplayTitle } from "@/lib/companyDisplay";
 import {
   resolveTrackIds,
+  persistedTrackIds,
   trackDisplayName,
   matchedTrackPics,
   dealLeadField,
@@ -83,7 +84,11 @@ const DEAL_TYPE_LABEL: Record<string, string> = {
   minority: "Minority",
 };
 
-/** Matched-track pills for a company (manual matches, else auto-suggested). */
+/**
+ * Matched-track pills for a company. Shows ONLY the persisted matches assigned
+ * when the company entered L0 (never the live keyword heuristic), so editing &
+ * saving Track Settings can't retroactively populate this column.
+ */
 function MatchedTracksCell({
   company,
   tracks,
@@ -91,7 +96,7 @@ function MatchedTracksCell({
   company: PipelineCompany;
   tracks: TrackLike[];
 }) {
-  const ids = resolveTrackIds(company, tracks);
+  const ids = persistedTrackIds(company, tracks);
   if (ids.length === 0) return <span className="text-muted-foreground">—</span>;
   return (
     <div className="flex flex-wrap gap-1 max-w-[180px]">

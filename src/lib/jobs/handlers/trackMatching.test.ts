@@ -102,4 +102,21 @@ describe('runTrackMatching', () => {
 
     expect(result).toEqual({ companyId: 'c5', matchedTrackIds: [], via: 'agent' });
   });
+
+  it('falls back to the heuristic when the agent reply is unparseable prose', async () => {
+    mocks.findById.mockResolvedValue({ id: 'c6', target: 'WaferCo', segment: 'semiconductor wafer', geography: 'TW', project_name: null, thesis_content: null });
+    mocks.findAll.mockResolvedValue(TRACKS);
+    mocks.getStatelessAgentGraph.mockResolvedValue({ invoke: mocks.invoke });
+    mocks.invoke.mockResolvedValue(
+      aiReply('Sure! This company looks like a great fit for several tracks.'),
+    );
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const result = await runTrackMatching({ companyId: 'c6' }, { db: {} as never });
+
+    expect(result.via).toBe('heuristic');
+    expect(result.matchedTrackIds).toEqual(['semi']);
+    expect(mocks.update).toHaveBeenCalledWith('c6', { matched_track_ids: ['semi'] });
+    warnSpy.mockRestore();
+  });
 });
