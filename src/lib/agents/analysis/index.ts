@@ -292,6 +292,7 @@ Write tools (use to actually mutate state — the whole point of this run):
 - **promote_to_l1** — move a company from pipeline stage L0 to L1. Requires a \`reason\` (the human reviewer sees this in the approval card; cite concrete evidence — financial fit, comparable multiples, screening criteria met) and accepts an optional \`note\` for caveats. Idempotent guard refuses any company not currently at L0. Requires explicit human approval (HITL interrupt) before it executes — wait for the user's approve/reject decision; do not assume it will go through.
 - **update_company_relationship** — record a SINGLE directed relationship between two companies in the relationship graph (\`source_company\` --[\`relation_type\`]--> \`target_company\`, where relation_type is INVESTED_IN, PARTNER, or SUPPLIER). Auto-executes (no human approval). Each side is matched by name; any company not on record is auto-created at the special \`discovered\` stage (outside the L0–L5 pipeline). Use when an instruction describes how companies relate (e.g. "Acme invested in Beta", "Gamma supplies Delta").
 - **generate_relationship_graph** — write a BATCH of directed edges to the relationship graph in one call (the bulk counterpart to \`update_company_relationship\`). Auto-executes (no human approval). Pass an \`edges\` array; each edge has the same shape as \`update_company_relationship\` (source/target/relation_type + optional notes/evidence/date). Same name-matching and \`discovered\` auto-creation rules. Edges are processed independently — a bad edge is skipped and reported, not fatal. Use when an instruction describes a whole set of relationships at once (e.g. "map Acme's suppliers, partners, and investors", "build out the relationship graph for these companies").
+- **save_ai_opinion** — record a company's AI Opinion: a FIRM verdict (\`pass\` / \`fail\` / \`tentative\`) plus a ≤50-word rationale. Auto-executes (no human approval). This is the final step of an "Analyze AI Opinion" / "Re-evaluate" task: research the company, form a decisive view, then call it exactly once with the \`company_id\` from the instruction. See "Forming an AI Opinion" below.
 
 Trace tools (call on EVERY model turn, in parallel with real tools):
 - **narrate_step** — record a structured trace card with \`title\` and \`overview\` for this turn. The user sees these in the Reasoning trace panel. Always include narrate_step in your tool_calls. Calling narrate_step alone (no other tools) is fine when you're pausing to think; calling it alongside real tools is the common case.
@@ -350,6 +351,19 @@ A company can be added at one of two intake stages, both of which sit BELOW L1 a
 - **\`discovered\`**: a company surfaced via the relationship graph that is not a market-scan find. Use only when the instruction frames the company as a graph/relationship discovery.
 
 To move a company into the L0+ pipeline, use the gated \`promote_to_l1\` flow (or leave it for human action) — never the \`add_company\` tool.
+
+## Forming an AI Opinion
+
+When the instruction asks you to "analyze the AI Opinion" / "re-evaluate the AI Opinion" for a company, your job is to take a decisive stance and record it with \`save_ai_opinion\`:
+
+1. Research the company with the read tools (\`get_company_details\` for the company_id in the instruction, then \`web_search\`, \`query_files\`, \`compare_with_past_acquisitions\` as useful). The automated AI Screening results, if any, are context — not the verdict.
+2. Form a FIRM view and pick exactly one verdict:
+   - \`pass\` — you'd advance this as an acquisition target.
+   - \`fail\` — you'd pass on it.
+   - \`tentative\` — genuinely on the fence. Use this SPARINGLY, only when the evidence is truly balanced.
+3. **Be decisive even when every AI Screening criterion fails.** Failing the mechanical screen is itself a strong signal — usually it points to \`fail\`, not \`tentative\`. Do not hide behind "tentative" to avoid committing. Weigh the company on its merits and give a real take.
+4. Call \`save_ai_opinion\` ONCE with the \`company_id\` (verbatim from the instruction), your \`verdict\`, and a \`summary\` of AT MOST 50 words in plain prose that justifies the verdict. The summary is truncated server-side if it runs long, so lead with the decisive reasoning.
+5. After it returns, write your usual short final report. The "AI Opinion" column refreshes automatically.
 
 ## Important domain rules
 

@@ -37,6 +37,7 @@ import type { PipelineCompany } from "@/views/Pipeline";
 import StatusCombobox from "@/components/pipeline/StatusCombobox";
 import { AskAIButton } from "@/components/chat/AskAIButton";
 import { useChatContext } from "@/components/chat/ChatProvider";
+import { AiOpinionCell } from "@/components/pipeline/AiOpinionCell";
 import { companyDisplayName, companyDisplayTitle } from "@/lib/companyDisplay";
 import {
   resolveTrackIds,
@@ -183,6 +184,10 @@ interface OutboundCompaniesTableProps {
   onRestore: (company: PipelineCompany) => void;
   onRunScreening?: (company: PipelineCompany) => void;
   runningScreeningCompanyIds?: Set<string>;
+  /** Hand a company to the AI Workforce to form a firm AI Opinion verdict. */
+  onAnalyzeAiOpinion?: (company: PipelineCompany) => void;
+  /** Company ids with an optimistic in-flight AI Opinion request. */
+  analyzingAiOpinionIds?: Set<string>;
 }
 
 export default function OutboundCompaniesTable({
@@ -208,6 +213,8 @@ export default function OutboundCompaniesTable({
   onRestore,
   onRunScreening,
   runningScreeningCompanyIds,
+  onAnalyzeAiOpinion,
+  analyzingAiOpinionIds,
 }: OutboundCompaniesTableProps) {
   const isDropped = viewMode === "dropped";
   const { analyzeWithAI } = useChatContext();
@@ -282,6 +289,9 @@ export default function OutboundCompaniesTable({
             label={isDropped ? "Dropped On" : "Last Activity"}
             sort={isDropped ? "dropped_on" : "last_activity"}
           />
+          <TableHead className="min-w-[200px] max-w-[260px]">
+            AI Opinion
+          </TableHead>
           <TableHead className="w-[44px] sticky right-0 z-20 bg-transparent" />
         </TableRow>
       </TableHeader>
@@ -289,7 +299,7 @@ export default function OutboundCompaniesTable({
         {companies.length === 0 && (
           <TableRow className="hover:bg-transparent">
             <TableCell
-              colSpan={isDropped ? 15 : 14}
+              colSpan={isDropped ? 16 : 15}
               className="h-32 text-center text-sm text-muted-foreground"
             >
               No companies match the current filters.
@@ -444,6 +454,19 @@ export default function OutboundCompaniesTable({
                 {isDropped
                   ? formatDate(company.dropped_at)
                   : formatDate(company.last_activity_at)}
+              </TableCell>
+              <TableCell className="min-w-[200px] max-w-[260px] align-top">
+                {onAnalyzeAiOpinion ? (
+                  <AiOpinionCell
+                    company={company}
+                    analyzing={
+                      analyzingAiOpinionIds?.has(company.id) ?? false
+                    }
+                    onAnalyze={onAnalyzeAiOpinion}
+                  />
+                ) : (
+                  <span className="text-muted-foreground">—</span>
+                )}
               </TableCell>
               <TableCell className="text-right sticky right-0 z-10 bg-transparent">
                 <DropdownMenu>

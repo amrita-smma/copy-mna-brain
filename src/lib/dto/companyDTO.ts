@@ -71,6 +71,14 @@ export interface CompanyDTO {
   // Per-Track custom variable values, nested by track id then variable id.
   track_specific_variables: TrackSpecificVariables;
 
+  // ---- AI Opinion (firm verdict produced by an AI Workforce run) ----
+  // verdict: 'pass' | 'fail' | 'tentative' | null
+  // status:  'processing' | 'completed' | 'failed' | null
+  ai_opinion_verdict: string | null;
+  ai_opinion_summary: string | null;
+  ai_opinion_status: string | null;
+  ai_opinion_updated_at: string | null;
+
   remarks: string | null;
   thesis_content: string | null;
 
@@ -228,6 +236,10 @@ export function toCompanyDTO(
     possible_duplicate_company_id: company.possible_duplicate_company_id ?? null,
     matched_track_ids: company.matched_track_ids ?? [],
     track_specific_variables: company.track_specific_variables ?? {},
+    ai_opinion_verdict: company.ai_opinion_verdict ?? null,
+    ai_opinion_summary: company.ai_opinion_summary ?? null,
+    ai_opinion_status: company.ai_opinion_status ?? null,
+    ai_opinion_updated_at: company.ai_opinion_updated_at ?? null,
     remarks: company.remarks,
     thesis_content: company.thesis_content,
     created_at: company.created_at,
@@ -356,7 +368,8 @@ export function splitCompanyDTO(dto: CompanyDTOInput): SplitCompanyWrite {
     'deal_type', 'originator', 'entered_by', 'deal_sponsor', 'deal_captain',
     'last_activity_at', 'banker', 'doc_type', 'stake',
     'deal_size', 'workflow_status', 'key_rationale', 'review_state', 'banker_source',
-    'possible_duplicate_company_id', 'matched_track_ids', 'track_specific_variables',
+    'possible_duplicate_company_id', 'matched_track_ids',
+    'ai_opinion_verdict', 'ai_opinion_summary', 'ai_opinion_status', 'ai_opinion_updated_at',
   ] as const;
   for (const k of coreKeys) {
     if (k in dto) {

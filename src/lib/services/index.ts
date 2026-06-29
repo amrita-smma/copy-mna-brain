@@ -9,6 +9,7 @@ export * from './dealDocumentService';
 export * from './dealNoteService';
 export * from './dealLinkService';
 export * from './companyAnalysisService';
+export * from './aiOpinionService';
 export * from './aiScreeningService';
 export * from './marketScreeningService';
 export * from './slideService';

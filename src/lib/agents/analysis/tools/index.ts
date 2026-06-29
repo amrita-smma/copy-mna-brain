@@ -23,6 +23,7 @@ import { updateCompanyRelationship } from "./update_company_relationship";
 import { generateRelationshipGraph } from "./generate_relationship_graph";
 import { generateCompanyCard } from "./generate_company_card";
 import { updateCompanyCardSection } from "./update_company_card_section";
+import { saveAiOpinion } from "./save_ai_opinion";
 import { narrateStep } from "./narrate_step";
 import { reportProgress } from "./report_progress";
 import { notifyProgress } from "./notify_progress";
@@ -53,6 +54,7 @@ export {
   generateRelationshipGraph,
   generateCompanyCard,
   updateCompanyCardSection,
+  saveAiOpinion,
   narrateStep,
   reportProgress,
   notifyProgress,
@@ -129,6 +131,7 @@ export const workforceOnlyTools = [
   updateCompanyRelationship,
   generateRelationshipGraph,
   generateCompanyCard,
+  saveAiOpinion,
   runMarketScreeningTool,
   narrateStep,
   reportProgress,

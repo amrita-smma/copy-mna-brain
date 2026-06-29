@@ -101,6 +101,7 @@ import {
   updateCompany,
   getTracks,
   getScreenings,
+  analyzeAiOpinion,
   type Track,
 } from "@/lib/api/pipeline";
 import {
@@ -158,6 +159,10 @@ export interface PipelineCompany {
   banker_source: string | null;
   possible_duplicate_company_id: string | null;
   matched_track_ids: string[];
+  ai_opinion_verdict: string | null;
+  ai_opinion_summary: string | null;
+  ai_opinion_status: string | null;
+  ai_opinion_updated_at: string | null;
   financials_raw?: import("@/lib/repositories").Tables<"company_financials">[];
 }
 
@@ -304,6 +309,11 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
   >(new Set());
   const [startingScreeningCompanyIds, setStartingScreeningCompanyIds] =
     useState<Set<string>>(new Set());
+  // Optimistic "AI Opinion is being analyzed" ids — set on click before the
+  // companies refetch reflects ai_opinion_status='processing'.
+  const [analyzingAiOpinionIds, setAnalyzingAiOpinionIds] = useState<
+    Set<string>
+  >(new Set());
   const [newCandidatesCount, setNewCandidatesCount] = useState(0);
 
   // Section visibility
@@ -444,6 +454,10 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
           possible_duplicate_company_id:
             company.possible_duplicate_company_id ?? null,
           matched_track_ids: company.matched_track_ids ?? [],
+          ai_opinion_verdict: company.ai_opinion_verdict ?? null,
+          ai_opinion_summary: company.ai_opinion_summary ?? null,
+          ai_opinion_status: company.ai_opinion_status ?? null,
+          ai_opinion_updated_at: company.ai_opinion_updated_at ?? null,
           financials_raw: company.financials_raw,
         })) || [];
 
@@ -902,6 +916,20 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
     ...startingScreeningCompanyIds,
   ]);
 
+  // While any company has an in-flight AI Opinion run, poll the companies list
+  // so the spinner swaps for the verdict once `save_ai_opinion` writes it.
+  const hasProcessingAiOpinion = companies.some(
+    (c) => c.ai_opinion_status === "processing",
+  );
+  useEffect(() => {
+    if (!hasProcessingAiOpinion) return;
+    const interval = setInterval(() => {
+      fetchCompanies({ silent: true });
+    }, 5000);
+    return () => clearInterval(interval);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hasProcessingAiOpinion]);
+
   const runL1Filters = async (dealId: string) => {
     try {
       const data = await runCompanyL1Filters(dealId);
@@ -943,6 +971,30 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
         return next;
       });
       toast.error(error.message || "Failed to start AI screening");
+    }
+  };
+
+  const runAiOpinionForCompany = async (company: PipelineCompany) => {
+    if (analyzingAiOpinionIds.has(company.id)) return;
+
+    setAnalyzingAiOpinionIds((prev) => new Set(prev).add(company.id));
+    try {
+      await analyzeAiOpinion(company.id);
+      toast.success(
+        `AI Workforce is forming an opinion on ${companyDisplayName(company, "this company")}`,
+      );
+      // Pull in the optimistic ai_opinion_status='processing' the dispatch set,
+      // then let the poll below swap in the verdict once the run completes.
+      await fetchCompanies({ silent: true });
+    } catch (error: any) {
+      console.error("AI Opinion error:", error);
+      toast.error(error.message || "Failed to start AI Opinion analysis");
+    } finally {
+      setAnalyzingAiOpinionIds((prev) => {
+        const next = new Set(prev);
+        next.delete(company.id);
+        return next;
+      });
     }
   };
 
@@ -1459,6 +1511,12 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
                                       runningScreeningCompanyIds={
                                         runningScreeningCompanyIds
                                       }
+                                      onAnalyzeAiOpinion={
+                                        runAiOpinionForCompany
+                                      }
+                                      analyzingAiOpinionIds={
+                                        analyzingAiOpinionIds
+                                      }
                                       sortField={sortField}
                                       sortDirection={sortDirection}
                                       onSort={toggleSort}
@@ -1567,6 +1625,12 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
                                       onRunScreening={runScreeningForCompany}
                                       runningScreeningCompanyIds={
                                         runningScreeningCompanyIds
+                                      }
+                                      onAnalyzeAiOpinion={
+                                        runAiOpinionForCompany
+                                      }
+                                      analyzingAiOpinionIds={
+                                        analyzingAiOpinionIds
                                       }
                                       sortField={sortField}
                                       sortDirection={sortDirection}
@@ -1735,6 +1799,8 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
                               runningScreeningCompanyIds={
                                 runningScreeningCompanyIds
                               }
+                              onAnalyzeAiOpinion={runAiOpinionForCompany}
+                              analyzingAiOpinionIds={analyzingAiOpinionIds}
                               sortField={sortField}
                               sortDirection={sortDirection}
                               onSort={toggleSort}
@@ -1821,6 +1887,8 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
                               runningScreeningCompanyIds={
                                 runningScreeningCompanyIds
                               }
+                              onAnalyzeAiOpinion={runAiOpinionForCompany}
+                              analyzingAiOpinionIds={analyzingAiOpinionIds}
                               sortField={sortField}
                               sortDirection={sortDirection}
                               onSort={toggleSort}

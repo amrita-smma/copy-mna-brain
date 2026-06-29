@@ -55,6 +55,7 @@ import { RecentFileService } from './recentFileService';
 import { DealNoteService } from './dealNoteService';
 import { DealLinkService } from './dealLinkService';
 import { CompanyAnalysisService } from './companyAnalysisService';
+import { AiOpinionService } from './aiOpinionService';
 import { AIScreeningService } from './aiScreeningService';
 import { MarketScreeningService } from './marketScreeningService';
 import { TrackMatchingService } from './trackMatchingService';
@@ -87,6 +88,7 @@ export interface Container {
   dealNoteService: DealNoteService;
   dealLinkService: DealLinkService;
   companyAnalysisService: CompanyAnalysisService;
+  aiOpinionService: AiOpinionService;
   aiScreeningService: AIScreeningService;
   marketScreeningService: MarketScreeningService;
   trackMatchingService: TrackMatchingService;
@@ -154,6 +156,7 @@ export function createContainer(db: DbClient): Container {
   const chatService = new ChatService(thesisRepo, criteriaRepo);
 
   const companyAnalysisService = new CompanyAnalysisService(companyAnalysisRepo, companyRepo, db);
+  const aiOpinionService = new AiOpinionService(companyRepo, db);
   const aiScreeningService = new AIScreeningService(screeningRepo, jobDispatcher);
   const marketScreeningService = new MarketScreeningService(jobDispatcher);
   const trackMatchingService = new TrackMatchingService(jobDispatcher, db);
@@ -254,6 +257,7 @@ export function createContainer(db: DbClient): Container {
     dealNoteService,
     dealLinkService,
     companyAnalysisService,
+    aiOpinionService,
     aiScreeningService,
     marketScreeningService,
     trackMatchingService,

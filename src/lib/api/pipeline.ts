@@ -64,6 +64,18 @@ export async function getCompaniesCount(params: {
   return data.count || 0;
 }
 
+/**
+ * Enqueue an AI Opinion workforce run for a company. The run writes a firm
+ * pass/fail/tentative verdict + ≤50-word rationale back onto the company; the
+ * pipeline polls the companies list to surface it in the AI Opinion column.
+ */
+export async function analyzeAiOpinion(companyId: string): Promise<{ runId: string }> {
+  return apiRequest<{ runId: string }>('/api/ai-opinion', {
+    method: 'POST',
+    body: JSON.stringify({ companyId }),
+  });
+}
+
 export async function createCompany(company: any, logAction?: string) {
   return apiRequest<any>('/api/companies', {
     method: 'POST',
