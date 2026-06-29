@@ -1,11 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createDb } from '@/lib/server/db';
 import { createContainer } from '@/lib/services';
+import { CompanyL0RequirementsError } from '@/lib/services/companyService';
 
 export interface TriageDecision {
   id: string;
   action: 'keep' | 'drop';
   reason?: string;
+}
+
+export interface TriageKeepError {
+  id: string;
+  missingFields: string[];
 }
 
 export async function POST(req: NextRequest) {
@@ -19,12 +25,23 @@ export async function POST(req: NextRequest) {
     const db = createDb();
     const { companyService } = createContainer(db);
 
-    const keeps = decisions.filter((d) => d.action === 'keep').map((d) => d.id);
+    const keeps = decisions.filter((d) => d.action === 'keep');
     const drops = decisions.filter((d) => d.action === 'drop');
 
-    // Keep: transition unreviewed → reviewed (stays L0, awaiting prospectus review)
-    if (keeps.length > 0) {
-      await companyService.bulkMarkReviewed(keeps);
+    // Keep: promote each company from unreviewed → L0 (triggers MB-320 field validation).
+    const keepErrors: TriageKeepError[] = [];
+    let kept = 0;
+    for (const decision of keeps) {
+      try {
+        await companyService.promote(decision.id, 'unreviewed', 'L0');
+        kept++;
+      } catch (err) {
+        if (err instanceof CompanyL0RequirementsError) {
+          keepErrors.push({ id: decision.id, missingFields: err.missingFields });
+        } else {
+          throw err;
+        }
+      }
     }
 
     // Drop: mark dropped with reason
@@ -32,8 +49,15 @@ export async function POST(req: NextRequest) {
       await companyService.drop(drop.id, drop.reason ?? 'Outside thesis');
     }
 
+    if (keepErrors.length > 0) {
+      return NextResponse.json(
+        { error: 'Some companies are missing required fields', keepErrors, data: { kept, dropped: drops.length } },
+        { status: 422 },
+      );
+    }
+
     return NextResponse.json({
-      data: { kept: keeps.length, dropped: drops.length },
+      data: { kept, dropped: drops.length },
     });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : 'Triage failed';

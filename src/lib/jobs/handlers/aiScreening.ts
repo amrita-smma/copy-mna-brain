@@ -288,8 +288,7 @@ export async function runAIScreening(
     await writeScreeningResult(screeningRepo, screeningId, deps.job.id, screeningResult);
     resultWritten = true;
 
-    const posthog = getPostHogClient();
-    posthog.capture({
+    getPostHogClient()?.capture({
       distinctId: 'server',
       event: 'ai_screening_completed',
       properties: {

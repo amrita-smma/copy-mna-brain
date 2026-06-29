@@ -4,7 +4,7 @@ import { FileText, ShoppingCart, BarChart2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 interface TriageBannerProps {
-  companies: Array<{ doc_type: string | null; review_state: string }>;
+  companies: Array<{ doc_type: string | null; pipeline_stage: string }>;
   onTriageClick: () => void;
 }
 
@@ -21,7 +21,7 @@ const DOC_TYPE_ICONS: Record<string, React.ReactNode> = {
 };
 
 export function TriageBanner({ companies, onTriageClick }: TriageBannerProps) {
-  const unreviewed = companies.filter((c) => c.review_state === "unreviewed");
+  const unreviewed = companies.filter((c) => c.pipeline_stage === "unreviewed");
   if (unreviewed.length === 0) return null;
 
   const counts: Record<string, number> = {};

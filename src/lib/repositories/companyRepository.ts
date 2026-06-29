@@ -508,7 +508,7 @@ export class CompanyRepository {
   }
 
   async countUnreviewed(source?: string): Promise<number> {
-    const conditions = [eq(companies.review_state, 'unreviewed'), eq(companies.status, 'active')];
+    const conditions = [eq(companies.pipeline_stage, 'unreviewed'), eq(companies.status, 'active')];
     if (source && source !== 'all') {
       conditions.push(eq(companies.source, source as 'inbound' | 'outbound'));
     }

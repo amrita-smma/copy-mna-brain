@@ -18,7 +18,7 @@ export async function POST(request: NextRequest) {
       : `Run the market scan. Use the run_market_screening tool with sources_count=${sourcesCount} to discover new acquisition targets matching our active investment thesis.`;
 
     const db = createDb();
-    const { runId } = await enqueueAgentRun(db, {
+    const { runId: jobId } = await enqueueAgentRun(db, {
       agentName: 'analysis',
       triggerSource: 'api',
       input: { prompt, title: 'Market Screening' },
@@ -26,7 +26,7 @@ export async function POST(request: NextRequest) {
       triggeredByUserId: userId,
     });
 
-    return NextResponse.json({ runId }, { status: 202 });
+    return NextResponse.json({ jobId }, { status: 202 });
   } catch (error: unknown) {
     console.error('Market screening error:', error);
     const message = error instanceof Error ? error.message : 'Internal server error';

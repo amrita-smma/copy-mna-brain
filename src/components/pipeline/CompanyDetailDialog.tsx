@@ -163,7 +163,10 @@ export interface CompanyData {
   ownership: string | null;
   geography: string | null;
   deal_type?: string | null;
+  /** UUID of the user who sourced this company (references users.id). */
   entered_by?: string | null;
+  /** Resolved display name for `entered_by`. */
+  entered_by_name?: string | null;
   last_activity_at?: string | null;
   banker?: string | null;
   doc_type?: string | null;
@@ -452,7 +455,11 @@ export default function CompanyDetailDialog({
   const [isSaving, setIsSaving] = useState(false);
   const [editForm, setEditForm] = useState<EditForm | null>(null);
   const [bankerOptions, setBankerOptions] = useState<string[]>([]);
+  // Names only — used by the free-text Deal Sponsor / Deal Captain comboboxes
+  // (those columns store plain text). `entered_by` is a uuid FK, so it uses the
+  // id-keyed `users` list below instead.
   const [userOptions, setUserOptions] = useState<string[]>([]);
+  const [users, setUsers] = useState<UserSummary[]>([]);
 
   const startEditing = async () => {
     setEditForm({
@@ -485,9 +492,10 @@ export default function CompanyDetailDialog({
     }
     if (userOptions.length === 0) {
       getUsers()
-        .then((users: UserSummary[]) =>
-          setUserOptions(users.map((u) => u.name).filter((n): n is string => !!n)),
-        )
+        .then((loaded: UserSummary[]) => {
+          setUsers(loaded);
+          setUserOptions(loaded.map((u) => u.name).filter((n): n is string => !!n));
+        })
         .catch((err) => console.error('Failed to load users:', err));
     }
   };
@@ -580,7 +588,15 @@ export default function CompanyDetailDialog({
       onUpdate();
     } catch (err: any) {
       console.error('Failed to save company:', err);
-      toast.error(`Failed to save: ${err.message || 'Unknown error'}`);
+      // Moving into the active pipeline (L0+) is gated on required fields; the
+      // API returns the missing ones so the user can fill them and re-save.
+      if (Array.isArray(err?.missingFields) && err.missingFields.length > 0) {
+        toast.error(
+          `Cannot move to ${editForm.pipeline_stage}: missing ${err.missingFields.join(', ')}`,
+        );
+      } else {
+        toast.error(`Failed to save: ${err.message || 'Unknown error'}`);
+      }
     } finally {
       setIsSaving(false);
     }
@@ -632,6 +648,16 @@ export default function CompanyDetailDialog({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, company.id]);
+
+  // Reset inline edit state on close. Some parents (e.g. MarketScreeningResults)
+  // keep the dialog mounted between opens, so a lingering `isEditing` would make
+  // it reopen stuck in edit mode.
+  useEffect(() => {
+    if (!open) {
+      setIsEditing(false);
+      setEditForm(null);
+    }
+  }, [open]);
 
   // Load tracks once the dialog opens, to resolve the Deal Sponsor / Captain
   // (the matched Track's PIC).
@@ -1657,20 +1683,28 @@ export default function CompanyDetailDialog({
                     <p className="text-xs text-muted-foreground">Entered by</p>
                     {isEditing && editForm ? (
                       <div className="mt-1">
-                        <StatusCombobox
-                          value={editForm.entered_by || null}
-                          options={userOptions}
-                          placeholder="Set entered by…"
-                          searchPlaceholder="Search or type a name…"
-                          emptyText="No team members found."
-                          onChange={(v) =>
-                            setEditForm({ ...editForm, entered_by: v })
+                        <Select
+                          value={editForm.entered_by || '_none'}
+                          onValueChange={(v) =>
+                            setEditForm({ ...editForm, entered_by: v === '_none' ? '' : v })
                           }
                           disabled={isSaving}
-                        />
+                        >
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select a user…" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="_none">— None —</SelectItem>
+                            {users.map((u) => (
+                              <SelectItem key={u.id} value={u.id}>
+                                {u.name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
                       </div>
                     ) : (
-                      <p className="text-sm font-medium break-words">{company.entered_by || '—'}</p>
+                      <p className="text-sm font-medium break-words">{company.entered_by_name || '—'}</p>
                     )}
                   </div>
                   <div>

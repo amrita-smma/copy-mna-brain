@@ -78,6 +78,7 @@ async function notifyAfd(opts: {
   fileTypeOverride?: string;
   originEmail: boolean;
   bankerSource?: string | null;
+  enteredBy?: string | null;
 }): Promise<void> {
   const body: Record<string, unknown> = {
     key: opts.key,
@@ -90,6 +91,9 @@ async function notifyAfd(opts: {
   }
   if (opts.bankerSource) {
     body.banker_source = opts.bankerSource;
+  }
+  if (opts.enteredBy) {
+    body.entered_by = opts.enteredBy;
   }
 
   const res = await fetch(`${internalApiUrl()}/api/ai-file-dump`, {
@@ -193,6 +197,7 @@ export async function runAttachmentUpload(
         fileTypeOverride,
         originEmail: true,
         bankerSource: group.banker_source,
+        enteredBy: group.custodian_email,
       });
 
       // 6. Mark all rows sharing this hash as done.

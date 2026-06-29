@@ -21,6 +21,7 @@ import {
   Loader2,
   ChevronRight,
   ChevronLeft,
+  AlertCircle,
 } from "lucide-react";
 import { DealStage } from "@/lib/types";
 import posthog from "posthog-js";
@@ -63,6 +64,7 @@ export default function PromoteDialog({
   const [users, setUsers] = useState<UserSummary[]>([]);
   const [usersLoading, setUsersLoading] = useState(false);
   const [assigneeIds, setAssigneeIds] = useState<string[]>([]);
+  const [missingFields, setMissingFields] = useState<string[]>([]);
 
   useEffect(() => {
     if (!open || mode !== "promote") return;
@@ -211,9 +213,13 @@ export default function PromoteDialog({
       onSuccess();
     } catch (error: any) {
       console.error("Error promoting company:", error);
-      toast.error(
-        `Failed to ${mode === "demote" ? "demote" : "promote"} company: ${error.message || "Unknown error"}`,
-      );
+      if (Array.isArray(error.missingFields)) {
+        setMissingFields(error.missingFields);
+      } else {
+        toast.error(
+          `Failed to ${mode === "demote" ? "demote" : "promote"} company: ${error.message || "Unknown error"}`,
+        );
+      }
     } finally {
       setIsSubmitting(false);
     }
@@ -226,6 +232,7 @@ export default function PromoteDialog({
     setLinkTitle("");
     setSelectedFile(null);
     setAssigneeIds([]);
+    setMissingFields([]);
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -265,6 +272,25 @@ export default function PromoteDialog({
             )}
           </DialogDescription>
         </DialogHeader>
+
+        {missingFields.length > 0 && (
+          <div className="rounded-md border border-destructive/40 bg-destructive/10 p-3">
+            <div className="flex items-start gap-2">
+              <AlertCircle className="h-4 w-4 text-destructive mt-0.5 shrink-0" />
+              <div>
+                <p className="text-sm font-medium text-destructive">
+                  Fill in the required fields before adding to L0:
+                </p>
+                <ul className="mt-1 list-disc list-inside text-sm text-destructive/80 space-y-0.5">
+                  {missingFields.map((f) => <li key={f}>{f}</li>)}
+                </ul>
+                <p className="mt-1.5 text-xs text-muted-foreground">
+                  Edit the company to fill these in, then try again.
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
 
         {mode === "demote" ? (
           <div className="mt-2">

@@ -12,7 +12,7 @@ function makeDb() {
 }
 
 describe('EmailAttachmentRepository.listDistinctNeedsExtractHashes', () => {
-  it('returns the resolved attachment banker_source for each content hash group', async () => {
+  it('returns the resolved attachment banker_source and custodian_email for each content hash group', async () => {
     const db = makeDb();
     db.limit.mockResolvedValueOnce([
       {
@@ -24,6 +24,7 @@ describe('EmailAttachmentRepository.listDistinctNeedsExtractHashes', () => {
         s3_key: 'attachments/hash-1.pdf',
         s3_bucket: 'mbox-archive',
         banker_source: 'Goldman Sachs',
+        custodian_email: 'hendric@starcapital.co.id',
       },
       {
         id: 'att-2',
@@ -34,6 +35,7 @@ describe('EmailAttachmentRepository.listDistinctNeedsExtractHashes', () => {
         s3_key: 'attachments/hash-1.pdf',
         s3_bucket: 'mbox-archive',
         banker_source: 'Goldman Sachs',
+        custodian_email: 'hendric@starcapital.co.id',
       },
     ]);
 
@@ -50,6 +52,7 @@ describe('EmailAttachmentRepository.listDistinctNeedsExtractHashes', () => {
         s3_key: 'attachments/hash-1.pdf',
         s3_bucket: 'mbox-archive',
         banker_source: 'Goldman Sachs',
+        custodian_email: 'hendric@starcapital.co.id',
         ids: ['att-1', 'att-2'],
       },
     ]);

@@ -48,9 +48,10 @@ export interface CompanyDTO {
 
   // ---- Pipeline (HTML-parity) fields ----
   deal_type: string | null;
-  originator: string | null;
-  // Who entered the company: "AI Email Scanning" or the uploader's name.
   entered_by: string | null;
+  // Who entered the company: "AI Email Scanning" or the uploader's name.
+  entered_by_name: string | null;
+  originator: string | null;
   // Deal Sponsor (L0–L2) / Deal Captain (L3+) — per-company override of the
   // matched Track's PIC. Empty falls back to the Track PIC for display.
   deal_sponsor: string | null;
@@ -62,8 +63,6 @@ export interface CompanyDTO {
   deal_size: string | null;
   workflow_status: string | null;
   key_rationale: string | null;
-  // MB-223/224/225/226 origination triage
-  review_state: string;
   banker_source: string | null;
   possible_duplicate_company_id: string | null;
   // Investment-thesis ("Track") ids this company is manually matched to.
@@ -176,6 +175,7 @@ export function toCompanyDTO(
   fx: Tables<'company_fx_adjustments'>[],
   screening: Tables<'company_screening_derived'> | null,
   assignees: Array<Pick<Tables<'users'>, 'id' | 'name' | 'email' | 'role'>> = [],
+  enteredByName: string | null = null,
 ): CompanyDTO {
   const finByYear = new Map<number, Tables<'company_financials'>>();
   for (const f of financials) finByYear.set(f.fiscal_year, f);
@@ -209,8 +209,9 @@ export function toCompanyDTO(
     dropped_at: company.dropped_at,
     promoted_reasons: company.promoted_reasons ?? null,
     deal_type: company.deal_type ?? null,
-    originator: company.originator ?? null,
     entered_by: company.entered_by ?? null,
+    entered_by_name: enteredByName,
+    originator: company.originator ?? null,
     deal_sponsor: company.deal_sponsor ?? null,
     deal_captain: company.deal_captain ?? null,
     last_activity_at: company.last_activity_at ?? null,
@@ -220,7 +221,6 @@ export function toCompanyDTO(
     deal_size: company.deal_size ?? null,
     workflow_status: company.workflow_status ?? null,
     key_rationale: company.key_rationale ?? null,
-    review_state: company.review_state ?? 'reviewed',
     banker_source: company.banker_source ?? null,
     possible_duplicate_company_id: company.possible_duplicate_company_id ?? null,
     matched_track_ids: company.matched_track_ids ?? [],

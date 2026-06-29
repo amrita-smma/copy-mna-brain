@@ -245,10 +245,10 @@ export default function InboundCompaniesTable({
   const picColumnLabel = dealLeadLabel(stage);
   const unreviewedCompanies = isDropped
     ? []
-    : companies.filter((company) => company.review_state === "unreviewed");
+    : companies.filter((company) => company.pipeline_stage === "unreviewed");
   const reviewedCompanies = isDropped
     ? []
-    : companies.filter((company) => company.review_state !== "unreviewed");
+    : companies.filter((company) => company.pipeline_stage !== "unreviewed");
   const showReviewGroups =
     groupByReviewState &&
     !isDropped &&
@@ -365,11 +365,14 @@ export default function InboundCompaniesTable({
           <Col label="Sector" sort="sector" filter="sector" />
           <Col label="Geo" sort="geo" filter="geo" />
           <TableHead className="min-w-[150px]">Matched Tracks</TableHead>
-          <Col label="Deal Type" sort="deal_type" filter="deal_type" />
+          <Col label="Deal Type" filter="deal_type" />
           <Col label="Revenue" sort="revenue" />
           <Col label="EBITDA" sort="ebitda" />
           <Col label="Valuation" sort="valuation" />
           <Col label="% Stake" sort="stake" filter="stake" />
+          <TableHead>Entered By</TableHead>
+          <TableHead>PIC</TableHead>
+          <TableHead>Originator</TableHead>
           {isDropped ? (
             <>
               <TableHead>Source</TableHead>
@@ -415,7 +418,7 @@ export default function InboundCompaniesTable({
           const bankerLabel = company.banker ?? company.banker_source;
           const rev = latestFin(company.financials_raw, "revenue_usd_mn");
           const ebitda = latestFin(company.financials_raw, "ebitda_usd_mn");
-          const isUnreviewed = company.review_state === "unreviewed";
+          const isUnreviewed = company.pipeline_stage === "unreviewed";
           // AI screening runs against a company's matched tracks; with none
           // matched there is nothing to screen, so the action is disabled.
           const hasMatchedTracks = resolveTrackIds(company, tracks).length > 0;
@@ -434,12 +437,12 @@ export default function InboundCompaniesTable({
             showReviewGroups &&
             isUnreviewed &&
             (!previousCompany ||
-              previousCompany.review_state !== "unreviewed");
+              previousCompany.pipeline_stage !== "unreviewed");
           const startsReviewedSection =
             showReviewGroups &&
             !isUnreviewed &&
             (!previousCompany ||
-              previousCompany.review_state === "unreviewed");
+              previousCompany.pipeline_stage === "unreviewed");
 
           return (
             <Fragment key={company.id}>
@@ -587,6 +590,21 @@ export default function InboundCompaniesTable({
                   {company.stake || "-"}
                 </span>
               </TableCell>
+              <TableCell>
+                <span className="text-sm text-muted-foreground">
+                  {company.entered_by_name || "-"}
+                </span>
+              </TableCell>
+              <TableCell>
+                <span className="text-sm text-muted-foreground">
+                  {company.pic || "-"}
+                </span>
+              </TableCell>
+              <TableCell>
+                <span className="text-sm text-muted-foreground">
+                  {company.originator || "-"}
+                </span>
+              </TableCell>
               {isDropped ? (
                 <>
                   <TableCell>
@@ -667,6 +685,27 @@ export default function InboundCompaniesTable({
                           Restore deal
                         </DropdownMenuItem>
                       </>
+                    ) : isUnreviewed ? (
+                      // Unreviewed inbound rows mirror the AI-Discovered menu:
+                      // Add to L0 · Edit · Delete (Delete is a soft drop).
+                      <>
+                        <DropdownMenuItem onClick={() => onPromote(company)}>
+                          <ArrowRight className="mr-2 h-4 w-4" />
+                          Add to L0
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => onUpdate(company)}>
+                          <Pencil className="mr-2 h-4 w-4" />
+                          Edit
+                        </DropdownMenuItem>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem
+                          onClick={() => onDrop(company)}
+                          className="text-destructive focus:text-destructive"
+                        >
+                          <Trash2 className="mr-2 h-4 w-4 text-destructive" />
+                          Delete
+                        </DropdownMenuItem>
+                      </>
                     ) : (
                       <>
                         {onRunScreening && (
@@ -696,16 +735,7 @@ export default function InboundCompaniesTable({
                             <DropdownMenuSeparator />
                           </>
                         )}
-                        {isUnreviewed && onKeep && (
-                          <>
-                            <DropdownMenuItem onClick={() => onKeep(company)}>
-                              <CheckCircle2 className="mr-2 h-4 w-4 text-green-600" />
-                              Keep
-                            </DropdownMenuItem>
-                            <DropdownMenuSeparator />
-                          </>
-                        )}
-                        {promoteTarget && !isUnreviewed && (
+                        {promoteTarget && (
                           <DropdownMenuItem onClick={() => onPromote(company)}>
                             <ArrowRight className="mr-2 h-4 w-4" />
                             Promote to {promoteTarget}

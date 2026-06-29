@@ -21,12 +21,17 @@ import {
   type CompanyDTOInput,
 } from '@/lib/dto/companyDTO';
 import type { TrackMatchingService } from './trackMatchingService';
+import type { UserRepository } from '@/lib/repositories';
 
 const L0_STAGE: DealStage = 'L0';
 // Stages above L0. A move into L0 from one of these is a *demotion*, not a fresh
 // entry, so it must NOT re-trigger track matching (the company was matched when
 // it first entered L0).
 const POST_L0_STAGES: ReadonlySet<string> = new Set(['L1', 'L2', 'L3', 'L4', 'L5']);
+// Stages inside the active pipeline. Moving a pre-L0 company (market_screening /
+// unreviewed / discovered) into any of these is a pipeline entry and must pass
+// the same L0 required-field gate as an explicit promote.
+const IN_PIPELINE_STAGES: ReadonlySet<string> = new Set([L0_STAGE, ...POST_L0_STAGES]);
 
 export interface FinancialUpsertInput {
   fiscal_year: number;
@@ -38,6 +43,15 @@ export interface FinancialUpsertInput {
 // assignees, etc.) so users can keep records accurate after a drop. Pipeline
 // lifecycle moves are still off-limits: promoting a dropped deal or
 // re-dropping one fails loud with this error.
+export class CompanyL0RequirementsError extends Error {
+  readonly missingFields: string[];
+  constructor(missingFields: string[]) {
+    super(`Cannot promote to L0: missing required fields: ${missingFields.join(', ')}`);
+    this.name = 'CompanyL0RequirementsError';
+    this.missingFields = missingFields;
+  }
+}
+
 export class CompanyDroppedError extends Error {
   readonly droppedIds: string[];
   constructor(droppedIds: string[]) {
@@ -65,6 +79,7 @@ export class CompanyService {
     // Optional: when present, a company entering L0 triggers agent-driven track
     // matching. Left out in contexts that never create/promote (e.g. read-only).
     private readonly trackMatchingService?: TrackMatchingService,
+    private readonly userRepo?: UserRepository,
   ) {}
 
   findById(id: string) {
@@ -137,18 +152,23 @@ export class CompanyService {
       this.companyScreeningDerivedRepo.findByCompany(id),
       this.companyRepo.findAssignees(id),
     ]);
-    return toCompanyDTO(company, financials, fx, screening, assignees);
+    const enteredByName = await this.resolveEnteredByName(company.entered_by ?? null);
+    return toCompanyDTO(company, financials, fx, screening, assignees, enteredByName);
   }
 
   async listDTO(filters: Omit<CompanyFilters, 'id'>): Promise<CompanyDTO[]> {
     const companies = await this.companyRepo.findAll(filters);
     if (companies.length === 0) return [];
     const ids = companies.map((c) => c.id);
-    const [financials, fxRows, screeningRows, assigneeRows] = await Promise.all([
+    const enteredByIds = [...new Set(companies.map((c) => c.entered_by).filter((v): v is string => !!v))];
+    const [financials, fxRows, screeningRows, assigneeRows, enteredByUsers] = await Promise.all([
       this.companyFinancialRepo.findByCompanies(ids),
       this.companyFxAdjustmentRepo.findByCompanies(ids),
       this.companyScreeningDerivedRepo.findByCompanies(ids),
       this.companyRepo.findAssigneesByCompanies(ids),
+      enteredByIds.length > 0 && this.userRepo
+        ? this.userRepo.findByIds(enteredByIds)
+        : Promise.resolve([]),
     ]);
     const finByCompany = new Map<string, Tables<'company_financials'>[]>();
     for (const f of financials) {
@@ -174,6 +194,7 @@ export class CompanyService {
       arr.push(user);
       assigneesByCompany.set(company_id, arr);
     }
+    const userNameById = new Map(enteredByUsers.map((u) => [u.id, u.name]));
     return companies.map((c) =>
       toCompanyDTO(
         c,
@@ -181,8 +202,15 @@ export class CompanyService {
         fxByCompany.get(c.id) ?? [],
         screeningByCompany.get(c.id) ?? null,
         assigneesByCompany.get(c.id) ?? [],
+        c.entered_by ? (userNameById.get(c.entered_by) ?? null) : null,
       ),
     );
+  }
+
+  private async resolveEnteredByName(userId: string | null): Promise<string | null> {
+    if (!userId || !this.userRepo) return null;
+    const [user] = await this.userRepo.findByIds([userId]);
+    return user?.name ?? null;
   }
 
   // --------- DTO (flat) write path: split across tables ---------
@@ -212,6 +240,25 @@ export class CompanyService {
     logAction?: string,
   ): Promise<CompanyDTO> {
     const split = splitCompanyDTO(input);
+
+    // Moving a pre-L0 company into the active pipeline (L0+) via the Current
+    // Stage dropdown enforces the same required-field gate as an explicit
+    // promote, so the detail-edit form can't bypass it. Validate the *merged*
+    // record so the user can fill the required fields and change the stage in a
+    // single save, and validate *before* any write so a 422 leaves the row
+    // untouched.
+    const nextStage = split.company.pipeline_stage;
+    if (typeof nextStage === 'string' && IN_PIPELINE_STAGES.has(nextStage)) {
+      const existing = await this.companyRepo.findById(id);
+      const wasPreL0 = !IN_PIPELINE_STAGES.has(existing.pipeline_stage ?? '');
+      if (wasPreL0) {
+        this.assertL0Requirements({
+          ...existing,
+          ...(split.company as Partial<Tables<'companies'>>),
+        } as Tables<'companies'>);
+      }
+    }
+
     if (Object.keys(split.company).length > 0) {
       await this.companyRepo.update(id, split.company as TablesUpdate<'companies'>);
     }
@@ -247,6 +294,35 @@ export class CompanyService {
         ...split.screening,
       });
     }
+  }
+
+  /** Returns the list of missing required fields for L0 entry. Empty = all clear. */
+  static checkL0Requirements(company: {
+    target?: string | null;
+    project_name?: string | null;
+    entered_by?: string | null;
+    source?: string | null;
+    deal_type?: string | null;
+    geography?: string | null;
+    segment?: string | null;
+    banker?: string | null;
+    banker_source?: string | null;
+  }): string[] {
+    const missing: string[] = [];
+    const filled = (v: string | null | undefined) => typeof v === 'string' && v.trim().length > 0;
+    if (!filled(company.target) && !filled(company.project_name)) missing.push('Company Name / Project Name');
+    if (!filled(company.entered_by)) missing.push('Entered By');
+    if (!filled(company.source)) missing.push('Deal Type: Inbound/Outbound');
+    if (!filled(company.deal_type)) missing.push('Deal Type: Majority/Minority');
+    if (!filled(company.geography)) missing.push('Geo');
+    if (!filled(company.segment)) missing.push('Sector');
+    if (company.source !== 'outbound' && !filled(company.banker) && !filled(company.banker_source)) missing.push('Banker');
+    return missing;
+  }
+
+  private assertL0Requirements(company: Tables<'companies'>): void {
+    const missing = CompanyService.checkL0Requirements(company);
+    if (missing.length > 0) throw new CompanyL0RequirementsError(missing);
   }
 
   private assertHasCompanyIdentity(input: CompanyDTOInput): void {
@@ -303,6 +379,20 @@ export class CompanyService {
     promotionReason?: string,
   ) {
     await this.guardWritable(id);
+
+    // Always fetch upfront — needed for L0 validation and promotionReason append.
+    const existing = await this.companyRepo.findById(id);
+
+    const isEnteringL0 = nextStage === L0_STAGE && !POST_L0_STAGES.has(currentStage ?? '');
+    if (isEnteringL0) {
+      // Hard-block: all required fields must be present before L0 entry.
+      this.assertL0Requirements(existing);
+      // Ensure a track is assigned: run inline matching if none yet.
+      if (!existing.matched_track_ids?.length && this.trackMatchingService) {
+        await this.trackMatchingService.runSync({ companyId: id });
+      }
+    }
+
     const trimmedPromotionReason = promotionReason?.trim() || null;
     const companyUpdate: TablesUpdate<'companies'> = {
       pipeline_stage: nextStage as DealStage,
@@ -351,11 +441,6 @@ export class CompanyService {
     }
     if (assigneeIds !== undefined) {
       await this.companyRepo.setAssignees(id, assigneeIds);
-    }
-    // Match on entry into L0 from a pre-L0 stage (sourcing/discovery), but not
-    // when a company is demoted back into L0 from L1+.
-    if (nextStage === L0_STAGE && !POST_L0_STAGES.has(currentStage ?? '')) {
-      await this.dispatchTrackMatching(id);
     }
   }
 
@@ -434,16 +519,6 @@ export class CompanyService {
           ? `PROMOTED_FROM_${currentStage}_TO_${nextStage}`
           : `PROMOTED_TO_${nextStage}`,
       })),
-    );
-  }
-
-  // MB-223/225 — origination triage
-
-  async bulkMarkReviewed(ids: string[]): Promise<void> {
-    if (ids.length === 0) return;
-    await this.companyRepo.updateMany(ids, { review_state: 'reviewed' } as never);
-    await this.companyLogRepo.insertMany(
-      ids.map((id) => ({ company_id: id, action: 'TRIAGE_KEPT' })),
     );
   }
 

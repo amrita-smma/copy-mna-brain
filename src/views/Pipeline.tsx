@@ -38,6 +38,7 @@ import {
   FileText,
   Loader2,
   Plus,
+  Sparkles,
   ChevronDown,
   ChevronUp,
   Eye,
@@ -57,6 +58,7 @@ import {
 import PromoteDialog from "@/components/pipeline/PromoteDialog";
 import { DealStage, L1Status } from "@/lib/types";
 import CompanyDetailDialog from "@/components/pipeline/CompanyDetailDialog";
+import UpdateCompanyDialog from "@/components/pipeline/UpdateCompanyDialog";
 import InboundCompaniesTable from "@/components/pipeline/InboundCompaniesTable";
 import OutboundCompaniesTable from "@/components/pipeline/OutboundCompaniesTable";
 import TrackSettingsDialog from "@/components/pipeline/TrackSettingsDialog";
@@ -134,8 +136,9 @@ export interface PipelineCompany {
   ownership: string | null;
   geography: string | null;
   deal_type: string | null;
-  originator: string | null;
   entered_by: string | null;
+  entered_by_name: string | null;
+  originator: string | null;
   deal_sponsor: string | null;
   deal_captain: string | null;
   last_activity_at: string | null;
@@ -145,7 +148,6 @@ export interface PipelineCompany {
   deal_size: string | null;
   workflow_status: string | null;
   key_rationale: string | null;
-  review_state: string;
   banker_source: string | null;
   possible_duplicate_company_id: string | null;
   matched_track_ids: string[];
@@ -156,6 +158,7 @@ const STAGES: DealStage[] = ["L0", "L1", "L2", "L3", "L4", "L5"];
 
 const stageDescriptions: Record<DealStage, string> = {
   market_screening: "AI Market Scanning - AI-discovered companies",
+  unreviewed: "Unreviewed - Companies from email attachments pending triage",
   L0: "Company Sourcing - Inbound & Outbound companies",
   L1: "Automated Screening - Filter evaluation",
   L2: "Initial Review - Manual assessment",
@@ -174,6 +177,12 @@ const stageColors: Record<
     text: "text-white",
     bgLight: "bg-purple-500/15",
     textLight: "text-purple-600",
+  },
+  unreviewed: {
+    bg: "bg-amber-500",
+    text: "text-white",
+    bgLight: "bg-amber-500/15",
+    textLight: "text-amber-600",
   },
   L0: {
     bg: "bg-stage-l0",
@@ -341,6 +350,12 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
     useState<PipelineCompany | null>(null);
   const [dialogMode, setDialogMode] = useState<"promote" | "demote">("promote");
 
+  // Update company dialog state
+  const [editingCompany, setEditingCompany] =
+    useState<PipelineCompany | null>(null);
+  const [editAndPromote, setEditAndPromote] = useState(false);
+
+
   // Drop deal dialog state
   const [dropDealCompany, setDropDealCompany] =
     useState<PipelineCompany | null>(null);
@@ -398,8 +413,9 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
           ownership: company.ownership ?? null,
           geography: company.geography ?? null,
           deal_type: company.deal_type ?? null,
-          originator: company.originator ?? null,
           entered_by: company.entered_by ?? null,
+          entered_by_name: company.entered_by_name ?? null,
+          originator: company.originator ?? null,
           deal_sponsor: company.deal_sponsor ?? null,
           deal_captain: company.deal_captain ?? null,
           last_activity_at: company.last_activity_at ?? null,
@@ -409,7 +425,6 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
           deal_size: company.deal_size ?? null,
           workflow_status: company.workflow_status ?? null,
           key_rationale: company.key_rationale ?? null,
-          review_state: company.review_state ?? "reviewed",
           banker_source: company.banker_source ?? null,
           possible_duplicate_company_id:
             company.possible_duplicate_company_id ?? null,
@@ -637,7 +652,9 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
     });
 
   const filteredCompanies = companies.filter((company) => {
-    const matchesStage = company.pipeline_stage === activeTab;
+    const matchesStage =
+      company.pipeline_stage === activeTab ||
+      (activeTab === "L0" && company.pipeline_stage === "unreviewed");
     const q = searchQuery.toLowerCase();
     const matchesSearch =
       companyDisplayName(company, "").toLowerCase().includes(q) ||
@@ -651,15 +668,14 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
     const matchesSource = company.source === sourceFilter;
     const matchesDocType =
       docTypeFilter === "all" || company.doc_type === docTypeFilter;
-    // L0 inbound is split across two sub-tabs: the Unreviewed tab shows only
-    // unreviewed companies, the Inbound tab shows only reviewed ones. Outbound
-    // and the L1-L5 stages are unaffected by review state.
+    // L0 inbound is split across two sub-tabs: the Unreviewed tab shows
+    // pipeline_stage='unreviewed' companies; the Inbound tab shows L0 ones.
     const matchesReviewState =
       activeTab !== "L0" || sourceFilter !== "inbound"
         ? true
         : showUnreviewedOnly
-          ? company.review_state === "unreviewed"
-          : company.review_state !== "unreviewed";
+          ? company.pipeline_stage === "unreviewed"
+          : company.pipeline_stage !== "unreviewed";
     const matchesView =
       viewMode === "dropped" ? isDropped(company) : isActive(company);
     const companyTrackIds = resolveTrackIds(company, tracks);
@@ -791,24 +807,29 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
   // even while the Inbound (reviewed-only) tab is selected.
   const allUnreviewedCompanies = companies.filter(
     (c) =>
-      c.pipeline_stage === activeTab &&
+      c.pipeline_stage === "unreviewed" &&
       c.source === "inbound" &&
-      c.review_state === "unreviewed" &&
-      (viewMode === "dropped" ? isDropped(c) : isActive(c)),
+      isActive(c),
   );
 
   // Handler for bulk triage confirm
   async function handleTriageConfirm(
     decisions: Array<{ id: string; action: "keep" | "drop"; reason?: string }>,
-  ) {
+  ): Promise<{ keepErrors?: Array<{ id: string; missingFields: string[] }> }> {
     const res = await fetch("/api/companies/triage", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ decisions }),
     });
-    if (!res.ok) throw new Error("Triage failed");
+    const json = await res.json();
+    if (res.status === 422 && json.keepErrors) {
+      await fetchCompanies({ silent: true });
+      return { keepErrors: json.keepErrors };
+    }
+    if (!res.ok) throw new Error(json.error || "Triage failed");
     await fetchCompanies({ silent: true });
     toast.success("Triage applied");
+    return {};
   }
 
   useEffect(() => {
@@ -863,6 +884,10 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
       console.error("Error running filters:", error);
       toast.error("Failed to run filters");
     }
+  };
+
+  const openScreeningCriteria = () => {
+    setTrackSettingsOpen(true);
   };
 
   const runScreeningForCompany = async (company: PipelineCompany) => {
@@ -1182,6 +1207,7 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
                         onToggleCollapse={() =>
                           setShowMarketResults(!showMarketResults)
                         }
+                        tracks={tracks}
                       />
 
                       {/* L0 Pipeline Companies */}
@@ -1215,12 +1241,16 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
                                   </span>
                                 </Button>
                               )}
-                              <Link href="/ai-file-dump">
-                                <Button data-testid="pipeline-add-company-button">
-                                  <Plus className="mr-2 h-4 w-4" />
-                                  Add Company
+                              {showL0Pipeline && (
+                                <Button
+                                  data-testid="pipeline-ai-screening-button"
+                                  onClick={openScreeningCriteria}
+                                  className="bg-gradient-to-r from-purple-600 to-purple-500 hover:from-purple-700 hover:to-purple-600 shadow-md transition-all hover:scale-[1.02]"
+                                >
+                                  <Sparkles className="mr-2 h-4 w-4" />
+                                  AI Screening Criteria
                                 </Button>
-                              </Link>
+                              )}
                               {/* Visibility toggle — always rightmost */}
                               <Button
                                 data-testid="pipeline-l0-toggle-visibility-button"
@@ -1420,11 +1450,10 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
                                     onTriageAll={() =>
                                       setShowTriageModal(true)
                                     }
-                                    onKeep={(company) =>
-                                      handleTriageConfirm([
-                                        { id: company.id, action: "keep" },
-                                      ])
-                                    }
+                                    onKeep={(company) => {
+                                      setEditAndPromote(true);
+                                      setEditingCompany(company);
+                                    }}
                                     onUpdate={(company) => {
                                       setOpenDetailInEdit(true);
                                       setSelectedCompany(company);
@@ -1830,6 +1859,30 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
           />
         )}
 
+        {editingCompany && (
+          <UpdateCompanyDialog
+            company={editingCompany}
+            tracks={tracks}
+            open={!!editingCompany}
+            onOpenChange={(open) => {
+              if (!open) {
+                setEditingCompany(null);
+                setEditAndPromote(false);
+              }
+            }}
+            onUpdate={async () => {
+              await refetchAfterCompanyUpdate(editingCompany.id);
+              setEditAndPromote(false);
+            }}
+            statusOptions={
+              editingCompany.source === "outbound"
+                ? outboundStatusOptions
+                : inboundStatusOptions
+            }
+            promoteOnSave={editAndPromote}
+          />
+        )}
+
         <TrackSettingsDialog
           open={trackSettingsOpen}
           onOpenChange={setTrackSettingsOpen}
@@ -1845,6 +1898,14 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
           companies={allUnreviewedCompanies}
           onClose={() => setShowTriageModal(false)}
           onConfirm={handleTriageConfirm}
+          onEdit={(id) => {
+            const company = allUnreviewedCompanies.find((c) => c.id === id);
+            if (company) {
+              setShowTriageModal(false);
+              setOpenDetailInEdit(true);
+              setSelectedCompany(company);
+            }
+          }}
         />
 
         {promotingCompany && (

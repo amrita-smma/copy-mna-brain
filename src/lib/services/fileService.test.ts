@@ -490,9 +490,9 @@ describe('FileService.processUpload', () => {
       expect.objectContaining({
         target: 'Acme Corp',
         source: 'inbound',
-        review_state: 'unreviewed',
+        pipeline_stage: 'unreviewed',
         banker_source: 'Goldman Sachs',
-        entered_by: 'AI Email Scanning',
+        entered_by: null,
       }),
       'auto_created_from_email_attachment:file-1',
     );
@@ -953,18 +953,48 @@ describe('FileService.approve', () => {
       file_type: 'prospectus',
       matched_company_id: null,
       create_company_from_ai: true,
+      entered_by: 'user-uuid',
+      deal_type: 'majority',
+      banker: 'Goldman Sachs',
     };
     await service.approve('file-1', input);
 
     expect(companyService.createFromDTO).toHaveBeenCalledWith(
-      expect.objectContaining({ target: 'Acme Corp', source: 'inbound' }),
+      expect.objectContaining({ target: 'Acme Corp', source: 'inbound', pipeline_stage: 'L0' }),
       'created_from_file:file-1',
     );
   });
 
-  it('stamps entered_by with the uploader name when creating from AI data', async () => {
+  it('throws CompanyL0RequirementsError when required fields are missing', async () => {
+    const { CompanyL0RequirementsError } = await import('./companyService');
     vi.mocked(fileRepo.findById).mockResolvedValue(
       makeFile({ id: 'file-1', structured_notes: prospectusNotes }),
+    );
+    const input: ApproveFileInput = {
+      file_type: 'prospectus',
+      matched_company_id: null,
+      create_company_from_ai: true,
+      // entered_by, deal_type, banker all absent
+    };
+    await expect(service.approve('file-1', input)).rejects.toBeInstanceOf(CompanyL0RequirementsError);
+    expect(companyService.createFromDTO).not.toHaveBeenCalled();
+  });
+
+  it('creates at L0 with matched_track_ids from structured_notes', async () => {
+    const notesWithTracks = JSON.stringify({
+      file_type: 'prospectus',
+      suggested_track_ids: ['track-abc', 'track-def'],
+      prospectus_summary: {
+        company_name: 'Acme Corp',
+        project_name: 'Project Owl',
+        segment: 'Fintech',
+        geography: 'Indonesia',
+        financials: [],
+        fx_adjustments: [],
+      },
+    });
+    vi.mocked(fileRepo.findById).mockResolvedValue(
+      makeFile({ id: 'file-1', structured_notes: notesWithTracks }),
     );
     vi.mocked(companyService.createFromDTO).mockResolvedValue({ id: 'company-new' } as never);
     vi.mocked(companyService.findById).mockResolvedValue(makeCompany({ id: 'company-new' }));
@@ -973,34 +1003,43 @@ describe('FileService.approve', () => {
       file_type: 'prospectus',
       matched_company_id: null,
       create_company_from_ai: true,
+      entered_by: 'user-uuid',
+      deal_type: 'majority',
+      banker: 'Goldman Sachs',
     };
-    await service.approve('file-1', input, 'Jane Doe');
+    await service.approve('file-1', input);
 
     expect(companyService.createFromDTO).toHaveBeenCalledWith(
-      expect.objectContaining({ entered_by: 'Jane Doe' }),
+      expect.objectContaining({
+        pipeline_stage: 'L0',
+        matched_track_ids: ['track-abc', 'track-def'],
+      }),
       'created_from_file:file-1',
     );
   });
 
-  it('defaults entered_by to null when no uploader name is provided', async () => {
+  it('uses empty matched_track_ids when suggested_track_ids is absent or invalid', async () => {
     vi.mocked(fileRepo.findById).mockResolvedValue(
       makeFile({ id: 'file-1', structured_notes: prospectusNotes }),
     );
     vi.mocked(companyService.createFromDTO).mockResolvedValue({ id: 'company-new' } as never);
     vi.mocked(companyService.findById).mockResolvedValue(makeCompany({ id: 'company-new' }));
 
-    const input: ApproveFileInput = {
+    await service.approve('file-1', {
       file_type: 'prospectus',
       matched_company_id: null,
       create_company_from_ai: true,
-    };
-    await service.approve('file-1', input);
+      entered_by: 'user-uuid',
+      deal_type: 'majority',
+      banker: 'Goldman Sachs',
+    });
 
     expect(companyService.createFromDTO).toHaveBeenCalledWith(
-      expect.objectContaining({ entered_by: null }),
-      'created_from_file:file-1',
+      expect.objectContaining({ matched_track_ids: [] }),
+      expect.any(String),
     );
   });
+
 
   it('applies company_field_updates for matched existing company', async () => {
     vi.mocked(fileRepo.findById).mockResolvedValue(

@@ -70,6 +70,8 @@ export const jobType = pgEnum("job_type", [
 export const l1Result = pgEnum("l1_result", ["pass", "fail", "inconclusive"]);
 export const pipelineStage = pgEnum("pipeline_stage", [
   "market_screening",
+  // Companies auto-created from email attachments, pending triage into L0.
+  "unreviewed",
   "L0",
   "L1",
   "L2",
@@ -357,11 +359,11 @@ export const companies = pgTable(
     promoted_reasons: text(),
     // Pipeline (HTML-parity) fields — inbound first.
     deal_type: dealType().default("majority"),
+    // UUID of the user who sourced this company (references users.id).
+    // Set to the mailbox owner for email-pipeline auto-creates, or the
+    // uploading user for manual AFD entries.
+    entered_by: uuid().references(() => users.id, { onDelete: 'set null' }),
     originator: text(),
-    // Who entered the company into the pipeline: the literal "AI Email
-    // Scanning" for email-attachment auto-creates, else the name of the
-    // person who manually enters/uploads it.
-    entered_by: text(),
     // Deal Sponsor (shown at L0–L2) and Deal Captain (shown at L3+). Override
     // the matched Track's PIC per company; empty falls back to the Track PIC
     // for display. Deal Captain inherits Deal Sponsor on promotion into L3+.
@@ -379,8 +381,6 @@ export const companies = pgTable(
     workflow_status: text(),
     // Outbound-specific fields.
     key_rationale: text(),
-    // MB-223/224/225/226 — origination pipeline triage
-    review_state: text().default("reviewed").notNull(),
     banker_source: text(),
     possible_duplicate_company_id: uuid(),
     // Investment-thesis ("Track") ids this company is manually matched to.
@@ -420,10 +420,6 @@ export const companies = pgTable(
       idxCompaniesTarget: index("idx_companies_target").using(
         "btree",
         table.target.asc().nullsLast().op("text_ops"),
-      ),
-      idxCompaniesReviewState: index("idx_companies_review_state").using(
-        "btree",
-        table.review_state.asc().nullsLast().op("text_ops"),
       ),
       companiesPossibleDuplicateFkey: foreignKey({
         columns: [table.possible_duplicate_company_id],

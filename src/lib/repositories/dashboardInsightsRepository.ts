@@ -5,12 +5,13 @@ import {
   gte,
   inArray,
   isNull,
+  like,
   lte,
   sql,
   type SQL,
 } from 'drizzle-orm';
 import type { PgColumn } from 'drizzle-orm/pg-core';
-import { aiWorkforceQueue, companies, companySlides } from '@/lib/db/schema';
+import { aiWorkforceQueue, companies, companyLogs, companySlides } from '@/lib/db/schema';
 import type { DbClient } from './types';
 
 /** The L0–L5 deal-pipeline stages, in funnel order. Excludes `market_screening`
@@ -128,15 +129,27 @@ export class DashboardInsightsRepository {
     return Number(row?.value ?? 0);
   }
 
-  /** Funnel companies created within the window (any L0–L5 stage). */
-  countNewDeals(from: Date, to: Date): Promise<number> {
-    return this.countWhere(
-      and(
-        this.inFunnel(),
-        gte(companies.created_at, from.toISOString()),
-        lte(companies.created_at, to.toISOString()),
-      ),
-    );
+  /** Companies new to L0 within the window: created at L0 OR promoted/demoted TO L0. */
+  async countNewDeals(from: Date, to: Date): Promise<number> {
+    const fromIso = from.toISOString();
+    const toIso = to.toISOString();
+
+    const [row] = await this.db.execute<{ count: string }>(sql`
+      SELECT COUNT(DISTINCT id) AS count FROM (
+        SELECT ${companies.id} AS id
+        FROM ${companies}
+        WHERE ${eq(companies.pipeline_stage, 'L0')}
+          AND ${gte(companies.created_at, fromIso)}
+          AND ${lte(companies.created_at, toIso)}
+        UNION
+        SELECT ${companyLogs.company_id} AS id
+        FROM ${companyLogs}
+        WHERE ${like(companyLogs.action, '%_TO_L0')}
+          AND ${gte(companyLogs.created_at, fromIso)}
+          AND ${lte(companyLogs.created_at, toIso)}
+      ) sub
+    `);
+    return Number(row?.count ?? 0);
   }
 
   /** Companies created directly at L0 within the window (AI screening output). */

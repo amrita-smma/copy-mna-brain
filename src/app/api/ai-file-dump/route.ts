@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createDb } from '@/lib/server/db';
 import { createContainer } from '@/lib/services';
+import { auth } from '@/auth';
 
 const FILE_TYPE_OVERRIDES = ['mom', 'prospectus', 'other', 'shopping_list', 'market_study'] as const;
 type FileTypeOverrideValue = (typeof FILE_TYPE_OVERRIDES)[number];
@@ -22,6 +23,8 @@ export async function POST(request: NextRequest) {
       file_type_override: rawFileTypeOverride,
       origin_email: rawOriginEmail,
       banker_source: rawBankerSource,
+      // For MBOX pipeline: custodian email address to resolve to a user UUID.
+      entered_by: rawEnteredByEmail,
     } = await request.json();
 
     if (!key || !fileName) {
@@ -36,6 +39,13 @@ export async function POST(request: NextRequest) {
     const bankerSource = typeof rawBankerSource === 'string' && rawBankerSource.trim()
       ? rawBankerSource.trim()
       : undefined;
+    const enteredByEmail = typeof rawEnteredByEmail === 'string' && rawEnteredByEmail.trim()
+      ? rawEnteredByEmail.trim()
+      : undefined;
+
+    // For session-authenticated (manual) uploads: use the logged-in user as the enterer.
+    const session = await auth();
+    const uploaderUserId = session?.user?.id ?? null;
 
     const db = createDb();
     const { fileService } = createContainer(db);
@@ -47,6 +57,8 @@ export async function POST(request: NextRequest) {
       fileTypeOverride,
       originEmail,
       bankerSource,
+      enteredByEmail,
+      uploaderUserId,
     );
 
     return NextResponse.json({ success: true, data });

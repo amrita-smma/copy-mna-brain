@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { createDb } from "@/lib/server/db";
 import { createContainer } from "@/lib/services";
+import { CompanyL0RequirementsError } from "@/lib/services/companyService";
 
 function parseBool(value: string | null) {
   return value === "true" || value === "1";
@@ -147,6 +148,12 @@ export async function PATCH(req: NextRequest) {
     const data = await companyService.updateMany(ids, updates, logAction);
     return NextResponse.json({ data });
   } catch (error: unknown) {
+    if (error instanceof CompanyL0RequirementsError) {
+      return NextResponse.json(
+        { error: error.message, missingFields: error.missingFields },
+        { status: 422 },
+      );
+    }
     const message =
       error instanceof Error ? error.message : "Failed to update company";
     return NextResponse.json({ error: message }, { status: 500 });

@@ -209,7 +209,7 @@ export class EmailAttachmentRepository {
   // ── P3: extract ───────────────────────────────────────────────────────────
 
   async listDistinctNeedsExtractHashes(limit: number): Promise<
-    { content_hash: string; doc_type: string | null; mime_type: string | null; filename: string | null; s3_key: string; s3_bucket: string; banker_source: string | null; ids: string[] }[]
+    { content_hash: string; doc_type: string | null; mime_type: string | null; filename: string | null; s3_key: string; s3_bucket: string; banker_source: string | null; custodian_email: string | null; ids: string[] }[]
   > {
     const rows = await this.db
       .select({
@@ -220,6 +220,8 @@ export class EmailAttachmentRepository {
         filename: emailAttachments.filename,
         s3_key: emailAttachments.s3_key,
         s3_bucket: emailAttachments.s3_bucket,
+        // The mailbox owner — who received this email (MB-344 entered_by).
+        custodian_email: rawEmails.custodian_email,
         // Prefer the resolved firm, then fall back through sender identity.
         banker_source: sql<string | null>`
           case
@@ -249,7 +251,7 @@ export class EmailAttachmentRepository {
 
     const grouped = new Map<
       string,
-      { content_hash: string; doc_type: string | null; mime_type: string | null; filename: string | null; s3_key: string; s3_bucket: string; banker_source: string | null; ids: string[] }
+      { content_hash: string; doc_type: string | null; mime_type: string | null; filename: string | null; s3_key: string; s3_bucket: string; banker_source: string | null; custodian_email: string | null; ids: string[] }
     >();
     for (const row of rows) {
       if (!row.s3_key || !row.s3_bucket) continue;
@@ -261,6 +263,7 @@ export class EmailAttachmentRepository {
         s3_key: row.s3_key,
         s3_bucket: row.s3_bucket,
         banker_source: row.banker_source,
+        custodian_email: row.custodian_email ?? null,
         ids: [],
       };
       entry.ids.push(row.id);

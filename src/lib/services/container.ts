@@ -151,7 +151,7 @@ export function createContainer(db: DbClient): Container {
   const companyAnalysisService = new CompanyAnalysisService(companyAnalysisRepo, companyRepo, db);
   const aiScreeningService = new AIScreeningService(screeningRepo, jobDispatcher);
   const marketScreeningService = new MarketScreeningService(jobDispatcher);
-  const trackMatchingService = new TrackMatchingService(jobDispatcher);
+  const trackMatchingService = new TrackMatchingService(jobDispatcher, db);
   const slideService = new SlideService(companySlidesRepo, jobDispatcher);
 
   const companyService = new CompanyService(
@@ -164,6 +164,7 @@ export function createContainer(db: DbClient): Container {
     companyFxAdjustmentRepo,
     companyScreeningDerivedRepo,
     trackMatchingService,
+    userRepo,
   );
   const companyGraphService = new CompanyGraphService(companyGraphRepo, jobDispatcher);
   const companyRelationshipService = new CompanyRelationshipService(
@@ -184,6 +185,7 @@ export function createContainer(db: DbClient): Container {
     companyService,
     companyFxAdjustmentRepo,
     trackMatchingService,
+    userRepo,
   );
 
   const employerRepo = new EmployerRepository(db);

@@ -49,6 +49,7 @@ export const DOC_TYPE_OPTIONS: { value: string; label: string }[] = [
 
 export const STAGE_LABELS: Record<DealStage | 'Acquired', string> = {
   market_screening: 'Market Scanning',
+  unreviewed: 'Unreviewed',
   L0: 'Sourcing',
   L1: 'Screening',
   L2: 'Initial Review',

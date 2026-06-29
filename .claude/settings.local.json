@@ -29,7 +29,13 @@
       "Bash(grep -v \"^$\")",
       "Bash(grep \"\\\\.ts$\")",
       "WebFetch(domain:developers.google.com)",
-      "Bash(git rerere *)"
+      "Bash(git rerere *)",
+      "Bash(rtk git *)",
+      "Bash(git checkout *)",
+      "Bash(rtk vitest *)",
+      "Bash(rtk grep *)",
+      "Bash(rtk tsc *)",
+      "Bash(rtk read *)"
     ]
   }
 }

@@ -10,7 +10,7 @@ import type {
   CompanyScreeningDerivedRepository,
   Tables,
 } from "@/lib/repositories";
-import { CompanyDroppedError, CompanyService } from "./companyService";
+import { CompanyDroppedError, CompanyL0RequirementsError, CompanyService } from "./companyService";
 
 vi.mock("@/lib/s3", () => ({ deleteFile: vi.fn() }));
 
@@ -229,14 +229,27 @@ describe("CompanyService — track matching on L0 entry", () => {
     expect(trackMatching.dispatch).not.toHaveBeenCalled();
   });
 
-  it("dispatches track matching when a company is promoted to L0 from a pre-L0 stage", async () => {
+  it("runs sync track matching when a company is promoted to L0 from a pre-L0 stage with no track", async () => {
     const repos = makeRepos();
-    const trackMatching = makeTrackMatchingService();
-    const service = buildService(repos, trackMatching);
+    const trackMatching = { dispatch: vi.fn(), runSync: vi.fn().mockResolvedValue({ matchedTrackIds: [] }) };
+    vi.mocked(repos.companyRepo.findById).mockResolvedValue(
+      makeCompany({
+        pipeline_stage: "market_screening",
+        entered_by: "John",
+        source: "inbound",
+        deal_type: "majority",
+        geography: "Indonesia",
+        segment: "Technology",
+        banker: "Goldman",
+        matched_track_ids: [],
+      }),
+    );
+    const service = buildService(repos, trackMatching as never);
 
     await service.promote("company-1", "market_screening", "L0");
 
-    expect(trackMatching.dispatch).toHaveBeenCalledWith({ companyId: "company-1" });
+    expect(trackMatching.runSync).toHaveBeenCalledWith({ companyId: "company-1" });
+    expect(trackMatching.dispatch).not.toHaveBeenCalled();
   });
 
   it("does NOT dispatch when a company is demoted into L0 from L1", async () => {
@@ -1046,3 +1059,245 @@ describe("CompanyService dropped-company writes", () => {
 
 // Graph mirroring moved to the repository layer (CompanyRepository writes
 // through to Neo4j on every operation); see companyRepository.test.ts.
+
+const l0BaseCompany = makeCompany({
+  pipeline_stage: "market_screening",
+  status: "active",
+  target: "Acme Corp",
+  project_name: null,
+  entered_by: "John Smith",
+  source: "inbound",
+  deal_type: "majority",
+  geography: "Indonesia",
+  segment: "Technology",
+  banker: "Goldman",
+  matched_track_ids: ["track-1"],
+});
+
+describe("CompanyService.promote — L0 requirements guard", () => {
+  let repos: ReturnType<typeof makeRepos>;
+  let service: CompanyService;
+  const trackSvc = { dispatch: vi.fn(), runSync: vi.fn().mockResolvedValue({ matchedTrackIds: [] }) };
+
+  beforeEach(() => {
+    repos = makeRepos();
+    vi.mocked(repos.companyRepo.findById).mockResolvedValue(l0BaseCompany);
+    service = buildService(repos, trackSvc as never);
+  });
+
+  it("promotes to L0 when all required fields are present", async () => {
+    await expect(service.promote("company-1", "market_screening", "L0")).resolves.toBeUndefined();
+    expect(repos.companyRepo.update).toHaveBeenCalledWith("company-1", expect.objectContaining({ pipeline_stage: "L0" }));
+  });
+
+  it("throws CompanyL0RequirementsError listing all missing fields", async () => {
+    vi.mocked(repos.companyRepo.findById).mockResolvedValue(
+      makeCompany({ pipeline_stage: "market_screening", entered_by: null, geography: null, banker: null }),
+    );
+    await expect(service.promote("company-1", "market_screening", "L0")).rejects.toThrow(CompanyL0RequirementsError);
+    await expect(service.promote("company-1", "market_screening", "L0")).rejects.toMatchObject({
+      missingFields: expect.arrayContaining(["Entered By", "Geo", "Banker"]),
+    });
+  });
+
+  it("rejects whitespace-only entered_by", async () => {
+    vi.mocked(repos.companyRepo.findById).mockResolvedValue(
+      makeCompany({ ...l0BaseCompany, entered_by: "   " }),
+    );
+    await expect(service.promote("company-1", "market_screening", "L0")).rejects.toMatchObject({
+      missingFields: expect.arrayContaining(["Entered By"]),
+    });
+  });
+
+  it("rejects when neither target nor project_name is set", async () => {
+    vi.mocked(repos.companyRepo.findById).mockResolvedValue(
+      makeCompany({ ...l0BaseCompany, target: null, project_name: null }),
+    );
+    await expect(service.promote("company-1", "market_screening", "L0")).rejects.toMatchObject({
+      missingFields: expect.arrayContaining(["Company Name / Project Name"]),
+    });
+  });
+
+  it("accepts project_name alone when target is null", async () => {
+    vi.mocked(repos.companyRepo.findById).mockResolvedValue(
+      makeCompany({ ...l0BaseCompany, target: null, project_name: "Project Phoenix" }),
+    );
+    await expect(service.promote("company-1", "market_screening", "L0")).resolves.toBeUndefined();
+  });
+
+  it("runs sync track matching when matched_track_ids is empty", async () => {
+    vi.mocked(repos.companyRepo.findById).mockResolvedValue(
+      makeCompany({ ...l0BaseCompany, matched_track_ids: [] }),
+    );
+    await service.promote("company-1", "market_screening", "L0");
+    expect(trackSvc.runSync).toHaveBeenCalledWith({ companyId: "company-1" });
+  });
+
+  it("skips sync matching when tracks are already assigned", async () => {
+    trackSvc.runSync.mockClear();
+    vi.mocked(repos.companyRepo.findById).mockResolvedValue(
+      makeCompany({ ...l0BaseCompany, matched_track_ids: ["track-1"] }),
+    );
+    await service.promote("company-1", "market_screening", "L0");
+    expect(trackSvc.runSync).not.toHaveBeenCalled();
+  });
+
+  it("does NOT validate when promoting within L1+ (L1 → L2)", async () => {
+    vi.mocked(repos.companyRepo.findById).mockResolvedValue(
+      makeCompany({ pipeline_stage: "L1", entered_by: null, geography: null }),
+    );
+    await expect(service.promote("company-1", "L1", "L2")).resolves.toBeUndefined();
+  });
+
+  it("does NOT validate when demoting back to L0 from L1+", async () => {
+    vi.mocked(repos.companyRepo.findById).mockResolvedValue(
+      makeCompany({ pipeline_stage: "L1", entered_by: null, geography: null }),
+    );
+    await expect(service.promote("company-1", "L1", "L0")).resolves.toBeUndefined();
+  });
+
+  it("validates when promoting from unreviewed → L0 (the Keep flow)", async () => {
+    vi.mocked(repos.companyRepo.findById).mockResolvedValue(
+      makeCompany({ pipeline_stage: "unreviewed", entered_by: null, geography: null }),
+    );
+    await expect(service.promote("company-1", "unreviewed", "L0")).rejects.toBeInstanceOf(CompanyL0RequirementsError);
+  });
+
+  it("accepts banker_source as a fallback for the Banker requirement", async () => {
+    vi.mocked(repos.companyRepo.findById).mockResolvedValue(
+      makeCompany({ ...l0BaseCompany, pipeline_stage: "unreviewed", banker: null, banker_source: "Goldman Sachs" }),
+    );
+    await expect(service.promote("company-1", "unreviewed", "L0")).resolves.toBeUndefined();
+  });
+
+  it("outbound company with no banker promotes to L0 without error", async () => {
+    vi.mocked(repos.companyRepo.findById).mockResolvedValue(
+      makeCompany({ ...l0BaseCompany, pipeline_stage: "unreviewed", source: "outbound", banker: null, banker_source: null }),
+    );
+    await expect(service.promote("company-1", "unreviewed", "L0")).resolves.toBeUndefined();
+  });
+
+  it("inbound company with no banker is still blocked", async () => {
+    vi.mocked(repos.companyRepo.findById).mockResolvedValue(
+      makeCompany({ ...l0BaseCompany, pipeline_stage: "unreviewed", source: "inbound", banker: null, banker_source: null }),
+    );
+    await expect(service.promote("company-1", "unreviewed", "L0")).rejects.toMatchObject({
+      missingFields: expect.arrayContaining(["Banker"]),
+    });
+  });
+});
+
+describe("CompanyService.updateFromDTO — L0 requirements guard on stage change", () => {
+  let repos: ReturnType<typeof makeRepos>;
+  let service: CompanyService;
+
+  beforeEach(() => {
+    repos = makeRepos();
+    service = buildService(repos);
+  });
+
+  it("throws CompanyL0RequirementsError moving pre-L0 → L0 with missing fields", async () => {
+    vi.mocked(repos.companyRepo.findById).mockResolvedValue(
+      makeCompany({ ...l0BaseCompany, pipeline_stage: "unreviewed", entered_by: null, geography: null, banker: null }),
+    );
+    await expect(service.updateFromDTO("company-1", { pipeline_stage: "L0" } as never)).rejects.toMatchObject({
+      missingFields: expect.arrayContaining(["Entered By", "Geo", "Banker"]),
+    });
+  });
+
+  it("does not write to the row when the guard rejects", async () => {
+    vi.mocked(repos.companyRepo.findById).mockResolvedValue(
+      makeCompany({ ...l0BaseCompany, pipeline_stage: "unreviewed", entered_by: null }),
+    );
+    await expect(service.updateFromDTO("company-1", { pipeline_stage: "L0" } as never)).rejects.toBeInstanceOf(
+      CompanyL0RequirementsError,
+    );
+    expect(repos.companyRepo.update).not.toHaveBeenCalled();
+  });
+
+  it("passes when the missing field is supplied in the same save", async () => {
+    vi.mocked(repos.companyRepo.findById).mockResolvedValue(
+      makeCompany({ ...l0BaseCompany, pipeline_stage: "unreviewed", entered_by: null }),
+    );
+    await expect(
+      service.updateFromDTO("company-1", { pipeline_stage: "L0", entered_by: "user-uuid" } as never),
+    ).resolves.toBeDefined();
+    expect(repos.companyRepo.update).toHaveBeenCalled();
+  });
+
+  it("validates entering the pipeline at L1 directly (stricter than promote)", async () => {
+    vi.mocked(repos.companyRepo.findById).mockResolvedValue(
+      makeCompany({ ...l0BaseCompany, pipeline_stage: "market_screening", entered_by: null }),
+    );
+    await expect(service.updateFromDTO("company-1", { pipeline_stage: "L1" } as never)).rejects.toBeInstanceOf(
+      CompanyL0RequirementsError,
+    );
+  });
+
+  it("does not validate when the company is already in the pipeline (L1 edit)", async () => {
+    vi.mocked(repos.companyRepo.findById).mockResolvedValue(
+      makeCompany({ pipeline_stage: "L1", entered_by: null, geography: null, banker: null }),
+    );
+    await expect(service.updateFromDTO("company-1", { pipeline_stage: "L1" } as never)).resolves.toBeDefined();
+  });
+
+  it("does not validate when the stage is not being changed", async () => {
+    vi.mocked(repos.companyRepo.findById).mockResolvedValue(
+      makeCompany({ pipeline_stage: "unreviewed", entered_by: null, geography: null }),
+    );
+    await expect(service.updateFromDTO("company-1", { remarks: "note" } as never)).resolves.toBeDefined();
+  });
+});
+
+describe("CompanyService.checkL0Requirements", () => {
+  it("returns empty array when all fields present (inbound)", () => {
+    expect(CompanyService.checkL0Requirements({
+      target: "Acme Corp",
+      entered_by: "user-uuid",
+      source: "inbound",
+      deal_type: "majority",
+      geography: "Indonesia",
+      segment: "Technology",
+      banker: "Goldman Sachs",
+    })).toEqual([]);
+  });
+
+  it("returns empty array for outbound without banker", () => {
+    expect(CompanyService.checkL0Requirements({
+      target: "Acme Corp",
+      entered_by: "user-uuid",
+      source: "outbound",
+      deal_type: "majority",
+      geography: "Indonesia",
+      segment: "Technology",
+      banker: null,
+      banker_source: null,
+    })).toEqual([]);
+  });
+
+  it("flags Banker for inbound without banker or banker_source", () => {
+    const missing = CompanyService.checkL0Requirements({
+      target: "Acme Corp",
+      entered_by: "user-uuid",
+      source: "inbound",
+      deal_type: "majority",
+      geography: "Indonesia",
+      segment: "Technology",
+      banker: null,
+      banker_source: null,
+    });
+    expect(missing).toContain("Banker");
+  });
+
+  it("collects all missing fields when empty", () => {
+    const missing = CompanyService.checkL0Requirements({});
+    expect(missing).toEqual(expect.arrayContaining([
+      "Company Name / Project Name",
+      "Entered By",
+      "Deal Type: Inbound/Outbound",
+      "Deal Type: Majority/Minority",
+      "Geo",
+      "Sector",
+    ]));
+  });
+});

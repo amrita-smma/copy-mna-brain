@@ -15,6 +15,32 @@ export function isTerminalStatus(status: JobStatus): boolean {
   return TERMINAL_STATES.includes(status);
 }
 
+const WORKFORCE_TERMINAL = new Set(['succeeded', 'failed', 'rejected', 'timed_out']);
+
+/**
+ * Wait for an AI workforce queue run to reach a terminal state by polling
+ * GET /api/workforce-queue/:id.
+ */
+export async function waitForWorkforceRun(
+  runId: string,
+  opts: { intervalMs?: number; signal?: AbortSignal } = {},
+): Promise<{ status: string; result: unknown; error: string | null }> {
+  const intervalMs = opts.intervalMs ?? 2000;
+  while (true) {
+    if (opts.signal?.aborted) throw new Error('Aborted');
+    const res = await fetch(`/api/workforce-queue/${runId}`, { signal: opts.signal });
+    if (!res.ok) throw new Error(`Failed to load run ${runId}: ${res.status}`);
+    const { item } = (await res.json()) as { item: { status: string; output?: unknown; error?: Record<string, unknown> | null } };
+    if (WORKFORCE_TERMINAL.has(item.status)) {
+      const errMsg = item.error
+        ? (typeof item.error.message === 'string' ? item.error.message : JSON.stringify(item.error))
+        : null;
+      return { status: item.status, result: item.output ?? null, error: errMsg };
+    }
+    await new Promise((resolve) => setTimeout(resolve, intervalMs));
+  }
+}
+
 /**
  * Wait for a single job to reach a terminal state by polling the
  * GET /api/jobs/:id endpoint.

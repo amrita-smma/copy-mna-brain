@@ -30,6 +30,9 @@ import { AlertCircle, Loader2, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import { MatchedCompanyCombobox, AUTO, type CompanyOption } from "./MatchedCompanyCombobox";
 import type { ApproveFileInput } from "@/lib/services/fileService";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { useAuth } from "@/hooks/useAuth";
 
 interface SuggestedCompany {
   target: string | null;
@@ -60,6 +63,7 @@ interface ReviewData {
   ai: {
     file_type: string | null;
     suggested_company: SuggestedCompany | null;
+    suggested_banker: string | null;
     financials: FinancialRow[];
   };
   current: {
@@ -108,6 +112,7 @@ interface Props {
 }
 
 export function HitlReviewDialog({ fileId, open, onClose, onApproved }: Props) {
+  const { user } = useAuth();
   // `loading` covers the FIRST fetch only — the body is replaced with a
   // spinner because there's nothing to show yet. `refreshing` is for
   // subsequent fetches (company switch, etc.) where we keep the existing
@@ -122,11 +127,20 @@ export function HitlReviewDialog({ fileId, open, onClose, onApproved }: Props) {
   const [createFromAi, setCreateFromAi] = useState(false);
   const [checkedFields, setCheckedFields] = useState<Record<string, boolean>>({});
   const [checkedYears, setCheckedYears] = useState<Record<number, boolean>>({});
+  // Required L0 fields the user must fill when creating a new company from AI
+  const [l0EnteredBy, setL0EnteredBy] = useState("");
+  const [l0DealType, setL0DealType] = useState<"majority" | "minority" | "">("");
+  const [l0Banker, setL0Banker] = useState("");
+  const [missingFields, setMissingFields] = useState<string[]>([]);
 
   // Initial load — fetch with no override so the server falls back to the
   // company stored on the file. Sets the initial matched-company state too.
   useEffect(() => {
     if (!open) return;
+    setL0EnteredBy(user?.id ?? "");
+    setL0DealType("");
+    setL0Banker("");
+    setMissingFields([]);
     setLoading(true);
     fetch(`/api/ai-file-dump/${fileId}/review`)
       .then((r) => r.json())
@@ -140,7 +154,11 @@ export function HitlReviewDialog({ fileId, open, onClose, onApproved }: Props) {
           .matched_companies ?? [];
         const firstWithId = matched.find((m) => typeof m?.id === "string" && m.id);
         setMatchedCompanyId(firstWithId?.id ?? AUTO);
-        setCreateFromAi(!firstWithId && !!data.ai.suggested_company);
+        const willCreateFromAi = !firstWithId && !!data.ai.suggested_company;
+        setCreateFromAi(willCreateFromAi);
+        if (willCreateFromAi && data.ai.suggested_banker) {
+          setL0Banker(data.ai.suggested_banker);
+        }
 
         applyDefaultChecks(data);
       })
@@ -249,6 +267,11 @@ export function HitlReviewDialog({ fileId, open, onClose, onApproved }: Props) {
           ? (company_field_updates as ApproveFileInput["company_field_updates"])
           : undefined,
         financial_years_to_apply: financial_years_to_apply.length > 0 ? financial_years_to_apply : undefined,
+        ...(createFromAi && {
+          entered_by: l0EnteredBy.trim() || null,
+          deal_type: (l0DealType || null) as ApproveFileInput["deal_type"],
+          banker: l0Banker.trim() || null,
+        }),
       };
 
       const res = await fetch(`/api/ai-file-dump/${fileId}/approve`, {
@@ -257,6 +280,11 @@ export function HitlReviewDialog({ fileId, open, onClose, onApproved }: Props) {
         body: JSON.stringify(body),
       });
       const result = await res.json();
+
+      if (res.status === 422 && result.missingFields) {
+        setMissingFields(result.missingFields);
+        return;
+      }
       if (!result.success) throw new Error(result.error);
 
       toast.success("File approved successfully");
@@ -348,13 +376,80 @@ export function HitlReviewDialog({ fileId, open, onClose, onApproved }: Props) {
                     checked={createFromAi}
                     onCheckedChange={(checked) => {
                       setCreateFromAi(!!checked);
-                      if (checked) setMatchedCompanyId(AUTO);
+                      setMissingFields([]);
+                      if (checked) {
+                        setMatchedCompanyId(AUTO);
+                        if (reviewData?.ai.suggested_banker && !l0Banker) {
+                          setL0Banker(reviewData.ai.suggested_banker);
+                        }
+                      }
                     }}
                   />
                   <label htmlFor="create-from-ai" className="text-xs text-muted-foreground cursor-pointer">
                     Create new company from AI data
                   </label>
                 </div>
+
+                {createFromAi && (
+                  <div className="mt-3 rounded-md border border-amber-200 bg-amber-50/50 dark:border-amber-900/50 dark:bg-amber-900/10 p-3 space-y-3">
+                    <p className="text-xs font-medium text-amber-800 dark:text-amber-300">
+                      Required to add to L0
+                    </p>
+                    {missingFields.length > 0 && (
+                      <div className="flex items-start gap-1.5 text-xs text-red-600">
+                        <AlertCircle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+                        <span>Missing: {missingFields.join(" · ")}</span>
+                      </div>
+                    )}
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-1.5">
+                          <Label className="text-xs">Entered By</Label>
+                          {user && l0EnteredBy === user.id && (
+                            <span className="text-[10px] text-muted-foreground">· auto-filled</span>
+                          )}
+                        </div>
+                        <Input
+                          className="h-7 text-xs"
+                          placeholder="User ID or name"
+                          value={l0EnteredBy === user?.id ? (user?.name ?? l0EnteredBy) : l0EnteredBy}
+                          readOnly={l0EnteredBy === user?.id}
+                          onChange={(e) => { setL0EnteredBy(e.target.value); setMissingFields([]); }}
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-xs">Deal Type</Label>
+                        <Select
+                          value={l0DealType || "__none__"}
+                          onValueChange={(v) => { setL0DealType(v === "__none__" ? "" : v as "majority" | "minority"); setMissingFields([]); }}
+                        >
+                          <SelectTrigger className="h-7 text-xs">
+                            <SelectValue placeholder="Select…" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="__none__">—</SelectItem>
+                            <SelectItem value="majority">Majority</SelectItem>
+                            <SelectItem value="minority">Minority</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="col-span-2 space-y-1">
+                        <div className="flex items-center gap-1.5">
+                          <Label className="text-xs">Banker / Source</Label>
+                          {l0Banker && reviewData?.ai.suggested_banker && l0Banker === reviewData.ai.suggested_banker && (
+                            <span className="text-[10px] text-muted-foreground">· AI suggested</span>
+                          )}
+                        </div>
+                        <Input
+                          className="h-7 text-xs"
+                          placeholder="e.g. Goldman Sachs"
+                          value={l0Banker}
+                          onChange={(e) => { setL0Banker(e.target.value); setMissingFields([]); }}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                )}
 
                 {/* Identity fields — company name + project name. Surfaced
                     here (not in the metadata table) because they together

@@ -20,7 +20,7 @@ const ADDABLE_STAGES = ["market_screening", "discovered"] as const;
 type AddableStage = (typeof ADDABLE_STAGES)[number];
 const DEFAULT_STAGE: AddableStage = "market_screening";
 
-const DEFAULT_SOURCE = "inbound" as const;
+const DEFAULT_SOURCE = "outbound" as const;
 const ALLOWED_SOURCES = ["inbound", "outbound"] as const;
 
 // Per-stage company_logs action so the activity feed / audit trail can tell how
@@ -139,7 +139,7 @@ Args:
     stage: Intake stage — one of "market_screening" (default) or "discovered". Defaults to "market_screening". L0 is NOT accepted.
     segment: Optional sector/segment classification (e.g. "specialty chemicals").
     geography: Optional country/region (e.g. "Korea", "EU").
-    source: Optional origin tag. One of "inbound" or "outbound"; defaults to "inbound".
+    source: Optional origin tag. One of "inbound" or "outbound"; defaults to "outbound" (AI-discovered companies are outbound by nature).
     note: Optional triage note. Recorded informationally on the action message; not persisted to the row.
 
 Returns:
@@ -165,7 +165,7 @@ Returns:
       source: z
         .enum(ALLOWED_SOURCES)
         .optional()
-        .describe("Origin tag: inbound (default) or outbound"),
+        .describe("Origin tag: outbound (default, AI-discovered) or inbound"),
       note: z
         .string()
         .optional()

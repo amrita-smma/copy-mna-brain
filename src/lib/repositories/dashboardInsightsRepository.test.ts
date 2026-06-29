@@ -2,13 +2,15 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { DashboardInsightsRepository } from './dashboardInsightsRepository';
 
 // Chainable db mock. `.groupBy` is the terminal for grouped queries; `.where`
-// is the terminal for count queries (no orderBy/groupBy after it). Each test
-// sets the resolved value on whichever terminal the method under test awaits.
+// is the terminal for count queries (no orderBy/groupBy after it). `.execute`
+// is the terminal for raw-SQL queries (countNewDeals uses a UNION subquery).
+// Each test sets the resolved value on whichever terminal the method under test awaits.
 const mockDb = {
   select: vi.fn().mockReturnThis(),
   from: vi.fn().mockReturnThis(),
   where: vi.fn().mockReturnThis(),
   groupBy: vi.fn(),
+  execute: vi.fn(),
 };
 
 function resetDb() {
@@ -121,7 +123,7 @@ describe('DashboardInsightsRepository count helpers', () => {
   const TO = new Date('2026-06-22T00:00:00.000Z');
 
   it('countNewDeals returns the numeric count from the row', async () => {
-    mockDb.where.mockResolvedValueOnce([{ value: '45' }]);
+    mockDb.execute.mockResolvedValueOnce([{ count: '45' }]);
     await expect(repo.countNewDeals(FROM, TO)).resolves.toBe(45);
   });
 

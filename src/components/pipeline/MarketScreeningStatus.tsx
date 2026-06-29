@@ -24,7 +24,7 @@ import { Loader2, Settings, Radar, Play, Sparkles, EyeOff, Eye, ChevronUp, Chevr
 import { getTracks, configureMarketScan, type Track } from '@/lib/api/pipeline';
 import { trackDisplayName } from '@/lib/tracks/matchTracks';
 import TrackMultiSelect from '@/components/pipeline/TrackMultiSelect';
-import { waitForJob } from '@/lib/jobs/useJob';
+import { waitForWorkforceRun } from '@/lib/jobs/useJob';
 
 interface MarketScreeningStatusProps {
   onScanComplete: () => void;
@@ -122,19 +122,15 @@ export default function MarketScreeningStatus({ onScanComplete, newCandidatesCou
         throw new Error(data.error || 'Failed to start market screening');
       }
 
-      const job = await waitForJob(data.jobId);
+      const run = await waitForWorkforceRun(data.jobId);
 
-      if (job.status === 'completed') {
-        const result = (job.result ?? {}) as { count?: number; message?: string };
-        if (result.count && result.count > 0) {
-          toast.success(`Found ${result.count} matching companies`);
-        } else {
-          toast.info(result.message || 'No new companies found');
-        }
+      if (run.status === 'succeeded') {
+        const finalMessage = (run.result as { final_message?: string } | null)?.final_message;
+        toast.success(finalMessage || 'Market screening completed');
         fetchTracks();
         onScanComplete();
       } else {
-        throw new Error(job.error || `Market screening ${job.status}`);
+        throw new Error(run.error || `Market screening ${run.status}`);
       }
     } catch (error: any) {
       console.error('Error running scan:', error);

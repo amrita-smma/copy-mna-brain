@@ -19,6 +19,8 @@ import { logger } from "../logger";
  */
 const FILES_API_BETA = "files-api-2025-04-14" as const;
 import { getAllCompanyReferences } from "@/lib/fuzzySearch";
+import { createDb } from "@/lib/server/db";
+import { InvestmentThesisRepository } from "@/lib/repositories";
 import { isGenericDocumentPhrase } from "./genericNameDenylist";
 import {
   applyFxBackfill,
@@ -31,11 +33,25 @@ import {
 
 export type FileTypeOverride = 'mom' | 'prospectus' | 'other' | 'shopping_list' | 'market_study';
 
+type TrackRef = { id: string; title: string | null; content: string | null };
+
+async function getAllInvestmentTracks(): Promise<TrackRef[]> {
+  try {
+    const db = createDb();
+    const repo = new InvestmentThesisRepository(db);
+    const rows = await repo.findAll();
+    return rows.map((r) => ({ id: r.id, title: r.title ?? null, content: r.content ?? null }));
+  } catch {
+    return [];
+  }
+}
+
 const generateSystemPrompt = (
   companies_list: string,
   userRawNotes: string,
   fileTypeOverride?: FileTypeOverride,
   fileName?: string,
+  tracks: TrackRef[] = [],
 ) => `You are a specialized M&A File Processing Assistant. Your task is to analyze raw text extracted from meeting documents (like PPTX slides) and transform it into a highly structured format.
 
 ## Objectives:
@@ -49,9 +65,14 @@ const generateSystemPrompt = (
 8. **Extract Prospectus Summary**: If the file type is "prospectus", extract a detailed summary of the prospectus.
 9. **Extract Banker Communications**: If the file type is "banker_communications", extract all email communications with their participants.
 10. **Extract Financial Statement Summary**: If the file type is "financial_statement", extract the company name and financial figures.
+11. **Match Investment Tracks**: If any investment tracks are listed below, decide which (if any) the deal target genuinely fits. Return an empty array if not confident.
 
 ## Known Companies:
 ${companies_list}
+${tracks.length > 0 ? `
+## Investment Tracks (Theses):
+${tracks.map((t) => `- id: ${t.id}\n  name: ${t.title ?? ''}\n  thesis: ${t.content ?? ''}`).join('\n')}
+` : ''}
 ${
   fileName
     ? `
@@ -121,6 +142,7 @@ Your response should end with a JSON block in this format:
      { "company_name": "Acme Corp", "note": "Target price discussion..." }
   ],
   "file_date": "2024-01-30",
+  "suggested_track_ids": ["<track-id>"],
   "communications": [
     {
       "from_email": "john.banker@example.com",
@@ -160,6 +182,7 @@ Your response should end with a JSON block in this format:
     "ownership": "...",
     "geography": "country name",
     "remarks": "...",
+    "banker": "Name of the investment bank or financial advisor that prepared or is presenting this document (e.g. 'Goldman Sachs', 'Morgan Stanley'). Only populate when explicitly stated and you are confident — null if unclear or low confidence.",
     "financials": [
       {
         "fiscal_year": 2023,
@@ -213,7 +236,13 @@ Your response should end with a JSON block in this format:
 - \`financials\` and \`fx_adjustments\` follow the exact same rules as \`prospectus_summary.financials\` and \`fx_adjustments\` above.
 - Omit \`financial_statement_summary\` entirely (or set to null) for all other file types.
 
-Always prioritize accuracy. Only list a company in 'companies_detected' if you are sure it matches one in the provided known list.`;
+Always prioritize accuracy. Only list a company in 'companies_detected' if you are sure it matches one in the provided known list.
+
+## Investment Track Matching Rules:
+- \`suggested_track_ids\` must be an array of track IDs from the "Investment Tracks" list above.
+- Only include a track if the deal target's sector, geography, and profile genuinely match the track thesis.
+- Return an empty array \`[]\` if no tracks fit or you are not confident. Never force a match.
+- If no "Investment Tracks" are listed, always return \`[]\`.`;
 
 /**
  * Stream the agent and return the messages from the final state.
@@ -257,9 +286,12 @@ export async function processFileContent(
   }
 
   const refsStart = Date.now();
-  const allReferences = await getAllCompanyReferences();
+  const [allReferences, tracks] = await Promise.all([
+    getAllCompanyReferences(),
+    getAllInvestmentTracks(),
+  ]);
   const allNames = allReferences.map(r => r.name).join(", ");
-  logger.info(`⏱️  Loaded ${allReferences.length} company references in ${Date.now() - refsStart}ms`);
+  logger.info(`⏱️  Loaded ${allReferences.length} company references + ${tracks.length} tracks in ${Date.now() - refsStart}ms`);
 
   const llm = new ChatAnthropic({
     model: "claude-sonnet-4-6",
@@ -274,7 +306,7 @@ export async function processFileContent(
   const agent = createAgent({
     model: llm,
     tools: [],
-    systemPrompt: generateSystemPrompt(allNames, userRawNotes, fileTypeOverride, fileName),
+    systemPrompt: generateSystemPrompt(allNames, userRawNotes, fileTypeOverride, fileName, tracks),
   });
 
   const fileNamePrefix = fileName ? `Filename: ${fileName}\n\n` : '';

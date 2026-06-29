@@ -178,7 +178,7 @@ export type WatchlistStatus = 'Active' | 'Inactive' | 'Pending' | 'Removed';
 // ============================================
 // Pipeline Stage Enum (matches DB pipeline_stage enum)
 // ============================================
-export type DealStage = 'market_screening' | 'L0' | 'L1' | 'L2' | 'L3' | 'L4' | 'L5' | 'discovered';
+export type DealStage = 'market_screening' | 'unreviewed' | 'L0' | 'L1' | 'L2' | 'L3' | 'L4' | 'L5' | 'discovered';
 
 // ============================================
 // Company status / source enums (match DB enums)

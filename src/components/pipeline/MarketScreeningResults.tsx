@@ -2,7 +2,13 @@ import { useState, useEffect, useMemo } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Checkbox } from '@/components/ui/checkbox';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import {
   Table,
   TableBody,
@@ -12,15 +18,17 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { toast } from 'sonner';
-import { Loader2, Plus, Zap, Target, Sparkles, Trash2, ArrowUpDown, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, Eye, EyeOff } from 'lucide-react';
+import { Loader2, Zap, Target, Sparkles, Trash2, ArrowUpDown, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, Eye, EyeOff, MoreVertical, ArrowRight, Pencil } from 'lucide-react';
 import CompanyDetailDialog from './CompanyDetailDialog';
+import PromoteDialog from './PromoteDialog';
 import { AskAIButton } from '@/components/chat/AskAIButton';
 import { useChatContext } from '@/components/chat/ChatProvider';
 import { cn } from '@/lib/utils';
 import { companyDisplayName } from '@/lib/companyDisplay';
 import { DealStage } from '@/lib/types';
-import { bulkUpdateCompanies, deleteCompanyById, getCompanies, getFavoriteCompanies } from '@/lib/api/pipeline';
+import { deleteCompanyById, getCompanies, getFavoriteCompanies } from '@/lib/api/pipeline';
 import { useAuth } from '@/hooks/useAuth';
+import type { TrackLike } from '@/lib/tracks/matchTracks';
 
 interface MarketScreeningResult {
   id: string;
@@ -66,6 +74,22 @@ interface MarketScreeningResult {
   ebitda_margin_2023: number | null;
   ebitda_margin_2024: number | null;
   source: string | null;
+
+  // Pipeline edit fields (returned by the company DTO, edited via CompanyDetailDialog)
+  deal_type: string | null;
+  entered_by: string | null;
+  entered_by_name: string | null;
+  last_activity_at: string | null;
+  banker: string | null;
+  doc_type: string | null;
+  stake: string | null;
+  deal_size: string | null;
+  workflow_status: string | null;
+  key_rationale: string | null;
+  deal_sponsor: string | null;
+  deal_captain: string | null;
+  matched_track_ids?: string[] | null;
+
   financials_raw?: import('@/lib/repositories').Tables<'company_financials'>[];
 }
 
@@ -74,13 +98,27 @@ interface MarketScreeningResultsProps {
   onAddedToPipeline: () => void;
   collapsed?: boolean;
   onToggleCollapse?: () => void;
+  tracks?: TrackLike[];
 }
 
-const formatCurrency = (value: number | null) => {
+const formatCurrency = (value: number | null | undefined) => {
   if (value === null || value === undefined) return '-';
-  // Values are stored in millions, convert to billions for display
-  const billions = value / 1000;
-  return `$${billions.toFixed(2)}B`;
+  if (Math.abs(value) >= 1000) return `$${(value / 1000).toFixed(2)}B`;
+  return `$${value.toFixed(2)}M`;
+};
+
+const latestFin = (
+  rows: import('@/lib/repositories').Tables<'company_financials'>[] | undefined,
+  key: 'revenue_usd_mn' | 'ebitda_usd_mn',
+): { value: number | null; year: number | null } => {
+  if (!rows?.length) return { value: null, year: null };
+  let best: { value: number; year: number } | null = null;
+  for (const r of rows) {
+    const v = r[key] as number | null;
+    if (v == null) continue;
+    if (!best || r.fiscal_year > best.year) best = { value: v, year: r.fiscal_year };
+  }
+  return best ?? { value: null, year: null };
 };
 
 const ITEMS_PER_PAGE = 10;
@@ -90,10 +128,11 @@ export default function MarketScreeningResults({ refreshTrigger, onAddedToPipeli
   const { analyzeWithAI } = useChatContext();
   const [results, setResults] = useState<MarketScreeningResult[]>([]);
   const [loading, setLoading] = useState(true);
-  const [adding, setAdding] = useState(false);
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [selectedResult, setSelectedResult] = useState<MarketScreeningResult | null>(null);
   const [detailDialogOpen, setDetailDialogOpen] = useState(false);
+  // When true, the detail dialog opens straight into inline edit mode (Details tab).
+  const [detailInEdit, setDetailInEdit] = useState(false);
+  const [companyToPromote, setCompanyToPromote] = useState<MarketScreeningResult | null>(null);
 
   // Sorting state
   const [sortField, setSortField] = useState<string | null>(null);
@@ -138,54 +177,6 @@ export default function MarketScreeningResults({ refreshTrigger, onAddedToPipeli
     fetchFavorites();
   }, [user?.id]);
 
-  const toggleSelect = (id: string) => {
-    const newSet = new Set(selectedIds);
-    if (newSet.has(id)) {
-      newSet.delete(id);
-    } else {
-      newSet.add(id);
-    }
-    setSelectedIds(newSet);
-  };
-
-  const toggleSelectAll = () => {
-    if (selectedIds.size === results.length && results.length > 0) {
-      setSelectedIds(new Set());
-    } else {
-      setSelectedIds(new Set(results.map(r => r.id)));
-    }
-  };
-
-  const isAllSelected = () => {
-    return results.length > 0 && selectedIds.size === results.length;
-  };
-
-  const addToL0 = async () => {
-    if (selectedIds.size === 0) {
-      toast.error('Please select at least one company');
-      return;
-    }
-
-    setAdding(true);
-    try {
-      await bulkUpdateCompanies(
-        Array.from(selectedIds),
-        { pipeline_stage: 'L0', status: 'active' },
-        'PROMOTED_FROM_MARKET_SCREENING_TO_L0'
-      );
-
-      toast.success(`Added ${selectedIds.size} companies to L0`);
-      setSelectedIds(new Set());
-      fetchResults();
-      onAddedToPipeline();
-    } catch (error: any) {
-      console.error('Error adding to L0:', error);
-      toast.error('Failed to add companies to pipeline');
-    } finally {
-      setAdding(false);
-    }
-  };
-
   const dismissResult = async (id: string) => {
     try {
       await deleteCompanyById(id);
@@ -228,17 +219,13 @@ export default function MarketScreeningResults({ refreshTrigger, onAddedToPipeli
           aVal = (a.segment || '').toLowerCase();
           bVal = (b.segment || '').toLowerCase();
           break;
-        case 'revenue_2023':
-          aVal = a.revenue_2023_usd_mn || 0;
-          bVal = b.revenue_2023_usd_mn || 0;
+        case 'revenue':
+          aVal = latestFin(a.financials_raw, 'revenue_usd_mn').value ?? 0;
+          bVal = latestFin(b.financials_raw, 'revenue_usd_mn').value ?? 0;
           break;
-        case 'revenue_2024':
-          aVal = a.revenue_2024_usd_mn || 0;
-          bVal = b.revenue_2024_usd_mn || 0;
-          break;
-        case 'revenue_2025':
-          aVal = 0;
-          bVal = 0;
+        case 'ebitda':
+          aVal = latestFin(a.financials_raw, 'ebitda_usd_mn').value ?? 0;
+          bVal = latestFin(b.financials_raw, 'ebitda_usd_mn').value ?? 0;
           break;
         case 'valuation':
           aVal = a.ev_2024 || 0;
@@ -300,26 +287,6 @@ export default function MarketScreeningResults({ refreshTrigger, onAddedToPipeli
         </div>
 
         <div className="flex items-center gap-2">
-          {!collapsed && (
-            <Button
-              onClick={addToL0}
-              disabled={adding || selectedIds.size === 0}
-              className="bg-purple-600 hover:bg-purple-700 text-white shadow-md transition-all active:scale-95"
-            >
-              {adding ? (
-                <>
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  Adding...
-                </>
-              ) : (
-                <>
-                  <Plus className="h-4 w-4 mr-2" />
-                  Add to L0 ({selectedIds.size})
-                </>
-              )}
-            </Button>
-          )}
-
           {/* Visibility toggle — always rightmost */}
           {onToggleCollapse && (
             <Button
@@ -397,33 +364,15 @@ export default function MarketScreeningResults({ refreshTrigger, onAddedToPipeli
       <CardContent>
         {!collapsed && (
           <>
-            {/* Select All */}
-            <div className="flex items-center gap-2 mb-4">
-              <Checkbox
-                checked={isAllSelected()}
-                onCheckedChange={toggleSelectAll}
-                id="select-all-results"
-              />
-              <label htmlFor="select-all-results" className="text-sm font-medium cursor-pointer">
-                Select All
-              </label>
-            </div>
-
             <div className="overflow-x-auto">
               <Table>
                 <TableHeader>
                   <TableRow className="hover:bg-transparent">
                     <TableHead className="w-[40px]"></TableHead>
-                    <TableHead className="w-[50px]">Select</TableHead>
                     <TableHead><SortButton field="target" label="Company" /></TableHead>
                     <TableHead><SortButton field="segment" label="Sector" /></TableHead>
-                    <TableHead>Deal Sponsor</TableHead>
-                    <TableHead className="text-right"><SortButton field="revenue_2023" label="Rev 2023" align="right" /></TableHead>
-                    <TableHead className="text-right"><SortButton field="revenue_2024" label="Rev 2024" align="right" /></TableHead>
-                    <TableHead className="text-right"><SortButton field="revenue_2025" label="Rev 2025" align="right" /></TableHead>
-                    <TableHead className="text-right">EBITDA 2023</TableHead>
-                    <TableHead className="text-right">EBITDA 2024</TableHead>
-                    <TableHead className="text-right">EBITDA 2025</TableHead>
+                    <TableHead className="text-right"><SortButton field="revenue" label="Revenue" align="right" /></TableHead>
+                    <TableHead className="text-right"><SortButton field="ebitda" label="EBITDA" align="right" /></TableHead>
                     <TableHead className="text-right"><SortButton field="valuation" label="Valuation" align="right" /></TableHead>
                     <TableHead className="text-right">Actions</TableHead>
                   </TableRow>
@@ -454,15 +403,10 @@ export default function MarketScreeningResults({ refreshTrigger, onAddedToPipeli
                           />
                         </TableCell>
                         <TableCell>
-                          <Checkbox
-                            checked={selectedIds.has(result.id)}
-                            onCheckedChange={() => toggleSelect(result.id)}
-                          />
-                        </TableCell>
-                        <TableCell>
                           <div className="flex flex-col">
                             <button
                               onClick={() => {
+                                setDetailInEdit(false);
                                 setSelectedResult(result);
                                 setDetailDialogOpen(true);
                               }}
@@ -475,39 +419,67 @@ export default function MarketScreeningResults({ refreshTrigger, onAddedToPipeli
                         <TableCell>
                           <span className="text-muted-foreground">{result.segment || 'Unknown'}</span>
                         </TableCell>
-                        <TableCell>
-                          <span className="text-muted-foreground">-</span>
+                        <TableCell className="text-right font-mono text-xs">
+                          {(() => {
+                            const rev = latestFin(result.financials_raw, 'revenue_usd_mn');
+                            return rev.value === null ? (
+                              <span className="text-muted-foreground">—</span>
+                            ) : (
+                              <>
+                                <div className="font-medium">{formatCurrency(rev.value)}</div>
+                                {rev.year && <div className="text-[10px] text-muted-foreground">{rev.year}</div>}
+                              </>
+                            );
+                          })()}
                         </TableCell>
                         <TableCell className="text-right font-mono text-xs">
-                          {formatCurrency(result.revenue_2023_usd_mn)}
-                        </TableCell>
-                        <TableCell className="text-right font-mono text-xs">
-                          {formatCurrency(result.revenue_2024_usd_mn)}
-                        </TableCell>
-                        <TableCell className="text-right font-mono text-xs">
-                          {formatCurrency(null)}
-                        </TableCell>
-                        <TableCell className="text-right font-mono text-xs">
-                          {formatCurrency(result.ebitda_2023_usd_mn)}
-                        </TableCell>
-                        <TableCell className="text-right font-mono text-xs">
-                          {formatCurrency(result.ebitda_2024_usd_mn)}
-                        </TableCell>
-                        <TableCell className="text-right font-mono text-xs">
-                          {formatCurrency(null)}
+                          {(() => {
+                            const ebitda = latestFin(result.financials_raw, 'ebitda_usd_mn');
+                            return ebitda.value === null ? (
+                              <span className="text-muted-foreground">—</span>
+                            ) : (
+                              <>
+                                <div className="font-medium">{formatCurrency(ebitda.value)}</div>
+                                {ebitda.year && <div className="text-[10px] text-muted-foreground">{ebitda.year}</div>}
+                              </>
+                            );
+                          })()}
                         </TableCell>
                         <TableCell className="text-right font-mono text-xs font-medium text-foreground">
                           {formatCurrency(result.ev_2024)}
                         </TableCell>
                         <TableCell className="text-right">
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => dismissResult(result.id)}
-                            className="text-muted-foreground hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/20 h-8 w-8 p-0"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button variant="ghost" size="icon" className="h-7 w-7">
+                                <MoreVertical className="h-4 w-4" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                              <DropdownMenuItem onClick={() => setCompanyToPromote(result)}>
+                                <ArrowRight className="mr-2 h-4 w-4" />
+                                Add to L0
+                              </DropdownMenuItem>
+                              <DropdownMenuItem
+                                onClick={() => {
+                                  setDetailInEdit(true);
+                                  setSelectedResult(result);
+                                  setDetailDialogOpen(true);
+                                }}
+                              >
+                                <Pencil className="mr-2 h-4 w-4" />
+                                Edit
+                              </DropdownMenuItem>
+                              <DropdownMenuSeparator />
+                              <DropdownMenuItem
+                                onClick={() => dismissResult(result.id)}
+                                className="text-destructive focus:text-destructive"
+                              >
+                                <Trash2 className="mr-2 h-4 w-4 text-destructive" />
+                                Delete
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
                         </TableCell>
                       </TableRow>
                     );
@@ -551,6 +523,7 @@ export default function MarketScreeningResults({ refreshTrigger, onAddedToPipeli
                 company={{
                   id: selectedResult.id,
                   target: selectedResult.target,
+                  project_name: selectedResult.project_name ?? null,
                   segment: selectedResult.segment,
                   website: selectedResult.website ?? null,
                   watchlist_status: null,
@@ -575,16 +548,53 @@ export default function MarketScreeningResults({ refreshTrigger, onAddedToPipeli
                   promoted_reasons: null,
                   ownership: selectedResult.ownership,
                   geography: selectedResult.geography,
+                  // Pipeline edit fields — must be passed through so the inline
+                  // editor doesn't blank them on save (it reads from this prop).
+                  deal_type: selectedResult.deal_type ?? null,
+                  entered_by: selectedResult.entered_by ?? null,
+                  entered_by_name: selectedResult.entered_by_name ?? null,
+                  last_activity_at: selectedResult.last_activity_at ?? null,
+                  banker: selectedResult.banker ?? null,
+                  doc_type: selectedResult.doc_type ?? null,
+                  stake: selectedResult.stake ?? null,
+                  deal_size: selectedResult.deal_size ?? null,
+                  workflow_status: selectedResult.workflow_status ?? null,
+                  key_rationale: selectedResult.key_rationale ?? null,
+                  deal_sponsor: selectedResult.deal_sponsor ?? null,
+                  deal_captain: selectedResult.deal_captain ?? null,
+                  matched_track_ids: selectedResult.matched_track_ids ?? null,
                   financials_raw: selectedResult.financials_raw,
                 }}
                 open={detailDialogOpen}
-                onOpenChange={setDetailDialogOpen}
+                onOpenChange={(open) => {
+                  setDetailDialogOpen(open);
+                  if (!open) setDetailInEdit(false);
+                }}
                 onUpdate={() => fetchResults({ silent: true })}
+                initialTab={detailInEdit ? 'details' : 'overview'}
+                initialEditing={detailInEdit}
               />
             )}
           </>
         )}
       </CardContent>
+
+      {companyToPromote && (
+        <PromoteDialog
+          open={!!companyToPromote}
+          onOpenChange={(open) => { if (!open) setCompanyToPromote(null); }}
+          dealId={companyToPromote.id}
+          companyName={companyDisplayName(companyToPromote, 'this company')}
+          currentStage={companyToPromote.pipeline_stage as DealStage}
+          nextStage="L0"
+          onSuccess={() => {
+            setCompanyToPromote(null);
+            fetchResults({ silent: true });
+            onAddedToPipeline();
+          }}
+        />
+      )}
+
     </Card>
   );
 }

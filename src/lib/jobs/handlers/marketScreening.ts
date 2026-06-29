@@ -228,8 +228,7 @@ Find ${sourcesCount} companies. Return ONLY the JSON object, no other text. Use 
     });
   }
 
-  const posthog = getPostHogClient();
-  posthog.capture({
+  getPostHogClient()?.capture({
     distinctId: 'server',
     event: 'market_screening_completed',
     properties: {

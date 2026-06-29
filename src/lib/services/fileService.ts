@@ -26,7 +26,7 @@ import {
 import type { CompanyAnalysisService } from './companyAnalysisService';
 import type { AIScreeningService } from './aiScreeningService';
 import type { CRMService } from './crmService';
-import { CompanyService } from './companyService';
+import { CompanyL0RequirementsError, CompanyService } from './companyService';
 import type { TrackMatchingService } from './trackMatchingService';
 
 /**
@@ -61,6 +61,10 @@ export interface ApproveFileInput {
    * to apply explicitly so existing rows aren't accidentally overwritten.
    */
   financial_years_to_apply?: number[];
+  /** Required L0 fields supplied by the user when creating a company from AI. */
+  entered_by?: string | null;
+  deal_type?: 'majority' | 'minority' | null;
+  banker?: string | null;
 }
 
 type ProspectusSummary = {
@@ -75,6 +79,7 @@ type ProspectusSummary = {
   ownership?: string | null;
   geography?: string | null;
   remarks?: string | null;
+  banker?: string | null;
   financials?: Array<{
     fiscal_year: number;
     revenue_usd_mn: number | null;
@@ -127,6 +132,7 @@ export class FileService {
     // Passed to transaction-scoped CompanyService instances so AI File Dump
     // inbound companies entering L0 also trigger agent-driven track matching.
     private readonly trackMatchingService?: TrackMatchingService,
+    private readonly userRepo?: import('@/lib/repositories').UserRepository,
   ) {}
 
   setCRMService(crmService: CRMService) {
@@ -155,6 +161,11 @@ export class FileService {
     fileTypeOverride?: FileTypeOverride,
     originEmail?: boolean,
     bankerSource?: string,
+    /** For the MBOX email pipeline: the custodian's email address. Resolved
+     *  to a user UUID via UserRepository.findByEmail. */
+    enteredByEmail?: string,
+    /** For manual AFD uploads: the authenticated session user's UUID. */
+    uploaderUserId?: string | null,
   ) {
     const buffer = await downloadFile(key);
     const fileType = contentType || 'application/octet-stream';
@@ -204,9 +215,11 @@ export class FileService {
           matched_companies = await this.mergeEmailOriginAttachmentCompany({
             matchedCompanies: matched_companies,
             summary,
+            parsedNotes: structuredResult as Record<string, unknown>,
             effectiveFileType,
             companySource: 'inbound',
             bankerSource,
+            enteredByEmail,
             fileId: initialData.id,
           });
         } catch (err) {
@@ -339,6 +352,7 @@ export class FileService {
               remarks: summary.remarks ?? null,
             }
           : null,
+        suggested_banker: summary?.banker?.trim() || null,
         financials: summary?.financials ?? [],
         fx_adjustments: summary?.fx_adjustments ?? [],
       },
@@ -365,6 +379,20 @@ export class FileService {
       const safeProjectName = summary.project_name && !isGenericDocumentPhrase(summary.project_name)
         ? summary.project_name : null;
       if (safeTarget || safeProjectName) {
+        // Run L0 requirements check via the shared static method — same rules
+        // as the triage promote flow. Throws if any required fields are missing.
+        const missing = CompanyService.checkL0Requirements({
+          target: safeTarget,
+          project_name: safeProjectName,
+          entered_by: input.entered_by,
+          source: 'inbound',
+          deal_type: input.deal_type,
+          geography: summary.geography,
+          segment: summary.segment,
+          banker: input.banker,
+        });
+        if (missing.length > 0) throw new CompanyL0RequirementsError(missing);
+
         const insertData: TablesInsert<'companies'> = {
           pipeline_stage: 'L0',
           target: safeTarget,
@@ -380,7 +408,10 @@ export class FileService {
           geography: summary.geography ?? null,
           remarks: summary.remarks ?? null,
           source: 'inbound',
-          entered_by: enteredBy ?? null,
+          entered_by: input.entered_by ?? null,
+          deal_type: input.deal_type ?? null,
+          banker: input.banker ?? null,
+          matched_track_ids: this.extractSuggestedTrackIds(parsedNotes),
         };
         const created = await this.companyService.createFromDTO(
           insertData as Parameters<typeof this.companyService.createFromDTO>[0],
@@ -590,11 +621,20 @@ export class FileService {
   private async mergeEmailOriginAttachmentCompany(opts: {
     matchedCompanies: unknown[];
     summary: ProspectusSummary | undefined;
+    parsedNotes?: Record<string, unknown>;
     effectiveFileType: string;
     companySource: 'inbound' | 'outbound';
     bankerSource?: string;
+    enteredByEmail?: string;
     fileId: string;
   }): Promise<unknown[]> {
+    // Resolve custodian email → user UUID once, outside the per-company lock.
+    let resolvedEnteredBy: string | null = null;
+    if (opts.enteredByEmail && this.userRepo) {
+      const user = await this.userRepo.findByEmail(opts.enteredByEmail);
+      resolvedEnteredBy = user?.id ?? null;
+    }
+
     const identityName = this.emailAttachmentCompanyIdentityName(opts.summary);
     return this.withEmailAttachmentCompanyLock(identityName, async (companyService) => {
       const matchedCompany = (opts.matchedCompanies as Array<{ id?: string; type?: string }>)
@@ -630,10 +670,10 @@ export class FileService {
       }
 
       const created = await companyService.createFromDTO({
-        pipeline_stage: 'L0',
+        pipeline_stage: 'unreviewed',
         status: 'active',
-        review_state: 'unreviewed',
-        entered_by: AI_EMAIL_SCANNING_ENTERED_BY,
+        entered_by: resolvedEnteredBy,
+        matched_track_ids: this.extractSuggestedTrackIds(opts.parsedNotes),
         ...this.buildEmailAttachmentCompanyMergeInput(
           opts.summary,
           opts.effectiveFileType,
@@ -646,6 +686,12 @@ export class FileService {
       // the update branch rather than creating a duplicate.
       return [this.companyMatchPayload(created)];
     });
+  }
+
+  private extractSuggestedTrackIds(parsedNotes: Record<string, unknown> | null | undefined): string[] {
+    const ids = (parsedNotes as { suggested_track_ids?: unknown })?.suggested_track_ids;
+    if (!Array.isArray(ids)) return [];
+    return ids.filter((id): id is string => typeof id === 'string' && id.trim().length > 0);
   }
 
   private emailAttachmentCompanyIdentityName(summary: ProspectusSummary | undefined): string | null {

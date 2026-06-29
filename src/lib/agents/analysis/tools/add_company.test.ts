@@ -116,7 +116,7 @@ describe("add_company (workforce tool)", () => {
         target: "NovaSpec Materials",
         segment: "specialty chemicals",
         geography: "Korea",
-        source: "inbound",
+        source: "outbound",
         pipeline_stage: "market_screening",
         status: "active",
       }),
@@ -160,7 +160,7 @@ describe("add_company (workforce tool)", () => {
     );
   });
 
-  it("defaults source to inbound and omits empty optional fields", async () => {
+  it("defaults source to outbound and omits empty optional fields", async () => {
     findByNameFuzzy.mockResolvedValueOnce(null);
     create.mockResolvedValueOnce({ id: "c-new" });
 
@@ -169,7 +169,7 @@ describe("add_company (workforce tool)", () => {
     expect(create).toHaveBeenCalledWith(
       expect.objectContaining({
         target: "Bare Co",
-        source: "inbound",
+        source: "outbound",
         pipeline_stage: "market_screening",
         status: "active",
       }),

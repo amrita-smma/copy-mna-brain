@@ -82,6 +82,7 @@ interface CompanyWithDeal {
 
 const stageLabels: Record<DealStage | 'Acquired', string> = {
   market_screening: 'Market Screening',
+  unreviewed: 'Unreviewed',
   L0: 'Sourcing',
   L1: 'Screening',
   L2: 'Initial Review',
@@ -94,6 +95,7 @@ const stageLabels: Record<DealStage | 'Acquired', string> = {
 
 const stageColors: Record<DealStage | 'Acquired', string> = {
   market_screening: 'bg-purple-500',
+  unreviewed: 'bg-amber-500',
   L0: 'bg-stage-l0',
   L1: 'bg-stage-l1',
   L2: 'bg-stage-l2',
