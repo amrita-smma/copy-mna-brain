@@ -87,6 +87,23 @@ const fmtMoney = (value: number | null | undefined): string => {
   return `$${value.toFixed(1)}M`;
 };
 
+/** EBITDA margin = EBITDA / Revenue, shown as a percentage. */
+const fmtMargin = (
+  ebitda: number | null | undefined,
+  revenue: number | null | undefined,
+): string => {
+  if (
+    ebitda === null ||
+    ebitda === undefined ||
+    revenue === null ||
+    revenue === undefined ||
+    revenue === 0
+  ) {
+    return "—";
+  }
+  return `${((ebitda / revenue) * 100).toFixed(1)}%`;
+};
+
 function buildFinancials(company: OverviewSlideCompany): {
   year: number;
   revenue: number | null;
@@ -431,6 +448,19 @@ export default function CompanyOverviewSlide({
                     {financials.map((f) => (
                       <td key={f.year} className="border border-border px-2 py-1 text-right">
                         {fmtMoney(f.ebitda)}
+                      </td>
+                    ))}
+                  </tr>
+                  <tr>
+                    <td className="border border-border px-2 py-1 pl-4 italic text-muted-foreground">
+                      EBITDA margin
+                    </td>
+                    {financials.map((f) => (
+                      <td
+                        key={f.year}
+                        className="border border-border px-2 py-1 text-right italic text-muted-foreground"
+                      >
+                        {fmtMargin(f.ebitda, f.revenue)}
                       </td>
                     ))}
                   </tr>
