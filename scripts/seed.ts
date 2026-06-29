@@ -1421,15 +1421,23 @@ async function main() {
     await db
       .delete(investmentThesis)
       .where(eq(investmentThesis.title, seedThesis.title));
-    await db.insert(investmentThesis).values(seedThesis);
+    const [insertedThesis] = await db
+      .insert(investmentThesis)
+      .values(seedThesis)
+      .returning({ id: investmentThesis.id });
     console.log(`  ✓ investment_thesis "${seedThesis.title}"`);
 
-    // Criterias — three seed criterias, identified by name.
+    // Criterias — three seed criterias (owned by the seed Track), by name.
     const seedCriteriaNames = seedCriterias.map((c) => c.name);
     await db
       .delete(criterias)
       .where(inArray(criterias.name, seedCriteriaNames));
-    await db.insert(criterias).values(seedCriterias);
+    await db.insert(criterias).values(
+      seedCriterias.map((c) => ({
+        ...c,
+        investment_thesis_id: insertedThesis.id,
+      })),
+    );
     console.log(`  ✓ ${seedCriterias.length} criterias`);
 
     // CRM seed — one employer per unique company name + one correspondent per

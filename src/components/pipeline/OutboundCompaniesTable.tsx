@@ -297,6 +297,9 @@ export default function OutboundCompaniesTable({
             ? "bg-amber-50 group-hover:bg-amber-100 dark:bg-amber-950 dark:group-hover:bg-amber-900"
             : "bg-card group-hover:bg-muted";
           const isUpdating = updatingCompanyIds.has(company.id);
+          // AI screening runs against a company's matched tracks; with none
+          // matched there is nothing to screen, so the action is disabled.
+          const hasMatchedTracks = resolveTrackIds(company, tracks).length > 0;
           const displayName = companyDisplayName(company, "this company");
           const displayTitle = companyDisplayTitle(company, "");
           return (
@@ -480,7 +483,13 @@ export default function OutboundCompaniesTable({
                               </DropdownMenuItem>
                             ) : (
                               <DropdownMenuItem
+                                disabled={!hasMatchedTracks}
                                 onClick={() => onRunScreening(company)}
+                                title={
+                                  hasMatchedTracks
+                                    ? undefined
+                                    : "No matched tracks to screen against"
+                                }
                               >
                                 <Sparkles className="mr-2 h-4 w-4 text-purple-600" />
                                 Run AI Screening

@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
 import { Loader2, Plus, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -20,10 +21,13 @@ import {
   saveTrack,
   deleteTrack,
   getUsers,
+  getCriterias,
   type Track,
   type UserSummary,
+  type Criteria,
 } from "@/lib/api/pipeline";
 import StatusCombobox from "@/components/pipeline/StatusCombobox";
+import ScreeningCriteriaManager from "@/components/pipeline/ScreeningCriteriaManager";
 import { trackDisplayName } from "@/lib/tracks/matchTracks";
 
 interface WorkingTrack {
@@ -66,6 +70,7 @@ export default function TrackSettingsDialog({
   const [saving, setSaving] = useState(false);
   const [tempCounter, setTempCounter] = useState(0);
   const [users, setUsers] = useState<UserSummary[]>([]);
+  const [criterias, setCriterias] = useState<Criteria[]>([]);
 
   // Load team members once, to suggest PIC values.
   useEffect(() => {
@@ -74,6 +79,14 @@ export default function TrackSettingsDialog({
       .then(setUsers)
       .catch((err) => console.error("Failed to load users:", err));
   }, [open, users.length]);
+
+  // Load all screening criteria once; the manager filters to the active track.
+  useEffect(() => {
+    if (!open || criterias.length > 0) return;
+    getCriterias()
+      .then(setCriterias)
+      .catch((err) => console.error("Failed to load criterias:", err));
+  }, [open, criterias.length]);
 
   useEffect(() => {
     if (!open) return;
@@ -109,20 +122,19 @@ export default function TrackSettingsDialog({
     setActiveId(id);
   };
 
-  const removeActive = async () => {
-    if (!active) return;
+  const removeTrack = async (track: WorkingTrack) => {
     if (
       !window.confirm(
-        `Delete track "${trackDisplayName({ ...active })}"? This can't be undone.`,
+        `Delete track "${trackDisplayName({ ...track })}"? This can't be undone.`,
       )
     )
       return;
     try {
-      if (!active.isNew) await deleteTrack(active.id);
-      const next = tracks.filter((t) => t.id !== active.id);
+      if (!track.isNew) await deleteTrack(track.id);
+      const next = tracks.filter((t) => t.id !== track.id);
       setTracks(next);
-      setActiveId(next[0]?.id ?? null);
-      if (!active.isNew) toast.success("Track deleted");
+      if (activeId === track.id) setActiveId(next[0]?.id ?? null);
+      if (!track.isNew) toast.success("Track deleted");
     } catch (err: any) {
       console.error("Failed to delete track:", err);
       toast.error(`Failed to delete: ${err.message || "Unknown error"}`);
@@ -177,7 +189,7 @@ export default function TrackSettingsDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-3xl p-0 gap-0 overflow-hidden">
+      <DialogContent className="max-w-[80vw] p-0 gap-0 overflow-hidden">
         <DialogHeader className="px-6 pt-5 pb-4 border-b">
           <DialogTitle>Track Settings</DialogTitle>
           <DialogDescription>
@@ -186,7 +198,7 @@ export default function TrackSettingsDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="flex min-h-[360px] max-h-[60vh]">
+        <div className="flex h-[60vh]">
           {/* Track list */}
           <aside className="w-56 shrink-0 border-r bg-muted/30 flex flex-col">
             <div className="px-3 pt-3 pb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
@@ -203,29 +215,49 @@ export default function TrackSettingsDialog({
                 </p>
               ) : (
                 tracks.map((t) => (
-                  <button
+                  <div
                     key={t.id}
-                    type="button"
-                    onClick={() => setActiveId(t.id)}
                     className={cn(
-                      "w-full text-left rounded-md px-2.5 py-2 border transition-colors",
+                      "group flex items-center gap-1 rounded-md border transition-colors",
                       t.id === activeId
-                        ? "bg-muted border-border"
-                        : "border-transparent hover:bg-background",
+                        ? "bg-purple-300 border-purple-300 shadow-sm"
+                        : "border-transparent hover:bg-purple-100",
                     )}
                   >
-                    <div
-                      className={cn(
-                        "text-xs font-semibold truncate",
-                        t.id === activeId && "text-foreground",
-                      )}
+                    <button
+                      type="button"
+                      onClick={() => setActiveId(t.id)}
+                      className="min-w-0 flex-1 text-left px-2.5 py-2"
                     >
-                      {t.title.trim() || "Untitled track"}
-                    </div>
-                    <div className="text-[10.5px] text-muted-foreground truncate">
-                      {summary(t.content)}
-                    </div>
-                  </button>
+                      <div
+                        className={cn(
+                          "text-xs font-semibold truncate",
+                          t.id === activeId && "text-purple-950",
+                        )}
+                      >
+                        {t.title.trim() || "Untitled track"}
+                      </div>
+                      <div
+                        className={cn(
+                          "text-[10.5px] truncate",
+                          t.id === activeId
+                            ? "text-purple-800"
+                            : "text-muted-foreground",
+                        )}
+                      >
+                        {summary(t.content)}
+                      </div>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => removeTrack(t)}
+                      disabled={saving}
+                      aria-label={`Delete ${t.title.trim() || "track"}`}
+                      className="shrink-0 mr-1.5 rounded p-1 text-muted-foreground opacity-0 transition-opacity hover:bg-red-50 hover:text-red-600 focus:opacity-100 group-hover:opacity-100"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
                 ))
               )}
             </div>
@@ -270,18 +302,49 @@ export default function TrackSettingsDialog({
                     disabled={saving}
                   />
                 </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="track-thesis">Investment Thesis</Label>
-                  <Textarea
-                    id="track-thesis"
-                    value={active.content}
-                    onChange={(e) => patchActive({ content: e.target.value })}
-                    rows={10}
-                    placeholder="Describe the investment thesis — target sectors, geographies, deal characteristics…"
-                    className="resize-y"
-                    disabled={saving}
-                  />
-                </div>
+                <Tabs defaultValue="thesis" className="w-full">
+                  <TabsList className="h-auto gap-1 rounded-full bg-purple-100 p-1">
+                    <TabsTrigger
+                      value="thesis"
+                      className="rounded-full text-purple-700 hover:text-purple-900 data-[state=active]:bg-purple-300 data-[state=active]:text-purple-950 data-[state=active]:shadow-sm"
+                    >
+                      Investment Thesis
+                    </TabsTrigger>
+                    <TabsTrigger
+                      value="criteria"
+                      className="rounded-full text-purple-700 hover:text-purple-900 data-[state=active]:bg-purple-300 data-[state=active]:text-purple-950 data-[state=active]:shadow-sm"
+                    >
+                      AI Screening Criteria
+                    </TabsTrigger>
+                  </TabsList>
+
+                  <TabsContent value="thesis" className="mt-4">
+                    <Textarea
+                      id="track-thesis"
+                      value={active.content}
+                      onChange={(e) => patchActive({ content: e.target.value })}
+                      rows={12}
+                      placeholder="Describe the investment thesis — target sectors, geographies, deal characteristics…"
+                      className="resize-none overflow-y-auto"
+                      disabled={saving}
+                    />
+                  </TabsContent>
+
+                  <TabsContent value="criteria" className="mt-4">
+                    {active.isNew ? (
+                      <p className="text-sm text-muted-foreground">
+                        Save this track first to add screening criteria to it.
+                      </p>
+                    ) : (
+                      <ScreeningCriteriaManager
+                        thesisId={active.id}
+                        criterias={criterias}
+                        onChange={setCriterias}
+                        disabled={saving}
+                      />
+                    )}
+                  </TabsContent>
+                </Tabs>
               </>
             ) : (
               <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
@@ -291,31 +354,19 @@ export default function TrackSettingsDialog({
           </div>
         </div>
 
-        <div className="flex items-center justify-between gap-2 px-6 py-3.5 border-t">
+        <div className="flex items-center justify-end gap-2 px-6 py-3.5 border-t">
           <Button
             type="button"
             variant="outline"
-            onClick={removeActive}
-            disabled={!active || saving}
-            className="text-red-600 border-red-200 hover:bg-red-50 hover:text-red-700"
+            onClick={() => onOpenChange(false)}
+            disabled={saving}
           >
-            <Trash2 className="h-4 w-4 mr-1.5" />
-            Delete track
+            Cancel
           </Button>
-          <div className="flex gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => onOpenChange(false)}
-              disabled={saving}
-            >
-              Cancel
-            </Button>
-            <Button type="button" onClick={handleSave} disabled={saving}>
-              {saving && <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />}
-              Save Settings
-            </Button>
-          </div>
+          <Button type="button" onClick={handleSave} disabled={saving}>
+            {saving && <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />}
+            Save Tracks
+          </Button>
         </div>
       </DialogContent>
     </Dialog>

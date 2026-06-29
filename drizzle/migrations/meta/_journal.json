@@ -512,6 +512,20 @@
       "when": 1782432000000,
       "tag": "20260626000000_add_companies_deal_leads",
       "breakpoints": true
+    },
+    {
+      "idx": 73,
+      "version": "7",
+      "when": 1782432000000,
+      "tag": "20260626000000_add_criterias_investment_thesis_id",
+      "breakpoints": true
+    },
+    {
+      "idx": 74,
+      "version": "7",
+      "when": 1782432001000,
+      "tag": "20260626000001_add_screenings_track_id",
+      "breakpoints": true
     }
   ]
 }

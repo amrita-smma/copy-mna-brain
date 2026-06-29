@@ -27,6 +27,7 @@ interface Screening {
   id: string;
   company_id: string;
   criteria_id: string;
+  track_id: string | null;
   state: 'pending' | 'completed' | 'failed';
   result: string | null;
   remarks: string | null;
@@ -40,11 +41,18 @@ interface Screening {
   criterias?: {
     name: string;
   };
+  track?: {
+    id: string;
+    title: string | null;
+  } | null;
 }
 
 interface CompanyScreeningSummary {
+  /** Stable per-(company, track) group key. */
+  key: string;
   company_id: string;
   company_name: string;
+  track_name: string | null;
   total_criteria: number;
   completed_criteria: number;
   passed_criteria: number;
@@ -102,7 +110,8 @@ export default function ScreeningProgressPanel({
     return () => clearInterval(interval);
   }, []);
 
-  // Group screenings by company
+  // Group screenings by (company, track): a company matched to N tracks shows N
+  // entries, one per track, each with its own criteria progress.
   const groupByCompany = (screenings: Screening[]): CompanyScreeningSummary[] => {
     const grouped = new Map<string, CompanyScreeningSummary>();
 
@@ -114,11 +123,14 @@ export default function ScreeningProgressPanel({
         target && projectName
           ? `${target} — ${projectName}`
           : target || projectName || 'Unknown';
+      const key = `${companyId}::${s.track_id ?? 'none'}`;
 
-      if (!grouped.has(companyId)) {
-        grouped.set(companyId, {
+      if (!grouped.has(key)) {
+        grouped.set(key, {
+          key,
           company_id: companyId,
           company_name: companyName,
+          track_name: s.track?.title?.trim() || null,
           total_criteria: 0,
           completed_criteria: 0,
           passed_criteria: 0,
@@ -130,7 +142,7 @@ export default function ScreeningProgressPanel({
         });
       }
 
-      const summary = grouped.get(companyId)!;
+      const summary = grouped.get(key)!;
       summary.screenings.push(s);
       summary.total_criteria++;
 
@@ -268,7 +280,7 @@ export default function ScreeningProgressPanel({
               <div className="grid gap-2">
                 {inProgress.map((summary) => (
                   <div
-                    key={summary.company_id}
+                    key={summary.key}
                     className="flex items-center justify-between p-3 rounded-lg border bg-yellow-50 border-yellow-200 dark:bg-yellow-950/20 dark:border-yellow-900/50"
                   >
                     <div className="flex items-center gap-3">
@@ -280,6 +292,14 @@ export default function ScreeningProgressPanel({
                         >
                           {summary.company_name}
                         </button>
+                        {summary.track_name && (
+                          <Badge
+                            variant="secondary"
+                            className="ml-2 font-normal text-[10px] px-1.5 py-0 align-middle"
+                          >
+                            {summary.track_name}
+                          </Badge>
+                        )}
                         <div className="text-xs text-muted-foreground">
                           {summary.completed_criteria} / {summary.total_criteria} criteria evaluated
                         </div>
@@ -326,7 +346,7 @@ export default function ScreeningProgressPanel({
                   const status = getOverallStatus(summary);
                   return (
                   <div
-                    key={summary.company_id}
+                    key={summary.key}
                     className={`flex items-center justify-between p-3 rounded-lg border ${status === 'pass'
                       ? 'bg-green-50 border-green-200 dark:bg-green-950/20 dark:border-green-900/50'
                       : status === 'fail'
@@ -349,6 +369,14 @@ export default function ScreeningProgressPanel({
                         >
                           {summary.company_name}
                         </button>
+                        {summary.track_name && (
+                          <Badge
+                            variant="secondary"
+                            className="ml-2 font-normal text-[10px] px-1.5 py-0 align-middle"
+                          >
+                            {summary.track_name}
+                          </Badge>
+                        )}
                         <div className="text-xs text-muted-foreground">
                           {summary.total_criteria} criteria evaluated
                         </div>

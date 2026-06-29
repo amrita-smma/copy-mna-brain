@@ -278,6 +278,7 @@ interface Screening {
   id: string;
   company_id: string;
   criteria_id: string;
+  track_id: string | null;
   state: "pending" | "completed" | "failed";
   result: string | null;
   remarks: string | null;
@@ -287,6 +288,60 @@ interface Screening {
     name: string;
     prompt: string;
   };
+  track?: {
+    id: string;
+    title: string | null;
+  } | null;
+}
+
+type OverallScreeningStatus = "pending" | "pass" | "fail" | "inconclusive";
+
+/** Aggregate verdict for a set of screenings (matches the L0 progress rules). */
+function overallScreeningStatus(list: Screening[]): OverallScreeningStatus {
+  if (list.some((s) => s.state === "pending")) return "pending";
+  const pass = list.filter((s) => s.result?.toLowerCase() === "pass").length;
+  const fail = list.filter((s) => s.result?.toLowerCase() === "fail").length;
+  // Pass: minimum 3 pass AND maximum 1 fail.
+  if (pass >= 3 && fail <= 1) return "pass";
+  if (fail >= 1) return "fail";
+  return "inconclusive";
+}
+
+interface ScreeningTrackGroup {
+  key: string;
+  trackName: string | null;
+  screenings: Screening[];
+}
+
+/** Group a company's screenings by the track they were run for, order preserved. */
+function groupScreeningsByTrack(screenings: Screening[]): ScreeningTrackGroup[] {
+  const groups = new Map<string, ScreeningTrackGroup>();
+  for (const s of screenings) {
+    const key = s.track_id ?? "none";
+    if (!groups.has(key)) {
+      groups.set(key, {
+        key,
+        trackName: s.track?.title?.trim() || null,
+        screenings: [],
+      });
+    }
+    groups.get(key)!.screenings.push(s);
+  }
+  return Array.from(groups.values());
+}
+
+function OverallStatusBadge({ status }: { status: OverallScreeningStatus }) {
+  if (status === "pending") return <Badge variant="secondary">Pending</Badge>;
+  if (status === "pass") return <Badge variant="default">Pass</Badge>;
+  if (status === "fail") return <Badge variant="destructive">Fail</Badge>;
+  return (
+    <Badge
+      variant="secondary"
+      className="bg-amber-100 text-amber-700 border-amber-300 dark:bg-amber-900/30 dark:text-amber-400"
+    >
+      Inconclusive
+    </Badge>
+  );
 }
 
 interface CompanyAnalysis {
@@ -1867,106 +1922,90 @@ export default function CompanyDetailDialog({
             </TabsContent>
 
             <TabsContent value="filters" className="space-y-4 pb-4">
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-lg">
-                    L1 Screening Results
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  {screenings.length > 0 ? (
-                    <div className="space-y-3">
-                      {screenings.map((screening) => (
-                        <div
-                          key={screening.id}
-                          className="flex items-center justify-between py-2 border-b last:border-0"
+              {screenings.length > 0 ? (
+                groupScreeningsByTrack(screenings).map((group) => (
+                  <Card key={group.key}>
+                    <CardHeader>
+                      <CardTitle className="text-lg flex items-center gap-2">
+                        L1 Screening Results
+                        <Badge
+                          variant="secondary"
+                          className="font-normal align-middle"
                         >
-                          <div className="flex-1">
-                            <div className="flex items-center gap-2">
-                              <span className="text-sm font-medium">
-                                {screening.criterias?.name ||
-                                  "Unknown Criteria"}
-                              </span>
-                              <Badge
-                                variant={
-                                  screening.state === "completed"
-                                    ? "outline"
-                                    : screening.state === "pending"
-                                      ? "secondary"
-                                      : "destructive"
-                                }
-                                className="text-xs"
-                              >
-                                {screening.state}
-                              </Badge>
+                          {group.trackName || "Unassigned"}
+                        </Badge>
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="space-y-3">
+                        {group.screenings.map((screening) => (
+                          <div
+                            key={screening.id}
+                            className="flex items-center justify-between py-2 border-b last:border-0"
+                          >
+                            <div className="flex-1">
+                              <div className="flex items-center gap-2">
+                                <span className="text-sm font-medium">
+                                  {screening.criterias?.name ||
+                                    "Unknown Criteria"}
+                                </span>
+                                <Badge
+                                  variant={
+                                    screening.state === "completed"
+                                      ? "outline"
+                                      : screening.state === "pending"
+                                        ? "secondary"
+                                        : "destructive"
+                                  }
+                                  className="text-xs"
+                                >
+                                  {screening.state}
+                                </Badge>
+                              </div>
+                              {screening.result && (
+                                <p className="text-sm text-muted-foreground mt-1">
+                                  {screening.result}
+                                </p>
+                              )}
+                              {screening.remarks && (
+                                <p className="text-xs text-muted-foreground mt-1 italic">
+                                  {screening.remarks}
+                                </p>
+                              )}
                             </div>
-                            {screening.result && (
-                              <p className="text-sm text-muted-foreground mt-1">
-                                {screening.result}
-                              </p>
-                            )}
-                            {screening.remarks && (
-                              <p className="text-xs text-muted-foreground mt-1 italic">
-                                {screening.remarks}
-                              </p>
-                            )}
+                            <ScreeningStateIcon
+                              state={screening.state}
+                              result={screening.result}
+                            />
                           </div>
-                          <ScreeningStateIcon
-                            state={screening.state}
-                            result={screening.result}
-                          />
-                        </div>
-                      ))}
-                      <div className="pt-3 border-t">
-                        <div className="flex items-center justify-between">
-                          <span className="font-medium">Overall Status</span>
-                          {(() => {
-                            const isPending = screenings.some(
-                              (s) => s.state === "pending",
-                            );
-                            if (isPending) {
-                              return <Badge variant="secondary">Pending</Badge>;
-                            }
-
-                            const passCount = screenings.filter(
-                              (s) => s.result?.toLowerCase() === "pass",
-                            ).length;
-                            const failCount = screenings.filter(
-                              (s) => s.result?.toLowerCase() === "fail",
-                            ).length;
-                            const inconclusiveCount = screenings.filter(
-                              (s) => s.result?.toLowerCase() === "inconclusive",
-                            ).length;
-
-                            // Pass: minimum 3 pass AND maximum 1 fail
-                            if (passCount >= 3 && failCount <= 1) {
-                              return <Badge variant="default">Pass</Badge>;
-                            }
-                            // Failed: at least 1 fail (but didn't qualify as pass)
-                            if (failCount >= 1) {
-                              return <Badge variant="destructive">Fail</Badge>;
-                            }
-                            // Inconclusive: everything else
-                            return (
-                              <Badge
-                                variant="secondary"
-                                className="bg-amber-100 text-amber-700 border-amber-300 dark:bg-amber-900/30 dark:text-amber-400"
-                              >
-                                Inconclusive
-                              </Badge>
-                            );
-                          })()}
+                        ))}
+                        <div className="pt-3 border-t">
+                          <div className="flex items-center justify-between">
+                            <span className="font-medium">Overall Status</span>
+                            <OverallStatusBadge
+                              status={overallScreeningStatus(group.screenings)}
+                            />
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  ) : (
+                    </CardContent>
+                  </Card>
+                ))
+              ) : (
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-lg">
+                      L1 Screening Results
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
                     <p className="text-muted-foreground text-sm">
                       No screenings have been run yet. Click &quot;Screen&quot;
                       from the L0 stage to run filters.
                     </p>
-                  )}
-                </CardContent>
-              </Card>
+                  </CardContent>
+                </Card>
+              )}
             </TabsContent>
 
             <TabsContent value="attachments" className="space-y-4 pb-4">

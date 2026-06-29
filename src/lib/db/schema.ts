@@ -21,6 +21,7 @@ import {
   date,
   pgEnum,
   primaryKey,
+  type AnyPgColumn,
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 
@@ -240,11 +241,22 @@ export const criterias = pgTable(
     id: uuid().defaultRandom().primaryKey().notNull(),
     name: text().notNull(),
     prompt: text().notNull(),
+    // The Track (investment_thesis) this screening criterion belongs to.
+    investment_thesis_id: uuid().references(
+      (): AnyPgColumn => investmentThesis.id,
+      { onDelete: "cascade" },
+    ),
     created_at: timestamp({ withTimezone: true, mode: "string" }).defaultNow(),
     updated_at: timestamp({ withTimezone: true, mode: "string" }).defaultNow(),
   },
   (table) => {
     return {
+      idxCriteriasInvestmentThesisId: index(
+        "idx_criterias_investment_thesis_id",
+      ).using(
+        "btree",
+        table.investment_thesis_id.asc().nullsLast().op("uuid_ops"),
+      ),
       allowDeleteAccessOnCriterias: pgPolicy(
         "Allow delete access on criterias",
         { as: "permissive", for: "delete", to: ["public"], using: sql`true` },
@@ -826,6 +838,9 @@ export const screenings = pgTable(
     id: uuid().defaultRandom().primaryKey().notNull(),
     company_id: uuid().notNull(),
     criteria_id: uuid().notNull(),
+    // The investment_thesis ("Track") this screening run belongs to. A company
+    // matched to N tracks yields N screening groups. NULL on legacy rows.
+    track_id: uuid(),
     state: screeningState().default("pending").notNull(),
     result: text(),
     remarks: text(),
@@ -851,6 +866,10 @@ export const screenings = pgTable(
         "btree",
         table.job_id.asc().nullsLast().op("uuid_ops"),
       ),
+      idxScreeningsTrackId: index("idx_screenings_track_id").using(
+        "btree",
+        table.track_id.asc().nullsLast().op("uuid_ops"),
+      ),
       idxScreeningsState: index("idx_screenings_state").using(
         "btree",
         table.state.asc().nullsLast().op("enum_ops"),
@@ -870,9 +889,14 @@ export const screenings = pgTable(
         foreignColumns: [jobs.id],
         name: "screenings_job_id_fkey",
       }).onDelete("set null"),
-      screeningsCompanyIdCriteriaIdKey: unique(
-        "screenings_company_id_criteria_id_key",
-      ).on(table.company_id, table.criteria_id),
+      screeningsTrackIdFkey: foreignKey({
+        columns: [table.track_id],
+        foreignColumns: [investmentThesis.id],
+        name: "screenings_track_id_fkey",
+      }).onDelete("cascade"),
+      screeningsCompanyTrackCriteriaKey: unique(
+        "screenings_company_track_criteria_key",
+      ).on(table.company_id, table.track_id, table.criteria_id),
       allowDeleteAccessOnScreenings: pgPolicy(
         "Allow delete access on screenings",
         { as: "permissive", for: "delete", to: ["public"], using: sql`true` },

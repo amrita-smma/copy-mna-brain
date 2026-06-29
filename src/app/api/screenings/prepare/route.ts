@@ -6,16 +6,28 @@ export async function POST(req: NextRequest) {
   try {
     const db = createDb();
     const { screeningService } = createContainer(db);
-    const { companyIds, criteriaIds } = await req.json();
+    const { groups } = await req.json();
 
-    if (!Array.isArray(companyIds) || !Array.isArray(criteriaIds)) {
+    if (
+      !Array.isArray(groups) ||
+      groups.some(
+        (g) =>
+          !g ||
+          typeof g.companyId !== 'string' ||
+          typeof g.trackId !== 'string' ||
+          !Array.isArray(g.criteriaIds),
+      )
+    ) {
       return NextResponse.json(
-        { error: 'companyIds and criteriaIds are required arrays' },
+        {
+          error:
+            'groups must be an array of { companyId, trackId, criteriaIds }',
+        },
         { status: 400 },
       );
     }
 
-    const data = await screeningService.prepare(companyIds, criteriaIds);
+    const data = await screeningService.prepare(groups);
     return NextResponse.json({ data });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : 'Failed to prepare screenings';

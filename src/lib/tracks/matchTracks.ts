@@ -76,19 +76,58 @@ export function suggestTrackIds(
 }
 
 /**
- * Resolved track ids to display for a company: the persisted `matched_track_ids`
- * (filtered to tracks that still exist). Matching is assigned by the agent when a
- * company enters L0 — the UI never recomputes suggestions live, so pills stay
- * stable when theses change. Use {@link suggestTrackIds} for the agent fallback.
+ * Resolved track ids to display for a company (drives both the "Matched Tracks"
+ * pills and the pipeline Track filter):
+ *
+ * 1. The persisted `matched_track_ids` assigned by the agent when the company
+ *    entered L0 (filtered to tracks that still exist), if any.
+ * 2. Otherwise fall back to keyword-based {@link suggestTrackIds}, so a company
+ *    that was never assigned still surfaces under its thesis-relevant tracks
+ *    instead of disappearing from the filter.
  */
 export function resolveTrackIds(
   company: MatchableCompany,
   tracks: TrackLike[],
 ): string[] {
-  const manual = company.matched_track_ids;
-  if (!manual || manual.length === 0) return [];
   const known = new Set(tracks.map((t) => t.id));
-  return manual.filter((id) => known.has(id));
+  const manual = (company.matched_track_ids ?? []).filter((id) => known.has(id));
+  if (manual.length > 0) return manual;
+  return suggestTrackIds(company, tracks);
+}
+
+/** A screening criterion as far as track matching cares: its owning Track. */
+export interface CriterionLike {
+  id: string;
+  investment_thesis_id?: string | null;
+}
+
+/** One per-track AI-screening group: the track and the criteria to run for it. */
+export interface TrackScreeningGroup {
+  trackId: string;
+  criteriaIds: string[];
+}
+
+/**
+ * Expand a company into per-track screening groups: one group per matched track
+ * (see {@link resolveTrackIds}), each carrying the criteria that belong to that
+ * track (`criterias.investment_thesis_id`). Tracks with no criteria are skipped
+ * — they would screen nothing — so the number of groups is the number of
+ * *screenable* matched tracks.
+ */
+export function buildTrackScreeningGroups(
+  company: MatchableCompany,
+  tracks: TrackLike[],
+  criteria: CriterionLike[],
+): TrackScreeningGroup[] {
+  const matchedIds = resolveTrackIds(company, tracks);
+  return matchedIds
+    .map((trackId) => ({
+      trackId,
+      criteriaIds: criteria
+        .filter((c) => c.investment_thesis_id === trackId)
+        .map((c) => c.id),
+    }))
+    .filter((g) => g.criteriaIds.length > 0);
 }
 
 /**

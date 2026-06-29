@@ -25,6 +25,7 @@ import {
   dealLinks,
   dealNotes,
   files,
+  investmentThesis,
   screenings,
   users,
 } from "@/lib/db/schema";
@@ -142,6 +143,7 @@ type CompanyLogRow = {
 
 type ScreeningWithCriteria = Tables<"screenings"> & {
   criterias: Pick<Tables<"criterias">, "id" | "name" | "prompt"> | null;
+  track: Pick<Tables<"investment_thesis">, "id" | "title"> | null;
 };
 
 type MatchedFile = Pick<
@@ -641,9 +643,12 @@ export class CompanyRepository {
           criteria_id_inner: criterias.id,
           criteria_name: criterias.name,
           criteria_prompt: criterias.prompt,
+          track_id_inner: investmentThesis.id,
+          track_title: investmentThesis.title,
         })
         .from(screenings)
         .leftJoin(criterias, eq(criterias.id, screenings.criteria_id))
+        .leftJoin(investmentThesis, eq(investmentThesis.id, screenings.track_id))
         .where(eq(screenings.company_id, id))
         .orderBy(desc(screenings.created_at)),
 
@@ -674,6 +679,10 @@ export class CompanyRepository {
                 name: r.criteria_name!,
                 prompt: r.criteria_prompt!,
               },
+        track:
+          r.track_id_inner === null
+            ? null
+            : { id: r.track_id_inner, title: r.track_title! },
       }),
     );
 

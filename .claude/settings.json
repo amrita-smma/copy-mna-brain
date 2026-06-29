@@ -61,10 +61,17 @@
       "Bash(sed -n '122,140p' src/lib/agents/analysis/index.ts)",
       "Bash(sed -n '48,80p' src/lib/services/companyService.ts)",
       "Bash(grep -nE \"^#{2,3} \" README.md)",
+      "Bash(./node_modules/.bin/next lint *)",
+      "Bash(sed -n '95,112p' src/lib/api/pipeline.ts)",
+      "Bash(sed -n '103,112p' src/lib/api/pipeline.ts)",
       "Bash(rg -rn \"\\\\.approve\\\\\\(\" src/app src/lib --type ts)",
       "Bash(rg -rn \"createCompany\\\\\\(\" src --type ts --type tsx)",
       "Bash(rg -rn \"createCompany\\\\b\" src/components src/views --type ts)",
-      "Bash(rg -rln \"originator:\" src --type ts --type tsx)"
+      "Bash(rg -rln \"originator:\" src --type ts --type tsx)",
+      "Bash(node -e \"JSON.parse\\(require\\('fs'\\).readFileSync\\('.claude/settings.json','utf8'\\)\\); console.log\\('settings.json OK'\\)\")",
+      "Bash(node -e \"JSON.parse\\(require\\('fs'\\).readFileSync\\('drizzle/migrations/meta/_journal.json','utf8'\\)\\); console.log\\('_journal.json OK'\\)\")",
+      "Bash(sed -n '1,40p' src/app/api/criterias/route.ts)",
+      "Bash(sed -n '1,60p' src/app/api/criterias/\\\\[id\\\\]/route.ts)"
     ]
   }
 }

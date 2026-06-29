@@ -231,19 +231,33 @@ export async function deleteDealLink(id: string) {
   return apiRequest<{ success: boolean }>(`/api/deal-links/${encodeURIComponent(id)}`, { method: 'DELETE' });
 }
 
-export async function getCriterias() {
-  return apiRequest<any[]>('/api/criterias');
+export interface Criteria {
+  id: string;
+  name: string;
+  prompt: string;
+  /** The Track (investment_thesis) this criterion belongs to. */
+  investment_thesis_id: string | null;
 }
 
-export async function createCriteria(name: string, prompt: string) {
+/** All criteria, or — when `thesisId` is set — only those belonging to that Track. */
+export async function getCriterias(thesisId?: string) {
+  const qs = thesisId ? `?thesisId=${encodeURIComponent(thesisId)}` : '';
+  return apiRequest<Criteria[]>(`/api/criterias${qs}`);
+}
+
+export async function createCriteria(
+  name: string,
+  prompt: string,
+  investmentThesisId?: string | null,
+) {
   return apiRequest<any>('/api/criterias', {
     method: 'POST',
-    body: JSON.stringify({ name, prompt }),
+    body: JSON.stringify({ name, prompt, investmentThesisId }),
   });
 }
 
 export async function updateCriteria(id: string, name: string, prompt: string) {
-  return apiRequest<any>(`/api/criterias/${encodeURIComponent(id)}`, {
+  return apiRequest<Criteria>(`/api/criterias/${encodeURIComponent(id)}`, {
     method: 'PATCH',
     body: JSON.stringify({ name, prompt }),
   });
@@ -262,10 +276,18 @@ export async function getScreenings(params?: { companyId?: string; onlyL0?: bool
   return apiRequest<any[]>(`/api/screenings${search.toString() ? `?${search.toString()}` : ''}`);
 }
 
-export async function prepareScreenings(companyIds: string[], criteriaIds: string[]) {
-  return apiRequest<Array<{ id: string; company_id: string; criteria_id: string }>>('/api/screenings/prepare', {
+export interface ScreeningGroupInput {
+  companyId: string;
+  trackId: string;
+  criteriaIds: string[];
+}
+
+export async function prepareScreenings(groups: ScreeningGroupInput[]) {
+  return apiRequest<
+    Array<{ id: string; company_id: string; criteria_id: string; track_id: string | null }>
+  >('/api/screenings/prepare', {
     method: 'POST',
-    body: JSON.stringify({ companyIds, criteriaIds }),
+    body: JSON.stringify({ groups }),
   });
 }
 

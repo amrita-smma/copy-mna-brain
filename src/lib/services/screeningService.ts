@@ -1,4 +1,8 @@
-import type { ScreeningRepository, TablesInsert } from '@/lib/repositories';
+import type {
+  ScreeningGroupInput,
+  ScreeningRepository,
+  TablesInsert,
+} from '@/lib/repositories';
 
 export class ScreeningService {
   constructor(private readonly screeningRepo: ScreeningRepository) {}
@@ -15,7 +19,8 @@ export class ScreeningService {
     return this.screeningRepo.update(id, updates);
   }
 
-  prepare(companyIds: string[], criteriaIds: string[]) {
-    return this.screeningRepo.upsertOrReset(companyIds, criteriaIds);
+  /** Prepare per-track screening groups: one (company, track, criterion) row each. */
+  prepare(groups: ScreeningGroupInput[]) {
+    return this.screeningRepo.upsertOrReset(groups);
   }
 }

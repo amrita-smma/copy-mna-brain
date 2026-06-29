@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   suggestTrackIds,
   resolveTrackIds,
+  buildTrackScreeningGroups,
   trackDisplayName,
   matchedTrackPics,
   type TrackLike,
@@ -65,12 +66,69 @@ describe('resolveTrackIds', () => {
     expect(resolveTrackIds(company, TRACKS)).toEqual(['renew']);
   });
 
-  it('does NOT auto-suggest live — returns [] when nothing is persisted', () => {
+  it('falls back to auto-suggested tracks when nothing is persisted', () => {
     const company: MatchableCompany = {
-      segment: 'Photoresist solvents', // would match "semi" via suggestTrackIds
+      segment: 'Photoresist solvents', // matches "semi" via suggestTrackIds
+      matched_track_ids: [],
+    };
+    expect(resolveTrackIds(company, TRACKS)).toEqual(['semi']);
+  });
+
+  it('falls back to auto-suggested tracks when matched_track_ids is absent', () => {
+    const company: MatchableCompany = { segment: 'Renewable Energy — Hydropower' };
+    expect(resolveTrackIds(company, TRACKS)).toEqual(['renew']);
+  });
+
+  it('prefers persisted matches over suggestions and does not mix them in', () => {
+    const company: MatchableCompany = {
+      segment: 'Photoresist solvents', // would suggest "semi"
+      matched_track_ids: ['renew'], // but a manual match exists
+    };
+    expect(resolveTrackIds(company, TRACKS)).toEqual(['renew']);
+  });
+
+  it('returns [] when nothing is persisted and nothing matches', () => {
+    const company: MatchableCompany = {
+      segment: 'Telecom billing software services',
       matched_track_ids: [],
     };
     expect(resolveTrackIds(company, TRACKS)).toEqual([]);
+  });
+});
+
+describe('buildTrackScreeningGroups', () => {
+  const CRITERIA = [
+    { id: 'c1', investment_thesis_id: 'semi' },
+    { id: 'c2', investment_thesis_id: 'semi' },
+    { id: 'c3', investment_thesis_id: 'renew' },
+  ];
+
+  it('returns one group per matched track, carrying each track criteria', () => {
+    const company: MatchableCompany = { matched_track_ids: ['semi', 'renew'] };
+    expect(buildTrackScreeningGroups(company, TRACKS, CRITERIA)).toEqual([
+      { trackId: 'semi', criteriaIds: ['c1', 'c2'] },
+      { trackId: 'renew', criteriaIds: ['c3'] },
+    ]);
+  });
+
+  it('skips matched tracks that have no criteria', () => {
+    const criteria = [{ id: 'c1', investment_thesis_id: 'semi' }]; // renew has none
+    const company: MatchableCompany = { matched_track_ids: ['semi', 'renew'] };
+    expect(buildTrackScreeningGroups(company, TRACKS, criteria)).toEqual([
+      { trackId: 'semi', criteriaIds: ['c1'] },
+    ]);
+  });
+
+  it('expands auto-suggested tracks when nothing is manually matched', () => {
+    const company: MatchableCompany = { segment: 'Photoresist solvents' }; // suggests semi
+    expect(buildTrackScreeningGroups(company, TRACKS, CRITERIA)).toEqual([
+      { trackId: 'semi', criteriaIds: ['c1', 'c2'] },
+    ]);
+  });
+
+  it('returns [] when no track is matched', () => {
+    const company: MatchableCompany = { segment: 'Telecom billing software' };
+    expect(buildTrackScreeningGroups(company, TRACKS, CRITERIA)).toEqual([]);
   });
 });
 

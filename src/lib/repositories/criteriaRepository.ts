@@ -5,18 +5,25 @@ import type { DbClient, Tables, TablesInsert, TablesUpdate } from './types';
 export class CriteriaRepository {
   constructor(private readonly db: DbClient) {}
 
-  async findAll(): Promise<Tables<'criterias'>[]> {
-    return this.db.select().from(criterias).orderBy(asc(criterias.created_at));
+  /** All criteria, or only those belonging to a given Track when `thesisId` is set. */
+  async findAll(thesisId?: string): Promise<Tables<'criterias'>[]> {
+    return this.db
+      .select()
+      .from(criterias)
+      .where(thesisId ? eq(criterias.investment_thesis_id, thesisId) : undefined)
+      .orderBy(asc(criterias.created_at));
   }
 
-  async insert(data: Pick<TablesInsert<'criterias'>, 'name' | 'prompt'>): Promise<Tables<'criterias'>> {
+  async insert(
+    data: Pick<TablesInsert<'criterias'>, 'name' | 'prompt' | 'investment_thesis_id'>,
+  ): Promise<Tables<'criterias'>> {
     const [row] = await this.db.insert(criterias).values(data).returning();
     return row;
   }
 
   async update(
     id: string,
-    updates: Pick<TablesUpdate<'criterias'>, 'name' | 'prompt'>,
+    updates: Pick<TablesUpdate<'criterias'>, 'name' | 'prompt' | 'investment_thesis_id'>,
   ): Promise<Tables<'criterias'>> {
     const [row] = await this.db
       .update(criterias)

@@ -1,16 +1,27 @@
-import { and, desc, eq } from 'drizzle-orm';
-import { companies, criterias, screenings } from '@/lib/db/schema';
+import { and, desc, eq, isNull } from 'drizzle-orm';
+import { companies, criterias, investmentThesis, screenings } from '@/lib/db/schema';
 import type { DbClient, Tables, TablesInsert, TablesUpdate } from './types';
 
 type ScreeningWithRelations = Pick<
   Tables<'screenings'>,
-  'id' | 'company_id' | 'criteria_id' | 'state' | 'result' | 'remarks' | 'created_at' | 'updated_at'
+  'id' | 'company_id' | 'criteria_id' | 'track_id' | 'state' | 'result' | 'remarks' | 'created_at' | 'updated_at'
 > & {
   company: Pick<Tables<'companies'>, 'target' | 'project_name' | 'pipeline_stage'> | null;
   criterias: Pick<Tables<'criterias'>, 'id' | 'name' | 'prompt'> | null;
+  track: Pick<Tables<'investment_thesis'>, 'id' | 'title'> | null;
 };
 
-type PreparedScreening = Pick<Tables<'screenings'>, 'id' | 'company_id' | 'criteria_id'>;
+type PreparedScreening = Pick<
+  Tables<'screenings'>,
+  'id' | 'company_id' | 'criteria_id' | 'track_id'
+>;
+
+/** One per-track screening group: a (company, track) pair and its criteria. */
+export interface ScreeningGroupInput {
+  companyId: string;
+  trackId: string;
+  criteriaIds: string[];
+}
 
 export class ScreeningRepository {
   constructor(private readonly db: DbClient) {}
@@ -26,6 +37,7 @@ export class ScreeningRepository {
         id: screenings.id,
         company_id: screenings.company_id,
         criteria_id: screenings.criteria_id,
+        track_id: screenings.track_id,
         state: screenings.state,
         result: screenings.result,
         remarks: screenings.remarks,
@@ -37,10 +49,13 @@ export class ScreeningRepository {
         criteria_id_inner: criterias.id,
         criteria_name: criterias.name,
         criteria_prompt: criterias.prompt,
+        track_id_inner: investmentThesis.id,
+        track_title: investmentThesis.title,
       })
       .from(screenings)
       .leftJoin(companies, eq(companies.id, screenings.company_id))
       .leftJoin(criterias, eq(criterias.id, screenings.criteria_id))
+      .leftJoin(investmentThesis, eq(investmentThesis.id, screenings.track_id))
       .where(whereExpr)
       .orderBy(desc(screenings.created_at));
 
@@ -48,6 +63,7 @@ export class ScreeningRepository {
       id: r.id,
       company_id: r.company_id,
       criteria_id: r.criteria_id,
+      track_id: r.track_id,
       state: r.state,
       result: r.result,
       remarks: r.remarks,
@@ -67,6 +83,10 @@ export class ScreeningRepository {
         r.criteria_id_inner === null
           ? null
           : { id: r.criteria_id_inner, name: r.criteria_name!, prompt: r.criteria_prompt! },
+      track:
+        r.track_id_inner === null
+          ? null
+          : { id: r.track_id_inner, title: r.track_title! },
     }));
 
     if (opts.onlyL0) {
@@ -113,26 +133,32 @@ export class ScreeningRepository {
   }
 
   /**
-   * For each (companyId, criteriaId) pair: reset to pending if it exists, otherwise insert.
-   * Returns the final row id + company_id + criteria_id for each pair.
+   * For each (companyId, trackId, criteriaId) triple in the given groups: reset
+   * to pending if it exists, otherwise insert. Returns the final row id +
+   * company_id + criteria_id + track_id for each triple.
    */
-  async upsertOrReset(
-    companyIds: string[],
-    criteriaIds: string[],
-  ): Promise<PreparedScreening[]> {
+  async upsertOrReset(groups: ScreeningGroupInput[]): Promise<PreparedScreening[]> {
+    const returning = {
+      id: screenings.id,
+      company_id: screenings.company_id,
+      criteria_id: screenings.criteria_id,
+      track_id: screenings.track_id,
+    };
     const entries: PreparedScreening[] = [];
 
-    for (const companyId of companyIds) {
+    for (const { companyId, trackId, criteriaIds } of groups) {
       for (const criteriaId of criteriaIds) {
         const [existing] = await this.db
-          .select({
-            id: screenings.id,
-            company_id: screenings.company_id,
-            criteria_id: screenings.criteria_id,
-          })
+          .select({ id: screenings.id })
           .from(screenings)
           .where(
-            and(eq(screenings.company_id, companyId), eq(screenings.criteria_id, criteriaId)),
+            and(
+              eq(screenings.company_id, companyId),
+              trackId === null
+                ? isNull(screenings.track_id)
+                : eq(screenings.track_id, trackId),
+              eq(screenings.criteria_id, criteriaId),
+            ),
           )
           .limit(1);
 
@@ -141,11 +167,7 @@ export class ScreeningRepository {
             .update(screenings)
             .set({ state: 'pending', result: null, remarks: null } as TablesUpdate<'screenings'>)
             .where(eq(screenings.id, existing.id))
-            .returning({
-              id: screenings.id,
-              company_id: screenings.company_id,
-              criteria_id: screenings.criteria_id,
-            });
+            .returning(returning);
           entries.push(updated);
         } else {
           const [inserted] = await this.db
@@ -153,13 +175,10 @@ export class ScreeningRepository {
             .values({
               company_id: companyId,
               criteria_id: criteriaId,
+              track_id: trackId,
               state: 'pending',
             } as TablesInsert<'screenings'>)
-            .returning({
-              id: screenings.id,
-              company_id: screenings.company_id,
-              criteria_id: screenings.criteria_id,
-            });
+            .returning(returning);
           entries.push(inserted);
         }
       }

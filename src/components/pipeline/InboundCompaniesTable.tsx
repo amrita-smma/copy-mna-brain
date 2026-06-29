@@ -416,6 +416,9 @@ export default function InboundCompaniesTable({
           const rev = latestFin(company.financials_raw, "revenue_usd_mn");
           const ebitda = latestFin(company.financials_raw, "ebitda_usd_mn");
           const isUnreviewed = company.review_state === "unreviewed";
+          // AI screening runs against a company's matched tracks; with none
+          // matched there is nothing to screen, so the action is disabled.
+          const hasMatchedTracks = resolveTrackIds(company, tracks).length > 0;
           const displayName = companyDisplayName(company, "this company");
           const displayTitle = companyDisplayTitle(company, "");
           const hasFinancials =
@@ -678,7 +681,13 @@ export default function InboundCompaniesTable({
                               </DropdownMenuItem>
                             ) : (
                               <DropdownMenuItem
+                                disabled={!hasMatchedTracks}
                                 onClick={() => onRunScreening(company)}
+                                title={
+                                  hasMatchedTracks
+                                    ? undefined
+                                    : "No matched tracks to screen against"
+                                }
                               >
                                 <Sparkles className="mr-2 h-4 w-4 text-purple-600" />
                                 Run AI Screening

@@ -1,6 +1,10 @@
 import posthog from 'posthog-js';
 import { companyDisplayName } from '@/lib/companyDisplay';
 import { getCriterias, prepareScreenings } from '@/lib/api/pipeline';
+import {
+  buildTrackScreeningGroups,
+  type TrackLike,
+} from '@/lib/tracks/matchTracks';
 import type { PipelineCompany } from '@/views/Pipeline';
 
 export interface AIScreeningCompanyInput {
@@ -46,36 +50,46 @@ export function toAIScreeningCompany(company: PipelineCompany): AIScreeningCompa
   };
 }
 
-export async function runAIScreeningForCompanies(
-  companies: AIScreeningCompanyInput[],
-  criteria?: AIScreeningCriterion[],
-): Promise<{ companyCount: number; criteriaCount: number }> {
-  const resolvedCriteria = criteria ?? (await getCriterias());
+/**
+ * Run AI screening for a single company against its matched tracks. Each matched
+ * track is screened using the criteria that belong to it
+ * (`criterias.investment_thesis_id`); tracks with no criteria are skipped,
+ * producing one screening group per screenable track — so a company matched to
+ * 3 tracks adds 3 groups to the AI Screening Progress panel.
+ */
+export async function runAIScreeningForCompanyTracks(
+  company: AIScreeningCompanyInput,
+  tracks: TrackLike[],
+): Promise<{ trackCount: number; screeningCount: number }> {
+  const allCriteria = await getCriterias();
+  const criteriaById = new Map(allCriteria.map((c) => [c.id, c]));
 
-  if (resolvedCriteria.length === 0) {
-    throw new Error('Please add at least one screening criterion');
-  }
+  // One group per matched track, carrying that track's own criteria.
+  const groups = buildTrackScreeningGroups(company, tracks, allCriteria);
 
-  if (companies.length === 0) {
-    throw new Error('No companies selected for screening');
+  if (groups.length === 0) {
+    throw new Error(
+      'No matched track with screening criteria — assign criteria to a matched track first',
+    );
   }
 
   const screeningEntries = await prepareScreenings(
-    companies.map((c) => c.id),
-    resolvedCriteria.map((c) => c.id),
+    groups.map((g) => ({
+      companyId: company.id,
+      trackId: g.trackId,
+      criteriaIds: g.criteriaIds,
+    })),
   );
 
   posthog.capture('ai_screening_started', {
-    company_count: companies.length,
-    criteria_count: resolvedCriteria.length,
+    company_count: 1,
+    track_count: groups.length,
     total_screenings: screeningEntries.length,
   });
 
   screeningEntries.forEach((entry) => {
-    const company = companies.find((c) => c.id === entry.company_id);
-    const criterion = resolvedCriteria.find((c) => c.id === entry.criteria_id);
-
-    if (!company || !criterion) return;
+    const criterion = criteriaById.get(entry.criteria_id);
+    if (!criterion) return;
 
     void fetch('/api/ai-screening', {
       method: 'POST',
@@ -107,8 +121,5 @@ export async function runAIScreeningForCompanies(
     });
   });
 
-  return {
-    companyCount: companies.length,
-    criteriaCount: resolvedCriteria.length,
-  };
+  return { trackCount: groups.length, screeningCount: screeningEntries.length };
 }

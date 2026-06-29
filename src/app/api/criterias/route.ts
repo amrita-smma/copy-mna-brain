@@ -2,11 +2,12 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createDb } from '@/lib/server/db';
 import { createContainer } from '@/lib/services';
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   try {
     const db = createDb();
     const { criteriaService } = createContainer(db);
-    const data = await criteriaService.findAll();
+    const thesisId = req.nextUrl.searchParams.get('thesisId') ?? undefined;
+    const data = await criteriaService.findAll(thesisId);
     return NextResponse.json({ data });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : 'Failed to fetch criterias';
@@ -18,8 +19,8 @@ export async function POST(req: NextRequest) {
   try {
     const db = createDb();
     const { criteriaService } = createContainer(db);
-    const { name, prompt } = await req.json();
-    const data = await criteriaService.create(name, prompt);
+    const { name, prompt, investmentThesisId } = await req.json();
+    const data = await criteriaService.create(name, prompt, investmentThesisId);
     return NextResponse.json({ data });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : 'Failed to create criteria';

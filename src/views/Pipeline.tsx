@@ -38,7 +38,6 @@ import {
   FileText,
   Loader2,
   Plus,
-  Sparkles,
   ChevronDown,
   ChevronUp,
   Eye,
@@ -70,7 +69,6 @@ import {
   DEFAULT_INBOUND_STATUS_OPTIONS,
   DEFAULT_OUTBOUND_STATUS_OPTIONS,
 } from "@/components/pipeline/StatusCombobox";
-import AIScreeningDialog from "@/components/pipeline/AIScreeningDialog";
 import MarketScreeningStatus from "@/components/pipeline/MarketScreeningStatus";
 import MarketScreeningResults from "@/components/pipeline/MarketScreeningResults";
 import ScreeningProgressPanel from "@/components/pipeline/ScreeningProgressPanel";
@@ -97,7 +95,7 @@ import {
   type Track,
 } from "@/lib/api/pipeline";
 import {
-  runAIScreeningForCompanies,
+  runAIScreeningForCompanyTracks,
   toAIScreeningCompany,
 } from "@/lib/aiScreeningClient";
 import { Textarea } from "@/components/ui/textarea";
@@ -284,8 +282,6 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
   // When true, the company detail dialog opens directly into the Details tab
   // with the Company Information card in inline edit mode (the "Update" action).
   const [openDetailInEdit, setOpenDetailInEdit] = useState(false);
-  const [showScreeningDialog, setShowScreeningDialog] = useState(false);
-  const [screeningCompanyIds, setScreeningCompanyIds] = useState<string[]>([]);
   const [marketScreeningRefresh, setMarketScreeningRefresh] = useState(0);
   const [screeningProgressRefresh, setScreeningProgressRefresh] = useState(0);
   const [pendingScreeningCompanyIds, setPendingScreeningCompanyIds] = useState<
@@ -861,18 +857,16 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
     }
   };
 
-  const openScreeningCriteria = () => {
-    setScreeningCompanyIds([]);
-    setShowScreeningDialog(true);
-  };
-
   const runScreeningForCompany = async (company: PipelineCompany) => {
     if (runningScreeningCompanyIds.has(company.id)) return;
 
     setStartingScreeningCompanyIds((prev) => new Set(prev).add(company.id));
 
     try {
-      await runAIScreeningForCompanies([toAIScreeningCompany(company)]);
+      const { trackCount } = await runAIScreeningForCompanyTracks(
+        toAIScreeningCompany(company),
+        tracks,
+      );
       setStartingScreeningCompanyIds((prev) => {
         const next = new Set(prev);
         next.delete(company.id);
@@ -880,7 +874,7 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
       });
       setPendingScreeningCompanyIds((prev) => new Set(prev).add(company.id));
       toast.success(
-        `Started AI screening for ${companyDisplayName(company, "this company")}`,
+        `Started AI screening for ${companyDisplayName(company, "this company")} across ${trackCount} ${trackCount === 1 ? "track" : "tracks"}`,
       );
       setScreeningProgressRefresh((prev) => prev + 1);
       fetchCompanies({ silent: true });
@@ -893,12 +887,6 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
       });
       toast.error(error.message || "Failed to start AI screening");
     }
-  };
-
-  const getCompaniesForScreening = () => {
-    return companies
-      .filter((c) => screeningCompanyIds.includes(c.id))
-      .map(toAIScreeningCompany);
   };
 
   const promoteToNextStage = async (
@@ -1217,16 +1205,6 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
                                   <span className="ml-0.5 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-amber-400 px-1 text-[10px] font-bold text-white">
                                     {allUnreviewedCompanies.length}
                                   </span>
-                                </Button>
-                              )}
-                              {showL0Pipeline && (
-                                <Button
-                                  data-testid="pipeline-ai-screening-button"
-                                  onClick={openScreeningCriteria}
-                                  className="bg-gradient-to-r from-purple-600 to-purple-500 hover:from-purple-700 hover:to-purple-600 shadow-md transition-all hover:scale-[1.02]"
-                                >
-                                  <Sparkles className="mr-2 h-4 w-4" />
-                                  AI Screening Criteria
                                 </Button>
                               )}
                               <Link href="/ai-file-dump">
@@ -1850,17 +1828,6 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
           onSaved={() => {
             fetchTracks();
             setTracksRefreshKey((k) => k + 1);
-          }}
-        />
-
-        <AIScreeningDialog
-          open={showScreeningDialog}
-          onOpenChange={setShowScreeningDialog}
-          companies={getCompaniesForScreening()}
-          onComplete={() => {
-            setScreeningCompanyIds([]);
-            setScreeningProgressRefresh((prev) => prev + 1);
-            fetchCompanies();
           }}
         />
 
