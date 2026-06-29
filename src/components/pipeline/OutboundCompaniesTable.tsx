@@ -41,8 +41,6 @@ import { AiOpinionCell } from "@/components/pipeline/AiOpinionCell";
 import { companyDisplayName, companyDisplayTitle } from "@/lib/companyDisplay";
 import {
   resolveTrackIds,
-  persistedTrackIds,
-  trackDisplayName,
   matchedTrackPics,
   dealLeadField,
   dealLeadLabel,
@@ -78,40 +76,6 @@ const DEAL_TYPE_LABEL: Record<string, string> = {
   majority: "Majority",
   minority: "Minority",
 };
-
-/**
- * Matched-track pills for a company. Shows ONLY the persisted matches assigned
- * when the company entered L0 (never the live keyword heuristic), so editing &
- * saving Track Settings can't retroactively populate this column.
- */
-function MatchedTracksCell({
-  company,
-  tracks,
-}: {
-  company: PipelineCompany;
-  tracks: TrackLike[];
-}) {
-  const ids = persistedTrackIds(company, tracks);
-  if (ids.length === 0) return <span className="text-muted-foreground">—</span>;
-  return (
-    <div className="flex flex-wrap gap-1 max-w-[180px]">
-      {ids.map((id) => {
-        const track = tracks.find((t) => t.id === id);
-        if (!track) return null;
-        return (
-          <Badge
-            key={id}
-            variant="secondary"
-            className="font-normal text-[10px] px-1.5 py-0 max-w-full truncate"
-            title={track.title ?? undefined}
-          >
-            {trackDisplayName(track)}
-          </Badge>
-        );
-      })}
-    </div>
-  );
-}
 
 const formatCurrency = (value: number | null | undefined) => {
   if (value === null || value === undefined) return "-";
@@ -266,7 +230,6 @@ export default function OutboundCompaniesTable({
           <Col label={picColumnLabel} sort="deal_lead" filter="deal_lead" />
           <Col label="Entered by" sort="entered_by" filter="entered_by" />
           <Col label="Segment" sort="sector" filter="sector" />
-          <TableHead className="min-w-[150px]">Matched Tracks</TableHead>
           <Col label="Deal Type" sort="deal_type" filter="deal_type" />
           <TableHead className="max-w-[260px]">Key Rationale</TableHead>
           <TableHead className="min-w-[180px]">Financial Info</TableHead>
@@ -299,7 +262,7 @@ export default function OutboundCompaniesTable({
         {companies.length === 0 && (
           <TableRow className="hover:bg-transparent">
             <TableCell
-              colSpan={isDropped ? 16 : 15}
+              colSpan={isDropped ? 15 : 14}
               className="h-32 text-center text-sm text-muted-foreground"
             >
               No companies match the current filters.
@@ -367,9 +330,6 @@ export default function OutboundCompaniesTable({
                 <span className="text-sm text-muted-foreground">
                   {company.segment || "-"}
                 </span>
-              </TableCell>
-              <TableCell>
-                <MatchedTracksCell company={company} tracks={tracks} />
               </TableCell>
               <TableCell>
                 {company.deal_type ? (

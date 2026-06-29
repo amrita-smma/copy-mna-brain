@@ -394,7 +394,7 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
       const data = await getCompanies({
         stageNotNull: true,
         excludeStage: "market_screening",
-        orderBy: "updated_at",
+        orderBy: "created_at",
         orderDir: "desc",
       });
 
@@ -740,7 +740,19 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
     const bFav = favoriteIds.has(b.id) ? 1 : 0;
     if (aFav !== bFav) return bFav - aFav;
 
-    if (!sortField) return 0;
+    // Default sort (no column actively selected):
+    // - Dropped view: newest dropped date first
+    // - Active view: newest created date first
+    if (!sortField) {
+      if (viewMode === "dropped") {
+        const aDropped = a.dropped_at ? new Date(a.dropped_at).getTime() : 0;
+        const bDropped = b.dropped_at ? new Date(b.dropped_at).getTime() : 0;
+        return bDropped - aDropped;
+      }
+      const aCreated = a.created_at ? new Date(a.created_at).getTime() : 0;
+      const bCreated = b.created_at ? new Date(b.created_at).getTime() : 0;
+      return bCreated - aCreated;
+    }
 
     let aVal: any;
     let bVal: any;

@@ -47,8 +47,6 @@ import { DuplicatePopup } from "@/components/pipeline/DuplicatePopup";
 import { companyDisplayName, companyDisplayTitle } from "@/lib/companyDisplay";
 import {
   resolveTrackIds,
-  persistedTrackIds,
-  trackDisplayName,
   matchedTrackPics,
   dealLeadField,
   dealLeadLabel,
@@ -84,40 +82,6 @@ const DEAL_TYPE_LABEL: Record<string, string> = {
   majority: "Majority",
   minority: "Minority",
 };
-
-/**
- * Matched-track pills for a company. Shows ONLY the persisted matches assigned
- * when the company entered L0 (never the live keyword heuristic), so editing &
- * saving Track Settings can't retroactively populate this column.
- */
-function MatchedTracksCell({
-  company,
-  tracks,
-}: {
-  company: PipelineCompany;
-  tracks: TrackLike[];
-}) {
-  const ids = persistedTrackIds(company, tracks);
-  if (ids.length === 0) return <span className="text-muted-foreground">—</span>;
-  return (
-    <div className="flex flex-wrap gap-1 max-w-[180px]">
-      {ids.map((id) => {
-        const track = tracks.find((t) => t.id === id);
-        if (!track) return null;
-        return (
-          <Badge
-            key={id}
-            variant="secondary"
-            className="font-normal text-[10px] px-1.5 py-0 max-w-full truncate"
-            title={track.title ?? undefined}
-          >
-            {trackDisplayName(track)}
-          </Badge>
-        );
-      })}
-    </div>
-  );
-}
 
 const formatCurrency = (value: number | null | undefined) => {
   if (value === null || value === undefined) return "-";
@@ -253,7 +217,7 @@ export default function InboundCompaniesTable({
   );
 
   // colSpan for the section header / gap rows. Recount if columns change.
-  const tableColumnCount = isDropped ? 17 : 16;
+  const tableColumnCount = isDropped ? 16 : 15;
   const picColumnLabel = dealLeadLabel(stage);
   const unreviewedCompanies = isDropped
     ? []
@@ -376,7 +340,6 @@ export default function InboundCompaniesTable({
           />
           <Col label="Sector" sort="sector" filter="sector" />
           <Col label="Geo" sort="geo" filter="geo" />
-          <TableHead className="min-w-[150px]">Matched Tracks</TableHead>
           <Col label="Deal Type" filter="deal_type" />
           <Col label="Revenue" sort="revenue" />
           <Col label="EBITDA" sort="ebitda" />
@@ -556,9 +519,6 @@ export default function InboundCompaniesTable({
                 <span className="text-sm text-muted-foreground">
                   {company.geo || "-"}
                 </span>
-              </TableCell>
-              <TableCell>
-                <MatchedTracksCell company={company} tracks={tracks} />
               </TableCell>
               <TableCell>
                 {company.deal_type ? (
