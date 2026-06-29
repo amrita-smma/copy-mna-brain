@@ -269,6 +269,62 @@ export async function deleteCriteria(id: string) {
   });
 }
 
+/** How a Track variable's value is captured on the Company Card. */
+export type TrackVariableType = 'textbox' | 'radio';
+
+export interface TrackVariable {
+  id: string;
+  track_id: string;
+  name: string;
+  unit: string | null;
+  type: TrackVariableType;
+  /** Choices for `radio` type variables (empty for `textbox`). */
+  options: string[] | null;
+  sort_order: number | null;
+}
+
+/** All track variables, or — when `trackId` is set — only those for that Track. */
+export async function getTrackVariables(trackId?: string) {
+  const qs = trackId ? `?trackId=${encodeURIComponent(trackId)}` : '';
+  return apiRequest<TrackVariable[]>(`/api/track-variables${qs}`);
+}
+
+export async function createTrackVariable(payload: {
+  trackId: string;
+  name: string;
+  unit?: string | null;
+  type?: TrackVariableType;
+  options?: string[];
+  sortOrder?: number;
+}) {
+  return apiRequest<TrackVariable>('/api/track-variables', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function updateTrackVariable(
+  id: string,
+  payload: {
+    name?: string;
+    unit?: string | null;
+    type?: TrackVariableType;
+    options?: string[];
+    sortOrder?: number;
+  },
+) {
+  return apiRequest<TrackVariable>(`/api/track-variables/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function deleteTrackVariable(id: string) {
+  return apiRequest<{ success: boolean }>(`/api/track-variables/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+  });
+}
+
 export async function getScreenings(params?: { companyId?: string; onlyL0?: boolean }) {
   const search = new URLSearchParams();
   if (params?.companyId) search.set('companyId', params.companyId);

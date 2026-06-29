@@ -58,12 +58,14 @@ import StatusCombobox, {
   DEFAULT_OUTBOUND_STATUS_OPTIONS,
 } from '@/components/pipeline/StatusCombobox';
 import UserSelectCombobox from '@/components/pipeline/UserSelectCombobox';
+import TrackVariablesSection from '@/components/pipeline/TrackVariablesSection';
 import { normalizeStake } from '@/lib/stake';
 import {
   matchedTrackPics,
   dealLeadField,
   dealLeadLabel,
   effectiveDealLead,
+  persistedTrackIds,
 } from '@/lib/tracks/matchTracks';
 import {
   Dialog,
@@ -179,6 +181,7 @@ interface CompanyData {
   workflow_status?: string | null;
   key_rationale?: string | null;
   matched_track_ids?: string[] | null;
+  track_specific_variables?: Record<string, Record<string, string>> | null;
   deal_sponsor?: string | null;
   deal_captain?: string | null;
   financials_raw?: import('@/lib/repositories').Tables<'company_financials'>[];
@@ -1651,6 +1654,17 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
                 <CompanyAnalysisSection title="Diligence Priorities" description="Define the most critical unknowns to resolve before advancing investment (3-7 items)." icon={Search} content={analysis.diligence_priorities || ''} colorVariant="rose" />
               </div>
             ) : null}
+
+            {/* Track-specific custom variables */}
+            {company && (
+              <TrackVariablesSection
+                companyId={company.id}
+                matchedTrackIds={persistedTrackIds(company, tracks)}
+                tracks={tracks}
+                values={company.track_specific_variables}
+                onSaved={() => fetchCompany({ silent: true })}
+              />
+            )}
 
             {/* Stage History */}
             <div className="rounded-lg border bg-card px-4 py-3">

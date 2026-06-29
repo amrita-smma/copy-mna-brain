@@ -280,6 +280,46 @@ export const criterias = pgTable(
   },
 );
 
+/** How a track variable's value is captured on the Company Card. */
+export type TrackVariableType = "textbox" | "radio";
+
+/**
+ * Per-company values for Track variables, nested by track id then variable id:
+ * `{ [trackId]: { [variableId]: value } }`.
+ */
+export type TrackSpecificVariables = Record<string, Record<string, string>>;
+
+export const trackVariables = pgTable(
+  "track_variables",
+  {
+    id: uuid().defaultRandom().primaryKey().notNull(),
+    // The Track (investment_thesis) this variable belongs to.
+    track_id: uuid()
+      .notNull()
+      .references((): AnyPgColumn => investmentThesis.id, {
+        onDelete: "cascade",
+      }),
+    name: text().notNull(),
+    // Display unit, e.g. percentage, tonne, currency. Free-text.
+    unit: text(),
+    // 'textbox' | 'radio' — how the value is captured on the Company Card.
+    type: text().$type<TrackVariableType>().default("textbox").notNull(),
+    // Choices for 'radio' type variables (ignored for 'textbox').
+    options: jsonb().$type<string[]>().default([]),
+    sort_order: integer().default(0),
+    created_at: timestamp({ withTimezone: true, mode: "string" }).defaultNow(),
+    updated_at: timestamp({ withTimezone: true, mode: "string" }).defaultNow(),
+  },
+  (table) => {
+    return {
+      idxTrackVariablesTrackId: index("idx_track_variables_track_id").using(
+        "btree",
+        table.track_id.asc().nullsLast().op("uuid_ops"),
+      ),
+    };
+  },
+);
+
 export const companyCriterias = pgTable(
   "company_criterias",
   {
@@ -386,6 +426,11 @@ export const companies = pgTable(
     // Investment-thesis ("Track") ids this company is manually matched to.
     // Empty array → the UI falls back to auto-suggested tracks.
     matched_track_ids: jsonb().$type<string[]>().default([]),
+    // Per-Track custom variable values, nested by track id then variable id:
+    // { [trackId]: { [variableId]: value } }.
+    track_specific_variables: jsonb()
+      .$type<TrackSpecificVariables>()
+      .default({}),
   },
   (table) => {
     return {

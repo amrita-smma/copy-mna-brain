@@ -13,6 +13,7 @@ export * from './dealDocumentRepository';
 export * from './dealLinkRepository';
 export * from './dealNoteRepository';
 export * from './investmentThesisRepository';
+export * from './trackVariableRepository';
 export * from './jobRepository';
 export * from './userRepository';
 export * from './resetPasswordTokenRepository';

@@ -27,6 +27,7 @@ type TableMap = {
   llm_batches: typeof schema.llmBatches;
   domain_classifications: typeof schema.domainClassifications;
   investment_thesis: typeof schema.investmentThesis;
+  track_variables: typeof schema.trackVariables;
   inven_cache: typeof schema.invenCache;
   jobs: typeof schema.jobs;
   job_logs: typeof schema.jobLogs;

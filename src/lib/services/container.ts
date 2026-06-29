@@ -15,6 +15,7 @@ import {
   CompanySlidesRepository,
   FileRepository,
   InvestmentThesisRepository,
+  TrackVariableRepository,
   JobRepository,
   ResetPasswordTokenRepository,
   UserRepository,
@@ -47,6 +48,7 @@ import { CompanyRelationRepository } from '@/lib/repositories/companyRelationRep
 import { ScreeningService } from './screeningService';
 import { CriteriaService } from './criteriaService';
 import { InvestmentThesisService } from './investmentThesisService';
+import { TrackVariableService } from './trackVariableService';
 import { MarketScanningRoutineService } from './marketScanningRoutineService';
 import { DealDocumentService } from './dealDocumentService';
 import { RecentFileService } from './recentFileService';
@@ -78,6 +80,7 @@ export interface Container {
   screeningService: ScreeningService;
   criteriaService: CriteriaService;
   investmentThesisService: InvestmentThesisService;
+  trackVariableService: TrackVariableService;
   marketScanningRoutineService: MarketScanningRoutineService;
   dealDocumentService: DealDocumentService;
   recentFileService: RecentFileService;
@@ -124,6 +127,7 @@ export function createContainer(db: DbClient): Container {
   const companySlidesRepo = new CompanySlidesRepository(db);
   const fileRepo = new FileRepository(db);
   const thesisRepo = new InvestmentThesisRepository(db);
+  const trackVariableRepo = new TrackVariableRepository(db);
   const jobRepo = new JobRepository(db);
   const userRepo = new UserRepository(db);
   const resetTokenRepo = new ResetPasswordTokenRepository(db);
@@ -141,6 +145,7 @@ export function createContainer(db: DbClient): Container {
     thesisRepo,
     marketScanningRoutineService,
   );
+  const trackVariableService = new TrackVariableService(trackVariableRepo);
   const dealNoteService = new DealNoteService(dealNoteRepo);
   const dealLinkService = new DealLinkService(dealLinkRepo);
   const jobService = new JobService(jobRepo, screeningRepo);
@@ -242,6 +247,7 @@ export function createContainer(db: DbClient): Container {
     screeningService,
     criteriaService,
     investmentThesisService,
+    trackVariableService,
     marketScanningRoutineService,
     dealDocumentService,
     recentFileService,

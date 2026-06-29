@@ -42,6 +42,7 @@ function makeCompany(overrides: Partial<Tables<'companies'>> = {}): Tables<'comp
     banker_source: null,
     possible_duplicate_company_id: null,
     matched_track_ids: null,
+    track_specific_variables: null,
     ...overrides,
   };
 }

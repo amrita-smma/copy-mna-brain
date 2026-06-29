@@ -22,12 +22,15 @@ import {
   deleteTrack,
   getUsers,
   getCriterias,
+  getTrackVariables,
   type Track,
   type UserSummary,
   type Criteria,
+  type TrackVariable,
 } from "@/lib/api/pipeline";
 import StatusCombobox from "@/components/pipeline/StatusCombobox";
 import ScreeningCriteriaManager from "@/components/pipeline/ScreeningCriteriaManager";
+import TrackVariablesManager from "@/components/pipeline/TrackVariablesManager";
 import { trackDisplayName } from "@/lib/tracks/matchTracks";
 
 interface WorkingTrack {
@@ -71,6 +74,7 @@ export default function TrackSettingsDialog({
   const [tempCounter, setTempCounter] = useState(0);
   const [users, setUsers] = useState<UserSummary[]>([]);
   const [criterias, setCriterias] = useState<Criteria[]>([]);
+  const [trackVariables, setTrackVariables] = useState<TrackVariable[]>([]);
 
   // Load team members once, to suggest PIC values.
   useEffect(() => {
@@ -87,6 +91,14 @@ export default function TrackSettingsDialog({
       .then(setCriterias)
       .catch((err) => console.error("Failed to load criterias:", err));
   }, [open, criterias.length]);
+
+  // Load all track variables once; the manager filters to the active track.
+  useEffect(() => {
+    if (!open || trackVariables.length > 0) return;
+    getTrackVariables()
+      .then(setTrackVariables)
+      .catch((err) => console.error("Failed to load track variables:", err));
+  }, [open, trackVariables.length]);
 
   useEffect(() => {
     if (!open) return;
@@ -316,6 +328,12 @@ export default function TrackSettingsDialog({
                     >
                       AI Screening Criteria
                     </TabsTrigger>
+                    <TabsTrigger
+                      value="variables"
+                      className="rounded-full text-purple-700 hover:text-purple-900 data-[state=active]:bg-purple-300 data-[state=active]:text-purple-950 data-[state=active]:shadow-sm"
+                    >
+                      Variables
+                    </TabsTrigger>
                   </TabsList>
 
                   <TabsContent value="thesis" className="mt-4">
@@ -340,6 +358,21 @@ export default function TrackSettingsDialog({
                         thesisId={active.id}
                         criterias={criterias}
                         onChange={setCriterias}
+                        disabled={saving}
+                      />
+                    )}
+                  </TabsContent>
+
+                  <TabsContent value="variables" className="mt-4">
+                    {active.isNew ? (
+                      <p className="text-sm text-muted-foreground">
+                        Save this track first to add variables to it.
+                      </p>
+                    ) : (
+                      <TrackVariablesManager
+                        trackId={active.id}
+                        variables={trackVariables}
+                        onChange={setTrackVariables}
                         disabled={saving}
                       />
                     )}

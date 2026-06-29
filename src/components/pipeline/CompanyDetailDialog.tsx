@@ -89,6 +89,7 @@ import StatusCombobox, {
   DEFAULT_OUTBOUND_STATUS_OPTIONS,
 } from "@/components/pipeline/StatusCombobox";
 import UserSelectCombobox from "@/components/pipeline/UserSelectCombobox";
+import TrackVariablesSection from "@/components/pipeline/TrackVariablesSection";
 import { normalizeStake } from "@/lib/stake";
 import {
   matchedTrackPics,
@@ -183,6 +184,7 @@ export interface CompanyData {
   workflow_status?: string | null;
   key_rationale?: string | null;
   matched_track_ids?: string[] | null;
+  track_specific_variables?: Record<string, Record<string, string>> | null;
   deal_sponsor?: string | null;
   deal_captain?: string | null;
   financials_raw?: Tables<'company_financials'>[];
@@ -1995,6 +1997,20 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
                   </div>
                 )}
               </div>
+
+              {/* Track-specific custom variables */}
+              <TrackVariablesSection
+                companyId={company.id}
+                matchedTrackIds={persistedTrackIds(company, tracks)}
+                tracks={tracks}
+                values={company.track_specific_variables}
+                onSaved={(next) =>
+                  setCompany((prev) => ({
+                    ...prev,
+                    track_specific_variables: next,
+                  }))
+                }
+              />
 
               {/* Stage History */}
               <div className="rounded-lg border bg-card px-4 py-3">

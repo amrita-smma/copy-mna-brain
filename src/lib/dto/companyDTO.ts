@@ -13,6 +13,7 @@
  */
 import type { Tables, TablesInsert } from '@/lib/repositories/types';
 import type { DealOrigin, DealStage, CompanyStatus } from '@/lib/types';
+import type { TrackSpecificVariables } from '@/lib/db/schema';
 
 const TRACKED_YEARS = [2021, 2022, 2023, 2024, 2025] as const;
 type TrackedYear = typeof TRACKED_YEARS[number];
@@ -67,6 +68,8 @@ export interface CompanyDTO {
   possible_duplicate_company_id: string | null;
   // Investment-thesis ("Track") ids this company is manually matched to.
   matched_track_ids: string[];
+  // Per-Track custom variable values, nested by track id then variable id.
+  track_specific_variables: TrackSpecificVariables;
 
   remarks: string | null;
   thesis_content: string | null;
@@ -224,6 +227,7 @@ export function toCompanyDTO(
     banker_source: company.banker_source ?? null,
     possible_duplicate_company_id: company.possible_duplicate_company_id ?? null,
     matched_track_ids: company.matched_track_ids ?? [],
+    track_specific_variables: company.track_specific_variables ?? {},
     remarks: company.remarks,
     thesis_content: company.thesis_content,
     created_at: company.created_at,
@@ -352,7 +356,7 @@ export function splitCompanyDTO(dto: CompanyDTOInput): SplitCompanyWrite {
     'deal_type', 'originator', 'entered_by', 'deal_sponsor', 'deal_captain',
     'last_activity_at', 'banker', 'doc_type', 'stake',
     'deal_size', 'workflow_status', 'key_rationale', 'review_state', 'banker_source',
-    'possible_duplicate_company_id', 'matched_track_ids',
+    'possible_duplicate_company_id', 'matched_track_ids', 'track_specific_variables',
   ] as const;
   for (const k of coreKeys) {
     if (k in dto) {
