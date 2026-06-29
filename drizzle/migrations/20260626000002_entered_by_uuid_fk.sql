@@ -1,15 +1,15 @@
 -- [MB-344] Change entered_by from free-text to a UUID FK referencing users(id).
 
--- 1. Match email-format values to users — preserves historical data where possible.
+-- 1. Match free-text names to users by name — preserves historical attribution
+--    where possible. Legacy entered_by holds display names (e.g. 'Budi', 'Admin'), not emails.
 UPDATE companies c
 SET entered_by = u.id::text
 FROM users u
 WHERE c.entered_by IS NOT NULL
-  AND u.email IS NOT NULL
-  AND lower(c.entered_by) = lower(u.email);
+  AND lower(c.entered_by) = lower(u.name);
 
--- 2. Null out anything that still isn't a valid UUID (unmatched emails,
---    'AI Email Scanning', free-text names, etc.).
+-- 2. Null out anything that still isn't a valid UUID (unmatched names,
+--    'AI Email Scanning', etc.).
 UPDATE companies
 SET entered_by = NULL
 WHERE entered_by IS NOT NULL

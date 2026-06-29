@@ -345,7 +345,7 @@ export default function OutboundCompaniesTable({
               </TableCell>
               <TableCell>
                 <span className="text-sm text-muted-foreground">
-                  {company.entered_by || "—"}
+                  {company.entered_by_name || "—"}
                 </span>
               </TableCell>
               <TableCell>

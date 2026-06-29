@@ -592,7 +592,7 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
     geo: (c) => c.geo || null,
     deal_type: (c) => c.deal_type || null,
     status: (c) => c.workflow_status || null,
-    entered_by: (c) => c.entered_by || null,
+    entered_by: (c) => c.entered_by_name || null,
     banker: (c) => c.banker ?? c.banker_source ?? null,
     stake: (c) => c.stake || null,
     // Deal Sponsor (L0–L2) / Deal Captain (L3+): the stored per-company
@@ -735,8 +735,8 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
         bVal = (b.workflow_status || "").toLowerCase();
         break;
       case "entered_by":
-        aVal = (a.entered_by || "").toLowerCase();
-        bVal = (b.entered_by || "").toLowerCase();
+        aVal = (a.entered_by_name || "").toLowerCase();
+        bVal = (b.entered_by_name || "").toLowerCase();
         break;
       case "deal_lead":
         aVal = (effectiveDealLead(a, activeTab, tracks) || "").toLowerCase();

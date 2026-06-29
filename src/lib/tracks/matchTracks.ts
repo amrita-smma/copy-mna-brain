@@ -150,12 +150,13 @@ export type DealLeadField = 'deal_sponsor' | 'deal_captain';
 
 /**
  * Which per-company column backs the Deal Sponsor/Captain at a given stage:
- * "deal_sponsor" at L0–L2, "deal_captain" at L3+.
+ * "deal_captain" at L3+, "deal_sponsor" everywhere else (L0–L2 and the
+ * pre-pipeline stages: market_screening, unreviewed, discovered).
  */
 export function dealLeadField(stage: string | null | undefined): DealLeadField {
-  return stage === 'L0' || stage === 'L1' || stage === 'L2'
-    ? 'deal_sponsor'
-    : 'deal_captain';
+  return stage === 'L3' || stage === 'L4' || stage === 'L5'
+    ? 'deal_captain'
+    : 'deal_sponsor';
 }
 
 /** Column label for the Deal Sponsor/Captain at a given stage. */
@@ -166,6 +167,8 @@ export function dealLeadLabel(stage: string | null | undefined): string {
 /**
  * Effective Deal Sponsor/Captain for display: the per-company override when
  * set, else the matched Track's PIC(s). Returns null when neither is present.
+ * At Captain stages (L3+) the Deal Captain defaults to the Deal Sponsor when
+ * no captain has been set yet, so the lead carries over on promotion.
  */
 export function effectiveDealLead(
   company: MatchableCompany & {
@@ -177,6 +180,10 @@ export function effectiveDealLead(
 ): string | null {
   const stored = company[dealLeadField(stage)]?.trim();
   if (stored) return stored;
+  if (dealLeadField(stage) === 'deal_captain') {
+    const sponsor = company.deal_sponsor?.trim();
+    if (sponsor) return sponsor;
+  }
   const pics = matchedTrackPics(company, tracks);
   return pics.length > 0 ? pics.join(', ') : null;
 }

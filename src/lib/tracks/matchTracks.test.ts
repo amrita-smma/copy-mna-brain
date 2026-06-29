@@ -5,6 +5,9 @@ import {
   buildTrackScreeningGroups,
   trackDisplayName,
   matchedTrackPics,
+  dealLeadField,
+  dealLeadLabel,
+  effectiveDealLead,
   type TrackLike,
   type MatchableCompany,
 } from './matchTracks';
@@ -174,5 +177,76 @@ describe('trackDisplayName', () => {
 
   it('falls back for an empty name', () => {
     expect(trackDisplayName({ id: 'x', title: '', content: null })).toBe('Untitled track');
+  });
+});
+
+type LeadCompany = Parameters<typeof effectiveDealLead>[0];
+
+const leadCompany = (overrides: Partial<LeadCompany> = {}): LeadCompany => ({
+  deal_sponsor: null,
+  deal_captain: null,
+  ...overrides,
+});
+
+describe('dealLeadField', () => {
+  it('returns deal_sponsor for L0–L2', () => {
+    expect(dealLeadField('L0')).toBe('deal_sponsor');
+    expect(dealLeadField('L1')).toBe('deal_sponsor');
+    expect(dealLeadField('L2')).toBe('deal_sponsor');
+  });
+
+  it('returns deal_captain for L3 and above', () => {
+    expect(dealLeadField('L3')).toBe('deal_captain');
+    expect(dealLeadField('L4')).toBe('deal_captain');
+    expect(dealLeadField('L5')).toBe('deal_captain');
+  });
+
+  it('returns deal_sponsor for pre-pipeline and unknown stages', () => {
+    expect(dealLeadField('market_screening')).toBe('deal_sponsor');
+    expect(dealLeadField('unreviewed')).toBe('deal_sponsor');
+    expect(dealLeadField('discovered')).toBe('deal_sponsor');
+    expect(dealLeadField(null)).toBe('deal_sponsor');
+    expect(dealLeadField(undefined)).toBe('deal_sponsor');
+  });
+});
+
+describe('dealLeadLabel', () => {
+  it('labels L0–L2 and pre-pipeline stages as Deal Sponsor', () => {
+    expect(dealLeadLabel('L2')).toBe('Deal Sponsor');
+    expect(dealLeadLabel('market_screening')).toBe('Deal Sponsor');
+  });
+
+  it('labels L3+ as Deal Captain', () => {
+    expect(dealLeadLabel('L3')).toBe('Deal Captain');
+  });
+});
+
+describe('effectiveDealLead', () => {
+  it('returns the stored sponsor at sponsor stages', () => {
+    expect(effectiveDealLead(leadCompany({ deal_sponsor: 'Alice' }), 'L1', TRACKS)).toBe('Alice');
+  });
+
+  it('returns the stored captain at captain stages', () => {
+    expect(
+      effectiveDealLead(leadCompany({ deal_sponsor: 'Alice', deal_captain: 'Bob' }), 'L3', TRACKS),
+    ).toBe('Bob');
+  });
+
+  it('defaults the captain to the sponsor when no captain is set', () => {
+    expect(effectiveDealLead(leadCompany({ deal_sponsor: 'Alice' }), 'L3', TRACKS)).toBe('Alice');
+  });
+
+  it('does not borrow the captain value at sponsor stages', () => {
+    expect(effectiveDealLead(leadCompany({ deal_captain: 'Bob' }), 'L1', TRACKS)).toBeNull();
+  });
+
+  it('falls back to matched track PICs when no lead is stored', () => {
+    expect(
+      effectiveDealLead(leadCompany({ matched_track_ids: ['semi'] }), 'L3', TRACKS),
+    ).toBe('Alice');
+  });
+
+  it('returns null when neither a lead nor a track PIC exists', () => {
+    expect(effectiveDealLead(leadCompany(), 'L3', TRACKS)).toBeNull();
   });
 });

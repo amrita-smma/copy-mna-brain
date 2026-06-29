@@ -164,6 +164,8 @@ interface CompanyData {
   promoted_reasons?: string | null;
   deal_type?: string | null;
   entered_by?: string | null;
+  /** Resolved display name for `entered_by` (joined server-side in the DTO). */
+  entered_by_name?: string | null;
   last_activity_at?: string | null;
   banker?: string | null;
   doc_type?: string | null;
@@ -1400,7 +1402,7 @@ export default function CompanyDetail({ showCompanyGraph = false }: CompanyDetai
                 </div>
                 <div>
                   <p className="text-xs text-muted-foreground">Entered by</p>
-                  <p className="text-sm font-medium break-words">{company.entered_by || '—'}</p>
+                  <p className="text-sm font-medium break-words">{company.entered_by_name || '—'}</p>
                 </div>
                 <div>
                   <p className="text-xs text-muted-foreground">Status</p>
