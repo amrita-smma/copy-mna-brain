@@ -61,7 +61,7 @@ export class DashboardActivityRepository {
   }
 
   async getNewL0Companies(from: Date, to: Date, limit?: number): Promise<
-    ({ id: string; target: string | null; project_name: string | null; source: string | null; segment: string | null; geography: string | null; remarks: string | null; thesis_content: string | null; event_at: string; reason: 'created' | 'demoted' } & FeedFinancials)[]
+    ({ id: string; target: string | null; project_name: string | null; source: string | null; segment: string | null; geography: string | null; remarks: string | null; thesis_content: string | null; deal_sponsor: string | null; entered_by: string | null; event_at: string; reason: 'created' | 'demoted' } & FeedFinancials)[]
   > {
     const fromIso = from.toISOString();
     const toIso = to.toISOString();
@@ -78,6 +78,8 @@ export class DashboardActivityRepository {
         geography: companies.geography,
         remarks: companies.remarks,
         thesis_content: companies.thesis_content,
+        deal_sponsor: companies.deal_sponsor,
+        entered_by: companies.entered_by,
         revenue_usd_mn: companyFinancials.revenue_usd_mn,
         ebitda_usd_mn: companyFinancials.ebitda_usd_mn,
         ev_usd_mn: companyFinancials.ev_usd_mn,
@@ -105,6 +107,8 @@ export class DashboardActivityRepository {
         geography: companies.geography,
         remarks: companies.remarks,
         thesis_content: companies.thesis_content,
+        deal_sponsor: companies.deal_sponsor,
+        entered_by: companies.entered_by,
         revenue_usd_mn: companyFinancials.revenue_usd_mn,
         ebitda_usd_mn: companyFinancials.ebitda_usd_mn,
         ev_usd_mn: companyFinancials.ev_usd_mn,
@@ -224,6 +228,8 @@ export class DashboardActivityRepository {
         remarks: companies.remarks,
         thesis_content: companies.thesis_content,
         promoted_reasons: companies.promoted_reasons,
+        deal_sponsor: companies.deal_sponsor,
+        entered_by: companies.entered_by,
         revenue_usd_mn: companyFinancials.revenue_usd_mn,
         ebitda_usd_mn: companyFinancials.ebitda_usd_mn,
         ev_usd_mn: companyFinancials.ev_usd_mn,
@@ -277,6 +283,8 @@ export class DashboardActivityRepository {
         geography: companies.geography,
         source: companies.source,
         thesis_content: companies.thesis_content,
+        deal_sponsor: companies.deal_sponsor,
+        entered_by: companies.entered_by,
         revenue_usd_mn: companyFinancials.revenue_usd_mn,
         ebitda_usd_mn: companyFinancials.ebitda_usd_mn,
         ev_usd_mn: companyFinancials.ev_usd_mn,

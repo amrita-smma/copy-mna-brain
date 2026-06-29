@@ -1376,6 +1376,22 @@ export default function Dashboard({
                                             {c.geography}
                                           </Badge>
                                         )}
+                                        {c.deal_sponsor && (
+                                          <Badge
+                                            variant="outline"
+                                            className="text-[10px] px-1.5 py-0.5 min-h-4 rounded-md whitespace-normal break-words text-left leading-snug"
+                                          >
+                                            Deal Sponsor: {c.deal_sponsor}
+                                          </Badge>
+                                        )}
+                                        {c.entered_by && (
+                                          <Badge
+                                            variant="outline"
+                                            className="text-[10px] px-1.5 py-0.5 min-h-4 rounded-md whitespace-normal break-words text-left leading-snug"
+                                          >
+                                            Entered By: {c.entered_by}
+                                          </Badge>
+                                        )}
                                       </div>
                                     </div>
                                   </div>
@@ -1458,6 +1474,22 @@ export default function Dashboard({
                                           className="text-[10px] px-1.5 py-0.5 min-h-4 rounded-md whitespace-normal break-words text-left leading-snug"
                                         >
                                           {d.geography}
+                                        </Badge>
+                                      )}
+                                      {d.deal_sponsor && (
+                                        <Badge
+                                          variant="outline"
+                                          className="text-[10px] px-1.5 py-0.5 min-h-4 rounded-md whitespace-normal break-words text-left leading-snug"
+                                        >
+                                          Deal Sponsor: {d.deal_sponsor}
+                                        </Badge>
+                                      )}
+                                      {d.entered_by && (
+                                        <Badge
+                                          variant="outline"
+                                          className="text-[10px] px-1.5 py-0.5 min-h-4 rounded-md whitespace-normal break-words text-left leading-snug"
+                                        >
+                                          Entered By: {d.entered_by}
                                         </Badge>
                                       )}
                                     </div>
@@ -1553,6 +1585,22 @@ export default function Dashboard({
                                               className="text-[10px] px-1.5 py-0.5 min-h-4 rounded-md whitespace-normal break-words text-left leading-snug"
                                             >
                                               {m.geography}
+                                            </Badge>
+                                          )}
+                                          {m.deal_sponsor && (
+                                            <Badge
+                                              variant="outline"
+                                              className="text-[10px] px-1.5 py-0.5 min-h-4 rounded-md whitespace-normal break-words text-left leading-snug"
+                                            >
+                                              Deal Sponsor: {m.deal_sponsor}
+                                            </Badge>
+                                          )}
+                                          {m.entered_by && (
+                                            <Badge
+                                              variant="outline"
+                                              className="text-[10px] px-1.5 py-0.5 min-h-4 rounded-md whitespace-normal break-words text-left leading-snug"
+                                            >
+                                              Entered By: {m.entered_by}
                                             </Badge>
                                           )}
                                         </div>
