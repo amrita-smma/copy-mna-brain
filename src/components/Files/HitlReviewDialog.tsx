@@ -33,6 +33,7 @@ import type { ApproveFileInput } from "@/lib/services/fileService";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useAuth } from "@/hooks/useAuth";
+import { getUsers, type UserSummary } from "@/lib/api/pipeline";
 
 interface SuggestedCompany {
   target: string | null;
@@ -132,6 +133,8 @@ export function HitlReviewDialog({ fileId, open, onClose, onApproved }: Props) {
   const [l0DealType, setL0DealType] = useState<"majority" | "minority" | "">("");
   const [l0Banker, setL0Banker] = useState("");
   const [missingFields, setMissingFields] = useState<string[]>([]);
+  // Users for the editable "Entered By" picker (entered_by is a uuid FK).
+  const [users, setUsers] = useState<UserSummary[]>([]);
 
   // Initial load — fetch with no override so the server falls back to the
   // company stored on the file. Sets the initial matched-company state too.
@@ -141,6 +144,11 @@ export function HitlReviewDialog({ fileId, open, onClose, onApproved }: Props) {
     setL0DealType("");
     setL0Banker("");
     setMissingFields([]);
+    if (users.length === 0) {
+      getUsers()
+        .then(setUsers)
+        .catch((err) => console.error("Failed to load users:", err));
+    }
     setLoading(true);
     fetch(`/api/ai-file-dump/${fileId}/review`)
       .then((r) => r.json())
@@ -409,13 +417,22 @@ export function HitlReviewDialog({ fileId, open, onClose, onApproved }: Props) {
                             <span className="text-[10px] text-muted-foreground">· auto-filled</span>
                           )}
                         </div>
-                        <Input
-                          className="h-7 text-xs"
-                          placeholder="User ID or name"
-                          value={l0EnteredBy === user?.id ? (user?.name ?? l0EnteredBy) : l0EnteredBy}
-                          readOnly={l0EnteredBy === user?.id}
-                          onChange={(e) => { setL0EnteredBy(e.target.value); setMissingFields([]); }}
-                        />
+                        <Select
+                          value={l0EnteredBy || "_none"}
+                          onValueChange={(v) => { setL0EnteredBy(v === "_none" ? "" : v); setMissingFields([]); }}
+                        >
+                          <SelectTrigger className="h-7 text-xs">
+                            <SelectValue placeholder="Select a user…" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="_none">— None —</SelectItem>
+                            {users.map((u) => (
+                              <SelectItem key={u.id} value={u.id}>
+                                {u.name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
                       </div>
                       <div className="space-y-1">
                         <Label className="text-xs">Deal Type</Label>

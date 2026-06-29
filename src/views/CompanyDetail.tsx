@@ -396,12 +396,17 @@ export default function CompanyDetail({ showCompanyGraph = false }: CompanyDetai
     key_rationale: string;
     deal_sponsor: string;
     deal_captain: string;
+    entered_by: string;
   };
   const [isEditing, setIsEditing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [editForm, setEditForm] = useState<EditForm | null>(null);
   const [bankerOptions, setBankerOptions] = useState<string[]>([]);
   const [userOptions, setUserOptions] = useState<string[]>([]);
+  // Full users list (id + name) for the `entered_by` picker — it's a uuid FK,
+  // so it can't reuse the name-only `userOptions` (those back the free-text
+  // Deal Sponsor / Deal Captain comboboxes).
+  const [users, setUsers] = useState<UserSummary[]>([]);
 
   const startEditing = async () => {
     if (!company) return;
@@ -425,6 +430,7 @@ export default function CompanyDetail({ showCompanyGraph = false }: CompanyDetai
       key_rationale: company.key_rationale ?? '',
       deal_sponsor: company.deal_sponsor ?? '',
       deal_captain: company.deal_captain ?? '',
+      entered_by: company.entered_by ?? '',
     });
     setIsEditing(true);
     if (bankerOptions.length === 0) {
@@ -434,9 +440,10 @@ export default function CompanyDetail({ showCompanyGraph = false }: CompanyDetai
     }
     if (userOptions.length === 0) {
       getUsers()
-        .then((users: UserSummary[]) =>
-          setUserOptions(users.map((u) => u.name).filter((n): n is string => !!n)),
-        )
+        .then((rows: UserSummary[]) => {
+          setUsers(rows);
+          setUserOptions(rows.map((u) => u.name).filter((n): n is string => !!n));
+        })
         .catch((err) => console.error('Failed to load users:', err));
     }
   };
@@ -518,6 +525,7 @@ export default function CompanyDetail({ showCompanyGraph = false }: CompanyDetai
         key_rationale: editForm.key_rationale.trim() || null,
         deal_sponsor: editForm.deal_sponsor.trim() || null,
         deal_captain: editForm.deal_captain.trim() || null,
+        entered_by: editForm.entered_by.trim() || null,
       });
       const refreshedCompany = await getCompanies({ id: company.id });
       if (refreshedCompany) {
@@ -1402,7 +1410,19 @@ export default function CompanyDetail({ showCompanyGraph = false }: CompanyDetai
                 </div>
                 <div>
                   <p className="text-xs text-muted-foreground">Entered by</p>
-                  <p className="text-sm font-medium break-words">{company.entered_by_name || '—'}</p>
+                  {isEditing && editForm ? (
+                    <Select value={editForm.entered_by || '__none__'} onValueChange={(v) => setEditForm({ ...editForm, entered_by: v === '__none__' ? '' : v })} disabled={isSaving}>
+                      <SelectTrigger className="mt-1 h-7 text-sm"><SelectValue placeholder="Select a user…" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__none__">—</SelectItem>
+                        {users.map((u) => (
+                          <SelectItem key={u.id} value={u.id}>{u.name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  ) : (
+                    <p className="text-sm font-medium break-words">{company.entered_by_name || '—'}</p>
+                  )}
                 </div>
                 <div>
                   <p className="text-xs text-muted-foreground">Status</p>
