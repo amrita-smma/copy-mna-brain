@@ -1,14 +1,20 @@
 import { Suspense } from 'react';
 import Dashboard from '@/views/Dashboard';
 import { GoogleSsoTokenGate } from '@/components/auth/GoogleSsoTokenGate';
-import { companyGraphEnabled } from '@/lib/flags';
+import { companyGraphEnabled, insightsDashboardEnabled } from '@/lib/flags';
 
 export default async function DashboardPage() {
-  const showCompanyGraph = await companyGraphEnabled().then(Boolean);
+  const [showCompanyGraph, showInsightsDashboard] = await Promise.all([
+    companyGraphEnabled().then(Boolean),
+    insightsDashboardEnabled().then(Boolean),
+  ]);
   return (
     <Suspense fallback={null}>
       <GoogleSsoTokenGate>
-        <Dashboard showCompanyGraph={showCompanyGraph} />
+        <Dashboard
+          showCompanyGraph={showCompanyGraph}
+          showInsightsDashboard={showInsightsDashboard}
+        />
       </GoogleSsoTokenGate>
     </Suspense>
   );

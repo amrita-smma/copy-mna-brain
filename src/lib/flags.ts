@@ -25,3 +25,8 @@ export const companyGraphEnabled = booleanFlag(
   "COMPANY_GRAPH_ENABLED",
   process.env.COMPANY_GRAPH_ENABLED === "true",
 );
+
+export const insightsDashboardEnabled = booleanFlag(
+  "INSIGHTS_DASHBOARD_ENABLED",
+  process.env.INSIGHTS_DASHBOARD_ENABLED === "true",
+);

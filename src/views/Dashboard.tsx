@@ -491,10 +491,12 @@ function NotesModal({ event, onClose }: NotesModalProps) {
 
 interface DashboardProps {
   showCompanyGraph?: boolean;
+  showInsightsDashboard?: boolean;
 }
 
 export default function Dashboard({
   showCompanyGraph = false,
+  showInsightsDashboard = false,
 }: DashboardProps) {
   const [loading, setLoading] = useState(true);
   const [activityInitialising, setActivityInitialising] = useState(true);
@@ -1886,7 +1888,9 @@ export default function Dashboard({
             Self-contained module: fetches its own aggregated metrics for the
             active date range (funnel, stale deals, banker/segment/country
             breakdowns, AI throughput). Desktop-only, like the sections above. */}
-        <InsightsModule from={dateRange.from} to={dateRange.to} />
+        {showInsightsDashboard && (
+          <InsightsModule from={dateRange.from} to={dateRange.to} />
+        )}
       </div>
 
       {selectedCompany && (
