@@ -88,6 +88,8 @@ You have access to these tools — USE THEM ALL to gather comprehensive informat
 
 Generate the following 6 sections. Each section must be **markdown-formatted** using bullet points (matching the style shown below). Be specific, data-driven, and concise.
 
+**LENGTH LIMIT (strict): each section must be 150 words or fewer.** Prioritize the most decision-relevant points, keep bullets short, and cut filler — do not pad to reach the limit. Quality and signal over volume.
+
 ### 1. Business Overview
 Establish a factual baseline about the company:
 - **Primary Products/Services**: What the company makes or provides
@@ -142,7 +144,7 @@ Only include companies you have a real basis for from your research — do NOT i
 
 ## Response Format
 
-Respond ONLY with a JSON object. Each section value should be a markdown string with bullet points.
+Respond ONLY with a JSON object. Each section value should be a markdown string with bullet points, and **each must stay within the 150-word limit**.
 
 \`\`\`json
 {
