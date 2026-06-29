@@ -55,10 +55,16 @@ export function AiOpinionCell({
   company,
   analyzing,
   onAnalyze,
+  onDiveDeeper,
 }: {
   company: PipelineCompany;
   analyzing: boolean;
   onAnalyze: (company: PipelineCompany) => void;
+  /**
+   * Hand the existing verdict to the copilot for a deeper discussion. The
+   * consumer sends the prompt and reveals the copilot pane.
+   */
+  onDiveDeeper?: (company: PipelineCompany) => void;
 }) {
   const isProcessing = analyzing || company.ai_opinion_status === "processing";
   const verdict = company.ai_opinion_verdict as Verdict | null;
@@ -85,16 +91,30 @@ export function AiOpinionCell({
             {company.ai_opinion_summary || label}
           </p>
         </div>
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          className="h-6 w-fit gap-1 px-1.5 text-[11px] text-muted-foreground hover:text-foreground"
-          onClick={() => onAnalyze(company)}
-        >
-          <RotateCcw className="h-3 w-3" />
-          Re-evaluate
-        </Button>
+        <div className="flex flex-wrap items-center gap-1">
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="h-6 w-fit gap-1 px-1.5 text-[11px] text-muted-foreground hover:text-foreground"
+            onClick={() => onAnalyze(company)}
+          >
+            <RotateCcw className="h-3 w-3" />
+            Re-evaluate
+          </Button>
+          {onDiveDeeper && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-6 w-fit gap-1 px-1.5 text-[11px] text-purple-700 hover:text-purple-800 dark:text-purple-300 dark:hover:text-purple-200"
+              onClick={() => onDiveDeeper(company)}
+            >
+              <Sparkles className="h-3 w-3" />
+              Dive deeper
+            </Button>
+          )}
+        </div>
       </div>
     );
   }

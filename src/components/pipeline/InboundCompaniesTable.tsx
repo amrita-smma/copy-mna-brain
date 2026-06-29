@@ -42,6 +42,7 @@ import type { PipelineCompany } from "@/views/Pipeline";
 import StatusCombobox from "@/components/pipeline/StatusCombobox";
 import { AskAIButton } from "@/components/chat/AskAIButton";
 import { useChatContext } from "@/components/chat/ChatProvider";
+import { useLayoutControl } from "@/components/layout/LayoutControlContext";
 import { AiOpinionCell } from "@/components/pipeline/AiOpinionCell";
 import { DuplicatePopup } from "@/components/pipeline/DuplicatePopup";
 import { companyDisplayName, companyDisplayTitle } from "@/lib/companyDisplay";
@@ -182,7 +183,21 @@ export default function InboundCompaniesTable({
 }: InboundCompaniesTableProps) {
   const isDropped = viewMode === "dropped";
   const { analyzeWithAI } = useChatContext();
+  const { focusCopilot } = useLayoutControl();
   const { nearEdge, edgeHandlers } = useNearRightEdge();
+
+  // "Dive deeper" hands the existing AI Opinion verdict to the copilot and
+  // reveals the pane (collapsing the main full-screen view) so the discussion
+  // is immediately visible.
+  const handleDiveDeeper = (c: PipelineCompany) => {
+    const name = companyDisplayName(c, "this company");
+    const verdict = c.ai_opinion_verdict ?? "unknown";
+    const summary = c.ai_opinion_summary ?? "no summary available";
+    analyzeWithAI(
+      `Dive deeper into the AI Opinion for ${name}. The current verdict is "${verdict}" with the rationale: "${summary}". Explain the reasoning in more detail, surface the key risks and opportunities, and tell me what additional diligence would strengthen this assessment.`,
+    );
+    focusCopilot();
+  };
   const stageIndex = PIPELINE_STAGES.indexOf(stage);
   const promoteTarget =
     stageIndex >= 0 && stageIndex < PIPELINE_STAGES.length - 1
@@ -626,6 +641,7 @@ export default function InboundCompaniesTable({
                       analyzingAiOpinionIds?.has(company.id) ?? false
                     }
                     onAnalyze={onAnalyzeAiOpinion}
+                    onDiveDeeper={handleDiveDeeper}
                   />
                 ) : (
                   <span className="text-muted-foreground">—</span>
