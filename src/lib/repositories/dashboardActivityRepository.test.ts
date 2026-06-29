@@ -36,7 +36,7 @@ describe('DashboardActivityRepository.getDroppedDeals', () => {
     expect(selectArg).toHaveProperty('thesis_content');
   });
 
-  it('selects FY financials for the per-row summary', async () => {
+  it('selects FY financials and entered_by_name for the per-row summary', async () => {
     mockDb.orderBy.mockResolvedValueOnce([]);
 
     await repo.getDroppedDeals(new Date('2026-01-01'), new Date('2026-01-08'));
@@ -45,8 +45,9 @@ describe('DashboardActivityRepository.getDroppedDeals', () => {
     expect(selectArg).toHaveProperty('revenue_usd_mn');
     expect(selectArg).toHaveProperty('ebitda_usd_mn');
     expect(selectArg).toHaveProperty('ev_usd_mn');
-    // Financials come from a left join, so companies without figures still appear.
-    expect(mockDb.leftJoin).toHaveBeenCalledTimes(1);
+    expect(selectArg).toHaveProperty('entered_by_name');
+    // One left join for financials, one for users (entered_by name resolution).
+    expect(mockDb.leftJoin).toHaveBeenCalledTimes(2);
   });
 
   it('returns the rows produced by the query', async () => {
@@ -72,7 +73,7 @@ describe('DashboardActivityRepository.getPipelineMoves', () => {
     repo = new DashboardActivityRepository(mockDb as never);
   });
 
-  it('left-joins financials and selects them alongside the move metadata', async () => {
+  it('left-joins financials and users, selecting them alongside the move metadata', async () => {
     mockDb.orderBy.mockResolvedValueOnce([]);
 
     await repo.getPipelineMoves(new Date('2026-01-01'), new Date('2026-01-08'));
@@ -82,7 +83,9 @@ describe('DashboardActivityRepository.getPipelineMoves', () => {
     expect(selectArg).toHaveProperty('revenue_usd_mn');
     expect(selectArg).toHaveProperty('ebitda_usd_mn');
     expect(selectArg).toHaveProperty('ev_usd_mn');
-    expect(mockDb.leftJoin).toHaveBeenCalledTimes(1);
+    expect(selectArg).toHaveProperty('entered_by_name');
+    // One left join for financials, one for users (entered_by name resolution).
+    expect(mockDb.leftJoin).toHaveBeenCalledTimes(2);
   });
 });
 

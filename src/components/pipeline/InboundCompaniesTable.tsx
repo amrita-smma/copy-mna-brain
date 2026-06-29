@@ -378,7 +378,7 @@ export default function InboundCompaniesTable({
           {isDropped ? (
             <>
               <TableHead>Source</TableHead>
-              <TableHead>Drop Reason</TableHead>
+              <TableHead className="min-w-[200px] max-w-[280px]">Drop Reason</TableHead>
             </>
           ) : (
             <Col
@@ -604,15 +604,14 @@ export default function InboundCompaniesTable({
                       {company.source || "-"}
                     </span>
                   </TableCell>
-                  <TableCell>
+                  <TableCell className="min-w-[200px] max-w-[280px] align-top">
                     {company.dropped_reason ? (
-                      <Badge
-                        variant="secondary"
-                        className="bg-red-100 text-red-700 max-w-[150px] truncate inline-block"
+                      <p
+                        className="text-xs text-muted-foreground whitespace-normal break-words"
                         title={company.dropped_reason}
                       >
                         {company.dropped_reason}
-                      </Badge>
+                      </p>
                     ) : (
                       <span className="text-muted-foreground">—</span>
                     )}

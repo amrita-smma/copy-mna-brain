@@ -9,6 +9,7 @@ import {
   correspondents,
   dealNotes,
   employers,
+  users,
 } from '@/lib/db/schema';
 import type { DbClient } from './types';
 
@@ -61,7 +62,7 @@ export class DashboardActivityRepository {
   }
 
   async getNewL0Companies(from: Date, to: Date, limit?: number): Promise<
-    ({ id: string; target: string | null; project_name: string | null; source: string | null; segment: string | null; geography: string | null; remarks: string | null; thesis_content: string | null; deal_sponsor: string | null; entered_by: string | null; event_at: string; reason: 'created' | 'demoted' } & FeedFinancials)[]
+    ({ id: string; target: string | null; project_name: string | null; source: string | null; segment: string | null; geography: string | null; remarks: string | null; thesis_content: string | null; deal_sponsor: string | null; entered_by: string | null; entered_by_name: string | null; event_at: string; reason: 'created' | 'demoted' } & FeedFinancials)[]
   > {
     const fromIso = from.toISOString();
     const toIso = to.toISOString();
@@ -80,6 +81,7 @@ export class DashboardActivityRepository {
         thesis_content: companies.thesis_content,
         deal_sponsor: companies.deal_sponsor,
         entered_by: companies.entered_by,
+        entered_by_name: users.name,
         revenue_usd_mn: companyFinancials.revenue_usd_mn,
         ebitda_usd_mn: companyFinancials.ebitda_usd_mn,
         ev_usd_mn: companyFinancials.ev_usd_mn,
@@ -88,6 +90,7 @@ export class DashboardActivityRepository {
       })
       .from(companies)
       .leftJoin(companyFinancials, this.latestFinancialsOn())
+      .leftJoin(users, eq(users.id, companies.entered_by))
       .where(
         and(
           eq(companies.pipeline_stage, 'L0'),
@@ -109,6 +112,7 @@ export class DashboardActivityRepository {
         thesis_content: companies.thesis_content,
         deal_sponsor: companies.deal_sponsor,
         entered_by: companies.entered_by,
+        entered_by_name: users.name,
         revenue_usd_mn: companyFinancials.revenue_usd_mn,
         ebitda_usd_mn: companyFinancials.ebitda_usd_mn,
         ev_usd_mn: companyFinancials.ev_usd_mn,
@@ -118,6 +122,7 @@ export class DashboardActivityRepository {
       .from(companyLogs)
       .innerJoin(companies, eq(companyLogs.company_id, companies.id))
       .leftJoin(companyFinancials, this.latestFinancialsOn())
+      .leftJoin(users, eq(users.id, companies.entered_by))
       .where(
         and(
           like(companyLogs.action, '%_TO_L0'),
@@ -230,6 +235,7 @@ export class DashboardActivityRepository {
         promoted_reasons: companies.promoted_reasons,
         deal_sponsor: companies.deal_sponsor,
         entered_by: companies.entered_by,
+        entered_by_name: users.name,
         revenue_usd_mn: companyFinancials.revenue_usd_mn,
         ebitda_usd_mn: companyFinancials.ebitda_usd_mn,
         ev_usd_mn: companyFinancials.ev_usd_mn,
@@ -238,6 +244,7 @@ export class DashboardActivityRepository {
       .from(companyLogs)
       .innerJoin(companies, eq(companyLogs.company_id, companies.id))
       .leftJoin(companyFinancials, this.latestFinancialsOn())
+      .leftJoin(users, eq(users.id, companies.entered_by))
       .where(
         and(
           like(companyLogs.action, 'PROMOTED_%'),
@@ -285,6 +292,7 @@ export class DashboardActivityRepository {
         thesis_content: companies.thesis_content,
         deal_sponsor: companies.deal_sponsor,
         entered_by: companies.entered_by,
+        entered_by_name: users.name,
         revenue_usd_mn: companyFinancials.revenue_usd_mn,
         ebitda_usd_mn: companyFinancials.ebitda_usd_mn,
         ev_usd_mn: companyFinancials.ev_usd_mn,
@@ -292,6 +300,7 @@ export class DashboardActivityRepository {
       })
       .from(companies)
       .leftJoin(companyFinancials, this.latestFinancialsOn())
+      .leftJoin(users, eq(users.id, companies.entered_by))
       .where(
         and(
           eq(companies.status, 'dropped'),

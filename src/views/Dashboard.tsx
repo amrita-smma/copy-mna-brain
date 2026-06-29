@@ -666,7 +666,9 @@ export default function Dashboard({
 
   const applyCustom = () => {
     if (!customFrom || !customTo) return;
-    setDateRange({ from: customFrom, to: customTo, preset: "custom" });
+    const to = new Date(customTo);
+    to.setHours(23, 59, 59, 999);
+    setDateRange({ from: customFrom, to, preset: "custom" });
     setCustomPickerOpen(false);
   };
 
@@ -1392,12 +1394,12 @@ export default function Dashboard({
                                             Deal Sponsor: {c.deal_sponsor}
                                           </Badge>
                                         )}
-                                        {c.entered_by && (
+                                        {c.entered_by_name && (
                                           <Badge
                                             variant="outline"
                                             className="text-[10px] px-1.5 py-0.5 min-h-4 rounded-md whitespace-normal break-words text-left leading-snug"
                                           >
-                                            Entered By: {c.entered_by}
+                                            Entered By: {c.entered_by_name}
                                           </Badge>
                                         )}
                                       </div>
@@ -1492,12 +1494,12 @@ export default function Dashboard({
                                           Deal Sponsor: {d.deal_sponsor}
                                         </Badge>
                                       )}
-                                      {d.entered_by && (
+                                      {d.entered_by_name && (
                                         <Badge
                                           variant="outline"
                                           className="text-[10px] px-1.5 py-0.5 min-h-4 rounded-md whitespace-normal break-words text-left leading-snug"
                                         >
-                                          Entered By: {d.entered_by}
+                                          Entered By: {d.entered_by_name}
                                         </Badge>
                                       )}
                                     </div>
@@ -1603,12 +1605,12 @@ export default function Dashboard({
                                               Deal Sponsor: {m.deal_sponsor}
                                             </Badge>
                                           )}
-                                          {m.entered_by && (
+                                          {m.entered_by_name && (
                                             <Badge
                                               variant="outline"
                                               className="text-[10px] px-1.5 py-0.5 min-h-4 rounded-md whitespace-normal break-words text-left leading-snug"
                                             >
-                                              Entered By: {m.entered_by}
+                                              Entered By: {m.entered_by_name}
                                             </Badge>
                                           )}
                                         </div>
