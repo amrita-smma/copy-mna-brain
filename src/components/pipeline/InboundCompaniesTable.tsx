@@ -354,7 +354,7 @@ export default function InboundCompaniesTable({
             sort="name"
             className="sticky left-[40px] z-20 bg-card border-r"
           />
-          <TableHead>{picColumnLabel}</TableHead>
+          <Col label={picColumnLabel} sort="deal_lead" filter="deal_lead" />
           <Col label="Entered by" sort="entered_by" filter="entered_by" />
           <Col
             label="Banker / Source"

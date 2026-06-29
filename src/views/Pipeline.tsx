@@ -63,7 +63,7 @@ import TrackSettingsDialog from "@/components/pipeline/TrackSettingsDialog";
 import TrackMultiSelect, {
   UNASSIGNED_TRACK_ID,
 } from "@/components/pipeline/TrackMultiSelect";
-import { resolveTrackIds } from "@/lib/tracks/matchTracks";
+import { resolveTrackIds, effectiveDealLead } from "@/lib/tracks/matchTracks";
 import { DOC_TYPE_OPTIONS } from "@/lib/constants";
 import {
   DEFAULT_INBOUND_STATUS_OPTIONS,
@@ -580,6 +580,10 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
     entered_by: (c) => c.entered_by || null,
     banker: (c) => c.banker ?? c.banker_source ?? null,
     stake: (c) => c.stake || null,
+    // Deal Sponsor (L0–L2) / Deal Captain (L3+): the stored per-company
+    // override, else the matched Track's PIC(s). Mirrors the table cell so the
+    // filter options match what's actually displayed.
+    deal_lead: (c) => effectiveDealLead(c, activeTab, tracks),
   };
 
   const EMPTY_FILTER_VALUE = "__empty__";
@@ -717,6 +721,10 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
       case "entered_by":
         aVal = (a.entered_by || "").toLowerCase();
         bVal = (b.entered_by || "").toLowerCase();
+        break;
+      case "deal_lead":
+        aVal = (effectiveDealLead(a, activeTab, tracks) || "").toLowerCase();
+        bVal = (effectiveDealLead(b, activeTab, tracks) || "").toLowerCase();
         break;
       case "banker":
         aVal = (a.banker ?? a.banker_source ?? "").toLowerCase();

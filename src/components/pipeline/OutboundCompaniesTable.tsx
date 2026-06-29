@@ -251,7 +251,7 @@ export default function OutboundCompaniesTable({
             sort="name"
             className="sticky left-[40px] z-20 bg-card border-r"
           />
-          <TableHead>{picColumnLabel}</TableHead>
+          <Col label={picColumnLabel} sort="deal_lead" filter="deal_lead" />
           <Col label="Entered by" sort="entered_by" filter="entered_by" />
           <Col label="Segment" sort="sector" filter="sector" />
           <TableHead className="min-w-[150px]">Matched Tracks</TableHead>
