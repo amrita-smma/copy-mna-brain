@@ -91,7 +91,10 @@ import {
   dealLeadField,
   dealLeadLabel,
   effectiveDealLead,
+  resolveTrackIds,
+  trackDisplayName,
 } from "@/lib/tracks/matchTracks";
+import TrackMultiSelect from "@/components/pipeline/TrackMultiSelect";
 import { companyDisplayName, companyDisplayTitle, companyInitials } from "@/lib/companyDisplay";
 
 const OWNERSHIP_OPTIONS = [
@@ -450,6 +453,7 @@ export default function CompanyDetailDialog({
     deal_sponsor: string;
     deal_captain: string;
     entered_by: string;
+    matched_track_ids: string[];
   };
   const [isEditing, setIsEditing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -483,8 +487,14 @@ export default function CompanyDetailDialog({
       deal_sponsor: company.deal_sponsor ?? '',
       deal_captain: company.deal_captain ?? '',
       entered_by: company.entered_by ?? '',
+      matched_track_ids: company.matched_track_ids ?? [],
     });
     setIsEditing(true);
+    if (tracks.length === 0) {
+      getTracks()
+        .then(setTracks)
+        .catch((err) => console.error('Failed to load tracks:', err));
+    }
     if (bankerOptions.length === 0) {
       getBankerNames()
         .then(setBankerOptions)
@@ -577,6 +587,7 @@ export default function CompanyDetailDialog({
           deal_sponsor: editForm.deal_sponsor.trim() || null,
           deal_captain: editForm.deal_captain.trim() || null,
           entered_by: editForm.entered_by.trim() || null,
+          matched_track_ids: editForm.matched_track_ids,
         });
       const refreshedCompany = await getCompanies({ id: company.id });
       if (refreshedCompany) {
@@ -1850,6 +1861,48 @@ export default function CompanyDetailDialog({
                       )}
                     </div>
                   )}
+
+                  <div className="col-span-2">
+                    <p className="text-xs text-muted-foreground">Matched Tracks</p>
+                    {isEditing && editForm ? (
+                      <div className="mt-1">
+                        <TrackMultiSelect
+                          tracks={tracks}
+                          value={editForm.matched_track_ids}
+                          onChange={(next) =>
+                            setEditForm({ ...editForm, matched_track_ids: next })
+                          }
+                          disabled={isSaving}
+                          placeholder="Select tracks…"
+                          className="w-full"
+                        />
+                      </div>
+                    ) : (
+                      (() => {
+                        const ids = resolveTrackIds(company, tracks);
+                        const matched = ids
+                          .map((id) => tracks.find((t) => t.id === id))
+                          .filter((t): t is Track => !!t);
+                        if (matched.length === 0) {
+                          return <p className="text-sm font-medium break-words">—</p>;
+                        }
+                        return (
+                          <div className="flex flex-wrap gap-1 mt-1">
+                            {matched.map((track) => (
+                              <Badge
+                                key={track.id}
+                                variant="secondary"
+                                className="font-normal"
+                                title={track.title ?? undefined}
+                              >
+                                {trackDisplayName(track)}
+                              </Badge>
+                            ))}
+                          </div>
+                        );
+                      })()
+                    )}
+                  </div>
                 </div>
                 {isEditing && editForm && (
                   <div className="mt-4 flex justify-end gap-2">
