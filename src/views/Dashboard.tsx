@@ -144,7 +144,7 @@ type FeedEventType =
   | "dropped"
   | "note_updated"
   | "ai_discovered";
-type FeedFilterKey = "all" | "new" | "moved" | "dropped" | "notes" | "discovered";
+type FeedFilterKey = "all" | "new" | "moved" | "dropped" | "notes";
 
 interface FeedEvent {
   id: string;
@@ -322,12 +322,19 @@ const stageChipColors: Record<string, string> = {
   L5: "bg-pink-100 text-pink-700 dark:bg-pink-900/40 dark:text-pink-300",
 };
 
+// Stages below L0 (e.g. "unreviewed") aren't part of the L0–L5 funnel — surface
+// them as "pre-L0" so drop messaging reads "Dropped at pre-L0".
+function stageLabel(stage: string): string {
+  return stage in stageChipColors ? stage : "pre-L0";
+}
+
 function StageChip({ stage }: { stage: string }) {
+  const label = stageLabel(stage);
   return (
     <span
       className={`inline-flex items-center rounded px-1.5 py-0.5 text-xs font-semibold ${stageChipColors[stage] ?? "bg-muted text-muted-foreground"}`}
     >
-      {stage}
+      {label}
     </span>
   );
 }
@@ -721,7 +728,6 @@ export default function Dashboard({
       moved: "stage_move",
       dropped: "dropped",
       notes: "note_updated",
-      discovered: "ai_discovered",
     };
     return allFeedEvents.filter((e) => e.type === typeMap[feedFilter]);
   }, [allFeedEvents, feedFilter]);
@@ -1497,7 +1503,7 @@ export default function Dashboard({
                                     </div>
                                     {d.pipeline_stage && (
                                       <p className="text-xs text-muted-foreground mt-1">
-                                        Dropped at {d.pipeline_stage}
+                                        Dropped at {stageLabel(d.pipeline_stage)}
                                       </p>
                                     )}
                                   </div>
@@ -1804,7 +1810,6 @@ export default function Dashboard({
                       "moved",
                       "dropped",
                       "notes",
-                      "discovered",
                     ] as FeedFilterKey[]
                   ).map((key) => (
                     <button
@@ -2138,7 +2143,6 @@ const FEED_FILTER_LABELS: Record<FeedFilterKey, string> = {
   moved: "Moved",
   dropped: "Dropped",
   notes: "Notes",
-  discovered: "Discovered",
 };
 
 const FEED_FILTER_TO_API: Record<FeedFilterKey, FeedFilter> = {
@@ -2147,7 +2151,6 @@ const FEED_FILTER_TO_API: Record<FeedFilterKey, FeedFilter> = {
   moved: "stage_move",
   dropped: "dropped",
   notes: "note_updated",
-  discovered: "ai_discovered",
 };
 
 /** Contextual one-line label for the per-card "Analyze using AI" pill. */
@@ -2284,7 +2287,7 @@ function MobileActivityFeed({
       {/* Filter pills */}
       <div className="flex flex-wrap items-center gap-2">
         {(
-          ["all", "new", "moved", "dropped", "notes", "discovered"] as FeedFilterKey[]
+          ["all", "new", "moved", "dropped", "notes"] as FeedFilterKey[]
         ).map(
           (key) => (
             <button

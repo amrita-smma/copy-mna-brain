@@ -202,36 +202,14 @@ export default function MasterData({ showCompanyGraph = false }: MasterDataProps
         return;
       }
 
-      setSelectedCompany({
-        id: data.id,
-        target: data.target,
-        project_name: data.project_name,
-        segment: data.segment,
-        website: data.website ?? null,
-        watchlist_status: data.watchlist_status,
-        pipeline_stage: data.pipeline_stage,
-        revenue_2021_usd_mn: data.revenue_2021_usd_mn,
-        revenue_2022_usd_mn: data.revenue_2022_usd_mn,
-        revenue_2023_usd_mn: data.revenue_2023_usd_mn,
-        revenue_2024_usd_mn: data.revenue_2024_usd_mn,
-        ebitda_2021_usd_mn: data.ebitda_2021_usd_mn,
-        ebitda_2022_usd_mn: data.ebitda_2022_usd_mn,
-        ebitda_2023_usd_mn: data.ebitda_2023_usd_mn,
-        ebitda_2024_usd_mn: data.ebitda_2024_usd_mn,
-        ev_2024: data.ev_2024,
-        l1_screening_result: data.l1_screening_result,
-        remarks: data.remarks,
-        created_at: data.created_at,
-        updated_at: data.updated_at,
-        source: data.source ?? null,
-        status: data.status ?? null,
-        dropped_reason: data.dropped_reason ?? null,
-        dropped_at: data.dropped_at ?? null,
-        promoted_reasons: data.promoted_reasons ?? null,
-        ownership: data.ownership ?? null,
-        geography: data.geography ?? null,
-        financials_raw: data.financials_raw,
-      });
+      // Forward the full DTO. The detail dialog reads (and, in edit mode,
+      // writes back) many more fields than the table needs — deal_sponsor,
+      // deal_type, workflow_status, entered_by(_name), key_rationale,
+      // matched_track_ids, last_activity_at, etc. Cherry-picking columns here
+      // left those blank in the dialog and, worse, let an edit-save clobber the
+      // omitted fields to null. getCompanies returns the same DTO shape the
+      // Pipeline view passes straight through.
+      setSelectedCompany(data as CompanyData);
     } catch {
       toast({ title: 'Error', description: 'Could not load company', variant: 'destructive' });
     } finally {
