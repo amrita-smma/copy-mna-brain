@@ -246,7 +246,7 @@ export default function InboundCompaniesTable({
   );
 
   // colSpan for the section header / gap rows. Recount if columns change.
-  const tableColumnCount = isDropped ? 18 : 17;
+  const tableColumnCount = isDropped ? 16 : 15;
   const picColumnLabel = dealLeadLabel(stage);
   const unreviewedCompanies = isDropped
     ? []
@@ -375,8 +375,6 @@ export default function InboundCompaniesTable({
           <Col label="EBITDA" sort="ebitda" />
           <Col label="Valuation" sort="valuation" />
           <Col label="% Stake" sort="stake" filter="stake" />
-          <TableHead>PIC</TableHead>
-          <TableHead>Originator</TableHead>
           {isDropped ? (
             <>
               <TableHead>Source</TableHead>
@@ -597,16 +595,6 @@ export default function InboundCompaniesTable({
               <TableCell>
                 <span className="text-sm text-muted-foreground">
                   {company.stake || "-"}
-                </span>
-              </TableCell>
-              <TableCell>
-                <span className="text-sm text-muted-foreground">
-                  {company.pic || "-"}
-                </span>
-              </TableCell>
-              <TableCell>
-                <span className="text-sm text-muted-foreground">
-                  {company.originator || "-"}
                 </span>
               </TableCell>
               {isDropped ? (
