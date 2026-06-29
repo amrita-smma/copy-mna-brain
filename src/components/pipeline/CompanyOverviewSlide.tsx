@@ -522,10 +522,11 @@ export default function CompanyOverviewSlide({
         </section>
 
         <section>
-          <SectionHeading icon={ClipboardCheck} index={5} title="L1 Approval Request" />
-          <div className="text-[11px] font-bold text-blue-900 dark:text-blue-300">
-            L1 scope of work / diligence priorities
-          </div>
+          <SectionHeading
+            icon={ClipboardCheck}
+            index={5}
+            title="L1 scope of work / diligence priorities"
+          />
           <EditableSection
             sectionKey="diligence_priorities"
             sectionTitle="L1 Scope of Work / Diligence Priorities"
