@@ -34,7 +34,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useAuth } from "@/hooks/useAuth";
 import { getUsers, type UserSummary } from "@/lib/api/pipeline";
-import UserCombobox from "@/components/pipeline/UserCombobox";
+import UserSelectCombobox from "@/components/pipeline/UserSelectCombobox";
 
 interface SuggestedCompany {
   target: string | null;
@@ -418,7 +418,7 @@ export function HitlReviewDialog({ fileId, open, onClose, onApproved }: Props) {
                             <span className="text-[10px] text-muted-foreground">· auto-filled</span>
                           )}
                         </div>
-                        <UserCombobox
+                        <UserSelectCombobox
                           value={l0EnteredBy || null}
                           onChange={(v) => { setL0EnteredBy(v); setMissingFields([]); }}
                           users={users}

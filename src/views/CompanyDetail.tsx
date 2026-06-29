@@ -57,7 +57,7 @@ import StatusCombobox, {
   DEFAULT_INBOUND_STATUS_OPTIONS,
   DEFAULT_OUTBOUND_STATUS_OPTIONS,
 } from '@/components/pipeline/StatusCombobox';
-import UserCombobox from '@/components/pipeline/UserCombobox';
+import UserSelectCombobox from '@/components/pipeline/UserSelectCombobox';
 import { normalizeStake } from '@/lib/stake';
 import {
   matchedTrackPics,
@@ -1414,7 +1414,7 @@ export default function CompanyDetail({ showCompanyGraph = false }: CompanyDetai
                   <p className="text-xs text-muted-foreground">Entered by</p>
                   {isEditing && editForm ? (
                     <div className="mt-1">
-                      <UserCombobox value={editForm.entered_by || null} onChange={(v) => setEditForm({ ...editForm, entered_by: v })} users={users} disabled={isSaving} className="h-7 text-sm" />
+                      <UserSelectCombobox value={editForm.entered_by || null} onChange={(v) => setEditForm({ ...editForm, entered_by: v })} users={users} disabled={isSaving} className="h-7 text-sm" />
                     </div>
                   ) : (
                     <p className="text-sm font-medium break-words">{company.entered_by_name || '—'}</p>

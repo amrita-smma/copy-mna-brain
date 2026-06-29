@@ -31,7 +31,7 @@ import {
   type FinancialEditRow,
   type UserSummary,
 } from "@/lib/api/pipeline";
-import UserCombobox from "@/components/pipeline/UserCombobox";
+import UserSelectCombobox from "@/components/pipeline/UserSelectCombobox";
 import StatusCombobox, {
   DEFAULT_INBOUND_STATUS_OPTIONS,
   DEFAULT_OUTBOUND_STATUS_OPTIONS,
@@ -533,7 +533,7 @@ export default function UpdateCompanyDialog({
 
           <div className="space-y-1.5">
             <Label>Entered By</Label>
-            <UserCombobox
+            <UserSelectCombobox
               value={form.entered_by || null}
               onChange={(v) => set("entered_by", v)}
               users={userOptions}

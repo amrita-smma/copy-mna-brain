@@ -1,6 +1,10 @@
-"use client";
-
 import { useMemo, useState } from "react";
+import { Check, ChevronsUpDown, Plus, X } from "lucide-react";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { Button } from "@/components/ui/button";
 import {
   Command,
@@ -10,134 +14,126 @@ import {
   CommandItem,
   CommandList,
 } from "@/components/ui/command";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
-import { Check, ChevronDown } from "lucide-react";
+import type { UserSummary } from "@/lib/api/pipeline";
 
-export interface UserOption {
-  id: string;
-  name: string | null;
-}
-
-/**
- * Searchable user picker backing the "Entered by" field (a `users.id` uuid FK).
- * Unlike {@link StatusCombobox} this is NOT creatable — the value must be an
- * existing user — and it stores the user's `id` while showing their `name`.
- */
 interface UserComboboxProps {
-  /** Selected user id, or "" / null for none. */
-  value: string | null;
-  /** Receives the chosen user id, or "" when cleared. */
-  onChange: (next: string) => void;
-  users: UserOption[];
-  disabled?: boolean;
+  users: UserSummary[];
+  selectedUserIds: string[];
+  onChange: (next: string[]) => void;
+  loading?: boolean;
   placeholder?: string;
-  searchPlaceholder?: string;
-  emptyText?: string;
-  /** Whether to offer a "— None —" entry that clears the value. Default true. */
-  allowNone?: boolean;
-  className?: string;
+  disabled?: boolean;
 }
 
 export default function UserCombobox({
-  value,
-  onChange,
   users,
+  selectedUserIds,
+  onChange,
+  loading,
+  placeholder = "Select team members...",
   disabled,
-  placeholder = "Select a user…",
-  searchPlaceholder = "Search a user…",
-  emptyText = "No users found.",
-  allowNone = true,
-  className,
 }: UserComboboxProps) {
   const [open, setOpen] = useState(false);
-  const [query, setQuery] = useState("");
 
-  const selectedName = useMemo(
-    () => users.find((u) => u.id === value)?.name ?? null,
-    [users, value],
+  const selected = useMemo(
+    () =>
+      selectedUserIds
+        .map((id) => users.find((u) => u.id === id))
+        .filter((u): u is UserSummary => Boolean(u)),
+    [selectedUserIds, users],
   );
 
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return users;
-    return users.filter((u) => (u.name ?? "").toLowerCase().includes(q));
-  }, [users, query]);
-
-  const commit = (next: string) => {
-    onChange(next);
-    setOpen(false);
-    setQuery("");
+  const toggle = (id: string) => {
+    if (selectedUserIds.includes(id)) {
+      onChange(selectedUserIds.filter((x) => x !== id));
+    } else {
+      onChange([...selectedUserIds, id]);
+    }
   };
 
+  const remove = (id: string) =>
+    onChange(selectedUserIds.filter((x) => x !== id));
+
   return (
-    <Popover
-      open={open}
-      onOpenChange={(o) => {
-        setOpen(o);
-        if (!o) setQuery("");
-      }}
-    >
-      <PopoverTrigger asChild>
-        <Button
-          type="button"
-          variant="outline"
-          role="combobox"
-          aria-expanded={open}
-          disabled={disabled}
-          className={cn("h-9 w-full justify-between font-normal text-sm", className)}
+    <div className="space-y-2">
+      {selected.length > 0 && (
+        <div className="flex flex-wrap gap-1.5">
+          {selected.map((user) => (
+            <span
+              key={user.id}
+              className="inline-flex items-center gap-1 rounded-md border bg-muted px-2 py-0.5 text-sm"
+            >
+              {user.name}
+              <button
+                type="button"
+                onClick={() => remove(user.id)}
+                disabled={disabled}
+                className="rounded-sm text-muted-foreground hover:text-destructive disabled:opacity-50"
+                aria-label={`Remove ${user.name}`}
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
+
+      <Popover open={open} onOpenChange={setOpen} modal>
+        <PopoverTrigger asChild>
+          <Button
+            type="button"
+            variant="outline"
+            role="combobox"
+            aria-expanded={open}
+            disabled={disabled || loading}
+            className="group w-full justify-between font-normal"
+          >
+            <span className="flex items-center gap-1.5 text-muted-foreground group-hover:text-white">
+              <Plus className="h-3.5 w-3.5" />
+              {loading ? "Loading users..." : placeholder}
+            </span>
+            <ChevronsUpDown className="h-4 w-4 opacity-50" />
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent
+          className="w-[--radix-popover-trigger-width] p-0"
+          align="start"
         >
-          <span className={cn("truncate", !selectedName && "text-muted-foreground")}>
-            {selectedName || placeholder}
-          </span>
-          <ChevronDown className="h-3 w-3 opacity-50 shrink-0 ml-1" />
-        </Button>
-      </PopoverTrigger>
-      <PopoverContent
-        className="w-[240px] p-0"
-        align="start"
-        onWheel={(e) => e.stopPropagation()}
-        onTouchMove={(e) => e.stopPropagation()}
-      >
-        <Command shouldFilter={false}>
-          <CommandInput
-            placeholder={searchPlaceholder}
-            value={query}
-            onValueChange={setQuery}
-          />
-          <CommandList>
-            {filtered.length === 0 && <CommandEmpty>{emptyText}</CommandEmpty>}
-            <CommandGroup>
-              {allowNone && (
-                <CommandItem value="__none__" onSelect={() => commit("")}>
-                  <Check
-                    className={cn(
-                      "mr-2 h-4 w-4 shrink-0",
-                      !value ? "opacity-100" : "opacity-0",
-                    )}
-                  />
-                  <span className="truncate text-muted-foreground">— None —</span>
-                </CommandItem>
-              )}
-              {filtered.map((u) => (
-                <CommandItem key={u.id} value={u.id} onSelect={() => commit(u.id)}>
-                  <Check
-                    className={cn(
-                      "mr-2 h-4 w-4 shrink-0",
-                      value === u.id ? "opacity-100" : "opacity-0",
-                    )}
-                  />
-                  <span className="truncate">{u.name ?? u.id}</span>
-                </CommandItem>
-              ))}
-            </CommandGroup>
-          </CommandList>
-        </Command>
-      </PopoverContent>
-    </Popover>
+          <Command>
+            <CommandInput placeholder="Search users..." />
+            <CommandList>
+              <CommandEmpty>No users found.</CommandEmpty>
+              <CommandGroup>
+                {users.map((user) => {
+                  const isSelected = selectedUserIds.includes(user.id);
+                  return (
+                    <CommandItem
+                      key={user.id}
+                      value={`${user.name} ${user.email ?? ""} ${user.role ?? ""}`}
+                      onSelect={() => toggle(user.id)}
+                      className="flex items-start gap-2"
+                    >
+                      <Check
+                        className={cn(
+                          "mt-0.5 h-4 w-4 shrink-0",
+                          isSelected ? "opacity-100" : "opacity-0",
+                        )}
+                      />
+                      <div className="flex flex-col">
+                        <span className="text-foreground">{user.name}</span>
+                        <span className="text-xs text-muted-foreground">
+                          {user.role ?? "—"}
+                        </span>
+                      </div>
+                    </CommandItem>
+                  );
+                })}
+              </CommandGroup>
+            </CommandList>
+          </Command>
+        </PopoverContent>
+      </Popover>
+    </div>
   );
 }
