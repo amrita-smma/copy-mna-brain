@@ -70,6 +70,9 @@ export interface CompanyDTO {
   matched_track_ids: string[];
   // Per-Track custom variable values, nested by track id then variable id.
   track_specific_variables: TrackSpecificVariables;
+  // Track variable ids surfaced on the Company Card slide deck (Indicative
+  // Financials). Holds `track_variables.id` values.
+  slide_track_variable_ids: string[];
 
   // ---- AI Opinion (firm verdict produced by an AI Workforce run) ----
   // verdict: 'pass' | 'fail' | 'tentative' | null
@@ -236,6 +239,7 @@ export function toCompanyDTO(
     possible_duplicate_company_id: company.possible_duplicate_company_id ?? null,
     matched_track_ids: company.matched_track_ids ?? [],
     track_specific_variables: company.track_specific_variables ?? {},
+    slide_track_variable_ids: company.slide_track_variable_ids ?? [],
     ai_opinion_verdict: company.ai_opinion_verdict ?? null,
     ai_opinion_summary: company.ai_opinion_summary ?? null,
     ai_opinion_status: company.ai_opinion_status ?? null,
@@ -369,6 +373,7 @@ export function splitCompanyDTO(dto: CompanyDTOInput): SplitCompanyWrite {
     'last_activity_at', 'banker', 'doc_type', 'stake',
     'deal_size', 'workflow_status', 'key_rationale', 'review_state', 'banker_source',
     'possible_duplicate_company_id', 'matched_track_ids',
+    'track_specific_variables', 'slide_track_variable_ids',
     'ai_opinion_verdict', 'ai_opinion_summary', 'ai_opinion_status', 'ai_opinion_updated_at',
   ] as const;
   for (const k of coreKeys) {

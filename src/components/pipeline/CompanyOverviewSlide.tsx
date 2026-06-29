@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Building2,
   TrendingUp,
@@ -14,6 +14,7 @@ import {
   X,
 } from "lucide-react";
 import { MarkdownRenderer } from "@/components/chat/MarkdownRenderer";
+import { getTrackVariables, type TrackVariable } from "@/lib/api/pipeline";
 import { companyDisplayTitle } from "@/lib/companyDisplay";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -58,6 +59,10 @@ export interface OverviewSlideCompany {
   ebitda_2023_usd_mn: number | null;
   ebitda_2024_usd_mn: number | null;
   financials_raw?: FinancialRow[];
+  /** Per-track variable values: { [trackId]: { [variableId]: value } }. */
+  track_specific_variables?: Record<string, Record<string, string>> | null;
+  /** Track variable ids the user opted to surface under Indicative Financials. */
+  slide_track_variable_ids?: string[] | null;
 }
 
 export interface OverviewSlideAnalysis {
@@ -324,6 +329,48 @@ export default function CompanyOverviewSlide({
   const currentStage = (company.pipeline_stage || "L0").toUpperCase();
   const financials = buildFinancials(company);
 
+  // Track variables the user flagged (via the eye toggle) to surface here. We
+  // load the variable definitions to resolve names/units, then pair them with
+  // the company's stored values.
+  const slideVariableIds = useMemo(
+    () => company.slide_track_variable_ids ?? [],
+    [company.slide_track_variable_ids],
+  );
+  const [variableDefs, setVariableDefs] = useState<TrackVariable[]>([]);
+
+  useEffect(() => {
+    if (slideVariableIds.length === 0) {
+      setVariableDefs([]);
+      return;
+    }
+    let cancelled = false;
+    getTrackVariables()
+      .then((rows) => {
+        if (!cancelled) setVariableDefs(rows);
+      })
+      .catch((err) => {
+        console.error("Failed to load track variables for slide:", err);
+        if (!cancelled) setVariableDefs([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [slideVariableIds]);
+
+  const slideVariables = useMemo(() => {
+    if (slideVariableIds.length === 0) return [];
+    const selected = new Set(slideVariableIds);
+    const valuesByTrack = company.track_specific_variables ?? {};
+    return variableDefs
+      .filter((v) => selected.has(v.id))
+      .map((v) => ({
+        id: v.id,
+        name: v.name,
+        unit: v.unit,
+        value: valuesByTrack[v.track_id]?.[v.id] ?? "",
+      }));
+  }, [variableDefs, slideVariableIds, company.track_specific_variables]);
+
   const dealStructure: string[] = [
     `Deal type: ${company.deal_type ? company.deal_type[0].toUpperCase() + company.deal_type.slice(1) : "—"}`,
     `Target stake: ${company.stake && company.stake !== "—" ? company.stake : "TBC at L1"}`,
@@ -470,6 +517,27 @@ export default function CompanyOverviewSlide({
               <p className="text-[12px] italic text-muted-foreground">
                 No financial data available.
               </p>
+            )}
+            {slideVariables.length > 0 && (
+              <dl className="mt-2.5 space-y-1 border-t border-border pt-2">
+                {slideVariables.map((v) => (
+                  <div
+                    key={v.id}
+                    className="flex items-baseline justify-between gap-3 text-[11px]"
+                  >
+                    <dt className="font-semibold text-blue-900 dark:text-blue-300">
+                      {v.name}
+                      {v.unit ? (
+                        <span className="font-normal text-muted-foreground/70">
+                          {" "}
+                          ({v.unit})
+                        </span>
+                      ) : null}
+                    </dt>
+                    <dd className="text-right tabular-nums">{v.value || "—"}</dd>
+                  </div>
+                ))}
+              </dl>
             )}
           </section>
         </div>

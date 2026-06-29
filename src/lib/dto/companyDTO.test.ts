@@ -43,6 +43,7 @@ function makeCompany(overrides: Partial<Tables<'companies'>> = {}): Tables<'comp
     possible_duplicate_company_id: null,
     matched_track_ids: null,
     track_specific_variables: null,
+    slide_track_variable_ids: null,
     ai_opinion_verdict: null,
     ai_opinion_summary: null,
     ai_opinion_status: null,

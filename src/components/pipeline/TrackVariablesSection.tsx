@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
-import { Loader2, Check, SlidersHorizontal } from "lucide-react";
+import { Loader2, Check, SlidersHorizontal, Eye, EyeOff } from "lucide-react";
 import { toast } from "sonner";
 import {
   getTrackVariables,
@@ -32,6 +32,13 @@ interface TrackVariablesSectionProps {
   values: TrackSpecificVariables | null | undefined;
   /** Called after a successful save with the persisted values. */
   onSaved?: (next: TrackSpecificVariables) => void;
+  /**
+   * Track variable ids currently surfaced on the Company Card slide deck
+   * (under "Indicative Financials").
+   */
+  slideVariableIds?: string[] | null;
+  /** Called after the slide-deck selection is persisted. */
+  onSlideVariablesSaved?: (next: string[]) => void;
   disabled?: boolean;
 }
 
@@ -41,12 +48,18 @@ export default function TrackVariablesSection({
   tracks,
   values,
   onSaved,
+  slideVariableIds,
+  onSlideVariablesSaved,
   disabled,
 }: TrackVariablesSectionProps) {
   const [allVariables, setAllVariables] = useState<TrackVariable[]>([]);
   const [loading, setLoading] = useState(true);
   const [draft, setDraft] = useState<TrackSpecificVariables>({});
   const [saving, setSaving] = useState(false);
+  // Variable ids shown on the slide deck. Toggled via the per-variable eye icon
+  // and persisted immediately (optimistic).
+  const [slideSelected, setSlideSelected] = useState<Set<string>>(new Set());
+  const [togglingId, setTogglingId] = useState<string | null>(null);
 
   const matchedSet = useMemo(
     () => new Set(matchedTrackIds ?? []),
@@ -76,6 +89,33 @@ export default function TrackVariablesSection({
   useEffect(() => {
     setDraft(values ? JSON.parse(JSON.stringify(values)) : {});
   }, [values]);
+
+  // Mirror the persisted slide-deck selection into local state.
+  useEffect(() => {
+    setSlideSelected(new Set(slideVariableIds ?? []));
+  }, [slideVariableIds]);
+
+  const toggleSlideVariable = async (variableId: string) => {
+    if (disabled || togglingId) return;
+    const next = new Set(slideSelected);
+    if (next.has(variableId)) next.delete(variableId);
+    else next.add(variableId);
+    const nextIds = Array.from(next);
+
+    setSlideSelected(next);
+    setTogglingId(variableId);
+    try {
+      await updateCompany(companyId, { slide_track_variable_ids: nextIds });
+      onSlideVariablesSaved?.(nextIds);
+    } catch (error) {
+      console.error("Failed to update slide variables:", error);
+      toast.error("Failed to update slide deck selection");
+      // Revert on failure.
+      setSlideSelected(new Set(slideVariableIds ?? []));
+    } finally {
+      setTogglingId(null);
+    }
+  };
 
   // Only matched tracks that actually define variables.
   const groups = useMemo(() => {
@@ -169,6 +209,41 @@ export default function TrackVariablesSection({
                         ({variable.unit})
                       </span>
                     )}
+                    {(() => {
+                      const shown = slideSelected.has(variable.id);
+                      return (
+                        <button
+                          type="button"
+                          onClick={() => toggleSlideVariable(variable.id)}
+                          disabled={disabled || togglingId === variable.id}
+                          aria-pressed={shown}
+                          title={
+                            shown
+                              ? "Shown in slide deck — click to hide"
+                              : "Hidden from slide deck — click to show"
+                          }
+                          aria-label={
+                            shown
+                              ? `Hide ${variable.name} from slide deck`
+                              : `Show ${variable.name} in slide deck`
+                          }
+                          className={
+                            "ml-0.5 inline-flex h-4 w-4 items-center justify-center rounded transition-colors disabled:opacity-50 " +
+                            (shown
+                              ? "text-blue-600 hover:text-blue-700"
+                              : "text-muted-foreground/50 hover:text-muted-foreground")
+                          }
+                        >
+                          {togglingId === variable.id ? (
+                            <Loader2 className="h-3 w-3 animate-spin" />
+                          ) : shown ? (
+                            <Eye className="h-3 w-3" />
+                          ) : (
+                            <EyeOff className="h-3 w-3" />
+                          )}
+                        </button>
+                      );
+                    })()}
                   </Label>
                   {variable.type === "radio" ? (
                     <RadioGroup

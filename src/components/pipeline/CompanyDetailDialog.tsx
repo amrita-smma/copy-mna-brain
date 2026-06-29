@@ -185,6 +185,7 @@ export interface CompanyData {
   key_rationale?: string | null;
   matched_track_ids?: string[] | null;
   track_specific_variables?: Record<string, Record<string, string>> | null;
+  slide_track_variable_ids?: string[] | null;
   deal_sponsor?: string | null;
   deal_captain?: string | null;
   financials_raw?: Tables<'company_financials'>[];
@@ -2008,6 +2009,13 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
                   setCompany((prev) => ({
                     ...prev,
                     track_specific_variables: next,
+                  }))
+                }
+                slideVariableIds={company.slide_track_variable_ids}
+                onSlideVariablesSaved={(next) =>
+                  setCompany((prev) => ({
+                    ...prev,
+                    slide_track_variable_ids: next,
                   }))
                 }
               />
