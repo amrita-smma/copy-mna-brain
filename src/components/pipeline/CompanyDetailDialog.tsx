@@ -85,6 +85,7 @@ import StatusCombobox, {
   DEFAULT_INBOUND_STATUS_OPTIONS,
   DEFAULT_OUTBOUND_STATUS_OPTIONS,
 } from "@/components/pipeline/StatusCombobox";
+import UserCombobox from "@/components/pipeline/UserCombobox";
 import { normalizeStake } from "@/lib/stake";
 import {
   matchedTrackPics,
@@ -1645,12 +1646,13 @@ export default function CompanyDetailDialog({
                               <StatusCombobox
                                 value={editForm[field] || null}
                                 options={userOptions}
+                                allowCreate={false}
                                 placeholder={
                                   fallback
                                     ? `${fallback} (from track)`
                                     : `Set ${dealLeadLabel(stage)}…`
                                 }
-                                searchPlaceholder="Search or type a name…"
+                                searchPlaceholder="Search a team member…"
                                 emptyText="No team members found."
                                 onChange={(v) =>
                                   setEditForm({ ...editForm, [field]: v })
@@ -1694,25 +1696,12 @@ export default function CompanyDetailDialog({
                     <p className="text-xs text-muted-foreground">Entered by</p>
                     {isEditing && editForm ? (
                       <div className="mt-1">
-                        <Select
-                          value={editForm.entered_by || '_none'}
-                          onValueChange={(v) =>
-                            setEditForm({ ...editForm, entered_by: v === '_none' ? '' : v })
-                          }
+                        <UserCombobox
+                          value={editForm.entered_by || null}
+                          onChange={(v) => setEditForm({ ...editForm, entered_by: v })}
+                          users={users}
                           disabled={isSaving}
-                        >
-                          <SelectTrigger>
-                            <SelectValue placeholder="Select a user…" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="_none">— None —</SelectItem>
-                            {users.map((u) => (
-                              <SelectItem key={u.id} value={u.id}>
-                                {u.name}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
+                        />
                       </div>
                     ) : (
                       <p className="text-sm font-medium break-words">{company.entered_by_name || '—'}</p>

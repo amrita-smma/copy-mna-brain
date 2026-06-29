@@ -38,6 +38,13 @@ interface StatusComboboxProps {
   emptyText?: string;
   /** "cell" = subtle inline-table look; "input" = form-input look. */
   variant?: "cell" | "input";
+  /**
+   * Whether the input can create a brand-new value not in `options`. Defaults to
+   * `true` (creatable, e.g. statuses/bankers). Set `false` to restrict the field
+   * to existing options only — the dropdown then acts as a searchable picker
+   * (e.g. Deal Sponsor / Deal Captain, which must be an existing team member).
+   */
+  allowCreate?: boolean;
   className?: string;
 }
 
@@ -50,6 +57,7 @@ export default function StatusCombobox({
   searchPlaceholder = "Search or type a status…",
   emptyText = "No statuses yet.",
   variant = "input",
+  allowCreate = true,
   className,
 }: StatusComboboxProps) {
   const [open, setOpen] = useState(false);
@@ -115,7 +123,7 @@ export default function StatusCombobox({
             onValueChange={setQuery}
           />
           <CommandList>
-            {filtered.length === 0 && !trimmed && (
+            {filtered.length === 0 && (!trimmed || !allowCreate) && (
               <CommandEmpty>{emptyText}</CommandEmpty>
             )}
             {filtered.length > 0 && (
@@ -137,7 +145,7 @@ export default function StatusCombobox({
                 ))}
               </CommandGroup>
             )}
-            {trimmed && !exactExists && (
+            {allowCreate && trimmed && !exactExists && (
               <CommandGroup>
                 <CommandItem
                   value={`__create__${trimmed}`}

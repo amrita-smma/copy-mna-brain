@@ -31,6 +31,7 @@ import {
   type FinancialEditRow,
   type UserSummary,
 } from "@/lib/api/pipeline";
+import UserCombobox from "@/components/pipeline/UserCombobox";
 import StatusCombobox, {
   DEFAULT_INBOUND_STATUS_OPTIONS,
   DEFAULT_OUTBOUND_STATUS_OPTIONS,
@@ -532,23 +533,12 @@ export default function UpdateCompanyDialog({
 
           <div className="space-y-1.5">
             <Label>Entered By</Label>
-            <Select
-              value={form.entered_by || "_none"}
-              onValueChange={(v) => set("entered_by", v === "_none" ? "" : v)}
+            <UserCombobox
+              value={form.entered_by || null}
+              onChange={(v) => set("entered_by", v)}
+              users={userOptions}
               disabled={isSaving}
-            >
-              <SelectTrigger>
-                <SelectValue placeholder="Select a user…" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="_none">— None —</SelectItem>
-                {userOptions.map((u) => (
-                  <SelectItem key={u.id} value={u.id}>
-                    {u.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            />
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="u_last_activity">Last Activity</Label>

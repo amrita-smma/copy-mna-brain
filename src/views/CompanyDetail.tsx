@@ -57,6 +57,7 @@ import StatusCombobox, {
   DEFAULT_INBOUND_STATUS_OPTIONS,
   DEFAULT_OUTBOUND_STATUS_OPTIONS,
 } from '@/components/pipeline/StatusCombobox';
+import UserCombobox from '@/components/pipeline/UserCombobox';
 import { normalizeStake } from '@/lib/stake';
 import {
   matchedTrackPics,
@@ -1375,10 +1376,11 @@ export default function CompanyDetail({ showCompanyGraph = false }: CompanyDetai
                             <StatusCombobox
                               value={editForm[field] || null}
                               options={userOptions}
+                              allowCreate={false}
                               placeholder={
                                 fallback ? `${fallback} (from track)` : `Set ${dealLeadLabel(stage)}…`
                               }
-                              searchPlaceholder="Search or type a name…"
+                              searchPlaceholder="Search a team member…"
                               emptyText="No team members found."
                               onChange={(v) => setEditForm({ ...editForm, [field]: v })}
                               disabled={isSaving}
@@ -1411,15 +1413,9 @@ export default function CompanyDetail({ showCompanyGraph = false }: CompanyDetai
                 <div>
                   <p className="text-xs text-muted-foreground">Entered by</p>
                   {isEditing && editForm ? (
-                    <Select value={editForm.entered_by || '__none__'} onValueChange={(v) => setEditForm({ ...editForm, entered_by: v === '__none__' ? '' : v })} disabled={isSaving}>
-                      <SelectTrigger className="mt-1 h-7 text-sm"><SelectValue placeholder="Select a user…" /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="__none__">—</SelectItem>
-                        {users.map((u) => (
-                          <SelectItem key={u.id} value={u.id}>{u.name}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    <div className="mt-1">
+                      <UserCombobox value={editForm.entered_by || null} onChange={(v) => setEditForm({ ...editForm, entered_by: v })} users={users} disabled={isSaving} className="h-7 text-sm" />
+                    </div>
                   ) : (
                     <p className="text-sm font-medium break-words">{company.entered_by_name || '—'}</p>
                   )}

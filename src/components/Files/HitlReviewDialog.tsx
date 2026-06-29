@@ -34,6 +34,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useAuth } from "@/hooks/useAuth";
 import { getUsers, type UserSummary } from "@/lib/api/pipeline";
+import UserCombobox from "@/components/pipeline/UserCombobox";
 
 interface SuggestedCompany {
   target: string | null;
@@ -417,22 +418,12 @@ export function HitlReviewDialog({ fileId, open, onClose, onApproved }: Props) {
                             <span className="text-[10px] text-muted-foreground">· auto-filled</span>
                           )}
                         </div>
-                        <Select
-                          value={l0EnteredBy || "_none"}
-                          onValueChange={(v) => { setL0EnteredBy(v === "_none" ? "" : v); setMissingFields([]); }}
-                        >
-                          <SelectTrigger className="h-7 text-xs">
-                            <SelectValue placeholder="Select a user…" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="_none">— None —</SelectItem>
-                            {users.map((u) => (
-                              <SelectItem key={u.id} value={u.id}>
-                                {u.name}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
+                        <UserCombobox
+                          value={l0EnteredBy || null}
+                          onChange={(v) => { setL0EnteredBy(v); setMissingFields([]); }}
+                          users={users}
+                          className="h-7 text-xs"
+                        />
                       </div>
                       <div className="space-y-1">
                         <Label className="text-xs">Deal Type</Label>
