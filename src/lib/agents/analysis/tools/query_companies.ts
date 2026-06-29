@@ -6,6 +6,10 @@ import { CompanyFinancialRepository, CompanyRepository } from "@/lib/repositorie
 
 /**
  * Query companies with filters.
+ *
+ * Returns a compact markdown table of matching companies plus their latest
+ * financials. All filters are optional and AND-combined, so the agent can
+ * narrow the pipeline along any of the dimensions below in a single call.
  */
 export const queryCompanies = tool(
   async ({
@@ -18,6 +22,11 @@ export const queryCompanies = tool(
     company_focus,
     source,
     status,
+    deal_type,
+    deal_sponsor,
+    banker,
+    has_ai_opinion,
+    ai_opinion_verdict,
     min_revenue,
     max_revenue,
     min_ebitda,
@@ -34,6 +43,11 @@ export const queryCompanies = tool(
     company_focus?: string;
     source?: "inbound" | "outbound";
     status?: "active" | "dropped";
+    deal_type?: "majority" | "minority";
+    deal_sponsor?: string;
+    banker?: string;
+    has_ai_opinion?: boolean;
+    ai_opinion_verdict?: "pass" | "fail" | "tentative";
     min_revenue?: number;
     max_revenue?: number;
     min_ebitda?: number;
@@ -42,7 +56,7 @@ export const queryCompanies = tool(
     limit?: number;
   }) => {
     logger.debug(
-      `🔧 TOOL CALLED: query_companies(segment='${segment}', geography='${geography}', stage='${stage}', name='${name}', ownership='${ownership}', source='${source}', status='${status}', search='${search_term}')`
+      `🔧 TOOL CALLED: query_companies(segment='${segment}', geography='${geography}', stage='${stage}', name='${name}', ownership='${ownership}', source='${source}', status='${status}', deal_type='${deal_type}', has_ai_opinion='${has_ai_opinion}', ai_opinion_verdict='${ai_opinion_verdict}', search='${search_term}')`
     );
 
     try {
@@ -57,6 +71,11 @@ export const queryCompanies = tool(
         companyFocus: company_focus,
         source,
         status,
+        dealType: deal_type,
+        dealSponsor: deal_sponsor,
+        banker,
+        hasAiOpinion: has_ai_opinion,
+        aiOpinionVerdict: ai_opinion_verdict,
         minRevenue: min_revenue,
         maxRevenue: max_revenue,
         minEbitda: min_ebitda,
@@ -76,15 +95,20 @@ export const queryCompanies = tool(
       const finByCompany = new Map<string, typeof latestFin[number]>();
       for (const r of latestFin) finByCompany.set(r.company_id, r);
 
-      const header = "Target | Project | Segment | Geography | Status | Rev ($M) | EBITDA ($M) | EV ($M)";
-      const separator = "--- | --- | --- | --- | --- | --- | --- | ---";
+      const header =
+        "Target | Project | Segment | Geography | Stage | Status | AI Opinion | Rev ($M) | EBITDA ($M) | EV ($M)";
+      const separator =
+        "--- | --- | --- | --- | --- | --- | --- | --- | --- | ---";
 
       const rows = companies.map((c) => {
         const f = finByCompany.get(c.id);
         const rev = f?.revenue_usd_mn != null ? `$${f.revenue_usd_mn.toFixed(1)}` : "-";
         const ebitda = f?.ebitda_usd_mn != null ? `$${f.ebitda_usd_mn.toFixed(1)}` : "-";
         const ev = f?.ev_usd_mn != null ? `$${f.ev_usd_mn.toFixed(1)}` : "-";
-        return `${c.target || "N/A"} | ${c.project_name || "-"} | ${c.segment || "-"} | ${c.geography || "-"} | ${c.watchlist_status || "-"} | ${rev} | ${ebitda} | ${ev}`;
+        const opinion = c.ai_opinion_verdict
+          ? c.ai_opinion_verdict.toUpperCase()
+          : "-";
+        return `${c.target || "N/A"} | ${c.project_name || "-"} | ${c.segment || "-"} | ${c.geography || "-"} | ${c.pipeline_stage || "-"} | ${c.status || "-"} | ${opinion} | ${rev} | ${ebitda} | ${ev}`;
       });
 
       let result = `**Query Results (${companies.length} companies):**\n\n`;
@@ -100,36 +124,51 @@ export const queryCompanies = tool(
   },
   {
     name: "query_companies",
-    description: `Query companies or projects from the database with optional filters.
+    description: `Query/list companies (deal targets) from the pipeline database with optional filters.
 
-Use this tool to find companies or projects by segment, geography, financial metrics, or search terms.
-All filters are optional and can be combined.
+Use this to find specific companies by attribute, or to pull a cohort to inspect row-by-row. All filters are optional and AND-combined. For counts/averages/breakdowns across a cohort, prefer get_company_stats — it summarizes without returning every row.
 
-Args:
-    segment: Filter by segment (partial match, e.g., "Technology", "Healthcare")
-    geography: Filter by geography (partial match, e.g., "USA", "Japan", "Europe")
-    watchlist_status: Filter by status (e.g., "Active", "Inactive")
-    stage: Filter by pipeline stage (exact match, one of: "market_screening", "L0", "L1", "L2", "L3", "L4", "L5")
-    name: Filter by company name (partial, case-insensitive match against target or project_name)
-    ownership: Filter by ownership (partial match, e.g., "family office", "PE", "public")
-    company_focus: Filter by company focus (partial match)
-    source: Filter by deal origin (exact match, one of: "inbound", "outbound")
-    status: Filter by record status (exact match, one of: "active", "dropped"). Defaults to all if omitted.
-    min_revenue: Minimum 2024 revenue in USD millions
-    max_revenue: Maximum 2024 revenue in USD millions
-    min_ebitda: Minimum 2024 EBITDA in USD millions
-    max_ebitda: Maximum 2024 EBITDA in USD millions
-    search_term: Search across target name, segment, and company focus
-    limit: Maximum number of results (default: 20, max: 50)
+Available filters (every one maps to a real column):
+    segment: Segment (partial match, e.g. "Technology", "Semiconductors")
+    geography: Geography (partial match, e.g. "USA", "Japan", "APAC")
+    watchlist_status: Watchlist status (partial match)
+    stage: Pipeline stage (exact, one of: "market_screening", "unreviewed", "L0", "L1", "L2", "L3", "L4", "L5", "discovered")
+    name: Company name (partial, case-insensitive against target OR project_name)
+    ownership: Ownership (partial match, e.g. "family office", "PE", "public")
+    company_focus: Company focus / what they do (partial match)
+    source: Deal origin (exact, one of: "inbound", "outbound")
+    status: Record status (exact, one of: "active", "dropped"). Omit for all.
+    deal_type: Deal type (exact, one of: "majority", "minority")
+    deal_sponsor: Deal sponsor / owner name (partial match)
+    banker: Banker / deal contact (partial match)
+    has_ai_opinion: true → only companies that already have an AI Opinion verdict; false → only those without one
+    ai_opinion_verdict: AI Opinion verdict (exact, one of: "pass", "fail", "tentative")
+    min_revenue / max_revenue: FY2024 revenue bounds (USD millions)
+    min_ebitda / max_ebitda: FY2024 EBITDA bounds (USD millions)
+    search_term: Free-text search across target name, segment, and geography
+    limit: Max rows to return (default: 20, max: 50)
 
 Returns:
-    A table of matching companies with key financial metrics.`,
+    A markdown table: target, project, segment, geography, stage, status, AI opinion, and latest revenue/EBITDA/EV.`,
     schema: z.object({
-      segment: z.string().optional().describe("Filter by segment"),
-      geography: z.string().optional().describe("Filter by geography"),
-      watchlist_status: z.string().optional().describe("Filter by watchlist status"),
+      segment: z.string().optional().describe("Filter by segment (partial)"),
+      geography: z.string().optional().describe("Filter by geography (partial)"),
+      watchlist_status: z
+        .string()
+        .optional()
+        .describe("Filter by watchlist status (partial)"),
       stage: z
-        .enum(["market_screening", "L0", "L1", "L2", "L3", "L4", "L5"])
+        .enum([
+          "market_screening",
+          "unreviewed",
+          "L0",
+          "L1",
+          "L2",
+          "L3",
+          "L4",
+          "L5",
+          "discovered",
+        ])
         .optional()
         .describe("Filter by pipeline stage (exact match)"),
       name: z
@@ -152,11 +191,36 @@ Returns:
         .enum(["active", "dropped"])
         .optional()
         .describe("Filter by record status (exact match)"),
-      min_revenue: z.number().optional().describe("Minimum 2024 revenue (USD M)"),
-      max_revenue: z.number().optional().describe("Maximum 2024 revenue (USD M)"),
-      min_ebitda: z.number().optional().describe("Minimum 2024 EBITDA (USD M)"),
-      max_ebitda: z.number().optional().describe("Maximum 2024 EBITDA (USD M)"),
-      search_term: z.string().optional().describe("Search term for name/segment"),
+      deal_type: z
+        .enum(["majority", "minority"])
+        .optional()
+        .describe("Filter by deal type (exact match)"),
+      deal_sponsor: z
+        .string()
+        .optional()
+        .describe("Filter by deal sponsor / owner name (partial match)"),
+      banker: z
+        .string()
+        .optional()
+        .describe("Filter by banker / deal contact (partial match)"),
+      has_ai_opinion: z
+        .boolean()
+        .optional()
+        .describe(
+          "true → only companies with an AI Opinion verdict; false → only those without",
+        ),
+      ai_opinion_verdict: z
+        .enum(["pass", "fail", "tentative"])
+        .optional()
+        .describe("Filter by AI Opinion verdict (exact match)"),
+      min_revenue: z.number().optional().describe("Minimum FY2024 revenue (USD M)"),
+      max_revenue: z.number().optional().describe("Maximum FY2024 revenue (USD M)"),
+      min_ebitda: z.number().optional().describe("Minimum FY2024 EBITDA (USD M)"),
+      max_ebitda: z.number().optional().describe("Maximum FY2024 EBITDA (USD M)"),
+      search_term: z
+        .string()
+        .optional()
+        .describe("Free-text search across name/segment/geography"),
       limit: z.number().optional().default(20).describe("Max results to return"),
     }),
   }

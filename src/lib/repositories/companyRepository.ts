@@ -116,17 +116,32 @@ export interface CompanyFilters {
   targetSearch?: string;
 }
 
-/** Filters used by AI-agent tool calls (queryCompanies in src/lib/agents/analysis/tools/query_companies.ts). */
+/**
+ * Filters shared by the AI-agent read tools (`query_companies` and
+ * `get_company_stats` in src/lib/agents/analysis/tools/). Every field is
+ * optional and AND-combined. Text fields are partial (ILIKE) matches; enum
+ * fields are exact. Revenue/EBITDA bounds resolve against the FY2024 row in
+ * `company_financials`.
+ */
 export interface CompanyAgentFilters {
   segment?: string;
   geography?: string;
   watchlistStatus?: string;
   stage?: string;
+  /** Match any of several pipeline stages (exact). Combined with OR. */
+  stageIn?: string[];
   name?: string;
   ownership?: string;
   companyFocus?: string;
   source?: "inbound" | "outbound";
   status?: "active" | "dropped";
+  dealType?: "majority" | "minority";
+  dealSponsor?: string;
+  banker?: string;
+  /** When set, keep only companies that have (true) / lack (false) an AI Opinion verdict. */
+  hasAiOpinion?: boolean;
+  /** Exact AI Opinion verdict (case-insensitive): pass | fail | tentative. */
+  aiOpinionVerdict?: "pass" | "fail" | "tentative";
   minRevenue?: number;
   maxRevenue?: number;
   minEbitda?: number;
@@ -378,70 +393,74 @@ export class CompanyRepository {
     return row ?? null;
   }
 
-  async searchForAgent(
-    filters: CompanyAgentFilters,
-  ): Promise<Tables<"companies">[]> {
-    const conditions: (SQL | undefined)[] = [];
-    if (filters.segment)
-      conditions.push(ilike(companies.segment, `%${filters.segment}%`));
+  /**
+   * Translate {@link CompanyAgentFilters} into a SQL condition list shared by
+   * the agent read paths. Revenue/EBITDA bounds require a join onto
+   * `company_financials` (FY2024); `needsFinancialsJoin` tells the caller
+   * whether to add that join. Returned conditions are AND-combined by callers.
+   */
+  private buildAgentConditions(filters: CompanyAgentFilters): {
+    conditions: SQL[];
+    needsFinancialsJoin: boolean;
+  } {
+    const conditions: SQL[] = [];
+    const push = (c: SQL | undefined) => {
+      if (c) conditions.push(c);
+    };
+
+    if (filters.segment) push(ilike(companies.segment, `%${filters.segment}%`));
     if (filters.geography)
-      conditions.push(ilike(companies.geography, `%${filters.geography}%`));
-    if (filters.watchlistStatus) {
-      conditions.push(
-        ilike(companies.watchlist_status, `%${filters.watchlistStatus}%`),
-      );
-    }
-    if (filters.stage) {
-      conditions.push(eq(companies.pipeline_stage, filters.stage as DealStage));
-    }
+      push(ilike(companies.geography, `%${filters.geography}%`));
+    if (filters.watchlistStatus)
+      push(ilike(companies.watchlist_status, `%${filters.watchlistStatus}%`));
+    if (filters.stage)
+      push(eq(companies.pipeline_stage, filters.stage as DealStage));
+    if (filters.stageIn && filters.stageIn.length > 0)
+      push(inArray(companies.pipeline_stage, filters.stageIn as DealStage[]));
     if (filters.name) {
       const term = `%${filters.name}%`;
-      conditions.push(
+      push(
         or(ilike(companies.target, term), ilike(companies.project_name, term)),
       );
     }
-    if (filters.ownership) {
-      conditions.push(ilike(companies.ownership, `%${filters.ownership}%`));
-    }
-    if (filters.companyFocus) {
-      conditions.push(
-        ilike(companies.company_focus, `%${filters.companyFocus}%`),
+    if (filters.ownership)
+      push(ilike(companies.ownership, `%${filters.ownership}%`));
+    if (filters.companyFocus)
+      push(ilike(companies.company_focus, `%${filters.companyFocus}%`));
+    if (filters.source) push(eq(companies.source, filters.source));
+    if (filters.status) push(eq(companies.status, filters.status));
+    if (filters.dealType) push(eq(companies.deal_type, filters.dealType));
+    if (filters.dealSponsor)
+      push(ilike(companies.deal_sponsor, `%${filters.dealSponsor}%`));
+    if (filters.banker) push(ilike(companies.banker, `%${filters.banker}%`));
+    if (filters.hasAiOpinion === true)
+      push(isNotNull(companies.ai_opinion_verdict));
+    if (filters.hasAiOpinion === false)
+      push(isNull(companies.ai_opinion_verdict));
+    if (filters.aiOpinionVerdict)
+      push(
+        sql`lower(${companies.ai_opinion_verdict}) = ${filters.aiOpinionVerdict.toLowerCase()}`,
       );
-    }
-    if (filters.source) {
-      conditions.push(eq(companies.source, filters.source));
-    }
-    if (filters.status) {
-      conditions.push(eq(companies.status, filters.status));
-    }
+
     // Revenue/EBITDA filters apply against fiscal_year 2024 rows in company_financials.
     const needsFinancialsJoin =
       filters.minRevenue !== undefined ||
       filters.maxRevenue !== undefined ||
       filters.minEbitda !== undefined ||
       filters.maxEbitda !== undefined;
-    if (needsFinancialsJoin) {
-      conditions.push(eq(companyFinancials.fiscal_year, 2024));
-    }
-    if (filters.minRevenue !== undefined) {
-      conditions.push(
-        gte(companyFinancials.revenue_usd_mn, filters.minRevenue),
-      );
-    }
-    if (filters.maxRevenue !== undefined) {
-      conditions.push(
-        lte(companyFinancials.revenue_usd_mn, filters.maxRevenue),
-      );
-    }
-    if (filters.minEbitda !== undefined) {
-      conditions.push(gte(companyFinancials.ebitda_usd_mn, filters.minEbitda));
-    }
-    if (filters.maxEbitda !== undefined) {
-      conditions.push(lte(companyFinancials.ebitda_usd_mn, filters.maxEbitda));
-    }
+    if (needsFinancialsJoin) push(eq(companyFinancials.fiscal_year, 2024));
+    if (filters.minRevenue !== undefined)
+      push(gte(companyFinancials.revenue_usd_mn, filters.minRevenue));
+    if (filters.maxRevenue !== undefined)
+      push(lte(companyFinancials.revenue_usd_mn, filters.maxRevenue));
+    if (filters.minEbitda !== undefined)
+      push(gte(companyFinancials.ebitda_usd_mn, filters.minEbitda));
+    if (filters.maxEbitda !== undefined)
+      push(lte(companyFinancials.ebitda_usd_mn, filters.maxEbitda));
+
     if (filters.searchTerm) {
       const term = `%${filters.searchTerm}%`;
-      conditions.push(
+      push(
         or(
           ilike(companies.target, term),
           ilike(companies.segment, term),
@@ -449,6 +468,15 @@ export class CompanyRepository {
         ),
       );
     }
+
+    return { conditions, needsFinancialsJoin };
+  }
+
+  async searchForAgent(
+    filters: CompanyAgentFilters,
+  ): Promise<Tables<"companies">[]> {
+    const { conditions, needsFinancialsJoin } =
+      this.buildAgentConditions(filters);
     const where = conditions.length > 0 ? and(...conditions) : undefined;
     const limit = Math.min(filters.limit ?? 50, 50);
     if (needsFinancialsJoin) {
@@ -464,6 +492,34 @@ export class CompanyRepository {
       return rows.map((r) => r.company);
     }
     return this.db.select().from(companies).where(where).limit(limit);
+  }
+
+  /**
+   * Like {@link searchForAgent} but returns the FULL matching set (no display
+   * cap) for aggregate computation in `get_company_stats`. Accepts the same
+   * {@link CompanyAgentFilters}. A defensive upper bound keeps a pathological
+   * call from materializing an unbounded result.
+   */
+  async findForAgentStats(
+    filters: CompanyAgentFilters,
+  ): Promise<Tables<"companies">[]> {
+    const { conditions, needsFinancialsJoin } =
+      this.buildAgentConditions(filters);
+    const where = conditions.length > 0 ? and(...conditions) : undefined;
+    const HARD_CAP = 5000;
+    if (needsFinancialsJoin) {
+      const rows = await this.db
+        .select({ company: companies })
+        .from(companies)
+        .innerJoin(
+          companyFinancials,
+          eq(companyFinancials.company_id, companies.id),
+        )
+        .where(where)
+        .limit(HARD_CAP);
+      return rows.map((r) => r.company);
+    }
+    return this.db.select().from(companies).where(where).limit(HARD_CAP);
   }
 
   async insert(

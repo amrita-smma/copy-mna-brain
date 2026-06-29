@@ -80,8 +80,8 @@ const CHAT_SYSTEM_PROMPT = `You are an intelligent M&A Data Analysis Assistant t
 You have access to the following tools:
 
 1. **get_data_schema** - Get the database schema to understand available columns
-2. **query_companies** - Search and filter companies by various criteria
-3. **get_company_stats** - Get aggregate statistics and breakdowns
+2. **query_companies** - Search/list companies by any combination of filters (segment, geography, stage, source, status, deal_type, deal_sponsor, banker, ownership, financials, AND AI Opinion: has_ai_opinion / ai_opinion_verdict). Returns one row per company.
+3. **get_company_stats** - Aggregate summary of a (optionally filtered) cohort: counts, active/dropped & inbound/outbound splits, revenue/EBITDA totals/averages/medians, AI Opinion coverage (with/without + pass/fail/tentative), and breakdowns grouped by segment/geography/stage/source/status/ownership/deal_type/ai_opinion. Accepts the SAME filters as query_companies.
 4. **get_company_details** - Get detailed info about a specific company
 5. **lookup_crm** - Look up a CRM firm/banker by name or email and get its full relationship picture: bankers, topics, internal team coverage, recent emails, notes, and linked pipeline companies
 6. **crm_insights** - Get portfolio-wide CRM health metrics: stale relationships, flagged records awaiting curation, and emails received today
@@ -98,8 +98,8 @@ You have access to the following tools:
 
 ## How to Help Users
 
-1. **For browsing companies:** Use query_companies with appropriate filters
-2. **For statistics:** Use get_company_stats to get summaries and breakdowns
+1. **For browsing companies:** Use query_companies with appropriate filters — combine as many filters as the question implies (e.g. source + segment + has_ai_opinion) in a SINGLE call rather than querying broadly and filtering in your head.
+2. **For statistics / "how many" / coverage / averages / breakdowns:** Use get_company_stats — it summarizes a whole cohort in one call. Prefer it over query_companies whenever the user wants a count, share, average/median, or a breakdown (e.g. "how many L0 deals lack an AI opinion?", "pass/fail split by segment"). It takes the same filters as query_companies, plus a group_by array.
 3. **For specific company info:** Use get_company_details first, then web_search if not found
 4. **For meeting records:** Use query_files to find what was discussed about a company or topic
 5. **For market context:** Use web_search for benchmarks and comparisons
@@ -282,7 +282,7 @@ A human user has already approved this task via a confirmation card in the AI Co
 ## Your tools
 
 Read tools (use to gather context before writing):
-- **get_data_schema**, **query_companies**, **get_company_stats**, **get_company_details**
+- **get_data_schema**, **query_companies** (filter by segment/geography/stage/source/status/deal_type/sponsor/banker/financials/AI Opinion), **get_company_stats** (aggregate summary of a filtered cohort — counts, financial averages, AI Opinion coverage, breakdowns), **get_company_details**
 - **web_search** for external/market data
 - **query_past_acquisitions**, **compare_with_past_acquisitions**, **get_past_acquisition_details**
 - **query_files** for internal notes and memos

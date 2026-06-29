@@ -147,8 +147,8 @@ export const workforceOnlyTools = [
 export function getToolDescriptions(): string {
   const toolInfo = [
     { name: "get_data_schema", description: "Get the database schema to understand available columns and data types" },
-    { name: "query_companies", description: "Search and filter companies by segment, geography, revenue, EBITDA, and other criteria" },
-    { name: "get_company_stats", description: "Get aggregate statistics and breakdowns by segment or geography" },
+    { name: "query_companies", description: "Search and filter companies by segment, geography, stage, source, status, deal type, sponsor, banker, ownership, revenue/EBITDA, and AI Opinion (has_ai_opinion / verdict)" },
+    { name: "get_company_stats", description: "Aggregate summary of a filtered cohort: counts, active/dropped & inbound/outbound splits, revenue/EBITDA totals/averages/medians, AI Opinion coverage, and breakdowns by segment/geography/stage/source/status/ownership/deal_type/ai_opinion" },
     { name: "get_company_details", description: "Get detailed information about a specific company by name" },
     { name: "lookup_crm", description: "Look up a CRM firm/banker by name or email and get its full relationship picture — bankers, topics, team coverage, recent emails, notes, and linked pipeline companies" },
     { name: "crm_insights", description: "Get portfolio-wide CRM health metrics: stale relationships, flagged records awaiting curation, and emails received today" },
