@@ -280,7 +280,7 @@ export default function OutboundCompaniesTable({
           <Col label="Created" sort="created" />
           <Col
             label={isDropped ? "Dropped On" : "Last Activity"}
-            sort={isDropped ? undefined : "last_activity"}
+            sort={isDropped ? "dropped_on" : "last_activity"}
           />
           <TableHead className="w-[44px] sticky right-0 z-20 bg-transparent" />
         </TableRow>

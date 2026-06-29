@@ -776,6 +776,10 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
         aVal = a.last_activity_at ? new Date(a.last_activity_at).getTime() : 0;
         bVal = b.last_activity_at ? new Date(b.last_activity_at).getTime() : 0;
         break;
+      case "dropped_on":
+        aVal = a.dropped_at ? new Date(a.dropped_at).getTime() : 0;
+        bVal = b.dropped_at ? new Date(b.dropped_at).getTime() : 0;
+        break;
       case "revenue":
         aVal = a.revenue_2024_usd_mn || 0;
         bVal = b.revenue_2024_usd_mn || 0;
