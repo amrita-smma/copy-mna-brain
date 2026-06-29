@@ -289,7 +289,7 @@ export default function OutboundCompaniesTable({
             label={isDropped ? "Dropped On" : "Last Activity"}
             sort={isDropped ? "dropped_on" : "last_activity"}
           />
-          <TableHead className="min-w-[200px] max-w-[260px]">
+          <TableHead className="min-w-[300px] max-w-[390px]">
             AI Opinion
           </TableHead>
           <TableHead className="w-[44px] sticky right-0 z-20 bg-transparent" />
@@ -455,7 +455,7 @@ export default function OutboundCompaniesTable({
                   ? formatDate(company.dropped_at)
                   : formatDate(company.last_activity_at)}
               </TableCell>
-              <TableCell className="min-w-[200px] max-w-[260px] align-top">
+              <TableCell className="min-w-[300px] max-w-[390px] align-top">
                 {onAnalyzeAiOpinion ? (
                   <AiOpinionCell
                     company={company}
