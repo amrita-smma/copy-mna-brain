@@ -245,6 +245,18 @@ describe('CompanyRepository.findByNameFuzzy', () => {
     expect(await repo.findByNameFuzzy('Acme Ltd.')).toEqual(match);
   });
 
+  it('matches regardless of the casing of the search term', async () => {
+    const match = { id: 'c9', target: 'Acme Co.' };
+    const { db } = makeFuzzyDb([match]);
+    const repo = new CompanyRepository(db);
+
+    expect(await repo.findByNameFuzzy('ACME LTD.')).toEqual(match);
+    expect(await repo.findByNameFuzzy('acme ltd.')).toEqual(match);
+    expect(await repo.findByNameFuzzy('aCmE CoRp')).toEqual(match);
+    expect(await repo.findByNameFuzzy('ACME CO.')).toEqual(match);
+    expect(await repo.findByNameFuzzy('ACME LTD')).toEqual(match);
+  });
+
   it('returns null when the query finds no row', async () => {
     const { db } = makeFuzzyDb([]);
     const repo = new CompanyRepository(db);

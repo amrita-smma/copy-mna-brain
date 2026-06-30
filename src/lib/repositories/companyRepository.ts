@@ -382,12 +382,18 @@ export class CompanyRepository {
     // Fall back to the full name if stripping leaves too little to match on.
     const base = stripCompanySuffix(trimmed);
     const term = base.length >= 3 ? base : trimmed;
+    // Match case-insensitively by folding both sides to lower case explicitly
+    // rather than relying on the column collation. Escape LIKE metacharacters
+    // (\, %, _) in the term so names containing them match literally instead of
+    // acting as wildcards. ESCAPE '\' makes the backslash escapes take effect.
+    const escaped = term.replace(/[\\%_]/g, "\\$&").toLowerCase();
+    const pattern = `%${escaped}%`;
     const [row] = await this.db
       .select()
       .from(companies)
       .where(or(
-        ilike(companies.target, `%${term}%`),
-        ilike(companies.project_name, `%${term}%`),
+        sql`lower(${companies.target}) like ${pattern} escape '\\'`,
+        sql`lower(${companies.project_name}) like ${pattern} escape '\\'`,
       ))
       .limit(1);
     return row ?? null;
