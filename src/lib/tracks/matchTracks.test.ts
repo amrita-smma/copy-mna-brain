@@ -152,14 +152,15 @@ describe('buildTrackScreeningGroups', () => {
     ]);
   });
 
-  it('expands auto-suggested tracks when nothing is manually matched', () => {
-    const company: MatchableCompany = { segment: 'Photoresist solvents' }; // suggests semi
-    expect(buildTrackScreeningGroups(company, TRACKS, CRITERIA)).toEqual([
-      { trackId: 'semi', criteriaIds: ['c1', 'c2'] },
-    ]);
+  it('never expands auto-suggested tracks: screening runs only on persisted matches', () => {
+    // "Photoresist solvents" would auto-suggest "semi" via resolveTrackIds, but
+    // screening must not run against keyword-suggested tracks — only explicitly
+    // matched ones.
+    const company: MatchableCompany = { segment: 'Photoresist solvents' };
+    expect(buildTrackScreeningGroups(company, TRACKS, CRITERIA)).toEqual([]);
   });
 
-  it('returns [] when no track is matched', () => {
+  it('returns [] when no track is persisted', () => {
     const company: MatchableCompany = { segment: 'Telecom billing software' };
     expect(buildTrackScreeningGroups(company, TRACKS, CRITERIA)).toEqual([]);
   });

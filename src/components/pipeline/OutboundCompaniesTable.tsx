@@ -41,7 +41,7 @@ import { useLayoutControl } from "@/components/layout/LayoutControlContext";
 import { AiOpinionCell } from "@/components/pipeline/AiOpinionCell";
 import { companyDisplayName, companyDisplayTitle } from "@/lib/companyDisplay";
 import {
-  resolveTrackIds,
+  persistedTrackIds,
   matchedTrackPics,
   dealLeadField,
   dealLeadLabel,
@@ -295,9 +295,11 @@ export default function OutboundCompaniesTable({
             ? "bg-amber-50 group-hover:bg-amber-100 dark:bg-amber-950 dark:group-hover:bg-amber-900"
             : "bg-card group-hover:bg-muted";
           const isUpdating = updatingCompanyIds.has(company.id);
-          // AI screening runs against a company's matched tracks; with none
-          // matched there is nothing to screen, so the action is disabled.
-          const hasMatchedTracks = resolveTrackIds(company, tracks).length > 0;
+          // AI screening runs only against a company's explicitly matched
+          // tracks; with none matched there is nothing to screen, so the action
+          // is disabled.
+          const hasMatchedTracks =
+            persistedTrackIds(company, tracks).length > 0;
           const displayName = companyDisplayName(company, "this company");
           const displayTitle = companyDisplayTitle(company, "");
           return (

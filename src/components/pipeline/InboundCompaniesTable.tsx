@@ -46,7 +46,7 @@ import { AiOpinionCell } from "@/components/pipeline/AiOpinionCell";
 import { DuplicatePopup } from "@/components/pipeline/DuplicatePopup";
 import { companyDisplayName, companyDisplayTitle } from "@/lib/companyDisplay";
 import {
-  resolveTrackIds,
+  persistedTrackIds,
   matchedTrackPics,
   dealLeadField,
   dealLeadLabel,
@@ -378,9 +378,11 @@ export default function InboundCompaniesTable({
           const rev = latestFin(company.financials_raw, "revenue_usd_mn");
           const ebitda = latestFin(company.financials_raw, "ebitda_usd_mn");
           const isUnreviewed = company.pipeline_stage === "unreviewed";
-          // AI screening runs against a company's matched tracks; with none
-          // matched there is nothing to screen, so the action is disabled.
-          const hasMatchedTracks = resolveTrackIds(company, tracks).length > 0;
+          // AI screening runs only against a company's explicitly matched
+          // tracks; with none matched there is nothing to screen, so the action
+          // is disabled.
+          const hasMatchedTracks =
+            persistedTrackIds(company, tracks).length > 0;
           const displayName = companyDisplayName(company, "this company");
           const displayTitle = companyDisplayTitle(company, "");
           const hasFinancials =

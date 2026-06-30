@@ -124,18 +124,22 @@ export interface TrackScreeningGroup {
 }
 
 /**
- * Expand a company into per-track screening groups: one group per matched track
- * (see {@link resolveTrackIds}), each carrying the criteria that belong to that
- * track (`criterias.investment_thesis_id`). Tracks with no criteria are skipped
- * — they would screen nothing — so the number of groups is the number of
- * *screenable* matched tracks.
+ * Expand a company into per-track screening groups: one group per *persisted*
+ * matched track (see {@link persistedTrackIds}), each carrying the criteria that
+ * belong to that track (`criterias.investment_thesis_id`). Tracks with no
+ * criteria are skipped — they would screen nothing — so the number of groups is
+ * the number of *screenable* matched tracks.
+ *
+ * This deliberately uses {@link persistedTrackIds} (not {@link resolveTrackIds}):
+ * AI screening only runs against tracks a company is explicitly matched to, and
+ * never against the keyword-based auto-suggestion fallback.
  */
 export function buildTrackScreeningGroups(
   company: MatchableCompany,
   tracks: TrackLike[],
   criteria: CriterionLike[],
 ): TrackScreeningGroup[] {
-  const matchedIds = resolveTrackIds(company, tracks);
+  const matchedIds = persistedTrackIds(company, tracks);
   return matchedIds
     .map((trackId) => ({
       trackId,
