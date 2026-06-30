@@ -84,16 +84,21 @@ const formatCurrency = (value: number | null | undefined) => {
   return `$${value.toFixed(2)}M`;
 };
 
-/** Most recent fiscal year that has a non-null value for `key`. */
+/**
+ * Current-year value for `key`, falling back to the nearest previous year when
+ * the current year is missing. Forward (future) fiscal years are never shown.
+ */
 const latestFinValue = (
   rows: Tables<"company_financials">[] | undefined,
   key: "revenue_usd_mn" | "ebitda_usd_mn" | "ev_usd_mn",
 ): number | null => {
   if (!rows?.length) return null;
+  const currentYear = new Date().getFullYear();
   let best: { value: number; year: number } | null = null;
   for (const r of rows) {
     const v = r[key] as number | null;
     if (v == null) continue;
+    if (r.fiscal_year > currentYear) continue;
     if (!best || r.fiscal_year > best.year) best = { value: v, year: r.fiscal_year };
   }
   return best?.value ?? null;
