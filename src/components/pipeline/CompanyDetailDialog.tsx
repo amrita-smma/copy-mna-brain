@@ -816,11 +816,8 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
           return;
         }
       }
-      // No analysis exists yet → generate it the first time the deal is opened
-      // (this content powers the Overview slide). Skip for dropped deals.
-      if (company.status !== "dropped") {
-        generateAnalysis();
-      }
+      // No analysis exists yet → leave it empty. Generation is triggered
+      // manually via the "Generate AI Company Card" button.
     } catch (error) {
       console.error("Error fetching analysis:", error);
     }

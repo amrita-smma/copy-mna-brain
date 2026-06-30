@@ -710,9 +710,8 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
           return;
         }
       }
-      // No analysis exists yet → generate it the first time the deal is opened
-      // (this content powers the Overview slide).
-      generateAnalysis();
+      // No analysis exists yet → leave it empty. Generation is triggered manually
+      // via the "Generate AI Company Card" button.
     } catch (error) {
       console.error('Error fetching analysis:', error);
     }
@@ -1240,8 +1239,8 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
           </TabsList>
 
           {/* Overview — read-only L0→L1 submission slide, powered by the AI
-              Company Card. Auto-generates on first open; shows the generating
-              state until ready. */}
+              Company Card. Generated manually via the "Generate AI Company Card"
+              button; shows the generating state until ready. */}
           <TabsContent value="overview" className="space-y-6 mt-6">
             {analysisGenerating && !analysis?.business_overview ? (
               <AICompanyCardLoading
