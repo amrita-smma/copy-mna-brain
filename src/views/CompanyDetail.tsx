@@ -175,6 +175,7 @@ interface CompanyData {
   entered_by_name?: string | null;
   last_activity_at?: string | null;
   banker?: string | null;
+  advisor?: string | null;
   doc_type?: string | null;
   stake?: string | null;
   deal_size?: string | null;
@@ -470,6 +471,7 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
     last_activity_at: string; // YYYY-MM-DD
     workflow_status: string;
     banker: string;
+    advisor: string;
     doc_type: string;
     stake: string;
     deal_size: string;
@@ -504,6 +506,7 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
       last_activity_at: isoToDateInput(company.last_activity_at),
       workflow_status: company.workflow_status ?? '',
       banker: company.banker ?? '',
+      advisor: company.advisor ?? '',
       doc_type: company.doc_type ?? '',
       stake: company.stake ?? '',
       deal_size: company.deal_size ?? '',
@@ -599,6 +602,7 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
           : null,
         workflow_status: editForm.workflow_status.trim() || null,
         banker: editForm.banker.trim() || null,
+        advisor: editForm.advisor.trim() || null,
         doc_type: editForm.doc_type || null,
         stake: stakeResult.value,
         deal_size: editForm.deal_size.trim() || null,
@@ -1534,6 +1538,14 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
                         <StatusCombobox value={editForm.banker || null} options={bankerOptions} placeholder="Set banker…" searchPlaceholder="Search or add a banker…" emptyText="No bankers yet." onChange={(v) => setEditForm({ ...editForm, banker: v })} disabled={isSaving} className="mt-1" />
                       ) : (
                         <p className="text-sm font-medium break-words">{company.banker || '—'}</p>
+                      )}
+                    </div>
+                    <div>
+                      <p className="text-xs text-muted-foreground">Advisor</p>
+                      {isEditing && editForm ? (
+                        <StatusCombobox value={editForm.advisor || null} options={bankerOptions} placeholder="Set advisor…" searchPlaceholder="Search or add a banker…" emptyText="No bankers yet." onChange={(v) => setEditForm({ ...editForm, advisor: v })} disabled={isSaving} className="mt-1" />
+                      ) : (
+                        <p className="text-sm font-medium break-words">{company.advisor || '—'}</p>
                       )}
                     </div>
                     <div>

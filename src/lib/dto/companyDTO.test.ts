@@ -34,6 +34,7 @@ function makeCompany(overrides: Partial<Tables<'companies'>> = {}): Tables<'comp
     deal_captain: null,
     last_activity_at: null,
     banker: null,
+    advisor: null,
     doc_type: null,
     stake: null,
     deal_size: null,
@@ -315,6 +316,29 @@ describe('deal_sponsor / deal_captain', () => {
     const result = splitCompanyDTO({ deal_sponsor: 'Dicki Sujadi', deal_captain: null });
     expect(result.company.deal_sponsor).toBe('Dicki Sujadi');
     expect(result.company.deal_captain).toBeNull();
+  });
+});
+
+describe('advisor', () => {
+  it('passes advisor through toCompanyDTO when set', () => {
+    const dto = toCompanyDTO(makeCompany({ advisor: 'Goldman Sachs' }), [], [], null);
+    expect(dto.advisor).toBe('Goldman Sachs');
+  });
+
+  it('defaults advisor to null', () => {
+    const dto = toCompanyDTO(makeCompany(), [], [], null);
+    expect(dto.advisor).toBeNull();
+  });
+
+  it('routes advisor into the company write fragment', () => {
+    const result = splitCompanyDTO({ advisor: 'JP Morgan' });
+    expect(result.company.advisor).toBe('JP Morgan');
+  });
+
+  it('preserves explicit null (clearing advisor → deal no longer live) and skips undefined', () => {
+    const result = splitCompanyDTO({ advisor: null });
+    expect(result.company.advisor).toBeNull();
+    expect('advisor' in splitCompanyDTO({}).company).toBe(false);
   });
 });
 

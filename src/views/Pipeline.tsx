@@ -151,6 +151,7 @@ export interface PipelineCompany {
   deal_captain: string | null;
   last_activity_at: string | null;
   banker: string | null;
+  advisor: string | null;
   doc_type: string | null;
   stake: string | null;
   deal_size: string | null;
@@ -445,6 +446,7 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
           deal_captain: company.deal_captain ?? null,
           last_activity_at: company.last_activity_at ?? null,
           banker: company.banker ?? null,
+          advisor: company.advisor ?? null,
           doc_type: company.doc_type ?? null,
           stake: company.stake ?? null,
           deal_size: company.deal_size ?? null,
@@ -629,6 +631,7 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
     status: (c) => c.workflow_status || null,
     entered_by: (c) => c.entered_by_name || null,
     banker: (c) => c.banker ?? c.banker_source ?? null,
+    advisor: (c) => c.advisor || null,
     stake: (c) => c.stake || null,
     // Deal Sponsor (L0–L2) / Deal Captain (L3+): the stored per-company
     // override, else the matched Track's PIC(s). Mirrors the table cell so the
@@ -793,6 +796,10 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
       case "banker":
         aVal = (a.banker ?? a.banker_source ?? "").toLowerCase();
         bVal = (b.banker ?? b.banker_source ?? "").toLowerCase();
+        break;
+      case "advisor":
+        aVal = (a.advisor ?? "").toLowerCase();
+        bVal = (b.advisor ?? "").toLowerCase();
         break;
       case "created":
         aVal = a.created_at ? new Date(a.created_at).getTime() : 0;

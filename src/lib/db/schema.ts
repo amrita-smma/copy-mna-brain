@@ -411,6 +411,9 @@ export const companies = pgTable(
     deal_captain: text(),
     last_activity_at: timestamp({ withTimezone: true, mode: "string" }),
     banker: text(),
+    // Deal advisor (a banker engaged on the deal). Populated from the existing
+    // list of banker names. A non-empty advisor means the deal is "live".
+    advisor: text(),
     // doc_type values are constrained in the app UI only (not a DB enum).
     doc_type: text(),
     stake: text(),

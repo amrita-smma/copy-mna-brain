@@ -54,6 +54,7 @@ export interface UpdateCompanyData {
   entered_by: string | null;
   last_activity_at: string | null;
   banker: string | null;
+  advisor: string | null;
   doc_type: string | null;
   stake: string | null;
   deal_size: string | null;
@@ -94,6 +95,7 @@ type Form = {
   workflow_status: string;
   remarks: string;
   banker: string;
+  advisor: string;
   doc_type: string;
   stake: string;
   deal_size: string;
@@ -127,6 +129,7 @@ const buildForm = (c: UpdateCompanyData): Form => {
     workflow_status: c.workflow_status ?? "",
     remarks: c.remarks ?? "",
     banker: c.banker ?? "",
+    advisor: c.advisor ?? "",
     doc_type: c.doc_type ?? "",
     stake: c.stake ?? "",
     deal_size: c.deal_size ?? "",
@@ -263,6 +266,7 @@ export default function UpdateCompanyDialog({
         workflow_status: form.workflow_status.trim() || null,
         remarks: form.remarks.trim() || null,
         banker: form.banker.trim() || null,
+        advisor: form.advisor.trim() || null,
         doc_type: form.doc_type || null,
         stake: stakeResult.value,
         deal_size: form.deal_size.trim() || null,
@@ -490,6 +494,18 @@ export default function UpdateCompanyDialog({
                   searchPlaceholder="Search or add a banker…"
                   emptyText="No bankers yet."
                   onChange={(v) => set("banker", v)}
+                  disabled={isSaving}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Advisor</Label>
+                <StatusCombobox
+                  value={form.advisor || null}
+                  options={bankerOptions}
+                  placeholder="Set advisor…"
+                  searchPlaceholder="Search or add a banker…"
+                  emptyText="No bankers yet."
+                  onChange={(v) => set("advisor", v)}
                   disabled={isSaving}
                 />
               </div>

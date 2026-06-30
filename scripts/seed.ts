@@ -185,6 +185,8 @@ type SeedCompany = {
   originator?: string;
   last_activity_at?: string;
   banker?: string;
+  /** Deal advisor (banker engaged on the deal). Non-empty ⇒ the deal is live. */
+  advisor?: string;
   stake?: string;
   deal_size?: string;
   workflow_status?: string;
@@ -1338,6 +1340,7 @@ const seedCompanies: SeedCompany[] = [
     source: 'inbound',
     deal_type: 'majority',
     banker: 'Morgan Stanley',
+    advisor: 'Morgan Stanley',
     doc_type: 'teaser',
     workflow_status: 'NDA executed',
     stake: '65%',
@@ -1363,6 +1366,7 @@ const seedCompanies: SeedCompany[] = [
     source: 'inbound',
     deal_type: 'majority',
     banker: 'Goldman Sachs',
+    advisor: 'Goldman Sachs',
     doc_type: 'teaser',
     workflow_status: 'Teaser review',
     stake: '70%',
@@ -1875,6 +1879,7 @@ async function main() {
           originator: c.originator ?? null,
           last_activity_at: c.last_activity_at ?? null,
           banker: c.banker ?? c.banker_source ?? null,
+          advisor: c.advisor ?? null,
           stake: c.stake ?? null,
           deal_size: c.deal_size ?? null,
           workflow_status: c.workflow_status ?? null,

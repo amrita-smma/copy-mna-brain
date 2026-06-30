@@ -236,7 +236,7 @@ export default function InboundCompaniesTable({
   );
 
   // colSpan for the section header / gap rows. Recount if columns change.
-  const tableColumnCount = isDropped ? 16 : 15;
+  const tableColumnCount = isDropped ? 17 : 16;
   const picColumnLabel = dealLeadLabel(stage);
   const unreviewedCompanies = isDropped
     ? []
@@ -321,6 +321,12 @@ export default function InboundCompaniesTable({
             sort="banker"
             filter="banker"
             className="min-w-[160px]"
+          />
+          <Col
+            label="Advisor"
+            sort="advisor"
+            filter="advisor"
+            className="min-w-[170px]"
           />
           <Col label="Sector" sort="sector" filter="sector" />
           <Col label="Geo" sort="geo" filter="geo" />
@@ -491,6 +497,13 @@ export default function InboundCompaniesTable({
                   </span>
                 ) : (
                   <span className="text-muted-foreground">—</span>
+                )}
+              </TableCell>
+              <TableCell className="min-w-[170px]">
+                {company.advisor ? (
+                  <span className="text-sm font-medium">{company.advisor}</span>
+                ) : (
+                  <span className="text-sm text-muted-foreground">—</span>
                 )}
               </TableCell>
               <TableCell>

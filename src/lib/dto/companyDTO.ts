@@ -59,6 +59,8 @@ export interface CompanyDTO {
   deal_captain: string | null;
   last_activity_at: string | null;
   banker: string | null;
+  // Deal advisor (banker engaged on the deal). Non-empty ⇒ the deal is "live".
+  advisor: string | null;
   doc_type: string | null;
   stake: string | null;
   deal_size: string | null;
@@ -230,6 +232,7 @@ export function toCompanyDTO(
     deal_captain: company.deal_captain ?? null,
     last_activity_at: company.last_activity_at ?? null,
     banker: company.banker ?? null,
+    advisor: company.advisor ?? null,
     doc_type: company.doc_type ?? null,
     stake: company.stake ?? null,
     deal_size: company.deal_size ?? null,
@@ -370,7 +373,7 @@ export function splitCompanyDTO(dto: CompanyDTOInput): SplitCompanyWrite {
     'company_focus', 'website', 'watchlist_status', 'comments', 'ownership',
     'geography', 'source', 'status', 'pipeline_stage', 'remarks', 'thesis_content',
     'deal_type', 'originator', 'entered_by', 'deal_sponsor', 'deal_captain',
-    'last_activity_at', 'banker', 'doc_type', 'stake',
+    'last_activity_at', 'banker', 'advisor', 'doc_type', 'stake',
     'deal_size', 'workflow_status', 'key_rationale', 'review_state', 'banker_source',
     'possible_duplicate_company_id', 'matched_track_ids',
     'track_specific_variables', 'slide_track_variable_ids',
