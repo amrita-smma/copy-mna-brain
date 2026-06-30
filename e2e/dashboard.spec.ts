@@ -197,8 +197,7 @@ test.describe('Dashboard page', () => {
   ): Promise<ProvisionedCompanies> => {
     await collapseCopilot(page);
     await signIn(page);
-    const provisioned = await provisionCompanies(page, companies);
-    cleanups.push(provisioned.cleanup);
+    const provisioned = await provisionCompanies(page, companies, (c) => cleanups.push(c));
     await provisionActivity(page, provisioned.companies, ops, fixtures);
     await Promise.all([
       page.waitForResponse(
@@ -570,8 +569,7 @@ test.describe('Dashboard page', () => {
     // REG-DASH-24: Expand the pane via localStorage so the CoPilot UI renders.
     await page.addInitScript(() => window.localStorage.setItem('layout:copilot-expanded', 'true'));
     await signIn(page);
-    const provisioned = await provisionCompanies(page, MOCK_COMPANIES);
-    cleanups.push(provisioned.cleanup);
+    const provisioned = await provisionCompanies(page, MOCK_COMPANIES, (c) => cleanups.push(c));
     await provisionActivity(page, provisioned.companies, DEFAULT_OPS, { activity: MOCK_ACTIVITY });
     await Promise.all([
       page.waitForResponse(
@@ -593,8 +591,7 @@ test.describe('Dashboard page', () => {
     // REG-DASH-27: Expand the pane via localStorage so the chat input renders.
     await page.addInitScript(() => window.localStorage.setItem('layout:copilot-expanded', 'true'));
     await signIn(page);
-    const provisioned = await provisionCompanies(page, MOCK_COMPANIES);
-    cleanups.push(provisioned.cleanup);
+    const provisioned = await provisionCompanies(page, MOCK_COMPANIES, (c) => cleanups.push(c));
     await provisionActivity(page, provisioned.companies, DEFAULT_OPS, { activity: MOCK_ACTIVITY });
     await Promise.all([
       page.waitForResponse(

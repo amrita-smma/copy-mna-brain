@@ -206,6 +206,7 @@ export function TraceLine({
           {step.fullReport && isLast && (
             <button
               type="button"
+              data-testid="trace-view-report-button"
               onClick={() => setReportOpen(true)}
               className="mt-2.5 inline-flex items-center gap-1.5 rounded-md border border-violet-200 bg-violet-50 px-2.5 py-1 text-[11px] font-semibold text-violet-700 hover:bg-violet-100 hover:border-violet-300 transition-colors"
             >
@@ -262,7 +263,7 @@ export function TraceLine({
 
       {step.fullReport && isLast && (
         <Dialog open={reportOpen} onOpenChange={setReportOpen}>
-          <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">
+          <DialogContent data-testid="trace-full-report-dialog" className="max-w-3xl max-h-[85vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle className="flex items-center gap-2">
                 <FileText className="h-4 w-4 text-violet-600" />
@@ -797,6 +798,7 @@ function InterventionCard({
         <div className="flex flex-wrap items-center gap-2">
           <button
             type="button"
+            data-testid="intervention-approve-button"
             disabled={submitting}
             onClick={() => void submit('approve')}
             className="inline-flex items-center gap-1.5 rounded-md bg-gradient-to-br from-violet-500 to-indigo-600 px-3 py-1.5 text-xs font-semibold text-white hover:from-violet-600 hover:to-indigo-700 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
@@ -806,6 +808,7 @@ function InterventionCard({
           </button>
           <button
             type="button"
+            data-testid="intervention-reject-button"
             disabled={submitting}
             onClick={() => setComposerOpen(true)}
             className="inline-flex items-center rounded-md border border-rose-300 bg-card px-3 py-1.5 text-xs font-semibold text-rose-700 hover:border-rose-500 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
@@ -826,6 +829,7 @@ function InterventionCard({
           />
           <button
             type="button"
+            data-testid="intervention-reject-send-button"
             disabled={submitting}
             onClick={() => void submit('reject', rejectMessage.trim() || undefined)}
             className="self-stretch w-7 grid place-items-center rounded bg-gradient-to-br from-rose-500 to-rose-600 text-white hover:from-rose-600 hover:to-rose-700 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"

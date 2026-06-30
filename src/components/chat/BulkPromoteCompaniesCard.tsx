@@ -131,6 +131,7 @@ export function BulkPromoteCompaniesCard({
 
   return (
     <div
+      data-testid="bulk-promote-card"
       className={cn(
         "w-full rounded-2xl border shadow-sm overflow-hidden transition-colors",
         isResolved
@@ -180,6 +181,7 @@ export function BulkPromoteCompaniesCard({
             return (
               <div
                 key={c.id}
+                data-testid={`bulk-promote-candidate-${c.id}`}
                 role={inert ? undefined : "button"}
                 tabIndex={inert ? undefined : 0}
                 onClick={inert ? undefined : () => toggle(c.id)}
@@ -278,6 +280,7 @@ export function BulkPromoteCompaniesCard({
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <Button
+                data-testid="bulk-promote-confirm-button"
                 onClick={handlePromote}
                 disabled={isSubmitting || selectedCount === 0}
                 className="bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 text-white"
@@ -292,6 +295,7 @@ export function BulkPromoteCompaniesCard({
                 )}
               </Button>
               <Button
+                data-testid="bulk-promote-hold-all-button"
                 variant="outline"
                 onClick={handleHoldAll}
                 disabled={isSubmitting}

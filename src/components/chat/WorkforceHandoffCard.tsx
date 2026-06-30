@@ -105,6 +105,7 @@ export function WorkforceHandoffCard({
 
   return (
     <div
+      data-testid="workforce-handoff-card"
       className={cn(
         "w-full rounded-2xl border border-amber-300/70 bg-gradient-to-br from-amber-50 via-orange-50 to-amber-50 dark:from-amber-950/30 dark:via-orange-950/20 dark:to-amber-950/30 shadow-sm overflow-hidden",
         className,
@@ -150,6 +151,7 @@ export function WorkforceHandoffCard({
         ) : (
           <div className="flex flex-col gap-2 w-full">
             <Button
+              data-testid="workforce-handoff-assign-button"
               onClick={handleAssign}
               disabled={status === "submitting"}
               className="w-full bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-700 hover:to-indigo-700 text-white"
@@ -164,6 +166,7 @@ export function WorkforceHandoffCard({
               )}
             </Button>
             <Button
+              data-testid="workforce-handoff-decline-button"
               variant="outline"
               onClick={handleDecline}
               disabled={status === "submitting"}

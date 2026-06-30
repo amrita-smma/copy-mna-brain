@@ -180,22 +180,10 @@ const postCompanyWithRetry = async (
 const seedCompaniesViaApi = async (
   page: Page,
   companies: Company[],
+  registerCleanup?: (cleanup: () => Promise<void>) => void,
 ): Promise<ProvisionedCompanies> => {
   const marker = `e2e-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
   const seeded: Company[] = new Array(companies.length);
-
-  for (let i = companies.length - 1; i >= 0; i--) {
-    const input = companies[i];
-    const target = `${input.target ?? 'Company'} ${marker}`;
-    // Strip server-owned fields; let the API assign id/timestamps.
-    const company: Record<string, unknown> = { ...input, target };
-    delete company.id;
-    delete company.created_at;
-    delete company.updated_at;
-
-    const data = await postCompanyWithRetry(page, target, company);
-    seeded[i] = { ...input, target, id: data.id, created_at: data.created_at, updated_at: data.updated_at };
-  }
 
   const cleanup = async () => {
     // Marker-scoped teardown: collect the ids we captured *and* re-query the
@@ -224,6 +212,25 @@ const seedCompaniesViaApi = async (
     }
   };
 
+  // Register cleanup *before* the first insert so a partial-seed failure (some
+  // rows created, then a POST throws) is still torn down — `cleanup`'s marker
+  // query finds every row this run created, even the ones inserted before the
+  // throw. Registering after the loop would leak those rows on failure.
+  registerCleanup?.(cleanup);
+
+  for (let i = companies.length - 1; i >= 0; i--) {
+    const input = companies[i];
+    const target = `${input.target ?? 'Company'} ${marker}`;
+    // Strip server-owned fields; let the API assign id/timestamps.
+    const company: Record<string, unknown> = { ...input, target };
+    delete company.id;
+    delete company.created_at;
+    delete company.updated_at;
+
+    const data = await postCompanyWithRetry(page, target, company);
+    seeded[i] = { ...input, target, id: data.id, created_at: data.created_at, updated_at: data.updated_at };
+  }
+
   return { companies: seeded, marker, cleanup };
 };
 
@@ -232,15 +239,17 @@ const seedCompaniesViaApi = async (
  * current `E2E_DATA_MODE` dictates. Always call this *after* a real `signIn`
  * (real mode needs the session cookie to POST) and *before* navigating.
  *
- * Register the returned `cleanup` in an `afterEach` so real-mode rows don't
- * accumulate in the target environment.
+ * Pass `registerCleanup` (e.g. `(c) => cleanups.push(c)`) so teardown is wired
+ * up *before* any insert runs — that way a partial-seed failure still gets torn
+ * down. The same function is also returned as `cleanup` for explicit calls.
  */
 export const provisionCompanies = async (
   page: Page,
   companies: Company[],
+  registerCleanup?: (cleanup: () => Promise<void>) => void,
 ): Promise<ProvisionedCompanies> => {
   if (getDataMode() === 'real') {
-    return seedCompaniesViaApi(page, companies);
+    return seedCompaniesViaApi(page, companies, registerCleanup);
   }
   await interceptCompanies(page, companies);
   return { companies, marker: '', cleanup: async () => {} };

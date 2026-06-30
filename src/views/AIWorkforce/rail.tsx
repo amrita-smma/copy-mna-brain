@@ -16,6 +16,7 @@ export function RailGroup({
   collapsible = false,
   defaultOpen = true,
   children,
+  'data-testid': testId,
 }: {
   label: string;
   count: number;
@@ -26,6 +27,7 @@ export function RailGroup({
   collapsible?: boolean;
   defaultOpen?: boolean;
   children: React.ReactNode;
+  'data-testid'?: string;
 }) {
   const [open, setOpen] = React.useState(defaultOpen);
   const isOpen = collapsible ? open : true;
@@ -53,7 +55,7 @@ export function RailGroup({
   );
 
   return (
-    <div>
+    <div data-testid={testId}>
       {collapsible ? (
         <button
           type="button"
@@ -88,6 +90,7 @@ export function RailItem({
   onDragOver,
   onDragEnd,
   onDrop,
+  'data-testid': testId,
 }: {
   icon: React.ReactNode;
   iconClass: string;
@@ -105,10 +108,12 @@ export function RailItem({
   onDragOver?: (e: React.DragEvent<HTMLButtonElement>) => void;
   onDragEnd?: (e: React.DragEvent<HTMLButtonElement>) => void;
   onDrop?: (e: React.DragEvent<HTMLButtonElement>) => void;
+  'data-testid'?: string;
 }) {
   const button = (
     <button
       type="button"
+      data-testid={testId}
       onClick={onClick}
       draggable={draggable}
       onDragStart={onDragStart}

@@ -425,7 +425,7 @@ export function TaskCanvas({
 
   return (
     <>
-    <main className="flex flex-col min-h-0 bg-card">
+    <main data-testid="task-canvas" className="flex flex-col min-h-0 bg-card">
       <div className="flex-1 overflow-y-auto px-9 py-6">
         {/* Task header */}
         <div className="space-y-2.5 mb-7">
@@ -443,6 +443,7 @@ export function TaskCanvas({
                 {canCancel && (
                   <button
                     type="button"
+                    data-testid="task-cancel-button"
                     onClick={handleCancel}
                     disabled={actionPending !== null}
                     className="inline-flex items-center gap-1.5 rounded-md border border-rose-200 bg-rose-50 px-2.5 py-1 text-xs font-medium text-rose-700 hover:bg-rose-100 hover:border-rose-300 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
@@ -454,6 +455,7 @@ export function TaskCanvas({
                 {canRetry && (
                   <button
                     type="button"
+                    data-testid="task-retry-button"
                     onClick={handleRetry}
                     disabled={actionPending !== null}
                     className="inline-flex items-center gap-1.5 rounded-md border border-violet-200 bg-violet-50 px-2.5 py-1 text-xs font-medium text-violet-700 hover:bg-violet-100 hover:border-violet-300 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
@@ -635,6 +637,7 @@ export function TaskCanvas({
           />
           <button
             type="button"
+            data-testid="task-composer-send-button"
             disabled={composerDisabled || !composerText.trim()}
             onClick={() => void handleComposerSubmit()}
             className="self-stretch w-9 grid place-items-center rounded-lg bg-gradient-to-br from-violet-500 to-indigo-600 text-white disabled:opacity-50 disabled:cursor-not-allowed"

@@ -304,7 +304,7 @@ export function NewRoutineModal({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl p-0 gap-0 overflow-hidden">
+      <DialogContent data-testid="new-routine-modal" className="max-w-2xl p-0 gap-0 overflow-hidden">
         <DialogHeader className="px-6 pt-6 pb-4 border-b text-left space-y-1">
           <DialogTitle className="text-lg">
             {isEditMode ? 'Edit Routine' : 'New Standing Routine'}
@@ -365,6 +365,7 @@ export function NewRoutineModal({
                   {cadenceOptions.map((option) => (
                     <button
                       key={option.key}
+                      data-testid={`new-routine-cadence-${option.key}`}
                       type="button"
                       onClick={() => setCadence(option.key)}
                       className={cn(
@@ -390,6 +391,7 @@ export function NewRoutineModal({
                           {WEEKDAYS.map((d) => (
                             <button
                               key={d.value}
+                              data-testid={`new-routine-weekday-${d.value}`}
                               type="button"
                               onClick={() => setWeekday(d.value)}
                               className={cn(
@@ -414,7 +416,7 @@ export function NewRoutineModal({
                           value={String(dayOfMonth)}
                           onValueChange={(v) => setDayOfMonth(Number(v))}
                         >
-                          <SelectTrigger>
+                          <SelectTrigger data-testid="new-routine-day-of-month-select">
                             <SelectValue />
                           </SelectTrigger>
                           <SelectContent>
@@ -441,6 +443,7 @@ export function NewRoutineModal({
                           Run at
                         </p>
                         <Input
+                          data-testid="new-routine-time-input"
                           type="time"
                           value={time}
                           onChange={(e) => setTime(e.target.value)}
@@ -451,7 +454,7 @@ export function NewRoutineModal({
                           Timezone
                         </p>
                         <Select value={timezone} onValueChange={setTimezone}>
-                          <SelectTrigger>
+                          <SelectTrigger data-testid="new-routine-timezone-select">
                             <SelectValue />
                           </SelectTrigger>
                           <SelectContent>
@@ -473,6 +476,7 @@ export function NewRoutineModal({
                           Cron expression
                         </p>
                         <Input
+                          data-testid="new-routine-cron-input"
                           value={cron}
                           onChange={(e) => setCron(e.target.value)}
                           className="font-mono"
@@ -484,7 +488,7 @@ export function NewRoutineModal({
                           Timezone
                         </p>
                         <Select value={timezone} onValueChange={setTimezone}>
-                          <SelectTrigger>
+                          <SelectTrigger data-testid="new-routine-timezone-select">
                             <SelectValue />
                           </SelectTrigger>
                           <SelectContent>
@@ -556,16 +560,17 @@ export function NewRoutineModal({
           <span className="text-xs text-muted-foreground">Step {step} of 2</span>
           <div className="flex gap-2">
             {step > 1 && (
-              <Button variant="outline" size="sm" onClick={() => setStep(1)}>
+              <Button data-testid="new-routine-back-button" variant="outline" size="sm" onClick={() => setStep(1)}>
                 <ChevronLeft className="h-3 w-3 mr-1" />
                 Back
               </Button>
             )}
-            <Button variant="outline" size="sm" onClick={handleClose}>
+            <Button data-testid="new-routine-cancel-button" variant="outline" size="sm" onClick={handleClose}>
               Cancel
             </Button>
             {step === 1 ? (
               <Button
+                data-testid="new-routine-continue-button"
                 size="sm"
                 disabled={!canContinue}
                 onClick={() => setStep(2)}
@@ -576,6 +581,7 @@ export function NewRoutineModal({
               </Button>
             ) : (
               <Button
+                data-testid="new-routine-submit-button"
                 size="sm"
                 onClick={handleSubmit}
                 disabled={submitting}

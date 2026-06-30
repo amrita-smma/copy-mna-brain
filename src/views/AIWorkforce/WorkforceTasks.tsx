@@ -570,11 +570,12 @@ export function WorkforceTasks({ initialTaskId = null }: WorkforceTasksProps = {
   };
 
   return (
-    <div className="flex-1 grid grid-cols-[280px_1fr] min-h-0 overflow-hidden bg-muted/20">
-      <aside className="border-r bg-muted/30 flex flex-col min-h-0">
+    <div data-testid="workforce-tasks" className="flex-1 grid grid-cols-[280px_1fr] min-h-0 overflow-hidden bg-muted/20">
+      <aside data-testid="workforce-sidebar" className="border-r bg-muted/30 flex flex-col min-h-0">
         <div className="flex-shrink-0 p-3 border-b">
           <button
             type="button"
+            data-testid="workforce-new-routine-button"
             onClick={() => setRoutineModalOpen(true)}
             className="w-full inline-flex items-center justify-center gap-2 rounded-lg border bg-card px-3 py-2 text-sm font-medium text-muted-foreground hover:text-foreground hover:border-border transition-colors"
           >
@@ -584,7 +585,7 @@ export function WorkforceTasks({ initialTaskId = null }: WorkforceTasksProps = {
         </div>
 
         <div className="flex-1 overflow-y-auto p-2 space-y-3">
-          <RailGroup label="Routines" count={routines.length}>
+          <RailGroup data-testid="workforce-routines-group" label="Routines" count={routines.length}>
             <div className="space-y-0.5">
               {routines.map((routine) => {
                 const Icon = routine.icon;
@@ -593,6 +594,7 @@ export function WorkforceTasks({ initialTaskId = null }: WorkforceTasksProps = {
                 return (
                   <RailItem
                     key={routine.id}
+                    data-testid={`workforce-routine-item-${routine.id}`}
                     onClick={() => goToRoutine(routine.id)}
                     active={isActive}
                     icon={<Icon className="h-3 w-3" />}
@@ -618,11 +620,12 @@ export function WorkforceTasks({ initialTaskId = null }: WorkforceTasksProps = {
           </RailGroup>
 
           {needsActionItems.length > 0 && (
-            <RailGroup label="Need action" count={needsActionItems.length}>
+            <RailGroup data-testid="workforce-needs-action-group" label="Need action" count={needsActionItems.length}>
               <div className="space-y-0.5">
                 {needsActionItems.map((task) => (
                   <RailItem
                     key={task.id}
+                    data-testid={`workforce-needs-action-item-${task.id}`}
                     onClick={() => goToTask(task.id)}
                     active={showTaskCanvas && selectedTaskId === task.id}
                     icon={<AlertCircle className="h-3 w-3" />}
@@ -654,13 +657,14 @@ export function WorkforceTasks({ initialTaskId = null }: WorkforceTasksProps = {
           )}
 
           {inProgressItems.length > 0 && (
-            <RailGroup label="In progress" count={inProgressItems.length}>
+            <RailGroup data-testid="workforce-in-progress-group" label="In progress" count={inProgressItems.length}>
               <div className="space-y-0.5">
                 {inProgressItems.map((task) => {
                   const Icon = task.icon;
                   return (
                     <RailItem
                       key={task.id}
+                      data-testid={`workforce-in-progress-item-${task.id}`}
                       onClick={() => goToTask(task.id)}
                       active={showTaskCanvas && selectedTaskId === task.id}
                       icon={<Icon className="h-3 w-3" />}
@@ -702,6 +706,7 @@ export function WorkforceTasks({ initialTaskId = null }: WorkforceTasksProps = {
           )}
 
           <RailGroup
+            data-testid="workforce-queued-group"
             label="Queued"
             count={pendingItems.length}
             hint={pendingItems.length > 1 ? 'drag to reorder' : undefined}
@@ -726,6 +731,7 @@ export function WorkforceTasks({ initialTaskId = null }: WorkforceTasksProps = {
                     return (
                       <RailItem
                         key={task.id}
+                        data-testid={`workforce-queued-item-${task.id}`}
                         onClick={() => goToTask(task.id)}
                         active={showTaskCanvas && selectedTaskId === task.id}
                         showDragHandle
@@ -781,6 +787,7 @@ export function WorkforceTasks({ initialTaskId = null }: WorkforceTasksProps = {
                   <div className="flex items-center justify-between px-2 pt-2">
                     <button
                       type="button"
+                      data-testid="workforce-queue-prev-button"
                       onClick={() => setQueuePage((p) => Math.max(0, p - 1))}
                       disabled={queuePage === 0}
                       className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors disabled:opacity-40 disabled:hover:text-muted-foreground disabled:cursor-not-allowed"
@@ -793,6 +800,7 @@ export function WorkforceTasks({ initialTaskId = null }: WorkforceTasksProps = {
                     </span>
                     <button
                       type="button"
+                      data-testid="workforce-queue-next-button"
                       onClick={() =>
                         setQueuePage((p) => Math.min(totalQueuePages - 1, p + 1))
                       }
@@ -810,6 +818,7 @@ export function WorkforceTasks({ initialTaskId = null }: WorkforceTasksProps = {
 
           {doneTodayItems.length > 0 && (
             <RailGroup
+              data-testid="workforce-done-today-group"
               label="Done today"
               count={filteredDoneTodayItems.length}
               collapsible
@@ -817,6 +826,7 @@ export function WorkforceTasks({ initialTaskId = null }: WorkforceTasksProps = {
               <div className="relative mb-1">
                 <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
                 <Input
+                  data-testid="workforce-done-today-search"
                   type="text"
                   value={doneTodaySearch}
                   onChange={(e) => setDoneTodaySearch(e.target.value)}
@@ -855,6 +865,7 @@ export function WorkforceTasks({ initialTaskId = null }: WorkforceTasksProps = {
                   return (
                   <RailItem
                     key={task.id}
+                    data-testid={`workforce-done-today-item-${task.id}`}
                     onClick={() => goToTask(task.id)}
                     active={showTaskCanvas && selectedTaskId === task.id}
                     icon={<Icon className="h-3 w-3" strokeWidth={kind === 'success' ? 3 : 2.5} />}

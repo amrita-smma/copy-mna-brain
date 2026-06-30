@@ -43,8 +43,7 @@ test.describe('Master Data page', () => {
     // Keep the AI CoPilot pane collapsed; expanded, it hides the page content.
     await collapseCopilot(page);
     await signIn(page);
-    const provisioned = await provisionCompanies(page, companies);
-    cleanups.push(provisioned.cleanup);
+    const provisioned = await provisionCompanies(page, companies, (c) => cleanups.push(c));
 
     await Promise.all([
       page.waitForResponse(

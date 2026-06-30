@@ -1,5 +1,5 @@
 ---
-name: test-case-generator
+name: generate-testcase
 description: >-
   Generate a structured QA test case spreadsheet (.xlsx) from a product
   requirement source — a PRD Word document (.docx), a Confluence page, a Figma

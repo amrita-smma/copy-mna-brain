@@ -84,13 +84,14 @@ export default function AIWorkforce({
 
         {/* Tabs */}
         <div className="flex-shrink-0 px-8 border-b bg-card">
-          <div className="flex items-center gap-1">
+          <div data-testid="ai-workforce-tabs" className="flex items-center gap-1">
             {tabs.map((tab) => {
               const Icon = tab.icon;
               const active = activeTab === tab.key;
               return (
                 <button
                   key={tab.key}
+                  data-testid={`ai-workforce-tab-${tab.key}`}
                   onClick={() => setActiveTab(tab.key)}
                   className={cn(
                     'relative flex items-center gap-2 px-4 py-3 text-sm font-medium transition-colors',

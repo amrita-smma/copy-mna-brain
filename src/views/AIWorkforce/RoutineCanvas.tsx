@@ -144,7 +144,7 @@ export function RoutineCanvas({
     }
   };
   return (
-    <main className="flex flex-col min-h-0 bg-card">
+    <main data-testid="routine-canvas" className="flex flex-col min-h-0 bg-card">
       <div className="flex-1 overflow-y-auto px-9 py-6">
         {/* Header */}
         <div className="space-y-2.5 mb-7">
@@ -187,6 +187,7 @@ export function RoutineCanvas({
           <div className="flex flex-wrap items-center gap-2 mt-4 pt-3.5 border-t">
             <button
               type="button"
+              data-testid="routine-add-to-queue-button"
               onClick={handleAddToQueue}
               disabled={enqueuing}
               className="inline-flex items-center gap-1.5 rounded-md border bg-card px-3 py-1.5 text-[12.5px] font-semibold text-muted-foreground hover:text-foreground hover:border-border transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
@@ -196,6 +197,7 @@ export function RoutineCanvas({
             </button>
             <button
               type="button"
+              data-testid="routine-edit-button"
               onClick={onEdit}
               disabled={!onEdit}
               className="inline-flex items-center gap-1.5 rounded-md border bg-card px-3 py-1.5 text-[12.5px] font-semibold text-muted-foreground hover:text-foreground hover:border-border transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
@@ -205,6 +207,7 @@ export function RoutineCanvas({
             </button>
             <button
               type="button"
+              data-testid="routine-delete-button"
               onClick={handleDelete}
               className="ml-auto inline-flex items-center gap-1.5 rounded-md border bg-card px-3 py-1.5 text-[12.5px] font-semibold text-muted-foreground hover:text-red-700 hover:border-red-200 transition-colors"
             >
@@ -220,7 +223,7 @@ export function RoutineCanvas({
         </div>
 
         {/* Run history */}
-        <div>
+        <div data-testid="routine-run-history">
           <div className="flex items-baseline justify-between mb-3">
             <h3 className="text-[11px] font-bold tracking-wider uppercase text-muted-foreground">
               Run history
@@ -354,6 +357,7 @@ function RunCard({
     >
       <button
         type="button"
+        data-testid={`routine-run-toggle-${run.id}`}
         onClick={handleToggle}
         className="w-full flex items-center gap-3 px-3.5 py-3 text-left hover:bg-muted/30 transition-colors"
       >

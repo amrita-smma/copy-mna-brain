@@ -116,6 +116,7 @@ export function BulkDropCompaniesCard({
 
   return (
     <div
+      data-testid="bulk-drop-card"
       className={cn(
         "w-full rounded-2xl border shadow-sm overflow-hidden transition-colors",
         isResolved
@@ -163,6 +164,7 @@ export function BulkDropCompaniesCard({
             return (
               <div
                 key={c.id}
+                data-testid={`bulk-drop-candidate-${c.id}`}
                 role={inert ? undefined : "button"}
                 tabIndex={inert ? undefined : 0}
                 onClick={inert ? undefined : () => toggle(c.id)}
@@ -240,6 +242,7 @@ export function BulkDropCompaniesCard({
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <Button
+                data-testid="bulk-drop-confirm-button"
                 onClick={handleDrop}
                 disabled={isSubmitting || selectedCount === 0}
                 className="bg-gradient-to-r from-rose-500 to-rose-700 hover:from-rose-600 hover:to-rose-800 text-white"
@@ -254,6 +257,7 @@ export function BulkDropCompaniesCard({
                 )}
               </Button>
               <Button
+                data-testid="bulk-drop-keep-all-button"
                 variant="outline"
                 onClick={handleKeepAll}
                 disabled={isSubmitting}
