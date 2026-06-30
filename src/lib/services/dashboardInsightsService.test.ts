@@ -221,20 +221,6 @@ describe('DashboardInsightsService.getInsights', () => {
     expect(bankers[1]).toMatchObject({ total: 9, l1plus: 3, conversion: 33 }); // 3/9 ≈ 33%
   });
 
-  it('drops excluded banker sources (case-insensitive substring match)', async () => {
-    // Default exclusions include "Starcapital" and "Sinarmas".
-    repo.getBankerBreakdown.mockResolvedValue([
-      dim('JP Morgan', 'L0', 11),
-      dim('JP Morgan', 'L1', 1),
-      dim('Sinarmas Sekuritas', 'L0', 20), // substring of "Sinarmas" → excluded
-      dim('starcapital', 'L0', 9), // case-insensitive → excluded
-    ]);
-
-    const { bankers } = await service.getInsights(FROM, TO, NOW);
-
-    expect(bankers.map((b) => b.key)).toEqual(['JP Morgan']);
-  });
-
   it('passes the window to period-scoped counters and surfaces AI throughput', async () => {
     repo.countNewDeals.mockResolvedValue(45);
     repo.countScreenedL0.mockResolvedValue(138);
@@ -330,7 +316,6 @@ describe('DashboardInsightsService settings', () => {
     expect(settings.funnelTargets).toMatchObject({ L0: 200, L1: 30, L5: 1 });
     expect(settings.l0l1Conversion).toEqual({ min: 10, max: 15 });
     expect(settings.staleThresholds).toEqual({ L0: 14, L1: 7, L2: 21, L3: 45 });
-    expect(settings.bankerExclusions).toEqual(['Starcapital', 'Sinarmas']);
   });
 
   it('fills in missing fields of a partial stored blob from defaults', async () => {
@@ -362,7 +347,6 @@ describe('DashboardInsightsService settings', () => {
         funnelTargets: { L0: 150, L1: 25.7, L2: -3 } as Record<string, number>,
         l0l1Conversion: { min: 20, max: 5 },
         staleThresholds: { L1: 10.4, L2: -5 } as Record<string, number>,
-        bankerExclusions: ['  Sinarmas  ', 'sinarmas', '', 'Starcapital'],
       },
       'u1',
     );
@@ -372,8 +356,6 @@ describe('DashboardInsightsService settings', () => {
     expect(saved.l0l1Conversion).toEqual({ min: 5, max: 20 });
     // Stale thresholds: decimals rounded, negatives floored, missing → default.
     expect(saved.staleThresholds).toEqual({ L0: 14, L1: 10, L2: 0, L3: 45 });
-    // Exclusions: trimmed, blanks dropped, de-duped case-insensitively.
-    expect(saved.bankerExclusions).toEqual(['Sinarmas', 'Starcapital']);
     // Returned with the audit trail from getSettingsWithMeta.
     expect(saved.meta.updatedBy).toMatchObject({ id: 'u1', name: 'Jane Doe' });
     // Persisted under the insights key, with the editing user id.

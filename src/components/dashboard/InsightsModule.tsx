@@ -13,7 +13,6 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Textarea } from '@/components/ui/textarea';
 import {
   getDashboardInsights,
   getInsightsSettings,
@@ -106,6 +105,17 @@ function initials(name: string): string {
   if (parts.length === 0) return '—';
   if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
   return (parts[0][0] + parts[1][0]).toUpperCase();
+}
+
+/** Banker / banker_source names hidden from the Banker source quality card.
+ * Frontend-only display filter (the backend still counts them). Matched
+ * case-insensitively as a substring, so "Sinarmas" also hides "Sinarmas
+ * Sekuritas". */
+const EXCLUDED_BANKER_SOURCES = ['Starcapital', 'Sinarmas'];
+
+function isExcludedBankerSource(key: string): boolean {
+  const k = key.toLowerCase();
+  return EXCLUDED_BANKER_SOURCES.some((name) => k.includes(name.toLowerCase()));
 }
 
 // `geography` is stored as a free-text country name, so to render a flag we
@@ -250,7 +260,6 @@ function InsightsContent({
   const [targetModalOpen, setTargetModalOpen] = useState(false);
   const [conversionModalOpen, setConversionModalOpen] = useState(false);
   const [staleModalOpen, setStaleModalOpen] = useState(false);
-  const [bankerModalOpen, setBankerModalOpen] = useState(false);
 
   return (
     <div className="space-y-3">
@@ -442,35 +451,15 @@ function InsightsContent({
               <CardTitle className="flex items-center gap-2 text-sm font-semibold">
                 <Users className="h-4 w-4 text-muted-foreground" /> Banker source quality
               </CardTitle>
-              <div className="flex items-center gap-1">
-                <button
-                  type="button"
-                  onClick={() => setBankerModalOpen(true)}
-                  aria-label="Edit excluded banker sources"
-                  title="Edit excluded banker sources"
-                  className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                >
-                  <Settings className="h-3.5 w-3.5" />
-                </button>
-                <AskAIButton
-                  label="Analyze banker source quality with AI"
-                  onClick={() => onAsk('analyze banker source quality and conversion by banker')}
-                />
-              </div>
+              <AskAIButton
+                label="Analyze banker source quality with AI"
+                onClick={() => onAsk('analyze banker source quality and conversion by banker')}
+              />
             </div>
           </CardHeader>
           <CardContent>
-            <BankerExclusionsModal
-              open={bankerModalOpen}
-              onOpenChange={setBankerModalOpen}
-              current={settings.bankerExclusions}
-              meta={settings.meta}
-              onSave={(bankerExclusions) =>
-                onSaveSettings({ ...settings, bankerExclusions })
-              }
-            />
             <BreakdownTable
-              rows={bankers}
+              rows={bankers.filter((r) => !isExcludedBankerSource(r.key))}
               firstHeader="Banker"
               leadHeader="Leads"
               leadValue={(r) => r.total}
@@ -1023,88 +1012,6 @@ function StaleThresholdsModal({
               />
             </div>
           ))}
-        </div>
-
-        <DialogFooter className="gap-2 sm:gap-2">
-          <Button type="button" variant="outline" size="sm" onClick={() => onOpenChange(false)}>
-            Cancel
-          </Button>
-          <Button type="button" size="sm" onClick={handleSave} disabled={saving}>
-            {saving && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
-            Save
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-function BankerExclusionsModal({
-  open,
-  onOpenChange,
-  current,
-  meta,
-  onSave,
-}: {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  current: string[];
-  meta: InsightsSettingsMeta;
-  onSave: (next: string[]) => Promise<void>;
-}) {
-  // One name per line; seeded from the current list each time the modal opens.
-  const [draft, setDraft] = useState('');
-  const [saving, setSaving] = useState(false);
-
-  useEffect(() => {
-    if (open) setDraft(current.join('\n'));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open]);
-
-  const handleSave = async () => {
-    // Split on newlines or commas; the server trims, de-dupes, and drops blanks.
-    const next = draft
-      .split(/[\n,]/)
-      .map((s) => s.trim())
-      .filter(Boolean);
-    setSaving(true);
-    try {
-      await onSave(next);
-      onOpenChange(false);
-    } catch (err) {
-      console.error('Failed to save banker exclusions:', err);
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-sm">
-        <DialogHeader>
-          <DialogTitle>Excluded banker sources</DialogTitle>
-          <DialogDescription>
-            Names listed here are dropped from the Banker source quality card.
-            One per line; matched case-insensitively (e.g. &quot;Sinarmas&quot;
-            also hides &quot;Sinarmas Sekuritas&quot;).
-          </DialogDescription>
-        </DialogHeader>
-
-        {formatUpdatedBy(meta) && (
-          <p className="text-xs text-muted-foreground">{formatUpdatedBy(meta)}</p>
-        )}
-
-        <div className="space-y-1 py-1">
-          <Label htmlFor="banker-exclusions" className="text-xs text-muted-foreground">
-            Names to exclude
-          </Label>
-          <Textarea
-            id="banker-exclusions"
-            rows={5}
-            placeholder={'Starcapital\nSinarmas'}
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-          />
         </div>
 
         <DialogFooter className="gap-2 sm:gap-2">

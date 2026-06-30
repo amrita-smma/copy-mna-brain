@@ -21,10 +21,6 @@ export interface InsightsSettings {
   /** Days a deal may sit in each SLA-tracked stage (L0/L1/L2/L3) before it's
    * flagged stale. */
   staleThresholds: Record<string, number>;
-  /** Banker / banker_source names to exclude from the "Banker source quality"
-   * card. Matched case-insensitively as substrings, so "Sinarmas" also drops
-   * "Sinarmas Sekuritas". */
-  bankerExclusions: string[];
 }
 
 /** Audit trail for the settings row: who saved it last, and when. */
@@ -43,7 +39,6 @@ export const DEFAULT_INSIGHTS_SETTINGS: InsightsSettings = {
   funnelTargets: { L0: 200, L1: 30, L2: 10, L3: 3, L4: 2, L5: 1 },
   l0l1Conversion: { min: 10, max: 15 },
   staleThresholds: { L0: 14, L1: 7, L2: 21, L3: 45 },
-  bankerExclusions: ['Starcapital', 'Sinarmas'],
 };
 
 // ─── Business configuration (not user-editable) ─────────────────────────────────
@@ -243,7 +238,7 @@ export class DashboardInsightsService {
       // Segments & countries convert off their L0 base; bankers off total leads.
       segments: buildBreakdown(segmentBreakdown, 'l0'),
       countries: buildBreakdown(countryBreakdown, 'l0'),
-      bankers: buildBreakdown(bankerBreakdown, 'total', settings.bankerExclusions),
+      bankers: buildBreakdown(bankerBreakdown, 'total'),
       aiThroughput: {
         screenedL0,
         decksGenerated,
@@ -273,9 +268,6 @@ function mergeSettings(stored: Partial<InsightsSettings> | null): InsightsSettin
       ...DEFAULT_INSIGHTS_SETTINGS.staleThresholds,
       ...(stored?.staleThresholds ?? {}),
     },
-    // A stored empty array is a deliberate "exclude nothing", so only fall back
-    // to defaults when the field is absent entirely.
-    bankerExclusions: stored?.bankerExclusions ?? DEFAULT_INSIGHTS_SETTINGS.bankerExclusions,
   };
 }
 
@@ -301,24 +293,11 @@ function sanitiseSettings(input: InsightsSettings): InsightsSettings {
     staleThresholds[stage] = Number.isFinite(raw) ? Math.max(0, Math.round(raw)) : 0;
   }
 
-  // Trim, drop blanks, and de-dupe (case-insensitive) the exclusion names.
-  const seen = new Set<string>();
-  const bankerExclusions: string[] = [];
-  for (const raw of merged.bankerExclusions ?? []) {
-    const name = typeof raw === 'string' ? raw.trim() : '';
-    if (!name) continue;
-    const key = name.toLowerCase();
-    if (seen.has(key)) continue;
-    seen.add(key);
-    bankerExclusions.push(name);
-  }
-
   return {
     funnelTargets,
     // Guarantee a sane band even if the inputs are swapped.
     l0l1Conversion: { min: Math.min(min, max), max: Math.max(min, max) },
     staleThresholds,
-    bankerExclusions,
   };
 }
 
@@ -376,19 +355,11 @@ function buildStaleDeals(
 function buildBreakdown(
   rows: DimensionStageCount[],
   base: 'l0' | 'total',
-  exclusions: string[] = [],
 ): BreakdownRow[] {
-  const excludeTerms = exclusions.map((e) => e.toLowerCase());
-  const isExcluded = (key: string) => {
-    const k = key.toLowerCase();
-    return excludeTerms.some((term) => k.includes(term));
-  };
-
   const byKey = new Map<string, { l0: number; l1plus: number; total: number }>();
 
   for (const row of rows) {
     if (row.key == null || row.key.trim() === '') continue; // skip unlabelled
-    if (isExcluded(row.key)) continue; // configurable source exclusions (bankers)
     const agg = byKey.get(row.key) ?? { l0: 0, l1plus: 0, total: 0 };
     agg.total += row.count;
     if (row.stage === 'L0') agg.l0 += row.count;
