@@ -20,6 +20,9 @@ function resetDb() {
   mockDb.where.mockReturnThis();
 }
 
+const WINDOW_FROM = new Date('2026-06-01T00:00:00.000Z');
+const WINDOW_TO = new Date('2026-06-22T00:00:00.000Z');
+
 describe('DashboardInsightsRepository.getStageCounts', () => {
   let repo: DashboardInsightsRepository;
 
@@ -34,7 +37,7 @@ describe('DashboardInsightsRepository.getStageCounts', () => {
       { stage: 'L1', count: 13 },
     ]);
 
-    const result = await repo.getStageCounts();
+    const result = await repo.getStageCounts(WINDOW_FROM, WINDOW_TO);
 
     expect(mockDb.groupBy).toHaveBeenCalledTimes(1);
     expect(result).toEqual([
@@ -58,7 +61,7 @@ describe('DashboardInsightsRepository breakdowns', () => {
       { key: null, stage: 'L1', count: 3 },
     ]);
 
-    const result = await repo.getSegmentBreakdown();
+    const result = await repo.getSegmentBreakdown(WINDOW_FROM, WINDOW_TO);
 
     // Grouped by two columns (dimension, pipeline_stage).
     expect(mockDb.groupBy).toHaveBeenCalledTimes(1);
@@ -72,16 +75,16 @@ describe('DashboardInsightsRepository breakdowns', () => {
   it('exposes country and banker breakdowns via the same shape', async () => {
     mockDb.groupBy.mockResolvedValue([{ key: 'Japan', stage: 'L0', count: 41 }]);
 
-    await expect(repo.getCountryBreakdown()).resolves.toEqual([
+    await expect(repo.getCountryBreakdown(WINDOW_FROM, WINDOW_TO)).resolves.toEqual([
       { key: 'Japan', stage: 'L0', count: 41 },
     ]);
-    await expect(repo.getBankerBreakdown()).resolves.toEqual([
+    await expect(repo.getBankerBreakdown(WINDOW_FROM, WINDOW_TO)).resolves.toEqual([
       { key: 'Japan', stage: 'L0', count: 41 },
     ]);
   });
 });
 
-describe('DashboardInsightsRepository.getActiveNonL0Deals', () => {
+describe('DashboardInsightsRepository.getStaleCandidates', () => {
   let repo: DashboardInsightsRepository;
 
   beforeEach(() => {
@@ -102,7 +105,7 @@ describe('DashboardInsightsRepository.getActiveNonL0Deals', () => {
       },
     ]);
 
-    const result = await repo.getActiveNonL0Deals();
+    const result = await repo.getStaleCandidates(WINDOW_FROM, WINDOW_TO);
 
     const selectArg = mockDb.select.mock.calls[0][0];
     expect(selectArg).toHaveProperty('last_activity_at');
@@ -140,6 +143,48 @@ describe('DashboardInsightsRepository count helpers', () => {
   it('countWorkforceRuns counts parent runs in the window', async () => {
     mockDb.where.mockResolvedValueOnce([{ value: 6 }]);
     await expect(repo.countWorkforceRuns(FROM, TO)).resolves.toBe(6);
+  });
+
+  it('getCompanyCardStats returns total with completed/failed split', async () => {
+    mockDb.where.mockResolvedValueOnce([{ total: '20', completed: '18', failed: 2 }]);
+    await expect(repo.getCompanyCardStats(FROM, TO)).resolves.toEqual({
+      total: 20,
+      completed: 18,
+      failed: 2,
+    });
+  });
+
+  it('getCompanyCardStats defaults to zeros when no row comes back', async () => {
+    mockDb.where.mockResolvedValueOnce([]);
+    await expect(repo.getCompanyCardStats(FROM, TO)).resolves.toEqual({
+      total: 0,
+      completed: 0,
+      failed: 0,
+    });
+  });
+
+  it('getAiOpinionStats returns the verdict breakdown', async () => {
+    mockDb.where.mockResolvedValueOnce([{ total: '12', pass: 7, fail: '3', tentative: 2 }]);
+    await expect(repo.getAiOpinionStats(FROM, TO)).resolves.toEqual({
+      total: 12,
+      pass: 7,
+      fail: 3,
+      tentative: 2,
+    });
+  });
+
+  it('getScreeningStats returns the result breakdown and distinct companies', async () => {
+    mockDb.where.mockResolvedValueOnce([
+      { companiesScreened: '9', total: 40, pass: '22', fail: 12, inconclusive: '5', error: 1 },
+    ]);
+    await expect(repo.getScreeningStats(FROM, TO)).resolves.toEqual({
+      companiesScreened: 9,
+      total: 40,
+      pass: 22,
+      fail: 12,
+      inconclusive: 5,
+      error: 1,
+    });
   });
 });
 

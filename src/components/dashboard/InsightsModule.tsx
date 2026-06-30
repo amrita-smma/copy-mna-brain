@@ -13,6 +13,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
 import {
   getDashboardInsights,
   getInsightsSettings,
@@ -246,31 +247,15 @@ function InsightsContent({
   const { kpis, funnel, staleDeals, staleThresholdLabel, bankers, segments, countries, aiThroughput } =
     data;
 
-  const maxFunnel = Math.max(1, ...funnel.map((f) => f.count));
-
   const [targetModalOpen, setTargetModalOpen] = useState(false);
   const [conversionModalOpen, setConversionModalOpen] = useState(false);
+  const [staleModalOpen, setStaleModalOpen] = useState(false);
+  const [bankerModalOpen, setBankerModalOpen] = useState(false);
 
   return (
     <div className="space-y-3">
       {/* ── KPI row ── */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <KpiCard
-          label="Total in pipeline"
-          value={kpis.totalInPipeline}
-          sub="across all stages"
-          tone="muted"
-          onAsk={() => onAsk('analyze overall pipeline health across all stages')}
-          askLabel="Analyze pipeline health with AI"
-        />
-        <KpiCard
-          label="New deals added"
-          value={kpis.newDeals}
-          sub="this period"
-          tone="muted"
-          onAsk={() => onAsk('analyze the new deals added this period')}
-          askLabel="Analyze new deals with AI"
-        />
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
         <KpiCard
           label="L0 → L1 conversion"
           value={`${kpis.l0l1Conversion}%`}
@@ -319,6 +304,15 @@ function InsightsContent({
           <CardContent className="space-y-2">
             {funnel.map((stage) => {
               const target = stage.target;
+              // Bar shows progress toward the stage target (capped at 100%).
+              // Stages with no target fill fully once they have any deals.
+              const targetPct =
+                target > 0
+                  ? Math.min(100, (stage.count / target) * 100)
+                  : stage.count > 0
+                    ? 100
+                    : 0;
+              const barWidth = stage.count > 0 ? Math.max(6, targetPct) : 0;
               return (
                 <div key={stage.stage} className="flex items-center gap-3">
                   <span className="w-6 shrink-0 font-mono text-xs font-semibold text-muted-foreground">
@@ -327,7 +321,7 @@ function InsightsContent({
                   <div className="flex-1 h-5 rounded bg-muted overflow-hidden">
                     <div
                       className={`h-full rounded ${FUNNEL_BAR_COLORS[stage.stage] ?? 'bg-primary/70'} transition-[width] duration-500`}
-                      style={{ width: `${Math.max(stage.count > 0 ? 6 : 0, (stage.count / maxFunnel) * 100)}%` }}
+                      style={{ width: `${barWidth}%` }}
                     />
                   </div>
                   <div className="w-20 shrink-0 text-right">
@@ -371,16 +365,37 @@ function InsightsContent({
           }
         />
 
+        <StaleThresholdsModal
+          open={staleModalOpen}
+          onOpenChange={setStaleModalOpen}
+          current={settings.staleThresholds}
+          meta={settings.meta}
+          onSave={(staleThresholds) =>
+            onSaveSettings({ ...settings, staleThresholds })
+          }
+        />
+
         <Card className="border bg-card">
           <CardHeader className="pb-3">
             <div className="flex items-start justify-between gap-2">
               <CardTitle className="flex items-center gap-2 text-sm font-semibold">
                 <Clock className="h-4 w-4 text-muted-foreground" /> Deals stale in stage
               </CardTitle>
-              <AskAIButton
-                label="Analyze stale deals with AI"
-                onClick={() => onAsk('analyze the deals stale in their stage and how to unblock them')}
-              />
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() => setStaleModalOpen(true)}
+                  aria-label="Edit stale thresholds"
+                  title="Edit stale thresholds"
+                  className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                >
+                  <Settings className="h-3.5 w-3.5" />
+                </button>
+                <AskAIButton
+                  label="Analyze stale deals with AI"
+                  onClick={() => onAsk('analyze the deals stale in their stage and how to unblock them')}
+                />
+              </div>
             </div>
             <p className="text-[11px] text-muted-foreground">
               Standard time per stage · {staleThresholdLabel}
@@ -427,13 +442,33 @@ function InsightsContent({
               <CardTitle className="flex items-center gap-2 text-sm font-semibold">
                 <Users className="h-4 w-4 text-muted-foreground" /> Banker source quality
               </CardTitle>
-              <AskAIButton
-                label="Analyze banker source quality with AI"
-                onClick={() => onAsk('analyze banker source quality and conversion by banker')}
-              />
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() => setBankerModalOpen(true)}
+                  aria-label="Edit excluded banker sources"
+                  title="Edit excluded banker sources"
+                  className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                >
+                  <Settings className="h-3.5 w-3.5" />
+                </button>
+                <AskAIButton
+                  label="Analyze banker source quality with AI"
+                  onClick={() => onAsk('analyze banker source quality and conversion by banker')}
+                />
+              </div>
             </div>
           </CardHeader>
           <CardContent>
+            <BankerExclusionsModal
+              open={bankerModalOpen}
+              onOpenChange={setBankerModalOpen}
+              current={settings.bankerExclusions}
+              meta={settings.meta}
+              onSave={(bankerExclusions) =>
+                onSaveSettings({ ...settings, bankerExclusions })
+              }
+            />
             <BreakdownTable
               rows={bankers}
               firstHeader="Banker"
@@ -468,11 +503,34 @@ function InsightsContent({
             </div>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-3 gap-4">
               <ThroughputHero label="Companies screened (L0)" value={aiThroughput.screenedL0} unit="companies" />
+              <ThroughputHero
+                label="Company cards generated"
+                value={aiThroughput.companyCards.total}
+                unit="cards"
+              />
               <ThroughputHero label="Company decks generated" value={aiThroughput.decksGenerated} unit="decks" />
             </div>
             <div className="divide-y divide-border">
+              <MetaRow
+                label="Company cards (completed / failed)"
+                value={`${aiThroughput.companyCards.completed} done · ${aiThroughput.companyCards.failed} failed`}
+                tone={aiThroughput.companyCards.failed > 0 ? 'amber' : undefined}
+              />
+              <MetaRow
+                label={`AI opinions given (${aiThroughput.aiOpinions.total})`}
+                value={`${aiThroughput.aiOpinions.pass} pass · ${aiThroughput.aiOpinions.fail} fail · ${aiThroughput.aiOpinions.tentative} tentative`}
+              />
+              <MetaRow
+                label={`AI screenings done (${aiThroughput.screenings.total})`}
+                value={`${aiThroughput.screenings.pass} pass · ${aiThroughput.screenings.fail} fail · ${aiThroughput.screenings.inconclusive} inc · ${aiThroughput.screenings.error} err`}
+                tone={aiThroughput.screenings.error > 0 ? 'amber' : undefined}
+              />
+              <MetaRow
+                label="Companies screened by AI"
+                value={`${aiThroughput.screenings.companiesScreened} companies`}
+              />
               <MetaRow label="AI Workforce runs" value={`${aiThroughput.workforceRuns} runs`} />
               <MetaRow
                 label="HITL interventions resolved"
@@ -864,6 +922,189 @@ function ConversionSettingsModal({
               onChange={(e) => setMaxDraft(e.target.value)}
             />
           </div>
+        </div>
+
+        <DialogFooter className="gap-2 sm:gap-2">
+          <Button type="button" variant="outline" size="sm" onClick={() => onOpenChange(false)}>
+            Cancel
+          </Button>
+          <Button type="button" size="sm" onClick={handleSave} disabled={saving}>
+            {saving && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
+            Save
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/** SLA-tracked stages a deal can be flagged stale in, in display order. Kept in
+ * sync with `STALE_STAGES` in the service (duplicated to avoid pulling the
+ * server module's runtime imports into this client bundle). */
+const STALE_THRESHOLD_STAGES = ['L0', 'L1', 'L2', 'L3'] as const;
+
+function StaleThresholdsModal({
+  open,
+  onOpenChange,
+  current,
+  meta,
+  onSave,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  current: Record<string, number>;
+  meta: InsightsSettingsMeta;
+  onSave: (next: Record<string, number>) => Promise<void>;
+}) {
+  // Draft input values (strings) seeded from the current thresholds each time
+  // the modal opens, so an abandoned edit doesn't persist.
+  const [draft, setDraft] = useState<Record<string, string>>({});
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (open) {
+      setDraft(
+        Object.fromEntries(
+          STALE_THRESHOLD_STAGES.map((s) => [s, String(current[s] ?? '')]),
+        ),
+      );
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+
+  const handleSave = async () => {
+    // Parse each field; fall back to the current value when blank/invalid so a
+    // stray field can't zero out a threshold.
+    const next: Record<string, number> = {};
+    for (const stage of STALE_THRESHOLD_STAGES) {
+      const parsed = Number.parseInt(draft[stage] ?? '', 10);
+      next[stage] = Number.isFinite(parsed) && parsed >= 0 ? parsed : current[stage] ?? 0;
+    }
+    setSaving(true);
+    try {
+      await onSave(next);
+      onOpenChange(false);
+    } catch (err) {
+      console.error('Failed to save stale thresholds:', err);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-sm">
+        <DialogHeader>
+          <DialogTitle>Stale-in-stage thresholds</DialogTitle>
+          <DialogDescription>
+            Days a deal may sit in each stage before it&apos;s flagged stale.
+          </DialogDescription>
+        </DialogHeader>
+
+        {formatUpdatedBy(meta) && (
+          <p className="text-xs text-muted-foreground">{formatUpdatedBy(meta)}</p>
+        )}
+
+        <div className="grid grid-cols-2 gap-3 py-1">
+          {STALE_THRESHOLD_STAGES.map((stage) => (
+            <div key={stage} className="space-y-1">
+              <Label htmlFor={`stale-${stage}`} className="text-xs text-muted-foreground">
+                {stage} (days)
+              </Label>
+              <Input
+                id={`stale-${stage}`}
+                type="number"
+                min={0}
+                inputMode="numeric"
+                value={draft[stage] ?? ''}
+                onChange={(e) =>
+                  setDraft((prev) => ({ ...prev, [stage]: e.target.value }))
+                }
+              />
+            </div>
+          ))}
+        </div>
+
+        <DialogFooter className="gap-2 sm:gap-2">
+          <Button type="button" variant="outline" size="sm" onClick={() => onOpenChange(false)}>
+            Cancel
+          </Button>
+          <Button type="button" size="sm" onClick={handleSave} disabled={saving}>
+            {saving && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
+            Save
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function BankerExclusionsModal({
+  open,
+  onOpenChange,
+  current,
+  meta,
+  onSave,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  current: string[];
+  meta: InsightsSettingsMeta;
+  onSave: (next: string[]) => Promise<void>;
+}) {
+  // One name per line; seeded from the current list each time the modal opens.
+  const [draft, setDraft] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (open) setDraft(current.join('\n'));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+
+  const handleSave = async () => {
+    // Split on newlines or commas; the server trims, de-dupes, and drops blanks.
+    const next = draft
+      .split(/[\n,]/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+    setSaving(true);
+    try {
+      await onSave(next);
+      onOpenChange(false);
+    } catch (err) {
+      console.error('Failed to save banker exclusions:', err);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-sm">
+        <DialogHeader>
+          <DialogTitle>Excluded banker sources</DialogTitle>
+          <DialogDescription>
+            Names listed here are dropped from the Banker source quality card.
+            One per line; matched case-insensitively (e.g. &quot;Sinarmas&quot;
+            also hides &quot;Sinarmas Sekuritas&quot;).
+          </DialogDescription>
+        </DialogHeader>
+
+        {formatUpdatedBy(meta) && (
+          <p className="text-xs text-muted-foreground">{formatUpdatedBy(meta)}</p>
+        )}
+
+        <div className="space-y-1 py-1">
+          <Label htmlFor="banker-exclusions" className="text-xs text-muted-foreground">
+            Names to exclude
+          </Label>
+          <Textarea
+            id="banker-exclusions"
+            rows={5}
+            placeholder={'Starcapital\nSinarmas'}
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+          />
         </div>
 
         <DialogFooter className="gap-2 sm:gap-2">

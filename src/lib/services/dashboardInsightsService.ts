@@ -1,6 +1,9 @@
 import type {
+  AiOpinionStats,
+  CompanyCardStats,
   DashboardInsightsRepository,
   DimensionStageCount,
+  ScreeningStats,
   StaleCandidate,
 } from '@/lib/repositories/dashboardInsightsRepository';
 import { PIPELINE_FUNNEL_STAGES } from '@/lib/repositories/dashboardInsightsRepository';
@@ -15,6 +18,13 @@ export interface InsightsSettings {
   funnelTargets: Record<string, number>;
   /** Healthy L0→L1 conversion band, in percent. */
   l0l1Conversion: { min: number; max: number };
+  /** Days a deal may sit in each SLA-tracked stage (L0/L1/L2/L3) before it's
+   * flagged stale. */
+  staleThresholds: Record<string, number>;
+  /** Banker / banker_source names to exclude from the "Banker source quality"
+   * card. Matched case-insensitively as substrings, so "Sinarmas" also drops
+   * "Sinarmas Sekuritas". */
+  bankerExclusions: string[];
 }
 
 /** Audit trail for the settings row: who saved it last, and when. */
@@ -32,16 +42,15 @@ const INSIGHTS_SETTINGS_KEY = 'insights_dashboard';
 export const DEFAULT_INSIGHTS_SETTINGS: InsightsSettings = {
   funnelTargets: { L0: 200, L1: 30, L2: 10, L3: 3, L4: 2, L5: 1 },
   l0l1Conversion: { min: 10, max: 15 },
+  staleThresholds: { L0: 14, L1: 7, L2: 21, L3: 45 },
+  bankerExclusions: ['Starcapital', 'Sinarmas'],
 };
 
 // ─── Business configuration (not user-editable) ─────────────────────────────────
 
-/** Standard days a deal should spend in each stage before it's "stale". A deal
- * with no activity older than its stage threshold surfaces in the stale list. */
-const STALE_THRESHOLDS: Record<string, number> = { L1: 7, L2: 21, L3: 45 };
-
-/** Human-readable summary of the stale thresholds, shown in the card header. */
-const STALE_THRESHOLD_LABEL = 'L1: 7d · L2: 21d · L3: 45d';
+/** SLA-tracked stages, in display order. Only these stages carry a staleness
+ * threshold and can be flagged stale; L4/L5 have no SLA. */
+export const STALE_STAGES = ['L0', 'L1', 'L2', 'L3'] as const;
 
 /** Most-overdue deals to surface in the stale list. */
 const MAX_STALE_ROWS = 8;
@@ -97,6 +106,12 @@ export interface BreakdownRow {
 export interface AiThroughput {
   screenedL0: number;
   decksGenerated: number;
+  /** AI Company Cards generated in the window (total + status split). */
+  companyCards: CompanyCardStats;
+  /** AI Opinion verdicts recorded in the window (total + verdict split). */
+  aiOpinions: AiOpinionStats;
+  /** AI screening runs that produced a result in the window. */
+  screenings: ScreeningStats;
   workforceRuns: number;
   hitlResolved: number;
   hitlPending: number;
@@ -154,10 +169,13 @@ export class DashboardInsightsService {
   }
 
   /**
-   * Assemble the Insights dashboard for the given window. Period-scoped metrics
-   * (new deals, AI throughput) honour `from`/`to`; snapshot metrics (funnel,
-   * stale deals, breakdowns) reflect the current pipeline state. `now` is
-   * injectable for deterministic staleness math in tests.
+   * Assemble the Insights dashboard for the given window. Every metric is scoped
+   * to companies created within `[from, to]` (funnel, totals, conversion, stale
+   * deals, and breakdowns are grouped by current stage), alongside the
+   * period-scoped activity counters (new deals, AI throughput). The sole
+   * exception is `aiThroughput.hitlPending`, which is intentionally a live
+   * snapshot ("work awaiting a human now"). `now` is injectable for
+   * deterministic staleness math in tests.
    */
   async getInsights(from: Date, to: Date, now: Date = new Date()): Promise<DashboardInsights> {
     const [
@@ -170,18 +188,24 @@ export class DashboardInsightsService {
       newDeals,
       screenedL0,
       decksGenerated,
+      companyCards,
+      aiOpinions,
+      screeningStats,
       workforceRuns,
       hitl,
     ] = await Promise.all([
       this.getSettings(),
-      this.repo.getStageCounts(),
-      this.repo.getSegmentBreakdown(),
-      this.repo.getCountryBreakdown(),
-      this.repo.getBankerBreakdown(),
-      this.repo.getActiveNonL0Deals(),
+      this.repo.getStageCounts(from, to),
+      this.repo.getSegmentBreakdown(from, to),
+      this.repo.getCountryBreakdown(from, to),
+      this.repo.getBankerBreakdown(from, to),
+      this.repo.getStaleCandidates(from, to),
       this.repo.countNewDeals(from, to),
       this.repo.countScreenedL0(from, to),
       this.repo.countDecksGenerated(from, to),
+      this.repo.getCompanyCardStats(from, to),
+      this.repo.getAiOpinionStats(from, to),
+      this.repo.getScreeningStats(from, to),
       this.repo.countWorkforceRuns(from, to),
       this.repo.getHitlStats(from, to),
     ]);
@@ -200,7 +224,7 @@ export class DashboardInsightsService {
     const l0l1Conversion = l0 > 0 ? Math.round((l1 / l0) * 1000) / 10 : 0;
     const { min, max } = settings.l0l1Conversion;
 
-    const staleDeals = buildStaleDeals(staleCandidates, now);
+    const staleDeals = buildStaleDeals(staleCandidates, now, settings.staleThresholds);
 
     const kpis: InsightsKpis = {
       totalInPipeline,
@@ -214,15 +238,18 @@ export class DashboardInsightsService {
     return {
       kpis,
       funnel,
-      staleThresholdLabel: STALE_THRESHOLD_LABEL,
+      staleThresholdLabel: formatStaleThresholdLabel(settings.staleThresholds),
       staleDeals: staleDeals.slice(0, MAX_STALE_ROWS),
       // Segments & countries convert off their L0 base; bankers off total leads.
       segments: buildBreakdown(segmentBreakdown, 'l0'),
       countries: buildBreakdown(countryBreakdown, 'l0'),
-      bankers: buildBreakdown(bankerBreakdown, 'total'),
+      bankers: buildBreakdown(bankerBreakdown, 'total', settings.bankerExclusions),
       aiThroughput: {
         screenedL0,
         decksGenerated,
+        companyCards,
+        aiOpinions,
+        screenings: screeningStats,
         workforceRuns,
         hitlResolved: hitl.resolved,
         hitlPending: hitl.pending,
@@ -242,6 +269,13 @@ function mergeSettings(stored: Partial<InsightsSettings> | null): InsightsSettin
       ...DEFAULT_INSIGHTS_SETTINGS.l0l1Conversion,
       ...(stored?.l0l1Conversion ?? {}),
     },
+    staleThresholds: {
+      ...DEFAULT_INSIGHTS_SETTINGS.staleThresholds,
+      ...(stored?.staleThresholds ?? {}),
+    },
+    // A stored empty array is a deliberate "exclude nothing", so only fall back
+    // to defaults when the field is absent entirely.
+    bankerExclusions: stored?.bankerExclusions ?? DEFAULT_INSIGHTS_SETTINGS.bankerExclusions,
   };
 }
 
@@ -261,11 +295,37 @@ function sanitiseSettings(input: InsightsSettings): InsightsSettings {
   const min = clampPct(merged.l0l1Conversion.min);
   const max = clampPct(merged.l0l1Conversion.max);
 
+  const staleThresholds: Record<string, number> = {};
+  for (const stage of STALE_STAGES) {
+    const raw = merged.staleThresholds[stage];
+    staleThresholds[stage] = Number.isFinite(raw) ? Math.max(0, Math.round(raw)) : 0;
+  }
+
+  // Trim, drop blanks, and de-dupe (case-insensitive) the exclusion names.
+  const seen = new Set<string>();
+  const bankerExclusions: string[] = [];
+  for (const raw of merged.bankerExclusions ?? []) {
+    const name = typeof raw === 'string' ? raw.trim() : '';
+    if (!name) continue;
+    const key = name.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    bankerExclusions.push(name);
+  }
+
   return {
     funnelTargets,
     // Guarantee a sane band even if the inputs are swapped.
     l0l1Conversion: { min: Math.min(min, max), max: Math.max(min, max) },
+    staleThresholds,
+    bankerExclusions,
   };
+}
+
+/** Human-readable summary of the stale thresholds, shown in the card header,
+ * e.g. "L1: 7d · L2: 21d · L3: 45d". */
+function formatStaleThresholdLabel(thresholds: Record<string, number>): string {
+  return STALE_STAGES.map((stage) => `${stage}: ${thresholds[stage] ?? 0}d`).join(' · ');
 }
 
 // ─── Helpers ────────────────────────────────────────────────────────────────────
@@ -273,12 +333,16 @@ function sanitiseSettings(input: InsightsSettings): InsightsSettings {
 /** Compute days a deal has sat without activity, classify staleness, and sort
  * the overdue deals most-overdue first. A deal with no activity reference at
  * all is treated as the most stale (red, sorted first). */
-function buildStaleDeals(candidates: StaleCandidate[], now: Date): StaleDeal[] {
+function buildStaleDeals(
+  candidates: StaleCandidate[],
+  now: Date,
+  thresholds: Record<string, number>,
+): StaleDeal[] {
   const nowMs = now.getTime();
 
   const scored: { deal: StaleDeal; sortKey: number }[] = [];
   for (const c of candidates) {
-    const threshold = STALE_THRESHOLDS[c.pipeline_stage];
+    const threshold = thresholds[c.pipeline_stage];
     if (threshold == null) continue; // no SLA defined for this stage (L4/L5)
 
     // Fall back through the activity timestamps; created_at is effectively
@@ -312,11 +376,19 @@ function buildStaleDeals(candidates: StaleCandidate[], now: Date): StaleDeal[] {
 function buildBreakdown(
   rows: DimensionStageCount[],
   base: 'l0' | 'total',
+  exclusions: string[] = [],
 ): BreakdownRow[] {
+  const excludeTerms = exclusions.map((e) => e.toLowerCase());
+  const isExcluded = (key: string) => {
+    const k = key.toLowerCase();
+    return excludeTerms.some((term) => k.includes(term));
+  };
+
   const byKey = new Map<string, { l0: number; l1plus: number; total: number }>();
 
   for (const row of rows) {
     if (row.key == null || row.key.trim() === '') continue; // skip unlabelled
+    if (isExcluded(row.key)) continue; // configurable source exclusions (bankers)
     const agg = byKey.get(row.key) ?? { l0: 0, l1plus: 0, total: 0 };
     agg.total += row.count;
     if (row.stage === 'L0') agg.l0 += row.count;

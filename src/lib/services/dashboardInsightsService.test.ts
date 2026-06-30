@@ -14,10 +14,13 @@ class MockRepo {
   getSegmentBreakdown = vi.fn();
   getCountryBreakdown = vi.fn();
   getBankerBreakdown = vi.fn();
-  getActiveNonL0Deals = vi.fn();
+  getStaleCandidates = vi.fn();
   countNewDeals = vi.fn();
   countScreenedL0 = vi.fn();
   countDecksGenerated = vi.fn();
+  getCompanyCardStats = vi.fn();
+  getAiOpinionStats = vi.fn();
+  getScreeningStats = vi.fn();
   countWorkforceRuns = vi.fn();
   getHitlStats = vi.fn();
 }
@@ -60,10 +63,20 @@ describe('DashboardInsightsService.getInsights', () => {
     repo.getSegmentBreakdown.mockResolvedValue([]);
     repo.getCountryBreakdown.mockResolvedValue([]);
     repo.getBankerBreakdown.mockResolvedValue([]);
-    repo.getActiveNonL0Deals.mockResolvedValue([]);
+    repo.getStaleCandidates.mockResolvedValue([]);
     repo.countNewDeals.mockResolvedValue(0);
     repo.countScreenedL0.mockResolvedValue(0);
     repo.countDecksGenerated.mockResolvedValue(0);
+    repo.getCompanyCardStats.mockResolvedValue({ total: 0, completed: 0, failed: 0 });
+    repo.getAiOpinionStats.mockResolvedValue({ total: 0, pass: 0, fail: 0, tentative: 0 });
+    repo.getScreeningStats.mockResolvedValue({
+      companiesScreened: 0,
+      total: 0,
+      pass: 0,
+      fail: 0,
+      inconclusive: 0,
+      error: 0,
+    });
     repo.countWorkforceRuns.mockResolvedValue(0);
     repo.getHitlStats.mockResolvedValue({ resolved: 0, pending: 0 });
     settingsRepo = new MockSettingsRepo();
@@ -126,7 +139,14 @@ describe('DashboardInsightsService.getInsights', () => {
   });
 
   it('flags deals past their per-stage staleness threshold, most-overdue first', async () => {
-    repo.getActiveNonL0Deals.mockResolvedValue([
+    repo.getStaleCandidates.mockResolvedValue([
+      // L0 threshold 14d — 40 days since last activity → stale
+      staleRow({
+        id: 'z',
+        pipeline_stage: 'L0',
+        target: 'Origin',
+        last_activity_at: new Date('2026-05-13T00:00:00.000Z').toISOString(),
+      }),
       // L1 threshold 7d — created 30 days ago, no activity logged → red (>= 2x)
       staleRow({
         id: 'a',
@@ -154,15 +174,17 @@ describe('DashboardInsightsService.getInsights', () => {
 
     const { staleDeals, kpis } = await service.getInsights(FROM, TO, NOW);
 
-    expect(staleDeals.map((d) => d.name)).toEqual(['Nexus', 'Oriole']);
-    expect(kpis.staleCount).toBe(2);
+    // L0 is now SLA-tracked too (default 14d); Origin (40d) sorts most-overdue.
+    expect(staleDeals.map((d) => d.name)).toEqual(['Origin', 'Nexus', 'Oriole']);
+    expect(kpis.staleCount).toBe(3);
     // All stale deals are flagged red (uniform coloring per review).
-    expect(staleDeals[0]).toMatchObject({
+    expect(staleDeals[0]).toMatchObject({ stage: 'L0', days: 40, severity: 'red' });
+    expect(staleDeals[1]).toMatchObject({
       days: 30,
       severity: 'red',
       reason: 'No activity logged',
     });
-    expect(staleDeals[1]).toMatchObject({ stage: 'L2', days: 25, severity: 'red' });
+    expect(staleDeals[2]).toMatchObject({ stage: 'L2', days: 25, severity: 'red' });
   });
 
   it('pivots segment breakdown and converts off the L0 base', async () => {
@@ -199,10 +221,34 @@ describe('DashboardInsightsService.getInsights', () => {
     expect(bankers[1]).toMatchObject({ total: 9, l1plus: 3, conversion: 33 }); // 3/9 ≈ 33%
   });
 
+  it('drops excluded banker sources (case-insensitive substring match)', async () => {
+    // Default exclusions include "Starcapital" and "Sinarmas".
+    repo.getBankerBreakdown.mockResolvedValue([
+      dim('JP Morgan', 'L0', 11),
+      dim('JP Morgan', 'L1', 1),
+      dim('Sinarmas Sekuritas', 'L0', 20), // substring of "Sinarmas" → excluded
+      dim('starcapital', 'L0', 9), // case-insensitive → excluded
+    ]);
+
+    const { bankers } = await service.getInsights(FROM, TO, NOW);
+
+    expect(bankers.map((b) => b.key)).toEqual(['JP Morgan']);
+  });
+
   it('passes the window to period-scoped counters and surfaces AI throughput', async () => {
     repo.countNewDeals.mockResolvedValue(45);
     repo.countScreenedL0.mockResolvedValue(138);
     repo.countDecksGenerated.mockResolvedValue(34);
+    repo.getCompanyCardStats.mockResolvedValue({ total: 20, completed: 18, failed: 2 });
+    repo.getAiOpinionStats.mockResolvedValue({ total: 12, pass: 7, fail: 3, tentative: 2 });
+    repo.getScreeningStats.mockResolvedValue({
+      companiesScreened: 9,
+      total: 40,
+      pass: 22,
+      fail: 12,
+      inconclusive: 5,
+      error: 1,
+    });
     repo.countWorkforceRuns.mockResolvedValue(6);
     repo.getHitlStats.mockResolvedValue({ resolved: 23, pending: 2 });
 
@@ -210,10 +256,23 @@ describe('DashboardInsightsService.getInsights', () => {
 
     expect(repo.countNewDeals).toHaveBeenCalledWith(FROM, TO);
     expect(repo.countScreenedL0).toHaveBeenCalledWith(FROM, TO);
+    // Snapshot aggregates are now window-scoped too (created-in-window).
+    expect(repo.getStageCounts).toHaveBeenCalledWith(FROM, TO);
+    expect(repo.getSegmentBreakdown).toHaveBeenCalledWith(FROM, TO);
+    expect(repo.getCountryBreakdown).toHaveBeenCalledWith(FROM, TO);
+    expect(repo.getBankerBreakdown).toHaveBeenCalledWith(FROM, TO);
+    expect(repo.getStaleCandidates).toHaveBeenCalledWith(FROM, TO);
+    // The new AI-card / opinion / screening counters are window-scoped too.
+    expect(repo.getCompanyCardStats).toHaveBeenCalledWith(FROM, TO);
+    expect(repo.getAiOpinionStats).toHaveBeenCalledWith(FROM, TO);
+    expect(repo.getScreeningStats).toHaveBeenCalledWith(FROM, TO);
     expect(kpis.newDeals).toBe(45);
     expect(aiThroughput).toEqual({
       screenedL0: 138,
       decksGenerated: 34,
+      companyCards: { total: 20, completed: 18, failed: 2 },
+      aiOpinions: { total: 12, pass: 7, fail: 3, tentative: 2 },
+      screenings: { companiesScreened: 9, total: 40, pass: 22, fail: 12, inconclusive: 5, error: 1 },
       workforceRuns: 6,
       hitlResolved: 23,
       hitlPending: 2,
@@ -270,6 +329,8 @@ describe('DashboardInsightsService settings', () => {
     const settings = await service.getSettings();
     expect(settings.funnelTargets).toMatchObject({ L0: 200, L1: 30, L5: 1 });
     expect(settings.l0l1Conversion).toEqual({ min: 10, max: 15 });
+    expect(settings.staleThresholds).toEqual({ L0: 14, L1: 7, L2: 21, L3: 45 });
+    expect(settings.bankerExclusions).toEqual(['Starcapital', 'Sinarmas']);
   });
 
   it('fills in missing fields of a partial stored blob from defaults', async () => {
@@ -300,6 +361,8 @@ describe('DashboardInsightsService settings', () => {
       {
         funnelTargets: { L0: 150, L1: 25.7, L2: -3 } as Record<string, number>,
         l0l1Conversion: { min: 20, max: 5 },
+        staleThresholds: { L1: 10.4, L2: -5 } as Record<string, number>,
+        bankerExclusions: ['  Sinarmas  ', 'sinarmas', '', 'Starcapital'],
       },
       'u1',
     );
@@ -307,6 +370,10 @@ describe('DashboardInsightsService settings', () => {
     // Negatives floored to 0, decimals rounded, band re-ordered min<=max.
     expect(saved.funnelTargets).toMatchObject({ L0: 150, L1: 26, L2: 0, L3: 3 });
     expect(saved.l0l1Conversion).toEqual({ min: 5, max: 20 });
+    // Stale thresholds: decimals rounded, negatives floored, missing → default.
+    expect(saved.staleThresholds).toEqual({ L0: 14, L1: 10, L2: 0, L3: 45 });
+    // Exclusions: trimmed, blanks dropped, de-duped case-insensitively.
+    expect(saved.bankerExclusions).toEqual(['Sinarmas', 'Starcapital']);
     // Returned with the audit trail from getSettingsWithMeta.
     expect(saved.meta.updatedBy).toMatchObject({ id: 'u1', name: 'Jane Doe' });
     // Persisted under the insights key, with the editing user id.

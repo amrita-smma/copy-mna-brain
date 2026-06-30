@@ -4,6 +4,7 @@ import {
   eq,
   gte,
   inArray,
+  isNotNull,
   isNull,
   like,
   lte,
@@ -11,7 +12,14 @@ import {
   type SQL,
 } from 'drizzle-orm';
 import type { PgColumn } from 'drizzle-orm/pg-core';
-import { aiWorkforceQueue, companies, companyLogs, companySlides } from '@/lib/db/schema';
+import {
+  aiWorkforceQueue,
+  companies,
+  companyAnalyses,
+  companyLogs,
+  companySlides,
+  screenings,
+} from '@/lib/db/schema';
 import type { DbClient } from './types';
 
 /** The L0–L5 deal-pipeline stages, in funnel order. Excludes `market_screening`
@@ -24,6 +32,35 @@ export interface DimensionStageCount {
   key: string | null;
   stage: string;
   count: number;
+}
+
+/** AI Company Cards (`company_analyses`) generated in the window, split by the
+ * terminal status of the generation run. */
+export interface CompanyCardStats {
+  total: number;
+  completed: number;
+  failed: number;
+}
+
+/** AI Opinion verdicts (`companies.ai_opinion_*`) recorded in the window. Each
+ * company carries at most one current opinion, so these are latest-per-company
+ * counts, not a full history. */
+export interface AiOpinionStats {
+  total: number;
+  pass: number;
+  fail: number;
+  tentative: number;
+}
+
+/** AI screening runs (`screenings`) that produced a result in the window,
+ * counted at the per-criteria row grain plus the distinct companies touched. */
+export interface ScreeningStats {
+  companiesScreened: number;
+  total: number;
+  pass: number;
+  fail: number;
+  inconclusive: number;
+  error: number;
 }
 
 /** Active deal in a stage past L0, with the timestamps needed to compute how
@@ -48,32 +85,41 @@ export interface StaleCandidate {
 export class DashboardInsightsRepository {
   constructor(private db: DbClient) {}
 
-  /** Predicate: active company sitting in the L0–L5 funnel. */
-  private inFunnel() {
+  /** Predicate: active company sitting in the L0–L5 funnel, created within the
+   * `[from, to]` window. The window scopes every funnel/breakdown aggregate so
+   * the dashboard's date filter (7d / 14d / custom) applies consistently. */
+  private inFunnel(from: Date, to: Date) {
     return and(
       eq(companies.status, 'active'),
       inArray(companies.pipeline_stage, ['L0', 'L1', 'L2', 'L3', 'L4', 'L5']),
+      gte(companies.created_at, from.toISOString()),
+      lte(companies.created_at, to.toISOString()),
     );
   }
 
-  /** Current headcount per pipeline stage (active funnel companies only). */
-  async getStageCounts(): Promise<{ stage: string; count: number }[]> {
+  /** Headcount per pipeline stage for active funnel companies created in the
+   * window, grouped by their current stage. */
+  async getStageCounts(from: Date, to: Date): Promise<{ stage: string; count: number }[]> {
     const rows = await this.db
       .select({ stage: companies.pipeline_stage, count: drizzleCount() })
       .from(companies)
-      .where(this.inFunnel())
+      .where(this.inFunnel(from, to))
       .groupBy(companies.pipeline_stage);
     return rows.map((r) => ({ stage: String(r.stage), count: Number(r.count) }));
   }
 
-  /** Count active funnel companies grouped by an arbitrary text key (a column
-   * or SQL expression) and pipeline stage. Shared by the segment / country /
-   * banker breakdowns. */
-  private async breakdownByKey(key: PgColumn | SQL): Promise<DimensionStageCount[]> {
+  /** Count active funnel companies created in the window, grouped by an
+   * arbitrary text key (a column or SQL expression) and pipeline stage. Shared
+   * by the segment / country / banker breakdowns. */
+  private async breakdownByKey(
+    key: PgColumn | SQL,
+    from: Date,
+    to: Date,
+  ): Promise<DimensionStageCount[]> {
     const rows = await this.db
       .select({ key, stage: companies.pipeline_stage, count: drizzleCount() })
       .from(companies)
-      .where(this.inFunnel())
+      .where(this.inFunnel(from, to))
       .groupBy(key, companies.pipeline_stage);
     return rows.map((r) => ({
       key: r.key == null ? null : String(r.key),
@@ -82,25 +128,29 @@ export class DashboardInsightsRepository {
     }));
   }
 
-  getSegmentBreakdown(): Promise<DimensionStageCount[]> {
-    return this.breakdownByKey(companies.segment);
+  getSegmentBreakdown(from: Date, to: Date): Promise<DimensionStageCount[]> {
+    return this.breakdownByKey(companies.segment, from, to);
   }
 
-  getCountryBreakdown(): Promise<DimensionStageCount[]> {
-    return this.breakdownByKey(companies.geography);
+  getCountryBreakdown(from: Date, to: Date): Promise<DimensionStageCount[]> {
+    return this.breakdownByKey(companies.geography, from, to);
   }
 
   /** Banker breakdown keyed on `banker`, falling back per-row to `banker_source`
    * when `banker` is empty (the column was added later, so older rows only have
    * `banker_source`). */
-  getBankerBreakdown(): Promise<DimensionStageCount[]> {
+  getBankerBreakdown(from: Date, to: Date): Promise<DimensionStageCount[]> {
     return this.breakdownByKey(
       sql<string | null>`coalesce(nullif(${companies.banker}, ''), ${companies.banker_source})`,
+      from,
+      to,
     );
   }
 
-  /** Active deals past L0, with activity timestamps, for staleness analysis. */
-  async getActiveNonL0Deals(): Promise<StaleCandidate[]> {
+  /** Active funnel deals (L0–L5) created within the window, with activity
+   * timestamps, for staleness analysis. Which stages actually carry an SLA is
+   * decided by the service (the configurable stale thresholds). */
+  async getStaleCandidates(from: Date, to: Date): Promise<StaleCandidate[]> {
     const rows = await this.db
       .select({
         id: companies.id,
@@ -115,7 +165,9 @@ export class DashboardInsightsRepository {
       .where(
         and(
           eq(companies.status, 'active'),
-          inArray(companies.pipeline_stage, ['L1', 'L2', 'L3', 'L4', 'L5']),
+          inArray(companies.pipeline_stage, ['L0', 'L1', 'L2', 'L3', 'L4', 'L5']),
+          gte(companies.created_at, from.toISOString()),
+          lte(companies.created_at, to.toISOString()),
         ),
       );
     return rows.map((r) => ({ ...r, pipeline_stage: String(r.pipeline_stage) }));
@@ -176,6 +228,88 @@ export class DashboardInsightsRepository {
         ),
       );
     return Number(row?.value ?? 0);
+  }
+
+  /** AI Company Cards (`company_analyses`) created within the window, split by
+   * terminal status. One row exists per company; re-generation overwrites it,
+   * so `created_at` counts first-time card generations. */
+  async getCompanyCardStats(from: Date, to: Date): Promise<CompanyCardStats> {
+    const [row] = await this.db
+      .select({
+        total: drizzleCount(),
+        completed: sql<number>`count(*) filter (where ${companyAnalyses.status} = 'completed')`,
+        failed: sql<number>`count(*) filter (where ${companyAnalyses.status} = 'failed')`,
+      })
+      .from(companyAnalyses)
+      .where(
+        and(
+          gte(companyAnalyses.created_at, from.toISOString()),
+          lte(companyAnalyses.created_at, to.toISOString()),
+        ),
+      );
+    return {
+      total: Number(row?.total ?? 0),
+      completed: Number(row?.completed ?? 0),
+      failed: Number(row?.failed ?? 0),
+    };
+  }
+
+  /** AI Opinion verdicts recorded within the window, keyed off
+   * `ai_opinion_updated_at`. Only companies with a verdict are counted, and the
+   * pass/fail/tentative split sums to `total`. */
+  async getAiOpinionStats(from: Date, to: Date): Promise<AiOpinionStats> {
+    const [row] = await this.db
+      .select({
+        total: drizzleCount(),
+        pass: sql<number>`count(*) filter (where ${companies.ai_opinion_verdict} = 'pass')`,
+        fail: sql<number>`count(*) filter (where ${companies.ai_opinion_verdict} = 'fail')`,
+        tentative: sql<number>`count(*) filter (where ${companies.ai_opinion_verdict} = 'tentative')`,
+      })
+      .from(companies)
+      .where(
+        and(
+          isNotNull(companies.ai_opinion_verdict),
+          gte(companies.ai_opinion_updated_at, from.toISOString()),
+          lte(companies.ai_opinion_updated_at, to.toISOString()),
+        ),
+      );
+    return {
+      total: Number(row?.total ?? 0),
+      pass: Number(row?.pass ?? 0),
+      fail: Number(row?.fail ?? 0),
+      tentative: Number(row?.tentative ?? 0),
+    };
+  }
+
+  /** AI screening runs that produced a result within the window (per-criteria
+   * rows), with the result breakdown and the distinct companies screened.
+   * Rows still `pending` (no result yet) are excluded. */
+  async getScreeningStats(from: Date, to: Date): Promise<ScreeningStats> {
+    const [row] = await this.db
+      .select({
+        companiesScreened: sql<number>`count(distinct ${screenings.company_id})`,
+        total: drizzleCount(),
+        pass: sql<number>`count(*) filter (where ${screenings.result} = 'pass')`,
+        fail: sql<number>`count(*) filter (where ${screenings.result} = 'fail')`,
+        inconclusive: sql<number>`count(*) filter (where ${screenings.result} = 'inconclusive')`,
+        error: sql<number>`count(*) filter (where ${screenings.result} = 'error')`,
+      })
+      .from(screenings)
+      .where(
+        and(
+          isNotNull(screenings.result),
+          gte(screenings.created_at, from.toISOString()),
+          lte(screenings.created_at, to.toISOString()),
+        ),
+      );
+    return {
+      companiesScreened: Number(row?.companiesScreened ?? 0),
+      total: Number(row?.total ?? 0),
+      pass: Number(row?.pass ?? 0),
+      fail: Number(row?.fail ?? 0),
+      inconclusive: Number(row?.inconclusive ?? 0),
+      error: Number(row?.error ?? 0),
+    };
   }
 
   /** Top-level AI Workforce runs (parent runs) started within the window. */
