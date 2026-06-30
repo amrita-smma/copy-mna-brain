@@ -1,0 +1,58 @@
+// SQL SCRIPTS
+
+select c.target, COUNT(*) as occurrence_count from companies c group by c.target having COUNT(*) > 1 order by occurrence_count desc;
+
+select * from companies c where c.target = 'AMD';
+
+// Step 1 - Discover
+
+UNWIND [
+  '1eb47e83-3cbb-405a-9969-5ce9a61a81a9'
+] AS nodeId
+MATCH (n {id: nodeId})-[r]-()
+RETURN DISTINCT type(r) AS rel_type, 
+       count(r)          AS count;
+
+// Step 2 - Cleanup
+
+// ── OUTGOING: (source)-[r:SUPPLIER]->(other)  →  (target)-[r]->(other) ──
+MATCH (target {id: '66339ee8-f7a0-4b19-85aa-9f10b116e793'})
+WITH target
+UNWIND [
+  '1eb47e83-3cbb-405a-9969-5ce9a61a81a9'
+] AS nodeId
+MATCH (n {id: nodeId})-[r:SUPPLIER]->(other)
+WHERE NOT other.id IN [
+  '1eb47e83-3cbb-405a-9969-5ce9a61a81a9',
+  '66339ee8-f7a0-4b19-85aa-9f10b116e793'
+]
+CREATE (target)-[newR:SUPPLIER]->(other)
+SET newR = properties(r)
+DELETE r
+RETURN count(*) AS outgoing_moved;
+
+
+// ── INCOMING: (other)-[r:SUPPLIER]->(source)  →  (other)-[r]->(target) ──
+MATCH (target {id: '66339ee8-f7a0-4b19-85aa-9f10b116e793'})
+WITH target
+UNWIND [
+  '1eb47e83-3cbb-405a-9969-5ce9a61a81a9'
+] AS nodeId
+MATCH (other)-[r:SUPPLIER]->(n {id: nodeId})
+WHERE NOT other.id IN [
+  '1eb47e83-3cbb-405a-9969-5ce9a61a81a9',
+  '66339ee8-f7a0-4b19-85aa-9f10b116e793'
+]
+CREATE (other)-[newR:SUPPLIER]->(target)
+SET newR = properties(r)
+DELETE r
+RETURN count(*) AS incoming_moved;
+
+// Step 3 - verify
+
+UNWIND [
+  '1eb47e83-3cbb-405a-9969-5ce9a61a81a9'
+] AS nodeId
+MATCH (n {id: nodeId})
+OPTIONAL MATCH (n)-[r]-()
+RETURN n.id AS node, count(r) AS remaining_rels;
