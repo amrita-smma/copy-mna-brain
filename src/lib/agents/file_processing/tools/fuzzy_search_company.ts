@@ -4,7 +4,7 @@ import { findBestCompanyMatch } from "@/lib/fuzzySearch";
 import { logger } from "../../logger";
 
 /**
- * Fuzzy search for a company or past acquisition by name.
+ * Fuzzy search for a company by name.
  */
 export const fuzzySearchCompanyTool = tool(
   async ({ name }: { name: string }) => {
@@ -31,7 +31,7 @@ export const fuzzySearchCompanyTool = tool(
   {
     name: "fuzzy_search_company",
     description:
-      "Search for a company or past acquisition by name using fuzzy matching. Returns the closest match if found.",
+      "Search for a company by name using fuzzy matching. Returns the closest match if found.",
     schema: z.object({
       name: z.string().describe("The name of the company to search for"),
     }),

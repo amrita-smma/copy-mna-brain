@@ -10,9 +10,6 @@ import { getCompanyDetails } from "./get_company_details";
 import { lookupCrm } from "./lookup_crm";
 import { crmInsights } from "./crm_insights";
 import { webSearch } from "./web_search";
-import { queryPastAcquisitions } from "./query_past_acquisitions";
-import { compareWithPastAcquisitions } from "./compare_with_past_acquisitions";
-import { getPastAcquisitionDetails } from "./get_past_acquisition_details";
 import { queryMeetingNotes } from "./query_files";
 import { proposeWorkforceHandoff } from "./propose_workforce_handoff";
 import { proposeBulkDropCompanies } from "./propose_bulk_drop_companies";
@@ -41,9 +38,6 @@ export {
   lookupCrm,
   crmInsights,
   webSearch,
-  queryPastAcquisitions,
-  compareWithPastAcquisitions,
-  getPastAcquisitionDetails,
   queryMeetingNotes,
   proposeWorkforceHandoff,
   proposeBulkDropCompanies,
@@ -85,9 +79,6 @@ export const tools = [
   lookupCrm,
   crmInsights,
   webSearch,
-  queryPastAcquisitions,
-  compareWithPastAcquisitions,
-  getPastAcquisitionDetails,
   queryMeetingNotes,
   getTaskProgress,
 ];
@@ -153,9 +144,6 @@ export function getToolDescriptions(): string {
     { name: "lookup_crm", description: "Look up a CRM firm/banker by name or email and get its full relationship picture — bankers, topics, team coverage, recent emails, notes, and linked pipeline companies" },
     { name: "crm_insights", description: "Get portfolio-wide CRM health metrics: stale relationships, flagged records awaiting curation, and emails received today" },
     { name: "web_search", description: "Search the web for company data, financials, market info, and external benchmarks" },
-    { name: "query_past_acquisitions", description: "Query historical M&A deals by sector, country, status, or year" },
-    { name: "compare_with_past_acquisitions", description: "Compare a company against historical acquisition metrics" },
-    { name: "get_past_acquisition_details", description: "Get detailed information about a specific past acquisition" },
     { name: "query_files", description: "Search and retrieve files related to companies, tags, or topics" },
     { name: "get_task_progress", description: "Check the status and progress of recent AI Workforce tasks (filter by status or agent_name)" },
     { name: "propose_workforce_handoff", description: "Offer to send a write-heavy request (including L0→L1 promotions) to the AI Workforce via a confirmation card" },

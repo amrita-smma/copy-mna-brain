@@ -2,60 +2,6 @@ import { tool } from "@langchain/core/tools";
 import { z } from "zod";
 import Anthropic from "@anthropic-ai/sdk";
 import { logger } from "../../logger";
-import { createDb } from "@/lib/server/db";
-import { PastAcquisitionRepository } from "@/lib/repositories";
-
-const PROJECT_CODENAME_PATTERN = /\bProject\s+[A-Za-z0-9][A-Za-z0-9\-]*(?:\s+[A-Za-z0-9][A-Za-z0-9\-]*){0,3}\b/gi;
-
-function normalizeWhitespace(value: string): string {
-  return value.replace(/\s+/g, " ").trim();
-}
-
-export async function resolveProjectCodenamesForWebSearch(query: string): Promise<{
-  resolvedQuery: string;
-  replacements: { codename: string; companyName: string }[];
-  removed: string[];
-}> {
-  const matches = query.match(PROJECT_CODENAME_PATTERN);
-  if (!matches || matches.length === 0) {
-    return { resolvedQuery: query, replacements: [], removed: [] };
-  }
-
-  let pastRepo: PastAcquisitionRepository;
-  try {
-    pastRepo = new PastAcquisitionRepository(createDb());
-  } catch (error) {
-    logger.warn(`DB not configured for codename resolution: ${(error as Error).message}`);
-    return { resolvedQuery: query, replacements: [], removed: [] };
-  }
-
-  const uniqueMatches = Array.from(new Set(matches.map((m) => m.trim())));
-  let resolvedQuery = query;
-  const replacements: { codename: string; companyName: string }[] = [];
-  const removed: string[] = [];
-
-  for (const codename of uniqueMatches) {
-    let match;
-    try {
-      match = await pastRepo.findByCodename(codename);
-    } catch (error) {
-      logger.error(`Codename lookup failed for '${codename}': ${(error as Error).message}`);
-      continue;
-    }
-
-    if (match?.target_co_partner && match.target_co_partner.trim().length > 0) {
-      const companyName = match.target_co_partner.trim();
-      resolvedQuery = resolvedQuery.replaceAll(codename, companyName);
-      replacements.push({ codename, companyName });
-    } else {
-      resolvedQuery = resolvedQuery.replaceAll(codename, "");
-      removed.push(codename);
-    }
-  }
-
-  resolvedQuery = normalizeWhitespace(resolvedQuery);
-  return { resolvedQuery, replacements, removed };
-}
 
 /**
  * Search the web for market data, industry benchmarks, and external information.
@@ -71,18 +17,6 @@ export const webSearch = tool(
     }
 
     try {
-      const { resolvedQuery, replacements, removed } = await resolveProjectCodenamesForWebSearch(query);
-      if (!resolvedQuery) {
-        return "Web search skipped because the query only contained internal project codenames that could not be resolved.";
-      }
-      if (replacements.length > 0 || removed.length > 0) {
-        const details = [
-          ...replacements.map((item) => `${item.codename} → ${item.companyName}`),
-          ...removed.map((item) => `${item} → removed`),
-        ];
-        logger.debug(`Codename translation applied before web_search: ${details.join(", ")}`);
-      }
-
       const client = new Anthropic({ apiKey });
 
       const response = await client.messages.create({
@@ -98,12 +32,12 @@ export const webSearch = tool(
         messages: [
           {
             role: "user",
-            content: `Search the web for: ${resolvedQuery}\n\nProvide a summary of the most relevant and recent information you find.`,
+            content: `Search the web for: ${query}\n\nProvide a summary of the most relevant and recent information you find.`,
           },
         ],
       } as any);
 
-      const outputLines = [`**Web Search Results for '${resolvedQuery}':**\n`];
+      const outputLines = [`**Web Search Results for '${query}':**\n`];
       const citations: { title: string; url: string }[] = [];
 
       for (const block of response.content) {

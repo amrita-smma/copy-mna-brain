@@ -575,6 +575,20 @@
       "when": 1782787490000,
       "tag": "20260630024450_add_is_deal_related_to_topics",
       "breakpoints": true
+    },
+    {
+      "idx": 82,
+      "version": "7",
+      "when": 1782864001000,
+      "tag": "20260701000001_drop_unused_tables",
+      "breakpoints": true
+    },
+    {
+      "idx": 83,
+      "version": "7",
+      "when": 1782864002000,
+      "tag": "20260701000002_drop_past_acquisitions",
+      "breakpoints": true
     }
   ]
 }

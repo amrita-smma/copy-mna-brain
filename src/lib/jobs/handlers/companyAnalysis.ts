@@ -79,7 +79,6 @@ You have access to these tools — USE THEM ALL to gather comprehensive informat
 2. Use \`inven_paid_data_source_search\` to find the company on Inven, then \`inven_paid_data_source_enrichment\` for detailed data
 3. Use \`web_search\` to research the company's website, products, market position, recent news, and competitive landscape (e.g., "{companyName} company overview products services", "{companyName} revenue market position competitors")
 4. Use \`query_files\` to check if there are any internal files about this company
-5. Use \`compare_with_past_acquisitions\` if relevant to check how it compares to past deals
 
 ## Company Context
 {companyContext}

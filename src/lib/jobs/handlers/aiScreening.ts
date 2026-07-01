@@ -86,7 +86,6 @@ You have access to these tools - USE THEM to gather more information:
 1. If financial data is missing, use web_search to find it (e.g., "Company Name revenue EBITDA financials 2024")
 2. If industry context is needed, use web_search for benchmarks (e.g., "Industry average EBITDA margin")
 3. If criteria requires specific company info not provided, search for it
-4. If you need to compare with past deals, use query_past_acquisitions or compare_with_past_acquisitions
 
 ## Company Information Provided
 {companyContext}

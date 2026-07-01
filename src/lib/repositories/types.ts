@@ -10,7 +10,6 @@ type TableMap = {
   company_assignees: typeof schema.companyAssignees;
   company_logs: typeof schema.companyLogs;
   company_analyses: typeof schema.companyAnalyses;
-  company_criterias: typeof schema.companyCriterias;
   company_financials: typeof schema.companyFinancials;
   company_fx_adjustments: typeof schema.companyFxAdjustments;
   company_screening_derived: typeof schema.companyScreeningDerived;
@@ -19,7 +18,6 @@ type TableMap = {
   deal_documents: typeof schema.dealDocuments;
   deal_links: typeof schema.dealLinks;
   deal_notes: typeof schema.dealNotes;
-  deal_stage_history: typeof schema.dealStageHistory;
   files: typeof schema.files;
   mbox_files: typeof schema.mboxFiles;
   raw_emails: typeof schema.rawEmails;
@@ -31,15 +29,12 @@ type TableMap = {
   inven_cache: typeof schema.invenCache;
   jobs: typeof schema.jobs;
   job_logs: typeof schema.jobLogs;
-  past_acquisitions: typeof schema.pastAcquisitions;
   reset_password_tokens: typeof schema.resetPasswordTokens;
   screenings: typeof schema.screenings;
   user_company_favorites: typeof schema.userCompanyFavorites;
   recent_files: typeof schema.recentFiles;
   users: typeof schema.users;
   ai_workforce_queue: typeof schema.aiWorkforceQueue;
-  agent_run_events: typeof schema.agentRunEvents;
-  pending_mutations: typeof schema.pendingMutations;
   routines: typeof schema.routines;
   copilot_chats: typeof schema.copilotChats;
   api_keys: typeof schema.apiKeys;
@@ -51,7 +46,6 @@ type TableMap = {
   employer_curation: typeof schema.employerCuration;
   correspondents: typeof schema.correspondents;
   correspondent_curation: typeof schema.correspondentCuration;
-  correspondent_companies: typeof schema.correspondentCompanies;
   employer_notes: typeof schema.employerNotes;
   topics: typeof schema.topics;
   employer_topics: typeof schema.employerTopics;
