@@ -18,16 +18,6 @@ variable "db_username" {
   default = "mnaapp"
 }
 
-variable "instance_class" {
-  type    = string
-  default = "db.t3.micro"
-}
-
-variable "allocated_storage" {
-  type    = number
-  default = 20
-}
-
 variable "rds_publicly_accessible" {
   description = "When true, RDS uses public subnets only in the DB subnet group so the ENI has an Internet Gateway route (required for internet clients like DBeaver). When false, only private subnets are used."
   type        = bool
@@ -82,11 +72,18 @@ data "aws_caller_identity" "current" {}
 locals {
   tfstate_bucket = "mna-tfstate-${terraform.workspace}-${data.aws_caller_identity.current.account_id}"
 
+  # Per-environment configuration. Instance sizing, storage, HA and backup
+  # settings live here so staging vs production differences are declared in one
+  # place rather than as flat variables/inline expressions.
   workspace_config = {
     dev = {
       environment                             = "dev"
       rds_iam_database_authentication_enabled = var.rds_iam_database_authentication_enabled
-      rds_apply_immediately = true
+      rds_apply_immediately                   = true
+      instance_class                          = "db.t3.micro"
+      allocated_storage                       = 20
+      multi_az                                = false
+      backup_retention_period                 = 7
       tags = {
         Environment = "dev"
         Project     = "MnA"
@@ -97,6 +94,10 @@ locals {
       environment                             = "staging"
       rds_iam_database_authentication_enabled = true
       rds_apply_immediately                   = true
+      instance_class                          = "db.t3.micro"
+      allocated_storage                       = 20
+      multi_az                                = false
+      backup_retention_period                 = 7
       tags = {
         Environment = "staging"
         Project     = "MnA"
@@ -107,7 +108,11 @@ locals {
       environment                             = "production"
       rds_iam_database_authentication_enabled = true
       # Safer default: defer instance changes to maintenance window unless you reboot or use -var.
-      rds_apply_immediately = false
+      rds_apply_immediately   = false
+      instance_class          = "db.t3.micro"
+      allocated_storage       = 100
+      multi_az                = true
+      backup_retention_period = 7
       tags = {
         Environment = "production"
         Project     = "MnA"
@@ -116,10 +121,14 @@ locals {
     }
   }
 
-  current_config          = lookup(local.workspace_config, terraform.workspace, local.workspace_config["dev"])
-  environment_tags        = merge(local.current_config.tags, var.tags)
-  rds_iam_db_auth_enabled = local.current_config.rds_iam_database_authentication_enabled
-  rds_apply_immediately   = local.current_config.rds_apply_immediately
+  current_config              = lookup(local.workspace_config, terraform.workspace, local.workspace_config["dev"])
+  environment_tags            = merge(local.current_config.tags, var.tags)
+  rds_iam_db_auth_enabled     = local.current_config.rds_iam_database_authentication_enabled
+  rds_apply_immediately       = local.current_config.rds_apply_immediately
+  rds_instance_class          = local.current_config.instance_class
+  rds_allocated_storage       = local.current_config.allocated_storage
+  rds_multi_az                = local.current_config.multi_az
+  rds_backup_retention_period = local.current_config.backup_retention_period
 
   # Official RDS global CA bundle (download into your app or CI; too large for SSM).
   rds_global_tls_ca_bundle_url = "https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem"

@@ -21,36 +21,18 @@ resource "aws_db_subnet_group" "private" {
   })
 }
 
+# NOTE: rules are declared as standalone aws_security_group_rule resources
+# below, NOT as inline ingress/egress blocks. This is deliberate: other modules
+# (e.g. data-pipeline/terraform/pipeline-compute) attach their own
+# aws_security_group_rule to this SG via remote state. Inline blocks make
+# Terraform treat this config as the full desired rule set and revoke any rule
+# it didn't declare — which would delete those cross-module rules on every
+# apply. The AWS provider requires all-or-nothing per SG: with no inline blocks,
+# rule ownership is left entirely to the standalone resources.
 resource "aws_security_group" "rds" {
   name_prefix = "mna-${local.current_config.environment}-rds-"
   description = "PostgreSQL from VPC CIDR and optional internet when public"
   vpc_id      = data.terraform_remote_state.vpc.outputs.vpc_id
-
-  ingress {
-    description = "PostgreSQL from VPC CIDR"
-    from_port   = 5432
-    to_port     = 5432
-    protocol    = "tcp"
-    cidr_blocks = [data.terraform_remote_state.vpc.outputs.vpc_cidr_block]
-  }
-
-  dynamic "ingress" {
-    for_each = var.rds_publicly_accessible ? var.rds_public_ingress_cidrs : []
-    content {
-      description = "PostgreSQL from internet (TLS required via rds.force_ssl)"
-      from_port   = 5432
-      to_port     = 5432
-      protocol    = "tcp"
-      cidr_blocks = [ingress.value]
-    }
-  }
-
-  egress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
 
   tags = merge(local.environment_tags, {
     Name = "mna-${local.current_config.environment}-rds-sg"
@@ -61,13 +43,44 @@ resource "aws_security_group" "rds" {
   }
 }
 
+resource "aws_security_group_rule" "rds_from_vpc" {
+  type              = "ingress"
+  description       = "PostgreSQL from VPC CIDR"
+  from_port         = 5432
+  to_port           = 5432
+  protocol          = "tcp"
+  cidr_blocks       = [data.terraform_remote_state.vpc.outputs.vpc_cidr_block]
+  security_group_id = aws_security_group.rds.id
+}
+
+resource "aws_security_group_rule" "rds_from_internet" {
+  for_each = var.rds_publicly_accessible ? toset(var.rds_public_ingress_cidrs) : toset([])
+
+  type              = "ingress"
+  description       = "PostgreSQL from internet (TLS required via rds.force_ssl)"
+  from_port         = 5432
+  to_port           = 5432
+  protocol          = "tcp"
+  cidr_blocks       = [each.value]
+  security_group_id = aws_security_group.rds.id
+}
+
+resource "aws_security_group_rule" "rds_egress_all" {
+  type              = "egress"
+  from_port         = 0
+  to_port           = 0
+  protocol          = "-1"
+  cidr_blocks       = ["0.0.0.0/0"]
+  security_group_id = aws_security_group.rds.id
+}
+
 resource "aws_db_instance" "mna" {
   identifier = "mna-${local.current_config.environment}-postgres"
 
   engine               = "postgres"
   engine_version       = "16"
-  instance_class       = var.instance_class
-  allocated_storage    = var.allocated_storage
+  instance_class       = local.rds_instance_class
+  allocated_storage    = local.rds_allocated_storage
   storage_type         = "gp3"
   storage_encrypted    = true
   db_subnet_group_name = aws_db_subnet_group.private.name
@@ -80,13 +93,13 @@ resource "aws_db_instance" "mna" {
 
   vpc_security_group_ids = [aws_security_group.rds.id]
   publicly_accessible    = var.rds_publicly_accessible
-  multi_az               = local.current_config.environment == "production"
+  multi_az               = local.rds_multi_az
 
   apply_immediately = local.rds_apply_immediately
 
   iam_database_authentication_enabled = local.rds_iam_db_auth_enabled
 
-  backup_retention_period   = 7
+  backup_retention_period   = local.rds_backup_retention_period
   backup_window             = "18:00-19:00"
   maintenance_window        = "sun:19:00-sun:20:00"
   skip_final_snapshot       = false
