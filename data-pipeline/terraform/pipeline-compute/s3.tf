@@ -29,6 +29,35 @@ resource "aws_s3_bucket_public_access_block" "data_lake" {
   restrict_public_buckets = true
 }
 
+resource "aws_s3_bucket_lifecycle_configuration" "data_lake_attachment_archive" {
+  count = var.attachment_archive_lifecycle.enabled ? 1 : 0
+
+  bucket = aws_s3_bucket.data_lake.id
+
+  rule {
+    id     = "attachment-pipeline-archive-retention"
+    status = "Enabled"
+
+    filter {
+      prefix = var.attachment_archive_lifecycle.prefix
+    }
+
+    transition {
+      days          = var.attachment_archive_lifecycle.glacier_transition_days
+      storage_class = "GLACIER"
+    }
+
+    noncurrent_version_transition {
+      noncurrent_days = var.attachment_archive_lifecycle.glacier_transition_days
+      storage_class   = "GLACIER"
+    }
+
+    abort_incomplete_multipart_upload {
+      days_after_initiation = var.attachment_archive_lifecycle.incomplete_multipart_upload_expiration_days
+    }
+  }
+}
+
 resource "aws_iam_policy" "data_lake_rw" {
   name        = "${local.prefix}-data-lake-rw"
   description = "Pipeline Lambda read/write to data-lake S3 bucket"

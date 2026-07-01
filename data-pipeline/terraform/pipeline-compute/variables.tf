@@ -52,6 +52,30 @@ variable "github_oidc_provider_arn" {
   default     = null
 }
 
+variable "attachment_archive_lifecycle" {
+  description = "Lifecycle policy for attachment pipeline objects in the data-lake bucket."
+  type = object({
+    enabled                                     = bool
+    prefix                                      = string
+    glacier_transition_days                     = number
+    incomplete_multipart_upload_expiration_days = number
+  })
+  default = {
+    enabled                                     = true
+    prefix                                      = "attachments/"
+    glacier_transition_days                     = 30
+    incomplete_multipart_upload_expiration_days = 7
+  }
+
+  validation {
+    condition = (
+      var.attachment_archive_lifecycle.glacier_transition_days >= 0 &&
+      var.attachment_archive_lifecycle.incomplete_multipart_upload_expiration_days > 0
+    )
+    error_message = "attachment_archive_lifecycle must transition after 0+ days and clean incomplete multipart uploads after at least 1 day."
+  }
+}
+
 data "aws_caller_identity" "current" {}
 
 locals {
