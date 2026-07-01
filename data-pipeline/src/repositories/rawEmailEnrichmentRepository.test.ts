@@ -64,17 +64,18 @@ describe('RawEmailEnrichmentRepository.findByRawEmailIds', () => {
 describe('RawEmailEnrichmentRepository.setLlmResult', () => {
   it('writes topics + people + model + batch id', async () => {
     const db = makeDb();
+    const topicObj = { name: 'nda', is_deal_related: true };
     db.returning.mockResolvedValueOnce([
-      { id: 'e1', raw_email_id: 'r1', topics: ['t1'], people: [] },
+      { id: 'e1', raw_email_id: 'r1', topics: [topicObj], people: [] },
     ]);
     const repo = new RawEmailEnrichmentRepository(db as never);
     const out = await repo.setLlmResult('r1', {
-      topics: ['t1'],
+      topics: [topicObj],
       people: [],
       llm_model: 'claude-haiku-4-5',
       llm_batch_id: 'b1',
     });
-    expect(out).toMatchObject({ topics: ['t1'] });
+    expect(out).toMatchObject({ topics: [topicObj] });
   });
 
   it('throws when the row does not exist', async () => {

@@ -13,7 +13,7 @@ config({ path: '.env.local' });
 config();
 
 import { drizzle } from 'drizzle-orm/postgres-js';
-import { and, eq, gte, inArray, like, lte } from 'drizzle-orm';
+import { and, eq, gte, inArray, like, lte, sql } from 'drizzle-orm';
 import {
   companies,
   companyFinancials,
@@ -21,9 +21,13 @@ import {
   criterias,
   emailParticipants,
   emails,
+  employerNotes,
+  employerTeamMembers,
+  employerTopics,
   employers,
   files,
   investmentThesis,
+  topics,
   userCompanyFavorites,
   users,
 } from '../src/lib/db/schema';
@@ -78,78 +82,207 @@ type SeedContact = {
 
 const seedContacts: SeedContact[] = [
   {
-    name: 'James Chen',
-    email: 'james.chen@goldmansachs.com',
+    name: 'Jimmy Sprinkles',
+    email: 'jimmy.sprinkles@goldensacks.example',
     phone: '+1 212 555 0101',
-    company: 'Goldman Sachs',
+    company: 'Golden Sacks',
     title: 'Managing Director',
     type: 'external',
     notes: 'Primary contact for tech M&A deals in Asia',
   },
   {
-    name: 'Sarah Thompson',
-    email: 'sarah.thompson@jpmorgan.com',
+    name: 'Sally Bubbles',
+    email: 'sally.bubbles@jporgan.example',
     phone: '+1 212 555 0102',
-    company: 'JP Morgan',
+    company: 'JP Organ',
     title: 'Executive Director',
     type: 'external',
     notes: 'Specializes in industrial sector transactions',
   },
   {
-    name: 'Michael Lee',
-    email: 'michael.lee@morganstanley.com',
+    name: 'Mikey Noodle',
+    email: 'mikey.noodle@organstanley.example',
     phone: '+65 6555 0103',
-    company: 'Morgan Stanley',
+    company: 'Organ Stanley',
     title: 'Vice President',
     type: 'external',
     notes: 'SEA coverage team lead',
   },
   {
-    name: 'Amanda Wijaya',
-    email: 'amanda.wijaya@starcapital.com',
+    name: 'Wendy Wobble',
+    email: 'wendy.wobble@sparklecapital.example',
     phone: '+62 21 555 0104',
-    company: 'StarCapital',
+    company: 'SparkleCapital',
     title: 'Investment Director',
     type: 'internal',
     notes: 'Internal deal team lead',
   },
   {
-    name: 'David Tan',
-    email: 'david.tan@starcapital.com',
+    name: 'Davey Pickles',
+    email: 'davey.pickles@sparklecapital.example',
     phone: '+62 21 555 0105',
-    company: 'StarCapital',
+    company: 'SparkleCapital',
     title: 'Associate',
     type: 'internal',
     notes: 'Financial analysis and due diligence',
   },
   {
-    name: 'Robert Kim',
-    email: 'robert.kim@creditsuisse.com',
+    name: 'Bobby Waffles',
+    email: 'bobby.waffles@creditsweets.example',
     phone: '+852 3988 0106',
-    company: 'Credit Suisse',
+    company: 'Credit Sweets',
     title: 'Director',
     type: 'external',
     notes: 'Cross-border M&A specialist',
   },
   {
-    name: 'Lisa Wang',
-    email: 'lisa.wang@baml.com',
+    name: 'Lizzy Doodle',
+    email: 'lizzy.doodle@atlantis.example',
     phone: '+1 646 555 0107',
-    company: 'Bank of America Merrill Lynch',
+    company: 'Bank of Atlantis Marble Lynx',
     title: 'Managing Director',
     type: 'external',
     notes: 'Healthcare and life sciences focus',
   },
   {
-    name: 'Andrew Hartono',
-    email: 'andrew.hartono@citi.com',
+    name: 'Andy Pancake',
+    email: 'andy.pancake@kitti.example',
     phone: '+65 6225 0108',
-    company: 'Citigroup',
+    company: 'Kittygroup',
     title: 'Director',
     type: 'external',
     notes: 'Consumer and retail sector coverage',
   },
 ];
+
+// ─── CRM enrichment (topics, team, notes) ────────────────────────────────────
+// Folded in from the former scripts/seed-crm.ts. The employers above (derived
+// from seedContacts) are the source of truth; this layer attaches topic tags,
+// internal team coverage, and relationship notes on top of them.
+
+/** Internal team members (Brain 2.0 staff) — power the team-coverage filter. */
+const SEED_TEAM_USERS = [
+  { name: 'Alvin Wobblebottom', email: 'alvin.wobblebottom@sparklecapital.example', role: 'analyst' },
+  { name: 'Sandy Sparkle', email: 'sandy.sparkle@sparklecapital.example', role: 'analyst' },
+  { name: 'Danny Pebble', email: 'danny.pebble@sparklecapital.example', role: 'analyst' },
+  { name: 'Mara Puddle', email: 'mara.puddle@sparklecapital.example', role: 'director' },
+  { name: 'Jamie Tangerine', email: 'jamie.tangerine@sparklecapital.example', role: 'partner' },
+] as const;
+
+/**
+ * Topic dictionary with the deal/non-deal classification (MB-271).
+ * Deal-related = transaction terms, mechanics, stages, deal codenames.
+ * Non-deal     = sectors, materials, geographies.
+ */
+const SEED_TOPICS: Array<{ name: string; is_deal_related: boolean }> = [
+  // Deal-related
+  { name: 'acquisition', is_deal_related: true },
+  { name: 'mandate', is_deal_related: true },
+  { name: 'carve-out', is_deal_related: true },
+  { name: 'financing', is_deal_related: true },
+  { name: 'buy-side', is_deal_related: true },
+  { name: 'PE exit', is_deal_related: true },
+  { name: 'deal flow', is_deal_related: true },
+  { name: 'sourcing', is_deal_related: true },
+  { name: 'TIM', is_deal_related: true },
+  { name: 'term sheet', is_deal_related: true },
+  { name: 'due diligence', is_deal_related: true },
+  { name: 'divestiture', is_deal_related: true },
+  // Non-deal (sector / material / geography)
+  { name: 'CMP slurry', is_deal_related: false },
+  { name: 'lithography', is_deal_related: false },
+  { name: 'wet processing', is_deal_related: false },
+  { name: 'packaging', is_deal_related: false },
+  { name: 'advanced packaging', is_deal_related: false },
+  { name: 'semiconductors', is_deal_related: false },
+  { name: 'specialty chem', is_deal_related: false },
+  { name: 'wafer', is_deal_related: false },
+  { name: 'Korea', is_deal_related: false },
+  { name: 'Japan', is_deal_related: false },
+  { name: 'APAC', is_deal_related: false },
+];
+
+/** Per-firm topic assignments, team coverage, and notes, keyed by firm name. */
+type CrmEnrichment = {
+  topics: Array<{ name: string; source: 'auto' | 'manual'; highlight?: boolean }>;
+  team: string[]; // internal user emails
+  notes?: string[];
+};
+
+const CRM_ENRICHMENT: Record<string, CrmEnrichment> = {
+  'Golden Sacks': {
+    topics: [
+      { name: 'CMP slurry', source: 'auto', highlight: true },
+      { name: 'acquisition', source: 'auto' },
+      { name: 'semiconductors', source: 'auto' },
+      { name: 'financing', source: 'auto' },
+      { name: 'lithography', source: 'auto' },
+      { name: 'mandate', source: 'manual' },
+    ],
+    team: ['alvin.wobblebottom@sparklecapital.example', 'sandy.sparkle@sparklecapital.example'],
+    notes: [
+      'Key relationship. James is primary deal flow for semicon materials at GS. Prefers email. Connected us to TechSlurry in May.',
+    ],
+  },
+  'JP Organ': {
+    topics: [
+      { name: 'lithography', source: 'auto', highlight: true },
+      { name: 'mandate', source: 'auto' },
+      { name: 'specialty chem', source: 'manual' },
+      { name: 'APAC', source: 'manual' },
+      { name: 'acquisition', source: 'auto' },
+    ],
+    team: ['alvin.wobblebottom@sparklecapital.example'],
+    notes: ['Good source for lithography deal flow. Sarah well-connected in APAC.'],
+  },
+  'Organ Stanley': {
+    topics: [
+      { name: 'TIM', source: 'auto', highlight: true },
+      { name: 'carve-out', source: 'auto' },
+    ],
+    team: ['jamie.tangerine@sparklecapital.example'],
+    notes: ['Dormant relationship. Reconnect before next weekly meeting.'],
+  },
+  'Credit Sweets': {
+    topics: [
+      { name: 'financing', source: 'manual', highlight: true },
+      { name: 'due diligence', source: 'auto' },
+    ],
+    team: ['mara.puddle@sparklecapital.example'],
+    notes: ['Cross-border M&A. Reached out re: financing for Project Cobalt.'],
+  },
+  'Bank of Atlantis Marble Lynx': {
+    topics: [
+      { name: 'packaging', source: 'auto', highlight: true },
+      { name: 'PE exit', source: 'auto' },
+      { name: 'advanced packaging', source: 'auto' },
+      { name: 'APAC', source: 'manual' },
+      { name: 'deal flow', source: 'manual' },
+      { name: 'carve-out', source: 'auto' },
+      { name: 'financing', source: 'auto' },
+    ],
+    team: [
+      'sandy.sparkle@sparklecapital.example',
+      'alvin.wobblebottom@sparklecapital.example',
+      'danny.pebble@sparklecapital.example',
+      'jamie.tangerine@sparklecapital.example',
+      'mara.puddle@sparklecapital.example',
+    ],
+    notes: ['Key APAC relationship. Lisa covers advanced packaging extensively.'],
+  },
+  Kittygroup: {
+    topics: [
+      { name: 'wet processing', source: 'auto', highlight: true },
+      { name: 'Korea', source: 'auto' },
+      { name: 'semiconductors', source: 'auto' },
+      { name: 'sourcing', source: 'manual' },
+      { name: 'deal flow', source: 'manual' },
+      { name: 'APAC', source: 'auto' },
+    ],
+    team: ['jamie.tangerine@sparklecapital.example', 'alvin.wobblebottom@sparklecapital.example'],
+    notes: ['Strong Korea network. Useful for APAC wet processing sourcing.'],
+  },
+};
 
 type SeedCompany = {
   entry_id: number;
@@ -213,8 +346,8 @@ const seedCompanies: SeedCompany[] = [
     status: 'active',
     source: 'inbound',
     doc_type: 'teaser',
-    banker_source: 'Goldman Sachs',
-    remarks: 'Seed triage: extracted from Goldman Sachs teaser; complete 2024 financials.',
+    banker_source: 'Golden Sacks',
+    remarks: 'Seed triage: extracted from Golden Sacks teaser; complete 2024 financials.',
     watchlist_status: 'New',
     financials: [
       { fiscal_year: 2024, revenue_usd_mn: 42.0, ebitda_usd_mn: 7.4, ev_usd_mn: 128 },
@@ -233,7 +366,7 @@ const seedCompanies: SeedCompany[] = [
     status: 'active',
     source: 'inbound',
     doc_type: 'teaser',
-    banker_source: 'JP Morgan',
+    banker_source: 'JP Organ',
     remarks: 'Seed triage: missing financials path.',
     watchlist_status: 'New',
     financials: [],
@@ -251,7 +384,7 @@ const seedCompanies: SeedCompany[] = [
     status: 'active',
     source: 'inbound',
     doc_type: 'shopping_list',
-    banker_source: 'UBS',
+    banker_source: 'UBSnacks',
     remarks: 'Seed triage: target came from banker shopping list.',
     watchlist_status: 'New',
     financials: [
@@ -271,7 +404,7 @@ const seedCompanies: SeedCompany[] = [
     status: 'active',
     source: 'inbound',
     doc_type: 'shopping_list',
-    banker_source: 'Citi',
+    banker_source: 'Kitti',
     remarks: 'Seed triage: possible duplicate flag points to Lumen Diagnostics.',
     possible_duplicate_entry_id: 9012,
     watchlist_status: 'New',
@@ -292,7 +425,7 @@ const seedCompanies: SeedCompany[] = [
     status: 'active',
     source: 'inbound',
     doc_type: 'teaser',
-    banker_source: 'Morgan Stanley',
+    banker_source: 'Organ Stanley',
     remarks:
       'Seed coverage: company target name intentionally empty; UI should display the project name.',
     watchlist_status: 'New',
@@ -313,7 +446,7 @@ const seedCompanies: SeedCompany[] = [
     status: 'active',
     source: 'inbound',
     doc_type: 'market_study',
-    banker_source: 'Deutsche Bank',
+    banker_source: 'Doodle Bank',
     remarks: 'Seed triage: inbound market study case, actively pitched by banker.',
     watchlist_status: 'New',
     financials: [
@@ -333,7 +466,7 @@ const seedCompanies: SeedCompany[] = [
     status: 'active',
     source: 'outbound',
     doc_type: 'market_study',
-    banker_source: 'Deutsche Bank',
+    banker_source: 'Doodle Bank',
     remarks: 'Seed triage: outbound market intel generated from market study.',
     watchlist_status: 'New',
     financials: [
@@ -353,7 +486,7 @@ const seedCompanies: SeedCompany[] = [
     status: 'active',
     source: 'inbound',
     doc_type: 'teaser',
-    banker_source: 'Morgan Stanley',
+    banker_source: 'Organ Stanley',
     remarks: 'Seed triage: already kept by analyst.',
     watchlist_status: 'Active',
     financials: [
@@ -373,7 +506,7 @@ const seedCompanies: SeedCompany[] = [
     status: 'active',
     source: 'inbound',
     doc_type: 'shopping_list',
-    banker_source: 'Citi',
+    banker_source: 'Kitti',
     remarks: 'Seed triage: reviewed inbound shopping-list-origin company.',
     watchlist_status: 'Active',
     financials: [
@@ -393,7 +526,7 @@ const seedCompanies: SeedCompany[] = [
     status: 'active',
     source: 'outbound',
     doc_type: 'market_study',
-    banker_source: 'HSBC',
+    banker_source: 'HSBQ',
     remarks: 'Seed triage: reviewed outbound market-intel company.',
     watchlist_status: 'Active',
     financials: [
@@ -413,7 +546,7 @@ const seedCompanies: SeedCompany[] = [
     status: 'dropped',
     source: 'inbound',
     doc_type: 'teaser',
-    banker_source: 'Bank of America',
+    banker_source: 'Bank of Atlantis',
     remarks: 'Seed triage: dropped row for dropped-view coverage.',
     watchlist_status: 'Dropped',
     dropped_reason: 'Seed coverage: dropped before triage completion.',
@@ -453,7 +586,7 @@ const seedCompanies: SeedCompany[] = [
     pipeline_stage: 'L1',
     status: 'active',
     watchlist_status: 'Active',
-    banker_source: 'Goldman Sachs',
+    banker_source: 'Golden Sacks',
     financials: [
       { fiscal_year: 2023, revenue_usd_mn: 120.0, ebitda_usd_mn: 14.8 },
       { fiscal_year: 2024, revenue_usd_mn: 134.5, ebitda_usd_mn: 18.1, ev_usd_mn: 410 },
@@ -491,7 +624,7 @@ const seedCompanies: SeedCompany[] = [
     pipeline_stage: 'L2',
     status: 'active',
     watchlist_status: 'Active',
-    banker_source: 'JP Morgan',
+    banker_source: 'JP Organ',
     financials: [
       { fiscal_year: 2022, revenue_usd_mn: 4.1 },
       { fiscal_year: 2023, revenue_usd_mn: 8.4, ebitda_usd_mn: -1.2 },
@@ -511,7 +644,7 @@ const seedCompanies: SeedCompany[] = [
     pipeline_stage: 'L1',
     status: 'active',
     watchlist_status: 'Active',
-    banker_source: 'Citi',
+    banker_source: 'Kitti',
     financials: [
       { fiscal_year: 2022, revenue_usd_mn: 48.2, ebitda_usd_mn: 6.9, ev_usd_mn: 190 },
       { fiscal_year: 2023, revenue_usd_mn: 61.0, ebitda_usd_mn: 9.1 },
@@ -552,7 +685,7 @@ const seedCompanies: SeedCompany[] = [
     pipeline_stage: 'L1',
     status: 'active',
     watchlist_status: 'Active',
-    banker_source: 'Morgan Stanley',
+    banker_source: 'Organ Stanley',
     financials: [
       { fiscal_year: 2022, revenue_usd_mn: 37.2, ebitda_usd_mn: 5.9, ev_usd_mn: 195 },
       { fiscal_year: 2023, revenue_usd_mn: 44.7, ebitda_usd_mn: 7.8 },
@@ -721,7 +854,7 @@ const seedCompanies: SeedCompany[] = [
     watchlist_status: 'Active',
     source: 'inbound',
     deal_type: 'majority',
-    banker: 'Goldman Sachs',
+    banker: 'Golden Sacks',
     originator: 'James Wong',
     doc_type: 'teaser',
     workflow_status: 'Unreviewed',
@@ -741,7 +874,7 @@ const seedCompanies: SeedCompany[] = [
     watchlist_status: 'Active',
     source: 'inbound',
     deal_type: 'majority',
-    banker: 'JP Morgan',
+    banker: 'JP Organ',
     originator: 'Nur Khairusy',
     doc_type: 'teaser',
     workflow_status: 'Unreviewed',
@@ -761,7 +894,7 @@ const seedCompanies: SeedCompany[] = [
     watchlist_status: 'Active',
     source: 'inbound',
     deal_type: 'minority',
-    banker: 'Morgan Stanley',
+    banker: 'Organ Stanley',
     originator: 'Reza Hakim',
     doc_type: 'shopping_list',
     workflow_status: 'Unreviewed',
@@ -801,7 +934,7 @@ const seedCompanies: SeedCompany[] = [
     watchlist_status: 'Active',
     source: 'inbound',
     deal_type: 'majority',
-    banker: 'Citigroup',
+    banker: 'Kittygroup',
     originator: 'Nur Khairusy',
     doc_type: 'market_study',
     workflow_status: 'NDA pending',
@@ -821,7 +954,7 @@ const seedCompanies: SeedCompany[] = [
     watchlist_status: 'Active',
     source: 'inbound',
     deal_type: 'minority',
-    banker: 'Mandiri Sekuritas',
+    banker: 'Mandarin Sekuritas',
     originator: 'Nur Khairusy',
     doc_type: 'teaser',
     workflow_status: 'NDA pending',
@@ -843,7 +976,7 @@ const seedCompanies: SeedCompany[] = [
     watchlist_status: 'Active',
     source: 'inbound',
     deal_type: 'majority',
-    banker: 'CIMB',
+    banker: 'DIMB',
     originator: 'James Wong',
     doc_type: 'teaser',
     workflow_status: 'NDA executed',
@@ -865,7 +998,7 @@ const seedCompanies: SeedCompany[] = [
     watchlist_status: 'Active',
     source: 'inbound',
     deal_type: 'minority',
-    banker: 'Samsung Securities',
+    banker: 'Sundae Securities',
     originator: 'James Wong',
     doc_type: 'teaser',
     workflow_status: 'L1 prep',
@@ -876,7 +1009,7 @@ const seedCompanies: SeedCompany[] = [
   },
   {
     entry_id: 9023,
-    target: 'Daejoo Electronic Materials Co.',
+    target: 'Doohickey Electronic Materials Co.',
     segment: 'Semiconductor Materials — CMP Slurry',
     company_focus: 'CMP slurries and conductive paste materials',
     website: 'https://daejoo.example',
@@ -902,7 +1035,7 @@ const seedCompanies: SeedCompany[] = [
   // ── OUTBOUND companies (source = 'outbound') ─────────────────────────────
   {
     entry_id: 9024,
-    target: 'Advanced Semiconductor Engineering (ASE)',
+    target: 'Amazing Semiconductor Engineering (AZE)',
     segment: 'Semiconductor OSAT',
     company_focus: 'Largest outsourced assembly & test provider in Asia',
     website: 'https://aseglobal.example',
@@ -917,7 +1050,7 @@ const seedCompanies: SeedCompany[] = [
     workflow_status: 'First contact made',
     key_rationale:
       'Largest OSAT in Asia; strong fit with our semiconductor platform thesis. Listed on TWSE with known shareholders.',
-    remarks: 'Warm intro via Goldman; management receptive to PE conversations.',
+    remarks: 'Warm intro via Golden Sacks; management receptive to PE conversations.',
     last_activity_at: '2026-06-10T00:00:00Z',
     financials: [
       { fiscal_year: 2024, revenue_usd_mn: 18000, ebitda_usd_mn: 3200, ev_usd_mn: 12000 },
@@ -925,7 +1058,7 @@ const seedCompanies: SeedCompany[] = [
   },
   {
     entry_id: 9025,
-    target: 'Greatek Electronics Inc.',
+    target: 'Greattech Gizmos Inc.',
     segment: 'Semiconductor Packaging',
     company_focus: 'Niche IC packaging for automotive end markets',
     website: 'https://greatek.example',
@@ -948,9 +1081,9 @@ const seedCompanies: SeedCompany[] = [
   },
   {
     entry_id: 9026,
-    target: 'Inari Amertron Berhad',
+    target: 'Inori Amazertron Berhad',
     segment: 'Semiconductor RF Test & Assembly',
-    company_focus: 'RF assembly partner for the Apple supply chain',
+    company_focus: 'RF assembly partner for the Pineapple supply chain',
     website: 'https://inari-amertron.example',
     geography: 'Malaysia',
     ownership: 'Family-owned',
@@ -962,8 +1095,8 @@ const seedCompanies: SeedCompany[] = [
     originator: 'Reza Hakim',
     workflow_status: 'Intermediary approach',
     key_rationale:
-      'Leading RF assembly partner for Apple supply chain. Controlled by founder family; succession planning may create entry.',
-    remarks: 'Banker intermediary (CIMB) made soft approach in Feb.',
+      'Leading RF assembly partner for Pineapple supply chain. Controlled by founder family; succession planning may create entry.',
+    remarks: 'Banker intermediary (DIMB) made soft approach in Feb.',
     last_activity_at: '2026-06-12T00:00:00Z',
     financials: [
       { fiscal_year: 2024, revenue_usd_mn: 890, ebitda_usd_mn: 180, ev_usd_mn: 1200 },
@@ -971,7 +1104,7 @@ const seedCompanies: SeedCompany[] = [
   },
   {
     entry_id: 9027,
-    target: 'UMC (United Microelectronics Corp)',
+    target: 'UMW (Unicorn Microelectronics Corp)',
     segment: 'Foundry — Logic & Specialty',
     company_focus: 'Mature-node logic and specialty foundry',
     website: 'https://umc.example',
@@ -994,7 +1127,7 @@ const seedCompanies: SeedCompany[] = [
   },
   {
     entry_id: 9028,
-    target: 'ViTrox Corporation Berhad',
+    target: 'WizTrox Corporation Berhad',
     segment: 'Machine Vision & Automated Test Equipment',
     company_focus: 'Machine vision for PCB & semiconductor inspection',
     website: 'https://vitrox.example',
@@ -1017,7 +1150,7 @@ const seedCompanies: SeedCompany[] = [
   },
   {
     entry_id: 9029,
-    target: 'Shin-Etsu Chemical Co.',
+    target: 'Shinypants Chemical Co.',
     segment: 'Semiconductor Silicon Wafers & Photoresists',
     company_focus: 'Dominant global silicon wafer and photoresist supplier',
     website: 'https://shinetsu.example',
@@ -1033,7 +1166,7 @@ const seedCompanies: SeedCompany[] = [
     key_rationale:
       'Dominant silicon wafer supplier globally; photoresist chemicals division is a strong strategic adjacency. Flagged as top consolidator in Japan.',
     remarks:
-      'Extracted from JP Morgan APAC Chemicals market study (May 2026). Not being pitched — referenced as market benchmark.',
+      'Extracted from JP Organ APAC Chemicals market study (May 2026). Not being pitched — referenced as market benchmark.',
     last_activity_at: '2026-06-12T00:00:00Z',
     financials: [
       { fiscal_year: 2024, revenue_usd_mn: 14000, ebitda_usd_mn: 3400, ev_usd_mn: 40000 },
@@ -1041,7 +1174,7 @@ const seedCompanies: SeedCompany[] = [
   },
   {
     entry_id: 9030,
-    target: 'Powertech Technology Inc.',
+    target: 'Powerpuff Technology Inc.',
     segment: 'Semiconductor OSAT — Memory Packaging',
     company_focus: 'Memory packaging and test services',
     website: 'https://powertech.example',
@@ -1214,8 +1347,8 @@ const seedCompanies: SeedCompany[] = [
     status: 'active',
     source: 'inbound',
     doc_type: 'teaser',
-    banker_source: 'Mandiri Sekuritas',
-    remarks: 'Seed: building materials teaser from Mandiri; strong order book from developer clients.',
+    banker_source: 'Mandarin Sekuritas',
+    remarks: 'Seed: building materials teaser from Mandarin; strong order book from developer clients.',
     watchlist_status: 'New',
     financials: [
       { fiscal_year: 2024, revenue_usd_mn: 33.5, ebitda_usd_mn: 5.1, ev_usd_mn: 105 },
@@ -1234,7 +1367,7 @@ const seedCompanies: SeedCompany[] = [
     status: 'active',
     source: 'inbound',
     doc_type: 'shopping_list',
-    banker_source: 'CIMB',
+    banker_source: 'DIMB',
     remarks: 'Seed: concession-based utility; regulated tariff upside under next review cycle.',
     watchlist_status: 'New',
     financials: [
@@ -1255,7 +1388,7 @@ const seedCompanies: SeedCompany[] = [
     status: 'active',
     source: 'inbound',
     doc_type: 'teaser',
-    banker_source: 'UBS',
+    banker_source: 'UBSnacks',
     remarks: 'Seed: insurtech MGA with strong GWP growth; EBITDA positive from 2024.',
     watchlist_status: 'New',
     financials: [
@@ -1275,7 +1408,7 @@ const seedCompanies: SeedCompany[] = [
     status: 'active',
     source: 'inbound',
     doc_type: 'market_study',
-    banker_source: 'Deutsche Bank',
+    banker_source: 'Doodle Bank',
     remarks: 'Seed: circular metals play; strong ESG angle, EBITDA margin improving with scale.',
     watchlist_status: 'New',
     financials: [
@@ -1296,7 +1429,7 @@ const seedCompanies: SeedCompany[] = [
     status: 'active',
     source: 'inbound',
     doc_type: 'teaser',
-    banker_source: 'JP Morgan',
+    banker_source: 'JP Organ',
     remarks: 'Seed: company name withheld in teaser. Strong modern-trade customer list.',
     watchlist_status: 'New',
     financials: [
@@ -1316,8 +1449,8 @@ const seedCompanies: SeedCompany[] = [
     status: 'active',
     source: 'inbound',
     doc_type: 'teaser',
-    banker_source: 'Macquarie',
-    remarks: 'Seed: upstream services with long-term Pertamina contracts; owner exploring exit.',
+    banker_source: 'Macaroni',
+    remarks: 'Seed: upstream services with long-term NusantaraOil contracts; owner exploring exit.',
     watchlist_status: 'New',
     financials: [
       { fiscal_year: 2023, revenue_usd_mn: 38.0, ebitda_usd_mn: 8.9 },
@@ -1339,8 +1472,8 @@ const seedCompanies: SeedCompany[] = [
     status: 'active',
     source: 'inbound',
     deal_type: 'majority',
-    banker: 'Morgan Stanley',
-    advisor: 'Morgan Stanley',
+    banker: 'Organ Stanley',
+    advisor: 'Organ Stanley',
     doc_type: 'teaser',
     workflow_status: 'NDA executed',
     stake: '65%',
@@ -1365,8 +1498,8 @@ const seedCompanies: SeedCompany[] = [
     status: 'active',
     source: 'inbound',
     deal_type: 'majority',
-    banker: 'Goldman Sachs',
-    advisor: 'Goldman Sachs',
+    banker: 'Golden Sacks',
+    advisor: 'Golden Sacks',
     doc_type: 'teaser',
     workflow_status: 'Teaser review',
     stake: '70%',
@@ -1390,7 +1523,7 @@ const seedCompanies: SeedCompany[] = [
     status: 'active',
     source: 'inbound',
     deal_type: 'majority',
-    banker: 'Citigroup',
+    banker: 'Kittygroup',
     doc_type: 'shopping_list',
     workflow_status: 'Management meeting scheduled',
     stake: '60%',
@@ -1416,7 +1549,7 @@ const seedCompanies: SeedCompany[] = [
     status: 'active',
     source: 'inbound',
     deal_type: 'majority',
-    banker: 'HSBC',
+    banker: 'HSBQ',
     doc_type: 'teaser',
     workflow_status: 'Unreviewed',
     stake: '80%',
@@ -1431,7 +1564,7 @@ const seedCompanies: SeedCompany[] = [
   // ── ADDITIONAL L0 OUTBOUND ACTIVE (reviewed) ──────────────────────────────
   {
     entry_id: 9058,
-    target: 'Pelindo Freight Terminals',
+    target: 'Pelican Freight Terminals',
     project_name: 'Project Port',
     segment: 'Port Logistics / Terminal Operations',
     company_focus: 'Container handling and port logistics at three secondary ports in Sulawesi and Kalimantan',
@@ -1453,7 +1586,7 @@ const seedCompanies: SeedCompany[] = [
   },
   {
     entry_id: 9059,
-    target: 'Vincem Cement Holdings',
+    target: 'Wincem Cement Holdings',
     segment: 'Construction Materials / Cement',
     company_focus: 'Integrated cement producer with 8M-tonne capacity across central and southern Vietnam',
     website: 'https://vincemcement.example',
@@ -1552,7 +1685,7 @@ const seedCompanies: SeedCompany[] = [
     status: 'dropped',
     source: 'inbound',
     doc_type: 'teaser',
-    banker_source: 'CLSA',
+    banker_source: 'CLSO',
     watchlist_status: 'Dropped',
     dropped_reason: 'Revenue highly lumpy; single hit title accounts for 80% of revenue with no pipeline visibility.',
     dropped_at: '2026-06-18T14:00:00Z',
@@ -1574,7 +1707,7 @@ const seedCompanies: SeedCompany[] = [
     status: 'dropped',
     source: 'inbound',
     doc_type: 'teaser',
-    banker_source: 'Tiger Securities',
+    banker_source: 'Liger Securities',
     watchlist_status: 'Dropped',
     dropped_reason: 'Outside mandate — crypto assets explicitly excluded from investment policy; regulatory risk too elevated.',
     dropped_at: '2026-06-14T11:30:00Z',
@@ -1615,7 +1748,7 @@ const seedCompanies: SeedCompany[] = [
     status: 'dropped',
     source: 'inbound',
     doc_type: 'teaser',
-    banker_source: 'Danareksa',
+    banker_source: 'Dinoreksa',
     watchlist_status: 'Dropped',
     dropped_reason: 'Structural revenue decline — print ad revenue falling 18% YoY with digital transition insufficient to offset.',
     dropped_at: '2026-06-22T08:00:00Z',
@@ -1643,7 +1776,7 @@ const seedCompanies: SeedCompany[] = [
     watchlist_status: 'Dropped',
     source: 'inbound',
     deal_type: 'majority',
-    banker: 'Goldman Sachs',
+    banker: 'Golden Sacks',
     originator: 'James Wong',
     doc_type: 'teaser',
     workflow_status: 'Teaser review',
@@ -1666,7 +1799,7 @@ const seedCompanies: SeedCompany[] = [
     watchlist_status: 'Dropped',
     source: 'inbound',
     deal_type: 'majority',
-    banker: 'JP Morgan',
+    banker: 'JP Organ',
     originator: 'Nur Khairusy',
     doc_type: 'teaser',
     workflow_status: 'Teaser review',
@@ -1746,7 +1879,7 @@ const seedAfdFiles: SeedAfdFile[] = [
     file_name: 'Seed AFD - Project Bold Banker Email.eml',
     file_link: 'seed/afd/project-bold-banker-email.eml',
     raw_notes:
-      'Banker email from JP Morgan on Project Bold valuation expectations and process timing.',
+      'Banker email from JP Organ on Project Bold valuation expectations and process timing.',
     structured_notes: {
       file_type: 'banker_communications',
       summary: 'Seed banker communication for Project Bold.',
@@ -2052,6 +2185,109 @@ async function main() {
       `  ✓ ${insertedEmployers.length} employers + ${correspondentRows.length} correspondents`,
     );
 
+    // ── CRM enrichment: internal team, topics, assignments, notes ────────────
+    const slugify = (s: string) =>
+      s
+        .toLowerCase()
+        .trim()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-+|-+$/g, '')
+        .slice(0, 80);
+
+    // Internal team members (upsert by email; keep ids stable across re-runs).
+    const teamUserIdByEmail = new Map<string, string>();
+    for (const u of SEED_TEAM_USERS) {
+      const [row] = await db
+        .insert(users)
+        .values({ name: u.name, email: u.email, password: passwordHash, role: u.role })
+        .onConflictDoUpdate({
+          target: users.email,
+          set: { name: u.name, role: u.role },
+        })
+        .returning({ id: users.id, email: users.email });
+      if (row.email) teamUserIdByEmail.set(row.email, row.id);
+    }
+    console.log(`  ✓ ${SEED_TEAM_USERS.length} internal team users`);
+
+    // Topic dictionary (with deal/non-deal classification). Upgrade-only on the
+    // flag mirrors the ingest pipeline: never demote a topic on re-seed.
+    const topicIdByName = new Map<string, string>();
+    for (const t of SEED_TOPICS) {
+      const [row] = await db
+        .insert(topics)
+        .values({ name: t.name, slug: slugify(t.name), is_deal_related: t.is_deal_related })
+        .onConflictDoUpdate({
+          target: topics.name,
+          set: {
+            slug: slugify(t.name),
+            is_deal_related: sql`${topics.is_deal_related} OR ${t.is_deal_related}`,
+          },
+        })
+        .returning({ id: topics.id, name: topics.name });
+      topicIdByName.set(row.name, row.id);
+    }
+    const dealCount = SEED_TOPICS.filter((t) => t.is_deal_related).length;
+    console.log(
+      `  ✓ ${SEED_TOPICS.length} topics (${dealCount} deal / ${SEED_TOPICS.length - dealCount} non-deal)`,
+    );
+
+    // Per-firm topic assignments, team coverage, and notes. Idempotent: topics
+    // and team rows use ON CONFLICT DO NOTHING; notes are wiped per-employer
+    // first (no natural unique key).
+    const enrichedEmployerIds = Object.keys(CRM_ENRICHMENT)
+      .map((name) => firmIdByName.get(normalize(name)))
+      .filter((id): id is string => !!id);
+    if (enrichedEmployerIds.length > 0) {
+      await db
+        .delete(employerNotes)
+        .where(inArray(employerNotes.employer_id, enrichedEmployerIds));
+    }
+
+    let topicAssigns = 0;
+    let teamRows = 0;
+    let noteRows = 0;
+    for (const [firmName, enrich] of Object.entries(CRM_ENRICHMENT)) {
+      const employerId = firmIdByName.get(normalize(firmName));
+      if (!employerId) continue;
+
+      for (const t of enrich.topics) {
+        const topicId = topicIdByName.get(t.name);
+        if (!topicId) continue;
+        await db
+          .insert(employerTopics)
+          .values({
+            employer_id: employerId,
+            topic_id: topicId,
+            source: t.source,
+            is_highlight: !!t.highlight,
+          })
+          .onConflictDoNothing();
+        topicAssigns++;
+      }
+
+      for (const userEmail of enrich.team) {
+        const userId = teamUserIdByEmail.get(userEmail);
+        if (!userId) continue;
+        await db
+          .insert(employerTeamMembers)
+          .values({ employer_id: employerId, user_id: userId })
+          .onConflictDoNothing();
+        teamRows++;
+      }
+
+      for (const note of enrich.notes ?? []) {
+        await db.insert(employerNotes).values({
+          employer_id: employerId,
+          content: note,
+          author_user_id: teamUserIdByEmail.get('alvin.wobblebottom@sparklecapital.example') ?? null,
+        });
+        noteRows++;
+      }
+    }
+    console.log(
+      `  ✓ ${topicAssigns} topic assignments + ${teamRows} team rows + ${noteRows} notes`,
+    );
+
     // ── AUTO VEHICLE ─────────────────────────────────────────────────────────
     // Simulates a CRM employer that originated from an mbox ingest. Surfaces
     // the AUTO badge in the CRM card because employerRepository.list flips to
@@ -2082,15 +2318,15 @@ async function main() {
 
     const avContacts = [
       {
-        name: 'Ahmad Pratama',
-        email: 'ahmad.pratama@autovehicle.co.id',
+        name: 'Apu Pratfall',
+        email: 'apu.pratfall@autowobble.example',
         title: 'Head of Corporate Development',
         phone: '+62 21 555 0201',
         is_primary: true,
       },
       {
-        name: 'Siti Rahayu',
-        email: 'siti.rahayu@autovehicle.co.id',
+        name: 'Sisi Rainbow',
+        email: 'sisi.rainbow@autowobble.example',
         title: 'CFO',
         phone: '+62 21 555 0202',
         is_primary: false,
@@ -2115,7 +2351,7 @@ async function main() {
       insertedAvCorrespondents.map((r) => [r.email!.toLowerCase(), r.id]),
     );
 
-    const INTERNAL = { name: 'Amanda Wijaya', email: 'amanda.wijaya@starcapital.com' };
+    const INTERNAL = { name: 'Wendy Wobble', email: 'wendy.wobble@sparklecapital.example' };
     const PIC = avContacts[0]!;
     const SECONDARY = avContacts[1]!;
     const dayMs = 24 * 60 * 60 * 1000;
@@ -2136,7 +2372,7 @@ async function main() {
       {
         idx: 1,
         subject: 'Introduction — AUTO VEHICLE × Star Capital',
-        body: 'Hi Amanda, Following up on our brief call last week, I would like to schedule a deeper conversation about strategic options for AUTO VEHICLE. Best, Ahmad.',
+        body: 'Hi Wendy, Following up on our brief call last week, I would like to schedule a deeper conversation about strategic options for AUTO VEHICLE. Best, Apu.',
         from: { name: PIC.name, email: PIC.email },
         to: [INTERNAL],
         direction: 'inbound',
@@ -2145,7 +2381,7 @@ async function main() {
       {
         idx: 2,
         subject: 'RE: Introduction — AUTO VEHICLE × Star Capital',
-        body: 'Hi Ahmad, Thanks for reaching out. Let us set up a call next Tuesday at 10am SGT. I will send an invite. — Amanda',
+        body: 'Hi Apu, Thanks for reaching out. Let us set up a call next Tuesday at 10am SGT. I will send an invite. — Wendy',
         from: INTERNAL,
         to: [{ name: PIC.name, email: PIC.email }],
         cc: [{ name: SECONDARY.name, email: SECONDARY.email }],
@@ -2155,7 +2391,7 @@ async function main() {
       {
         idx: 3,
         subject: 'AUTO VEHICLE — FY2025 financials',
-        body: 'Amanda, Please find attached our FY2025 financials (unaudited). Revenue grew 18% YoY to USD 42M. Happy to walk through. — Siti',
+        body: 'Wendy, Please find attached our FY2025 financials (unaudited). Revenue grew 18% YoY to USD 42M. Happy to walk through. — Sisi',
         from: { name: SECONDARY.name, email: SECONDARY.email },
         to: [INTERNAL],
         cc: [{ name: PIC.name, email: PIC.email }],
@@ -2165,7 +2401,7 @@ async function main() {
       {
         idx: 4,
         subject: 'NDA draft for AUTO VEHICLE discussions',
-        body: 'Ahmad, Attaching our standard NDA for your review. Once executed we can proceed to share the CIM. — Amanda',
+        body: 'Apu, Attaching our standard NDA for your review. Once executed we can proceed to share the CIM. — Wendy',
         from: INTERNAL,
         to: [{ name: PIC.name, email: PIC.email }],
         direction: 'outbound',
@@ -2174,7 +2410,7 @@ async function main() {
       {
         idx: 5,
         subject: 'Signed NDA — AUTO VEHICLE',
-        body: 'Amanda, Signed NDA attached. Looking forward to next steps. — Ahmad',
+        body: 'Wendy, Signed NDA attached. Looking forward to next steps. — Apu',
         from: { name: PIC.name, email: PIC.email },
         to: [INTERNAL],
         direction: 'inbound',

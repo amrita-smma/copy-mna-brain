@@ -454,7 +454,7 @@ export class CRMService {
   async addTopicToEmployer(
     employerId: string,
     name: string,
-    opts: { source?: "auto" | "manual"; is_highlight?: boolean } = {},
+    opts: { source?: "auto" | "manual"; is_highlight?: boolean; is_deal_related?: boolean } = {},
   ): Promise<EmployerTopicAssignment[]> {
     const existing = await this.topicRepo.listForEmployer(employerId);
     if (existing.length >= 20) {
@@ -465,12 +465,21 @@ export class CRMService {
     ) {
       throw new Error("Topic already attached");
     }
-    const topic = await this.topicRepo.findOrCreate(name);
+    const topic = await this.topicRepo.findOrCreate(name, {
+      is_deal_related: opts.is_deal_related ?? false,
+    });
     await this.topicRepo.assignToEmployer(employerId, topic.id, {
       source: opts.source ?? "manual",
       is_highlight: opts.is_highlight ?? false,
     });
     return this.topicRepo.listForEmployer(employerId);
+  }
+
+  async reclassifyTopic(
+    topicId: string,
+    is_deal_related: boolean,
+  ): Promise<void> {
+    await this.topicRepo.setDealRelated(topicId, is_deal_related);
   }
 
   async removeTopicFromEmployer(

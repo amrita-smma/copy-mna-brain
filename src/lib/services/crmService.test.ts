@@ -48,6 +48,7 @@ const topicRepo = {
   removeFromEmployer: vi.fn(),
   countEmployerTopics: vi.fn(),
   findByIds: vi.fn(),
+  setDealRelated: vi.fn(),
 };
 
 const emailRepo = {
@@ -341,6 +342,28 @@ describe('CRMService.addTopicToEmployer', () => {
       expect.objectContaining({ source: 'manual' }),
     );
     expect(out).toEqual([{ id: 't', name: 'NewTopic' }]);
+  });
+
+  it('passes is_deal_related to findOrCreate when adding a manual deal tag', async () => {
+    topicRepo.listForEmployer
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ id: 't', name: 'acquisition' }]);
+    topicRepo.findOrCreate.mockResolvedValue({ id: 'topic-1' });
+    topicRepo.assignToEmployer.mockResolvedValue({ id: 'et1' });
+
+    await makeService().addTopicToEmployer('e1', 'acquisition', {
+      is_deal_related: true,
+    });
+    expect(topicRepo.findOrCreate).toHaveBeenCalledWith('acquisition', {
+      is_deal_related: true,
+    });
+  });
+});
+
+describe('CRMService.reclassifyTopic', () => {
+  it('delegates to topicRepo.setDealRelated', async () => {
+    await makeService().reclassifyTopic('topic-1', true);
+    expect(topicRepo.setDealRelated).toHaveBeenCalledWith('topic-1', true);
   });
 });
 

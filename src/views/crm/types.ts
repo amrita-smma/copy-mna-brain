@@ -68,6 +68,7 @@ export interface EmployerTopicAssignment {
   slug: string;
   source: string;
   is_highlight: boolean;
+  is_deal_related: boolean;
 }
 
 export interface RelatedCompanyEvidence {

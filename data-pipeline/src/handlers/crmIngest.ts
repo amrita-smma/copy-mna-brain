@@ -260,17 +260,26 @@ export async function runCrmIngest(
   const classifiedByDomain = new Map<string, DomainClassificationRow>();
   for (const c of classifiedRows) classifiedByDomain.set(c.domain, c);
 
-  // 5. Unique slugs across enrichments.
-  const uniqueSlugs = new Set<string>();
+  // 5. Unique topics across enrichments. Tolerates both old string[] and new
+  // {name, is_deal_related}[] formats in raw_email_enrichments.topics (jsonb).
+  type RawTopic = string | { name: string; is_deal_related: boolean };
+  const uniqueTopics = new Map<string, { slug: string; is_deal_related: boolean }>();
   for (const e of enrichments) {
-    for (const t of (e.topics as string[] | null) ?? []) {
-      const slug = normalize(t);
-      if (slug) uniqueSlugs.add(slug);
+    for (const t of (e.topics as RawTopic[] | null) ?? []) {
+      const raw = typeof t === 'string' ? t : t.name;
+      const slug = normalize(raw);
+      if (!slug) continue;
+      if (!uniqueTopics.has(slug)) {
+        uniqueTopics.set(slug, {
+          slug,
+          is_deal_related: typeof t === 'string' ? false : t.is_deal_related,
+        });
+      }
     }
   }
 
   log(
-    `ingest set: ${rowsToIngest.length} emails / ${uniqueDomains.size} domains / ${uniqueSlugs.size} topics`,
+    `ingest set: ${rowsToIngest.length} emails / ${uniqueDomains.size} domains / ${uniqueTopics.size} topics`,
   );
 
   // Hoisted so the related-companies step (outside the tx) can read them.
@@ -290,7 +299,7 @@ export async function runCrmIngest(
 
     // [1/7] Topics.
     log('[1/7] topics');
-    const topicRows = await txTopicRepo.upsertBatch([...uniqueSlugs]);
+    const topicRows = await txTopicRepo.upsertBatch([...uniqueTopics.values()]);
     const slugToTopicId = new Map<string, string>();
     for (const t of topicRows) slugToTopicId.set(t.slug, t.id);
     result.topics_upserted = topicRows.length;
@@ -519,8 +528,9 @@ export async function runCrmIngest(
       if (!emailId) continue;
       const enrichRec = enrichmentByRawId.get(r.id);
       if (!enrichRec) continue;
-      for (const t of (enrichRec.topics as string[] | null) ?? []) {
-        const slug = normalize(t);
+      for (const t of (enrichRec.topics as RawTopic[] | null) ?? []) {
+        const raw = typeof t === 'string' ? t : t.name;
+        const slug = normalize(raw);
         if (!slug) continue;
         const topicId = slugToTopicId.get(slug);
         if (topicId) etRows.push({ email_id: emailId, topic_id: topicId });

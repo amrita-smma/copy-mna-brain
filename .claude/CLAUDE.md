@@ -56,7 +56,7 @@ Country values (`companies.geography`) are stored as free-text country **names**
 
 ## Database Seeding
 
-The primary local dev seeder is `scripts/seed.ts` (run via `pnpm db:seed`). Do **not** add new standalone seed scripts for individual features — extend `seed.ts` (its `seedCompanies` / related fixtures) instead, so feature seed data stays consolidated under a single command. A few separate seeders exist for distinct purposes (`db:seed:crm`, `db:seed:neo4j`, and the bad-EBITDA HITL fixture); don't add to that list — fold new data into `seed.ts`.
+The primary local dev seeder is `scripts/seed.ts` (run via `pnpm db:seed`). It seeds companies, the CRM (employers, correspondents, topics with deal/non-deal classification, team coverage, notes), and the AUTO VEHICLE ingest fixture. Do **not** add new standalone seed scripts for individual features — extend `seed.ts` (its `seedCompanies` / `CRM_ENRICHMENT` / `SEED_TOPICS` / related fixtures) instead, so feature seed data stays consolidated under a single command. A couple of separate seeders exist for distinct purposes (`db:seed:neo4j` and the bad-EBITDA HITL fixture); don't add to that list — fold new data into `seed.ts`.
 
 ## Database Migrations
 

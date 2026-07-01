@@ -343,8 +343,13 @@ export default function CRM({
               <div />
             </div>
 
-            {/* Cards */}
-            {loading ? (
+            {/* Cards. Only show the full-list spinner on the INITIAL load
+                (no rows yet). A background refetch — e.g. after reclassifying a
+                topic, which calls onRefreshList to refresh the collapsed-row
+                topic summary — keeps the existing list rendered and updates it
+                in place. Blanking the list to a spinner on every refresh
+                unmounted the expanded card and reset its tab to Contacts. */}
+            {loading && employers.length === 0 ? (
               <div className="flex items-center justify-center py-16">
                 <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
               </div>

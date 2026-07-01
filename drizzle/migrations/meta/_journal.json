@@ -568,6 +568,13 @@
       "when": 1782777600000,
       "tag": "20260630000000_add_companies_advisor",
       "breakpoints": true
+    },
+    {
+      "idx": 81,
+      "version": "7",
+      "when": 1782787490000,
+      "tag": "20260630024450_add_is_deal_related_to_topics",
+      "breakpoints": true
     }
   ]
 }

@@ -38,6 +38,7 @@ export async function POST(req: NextRequest, ctx: Ctx) {
     const data = await crmService.addTopicToEmployer(id, name, {
       source: 'manual',
       is_highlight: !!body.is_highlight,
+      is_deal_related: !!body.is_deal_related,
     });
     return NextResponse.json({ data }, { status: 201 });
   } catch (err) {

@@ -41,8 +41,13 @@ export interface LlmRelatedCompany {
   confidence: 'high' | 'medium' | 'low';
 }
 
+export interface LlmTopic {
+  name: string;
+  is_deal_related: boolean;
+}
+
 export interface LlmExtraction {
-  topics: string[];
+  topics: LlmTopic[];
   people: LlmPerson[];
   related_companies: LlmRelatedCompany[];
 }
@@ -78,9 +83,22 @@ export const EMAIL_EXTRACTION_SCHEMA = {
   properties: {
     topics: {
       type: 'array',
-      items: { type: 'string' },
       description:
-        "0-5 short business-substance topic tags (kebab-case, e.g. 'nda', 'term-sheet', 'waste-to-energy', 'project-domino'). Empty array is fine — do NOT include procedural/admin/scheduling/file-handling tags. See SYSTEM_PROMPT TOPIC RULES for full guidance.",
+        "0-5 business-substance topic tags. Each has a kebab-case name and a deal classification. Empty array is fine — do NOT include procedural/admin/scheduling/file-handling tags. See SYSTEM_PROMPT TOPIC RULES for full guidance.",
+      items: {
+        type: 'object',
+        properties: {
+          name: {
+            type: 'string',
+            description: "Kebab-case tag (e.g. 'nda', 'term-sheet', 'semiconductors', 'waste-to-energy').",
+          },
+          is_deal_related: {
+            type: 'boolean',
+            description: "true = deal mechanics / deal stage / project codename; false = industry/sector/substance not directly tied to a transaction.",
+          },
+        },
+        required: ['name', 'is_deal_related'],
+      },
     },
     people: {
       type: 'array',
@@ -167,14 +185,16 @@ THING TO CONSIDER:
 - sender_email is the email of the sender of the email
 
 TOPIC RULES:
-Emit 0-5 short kebab-case tags describing the BUSINESS SUBSTANCE of the email.
-Empty is fine and better than noise.
+Emit 0-5 topic objects, each with a kebab-case "name" and an "is_deal_related" boolean.
+Empty array is fine and better than noise.
 
-GOOD topics describe:
-- Deal mechanics: nda, term-sheet, due-diligence, valuation, mou, loi, signing, term-sheet-negotiation
+is_deal_related = true — directly tied to a transaction or deal process:
+- Deal mechanics: nda, term-sheet, due-diligence, valuation, mou, loi, signing, mandate, acquisition, financing
 - Project codenames mentioned in the email: project-domino, project-olive
-- Industry / sector: semiconductors, waste-to-energy, real-estate, infrastructure, fintech
 - Deal stage / activity: intro, market-sounding, regulatory-filing, fundraising, exit, ipo
+
+is_deal_related = false — industry, sector, or substantive context not tied to a specific transaction:
+- Industry / sector: semiconductors, waste-to-energy, real-estate, infrastructure, fintech, cmp-slurry, lithography
 - Substantive subject matter — only when the email is genuinely ABOUT the analysis, not just
   transmitting a file: bankability-study, capex-analysis, financial-model, valuation-review
 

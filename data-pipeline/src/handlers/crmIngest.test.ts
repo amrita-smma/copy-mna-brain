@@ -218,6 +218,64 @@ describe('runCrmIngest', () => {
     expect(result.marts_refreshed).toEqual(['mart_crm', 'mart_mom', 'mart_topics']);
   });
 
+  it('passes the LLM deal classification through to topicsUpsertBatch (new object format)', async () => {
+    mocks.listReadyForIngest.mockResolvedValueOnce([makeRow({ id: 'r1' })]);
+    mocks.findByRawEmailIds.mockResolvedValueOnce([
+      {
+        raw_email_id: 'r1',
+        topics: [
+          { name: 'acquisition', is_deal_related: true },
+          { name: 'semiconductors', is_deal_related: false },
+        ],
+        people: [],
+        candidates: [],
+      },
+    ]);
+    mocks.topicsUpsertBatch.mockResolvedValueOnce([
+      { id: 't1', slug: 'acquisition', name: 'acquisition' },
+      { id: 't2', slug: 'semiconductors', name: 'semiconductors' },
+    ]);
+    mocks.employersUpsertBatch.mockResolvedValueOnce([
+      { id: 'emp-goldman', normalized_name: 'goldman-sachs' },
+    ]);
+    mocks.correspondentsUpsertBatch.mockResolvedValueOnce([]);
+
+    await runCrmIngest(
+      {},
+      { db: makeDb() as never, job: { id: 'j1' } as never },
+    );
+
+    expect(mocks.topicsUpsertBatch).toHaveBeenCalledWith(
+      expect.arrayContaining([
+        { slug: 'acquisition', is_deal_related: true },
+        { slug: 'semiconductors', is_deal_related: false },
+      ]),
+    );
+  });
+
+  it('treats legacy string topics as non-deal (backward compat)', async () => {
+    mocks.listReadyForIngest.mockResolvedValueOnce([makeRow({ id: 'r1' })]);
+    mocks.findByRawEmailIds.mockResolvedValueOnce([
+      { raw_email_id: 'r1', topics: ['nda'], people: [], candidates: [] },
+    ]);
+    mocks.topicsUpsertBatch.mockResolvedValueOnce([
+      { id: 't1', slug: 'nda', name: 'nda' },
+    ]);
+    mocks.employersUpsertBatch.mockResolvedValueOnce([
+      { id: 'emp-goldman', normalized_name: 'goldman-sachs' },
+    ]);
+    mocks.correspondentsUpsertBatch.mockResolvedValueOnce([]);
+
+    await runCrmIngest(
+      {},
+      { db: makeDb() as never, job: { id: 'j1' } as never },
+    );
+
+    expect(mocks.topicsUpsertBatch).toHaveBeenCalledWith([
+      { slug: 'nda', is_deal_related: false },
+    ]);
+  });
+
   it('threads the raw in_reply_to onto the inserted email', async () => {
     mocks.listReadyForIngest.mockResolvedValueOnce([
       makeRow({ id: 'r1', in_reply_to: 'parent-msg@x' }),

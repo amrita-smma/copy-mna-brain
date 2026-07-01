@@ -2219,6 +2219,7 @@ export const topics = pgTable(
     name: text().notNull(),
     slug: text().notNull(),
     description: text(),
+    is_deal_related: boolean().default(false).notNull(),
     created_at: timestamp({ withTimezone: true, mode: "string" })
       .defaultNow()
       .notNull(),

@@ -14,6 +14,7 @@ export interface EmployerTopicAssignment {
   slug: string;
   source: string;
   is_highlight: boolean;
+  is_deal_related: boolean;
 }
 
 function slugify(name: string): string {
@@ -55,18 +56,28 @@ export class TopicRepository {
    * otherwise crash a duplicate insert, which is annoying when concurrent
    * imports race to create the same tag.
    */
-  async findOrCreate(name: string): Promise<Topic> {
+  async findOrCreate(
+    name: string,
+    opts: { is_deal_related?: boolean } = {},
+  ): Promise<Topic> {
     const existing = await this.findByName(name);
     if (existing) return existing;
     const [row] = await this.db
       .insert(topics)
-      .values({ name, slug: slugify(name) })
+      .values({ name, slug: slugify(name), is_deal_related: opts.is_deal_related ?? false })
       .onConflictDoUpdate({
         target: topics.name,
         set: { name },
       })
       .returning();
     return row;
+  }
+
+  async setDealRelated(topicId: string, is_deal_related: boolean): Promise<void> {
+    await this.db
+      .update(topics)
+      .set({ is_deal_related })
+      .where(eq(topics.id, topicId));
   }
 
   /**
@@ -84,6 +95,7 @@ export class TopicRepository {
         slug: topics.slug,
         source: employerTopics.source,
         is_highlight: employerTopics.is_highlight,
+        is_deal_related: topics.is_deal_related,
       })
       .from(employerTopics)
       .innerJoin(topics, eq(employerTopics.topic_id, topics.id))
@@ -151,21 +163,35 @@ export class TopicRepository {
    * Bulk upsert from a list of canonical slugs. Mirrors
    * `crmIngest` step [4/7]. Returns the upserted rows so
    * the caller can build a slug→id map for downstream `email_topics` inserts.
-   * The UPDATE is a no-op `name = EXCLUDED.name` forcing RETURNING for both
-   * new and existing rows.
+   *
+   * `is_deal_related` is **upgrade-only**: a new email that classifies a topic
+   * as deal-related promotes an existing non-deal topic, but the LLM can never
+   * demote a topic back to non-deal (`EXCLUDED.is_deal_related OR
+   * topics.is_deal_related`). Only a human can move a topic back down via
+   * `setDealRelated`. This lets historical topics drift toward deal as new
+   * deal-context emails arrive, without the LLM clobbering an earlier signal.
    */
-  async upsertBatch(slugs: string[]): Promise<Topic[]> {
-    if (slugs.length === 0) return [];
+  async upsertBatch(
+    items: Array<{ slug: string; is_deal_related?: boolean }>,
+  ): Promise<Topic[]> {
+    if (items.length === 0) return [];
     const CHUNK = 1000;
     const out: Topic[] = [];
-    for (let i = 0; i < slugs.length; i += CHUNK) {
-      const chunk = slugs.slice(i, i + CHUNK).map((slug) => ({ name: slug, slug }));
+    for (let i = 0; i < items.length; i += CHUNK) {
+      const chunk = items.slice(i, i + CHUNK).map((item) => ({
+        name: item.slug,
+        slug: item.slug,
+        is_deal_related: item.is_deal_related ?? false,
+      }));
       const res = await this.db
         .insert(topics)
         .values(chunk)
         .onConflictDoUpdate({
           target: topics.slug,
-          set: { name: sql`EXCLUDED.name` },
+          set: {
+            name: sql`EXCLUDED.name`,
+            is_deal_related: sql`${topics.is_deal_related} OR EXCLUDED.is_deal_related`,
+          },
         })
         .returning();
       out.push(...res);

@@ -223,7 +223,11 @@ export function EmployerCard({
 
       {expanded && (
         <div className="border-t bg-background">
-          {loadingDetail || !detail ? (
+          {/* Only show the spinner on the INITIAL load (no detail yet). During a
+              background refetch (e.g. after reclassifying a topic) `detail` is
+              still populated, so we keep rendering it in place — swapping to a
+              spinner on every refresh caused the card to blink. */}
+          {!detail ? (
             <div className="flex items-center justify-center py-8">
               <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
             </div>
@@ -262,6 +266,134 @@ function TopicChipBadge({
     >
       {topic.name}
     </Badge>
+  );
+}
+
+function TopicChipWithActions({
+  topic,
+  onReclassify,
+  onRemove,
+  onDragStart,
+  onDragEnd,
+}: {
+  topic: EmployerTopicAssignment;
+  onReclassify: () => void;
+  onRemove: () => void;
+  onDragStart: () => void;
+  onDragEnd: () => void;
+}) {
+  return (
+    <div
+      className="group relative cursor-grab active:cursor-grabbing"
+      draggable
+      onDragStart={(e) => {
+        e.dataTransfer.effectAllowed = "move";
+        e.dataTransfer.setData("text/plain", topic.topic_id);
+        onDragStart();
+      }}
+      onDragEnd={onDragEnd}
+    >
+      <TopicChipBadge topic={topic} />
+      <div className="absolute -right-1 -top-1 hidden gap-0.5 group-hover:flex">
+        <button
+          className="flex h-4 w-4 items-center justify-center rounded-full border bg-background text-[10px] hover:bg-indigo-50"
+          onClick={onReclassify}
+          aria-label={topic.is_deal_related ? "Move to non-deal" : "Move to deal"}
+          title={topic.is_deal_related ? "Move to Non-Deal Related" : "Move to Deal Related"}
+        >
+          ⇄
+        </button>
+        <button
+          className="flex h-4 w-4 items-center justify-center rounded-full border bg-background text-[10px] hover:bg-red-50"
+          onClick={onRemove}
+          aria-label="Remove tag"
+        >
+          ×
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function TopicDropZone({
+  label,
+  labelClassName,
+  topics,
+  isDealZone,
+  dragActive,
+  dragOver,
+  onDragEnterZone,
+  onDragLeaveZone,
+  onDrop,
+  onDragStartChip,
+  onDragEndChip,
+  onReclassify,
+  onRemove,
+}: {
+  label: string;
+  labelClassName: string;
+  topics: EmployerTopicAssignment[];
+  isDealZone: boolean;
+  dragActive: boolean;
+  dragOver: boolean;
+  onDragEnterZone: () => void;
+  onDragLeaveZone: () => void;
+  onDrop: () => void;
+  onDragStartChip: (t: EmployerTopicAssignment) => void;
+  onDragEndChip: () => void;
+  onReclassify: (t: EmployerTopicAssignment) => void;
+  onRemove: (t: EmployerTopicAssignment) => void;
+}) {
+  return (
+    <div
+      className={cn(
+        "mb-3 rounded-md border border-transparent p-1 transition-colors",
+        dragActive && "border-dashed border-muted-foreground/30",
+        dragOver && "border-indigo-400 bg-indigo-50/50 dark:bg-indigo-950/20",
+      )}
+      onDragOver={(e) => {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = "move";
+      }}
+      onDragEnter={onDragEnterZone}
+      onDragLeave={(e) => {
+        // Ignore leave events bubbling from child chips.
+        if (!e.currentTarget.contains(e.relatedTarget as Node)) onDragLeaveZone();
+      }}
+      onDrop={(e) => {
+        e.preventDefault();
+        onDrop();
+      }}
+    >
+      <p
+        className={cn(
+          "mb-1.5 text-[10px] font-bold uppercase tracking-wider",
+          labelClassName,
+        )}
+      >
+        {label}
+      </p>
+      <div className="flex min-h-[1.25rem] flex-wrap gap-2">
+        {topics.length === 0 ? (
+          <span className="text-[10px] italic text-muted-foreground">
+            {dragActive
+              ? `Drop here to mark ${isDealZone ? "deal" : "non-deal"} related`
+              : "—"}
+          </span>
+        ) : (
+          topics.map((t) => (
+            <TopicChipWithActions
+              key={t.id}
+              topic={t}
+              onReclassify={() => onReclassify(t)}
+              onRemove={() => onRemove(t)}
+              onDragStart={() => onDragStartChip(t)}
+              onDragEnd={onDragEndChip}
+            />
+          ))
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -400,8 +532,14 @@ function TopicsTab({
 }) {
   const [adding, setAdding] = useState(false);
   const [name, setName] = useState("");
+  const [isDealRelated, setIsDealRelated] = useState(true);
   const [confirmRemove, setConfirmRemove] =
     useState<EmployerTopicAssignment | null>(null);
+  const [dragging, setDragging] = useState<EmployerTopicAssignment | null>(null);
+  const [dragOverDeal, setDragOverDeal] = useState<boolean | null>(null);
+
+  const dealTopics = topics.filter((t) => t.is_deal_related);
+  const nonDealTopics = topics.filter((t) => !t.is_deal_related);
 
   const handleAdd = async () => {
     const v = name.trim();
@@ -412,7 +550,7 @@ function TopicsTab({
     const res = await fetch(`/api/crm/employers/${employerId}/topics`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: v }),
+      body: JSON.stringify({ name: v, is_deal_related: isDealRelated }),
     });
     const json = await res.json().catch(() => ({}));
     if (!res.ok) {
@@ -423,6 +561,33 @@ function TopicsTab({
     setName("");
     setAdding(false);
     onChanged();
+  };
+
+  const setDealRelated = async (
+    topic: EmployerTopicAssignment,
+    value: boolean,
+  ) => {
+    if (topic.is_deal_related === value) return;
+    const res = await fetch(
+      `/api/crm/employers/${employerId}/topics/${topic.topic_id}`,
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ is_deal_related: value }),
+      },
+    );
+    if (!res.ok) {
+      toast.error("Failed to reclassify tag");
+      return;
+    }
+    onChanged();
+  };
+
+  const handleDropTo = (value: boolean) => {
+    const t = dragging;
+    setDragging(null);
+    setDragOverDeal(null);
+    if (t) void setDealRelated(t, value);
   };
 
   const handleRemove = async (topic: EmployerTopicAssignment) => {
@@ -444,7 +609,7 @@ function TopicsTab({
   return (
     <div>
       <div className="mb-3 flex items-center justify-between text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-        <span>Topics ({topics.length})</span>
+        <span>Topics Tag ({topics.length})</span>
         <button
           className="text-xs font-bold normal-case text-indigo-600 hover:underline"
           onClick={() => setAdding(true)}
@@ -453,28 +618,68 @@ function TopicsTab({
         </button>
       </div>
 
-      <div className="flex flex-wrap gap-2">
-        {topics.length === 0 && (
-          <span className="text-xs text-muted-foreground">
-            No topic tags yet.
-          </span>
-        )}
-        {topics.map((t) => (
-          <div key={t.id} className="group relative">
-            <TopicChipBadge topic={t} />
-            <button
-              className="absolute -right-1 -top-1 hidden h-4 w-4 items-center justify-center rounded-full border bg-background text-[10px] group-hover:flex"
-              onClick={() => setConfirmRemove(t)}
-              aria-label="Remove tag"
-            >
-              ×
-            </button>
-          </div>
-        ))}
-      </div>
+      {topics.length === 0 && !adding && (
+        <span className="text-xs text-muted-foreground">No topic tags yet.</span>
+      )}
+
+      {topics.length > 0 && (
+        <>
+          <TopicDropZone
+            label="Deal Related"
+            labelClassName="text-indigo-600"
+            topics={dealTopics}
+            isDealZone={true}
+            dragActive={dragging !== null && !dragging.is_deal_related}
+            dragOver={dragOverDeal === true}
+            onDragEnterZone={() => setDragOverDeal(true)}
+            onDragLeaveZone={() => setDragOverDeal((v) => (v === true ? null : v))}
+            onDrop={() => handleDropTo(true)}
+            onDragStartChip={setDragging}
+            onDragEndChip={() => {
+              setDragging(null);
+              setDragOverDeal(null);
+            }}
+            onReclassify={(t) => setDealRelated(t, false)}
+            onRemove={setConfirmRemove}
+          />
+
+          <TopicDropZone
+            label="Non-Deal Related"
+            labelClassName="text-muted-foreground"
+            topics={nonDealTopics}
+            isDealZone={false}
+            dragActive={dragging !== null && dragging.is_deal_related}
+            dragOver={dragOverDeal === false}
+            onDragEnterZone={() => setDragOverDeal(false)}
+            onDragLeaveZone={() => setDragOverDeal((v) => (v === false ? null : v))}
+            onDrop={() => handleDropTo(false)}
+            onDragStartChip={setDragging}
+            onDragEndChip={() => {
+              setDragging(null);
+              setDragOverDeal(null);
+            }}
+            onReclassify={(t) => setDealRelated(t, true)}
+            onRemove={setConfirmRemove}
+          />
+        </>
+      )}
 
       {adding && (
-        <div className="mt-3 flex items-center gap-2">
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <div className="flex rounded-md border text-xs font-semibold overflow-hidden">
+            <button
+              className={`px-3 py-1 ${isDealRelated ? "bg-indigo-600 text-white" : "text-muted-foreground hover:bg-muted"}`}
+              onClick={() => setIsDealRelated(true)}
+            >
+              Deal Related
+            </button>
+            <button
+              className={`px-3 py-1 ${!isDealRelated ? "bg-muted text-foreground" : "text-muted-foreground hover:bg-muted"}`}
+              onClick={() => setIsDealRelated(false)}
+            >
+              Non-deal related
+            </button>
+          </div>
           <Input
             value={name}
             onChange={(e) => setName(e.target.value)}
@@ -514,7 +719,7 @@ function TopicsTab({
         </Badge>{" "}
         from emails &nbsp;·&nbsp;{" "}
         <Badge variant="outline" className="mr-1 h-4 px-1.5 text-[10px] font-semibold">
-          manual
+          Manual
         </Badge>{" "}
         added by you
       </div>
@@ -528,8 +733,8 @@ function TopicsTab({
             <DialogTitle>Delete topic?</DialogTitle>
           </DialogHeader>
           <p className="text-sm text-muted-foreground">
-            {confirmRemove?.source === "auto" ? "Dismiss" : "Delete"} topic “
-            {confirmRemove?.name}”? This cannot be undone.
+            {confirmRemove?.source === "auto" ? "Dismiss" : "Delete"} topic "
+            {confirmRemove?.name}"? This cannot be undone.
           </p>
           <DialogFooter>
             <Button variant="outline" onClick={() => setConfirmRemove(null)}>
@@ -705,7 +910,7 @@ function RelatedCompaniesTab({
       </div>
       {companies.length === 0 ? (
         <div className="py-6 text-sm text-muted-foreground">
-          No related companies yet. Use “Add company” to link one.
+          No related companies yet. Use "Add company" to link one.
         </div>
       ) : (
       <div className="divide-y">

@@ -14,6 +14,8 @@ function makeDb() {
     onConflictDoUpdate: vi.fn().mockReturnThis(),
     returning: vi.fn(),
     delete: vi.fn().mockReturnThis(),
+    update: vi.fn().mockReturnThis(),
+    set: vi.fn().mockReturnThis(),
   };
 }
 
@@ -42,6 +44,90 @@ describe('TopicRepository', () => {
         expect.objectContaining({ slug: 'cmp-slurry' }),
       );
       expect(out.slug).toBe('cmp-slurry');
+    });
+
+    it('sets is_deal_related on the inserted topic when provided', async () => {
+      db.limit.mockResolvedValueOnce([]);
+      db.returning.mockResolvedValueOnce([{ id: '3', name: 'acquisition', slug: 'acquisition', is_deal_related: true }]);
+      await repo.findOrCreate('acquisition', { is_deal_related: true });
+      expect(db.values).toHaveBeenCalledWith(
+        expect.objectContaining({ is_deal_related: true }),
+      );
+    });
+
+    it('defaults is_deal_related to false', async () => {
+      db.limit.mockResolvedValueOnce([]);
+      db.returning.mockResolvedValueOnce([{ id: '4', name: 'lithography', slug: 'lithography', is_deal_related: false }]);
+      await repo.findOrCreate('lithography');
+      expect(db.values).toHaveBeenCalledWith(
+        expect.objectContaining({ is_deal_related: false }),
+      );
+    });
+  });
+
+  describe('setDealRelated', () => {
+    it('updates the topic is_deal_related flag by id', async () => {
+      await repo.setDealRelated('t1', true);
+      expect(db.update).toHaveBeenCalled();
+      expect(db.set).toHaveBeenCalledWith({ is_deal_related: true });
+    });
+  });
+
+  describe('upsertBatch', () => {
+    it('short-circuits on empty input', async () => {
+      const out = await repo.upsertBatch([]);
+      expect(out).toEqual([]);
+      expect(db.insert).not.toHaveBeenCalled();
+    });
+
+    it('inserts each item with its is_deal_related flag', async () => {
+      db.returning.mockResolvedValueOnce([
+        { id: '1', name: 'acquisition', slug: 'acquisition', is_deal_related: true },
+        { id: '2', name: 'semiconductors', slug: 'semiconductors', is_deal_related: false },
+      ]);
+      const out = await repo.upsertBatch([
+        { slug: 'acquisition', is_deal_related: true },
+        { slug: 'semiconductors', is_deal_related: false },
+      ]);
+      expect(db.values).toHaveBeenCalledWith([
+        expect.objectContaining({ slug: 'acquisition', is_deal_related: true }),
+        expect.objectContaining({ slug: 'semiconductors', is_deal_related: false }),
+      ]);
+      expect(out).toHaveLength(2);
+    });
+
+    it('uses an upgrade-only (OR) conflict clause so the LLM never demotes', async () => {
+      db.returning.mockResolvedValueOnce([]);
+      await repo.upsertBatch([{ slug: 'acquisition', is_deal_related: true }]);
+      const arg = db.onConflictDoUpdate.mock.calls[0][0];
+      const expr = arg.set.is_deal_related;
+      // It's a SQL expression (not a plain boolean overwrite) — proves the LLM
+      // can't blindly clobber the flag on re-ingest.
+      expect(typeof expr).toBe('object');
+      // Its raw string chunks contain " OR " so a previously-true flag stays
+      // true when a later email classifies the topic as non-deal.
+      const rawText = (expr.queryChunks ?? [])
+        .flatMap((c: { value?: string[] }) => c.value ?? [])
+        .join(' ');
+      expect(rawText.toLowerCase()).toContain('or');
+    });
+  });
+
+  describe('assignToEmployer', () => {
+    it('inserts with source and is_highlight', async () => {
+      db.returning.mockResolvedValueOnce([{ id: 'et1', employer_id: 'e1', topic_id: 't1', source: 'auto', is_highlight: false }]);
+      await repo.assignToEmployer('e1', 't1', { source: 'auto' });
+      expect(db.values).toHaveBeenCalledWith(
+        expect.objectContaining({ source: 'auto', is_highlight: false }),
+      );
+    });
+
+    it('upserts on conflict preserving source and is_highlight', async () => {
+      db.returning.mockResolvedValueOnce([{ id: 'et2', employer_id: 'e1', topic_id: 't2', source: 'manual', is_highlight: false }]);
+      await repo.assignToEmployer('e1', 't2');
+      expect(db.onConflictDoUpdate).toHaveBeenCalledWith(
+        expect.objectContaining({ set: expect.objectContaining({ source: 'manual' }) }),
+      );
     });
   });
 

@@ -14,8 +14,13 @@ export interface ExtractFields {
   body_snippet: string | null;
 }
 
+export interface LlmTopic {
+  name: string;
+  is_deal_related: boolean;
+}
+
 export interface LlmResultFields {
-  topics: string[];
+  topics: LlmTopic[];
   people: unknown;
   related_companies?: unknown;
   llm_model: string;
@@ -87,7 +92,7 @@ export class RawEmailEnrichmentRepository {
     const [row] = await this.db
       .update(rawEmailEnrichments)
       .set({
-        topics: fields.topics,
+        topics: fields.topics as unknown as RawEmailEnrichment['topics'],
         people: fields.people as RawEmailEnrichment['people'],
         related_companies: fields.related_companies as RawEmailEnrichment['related_companies'],
         llm_model: fields.llm_model,

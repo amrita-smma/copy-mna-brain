@@ -40,6 +40,7 @@
     "invoke": "tsx scripts/invoke-local.ts",
     "upload-mbox": "tsx scripts/upload-mbox.ts",
     "build": "tsx scripts/build.ts",
-    "sam": "bash scripts/sam-invoke.sh"
+    "sam": "bash scripts/sam-invoke.sh",
+    "pipeline-demo": "tsx scripts/pipeline-demo.ts"
   }
 }
