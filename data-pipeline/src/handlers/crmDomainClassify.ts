@@ -7,6 +7,7 @@ import {
   EmployerOverrideRepository,
 } from '@/lib/repositories';
 import type { DbClient, Tables } from '@/lib/repositories';
+import { modelSupportsTemperature } from '../lib/modelParams';
 
 export const VAULT_CRM_DOMAIN_CLASSIFY_TIMEOUT_SECONDS = 600; // 10 minutes
 export const DEFAULT_MODEL = 'claude-haiku-4-5-20251001';
@@ -127,7 +128,7 @@ async function classifyChunk(
   const res = await client.messages.create({
     model,
     max_tokens: 2000,
-    temperature: 0,
+    ...(modelSupportsTemperature(model) ? { temperature: 0 } : {}),
     system: SYSTEM_PROMPT,
     tools: [
       {

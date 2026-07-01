@@ -121,6 +121,19 @@ describe('getStatelessAgentGraph', () => {
     expect(graph).toBeNull();
     expect(mocks.createAgent).not.toHaveBeenCalled();
   });
+
+  it('constructs the Sonnet 5 model without a temperature sampling param', async () => {
+    // Sonnet 5 returns 400 "temperature is deprecated for this model" if a
+    // temperature is sent. The model must be built with temperature unset so
+    // ChatAnthropic omits the field from the request.
+    await getStatelessAgentGraph();
+
+    const model = mocks.createAgent.mock.calls[0][0].model as {
+      opts: Record<string, unknown>;
+    };
+    expect(model.opts.model).toBe('claude-sonnet-5');
+    expect(model.opts.temperature).toBeUndefined();
+  });
 });
 
 describe('AgentGraph abort signal forwarding', () => {

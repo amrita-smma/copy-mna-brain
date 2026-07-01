@@ -424,9 +424,12 @@ export function createLocalAgent(
   middleware: ReadonlyArray<ReturnType<typeof humanInTheLoopMiddleware>> = [],
 ) {
   const llm = new ChatAnthropic({
-    model: "claude-sonnet-4-6",
+    model: "claude-sonnet-5",
     anthropicApiKey: config.apiKey,
-    temperature: 0,
+    // Sonnet 5 rejects `temperature` (400: "temperature is deprecated for
+    // this model"). Explicitly leave it unset — ChatAnthropic omits the field
+    // from the request when this is undefined (see invocationParams).
+    temperature: undefined,
   });
 
   const fullSystemPrompt = additionalSystemContext

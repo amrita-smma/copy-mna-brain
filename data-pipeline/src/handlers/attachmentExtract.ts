@@ -4,7 +4,7 @@ import type { DbClient, Tables } from '@/lib/repositories';
 import { downloadFile } from '@/lib/s3';
 
 export const ATTACHMENT_EXTRACT_TIMEOUT_SECONDS = 1800;
-export const DEFAULT_MODEL = 'claude-sonnet-4-6';
+export const DEFAULT_MODEL = 'claude-sonnet-5';
 export const DEFAULT_LIMIT = 200;
 
 export interface AttachmentExtractPayload {

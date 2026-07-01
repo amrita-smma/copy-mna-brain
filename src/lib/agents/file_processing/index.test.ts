@@ -17,7 +17,9 @@ vi.mock('@anthropic-ai/sdk', () => {
 });
 
 vi.mock('@langchain/anthropic', () => ({
-  ChatAnthropic: class {},
+  ChatAnthropic: class {
+    constructor(public opts: Record<string, unknown>) {}
+  },
 }));
 
 vi.mock('langchain', () => ({
@@ -105,6 +107,19 @@ describe('processFileContent (Files API for PDFs)', () => {
 
     expect(mocks.upload).not.toHaveBeenCalled();
     expect(mocks.deleteFile).not.toHaveBeenCalled();
+  });
+
+  it('constructs the Sonnet 5 model without a temperature sampling param', async () => {
+    // Sonnet 5 returns 400 "temperature is deprecated for this model" if a
+    // temperature is sent. The model must be built with temperature unset so
+    // ChatAnthropic omits the field from the request.
+    await processFileContent('raw text', Buffer.from('x'), 'text/plain', '');
+
+    const model = mocks.createAgent.mock.calls[0][0].model as {
+      opts: Record<string, unknown>;
+    };
+    expect(model.opts.model).toBe('claude-sonnet-5');
+    expect(model.opts.temperature).toBeUndefined();
   });
 });
 

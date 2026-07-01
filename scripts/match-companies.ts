@@ -40,6 +40,7 @@ import {
   emails,
   employers,
 } from '../src/lib/db/schema';
+import { modelSupportsTemperature } from '../src/lib/ai/modelParams';
 
 // ─── CLI args ───────────────────────────────────────────────────────────────
 
@@ -234,7 +235,7 @@ Call ${RECORD_TOOL_NAME} with your decision.`;
   const msg = await client.messages.create({
     model,
     max_tokens: 600,
-    temperature: 0,
+    ...(modelSupportsTemperature(model) ? { temperature: 0 } : {}),
     system: SYSTEM_PROMPT,
     tools: [
       {

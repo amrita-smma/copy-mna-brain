@@ -2,6 +2,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { EmailAttachmentRepository } from '../repositories';
 import type { DbClient, Tables } from '@/lib/repositories';
 import { downloadFile } from '@/lib/s3';
+import { modelSupportsTemperature } from '../lib/modelParams';
 
 export const ATTACHMENT_TRIAGE_TIMEOUT_SECONDS = 600;
 export const DEFAULT_MODEL = 'claude-haiku-4-5-20251001';
@@ -87,7 +88,7 @@ async function triageDocument(
   const res = await client.messages.create({
     model,
     max_tokens: 128,
-    temperature: 0,
+    ...(modelSupportsTemperature(model) ? { temperature: 0 } : {}),
     system: SYSTEM_PROMPT,
     tools: [
       {

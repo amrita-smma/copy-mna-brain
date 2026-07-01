@@ -22,6 +22,7 @@ import {
   type QueueEntry,
   type SkipReason,
 } from '../mboxParser';
+import { modelSupportsTemperature } from '../lib/modelParams';
 
 export const VAULT_CRM_LLM_SUBMIT_TIMEOUT_SECONDS = 1200; // 20 minutes
 export const DEFAULT_MODEL = 'claude-haiku-4-5-20251001';
@@ -240,7 +241,7 @@ export async function runCrmLlmSubmit(
         const msg = await client.messages.create({
           model,
           max_tokens: 800,
-          temperature: 0,
+          ...(modelSupportsTemperature(model) ? { temperature: 0 } : {}),
           system: SYSTEM_PROMPT,
           tools: [
             {
@@ -291,7 +292,7 @@ export async function runCrmLlmSubmit(
     params: {
       model,
       max_tokens: 800,
-      temperature: 0,
+      ...(modelSupportsTemperature(model) ? { temperature: 0 } : {}),
       system: SYSTEM_PROMPT,
       tools: [
         {

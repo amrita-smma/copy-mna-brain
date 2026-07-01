@@ -294,11 +294,14 @@ export async function processFileContent(
   logger.info(`⏱️  Loaded ${allReferences.length} company references + ${tracks.length} tracks in ${Date.now() - refsStart}ms`);
 
   const llm = new ChatAnthropic({
-    model: "claude-sonnet-4-6",
+    model: "claude-sonnet-5",
     anthropicApiKey: apiKey,
-    temperature: 0,
     // Documents referenced by Files API id are served from the beta endpoint.
     betas: [FILES_API_BETA],
+    // Sonnet 5 rejects `temperature` (400: "temperature is deprecated for
+    // this model"). Explicitly leave it unset — ChatAnthropic omits the field
+    // from the request when this is undefined (see invocationParams).
+    temperature: undefined,
   });
 
   const anthropic = new Anthropic({ apiKey });

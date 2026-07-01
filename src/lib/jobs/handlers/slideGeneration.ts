@@ -86,7 +86,7 @@ IMPORTANT: Include a citation footer at the bottom of the slide with real source
   }
 
   const message = await anthropic.messages.create({
-    model: 'claude-sonnet-4-6',
+    model: 'claude-sonnet-5',
     max_tokens: 4096,
     system: SLIDE_SYSTEM_PROMPT,
     messages: [{ role: 'user', content: prompt }],

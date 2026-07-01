@@ -47,7 +47,7 @@ Country codes examples: US (United States), KR (Korea), JP (Japan), CN (China), 
 Respond ONLY with a valid JSON object, no explanation.`;
 
     const response = await client.messages.create({
-      model: "claude-sonnet-4-6",
+      model: "claude-sonnet-5",
       max_tokens: 1024,
       system: systemPrompt,
       messages: [
