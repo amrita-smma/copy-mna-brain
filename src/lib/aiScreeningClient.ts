@@ -23,6 +23,7 @@ export interface AIScreeningCompanyInput {
   ebitda_2023_usd_mn?: number | null;
   ebitda_2024_usd_mn?: number | null;
   ev_2024?: number | null;
+  matched_track_ids?: string[];
 }
 
 export interface AIScreeningCriterion {
@@ -47,6 +48,7 @@ export function toAIScreeningCompany(company: PipelineCompany): AIScreeningCompa
     ebitda_2023_usd_mn: company.ebitda_2023_usd_mn,
     ebitda_2024_usd_mn: company.ebitda_2024_usd_mn,
     ev_2024: company.ev_2024,
+    matched_track_ids: company.matched_track_ids ?? [],
   };
 }
 
