@@ -98,6 +98,23 @@ variable "allowed_cidr_blocks" {
   default     = []
 }
 
+variable "backup_retention_days" {
+  description = "Number of days to retain Neo4j dumps in the backup bucket before they are expired."
+  type        = number
+  default     = 30
+
+  validation {
+    condition     = var.backup_retention_days >= 1
+    error_message = "backup_retention_days must be at least 1."
+  }
+}
+
+variable "backup_schedule" {
+  description = "systemd OnCalendar expression for the scheduled backup timer (default: daily at 02:00 instance time). See `man systemd.time`."
+  type        = string
+  default     = "*-*-* 02:00:00"
+}
+
 variable "tags" {
   description = "Additional tags to apply to resources"
   type        = map(string)

@@ -455,6 +455,13 @@ it.**
 Connection is configured via `NEO4J_URI` / `NEO4J_USER` / `NEO4J_PASSWORD`
 (see `src/lib/neo4j.ts`).
 
+The Neo4j server itself is provisioned by `terraform/ec2/neo4j`, which also
+manages an S3 backup bucket (`mna-neo4j-backups-<env>-<account_id>`). The
+instance runs a systemd timer that dumps the database and uploads it to S3
+daily; `neo4j-restore.sh` restores the latest dump. See
+`terraform/ec2/neo4j/README.md` for the backup/restore workflow and the
+data-preserving migration procedure.
+
 ## Async jobs
 
 Long-running compute (AI screening, market screening, slide generation) is

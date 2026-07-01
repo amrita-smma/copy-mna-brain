@@ -29,6 +29,16 @@ output "neo4j_server_security_group_id" {
   value       = aws_security_group.neo4j_server.id
 }
 
+output "neo4j_backup_bucket" {
+  description = "Name of the S3 bucket holding Neo4j database dumps"
+  value       = aws_s3_bucket.neo4j_backups.bucket
+}
+
+output "neo4j_backup_bucket_arn" {
+  description = "ARN of the Neo4j backup S3 bucket"
+  value       = aws_s3_bucket.neo4j_backups.arn
+}
+
 output "neo4j_bolt_uri" {
   description = "Bolt connection URI for Neo4j drivers"
   value       = "bolt://${aws_instance.neo4j_server.public_ip}:${var.neo4j_bolt_port}"

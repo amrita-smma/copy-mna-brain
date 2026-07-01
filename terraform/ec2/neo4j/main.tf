@@ -35,11 +35,11 @@ data "aws_ami" "ubuntu_22" {
 # of defense. Generate a long, high-entropy secret. Retrieve it with
 # `terraform output -raw neo4j_password`.
 resource "random_password" "neo4j" {
-  length           = 32
-  special          = false
-  min_lower        = 4
-  min_upper        = 4
-  min_numeric      = 4
+  length      = 32
+  special     = false
+  min_lower   = 4
+  min_upper   = 4
+  min_numeric = 4
 }
 
 resource "aws_iam_role" "neo4j_server" {
@@ -81,6 +81,47 @@ resource "aws_iam_role_policy" "neo4j_server_custom" {
       }
     ]
   })
+}
+
+# Allows the instance to push/pull database dumps to the backup bucket. Kept as a
+# separate policy so granting/adjusting backup access never touches the logging
+# policy above and can be applied to a running instance without replacement.
+resource "aws_iam_role_policy" "neo4j_backups" {
+  name = "${local.current_config.environment}-mna-neo4j-backups-policy"
+  role = aws_iam_role.neo4j_server.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid    = "ListBackupBucket"
+        Effect = "Allow"
+        Action = [
+          "s3:ListBucket",
+          "s3:GetBucketLocation"
+        ]
+        Resource = aws_s3_bucket.neo4j_backups.arn
+      },
+      {
+        Sid    = "ReadWriteBackups"
+        Effect = "Allow"
+        Action = [
+          "s3:GetObject",
+          "s3:PutObject"
+        ]
+        Resource = "${aws_s3_bucket.neo4j_backups.arn}/*"
+      }
+    ]
+  })
+}
+
+# Session Manager access so operators can run the backup/restore scripts on the
+# instance without opening an SSH port. This is additive IAM: attaching it lets
+# the CURRENT running instance be reached over SSM (used by the data-preserving
+# migration procedure in README.md) without triggering a replacement.
+resource "aws_iam_role_policy_attachment" "neo4j_ssm" {
+  role       = aws_iam_role.neo4j_server.name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
 }
 
 resource "aws_iam_instance_profile" "neo4j_server" {
@@ -168,6 +209,9 @@ resource "aws_instance" "neo4j_server" {
     neo4j_password  = random_password.neo4j.result
     neo4j_http_port = var.neo4j_http_port
     neo4j_bolt_port = var.neo4j_bolt_port
+    backup_bucket   = aws_s3_bucket.neo4j_backups.bucket
+    aws_region      = var.aws_region
+    backup_schedule = var.backup_schedule
   }), "\r\n", "\n"))
 
   root_block_device {
@@ -184,7 +228,8 @@ resource "aws_instance" "neo4j_server" {
   }
 
   depends_on = [
-    aws_iam_role_policy.neo4j_server_custom
+    aws_iam_role_policy.neo4j_server_custom,
+    aws_iam_role_policy.neo4j_backups
   ]
 
   tags = merge(local.environment_tags, {
@@ -199,4 +244,70 @@ resource "aws_cloudwatch_log_group" "neo4j_server" {
   retention_in_days = 30
 
   tags = local.environment_tags
+}
+
+# ---------------------------------------------------------------------------
+# Backups
+#
+# The instance runs `neo4j-backup.sh` on a systemd timer: it stops Neo4j, dumps
+# the database with `neo4j-admin database dump` (Community edition requires an
+# offline dump), restarts Neo4j, and uploads the dump to this bucket under
+# neo4j/<timestamp>.dump. `neo4j-restore.sh` reverses the process.
+# ---------------------------------------------------------------------------
+resource "aws_s3_bucket" "neo4j_backups" {
+  bucket = "mna-neo4j-backups-${local.current_config.environment}-${data.aws_caller_identity.current.account_id}"
+
+  tags = merge(local.environment_tags, {
+    Name = "mna-neo4j-backups-${local.current_config.environment}"
+    Type = "Neo4jBackups"
+  })
+}
+
+resource "aws_s3_bucket_versioning" "neo4j_backups" {
+  bucket = aws_s3_bucket.neo4j_backups.id
+  versioning_configuration {
+    status = "Enabled"
+  }
+}
+
+resource "aws_s3_bucket_server_side_encryption_configuration" "neo4j_backups" {
+  bucket = aws_s3_bucket.neo4j_backups.id
+  rule {
+    apply_server_side_encryption_by_default {
+      sse_algorithm = "AES256"
+    }
+  }
+}
+
+resource "aws_s3_bucket_public_access_block" "neo4j_backups" {
+  bucket = aws_s3_bucket.neo4j_backups.id
+
+  block_public_acls       = true
+  block_public_policy     = true
+  ignore_public_acls      = true
+  restrict_public_buckets = true
+}
+
+# Age out old dumps so the bucket does not grow unbounded. Current dumps expire
+# after var.backup_retention_days; superseded versions are cleaned up shortly
+# after to reclaim storage from the enabled versioning.
+resource "aws_s3_bucket_lifecycle_configuration" "neo4j_backups" {
+  bucket = aws_s3_bucket.neo4j_backups.id
+
+  rule {
+    id     = "expire-old-dumps"
+    status = "Enabled"
+
+    filter {
+      prefix = "neo4j/"
+    }
+
+    expiration {
+      days = var.backup_retention_days
+    }
+
+    noncurrent_version_expiration {
+      noncurrent_days = 7
+    }
+  }
 }
