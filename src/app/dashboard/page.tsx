@@ -1,6 +1,4 @@
-import { Suspense } from 'react';
 import Dashboard from '@/views/Dashboard';
-import { GoogleSsoTokenGate } from '@/components/auth/GoogleSsoTokenGate';
 import { companyGraphEnabled, insightsDashboardEnabled } from '@/lib/flags';
 
 export default async function DashboardPage() {
@@ -9,13 +7,9 @@ export default async function DashboardPage() {
     insightsDashboardEnabled().then(Boolean),
   ]);
   return (
-    <Suspense fallback={null}>
-      <GoogleSsoTokenGate>
-        <Dashboard
-          showCompanyGraph={showCompanyGraph}
-          showInsightsDashboard={showInsightsDashboard}
-        />
-      </GoogleSsoTokenGate>
-    </Suspense>
+    <Dashboard
+      showCompanyGraph={showCompanyGraph}
+      showInsightsDashboard={showInsightsDashboard}
+    />
   );
 }
