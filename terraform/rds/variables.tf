@@ -109,7 +109,7 @@ locals {
       rds_iam_database_authentication_enabled = true
       # Safer default: defer instance changes to maintenance window unless you reboot or use -var.
       rds_apply_immediately   = false
-      instance_class          = "db.t3.micro"
+      instance_class          = "db.t3.small"
       allocated_storage       = 100
       multi_az                = true
       backup_retention_period = 7
