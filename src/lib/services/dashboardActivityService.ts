@@ -162,6 +162,37 @@ export class DashboardActivityService {
 
     return { events, hasMore };
   }
+
+  /**
+   * The complete, unpaginated activity timeline for a single company, newest
+   * first. Used to hydrate a feed carousel with every event that touched the
+   * company — the feed itself is event-paginated, so a company's events can be
+   * split across pages (or fall outside the date window entirely); this returns
+   * the full picture so a carousel is never missing slides.
+   */
+  async getCompanyTimeline(companyId: string): Promise<FeedEvent[]> {
+    // Bound the reusable date-ranged queries to cover all of history. A far
+    // future `to` avoids any race with events timestamped moments ago.
+    const from = new Date(0);
+    const to = new Date('9999-12-31T23:59:59.999Z');
+
+    const [newL0Companies, pipelineMoves, droppedDeals, notesUpdated, discoveredCompanies] =
+      await Promise.all([
+        this.repo.getNewL0Companies(from, to, undefined, companyId),
+        this.repo.getPipelineMoves(from, to, undefined, companyId),
+        this.repo.getDroppedDeals(from, to, undefined, companyId),
+        this.repo.getNotesUpdated(from, to, undefined, companyId),
+        this.repo.getDiscoveredCompanies(from, to, undefined, companyId),
+      ]);
+
+    return buildFeedEvents({
+      newL0Companies,
+      pipelineMoves,
+      droppedDeals,
+      notesUpdated,
+      discoveredCompanies,
+    });
+  }
 }
 
 /**

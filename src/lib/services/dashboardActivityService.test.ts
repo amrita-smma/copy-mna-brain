@@ -317,3 +317,61 @@ describe('DashboardActivityService.getFeed', () => {
     expect(hasMore).toBe(false);
   });
 });
+
+describe('DashboardActivityService.getCompanyTimeline', () => {
+  let repo: MockRepo;
+  let service: DashboardActivityService;
+
+  beforeEach(() => {
+    repo = new MockRepo();
+    repo.getNewL0Companies.mockResolvedValue([]);
+    repo.getPipelineMoves.mockResolvedValue([]);
+    repo.getDroppedDeals.mockResolvedValue([]);
+    repo.getNotesUpdated.mockResolvedValue([]);
+    repo.getDiscoveredCompanies.mockResolvedValue([]);
+    service = new DashboardActivityService(
+      repo as unknown as DashboardActivityRepository,
+    );
+  });
+
+  it('scopes every feed source to the company with no limit', async () => {
+    await service.getCompanyTimeline('co-1');
+
+    // (from, to, limit=undefined, companyId) — the whole-history range is
+    // supplied by the service; the important part is the company scope and the
+    // absence of a cap so the full timeline comes back.
+    for (const fn of [
+      repo.getNewL0Companies,
+      repo.getPipelineMoves,
+      repo.getDroppedDeals,
+      repo.getNotesUpdated,
+      repo.getDiscoveredCompanies,
+    ]) {
+      expect(fn).toHaveBeenCalledWith(
+        expect.any(Date),
+        expect.any(Date),
+        undefined,
+        'co-1',
+      );
+    }
+  });
+
+  it('merges the company sources newest-first', async () => {
+    repo.getNewL0Companies.mockResolvedValue([newDealRow('co-1', '2026-01-01T00:00:00.000Z')]);
+    repo.getPipelineMoves.mockResolvedValue([moveRow('co-1', '2026-03-01T00:00:00.000Z')]);
+    repo.getNotesUpdated.mockResolvedValue([noteRow('co-1', '2026-02-01T00:00:00.000Z')]);
+
+    const events = await service.getCompanyTimeline('co-1');
+
+    expect(events.map((e) => e.type)).toEqual([
+      'stage_move', //   03-01
+      'note_updated', // 02-01
+      'new_deal', //     01-01
+    ]);
+  });
+
+  it('returns [] when the company has no activity', async () => {
+    const events = await service.getCompanyTimeline('co-empty');
+    expect(events).toEqual([]);
+  });
+});

@@ -26,7 +26,11 @@ import {
 } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
 import { getCompanies } from "@/lib/api/pipeline";
-import { getDashboardActivity, getDashboardFeed } from "@/lib/api/dashboard";
+import {
+  getCompanyTimeline,
+  getDashboardActivity,
+  getDashboardFeed,
+} from "@/lib/api/dashboard";
 import type {
   DashboardActivity,
   FeedFilter,
@@ -43,6 +47,7 @@ import {
   Layers,
   Activity,
   XCircle,
+  ChevronLeft,
   ChevronRight,
   MoveRight,
   FileText,
@@ -52,6 +57,12 @@ import {
   Globe,
   ArrowLeftRight,
 } from "lucide-react";
+import {
+  Carousel,
+  CarouselContent,
+  CarouselItem,
+  type CarouselApi,
+} from "@/components/ui/carousel";
 import { useChatContext } from "@/components/chat/ChatProvider";
 import { AskAIButton } from "@/components/chat/AskAIButton";
 import { companyDisplayName } from "@/lib/companyDisplay";
@@ -290,25 +301,76 @@ function buildFeedEvents(activity: DashboardActivity): FeedEvent[] {
   return events.sort((a, b) => b.event_at.localeCompare(a.event_at));
 }
 
-function groupEventsByDate(
-  events: FeedEvent[],
-): { dateLabel: string; events: FeedEvent[] }[] {
-  const groups: { dateLabel: string; events: FeedEvent[] }[] = [];
+// A single company's slice of the feed: every event that touched it, ordered
+// oldest → newest (the carousel reads "from the beginning to the end").
+interface CompanyFeedGroup {
+  company_id: string;
+  company_name: string;
+  /** Chronological, oldest first. */
+  events: FeedEvent[];
+  /** ISO timestamp of the most recent event — drives feed/date ordering. */
+  latestEventAt: string;
+}
+
+// Collapse a newest-first event list into one group per company, so a company
+// never appears more than once in the feed. Companies come out ordered by their
+// most recent event (newest first); each group's events are oldest → newest.
+function groupEventsByCompany(events: FeedEvent[]): CompanyFeedGroup[] {
+  const groups: CompanyFeedGroup[] = [];
   const seen = new Map<string, number>();
   for (const event of events) {
-    const d = new Date(event.event_at);
-    const label = d.toLocaleDateString("en-US", {
+    if (seen.has(event.company_id)) {
+      groups[seen.get(event.company_id)!].events.push(event);
+    } else {
+      seen.set(event.company_id, groups.length);
+      // First encounter wins for ordering: with a newest-first input this is the
+      // company's latest event.
+      groups.push({
+        company_id: event.company_id,
+        company_name: event.company_name,
+        events: [event],
+        latestEventAt: event.event_at,
+      });
+    }
+  }
+  // Input is newest-first, so each group collected events newest → oldest;
+  // reverse to read chronologically.
+  for (const group of groups) group.events.reverse();
+  return groups;
+}
+
+// Bucket company groups (already ordered newest-first by latest activity) under
+// a date header derived from each company's most recent event.
+function groupCompaniesByDate(
+  companies: CompanyFeedGroup[],
+): { dateLabel: string; companies: CompanyFeedGroup[] }[] {
+  const groups: { dateLabel: string; companies: CompanyFeedGroup[] }[] = [];
+  const seen = new Map<string, number>();
+  for (const company of companies) {
+    const label = new Date(company.latestEventAt).toLocaleDateString("en-US", {
       month: "short",
       day: "numeric",
     });
     if (seen.has(label)) {
-      groups[seen.get(label)!].events.push(event);
+      groups[seen.get(label)!].companies.push(company);
     } else {
       seen.set(label, groups.length);
-      groups.push({ dateLabel: label, events: [event] });
+      groups.push({ dateLabel: label, companies: [company] });
     }
   }
   return groups;
+}
+
+// Per-slide date label (e.g. "MAR 1 2026") shown on carousel event cards, whose
+// individual dates differ from the company's date-section header.
+function formatFeedEventDate(iso: string): string {
+  return new Date(iso)
+    .toLocaleDateString("en-US", {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    })
+    .replace(",", "");
 }
 
 // ─── Stage chip ──────────────────────────────────────────────────────────────
@@ -734,7 +796,14 @@ export default function Dashboard({
     return allFeedEvents.filter((e) => e.type === typeMap[feedFilter]);
   }, [allFeedEvents, feedFilter]);
 
-  // Render the feed in pages, revealing more on demand via a "Show More" action.
+  // Collapse the filtered events into one group per company (no duplicate
+  // companies in the feed); each company's events become a swipable carousel.
+  const feedCompanies = useMemo(
+    () => groupEventsByCompany(filteredFeedEvents),
+    [filteredFeedEvents],
+  );
+
+  // Render the feed in pages, revealing more companies on demand via "Show More".
   const FEED_PAGE_SIZE = 10;
   const [feedVisibleCount, setFeedVisibleCount] = useState(FEED_PAGE_SIZE);
 
@@ -744,11 +813,11 @@ export default function Dashboard({
     setFeedVisibleCount(FEED_PAGE_SIZE);
   }, [feedFilter, allFeedEvents]);
 
-  const hasMoreFeed = feedVisibleCount < filteredFeedEvents.length;
+  const hasMoreFeed = feedVisibleCount < feedCompanies.length;
 
-  const groupedFeedEvents = useMemo(
-    () => groupEventsByDate(filteredFeedEvents.slice(0, feedVisibleCount)),
-    [filteredFeedEvents, feedVisibleCount],
+  const groupedFeedCompanies = useMemo(
+    () => groupCompaniesByDate(feedCompanies.slice(0, feedVisibleCount)),
+    [feedCompanies, feedVisibleCount],
   );
 
   // ─── Date-filtered pipeline stage counts ────────────────────────────────────
@@ -1840,11 +1909,11 @@ export default function Dashboard({
                   </div>
                 ) : (
                   <>
-                    {groupedFeedEvents.map(({ dateLabel, events }) => (
+                    {groupedFeedCompanies.map(({ dateLabel, companies }) => (
                       <div key={dateLabel} className="space-y-3">
-                        {/* Date header */}
+                        {/* Date header — the company's most recent event date */}
                         <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-                          {new Date(events[0]?.event_at)
+                          {new Date(companies[0]?.latestEventAt)
                             .toLocaleDateString("en-US", {
                               month: "short",
                               day: "numeric",
@@ -1854,23 +1923,20 @@ export default function Dashboard({
                             .replace(",", "")}
                         </p>
 
-                        {/* Events for this date */}
-                        {events.map((event) => (
-                          <FeedEventRow
-                            key={event.id}
-                            event={event}
+                        {/* One swipable carousel per company for this date */}
+                        {companies.map((company) => (
+                          <CompanyFeedCarousel
+                            key={company.company_id}
+                            company={company}
                             onCompanyClick={handleCompanyClick}
-                            analyzeLabel={feedAnalysisLabel(event)}
-                            onAnalyze={() =>
-                              analyzeWithAI(feedAnalysisPrompt(event))
-                            }
                             analyzeVariant="icon"
+                            matchEventType={FEED_FILTER_TO_EVENT_TYPE[feedFilter]}
                           />
                         ))}
                       </div>
                     ))}
 
-                    {/* Show More — reveal the next page of activity */}
+                    {/* Show More — reveal the next page of companies */}
                     {hasMoreFeed && (
                       <button
                         type="button"
@@ -1880,8 +1946,7 @@ export default function Dashboard({
                         }
                         className="w-full text-sm font-medium text-primary hover:underline py-2"
                       >
-                        Show More (
-                        {filteredFeedEvents.length - feedVisibleCount} more)
+                        Show More ({feedCompanies.length - feedVisibleCount} more)
                       </button>
                     )}
                   </>
@@ -1922,6 +1987,10 @@ interface FeedEventRowProps {
   onAnalyze?: () => void;
   /** "button" (mobile) renders the full-width labelled pill; "icon" (desktop) the compact sparkles icon. */
   analyzeVariant?: "icon" | "button";
+  /** Hide the company name header — used inside a carousel where the name is a shared header. */
+  showCompanyName?: boolean;
+  /** Render as a seamless carousel slide (no border/shadow) and surface the event's own date. */
+  bare?: boolean;
 }
 
 const eventTypeBadgeStyles: Record<FeedEventType, string> = {
@@ -1991,6 +2060,8 @@ function FeedEventRow({
   analyzeLabel,
   onAnalyze,
   analyzeVariant = "button",
+  showCompanyName = true,
+  bare = false,
 }: FeedEventRowProps) {
   const inlineNote =
     event.type === "note_updated"
@@ -2017,7 +2088,11 @@ function FeedEventRow({
           onCompanyClick(event.company_id);
         }
       }}
-      className="flex items-start gap-3 rounded-lg border bg-card p-4 shadow-sm cursor-pointer transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      className={
+        bare
+          ? "flex items-start gap-3 rounded-md cursor-pointer transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          : "flex items-start gap-3 rounded-lg border bg-card p-4 shadow-sm cursor-pointer transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      }
     >
       {/* Color dot */}
       <div className="mt-1.5 shrink-0">
@@ -2026,26 +2101,41 @@ function FeedEventRow({
 
       {/* Content */}
       <div className="flex-1 min-w-0 space-y-1.5">
-        {/* Company name + desktop analyze icon (top-right) */}
-        <div className="flex items-start justify-between gap-2">
-          <button
-            type="button"
-            data-testid={`feed-event-company-button-${event.company_id}`}
-            onClick={(e) => { e.stopPropagation(); onCompanyClick(event.company_id); }}
-            className="text-sm font-semibold text-left hover:text-primary transition-colors"
-          >
-            {event.company_name}
-          </button>
-          {onAnalyze && analyzeLabel && analyzeVariant === "icon" && (
-            <span onClick={(e) => e.stopPropagation()}>
-              <AskAIButton
-                variant="icon"
-                label={analyzeLabel}
-                onClick={onAnalyze}
-              />
-            </span>
-          )}
-        </div>
+        {/* Company name (top-left) + desktop analyze icon (top-right). In bare
+            carousel slides the name is a shared header, so surface the event's
+            own date here instead. */}
+        {(showCompanyName ||
+          bare ||
+          (onAnalyze && analyzeLabel && analyzeVariant === "icon")) && (
+          <div className="flex items-start justify-between gap-2">
+            <div className="min-w-0">
+              {showCompanyName && (
+                <button
+                  type="button"
+                  data-testid={`feed-event-company-button-${event.company_id}`}
+                  onClick={(e) => { e.stopPropagation(); onCompanyClick(event.company_id); }}
+                  className="text-sm font-semibold text-left hover:text-primary transition-colors"
+                >
+                  {event.company_name}
+                </button>
+              )}
+              {bare && (
+                <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                  {formatFeedEventDate(event.event_at)}
+                </p>
+              )}
+            </div>
+            {onAnalyze && analyzeLabel && analyzeVariant === "icon" && (
+              <span onClick={(e) => e.stopPropagation()}>
+                <AskAIButton
+                  variant="icon"
+                  label={analyzeLabel}
+                  onClick={onAnalyze}
+                />
+              </span>
+            )}
+          </div>
+        )}
 
         {/* Event detail line — only rendered for event types that have chips */}
         {(event.type === "stage_move" || event.type === "dropped") && (
@@ -2137,6 +2227,216 @@ function FeedEventRow({
   );
 }
 
+// ─── Company feed carousel ─────────────────────────────────────────────────────
+// One company's events collapsed into a single swipable card. Each slide is a
+// unique timeline event (oldest → newest); swipe on touch, arrows on desktop.
+// A company with a single event renders as a plain card (no carousel chrome).
+//
+// The feed itself is event-paginated, so the events handed in for a company may
+// be an incomplete slice (split across pages, or outside the date window). On
+// mount we fetch the company's COMPLETE timeline so the carousel is never
+// missing slides. Results are cached module-wide so re-renders (mobile regroups
+// on every page load) never refetch the same company.
+
+const companyTimelineCache = new Map<string, FeedEvent[]>();
+
+// The slide a carousel opens on, given events in oldest → newest order. With a
+// filter active we default to the LATEST event of the matching type (the reason
+// the company is in this filtered view); otherwise the latest event overall.
+function defaultCarouselIndex(
+  events: FeedEvent[],
+  matchEventType?: FeedEventType,
+): number {
+  if (matchEventType) {
+    for (let i = events.length - 1; i >= 0; i--) {
+      if (events[i].type === matchEventType) return i;
+    }
+  }
+  return Math.max(0, events.length - 1);
+}
+
+function CompanyFeedCarousel({
+  company,
+  onCompanyClick,
+  analyzeVariant,
+  matchEventType,
+}: {
+  company: CompanyFeedGroup;
+  onCompanyClick: (id: string) => void;
+  analyzeVariant: "icon" | "button";
+  /** Active feed filter's event type — carousel opens on this event when set. */
+  matchEventType?: FeedEventType;
+}) {
+  const { analyzeWithAI } = useChatContext();
+  const [api, setApi] = useState<CarouselApi>();
+  const [timeline, setTimeline] = useState<FeedEvent[] | null>(
+    () => companyTimelineCache.get(company.company_id) ?? null,
+  );
+  // Seed the position so the counter/arrows are correct on first paint, before
+  // the carousel API mounts — the filter-matching (or latest) slide.
+  const [current, setCurrent] = useState(() => {
+    const source = companyTimelineCache.get(company.company_id) ?? company.events;
+    return defaultCarouselIndex(
+      [...source].sort((a, b) => a.event_at.localeCompare(b.event_at)),
+      matchEventType,
+    );
+  });
+
+  // Hydrate the full timeline once per company. Until it resolves we render the
+  // events already in the feed, then swap to the complete set.
+  useEffect(() => {
+    const cached = companyTimelineCache.get(company.company_id);
+    if (cached) {
+      setTimeline(cached);
+      return;
+    }
+    let cancelled = false;
+    getCompanyTimeline(company.company_id)
+      .then((events) => {
+        companyTimelineCache.set(company.company_id, events);
+        if (!cancelled) setTimeline(events);
+      })
+      .catch((err) => {
+        console.error("Error loading company timeline:", err);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [company.company_id]);
+
+  // Prefer the complete timeline; fall back to the in-feed slice while loading.
+  // A non-empty timeline is authoritative (and a superset of the feed slice); an
+  // empty one never replaces events we already have. Both sources are normalised
+  // to oldest → newest so slide order is stable when the fuller list arrives.
+  const events = useMemo(() => {
+    const source = timeline && timeline.length > 0 ? timeline : company.events;
+    return [...source].sort((a, b) => a.event_at.localeCompare(b.event_at));
+  }, [timeline, company.events]);
+  const count = events.length;
+
+  // The slide to open on — recomputed when the events grow (timeline load) or
+  // the active filter changes.
+  const defaultIndex = useMemo(
+    () => defaultCarouselIndex(events, matchEventType),
+    [events, matchEventType],
+  );
+
+  useEffect(() => {
+    if (!api) return;
+    const onSelect = () => setCurrent(api.selectedScrollSnap());
+    onSelect();
+    api.on("select", onSelect);
+    api.on("reInit", onSelect);
+    return () => {
+      api.off("select", onSelect);
+      api.off("reInit", onSelect);
+    };
+  }, [api]);
+
+  // Pin the view to the default slide on mount, and re-pin when it changes
+  // (filter switch or the full timeline arriving). `true` = jump, no animation.
+  useEffect(() => {
+    if (!api) return;
+    api.scrollTo(defaultIndex, true);
+  }, [api, defaultIndex]);
+
+  const renderEvent = (event: FeedEvent, showCompanyName: boolean, bare: boolean) => (
+    <FeedEventRow
+      event={event}
+      onCompanyClick={onCompanyClick}
+      analyzeLabel={feedAnalysisLabel(event)}
+      onAnalyze={() => analyzeWithAI(feedAnalysisPrompt(event))}
+      analyzeVariant={analyzeVariant}
+      showCompanyName={showCompanyName}
+      bare={bare}
+    />
+  );
+
+  // Single event → nothing to swipe through; render the familiar card as-is.
+  if (count === 1) {
+    return renderEvent(events[0], true, false);
+  }
+
+  return (
+    <div
+      data-testid={`feed-company-carousel-${company.company_id}`}
+      className="rounded-lg border bg-card p-4 shadow-sm"
+    >
+      {/* Header: company name + position indicator and desktop arrows */}
+      <div className="flex items-center justify-between gap-2 mb-3">
+        <button
+          type="button"
+          data-testid={`feed-event-company-button-${company.company_id}`}
+          onClick={() => onCompanyClick(company.company_id)}
+          className="text-sm font-semibold text-left hover:text-primary transition-colors truncate"
+        >
+          {company.company_name}
+        </button>
+        <div className="flex items-center gap-1 shrink-0">
+          <button
+            type="button"
+            aria-label="Previous event"
+            data-testid={`feed-carousel-prev-${company.company_id}`}
+            onClick={() => api?.scrollPrev()}
+            disabled={current === 0}
+            className="hidden md:inline-flex h-6 w-6 items-center justify-center rounded-full border text-muted-foreground transition-colors hover:bg-muted disabled:opacity-40 disabled:hover:bg-transparent"
+          >
+            <ChevronLeft className="h-3.5 w-3.5" />
+          </button>
+          <span
+            data-testid={`feed-carousel-counter-${company.company_id}`}
+            className="text-[10px] font-medium tabular-nums text-muted-foreground px-1"
+          >
+            {current + 1} / {count}
+          </span>
+          <button
+            type="button"
+            aria-label="Next event"
+            data-testid={`feed-carousel-next-${company.company_id}`}
+            onClick={() => api?.scrollNext()}
+            disabled={current === count - 1}
+            className="hidden md:inline-flex h-6 w-6 items-center justify-center rounded-full border text-muted-foreground transition-colors hover:bg-muted disabled:opacity-40 disabled:hover:bg-transparent"
+          >
+            <ChevronRight className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      </div>
+
+      {/* Open on the default slide — the filter-matching event, or the latest
+          when unfiltered. A scrollTo effect re-pins it if the slide set grows
+          or the filter changes; startIndex avoids a first-paint flash. */}
+      <Carousel
+        setApi={setApi}
+        opts={{ align: "start", startIndex: defaultIndex }}
+        className="w-full"
+      >
+        <CarouselContent className="ml-0">
+          {events.map((event) => (
+            <CarouselItem key={event.id} className="pl-0">
+              {renderEvent(event, false, true)}
+            </CarouselItem>
+          ))}
+        </CarouselContent>
+      </Carousel>
+
+      {/* Dot indicators — tappable jump-to-slide, doubling as a swipe hint. */}
+      <div className="mt-3 flex items-center justify-center gap-1.5">
+        {events.map((event, i) => (
+          <button
+            key={event.id}
+            type="button"
+            aria-label={`Go to event ${i + 1}`}
+            onClick={() => api?.scrollTo(i)}
+            className={`h-1.5 rounded-full transition-all ${
+              i === current ? "w-4 bg-primary" : "w-1.5 bg-muted-foreground/30"
+            }`}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ─── Mobile activity feed ──────────────────────────────────────────────────────
 
 const FEED_FILTER_LABELS: Record<FeedFilterKey, string> = {
@@ -2149,6 +2449,17 @@ const FEED_FILTER_LABELS: Record<FeedFilterKey, string> = {
 
 const FEED_FILTER_TO_API: Record<FeedFilterKey, FeedFilter> = {
   all: "all",
+  new: "new_deal",
+  moved: "stage_move",
+  dropped: "dropped",
+  notes: "note_updated",
+};
+
+// The event type a filter pill selects (undefined for "All"). When a filter is
+// active, a company's carousel defaults to the matching event rather than the
+// latest one, so the reason the company surfaced is what you see first.
+const FEED_FILTER_TO_EVENT_TYPE: Record<FeedFilterKey, FeedEventType | undefined> = {
+  all: undefined,
   new: "new_deal",
   moved: "stage_move",
   dropped: "dropped",
@@ -2208,7 +2519,6 @@ function MobileActivityFeed({
 }: {
   onCompanyClick: (id: string) => void;
 }) {
-  const { analyzeWithAI } = useChatContext();
   const isMobile = useIsMobile();
   const [filter, setFilter] = useState<FeedFilterKey>("all");
   const [events, setEvents] = useState<FeedEvent[]>([]);
@@ -2280,7 +2590,12 @@ function MobileActivityFeed({
     return () => observer.disconnect();
   }, [hasMore, loading, initialised, offset, loadPage]);
 
-  const grouped = useMemo(() => groupEventsByDate(events), [events]);
+  // Group the full accumulated event list by company (deduping across pages),
+  // then bucket those companies under their latest-event date header.
+  const grouped = useMemo(
+    () => groupCompaniesByDate(groupEventsByCompany(events)),
+    [events],
+  );
 
   if (!isMobile) return null;
 
@@ -2320,10 +2635,10 @@ function MobileActivityFeed({
         </div>
       ) : (
         <>
-          {grouped.map(({ dateLabel, events: dayEvents }) => (
+          {grouped.map(({ dateLabel, companies }) => (
             <div key={dateLabel} className="space-y-3">
               <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-                {new Date(dayEvents[0]?.event_at)
+                {new Date(companies[0]?.latestEventAt)
                   .toLocaleDateString("en-US", {
                     month: "short",
                     day: "numeric",
@@ -2332,14 +2647,13 @@ function MobileActivityFeed({
                   .toUpperCase()
                   .replace(",", "")}
               </p>
-              {dayEvents.map((event) => (
-                <FeedEventRow
-                  key={event.id}
-                  event={event}
+              {companies.map((company) => (
+                <CompanyFeedCarousel
+                  key={company.company_id}
+                  company={company}
                   onCompanyClick={onCompanyClick}
-                  analyzeLabel={feedAnalysisLabel(event)}
-                  onAnalyze={() => analyzeWithAI(feedAnalysisPrompt(event))}
                   analyzeVariant="button"
+                  matchEventType={FEED_FILTER_TO_EVENT_TYPE[filter]}
                 />
               ))}
             </div>

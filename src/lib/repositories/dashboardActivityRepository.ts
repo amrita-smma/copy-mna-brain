@@ -61,7 +61,7 @@ export class DashboardActivityRepository {
     );
   }
 
-  async getNewL0Companies(from: Date, to: Date, limit?: number): Promise<
+  async getNewL0Companies(from: Date, to: Date, limit?: number, companyId?: string): Promise<
     ({ id: string; target: string | null; project_name: string | null; source: string | null; segment: string | null; geography: string | null; remarks: string | null; thesis_content: string | null; deal_sponsor: string | null; entered_by: string | null; entered_by_name: string | null; event_at: string; reason: 'created' | 'demoted' } & FeedFinancials)[]
   > {
     const fromIso = from.toISOString();
@@ -96,6 +96,7 @@ export class DashboardActivityRepository {
           eq(companies.pipeline_stage, 'L0'),
           gte(companies.created_at, fromIso),
           lte(companies.created_at, toIso),
+          companyId ? eq(companies.id, companyId) : undefined,
         ),
       )
       .orderBy(desc(companies.created_at));
@@ -127,6 +128,7 @@ export class DashboardActivityRepository {
         and(
           like(companyLogs.action, '%_TO_L0'),
           logDateInRange(fromIso, toIso),
+          companyId ? eq(companies.id, companyId) : undefined,
         ),
       )
       .orderBy(sql`${companyLogs.created_at} desc nulls last`);
@@ -164,7 +166,7 @@ export class DashboardActivityRepository {
    * activity feed can show an event whenever one is added. Relationship-graph
    * auto-created `discovered` companies are intentionally excluded.
    */
-  async getDiscoveredCompanies(from: Date, to: Date, limit?: number) {
+  async getDiscoveredCompanies(from: Date, to: Date, limit?: number, companyId?: string) {
     const query = this.db
       .select({
         id: companies.id,
@@ -188,6 +190,7 @@ export class DashboardActivityRepository {
           eq(companies.pipeline_stage, 'market_screening'),
           gte(companies.created_at, from.toISOString()),
           lte(companies.created_at, to.toISOString()),
+          companyId ? eq(companies.id, companyId) : undefined,
         ),
       )
       .orderBy(desc(companies.created_at));
@@ -216,7 +219,7 @@ export class DashboardActivityRepository {
       .orderBy(desc(companies.updated_at));
   }
 
-  async getPipelineMoves(from: Date, to: Date, limit?: number) {
+  async getPipelineMoves(from: Date, to: Date, limit?: number, companyId?: string) {
     const fromIso = from.toISOString();
     const toIso = to.toISOString();
     const query = this.db
@@ -249,6 +252,7 @@ export class DashboardActivityRepository {
         and(
           like(companyLogs.action, 'PROMOTED_%'),
           logDateInRange(fromIso, toIso),
+          companyId ? eq(companies.id, companyId) : undefined,
         ),
       )
       .orderBy(sql`${companyLogs.created_at} desc nulls last`);
@@ -276,7 +280,7 @@ export class DashboardActivityRepository {
       .orderBy(desc(companySlides.created_at));
   }
 
-  async getDroppedDeals(from: Date, to: Date, limit?: number) {
+  async getDroppedDeals(from: Date, to: Date, limit?: number, companyId?: string) {
     const query = this.db
       .select({
         id: companies.id,
@@ -306,13 +310,14 @@ export class DashboardActivityRepository {
           eq(companies.status, 'dropped'),
           gte(companies.dropped_at, from.toISOString()),
           lte(companies.dropped_at, to.toISOString()),
+          companyId ? eq(companies.id, companyId) : undefined,
         ),
       )
       .orderBy(desc(companies.dropped_at));
     return limit != null ? query.limit(limit) : query;
   }
 
-  async getNotesUpdated(from: Date, to: Date, limit?: number) {
+  async getNotesUpdated(from: Date, to: Date, limit?: number, companyId?: string) {
     const query = this.db
       .select({
         id: dealNotes.id,
@@ -339,6 +344,7 @@ export class DashboardActivityRepository {
         and(
           gte(dealNotes.created_at, from.toISOString()),
           lte(dealNotes.created_at, to.toISOString()),
+          companyId ? eq(companies.id, companyId) : undefined,
         ),
       )
       .orderBy(desc(dealNotes.created_at));

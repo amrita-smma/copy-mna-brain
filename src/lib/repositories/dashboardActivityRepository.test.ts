@@ -58,6 +58,22 @@ describe('DashboardActivityRepository.getDroppedDeals', () => {
 
     expect(result).toEqual(rows);
   });
+
+  it('accepts a companyId scope without a limit (full-timeline path)', async () => {
+    const rows = [{ id: 'co-1', target: 'Acme', dropped_at: '2026-01-05T00:00:00.000Z' }];
+    mockDb.orderBy.mockResolvedValueOnce(rows);
+
+    const result = await repo.getDroppedDeals(
+      new Date(0),
+      new Date('9999-12-31T23:59:59.999Z'),
+      undefined,
+      'co-1',
+    );
+
+    // No limit applied: the terminal orderBy result is returned directly (the
+    // company scope is folded into the where clause, not a separate call).
+    expect(result).toEqual(rows);
+  });
 });
 
 describe('DashboardActivityRepository.getPipelineMoves', () => {

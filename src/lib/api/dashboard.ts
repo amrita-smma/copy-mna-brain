@@ -1,6 +1,7 @@
 import { apiRequest } from '@/lib/api/client';
 import type {
   DashboardActivity,
+  FeedEvent,
   FeedFilter,
   FeedPage,
 } from '@/lib/services/dashboardActivityService';
@@ -37,6 +38,16 @@ export async function getDashboardFeed(params: {
   search.set('limit', String(params.limit));
   if (params.filter) search.set('filter', params.filter);
   return apiRequest<FeedPage>(`/api/dashboard/feed?${search.toString()}`);
+}
+
+/**
+ * Fetch a single company's complete activity timeline (newest first). Used to
+ * hydrate a feed carousel with every event, independent of feed pagination.
+ */
+export async function getCompanyTimeline(companyId: string): Promise<FeedEvent[]> {
+  return apiRequest<FeedEvent[]>(
+    `/api/dashboard/company-timeline/${encodeURIComponent(companyId)}`,
+  );
 }
 
 /** Fetch the aggregated Insights dashboard (funnel, breakdowns, AI throughput). */
