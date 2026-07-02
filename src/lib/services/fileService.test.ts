@@ -78,11 +78,12 @@ function makeCompany(overrides: Partial<Tables<'companies'>> = {}): Tables<'comp
   } as unknown as Tables<'companies'>;
 }
 
-function makeCriteria(id: string): CriteriaRow {
+function makeCriteria(id: string, investmentThesisId: string | null = null): CriteriaRow {
   return {
     id,
     name: `Criteria ${id}`,
     prompt: `Prompt for ${id}`,
+    investment_thesis_id: investmentThesisId,
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
   } as CriteriaRow;
@@ -1218,8 +1219,10 @@ describe('FileService.approve', () => {
     vi.mocked(fileRepo.findById).mockResolvedValue(
       makeFile({ id: 'file-1', structured_notes: prospectusNotes }),
     );
-    vi.mocked(companyService.findById).mockResolvedValue(makeCompany());
-    vi.mocked(criteriaRepo.findAll).mockResolvedValue([makeCriteria('c-1')]);
+    vi.mocked(companyService.findById).mockResolvedValue(
+      makeCompany({ matched_track_ids: ['track-1'] }),
+    );
+    vi.mocked(criteriaRepo.findAll).mockResolvedValue([makeCriteria('c-1', 'track-1')]);
     vi.mocked(screeningRepo.insert).mockResolvedValue(makeScreening('s-1'));
     vi.mocked(aiScreeningService.dispatch).mockRejectedValue(new Error('fail'));
 
@@ -1229,6 +1232,53 @@ describe('FileService.approve', () => {
     await vi.waitFor(() => {
       expect(screeningRepo.update).toHaveBeenCalledWith('s-1', expect.objectContaining({ state: 'failed' }));
     });
+  });
+
+  it('screens only criteria belonging to the company\'s matched tracks', async () => {
+    vi.mocked(fileRepo.findById).mockResolvedValue(
+      makeFile({ id: 'file-1', structured_notes: prospectusNotes }),
+    );
+    vi.mocked(companyService.findById).mockResolvedValue(
+      makeCompany({ matched_track_ids: ['track-1'] }),
+    );
+    // c-1 belongs to the matched track; c-2 belongs to an unmatched track and
+    // must be skipped; c-3 has no track and must be skipped.
+    vi.mocked(criteriaRepo.findAll).mockResolvedValue([
+      makeCriteria('c-1', 'track-1'),
+      makeCriteria('c-2', 'track-2'),
+      makeCriteria('c-3', null),
+    ]);
+    vi.mocked(screeningRepo.insert).mockResolvedValue(makeScreening('s-1'));
+
+    const input: ApproveFileInput = { file_type: 'prospectus', matched_company_id: 'company-1' };
+    await service.approve('file-1', input);
+
+    await vi.waitFor(() => {
+      expect(screeningRepo.insert).toHaveBeenCalledTimes(1);
+    });
+    expect(screeningRepo.insert).toHaveBeenCalledWith(
+      expect.objectContaining({ criteria_id: 'c-1', track_id: 'track-1' }),
+    );
+    expect(aiScreeningService.dispatch).toHaveBeenCalledTimes(1);
+    expect(aiScreeningService.dispatch).toHaveBeenCalledWith(
+      expect.objectContaining({ criteriaId: 'c-1' }),
+    );
+  });
+
+  it('does not screen when the company has no matched tracks', async () => {
+    vi.mocked(fileRepo.findById).mockResolvedValue(
+      makeFile({ id: 'file-1', structured_notes: prospectusNotes }),
+    );
+    vi.mocked(companyService.findById).mockResolvedValue(
+      makeCompany({ matched_track_ids: [] }),
+    );
+    vi.mocked(criteriaRepo.findAll).mockResolvedValue([makeCriteria('c-1', 'track-1')]);
+
+    const input: ApproveFileInput = { file_type: 'prospectus', matched_company_id: 'company-1' };
+    await service.approve('file-1', input);
+
+    expect(screeningRepo.insert).not.toHaveBeenCalled();
+    expect(aiScreeningService.dispatch).not.toHaveBeenCalled();
   });
 });
 

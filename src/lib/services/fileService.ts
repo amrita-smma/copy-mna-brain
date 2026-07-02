@@ -490,7 +490,18 @@ export class FileService {
 
   private async dispatchScreeningJobs(companyId: string, company: Tables<'companies'>) {
     try {
-      const criteriaList = await this.criteriaRepo.findAll();
+      // AI screening runs ONLY against the tracks a company is matched to —
+      // each matched track's own criteria (`criterias.investment_thesis_id`),
+      // never the full criteria set. Mirrors the manual pipeline flow
+      // (`buildTrackScreeningGroups`). A company with no matched tracks (or no
+      // criteria on those tracks) screens nothing.
+      const matchedTrackIds = new Set(company.matched_track_ids ?? []);
+      if (matchedTrackIds.size === 0) return;
+
+      const allCriteria = await this.criteriaRepo.findAll();
+      const criteriaList = allCriteria.filter(
+        (c) => c.investment_thesis_id !== null && matchedTrackIds.has(c.investment_thesis_id),
+      );
       if (criteriaList.length === 0) return;
 
       const financials = await this.companyFinancialRepo.findByCompany(companyId);
@@ -516,6 +527,7 @@ export class FileService {
         const screeningEntry = await this.screeningRepo.insert({
           company_id: companyId,
           criteria_id: criterion.id,
+          track_id: criterion.investment_thesis_id,
           state: 'pending',
         });
 
