@@ -277,6 +277,24 @@ export class CompanyRepository {
   }
 
   /**
+   * `id` + `ai_opinion_status` for every company with an in-flight AI Opinion
+   * run (`ai_opinion_status = 'processing'`). Backs the companies SSE stream:
+   * when a company leaves this set the snapshot changes, signalling the client
+   * to refresh so the verdict swaps in.
+   */
+  async findProcessingAiOpinions(): Promise<
+    Array<{ id: string; ai_opinion_status: string | null }>
+  > {
+    return this.db
+      .select({
+        id: companies.id,
+        ai_opinion_status: companies.ai_opinion_status,
+      })
+      .from(companies)
+      .where(eq(companies.ai_opinion_status, "processing"));
+  }
+
+  /**
    * Lightweight paginated lookup returning `id` + `target` + `project_name`.
    * Used by the AI File Dump "Matched Company" / "Project Name" pickers —
    * server-side ILIKE search via `targetSearch` matches against either

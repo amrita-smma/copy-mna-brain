@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
+import { useEventStream } from "@/hooks/useEventStream";
 import {
   Dialog,
   DialogContent,
@@ -69,7 +70,6 @@ import {
   deleteDealNote,
   getCompanies,
   getCompanyDetails,
-  getScreenings,
   getBankerNames,
   getTracks,
   getUsers,
@@ -789,22 +789,16 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
     }
   };
 
-  const fetchScreenings = async () => {
-    if (!company.id) return;
-    try {
-      const data = await getScreenings({ companyId: company.id });
-      if (data) setScreenings(data as Screening[]);
-    } catch (error) {
-      console.error("Error fetching screenings:", error);
-    }
-  };
-
-  useEffect(() => {
-    if (!open || !company.id || !screenings.some((s) => s.state === "pending"))
-      return;
-    const interval = setInterval(fetchScreenings, 3000);
-    return () => clearInterval(interval);
-  }, [open, company.id, screenings]);
+  // Live screening progress over SSE (replaces a 3s poll): connect only while
+  // the dialog is open and a screening is pending; the stream pushes the full
+  // list on every state change.
+  const hasPendingScreening = screenings.some((s) => s.state === "pending");
+  useEventStream<Screening[]>(
+    open && company.id && hasPendingScreening
+      ? `/api/screenings/stream?companyId=${encodeURIComponent(company.id)}`
+      : null,
+    (rows) => setScreenings(rows),
+  );
 
   const fetchAnalysis = async () => {
     try {

@@ -58,6 +58,31 @@ function row(overrides: Partial<Tables<'companies'>> = {}): Partial<Tables<'comp
   };
 }
 
+/** Build a db whose `select(...).from(...).where(...)` resolves to `rows`. */
+function makeWhereDb(rows: Array<{ id: string; ai_opinion_status: string | null }>) {
+  const where = vi.fn().mockResolvedValue(rows);
+  const from = vi.fn().mockReturnValue({ where });
+  const select = vi.fn().mockReturnValue({ from });
+  return { db: { select } as never, select, from, where };
+}
+
+describe('CompanyRepository.findProcessingAiOpinions', () => {
+  it('returns id + ai_opinion_status for companies filtered to the processing state', async () => {
+    const rows = [{ id: 'c1', ai_opinion_status: 'processing' }];
+    const { db, select, where } = makeWhereDb(rows);
+    const repo = new CompanyRepository(db, makeMirror());
+
+    const result = await repo.findProcessingAiOpinions();
+
+    expect(result).toEqual(rows);
+    expect(select).toHaveBeenCalledWith({
+      id: expect.anything(),
+      ai_opinion_status: expect.anything(),
+    });
+    expect(where).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe('CompanyRepository graph mirror', () => {
   it('upserts the inserted company onto the graph with mapped fields', async () => {
     const { db } = makeWriteDb([row()]);

@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useLocalStorage } from "@/hooks/useLocalStorage";
+import { useEventStream } from "@/hooks/useEventStream";
 import { useSearchParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import DashboardLayout from "@/components/layout/DashboardLayout";
@@ -100,7 +101,6 @@ import {
   restoreDeal,
   updateCompany,
   getTracks,
-  getScreenings,
   analyzeAiOpinion,
   type Track,
 } from "@/lib/api/pipeline";
@@ -895,59 +895,43 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
     setCurrentPage(1);
   }, [activeTab, searchQuery, sectorFilter, l1StatusFilter]);
 
-  useEffect(() => {
-    let cancelled = false;
-
-    const fetchPendingScreenings = async () => {
-      try {
-        const data = await getScreenings({ onlyL0: true });
-        if (cancelled) return;
-
-        const pendingIds = new Set(
-          data
-            .filter(
-              (screening: { state: string }) => screening.state === "pending",
-            )
-            .map((screening: { company_id: string }) => screening.company_id),
-        );
-        setPendingScreeningCompanyIds(pendingIds);
-        setStartingScreeningCompanyIds((prev) => {
-          const next = new Set(prev);
-          pendingIds.forEach((id) => next.delete(id));
-          return next.size === prev.size ? prev : next;
-        });
-      } catch (error) {
-        console.error("Error fetching pending screenings:", error);
-      }
-    };
-
-    fetchPendingScreenings();
-    const interval = setInterval(fetchPendingScreenings, 5000);
-
-    return () => {
-      cancelled = true;
-      clearInterval(interval);
-    };
-  }, [screeningProgressRefresh]);
+  // Live onlyL0 pending-screening set over SSE (replaces a 5s poll). One
+  // connection pushes the L0 screenings list whenever any state changes; we
+  // derive the pending company ids and reconcile the optimistic "starting" set.
+  useEventStream<Array<{ state: string; company_id: string }>>(
+    "/api/screenings/stream?onlyL0=true",
+    (data) => {
+      const pendingIds = new Set(
+        data
+          .filter((screening) => screening.state === "pending")
+          .map((screening) => screening.company_id),
+      );
+      setPendingScreeningCompanyIds(pendingIds);
+      setStartingScreeningCompanyIds((prev) => {
+        const next = new Set(prev);
+        pendingIds.forEach((id) => next.delete(id));
+        return next.size === prev.size ? prev : next;
+      });
+    },
+  );
 
   const runningScreeningCompanyIds = new Set([
     ...pendingScreeningCompanyIds,
     ...startingScreeningCompanyIds,
   ]);
 
-  // While any company has an in-flight AI Opinion run, poll the companies list
-  // so the spinner swaps for the verdict once `save_ai_opinion` writes it.
+  // While any company has an in-flight AI Opinion run, subscribe over SSE
+  // (replaces a 5s poll). The stream fires when the set of processing companies
+  // changes; we then refresh the list once so the spinner swaps for the verdict.
   const hasProcessingAiOpinion = companies.some(
     (c) => c.ai_opinion_status === "processing",
   );
-  useEffect(() => {
-    if (!hasProcessingAiOpinion) return;
-    const interval = setInterval(() => {
+  useEventStream<Array<{ id: string; ai_opinion_status: string | null }>>(
+    hasProcessingAiOpinion ? "/api/companies/stream" : null,
+    () => {
       fetchCompanies({ silent: true });
-    }, 5000);
-    return () => clearInterval(interval);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hasProcessingAiOpinion]);
+    },
+  );
 
   const runL1Filters = async (dealId: string) => {
     try {

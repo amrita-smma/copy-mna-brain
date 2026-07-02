@@ -115,6 +115,11 @@ export class CompanyService {
     return this.companyRepo.findAll(filters);
   }
 
+  /** Companies with an in-flight AI Opinion run. Backs the companies SSE stream. */
+  findProcessingAiOpinions() {
+    return this.companyRepo.findProcessingAiOpinions();
+  }
+
   /**
    * Lightweight paginated lookup returning only `id` + `target` for the AI
    * File Dump "Matched Company" combobox. Supports server-side ILIKE search
