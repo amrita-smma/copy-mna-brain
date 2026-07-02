@@ -2412,7 +2412,7 @@ function CompanyFeedCarousel({
       >
         <CarouselContent className="ml-0">
           {events.map((event) => (
-            <CarouselItem key={event.id} className="pl-0">
+            <CarouselItem key={event.id} className="pl-0 flex flex-col justify-center">
               {renderEvent(event, false, true)}
             </CarouselItem>
           ))}
