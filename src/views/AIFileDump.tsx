@@ -77,6 +77,7 @@ import {
   FileStack,
   Loader2,
   Pencil,
+  RefreshCw,
   Search,
   Tag,
   Trash2,
@@ -182,8 +183,10 @@ interface FileTableProps {
   onDownload: (id: string, fileName: string) => Promise<void>;
   onDelete: (id: string) => void;
   onReview: (id: string) => void;
+  onReprocess: (id: string) => void;
   downloadingId: string | null;
   deletingId: string | null;
+  reprocessingId: string | null;
   emptyMessage: string;
   emptySubMessage: string;
   currentPage: number;
@@ -210,8 +213,10 @@ function FileTable({
   onDownload,
   onDelete,
   onReview,
+  onReprocess,
   downloadingId,
   deletingId,
+  reprocessingId,
   emptyMessage,
   emptySubMessage,
   currentPage,
@@ -603,9 +608,28 @@ function FileTable({
                               </DialogTrigger>
                               <DialogContent className="flex flex-col w-screen h-screen max-w-none sm:rounded-none border-0">
                                 <DialogHeader>
-                                  <DialogTitle>
-                                    {note.file_name} - Details
-                                  </DialogTitle>
+                                  <div className="flex items-center justify-between gap-4 pr-8">
+                                    <DialogTitle>
+                                      {note.file_name} - Details
+                                    </DialogTitle>
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      onClick={() => onReprocess(note.id)}
+                                      disabled={
+                                        reprocessingId === note.id ||
+                                        note.processing_status === "processing"
+                                      }
+                                      title="Re-run AI extraction to refresh notes, tags & matches"
+                                    >
+                                      {reprocessingId === note.id ? (
+                                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                                      ) : (
+                                        <RefreshCw className="h-4 w-4 mr-2" />
+                                      )}
+                                      Reprocess
+                                    </Button>
+                                  </div>
                                 </DialogHeader>
                                 <div className="grid md:grid-cols-2 gap-6 mt-4 flex-1 min-h-0 overflow-hidden">
                                   <div className="flex flex-col gap-2 min-h-0">
@@ -838,6 +862,7 @@ export default function AIFileDump({
     Record<string, boolean>
   >({});
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
+  const [reprocessingId, setReprocessingId] = useState<string | null>(null);
   const [reviewFileId, setReviewFileId] = useState<string | null>(null);
 
   // Pagination state for each table
@@ -1216,6 +1241,37 @@ export default function AIFileDump({
       toast.error("Failed to delete file");
     } finally {
       setDeletingId(null);
+    }
+  };
+
+  const handleReprocess = async (id: string) => {
+    setReprocessingId(id);
+
+    try {
+      const response = await fetch(`/api/ai-file-dump/${id}/reprocess`, {
+        method: "POST",
+      });
+
+      const result = await response.json();
+
+      if (response.ok && result.success) {
+        posthog.capture("file_reprocessed", {
+          file_id: id,
+        });
+
+        toast.success("File reprocessed successfully");
+        fetchMeetingNotes();
+        fetchProspectus();
+        fetchBankerComms();
+        fetchOtherFiles();
+      } else {
+        toast.error(result.error || "Failed to reprocess file");
+      }
+    } catch (error) {
+      console.error("Reprocess error:", error);
+      toast.error("Failed to reprocess file");
+    } finally {
+      setReprocessingId(null);
     }
   };
 
@@ -1867,8 +1923,10 @@ export default function AIFileDump({
           onDownload={handleDownload}
           onDelete={handleDelete}
           onReview={setReviewFileId}
+          onReprocess={handleReprocess}
           downloadingId={downloadingId}
           deletingId={deletingId}
+          reprocessingId={reprocessingId}
           emptyMessage="No MoM uploaded yet."
           emptySubMessage="Upload your first MoM using the form above."
           currentPage={momPage}
@@ -1895,8 +1953,10 @@ export default function AIFileDump({
           onDownload={handleDownload}
           onDelete={handleDelete}
           onReview={setReviewFileId}
+          onReprocess={handleReprocess}
           downloadingId={downloadingId}
           deletingId={deletingId}
+          reprocessingId={reprocessingId}
           emptyMessage="No prospectus uploaded yet."
           emptySubMessage="Upload your first prospectus using the form above."
           currentPage={prospectusPage}
@@ -1923,8 +1983,10 @@ export default function AIFileDump({
           onDownload={handleDownload}
           onDelete={handleDelete}
           onReview={setReviewFileId}
+          onReprocess={handleReprocess}
           downloadingId={downloadingId}
           deletingId={deletingId}
+          reprocessingId={reprocessingId}
           emptyMessage="No banker communications uploaded yet."
           emptySubMessage="Upload CSV or MBOX files from Google Vault exports."
           currentPage={bankerCommsPage}
@@ -1951,8 +2013,10 @@ export default function AIFileDump({
           onDownload={handleDownload}
           onDelete={handleDelete}
           onReview={setReviewFileId}
+          onReprocess={handleReprocess}
           downloadingId={downloadingId}
           deletingId={deletingId}
+          reprocessingId={reprocessingId}
           emptyMessage="No other files uploaded yet."
           emptySubMessage="Upload your files using the form above."
           currentPage={otherFilesPage}

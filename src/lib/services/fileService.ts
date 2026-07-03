@@ -45,6 +45,49 @@ const DEAL_TARGET_FILE_TYPES = new Set<string>(['prospectus']);
  */
 export const AI_EMAIL_SCANNING_ENTERED_BY = 'AI Email Scanning';
 
+/**
+ * The `files` table doesn't persist the original upload content type, so a
+ * reprocess reconstructs it from the filename extension. Only PDF detection is
+ * behaviourally significant (the agent uploads PDFs via the Files API keyed off
+ * `contentType === 'application/pdf'`); everything else is passed to
+ * `extractTextFromFile`, which also falls back to the extension.
+ */
+const CONTENT_TYPE_BY_EXTENSION: Record<string, string> = {
+  pdf: 'application/pdf',
+  docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  csv: 'text/csv',
+  json: 'application/json',
+  txt: 'text/plain',
+  md: 'text/markdown',
+};
+
+function guessContentType(fileName: string): string {
+  const ext = fileName.split('.').pop()?.toLowerCase() ?? '';
+  return CONTENT_TYPE_BY_EXTENSION[ext] ?? 'application/octet-stream';
+}
+
+/** File types that are valid `FileTypeOverride`s the agent accepts as a hint. */
+const FILE_TYPE_OVERRIDE_VALUES = new Set<FileTypeOverride>([
+  'mom',
+  'prospectus',
+  'other',
+  'shopping_list',
+  'market_study',
+]);
+
+/**
+ * Narrow a stored `file_type` to a `FileTypeOverride` the agent accepts. Types
+ * outside the override union (e.g. `financial_statement`, `banker_communications`)
+ * return undefined so the agent classifies from content instead.
+ */
+function asFileTypeOverride(fileType: string | null | undefined): FileTypeOverride | undefined {
+  return fileType && FILE_TYPE_OVERRIDE_VALUES.has(fileType as FileTypeOverride)
+    ? (fileType as FileTypeOverride)
+    : undefined;
+}
+
 export interface ApproveFileInput {
   file_type: FileTypeOverride;
   matched_company_id: string | null;
@@ -293,6 +336,75 @@ export class FileService {
         });
     }
 
+    return { ...updatedData, signed_url: signedUrl };
+  }
+
+  /**
+   * Re-run the file-processing agent on an already-uploaded file and refresh
+   * its extracted fields in place: `raw_notes`, `structured_notes`, `tags`,
+   * `matched_companies`, and `file_date`.
+   *
+   * This is a pure refresh. Unlike {@link processUpload} it never auto-creates
+   * or merges companies, never upserts financials, and never re-ingests banker
+   * communications into the CRM — those side effects belong to the upload and
+   * approve flows and re-running them would risk duplicating or clobbering
+   * already-approved records. The file keeps its existing `file_type` (so it
+   * stays in the same tab); prospectus files return to `awaiting_review` so a
+   * human re-approves, everything else completes.
+   */
+  async reprocess(fileId: string) {
+    const existing = await this.fileRepo.findById(fileId);
+    const key = existing.file_link;
+    const fileName = existing.file_name;
+    const existingFileType = existing.file_type ?? 'other';
+
+    await this.fileRepo.updatePartial(fileId, { processing_status: 'processing' });
+
+    const buffer = await downloadFile(key);
+    const contentType = guessContentType(fileName);
+    const override = asFileTypeOverride(existingFileType);
+
+    let rawText = '';
+    let structuredResult: Awaited<ReturnType<typeof processFileContent>> = null;
+    let tags: string[] = [];
+    let matched_companies: unknown[] = [];
+
+    try {
+      const isPdf = contentType === 'application/pdf' || fileName.toLowerCase().endsWith('.pdf');
+      if (!isPdf) {
+        rawText = await extractTextFromFile(buffer, contentType, fileName);
+      }
+
+      structuredResult = await processFileContent(rawText, buffer, contentType, '', override, fileName);
+
+      if (structuredResult) {
+        tags = structuredResult.tags || [];
+        matched_companies = structuredResult.matched_companies || [];
+      }
+
+      // Prospectuses re-enter the HITL review gate; everything else completes.
+      // file_type is intentionally left untouched so the file stays in its tab.
+      const requiresReview = DEAL_TARGET_FILE_TYPES.has(existingFileType);
+
+      await this.fileRepo.updatePartial(fileId, {
+        raw_notes: rawText,
+        structured_notes: structuredResult ? JSON.stringify(structuredResult, null, 2) : null,
+        tags,
+        matched_companies: matched_companies as Tables<'files'>['matched_companies'],
+        file_date: structuredResult?.file_date || null,
+        processing_status: requiresReview ? 'awaiting_review' : 'completed',
+      });
+    } catch (processError) {
+      console.error('Error during file reprocessing:', processError);
+      await this.fileRepo.updatePartial(fileId, {
+        processing_status: 'failed',
+        raw_notes: rawText || 'Extraction failed',
+      });
+      throw processError;
+    }
+
+    const updatedData = await this.fileRepo.findById(fileId);
+    const signedUrl = await getSignedUrl(key).catch(() => null);
     return { ...updatedData, signed_url: signedUrl };
   }
 

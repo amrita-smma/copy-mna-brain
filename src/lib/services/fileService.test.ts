@@ -1378,3 +1378,215 @@ describe('FileService.findAll', () => {
     expect(result[0]).toMatchObject({ id: 'file-1', signed_url: null });
   });
 });
+
+describe('FileService.reprocess', () => {
+  let fileRepo: FileRepository;
+  let companyService: CompanyService;
+  let companyFinancialRepo: CompanyFinancialRepository;
+  let service: FileService;
+
+  beforeEach(() => {
+    fileRepo = makeFileRepoStub();
+    companyService = makeCompanyServiceStub();
+    companyFinancialRepo = makeCompanyFinancialRepoStub();
+    service = makeService({ fileRepo, companyService, companyFinancialRepo });
+
+    vi.mocked(downloadFile).mockResolvedValue(Buffer.from('content'));
+    vi.mocked(getSignedUrl).mockResolvedValue('https://signed-url');
+    vi.mocked(processFileContent).mockResolvedValue(null);
+    // findById is called twice: once to load the existing row, once to return
+    // the refreshed row. Default both to a completed 'other' file.
+    vi.mocked(fileRepo.findById).mockResolvedValue(
+      makeFile({ id: 'file-1', file_type: 'other', processing_status: 'completed' }),
+    );
+  });
+
+  it('re-downloads the existing file by its stored S3 key', async () => {
+    vi.mocked(fileRepo.findById).mockResolvedValue(
+      makeFile({ id: 'file-1', file_link: 'uploads/report.pdf', file_name: 'report.pdf' }),
+    );
+
+    await service.reprocess('file-1');
+
+    expect(downloadFile).toHaveBeenCalledWith('uploads/report.pdf');
+  });
+
+  it('never inserts a new file row (updates in place)', async () => {
+    await service.reprocess('file-1');
+
+    expect(fileRepo.insert).not.toHaveBeenCalled();
+  });
+
+  it('marks the file as processing before running the agent', async () => {
+    await service.reprocess('file-1');
+
+    expect(fileRepo.updatePartial).toHaveBeenNthCalledWith(
+      1,
+      'file-1',
+      expect.objectContaining({ processing_status: 'processing' }),
+    );
+  });
+
+  it('skips text extraction for PDF files (detected via filename)', async () => {
+    vi.mocked(fileRepo.findById).mockResolvedValue(
+      makeFile({ id: 'file-1', file_name: 'report.pdf', file_type: 'other' }),
+    );
+
+    await service.reprocess('file-1');
+
+    expect(extractTextFromFile).not.toHaveBeenCalled();
+  });
+
+  it('reconstructs the content type from the filename and passes application/pdf for PDFs', async () => {
+    vi.mocked(fileRepo.findById).mockResolvedValue(
+      makeFile({ id: 'file-1', file_name: 'report.pdf', file_type: 'other' }),
+    );
+
+    await service.reprocess('file-1');
+
+    const lastCallArgs = vi.mocked(processFileContent).mock.calls.at(-1);
+    // args: rawText=0, buffer=1, contentType=2, rawNotes=3, fileTypeOverride=4
+    expect(lastCallArgs?.[2]).toBe('application/pdf');
+  });
+
+  it('extracts text for non-PDF files using the derived content type', async () => {
+    vi.mocked(extractTextFromFile).mockResolvedValue('extracted text');
+    vi.mocked(fileRepo.findById).mockResolvedValue(
+      makeFile({ id: 'file-1', file_name: 'notes.docx', file_type: 'mom' }),
+    );
+
+    await service.reprocess('file-1');
+
+    expect(extractTextFromFile).toHaveBeenCalledWith(
+      expect.any(Buffer),
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      'notes.docx',
+    );
+  });
+
+  it('passes the stored file_type as the agent override when it is a valid override', async () => {
+    vi.mocked(fileRepo.findById).mockResolvedValue(
+      makeFile({ id: 'file-1', file_name: 'notes.pdf', file_type: 'mom' }),
+    );
+
+    await service.reprocess('file-1');
+
+    const lastCallArgs = vi.mocked(processFileContent).mock.calls.at(-1);
+    expect(lastCallArgs?.[4]).toBe('mom');
+  });
+
+  it('passes no override for file types outside the override union', async () => {
+    vi.mocked(fileRepo.findById).mockResolvedValue(
+      makeFile({ id: 'file-1', file_name: 'emails.mbox', file_type: 'banker_communications' }),
+    );
+
+    await service.reprocess('file-1');
+
+    const lastCallArgs = vi.mocked(processFileContent).mock.calls.at(-1);
+    expect(lastCallArgs?.[4]).toBeUndefined();
+  });
+
+  it('refreshes raw_notes, structured_notes, tags, matched_companies and file_date', async () => {
+    vi.mocked(extractTextFromFile).mockResolvedValue('fresh text');
+    vi.mocked(fileRepo.findById).mockResolvedValue(
+      makeFile({ id: 'file-1', file_name: 'notes.docx', file_type: 'mom' }),
+    );
+    vi.mocked(processFileContent).mockResolvedValue({
+      file_type: 'mom',
+      tags: ['acme', 'q3'],
+      matched_companies: [{ id: 'company-1', type: 'company' }],
+      file_date: '2026-01-15',
+    } as never);
+
+    await service.reprocess('file-1');
+
+    expect(fileRepo.updatePartial).toHaveBeenLastCalledWith(
+      'file-1',
+      expect.objectContaining({
+        raw_notes: 'fresh text',
+        tags: ['acme', 'q3'],
+        matched_companies: [{ id: 'company-1', type: 'company' }],
+        file_date: '2026-01-15',
+        structured_notes: expect.stringContaining('"file_type": "mom"'),
+      }),
+    );
+  });
+
+  it('does not change the stored file_type', async () => {
+    vi.mocked(fileRepo.findById).mockResolvedValue(
+      makeFile({ id: 'file-1', file_name: 'notes.pdf', file_type: 'mom' }),
+    );
+    vi.mocked(processFileContent).mockResolvedValue({ file_type: 'prospectus' } as never);
+
+    await service.reprocess('file-1');
+
+    const finalUpdate = vi.mocked(fileRepo.updatePartial).mock.calls.at(-1)?.[1] as Record<string, unknown>;
+    expect(finalUpdate.file_type).toBeUndefined();
+  });
+
+  it('returns prospectus files to awaiting_review', async () => {
+    vi.mocked(fileRepo.findById).mockResolvedValue(
+      makeFile({ id: 'file-1', file_name: 'teaser.pdf', file_type: 'prospectus' }),
+    );
+
+    await service.reprocess('file-1');
+
+    expect(fileRepo.updatePartial).toHaveBeenLastCalledWith(
+      'file-1',
+      expect.objectContaining({ processing_status: 'awaiting_review' }),
+    );
+  });
+
+  it('completes non-prospectus files', async () => {
+    vi.mocked(fileRepo.findById).mockResolvedValue(
+      makeFile({ id: 'file-1', file_name: 'notes.pdf', file_type: 'mom' }),
+    );
+
+    await service.reprocess('file-1');
+
+    expect(fileRepo.updatePartial).toHaveBeenLastCalledWith(
+      'file-1',
+      expect.objectContaining({ processing_status: 'completed' }),
+    );
+  });
+
+  it('never creates, merges or updates a company (pure refresh)', async () => {
+    vi.mocked(fileRepo.findById).mockResolvedValue(
+      makeFile({ id: 'file-1', file_name: 'teaser.pdf', file_type: 'prospectus', origin_email: true } as never),
+    );
+    vi.mocked(processFileContent).mockResolvedValue({
+      file_type: 'prospectus',
+      prospectus_summary: { company_name: 'Acme Corp' },
+    } as never);
+
+    await service.reprocess('file-1');
+
+    expect(companyService.createFromDTO).not.toHaveBeenCalled();
+    expect(companyService.updateFromDTO).not.toHaveBeenCalled();
+    expect(companyFinancialRepo.bulkUpsertForCompany).not.toHaveBeenCalled();
+  });
+
+  it('marks the file as failed and rethrows when the agent throws', async () => {
+    vi.mocked(fileRepo.findById).mockResolvedValue(
+      makeFile({ id: 'file-1', file_name: 'notes.pdf', file_type: 'mom' }),
+    );
+    vi.mocked(processFileContent).mockRejectedValue(new Error('AI error'));
+
+    await expect(service.reprocess('file-1')).rejects.toThrow('AI error');
+    expect(fileRepo.updatePartial).toHaveBeenCalledWith(
+      'file-1',
+      expect.objectContaining({ processing_status: 'failed' }),
+    );
+  });
+
+  it('returns the refreshed record with a signed URL', async () => {
+    vi.mocked(fileRepo.findById).mockResolvedValue(
+      makeFile({ id: 'file-1', file_link: 'uploads/report.pdf', file_name: 'report.pdf' }),
+    );
+
+    const result = await service.reprocess('file-1');
+
+    expect(getSignedUrl).toHaveBeenCalledWith('uploads/report.pdf');
+    expect(result).toMatchObject({ id: 'file-1', signed_url: 'https://signed-url' });
+  });
+});
