@@ -78,7 +78,13 @@ export class AiOpinionService {
       `pass / fail / tentative, and a summary of AT MOST 50 words justifying it. ` +
       `Be decisive: even if the automated AI Screening criteria all fail, do not default to ` +
       `"tentative" — give a firm pass or fail unless the evidence is genuinely balanced. ` +
-      `Use "tentative" only as a last resort. After the tool returns, briefly report the verdict you recorded.`;
+      `Use "tentative" only as a last resort. ` +
+      `Form the view independently, on fundamentals: do NOT read any recorded drop reason before ` +
+      `deciding — only if your verdict disagrees with an existing drop decision should you then ` +
+      `evaluate the drop reason and note the disagreement in your summary. Matched investment ` +
+      `tracks are organizational only: matching no track is not a negative signal, and track fit ` +
+      `should carry little weight in the verdict. ` +
+      `After the tool returns, briefly report the verdict you recorded.`;
 
     const { runId } = await enqueueAgentRun(this.db, {
       agentName: AI_OPINION_AGENT_NAME,

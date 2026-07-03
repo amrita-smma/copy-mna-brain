@@ -130,7 +130,7 @@ Args:
     candidates: One entry per company. Each carries:
       - company_name: target or project name (fuzzy-matched).
       - tag: optional short label rendered as a pill (e.g. "Fails L0", "Stale · 7mo", "Out of mandate"). Keep under ~20 chars.
-      - reason: REQUIRED. One sentence explaining why this company should be dropped — cite the specific signal (financial threshold, staleness window, comp loss, mandate mismatch). User reads this verbatim.
+      - reason: REQUIRED. One sentence explaining why this company should be dropped — cite the specific signal (financial threshold, staleness window, comp loss, mandate mismatch). Investment tracks are organizational, not screening criteria: "no matched track" or weak track fit is NEVER a valid drop reason. User reads this verbatim.
       - meta: optional secondary line (e.g. "L0 since Feb 12 · Sponsor: Sarah Chen · Sector: Specialty chemicals").`,
     schema: z.object({
       title: z.string().describe("Card headline"),

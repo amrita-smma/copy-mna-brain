@@ -86,6 +86,10 @@ Verdict meaning (rendered as icons in the AI Opinion column):
 
 Be DECISIVE. Even when the automated AI Screening criteria all fail, do not default to "tentative" — weigh the company on its merits and commit to "pass" or "fail" unless the case is genuinely balanced. The summary must be ≤50 words, plain prose, and justify the verdict (it is truncated server-side if longer).
 
+Keep the verdict UNBIASED:
+- Form it from fundamentals only. Do not read any human-recorded drop reason before deciding; consult it only afterwards, if your verdict disagrees with an existing drop decision, and note the disagreement in the summary.
+- Investment tracks are an organizational grouping, not screening criteria. Matching no track is never a reason to "fail", and track fit should carry little weight either way.
+
 Args:
     company_id: UUID of the company to record the opinion for. Required (use verbatim from the instruction).
     verdict: One of "pass", "fail", "tentative".
