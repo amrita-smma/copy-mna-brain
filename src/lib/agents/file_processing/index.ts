@@ -323,6 +323,12 @@ export async function processFileContent(
     // this model"). Explicitly leave it unset — ChatAnthropic omits the field
     // from the request when this is undefined (see invocationParams).
     temperature: undefined,
+    // Meeting-minutes / shopping-list docs produce very long structured JSON
+    // (multi-paragraph summary + dozens of key_points, tags, companies_detected
+    // and company_notes). LangChain defaults maxTokens to 2048, which truncates
+    // the JSON block mid-array and breaks the downstream ```json``` parse.
+    // Give the model ample room to finish the JSON.
+    maxTokens: 32000,
   });
 
   const anthropic = new Anthropic({ apiKey });
@@ -558,11 +564,21 @@ export async function processFileContent(
       }
 
       return parsed;
-    } catch {
-      logger.error("Failed to parse JSON from agent response:");
+    } catch (err) {
+      // A common cause here is output-token truncation: the model ran out of
+      // budget mid-JSON, so the ```json``` block is present but not valid JSON.
+      // Surface enough detail to tell truncation apart from a genuine format error.
+      const jsonBody = jsonMatch[1];
+      logger.error(
+        `Failed to parse JSON from agent response (len=${jsonBody.length}): ${err instanceof Error ? err.message : String(err)}. ` +
+          `Tail: ${JSON.stringify(jsonBody.slice(-120))}`,
+      );
       return { raw_response: content };
     }
   }
 
+  // No ```json``` block at all — usually means the response was truncated before
+  // the closing fence (output-token limit) or the model didn't emit JSON.
+  logger.error(`No JSON block found in agent response (content len=${content.length}). Tail: ${JSON.stringify(content.slice(-120))}`);
   return { raw_response: content };
 }
