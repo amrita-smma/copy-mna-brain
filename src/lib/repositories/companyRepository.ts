@@ -390,10 +390,23 @@ export class CompanyRepository {
 
   async findByNameFuzzy(namePart: string): Promise<Tables<"companies"> | null> {
     const trimmed = namePart.trim();
-    // Floor at 5 chars to avoid short acronyms (e.g. "ENJ", "SEB") spuriously
-    // substring-matching unrelated companies. Callers that pass a short name
-    // get null and store free text rather than a wrong link.
-    if (trimmed.length < 5) return null;
+    if (!trimmed) return null;
+    // Short acronyms (e.g. "TSMC", "SEB") would spuriously substring-match
+    // unrelated companies, so below 5 chars we require an exact
+    // (case-insensitive) name match instead of skipping the lookup — skipping
+    // let every relationship edge naming "TSMC" create a fresh discovered row.
+    if (trimmed.length < 5) {
+      const lowered = trimmed.toLowerCase();
+      const [row] = await this.db
+        .select()
+        .from(companies)
+        .where(or(
+          sql`lower(${companies.target}) = ${lowered}`,
+          sql`lower(${companies.project_name}) = ${lowered}`,
+        ))
+        .limit(1);
+      return row ?? null;
+    }
     // Strip legal/entity suffixes (Ltd., Co., Inc., PT, Tbk, ...) so a new
     // "Acme Ltd." matches an existing "Acme Co." — same base name, different
     // ending. Substring-match on the base then catches it in either direction.

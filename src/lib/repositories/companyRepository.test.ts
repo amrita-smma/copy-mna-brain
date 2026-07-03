@@ -254,12 +254,28 @@ describe('stripCompanySuffix', () => {
 });
 
 describe('CompanyRepository.findByNameFuzzy', () => {
-  it('returns null without querying when the name is under 5 chars', async () => {
+  it('returns null without querying when the name is empty', async () => {
     const { db, select } = makeFuzzyDb([]);
     const repo = new CompanyRepository(db);
 
-    expect(await repo.findByNameFuzzy('ENJ')).toBeNull();
+    expect(await repo.findByNameFuzzy('   ')).toBeNull();
     expect(select).not.toHaveBeenCalled();
+  });
+
+  it('exact-matches (not substring-matches) names under 5 chars', async () => {
+    const match = { id: 'c1', target: 'TSMC' };
+    const { db, select } = makeFuzzyDb([match]);
+    const repo = new CompanyRepository(db);
+
+    expect(await repo.findByNameFuzzy('TSMC')).toEqual(match);
+    expect(select).toHaveBeenCalledTimes(1);
+  });
+
+  it('returns null when a short name has no exact match', async () => {
+    const { db } = makeFuzzyDb([]);
+    const repo = new CompanyRepository(db);
+
+    expect(await repo.findByNameFuzzy('ENJ')).toBeNull();
   });
 
   it('returns the matched row when one exists', async () => {
