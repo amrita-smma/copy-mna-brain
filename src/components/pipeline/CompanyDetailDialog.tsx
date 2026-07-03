@@ -101,6 +101,7 @@ import {
 } from "@/lib/tracks/matchTracks";
 import TrackMultiSelect from "@/components/pipeline/TrackMultiSelect";
 import { companyDisplayName, companyDisplayTitle, companyInitials } from "@/lib/companyDisplay";
+import { isDealLive } from "@/lib/dealStatus";
 
 const OWNERSHIP_OPTIONS = [
   "Public",
@@ -179,6 +180,10 @@ export interface CompanyData {
   last_activity_at?: string | null;
   banker?: string | null;
   advisor?: string | null;
+  /** NBO (Non-Binding Offer) due date (YYYY-MM-DD). */
+  nbo_date?: string | null;
+  /** Explicit "live process" override. Null ⇒ derive from advisor presence. */
+  is_live?: boolean | null;
   doc_type?: string | null;
   stake?: string | null;
   deal_size?: string | null;
@@ -457,6 +462,8 @@ export default function CompanyDetailDialog({
     workflow_status: string;
     banker: string;
     advisor: string;
+    nbo_date: string; // YYYY-MM-DD
+    is_live: string; // '__auto__' | 'true' | 'false'
     doc_type: string;
     stake: string;
     deal_size: string;
@@ -492,6 +499,8 @@ export default function CompanyDetailDialog({
       workflow_status: company.workflow_status ?? '',
       banker: company.banker ?? '',
       advisor: company.advisor ?? '',
+      nbo_date: isoToDateInput(company.nbo_date),
+      is_live: company.is_live == null ? '__auto__' : String(company.is_live),
       doc_type: company.doc_type ?? '',
       stake: company.stake ?? '',
       deal_size: company.deal_size ?? '',
@@ -593,6 +602,11 @@ export default function CompanyDetailDialog({
           workflow_status: editForm.workflow_status.trim() || null,
           banker: editForm.banker.trim() || null,
           advisor: editForm.advisor.trim() || null,
+          nbo_date: editForm.nbo_date || null,
+          is_live:
+            editForm.is_live === '__auto__'
+              ? null
+              : editForm.is_live === 'true',
           doc_type: editForm.doc_type || null,
           stake: stakeResult.value,
           deal_size: editForm.deal_size.trim() || null,
@@ -1234,6 +1248,14 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
                   <Badge variant="outline" className="text-xs">
                     {getStageLabel(company.pipeline_stage)}
                   </Badge>
+                  {isDealLive(company) && (
+                    <Badge
+                      variant="outline"
+                      className="text-xs border-emerald-300 bg-emerald-50 text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300"
+                    >
+                      Live process
+                    </Badge>
+                  )}
                   {company.status === "dropped" && (
                     <Badge variant="destructive" className="text-xs">Dropped</Badge>
                   )}
@@ -1828,6 +1850,58 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
                         {company.last_activity_at
                           ? format(new Date(company.last_activity_at), 'MMM d, yyyy')
                           : '—'}
+                      </p>
+                    )}
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground">NBO Due Date</p>
+                    {isEditing && editForm ? (
+                      <Input
+                        type="date"
+                        value={editForm.nbo_date}
+                        onChange={(e) =>
+                          setEditForm({ ...editForm, nbo_date: e.target.value })
+                        }
+                        disabled={isSaving}
+                        className="mt-1 h-7 text-sm"
+                      />
+                    ) : (
+                      <p className="text-sm font-medium break-words">
+                        {company.nbo_date
+                          ? format(new Date(`${company.nbo_date}T00:00:00`), 'MMM d, yyyy')
+                          : '—'}
+                      </p>
+                    )}
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground">Deal Status</p>
+                    {isEditing && editForm ? (
+                      <Select
+                        value={editForm.is_live}
+                        onValueChange={(v) =>
+                          setEditForm({ ...editForm, is_live: v })
+                        }
+                        disabled={isSaving}
+                      >
+                        <SelectTrigger className="mt-1 h-7 text-sm">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="__auto__">
+                            Auto (from advisor)
+                          </SelectItem>
+                          <SelectItem value="true">Live process</SelectItem>
+                          <SelectItem value="false">Not live</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    ) : (
+                      <p className="text-sm font-medium break-words">
+                        {isDealLive(company) ? 'Live process' : 'Not live'}
+                        {company.is_live == null && (
+                          <span className="text-muted-foreground font-normal">
+                            {' '}(auto)
+                          </span>
+                        )}
                       </p>
                     )}
                   </div>

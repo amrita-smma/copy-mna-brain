@@ -344,6 +344,13 @@ export const companies = pgTable(
     advisor: text(),
     // doc_type values are constrained in the app UI only (not a DB enum).
     doc_type: text(),
+    // NBO (Non-Binding Offer) due date. A live deal (non-empty advisor) usually
+    // carries an NBO date; surfaced on the company card and pipeline tables.
+    nbo_date: date(),
+    // Explicit override for the "live process" status. NULL ⇒ derive from the
+    // presence of an advisor; TRUE/FALSE force the status regardless. See
+    // isDealLive() in src/lib/dealStatus.ts.
+    is_live: boolean(),
     stake: text(),
     deal_size: text(),
     // Free-text pipeline workflow status (inbound or outbound — source

@@ -62,6 +62,10 @@ export interface CompanyDTO {
   // Deal advisor (banker engaged on the deal). Non-empty ⇒ the deal is "live".
   advisor: string | null;
   doc_type: string | null;
+  // NBO (Non-Binding Offer) due date (YYYY-MM-DD). Null when not set / not live.
+  nbo_date: string | null;
+  // Explicit "live process" override. Null ⇒ derive from advisor presence.
+  is_live: boolean | null;
   stake: string | null;
   deal_size: string | null;
   workflow_status: string | null;
@@ -234,6 +238,8 @@ export function toCompanyDTO(
     banker: company.banker ?? null,
     advisor: company.advisor ?? null,
     doc_type: company.doc_type ?? null,
+    nbo_date: company.nbo_date ?? null,
+    is_live: company.is_live ?? null,
     stake: company.stake ?? null,
     deal_size: company.deal_size ?? null,
     workflow_status: company.workflow_status ?? null,
@@ -373,7 +379,7 @@ export function splitCompanyDTO(dto: CompanyDTOInput): SplitCompanyWrite {
     'company_focus', 'website', 'watchlist_status', 'comments', 'ownership',
     'geography', 'source', 'status', 'pipeline_stage', 'remarks', 'thesis_content',
     'deal_type', 'originator', 'entered_by', 'deal_sponsor', 'deal_captain',
-    'last_activity_at', 'banker', 'advisor', 'doc_type', 'stake',
+    'last_activity_at', 'banker', 'advisor', 'doc_type', 'nbo_date', 'is_live', 'stake',
     'deal_size', 'workflow_status', 'key_rationale', 'review_state', 'banker_source',
     'possible_duplicate_company_id', 'matched_track_ids',
     'track_specific_variables', 'slide_track_variable_ids',

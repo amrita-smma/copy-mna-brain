@@ -35,6 +35,8 @@ function makeCompany(overrides: Partial<Tables<'companies'>> = {}): Tables<'comp
     last_activity_at: null,
     banker: null,
     advisor: null,
+    nbo_date: null,
+    is_live: null,
     doc_type: null,
     stake: null,
     deal_size: null,
@@ -339,6 +341,29 @@ describe('advisor', () => {
     const result = splitCompanyDTO({ advisor: null });
     expect(result.company.advisor).toBeNull();
     expect('advisor' in splitCompanyDTO({}).company).toBe(false);
+  });
+});
+
+describe('nbo_date', () => {
+  it('passes nbo_date through toCompanyDTO when set', () => {
+    const dto = toCompanyDTO(makeCompany({ nbo_date: '2026-08-15' }), [], [], null);
+    expect(dto.nbo_date).toBe('2026-08-15');
+  });
+
+  it('defaults nbo_date to null', () => {
+    const dto = toCompanyDTO(makeCompany(), [], [], null);
+    expect(dto.nbo_date).toBeNull();
+  });
+
+  it('routes nbo_date into the company write fragment', () => {
+    const result = splitCompanyDTO({ nbo_date: '2026-08-15' });
+    expect(result.company.nbo_date).toBe('2026-08-15');
+  });
+
+  it('preserves explicit null (clearing NBO date) and skips undefined', () => {
+    const result = splitCompanyDTO({ nbo_date: null });
+    expect(result.company.nbo_date).toBeNull();
+    expect('nbo_date' in splitCompanyDTO({}).company).toBe(false);
   });
 });
 

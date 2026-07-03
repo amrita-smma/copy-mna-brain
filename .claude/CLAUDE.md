@@ -1,6 +1,6 @@
 ## Pull Request Naming
 
-PR titles must begin with a Jira ticket prefix in the form `[MB-xx]`, where `xx` is the issue number (e.g., `[MB-123] add user authentication`). Never omit the prefix or use a different bracket style.
+Use a concise, descriptive PR title that summarizes the change. A Jira ticket prefix (e.g. `[MB-123]`) is optional — include one when a ticket exists, but it is not required.
 
 ## Admin Routes (`/api/auth`)
 

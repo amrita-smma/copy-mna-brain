@@ -16,6 +16,7 @@ import {
 import { MarkdownRenderer } from "@/components/chat/MarkdownRenderer";
 import { getTrackVariables, type TrackVariable } from "@/lib/api/pipeline";
 import { companyDisplayTitle } from "@/lib/companyDisplay";
+import { isDealLive } from "@/lib/dealStatus";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -51,6 +52,12 @@ export interface OverviewSlideCompany {
   ev_2024: number | null;
   ownership: string | null;
   banker?: string | null;
+  /** Deal advisor. A non-empty advisor implies the deal is "live" by default. */
+  advisor?: string | null;
+  /** Explicit "live process" override. Null ⇒ derive from advisor presence. */
+  is_live?: boolean | null;
+  /** NBO (Non-Binding Offer) due date (YYYY-MM-DD). */
+  nbo_date?: string | null;
   source: string | null;
   revenue_2022_usd_mn: number | null;
   revenue_2023_usd_mn: number | null;
@@ -90,6 +97,18 @@ const fmtMoney = (value: number | null | undefined): string => {
   if (value === null || value === undefined) return "—";
   if (Math.abs(value) >= 1000) return `$${(value / 1000).toFixed(2)}B`;
   return `$${value.toFixed(1)}M`;
+};
+
+/** Format a date-only value ("YYYY-MM-DD") as "MMM d, yyyy" without TZ shifts. */
+const fmtDate = (value: string | null | undefined): string => {
+  if (!value) return "—";
+  const [y, m, d] = value.split("T")[0].split("-").map(Number);
+  if (!y || !m || !d) return value;
+  return new Date(y, m - 1, d).toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
 };
 
 /** EBITDA margin = EBITDA / Revenue, shown as a percentage. */
@@ -371,6 +390,10 @@ export default function CompanyOverviewSlide({
       }));
   }, [variableDefs, slideVariableIds, company.track_specific_variables]);
 
+  // Live-process status: an explicit is_live override wins, otherwise it is
+  // derived from the presence of an advisor.
+  const isLive = isDealLive(company);
+
   const dealStructure: string[] = [
     `Deal type: ${company.deal_type ? company.deal_type[0].toUpperCase() + company.deal_type.slice(1) : "—"}`,
     `Target stake: ${company.stake && company.stake !== "—" ? company.stake : "TBC at L1"}`,
@@ -413,6 +436,51 @@ export default function CompanyOverviewSlide({
             {value}
           </div>
         ))}
+      </div>
+
+      {/* Deal status boxes — advisor, source, live process, NBO due date.
+          A non-empty advisor means the deal is assumed to be "live". */}
+      <div className="mb-4 grid grid-cols-2 gap-2 md:grid-cols-4">
+        <div className="rounded border border-border bg-muted/40 px-2.5 py-1.5 text-[11px]">
+          <span className="font-semibold text-blue-900 dark:text-blue-300">
+            Advisor:
+          </span>{" "}
+          {company.advisor || "—"}
+        </div>
+        <div className="rounded border border-border bg-muted/40 px-2.5 py-1.5 text-[11px]">
+          <span className="font-semibold text-blue-900 dark:text-blue-300">
+            Source:
+          </span>{" "}
+          {company.source
+            ? company.source[0].toUpperCase() + company.source.slice(1)
+            : "—"}
+        </div>
+        <div
+          className={cn(
+            "rounded border px-2.5 py-1.5 text-[11px]",
+            isLive
+              ? "border-emerald-300 bg-emerald-50 dark:border-emerald-800 dark:bg-emerald-950/40"
+              : "border-border bg-muted/40",
+          )}
+        >
+          <span
+            className={cn(
+              "font-semibold",
+              isLive
+                ? "text-emerald-700 dark:text-emerald-300"
+                : "text-blue-900 dark:text-blue-300",
+            )}
+          >
+            Deal Status:
+          </span>{" "}
+          {isLive ? "Live process" : "Not live"}
+        </div>
+        <div className="rounded border border-border bg-muted/40 px-2.5 py-1.5 text-[11px]">
+          <span className="font-semibold text-blue-900 dark:text-blue-300">
+            NBO Due:
+          </span>{" "}
+          {fmtDate(company.nbo_date)}
+        </div>
       </div>
 
       {/* Stage track */}

@@ -9,6 +9,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
+import { isDealLive } from "@/lib/dealStatus";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -382,6 +383,33 @@ export default function OutboundCompaniesTable({
           ) : (
             <span className="text-xs text-muted-foreground">-</span>
           ),
+      },
+      {
+        id: "is_live",
+        label: "Live",
+        sort: sortDesc("is_live"), filter: filterDesc("is_live"),
+        headerClassName: "min-w-[90px]",
+        cellClassName: "min-w-[90px]",
+        cell: (c) =>
+          isDealLive(c) ? (
+            <Badge
+              variant="outline"
+              className="whitespace-nowrap border-emerald-300 bg-emerald-50 text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300"
+            >
+              Live
+            </Badge>
+          ) : (
+            <Badge variant="outline" className="whitespace-nowrap text-muted-foreground">
+              Not live
+            </Badge>
+          ),
+      },
+      {
+        id: "nbo_date",
+        label: "NBO Date",
+        sort: sortDesc("nbo_date"),
+        cellClassName: "text-muted-foreground text-sm whitespace-nowrap",
+        cell: (c) => formatDate(c.nbo_date ? `${c.nbo_date}T00:00:00` : null),
       },
       {
         id: "created",

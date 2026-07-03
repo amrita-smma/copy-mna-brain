@@ -9,6 +9,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
+import { isDealLive } from "@/lib/dealStatus";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -288,13 +289,46 @@ export default function InboundCompaniesTable({
         label: "Advisor",
         sort: sortDesc("advisor"), filter: filterDesc("advisor"),
         headerClassName: "min-w-[170px]",
-        cellClassName: "min-w-[170px]",
+        cellClassName: "max-w-[220px]",
         cell: (c) =>
           c.advisor ? (
-            <span className="text-sm font-medium">{c.advisor}</span>
+            <span
+              className="inline-flex max-w-full items-center gap-1.5 rounded-md bg-muted px-2 py-0.5 text-xs text-muted-foreground"
+              title={c.advisor}
+            >
+              <Landmark className="h-3 w-3 shrink-0" />
+              <span className="min-w-0 truncate">{c.advisor}</span>
+            </span>
           ) : (
-            <span className="text-sm text-muted-foreground">—</span>
+            <span className="text-muted-foreground">—</span>
           ),
+      },
+      {
+        id: "is_live",
+        label: "Live",
+        sort: sortDesc("is_live"), filter: filterDesc("is_live"),
+        headerClassName: "min-w-[90px]",
+        cellClassName: "min-w-[90px]",
+        cell: (c) =>
+          isDealLive(c) ? (
+            <Badge
+              variant="outline"
+              className="whitespace-nowrap border-emerald-300 bg-emerald-50 text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300"
+            >
+              Live
+            </Badge>
+          ) : (
+            <Badge variant="outline" className="whitespace-nowrap text-muted-foreground">
+              Not live
+            </Badge>
+          ),
+      },
+      {
+        id: "nbo_date",
+        label: "NBO Date",
+        sort: sortDesc("nbo_date"),
+        cellClassName: "text-muted-foreground text-sm whitespace-nowrap",
+        cell: (c) => formatDate(c.nbo_date ? `${c.nbo_date}T00:00:00` : null),
       },
       {
         id: "sector",

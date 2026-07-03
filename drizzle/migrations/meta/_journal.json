@@ -589,6 +589,20 @@
       "when": 1782864002000,
       "tag": "20260701000002_drop_past_acquisitions",
       "breakpoints": true
+    },
+    {
+      "idx": 84,
+      "version": "7",
+      "when": 1783036800000,
+      "tag": "20260703000000_add_nbo_date_to_companies",
+      "breakpoints": true
+    },
+    {
+      "idx": 85,
+      "version": "7",
+      "when": 1783036801000,
+      "tag": "20260703000001_add_is_live_to_companies",
+      "breakpoints": true
     }
   ]
 }

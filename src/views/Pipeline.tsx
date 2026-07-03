@@ -88,6 +88,7 @@ import { BulkTriageModal } from "@/components/pipeline/BulkTriageModal";
 import { DuplicatePopup } from "@/components/pipeline/DuplicatePopup";
 import { cn } from "@/lib/utils";
 import { companyDisplayName } from "@/lib/companyDisplay";
+import { isDealLive } from "@/lib/dealStatus";
 import posthog from "posthog-js";
 import { useAuth } from "@/hooks/useAuth";
 import {
@@ -153,6 +154,8 @@ export interface PipelineCompany {
   banker: string | null;
   advisor: string | null;
   doc_type: string | null;
+  nbo_date: string | null;
+  is_live: boolean | null;
   stake: string | null;
   deal_size: string | null;
   workflow_status: string | null;
@@ -448,6 +451,8 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
           banker: company.banker ?? null,
           advisor: company.advisor ?? null,
           doc_type: company.doc_type ?? null,
+          nbo_date: company.nbo_date ?? null,
+          is_live: company.is_live ?? null,
           stake: company.stake ?? null,
           deal_size: company.deal_size ?? null,
           workflow_status: company.workflow_status ?? null,
@@ -632,6 +637,7 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
     entered_by: (c) => c.entered_by_name || null,
     banker: (c) => c.banker ?? c.banker_source ?? null,
     advisor: (c) => c.advisor || null,
+    is_live: (c) => (isDealLive(c) ? "Live" : "Not live"),
     stake: (c) => c.stake || null,
     // Deal Sponsor (L0–L2) / Deal Captain (L3+): the stored per-company
     // override, else the matched Track's PIC(s). Mirrors the table cell so the
@@ -808,6 +814,14 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
       case "last_activity":
         aVal = a.last_activity_at ? new Date(a.last_activity_at).getTime() : 0;
         bVal = b.last_activity_at ? new Date(b.last_activity_at).getTime() : 0;
+        break;
+      case "nbo_date":
+        aVal = a.nbo_date ? new Date(a.nbo_date).getTime() : 0;
+        bVal = b.nbo_date ? new Date(b.nbo_date).getTime() : 0;
+        break;
+      case "is_live":
+        aVal = isDealLive(a) ? 1 : 0;
+        bVal = isDealLive(b) ? 1 : 0;
         break;
       case "dropped_on":
         aVal = a.dropped_at ? new Date(a.dropped_at).getTime() : 0;
