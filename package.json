@@ -8,6 +8,7 @@
     "start": "next start",
     "lint": "next lint",
     "db:ping": "tsx scripts/db-ping.ts",
+    "db:reset": "tsx scripts/db-reset.ts",
     "db:journal": "tsx scripts/build-drizzle-journal.ts && tsx scripts/build-drizzle-journal.ts data-pipeline/migrations",
     "db:migrate": "tsx scripts/build-drizzle-journal.ts && tsx scripts/build-drizzle-journal.ts data-pipeline/migrations && tsx scripts/migrate.ts",
     "db:migrate:status": "tsx scripts/status.ts",
