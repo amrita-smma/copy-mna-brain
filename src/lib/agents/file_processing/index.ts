@@ -117,9 +117,9 @@ ${userRawNotes}
    - **other**: anything that does not fit above — INCLUDING documents about a BUYER, ACQUIRER, SPONSOR, LENDER, INVESTMENT BANK, or LAW FIRM (e.g. a sponsor/buyer overview deck, a lender presentation, an advisor profile). These parties are NOT companies being sold.
    **CRITICAL — a document containing financial figures is NOT automatically a prospectus.** Financial statements, SPAs, and buyer/sponsor decks all contain revenue/EBITDA/balance-sheet figures but are NOT sale offerings. Only "prospectus" describes a deal target; misclassifying these other documents as "prospectus" wrongly registers a buyer, lender, or advisor as a company on sale. Classify as "prospectus" ONLY when a company is genuinely being offered for sale.
 5. Final Output must be a valid JSON block containing:
-   - summary: A concise overview of the meeting/document.
-   - key_points: Array of main takeaways.
-   - action_items: Array of next steps.
+   - summary: A concise, DEAL-RELEVANT overview of the meeting/document (see "Deal Relevance Rules" below).
+   - key_points: Array of main takeaways — DEAL-RELEVANT only (see "Deal Relevance Rules" below).
+   - action_items: Array of next steps — DEAL-RELEVANT only (see "Deal Relevance Rules" below).
    - tags: Array of useful searchable tags (company names, topics).
    - companies_detected: Array of STRINGS (exact names as they appear in the Known Companies list) that were found in the text.
    - company_notes: Array of objects { "company_name": "...", "note": "..." } containing the specific context for that company.
@@ -210,6 +210,25 @@ Your response should end with a JSON block in this format:
   }
 }
 \`\`\`
+
+## Deal Relevance Rules:
+The \`summary\`, \`key_points\`, and \`action_items\` fields MUST contain ONLY information that is relevant to an M&A deal, transaction, or investment decision. This is a strict filter.
+
+**INCLUDE (deal-relevant):**
+- Deal structure, terms, valuation, pricing, multiples (EV/EBITDA, etc.), and consideration.
+- Financial performance and projections (revenue, EBITDA, margins, growth) as they bear on the deal.
+- The target's business, assets, market position, and competitive dynamics.
+- Ownership, shareholders, cap table, and stake being offered/acquired.
+- Transaction process, timeline, milestones, diligence status, and deal risks.
+- Regulatory, legal, or approval matters affecting the transaction.
+- Buyer/seller/advisor identities and their roles in the deal, and next steps that advance the transaction.
+
+**EXCLUDE (not deal-relevant) — do NOT mention these:**
+- HR movement, hiring, headcount changes, promotions, departures, or org announcements (unless the change is itself a material deal condition, e.g. a key-person retention clause in the SPA).
+- Internal team logistics unrelated to the transaction, general company culture, and administrative chatter.
+- Any content that does not inform the deal, valuation, or investment decision.
+
+If, after applying this filter, there is no deal-relevant content, return an empty string for \`summary\` and empty arrays for \`key_points\` and \`action_items\`. Never pad these fields with non-deal information.
 
 ## Prospectus Summary Rules:
 - \`company_name\` and \`project_name\` MUST identify the company or project being OFFERED FOR SALE (the deal target). NEVER set them to a buyer, acquirer, sponsor, lender, investment bank, or law firm named in the document. If the document is not offering a specific company for sale, leave both \`null\`.
