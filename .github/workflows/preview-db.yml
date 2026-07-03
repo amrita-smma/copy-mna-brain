@@ -11,7 +11,7 @@ on:
   workflow_dispatch:
     inputs:
       seed:
-        description: 'Seed the database after migrating'
+        description: "Seed the database after migrating"
         type: boolean
         default: true
 
@@ -121,7 +121,7 @@ jobs:
           # redeploy it so the rebuild picks up the branch-scoped DB_* vars
           # set above. Vercel's GitHub integration creates the original deploy
           # but builds it before we can attach the env vars.
-          for i in $(seq 1 12); do
+          for i in $(seq 1 60); do
             RESP=$(vercel list \
               --meta githubCommitRef="$BRANCH" \
               --meta githubPrId="$PR_ID" \
