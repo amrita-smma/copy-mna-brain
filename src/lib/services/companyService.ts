@@ -157,22 +157,42 @@ export class CompanyService {
       this.companyScreeningDerivedRepo.findByCompany(id),
       this.companyRepo.findAssignees(id),
     ]);
-    const enteredByName = await this.resolveEnteredByName(company.entered_by ?? null);
-    return toCompanyDTO(company, financials, fx, screening, assignees, enteredByName);
+    const userNameById = await this.resolveUserNames([
+      company.entered_by,
+      company.deal_sponsor,
+      company.deal_captain,
+    ]);
+    const nameOf = (id: string | null) => (id ? (userNameById.get(id) ?? null) : null);
+    return toCompanyDTO(
+      company,
+      financials,
+      fx,
+      screening,
+      assignees,
+      nameOf(company.entered_by),
+      nameOf(company.deal_sponsor),
+      nameOf(company.deal_captain),
+    );
   }
 
   async listDTO(filters: Omit<CompanyFilters, 'id'>): Promise<CompanyDTO[]> {
     const companies = await this.companyRepo.findAll(filters);
     if (companies.length === 0) return [];
     const ids = companies.map((c) => c.id);
-    const enteredByIds = [...new Set(companies.map((c) => c.entered_by).filter((v): v is string => !!v))];
-    const [financials, fxRows, screeningRows, assigneeRows, enteredByUsers] = await Promise.all([
+    const referencedUserIds = [
+      ...new Set(
+        companies
+          .flatMap((c) => [c.entered_by, c.deal_sponsor, c.deal_captain])
+          .filter((v): v is string => !!v),
+      ),
+    ];
+    const [financials, fxRows, screeningRows, assigneeRows, referencedUsers] = await Promise.all([
       this.companyFinancialRepo.findByCompanies(ids),
       this.companyFxAdjustmentRepo.findByCompanies(ids),
       this.companyScreeningDerivedRepo.findByCompanies(ids),
       this.companyRepo.findAssigneesByCompanies(ids),
-      enteredByIds.length > 0 && this.userRepo
-        ? this.userRepo.findByIds(enteredByIds)
+      referencedUserIds.length > 0 && this.userRepo
+        ? this.userRepo.findByIds(referencedUserIds)
         : Promise.resolve([]),
     ]);
     const finByCompany = new Map<string, Tables<'company_financials'>[]>();
@@ -199,7 +219,8 @@ export class CompanyService {
       arr.push(user);
       assigneesByCompany.set(company_id, arr);
     }
-    const userNameById = new Map(enteredByUsers.map((u) => [u.id, u.name]));
+    const userNameById = new Map(referencedUsers.map((u) => [u.id, u.name]));
+    const nameOf = (id: string | null) => (id ? (userNameById.get(id) ?? null) : null);
     return companies.map((c) =>
       toCompanyDTO(
         c,
@@ -207,15 +228,25 @@ export class CompanyService {
         fxByCompany.get(c.id) ?? [],
         screeningByCompany.get(c.id) ?? null,
         assigneesByCompany.get(c.id) ?? [],
-        c.entered_by ? (userNameById.get(c.entered_by) ?? null) : null,
+        nameOf(c.entered_by),
+        nameOf(c.deal_sponsor),
+        nameOf(c.deal_captain),
       ),
     );
   }
 
-  private async resolveEnteredByName(userId: string | null): Promise<string | null> {
-    if (!userId || !this.userRepo) return null;
-    const [user] = await this.userRepo.findByIds([userId]);
-    return user?.name ?? null;
+  /**
+   * Resolve user-reference columns (entered_by / deal_sponsor / deal_captain)
+   * to display names in one batch lookup. Returns an id → name map; ids with
+   * no matching user are simply absent.
+   */
+  private async resolveUserNames(
+    userIds: Array<string | null | undefined>,
+  ): Promise<Map<string, string>> {
+    const ids = [...new Set(userIds.filter((v): v is string => !!v))];
+    if (ids.length === 0 || !this.userRepo) return new Map();
+    const users = await this.userRepo.findByIds(ids);
+    return new Map(users.map((u) => [u.id, u.name]));
   }
 
   // --------- DTO (flat) write path: split across tables ---------

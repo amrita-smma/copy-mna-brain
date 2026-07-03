@@ -214,8 +214,8 @@ describe('trackDisplayName', () => {
 type LeadCompany = Parameters<typeof effectiveDealLead>[0];
 
 const leadCompany = (overrides: Partial<LeadCompany> = {}): LeadCompany => ({
-  deal_sponsor: null,
-  deal_captain: null,
+  deal_sponsor_name: null,
+  deal_captain_name: null,
   ...overrides,
 });
 
@@ -253,22 +253,26 @@ describe('dealLeadLabel', () => {
 });
 
 describe('effectiveDealLead', () => {
-  it('returns the stored sponsor at sponsor stages', () => {
-    expect(effectiveDealLead(leadCompany({ deal_sponsor: 'Alice' }), 'L1', TRACKS)).toBe('Alice');
+  it('returns the stored sponsor name at sponsor stages', () => {
+    expect(effectiveDealLead(leadCompany({ deal_sponsor_name: 'Alice' }), 'L1', TRACKS)).toBe('Alice');
   });
 
-  it('returns the stored captain at captain stages', () => {
+  it('returns the stored captain name at captain stages', () => {
     expect(
-      effectiveDealLead(leadCompany({ deal_sponsor: 'Alice', deal_captain: 'Bob' }), 'L3', TRACKS),
+      effectiveDealLead(
+        leadCompany({ deal_sponsor_name: 'Alice', deal_captain_name: 'Bob' }),
+        'L3',
+        TRACKS,
+      ),
     ).toBe('Bob');
   });
 
   it('defaults the captain to the sponsor when no captain is set', () => {
-    expect(effectiveDealLead(leadCompany({ deal_sponsor: 'Alice' }), 'L3', TRACKS)).toBe('Alice');
+    expect(effectiveDealLead(leadCompany({ deal_sponsor_name: 'Alice' }), 'L3', TRACKS)).toBe('Alice');
   });
 
   it('does not borrow the captain value at sponsor stages', () => {
-    expect(effectiveDealLead(leadCompany({ deal_captain: 'Bob' }), 'L1', TRACKS)).toBeNull();
+    expect(effectiveDealLead(leadCompany({ deal_captain_name: 'Bob' }), 'L1', TRACKS)).toBeNull();
   });
 
   it('falls back to matched track PICs when no lead is stored', () => {

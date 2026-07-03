@@ -59,9 +59,12 @@ export interface OverviewSlideCompany {
   banker?: string | null;
   /** Who entered the company: "AI Email Scanning" or the uploader's name. */
   entered_by_name?: string | null;
-  /** Deal Sponsor (L0–L2) / Deal Captain (L3+) per-company overrides. */
-  deal_sponsor?: string | null;
-  deal_captain?: string | null;
+  /**
+   * Deal Sponsor (L0–L2) / Deal Captain (L3+) per-company overrides —
+   * resolved user names (the stored columns are uuid FKs to users.id).
+   */
+  deal_sponsor_name?: string | null;
+  deal_captain_name?: string | null;
   /** Track ids the company is matched to — drives the Track-PIC fallback. */
   matched_track_ids?: string[] | null;
   /** Deal advisor. A non-empty advisor implies the deal is "live" by default. */

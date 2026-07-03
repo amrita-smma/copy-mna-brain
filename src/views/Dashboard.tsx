@@ -1455,12 +1455,12 @@ export default function Dashboard({
                                             {c.geography}
                                           </Badge>
                                         )}
-                                        {c.deal_sponsor && (
+                                        {c.deal_sponsor_name && (
                                           <Badge
                                             variant="outline"
                                             className="text-[10px] px-1.5 py-0.5 min-h-4 rounded-md whitespace-normal break-words text-left leading-snug"
                                           >
-                                            Deal Sponsor: {c.deal_sponsor}
+                                            Deal Sponsor: {c.deal_sponsor_name}
                                           </Badge>
                                         )}
                                         {c.entered_by_name && (
@@ -1555,12 +1555,12 @@ export default function Dashboard({
                                           {d.geography}
                                         </Badge>
                                       )}
-                                      {d.deal_sponsor && (
+                                      {d.deal_sponsor_name && (
                                         <Badge
                                           variant="outline"
                                           className="text-[10px] px-1.5 py-0.5 min-h-4 rounded-md whitespace-normal break-words text-left leading-snug"
                                         >
-                                          Deal Sponsor: {d.deal_sponsor}
+                                          Deal Sponsor: {d.deal_sponsor_name}
                                         </Badge>
                                       )}
                                       {d.entered_by_name && (
@@ -1666,12 +1666,12 @@ export default function Dashboard({
                                               {m.geography}
                                             </Badge>
                                           )}
-                                          {m.deal_sponsor && (
+                                          {m.deal_sponsor_name && (
                                             <Badge
                                               variant="outline"
                                               className="text-[10px] px-1.5 py-0.5 min-h-4 rounded-md whitespace-normal break-words text-left leading-snug"
                                             >
-                                              Deal Sponsor: {m.deal_sponsor}
+                                              Deal Sponsor: {m.deal_sponsor_name}
                                             </Badge>
                                           )}
                                           {m.entered_by_name && (

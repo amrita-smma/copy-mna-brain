@@ -82,7 +82,8 @@ function DealLeadCell({
   stage: DealStage;
 }) {
   const field = dealLeadField(stage);
-  const stored = company[field];
+  // The stored columns are uuid FKs; display uses the resolved user name.
+  const stored = company[`${field}_name`];
   const fallbackPics = matchedTrackPics(company, tracks);
   const fallback = fallbackPics.length > 0 ? fallbackPics.join(", ") : null;
   return (

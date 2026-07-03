@@ -22,6 +22,13 @@ import type { DbClient } from './types';
 const latestFinancials = alias(companyFinancials, 'cf_latest');
 
 /**
+ * Aliased copy of `users` for resolving `companies.deal_sponsor` (a uuid FK)
+ * to a display name. Must be distinct from the plain `users` join, which is
+ * already bound to `companies.entered_by` in the same statements.
+ */
+const sponsorUsers = alias(users, 'sponsor_users');
+
+/**
  * Financial columns selected from `company_financials` for feed rows.
  * `financial_year` is the fiscal year the figures belong to (null when the
  * left join finds no matching row), so the UI can label them without
@@ -62,7 +69,7 @@ export class DashboardActivityRepository {
   }
 
   async getNewL0Companies(from: Date, to: Date, limit?: number, companyId?: string): Promise<
-    ({ id: string; target: string | null; project_name: string | null; source: string | null; segment: string | null; geography: string | null; remarks: string | null; thesis_content: string | null; deal_sponsor: string | null; entered_by: string | null; entered_by_name: string | null; event_at: string; reason: 'created' | 'demoted' } & FeedFinancials)[]
+    ({ id: string; target: string | null; project_name: string | null; source: string | null; segment: string | null; geography: string | null; remarks: string | null; thesis_content: string | null; deal_sponsor_name: string | null; entered_by: string | null; entered_by_name: string | null; event_at: string; reason: 'created' | 'demoted' } & FeedFinancials)[]
   > {
     const fromIso = from.toISOString();
     const toIso = to.toISOString();
@@ -79,7 +86,7 @@ export class DashboardActivityRepository {
         geography: companies.geography,
         remarks: companies.remarks,
         thesis_content: companies.thesis_content,
-        deal_sponsor: companies.deal_sponsor,
+        deal_sponsor_name: sponsorUsers.name,
         entered_by: companies.entered_by,
         entered_by_name: users.name,
         revenue_usd_mn: companyFinancials.revenue_usd_mn,
@@ -91,6 +98,7 @@ export class DashboardActivityRepository {
       .from(companies)
       .leftJoin(companyFinancials, this.latestFinancialsOn())
       .leftJoin(users, eq(users.id, companies.entered_by))
+      .leftJoin(sponsorUsers, eq(sponsorUsers.id, companies.deal_sponsor))
       .where(
         and(
           eq(companies.pipeline_stage, 'L0'),
@@ -111,7 +119,7 @@ export class DashboardActivityRepository {
         geography: companies.geography,
         remarks: companies.remarks,
         thesis_content: companies.thesis_content,
-        deal_sponsor: companies.deal_sponsor,
+        deal_sponsor_name: sponsorUsers.name,
         entered_by: companies.entered_by,
         entered_by_name: users.name,
         revenue_usd_mn: companyFinancials.revenue_usd_mn,
@@ -124,6 +132,7 @@ export class DashboardActivityRepository {
       .innerJoin(companies, eq(companyLogs.company_id, companies.id))
       .leftJoin(companyFinancials, this.latestFinancialsOn())
       .leftJoin(users, eq(users.id, companies.entered_by))
+      .leftJoin(sponsorUsers, eq(sponsorUsers.id, companies.deal_sponsor))
       .where(
         and(
           like(companyLogs.action, '%_TO_L0'),
@@ -236,7 +245,7 @@ export class DashboardActivityRepository {
         remarks: companies.remarks,
         thesis_content: companies.thesis_content,
         promoted_reasons: companies.promoted_reasons,
-        deal_sponsor: companies.deal_sponsor,
+        deal_sponsor_name: sponsorUsers.name,
         entered_by: companies.entered_by,
         entered_by_name: users.name,
         revenue_usd_mn: companyFinancials.revenue_usd_mn,
@@ -248,6 +257,7 @@ export class DashboardActivityRepository {
       .innerJoin(companies, eq(companyLogs.company_id, companies.id))
       .leftJoin(companyFinancials, this.latestFinancialsOn())
       .leftJoin(users, eq(users.id, companies.entered_by))
+      .leftJoin(sponsorUsers, eq(sponsorUsers.id, companies.deal_sponsor))
       .where(
         and(
           like(companyLogs.action, 'PROMOTED_%'),
@@ -294,7 +304,7 @@ export class DashboardActivityRepository {
         geography: companies.geography,
         source: companies.source,
         thesis_content: companies.thesis_content,
-        deal_sponsor: companies.deal_sponsor,
+        deal_sponsor_name: sponsorUsers.name,
         entered_by: companies.entered_by,
         entered_by_name: users.name,
         revenue_usd_mn: companyFinancials.revenue_usd_mn,
@@ -305,6 +315,7 @@ export class DashboardActivityRepository {
       .from(companies)
       .leftJoin(companyFinancials, this.latestFinancialsOn())
       .leftJoin(users, eq(users.id, companies.entered_by))
+      .leftJoin(sponsorUsers, eq(sponsorUsers.id, companies.deal_sponsor))
       .where(
         and(
           eq(companies.status, 'dropped'),

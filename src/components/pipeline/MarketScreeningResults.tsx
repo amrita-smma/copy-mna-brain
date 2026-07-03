@@ -94,8 +94,11 @@ interface MarketScreeningResult {
   deal_size: string | null;
   workflow_status: string | null;
   key_rationale: string | null;
+  // uuid FKs to users.id; `*_name` carries the resolved display name.
   deal_sponsor: string | null;
+  deal_sponsor_name?: string | null;
   deal_captain: string | null;
+  deal_captain_name?: string | null;
   matched_track_ids?: string[] | null;
 
   financials_raw?: import('@/lib/repositories').Tables<'company_financials'>[];
@@ -605,7 +608,9 @@ export default function MarketScreeningResults({ refreshTrigger, onAddedToPipeli
                   workflow_status: selectedResult.workflow_status ?? null,
                   key_rationale: selectedResult.key_rationale ?? null,
                   deal_sponsor: selectedResult.deal_sponsor ?? null,
+                  deal_sponsor_name: selectedResult.deal_sponsor_name ?? null,
                   deal_captain: selectedResult.deal_captain ?? null,
+                  deal_captain_name: selectedResult.deal_captain_name ?? null,
                   matched_track_ids: selectedResult.matched_track_ids ?? null,
                   financials_raw: selectedResult.financials_raw,
                 }}

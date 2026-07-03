@@ -46,8 +46,9 @@ describe('DashboardActivityRepository.getDroppedDeals', () => {
     expect(selectArg).toHaveProperty('ebitda_usd_mn');
     expect(selectArg).toHaveProperty('ev_usd_mn');
     expect(selectArg).toHaveProperty('entered_by_name');
-    // One left join for financials, one for users (entered_by name resolution).
-    expect(mockDb.leftJoin).toHaveBeenCalledTimes(2);
+    expect(selectArg).toHaveProperty('deal_sponsor_name');
+    // Left joins: financials, users (entered_by), aliased users (deal_sponsor).
+    expect(mockDb.leftJoin).toHaveBeenCalledTimes(3);
   });
 
   it('returns the rows produced by the query', async () => {
@@ -100,8 +101,9 @@ describe('DashboardActivityRepository.getPipelineMoves', () => {
     expect(selectArg).toHaveProperty('ebitda_usd_mn');
     expect(selectArg).toHaveProperty('ev_usd_mn');
     expect(selectArg).toHaveProperty('entered_by_name');
-    // One left join for financials, one for users (entered_by name resolution).
-    expect(mockDb.leftJoin).toHaveBeenCalledTimes(2);
+    expect(selectArg).toHaveProperty('deal_sponsor_name');
+    // Left joins: financials, users (entered_by), aliased users (deal_sponsor).
+    expect(mockDb.leftJoin).toHaveBeenCalledTimes(3);
   });
 });
 

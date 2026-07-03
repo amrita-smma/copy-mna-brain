@@ -334,18 +334,18 @@ describe("CompanyService.promote", () => {
 
   it("copies Deal Sponsor into Deal Captain on promotion into L3 when captain is empty", async () => {
     vi.mocked(repos.companyRepo.findById).mockResolvedValue(
-      makeCompany({ deal_sponsor: "Dicki Sujadi", deal_captain: null }),
+      makeCompany({ deal_sponsor: "5f0e3f9a-1111-4222-8333-444455556666", deal_captain: null }),
     );
     await service.promote("company-1", "L2", "L3");
     expect(repos.companyRepo.update).toHaveBeenCalledWith(
       "company-1",
-      expect.objectContaining({ pipeline_stage: "L3", deal_captain: "Dicki Sujadi" }),
+      expect.objectContaining({ pipeline_stage: "L3", deal_captain: "5f0e3f9a-1111-4222-8333-444455556666" }),
     );
   });
 
   it("does not overwrite an existing Deal Captain on promotion into L3+", async () => {
     vi.mocked(repos.companyRepo.findById).mockResolvedValue(
-      makeCompany({ deal_sponsor: "Dicki Sujadi", deal_captain: "Someone Else" }),
+      makeCompany({ deal_sponsor: "5f0e3f9a-1111-4222-8333-444455556666", deal_captain: "6a1f4a0b-2222-4333-9444-555566667777" }),
     );
     await service.promote("company-1", "L2", "L3");
     const updates = vi.mocked(repos.companyRepo.update).mock.calls[0][1];
@@ -354,7 +354,7 @@ describe("CompanyService.promote", () => {
 
   it("does not set Deal Captain when promoting within L0–L2", async () => {
     vi.mocked(repos.companyRepo.findById).mockResolvedValue(
-      makeCompany({ deal_sponsor: "Dicki Sujadi", deal_captain: null }),
+      makeCompany({ deal_sponsor: "5f0e3f9a-1111-4222-8333-444455556666", deal_captain: null }),
     );
     await service.promote("company-1", "L1", "L2");
     const updates = vi.mocked(repos.companyRepo.update).mock.calls[0][1];
@@ -1299,5 +1299,87 @@ describe("CompanyService.checkL0Requirements", () => {
       "Geo",
       "Sector",
     ]));
+  });
+});
+
+describe("CompanyService user-name resolution (entered_by / deal_sponsor / deal_captain)", () => {
+  const ENTERED_BY = "11111111-1111-4111-8111-111111111111";
+  const SPONSOR = "22222222-2222-4222-8222-222222222222";
+  const CAPTAIN = "33333333-3333-4333-8333-333333333333";
+
+  function buildServiceWithUsers(repos: ReturnType<typeof makeRepos>, findByIds: ReturnType<typeof vi.fn>) {
+    return new CompanyService(
+      repos.companyRepo,
+      repos.companyLogRepo,
+      repos.dealDocRepo,
+      repos.dealNoteRepo,
+      repos.dealLinkRepo,
+      repos.companyFinancialRepo,
+      repos.companyFxAdjustmentRepo,
+      repos.companyScreeningDerivedRepo,
+      undefined,
+      { findByIds } as never,
+    );
+  }
+
+  it("findByIdDTO resolves all three uuid columns to names in one batch", async () => {
+    const repos = makeRepos();
+    vi.mocked(repos.companyRepo.findById).mockResolvedValue(
+      makeCompany({ entered_by: ENTERED_BY, deal_sponsor: SPONSOR, deal_captain: CAPTAIN }),
+    );
+    const findByIds = vi.fn().mockResolvedValue([
+      { id: ENTERED_BY, name: "Enterer" },
+      { id: SPONSOR, name: "Sponsor Sally" },
+      { id: CAPTAIN, name: "Captain Carl" },
+    ]);
+    const service = buildServiceWithUsers(repos, findByIds);
+
+    const dto = await service.findByIdDTO("company-1");
+
+    expect(findByIds).toHaveBeenCalledTimes(1);
+    expect(findByIds).toHaveBeenCalledWith(
+      expect.arrayContaining([ENTERED_BY, SPONSOR, CAPTAIN]),
+    );
+    expect(dto.entered_by_name).toBe("Enterer");
+    expect(dto.deal_sponsor_name).toBe("Sponsor Sally");
+    expect(dto.deal_captain_name).toBe("Captain Carl");
+  });
+
+  it("findByIdDTO leaves names null when the columns are null", async () => {
+    const repos = makeRepos();
+    vi.mocked(repos.companyRepo.findById).mockResolvedValue(
+      makeCompany({ entered_by: null, deal_sponsor: null, deal_captain: null }),
+    );
+    const findByIds = vi.fn().mockResolvedValue([]);
+    const service = buildServiceWithUsers(repos, findByIds);
+
+    const dto = await service.findByIdDTO("company-1");
+
+    expect(findByIds).not.toHaveBeenCalled();
+    expect(dto.entered_by_name).toBeNull();
+    expect(dto.deal_sponsor_name).toBeNull();
+    expect(dto.deal_captain_name).toBeNull();
+  });
+
+  it("listDTO resolves sponsor/captain names with a single deduplicated lookup", async () => {
+    const repos = makeRepos();
+    vi.mocked(repos.companyRepo.findAll).mockResolvedValue([
+      makeCompany({ id: "c1", deal_sponsor: SPONSOR, deal_captain: null }),
+      makeCompany({ id: "c2", deal_sponsor: SPONSOR, deal_captain: CAPTAIN }),
+    ]);
+    const findByIds = vi.fn().mockResolvedValue([
+      { id: SPONSOR, name: "Sponsor Sally" },
+      { id: CAPTAIN, name: "Captain Carl" },
+    ]);
+    const service = buildServiceWithUsers(repos, findByIds);
+
+    const dtos = await service.listDTO({});
+
+    expect(findByIds).toHaveBeenCalledTimes(1);
+    const requestedIds = findByIds.mock.calls[0][0] as string[];
+    expect(requestedIds.sort()).toEqual([SPONSOR, CAPTAIN].sort());
+    expect(dtos[0].deal_sponsor_name).toBe("Sponsor Sally");
+    expect(dtos[0].deal_captain_name).toBeNull();
+    expect(dtos[1].deal_captain_name).toBe("Captain Carl");
   });
 });

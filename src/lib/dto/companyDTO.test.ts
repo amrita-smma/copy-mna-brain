@@ -297,26 +297,46 @@ describe('entered_by', () => {
 });
 
 describe('deal_sponsor / deal_captain', () => {
-  it('passes both through toCompanyDTO when set', () => {
+  const SPONSOR_ID = '5f0e3f9a-1111-4222-8333-444455556666';
+  const CAPTAIN_ID = '6a1f4a0b-2222-4333-9444-555566667777';
+
+  it('passes both uuids through toCompanyDTO when set', () => {
     const dto = toCompanyDTO(
-      makeCompany({ deal_sponsor: 'Dicki Sujadi', deal_captain: 'Alex Lee' }),
+      makeCompany({ deal_sponsor: SPONSOR_ID, deal_captain: CAPTAIN_ID }),
       [],
       [],
       null,
     );
-    expect(dto.deal_sponsor).toBe('Dicki Sujadi');
-    expect(dto.deal_captain).toBe('Alex Lee');
+    expect(dto.deal_sponsor).toBe(SPONSOR_ID);
+    expect(dto.deal_captain).toBe(CAPTAIN_ID);
   });
 
-  it('defaults both to null', () => {
+  it('carries the resolved names passed by the service layer', () => {
+    const dto = toCompanyDTO(
+      makeCompany({ deal_sponsor: SPONSOR_ID, deal_captain: CAPTAIN_ID }),
+      [],
+      [],
+      null,
+      [],
+      null,
+      'Dicki Sujadi',
+      'Alex Lee',
+    );
+    expect(dto.deal_sponsor_name).toBe('Dicki Sujadi');
+    expect(dto.deal_captain_name).toBe('Alex Lee');
+  });
+
+  it('defaults both ids and names to null', () => {
     const dto = toCompanyDTO(makeCompany(), [], [], null);
     expect(dto.deal_sponsor).toBeNull();
+    expect(dto.deal_sponsor_name).toBeNull();
     expect(dto.deal_captain).toBeNull();
+    expect(dto.deal_captain_name).toBeNull();
   });
 
   it('routes both into the company write fragment', () => {
-    const result = splitCompanyDTO({ deal_sponsor: 'Dicki Sujadi', deal_captain: null });
-    expect(result.company.deal_sponsor).toBe('Dicki Sujadi');
+    const result = splitCompanyDTO({ deal_sponsor: SPONSOR_ID, deal_captain: null });
+    expect(result.company.deal_sponsor).toBe(SPONSOR_ID);
     expect(result.company.deal_captain).toBeNull();
   });
 });

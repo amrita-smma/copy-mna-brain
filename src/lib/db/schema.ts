@@ -332,11 +332,12 @@ export const companies = pgTable(
     // uploading user for manual AFD entries.
     entered_by: uuid().references(() => users.id, { onDelete: 'set null' }),
     originator: text(),
-    // Deal Sponsor (shown at L0–L2) and Deal Captain (shown at L3+). Override
-    // the matched Track's PIC per company; empty falls back to the Track PIC
-    // for display. Deal Captain inherits Deal Sponsor on promotion into L3+.
-    deal_sponsor: text(),
-    deal_captain: text(),
+    // Deal Sponsor (shown at L0–L2) and Deal Captain (shown at L3+) — UUIDs of
+    // the responsible users (reference users.id). Override the matched Track's
+    // PIC per company; empty falls back to the Track PIC for display. Deal
+    // Captain inherits Deal Sponsor on promotion into L3+.
+    deal_sponsor: uuid().references(() => users.id, { onDelete: 'set null' }),
+    deal_captain: uuid().references(() => users.id, { onDelete: 'set null' }),
     last_activity_at: timestamp({ withTimezone: true, mode: "string" }),
     banker: text(),
     // Deal advisor (a banker engaged on the deal). Populated from the existing

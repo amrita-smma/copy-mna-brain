@@ -53,10 +53,13 @@ export interface CompanyDTO {
   // Who entered the company: "AI Email Scanning" or the uploader's name.
   entered_by_name: string | null;
   originator: string | null;
-  // Deal Sponsor (L0–L2) / Deal Captain (L3+) — per-company override of the
-  // matched Track's PIC. Empty falls back to the Track PIC for display.
+  // Deal Sponsor (L0–L2) / Deal Captain (L3+) — uuid FKs to users.id,
+  // per-company override of the matched Track's PIC. Empty falls back to the
+  // Track PIC for display. `*_name` carries the resolved user name.
   deal_sponsor: string | null;
+  deal_sponsor_name: string | null;
   deal_captain: string | null;
+  deal_captain_name: string | null;
   last_activity_at: string | null;
   banker: string | null;
   // Deal advisor (banker engaged on the deal). Non-empty ⇒ the deal is "live".
@@ -196,6 +199,8 @@ export function toCompanyDTO(
   screening: Tables<'company_screening_derived'> | null,
   assignees: Array<Pick<Tables<'users'>, 'id' | 'name' | 'email' | 'role'>> = [],
   enteredByName: string | null = null,
+  dealSponsorName: string | null = null,
+  dealCaptainName: string | null = null,
 ): CompanyDTO {
   const finByYear = new Map<number, Tables<'company_financials'>>();
   for (const f of financials) finByYear.set(f.fiscal_year, f);
@@ -233,7 +238,9 @@ export function toCompanyDTO(
     entered_by_name: enteredByName,
     originator: company.originator ?? null,
     deal_sponsor: company.deal_sponsor ?? null,
+    deal_sponsor_name: dealSponsorName,
     deal_captain: company.deal_captain ?? null,
+    deal_captain_name: dealCaptainName,
     last_activity_at: company.last_activity_at ?? null,
     banker: company.banker ?? null,
     advisor: company.advisor ?? null,

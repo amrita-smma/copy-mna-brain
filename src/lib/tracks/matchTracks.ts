@@ -189,19 +189,22 @@ export function dealLeadLabel(stage: string | null | undefined): string {
  * set, else the matched Track's PIC(s). Returns null when neither is present.
  * At Captain stages (L3+) the Deal Captain defaults to the Deal Sponsor when
  * no captain has been set yet, so the lead carries over on promotion.
+ *
+ * `deal_sponsor` / `deal_captain` store uuid FKs to `users`; display reads the
+ * resolved `deal_sponsor_name` / `deal_captain_name` the DTO layer provides.
  */
 export function effectiveDealLead(
   company: MatchableCompany & {
-    deal_sponsor?: string | null;
-    deal_captain?: string | null;
+    deal_sponsor_name?: string | null;
+    deal_captain_name?: string | null;
   },
   stage: string | null | undefined,
   tracks: TrackLike[],
 ): string | null {
-  const stored = company[dealLeadField(stage)]?.trim();
+  const stored = company[`${dealLeadField(stage)}_name`]?.trim();
   if (stored) return stored;
   if (dealLeadField(stage) === 'deal_captain') {
-    const sponsor = company.deal_sponsor?.trim();
+    const sponsor = company.deal_sponsor_name?.trim();
     if (sponsor) return sponsor;
   }
   const pics = matchedTrackPics(company, tracks);

@@ -192,8 +192,11 @@ export interface CompanyData {
   matched_track_ids?: string[] | null;
   track_specific_variables?: Record<string, Record<string, string>> | null;
   slide_track_variable_ids?: string[] | null;
+  // uuid FKs to users.id; `*_name` carries the resolved display name.
   deal_sponsor?: string | null;
+  deal_sponsor_name?: string | null;
   deal_captain?: string | null;
+  deal_captain_name?: string | null;
   financials_raw?: Tables<'company_financials'>[];
 }
 
@@ -478,10 +481,8 @@ export default function CompanyDetailDialog({
   const [isSaving, setIsSaving] = useState(false);
   const [editForm, setEditForm] = useState<EditForm | null>(null);
   const [bankerOptions, setBankerOptions] = useState<string[]>([]);
-  // Names only — used by the free-text Deal Sponsor / Deal Captain comboboxes
-  // (those columns store plain text). `entered_by` is a uuid FK, so it uses the
-  // id-keyed `users` list below instead.
-  const [userOptions, setUserOptions] = useState<string[]>([]);
+  // Id-keyed users list backing the Deal Sponsor / Deal Captain and
+  // "Entered by" pickers — all three columns are uuid FKs to users.id.
   const [users, setUsers] = useState<UserSummary[]>([]);
 
   const startEditing = async () => {
@@ -523,12 +524,9 @@ export default function CompanyDetailDialog({
         .then(setBankerOptions)
         .catch((err) => console.error('Failed to load bankers:', err));
     }
-    if (userOptions.length === 0) {
+    if (users.length === 0) {
       getUsers()
-        .then((loaded: UserSummary[]) => {
-          setUsers(loaded);
-          setUserOptions(loaded.map((u) => u.name).filter((n): n is string => !!n));
-        })
+        .then(setUsers)
         .catch((err) => console.error('Failed to load users:', err));
     }
   };
@@ -1757,10 +1755,9 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
                           </p>
                           {isEditing && editForm ? (
                             <div className="mt-1">
-                              <StatusCombobox
+                              <UserSelectCombobox
                                 value={editForm[field] || null}
-                                options={userOptions}
-                                allowCreate={false}
+                                users={users}
                                 placeholder={
                                   fallback
                                     ? `${fallback} (from track)`

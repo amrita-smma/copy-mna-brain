@@ -136,6 +136,7 @@ export interface CompanyAgentFilters {
   source?: "inbound" | "outbound";
   status?: "active" | "dropped";
   dealType?: "majority" | "minority";
+  /** Deal sponsor user name (partial, case-insensitive; deal_sponsor is a uuid FK to users). */
   dealSponsor?: string;
   banker?: string;
   /** When set, keep only companies that have (true) / lack (false) an AI Opinion verdict. */
@@ -467,8 +468,18 @@ export class CompanyRepository {
     if (filters.source) push(eq(companies.source, filters.source));
     if (filters.status) push(eq(companies.status, filters.status));
     if (filters.dealType) push(eq(companies.deal_type, filters.dealType));
+    // deal_sponsor holds a users.id uuid — match the filter term against the
+    // sponsor user's name via a subquery.
     if (filters.dealSponsor)
-      push(ilike(companies.deal_sponsor, `%${filters.dealSponsor}%`));
+      push(
+        inArray(
+          companies.deal_sponsor,
+          this.db
+            .select({ id: users.id })
+            .from(users)
+            .where(ilike(users.name, `%${filters.dealSponsor}%`)),
+        ),
+      );
     if (filters.banker) push(ilike(companies.banker, `%${filters.banker}%`));
     if (filters.hasAiOpinion === true)
       push(isNotNull(companies.ai_opinion_verdict));

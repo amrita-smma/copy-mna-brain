@@ -148,8 +148,11 @@ export interface PipelineCompany {
   entered_by: string | null;
   entered_by_name: string | null;
   originator: string | null;
+  // uuid FKs to users.id; `*_name` carries the resolved display name.
   deal_sponsor: string | null;
+  deal_sponsor_name: string | null;
   deal_captain: string | null;
+  deal_captain_name: string | null;
   last_activity_at: string | null;
   banker: string | null;
   advisor: string | null;
@@ -446,7 +449,9 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
           entered_by_name: company.entered_by_name ?? null,
           originator: company.originator ?? null,
           deal_sponsor: company.deal_sponsor ?? null,
+          deal_sponsor_name: company.deal_sponsor_name ?? null,
           deal_captain: company.deal_captain ?? null,
+          deal_captain_name: company.deal_captain_name ?? null,
           last_activity_at: company.last_activity_at ?? null,
           banker: company.banker ?? null,
           advisor: company.advisor ?? null,
