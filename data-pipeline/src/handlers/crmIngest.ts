@@ -21,7 +21,9 @@ import {
   EmployerOverrideRepository,
   EmployerRepository,
   EmployerRelatedCompanyRepository,
+  EmployerTeamRepository,
   TopicRepository,
+  UserRepository,
 } from '@/lib/repositories';
 import { loadCompanyIndex, matchRelatedCompany, normalizeCompanyName } from '../helpers/matchRelatedCompany';
 import type { DbClient, Tables } from '@/lib/repositories';
@@ -51,6 +53,7 @@ export interface CrmIngestResult {
   participants_inserted: number;
   email_topics_inserted: number;
   employer_topics_inserted: number;
+  team_members_inserted: number;
   related_companies_evidence_inserted: number;
   /** Analytics marts refreshed after this ingest (RFC MB-205 §Phase 5). */
   marts_refreshed: string[];
@@ -186,6 +189,7 @@ export async function runCrmIngest(
     participants_inserted: 0,
     email_topics_inserted: 0,
     employer_topics_inserted: 0,
+    team_members_inserted: 0,
     related_companies_evidence_inserted: 0,
     marts_refreshed: [],
   };
@@ -296,6 +300,8 @@ export async function runCrmIngest(
     const txEmployerRepo = new EmployerRepository(txClient);
     const txCorrespondentRepo = new CorrespondentRepository(txClient);
     const txEmailRepo = new EmailRepository(txClient);
+    const txEmployerTeamRepo = new EmployerTeamRepository(txClient);
+    const txUserRepo = new UserRepository(txClient);
 
     // [1/7] Topics.
     log('[1/7] topics');
@@ -375,6 +381,29 @@ export async function runCrmIngest(
         source: 'auto',
       }));
     await txEmployerDomainRepo.persistMany(newMappings);
+
+    // Resolve internal recipients and mailbox custodians to application users.
+    // The resulting map is reused for email_participants.user_id and employer
+    // team coverage below. Addresses are normalized because email matching is
+    // case-insensitive while the users.email unique constraint is not.
+    const possibleUserEmails = new Set<string>();
+    for (const r of rowsToIngest) {
+      for (const address of [
+        r.from_address,
+        r.custodian_email,
+        ...(r.to_addresses ?? []),
+        ...(r.cc_addresses ?? []),
+      ]) {
+        const normalized = address?.trim().toLowerCase();
+        if (normalized) possibleUserEmails.add(normalized);
+      }
+    }
+    const matchedUsers = await txUserRepo.findByEmails([...possibleUserEmails]);
+    const userIdByEmail = new Map(
+      matchedUsers
+        .filter((user): user is typeof user & { email: string } => !!user.email)
+        .map((user) => [user.email.trim().toLowerCase(), user.id]),
+    );
 
     // [3/7] Correspondents.
     log('[3/7] correspondents');
@@ -479,6 +508,7 @@ export async function runCrmIngest(
     log('[5/7] participants');
     const partRows: Array<{
       email_id: string;
+      user_id: string | null;
       correspondent_id: string | null;
       address: string;
       display_name: string | null;
@@ -490,6 +520,7 @@ export async function runCrmIngest(
       if (r.from_address && !isExcluded(r.from_address)) {
         partRows.push({
           email_id: emailId,
+          user_id: userIdByEmail.get(r.from_address.toLowerCase()) ?? null,
           correspondent_id: emailToCorrId.get(r.from_address.toLowerCase()) ?? null,
           address: r.from_address.toLowerCase(),
           display_name: r.from_display_name || null,
@@ -500,6 +531,7 @@ export async function runCrmIngest(
         if (isExcluded(addr)) continue;
         partRows.push({
           email_id: emailId,
+          user_id: userIdByEmail.get(addr.toLowerCase()) ?? null,
           correspondent_id: emailToCorrId.get(addr.toLowerCase()) ?? null,
           address: addr.toLowerCase(),
           display_name: null,
@@ -510,6 +542,7 @@ export async function runCrmIngest(
         if (isExcluded(addr)) continue;
         partRows.push({
           email_id: emailId,
+          user_id: userIdByEmail.get(addr.toLowerCase()) ?? null,
           correspondent_id: emailToCorrId.get(addr.toLowerCase()) ?? null,
           address: addr.toLowerCase(),
           display_name: null,
@@ -553,6 +586,58 @@ export async function runCrmIngest(
     result.employer_topics_inserted = Array.isArray(employerTopicRows)
       ? employerTopicRows.length
       : 0;
+
+    // A user covers the external counterparty when that user is a To/CC
+    // recipient or the Vault mailbox custodian. For inbound mail the
+    // counterparty is the sender; for outbound mail it is every external
+    // To/CC domain. Multiple users may cover one employer; addMany preserves
+    // all existing manual/seed assignments via ON CONFLICT DO NOTHING.
+    const teamAssignments: Array<{ employer_id: string; user_id: string }> = [];
+    for (const r of rowsToIngest) {
+      const userIds = new Set<string>();
+      for (const address of [
+        r.custodian_email,
+        ...(r.to_addresses ?? []),
+        ...(r.cc_addresses ?? []),
+      ]) {
+        const userId = address
+          ? userIdByEmail.get(address.trim().toLowerCase())
+          : undefined;
+        if (userId) userIds.add(userId);
+      }
+      if (userIds.size === 0) continue;
+
+      const senderEmail = r.from_address?.trim().toLowerCase() ?? '';
+      const senderDomain = domainOf(senderEmail);
+      const senderIsInternal =
+        !!domainToInternal.get(senderDomain) || userIdByEmail.has(senderEmail);
+      const counterpartyAddresses = senderIsInternal
+        ? [...(r.to_addresses ?? []), ...(r.cc_addresses ?? [])]
+        : [r.from_address];
+
+      const employerIds = new Set<string>();
+      for (const address of counterpartyAddresses) {
+        const domain = domainOf(address ?? '');
+        if (
+          !domain ||
+          excludedDomains.has(domain) ||
+          domainToInternal.get(domain)
+        ) {
+          continue;
+        }
+        const employerId = domainToEmployerId.get(domain);
+        if (employerId) employerIds.add(employerId);
+      }
+
+      for (const employer_id of employerIds) {
+        for (const user_id of userIds) {
+          teamAssignments.push({ employer_id, user_id });
+        }
+      }
+    }
+    result.team_members_inserted = await txEmployerTeamRepo.addMany(
+      teamAssignments,
+    );
 
     // Mark ingested.
     log('marking raw_emails ingested');

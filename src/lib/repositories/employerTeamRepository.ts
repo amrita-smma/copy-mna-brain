@@ -14,6 +14,11 @@ export interface TeamMember {
   email: string | null;
 }
 
+export interface EmployerTeamAssignment {
+  employer_id: string;
+  user_id: string;
+}
+
 export class EmployerTeamRepository {
   constructor(private db: DbClient) {}
 
@@ -31,6 +36,32 @@ export class EmployerTeamRepository {
       .insert(employerTeamMembers)
       .values({ employer_id: employerId, user_id: userId })
       .onConflictDoNothing();
+  }
+
+  /**
+   * Add employer/user coverage pairs without replacing manual assignments.
+   * Duplicate input and already-persisted pairs are ignored.
+   */
+  async addMany(assignments: EmployerTeamAssignment[]): Promise<number> {
+    const unique = [
+      ...new Map(
+        assignments.map((assignment) => [
+          `${assignment.employer_id}:${assignment.user_id}`,
+          assignment,
+        ]),
+      ).values(),
+    ];
+    if (unique.length === 0) return 0;
+
+    const inserted = await this.db
+      .insert(employerTeamMembers)
+      .values(unique)
+      .onConflictDoNothing()
+      .returning({
+        employer_id: employerTeamMembers.employer_id,
+        user_id: employerTeamMembers.user_id,
+      });
+    return inserted.length;
   }
 
   async remove(employerId: string, userId: string): Promise<void> {

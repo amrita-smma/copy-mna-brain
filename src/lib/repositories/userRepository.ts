@@ -1,4 +1,4 @@
-import { asc, eq, ilike, inArray } from 'drizzle-orm';
+import { asc, eq, ilike, inArray, sql } from 'drizzle-orm';
 import { users } from '@/lib/db/schema';
 import type { DbClient, Tables, TablesInsert, TablesUpdate } from './types';
 
@@ -23,6 +23,21 @@ export class UserRepository {
       .select({ id: users.id, name: users.name, email: users.email })
       .from(users)
       .where(inArray(users.id, ids));
+  }
+
+  /** Case-insensitive bulk email lookup for ingestion pipelines. */
+  async findByEmails(
+    emails: string[],
+  ): Promise<Array<Pick<UserListItem, 'id' | 'email'>>> {
+    const normalized = [...new Set(
+      emails.map((email) => email.trim().toLowerCase()).filter(Boolean),
+    )];
+    if (normalized.length === 0) return [];
+
+    return this.db
+      .select({ id: users.id, email: users.email })
+      .from(users)
+      .where(inArray(sql<string>`lower(${users.email})`, normalized));
   }
 
   async findByEmail(email: string): Promise<Tables<'users'> | null> {

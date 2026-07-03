@@ -41,3 +41,30 @@ describe('UserRepository.findByIds', () => {
     expect(Object.keys(projection)).toEqual(['id', 'name', 'email']);
   });
 });
+
+describe('UserRepository.findByEmails', () => {
+  it('normalizes and deduplicates emails before querying', async () => {
+    const { db, selectChain } = makeMockDb();
+    const rows = [{ id: 'u1', email: 'alice@example.com' }];
+    selectChain.where.mockResolvedValueOnce(rows);
+
+    const repo = new UserRepository(db as never);
+    const result = await repo.findByEmails([
+      ' Alice@Example.com ',
+      'alice@example.com',
+    ]);
+
+    expect(result).toEqual(rows);
+    expect(db.select).toHaveBeenCalledWith(
+      expect.objectContaining({ id: expect.anything(), email: expect.anything() }),
+    );
+  });
+
+  it('returns [] without querying for an empty email list', async () => {
+    const { db } = makeMockDb();
+    const repo = new UserRepository(db as never);
+
+    await expect(repo.findByEmails([])).resolves.toEqual([]);
+    expect(db.select).not.toHaveBeenCalled();
+  });
+});

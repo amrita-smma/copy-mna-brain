@@ -16,6 +16,8 @@ const mocks = vi.hoisted(() => ({
   // EmployerDomainRepository
   employerDomainLoadMap: vi.fn(),
   employerDomainPersistMany: vi.fn(),
+  usersFindByEmails: vi.fn(),
+  employerTeamAddMany: vi.fn(),
   // CorrespondentRepository
   correspondentsUpsertBatch: vi.fn(),
   // EmailRepository
@@ -39,6 +41,12 @@ vi.mock('@/lib/repositories', () => ({
   EmployerDomainRepository: class {
     loadMap = mocks.employerDomainLoadMap;
     persistMany = mocks.employerDomainPersistMany;
+  },
+  UserRepository: class {
+    findByEmails = mocks.usersFindByEmails;
+  },
+  EmployerTeamRepository: class {
+    addMany = mocks.employerTeamAddMany;
   },
   CorrespondentRepository: class {
     upsertBatch = mocks.correspondentsUpsertBatch;
@@ -141,6 +149,8 @@ describe('runCrmIngest', () => {
     ]);
     mocks.employerDomainLoadMap.mockResolvedValue(new Map());
     mocks.employerDomainPersistMany.mockResolvedValue([]);
+    mocks.usersFindByEmails.mockResolvedValue([]);
+    mocks.employerTeamAddMany.mockResolvedValue(0);
     mocks.findManyByDomains.mockResolvedValue([]);
     mocks.findByRawEmailIds.mockResolvedValue([]);
     mocks.topicsUpsertBatch.mockResolvedValue([]);
@@ -213,9 +223,83 @@ describe('runCrmIngest', () => {
     expect(result.emails_inserted).toBe(1);
     expect(result.participants_inserted).toBe(1);
     expect(result.email_topics_inserted).toBe(1);
+    expect(result.team_members_inserted).toBe(0);
     expect(result.rows_ingested).toBe(1);
     // Marts are refreshed after the ingest tx commits.
     expect(result.marts_refreshed).toEqual(['mart_crm', 'mart_mom', 'mart_topics']);
+  });
+
+  it('assigns receiver and custodian users to every external employer on the email', async () => {
+    mocks.listReadyForIngest.mockResolvedValueOnce([
+      makeRow({
+        to_addresses: [
+          'hendric.g@starcapital.co.id',
+          'jien.lit@starcapital.co.id',
+        ],
+        cc_addresses: ['advisor@goldman.com'],
+      }),
+    ]);
+    mocks.employersUpsertBatch.mockResolvedValueOnce([
+      { id: 'emp-goldman', normalized_name: 'goldman-sachs' },
+      { id: 'emp-star', normalized_name: 'star-capital' },
+    ]);
+    mocks.usersFindByEmails.mockResolvedValueOnce([
+      { id: 'u-hendric', email: 'HENDRIC.G@starcapital.co.id' },
+      { id: 'u-jien', email: 'jien.lit@starcapital.co.id' },
+    ]);
+    mocks.insertBatchIgnoringDupes.mockResolvedValueOnce([
+      { id: 'e1', message_id: 'msg-1@x' },
+    ]);
+    mocks.employerTeamAddMany.mockResolvedValueOnce(2);
+
+    const result = await runCrmIngest(
+      {},
+      { db: makeDb() as never, job: { id: 'j1' } as never },
+    );
+
+    expect(mocks.employerTeamAddMany).toHaveBeenCalledWith([
+      { employer_id: 'emp-goldman', user_id: 'u-hendric' },
+      { employer_id: 'emp-goldman', user_id: 'u-jien' },
+    ]);
+    expect(mocks.insertParticipantsBatch).toHaveBeenCalledWith(
+      expect.arrayContaining([
+        expect.objectContaining({
+          address: 'hendric.g@starcapital.co.id',
+          user_id: 'u-hendric',
+        }),
+        expect.objectContaining({
+          address: 'jien.lit@starcapital.co.id',
+          user_id: 'u-jien',
+        }),
+      ]),
+    );
+    expect(result.team_members_inserted).toBe(2);
+  });
+
+  it('uses the custodian to assign outbound email coverage', async () => {
+    mocks.listReadyForIngest.mockResolvedValueOnce([
+      makeRow({
+        from_address: 'hendric.g@starcapital.co.id',
+        to_addresses: ['alice@goldman.com'],
+      }),
+    ]);
+    mocks.employersUpsertBatch.mockResolvedValueOnce([
+      { id: 'emp-goldman', normalized_name: 'goldman-sachs' },
+      { id: 'emp-star', normalized_name: 'star-capital' },
+    ]);
+    mocks.usersFindByEmails.mockResolvedValueOnce([
+      { id: 'u-hendric', email: 'hendric.g@starcapital.co.id' },
+    ]);
+    mocks.employerTeamAddMany.mockResolvedValueOnce(1);
+
+    await runCrmIngest(
+      {},
+      { db: makeDb() as never, job: { id: 'j1' } as never },
+    );
+
+    expect(mocks.employerTeamAddMany).toHaveBeenCalledWith([
+      { employer_id: 'emp-goldman', user_id: 'u-hendric' },
+    ]);
   });
 
   it('passes the LLM deal classification through to topicsUpsertBatch (new object format)', async () => {
