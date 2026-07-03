@@ -490,12 +490,29 @@ export class CompanyService {
     return this.companyRepo.setAssignees(id, userIds);
   }
 
-  async dropDeal(id: string, currentStage: string | undefined, reason?: string) {
+  async dropDeal(
+    id: string,
+    currentStage: string | undefined,
+    reason?: string,
+    opts?: { resurfaceAt?: string | null; droppedBy?: string | null },
+  ) {
     const trimmedReason = reason?.trim() || null;
+    const resurfaceAt = opts?.resurfaceAt ?? null;
+    if (resurfaceAt) {
+      const parsed = new Date(resurfaceAt);
+      if (Number.isNaN(parsed.getTime())) {
+        throw new Error('Invalid resurface date');
+      }
+      if (parsed.getTime() <= Date.now()) {
+        throw new Error('Resurface date must be in the future');
+      }
+    }
     await this.companyRepo.update(id, {
       status: 'dropped',
       dropped_reason: trimmedReason,
       dropped_at: new Date().toISOString(),
+      resurface_at: resurfaceAt ? new Date(resurfaceAt).toISOString() : null,
+      dropped_by: opts?.droppedBy ?? null,
     });
     await this.companyLogRepo.insert({
       company_id: id,
@@ -573,6 +590,9 @@ export class CompanyService {
       status: 'active',
       dropped_reason: null,
       dropped_at: null,
+      // A manual restore cancels any pending scheduled resurface.
+      resurface_at: null,
+      dropped_by: null,
     });
     await this.companyLogRepo.insert({
       company_id: id,

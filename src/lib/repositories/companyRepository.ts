@@ -619,6 +619,23 @@ export class CompanyRepository {
     return rows;
   }
 
+  /**
+   * Dropped deals whose scheduled resurface time has passed. Scanned by the
+   * resurface cron; covered by the partial idx_companies_resurface_due index.
+   */
+  async findDueForResurface(nowIso: string): Promise<Tables<"companies">[]> {
+    return this.db
+      .select()
+      .from(companies)
+      .where(
+        and(
+          eq(companies.status, "dropped"),
+          isNotNull(companies.resurface_at),
+          lte(companies.resurface_at, nowIso),
+        ),
+      );
+  }
+
   async countUnreviewed(source?: string): Promise<number> {
     const conditions = [eq(companies.pipeline_stage, 'unreviewed'), eq(companies.status, 'active')];
     if (source && source !== 'all') {

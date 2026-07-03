@@ -73,6 +73,7 @@ import { DashboardInsightsService } from './dashboardInsightsService';
 import { ApiKeyService } from './apiKeyService';
 import { ApiChatConversationService } from './apiChatConversationService';
 import { NotificationService } from './notificationService';
+import { DealResurfaceService } from './dealResurfaceService';
 
 export interface Container {
   companyService: CompanyService;
@@ -106,6 +107,7 @@ export interface Container {
   apiKeyService: ApiKeyService;
   apiChatConversationService: ApiChatConversationService;
   notificationService: NotificationService;
+  dealResurfaceService: DealResurfaceService;
 }
 
 export function createContainer(db: DbClient): Container {
@@ -241,6 +243,14 @@ export function createContainer(db: DbClient): Container {
   const apiChatConversationRepo = new ApiChatConversationRepository(db);
   const apiChatConversationService = new ApiChatConversationService(apiChatConversationRepo);
 
+  const dealResurfaceService = new DealResurfaceService(
+    companyRepo,
+    companyLogRepo,
+    dealNoteRepo,
+    userRepo,
+    thesisRepo,
+  );
+
   fileService.setCRMService(crmService);
 
   return {
@@ -275,5 +285,6 @@ export function createContainer(db: DbClient): Container {
     apiKeyService,
     apiChatConversationService,
     notificationService,
+    dealResurfaceService,
   };
 }

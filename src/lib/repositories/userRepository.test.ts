@@ -68,3 +68,28 @@ describe('UserRepository.findByEmails', () => {
     expect(db.select).not.toHaveBeenCalled();
   });
 });
+
+describe('UserRepository.findByNames', () => {
+  it('normalizes and deduplicates names before querying', async () => {
+    const { db, selectChain } = makeMockDb();
+    const rows = [{ id: 'u1', name: 'Pat Lee', email: 'pat@x' }];
+    selectChain.where.mockResolvedValueOnce(rows);
+
+    const repo = new UserRepository(db as never);
+    const result = await repo.findByNames([' Pat Lee ', 'pat lee']);
+
+    expect(result).toEqual(rows);
+    expect(db.select).toHaveBeenCalledTimes(1);
+    const projection = db.select.mock.calls[0][0];
+    expect(Object.keys(projection)).toEqual(['id', 'name', 'email']);
+  });
+
+  it('returns [] without querying for an empty or blank name list', async () => {
+    const { db } = makeMockDb();
+    const repo = new UserRepository(db as never);
+
+    await expect(repo.findByNames([])).resolves.toEqual([]);
+    await expect(repo.findByNames(['  '])).resolves.toEqual([]);
+    expect(db.select).not.toHaveBeenCalled();
+  });
+});

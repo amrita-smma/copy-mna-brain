@@ -373,3 +373,19 @@ describe('CompanyRepository.findByNameFuzzy', () => {
     expect(await repo.findByNameFuzzy('Nonexistent Holdings Ltd.')).toBeNull();
   });
 });
+
+describe('CompanyRepository.findDueForResurface', () => {
+  it('selects dropped companies whose resurface_at has passed', async () => {
+    const rows = [row({ id: 'c1', status: 'dropped', resurface_at: '2026-07-01T00:00:00.000Z' })];
+    const where = vi.fn().mockResolvedValue(rows);
+    const from = vi.fn().mockReturnValue({ where });
+    const select = vi.fn().mockReturnValue({ from });
+    const repo = new CompanyRepository({ select } as never, makeMirror());
+
+    const result = await repo.findDueForResurface('2026-07-03T00:00:00.000Z');
+
+    expect(result).toBe(rows);
+    expect(select).toHaveBeenCalledTimes(1);
+    expect(where).toHaveBeenCalledTimes(1);
+  });
+});

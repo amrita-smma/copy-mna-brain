@@ -244,4 +244,38 @@ describe('runSendEmail', () => {
       }),
     ).rejects.toThrow('`companyName` is required');
   });
+
+  it('delegates deal_resurfaced to EmailService.sendDealResurfacedEmail', async () => {
+    const emailService = new EmailService(
+      vi.fn().mockResolvedValue({ messageId: 'm5' }),
+    );
+    const spy = vi.spyOn(emailService, 'sendDealResurfacedEmail');
+    const result = await runSendEmail(
+      {
+        kind: 'deal_resurfaced',
+        to: 'pic@fund.com',
+        companyName: 'Acme Corp',
+        stage: 'L1',
+        droppedAtLabel: 'April 3, 2026',
+        dropReason: 'bad timing',
+        companyUrl: 'https://x/pipeline',
+      },
+      { emailService },
+    );
+    expect(spy).toHaveBeenCalledWith({
+      email: 'pic@fund.com',
+      companyName: 'Acme Corp',
+      stage: 'L1',
+      droppedAtLabel: 'April 3, 2026',
+      dropReason: 'bad timing',
+      companyUrl: 'https://x/pipeline',
+    });
+    expect(result).toEqual({ kind: 'deal_resurfaced', to: 'pic@fund.com', messageId: 'm5' });
+  });
+
+  it('throws when deal_resurfaced payload is missing companyName', async () => {
+    await expect(
+      runSendEmail({ kind: 'deal_resurfaced', to: 'a@b.com', companyName: '' }),
+    ).rejects.toThrow('`companyName` is required');
+  });
 });

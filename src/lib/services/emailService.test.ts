@@ -10,6 +10,7 @@ import {
   renderTaskProgressEmail,
   renderTaskInsightEmail,
   renderCompanyAssignedEmail,
+  renderDealResurfacedEmail,
 } from './emailService';
 import type { AttachmentSender, EmailSender } from './emailService';
 
@@ -491,4 +492,64 @@ describe('EmailService notification methods', () => {
     ).rejects.toThrow(/companyName is required/);
   });
 
+});
+
+describe('renderDealResurfacedEmail', () => {
+  it('builds subject, html, and text with the deal context rows', () => {
+    const out = renderDealResurfacedEmail({
+      companyName: 'Acme Corp',
+      stage: 'L1',
+      droppedAtLabel: 'April 3, 2026',
+      dropReason: 'bad timing',
+      companyUrl: 'https://app.example.com/pipeline',
+    });
+    expect(out.subject).toBe('Deal resurfaced: Acme Corp is back in the pipeline');
+    expect(out.html).toContain('Acme Corp is back in the pipeline');
+    expect(out.html).toContain('L1');
+    expect(out.html).toContain('April 3, 2026');
+    expect(out.html).toContain('bad timing');
+    expect(out.html).toContain('https://app.example.com/pipeline');
+    expect(out.text).toContain('Drop reason: bad timing');
+    expect(out.text).toContain('Review the deal: https://app.example.com/pipeline');
+  });
+
+  it('omits context rows that are absent', () => {
+    const out = renderDealResurfacedEmail({ companyName: 'X' });
+    expect(out.html).not.toContain('Drop reason');
+    expect(out.html).not.toContain('Dropped on');
+    expect(out.text).not.toContain('Drop reason');
+  });
+
+  it('escapes HTML in user-supplied fields', () => {
+    const out = renderDealResurfacedEmail({
+      companyName: '<script>alert(1)</script>',
+      dropReason: '<img src=x>',
+    });
+    expect(out.html).not.toContain('<script>alert(1)</script>');
+    expect(out.html).toContain('&lt;script&gt;');
+    expect(out.html).not.toContain('<img src=x>');
+  });
+});
+
+describe('EmailService.sendDealResurfacedEmail', () => {
+  it('delegates to the sender with the rendered email', async () => {
+    const sender = vi.fn().mockResolvedValue({ messageId: 'm' });
+    const svc = new EmailService(sender as EmailSender);
+    await svc.sendDealResurfacedEmail({ email: 'u@e.com', companyName: 'Acme' });
+    expect(sender).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(sender).mock.calls[0][0]).toMatchObject({
+      to: 'u@e.com',
+      subject: 'Deal resurfaced: Acme is back in the pipeline',
+    });
+  });
+
+  it('throws without an email or companyName', async () => {
+    const svc = new EmailService(vi.fn() as EmailSender);
+    await expect(
+      svc.sendDealResurfacedEmail({ email: '', companyName: 'Acme' }),
+    ).rejects.toThrow(/email is required/);
+    await expect(
+      svc.sendDealResurfacedEmail({ email: 'u@e.com', companyName: '' }),
+    ).rejects.toThrow(/companyName is required/);
+  });
 });

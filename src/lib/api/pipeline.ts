@@ -179,6 +179,8 @@ export async function setCompanyAssignees(id: string, userIds: string[]) {
 export async function dropDeal(id: string, payload: {
   currentStage?: string | null;
   reason?: string;
+  /** ISO timestamp — when set, the deal is automatically resurfaced (reactivated) at this time. */
+  resurfaceAt?: string | null;
 }) {
   return apiRequest<{ success: boolean }>(`/api/companies/${encodeURIComponent(id)}/drop`, {
     method: 'POST',

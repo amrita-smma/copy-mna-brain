@@ -575,3 +575,28 @@ curl -H "Authorization: Bearer $CRON_SECRET" https://<host>/api/cron/cleanup-job
 # force an immediate sweep
 curl -H "Authorization: Bearer $CRON_SECRET" "https://<host>/api/cron/cleanup-jobs?force=true"
 ```
+
+### Scheduled deal resurfacing
+
+Dropping a deal (Pipeline → Drop dialog) optionally takes a **"Resurface at"**
+date (1/3/6/12 months or a custom date). The drop stores
+`companies.resurface_at` and `companies.dropped_by` (the session user) alongside
+the usual drop fields.
+
+An hourly Vercel cron (`GET /api/cron/resurface-deals`, protected by
+`CRON_SECRET` like the dispatch cron) runs `DealResurfaceService.processDue`,
+which sweeps dropped companies whose `resurface_at` has passed (covered by the
+partial index `idx_companies_resurface_due`). For each due deal it:
+
+1. puts the deal back to `active` and clears the drop + schedule fields,
+2. writes a `RESURFACED_TO_<stage>` entry to `company_logs`,
+3. appends a deal note explaining the deal was automatically added back and
+   quoting the original drop reason, and
+4. enqueues a `deal_resurfaced` email (via the existing `send-email` Vercel
+   Queue topic) to the user who dropped the deal and to the deal's PIC
+   (`deal_captain` → `deal_sponsor`, both user ids; falling back to the
+   matched Track's free-text `pic`, resolved to a platform user by name).
+
+Notifications are best-effort: the reactivation stands even if no recipient can
+be resolved or the queue is unavailable. A manual restore from the UI cancels
+any pending resurface schedule.

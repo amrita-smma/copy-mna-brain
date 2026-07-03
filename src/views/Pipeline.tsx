@@ -252,6 +252,41 @@ const getRevenueChange = (year2: number | null, year3: number | null) => {
   return ((year3 - year2) / year2) * 100;
 };
 
+// "Resurface at" presets offered when dropping a deal.
+const RESURFACE_OPTIONS: Array<{ value: string; label: string }> = [
+  { value: "none", label: "Don't resurface" },
+  { value: "1m", label: "In 1 month" },
+  { value: "3m", label: "In 3 months" },
+  { value: "6m", label: "In 6 months" },
+  { value: "1y", label: "In 1 year" },
+  { value: "custom", label: "Custom date…" },
+];
+
+const RESURFACE_MONTHS: Record<string, number> = {
+  "1m": 1,
+  "3m": 3,
+  "6m": 6,
+  "1y": 12,
+};
+
+// Resolve the dialog's resurface selection to an ISO timestamp (or null when
+// resurfacing is off / the custom date is empty or unparsable).
+const computeResurfaceAt = (
+  option: string,
+  customDate: string,
+): string | null => {
+  if (option === "custom") {
+    if (!customDate) return null;
+    const d = new Date(`${customDate}T00:00:00`);
+    return Number.isNaN(d.getTime()) ? null : d.toISOString();
+  }
+  const months = RESURFACE_MONTHS[option];
+  if (!months) return null;
+  const d = new Date();
+  d.setMonth(d.getMonth() + months);
+  return d.toISOString();
+};
+
 const L1StatusBadge = ({ status }: { status: L1Status | null }) => {
   if (!status) return <Badge variant="outline">Pending</Badge>;
 
@@ -392,6 +427,9 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
   const [dropDealCompany, setDropDealCompany] =
     useState<PipelineCompany | null>(null);
   const [dropReason, setDropReason] = useState("");
+  // Optional automatic resurface: "none" | months preset | "custom" (+ date).
+  const [dropResurfaceOption, setDropResurfaceOption] = useState("none");
+  const [dropResurfaceDate, setDropResurfaceDate] = useState("");
   const [isDropping, setIsDropping] = useState(false);
   const [showTriageModal, setShowTriageModal] = useState(false);
 
@@ -2124,6 +2162,8 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
             if (!open) {
               setDropDealCompany(null);
               setDropReason("");
+              setDropResurfaceOption("none");
+              setDropResurfaceDate("");
             }
           }}
         >
@@ -2150,6 +2190,51 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
                 disabled={isDropping}
               />
             </div>
+            <div className="mt-2">
+              <Label htmlFor="drop-resurface">Resurface at (optional)</Label>
+              <Select
+                value={dropResurfaceOption}
+                onValueChange={(value) => {
+                  setDropResurfaceOption(value);
+                  if (value !== "custom") setDropResurfaceDate("");
+                }}
+                disabled={isDropping}
+              >
+                <SelectTrigger
+                  id="drop-resurface"
+                  data-testid="drop-deal-resurface-select"
+                  className="mt-1.5"
+                >
+                  <SelectValue placeholder="Don't resurface" />
+                </SelectTrigger>
+                <SelectContent>
+                  {RESURFACE_OPTIONS.map((opt) => (
+                    <SelectItem key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {dropResurfaceOption === "custom" && (
+                <Input
+                  type="date"
+                  data-testid="drop-deal-resurface-date"
+                  value={dropResurfaceDate}
+                  onChange={(e) => setDropResurfaceDate(e.target.value)}
+                  min={new Date(Date.now() + 86400000)
+                    .toISOString()
+                    .slice(0, 10)}
+                  className="mt-1.5"
+                  disabled={isDropping}
+                />
+              )}
+              {dropResurfaceOption !== "none" && (
+                <p className="mt-1.5 text-xs text-muted-foreground">
+                  The deal will automatically return to the active pipeline on
+                  this date, and the PIC and you will be notified by email.
+                </p>
+              )}
+            </div>
             <AlertDialogFooter>
               <AlertDialogCancel
                 data-testid="drop-deal-cancel-button"
@@ -2159,28 +2244,43 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
               </AlertDialogCancel>
               <AlertDialogAction
                 data-testid="drop-deal-confirm-button"
-                disabled={isDropping}
+                disabled={
+                  isDropping ||
+                  (dropResurfaceOption === "custom" && !dropResurfaceDate)
+                }
                 className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
                 onClick={async (e) => {
                   e.preventDefault();
                   if (!dropDealCompany) return;
+                  const resurfaceAt = computeResurfaceAt(
+                    dropResurfaceOption,
+                    dropResurfaceDate,
+                  );
+                  if (resurfaceAt && new Date(resurfaceAt) <= new Date()) {
+                    toast.error("Resurface date must be in the future");
+                    return;
+                  }
                   setIsDropping(true);
                   try {
                     await dropDeal(dropDealCompany.id, {
                       currentStage: dropDealCompany.pipeline_stage,
                       reason: dropReason,
+                      resurfaceAt,
                     });
                     posthog.capture("deal_dropped", {
                       deal_id: dropDealCompany.id,
                       company_name: companyDisplayName(dropDealCompany, ""),
                       from_stage: dropDealCompany.pipeline_stage,
                       has_reason: dropReason.trim() !== "",
+                      has_resurface_at: !!resurfaceAt,
                     });
                     toast.success(
                       `Dropped ${companyDisplayName(dropDealCompany, "company")}`,
                     );
                     setDropDealCompany(null);
                     setDropReason("");
+                    setDropResurfaceOption("none");
+                    setDropResurfaceDate("");
                     fetchCompanies();
                   } catch (err: any) {
                     console.error("Error dropping deal:", err);

@@ -76,6 +76,7 @@ describe('InvestmentThesisRepository.findByIds', () => {
     mockDb.orderBy.mockResolvedValueOnce(rows);
 
     await expect(repo.findByIds(['t1', 't2'])).resolves.toBe(rows);
+    expect(mockDb.select).toHaveBeenCalledTimes(1);
     expect(mockDb.where).toHaveBeenCalledTimes(1);
   });
 });

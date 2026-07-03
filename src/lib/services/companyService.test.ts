@@ -567,6 +567,53 @@ describe("CompanyService.dropDeal", () => {
       stage: "L0",
     });
   });
+
+  it("clears resurface_at and dropped_by when no scheduling options are provided", async () => {
+    await service.dropDeal("company-6", "L1");
+
+    expect(repos.companyRepo.update).toHaveBeenCalledWith(
+      "company-6",
+      expect.objectContaining({ resurface_at: null, dropped_by: null }),
+    );
+  });
+
+  it("persists a future resurface_at and the dropping user", async () => {
+    const future = new Date(Date.now() + 30 * 86400000).toISOString();
+
+    await service.dropDeal("company-7", "L1", "timing", {
+      resurfaceAt: future,
+      droppedBy: "user-1",
+    });
+
+    expect(repos.companyRepo.update).toHaveBeenCalledWith(
+      "company-7",
+      expect.objectContaining({
+        status: "dropped",
+        resurface_at: future,
+        dropped_by: "user-1",
+      }),
+    );
+  });
+
+  it("rejects a resurface date in the past without touching the DB", async () => {
+    await expect(
+      service.dropDeal("company-8", "L1", undefined, {
+        resurfaceAt: "2020-01-01T00:00:00.000Z",
+      }),
+    ).rejects.toThrow("Resurface date must be in the future");
+
+    expect(repos.companyRepo.update).not.toHaveBeenCalled();
+  });
+
+  it("rejects an unparsable resurface date without touching the DB", async () => {
+    await expect(
+      service.dropDeal("company-9", "L1", undefined, {
+        resurfaceAt: "not-a-date",
+      }),
+    ).rejects.toThrow("Invalid resurface date");
+
+    expect(repos.companyRepo.update).not.toHaveBeenCalled();
+  });
 });
 
 describe("CompanyService.dropDealMany", () => {
@@ -756,6 +803,8 @@ describe("CompanyService.restoreDeal", () => {
       status: "active",
       dropped_reason: null,
       dropped_at: null,
+      resurface_at: null,
+      dropped_by: null,
     });
     expect(repos.companyLogRepo.insert).toHaveBeenCalledWith({
       company_id: "company-1",
@@ -1053,6 +1102,8 @@ describe("CompanyService dropped-company writes", () => {
       status: "active",
       dropped_reason: null,
       dropped_at: null,
+      resurface_at: null,
+      dropped_by: null,
     });
   });
 });

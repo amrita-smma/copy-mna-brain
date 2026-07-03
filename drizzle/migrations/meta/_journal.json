@@ -610,6 +610,13 @@
       "when": 1783088496000,
       "tag": "20260703142136_deal_sponsor_captain_uuid_fk",
       "breakpoints": true
+    },
+    {
+      "idx": 87,
+      "version": "7",
+      "when": 1783094400000,
+      "tag": "20260703160000_add_resurface_scheduling_to_companies",
+      "breakpoints": true
     }
   ]
 }

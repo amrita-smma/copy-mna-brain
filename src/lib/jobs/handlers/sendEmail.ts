@@ -70,6 +70,15 @@ export type SendEmailPayload =
       companyName: string;
       bankerSource?: string;
       companyUrl?: string;
+    }
+  | {
+      kind: 'deal_resurfaced';
+      to: string;
+      companyName: string;
+      stage?: string;
+      droppedAtLabel?: string;
+      dropReason?: string;
+      companyUrl?: string;
     };
 
 export interface SendEmailJobResult {
@@ -186,6 +195,20 @@ export async function runSendEmail(
         companyUrl: payload.companyUrl,
       });
       return { kind: 'company_assigned', to: payload.to, messageId };
+    }
+    case 'deal_resurfaced': {
+      if (!payload.companyName) {
+        throw new Error('send_email[deal_resurfaced]: `companyName` is required');
+      }
+      const { messageId } = await emailService.sendDealResurfacedEmail({
+        email: payload.to,
+        companyName: payload.companyName,
+        stage: payload.stage,
+        droppedAtLabel: payload.droppedAtLabel,
+        dropReason: payload.dropReason,
+        companyUrl: payload.companyUrl,
+      });
+      return { kind: 'deal_resurfaced', to: payload.to, messageId };
     }
     default: {
       // Exhaustiveness check — adding a new `kind` without a case here is a

@@ -324,6 +324,12 @@ export const companies = pgTable(
     status: companyStatus().default("active").notNull(),
     dropped_reason: text(),
     dropped_at: timestamp({ withTimezone: true, mode: "string" }),
+    // Optional scheduled resurfacing of a dropped deal. When set, the
+    // resurface cron reactivates the deal at this time, appends an
+    // explanatory note, and emails the PIC + the user who dropped it.
+    resurface_at: timestamp({ withTimezone: true, mode: "string" }),
+    // User who dropped the deal — notified when the deal resurfaces.
+    dropped_by: uuid().references(() => users.id, { onDelete: "set null" }),
     promoted_reasons: text(),
     // Pipeline (HTML-parity) fields — inbound first.
     deal_type: dealType().default("majority"),
@@ -412,6 +418,11 @@ export const companies = pgTable(
         "btree",
         table.status.asc().nullsLast().op("enum_ops"),
       ),
+      idxCompaniesResurfaceDue: index("idx_companies_resurface_due")
+        .using("btree", table.resurface_at.asc().nullsLast())
+        .where(
+          sql`${table.status} = 'dropped' AND ${table.resurface_at} IS NOT NULL`,
+        ),
       idxCompaniesTarget: index("idx_companies_target").using(
         "btree",
         table.target.asc().nullsLast().op("text_ops"),

@@ -40,6 +40,25 @@ export class UserRepository {
       .where(inArray(sql<string>`lower(${users.email})`, normalized));
   }
 
+  /**
+   * Case-insensitive bulk name lookup. Used to resolve free-text PIC fields
+   * (deal_sponsor / deal_captain / Track PIC) to platform users so they can
+   * be emailed. Names are not unique — callers get every match.
+   */
+  async findByNames(
+    names: string[],
+  ): Promise<Array<Pick<UserListItem, 'id' | 'name' | 'email'>>> {
+    const normalized = [...new Set(
+      names.map((name) => name.trim().toLowerCase()).filter(Boolean),
+    )];
+    if (normalized.length === 0) return [];
+
+    return this.db
+      .select({ id: users.id, name: users.name, email: users.email })
+      .from(users)
+      .where(inArray(sql<string>`lower(${users.name})`, normalized));
+  }
+
   async findByEmail(email: string): Promise<Tables<'users'> | null> {
     const [row] = await this.db
       .select()

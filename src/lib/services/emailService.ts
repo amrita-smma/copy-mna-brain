@@ -638,6 +638,70 @@ export function renderAgentEmail(input: {
   return { subject: input.subject, html, text };
 }
 
+export interface DealResurfacedEmailInput {
+  /** Recipient — the deal's PIC or the user who dropped the deal. */
+  email: string;
+  companyName: string;
+  /** Pipeline stage the deal returns to, e.g. "L1". */
+  stage?: string;
+  /** e.g. "April 3, 2026". */
+  droppedAtLabel?: string;
+  /** Original drop reason, shown so the reader has context on why it left. */
+  dropReason?: string;
+  /** Deep link to the pipeline; defaults to the app root. */
+  companyUrl?: string;
+}
+
+export function renderDealResurfacedEmail(
+  input: Omit<DealResurfacedEmailInput, 'email'>,
+): { subject: string; html: string; text: string } {
+  const subject = `Deal resurfaced: ${input.companyName} is back in the pipeline`;
+  const safeName = escapeHtml(input.companyName);
+  const rows: Array<{ label: string; value: string }> = [];
+  if (input.stage) rows.push({ label: 'Returned to stage', value: input.stage });
+  if (input.droppedAtLabel) rows.push({ label: 'Dropped on', value: input.droppedAtLabel });
+  if (input.dropReason) rows.push({ label: 'Drop reason', value: input.dropReason });
+  const rowsHtml = rows
+    .map(
+      (r) => `<tr>
+        <td style="padding:6px 12px 6px 0; color:#6b7280; font-size:14px; white-space:nowrap; vertical-align:top;">${escapeHtml(r.label)}</td>
+        <td style="padding:6px 0; color:#111827; font-size:14px;">${escapeHtml(r.value)}</td>
+      </tr>`,
+    )
+    .join('');
+  const ctaUrl = input.companyUrl || APP_URL;
+
+  const html = renderNotificationShell({
+    bannerTitle: 'Deal Resurfaced',
+    accent: '#0ea5e9',
+    accentDark: '#0284c7',
+    bodyHtml: `<h1 style="margin:0 0 16px; font-size:22px; line-height:1.25;">${safeName} is back in the pipeline</h1>
+      <p style="margin:0 0 16px; line-height:1.6; color:#374151; font-size:15px;">
+        This deal was dropped with a scheduled resurface date, which has now been
+        reached. It has been automatically restored to <strong>active</strong> and
+        a note explaining the resurface was added to the deal.
+      </p>
+      ${rowsHtml ? `<table style="margin:0 0 8px; border-collapse:collapse;">${rowsHtml}</table>` : ''}`,
+    ctaUrl,
+    ctaLabel: 'Review the deal',
+    footer: 'You are receiving this because you dropped this deal or are its PIC.',
+  });
+
+  const text = [
+    `${input.companyName} is back in the pipeline`,
+    '',
+    'This deal was dropped with a scheduled resurface date, which has now been',
+    'reached. It has been automatically restored to active and a note explaining',
+    'the resurface was added to the deal.',
+    '',
+    ...rows.map((r) => `${r.label}: ${r.value}`),
+    '',
+    `Review the deal: ${ctaUrl}`,
+  ].join('\n');
+
+  return { subject, html, text };
+}
+
 function slugifyTitle(title: string): string {
   return title
     .toLowerCase()
@@ -797,6 +861,18 @@ export class EmailService {
       throw new Error('sendCompanyAssignedEmail: companyName is required');
     }
     const { subject, html, text } = renderCompanyAssignedEmail(input);
+    return this.sender({ to: input.email, subject, html, text });
+  }
+
+  /** A dropped deal reached its scheduled resurface date and is active again. */
+  async sendDealResurfacedEmail(
+    input: DealResurfacedEmailInput,
+  ): Promise<SendEmailResult> {
+    if (!input.email) throw new Error('sendDealResurfacedEmail: email is required');
+    if (!input.companyName) {
+      throw new Error('sendDealResurfacedEmail: companyName is required');
+    }
+    const { subject, html, text } = renderDealResurfacedEmail(input);
     return this.sender({ to: input.email, subject, html, text });
   }
 
