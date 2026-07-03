@@ -57,6 +57,17 @@ const INTERNAL_MAIL_DOMAINS = new Set<string>([
   'techconnect.co.id',
   'starhousecapital.sg',
   'frontiergroup.sg',
+  'hosanco.com',
+  'ebergroup.com',
+  'partners97.com',
+  'kbru.co.id',
+  'outlook.com',
+  'starinvestama.co.id',
+  'sunterra.id',
+  'theolivelink.com',
+  'sinarmas.co.id',
+  'sinarmas.org',
+  'startechgv.com',
 ]);
 
 const SYSTEM_PROMPT = `You identify companies from their email domain — both the proper name and the industry.
