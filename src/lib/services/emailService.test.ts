@@ -9,6 +9,7 @@ import {
   renderTaskFailedEmail,
   renderTaskProgressEmail,
   renderTaskInsightEmail,
+  renderCompanyAssignedEmail,
 } from './emailService';
 import type { AttachmentSender, EmailSender } from './emailService';
 
@@ -395,6 +396,57 @@ describe('renderTaskInsightEmail', () => {
   });
 });
 
+describe('renderCompanyAssignedEmail', () => {
+  it('addresses the recipient by name and names the assigned company', () => {
+    const out = renderCompanyAssignedEmail({
+      recipientName: 'Jane Doe',
+      companyName: 'Acme Corp',
+    });
+    expect(out.subject).toBe('📌 Acme Corp — Assigned to you for verification');
+    expect(out.html).toContain('Hey, Jane Doe,');
+    expect(out.html).toContain('Acme Corp');
+    expect(out.html).toContain('redirect it to the correct PIC');
+    expect(out.text).toContain(
+      'Hey, Jane Doe, you have been assigned this company Acme Corp because you are one of the email recipients from this bank.',
+    );
+  });
+
+  it('names the banker source when provided', () => {
+    const out = renderCompanyAssignedEmail({
+      recipientName: 'Jane',
+      companyName: 'Acme Corp',
+      bankerSource: 'Goldman Sachs',
+    });
+    expect(out.html).toContain('this bank (Goldman Sachs)');
+    expect(out.text).toContain('this bank (Goldman Sachs)');
+  });
+
+  it('renders a review CTA only when a company URL is provided', () => {
+    const withUrl = renderCompanyAssignedEmail({
+      recipientName: 'Jane',
+      companyName: 'Acme Corp',
+      companyUrl: 'https://app.example.com/pipeline/company-1',
+    });
+    expect(withUrl.html).toContain('https://app.example.com/pipeline/company-1');
+    expect(withUrl.text).toContain('Review the company: https://app.example.com/pipeline/company-1');
+
+    const withoutUrl = renderCompanyAssignedEmail({
+      recipientName: 'Jane',
+      companyName: 'Acme Corp',
+    });
+    expect(withoutUrl.html).not.toContain('Review Company');
+  });
+
+  it('escapes HTML in user-supplied values', () => {
+    const out = renderCompanyAssignedEmail({
+      recipientName: '<b>Jane</b>',
+      companyName: 'Acme <script>alert(1)</script>',
+    });
+    expect(out.html).not.toContain('<script>');
+    expect(out.html).toContain('&lt;b&gt;Jane&lt;/b&gt;');
+  });
+});
+
 describe('EmailService notification methods', () => {
   it('sendTaskCompletedEmail delegates to the sender with the rendered email', async () => {
     const sender = vi.fn().mockResolvedValue({ messageId: 'm' });
@@ -412,6 +464,31 @@ describe('EmailService notification methods', () => {
     await expect(
       svc.sendTaskWaitingApprovalEmail({ email: 'u@e.com', action: '' }),
     ).rejects.toThrow(/action is required/);
+  });
+
+  it('sendCompanyAssignedEmail delegates to the sender with the rendered email', async () => {
+    const sender = vi.fn().mockResolvedValue({ messageId: 'm' });
+    const svc = new EmailService(sender as EmailSender);
+    await svc.sendCompanyAssignedEmail({
+      email: 'jane@corp.com',
+      recipientName: 'Jane',
+      companyName: 'Acme Corp',
+    });
+    expect(sender).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(sender).mock.calls[0][0]).toMatchObject({
+      to: 'jane@corp.com',
+      subject: '📌 Acme Corp — Assigned to you for verification',
+    });
+  });
+
+  it('sendCompanyAssignedEmail throws without a recipient name or company name', async () => {
+    const svc = new EmailService(vi.fn() as EmailSender);
+    await expect(
+      svc.sendCompanyAssignedEmail({ email: 'u@e.com', recipientName: '', companyName: 'Acme' }),
+    ).rejects.toThrow(/recipientName is required/);
+    await expect(
+      svc.sendCompanyAssignedEmail({ email: 'u@e.com', recipientName: 'Jane', companyName: '' }),
+    ).rejects.toThrow(/companyName is required/);
   });
 
 });

@@ -23,6 +23,7 @@ import {
   type Tables,
   type TablesInsert,
 } from '@/lib/repositories';
+import { enqueueSendEmail } from '@/lib/queue';
 import type { CompanyAnalysisService } from './companyAnalysisService';
 import type { AIScreeningService } from './aiScreeningService';
 import type { CRMService } from './crmService';
@@ -181,6 +182,8 @@ export class FileService {
     // inbound companies entering L0 also trigger agent-driven track matching.
     private readonly trackMatchingService?: TrackMatchingService,
     private readonly userRepo?: import('@/lib/repositories').UserRepository,
+    // Injectable for tests; defaults to the real Vercel Queues producer.
+    private readonly enqueueEmail: typeof enqueueSendEmail = enqueueSendEmail,
   ) {}
 
   setCRMService(crmService: CRMService) {
@@ -270,6 +273,7 @@ export class FileService {
             bankerSource,
             enteredByEmail,
             uploaderUserId,
+            originEmail,
             fileId: initialData.id,
           });
           matched_companies = result.matchedCompanies;
@@ -822,6 +826,8 @@ export class FileService {
     bankerSource?: string;
     enteredByEmail?: string;
     uploaderUserId?: string | null;
+    /** True when the file arrived via the email pipeline (drives assignment emails). */
+    originEmail?: boolean;
     fileId: string;
   }): Promise<{
     matchedCompanies: unknown[];
@@ -832,9 +838,10 @@ export class FileService {
     // Resolve entered_by once, outside the per-company lock: the custodian
     // email (MBOX pipeline) wins, else the authenticated uploader.
     let resolvedEnteredBy: string | null = null;
+    let custodianUser: Tables<'users'> | null = null;
     if (opts.enteredByEmail && this.userRepo) {
-      const user = await this.userRepo.findByEmail(opts.enteredByEmail);
-      resolvedEnteredBy = user?.id ?? null;
+      custodianUser = await this.userRepo.findByEmail(opts.enteredByEmail);
+      resolvedEnteredBy = custodianUser?.id ?? null;
     }
     if (!resolvedEnteredBy && opts.uploaderUserId) {
       resolvedEnteredBy = opts.uploaderUserId;
@@ -908,6 +915,18 @@ export class FileService {
       payloads.push(this.companyMatchPayload(existing));
     }
 
+    // Email-pipeline uploads only: tell the custodian (the email recipient we
+    // stamped as entered_by) about each company assigned to them so they can
+    // verify the data or reroute it. Manual UI uploads never notify — the
+    // uploader entered the file themselves.
+    if (opts.originEmail && custodianUser?.email) {
+      await this.notifyCompaniesAssigned(
+        { name: custodianUser.name, email: custodianUser.email },
+        createdCompanies,
+        opts.bankerSource,
+      );
+    }
+
     const allPayloads = [...reviewPayloads, ...payloads];
     return {
       // If nothing was created or matched (e.g. every entry lacked an
@@ -917,6 +936,44 @@ export class FileService {
       enrichedCompanies,
       needsReview: reviewPayloads.length > 0,
     };
+  }
+
+  /**
+   * Enqueue one `company_assigned` email per auto-created company. Best-effort:
+   * a queue failure is logged and never blocks file processing or company
+   * creation.
+   */
+  private async notifyCompaniesAssigned(
+    recipient: { name: string; email: string },
+    companies: Tables<'companies'>[],
+    bankerSource?: string,
+  ): Promise<void> {
+    const appUrl = (
+      process.env.APP_URL ??
+      process.env.NEXT_PUBLIC_APP_URL ??
+      process.env.NEXTAUTH_URL ??
+      'http://localhost:3000'
+    ).replace(/\/+$/, '');
+
+    for (const company of companies) {
+      const companyName = company.target ?? company.project_name;
+      if (!companyName) continue;
+      try {
+        await this.enqueueEmail({
+          kind: 'company_assigned',
+          to: recipient.email,
+          recipientName: recipient.name,
+          companyName,
+          bankerSource,
+          companyUrl: `${appUrl}/pipeline/${company.id}`,
+        });
+      } catch (err) {
+        console.error(
+          `[fileService] Failed to enqueue company_assigned email for company ${company.id}:`,
+          err,
+        );
+      }
+    }
   }
 
   /** Company columns the auto-accept path may fill from an extracted entry.

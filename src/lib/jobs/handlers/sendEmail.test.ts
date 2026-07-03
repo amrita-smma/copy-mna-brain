@@ -197,4 +197,51 @@ describe('runSendEmail', () => {
       taskUrl: undefined,
     });
   });
+
+  it('delegates company_assigned to EmailService.sendCompanyAssignedEmail', async () => {
+    const emailService = new EmailService(
+      vi.fn().mockResolvedValue({ messageId: 'm5' }),
+    );
+    const spy = vi.spyOn(emailService, 'sendCompanyAssignedEmail');
+
+    const result = await runSendEmail(
+      {
+        kind: 'company_assigned',
+        to: 'jane@corp.com',
+        recipientName: 'Jane',
+        companyName: 'Acme Corp',
+        bankerSource: 'Goldman Sachs',
+        companyUrl: 'https://app.example.com/pipeline/company-1',
+      },
+      { emailService },
+    );
+
+    expect(spy).toHaveBeenCalledWith({
+      email: 'jane@corp.com',
+      recipientName: 'Jane',
+      companyName: 'Acme Corp',
+      bankerSource: 'Goldman Sachs',
+      companyUrl: 'https://app.example.com/pipeline/company-1',
+    });
+    expect(result).toEqual({ kind: 'company_assigned', to: 'jane@corp.com', messageId: 'm5' });
+  });
+
+  it('throws when company_assigned payload is missing recipientName or companyName', async () => {
+    await expect(
+      runSendEmail({
+        kind: 'company_assigned',
+        to: 'jane@corp.com',
+        recipientName: '',
+        companyName: 'Acme Corp',
+      }),
+    ).rejects.toThrow('`recipientName` is required');
+    await expect(
+      runSendEmail({
+        kind: 'company_assigned',
+        to: 'jane@corp.com',
+        recipientName: 'Jane',
+        companyName: '',
+      }),
+    ).rejects.toThrow('`companyName` is required');
+  });
 });

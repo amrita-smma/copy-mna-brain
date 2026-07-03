@@ -62,6 +62,14 @@ export type SendEmailPayload =
       detail?: string;
       confidencePct?: number;
       taskUrl?: string;
+    }
+  | {
+      kind: 'company_assigned';
+      to: string;
+      recipientName: string;
+      companyName: string;
+      bankerSource?: string;
+      companyUrl?: string;
     };
 
 export interface SendEmailJobResult {
@@ -162,6 +170,22 @@ export async function runSendEmail(
         taskUrl: payload.taskUrl,
       });
       return { kind: 'task_insight', to: payload.to, messageId };
+    }
+    case 'company_assigned': {
+      if (!payload.recipientName) {
+        throw new Error('send_email[company_assigned]: `recipientName` is required');
+      }
+      if (!payload.companyName) {
+        throw new Error('send_email[company_assigned]: `companyName` is required');
+      }
+      const { messageId } = await emailService.sendCompanyAssignedEmail({
+        email: payload.to,
+        recipientName: payload.recipientName,
+        companyName: payload.companyName,
+        bankerSource: payload.bankerSource,
+        companyUrl: payload.companyUrl,
+      });
+      return { kind: 'company_assigned', to: payload.to, messageId };
     }
     default: {
       // Exhaustiveness check — adding a new `kind` without a case here is a

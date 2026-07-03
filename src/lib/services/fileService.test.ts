@@ -1809,3 +1809,142 @@ describe('FileService.reprocess', () => {
     expect(result).toMatchObject({ id: 'file-1', signed_url: 'https://signed-url' });
   });
 });
+
+describe('FileService.processUpload — company_assigned emails', () => {
+  let fileRepo: FileRepository;
+  let companyService: CompanyService;
+  let userRepo: { findByEmail: ReturnType<typeof vi.fn> };
+  let enqueueEmail: ReturnType<typeof vi.fn>;
+  let service: FileService;
+
+  const custodian = {
+    id: 'user-jane',
+    name: 'Jane Doe',
+    email: 'jane@corp.com',
+  };
+
+  beforeEach(() => {
+    fileRepo = makeFileRepoStub();
+    companyService = makeCompanyServiceStub();
+    userRepo = { findByEmail: vi.fn().mockResolvedValue(custodian) };
+    enqueueEmail = vi.fn().mockResolvedValue({ messageId: 'q-1' });
+    service = new FileService(
+      null as unknown as DbClient,
+      fileRepo,
+      makeCompanyAnalysisServiceStub(),
+      makeAIScreeningServiceStub(),
+      makeCriteriaRepoStub(),
+      makeScreeningRepoStub(),
+      makeCompanyFinancialRepoStub(),
+      companyService,
+      makeCompanyFxAdjustmentRepoStub(),
+      undefined,
+      userRepo as unknown as import('@/lib/repositories').UserRepository,
+      enqueueEmail as never,
+    );
+
+    vi.mocked(downloadFile).mockResolvedValue(Buffer.from('content'));
+    vi.mocked(getSignedUrl).mockResolvedValue('https://signed-url');
+    vi.mocked(fileRepo.insert).mockResolvedValue(makeFile({ id: 'file-1', processing_status: 'processing' }));
+    vi.mocked(fileRepo.findById).mockResolvedValue(makeFile({ id: 'file-1', processing_status: 'completed' }));
+    vi.mocked(processFileContent).mockResolvedValue({
+      file_type: 'prospectus',
+      prospectus_summary: { company_name: 'Acme Corp' },
+    } as never);
+    vi.mocked(companyService.findByNameFuzzy).mockResolvedValue(null as never);
+    vi.mocked(companyService.createFromDTO).mockResolvedValue({
+      id: 'company-new',
+      target: 'Acme Corp',
+    } as never);
+    vi.mocked(companyService.findById).mockResolvedValue(
+      makeCompany({ id: 'company-new', target: 'Acme Corp' }),
+    );
+  });
+
+  // (key, fileName, contentType, rawNotes, override, originEmail, bankerSource, enteredByEmail, uploaderUserId)
+  const emailPipelineUpload = () =>
+    service.processUpload(
+      'uploads/teaser.pdf',
+      'teaser.pdf',
+      'application/pdf',
+      undefined,
+      undefined,
+      true,
+      'Goldman Sachs',
+      'jane@corp.com',
+      null,
+    );
+
+  it('enqueues a company_assigned email to the matched custodian for each created company', async () => {
+    await emailPipelineUpload();
+
+    expect(userRepo.findByEmail).toHaveBeenCalledWith('jane@corp.com');
+    expect(companyService.createFromDTO).toHaveBeenCalledWith(
+      expect.objectContaining({ entered_by: 'user-jane' }),
+      'auto_created_from_file:file-1',
+    );
+    expect(enqueueEmail).toHaveBeenCalledTimes(1);
+    expect(enqueueEmail).toHaveBeenCalledWith({
+      kind: 'company_assigned',
+      to: 'jane@corp.com',
+      recipientName: 'Jane Doe',
+      companyName: 'Acme Corp',
+      bankerSource: 'Goldman Sachs',
+      companyUrl: expect.stringContaining('/pipeline/company-new'),
+    });
+  });
+
+  it('does not enqueue an email when the custodian email matches no user', async () => {
+    userRepo.findByEmail.mockResolvedValue(null);
+
+    await emailPipelineUpload();
+
+    expect(companyService.createFromDTO).toHaveBeenCalledWith(
+      expect.objectContaining({ entered_by: null }),
+      'auto_created_from_file:file-1',
+    );
+    expect(enqueueEmail).not.toHaveBeenCalled();
+  });
+
+  it('does not enqueue an email for manual UI uploads (originEmail=false)', async () => {
+    await service.processUpload(
+      'uploads/teaser.pdf',
+      'teaser.pdf',
+      'application/pdf',
+      undefined,
+      undefined,
+      false,
+      undefined,
+      undefined,
+      'uploader-uuid',
+    );
+
+    expect(companyService.createFromDTO).toHaveBeenCalledWith(
+      expect.objectContaining({ entered_by: 'uploader-uuid' }),
+      'auto_created_from_file:file-1',
+    );
+    expect(enqueueEmail).not.toHaveBeenCalled();
+  });
+
+  it('does not enqueue an email when the company matched an existing one (dedup skip)', async () => {
+    vi.mocked(companyService.findByNameFuzzy).mockResolvedValue(
+      makeCompany({ id: 'company-existing', target: 'Acme Corp' }) as never,
+    );
+
+    await emailPipelineUpload();
+
+    expect(companyService.createFromDTO).not.toHaveBeenCalled();
+    expect(enqueueEmail).not.toHaveBeenCalled();
+  });
+
+  it('completes file processing even when the email enqueue fails', async () => {
+    enqueueEmail.mockRejectedValue(new Error('queue down'));
+
+    await emailPipelineUpload();
+
+    expect(fileRepo.updatePartial).toHaveBeenCalledWith(
+      'file-1',
+      expect.objectContaining({ processing_status: 'completed' }),
+    );
+  });
+});

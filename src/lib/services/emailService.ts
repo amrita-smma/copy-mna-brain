@@ -528,6 +528,56 @@ export function renderTaskInsightEmail(input: {
   return { subject, html, text };
 }
 
+export interface CompanyAssignedEmailInput {
+  email: string;
+  /** Display name of the assignee (the email recipient / custodian). */
+  recipientName: string;
+  companyName: string;
+  /** Banker/bank the source email came from, when resolved. */
+  bankerSource?: string;
+  /** Deep link to the company's pipeline page. */
+  companyUrl?: string;
+}
+
+/**
+ * Notify a user that a company auto-created from a banker email was assigned
+ * to them (stamped as `entered_by`) because they were a recipient of the
+ * original email. Asks them to verify the extracted data or reroute to the
+ * correct PIC.
+ */
+export function renderCompanyAssignedEmail(input: {
+  recipientName: string;
+  companyName: string;
+  bankerSource?: string;
+  companyUrl?: string;
+}): { subject: string; html: string; text: string } {
+  const subject = `📌 ${input.companyName} — Assigned to you for verification`;
+  const bankPhrase = input.bankerSource
+    ? `this bank (${input.bankerSource})`
+    : 'this bank';
+  const message =
+    `Hey, ${input.recipientName}, you have been assigned this company ` +
+    `${input.companyName} because you are one of the email recipients from ` +
+    `${bankPhrase}. Please verify whether the information is correct or ` +
+    'redirect it to the correct PIC.';
+  const html = renderNotificationShell({
+    bannerTitle: '📌 Company Assigned',
+    accent: '#6d5ef5',
+    accentDark: '#5a4bd6',
+    bodyHtml: `<p style="margin:0 0 8px; color:#52525b; font-size:15px;">Hey, ${escapeHtml(input.recipientName)},</p>
+      <h1 style="margin:0 0 12px; font-size:24px; line-height:1.25;">${escapeHtml(input.companyName)}</h1>
+      <p style="margin:0 0 16px; line-height:1.6; color:#374151; font-size:15px;">You have been assigned this company because you are one of the email recipients from ${escapeHtml(bankPhrase)}.</p>
+      <p style="margin:0; line-height:1.6; color:#374151; font-size:15px;">Please verify whether the information is correct or redirect it to the correct PIC.</p>`,
+    ctaUrl: input.companyUrl,
+    ctaLabel: 'Review Company →',
+  });
+  const text = [
+    message,
+    ...(input.companyUrl ? ['', `Review the company: ${input.companyUrl}`] : []),
+  ].join('\n');
+  return { subject, html, text };
+}
+
 export interface AgentEmailInput {
   /** Recipient address. Callers (the send_email tool) must have already
    * validated this against the platform user whitelist. */
@@ -732,6 +782,21 @@ export class EmailService {
     }
     if (!input.level) throw new Error('sendTaskInsightEmail: level is required');
     const { subject, html, text } = renderTaskInsightEmail(input);
+    return this.sender({ to: input.email, subject, html, text });
+  }
+
+  /** A company auto-created from a banker email was assigned to the recipient. */
+  async sendCompanyAssignedEmail(
+    input: CompanyAssignedEmailInput,
+  ): Promise<SendEmailResult> {
+    if (!input.email) throw new Error('sendCompanyAssignedEmail: email is required');
+    if (!input.recipientName) {
+      throw new Error('sendCompanyAssignedEmail: recipientName is required');
+    }
+    if (!input.companyName) {
+      throw new Error('sendCompanyAssignedEmail: companyName is required');
+    }
+    const { subject, html, text } = renderCompanyAssignedEmail(input);
     return this.sender({ to: input.email, subject, html, text });
   }
 
