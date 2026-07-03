@@ -109,9 +109,12 @@ export interface CompanyFilters {
   limit?: number;
   offset?: number;
   /**
-   * Case-insensitive ILIKE filter against `companies.target`. The substring
-   * is matched anywhere — used by the lightweight lookup endpoint that
-   * powers the "Matched Company" combobox in the AI File Dump upload form.
+   * Case-insensitive ILIKE filter against `companies.target` OR
+   * `companies.project_name` — a row matches when the substring appears in
+   * either, so companies named in one language and code-named in another
+   * (e.g. a Mandarin target with an English project name) are findable by
+   * both. Used by the lightweight lookup endpoint that powers the
+   * "Matched Company" combobox in the AI File Dump upload form.
    */
   targetSearch?: string;
 }
@@ -147,6 +150,7 @@ export interface CompanyAgentFilters {
   maxRevenue?: number;
   minEbitda?: number;
   maxEbitda?: number;
+  /** Free-text ILIKE across target, project_name, segment, and geography. */
   searchTerm?: string;
   limit?: number;
 }
@@ -204,7 +208,10 @@ function buildFilterWhere(filters: CompanyFilters): SQL | undefined {
   if (filters.createdAfter)
     conditions.push(gte(companies.created_at, filters.createdAfter));
   if (filters.targetSearch && filters.targetSearch.trim().length > 0) {
-    conditions.push(ilike(companies.target, `%${filters.targetSearch.trim()}%`));
+    const term = `%${filters.targetSearch.trim()}%`;
+    conditions.push(
+      or(ilike(companies.target, term), ilike(companies.project_name, term)),
+    );
   }
   if (conditions.length === 0) return undefined;
   return and(...conditions);
@@ -511,6 +518,7 @@ export class CompanyRepository {
       push(
         or(
           ilike(companies.target, term),
+          ilike(companies.project_name, term),
           ilike(companies.segment, term),
           ilike(companies.geography, term),
         ),

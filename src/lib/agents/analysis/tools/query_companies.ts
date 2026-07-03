@@ -145,7 +145,7 @@ Available filters (every one maps to a real column):
     ai_opinion_verdict: AI Opinion verdict (exact, one of: "pass", "fail", "tentative")
     min_revenue / max_revenue: FY2024 revenue bounds (USD millions)
     min_ebitda / max_ebitda: FY2024 EBITDA bounds (USD millions)
-    search_term: Free-text search across target name, segment, and geography
+    search_term: Free-text search across target name, project name, segment, and geography (works for non-English names, e.g. Mandarin — matches whichever of target/project_name holds the string)
     limit: Max rows to return (default: 20, max: 50)
 
 Returns:
@@ -220,7 +220,9 @@ Returns:
       search_term: z
         .string()
         .optional()
-        .describe("Free-text search across name/segment/geography"),
+        .describe(
+          "Free-text search across target name, project name, segment, and geography",
+        ),
       limit: z.number().optional().default(20).describe("Max results to return"),
     }),
   }

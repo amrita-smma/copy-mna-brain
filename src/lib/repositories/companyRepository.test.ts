@@ -1,4 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
+import type { SQL } from 'drizzle-orm';
+import { PgDialect } from 'drizzle-orm/pg-core';
 import { CompanyRepository, stripCompanySuffix } from './companyRepository';
 import type { Tables } from './types';
 import type { CompanyGraphMirror } from './companyRelationRepository';
@@ -250,6 +252,72 @@ describe('stripCompanySuffix', () => {
 
   it('leaves a name with no recognized suffix unchanged', () => {
     expect(stripCompanySuffix('Northwind Traders')).toBe('Northwind Traders');
+  });
+});
+
+/** Render a Drizzle SQL condition to its parameterized SQL string + params. */
+function renderSql(condition: SQL) {
+  return new PgDialect().sqlToQuery(condition);
+}
+
+/** Build a db for `select().from().where().limit()`, capturing the where arg. */
+function makeAgentSearchDb(rows: Array<Partial<Tables<'companies'>>>) {
+  const limit = vi.fn().mockResolvedValue(rows);
+  const where = vi.fn().mockReturnValue({ limit });
+  const from = vi.fn().mockReturnValue({ where });
+  const select = vi.fn().mockReturnValue({ from });
+  return { db: { select } as never, where };
+}
+
+/** Build a db for `select().from().where().orderBy()`, capturing the where arg. */
+function makeListDb(rows: Array<Partial<Tables<'companies'>>>) {
+  const orderBy = vi.fn().mockResolvedValue(rows);
+  const where = vi.fn().mockReturnValue({ orderBy });
+  const from = vi.fn().mockReturnValue({ where });
+  const select = vi.fn().mockReturnValue({ from });
+  return { db: { select } as never, where };
+}
+
+describe('CompanyRepository.searchForAgent', () => {
+  it('matches searchTerm against target, project_name, segment, and geography', async () => {
+    const { db, where } = makeAgentSearchDb([]);
+    const repo = new CompanyRepository(db);
+
+    await repo.searchForAgent({ searchTerm: '中文股份' });
+
+    const condition = where.mock.calls[0][0] as SQL;
+    const { sql: rendered, params } = renderSql(condition);
+    expect(rendered).toContain('"target" ilike');
+    expect(rendered).toContain('"project_name" ilike');
+    expect(rendered).toContain('"segment" ilike');
+    expect(rendered).toContain('"geography" ilike');
+    expect(params.filter((p) => p === '%中文股份%')).toHaveLength(4);
+  });
+});
+
+describe('CompanyRepository.findAll targetSearch', () => {
+  it('matches targetSearch against both target and project_name', async () => {
+    const { db, where } = makeListDb([]);
+    const repo = new CompanyRepository(db);
+
+    await repo.findAll({ targetSearch: '凤凰项目' });
+
+    const condition = where.mock.calls[0][0] as SQL;
+    const { sql: rendered, params } = renderSql(condition);
+    expect(rendered).toContain('"target" ilike');
+    expect(rendered).toContain('"project_name" ilike');
+    expect(params.filter((p) => p === '%凤凰项目%')).toHaveLength(2);
+  });
+
+  it('trims the term and wraps it in wildcards', async () => {
+    const { db, where } = makeListDb([]);
+    const repo = new CompanyRepository(db);
+
+    await repo.findAll({ targetSearch: '  凤凰  ' });
+
+    const condition = where.mock.calls[0][0] as SQL;
+    const { params } = renderSql(condition);
+    expect(params).toContain('%凤凰%');
   });
 });
 

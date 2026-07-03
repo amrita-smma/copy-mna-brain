@@ -293,7 +293,7 @@ Scope the cohort with the SAME filters as query_companies (all optional, AND-com
     has_ai_opinion (true → only companies WITH an AI Opinion; false → only those WITHOUT),
     ai_opinion_verdict ("pass"|"fail"|"tentative"),
     min_revenue / max_revenue / min_ebitda / max_ebitda (FY2024, USD M),
-    search_term (name/segment/geography).
+    search_term (target name/project name/segment/geography).
 
 group_by: optional array of breakdown dimensions to append as tables. Any of:
     "segment", "geography", "stage", "source", "status", "ownership", "deal_type", "ai_opinion".
@@ -382,7 +382,9 @@ Returns:
       search_term: z
         .string()
         .optional()
-        .describe("Free-text search across name/segment/geography"),
+        .describe(
+          "Free-text search across target name, project name, segment, and geography",
+        ),
     }),
   }
 );
