@@ -56,6 +56,7 @@ import { AiOpinionCell } from "@/components/pipeline/AiOpinionCell";
 import { companyDisplayName, companyDisplayTitle } from "@/lib/companyDisplay";
 import {
   persistedTrackIds,
+  trackDisplayName,
   matchedTrackPics,
   dealLeadField,
   dealLeadLabel,
@@ -84,6 +85,40 @@ function DealLeadCell({
     <span className="text-sm text-muted-foreground">
       {stored || fallback || "—"}
     </span>
+  );
+}
+
+/**
+ * Matched-track pills for a company. Shows ONLY the persisted matches assigned
+ * when the company entered L0 (never the live keyword heuristic), so editing &
+ * saving Track Settings can't retroactively populate this column.
+ */
+function MatchedTracksCell({
+  company,
+  tracks,
+}: {
+  company: PipelineCompany;
+  tracks: TrackLike[];
+}) {
+  const ids = persistedTrackIds(company, tracks);
+  if (ids.length === 0) return <span className="text-muted-foreground">—</span>;
+  return (
+    <div className="flex flex-wrap gap-1 max-w-[180px]">
+      {ids.map((id) => {
+        const track = tracks.find((t) => t.id === id);
+        if (!track) return null;
+        return (
+          <Badge
+            key={id}
+            variant="secondary"
+            className="font-normal text-[10px] px-1.5 py-0 max-w-full truncate"
+            title={track.title ?? undefined}
+          >
+            {trackDisplayName(track)}
+          </Badge>
+        );
+      })}
+    </div>
   );
 }
 
@@ -270,6 +305,12 @@ export default function OutboundCompaniesTable({
         cell: (c) => (
           <span className="text-sm text-muted-foreground">{c.segment || "-"}</span>
         ),
+      },
+      {
+        id: "matched_tracks",
+        label: "Matched Tracks",
+        headerClassName: "min-w-[150px]",
+        cell: (c) => <MatchedTracksCell company={c} tracks={tracks} />,
       },
       {
         id: "deal_type",
