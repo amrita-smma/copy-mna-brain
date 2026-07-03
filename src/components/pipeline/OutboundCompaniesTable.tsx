@@ -1,11 +1,11 @@
 "use client";
 
+import { useMemo } from "react";
 import {
   Table,
   TableBody,
   TableCell,
   TableHead,
-  TableHeader,
   TableRow,
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
@@ -27,7 +27,20 @@ import {
   Sparkles,
   Loader2,
 } from "lucide-react";
-import { ColumnHeader, type FilterOption } from "@/components/pipeline/ColumnHeader";
+import {
+  ColumnHeaderContent,
+  type FilterOption,
+} from "@/components/pipeline/ColumnHeader";
+import {
+  useColumnLayout,
+  ColumnManagerProvider,
+  ManagedTableHeader,
+  ManagedRowCells,
+  ColumnConfigGear,
+  type ColumnDef,
+  type ColumnSort,
+  type ColumnFilter,
+} from "@/components/table";
 import { cn } from "@/lib/utils";
 import { useNearRightEdge } from "@/hooks/useNearRightEdge";
 import type { Tables } from "@/lib/repositories";
@@ -142,6 +155,8 @@ interface OutboundCompaniesTableProps {
   sortField: string | null;
   sortDirection: "asc" | "desc";
   onSort: (field: string) => void;
+  /** Direction-aware sort setter (used by the column right-click menu). */
+  onSortColumn: (field: string, direction: "asc" | "desc") => void;
   columnFilters: Record<string, string[]>;
   filterOptions: Record<string, FilterOption[]>;
   onColumnFilterChange: (field: string, values: string[]) => void;
@@ -171,6 +186,7 @@ export default function OutboundCompaniesTable({
   sortField,
   sortDirection,
   onSort,
+  onSortColumn,
   columnFilters,
   filterOptions,
   onColumnFilterChange,
@@ -212,84 +228,259 @@ export default function OutboundCompaniesTable({
     stageIndex > 0 ? PIPELINE_STAGES[stageIndex - 1] : null;
   const picColumnLabel = dealLeadLabel(stage);
 
-  const Col = ({
-    label,
-    className,
-    sort,
-    filter,
-  }: {
-    label: string;
-    className?: string;
-    sort?: string;
-    filter?: string;
-  }) => (
-    <ColumnHeader
-      label={label}
-      className={className}
-      sortField={sort}
-      activeSortField={sortField}
-      sortDirection={sortDirection}
-      onSort={sort ? onSort : undefined}
-      filterField={filter}
-      filterOptions={filter ? filterOptions[filter] ?? [] : undefined}
-      selectedValues={filter ? columnFilters[filter] ?? [] : undefined}
-      onFilterChange={filter ? onColumnFilterChange : undefined}
-    />
-  );
+  // Sort / filter descriptors for a managed column — surfaced in the column's
+  // right-click menu by the managed header (left-click selects for grouping).
+  const sortDesc = (field: string): ColumnSort => ({
+    active: sortField === field,
+    direction: sortDirection,
+    onSort: (dir) => onSortColumn(field, dir),
+  });
+  const filterDesc = (field: string): ColumnFilter => ({
+    options: filterOptions[field] ?? [],
+    selected: columnFilters[field] ?? [],
+    onChange: (values) => onColumnFilterChange(field, values),
+  });
+
+  // Managed (reorderable / hideable / groupable) data columns. The sticky
+  // Ask-AI, Company, and Actions columns are pinned and rendered outside this
+  // set. `viewMode` swaps the Status column for Last Status + Drop Reason.
+  const columns = useMemo<ColumnDef<PipelineCompany>[]>(() => {
+    const cols: ColumnDef<PipelineCompany>[] = [
+      {
+        id: "deal_lead",
+        label: picColumnLabel,
+        sort: sortDesc("deal_lead"), filter: filterDesc("deal_lead"),
+        cell: (c) => <DealLeadCell company={c} tracks={tracks} stage={stage} />,
+      },
+      {
+        id: "entered_by",
+        label: "Entered by",
+        sort: sortDesc("entered_by"), filter: filterDesc("entered_by"),
+        cell: (c) => (
+          <span className="text-sm text-muted-foreground">
+            {c.entered_by_name || "—"}
+          </span>
+        ),
+      },
+      {
+        id: "sector",
+        label: "Segment",
+        sort: sortDesc("sector"), filter: filterDesc("sector"),
+        cell: (c) => (
+          <span className="text-sm text-muted-foreground">{c.segment || "-"}</span>
+        ),
+      },
+      {
+        id: "deal_type",
+        label: "Deal Type",
+        sort: sortDesc("deal_type"), filter: filterDesc("deal_type"),
+        cell: (c) =>
+          c.deal_type ? (
+            <Badge variant="outline" className="capitalize">
+              {DEAL_TYPE_LABEL[c.deal_type] ?? c.deal_type}
+            </Badge>
+          ) : (
+            <span className="text-muted-foreground">—</span>
+          ),
+      },
+      {
+        id: "key_rationale",
+        label: "Key Rationale",
+        headerClassName: "max-w-[260px]",
+        cellClassName: "max-w-[260px]",
+        cell: (c) =>
+          c.key_rationale ? (
+            <p
+              className="text-xs text-muted-foreground line-clamp-2 leading-snug"
+              title={c.key_rationale}
+            >
+              {c.key_rationale}
+            </p>
+          ) : (
+            <span className="text-xs text-muted-foreground">—</span>
+          ),
+      },
+      {
+        id: "financial_info",
+        label: "Financial Info",
+        headerClassName: "min-w-[180px]",
+        cellClassName: "min-w-[180px]",
+        cell: (c) => {
+          const finInfo = composeFinancialInfo(c.financials_raw);
+          return finInfo ? (
+            <span className="text-xs font-mono text-muted-foreground">
+              {finInfo}
+            </span>
+          ) : (
+            <span className="text-muted-foreground">—</span>
+          );
+        },
+      },
+    ];
+
+    if (isDropped) {
+      cols.push(
+        {
+          id: "last_status",
+          label: "Last Status",
+          cell: (c) => (
+            <span className="text-sm text-muted-foreground">
+              {c.workflow_status || "—"}
+            </span>
+          ),
+        },
+        {
+          id: "dropped_reason",
+          label: "Drop Reason",
+          headerClassName: "min-w-[200px] max-w-[280px]",
+          cellClassName: "min-w-[200px] max-w-[280px] align-top",
+          cell: (c) =>
+            c.dropped_reason ? (
+              <p
+                className="text-xs text-muted-foreground whitespace-normal break-words"
+                title={c.dropped_reason}
+              >
+                {c.dropped_reason}
+              </p>
+            ) : (
+              <span className="text-muted-foreground">—</span>
+            ),
+        },
+      );
+    } else {
+      cols.push({
+        id: "status",
+        label: "Status",
+        sort: sortDesc("status"), filter: filterDesc("status"),
+        headerClassName: "min-w-[160px]",
+        cell: (c) => (
+          <StatusCombobox
+            variant="cell"
+            value={c.workflow_status}
+            options={statusOptions}
+            placeholder="Set status…"
+            onChange={(next) => onStatusChange(c, next)}
+          />
+        ),
+      });
+    }
+
+    cols.push(
+      {
+        id: "remarks",
+        label: "Additional Remarks",
+        headerClassName: "min-w-[320px] max-w-[400px]",
+        cellClassName: "min-w-[320px] max-w-[400px] align-top",
+        cell: (c) =>
+          c.remarks ? (
+            <p
+              className="text-xs text-muted-foreground whitespace-normal break-words"
+              title={c.remarks}
+            >
+              {c.remarks}
+            </p>
+          ) : (
+            <span className="text-xs text-muted-foreground">-</span>
+          ),
+      },
+      {
+        id: "created",
+        label: "Created",
+        sort: sortDesc("created"),
+        cellClassName: "text-muted-foreground text-sm whitespace-nowrap",
+        cell: (c) => formatDate(c.created_at),
+      },
+      {
+        id: "last_activity",
+        label: isDropped ? "Dropped On" : "Last Activity",
+        sort: sortDesc(isDropped ? "dropped_on" : "last_activity"),
+        cellClassName: "text-muted-foreground text-sm whitespace-nowrap",
+        cell: (c) => formatDate(isDropped ? c.dropped_at : c.last_activity_at),
+      },
+      {
+        id: "ai_opinion",
+        label: "AI Opinion",
+        headerClassName: "min-w-[300px] max-w-[390px]",
+        cellClassName: "h-px min-w-[300px] max-w-[390px] align-top",
+        cell: (c) =>
+          onAnalyzeAiOpinion ? (
+            <AiOpinionCell
+              company={c}
+              analyzing={analyzingAiOpinionIds?.has(c.id) ?? false}
+              onAnalyze={onAnalyzeAiOpinion}
+              onDiveDeeper={handleDiveDeeper}
+            />
+          ) : (
+            <span className="text-muted-foreground">—</span>
+          ),
+      },
+    );
+    return cols;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    isDropped,
+    picColumnLabel,
+    stage,
+    tracks,
+    statusOptions,
+    sortField,
+    sortDirection,
+    onSortColumn,
+    columnFilters,
+    filterOptions,
+    analyzingAiOpinionIds,
+    onAnalyzeAiOpinion,
+  ]);
+
+  const mgr = useColumnLayout(`pipeline-outbound:${viewMode}`, columns);
+
+  // colSpan for the empty-state row: 2 pinned leading (Ask-AI + Company) +
+  // visible managed columns + 1 pinned trailing (Actions).
+  const fullColSpan = 3 + mgr.visibleCount;
 
   return (
-    <Table {...edgeHandlers}>
-      <TableHeader>
-        <TableRow>
-          <TableHead className="w-[40px] sticky left-0 z-20 bg-card"></TableHead>
-          <Col
-            label="Company"
-            sort="name"
-            className="sticky left-[40px] z-20 bg-card border-r"
-          />
-          <Col label={picColumnLabel} sort="deal_lead" filter="deal_lead" />
-          <Col label="Entered by" sort="entered_by" filter="entered_by" />
-          <Col label="Segment" sort="sector" filter="sector" />
-          <Col label="Deal Type" sort="deal_type" filter="deal_type" />
-          <TableHead className="max-w-[260px]">Key Rationale</TableHead>
-          <TableHead className="min-w-[180px]">Financial Info</TableHead>
-          {isDropped ? (
-            <>
-              <TableHead>Last Status</TableHead>
-              <TableHead className="min-w-[200px] max-w-[280px]">Drop Reason</TableHead>
-            </>
-          ) : (
-            <Col
-              label="Status"
-              sort="status"
-              filter="status"
-              className="min-w-[160px]"
+    <ColumnManagerProvider value={mgr}>
+      {/* Gear is portaled into the shared filter row (see Pipeline.tsx). */}
+      <ColumnConfigGear portalTargetId="pipeline-columns-config" />
+      <Table {...edgeHandlers}>
+        <ManagedTableHeader
+          leading={[
+            <TableHead
+              key="askai"
+              className="w-[40px] sticky left-0 z-20 bg-card"
+            />,
+            <TableHead
+              key="company"
+              className="sticky left-[40px] z-20 bg-card border-r"
+            >
+              <ColumnHeaderContent
+                label="Company"
+                sortField="name"
+                activeSortField={sortField}
+                sortDirection={sortDirection}
+                onSort={onSort}
+              />
+            </TableHead>,
+          ]}
+          trailing={
+            <TableHead
+              key="actions"
+              className="w-[44px] sticky right-0 z-20 bg-transparent"
             />
-          )}
-          <TableHead className="min-w-[320px] max-w-[400px]">Additional Remarks</TableHead>
-          <Col label="Created" sort="created" />
-          <Col
-            label={isDropped ? "Dropped On" : "Last Activity"}
-            sort={isDropped ? "dropped_on" : "last_activity"}
-          />
-          <TableHead className="min-w-[300px] max-w-[390px]">
-            AI Opinion
-          </TableHead>
-          <TableHead className="w-[44px] sticky right-0 z-20 bg-transparent" />
-        </TableRow>
-      </TableHeader>
+          }
+        />
       <TableBody>
         {companies.length === 0 && (
           <TableRow className="hover:bg-transparent">
             <TableCell
-              colSpan={isDropped ? 15 : 14}
+              colSpan={fullColSpan}
               className="h-32 text-center text-sm text-muted-foreground"
             >
               No companies match the current filters.
             </TableCell>
           </TableRow>
         )}
-        {companies.map((company) => {
+        {companies.map((company, index) => {
           const isFav = favoriteIds.has(company.id);
           const stickyBg = isFav
             ? "bg-amber-50 group-hover:bg-amber-100 dark:bg-amber-950 dark:group-hover:bg-amber-900"
@@ -336,121 +527,7 @@ export default function OutboundCompaniesTable({
                   <span className="text-muted-foreground">—</span>
                 )}
               </TableCell>
-              <TableCell>
-                <DealLeadCell
-                  company={company}
-                  tracks={tracks}
-                  stage={stage}
-                />
-              </TableCell>
-              <TableCell>
-                <span className="text-sm text-muted-foreground">
-                  {company.entered_by_name || "—"}
-                </span>
-              </TableCell>
-              <TableCell>
-                <span className="text-sm text-muted-foreground">
-                  {company.segment || "-"}
-                </span>
-              </TableCell>
-              <TableCell>
-                {company.deal_type ? (
-                  <Badge variant="outline" className="capitalize">
-                    {DEAL_TYPE_LABEL[company.deal_type] ?? company.deal_type}
-                  </Badge>
-                ) : (
-                  <span className="text-muted-foreground">—</span>
-                )}
-              </TableCell>
-              <TableCell className="max-w-[260px]">
-                {company.key_rationale ? (
-                  <p
-                    className="text-xs text-muted-foreground line-clamp-2 leading-snug"
-                    title={company.key_rationale}
-                  >
-                    {company.key_rationale}
-                  </p>
-                ) : (
-                  <span className="text-xs text-muted-foreground">—</span>
-                )}
-              </TableCell>
-              <TableCell className="min-w-[180px]">
-                {(() => {
-                  const finInfo = composeFinancialInfo(company.financials_raw);
-                  return finInfo ? (
-                    <span className="text-xs font-mono text-muted-foreground">
-                      {finInfo}
-                    </span>
-                  ) : (
-                    <span className="text-muted-foreground">—</span>
-                  );
-                })()}
-              </TableCell>
-              {isDropped ? (
-                <>
-                  <TableCell>
-                    <span className="text-sm text-muted-foreground">
-                      {company.workflow_status || "—"}
-                    </span>
-                  </TableCell>
-                  <TableCell className="min-w-[200px] max-w-[280px] align-top">
-                    {company.dropped_reason ? (
-                      <p
-                        className="text-xs text-muted-foreground whitespace-normal break-words"
-                        title={company.dropped_reason}
-                      >
-                        {company.dropped_reason}
-                      </p>
-                    ) : (
-                      <span className="text-muted-foreground">—</span>
-                    )}
-                  </TableCell>
-                </>
-              ) : (
-                <TableCell>
-                  <StatusCombobox
-                    variant="cell"
-                    value={company.workflow_status}
-                    options={statusOptions}
-                    placeholder="Set status…"
-                    onChange={(next) => onStatusChange(company, next)}
-                  />
-                </TableCell>
-              )}
-              <TableCell className="min-w-[320px] max-w-[400px] align-top">
-                {company.remarks ? (
-                  <p
-                    className="text-xs text-muted-foreground whitespace-normal break-words"
-                    title={company.remarks}
-                  >
-                    {company.remarks}
-                  </p>
-                ) : (
-                  <span className="text-xs text-muted-foreground">-</span>
-                )}
-              </TableCell>
-              <TableCell className="text-muted-foreground text-sm whitespace-nowrap">
-                {formatDate(company.created_at)}
-              </TableCell>
-              <TableCell className="text-muted-foreground text-sm whitespace-nowrap">
-                {isDropped
-                  ? formatDate(company.dropped_at)
-                  : formatDate(company.last_activity_at)}
-              </TableCell>
-              <TableCell className="h-px min-w-[300px] max-w-[390px] align-top">
-                {onAnalyzeAiOpinion ? (
-                  <AiOpinionCell
-                    company={company}
-                    analyzing={
-                      analyzingAiOpinionIds?.has(company.id) ?? false
-                    }
-                    onAnalyze={onAnalyzeAiOpinion}
-                    onDiveDeeper={handleDiveDeeper}
-                  />
-                ) : (
-                  <span className="text-muted-foreground">—</span>
-                )}
-              </TableCell>
+              <ManagedRowCells row={company} index={index} />
               <TableCell className="text-right sticky right-0 z-10 bg-transparent">
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
@@ -541,6 +618,7 @@ export default function OutboundCompaniesTable({
           );
         })}
       </TableBody>
-    </Table>
+      </Table>
+    </ColumnManagerProvider>
   );
 }

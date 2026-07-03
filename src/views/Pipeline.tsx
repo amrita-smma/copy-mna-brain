@@ -847,6 +847,12 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
     }
   };
 
+  // Direction-aware sort setter for the column right-click menu.
+  const setSortColumn = (field: string, direction: "asc" | "desc") => {
+    setSortField(field);
+    setSortDirection(direction);
+  };
+
   const totalPages = Math.max(
     1,
     Math.ceil(sortedCompanies.length / itemsPerPage),
@@ -1482,6 +1488,11 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
                                   </Select>
                                 )}
                                 {renderViewToggle()}
+                                {/* Column-config gear portals in here (see tables). */}
+                                <div
+                                  id="pipeline-columns-config"
+                                  className="shrink-0 flex items-center"
+                                />
                               </div>
 
                               {/* MB-224: Triage Banner */}
@@ -1523,6 +1534,7 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
                                       sortField={sortField}
                                       sortDirection={sortDirection}
                                       onSort={toggleSort}
+                                      onSortColumn={setSortColumn}
                                       columnFilters={columnFilters}
                                       filterOptions={filterOptions}
                                       onColumnFilterChange={
@@ -1638,6 +1650,7 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
                                       sortField={sortField}
                                       sortDirection={sortDirection}
                                       onSort={toggleSort}
+                                      onSortColumn={setSortColumn}
                                       columnFilters={columnFilters}
                                       filterOptions={filterOptions}
                                       onColumnFilterChange={
@@ -1776,6 +1789,11 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
                           </Select>
                         )}
                         {renderViewToggle()}
+                        {/* Column-config gear portals in here (see tables). */}
+                        <div
+                          id="pipeline-columns-config"
+                          className="shrink-0 flex items-center"
+                        />
                       </div>
 
                       {renderSourceTabs(stage)}
@@ -1807,6 +1825,7 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
                               sortField={sortField}
                               sortDirection={sortDirection}
                               onSort={toggleSort}
+                              onSortColumn={setSortColumn}
                               columnFilters={columnFilters}
                               filterOptions={filterOptions}
                               onColumnFilterChange={handleColumnFilterChange}
@@ -1895,6 +1914,7 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
                               sortField={sortField}
                               sortDirection={sortDirection}
                               onSort={toggleSort}
+                              onSortColumn={setSortColumn}
                               columnFilters={columnFilters}
                               filterOptions={filterOptions}
                               onColumnFilterChange={handleColumnFilterChange}

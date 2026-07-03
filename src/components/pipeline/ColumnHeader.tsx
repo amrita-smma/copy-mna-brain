@@ -27,9 +27,8 @@ export interface FilterOption {
   label?: string;
 }
 
-interface ColumnHeaderProps {
+interface ColumnHeaderContentProps {
   label: string;
-  className?: string;
   /** Sort field key. When set, the label becomes a sort toggle. */
   sortField?: string;
   activeSortField?: string | null;
@@ -42,9 +41,17 @@ interface ColumnHeaderProps {
   onFilterChange?: (field: string, values: string[]) => void;
 }
 
-export function ColumnHeader({
+interface ColumnHeaderProps extends ColumnHeaderContentProps {
+  className?: string;
+}
+
+/**
+ * Inner sort/filter controls for a column header, WITHOUT the surrounding
+ * `<TableHead>`. Rendered directly by `ColumnHeader` and reused by the managed
+ * (drag/hide/group) table header, which supplies its own `<TableHead>` wrapper.
+ */
+export function ColumnHeaderContent({
   label,
-  className,
   sortField,
   activeSortField,
   sortDirection = "asc",
@@ -53,7 +60,7 @@ export function ColumnHeader({
   filterOptions = [],
   selectedValues = [],
   onFilterChange,
-}: ColumnHeaderProps) {
+}: ColumnHeaderContentProps) {
   const [open, setOpen] = useState(false);
 
   const isSortable = !!sortField && !!onSort;
@@ -86,8 +93,7 @@ export function ColumnHeader({
   };
 
   return (
-    <TableHead className={className}>
-      <div className="flex items-center gap-0.5">
+    <div className="flex items-center gap-0.5">
         {isSortable ? (
           <button
             type="button"
@@ -164,6 +170,17 @@ export function ColumnHeader({
           </Popover>
         )}
       </div>
+  );
+}
+
+/**
+ * Sortable / filterable column header cell (renders its own `<TableHead>`).
+ * Thin wrapper around {@link ColumnHeaderContent}.
+ */
+export function ColumnHeader({ className, ...content }: ColumnHeaderProps) {
+  return (
+    <TableHead className={className}>
+      <ColumnHeaderContent {...content} />
     </TableHead>
   );
 }

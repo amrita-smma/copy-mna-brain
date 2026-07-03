@@ -14,11 +14,19 @@ import {
   TableBody,
   TableCell,
   TableHead,
-  TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import { ColumnHeaderContent } from '@/components/pipeline/ColumnHeader';
+import {
+  useColumnLayout,
+  ColumnManagerProvider,
+  ManagedTableHeader,
+  ManagedRowCells,
+  ColumnConfigGear,
+  type ColumnDef,
+} from '@/components/table';
 import { toast } from 'sonner';
-import { Loader2, Zap, Target, Sparkles, Trash2, ArrowUpDown, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, Eye, EyeOff, MoreVertical, ArrowRight, Pencil } from 'lucide-react';
+import { Loader2, Zap, Target, Sparkles, Trash2, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, Eye, EyeOff, MoreVertical, ArrowRight, Pencil } from 'lucide-react';
 import CompanyDetailDialog from './CompanyDetailDialog';
 import PromoteDialog from './PromoteDialog';
 import { AskAIButton } from '@/components/chat/AskAIButton';
@@ -252,6 +260,81 @@ export default function MarketScreeningResults({ refreshTrigger, onAddedToPipeli
     setCurrentPage(1);
   }, [sortField, sortDirection]);
 
+  // Header content (sort controls) for a managed column, without the
+  // surrounding <TableHead> (the managed header supplies that).
+  const colHeader = (
+    label: string,
+    opts: { sort?: string } = {},
+  ) => (
+    <ColumnHeaderContent
+      label={label}
+      sortField={opts.sort}
+      activeSortField={sortField}
+      sortDirection={sortDirection}
+      onSort={opts.sort ? toggleSort : undefined}
+    />
+  );
+
+  // Managed (reorderable / hideable / groupable) data columns. The Ask-AI,
+  // Company, and Actions columns are pinned and rendered outside this set.
+  const columns = useMemo<ColumnDef<MarketScreeningResult>[]>(() => [
+    {
+      id: 'segment',
+      label: 'Sector',
+      header: colHeader('Sector', { sort: 'segment' }),
+      cell: (result) => (
+        <span className="text-muted-foreground">{result.segment || 'Unknown'}</span>
+      ),
+    },
+    {
+      id: 'revenue',
+      label: 'Revenue',
+      header: colHeader('Revenue', { sort: 'revenue' }),
+      headerClassName: 'text-right',
+      cellClassName: 'text-right font-mono text-xs',
+      cell: (result) => {
+        const rev = latestFin(result.financials_raw, 'revenue_usd_mn');
+        return rev.value === null ? (
+          <span className="text-muted-foreground">—</span>
+        ) : (
+          <>
+            <div className="font-medium">{formatCurrency(rev.value)}</div>
+            {rev.year && <div className="text-[10px] text-muted-foreground">{rev.year}</div>}
+          </>
+        );
+      },
+    },
+    {
+      id: 'ebitda',
+      label: 'EBITDA',
+      header: colHeader('EBITDA', { sort: 'ebitda' }),
+      headerClassName: 'text-right',
+      cellClassName: 'text-right font-mono text-xs',
+      cell: (result) => {
+        const ebitda = latestFin(result.financials_raw, 'ebitda_usd_mn');
+        return ebitda.value === null ? (
+          <span className="text-muted-foreground">—</span>
+        ) : (
+          <>
+            <div className="font-medium">{formatCurrency(ebitda.value)}</div>
+            {ebitda.year && <div className="text-[10px] text-muted-foreground">{ebitda.year}</div>}
+          </>
+        );
+      },
+    },
+    {
+      id: 'valuation',
+      label: 'Valuation',
+      header: colHeader('Valuation', { sort: 'valuation' }),
+      headerClassName: 'text-right',
+      cellClassName: 'text-right font-mono text-xs font-medium text-foreground',
+      cell: (result) => formatCurrency(result.ev_2024),
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  ], [sortField, sortDirection]);
+
+  const mgr = useColumnLayout('market-screening-results', columns);
+
   const ModernHeader = ({ showDescription = false }: { showDescription?: boolean }) => (
     <CardHeader className="pb-4 relative">
       <div className="absolute -top-10 -right-10 w-32 h-32 bg-purple-400/20 dark:bg-purple-500/10 rounded-full blur-3xl pointer-events-none" />
@@ -341,44 +424,36 @@ export default function MarketScreeningResults({ refreshTrigger, onAddedToPipeli
     );
   }
 
-  // Helper for sorting buttons
-  const SortButton = ({ field, label, align = "left" }: { field: string, label: string, align?: "left" | "right" }) => (
-    <button
-      onClick={() => toggleSort(field)}
-      className={cn(
-        "flex items-center hover:text-foreground transition-colors group",
-        align === "right" && "justify-end w-full"
-      )}
-    >
-      {label}
-      <span className="ml-1 text-muted-foreground/50 group-hover:text-foreground/80">
-        <ArrowUpDown className="h-3 w-3" />
-      </span>
-    </button>
-  );
-
   return (
     <Card className="relative overflow-hidden border-purple-200 dark:border-purple-800/50 bg-gradient-to-br from-purple-50/50 via-violet-50/30 to-fuchsia-50/20 dark:from-purple-950/30 dark:via-violet-950/20 dark:to-fuchsia-950/10 shadow-lg shadow-purple-500/5">
       <ModernHeader />
 
       <CardContent>
         {!collapsed && (
-          <>
+          <ColumnManagerProvider value={mgr}>
+            <div className="flex items-center justify-end px-2 py-1.5">
+              <ColumnConfigGear />
+            </div>
             <div className="overflow-x-auto">
               <Table>
-                <TableHeader>
-                  <TableRow className="hover:bg-transparent">
-                    <TableHead className="w-[40px]"></TableHead>
-                    <TableHead><SortButton field="target" label="Company" /></TableHead>
-                    <TableHead><SortButton field="segment" label="Sector" /></TableHead>
-                    <TableHead className="text-right"><SortButton field="revenue" label="Revenue" align="right" /></TableHead>
-                    <TableHead className="text-right"><SortButton field="ebitda" label="EBITDA" align="right" /></TableHead>
-                    <TableHead className="text-right"><SortButton field="valuation" label="Valuation" align="right" /></TableHead>
-                    <TableHead className="text-right">Actions</TableHead>
-                  </TableRow>
-                </TableHeader>
+                <ManagedTableHeader
+                  rowClassName="hover:bg-transparent"
+                  leading={[
+                    <TableHead key="askai" className="w-[40px]" />,
+                    <TableHead key="company">
+                      <ColumnHeaderContent
+                        label="Company"
+                        sortField="target"
+                        activeSortField={sortField}
+                        sortDirection={sortDirection}
+                        onSort={toggleSort}
+                      />
+                    </TableHead>,
+                  ]}
+                  trailing={<TableHead key="actions" className="text-right">Actions</TableHead>}
+                />
                 <TableBody>
-                  {paginatedResults.map((result) => {
+                  {paginatedResults.map((result, index) => {
                     const isFav = favoriteIds.has(result.id);
                     const displayName = companyDisplayName(result, "this company");
                     return (
@@ -416,38 +491,7 @@ export default function MarketScreeningResults({ refreshTrigger, onAddedToPipeli
                             </button>
                           </div>
                         </TableCell>
-                        <TableCell>
-                          <span className="text-muted-foreground">{result.segment || 'Unknown'}</span>
-                        </TableCell>
-                        <TableCell className="text-right font-mono text-xs">
-                          {(() => {
-                            const rev = latestFin(result.financials_raw, 'revenue_usd_mn');
-                            return rev.value === null ? (
-                              <span className="text-muted-foreground">—</span>
-                            ) : (
-                              <>
-                                <div className="font-medium">{formatCurrency(rev.value)}</div>
-                                {rev.year && <div className="text-[10px] text-muted-foreground">{rev.year}</div>}
-                              </>
-                            );
-                          })()}
-                        </TableCell>
-                        <TableCell className="text-right font-mono text-xs">
-                          {(() => {
-                            const ebitda = latestFin(result.financials_raw, 'ebitda_usd_mn');
-                            return ebitda.value === null ? (
-                              <span className="text-muted-foreground">—</span>
-                            ) : (
-                              <>
-                                <div className="font-medium">{formatCurrency(ebitda.value)}</div>
-                                {ebitda.year && <div className="text-[10px] text-muted-foreground">{ebitda.year}</div>}
-                              </>
-                            );
-                          })()}
-                        </TableCell>
-                        <TableCell className="text-right font-mono text-xs font-medium text-foreground">
-                          {formatCurrency(result.ev_2024)}
-                        </TableCell>
+                        <ManagedRowCells row={result} index={index} />
                         <TableCell className="text-right">
                           <DropdownMenu>
                             <DropdownMenuTrigger asChild>
@@ -575,7 +619,7 @@ export default function MarketScreeningResults({ refreshTrigger, onAddedToPipeli
                 initialEditing={detailInEdit}
               />
             )}
-          </>
+          </ColumnManagerProvider>
         )}
       </CardContent>
 

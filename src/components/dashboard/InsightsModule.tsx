@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
   Dialog,
@@ -28,6 +28,21 @@ import type {
 } from '@/lib/services/dashboardInsightsService';
 import { useChatContext } from '@/components/chat/ChatProvider';
 import { AskAIButton } from '@/components/chat/AskAIButton';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableRow,
+} from '@/components/ui/table';
+import {
+  useColumnLayout,
+  ColumnManagerProvider,
+  ManagedTableHeader,
+  ManagedRowCells,
+  ColumnConfigGear,
+  type ColumnDef,
+} from '@/components/table';
 import { countryToAlpha2 } from 'country-to-iso';
 import {
   Loader2,
@@ -459,6 +474,7 @@ function InsightsContent({
           </CardHeader>
           <CardContent>
             <BreakdownTable
+              tableId="dashboard-insights-bankers"
               rows={bankers.filter((r) => !isExcludedBankerSource(r.key))}
               firstHeader="Banker"
               leadHeader="Leads"
@@ -551,6 +567,7 @@ function InsightsContent({
           </CardHeader>
           <CardContent>
             <BreakdownTable
+              tableId="dashboard-insights-segments"
               rows={segments}
               firstHeader="Segment"
               leadHeader="L0"
@@ -576,6 +593,7 @@ function InsightsContent({
           </CardHeader>
           <CardContent>
             <BreakdownTable
+              tableId="dashboard-insights-countries"
               rows={countries}
               firstHeader="Country"
               leadHeader="L0"
@@ -681,6 +699,7 @@ function MetaRow({ label, value, tone }: { label: string; value: string; tone?: 
 }
 
 function BreakdownTable({
+  tableId,
   rows,
   firstHeader,
   leadHeader,
@@ -689,6 +708,8 @@ function BreakdownTable({
   renderKey,
   emptyLabel,
 }: {
+  /** Unique, stable key for persisting this table's column layout. */
+  tableId: string;
   rows: BreakdownRow[];
   firstHeader: string;
   leadHeader: string;
@@ -697,35 +718,87 @@ function BreakdownTable({
   renderKey: (r: BreakdownRow) => React.ReactNode;
   emptyLabel: string;
 }) {
+  // Managed (reorderable / hideable / groupable) columns. The identity column
+  // (`firstHeader` / `renderKey`) is pinned leading and rendered outside this
+  // set; there is no trailing/actions column.
+  const columns = useMemo<ColumnDef<BreakdownRow>[]>(
+    () => [
+      {
+        id: 'leads',
+        label: leadHeader,
+        header: (
+          <span className="whitespace-nowrap font-semibold">{leadHeader}</span>
+        ),
+        headerClassName:
+          'h-auto px-0 pb-2 text-right align-bottom text-[10.5px] font-semibold uppercase tracking-wide text-muted-foreground',
+        cellClassName:
+          'p-0 py-2 text-right font-mono text-xs text-muted-foreground',
+        cell: (r) => leadValue(r),
+      },
+      {
+        id: 'l1plus',
+        label: 'L1+',
+        header: <span className="whitespace-nowrap font-semibold">L1+</span>,
+        headerClassName:
+          'h-auto px-0 pb-2 text-right align-bottom text-[10.5px] font-semibold uppercase tracking-wide text-muted-foreground',
+        cellClassName:
+          'p-0 py-2 text-right font-mono text-xs text-muted-foreground',
+        cell: (r) => r.l1plus,
+      },
+      {
+        id: 'conversion',
+        label: 'Conv.',
+        header: <span className="whitespace-nowrap font-semibold">Conv.</span>,
+        headerClassName:
+          'h-auto px-0 pb-2 text-right align-bottom text-[10.5px] font-semibold uppercase tracking-wide text-muted-foreground',
+        cellClassName: (r) => {
+          const hasBase = convBase(r) > 0;
+          return `p-0 py-2 text-right font-mono text-xs ${convClass(r.conversion, hasBase)}`;
+        },
+        cell: (r) => {
+          const hasBase = convBase(r) > 0;
+          return hasBase ? `${r.conversion}%` : '—';
+        },
+      },
+    ],
+    [leadHeader, leadValue, convBase],
+  );
+
+  const mgr = useColumnLayout<BreakdownRow>(tableId, columns);
+
   if (rows.length === 0) {
     return <p className="py-6 text-center text-sm text-muted-foreground">{emptyLabel}</p>;
   }
   return (
-    <table className="w-full border-collapse">
-      <thead>
-        <tr className="border-b border-border text-[10.5px] uppercase tracking-wide text-muted-foreground">
-          <th className="pb-2 text-left font-semibold">{firstHeader}</th>
-          <th className="pb-2 text-right font-semibold">{leadHeader}</th>
-          <th className="pb-2 text-right font-semibold">L1+</th>
-          <th className="pb-2 text-right font-semibold">Conv.</th>
-        </tr>
-      </thead>
-      <tbody>
-        {rows.map((r) => {
-          const hasBase = convBase(r) > 0;
-          return (
-            <tr key={r.key} className="border-b border-border last:border-0">
-              <td className="py-2 pr-2">{renderKey(r)}</td>
-              <td className="py-2 text-right font-mono text-xs text-muted-foreground">{leadValue(r)}</td>
-              <td className="py-2 text-right font-mono text-xs text-muted-foreground">{r.l1plus}</td>
-              <td className={`py-2 text-right font-mono text-xs ${convClass(r.conversion, hasBase)}`}>
-                {hasBase ? `${r.conversion}%` : '—'}
-              </td>
-            </tr>
-          );
-        })}
-      </tbody>
-    </table>
+    <ColumnManagerProvider value={mgr}>
+      <div className="flex items-center justify-end px-2 py-1.5">
+        <ColumnConfigGear />
+      </div>
+      <Table className="border-collapse">
+        <ManagedTableHeader
+          rowClassName="border-b border-border text-[10.5px] uppercase tracking-wide text-muted-foreground hover:bg-transparent"
+          leading={
+            <TableHead
+              key="identity"
+              className="h-auto px-0 pb-2 text-left align-bottom text-[10.5px] font-semibold uppercase tracking-wide text-muted-foreground"
+            >
+              {firstHeader}
+            </TableHead>
+          }
+        />
+        <TableBody>
+          {rows.map((r, index) => (
+            <TableRow
+              key={r.key}
+              className="border-b border-border last:border-0 hover:bg-transparent"
+            >
+              <TableCell className="p-0 py-2 pr-2">{renderKey(r)}</TableCell>
+              <ManagedRowCells row={r} index={index} />
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+    </ColumnManagerProvider>
   );
 }
 

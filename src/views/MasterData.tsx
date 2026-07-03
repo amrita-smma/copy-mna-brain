@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import DashboardLayout from '@/components/layout/DashboardLayout';
 import CompanyDetailDialog, { type CompanyData } from '@/components/pipeline/CompanyDetailDialog';
@@ -12,7 +12,6 @@ import {
   TableBody,
   TableCell,
   TableHead,
-  TableHeader,
   TableRow,
 } from '@/components/ui/table';
 import {
@@ -51,6 +50,14 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
+import {
+  useColumnLayout,
+  ColumnManagerProvider,
+  ManagedTableHeader,
+  ManagedRowCells,
+  ColumnConfigGear,
+  type ColumnDef,
+} from '@/components/table';
 import { useToast } from '@/hooks/use-toast';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { useChatContext } from '@/components/chat/ChatProvider';
@@ -374,6 +381,207 @@ export default function MasterData({ showCompanyGraph = false }: MasterDataProps
     discoveredPage * itemsPerPage,
   );
 
+  // Managed (reorderable / hideable / groupable) data columns. The identity
+  // Company column and the trailing Actions column are pinned and rendered
+  // outside this set. Headers are plain labels (no sort), so `label` is enough.
+  const columns = useMemo<ColumnDef<CompanyWithDeal>[]>(() => {
+    const numeric = 'text-right font-mono';
+    return [
+      {
+        id: 'project',
+        label: 'Project',
+        cellClassName: 'font-medium',
+        cell: (company) =>
+          company.project_name ? (
+            <button
+              type="button"
+              onClick={() => openCompanyDialog(company.id)}
+              disabled={loadingDialog}
+              className="font-medium text-left hover:text-primary transition-colors disabled:opacity-50"
+            >
+              {company.project_name}
+            </button>
+          ) : (
+            <span className="text-muted-foreground">—</span>
+          ),
+      },
+      {
+        id: 'status',
+        label: 'Status',
+        cell: (company) =>
+          company.status === 'dropped' ? (
+            <Badge variant="destructive">Dropped</Badge>
+          ) : company.status === 'active' ? (
+            <Badge variant="default">Active</Badge>
+          ) : (
+            <span className="text-muted-foreground">—</span>
+          ),
+      },
+      {
+        id: 'sector',
+        label: 'Sector',
+        headerClassName: 'min-w-[200px]',
+        cellClassName: 'min-w-[200px]',
+        cell: (company) => (
+          <Badge
+            variant="outline"
+            className="text-sm px-2.5 py-1 rounded-md whitespace-normal break-words text-left leading-snug"
+          >
+            {company.sector || '-'}
+          </Badge>
+        ),
+      },
+      {
+        id: 'source',
+        label: 'Source',
+        cell: (company) => (
+          <Badge variant="secondary" className="capitalize">
+            {company.source || '-'}
+          </Badge>
+        ),
+      },
+      {
+        id: 'geo',
+        label: 'Geo',
+        cell: (company) => (
+          <span className="text-sm text-muted-foreground">
+            {company.geo || '-'}
+          </span>
+        ),
+      },
+      {
+        id: 'stage',
+        label: 'Stage',
+        cell: (company) => {
+          const displayStage = getDisplayStage(company);
+          return displayStage ? (
+            <Badge className={`${stageColors[displayStage as DealStage | 'Acquired']} text-white`}>
+              {displayStage === 'Acquired' ? (
+                <span className="flex items-center gap-1">
+                  <CheckCircle2 className="h-3 w-3" />
+                  Acquired
+                </span>
+              ) : (
+                `${displayStage} - ${stageLabels[displayStage as DealStage]}`
+              )}
+            </Badge>
+          ) : (
+            <Badge variant="outline">Not in Pipeline</Badge>
+          );
+        },
+      },
+      {
+        id: 'pic',
+        label: 'PIC',
+        cell: (company) => (
+          <span className="text-sm text-muted-foreground">
+            {company.pic || '-'}
+          </span>
+        ),
+      },
+      {
+        id: 'revenue_2022',
+        label: 'Rev 2022',
+        headerClassName: 'text-right',
+        cellClassName: numeric,
+        cell: (company) => formatCurrency(company.revenue_2022),
+      },
+      {
+        id: 'revenue_2023',
+        label: 'Rev 2023',
+        headerClassName: 'text-right',
+        cellClassName: numeric,
+        cell: (company) => formatCurrency(company.revenue_2023),
+      },
+      {
+        id: 'revenue_2024',
+        label: 'Rev 2024',
+        headerClassName: 'text-right',
+        cellClassName: numeric,
+        cell: (company) => formatCurrency(company.revenue_2024),
+      },
+      {
+        id: 'revenue_2025',
+        label: 'Rev 2025',
+        headerClassName: 'text-right',
+        cellClassName: numeric,
+        cell: (company) => formatCurrency(company.revenue_2025),
+      },
+      {
+        id: 'trend',
+        label: 'Trend',
+        headerClassName: 'text-center',
+        cellClassName: 'text-center',
+        cell: (company) => {
+          const revenueChange = getRevenueChange(company.revenue_2024, company.revenue_2025);
+          return (
+            <>
+              {revenueChange.direction === 'up' && (
+                <span className="flex items-center justify-center text-green-600">
+                  <TrendingUp className="h-4 w-4 mr-1" />
+                  {revenueChange.percent.toFixed(0)}%
+                </span>
+              )}
+              {revenueChange.direction === 'down' && (
+                <span className="flex items-center justify-center text-red-600">
+                  <TrendingDown className="h-4 w-4 mr-1" />
+                  {revenueChange.percent.toFixed(0)}%
+                </span>
+              )}
+              {revenueChange.direction === 'flat' && (
+                <Minus className="h-4 w-4 mx-auto text-muted-foreground" />
+              )}
+            </>
+          );
+        },
+      },
+      {
+        id: 'ebitda_2022',
+        label: 'EBITDA 2022',
+        headerClassName: 'text-right',
+        cellClassName: numeric,
+        cell: (company) => formatCurrency(company.ebitda_2022),
+      },
+      {
+        id: 'ebitda_2023',
+        label: 'EBITDA 2023',
+        headerClassName: 'text-right',
+        cellClassName: numeric,
+        cell: (company) => formatCurrency(company.ebitda_2023),
+      },
+      {
+        id: 'ebitda_2024',
+        label: 'EBITDA 2024',
+        headerClassName: 'text-right',
+        cellClassName: numeric,
+        cell: (company) => formatCurrency(company.ebitda_2024),
+      },
+      {
+        id: 'ebitda_2025',
+        label: 'EBITDA 2025',
+        headerClassName: 'text-right',
+        cellClassName: numeric,
+        cell: (company) => formatCurrency(company.ebitda_2025),
+      },
+      {
+        id: 'valuation',
+        label: 'Valuation',
+        headerClassName: 'text-right',
+        cellClassName: numeric,
+        cell: (company) => formatCurrency(company.valuation),
+      },
+      {
+        id: 'created',
+        label: 'Added',
+        cellClassName: 'text-muted-foreground text-sm',
+        cell: (company) => new Date(company.created_at).toLocaleDateString(),
+      },
+    ];
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loadingDialog]);
+
+  const mgr = useColumnLayout('master-data', columns);
+
   if (loading) {
     return (
       <DashboardLayout showCompanyGraph={showCompanyGraph}>
@@ -606,37 +814,22 @@ export default function MasterData({ showCompanyGraph = false }: MasterDataProps
                 })}
               </div>
             ) : (
+              <ColumnManagerProvider value={mgr}>
               <div className="overflow-x-auto">
+                <div className="flex items-center justify-end px-2 py-1.5">
+                  <ColumnConfigGear />
+                </div>
                 <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Company</TableHead>
-                      <TableHead>Project</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead className="min-w-[200px]">Sector</TableHead>
-                      <TableHead>Source</TableHead>
-                      <TableHead>Geo</TableHead>
-                      <TableHead>Stage</TableHead>
-                      <TableHead>PIC</TableHead>
-                      <TableHead className="text-right">Rev 2022</TableHead>
-                      <TableHead className="text-right">Rev 2023</TableHead>
-                      <TableHead className="text-right">Rev 2024</TableHead>
-                      <TableHead className="text-right">Rev 2025</TableHead>
-                      <TableHead className="text-center">Trend</TableHead>
-                      <TableHead className="text-right">EBITDA 2022</TableHead>
-                      <TableHead className="text-right">EBITDA 2023</TableHead>
-                      <TableHead className="text-right">EBITDA 2024</TableHead>
-                      <TableHead className="text-right">EBITDA 2025</TableHead>
-                      <TableHead className="text-right">Valuation</TableHead>
-                      <TableHead>Added</TableHead>
-                      <TableHead className="text-center">Actions</TableHead>
-                    </TableRow>
-                  </TableHeader>
+                  <ManagedTableHeader
+                    leading={<TableHead key="company">Company</TableHead>}
+                    trailing={
+                      <TableHead key="actions" className="text-center">
+                        Actions
+                      </TableHead>
+                    }
+                  />
                   <TableBody>
-                    {paginatedCompanies.map((company) => {
-                      const displayStage = getDisplayStage(company);
-                      const revenueChange = getRevenueChange(company.revenue_2024, company.revenue_2025);
-
+                    {paginatedCompanies.map((company, index) => {
                       return (
                         <TableRow key={company.id}>
                           <TableCell className="font-medium">
@@ -653,115 +846,7 @@ export default function MasterData({ showCompanyGraph = false }: MasterDataProps
                               <span className="text-muted-foreground">—</span>
                             )}
                           </TableCell>
-                          <TableCell className="font-medium">
-                            {company.project_name ? (
-                              <button
-                                type="button"
-                                onClick={() => openCompanyDialog(company.id)}
-                                disabled={loadingDialog}
-                                className="font-medium text-left hover:text-primary transition-colors disabled:opacity-50"
-                              >
-                                {company.project_name}
-                              </button>
-                            ) : (
-                              <span className="text-muted-foreground">—</span>
-                            )}
-                          </TableCell>
-                          <TableCell>
-                            {company.status === 'dropped' ? (
-                              <Badge variant="destructive">Dropped</Badge>
-                            ) : company.status === 'active' ? (
-                              <Badge variant="default">Active</Badge>
-                            ) : (
-                              <span className="text-muted-foreground">—</span>
-                            )}
-                          </TableCell>
-                          <TableCell className="min-w-[200px]">
-                            <Badge
-                              variant="outline"
-                              className="text-sm px-2.5 py-1 rounded-md whitespace-normal break-words text-left leading-snug"
-                            >
-                              {company.sector || '-'}
-                            </Badge>
-                          </TableCell>
-                          <TableCell>
-                            <Badge variant="secondary" className="capitalize">
-                              {company.source || '-'}
-                            </Badge>
-                          </TableCell>
-                          <TableCell>
-                            <span className="text-sm text-muted-foreground">
-                              {company.geo || '-'}
-                            </span>
-                          </TableCell>
-                          <TableCell>
-                            {displayStage ? (
-                              <Badge className={`${stageColors[displayStage as DealStage | 'Acquired']} text-white`}>
-                                {displayStage === 'Acquired' ? (
-                                  <span className="flex items-center gap-1">
-                                    <CheckCircle2 className="h-3 w-3" />
-                                    Acquired
-                                  </span>
-                                ) : (
-                                  `${displayStage} - ${stageLabels[displayStage as DealStage]}`
-                                )}
-                              </Badge>
-                            ) : (
-                              <Badge variant="outline">Not in Pipeline</Badge>
-                            )}
-                          </TableCell>
-                          <TableCell>
-                            <span className="text-sm text-muted-foreground">
-                              {company.pic || '-'}
-                            </span>
-                          </TableCell>
-                          <TableCell className="text-right font-mono">
-                            {formatCurrency(company.revenue_2022)}
-                          </TableCell>
-                          <TableCell className="text-right font-mono">
-                            {formatCurrency(company.revenue_2023)}
-                          </TableCell>
-                          <TableCell className="text-right font-mono">
-                            {formatCurrency(company.revenue_2024)}
-                          </TableCell>
-                          <TableCell className="text-right font-mono">
-                            {formatCurrency(company.revenue_2025)}
-                          </TableCell>
-                          <TableCell className="text-center">
-                            {revenueChange.direction === 'up' && (
-                              <span className="flex items-center justify-center text-green-600">
-                                <TrendingUp className="h-4 w-4 mr-1" />
-                                {revenueChange.percent.toFixed(0)}%
-                              </span>
-                            )}
-                            {revenueChange.direction === 'down' && (
-                              <span className="flex items-center justify-center text-red-600">
-                                <TrendingDown className="h-4 w-4 mr-1" />
-                                {revenueChange.percent.toFixed(0)}%
-                              </span>
-                            )}
-                            {revenueChange.direction === 'flat' && (
-                              <Minus className="h-4 w-4 mx-auto text-muted-foreground" />
-                            )}
-                          </TableCell>
-                          <TableCell className="text-right font-mono">
-                            {formatCurrency(company.ebitda_2022)}
-                          </TableCell>
-                          <TableCell className="text-right font-mono">
-                            {formatCurrency(company.ebitda_2023)}
-                          </TableCell>
-                          <TableCell className="text-right font-mono">
-                            {formatCurrency(company.ebitda_2024)}
-                          </TableCell>
-                          <TableCell className="text-right font-mono">
-                            {formatCurrency(company.ebitda_2025)}
-                          </TableCell>
-                          <TableCell className="text-right font-mono">
-                            {formatCurrency(company.valuation)}
-                          </TableCell>
-                          <TableCell className="text-muted-foreground text-sm">
-                            {new Date(company.created_at).toLocaleDateString()}
-                          </TableCell>
+                          <ManagedRowCells row={company} index={index} />
                           <TableCell className="text-center">
                             <AlertDialog>
                               <AlertDialogTrigger asChild>
@@ -805,6 +890,7 @@ export default function MasterData({ showCompanyGraph = false }: MasterDataProps
                   </TableBody>
                 </Table>
               </div>
+              </ColumnManagerProvider>
             )}
             {filteredCompanies.length > 0 && (
               <div className="flex items-center justify-between mt-4 pt-4 border-t">

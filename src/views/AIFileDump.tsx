@@ -47,6 +47,14 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  useColumnLayout,
+  ColumnManagerProvider,
+  ManagedTableHeader,
+  ManagedRowCells,
+  ColumnConfigGear,
+  type ColumnDef,
+} from "@/components/table";
 import { cn } from "@/lib/utils";
 import { format } from "date-fns";
 import {
@@ -77,7 +85,7 @@ import {
   Zap,
 } from "lucide-react";
 import Link from "next/link";
-import { Fragment, useCallback, useEffect, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import posthog from "posthog-js";
 import { getCompanies } from "@/lib/api/pipeline";
@@ -420,7 +428,49 @@ function FileTable({
     }
   };
 
+  // Managed (reorderable / hideable / groupable) data columns. The sortable
+  // File Name identity column and the trailing "Meeting Date & Actions" column
+  // are pinned and rendered outside this set. Status/Tags/Matched Companies are
+  // managed; the cell renderers reuse the existing helpers that close over each
+  // row (including the per-row expand/collapse state for tags & companies).
+  const columns = useMemo<ColumnDef<FileRecord>[]>(
+    () => [
+      {
+        id: "processing_status",
+        label: "Status",
+        header: (
+          <div
+            className="flex items-center cursor-pointer hover:text-primary transition-colors"
+            onClick={() => onSort("processing_status")}
+          >
+            Status
+            <SortIcon field="processing_status" />
+          </div>
+        ),
+        cell: (note) => renderStatusBadge(note.processing_status),
+      },
+      {
+        id: "tags",
+        label: "Tags",
+        header: "Tags",
+        cellClassName: "max-w-[200px]",
+        cell: (note) => renderTags(note),
+      },
+      {
+        id: "matched_companies",
+        label: "Matched Companies",
+        header: "Matched Companies",
+        cell: (note) => renderCompanies(note),
+      },
+    ],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [sortField, sortDirection, expandedTags, expandedCompanies],
+  );
+
+  const mgr = useColumnLayout("ai-file-dump", columns);
+
   return (
+    <ColumnManagerProvider value={mgr}>
     <Card>
       <CardHeader>
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -463,11 +513,15 @@ function FileTable({
           </div>
         ) : (
           <>
+            <div className="flex items-center justify-end px-2 py-1.5">
+              <ColumnConfigGear />
+            </div>
             <div className="overflow-x-auto">
               <Table>
-                <TableHeader>
-                  <TableRow>
+                <ManagedTableHeader
+                  leading={
                     <TableHead
+                      key="file_name"
                       className="cursor-pointer hover:text-primary transition-colors"
                       onClick={() => onSort("file_name")}
                     >
@@ -476,18 +530,10 @@ function FileTable({
                         <SortIcon field="file_name" />
                       </div>
                     </TableHead>
+                  }
+                  trailing={
                     <TableHead
-                      className="cursor-pointer hover:text-primary transition-colors"
-                      onClick={() => onSort("processing_status")}
-                    >
-                      <div className="flex items-center">
-                        Status
-                        <SortIcon field="processing_status" />
-                      </div>
-                    </TableHead>
-                    <TableHead>Tags</TableHead>
-                    <TableHead>Matched Companies</TableHead>
-                    <TableHead
+                      key="date_actions"
                       className="cursor-pointer hover:text-primary transition-colors text-right"
                       onClick={() => onSort("file_date")}
                     >
@@ -496,10 +542,10 @@ function FileTable({
                         <SortIcon field="file_date" />
                       </div>
                     </TableHead>
-                  </TableRow>
-                </TableHeader>
+                  }
+                />
                 <TableBody>
-                  {paginatedFiles.map((note) => (
+                  {paginatedFiles.map((note, index) => (
                     <TableRow key={note.id}>
                       <TableCell className="font-medium">
                         <div className="flex items-center gap-2">
@@ -507,13 +553,7 @@ function FileTable({
                           {note.file_name}
                         </div>
                       </TableCell>
-                      <TableCell>
-                        {renderStatusBadge(note.processing_status)}
-                      </TableCell>
-                      <TableCell className="max-w-[200px]">
-                        {renderTags(note)}
-                      </TableCell>
-                      <TableCell>{renderCompanies(note)}</TableCell>
+                      <ManagedRowCells row={note} index={index} />
                       <TableCell className="text-right">
                         <div className="flex flex-col items-end gap-2">
                           <Popover>
@@ -709,6 +749,7 @@ function FileTable({
         )}
       </CardContent>
     </Card>
+    </ColumnManagerProvider>
   );
 }
 
