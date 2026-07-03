@@ -17,6 +17,11 @@ import { MarkdownRenderer } from "@/components/chat/MarkdownRenderer";
 import { getTrackVariables, type TrackVariable } from "@/lib/api/pipeline";
 import { companyDisplayTitle } from "@/lib/companyDisplay";
 import { isDealLive } from "@/lib/dealStatus";
+import {
+  effectiveDealLead,
+  dealLeadLabel,
+  type TrackLike,
+} from "@/lib/tracks/matchTracks";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -52,6 +57,13 @@ export interface OverviewSlideCompany {
   ev_2024: number | null;
   ownership: string | null;
   banker?: string | null;
+  /** Who entered the company: "AI Email Scanning" or the uploader's name. */
+  entered_by_name?: string | null;
+  /** Deal Sponsor (L0–L2) / Deal Captain (L3+) per-company overrides. */
+  deal_sponsor?: string | null;
+  deal_captain?: string | null;
+  /** Track ids the company is matched to — drives the Track-PIC fallback. */
+  matched_track_ids?: string[] | null;
   /** Deal advisor. A non-empty advisor implies the deal is "live" by default. */
   advisor?: string | null;
   /** Explicit "live process" override. Null ⇒ derive from advisor presence. */
@@ -329,11 +341,14 @@ function EditableSection({
 export default function CompanyOverviewSlide({
   company,
   analysis,
+  tracks = [],
   onEditSection,
   editingSectionKey,
 }: {
   company: OverviewSlideCompany;
   analysis: OverviewSlideAnalysis | null;
+  /** Tracks used to resolve the Deal Sponsor/Captain fallback (Track PIC). */
+  tracks?: TrackLike[];
   /**
    * Called when the user submits an inline AI edit for a card section. The
    * parent forwards a targeted prompt to the AI CoPilot. When omitted, sections
@@ -393,6 +408,23 @@ export default function CompanyOverviewSlide({
   // Live-process status: an explicit is_live override wins, otherwise it is
   // derived from the presence of an advisor.
   const isLive = isDealLive(company);
+  const advisor = company.advisor?.trim() || null;
+
+  // Source with attribution: inbound deals credit the introducing banker,
+  // outbound deals credit whoever entered the company.
+  const sourceBy =
+    company.source === "inbound"
+      ? company.banker?.trim() || null
+      : company.source === "outbound"
+        ? company.entered_by_name?.trim() || null
+        : null;
+  const sourceValue = company.source
+    ? `${company.source[0].toUpperCase()}${company.source.slice(1)}${sourceBy ? ` (${sourceBy})` : ""}`
+    : "—";
+
+  // Deal Sponsor (L0–L2) / Deal Captain (L3+): per-company override, falling
+  // back to the matched Track's PIC.
+  const dealLead = effectiveDealLead(company, currentStage, tracks);
 
   const dealStructure: string[] = [
     `Deal type: ${company.deal_type ? company.deal_type[0].toUpperCase() + company.deal_type.slice(1) : "—"}`,
@@ -419,7 +451,7 @@ export default function CompanyOverviewSlide({
       </div>
 
       {/* Meta boxes */}
-      <div className="mb-4 grid grid-cols-2 gap-2 md:grid-cols-4">
+      <div className="mb-1.5 grid grid-cols-2 gap-1.5 md:grid-cols-4">
         {[
           ["Project Type", company.deal_type || "M&A"],
           ["Geography", company.geography || "—"],
@@ -438,22 +470,21 @@ export default function CompanyOverviewSlide({
         ))}
       </div>
 
-      {/* Deal status boxes — advisor, source, live process, NBO due date.
-          A non-empty advisor means the deal is assumed to be "live". */}
-      <div className="mb-4 grid grid-cols-2 gap-2 md:grid-cols-4">
-        <div className="rounded border border-border bg-muted/40 px-2.5 py-1.5 text-[11px]">
-          <span className="font-semibold text-blue-900 dark:text-blue-300">
-            Advisor:
-          </span>{" "}
-          {company.advisor || "—"}
-        </div>
+      {/* Deal status boxes — source (below Project Type), deal sponsor/captain,
+          deal status + advisor, NBO due date. A non-empty advisor means the
+          deal is assumed to be "live". */}
+      <div className="mb-4 grid grid-cols-2 gap-1.5 md:grid-cols-4">
         <div className="rounded border border-border bg-muted/40 px-2.5 py-1.5 text-[11px]">
           <span className="font-semibold text-blue-900 dark:text-blue-300">
             Source:
           </span>{" "}
-          {company.source
-            ? company.source[0].toUpperCase() + company.source.slice(1)
-            : "—"}
+          {sourceValue}
+        </div>
+        <div className="rounded border border-border bg-muted/40 px-2.5 py-1.5 text-[11px]">
+          <span className="font-semibold text-blue-900 dark:text-blue-300">
+            {dealLeadLabel(currentStage)}:
+          </span>{" "}
+          {dealLead || "—"}
         </div>
         <div
           className={cn(
@@ -473,7 +504,7 @@ export default function CompanyOverviewSlide({
           >
             Deal Status:
           </span>{" "}
-          {isLive ? "Live process" : "Not live"}
+          {isLive ? `Live${advisor ? ` (${advisor})` : ""}` : "Not live"}
         </div>
         <div className="rounded border border-border bg-muted/40 px-2.5 py-1.5 text-[11px]">
           <span className="font-semibold text-blue-900 dark:text-blue-300">

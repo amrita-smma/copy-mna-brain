@@ -1448,6 +1448,7 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
                 <CompanyOverviewSlide
                   company={company}
                   analysis={analysis}
+                  tracks={tracks}
                   onEditSection={handleEditSection}
                   editingSectionKey={editingSectionKey}
                 />

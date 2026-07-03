@@ -5,7 +5,12 @@ import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import DashboardLayout from '@/components/layout/DashboardLayout';
 import { MarkdownRenderer } from '@/components/chat/MarkdownRenderer';
 import { useChatContext } from '@/components/chat/ChatProvider';
-import { AskAIButton } from '@/components/chat/AskAIButton';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { useEventStream } from '@/hooks/useEventStream';
 import { companyDisplayName, companyDisplayTitle, companyInitials } from '@/lib/companyDisplay';
@@ -46,6 +51,7 @@ import {
   Pencil,
   Check,
   X,
+  MoreHorizontal,
 } from 'lucide-react';
 import {
   Select,
@@ -1138,61 +1144,57 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
             </div>
             </div>
           </div>
-          {/* Action buttons */}
-          <div className="flex flex-wrap items-center gap-2 md:shrink-0 md:self-center">
-            {analysis?.status === 'completed' && (
-              <Button
-                variant="outline"
-                size="sm"
-                className="gap-2"
-                onClick={() => router.push(`/pipeline/${companyId}/slides`)}
-              >
-                <Presentation className="h-4 w-4" />
-                Generate Slides
-              </Button>
-            )}
-            {analysisGenerating ? (
-              <div className="flex items-center gap-2">
-                <Button
-                  size="sm"
-                  className="bg-accent hover:bg-accent/90 text-accent-foreground gap-2"
-                  disabled
-                >
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  Generating...
-                </Button>
+          {/* Action menu — the AI/slides CTAs live behind an ellipsis menu.
+              Generation progress (and Cancel) surfaces in the AI card section. */}
+          <div className="flex items-center gap-2 md:shrink-0 md:self-center">
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
                 <Button
                   variant="outline"
-                  size="sm"
-                  className="gap-2"
-                  onClick={cancelAnalysis}
-                  disabled={analysisCancelling}
+                  size="icon"
+                  className="h-8 w-8"
+                  aria-label="Company actions"
                 >
-                  {analysisCancelling ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <X className="h-4 w-4" />
-                  )}
-                  Cancel
+                  <MoreHorizontal className="h-4 w-4" />
                 </Button>
-              </div>
-            ) : (
-              <Button
-                size="sm"
-                className="bg-accent hover:bg-accent/90 text-accent-foreground gap-2"
-                onClick={analysis?.status === 'completed' ? regenerateAnalysis : generateAnalysis}
-              >
-                <Sparkles className="h-4 w-4" />
-                {analysis?.status === 'completed'
-                  ? 'Regenerate AI Card'
-                  : 'Generate AI Company Card'}
-              </Button>
-            )}
-            <AskAIButton
-              variant="button"
-              label="Analyze using AI"
-              onClick={handleAnalyzeWithAI}
-            />
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                {analysis?.status === 'completed' && (
+                  <DropdownMenuItem
+                    onSelect={() => router.push(`/pipeline/${companyId}/slides`)}
+                  >
+                    <Presentation className="mr-2 h-4 w-4" />
+                    Generate Slides
+                  </DropdownMenuItem>
+                )}
+                <DropdownMenuItem
+                  disabled={analysisGenerating}
+                  onSelect={
+                    analysis?.status === 'completed' ? regenerateAnalysis : generateAnalysis
+                  }
+                >
+                  {analysisGenerating ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <Sparkles className="mr-2 h-4 w-4" />
+                  )}
+                  {analysisGenerating
+                    ? 'Generating...'
+                    : analysis?.status === 'completed'
+                      ? 'Regenerate AI Card'
+                      : 'Generate AI Company Card'}
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onSelect={() => {
+                    handleAnalyzeWithAI();
+                    if (!isMobile) focusCopilot();
+                  }}
+                >
+                  <Sparkles className="mr-2 h-4 w-4 text-purple-500" />
+                  Analyze using AI
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </div>
 
@@ -1263,6 +1265,7 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
               <CompanyOverviewSlide
                 company={company}
                 analysis={analysis}
+                tracks={tracks}
                 onEditSection={handleEditSection}
                 editingSectionKey={editingSectionKey}
               />
