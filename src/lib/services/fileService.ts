@@ -26,15 +26,17 @@ import {
 import type { CompanyAnalysisService } from './companyAnalysisService';
 import type { AIScreeningService } from './aiScreeningService';
 import type { CRMService } from './crmService';
-import { CompanyL0RequirementsError, CompanyService } from './companyService';
+import { CompanyL0RequirementsError, CompanyService, IN_PIPELINE_STAGES } from './companyService';
 import type { TrackMatchingService } from './trackMatchingService';
 
 /**
  * File types that describe deal targets (companies/projects genuinely offered
  * for sale or listed as acquisition targets) and may therefore mint company
  * rows. These files can contain MULTIPLE targets — the agent emits a
- * `companies` array and every entry is auto-created on upload (duplicates
- * skipped by fuzzy name match; no HITL review). Financial statements, legal
+ * `companies` array and every entry is auto-ingested on upload: new targets
+ * are created, targets matching a pre-pipeline company are auto-enriched, and
+ * only targets matching a company actively in the L0–L5 pipeline queue the
+ * file for HITL review. Financial statements, legal
  * agreements, MoMs, and buyer/sponsor/advisor material describe counterparties
  * or process, NOT companies on sale, and must never auto-create a company.
  * (MB-300)
@@ -244,13 +246,19 @@ export class FileService {
 
       const effectiveFileType = fileTypeOverride ?? structuredResult?.file_type ?? 'other';
 
-      // Multi-company auto-ingest (no HITL review): deal-target files
-      // (prospectus, shopping_list) auto-create one company per extracted
-      // target for BOTH manual and email uploads, skipping targets that
-      // already exist (fuzzy name match). Financial statements, legal docs,
-      // and buyer/sponsor/advisor material must NOT auto-create a company —
-      // they describe counterparties, not targets. (MB-300)
+      // Multi-company auto-ingest: deal-target files (prospectus,
+      // shopping_list) process one company per extracted target for BOTH
+      // manual and email uploads. New targets are auto-created; targets
+      // matching an existing PRE-pipeline company (unreviewed /
+      // market_screening / discovered) are auto-enriched with the extracted
+      // data; targets matching a company actively in the L0–L5 pipeline are
+      // never auto-modified — the file is queued for HITL review instead.
+      // Financial statements, legal docs, and buyer/sponsor/advisor material
+      // must NOT auto-create a company — they describe counterparties, not
+      // targets. (MB-300)
       let createdCompanies: Tables<'companies'>[] = [];
+      let enrichedCompanies: Tables<'companies'>[] = [];
+      let needsHitlReview = false;
       if (structuredResult && MULTI_COMPANY_FILE_TYPES.has(effectiveFileType)) {
         try {
           const result = await this.createCompaniesFromExtraction({
@@ -266,6 +274,8 @@ export class FileService {
           });
           matched_companies = result.matchedCompanies;
           createdCompanies = result.createdCompanies;
+          enrichedCompanies = result.enrichedCompanies;
+          needsHitlReview = result.needsReview;
         } catch (err) {
           console.error('[fileService] Failed to auto-create companies from file:', err);
         }
@@ -293,13 +303,16 @@ export class FileService {
         tags,
         matched_companies: matched_companies as Tables<'files'>['matched_companies'],
         file_date: structuredResult?.file_date || null,
-        processing_status: 'completed',
+        // HITL only when an extracted target matches a company actively in
+        // the L0–L5 pipeline — the user must approve those changes via the
+        // review dialog. Everything else is auto-accepted.
+        processing_status: needsHitlReview ? 'awaiting_review' : 'completed',
       });
 
-      // Kick off analysis + screening for every company minted from this file
-      // (mirrors the post-approve dispatch; existing/skipped companies are not
-      // re-analyzed).
-      for (const company of createdCompanies) {
+      // Kick off analysis + screening for every company minted or auto-
+      // enriched from this file (mirrors the post-approve dispatch;
+      // untouched existing companies are not re-analyzed).
+      for (const company of [...createdCompanies, ...enrichedCompanies]) {
         await this.companyAnalysisService
           .dispatch({ companyId: company.id, source: effectiveFileType })
           .catch((err) => console.error('Error dispatching company analysis:', err));
@@ -427,7 +440,7 @@ export class FileService {
   async getReviewData(fileId: string, companyIdOverride?: string | null) {
     const file = await this.fileRepo.findById(fileId);
     const parsedNotes = this.parseStructuredNotes(file.structured_notes);
-    const summary = parsedNotes?.prospectus_summary as ProspectusSummary | undefined;
+    const extractedEntries = this.parseExtractedCompanies(parsedNotes);
 
     const proposedCompanyId =
       companyIdOverride === undefined
@@ -447,6 +460,11 @@ export class FileService {
         this.companyFxAdjustmentRepo.findByCompany(proposedCompanyId),
       ]);
     }
+
+    // Multi-company files extract several targets — diff against the entry
+    // that matches the proposed company (falls back to the first entry, which
+    // for legacy single-company files is the prospectus_summary itself).
+    const summary = this.pickEntryForCompany(extractedEntries, currentCompany);
 
     // TODO: query files WHERE processing_status='awaiting_review' AND id!=fileId
     // AND matched_companies contains proposedCompanyId for conflict detection.
@@ -487,7 +505,8 @@ export class FileService {
   async approve(fileId: string, input: ApproveFileInput, enteredBy?: string | null) {
     const file = await this.fileRepo.findById(fileId);
     const parsedNotes = this.parseStructuredNotes(file.structured_notes);
-    const summary = parsedNotes?.prospectus_summary as ProspectusSummary | undefined;
+    const extractedEntries = this.parseExtractedCompanies(parsedNotes);
+    let summary: ProspectusSummary | undefined = extractedEntries[0];
 
     let companyId: string | null = input.matched_company_id;
     let companyRecord: Tables<'companies'> | null = null;
@@ -541,6 +560,9 @@ export class FileService {
       }
     } else if (companyId) {
       companyRecord = await this.companyService.findById(companyId);
+      // Re-resolve the extracted entry against the company being enriched so
+      // multi-company files apply the right target's financials.
+      summary = this.pickEntryForCompany(extractedEntries, companyRecord);
       const updates = input.company_field_updates ?? {};
       if (Object.keys(updates).length > 0) {
         await this.companyService.updateFromDTO(
@@ -552,7 +574,7 @@ export class FileService {
       }
     }
 
-    if (input.file_type === 'prospectus' && companyId && summary) {
+    if (MULTI_COMPANY_FILE_TYPES.has(input.file_type) && companyId && summary) {
       const allowedYears = new Set(input.financial_years_to_apply ?? []);
       const financialRows = (summary.financials ?? []).filter(
         (r) =>
@@ -772,16 +794,24 @@ export class FileService {
   }
 
   /**
-   * Auto-create one company per extracted deal target (no HITL review).
-   * For each entry: resolve an identity name, SKIP the entry when a company
-   * with that name already exists (fuzzy match — duplicates are never
-   * re-created or enriched), otherwise create an `unreviewed` pipeline
-   * company from the entry's fields. Creation runs under a per-name advisory
-   * lock so concurrent uploads of the same target can't double-insert.
+   * Auto-ingest one company per extracted deal target. For each entry:
+   * resolve an identity name, then
+   *   - no existing company (fuzzy name match) → auto-create an `unreviewed`
+   *     pipeline company from the entry's fields;
+   *   - existing company OUTSIDE the active pipeline (unreviewed /
+   *     market_screening / discovered) → auto-accept the extracted changes:
+   *     fill empty fields and add missing financial years (the same defaults
+   *     the HITL review dialog pre-checks), no human review;
+   *   - existing company IN the L0–L5 pipeline → never auto-modify; the
+   *     entry is flagged so the caller queues the file for HITL review.
+   * Creation runs under a per-name advisory lock so concurrent uploads of
+   * the same target can't double-insert.
    *
    * Returns the matched_companies payload (one entry per created OR matched
-   * existing company) and the list of newly created companies so the caller
-   * can dispatch analysis/screening jobs for them.
+   * existing company, review-flagged matches first so the review dialog
+   * proposes them), the newly created and auto-enriched companies so the
+   * caller can dispatch analysis/screening jobs, and whether any match
+   * requires HITL review.
    */
   private async createCompaniesFromExtraction(opts: {
     companies: ProspectusSummary[];
@@ -793,7 +823,12 @@ export class FileService {
     enteredByEmail?: string;
     uploaderUserId?: string | null;
     fileId: string;
-  }): Promise<{ matchedCompanies: unknown[]; createdCompanies: Tables<'companies'>[] }> {
+  }): Promise<{
+    matchedCompanies: unknown[];
+    createdCompanies: Tables<'companies'>[];
+    enrichedCompanies: Tables<'companies'>[];
+    needsReview: boolean;
+  }> {
     // Resolve entered_by once, outside the per-company lock: the custodian
     // email (MBOX pipeline) wins, else the authenticated uploader.
     let resolvedEnteredBy: string | null = null;
@@ -806,7 +841,9 @@ export class FileService {
     }
 
     const payloads: unknown[] = [];
+    const reviewPayloads: unknown[] = [];
     const createdCompanies: Tables<'companies'>[] = [];
+    const enrichedCompanies: Tables<'companies'>[] = [];
 
     for (const entry of opts.companies) {
       const identityName = this.companyIdentityName(entry);
@@ -818,8 +855,7 @@ export class FileService {
       }
 
       const result = await this.withCompanyNameLock(identityName, async (companyService) => {
-        // Dedup gate: an existing company with this name is recorded as a
-        // match but never re-created or modified.
+        // Dedup gate: an existing company with this name is never re-created.
         const existing = await companyService.findByNameFuzzy(identityName);
         if (existing) {
           console.log(
@@ -843,20 +879,140 @@ export class FileService {
         return { company: created, created: true };
       });
 
-      payloads.push(this.companyMatchPayload(result.company));
       if (result.created) {
+        payloads.push(this.companyMatchPayload(result.company));
         // Re-fetch outside the (now committed) lock transaction so screening
         // sees the full row incl. matched_track_ids.
         createdCompanies.push(await this.companyService.findById(result.company.id));
+        continue;
       }
+
+      const existing = result.company as Tables<'companies'>;
+      if (IN_PIPELINE_STAGES.has(existing.pipeline_stage ?? '')) {
+        // Company is actively worked in the L0–L5 pipeline — extracted
+        // changes need explicit human approval via the review dialog.
+        reviewPayloads.push(this.companyMatchPayload(existing));
+        continue;
+      }
+
+      // Pre-pipeline company: auto-accept the extracted changes.
+      try {
+        const enriched = await this.autoEnrichExistingCompany(existing, entry, opts.fileId);
+        if (enriched) enrichedCompanies.push(enriched);
+      } catch (err) {
+        console.error(
+          `[fileService] file ${opts.fileId}: failed to auto-enrich company ${existing.id}:`,
+          err,
+        );
+      }
+      payloads.push(this.companyMatchPayload(existing));
     }
 
+    const allPayloads = [...reviewPayloads, ...payloads];
     return {
       // If nothing was created or matched (e.g. every entry lacked an
       // identity name), keep the agent-provided matches untouched.
-      matchedCompanies: payloads.length > 0 ? payloads : opts.matchedCompanies,
+      matchedCompanies: allPayloads.length > 0 ? allPayloads : opts.matchedCompanies,
       createdCompanies,
+      enrichedCompanies,
+      needsReview: reviewPayloads.length > 0,
     };
+  }
+
+  /** Company columns the auto-accept path may fill from an extracted entry.
+   *  Mirrors the review dialog's enrichable set; identity fields (target,
+   *  project_name) are excluded — a fuzzy name match must never rename. */
+  private static readonly AUTO_ENRICH_FIELDS = [
+    'segment',
+    'segment_related_offerings',
+    'company_focus',
+    'website',
+    'watchlist_status',
+    'comments',
+    'ownership',
+    'geography',
+    'remarks',
+  ] as const;
+
+  /**
+   * Auto-accept the extracted changes for a PRE-pipeline company (not in
+   * L0–L5): fill fields that are currently empty and upsert financial/FX
+   * rows for fiscal years the company doesn't have yet — exactly the
+   * selections the HITL review dialog pre-checks by default. Existing values
+   * and existing years are never overwritten. Returns the refreshed company
+   * when anything was applied, null when the entry added nothing new.
+   */
+  private async autoEnrichExistingCompany(
+    company: Tables<'companies'>,
+    entry: ProspectusSummary,
+    fileId: string,
+  ): Promise<Tables<'companies'> | null> {
+    const updates: Partial<Record<(typeof FileService.AUTO_ENRICH_FIELDS)[number], string>> = {};
+    for (const field of FileService.AUTO_ENRICH_FIELDS) {
+      const current = company[field];
+      if (typeof current === 'string' && current.trim().length > 0) continue;
+      const proposed = entry[field];
+      if (typeof proposed === 'string' && proposed.trim().length > 0) {
+        updates[field] = proposed.trim();
+      }
+    }
+    if (Object.keys(updates).length > 0) {
+      await this.companyService.updateFromDTO(
+        company.id,
+        updates as CompanyDTOInput,
+        `auto_enriched_from_file:${fileId}`,
+      );
+    }
+
+    const existingYears = new Set(
+      (await this.companyFinancialRepo.findByCompany(company.id)).map((r) => r.fiscal_year),
+    );
+    const financialRows = (entry.financials ?? []).filter(
+      (r) =>
+        !existingYears.has(r.fiscal_year) &&
+        (r.revenue_usd_mn !== null ||
+          r.ebitda_usd_mn !== null ||
+          r.ev_usd_mn !== null ||
+          r.ebitda_margin !== null ||
+          r.ev_ebitda !== null ||
+          r.revenue_cagr_vs_prior !== null),
+    );
+    if (financialRows.length > 0) {
+      await this.companyFinancialRepo.bulkUpsertForCompany(company.id, financialRows);
+    }
+    const fxRows = (entry.fx_adjustments ?? []).filter((r) => !existingYears.has(r.fiscal_year));
+    if (fxRows.length > 0) {
+      await this.companyFxAdjustmentRepo.bulkUpsertForCompany(company.id, fxRows);
+    }
+
+    const appliedAnything =
+      Object.keys(updates).length > 0 || financialRows.length > 0 || fxRows.length > 0;
+    if (!appliedAnything) return null;
+    console.log(
+      `[fileService] file ${fileId}: auto-enriched pre-pipeline company ${company.id} ` +
+        `(${Object.keys(updates).length} field(s), ${financialRows.length} financial year(s))`,
+    );
+    return this.companyService.findById(company.id);
+  }
+
+  /**
+   * Pick the extracted entry that corresponds to `company` by name (multi-
+   * company files extract several targets); falls back to the first entry,
+   * which for legacy single-company output is the prospectus_summary itself.
+   */
+  private pickEntryForCompany(
+    entries: ProspectusSummary[],
+    company: Pick<Tables<'companies'>, 'target' | 'project_name'> | null,
+  ): ProspectusSummary | undefined {
+    if (!company) return entries[0];
+    const norm = (s: string | null | undefined) => s?.trim().toLowerCase() ?? '';
+    const names = new Set(
+      [norm(company.target), norm(company.project_name)].filter((n) => n.length > 0),
+    );
+    return (
+      entries.find((e) => names.has(norm(e.company_name)) || names.has(norm(e.project_name))) ??
+      entries[0]
+    );
   }
 
   private extractSuggestedTrackIds(parsedNotes: Record<string, unknown> | null | undefined): string[] {

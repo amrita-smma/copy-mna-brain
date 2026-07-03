@@ -410,7 +410,7 @@ describe('FileService.processUpload', () => {
     );
   });
 
-  it('skips creation when an existing company matches the extracted name (dedup)', async () => {
+  it('queues the file for HITL review when the extracted name matches a company in the L0–L5 pipeline', async () => {
     vi.mocked(processFileContent).mockResolvedValue({
       file_type: 'prospectus',
       matched_companies: [{ id: 'company-existing', type: 'company' }],
@@ -420,7 +420,7 @@ describe('FileService.processUpload', () => {
       },
     } as never);
     vi.mocked(companyService.findByNameFuzzy).mockResolvedValue(
-      makeCompany({ id: 'company-existing', target: 'Acme Corp' }) as never,
+      makeCompany({ id: 'company-existing', target: 'Acme Corp', pipeline_stage: 'L2' }) as never,
     );
 
     await service.processUpload(
@@ -434,16 +434,165 @@ describe('FileService.processUpload', () => {
     );
 
     expect(companyService.findByNameFuzzy).toHaveBeenCalledWith('Acme Corp');
-    // Duplicates are skipped — never re-created and never enriched.
+    // In-pipeline companies are never auto-modified — the user reviews the
+    // changes via the HITL dialog instead.
     expect(companyService.createFromDTO).not.toHaveBeenCalled();
     expect(companyService.updateFromDTO).not.toHaveBeenCalled();
+    expect(companyFinancialRepo.bulkUpsertForCompany).not.toHaveBeenCalled();
     expect(fileRepo.updatePartial).toHaveBeenCalledWith(
       'file-1',
       expect.objectContaining({
         matched_companies: expect.arrayContaining([
           expect.objectContaining({ id: 'company-existing' }),
         ]),
-        processing_status: 'completed',
+        processing_status: 'awaiting_review',
+      }),
+    );
+  });
+
+  it('auto-accepts the extracted changes when the match is NOT in the L0–L5 pipeline', async () => {
+    vi.mocked(processFileContent).mockResolvedValue({
+      file_type: 'prospectus',
+      prospectus_summary: {
+        company_name: 'Acme Corp',
+        segment: 'Industrial Tech',
+        website: 'https://acme.example',
+        financials: [
+          { fiscal_year: 2024, revenue_usd_mn: 120, ebitda_usd_mn: 30, ev_usd_mn: null, ebitda_margin: null, ev_ebitda: null, revenue_cagr_vs_prior: null },
+        ],
+      },
+    } as never);
+    vi.mocked(companyService.findByNameFuzzy).mockResolvedValue(
+      makeCompany({ id: 'company-existing', target: 'Acme Corp', pipeline_stage: 'unreviewed' }) as never,
+    );
+    vi.mocked(companyService.findById).mockResolvedValue(
+      makeCompany({ id: 'company-existing', target: 'Acme Corp', pipeline_stage: 'unreviewed' }),
+    );
+    vi.mocked(companyAnalysisService.dispatch).mockResolvedValue({ runId: 'run-1' } as never);
+
+    await service.processUpload('uploads/teaser.pdf', 'teaser.pdf', 'application/pdf');
+
+    // No review gate: the pre-pipeline company is enriched in place.
+    expect(companyService.updateFromDTO).toHaveBeenCalledWith(
+      'company-existing',
+      expect.objectContaining({ segment: 'Industrial Tech', website: 'https://acme.example' }),
+      'auto_enriched_from_file:file-1',
+    );
+    expect(companyFinancialRepo.bulkUpsertForCompany).toHaveBeenCalledWith(
+      'company-existing',
+      [expect.objectContaining({ fiscal_year: 2024, revenue_usd_mn: 120 })],
+    );
+    expect(companyService.createFromDTO).not.toHaveBeenCalled();
+    expect(fileRepo.updatePartial).toHaveBeenCalledWith(
+      'file-1',
+      expect.objectContaining({ processing_status: 'completed' }),
+    );
+    // Enriched companies get the same analysis dispatch as created ones.
+    expect(companyAnalysisService.dispatch).toHaveBeenCalledWith(
+      expect.objectContaining({ companyId: 'company-existing' }),
+    );
+  });
+
+  it('auto-enrich fills only empty fields and only missing fiscal years', async () => {
+    vi.mocked(processFileContent).mockResolvedValue({
+      file_type: 'prospectus',
+      prospectus_summary: {
+        company_name: 'Acme Corp',
+        segment: 'NEW segment (must not overwrite)',
+        ownership: 'Founder-owned',
+        financials: [
+          { fiscal_year: 2023, revenue_usd_mn: 100, ebitda_usd_mn: null, ev_usd_mn: null, ebitda_margin: null, ev_ebitda: null, revenue_cagr_vs_prior: null },
+          { fiscal_year: 2024, revenue_usd_mn: 120, ebitda_usd_mn: null, ev_usd_mn: null, ebitda_margin: null, ev_ebitda: null, revenue_cagr_vs_prior: null },
+        ],
+      },
+    } as never);
+    vi.mocked(companyService.findByNameFuzzy).mockResolvedValue(
+      makeCompany({
+        id: 'company-existing',
+        target: 'Acme Corp',
+        pipeline_stage: 'unreviewed',
+        segment: 'Existing segment',
+      }) as never,
+    );
+    // 2023 already exists in the DB — only 2024 may be inserted.
+    vi.mocked(companyFinancialRepo.findByCompany).mockResolvedValue([
+      { fiscal_year: 2023 } as never,
+    ]);
+    vi.mocked(companyAnalysisService.dispatch).mockResolvedValue({ runId: 'run-1' } as never);
+
+    await service.processUpload('uploads/teaser.pdf', 'teaser.pdf', 'application/pdf');
+
+    expect(companyService.updateFromDTO).toHaveBeenCalledWith(
+      'company-existing',
+      { ownership: 'Founder-owned' },
+      'auto_enriched_from_file:file-1',
+    );
+    expect(companyFinancialRepo.bulkUpsertForCompany).toHaveBeenCalledWith(
+      'company-existing',
+      [expect.objectContaining({ fiscal_year: 2024 })],
+    );
+  });
+
+  it('does not enrich or dispatch when the pre-pipeline match adds nothing new', async () => {
+    vi.mocked(processFileContent).mockResolvedValue({
+      file_type: 'prospectus',
+      prospectus_summary: {
+        company_name: 'Acme Corp',
+        segment: 'Existing segment',
+      },
+    } as never);
+    vi.mocked(companyService.findByNameFuzzy).mockResolvedValue(
+      makeCompany({
+        id: 'company-existing',
+        target: 'Acme Corp',
+        pipeline_stage: 'unreviewed',
+        segment: 'Existing segment',
+      }) as never,
+    );
+
+    await service.processUpload('uploads/teaser.pdf', 'teaser.pdf', 'application/pdf');
+
+    expect(companyService.updateFromDTO).not.toHaveBeenCalled();
+    expect(companyFinancialRepo.bulkUpsertForCompany).not.toHaveBeenCalled();
+    expect(companyAnalysisService.dispatch).not.toHaveBeenCalled();
+    expect(fileRepo.updatePartial).toHaveBeenCalledWith(
+      'file-1',
+      expect.objectContaining({ processing_status: 'completed' }),
+    );
+  });
+
+  it('lists review-flagged companies first in matched_companies so the dialog proposes them', async () => {
+    vi.mocked(processFileContent).mockResolvedValue({
+      file_type: 'shopping_list',
+      companies: [
+        { company_name: 'New Co' },
+        { company_name: 'Pipeline Co' },
+      ],
+    } as never);
+    vi.mocked(companyService.findByNameFuzzy).mockImplementation(async (name: string) =>
+      name === 'Pipeline Co'
+        ? (makeCompany({ id: 'company-pipeline', target: 'Pipeline Co', pipeline_stage: 'L3' }) as never)
+        : (null as never),
+    );
+    vi.mocked(companyService.createFromDTO).mockResolvedValue({
+      id: 'company-new',
+      target: 'New Co',
+    } as never);
+    vi.mocked(companyService.findById).mockResolvedValue(
+      makeCompany({ id: 'company-new', target: 'New Co' }),
+    );
+    vi.mocked(companyAnalysisService.dispatch).mockResolvedValue({ runId: 'run-1' } as never);
+
+    await service.processUpload('uploads/targets.pdf', 'targets.pdf', 'application/pdf', undefined, 'shopping_list');
+
+    expect(fileRepo.updatePartial).toHaveBeenCalledWith(
+      'file-1',
+      expect.objectContaining({
+        matched_companies: [
+          expect.objectContaining({ id: 'company-pipeline' }),
+          expect.objectContaining({ id: 'company-new' }),
+        ],
+        processing_status: 'awaiting_review',
       }),
     );
   });
@@ -1141,6 +1290,43 @@ describe('FileService.approve', () => {
     expect(companyFinancialRepo.bulkUpsertForCompany).not.toHaveBeenCalled();
   });
 
+  it('applies the matched company\'s own entry from a multi-company file', async () => {
+    vi.mocked(fileRepo.findById).mockResolvedValue(
+      makeFile({
+        id: 'file-1',
+        structured_notes: JSON.stringify({
+          file_type: 'shopping_list',
+          companies: [
+            {
+              company_name: 'Acme Corp',
+              financials: [{ fiscal_year: 2023, revenue_usd_mn: 100, ebitda_usd_mn: null, ev_usd_mn: null, ebitda_margin: null, ev_ebitda: null, revenue_cagr_vs_prior: null }],
+            },
+            {
+              company_name: 'Beta Ltd',
+              financials: [{ fiscal_year: 2023, revenue_usd_mn: 55, ebitda_usd_mn: null, ev_usd_mn: null, ebitda_margin: null, ev_ebitda: null, revenue_cagr_vs_prior: null }],
+            },
+          ],
+        }),
+      }),
+    );
+    vi.mocked(companyService.findById).mockResolvedValue(
+      makeCompany({ id: 'company-beta', target: 'Beta Ltd' }),
+    );
+
+    const input: ApproveFileInput = {
+      file_type: 'shopping_list',
+      matched_company_id: 'company-beta',
+      financial_years_to_apply: [2023],
+    };
+    await service.approve('file-1', input);
+
+    // Beta's financials are applied — not the first entry's (Acme).
+    expect(companyFinancialRepo.bulkUpsertForCompany).toHaveBeenCalledWith(
+      'company-beta',
+      [expect.objectContaining({ fiscal_year: 2023, revenue_usd_mn: 55 })],
+    );
+  });
+
   it('marks file as completed and dispatches downstream jobs', async () => {
     vi.mocked(fileRepo.findById).mockResolvedValue(
       makeFile({ id: 'file-1', structured_notes: prospectusNotes }),
@@ -1324,6 +1510,37 @@ describe('FileService.getReviewData', () => {
     const result = await service.getReviewData('file-1');
 
     expect(result.current.company).toBeNull();
+  });
+
+  it('diffs against the extracted entry matching the proposed company in a multi-company file', async () => {
+    const fileRepo = makeFileRepoStub();
+    const companyService = makeCompanyServiceStub();
+
+    vi.mocked(fileRepo.findById).mockResolvedValue(
+      makeFile({
+        id: 'file-1',
+        matched_companies: [{ id: 'company-beta', name: 'Beta Ltd', type: 'company' }] as never,
+        structured_notes: JSON.stringify({
+          file_type: 'shopping_list',
+          companies: [
+            { company_name: 'Acme Corp', segment: 'Fintech' },
+            { company_name: 'Beta Ltd', segment: 'Healthcare' },
+          ],
+        }),
+      }),
+    );
+    vi.mocked(companyService.findById).mockResolvedValue(
+      makeCompany({ id: 'company-beta', target: 'Beta Ltd' }),
+    );
+
+    const service = makeService({ fileRepo, companyService });
+    const result = await service.getReviewData('file-1');
+
+    // The AI side shows Beta's entry — not the file's first entry (Acme).
+    expect(result.ai.suggested_company).toMatchObject({
+      target: 'Beta Ltd',
+      segment: 'Healthcare',
+    });
   });
 });
 

@@ -30,8 +30,10 @@ const L0_STAGE: DealStage = 'L0';
 const POST_L0_STAGES: ReadonlySet<string> = new Set(['L1', 'L2', 'L3', 'L4', 'L5']);
 // Stages inside the active pipeline. Moving a pre-L0 company (market_screening /
 // unreviewed / discovered) into any of these is a pipeline entry and must pass
-// the same L0 required-field gate as an explicit promote.
-const IN_PIPELINE_STAGES: ReadonlySet<string> = new Set([L0_STAGE, ...POST_L0_STAGES]);
+// the same L0 required-field gate as an explicit promote. Exported so file
+// ingestion can gate HITL review on it: changes to a company actively in the
+// pipeline (L0–L5) require human approval; pre-pipeline companies auto-accept.
+export const IN_PIPELINE_STAGES: ReadonlySet<string> = new Set([L0_STAGE, ...POST_L0_STAGES]);
 
 export interface FinancialUpsertInput {
   fiscal_year: number;
