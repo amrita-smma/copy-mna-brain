@@ -5,20 +5,9 @@ on:
     types: [opened, synchronize, reopened, closed]
     branches:
       - main
-  # Manual "Run workflow" button: DESTRUCTIVE reset of the PR's Neon preview
-  # branch. Drops every schema, reruns all migrations from scratch, and
-  # optionally seeds using the code of the branch the workflow is run from.
-  workflow_dispatch:
-    inputs:
-      seed:
-        description: "Seed the database after migrating"
-        type: boolean
-        default: true
 
 concurrency:
-  # head_ref is set for pull_request events; ref_name covers workflow_dispatch,
-  # so a manual reset and a push-triggered migrate on the same PR share a group.
-  group: preview-db-${{ github.head_ref || github.ref_name }}
+  group: preview-db-${{ github.event.number }}
   cancel-in-progress: true
 
 env:
@@ -223,72 +212,3 @@ jobs:
           for VAR in DB_HOST DB_PORT DB_NAME DB_USER DB_PASSWORD RDS_IAM_DB_AUTH; do
             vercel env rm "$VAR" preview "$BRANCH" --yes --token="$VERCEL_TOKEN" || true
           done
-
-  reset:
-    if: github.event_name == 'workflow_dispatch'
-    runs-on: codebuild-mna-brain-runner-${{ github.run_id }}-${{ github.run_attempt }}
-    steps:
-      - name: Checkout branch
-        uses: actions/checkout@v4
-
-      - name: Resolve Neon branch for this PR
-        id: pr
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          PR_NUMBER=$(gh pr list \
-            --repo "$GITHUB_REPOSITORY" \
-            --head "$GITHUB_REF_NAME" \
-            --state open \
-            --json number --jq '.[0].number')
-          if [ -z "$PR_NUMBER" ]; then
-            echo "::error::No open PR found for branch '$GITHUB_REF_NAME'. Run this workflow from a branch with an open PR (its Neon preview branch is the reset target)."
-            exit 1
-          fi
-          echo "Resetting Neon branch preview/pr-$PR_NUMBER"
-          echo "neon_branch=preview/pr-$PR_NUMBER" >> "$GITHUB_OUTPUT"
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: pnpm
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Get Neon branch connection string
-        id: neon
-        uses: neondatabase/create-branch-action@v6
-        with:
-          project_id: ${{ secrets.NEON_PROJECT_ID }}
-          branch_name: ${{ steps.pr.outputs.neon_branch }}
-          api_key: ${{ secrets.NEON_API_KEY }}
-
-      - name: Parse Neon direct URL
-        run: |
-          RAW="${{ steps.neon.outputs.db_url }}"
-          RAW="${RAW#*://}"
-          USERINFO="${RAW%%@*}"
-          HOSTPART="${RAW#*@}"
-          DBPART="${HOSTPART#*/}"
-          echo "DB_USER=${USERINFO%%:*}"    >> "$GITHUB_ENV"
-          echo "DB_PASSWORD=${USERINFO#*:}" >> "$GITHUB_ENV"
-          echo "DB_HOST=${HOSTPART%%/*}"    >> "$GITHUB_ENV"
-          echo "DB_PORT=5432"              >> "$GITHUB_ENV"
-          echo "DB_NAME=${DBPART%%\?*}"    >> "$GITHUB_ENV"
-
-      - name: Drop all schemas
-        env:
-          DB_RESET_CONFIRM: drop-and-recreate
-        run: pnpm db:reset
-
-      - name: Rerun migrations from scratch
-        run: pnpm db:migrate
-
-      - name: Seed database
-        if: inputs.seed == true
-        run: pnpm db:seed

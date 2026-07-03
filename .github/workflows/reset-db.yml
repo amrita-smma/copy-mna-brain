@@ -1,0 +1,87 @@
+name: Reset DB & Rerun Migrations
+
+# Manually-dispatched, DESTRUCTIVE workflow: drops every schema (all tables and
+# the drizzle migration bookkeeping) on the chosen Neon branch, then reruns all
+# migrations from scratch. Data is NOT restored — only the schema is rebuilt.
+
+on:
+  workflow_dispatch:
+    inputs:
+      neon_branch:
+        description: 'Neon branch to reset (e.g. main or preview/pr-123)'
+        required: true
+        default: 'main'
+      confirm:
+        description: 'Type the Neon branch name again to confirm the destructive reset'
+        required: true
+      seed:
+        description: 'Seed the database after migrating'
+        type: boolean
+        default: false
+
+concurrency:
+  group: reset-db-${{ inputs.neon_branch }}
+  cancel-in-progress: false
+
+jobs:
+  reset:
+    runs-on: codebuild-mna-brain-runner-${{ github.run_id }}-${{ github.run_attempt }}
+    steps:
+      - name: Verify confirmation
+        env:
+          NEON_BRANCH: ${{ inputs.neon_branch }}
+          CONFIRM: ${{ inputs.confirm }}
+        run: |
+          if [ "$CONFIRM" != "$NEON_BRANCH" ]; then
+            echo "::error::Confirmation '$CONFIRM' does not match target Neon branch '$NEON_BRANCH'. Aborting."
+            exit 1
+          fi
+          echo "Confirmed destructive reset of Neon branch '$NEON_BRANCH'."
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Get Neon branch connection string
+        id: neon
+        uses: neondatabase/create-branch-action@v6
+        with:
+          project_id: ${{ secrets.NEON_PROJECT_ID }}
+          branch_name: ${{ inputs.neon_branch }}
+          api_key: ${{ secrets.NEON_API_KEY }}
+
+      - name: Parse Neon direct URL
+        run: |
+          RAW="${{ steps.neon.outputs.db_url }}"
+          RAW="${RAW#*://}"
+          USERINFO="${RAW%%@*}"
+          HOSTPART="${RAW#*@}"
+          DBPART="${HOSTPART#*/}"
+          echo "DB_USER=${USERINFO%%:*}"    >> "$GITHUB_ENV"
+          echo "DB_PASSWORD=${USERINFO#*:}" >> "$GITHUB_ENV"
+          echo "DB_HOST=${HOSTPART%%/*}"    >> "$GITHUB_ENV"
+          echo "DB_PORT=5432"              >> "$GITHUB_ENV"
+          echo "DB_NAME=${DBPART%%\?*}"    >> "$GITHUB_ENV"
+
+      - name: Drop all schemas
+        env:
+          DB_RESET_CONFIRM: drop-and-recreate
+        run: pnpm db:reset
+
+      - name: Rerun migrations from scratch
+        run: pnpm db:migrate
+
+      - name: Seed database
+        if: inputs.seed == true
+        run: pnpm db:seed
