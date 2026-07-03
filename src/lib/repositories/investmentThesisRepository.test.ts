@@ -40,6 +40,46 @@ describe('InvestmentThesisRepository.findAll', () => {
   });
 });
 
+describe('InvestmentThesisRepository.findAllActive', () => {
+  let repo: InvestmentThesisRepository;
+
+  beforeEach(() => {
+    resetDb();
+    repo = new InvestmentThesisRepository(mockDb as never);
+  });
+
+  it('returns the active theses from the ordered query', async () => {
+    const rows = [{ id: 't1', is_active: true }];
+    mockDb.orderBy.mockResolvedValueOnce(rows);
+
+    await expect(repo.findAllActive()).resolves.toBe(rows);
+    expect(mockDb.where).toHaveBeenCalledTimes(1);
+    expect(mockDb.orderBy).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('InvestmentThesisRepository.findByIds', () => {
+  let repo: InvestmentThesisRepository;
+
+  beforeEach(() => {
+    resetDb();
+    repo = new InvestmentThesisRepository(mockDb as never);
+  });
+
+  it('returns [] without hitting the DB when the id list is empty', async () => {
+    await expect(repo.findByIds([])).resolves.toEqual([]);
+    expect(mockDb.select).not.toHaveBeenCalled();
+  });
+
+  it('returns the rows matching the given ids', async () => {
+    const rows = [{ id: 't1' }, { id: 't2' }];
+    mockDb.orderBy.mockResolvedValueOnce(rows);
+
+    await expect(repo.findByIds(['t1', 't2'])).resolves.toBe(rows);
+    expect(mockDb.where).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe('InvestmentThesisRepository.deleteById', () => {
   let repo: InvestmentThesisRepository;
 

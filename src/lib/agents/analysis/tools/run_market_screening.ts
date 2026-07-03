@@ -11,16 +11,26 @@ export const runMarketScreeningTool = tool(
     try {
       const db = createDb();
       const thesisRepo = new InvestmentThesisRepository(db);
-      const thesis = await thesisRepo.findActive();
-      if (!thesis) {
+      const activeTheses = await thesisRepo.findAllActive();
+      if (activeTheses.length === 0) {
         return "No active investment thesis found. Please set an active investment thesis before running market screening.";
       }
+      // Scan the combined active set in one pass so every active thesis is
+      // covered (and gets its scan timestamps updated), mirroring the UI.
+      const combinedThesis = activeTheses
+        .map((t) => t.content)
+        .filter(Boolean)
+        .join("\n\n---\n\n");
       // The thesis owns how many companies a scan should surface. Honor an
       // explicit override when the agent passes one, otherwise fall back to
       // the thesis value (and finally a hard default).
-      const sources = sources_count ?? thesis.sources_count ?? 5;
+      const sources = sources_count ?? activeTheses[0].sources_count ?? 5;
       const result = await runMarketScreening(
-        { thesis: thesis.content, thesisId: thesis.id, sourcesCount: sources },
+        {
+          thesis: combinedThesis,
+          thesisIds: activeTheses.map((t) => t.id),
+          sourcesCount: sources,
+        },
         { db },
       );
       if (result.count === 0) {

@@ -15,6 +15,24 @@ export class InvestmentThesisRepository {
     return row ?? null;
   }
 
+  /** All active theses (the scanning set), newest first. */
+  async findAllActive(): Promise<Tables<'investment_thesis'>[]> {
+    return this.db
+      .select()
+      .from(investmentThesis)
+      .where(eq(investmentThesis.is_active, true))
+      .orderBy(desc(investmentThesis.created_at));
+  }
+
+  async findByIds(ids: string[]): Promise<Tables<'investment_thesis'>[]> {
+    if (ids.length === 0) return [];
+    return this.db
+      .select()
+      .from(investmentThesis)
+      .where(inArray(investmentThesis.id, ids))
+      .orderBy(desc(investmentThesis.created_at));
+  }
+
   async findActiveList(
     limit = 3,
   ): Promise<Pick<Tables<'investment_thesis'>, 'title' | 'content'>[]> {

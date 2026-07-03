@@ -13,6 +13,8 @@ export const MARKET_SCREENING_TIMEOUT_SECONDS = 480; // 8 minutes
 export interface MarketScreeningPayload {
   thesis: string;
   thesisId?: string;
+  /** All theses covered by this scan — every one gets its scan timestamps updated. */
+  thesisIds?: string[];
   sourcesCount?: number;
 }
 
@@ -52,6 +54,43 @@ interface DiscoveredCompany {
   sector?: string;
 }
 
+function computeNextScanAt(from: Date, frequency: string | null | undefined): Date {
+  const next = new Date(from);
+  switch (frequency) {
+    case 'daily':
+      next.setDate(next.getDate() + 1);
+      break;
+    case 'monthly':
+      next.setMonth(next.getMonth() + 1);
+      break;
+    case 'weekly':
+    default:
+      next.setDate(next.getDate() + 7);
+  }
+  return next;
+}
+
+/**
+ * Stamp every scanned thesis with the completion time. A scan "completed" even
+ * when it surfaced zero new companies, so this runs on every exit path — not
+ * just when rows were inserted.
+ */
+async function markScanCompleted(
+  thesisRepo: InvestmentThesisRepository,
+  thesisIds: string[],
+): Promise<void> {
+  if (thesisIds.length === 0) return;
+  const theses = await thesisRepo.findByIds(thesisIds);
+  const completedAt = new Date();
+  // Active theses share one cadence (set together via the scan configuration),
+  // so the first row's frequency drives the next-scan projection.
+  const nextScan = computeNextScanAt(completedAt, theses[0]?.scan_frequency);
+  await thesisRepo.updateMany(thesisIds, {
+    last_scan_at: completedAt.toISOString(),
+    next_scan_at: nextScan.toISOString(),
+  });
+}
+
 function getSchemaFieldsForPrompt(): string {
   const excludeFields = [
     'id',
@@ -75,6 +114,7 @@ export async function runMarketScreening(
   deps: { db: DbClient },
 ): Promise<MarketScreeningResult> {
   const { thesis, thesisId, sourcesCount = 5 } = payload;
+  const thesisIds = [...new Set([...(payload.thesisIds ?? []), ...(thesisId ? [thesisId] : [])])];
 
   if (!thesis) throw new Error('Investment thesis is required');
 
@@ -169,6 +209,7 @@ Find ${sourcesCount} companies. Return ONLY the JSON object, no other text. Use 
   }
 
   if (companies.length === 0) {
+    await markScanCompleted(thesisRepo, thesisIds);
     return { count: 0, companies: [], message: 'No companies found matching the thesis' };
   }
 
@@ -177,6 +218,7 @@ Find ${sourcesCount} companies. Return ONLY the JSON object, no other text. Use 
   );
 
   if (filteredCompanies.length === 0) {
+    await markScanCompleted(thesisRepo, thesisIds);
     return {
       count: 0,
       companies: [],
@@ -219,14 +261,7 @@ Find ${sourcesCount} companies. Return ONLY the JSON object, no other text. Use 
     }),
   );
 
-  if (thesisId) {
-    const nextScan = new Date();
-    nextScan.setDate(nextScan.getDate() + 7);
-    await thesisRepo.update(thesisId, {
-      last_scan_at: new Date().toISOString(),
-      next_scan_at: nextScan.toISOString(),
-    });
-  }
+  await markScanCompleted(thesisRepo, thesisIds);
 
   getPostHogClient()?.capture({
     distinctId: 'server',
@@ -234,7 +269,7 @@ Find ${sourcesCount} companies. Return ONLY the JSON object, no other text. Use 
     properties: {
       companies_discovered: filteredCompanies.length,
       sources_requested: sourcesCount,
-      has_thesis_id: !!thesisId,
+      has_thesis_id: thesisIds.length > 0,
     },
   });
 

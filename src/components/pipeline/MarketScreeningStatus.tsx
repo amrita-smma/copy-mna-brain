@@ -151,12 +151,24 @@ export default function MarketScreeningStatus({ onScanComplete, newCandidatesCou
   const isActive = activeTracks.length > 0;
   const activeThesisLabel = activeTracks.map(trackDisplayName).join(', ');
 
+  // A scan covers the whole active set, so report the most recent completion
+  // and the soonest upcoming scan across all active tracks — not just the first.
+  const lastScanAt = activeTracks
+    .map((t) => t.last_scan_at)
+    .filter((v): v is string => Boolean(v))
+    .reduce<string | null>((latest, v) => (!latest || new Date(v) > new Date(latest) ? v : latest), null);
+  const nextScanAt = activeTracks
+    .map((t) => t.next_scan_at)
+    .filter((v): v is string => Boolean(v))
+    .reduce<string | null>((soonest, v) => (!soonest || new Date(v) < new Date(soonest) ? v : soonest), null);
+
   return (
     <div className="border border-purple-100 dark:border-purple-900/20 rounded-xl p-3 bg-purple-50/50 dark:bg-purple-950/10 backdrop-blur-sm w-full">
-      <div className="flex flex-wrap items-center justify-between gap-y-3 gap-x-4 w-full min-w-0">
+      {/* Header Row: identity on the left, actions on the right */}
+      <div className="flex flex-wrap items-center justify-between gap-3 w-full min-w-0">
 
         {/* Left Section: Icon & Title */}
-        <div className="flex items-center gap-3 shrink-0">
+        <div className="flex items-center gap-3 min-w-0">
           <div className="relative h-10 w-10 rounded-lg bg-gradient-to-br from-[#8B5CF6] to-[#6D28D9] flex items-center justify-center shadow-md shadow-purple-500/20 shrink-0">
             <Sparkles className="h-5 w-5 text-white" />
             {isActive && (
@@ -186,42 +198,10 @@ export default function MarketScreeningStatus({ onScanComplete, newCandidatesCou
           </div>
         </div>
 
-        {/* Middle Section: Stats */}
-        {isVisible && (
-          <div className="hidden lg:flex items-center gap-4 xl:gap-8 shrink">
-            <div className="flex flex-col gap-0.5 shrink-0">
-              <span className="text-[10px] font-bold text-muted-foreground/70 uppercase tracking-wider whitespace-nowrap">
-                LAST SCAN COMPLETED
-              </span>
-              <span className="text-xs font-semibold text-foreground/90 whitespace-nowrap">
-                {primaryThesis?.last_scan_at ? format(new Date(primaryThesis.last_scan_at), 'MMM d, yyyy, hh:mm a') : '-'}
-              </span>
-            </div>
-
-            <div className="flex flex-col gap-0.5 shrink-0">
-              <span className="text-[10px] font-bold text-muted-foreground/70 uppercase tracking-wider whitespace-nowrap">
-                NEXT SCAN
-              </span>
-              <span className="text-xs font-semibold text-foreground/90 whitespace-nowrap">
-                {primaryThesis?.next_scan_at ? format(new Date(primaryThesis.next_scan_at), 'MMM d, yyyy, hh:mm a') : '-'}
-              </span>
-            </div>
-
-            <div className="flex flex-col gap-0.5 shrink-0">
-              <span className="text-[10px] font-bold text-muted-foreground/70 uppercase tracking-wider whitespace-nowrap">
-                NEW CANDIDATES (LAST 7D)
-              </span>
-              <span className="text-xs font-semibold text-foreground/90 whitespace-nowrap">
-                {newCandidatesCount}
-              </span>
-            </div>
-          </div>
-        )}
-
         {/* Right Section: Actions + visibility toggle (always rightmost) */}
-        <div className="flex items-center gap-3 shrink-0 ml-auto">
+        <div className="flex items-center gap-2 shrink-0 ml-auto">
           {isVisible && (
-          <div className="flex flex-col gap-2 shrink-0">
+          <div className="flex items-center gap-2 shrink-0">
             <Dialog open={showThesisDialog} onOpenChange={setShowThesisDialog}>
               <DialogTrigger asChild>
                 <Button variant="outline" size="sm">
@@ -297,7 +277,8 @@ export default function MarketScreeningStatus({ onScanComplete, newCandidatesCou
             <Button
               onClick={runScan}
               disabled={scanning}
-              className="bg-[#059669] hover:bg-[#047857] text-white shadow-sm font-medium h-7 px-3 text-xs w-full justify-start"
+              size="sm"
+              className="bg-[#059669] hover:bg-[#047857] text-white shadow-sm font-medium"
             >
               {scanning ? (
                 <>
@@ -335,6 +316,38 @@ export default function MarketScreeningStatus({ onScanComplete, newCandidatesCou
           </Button>
         </div>
       </div>
+
+      {/* Details Row: scan stats below the header */}
+      {isVisible && (
+        <div className="flex flex-wrap items-center gap-x-8 gap-y-2 mt-3 pt-3 border-t border-purple-100 dark:border-purple-900/20">
+          <div className="flex flex-col gap-0.5 shrink-0">
+            <span className="text-[10px] font-bold text-muted-foreground/70 uppercase tracking-wider whitespace-nowrap">
+              LAST SCAN COMPLETED
+            </span>
+            <span className="text-xs font-semibold text-foreground/90 whitespace-nowrap">
+              {lastScanAt ? format(new Date(lastScanAt), 'MMM d, yyyy, hh:mm a') : '-'}
+            </span>
+          </div>
+
+          <div className="flex flex-col gap-0.5 shrink-0">
+            <span className="text-[10px] font-bold text-muted-foreground/70 uppercase tracking-wider whitespace-nowrap">
+              NEXT SCAN
+            </span>
+            <span className="text-xs font-semibold text-foreground/90 whitespace-nowrap">
+              {nextScanAt ? format(new Date(nextScanAt), 'MMM d, yyyy, hh:mm a') : '-'}
+            </span>
+          </div>
+
+          <div className="flex flex-col gap-0.5 shrink-0">
+            <span className="text-[10px] font-bold text-muted-foreground/70 uppercase tracking-wider whitespace-nowrap">
+              NEW CANDIDATES (LAST 7D)
+            </span>
+            <span className="text-xs font-semibold text-foreground/90 whitespace-nowrap">
+              {newCandidatesCount}
+            </span>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
