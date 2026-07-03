@@ -121,7 +121,15 @@ export default function TrackMultiSelect({
           <ChevronDown className="h-4 w-4 shrink-0 opacity-50" />
         </Button>
       </PopoverTrigger>
-      <PopoverContent className="w-64 p-0" align="start">
+      <PopoverContent
+        className={cn(
+          "p-0",
+          variant === "input"
+            ? "w-[var(--radix-popover-trigger-width)]"
+            : "w-64",
+        )}
+        align="start"
+      >
         <Command>
           <CommandInput placeholder="Search tracks…" />
           <CommandList>

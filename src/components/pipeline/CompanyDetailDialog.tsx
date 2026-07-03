@@ -468,6 +468,7 @@ export default function CompanyDetailDialog({
     stake: string;
     deal_size: string;
     key_rationale: string;
+    remarks: string;
     deal_sponsor: string;
     deal_captain: string;
     entered_by: string;
@@ -505,6 +506,7 @@ export default function CompanyDetailDialog({
       stake: company.stake ?? '',
       deal_size: company.deal_size ?? '',
       key_rationale: company.key_rationale ?? '',
+      remarks: company.remarks ?? '',
       deal_sponsor: company.deal_sponsor ?? '',
       deal_captain: company.deal_captain ?? '',
       entered_by: company.entered_by ?? '',
@@ -611,6 +613,11 @@ export default function CompanyDetailDialog({
           stake: stakeResult.value,
           deal_size: editForm.deal_size.trim() || null,
           key_rationale: editForm.key_rationale.trim() || null,
+          // Outbound remarks are edited via the dedicated AI Market Scanning
+          // Remarks card, so only persist remarks here for inbound deals.
+          ...(company.source !== 'outbound'
+            ? { remarks: editForm.remarks.trim() || null }
+            : {}),
           deal_sponsor: editForm.deal_sponsor.trim() || null,
           deal_captain: editForm.deal_captain.trim() || null,
           entered_by: editForm.entered_by.trim() || null,
@@ -2003,6 +2010,24 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
                           />
                         ) : (
                           <p className="text-sm font-medium break-words">{company.deal_size || '—'}</p>
+                        )}
+                      </div>
+                      <div className="col-span-2">
+                        <p className="text-xs text-muted-foreground">Additional Remarks</p>
+                        {isEditing && editForm ? (
+                          <Textarea
+                            value={editForm.remarks}
+                            onChange={(e) =>
+                              setEditForm({ ...editForm, remarks: e.target.value })
+                            }
+                            rows={3}
+                            disabled={isSaving}
+                            className="mt-1 text-sm resize-y"
+                          />
+                        ) : (
+                          <p className="text-sm font-medium break-words whitespace-pre-wrap">
+                            {company.remarks || '—'}
+                          </p>
                         )}
                       </div>
                     </>
