@@ -47,6 +47,9 @@ export interface LlmTopic {
 }
 
 export interface LlmExtraction {
+  // true when the email is personal/social or a 1-1 catch-up with no business
+  // substance. Such emails are dropped and NOT ingested as CRM evidence.
+  is_personal?: boolean;
   topics: LlmTopic[];
   people: LlmPerson[];
   related_companies: LlmRelatedCompany[];
@@ -81,6 +84,11 @@ export type EnrichmentResult = EnrichedRecord | EnrichmentError;
 export const EMAIL_EXTRACTION_SCHEMA = {
   type: 'object',
   properties: {
+    is_personal: {
+      type: 'boolean',
+      description:
+        "true ONLY if the email is personal/social in nature or a 1-1 catch-up with NO business or deal substance (e.g. birthday/congrats/condolences, arranging coffee/lunch/drinks, scheduling or recapping a 1:1, personal thanks). When true the email is dropped and NOT ingested. Be conservative: if there is ANY deal or business substance, set false. See PERSONAL / NON-BUSINESS RULE.",
+    },
     topics: {
       type: 'array',
       description:
@@ -150,12 +158,24 @@ export const EMAIL_EXTRACTION_SCHEMA = {
       },
     },
   },
-  required: ['topics', 'people', 'related_companies'],
+  required: ['is_personal', 'topics', 'people', 'related_companies'],
 } as const;
 
 // ─── Prompts (verbatim from the Python original — well-tested phrasing) ──────
 
 export const SYSTEM_PROMPT = `You extract structured info from a single email.
+
+PERSONAL / NON-BUSINESS RULE:
+Set is_personal = true ONLY when the email is personal/social or a pure 1-1
+catch-up with NO deal or business substance. Examples that ARE personal:
+- Birthday / congratulations / condolences / get-well notes
+- Arranging or recapping coffee, lunch, dinner, drinks, a "catch up", or a 1:1
+  with no business agenda
+- Personal thank-you notes with no deal content
+Set is_personal = false when there is ANY business/deal substance — even if the
+email also mentions a meal or a 1:1. When in doubt, choose false. Deal language
+(NDA, term sheet, due diligence, valuation, mandate, acquisition, a named
+Project, etc.) always means is_personal = false.
 
 PEOPLE RULES:
 - Each CANDIDATE has an [index], a type (EMAIL or PHONE), a value, and a CONTEXT.

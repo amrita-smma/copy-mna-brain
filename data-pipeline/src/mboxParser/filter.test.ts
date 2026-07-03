@@ -5,6 +5,7 @@ import {
   isNewsletter,
   isCalendarInvite,
   isInternalOnly,
+  isPersonalOrOneOnOne,
 } from './filter';
 import { parseHeaders } from './parser';
 
@@ -103,6 +104,34 @@ describe('isInternalOnly', () => {
   });
 });
 
+describe('isPersonalOrOneOnOne', () => {
+  it('detects 1:1 / 1-1 / one-on-one subjects', () => {
+    expect(isPersonalOrOneOnOne(parseHeaders('Subject: Weekly 1:1'))).toBe(true);
+    expect(isPersonalOrOneOnOne(parseHeaders('Subject: Alice / Bob 1-1'))).toBe(true);
+    expect(isPersonalOrOneOnOne(parseHeaders('Subject: One-on-one sync'))).toBe(true);
+  });
+
+  it('detects personal/social subjects', () => {
+    expect(isPersonalOrOneOnOne(parseHeaders('Subject: Grab a coffee next week?'))).toBe(true);
+    expect(isPersonalOrOneOnOne(parseHeaders('Subject: Lunch on Friday'))).toBe(true);
+    expect(isPersonalOrOneOnOne(parseHeaders('Subject: Happy Birthday!'))).toBe(true);
+    expect(isPersonalOrOneOnOne(parseHeaders('Subject: Congratulations 🎉'))).toBe(true);
+    expect(isPersonalOrOneOnOne(parseHeaders('Subject: Quick catch up'))).toBe(true);
+  });
+
+  it('does NOT fire when deal language is present (conservative)', () => {
+    // A catch-up about a live deal must not be dropped.
+    expect(isPersonalOrOneOnOne(parseHeaders('Subject: Catch up on Project Domino'))).toBe(false);
+    expect(isPersonalOrOneOnOne(parseHeaders('Subject: Lunch to discuss the NDA'))).toBe(false);
+    expect(isPersonalOrOneOnOne(parseHeaders('Subject: 1:1 re term sheet'))).toBe(false);
+  });
+
+  it('returns false for ordinary business subjects and empty subjects', () => {
+    expect(isPersonalOrOneOnOne(parseHeaders('Subject: Deal intro'))).toBe(false);
+    expect(isPersonalOrOneOnOne(parseHeaders('From: a@b.com'))).toBe(false);
+  });
+});
+
 describe('shouldSkip', () => {
   it('returns auto_reply reason first', () => {
     const r = shouldSkip(parseHeaders('Subject: Out of Office'), '');
@@ -136,6 +165,23 @@ describe('shouldSkip', () => {
     });
     expect(r.skip).toBe(true);
     expect(r.reason).toBe('internal_only');
+  });
+
+  it('returns personal reason for a 1-1 catch-up subject', () => {
+    const r = shouldSkip(
+      parseHeaders('From: a@external.com\nTo: b@starcapital.co.id\nSubject: Coffee catch up\nContent-Type: text/plain'),
+      '',
+    );
+    expect(r.skip).toBe(true);
+    expect(r.reason).toBe('personal');
+  });
+
+  it('does not mark a deal-related catch-up as personal', () => {
+    const r = shouldSkip(
+      parseHeaders('From: a@external.com\nTo: b@starcapital.co.id\nSubject: Catch up on the acquisition\nContent-Type: text/plain'),
+      '',
+    );
+    expect(r.skip).toBe(false);
   });
 
   it('keeps internal_only by default', () => {

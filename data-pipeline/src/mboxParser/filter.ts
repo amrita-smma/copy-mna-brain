@@ -40,12 +40,61 @@ const OOO_SUBJECT_PATTERNS = [
 
 const NEWSLETTER_LOCAL_PARTS = ['noreply', 'no-reply', 'donotreply', 'newsletter', 'marketing'];
 
+// One-on-one / personal catch-up subject markers. Matched against the subject
+// only (both calendar invites and reply threads carry the subject), so the
+// filter stays deterministic and cheap.
+const ONE_ON_ONE_PATTERNS: RegExp[] = [
+  /\b1\s*[:/-]\s*1\b/, //     "1:1", "1-1", "1 / 1"
+  /\bone[\s-]on[\s-]one\b/, // "one-on-one", "one on one"
+];
+
+// Clearly personal / social phrases. Conservative: these only win when the
+// subject has NO deal language (see DEAL_KEYWORD_PATTERNS below).
+const PERSONAL_SOCIAL_PATTERNS = [
+  'catch up',
+  'catch-up',
+  'catchup',
+  'coffee',
+  'lunch',
+  'dinner',
+  'breakfast',
+  'drinks',
+  'happy hour',
+  'happy birthday',
+  'birthday',
+  'congratulations',
+  'congrats',
+  'condolences',
+  'get well',
+];
+
+// If any of these appear in the subject, we never treat the email as personal —
+// it is deal/business substance regardless of a social-sounding word.
+const DEAL_KEYWORD_PATTERNS: RegExp[] = [
+  /\bnda\b/,
+  /\bterm[-\s]?sheet\b/,
+  /\bdue[-\s]?diligence\b/,
+  /\bvaluation\b/,
+  /\bmandate\b/,
+  /\bacquisition\b/,
+  /\bmerger\b/,
+  /\bloi\b/,
+  /\bmou\b/,
+  /\bdivestment\b/,
+  /\bdisposal\b/,
+  /\bfundrais/,
+  /\bfinancing\b/,
+  /\bipo\b/,
+  /\bproject\b/,
+];
+
 export type SkipReason =
   | ''
   | 'auto_reply'
   | 'newsletter'
   | 'calendar_invite'
-  | 'internal_only';
+  | 'internal_only'
+  | 'personal';
 
 export interface FilterOptions {
   ourDomains?: Set<string>;
@@ -101,6 +150,21 @@ export function isInternalOnly(headers: Headers, ourDomains: Set<string>): boole
   return [...senders, ...recipients].every((d) => ourDomains.has(d));
 }
 
+/**
+ * Conservative detector for personal / 1-1 catch-up emails (both meeting
+ * invites and reply threads). Fires only on the subject and only when there is
+ * no deal language present, so genuine deal threads that happen to mention a
+ * lunch/coffee are never dropped.
+ */
+export function isPersonalOrOneOnOne(headers: Headers): boolean {
+  const subj = getHeader(headers, 'subject').toLowerCase();
+  if (!subj) return false;
+  // Deal language always wins — never treat these as personal.
+  if (DEAL_KEYWORD_PATTERNS.some((re) => re.test(subj))) return false;
+  if (ONE_ON_ONE_PATTERNS.some((re) => re.test(subj))) return true;
+  return PERSONAL_SOCIAL_PATTERNS.some((p) => subj.includes(p));
+}
+
 export interface SkipResult {
   skip: boolean;
   reason: SkipReason;
@@ -119,6 +183,7 @@ export function shouldSkip(
 
   if (isNewsletter(headers, senderLocal ?? '')) return { skip: true, reason: 'newsletter' };
   if (isCalendarInvite(headers, rawBody)) return { skip: true, reason: 'calendar_invite' };
+  if (isPersonalOrOneOnOne(headers)) return { skip: true, reason: 'personal' };
   if (opts.dropInternalOnly && isInternalOnly(headers, opts.ourDomains ?? new Set())) {
     return { skip: true, reason: 'internal_only' };
   }

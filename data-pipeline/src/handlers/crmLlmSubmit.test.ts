@@ -221,6 +221,38 @@ describe('runCrmLlmSubmit', () => {
     expect(setArg[1].topics).toEqual(['nda']);
   });
 
+  it('sync mode drops personal/1-1 emails as filtered without ingesting evidence', async () => {
+    const db = makeDb();
+    db.limit.mockResolvedValueOnce([makeRow({ id: 'r1' })]);
+    mocks.processEmail.mockReturnValueOnce({
+      message_id: 'msg-1@x',
+      subject: 'coffee',
+      sender: { name: 'A', email: 'a@b.com' },
+      candidates: [],
+      domain_tag: null,
+      needs_llm: true,
+      llm_payload: { body_snippet: 'lets grab coffee', candidates: [], want_topics: true, want_names: true },
+    });
+    mocks.messagesCreate.mockResolvedValueOnce({
+      content: [
+        {
+          type: 'tool_use',
+          input: { is_personal: true, topics: [], people: [], related_companies: [] },
+        },
+      ],
+    });
+
+    const result = await runCrmLlmSubmit(
+      { mode: 'sync' },
+      { db: db as never, job: { id: 'j1' } as never },
+    );
+
+    expect(result.rows_filtered).toBe(1);
+    expect(result.sync_enriched).toBe(0);
+    // No CRM evidence written for a personal email.
+    expect(mocks.setLlmResult).not.toHaveBeenCalled();
+  });
+
   it('sync mode tolerates tool output that omits the people field', async () => {
     const db = makeDb();
     db.limit.mockResolvedValueOnce([makeRow({ id: 'r1' })]);

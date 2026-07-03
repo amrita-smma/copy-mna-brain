@@ -148,6 +148,22 @@ async function markFiltered(
     .where(eq(rawEmailsTable.id, rawEmailId));
 }
 
+/**
+ * The LLM judged the email personal / a 1-1 catch-up with no business
+ * substance. Mark it enriched (it was processed) but ingest_status='filtered'
+ * so crm_ingest never turns it into CRM evidence.
+ */
+async function markPersonalFiltered(db: DbClient, rawEmailId: string): Promise<void> {
+  await db
+    .update(rawEmailsTable)
+    .set({
+      llm_status: 'enriched',
+      ingest_status: 'filtered',
+      llm_enriched_at: new Date().toISOString(),
+    })
+    .where(eq(rawEmailsTable.id, rawEmailId));
+}
+
 export async function runCrmLlmSubmit(
   payload: CrmLlmSubmitPayload,
   deps: { db: DbClient; job: Tables<'jobs'> },
@@ -262,6 +278,12 @@ export async function runCrmLlmSubmit(
         );
         if (!toolUse) throw new Error('no tool_use block in response');
         const llmOut = toolUse.input as LlmExtraction;
+        if (llmOut.is_personal === true) {
+          log(`filter ${rawEmailId}: personal (llm)`);
+          await markPersonalFiltered(deps.db, rawEmailId);
+          result.rows_filtered++;
+          continue;
+        }
         const people = mergePeopleWithCandidates(
           llmOut.people ?? [],
           candidatesByRawEmailId[rawEmailId] ?? [],

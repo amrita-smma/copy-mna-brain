@@ -20,6 +20,7 @@ export interface CrmLlmFetchResult {
   batches_fetched: number;
   batches_failed: number;
   rows_enriched: number;
+  rows_filtered: number;
   rows_failed: number;
 }
 
@@ -44,6 +45,7 @@ export async function runCrmLlmFetch(
     batches_fetched: 0,
     batches_failed: 0,
     rows_enriched: 0,
+    rows_filtered: 0,
     rows_failed: 0,
   };
 
@@ -101,6 +103,7 @@ export async function runCrmLlmFetch(
     }
 
     let batchRowsEnriched = 0;
+    let batchRowsFiltered = 0;
     let batchRowsFailed = 0;
     for await (const item of resultsStream) {
       const rawEmailId = batch.custom_id_map?.[item.custom_id];
@@ -126,11 +129,21 @@ export async function runCrmLlmFetch(
         );
         if (!toolUse) throw new Error('no tool_use block in response');
         const llmOut = toolUse.input as LlmExtraction;
+        const now = new Date().toISOString();
+        // Personal / 1-1 catch-up with no business substance — mark processed
+        // but filtered so crm_ingest never turns it into CRM evidence.
+        if (llmOut.is_personal === true) {
+          await deps.db
+            .update(rawEmailsTable)
+            .set({ llm_status: 'enriched', ingest_status: 'filtered', llm_enriched_at: now })
+            .where(eq(rawEmailsTable.id, rawEmailId));
+          batchRowsFiltered++;
+          continue;
+        }
         const people = mergePeopleWithCandidates(
           llmOut.people ?? [],
           candidatesById.get(rawEmailId) ?? [],
         );
-        const now = new Date().toISOString();
         await enrichmentRepo.setLlmResult(rawEmailId, {
           topics: llmOut.topics ?? [],
           people,
@@ -155,10 +168,11 @@ export async function runCrmLlmFetch(
 
     await batchRepo.markFetched(batch.id, deps.job.id);
     log(
-      `batch ${batch.anthropic_batch_id}: enriched=${batchRowsEnriched} failed=${batchRowsFailed}`,
+      `batch ${batch.anthropic_batch_id}: enriched=${batchRowsEnriched} filtered=${batchRowsFiltered} failed=${batchRowsFailed}`,
     );
     result.batches_fetched++;
     result.rows_enriched += batchRowsEnriched;
+    result.rows_filtered += batchRowsFiltered;
     result.rows_failed += batchRowsFailed;
   }
 

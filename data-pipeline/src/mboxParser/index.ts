@@ -38,6 +38,7 @@ export {
   isNewsletter,
   isCalendarInvite,
   isInternalOnly,
+  isPersonalOrOneOnOne,
 } from './filter';
 export {
   domainTag,

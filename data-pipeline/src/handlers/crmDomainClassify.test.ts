@@ -116,6 +116,42 @@ describe('runCrmDomainClassify', () => {
     expect(mocks.listUnknownDomains).toHaveBeenCalledWith(['goldman.com']);
   });
 
+  it('filters out hardcoded internal company domains regardless of employer_overrides', async () => {
+    // employer_overrides returns nothing — these are ignored via the hardcoded set.
+    mocks.listInternalDomains.mockResolvedValueOnce([]);
+    mocks.listExcludedDomains.mockResolvedValueOnce([]);
+    mocks.execute.mockResolvedValueOnce([
+      { domain: 'starcapital.co.id', n: 100 },
+      { domain: 'starcapitalholdings.com', n: 90 },
+      { domain: 'smma.id', n: 80 },
+      { domain: 'sinarmasmining.com', n: 70 },
+      { domain: 'techconnect.co.id', n: 60 },
+      { domain: 'starhousecapital.sg', n: 55 },
+      { domain: 'frontiergroup.sg', n: 52 },
+      { domain: 'goldman.com', n: 10 }, // external → passes through
+    ]);
+    mocks.listUnknownDomains.mockResolvedValueOnce(['goldman.com']);
+    mocks.messagesCreate.mockResolvedValueOnce({
+      content: [
+        {
+          type: 'tool_use',
+          input: {
+            'goldman.com': { name: 'Goldman Sachs', industry: 'Banking', confidence: 'high' },
+          },
+        },
+      ],
+    });
+    mocks.upsertBatch.mockResolvedValueOnce([{ domain: 'goldman.com' }]);
+
+    const result = await runCrmDomainClassify(
+      {},
+      { db: makeDb() as never, job: { id: 'j1' } as never },
+    );
+
+    expect(result.domains_input).toBe(1);
+    expect(mocks.listUnknownDomains).toHaveBeenCalledWith(['goldman.com']);
+  });
+
   it('chunks per chunkSize', async () => {
     mocks.execute.mockResolvedValueOnce(
       Array.from({ length: 5 }, (_, i) => ({ domain: `dom${i}.com`, n: 10 - i })),

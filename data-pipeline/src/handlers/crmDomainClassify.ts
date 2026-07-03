@@ -47,6 +47,18 @@ const PERSONAL_MAIL_DOMAINS = new Set<string>([
   'aol.com',
 ]);
 
+// Internal company domains we never classify — these are our own people, not
+// external employers. (These are always ignored regardless of employer_overrides.)
+const INTERNAL_MAIL_DOMAINS = new Set<string>([
+  'starcapital.co.id',
+  'starcapitalholdings.com',
+  'smma.id',
+  'sinarmasmining.com',
+  'techconnect.co.id',
+  'starhousecapital.sg',
+  'frontiergroup.sg',
+]);
+
 const SYSTEM_PROMPT = `You identify companies from their email domain — both the proper name and the industry.
 
 Rules:
@@ -171,7 +183,10 @@ export async function runCrmDomainClassify(
   let candidates = await collectDomainVolumes(deps.db);
   candidates = candidates.filter(
     (d) =>
-      !PERSONAL_MAIL_DOMAINS.has(d) && !internal.has(d) && !excluded.has(d),
+      !PERSONAL_MAIL_DOMAINS.has(d) &&
+      !INTERNAL_MAIL_DOMAINS.has(d) &&
+      !internal.has(d) &&
+      !excluded.has(d),
   );
 
   // 2. Subtract already-classified unless force=true.

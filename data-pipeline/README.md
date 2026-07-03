@@ -103,8 +103,8 @@ tables (`public.employers`, `public.correspondents`, `analytics.emails`, `analyt
 
 | Job | Drains | Cron | Purpose |
 |---|---|---|---|
-| `crm_llm_submit` | `raw_emails.llm_status='pending'` | `:30 hourly` | Runs `shouldSkip()` to filter out newsletters / auto-replies / calendar invites (marks `ingest_status='filtered'`, `llm_status='not_needed'`). For the rest: runs `processEmail()` to extract candidates; for rows that need LLM, builds an Anthropic batch and inserts an `llm_batches` row. |
-| `crm_llm_fetch` | `llm_batches.status='in_progress'` | every 5 min | Polls each in-flight batch; when ended, streams results and writes topics + people to `raw_email_enrichments`. |
+| `crm_llm_submit` | `raw_emails.llm_status='pending'` | `:30 hourly` | Runs `shouldSkip()` to filter out newsletters / auto-replies / calendar invites / personal-or-1-1 catch-ups (marks `ingest_status='filtered'`, `llm_status='not_needed'`). For the rest: runs `processEmail()` to extract candidates; for rows that need LLM, builds an Anthropic batch and inserts an `llm_batches` row. Rows the LLM later flags `is_personal` are dropped to `ingest_status='filtered'` too (never ingested as evidence). |
+| `crm_llm_fetch` | `llm_batches.status='in_progress'` | every 5 min | Polls each in-flight batch; when ended, streams results and writes topics + people to `raw_email_enrichments`. Rows the LLM flagged `is_personal` are marked `ingest_status='filtered'` instead of enriched. |
 | `crm_domain_classify` | unknown sender domains | `:45 hourly` | One Haiku call per ~30 domains for industry classification; writes `domain_classifications`. |
 | `crm_ingest` | `raw_emails.ingest_status='pending' AND llm_status IN ('enriched','not_needed')` | `:50 hourly` | Single transaction populating all CRM tables from enriched `raw_emails`. |
 
@@ -146,11 +146,15 @@ All four take POST or GET (cron-friendly), validated against `CRON_SECRET` when 
 
 ### Operational notes
 
-- **Filtering** — auto-replies / newsletters / calendar invites are dropped at
-  `crm_llm_submit` time via `shouldSkip` from `src/lib/services/mboxParser/filter.ts`.
-  Filtered rows get `ingest_status='filtered'` and `llm_status='not_needed'` and
-  never reach the CRM tables. Watch for `[crm-llm-submit] filter <id>: <reason>`
-  log lines.
+- **Filtering** — auto-replies / newsletters / calendar invites / personal-or-1-1
+  catch-ups are dropped at `crm_llm_submit` time via `shouldSkip` from
+  `src/lib/services/mboxParser/filter.ts`. Filtered rows get
+  `ingest_status='filtered'` and `llm_status='not_needed'` and never reach the CRM
+  tables. Watch for `[crm-llm-submit] filter <id>: <reason>` log lines. The
+  `personal` heuristic is conservative (subject-only, and never fires when deal
+  language is present); content-level personal emails that slip past it are caught
+  by the LLM's `is_personal` flag during enrichment and dropped to
+  `ingest_status='filtered'` so they're never ingested as evidence.
 - **Stuck `in_batch` rows** — if `crm_llm_fetch` dies mid-stream, raw_emails stay `llm_status='in_batch'`. Recovery: `UPDATE analytics.raw_emails SET llm_status='pending' WHERE llm_status='in_batch' AND ...` and the next submit picks them up again. Anthropic batches persist for 29 days, so the `llm_batches` row itself can also be marked failed and the rows re-queued.
 - **Cost** — `crm_llm_submit` in batch mode (~$1.50/1K emails); `crm_domain_classify` is essentially free (~$0.01/run); `crm_llm_fetch` and `crm_ingest` are free.
 - **Sync mode** — `crm_llm_submit { mode: 'sync' }` skips the batch path and writes enrichment directly. Useful for spot-checks and dev. ~2x cost; one `messages.create` per row.

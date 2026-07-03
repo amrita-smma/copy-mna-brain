@@ -146,6 +146,47 @@ describe('runCrmLlmFetch', () => {
     expect(mocks.setLlmResult).toHaveBeenCalled();
   });
 
+  it('drops personal/1-1 emails as filtered without writing evidence', async () => {
+    mocks.listInProgress.mockResolvedValueOnce([
+      {
+        id: 'b1',
+        anthropic_batch_id: 'msgbatch_x',
+        status: 'in_progress',
+        model: 'claude-haiku-4-5',
+        custom_id_map: { c1: 'r1' },
+      },
+    ]);
+    mocks.batchesRetrieve.mockResolvedValueOnce({ processing_status: 'ended' });
+    mocks.findByRawEmailIds.mockResolvedValueOnce([{ raw_email_id: 'r1', candidates: [] }]);
+    mocks.batchesResults.mockResolvedValueOnce(
+      makeResultsStream([
+        {
+          custom_id: 'c1',
+          result: {
+            type: 'succeeded',
+            message: {
+              content: [
+                {
+                  type: 'tool_use',
+                  input: { is_personal: true, topics: [], people: [], related_companies: [] },
+                },
+              ],
+            },
+          },
+        },
+      ]),
+    );
+
+    const result = await runCrmLlmFetch(
+      {},
+      { db: makeDb() as never, job: { id: 'j1' } as never },
+    );
+
+    expect(result.rows_filtered).toBe(1);
+    expect(result.rows_enriched).toBe(0);
+    expect(mocks.setLlmResult).not.toHaveBeenCalled();
+  });
+
   it("marks batches as failed when processing_status is neither 'in_progress' nor 'ended'", async () => {
     mocks.listInProgress.mockResolvedValueOnce([
       {
