@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { DashboardActivityService } from './dashboardActivityService';
+import { DashboardActivityService, isPreL0EntryMove } from './dashboardActivityService';
 import type { DashboardActivityRepository } from '@/lib/repositories/dashboardActivityRepository';
 
 /**
@@ -118,6 +118,54 @@ function discoveredRow(id: string, eventAt: string) {
     event_at: eventAt,
   };
 }
+
+describe('isPreL0EntryMove', () => {
+  it('is true for a move into L0 from a pre-L0 stage', () => {
+    expect(isPreL0EntryMove('PROMOTED_FROM_unreviewed_TO_L0')).toBe(true);
+    expect(isPreL0EntryMove('PROMOTED_FROM_market_screening_TO_L0')).toBe(true);
+    expect(isPreL0EntryMove('PROMOTED_FROM_discovered_TO_L0')).toBe(true);
+  });
+
+  it('is true for a from-less promotion to L0', () => {
+    expect(isPreL0EntryMove('PROMOTED_TO_L0')).toBe(true);
+  });
+
+  it('is false for moves between L-stages, including demotions back to L0', () => {
+    expect(isPreL0EntryMove('PROMOTED_FROM_L0_TO_L1')).toBe(false);
+    expect(isPreL0EntryMove('PROMOTED_FROM_L1_TO_L2')).toBe(false);
+    expect(isPreL0EntryMove('PROMOTED_FROM_L1_TO_L0')).toBe(false);
+  });
+
+  it('is false for unparseable or null actions', () => {
+    expect(isPreL0EntryMove(null)).toBe(false);
+    expect(isPreL0EntryMove('DROPPED')).toBe(false);
+  });
+});
+
+describe('DashboardActivityService.getActivity', () => {
+  let repo: MockRepo;
+  let service: DashboardActivityService;
+
+  beforeEach(() => {
+    repo = new MockRepo();
+    for (const fn of Object.values(repo)) fn.mockResolvedValue([]);
+    service = new DashboardActivityService(
+      repo as unknown as DashboardActivityRepository,
+    );
+  });
+
+  it('excludes pre-L0 → L0 entries from pipelineMoves (covered by New Deals)', async () => {
+    repo.getPipelineMoves.mockResolvedValue([
+      { ...moveRow('a', '2026-06-12T00:00:00.000Z'), action: 'PROMOTED_FROM_unreviewed_TO_L0' },
+      { ...moveRow('b', '2026-06-11T00:00:00.000Z'), action: 'PROMOTED_TO_L0' },
+      { ...moveRow('c', '2026-06-10T00:00:00.000Z'), action: 'PROMOTED_FROM_L1_TO_L2' },
+    ]);
+
+    const activity = await service.getActivity(FROM, TO);
+
+    expect(activity.pipelineMoves.map((m) => m.id)).toEqual(['c']);
+  });
+});
 
 describe('DashboardActivityService.getFeed', () => {
   let repo: MockRepo;
@@ -296,6 +344,25 @@ describe('DashboardActivityService.getFeed', () => {
     expect(events[0].type).toBe('dropped');
     expect(events[0].dropped_stage).toBe('L3');
     expect(events[0].dropped_reason).toBe('Valuation too high');
+  });
+
+  it('skips pre-L0 → L0 moves (already emitted as new_deal events)', async () => {
+    repo.getPipelineMoves.mockResolvedValue([
+      { ...moveRow('a', '2026-06-12T00:00:00.000Z'), action: 'PROMOTED_FROM_unreviewed_TO_L0' },
+      { ...moveRow('b', '2026-06-11T00:00:00.000Z'), action: 'PROMOTED_TO_L0' },
+      { ...moveRow('c', '2026-06-10T00:00:00.000Z'), action: 'PROMOTED_FROM_L0_TO_L1' },
+    ]);
+
+    const { events } = await service.getFeed({
+      from: FROM,
+      to: TO,
+      offset: 0,
+      limit: 10,
+      filter: 'stage_move',
+    });
+
+    expect(events).toHaveLength(1);
+    expect(events[0].company_id).toBe('co-c');
   });
 
   it('drops events with a null timestamp', async () => {

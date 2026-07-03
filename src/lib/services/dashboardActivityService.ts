@@ -86,6 +86,20 @@ function parsePipelineMoveAction(action: string | null): {
   return { from: null, to: null };
 }
 
+/** The stages that form the L0–L5 deal pipeline. */
+const PIPELINE_L_STAGES = new Set(['L0', 'L1', 'L2', 'L3', 'L4', 'L5']);
+
+/**
+ * True when a promotion log records a company entering L0 from a pre-L0 stage
+ * (market_screening / unreviewed / discovered, or a from-less PROMOTED_TO_L0).
+ * These are already surfaced as "New Deals" (`getNewL0Companies` matches every
+ * `%_TO_L0` log), so stage-move surfaces skip them to avoid double-reporting.
+ */
+export function isPreL0EntryMove(action: string | null): boolean {
+  const { from, to } = parsePipelineMoveAction(action);
+  return to === 'L0' && (from === null || !PIPELINE_L_STAGES.has(from));
+}
+
 export class DashboardActivityService {
   constructor(private repo: DashboardActivityRepository) {}
 
@@ -116,7 +130,8 @@ export class DashboardActivityService {
       newL0Companies,
       aiSourcedCompanies,
       discoveredCompanies,
-      pipelineMoves,
+      // Entries into L0 from pre-L0 stages are already listed under New Deals.
+      pipelineMoves: pipelineMoves.filter((m) => !isPreL0EntryMove(m.action)),
       slidesGenerated,
       droppedDeals,
       workforceJobs,
@@ -251,6 +266,8 @@ export function buildFeedEvents(activity: {
 
   for (const m of activity.pipelineMoves) {
     if (!m.created_at) continue;
+    // A pre-L0 → L0 entry already appears as this company's new_deal event.
+    if (isPreL0EntryMove(m.action)) continue;
     const { from: fromStage, to: toStage } = parsePipelineMoveAction(m.action);
     events.push({
       id: `move-${m.id}`,

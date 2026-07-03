@@ -218,6 +218,24 @@ export class FileService {
     /** For manual AFD uploads: the authenticated session user's UUID. */
     uploaderUserId?: string | null,
   ) {
+    // Dedup gate: a file with this name was already uploaded — return the
+    // existing record instead of inserting and processing a duplicate. The
+    // freshly uploaded S3 object is removed (best-effort) so the duplicate
+    // doesn't leak storage.
+    const duplicate = await this.fileRepo.findFirstByName(fileName);
+    if (duplicate) {
+      console.log(
+        `[fileService] "${fileName}" duplicates existing file ${duplicate.id}, skipping insert`,
+      );
+      if (key !== duplicate.file_link) {
+        await deleteFile(key).catch((err) =>
+          console.error('[fileService] Failed to delete duplicate S3 object:', err),
+        );
+      }
+      const signedUrl = await getSignedUrl(duplicate.file_link).catch(() => null);
+      return { ...duplicate, signed_url: signedUrl, duplicate: true };
+    }
+
     const buffer = await downloadFile(key);
     const fileType = contentType || 'application/octet-stream';
 

@@ -107,6 +107,7 @@ function makeFileRepoStub(): FileRepository {
     findById: vi.fn(),
     findLinkAndNameById: vi.fn(),
     findAll: vi.fn(),
+    findFirstByName: vi.fn().mockResolvedValue(null),
     insert: vi.fn(),
     update: vi.fn(),
     updatePartial: vi.fn(),
@@ -234,6 +235,37 @@ describe('FileService.processUpload', () => {
     vi.mocked(fileRepo.findById).mockResolvedValue(makeFile({ id: 'file-1', processing_status: 'completed' }));
     vi.mocked(processFileContent).mockResolvedValue(null);
     vi.mocked(criteriaRepo.findAll).mockResolvedValue([]);
+  });
+
+  it('skips insert and returns the existing file when the same filename was already uploaded', async () => {
+    const existing = makeFile({
+      id: 'file-existing',
+      file_name: 'report.pdf',
+      file_link: 'uploads/original.pdf',
+      processing_status: 'completed',
+    });
+    vi.mocked(fileRepo.findFirstByName).mockResolvedValue(existing);
+    vi.mocked(deleteFile).mockResolvedValue(undefined as never);
+
+    const result = await service.processUpload('uploads/copy.pdf', 'report.pdf', 'application/pdf');
+
+    expect(fileRepo.findFirstByName).toHaveBeenCalledWith('report.pdf');
+    expect(fileRepo.insert).not.toHaveBeenCalled();
+    expect(downloadFile).not.toHaveBeenCalled();
+    expect(processFileContent).not.toHaveBeenCalled();
+    // The freshly uploaded duplicate S3 object is cleaned up.
+    expect(deleteFile).toHaveBeenCalledWith('uploads/copy.pdf');
+    expect(getSignedUrl).toHaveBeenCalledWith('uploads/original.pdf');
+    expect(result).toMatchObject({ id: 'file-existing', duplicate: true, signed_url: 'https://signed-url' });
+  });
+
+  it('does not delete the S3 object when the duplicate points at the same key', async () => {
+    const existing = makeFile({ id: 'file-existing', file_link: 'uploads/report.pdf' });
+    vi.mocked(fileRepo.findFirstByName).mockResolvedValue(existing);
+
+    await service.processUpload('uploads/report.pdf', 'report.pdf', 'application/pdf');
+
+    expect(deleteFile).not.toHaveBeenCalled();
   });
 
   it('skips text extraction for PDF files', async () => {

@@ -30,6 +30,17 @@ export class FileRepository {
     return row;
   }
 
+  /** Oldest file uploaded under `fileName`, or null. */
+  async findFirstByName(fileName: string): Promise<Tables<'files'> | null> {
+    const [row] = await this.db
+      .select()
+      .from(files)
+      .where(eq(files.file_name, fileName))
+      .orderBy(files.created_at)
+      .limit(1);
+    return row ?? null;
+  }
+
   async findAll(fileType?: string): Promise<Tables<'files'>[]> {
     return this.db
       .select()
