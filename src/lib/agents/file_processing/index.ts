@@ -33,6 +33,13 @@ import {
 
 export type FileTypeOverride = 'mom' | 'prospectus' | 'other' | 'shopping_list' | 'market_study';
 
+/**
+ * File types whose documents describe deal targets and therefore emit the
+ * multi-company `companies` array (each entry shaped like the legacy
+ * `prospectus_summary`).
+ */
+const MULTI_COMPANY_FILE_TYPES = new Set<string>(['prospectus', 'shopping_list']);
+
 type TrackRef = { id: string; title: string | null; content: string | null };
 
 async function getAllInvestmentTracks(): Promise<TrackRef[]> {
@@ -62,10 +69,11 @@ const generateSystemPrompt = (
 5. **Extract Company Notes**: For each identified company, extract specific notes or context.
 6. **Extract Meeting Date**: Identify the date of the meeting/document (usually mentioned in the title or content).
 7. **Categorize The File Type**: Identify the file type of the document.
-8. **Extract Prospectus Summary**: If the file type is "prospectus", extract a detailed summary of the prospectus.
+8. **Extract Companies On Offer**: If the file type is "prospectus" or "shopping_list", extract one entry per deal target in the "companies" array (a prospectus usually has exactly one; a shopping list has one per listed target).
 9. **Extract Banker Communications**: If the file type is "banker_communications", extract all email communications with their participants.
 10. **Extract Financial Statement Summary**: If the file type is "financial_statement", extract the company name and financial figures.
 11. **Match Investment Tracks**: If any investment tracks are listed below, decide which (if any) the deal target genuinely fits. Return an empty array if not confident.
+12. **Follow User Instructions**: The "Additional Notes" from the user may contain explicit instructions about which companies in the document to include or exclude. You MUST honor them (see "Additional Notes" below).
 
 ## Known Companies:
 ${companies_list}
@@ -95,6 +103,7 @@ The user has manually classified this document as "${fileTypeOverride}". You MUS
 }
 ## Additional Notes:
 These are additional notes from the user about the document that might be relevant to the analysis. Please use this to understand the context of the document better.
+**Company inclusion/exclusion instructions (CRITICAL):** the notes may specify which companies in the document should or should not be ingested (e.g. "only include Acme and Beta", "skip the Korean targets", "ignore everything except the first two"). When such instructions are present, the "companies" array MUST contain ONLY the companies the user wants included — omit excluded companies from "companies" entirely. Excluded companies may still be mentioned in the summary/tags/companies_detected for searchability, but they must NOT appear in "companies". When the notes give no such instructions, include every deal target found in the document.
 ${userRawNotes}
 
 ## Process:
@@ -124,7 +133,8 @@ ${userRawNotes}
    - companies_detected: Array of STRINGS (exact names as they appear in the Known Companies list) that were found in the text.
    - company_notes: Array of objects { "company_name": "...", "note": "..." } containing the specific context for that company.
    - file_date: A string representing the meeting date in YYYY-MM-DD format. If not found, return null.
-   - prospectus_summary: Detailed variables of the prospectus file type. Only exist if the file type is "prospectus". Please take a look at the example output below to see the structure of the prospectus_summary.
+   - companies: Array of deal-target objects — one per company/project being offered or listed. Only present when the file type is "prospectus" or "shopping_list". Each entry has the exact same structure as prospectus_summary (see the example output below). A prospectus usually yields exactly ONE entry; only emit multiple when the document genuinely offers several distinct targets. A shopping_list yields one entry per listed target. Honor the user's inclusion/exclusion instructions from "Additional Notes".
+   - prospectus_summary: Detailed variables of the primary deal target — identical to companies[0]. Only exists if the file type is "prospectus" or "shopping_list". Kept alongside "companies" for backward compatibility.
    - financial_statement_summary: Extracted financial data from the document. Only present when file_type is "financial_statement". Contains the company name and financials/fx_adjustments arrays in the same structure as prospectus_summary.
    - communications: Array of email communications extracted from banker communications files. Only exists if the file type is "banker_communications". Each communication should have: from_email, from_name, to_email, to_name, subject, body, sent_at (in ISO 8601 format if available), company (if the sender/recipient is associated with a company).
 
@@ -170,6 +180,24 @@ Your response should end with a JSON block in this format:
     ],
     "fx_adjustments": []
   },
+  "companies": [
+    {
+      "company_name": "Deal target legal entity name — same rules as prospectus_summary.company_name below.",
+      "project_name": "Project codename if present — same rules as prospectus_summary.project_name below.",
+      "segment": "...",
+      "segment_related_offerings": "...",
+      "company_focus": "...",
+      "website": "...",
+      "watchlist_status": "...",
+      "comments": "...",
+      "ownership": "...",
+      "geography": "country name",
+      "remarks": "...",
+      "banker": "...",
+      "financials": [],
+      "fx_adjustments": []
+    }
+  ],
   "prospectus_summary": {
     "company_name": "Legal entity name if the document identifies one (e.g. 'Acme Corp'). Null if only a project codename is known.",
     "project_name": "Project codename if present (e.g. 'Project Phoenix'). Null if no codename is used. Set this even when company_name is also known.",
@@ -232,6 +260,14 @@ The \`summary\`, \`key_points\`, and \`action_items\` fields should capture a us
 
 Names of EXTERNAL people (e.g. a target company's management, an external banker or advisor) are fine to include when relevant. Only OUR internal people and internal-org matters are excluded. Do not leave \`summary\`/\`key_points\`/\`action_items\` empty just because the content is not a hard deal term — sector, market, acquisition, and external context all belong here.
 
+## Companies Array Rules:
+- Populate \`companies\` ONLY when \`file_type\` is \`"prospectus"\` or \`"shopping_list"\`. Omit it (or use \`[]\`) for all other file types.
+- Every entry follows ALL of the "Prospectus Summary Rules" below (identity, financials, fx_adjustments).
+- One entry per distinct deal target. Do NOT create entries for buyers, acquirers, sponsors, lenders, banks, or advisors.
+- A shopping_list row with only a name and no other data still gets an entry (fill what is known, leave the rest null).
+- \`prospectus_summary\` MUST be an exact copy of \`companies[0]\` (the primary/first target). If \`companies\` is empty, set \`prospectus_summary\` to null.
+- If the user's "Additional Notes" exclude a company, it MUST NOT appear in \`companies\` (and therefore not in \`prospectus_summary\`).
+
 ## Prospectus Summary Rules:
 - \`company_name\` and \`project_name\` MUST identify the company or project being OFFERED FOR SALE (the deal target). NEVER set them to a buyer, acquirer, sponsor, lender, investment bank, or law firm named in the document. If the document is not offering a specific company for sale, leave both \`null\`.
 - \`financials\` is an array with one object per fiscal year that the document explicitly reports. Years are flexible (typically the most recent 3-5 reported years; valid range 1990..2100). Use \`null\` for individual fields the document does not provide; omit the year entry entirely if the document reports nothing for it.
@@ -266,6 +302,75 @@ Always prioritize accuracy. Only list a company in 'companies_detected' if you a
 - If no "Investment Tracks" are listed, always return \`[]\`.`;
 
 /**
+ * Sanitize one deal-target entry (an element of `companies`, shaped like the
+ * legacy `prospectus_summary`): run the pure-compute FX backfill so USD
+ * figures are ready to persist, cross-check USD vs local figures (trusting
+ * USD on divergence), drop financial rows with no data, and null out
+ * section-header phrases so they can't flow into company creation.
+ * Mutates and returns the entry.
+ */
+function sanitizeCompanyEntry(entry: any, logPrefix: string): any {
+  const financialRowsRaw: FinancialRow[] = Array.isArray(entry.financials)
+    ? entry.financials
+        .filter((r: any) => r && Number.isInteger(r.fiscal_year))
+        .map((r: any): FinancialRow => ({
+          fiscal_year: r.fiscal_year as number,
+          revenue_usd_mn: r.revenue_usd_mn ?? null,
+          ebitda_usd_mn: r.ebitda_usd_mn ?? null,
+          ev_usd_mn: r.ev_usd_mn ?? null,
+          ebitda_margin: r.ebitda_margin ?? null,
+          ev_ebitda: r.ev_ebitda ?? null,
+          revenue_cagr_vs_prior: r.revenue_cagr_vs_prior ?? null,
+        }))
+    : [];
+
+  const fxRows: FxRow[] = Array.isArray(entry.fx_adjustments)
+    ? entry.fx_adjustments
+        .filter(
+          (r: any) =>
+            r &&
+            Number.isInteger(r.fiscal_year) &&
+            typeof r.currency === 'string' &&
+            r.currency.length > 0,
+        )
+        .map((r: any) => normalizeFxRow(r as RawFxRow))
+    : [];
+
+  applyFxBackfill(financialRowsRaw, fxRows);
+
+  // Cross-check USD vs local (after backfill). When the LLM emits both and
+  // they disagree (commonly because it mishandled non-decimal units like
+  // 억 / 万), trust the USD value and recompute local so the FX row stays
+  // consistent. Surface the corrections in the agent log.
+  const warnings = validateFxConsistency(financialRowsRaw, fxRows);
+  for (const w of warnings) {
+    logger.warn(
+      `[${logPrefix}] FX inconsistency FY${w.fiscal_year} ${w.field}: ` +
+        `reported_usd=${w.reported_usd_mn} vs local/forex=${w.derived_usd_mn.toFixed(2)} ` +
+        `(divergence ${(w.divergence_ratio * 100).toFixed(1)}%). ` +
+        `Trusting USD; ${w.field}_local recomputed to ${w.resolved_local_mn.toFixed(0)}.`,
+    );
+  }
+
+  entry.financials = financialRowsRaw.filter(
+    (r: FinancialRow) =>
+      r.revenue_usd_mn !== null || r.ebitda_usd_mn !== null || r.ev_usd_mn !== null ||
+      r.ebitda_margin !== null || r.ev_ebitda !== null || r.revenue_cagr_vs_prior !== null,
+  );
+  entry.fx_adjustments = fxRows;
+
+  // Null out section-header phrases so they can't flow into company creation.
+  if (isGenericDocumentPhrase(entry.company_name ?? '')) {
+    entry.company_name = null;
+  }
+  if (isGenericDocumentPhrase(entry.project_name ?? '')) {
+    entry.project_name = null;
+  }
+
+  return entry;
+}
+
+/**
  * Stream the agent and return the messages from the final state.
  */
 async function streamAgentMessages(
@@ -289,8 +394,9 @@ async function streamAgentMessages(
  * Invoke the file processing agent.
  *
  * Returns the AI's parsed classification + extraction result. No DB writes —
- * persistence (creating companies, financials, fx) is deferred to the human
- * review / approve step in `FileService.approve`.
+ * persistence (creating companies, financials, fx) is handled by the caller
+ * (`FileService.processUpload` auto-creates deal-target companies from the
+ * `companies` array, skipping duplicates).
  */
 export async function processFileContent(
   rawText: string,
@@ -329,6 +435,13 @@ export async function processFileContent(
     // the JSON block mid-array and breaks the downstream ```json``` parse.
     // Give the model ample room to finish the JSON.
     maxTokens: 32000,
+    // With maxTokens this large, the Anthropic SDK rejects NON-streaming
+    // requests ("Streaming is required for operations that may take longer
+    // than 10 minutes"). `agent.stream(...)` only streams LangGraph state
+    // values — the underlying Messages API call is still non-streaming unless
+    // the model itself streams. This makes ChatAnthropic use the streaming
+    // API under the hood and aggregate the chunks.
+    streaming: true,
   });
 
   const anthropic = new Anthropic({ apiKey });
@@ -411,9 +524,18 @@ export async function processFileContent(
               typeof n === 'string' && n.length > 0 && !isGenericDocumentPhrase(n),
           )
         : [];
-      if (companiesDetected.length === 0 && parsed.file_type === 'prospectus') {
-        const fallbackName = parsed.prospectus_summary?.company_name || parsed.prospectus_summary?.project_name;
-        if (fallbackName && !isGenericDocumentPhrase(fallbackName)) companiesDetected = [fallbackName];
+      if (companiesDetected.length === 0 && MULTI_COMPANY_FILE_TYPES.has(parsed.file_type)) {
+        const entries: any[] = Array.isArray(parsed.companies) && parsed.companies.length > 0
+          ? parsed.companies
+          : parsed.prospectus_summary
+            ? [parsed.prospectus_summary]
+            : [];
+        companiesDetected = entries
+          .map((e: any) => e?.company_name || e?.project_name)
+          .filter(
+            (n: unknown): n is string =>
+              typeof n === 'string' && n.length > 0 && !isGenericDocumentPhrase(n),
+          );
       }
 
       for (const detectedName of companiesDetected) {
@@ -450,67 +572,23 @@ export async function processFileContent(
         parsed.file_type = 'other';
       }
 
-      // Run FX backfill (pure compute, no DB) so USD figures are available
-      // in the review diff and ready for approve() to persist as-is.
-      if (parsed.file_type === 'prospectus' && parsed.prospectus_summary) {
-        const summary = parsed.prospectus_summary;
-
-        const financialRowsRaw: FinancialRow[] = Array.isArray(summary.financials)
-          ? summary.financials
-              .filter((r: any) => r && Number.isInteger(r.fiscal_year))
-              .map((r: any): FinancialRow => ({
-                fiscal_year: r.fiscal_year as number,
-                revenue_usd_mn: r.revenue_usd_mn ?? null,
-                ebitda_usd_mn: r.ebitda_usd_mn ?? null,
-                ev_usd_mn: r.ev_usd_mn ?? null,
-                ebitda_margin: r.ebitda_margin ?? null,
-                ev_ebitda: r.ev_ebitda ?? null,
-                revenue_cagr_vs_prior: r.revenue_cagr_vs_prior ?? null,
-              }))
+      // Normalize deal-target extraction for multi-company file types.
+      // Fall back to the legacy single `prospectus_summary` when the model
+      // didn't emit a `companies` array, sanitize every entry (FX backfill +
+      // generic-name nulling), and keep `prospectus_summary` mirroring
+      // `companies[0]` so legacy consumers keep working.
+      if (MULTI_COMPANY_FILE_TYPES.has(parsed.file_type)) {
+        let companyEntries: any[] = Array.isArray(parsed.companies)
+          ? parsed.companies.filter((e: any) => e && typeof e === 'object')
           : [];
-
-        const fxRows: FxRow[] = Array.isArray(summary.fx_adjustments)
-          ? summary.fx_adjustments
-              .filter(
-                (r: any) =>
-                  r &&
-                  Number.isInteger(r.fiscal_year) &&
-                  typeof r.currency === 'string' &&
-                  r.currency.length > 0,
-              )
-              .map((r: any) => normalizeFxRow(r as RawFxRow))
-          : [];
-
-        applyFxBackfill(financialRowsRaw, fxRows);
-
-        // Cross-check USD vs local (after backfill). When the LLM emits both
-        // and they disagree (commonly because it mishandled non-decimal units
-        // like 억 / 万), trust the USD value and recompute local so the FX
-        // row stays consistent. Surface the corrections in the agent log.
-        const warnings = validateFxConsistency(financialRowsRaw, fxRows);
-        for (const w of warnings) {
-          logger.warn(
-            `FX inconsistency FY${w.fiscal_year} ${w.field}: ` +
-              `reported_usd=${w.reported_usd_mn} vs local/forex=${w.derived_usd_mn.toFixed(2)} ` +
-              `(divergence ${(w.divergence_ratio * 100).toFixed(1)}%). ` +
-              `Trusting USD; ${w.field}_local recomputed to ${w.resolved_local_mn.toFixed(0)}.`,
-          );
+        if (companyEntries.length === 0 && parsed.prospectus_summary) {
+          companyEntries = [parsed.prospectus_summary];
         }
 
-        parsed.prospectus_summary.financials = financialRowsRaw.filter(
-          (r: FinancialRow) =>
-            r.revenue_usd_mn !== null || r.ebitda_usd_mn !== null || r.ev_usd_mn !== null ||
-            r.ebitda_margin !== null || r.ev_ebitda !== null || r.revenue_cagr_vs_prior !== null,
+        parsed.companies = companyEntries.map((entry: any, i: number) =>
+          sanitizeCompanyEntry(entry, `companies[${i}]`),
         );
-        parsed.prospectus_summary.fx_adjustments = fxRows;
-
-        // Null out section-header phrases so they can't flow into company creation.
-        if (isGenericDocumentPhrase(parsed.prospectus_summary.company_name ?? '')) {
-          parsed.prospectus_summary.company_name = null;
-        }
-        if (isGenericDocumentPhrase(parsed.prospectus_summary.project_name ?? '')) {
-          parsed.prospectus_summary.project_name = null;
-        }
+        parsed.prospectus_summary = parsed.companies[0] ?? null;
       }
 
       // Parse and FX-backfill financial_statement_summary.financials.

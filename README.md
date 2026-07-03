@@ -75,6 +75,21 @@ pnpm test          # run once
 pnpm test:watch    # watch mode
 ```
 
+## AI File Dump
+
+Uploaded files are processed by the File Processing Agent (`src/lib/agents/file_processing`), which classifies each document (prospectus, shopping_list, mom, banker_communications, financial_statement, legal_document, market_study, other) and extracts structured data.
+
+### Multi-company auto-ingestion
+
+Deal-target file types — **prospectus** and **shopping_list** — can describe multiple companies. The agent emits a `companies` array (one entry per target, each with identity fields, financials, and FX adjustments; `prospectus_summary` mirrors `companies[0]` for backward compatibility) and `FileService.processUpload` auto-creates every extracted target directly on upload:
+
+- **No review gate** — these files complete immediately; there is no HITL approval step.
+- **Duplicates are skipped** — each entry is fuzzy-matched by company/project name; existing companies are recorded as matches but never re-created or modified. Creation runs under a per-name advisory lock so concurrent uploads can't double-insert.
+- New companies enter the pipeline at the `unreviewed` stage with `entered_by` stamped from the email custodian (MBOX pipeline) or the uploading session user, and analysis + screening jobs are dispatched for each created company.
+- **Note-driven inclusion** — the per-file upload notes can instruct the agent which companies to include or exclude (e.g. "only include Acme and Beta"); excluded companies are omitted from extraction entirely.
+
+Other file types (financial statements, legal documents, MoMs, buyer/sponsor/advisor material) never auto-create companies — they describe counterparties or process, not companies on sale.
+
 ## CRM (Contact Relationship Management)
 
 The CRM module manages contacts and their communication history.

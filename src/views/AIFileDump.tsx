@@ -787,6 +787,7 @@ export default function AIFileDump({
   const { analyzeWithAI } = useChatContext();
   const [meetingNotes, setMeetingNotes] = useState<MeetingNote[]>([]);
   const [prospectus, setProspectus] = useState<Prospectus[]>([]);
+  const [shoppingLists, setShoppingLists] = useState<FileRecord[]>([]);
   const [bankerComms, setBankerComms] = useState<FileRecord[]>([]);
   const [otherFiles, setOtherFiles] = useState<OtherFile[]>([]);
   const [loading, setLoading] = useState(true);
@@ -804,11 +805,12 @@ export default function AIFileDump({
   >({});
   /**
    * Per-file classification override: key = `${file.name}-${index}`.
-   * 'auto' (the default) lets the AI classify; 'mom' / 'prospectus' force
-   * the file_type and lock the agent's classification.
+   * 'auto' (the default) lets the AI classify; 'mom' / 'prospectus' /
+   * 'shopping_list' / 'other' force the file_type and lock the agent's
+   * classification.
    */
   const [fileTypeOverrides, setFileTypeOverrides] = useState<
-    Record<string, "auto" | "mom" | "prospectus" | "other">
+    Record<string, "auto" | "mom" | "prospectus" | "shopping_list" | "other">
   >({});
   /**
    * Per-file pre-upload picks for "Matched Company" and "Project Name".
@@ -843,6 +845,13 @@ export default function AIFileDump({
     "asc" | "desc"
   >("desc");
 
+  const [shoppingListSearchQuery, setShoppingListSearchQuery] = useState("");
+  const [shoppingListSortField, setShoppingListSortField] =
+    useState<keyof MeetingNote>("file_date");
+  const [shoppingListSortDirection, setShoppingListSortDirection] = useState<
+    "asc" | "desc"
+  >("desc");
+
   const [bankerCommsSearchQuery, setBankerCommsSearchQuery] = useState("");
   const [bankerCommsSortField, setBankerCommsSortField] =
     useState<keyof MeetingNote>("file_date");
@@ -868,6 +877,7 @@ export default function AIFileDump({
   // Pagination state for each table
   const [momPage, setMomPage] = useState(1);
   const [prospectusPage, setProspectusPage] = useState(1);
+  const [shoppingListPage, setShoppingListPage] = useState(1);
   const [bankerCommsPage, setBankerCommsPage] = useState(1);
   const [otherFilesPage, setOtherFilesPage] = useState(1);
 
@@ -902,6 +912,24 @@ export default function AIFileDump({
     } catch (error) {
       console.error("Error fetching prospectus:", error);
       toast.error("Failed to load prospectus");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  const fetchShoppingLists = useCallback(async () => {
+    try {
+      const response = await fetch("/api/ai-file-dump?file_type=shopping_list");
+      const result = await response.json();
+
+      if (result.success) {
+        setShoppingLists(result.data);
+      } else {
+        toast.error("Failed to load shopping lists");
+      }
+    } catch (error) {
+      console.error("Error fetching shopping lists:", error);
+      toast.error("Failed to load shopping lists");
     } finally {
       setLoading(false);
     }
@@ -948,9 +976,10 @@ export default function AIFileDump({
   useEffect(() => {
     fetchMeetingNotes();
     fetchProspectus();
+    fetchShoppingLists();
     fetchBankerComms();
     fetchOtherFiles();
-  }, [fetchMeetingNotes, fetchProspectus, fetchBankerComms, fetchOtherFiles]);
+  }, [fetchMeetingNotes, fetchProspectus, fetchShoppingLists, fetchBankerComms, fetchOtherFiles]);
 
   // Companies for the Matched Company / Project Name dropdowns + the
   // filename auto-matcher. Each row in `companies` carries both `target`
@@ -1059,6 +1088,7 @@ export default function AIFileDump({
     const existingFileNames = new Set([
       ...meetingNotes.map((n) => n.file_name),
       ...prospectus.map((n) => n.file_name),
+      ...shoppingLists.map((n) => n.file_name),
       ...bankerComms.map((n) => n.file_name),
       ...otherFiles.map((n) => n.file_name),
     ]);
@@ -1195,6 +1225,7 @@ export default function AIFileDump({
       setFileMatchedProjects({});
       fetchMeetingNotes();
       fetchProspectus();
+      fetchShoppingLists();
       fetchBankerComms();
       fetchOtherFiles();
     } else {
@@ -1311,6 +1342,18 @@ export default function AIFileDump({
     setProspectusPage(1);
   };
 
+  const handleShoppingListSort = (field: keyof MeetingNote) => {
+    if (shoppingListSortField === field) {
+      setShoppingListSortDirection(
+        shoppingListSortDirection === "asc" ? "desc" : "asc",
+      );
+    } else {
+      setShoppingListSortField(field);
+      setShoppingListSortDirection("asc");
+    }
+    setShoppingListPage(1);
+  };
+
   const handleBankerCommsSort = (field: keyof MeetingNote) => {
     if (bankerCommsSortField === field) {
       setBankerCommsSortDirection(
@@ -1344,6 +1387,11 @@ export default function AIFileDump({
   const handleProspectusSearchChange = (query: string) => {
     setProspectusSearchQuery(query);
     setProspectusPage(1);
+  };
+
+  const handleShoppingListSearchChange = (query: string) => {
+    setShoppingListSearchQuery(query);
+    setShoppingListPage(1);
   };
 
   const handleBankerCommsSearchChange = (query: string) => {
@@ -1482,6 +1530,12 @@ export default function AIFileDump({
     prospectusSearchQuery,
     prospectusSortField,
     prospectusSortDirection,
+  );
+  const filteredAndSortedShoppingLists = filterAndSortFiles(
+    shoppingLists,
+    shoppingListSearchQuery,
+    shoppingListSortField,
+    shoppingListSortDirection,
   );
   const filteredAndSortedBankerComms = filterAndSortFiles(
     bankerComms,
@@ -1765,6 +1819,7 @@ export default function AIFileDump({
                                         | "auto"
                                         | "mom"
                                         | "prospectus"
+                                        | "shopping_list"
                                         | "other",
                                     }))
                                   }
@@ -1783,6 +1838,9 @@ export default function AIFileDump({
                                     <SelectItem value="mom">MoM</SelectItem>
                                     <SelectItem value="prospectus">
                                       Prospectus
+                                    </SelectItem>
+                                    <SelectItem value="shopping_list">
+                                      Shopping List
                                     </SelectItem>
                                     <SelectItem value="other">Other</SelectItem>
                                   </SelectContent>
@@ -1963,6 +2021,36 @@ export default function AIFileDump({
           onPageChange={setProspectusPage}
         />
 
+        {/* Shopping Lists */}
+        <FileTable
+          title="Shopping Lists"
+          icon={<FileSpreadsheet className="h-5 w-5" />}
+          iconColor="text-amber-500"
+          files={shoppingLists}
+          filteredFiles={filteredAndSortedShoppingLists}
+          searchQuery={shoppingListSearchQuery}
+          onSearchChange={handleShoppingListSearchChange}
+          sortField={shoppingListSortField}
+          sortDirection={shoppingListSortDirection}
+          onSort={handleShoppingListSort}
+          expandedTags={expandedTags}
+          toggleTags={toggleTags}
+          expandedCompanies={expandedCompanies}
+          toggleCompanies={toggleCompanies}
+          onUpdateDate={handleUpdateDate}
+          onDownload={handleDownload}
+          onDelete={handleDelete}
+          onReview={setReviewFileId}
+          onReprocess={handleReprocess}
+          downloadingId={downloadingId}
+          deletingId={deletingId}
+          reprocessingId={reprocessingId}
+          emptyMessage="No shopping lists uploaded yet."
+          emptySubMessage="Upload a target list using the form above."
+          currentPage={shoppingListPage}
+          onPageChange={setShoppingListPage}
+        />
+
         {/* Banker Communications List */}
         <FileTable
           title="Banker Communications"
@@ -2033,6 +2121,7 @@ export default function AIFileDump({
             setReviewFileId(null);
             fetchMeetingNotes();
             fetchProspectus();
+            fetchShoppingLists();
             fetchBankerComms();
             fetchOtherFiles();
           }}

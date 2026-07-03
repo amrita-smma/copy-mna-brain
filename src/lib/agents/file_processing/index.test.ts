@@ -121,6 +121,19 @@ describe('processFileContent (Files API for PDFs)', () => {
     expect(model.opts.model).toBe('claude-sonnet-5');
     expect(model.opts.temperature).toBeUndefined();
   });
+
+  it('constructs the model with token streaming enabled', async () => {
+    // With maxTokens 32000, the Anthropic SDK rejects non-streaming requests
+    // ("Streaming is required for operations that may take longer than 10
+    // minutes"). The model must stream at the Messages API level — LangGraph's
+    // agent.stream() alone does not do this.
+    await processFileContent('raw text', Buffer.from('x'), 'text/plain', '');
+
+    const model = mocks.createAgent.mock.calls[0][0].model as {
+      opts: Record<string, unknown>;
+    };
+    expect(model.opts.streaming).toBe(true);
+  });
 });
 
 describe('processFileContent (filename hint)', () => {
@@ -316,6 +329,177 @@ describe('processFileContent (generic name denylist)', () => {
     const result = await processFileContent('raw text', Buffer.from('x'), 'text/plain', '');
 
     expect(result.prospectus_summary?.company_name).toBe('PT Sinar Mas');
+  });
+});
+
+describe('processFileContent (multi-company extraction)', () => {
+  it('sanitizes every entry of the companies array and mirrors companies[0] into prospectus_summary', async () => {
+    mocks.stream.mockImplementationOnce(() =>
+      Promise.resolve(
+        streamReturning(
+          jsonBlock({
+            file_type: 'shopping_list',
+            summary: 's',
+            companies_detected: [],
+            company_notes: [],
+            companies: [
+              {
+                company_name: 'Acme Corp',
+                project_name: 'Company Overview', // generic → must be nulled
+                financials: [
+                  { fiscal_year: 2024, revenue_usd_mn: 10, ebitda_usd_mn: null, ev_usd_mn: null, ebitda_margin: null, ev_ebitda: null, revenue_cagr_vs_prior: null },
+                  { fiscal_year: 2023, revenue_usd_mn: null, ebitda_usd_mn: null, ev_usd_mn: null, ebitda_margin: null, ev_ebitda: null, revenue_cagr_vs_prior: null }, // empty row → dropped
+                ],
+                fx_adjustments: [],
+              },
+              {
+                company_name: 'Executive Summary', // generic → must be nulled
+                project_name: 'Project Atlas',
+                financials: [],
+                fx_adjustments: [],
+              },
+            ],
+          }),
+        ),
+      ),
+    );
+
+    const result = await processFileContent('raw text', Buffer.from('x'), 'text/plain', '');
+
+    expect(result.companies).toHaveLength(2);
+    expect(result.companies[0].company_name).toBe('Acme Corp');
+    expect(result.companies[0].project_name).toBeNull();
+    expect(result.companies[0].financials).toEqual([
+      expect.objectContaining({ fiscal_year: 2024, revenue_usd_mn: 10 }),
+    ]);
+    expect(result.companies[1].company_name).toBeNull();
+    expect(result.companies[1].project_name).toBe('Project Atlas');
+    // prospectus_summary stays in sync with the primary target.
+    expect(result.prospectus_summary).toBe(result.companies[0]);
+  });
+
+  it('falls back to the legacy single prospectus_summary when no companies array is emitted', async () => {
+    mocks.stream.mockImplementationOnce(() =>
+      Promise.resolve(
+        streamReturning(
+          jsonBlock({
+            file_type: 'prospectus',
+            summary: 's',
+            companies_detected: [],
+            company_notes: [],
+            prospectus_summary: {
+              company_name: 'PT Sinar Mas',
+              project_name: null,
+              financials: [],
+              fx_adjustments: [],
+            },
+          }),
+        ),
+      ),
+    );
+
+    const result = await processFileContent('raw text', Buffer.from('x'), 'text/plain', '');
+
+    expect(result.companies).toHaveLength(1);
+    expect(result.companies[0].company_name).toBe('PT Sinar Mas');
+    expect(result.prospectus_summary).toBe(result.companies[0]);
+  });
+
+  it('backfills USD figures from local-currency FX rows per entry', async () => {
+    mocks.stream.mockImplementationOnce(() =>
+      Promise.resolve(
+        streamReturning(
+          jsonBlock({
+            file_type: 'shopping_list',
+            summary: 's',
+            companies_detected: [],
+            company_notes: [],
+            companies: [
+              {
+                company_name: 'Hanguk Co',
+                project_name: null,
+                financials: [
+                  { fiscal_year: 2024, revenue_usd_mn: null, ebitda_usd_mn: null, ev_usd_mn: null, ebitda_margin: null, ev_ebitda: null, revenue_cagr_vs_prior: null },
+                ],
+                fx_adjustments: [
+                  {
+                    fiscal_year: 2024,
+                    currency: 'KRW',
+                    revenue_local: 1370,
+                    revenue_local_unit: 'mn',
+                    ebitda_local: null,
+                    ebitda_local_unit: null,
+                    assumed_forex: 1370,
+                    forex_change_vs_prior: null,
+                    revenue_cagr_domestic: null,
+                  },
+                ],
+              },
+            ],
+          }),
+        ),
+      ),
+    );
+
+    const result = await processFileContent('raw text', Buffer.from('x'), 'text/plain', '');
+
+    expect(result.companies[0].financials).toEqual([
+      expect.objectContaining({ fiscal_year: 2024, revenue_usd_mn: 1 }),
+    ]);
+  });
+
+  it('uses company names from the companies array as the companies_detected fallback', async () => {
+    mocks.stream.mockImplementationOnce(() =>
+      Promise.resolve(
+        streamReturning(
+          jsonBlock({
+            file_type: 'shopping_list',
+            summary: 's',
+            companies_detected: [],
+            company_notes: [],
+            companies: [
+              { company_name: 'Acme Corp', project_name: null },
+              { company_name: null, project_name: 'Project Atlas' },
+              { company_name: 'Company Overview', project_name: null }, // generic → excluded
+            ],
+          }),
+        ),
+      ),
+    );
+
+    const result = await processFileContent('raw text', Buffer.from('x'), 'text/plain', '');
+
+    const names = (result.matched_companies as Array<{ name: string }>).map((m) => m.name);
+    expect(names).toContain('Acme Corp');
+    expect(names).toContain('Project Atlas');
+    expect(names).not.toContain('Company Overview');
+  });
+
+  it('does not emit a companies array for non deal-target file types', async () => {
+    mocks.stream.mockImplementationOnce(() =>
+      Promise.resolve(
+        streamReturning(
+          jsonBlock({
+            file_type: 'mom',
+            summary: 's',
+            companies_detected: [],
+            company_notes: [],
+          }),
+        ),
+      ),
+    );
+
+    const result = await processFileContent('raw text', Buffer.from('x'), 'text/plain', '');
+
+    expect(result.companies).toBeUndefined();
+  });
+
+  it('instructs the model to honor user inclusion/exclusion notes', async () => {
+    await processFileContent('raw text', Buffer.from('x'), 'text/plain', 'only include Acme');
+
+    const systemPrompt: string = mocks.createAgent.mock.calls[0][0].systemPrompt;
+    expect(systemPrompt).toContain('Company inclusion/exclusion instructions');
+    expect(systemPrompt).toContain('only include Acme');
   });
 });
 

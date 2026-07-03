@@ -267,18 +267,18 @@ describe('FileService.processUpload', () => {
     );
   });
 
-  it('marks status as awaiting_review for prospectus files', async () => {
+  it('completes prospectus files without a review gate', async () => {
     vi.mocked(processFileContent).mockResolvedValue({ file_type: 'prospectus' } as never);
 
     await service.processUpload('uploads/report.pdf', 'report.pdf', 'application/pdf');
 
     expect(fileRepo.updatePartial).toHaveBeenCalledWith(
       'file-1',
-      expect.objectContaining({ processing_status: 'awaiting_review' }),
+      expect.objectContaining({ processing_status: 'completed' }),
     );
   });
 
-  it('marks status as awaiting_review when fileTypeOverride is prospectus', async () => {
+  it('completes files when fileTypeOverride is prospectus', async () => {
     await service.processUpload(
       'uploads/report.pdf',
       'report.pdf',
@@ -289,7 +289,7 @@ describe('FileService.processUpload', () => {
 
     expect(fileRepo.updatePartial).toHaveBeenCalledWith(
       'file-1',
-      expect.objectContaining({ processing_status: 'awaiting_review' }),
+      expect.objectContaining({ processing_status: 'completed' }),
     );
   });
 
@@ -304,7 +304,7 @@ describe('FileService.processUpload', () => {
     );
   });
 
-  it('does not dispatch company analysis during processUpload', async () => {
+  it('does not dispatch company analysis when no company is created', async () => {
     vi.mocked(processFileContent).mockResolvedValue({ file_type: 'prospectus' } as never);
 
     await service.processUpload('uploads/report.pdf', 'report.pdf', 'application/pdf');
@@ -312,7 +312,7 @@ describe('FileService.processUpload', () => {
     expect(companyAnalysisService.dispatch).not.toHaveBeenCalled();
   });
 
-  it('does not dispatch AI screening during processUpload', async () => {
+  it('does not dispatch AI screening when no company is created', async () => {
     vi.mocked(processFileContent).mockResolvedValue({ file_type: 'prospectus' } as never);
     vi.mocked(criteriaRepo.findAll).mockResolvedValue([makeCriteria('criteria-1')]);
 
@@ -410,24 +410,17 @@ describe('FileService.processUpload', () => {
     );
   });
 
-  it('merges email-origin attachment data into an existing matched company', async () => {
+  it('skips creation when an existing company matches the extracted name (dedup)', async () => {
     vi.mocked(processFileContent).mockResolvedValue({
       file_type: 'prospectus',
       matched_companies: [{ id: 'company-existing', type: 'company' }],
       prospectus_summary: {
         company_name: 'Acme Corp',
         segment: 'Industrial Tech',
-        financials: [
-          {
-            fiscal_year: 2024,
-            revenue_usd_mn: 42,
-            ev_usd_mn: 120,
-          },
-        ],
       },
     } as never);
-    vi.mocked(companyService.findById).mockResolvedValue(
-      makeCompany({ id: 'company-existing', target: 'Acme Corp' }),
+    vi.mocked(companyService.findByNameFuzzy).mockResolvedValue(
+      makeCompany({ id: 'company-existing', target: 'Acme Corp' }) as never,
     );
 
     await service.processUpload(
@@ -440,33 +433,22 @@ describe('FileService.processUpload', () => {
       'Goldman Sachs',
     );
 
-    expect(companyService.updateFromDTO).toHaveBeenCalledWith(
-      'company-existing',
-      expect.objectContaining({
-        target: 'Acme Corp',
-        segment: 'Industrial Tech',
-        doc_type: 'prospectus',
-        banker_source: 'Goldman Sachs',
-        revenue_2024_usd_mn: 42,
-        ev_2024: 120,
-      }),
-      'merged_from_email_attachment:file-1',
-    );
-    const updates = vi.mocked(companyService.updateFromDTO).mock.calls[0]?.[1] as Record<string, unknown>;
-    expect(updates.website).toBeUndefined();
-    expect(updates.ebitda_2024_usd_mn).toBeUndefined();
+    expect(companyService.findByNameFuzzy).toHaveBeenCalledWith('Acme Corp');
+    // Duplicates are skipped — never re-created and never enriched.
     expect(companyService.createFromDTO).not.toHaveBeenCalled();
+    expect(companyService.updateFromDTO).not.toHaveBeenCalled();
     expect(fileRepo.updatePartial).toHaveBeenCalledWith(
       'file-1',
       expect.objectContaining({
         matched_companies: expect.arrayContaining([
           expect.objectContaining({ id: 'company-existing' }),
         ]),
+        processing_status: 'completed',
       }),
     );
   });
 
-  it('creates an unreviewed email-origin company when no existing company matches', async () => {
+  it('creates an unreviewed company when no existing company matches', async () => {
     vi.mocked(processFileContent).mockResolvedValue({
       file_type: 'prospectus',
       prospectus_summary: { company_name: 'Acme Corp' },
@@ -495,8 +477,150 @@ describe('FileService.processUpload', () => {
         banker_source: 'Goldman Sachs',
         entered_by: null,
       }),
-      'auto_created_from_email_attachment:file-1',
+      'auto_created_from_file:file-1',
     );
+  });
+
+  it('creates one company per entry in the multi-company companies array (manual upload)', async () => {
+    vi.mocked(processFileContent).mockResolvedValue({
+      file_type: 'shopping_list',
+      companies: [
+        { company_name: 'Acme Corp', segment: 'Fintech' },
+        { company_name: 'Beta Ltd', segment: 'Healthcare' },
+      ],
+      prospectus_summary: { company_name: 'Acme Corp', segment: 'Fintech' },
+    } as never);
+    vi.mocked(companyService.findByNameFuzzy).mockResolvedValue(null as never);
+    vi.mocked(companyService.createFromDTO)
+      .mockResolvedValueOnce({ id: 'company-a', target: 'Acme Corp' } as never)
+      .mockResolvedValueOnce({ id: 'company-b', target: 'Beta Ltd' } as never);
+    vi.mocked(companyService.findById)
+      .mockResolvedValueOnce(makeCompany({ id: 'company-a', target: 'Acme Corp' }))
+      .mockResolvedValueOnce(makeCompany({ id: 'company-b', target: 'Beta Ltd' }));
+
+    // Manual upload: originEmail=false, uploader session user provided.
+    await service.processUpload(
+      'uploads/targets.xlsx',
+      'targets.xlsx',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      undefined,
+      'shopping_list',
+      false,
+      undefined,
+      undefined,
+      'uploader-uuid',
+    );
+
+    expect(companyService.createFromDTO).toHaveBeenCalledTimes(2);
+    expect(companyService.createFromDTO).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        target: 'Acme Corp',
+        segment: 'Fintech',
+        pipeline_stage: 'unreviewed',
+        entered_by: 'uploader-uuid',
+      }),
+      'auto_created_from_file:file-1',
+    );
+    expect(companyService.createFromDTO).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ target: 'Beta Ltd', segment: 'Healthcare' }),
+      'auto_created_from_file:file-1',
+    );
+    expect(fileRepo.updatePartial).toHaveBeenCalledWith(
+      'file-1',
+      expect.objectContaining({
+        matched_companies: [
+          expect.objectContaining({ id: 'company-a' }),
+          expect.objectContaining({ id: 'company-b' }),
+        ],
+        processing_status: 'completed',
+      }),
+    );
+  });
+
+  it('creates only the new companies and records existing ones when a multi-company file has duplicates', async () => {
+    vi.mocked(processFileContent).mockResolvedValue({
+      file_type: 'shopping_list',
+      companies: [
+        { company_name: 'Acme Corp' },
+        { company_name: 'Beta Ltd' },
+      ],
+    } as never);
+    // Acme already exists; Beta does not.
+    vi.mocked(companyService.findByNameFuzzy).mockImplementation(async (name: string) =>
+      name === 'Acme Corp'
+        ? (makeCompany({ id: 'company-existing', target: 'Acme Corp' }) as never)
+        : (null as never),
+    );
+    vi.mocked(companyService.createFromDTO).mockResolvedValue({
+      id: 'company-b',
+      target: 'Beta Ltd',
+    } as never);
+    vi.mocked(companyService.findById).mockResolvedValue(
+      makeCompany({ id: 'company-b', target: 'Beta Ltd' }),
+    );
+
+    await service.processUpload(
+      'uploads/targets.pdf',
+      'targets.pdf',
+      'application/pdf',
+      undefined,
+      'shopping_list',
+    );
+
+    expect(companyService.createFromDTO).toHaveBeenCalledTimes(1);
+    expect(companyService.createFromDTO).toHaveBeenCalledWith(
+      expect.objectContaining({ target: 'Beta Ltd' }),
+      'auto_created_from_file:file-1',
+    );
+    expect(companyService.updateFromDTO).not.toHaveBeenCalled();
+    expect(fileRepo.updatePartial).toHaveBeenCalledWith(
+      'file-1',
+      expect.objectContaining({
+        matched_companies: [
+          expect.objectContaining({ id: 'company-existing' }),
+          expect.objectContaining({ id: 'company-b' }),
+        ],
+      }),
+    );
+  });
+
+  it('dispatches analysis and screening only for newly created companies', async () => {
+    vi.mocked(processFileContent).mockResolvedValue({
+      file_type: 'prospectus',
+      companies: [
+        { company_name: 'Acme Corp' },
+        { company_name: 'Beta Ltd' },
+      ],
+    } as never);
+    vi.mocked(companyService.findByNameFuzzy).mockImplementation(async (name: string) =>
+      name === 'Acme Corp'
+        ? (makeCompany({ id: 'company-existing', target: 'Acme Corp' }) as never)
+        : (null as never),
+    );
+    vi.mocked(companyService.createFromDTO).mockResolvedValue({
+      id: 'company-b',
+      target: 'Beta Ltd',
+    } as never);
+    vi.mocked(companyService.findById).mockResolvedValue(
+      makeCompany({ id: 'company-b', target: 'Beta Ltd', matched_track_ids: ['track-1'] } as never),
+    );
+    vi.mocked(criteriaRepo.findAll).mockResolvedValue([makeCriteria('c-1', 'track-1')]);
+    vi.mocked(screeningRepo.insert).mockResolvedValue(makeScreening('s-1'));
+    vi.mocked(companyAnalysisService.dispatch).mockResolvedValue({ runId: 'run-1' } as never);
+
+    await service.processUpload('uploads/teaser.pdf', 'teaser.pdf', 'application/pdf');
+
+    expect(companyAnalysisService.dispatch).toHaveBeenCalledTimes(1);
+    expect(companyAnalysisService.dispatch).toHaveBeenCalledWith(
+      expect.objectContaining({ companyId: 'company-b', source: 'prospectus' }),
+    );
+    await vi.waitFor(() => {
+      expect(aiScreeningService.dispatch).toHaveBeenCalledWith(
+        expect.objectContaining({ companyId: 'company-b' }),
+      );
+    });
   });
 
   it('does not auto-create a company from a market_study email attachment', async () => {
@@ -637,19 +761,15 @@ describe('FileService.processUpload', () => {
     expect(companyFinancialRepo.bulkUpsertForCompany).not.toHaveBeenCalled();
   });
 
-  it('does not blank company or project names when merging email-origin attachments', async () => {
+  it('skips entries whose extracted names are blank', async () => {
     vi.mocked(processFileContent).mockResolvedValue({
       file_type: 'prospectus',
-      matched_companies: [{ id: 'company-existing', type: 'company' }],
       prospectus_summary: {
         company_name: '   ',
         project_name: '',
         segment: 'Industrial Tech',
       },
     } as never);
-    vi.mocked(companyService.findById).mockResolvedValue(
-      makeCompany({ id: 'company-existing', target: 'Acme Corp', project_name: 'Project Falcon' }),
-    );
 
     await service.processUpload(
       'uploads/teaser.pdf',
@@ -660,145 +780,25 @@ describe('FileService.processUpload', () => {
       true,
     );
 
-    const updates = vi.mocked(companyService.updateFromDTO).mock.calls[0]?.[1] as Record<string, unknown>;
-    expect(updates).toMatchObject({
-      source: 'inbound',
-      doc_type: 'prospectus',
-      segment: 'Industrial Tech',
-    });
-    expect(updates.target).toBeUndefined();
-    expect(updates.project_name).toBeUndefined();
+    expect(companyService.findByNameFuzzy).not.toHaveBeenCalled();
     expect(companyService.createFromDTO).not.toHaveBeenCalled();
+    expect(companyService.updateFromDTO).not.toHaveBeenCalled();
   });
 
-  it('merges email-origin attachment data into an outbound matched company without changing source', async () => {
+  it('does not write a generic company_name to target when auto-creating', async () => {
     vi.mocked(processFileContent).mockResolvedValue({
       file_type: 'prospectus',
-      matched_companies: [{ id: 'company-outbound', type: 'company' }],
-      prospectus_summary: {
-        company_name: 'Acme Corp',
-        segment: 'Industrial Tech',
-      },
-    } as never);
-    vi.mocked(companyService.findById).mockResolvedValue(
-      makeCompany({ id: 'company-outbound', source: 'outbound' }),
-    );
-
-    await service.processUpload(
-      'uploads/teaser.pdf',
-      'teaser.pdf',
-      'application/pdf',
-      undefined,
-      undefined,
-      true,
-      'Goldman Sachs',
-    );
-
-    expect(companyService.updateFromDTO).toHaveBeenCalledWith(
-      'company-outbound',
-      expect.objectContaining({
-        target: 'Acme Corp',
-        source: 'outbound',
-        segment: 'Industrial Tech',
-      }),
-      'merged_from_email_attachment:file-1',
-    );
-    expect(companyService.createFromDTO).not.toHaveBeenCalled();
-  });
-
-  it('merges email-origin attachment data into a fuzzy-matched company before creating', async () => {
-    vi.mocked(processFileContent).mockResolvedValue({
-      file_type: 'prospectus',
-      prospectus_summary: {
-        company_name: 'Acme Corp',
-        project_name: 'Project Falcon',
-      },
-    } as never);
-    vi.mocked(companyService.findByNameFuzzy).mockResolvedValue(
-      makeCompany({ id: 'company-existing', target: 'Acme Corp' }) as never,
-    );
-    vi.mocked(companyService.findById).mockResolvedValue(
-      makeCompany({ id: 'company-existing', target: 'Acme Corp' }),
-    );
-
-    await service.processUpload(
-      'uploads/teaser.pdf',
-      'teaser.pdf',
-      'application/pdf',
-      undefined,
-      undefined,
-      true,
-      'Goldman Sachs',
-    );
-
-    expect(companyService.findByNameFuzzy).toHaveBeenCalledWith('Acme Corp');
-    expect(companyService.updateFromDTO).toHaveBeenCalledWith(
-      'company-existing',
-      expect.objectContaining({
-        target: 'Acme Corp',
-        project_name: 'Project Falcon',
-      }),
-      'merged_from_email_attachment:file-1',
-    );
-    expect(companyService.createFromDTO).not.toHaveBeenCalled();
-    expect(fileRepo.updatePartial).toHaveBeenCalledWith(
-      'file-1',
-      expect.objectContaining({
-        matched_companies: [expect.objectContaining({ id: 'company-existing' })],
-      }),
-    );
-  });
-
-  it('merges email-origin attachment data into an outbound fuzzy match without changing source', async () => {
-    vi.mocked(processFileContent).mockResolvedValue({
-      file_type: 'prospectus',
-      prospectus_summary: {
-        company_name: 'Acme Corp',
-        project_name: 'Project Falcon',
-      },
-    } as never);
-    vi.mocked(companyService.findByNameFuzzy).mockResolvedValue(
-      makeCompany({ id: 'company-outbound', target: 'Acme Corp', source: 'outbound' }) as never,
-    );
-    vi.mocked(companyService.findById).mockResolvedValue(
-      makeCompany({ id: 'company-outbound', target: 'Acme Corp', source: 'outbound' }),
-    );
-
-    await service.processUpload(
-      'uploads/teaser.pdf',
-      'teaser.pdf',
-      'application/pdf',
-      undefined,
-      undefined,
-      true,
-      'Goldman Sachs',
-    );
-
-    expect(companyService.updateFromDTO).toHaveBeenCalledWith(
-      'company-outbound',
-      expect.objectContaining({
-        target: 'Acme Corp',
-        project_name: 'Project Falcon',
-        source: 'outbound',
-      }),
-      'merged_from_email_attachment:file-1',
-    );
-    expect(companyService.createFromDTO).not.toHaveBeenCalled();
-  });
-
-  it('does not write a generic company_name to target when merging into an existing company', async () => {
-    vi.mocked(processFileContent).mockResolvedValue({
-      file_type: 'prospectus',
-      matched_companies: [{ id: 'company-existing', type: 'company' }],
       prospectus_summary: {
         company_name: 'Company Overview',
         project_name: 'Project Atlas',
         segment: 'Fintech',
       },
     } as never);
-    vi.mocked(companyService.findById).mockResolvedValue(
-      makeCompany({ id: 'company-existing', target: 'Real Name Corp' }),
-    );
+    vi.mocked(companyService.findByNameFuzzy).mockResolvedValue(null as never);
+    vi.mocked(companyService.createFromDTO).mockResolvedValue({
+      id: 'company-new',
+      project_name: 'Project Atlas',
+    } as never);
 
     await service.processUpload(
       'uploads/teaser.pdf',
@@ -809,11 +809,13 @@ describe('FileService.processUpload', () => {
       true,
     );
 
-    const updates = vi.mocked(companyService.updateFromDTO).mock.calls[0]?.[1] as Record<string, unknown>;
-    expect(updates.target).toBeUndefined();
-    expect(updates.project_name).toBe('Project Atlas');
-    expect(updates.segment).toBe('Fintech');
-    expect(companyService.createFromDTO).not.toHaveBeenCalled();
+    // Identity falls back to the project codename; the generic phrase never
+    // reaches `target`.
+    expect(companyService.findByNameFuzzy).toHaveBeenCalledWith('Project Atlas');
+    const created = vi.mocked(companyService.createFromDTO).mock.calls[0]?.[0] as Record<string, unknown>;
+    expect(created.target).toBeUndefined();
+    expect(created.project_name).toBe('Project Atlas');
+    expect(created.segment).toBe('Fintech');
   });
 
   it('does not create a company when email-origin attachment has only a generic phrase as project_name', async () => {
@@ -1524,7 +1526,7 @@ describe('FileService.reprocess', () => {
     expect(finalUpdate.file_type).toBeUndefined();
   });
 
-  it('returns prospectus files to awaiting_review', async () => {
+  it('completes prospectus files (no review gate)', async () => {
     vi.mocked(fileRepo.findById).mockResolvedValue(
       makeFile({ id: 'file-1', file_name: 'teaser.pdf', file_type: 'prospectus' }),
     );
@@ -1533,7 +1535,7 @@ describe('FileService.reprocess', () => {
 
     expect(fileRepo.updatePartial).toHaveBeenLastCalledWith(
       'file-1',
-      expect.objectContaining({ processing_status: 'awaiting_review' }),
+      expect.objectContaining({ processing_status: 'completed' }),
     );
   });
 

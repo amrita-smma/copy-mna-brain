@@ -30,13 +30,16 @@ import { CompanyL0RequirementsError, CompanyService } from './companyService';
 import type { TrackMatchingService } from './trackMatchingService';
 
 /**
- * File types that describe a deal target (a company/project genuinely offered
- * for sale) and may therefore mint a company row. Only sale-offering documents
- * qualify — financial statements, legal agreements, MoMs, and buyer/sponsor/
- * advisor material describe counterparties or process, NOT companies on sale,
- * and must never auto-create a company. (MB-300)
+ * File types that describe deal targets (companies/projects genuinely offered
+ * for sale or listed as acquisition targets) and may therefore mint company
+ * rows. These files can contain MULTIPLE targets — the agent emits a
+ * `companies` array and every entry is auto-created on upload (duplicates
+ * skipped by fuzzy name match; no HITL review). Financial statements, legal
+ * agreements, MoMs, and buyer/sponsor/advisor material describe counterparties
+ * or process, NOT companies on sale, and must never auto-create a company.
+ * (MB-300)
  */
-const DEAL_TARGET_FILE_TYPES = new Set<string>(['prospectus']);
+const MULTI_COMPANY_FILE_TYPES = new Set<string>(['prospectus', 'shopping_list']);
 
 /**
  * `entered_by` value stamped on companies auto-created from banker email
@@ -239,34 +242,32 @@ export class FileService {
         matched_companies = structuredResult.matched_companies || [];
       }
 
-      // Only deal-target (sale-offering) files require HITL review (the
-      // duplicate-company / financial-enrichment gate from MB-122). MoM,
-      // banker_communications, financial statements, legal documents, and
-      // other file types auto-complete to match pre-MB-122 behavior — they
-      // have no prospectus_summary to diff and no financials to upsert.
       const effectiveFileType = fileTypeOverride ?? structuredResult?.file_type ?? 'other';
-      const requiresReview = DEAL_TARGET_FILE_TYPES.has(effectiveFileType);
 
-      // MB-225 connector: auto-create unreviewed pipeline company from email attachments.
-      // Only fires when: (a) file came from email pipeline, (b) AFD extracted content,
-      // (c) the file is a sale offering describing a deal target. Financial
-      // statements, legal docs, and buyer/sponsor/advisor material must NOT
-      // auto-create a company — they describe counterparties, not targets. (MB-300)
-      if (originEmail && structuredResult && DEAL_TARGET_FILE_TYPES.has(effectiveFileType)) {
+      // Multi-company auto-ingest (no HITL review): deal-target files
+      // (prospectus, shopping_list) auto-create one company per extracted
+      // target for BOTH manual and email uploads, skipping targets that
+      // already exist (fuzzy name match). Financial statements, legal docs,
+      // and buyer/sponsor/advisor material must NOT auto-create a company —
+      // they describe counterparties, not targets. (MB-300)
+      let createdCompanies: Tables<'companies'>[] = [];
+      if (structuredResult && MULTI_COMPANY_FILE_TYPES.has(effectiveFileType)) {
         try {
-          const summary = (structuredResult as Record<string, unknown>).prospectus_summary as ProspectusSummary | undefined;
-          matched_companies = await this.mergeEmailOriginAttachmentCompany({
+          const result = await this.createCompaniesFromExtraction({
+            companies: this.parseExtractedCompanies(structuredResult as Record<string, unknown>),
             matchedCompanies: matched_companies,
-            summary,
             parsedNotes: structuredResult as Record<string, unknown>,
             effectiveFileType,
             companySource: 'inbound',
             bankerSource,
             enteredByEmail,
+            uploaderUserId,
             fileId: initialData.id,
           });
+          matched_companies = result.matchedCompanies;
+          createdCompanies = result.createdCompanies;
         } catch (err) {
-          console.error('[fileService] Failed to merge/create email-origin company:', err);
+          console.error('[fileService] Failed to auto-create companies from file:', err);
         }
       }
 
@@ -292,8 +293,18 @@ export class FileService {
         tags,
         matched_companies: matched_companies as Tables<'files'>['matched_companies'],
         file_date: structuredResult?.file_date || null,
-        processing_status: requiresReview ? 'awaiting_review' : 'completed',
+        processing_status: 'completed',
       });
+
+      // Kick off analysis + screening for every company minted from this file
+      // (mirrors the post-approve dispatch; existing/skipped companies are not
+      // re-analyzed).
+      for (const company of createdCompanies) {
+        await this.companyAnalysisService
+          .dispatch({ companyId: company.id, source: effectiveFileType })
+          .catch((err) => console.error('Error dispatching company analysis:', err));
+        void this.dispatchScreeningJobs(company.id, company);
+      }
     } catch (processError) {
       console.error('Error during file processing:', processError);
       await this.fileRepo.updatePartial(initialData.id, {
@@ -346,11 +357,10 @@ export class FileService {
    *
    * This is a pure refresh. Unlike {@link processUpload} it never auto-creates
    * or merges companies, never upserts financials, and never re-ingests banker
-   * communications into the CRM — those side effects belong to the upload and
-   * approve flows and re-running them would risk duplicating or clobbering
-   * already-approved records. The file keeps its existing `file_type` (so it
-   * stays in the same tab); prospectus files return to `awaiting_review` so a
-   * human re-approves, everything else completes.
+   * communications into the CRM — those side effects belong to the upload flow
+   * and re-running them would risk duplicating or clobbering already-persisted
+   * records. The file keeps its existing `file_type` (so it stays in the same
+   * tab) and completes when done.
    */
   async reprocess(fileId: string) {
     const existing = await this.fileRepo.findById(fileId);
@@ -382,17 +392,14 @@ export class FileService {
         matched_companies = structuredResult.matched_companies || [];
       }
 
-      // Prospectuses re-enter the HITL review gate; everything else completes.
       // file_type is intentionally left untouched so the file stays in its tab.
-      const requiresReview = DEAL_TARGET_FILE_TYPES.has(existingFileType);
-
       await this.fileRepo.updatePartial(fileId, {
         raw_notes: rawText,
         structured_notes: structuredResult ? JSON.stringify(structuredResult, null, 2) : null,
         tags,
         matched_companies: matched_companies as Tables<'files'>['matched_companies'],
         file_date: structuredResult?.file_date || null,
-        processing_status: requiresReview ? 'awaiting_review' : 'completed',
+        processing_status: 'completed',
       });
     } catch (processError) {
       console.error('Error during file reprocessing:', processError);
@@ -663,7 +670,7 @@ export class FileService {
     }
   }
 
-  private buildEmailAttachmentCompanyMergeInput(
+  private buildCompanyCreateInput(
     summary: ProspectusSummary | undefined,
     effectiveFileType: string,
     companySource: 'inbound' | 'outbound',
@@ -679,7 +686,9 @@ export class FileService {
     const input: CompanyDTOInput = {
       source: companySource,
       doc_type: effectiveFileType,
-      banker_source: bankerSource ?? null,
+      // Explicit banker source (email pipeline) wins; fall back to the
+      // banker the agent extracted from the document itself.
+      banker_source: bankerSource ?? cleanText(summary?.banker) ?? null,
     };
 
     if (summary) {
@@ -742,74 +751,112 @@ export class FileService {
     return input;
   }
 
-  private async mergeEmailOriginAttachmentCompany(opts: {
+  /**
+   * Extract the deal-target entries from the agent output. Prefers the
+   * multi-company `companies` array; falls back to the legacy single
+   * `prospectus_summary` for records produced before multi-company support.
+   */
+  private parseExtractedCompanies(
+    parsedNotes: Record<string, unknown> | null | undefined,
+  ): ProspectusSummary[] {
+    const companies = (parsedNotes as { companies?: unknown } | null | undefined)?.companies;
+    if (Array.isArray(companies)) {
+      const entries = companies.filter(
+        (e): e is ProspectusSummary => !!e && typeof e === 'object',
+      );
+      if (entries.length > 0) return entries;
+    }
+    const summary = (parsedNotes as { prospectus_summary?: unknown } | null | undefined)
+      ?.prospectus_summary;
+    return summary && typeof summary === 'object' ? [summary as ProspectusSummary] : [];
+  }
+
+  /**
+   * Auto-create one company per extracted deal target (no HITL review).
+   * For each entry: resolve an identity name, SKIP the entry when a company
+   * with that name already exists (fuzzy match — duplicates are never
+   * re-created or enriched), otherwise create an `unreviewed` pipeline
+   * company from the entry's fields. Creation runs under a per-name advisory
+   * lock so concurrent uploads of the same target can't double-insert.
+   *
+   * Returns the matched_companies payload (one entry per created OR matched
+   * existing company) and the list of newly created companies so the caller
+   * can dispatch analysis/screening jobs for them.
+   */
+  private async createCompaniesFromExtraction(opts: {
+    companies: ProspectusSummary[];
     matchedCompanies: unknown[];
-    summary: ProspectusSummary | undefined;
     parsedNotes?: Record<string, unknown>;
     effectiveFileType: string;
     companySource: 'inbound' | 'outbound';
     bankerSource?: string;
     enteredByEmail?: string;
+    uploaderUserId?: string | null;
     fileId: string;
-  }): Promise<unknown[]> {
-    // Resolve custodian email → user UUID once, outside the per-company lock.
+  }): Promise<{ matchedCompanies: unknown[]; createdCompanies: Tables<'companies'>[] }> {
+    // Resolve entered_by once, outside the per-company lock: the custodian
+    // email (MBOX pipeline) wins, else the authenticated uploader.
     let resolvedEnteredBy: string | null = null;
     if (opts.enteredByEmail && this.userRepo) {
       const user = await this.userRepo.findByEmail(opts.enteredByEmail);
       resolvedEnteredBy = user?.id ?? null;
     }
+    if (!resolvedEnteredBy && opts.uploaderUserId) {
+      resolvedEnteredBy = opts.uploaderUserId;
+    }
 
-    const identityName = this.emailAttachmentCompanyIdentityName(opts.summary);
-    return this.withEmailAttachmentCompanyLock(identityName, async (companyService) => {
-      const matchedCompany = (opts.matchedCompanies as Array<{ id?: string; type?: string }>)
-        .find((m) => m?.id && (m.type === undefined || m.type === 'company'));
-      let companyId = matchedCompany?.id ?? null;
-      let companyRecord = companyId ? await companyService.findById(companyId) : null;
+    const payloads: unknown[] = [];
+    const createdCompanies: Tables<'companies'>[] = [];
 
-      if (!companyRecord && identityName) {
-        companyRecord = await companyService.findByNameFuzzy(identityName);
-        companyId = companyRecord?.id ?? null;
-      }
-
-      if (companyRecord && companyId) {
-        await companyService.updateFromDTO(
-          companyId,
-          this.buildEmailAttachmentCompanyMergeInput(
-            opts.summary,
-            opts.effectiveFileType,
-            companyRecord.source ?? opts.companySource,
-            opts.bankerSource,
-          ),
-          `merged_from_email_attachment:${opts.fileId}`,
-        );
-        const refreshed = await companyService.findById(companyId);
-        return [this.companyMatchPayload(refreshed)];
-      }
-
+    for (const entry of opts.companies) {
+      const identityName = this.companyIdentityName(entry);
       if (!identityName) {
         console.warn(
-          `[fileService] Skipping email-origin company auto-create for file ${opts.fileId}: no company/project name extracted`,
+          `[fileService] Skipping company auto-create for file ${opts.fileId}: no company/project name extracted`,
         );
-        return opts.matchedCompanies;
+        continue;
       }
 
-      const created = await companyService.createFromDTO({
-        pipeline_stage: 'unreviewed',
-        status: 'active',
-        entered_by: resolvedEnteredBy,
-        matched_track_ids: this.extractSuggestedTrackIds(opts.parsedNotes),
-        ...this.buildEmailAttachmentCompanyMergeInput(
-          opts.summary,
-          opts.effectiveFileType,
-          opts.companySource,
-          opts.bankerSource,
-        ),
-      }, `auto_created_from_email_attachment:${opts.fileId}`);
+      const result = await this.withCompanyNameLock(identityName, async (companyService) => {
+        // Dedup gate: an existing company with this name is recorded as a
+        // match but never re-created or modified.
+        const existing = await companyService.findByNameFuzzy(identityName);
+        if (existing) {
+          console.log(
+            `[fileService] file ${opts.fileId}: "${identityName}" matches existing company ${existing.id}, skipping create`,
+          );
+          return { company: existing, created: false };
+        }
 
-      // Write the new company back into matched_companies so approve() takes
-      // the update branch rather than creating a duplicate.
-      return [this.companyMatchPayload(created)];
-    });
+        const created = await companyService.createFromDTO({
+          pipeline_stage: 'unreviewed',
+          status: 'active',
+          entered_by: resolvedEnteredBy,
+          matched_track_ids: this.extractSuggestedTrackIds(opts.parsedNotes),
+          ...this.buildCompanyCreateInput(
+            entry,
+            opts.effectiveFileType,
+            opts.companySource,
+            opts.bankerSource,
+          ),
+        }, `auto_created_from_file:${opts.fileId}`);
+        return { company: created, created: true };
+      });
+
+      payloads.push(this.companyMatchPayload(result.company));
+      if (result.created) {
+        // Re-fetch outside the (now committed) lock transaction so screening
+        // sees the full row incl. matched_track_ids.
+        createdCompanies.push(await this.companyService.findById(result.company.id));
+      }
+    }
+
+    return {
+      // If nothing was created or matched (e.g. every entry lacked an
+      // identity name), keep the agent-provided matches untouched.
+      matchedCompanies: payloads.length > 0 ? payloads : opts.matchedCompanies,
+      createdCompanies,
+    };
   }
 
   private extractSuggestedTrackIds(parsedNotes: Record<string, unknown> | null | undefined): string[] {
@@ -818,7 +865,7 @@ export class FileService {
     return ids.filter((id): id is string => typeof id === 'string' && id.trim().length > 0);
   }
 
-  private emailAttachmentCompanyIdentityName(summary: ProspectusSummary | undefined): string | null {
+  private companyIdentityName(summary: ProspectusSummary | undefined): string | null {
     const companyName = summary?.company_name?.trim();
     if (companyName && !isGenericDocumentPhrase(companyName)) return companyName;
     const projectName = summary?.project_name?.trim();
@@ -836,7 +883,7 @@ export class FileService {
     };
   }
 
-  private async withEmailAttachmentCompanyLock<T>(
+  private async withCompanyNameLock<T>(
     identityName: string | null,
     fn: (companyService: CompanyService) => Promise<T>,
   ): Promise<T> {
