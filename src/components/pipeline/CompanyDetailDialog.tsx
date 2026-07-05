@@ -1551,7 +1551,16 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
                     </Button>
                   )}
                 </div>
-                <div className="grid grid-cols-2 gap-x-8 gap-y-3">
+                <div className="space-y-3">
+                {/* Fields required before a company can be promoted to L0 */}
+                <div className="rounded-md border border-amber-400/70 bg-amber-50/80 p-3 dark:border-amber-500/40 dark:bg-amber-950/20">
+                  <div className="mb-2 flex items-center gap-1.5">
+                    <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-amber-600 dark:text-amber-500" />
+                    <p className="text-xs font-medium text-amber-700 dark:text-amber-500">
+                      These fields are required to promote to L0
+                    </p>
+                  </div>
+                  <div className="grid grid-cols-2 gap-x-8 gap-y-3">
                   <div>
                     <p className="text-xs text-muted-foreground">Company Name</p>
                     {isEditing && editForm ? (
@@ -1584,29 +1593,52 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
                     )}
                   </div>
                   <div>
-                    <p className="text-xs text-muted-foreground">Website</p>
+                    <p className="text-xs text-muted-foreground">Source</p>
                     {isEditing && editForm ? (
-                      <Input
-                        value={editForm.website}
-                        onChange={(e) =>
-                          setEditForm({ ...editForm, website: e.target.value })
+                      <Select
+                        value={editForm.source || '__none__'}
+                        onValueChange={(v) =>
+                          setEditForm({
+                            ...editForm,
+                            source: v === '__none__' ? '' : v,
+                          })
                         }
-                        placeholder="https://..."
                         disabled={isSaving}
-                        className="mt-1 h-7 text-sm"
-                      />
-                    ) : company.website ? (
-                      <a
-                        href={websiteHref(company.website)}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-primary hover:underline text-xs inline-flex items-start gap-1 break-all"
                       >
-                        <span className="break-all">{company.website}</span>
-                        <ExternalLink className="h-3 w-3 shrink-0 mt-0.5" />
-                      </a>
+                        <SelectTrigger className="mt-1 h-7 text-sm">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="__none__">-</SelectItem>
+                          <SelectItem value="inbound">Inbound</SelectItem>
+                          <SelectItem value="outbound">Outbound</SelectItem>
+                        </SelectContent>
+                      </Select>
                     ) : (
-                      <span className="text-muted-foreground text-sm">—</span>
+                      <p className="text-sm font-medium capitalize break-words">{company.source || "—"}</p>
+                    )}
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground">Deal Type</p>
+                    {isEditing && editForm ? (
+                      <Select
+                        value={editForm.deal_type || '__none__'}
+                        onValueChange={(v) =>
+                          setEditForm({ ...editForm, deal_type: v === '__none__' ? '' : v })
+                        }
+                        disabled={isSaving}
+                      >
+                        <SelectTrigger className="mt-1 h-7 text-sm">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="__none__">-</SelectItem>
+                          <SelectItem value="majority">Majority</SelectItem>
+                          <SelectItem value="minority">Minority</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    ) : (
+                      <p className="text-sm font-medium capitalize break-words">{company.deal_type || '—'}</p>
                     )}
                   </div>
                   <div>
@@ -1640,6 +1672,71 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
                     )}
                   </div>
                   <div>
+                    <p className="text-xs text-muted-foreground">Entered by</p>
+                    {isEditing && editForm ? (
+                      <div className="mt-1">
+                        <UserSelectCombobox
+                          value={editForm.entered_by || null}
+                          onChange={(v) => setEditForm({ ...editForm, entered_by: v })}
+                          users={users}
+                          disabled={isSaving}
+                        />
+                      </div>
+                    ) : (
+                      <p className="text-sm font-medium break-words">{company.entered_by_name || '—'}</p>
+                    )}
+                  </div>
+                  {company.source !== 'outbound' && (
+                    <div>
+                      <p className="text-xs text-muted-foreground">Banker / Source</p>
+                      {isEditing && editForm ? (
+                        <StatusCombobox
+                          value={editForm.banker || null}
+                          options={bankerOptions}
+                          placeholder="Set banker…"
+                          searchPlaceholder="Search or add a banker…"
+                          emptyText="No bankers yet."
+                          onChange={(v) =>
+                            setEditForm({ ...editForm, banker: v })
+                          }
+                          disabled={isSaving}
+                          className="mt-1"
+                        />
+                      ) : (
+                        <p className="text-sm font-medium break-words">{company.banker || '—'}</p>
+                      )}
+                    </div>
+                  )}
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-x-8 gap-y-3">
+                  <div>
+                    <p className="text-xs text-muted-foreground">Website</p>
+                    {isEditing && editForm ? (
+                      <Input
+                        value={editForm.website}
+                        onChange={(e) =>
+                          setEditForm({ ...editForm, website: e.target.value })
+                        }
+                        placeholder="https://..."
+                        disabled={isSaving}
+                        className="mt-1 h-7 text-sm"
+                      />
+                    ) : company.website ? (
+                      <a
+                        href={websiteHref(company.website)}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-primary hover:underline text-xs inline-flex items-start gap-1 break-all"
+                      >
+                        <span className="break-all">{company.website}</span>
+                        <ExternalLink className="h-3 w-3 shrink-0 mt-0.5" />
+                      </a>
+                    ) : (
+                      <span className="text-muted-foreground text-sm">—</span>
+                    )}
+                  </div>
+                  <div>
                     <p className="text-xs text-muted-foreground">Ownership</p>
                     {isEditing && editForm ? (
                       <Select
@@ -1666,32 +1763,6 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
                       </Select>
                     ) : (
                       <p className="text-sm font-medium break-words">{company.ownership || "—"}</p>
-                    )}
-                  </div>
-                  <div>
-                    <p className="text-xs text-muted-foreground">Source</p>
-                    {isEditing && editForm ? (
-                      <Select
-                        value={editForm.source || '__none__'}
-                        onValueChange={(v) =>
-                          setEditForm({
-                            ...editForm,
-                            source: v === '__none__' ? '' : v,
-                          })
-                        }
-                        disabled={isSaving}
-                      >
-                        <SelectTrigger className="mt-1 h-7 text-sm">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="__none__">-</SelectItem>
-                          <SelectItem value="inbound">Inbound</SelectItem>
-                          <SelectItem value="outbound">Outbound</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    ) : (
-                      <p className="text-sm font-medium capitalize break-words">{company.source || "—"}</p>
                     )}
                   </div>
                   <div>
@@ -1779,44 +1850,6 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
                         </>
                       );
                     })()}
-                  </div>
-                  <div>
-                    <p className="text-xs text-muted-foreground">Deal Type</p>
-                    {isEditing && editForm ? (
-                      <Select
-                        value={editForm.deal_type || '__none__'}
-                        onValueChange={(v) =>
-                          setEditForm({ ...editForm, deal_type: v === '__none__' ? '' : v })
-                        }
-                        disabled={isSaving}
-                      >
-                        <SelectTrigger className="mt-1 h-7 text-sm">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="__none__">-</SelectItem>
-                          <SelectItem value="majority">Majority</SelectItem>
-                          <SelectItem value="minority">Minority</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    ) : (
-                      <p className="text-sm font-medium capitalize break-words">{company.deal_type || '—'}</p>
-                    )}
-                  </div>
-                  <div>
-                    <p className="text-xs text-muted-foreground">Entered by</p>
-                    {isEditing && editForm ? (
-                      <div className="mt-1">
-                        <UserSelectCombobox
-                          value={editForm.entered_by || null}
-                          onChange={(v) => setEditForm({ ...editForm, entered_by: v })}
-                          users={users}
-                          disabled={isSaving}
-                        />
-                      </div>
-                    ) : (
-                      <p className="text-sm font-medium break-words">{company.entered_by_name || '—'}</p>
-                    )}
                   </div>
                   <div>
                     <p className="text-xs text-muted-foreground">Status</p>
@@ -1913,25 +1946,6 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
 
                   {company.source !== 'outbound' && (
                     <>
-                      <div>
-                        <p className="text-xs text-muted-foreground">Banker / Source</p>
-                        {isEditing && editForm ? (
-                          <StatusCombobox
-                            value={editForm.banker || null}
-                            options={bankerOptions}
-                            placeholder="Set banker…"
-                            searchPlaceholder="Search or add a banker…"
-                            emptyText="No bankers yet."
-                            onChange={(v) =>
-                              setEditForm({ ...editForm, banker: v })
-                            }
-                            disabled={isSaving}
-                            className="mt-1"
-                          />
-                        ) : (
-                          <p className="text-sm font-medium break-words">{company.banker || '—'}</p>
-                        )}
-                      </div>
                       <div>
                         <p className="text-xs text-muted-foreground">Advisor</p>
                         {isEditing && editForm ? (
@@ -2092,6 +2106,7 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
                       })()
                     )}
                   </div>
+                </div>
                 </div>
                 {isEditing && editForm && (
                   <div className="mt-4 flex justify-end gap-2">
