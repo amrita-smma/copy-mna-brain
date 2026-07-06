@@ -36,6 +36,7 @@ import {
   Trash2,
   Lightbulb,
   ArrowRight,
+  MoreVertical,
 } from 'lucide-react';
 import type { DealStage } from '@/lib/types';
 import { Button } from '@/components/ui/button';
@@ -50,6 +51,14 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import { cn } from '@/lib/utils';
+import { useNearRightEdge } from '@/hooks/useNearRightEdge';
 import {
   useColumnLayout,
   ColumnManagerProvider,
@@ -186,6 +195,7 @@ export default function MasterData({ showCompanyGraph = false }: MasterDataProps
   const { analyzeWithAI } = useChatContext();
   const router = useRouter();
   const isMobile = useIsMobile();
+  const { nearEdge, edgeHandlers } = useNearRightEdge();
 
   // On mobile, a company opens its own full-screen profile page (with a back
   // button to the Search list). On desktop it opens the detail dialog.
@@ -823,19 +833,20 @@ export default function MasterData({ showCompanyGraph = false }: MasterDataProps
                 <div className="flex items-center justify-end px-2 py-1.5">
                   <ColumnConfigGear />
                 </div>
-                <Table>
+                <Table {...edgeHandlers}>
                   <ManagedTableHeader
                     leading={<TableHead key="company">Company</TableHead>}
                     trailing={
-                      <TableHead key="actions" className="text-center">
-                        Actions
-                      </TableHead>
+                      <TableHead
+                        key="actions"
+                        className="w-[44px] sticky right-0 z-20 bg-transparent"
+                      />
                     }
                   />
                   <TableBody>
                     {paginatedCompanies.map((company, index) => {
                       return (
-                        <TableRow key={company.id}>
+                        <TableRow key={company.id} className="group">
                           <TableCell className="font-medium">
                             {company.name ? (
                               <button
@@ -851,22 +862,39 @@ export default function MasterData({ showCompanyGraph = false }: MasterDataProps
                             )}
                           </TableCell>
                           <ManagedRowCells row={company} index={index} />
-                          <TableCell className="text-center">
+                          <TableCell className="text-right sticky right-0 z-10 bg-transparent">
                             <AlertDialog>
-                              <AlertDialogTrigger asChild>
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  className="h-8 w-8 text-muted-foreground hover:text-destructive"
-                                  disabled={deletingId === company.id}
-                                >
-                                  {deletingId === company.id ? (
-                                    <Loader2 className="h-4 w-4 animate-spin" />
-                                  ) : (
-                                    <Trash2 className="h-4 w-4" />
-                                  )}
-                                </Button>
-                              </AlertDialogTrigger>
+                              <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    aria-label="Actions"
+                                    className={cn(
+                                      "h-7 w-7 transition-opacity group-hover:opacity-100 data-[state=open]:opacity-100",
+                                      nearEdge ? "opacity-100" : "opacity-0",
+                                    )}
+                                    disabled={deletingId === company.id}
+                                  >
+                                    {deletingId === company.id ? (
+                                      <Loader2 className="h-4 w-4 animate-spin" />
+                                    ) : (
+                                      <MoreVertical className="h-4 w-4" />
+                                    )}
+                                  </Button>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent align="end">
+                                  <AlertDialogTrigger asChild>
+                                    <DropdownMenuItem
+                                      onSelect={(e) => e.preventDefault()}
+                                      className="text-destructive focus:text-destructive"
+                                    >
+                                      <Trash2 className="mr-2 h-4 w-4 text-destructive" />
+                                      Delete
+                                    </DropdownMenuItem>
+                                  </AlertDialogTrigger>
+                                </DropdownMenuContent>
+                              </DropdownMenu>
                               <AlertDialogContent>
                                 <AlertDialogHeader>
                                   <AlertDialogTitle>Delete &ldquo;{companyDisplayName(company, 'this company')}&rdquo;?</AlertDialogTitle>
