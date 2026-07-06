@@ -174,7 +174,7 @@ describe("CompanyService.createFromDTO", () => {
 });
 
 describe("CompanyService.delete", () => {
-  it("deletes each S3 file before removing the DB record", async () => {
+  it("removes the DB record without deleting the underlying files", async () => {
     const repos = makeRepos();
     vi.mocked(repos.dealDocRepo.findFilePathsByDealId).mockResolvedValue([
       "a/file.pdf",
@@ -184,19 +184,7 @@ describe("CompanyService.delete", () => {
 
     await service.delete("company-1");
 
-    expect(deleteFile).toHaveBeenCalledTimes(2);
-    expect(deleteFile).toHaveBeenCalledWith("a/file.pdf");
-    expect(deleteFile).toHaveBeenCalledWith("b/file.pdf");
-    expect(repos.companyRepo.delete).toHaveBeenCalledWith("company-1");
-  });
-
-  it("skips S3 deletion when there are no documents", async () => {
-    const repos = makeRepos();
-    vi.mocked(repos.dealDocRepo.findFilePathsByDealId).mockResolvedValue([]);
-    const service = buildService(repos);
-
-    await service.delete("company-1");
-
+    // Files are intentionally left in storage — we only drop the DB reference.
     expect(deleteFile).not.toHaveBeenCalled();
     expect(repos.companyRepo.delete).toHaveBeenCalledWith("company-1");
   });

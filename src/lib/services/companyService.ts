@@ -1,4 +1,3 @@
-import { deleteFile } from '@/lib/s3';
 import type { DealStage } from '@/lib/types';
 import type {
   CompanyRepository,
@@ -399,10 +398,9 @@ export class CompanyService {
   }
 
   async delete(id: string) {
-    const filePaths = await this.dealDocRepo.findFilePathsByDealId(id);
-    if (filePaths.length > 0) {
-      await Promise.all(filePaths.map((key) => deleteFile(key)));
-    }
+    // Deleting a company drops the DB references to its deal documents (via the
+    // cascade FK), but intentionally leaves the underlying files in storage —
+    // we only lose the loose reference, we don't remove the files themselves.
     await this.companyRepo.delete(id);
   }
 
