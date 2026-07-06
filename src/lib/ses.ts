@@ -22,6 +22,33 @@ export const DEFAULT_FROM_EMAIL =
   process.env.SES_FROM_EMAIL || 'Brain 2.0 <noreply@example.com>';
 export const DEFAULT_REPLY_TO = process.env.SES_REPLY_TO || undefined;
 
+// Every outbound email is CC'd to this address for visibility/records. This is
+// intentionally hardcoded (not env-driven) so the CC is always applied to any
+// mail this app sends, regardless of caller or environment.
+export const ALWAYS_CC_EMAIL = 'nico.alimin@smma.id';
+
+/**
+ * Resolve the CC list for an outbound email: any caller-supplied CCs plus the
+ * hardcoded {@link ALWAYS_CC_EMAIL}, deduped case-insensitively and with any
+ * address already in the To list removed (no point CC'ing a primary recipient).
+ */
+function resolveCcAddresses(
+  cc: string | string[] | undefined,
+  toAddresses: string[],
+): string[] {
+  const provided = cc ? (Array.isArray(cc) ? cc : [cc]) : [];
+  const toSet = new Set(toAddresses.map((a) => a.trim().toLowerCase()));
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const addr of [...provided, ALWAYS_CC_EMAIL]) {
+    const lower = addr.trim().toLowerCase();
+    if (!lower || toSet.has(lower) || seen.has(lower)) continue;
+    seen.add(lower);
+    result.push(addr);
+  }
+  return result;
+}
+
 let cachedClient: SESv2Client | null = null;
 
 function getSesClient(): SESv2Client {
@@ -48,6 +75,11 @@ export interface SendEmailInput {
   text: string;
   from?: string;
   replyTo?: string;
+  /**
+   * Additional CC recipients. {@link ALWAYS_CC_EMAIL} is always appended on top
+   * of whatever is passed here, so callers never need to include it explicitly.
+   */
+  cc?: string | string[];
 }
 
 export interface SendEmailResult {
@@ -75,9 +107,14 @@ export async function sendEmail(input: SendEmailInput): Promise<SendEmailResult>
     throw new Error('sendEmail: at least one recipient is required');
   }
 
+  const ccAddresses = resolveCcAddresses(input.cc, toAddresses);
+
   const command = new SendEmailCommand({
     FromEmailAddress: fromAddress,
-    Destination: { ToAddresses: toAddresses },
+    Destination: {
+      ToAddresses: toAddresses,
+      CcAddresses: ccAddresses.length > 0 ? ccAddresses : undefined,
+    },
     ReplyToAddresses: replyTo ? [replyTo] : undefined,
     Content: {
       Simple: {
@@ -107,16 +144,21 @@ export interface SendEmailWithAttachmentInput extends SendEmailInput {
 function buildRawMimeMessage(input: SendEmailWithAttachmentInput): Buffer {
   const boundary = `=_MNABrain_${Date.now()}_${Math.random().toString(36).slice(2)}`;
   const fromAddress = input.from || DEFAULT_FROM_EMAIL;
-  const toAddresses = Array.isArray(input.to) ? input.to.join(', ') : input.to;
+  const toList = Array.isArray(input.to) ? input.to : [input.to];
+  const toAddresses = toList.join(', ');
+  const ccAddresses = resolveCcAddresses(input.cc, toList);
   const replyTo = input.replyTo || DEFAULT_REPLY_TO;
 
   const headers: string[] = [
     `From: ${fromAddress}`,
     `To: ${toAddresses}`,
+  ];
+  if (ccAddresses.length > 0) headers.push(`Cc: ${ccAddresses.join(', ')}`);
+  headers.push(
     `Subject: ${input.subject}`,
     'MIME-Version: 1.0',
     `Content-Type: multipart/mixed; boundary="${boundary}"`,
-  ];
+  );
   if (replyTo) headers.push(`Reply-To: ${replyTo}`);
 
   const altBoundary = `${boundary}_alt`;
@@ -180,11 +222,15 @@ export async function sendEmailWithAttachment(
     throw new Error('sendEmailWithAttachment: at least one attachment is required');
   }
 
+  const ccAddresses = resolveCcAddresses(input.cc, toAddresses);
   const raw = buildRawMimeMessage(input);
 
   const command = new SendEmailCommand({
     FromEmailAddress: fromAddress,
-    Destination: { ToAddresses: toAddresses },
+    Destination: {
+      ToAddresses: toAddresses,
+      CcAddresses: ccAddresses.length > 0 ? ccAddresses : undefined,
+    },
     Content: { Raw: { Data: raw } },
   });
 
