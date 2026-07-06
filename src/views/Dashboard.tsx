@@ -47,6 +47,7 @@ import {
   Layers,
   Activity,
   XCircle,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
   MoveRight,
@@ -93,7 +94,25 @@ const stagePillColors: Record<string, { inbound: string; outbound: string }> = {
   L5: { inbound: "bg-pink-500", outbound: "bg-pink-300" },
 };
 
-type PresetKey = "7d" | "14d";
+type PresetKey = "7d" | "30d" | "mtd" | "ytd";
+
+// Quick-query presets shown above the calendar, in display order.
+const PRESET_KEYS: PresetKey[] = ["ytd", "mtd", "30d", "7d"];
+
+const PRESET_LABELS: Record<PresetKey, string> = {
+  ytd: "Year-to-date",
+  mtd: "Month-to-date",
+  "30d": "30 days ago",
+  "7d": "7 days ago",
+};
+
+// Recap card heading per preset — phrased for a title rather than a button.
+const PRESET_RECAP_TITLES: Record<PresetKey, string> = {
+  ytd: "Year-to-Date Recap",
+  mtd: "Month-to-Date Recap",
+  "30d": "30-Day Recap",
+  "7d": "7-Day Recap",
+};
 
 interface ActiveDateRange {
   from: Date;
@@ -104,8 +123,50 @@ interface ActiveDateRange {
 function presetToRange(key: PresetKey): { from: Date; to: Date } {
   const to = new Date();
   const from = new Date();
-  from.setDate(from.getDate() - (key === "7d" ? 7 : 14));
+  switch (key) {
+    case "7d":
+      from.setDate(from.getDate() - 7);
+      break;
+    case "30d":
+      from.setDate(from.getDate() - 30);
+      break;
+    case "mtd":
+      from.setDate(1);
+      from.setHours(0, 0, 0, 0);
+      break;
+    case "ytd":
+      from.setMonth(0, 1);
+      from.setHours(0, 0, 0, 0);
+      break;
+  }
   return { from, to };
+}
+
+/** Format a Date as `DD/MM/YYYY` for the type-able range inputs. */
+function formatDMY(d: Date | undefined): string {
+  if (!d) return "";
+  const dd = String(d.getDate()).padStart(2, "0");
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  return `${dd}/${mm}/${d.getFullYear()}`;
+}
+
+/** Parse a `DD/MM/YYYY` string into a Date, or undefined when malformed. */
+function parseDMY(text: string): Date | undefined {
+  const m = text.trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (!m) return undefined;
+  const day = Number(m[1]);
+  const month = Number(m[2]);
+  const year = Number(m[3]);
+  const d = new Date(year, month - 1, day);
+  // Reject overflow dates like 31/02/2026 that Date silently rolls over.
+  if (
+    d.getFullYear() !== year ||
+    d.getMonth() !== month - 1 ||
+    d.getDate() !== day
+  ) {
+    return undefined;
+  }
+  return d;
 }
 
 function formatDate(d: Date): string {
@@ -589,10 +650,9 @@ export default function Dashboard({
   const [customFrom, setCustomFrom] = useState<Date | undefined>(undefined);
   const [customTo, setCustomTo] = useState<Date | undefined>(undefined);
   const [customPickerOpen, setCustomPickerOpen] = useState(false);
-
-  // Which field the next calendar click will fill — drives the highlight on
-  // the From/To display fields. Range mode fills `from` first, then `to`.
-  const nextRangeField: "from" | "to" = customFrom && !customTo ? "to" : "from";
+  // Mirror of the From/To dates as raw text so the fields are type-able.
+  const [fromText, setFromText] = useState("");
+  const [toText, setToText] = useState("");
 
   // Feed
   const [feedFilter, setFeedFilter] = useState<FeedFilterKey>("all");
@@ -724,6 +784,7 @@ export default function Dashboard({
   const applyPreset = (key: PresetKey) => {
     const range = presetToRange(key);
     setDateRange({ ...range, preset: key });
+    setCustomPickerOpen(false);
   };
 
   const applyCustom = () => {
@@ -733,6 +794,39 @@ export default function Dashboard({
     setDateRange({ from: customFrom, to, preset: "custom" });
     setCustomPickerOpen(false);
   };
+
+  // Set both the canonical Date and its text mirror for a range field.
+  const setFromDate = (d: Date | undefined) => {
+    setCustomFrom(d);
+    setFromText(formatDMY(d));
+  };
+  const setToDate = (d: Date | undefined) => {
+    setCustomTo(d);
+    setToText(formatDMY(d));
+  };
+
+  // Typing in a field: keep the raw text, and update the Date only when the
+  // input parses cleanly (or clears the Date when the field is emptied).
+  const handleFromText = (value: string) => {
+    setFromText(value);
+    if (value.trim() === "") return setCustomFrom(undefined);
+    const parsed = parseDMY(value);
+    if (parsed) setCustomFrom(parsed);
+  };
+  const handleToText = (value: string) => {
+    setToText(value);
+    if (value.trim() === "") return setCustomTo(undefined);
+    const parsed = parseDMY(value);
+    if (parsed) setCustomTo(parsed);
+  };
+
+  const setToToday = () => setToDate(new Date());
+
+  // The label shown on the picker trigger — a preset name or the custom range.
+  const activeRangeLabel =
+    dateRange.preset === "custom"
+      ? `${formatDate(dateRange.from)} – ${formatDate(dateRange.to)}`
+      : PRESET_LABELS[dateRange.preset];
 
   // ─── Copilot quick-analysis ─────────────────────────────────────────────────
 
@@ -934,108 +1028,99 @@ export default function Dashboard({
           </div>
 
           {/* Global date range filter — desktop only; the mobile feed scrolls
-              infinitely and has no date window. */}
-          <div className="hidden md:flex flex-wrap items-center gap-1 p-1 bg-muted/50 rounded-lg border border-border/50 shrink-0 self-start sm:mt-1">
-            {(["7d", "14d"] as PresetKey[]).map((key) => (
-              <button
-                key={key}
-                type="button"
-                data-testid={`dashboard-date-preset-${key}`}
-                onClick={() => applyPreset(key)}
-                className={[
-                  "h-7 px-3 text-xs font-medium rounded-md transition-colors",
-                  dateRange.preset === key
-                    ? "bg-primary text-primary-foreground shadow-sm"
-                    : "text-muted-foreground hover:text-foreground",
-                ].join(" ")}
-              >
-                {key === "7d" ? "7 days" : "14 days"}
-              </button>
-            ))}
+              infinitely and has no date window. Two components: the active
+              date range trigger and the date picker popover. */}
+          <div className="hidden md:flex items-center shrink-0 self-start sm:mt-1">
             <Popover
               open={customPickerOpen}
               onOpenChange={(open) => {
                 setCustomPickerOpen(open);
-                if (open && dateRange.preset === "custom") {
-                  setCustomFrom(dateRange.from);
-                  setCustomTo(dateRange.to);
+                if (open) {
+                  // Seed the fields from whatever range is currently active so
+                  // the calendar and inputs open pre-filled.
+                  setFromDate(dateRange.from);
+                  setToDate(dateRange.to);
                 }
               }}
             >
               <PopoverTrigger asChild>
                 <button
                   type="button"
-                  data-testid="dashboard-date-preset-custom"
-                  className={[
-                    "h-7 px-3 text-xs font-medium rounded-md transition-colors flex items-center gap-1.5",
-                    dateRange.preset === "custom" || customPickerOpen
-                      ? "bg-primary text-primary-foreground shadow-sm"
-                      : "text-muted-foreground hover:text-foreground",
-                  ].join(" ")}
+                  data-testid="dashboard-date-range-trigger"
+                  className="flex items-center gap-2 h-9 px-3 text-sm font-medium rounded-lg border border-border/50 bg-muted/50 text-foreground hover:bg-muted transition-colors"
                 >
-                  <CalendarIcon className="h-3 w-3 shrink-0" />
-                  Custom
+                  <CalendarIcon className="h-4 w-4 shrink-0 text-muted-foreground" />
+                  <span>{activeRangeLabel}</span>
+                  <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                 </button>
               </PopoverTrigger>
-              <PopoverContent className="w-auto p-4 space-y-3" align="end">
+              <PopoverContent className="w-[308px] p-4 space-y-3" align="end">
                 <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                  Custom Date Range
+                  Date Range
                 </p>
+                {/* Quick queries above the calendar — two rows of two. */}
+                <div className="grid grid-cols-2 gap-1.5">
+                  {PRESET_KEYS.map((key) => (
+                    <button
+                      key={key}
+                      type="button"
+                      data-testid={`dashboard-date-preset-${key}`}
+                      onClick={() => applyPreset(key)}
+                      className={[
+                        "h-7 px-3 text-xs font-medium rounded-md border transition-colors",
+                        dateRange.preset === key
+                          ? "bg-primary text-primary-foreground border-primary shadow-sm"
+                          : "border-border text-muted-foreground hover:text-foreground hover:bg-muted",
+                      ].join(" ")}
+                    >
+                      {PRESET_LABELS[key]}
+                    </button>
+                  ))}
+                </div>
                 <div className="grid grid-cols-2 gap-2">
                   <div className="space-y-1">
                     <p className="text-xs text-muted-foreground">From</p>
-                    <div
-                      className={[
-                        "w-full flex items-center gap-2 rounded-md border px-3 py-2 text-sm transition-colors",
-                        nextRangeField === "from"
-                          ? "border-primary ring-1 ring-primary bg-background"
-                          : "border-border bg-muted/40",
-                      ].join(" ")}
-                    >
-                      <CalendarIcon className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-                      <span
-                        className={
-                          customFrom
-                            ? "text-foreground"
-                            : "text-muted-foreground"
-                        }
-                      >
-                        {customFrom
-                          ? customFrom.toLocaleDateString("en-GB")
-                          : "DD/MM/YYYY"}
-                      </span>
-                    </div>
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      data-testid="dashboard-custom-date-from-input"
+                      placeholder="DD/MM/YYYY"
+                      value={fromText}
+                      onChange={(e) => handleFromText(e.target.value)}
+                      className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground transition-colors focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+                    />
                   </div>
                   <div className="space-y-1">
-                    <p className="text-xs text-muted-foreground">To</p>
-                    <div
-                      className={[
-                        "w-full flex items-center gap-2 rounded-md border px-3 py-2 text-sm transition-colors",
-                        nextRangeField === "to"
-                          ? "border-primary ring-1 ring-primary bg-background"
-                          : "border-border bg-muted/40",
-                      ].join(" ")}
-                    >
-                      <CalendarIcon className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-                      <span
-                        className={
-                          customTo ? "text-foreground" : "text-muted-foreground"
-                        }
+                    <div className="flex items-center justify-between">
+                      <p className="text-xs text-muted-foreground">To</p>
+                      <button
+                        type="button"
+                        data-testid="dashboard-custom-date-to-today"
+                        onClick={setToToday}
+                        className="text-[10px] font-medium text-primary hover:underline"
                       >
-                        {customTo
-                          ? customTo.toLocaleDateString("en-GB")
-                          : "DD/MM/YYYY"}
-                      </span>
+                        Today
+                      </button>
                     </div>
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      data-testid="dashboard-custom-date-to-input"
+                      placeholder="DD/MM/YYYY"
+                      value={toText}
+                      onChange={(e) => handleToText(e.target.value)}
+                      className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground transition-colors focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+                    />
                   </div>
                 </div>
                 <Calendar
                   mode="range"
+                  className="mx-auto"
                   defaultMonth={customFrom}
                   selected={{ from: customFrom, to: customTo }}
                   onSelect={(range) => {
-                    setCustomFrom(range?.from);
-                    setCustomTo(range?.to);
+                    setFromDate(range?.from);
+                    setToDate(range?.to);
                   }}
                   disabled={(d) => d > new Date()}
                   classNames={{
@@ -1219,11 +1304,9 @@ export default function Dashboard({
                 <div className="flex items-center gap-2">
                   <CalendarIcon className="h-5 w-5 text-muted-foreground" />
                   <CardTitle className="text-lg font-semibold" data-testid="recap-title">
-                    {dateRange.preset === "7d"
-                      ? "7-Day Recap"
-                      : dateRange.preset === "14d"
-                        ? "14-Day Recap"
-                        : "Custom Recap"}
+                    {dateRange.preset === "custom"
+                      ? "Custom Recap"
+                      : PRESET_RECAP_TITLES[dateRange.preset]}
                   </CardTitle>
                   <span className="text-sm text-muted-foreground">
                     {formatDate(dateRange.from)} – {formatDate(dateRange.to)}

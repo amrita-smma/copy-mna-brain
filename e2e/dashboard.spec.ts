@@ -297,26 +297,32 @@ test.describe('Dashboard page', () => {
     // REG-DASH-06
     await openDashboard(page);
 
-    await expect(page.getByTestId('dashboard-date-preset-7d')).toBeVisible();
+    // The picker trigger shows the active range; presets live inside its popover.
+    await expect(page.getByTestId('dashboard-date-range-trigger')).toContainText(
+      '7 days ago',
+    );
     await expect(page.getByTestId('recap-title')).toContainText('7-Day Recap');
   });
 
   // ─── REG-DASH-07 ──────────────────────────────────────────────────────────
 
-  test('Switching to 14 days updates the recap title and re-fetches data', async ({ page }) => {
+  test('Switching to 30 days updates the recap title and re-fetches data', async ({ page }) => {
     // REG-DASH-07
     await openDashboard(page);
 
     await expect(page.getByTestId('recap-title')).toContainText('7-Day Recap');
 
+    // Open the picker popover, then pick the "30 days ago" quick query.
+    await page.getByTestId('dashboard-date-range-trigger').click();
+
     const [response] = await Promise.all([
       page.waitForResponse(
         (res) => res.url().includes('/api/dashboard/activity') && res.status() === 200,
       ),
-      page.getByTestId('dashboard-date-preset-14d').click(),
+      page.getByTestId('dashboard-date-preset-30d').click(),
     ]);
 
-    await expect(page.getByTestId('recap-title')).toContainText('14-Day Recap');
+    await expect(page.getByTestId('recap-title')).toContainText('30-Day Recap');
 
     // The re-fetch must carry from/to params for the wider window.
     const params = new URL(response.url()).searchParams;
@@ -326,26 +332,41 @@ test.describe('Dashboard page', () => {
 
   // ─── REG-DASH-08 ──────────────────────────────────────────────────────────
 
-  test('Custom range button opens a date picker dialog', async ({ page }) => {
+  test('Date range picker exposes quick queries and type-able From/To fields', async ({
+    page,
+  }) => {
     // REG-DASH-08
     await openDashboard(page);
 
-    await page.getByTestId('dashboard-date-preset-custom').click();
+    await page.getByTestId('dashboard-date-range-trigger').click();
 
-    const popover = page.getByText('Custom Date Range');
+    const popover = page.getByText('Date Range', { exact: true });
     await expect(popover).toBeVisible();
-    // From / To date pickers — the value is shown as text ("DD/MM/YYYY"
-    // placeholder) on a trigger, not a native input, so assert the labels and
-    // the placeholder text rather than a placeholder attribute.
-    await expect(page.getByText('From', { exact: true })).toBeVisible();
-    await expect(page.getByText('To', { exact: true })).toBeVisible();
-    await expect(page.getByText('DD/MM/YYYY').first()).toBeVisible();
+
+    // Quick queries above the calendar.
+    await expect(page.getByTestId('dashboard-date-preset-ytd')).toBeVisible();
+    await expect(page.getByTestId('dashboard-date-preset-mtd')).toBeVisible();
+    await expect(page.getByTestId('dashboard-date-preset-30d')).toBeVisible();
+    await expect(page.getByTestId('dashboard-date-preset-7d')).toBeVisible();
+
+    // From / To are real, type-able text inputs.
+    const fromInput = page.getByTestId('dashboard-custom-date-from-input');
+    const toInput = page.getByTestId('dashboard-custom-date-to-input');
+    await expect(fromInput).toBeVisible();
+    await expect(toInput).toBeVisible();
+    await fromInput.fill('01/01/2026');
+    await expect(fromInput).toHaveValue('01/01/2026');
+
+    // The "Today" shortcut above the To box fills it with today's date.
+    await page.getByTestId('dashboard-custom-date-to-today').click();
+    await expect(toInput).not.toHaveValue('');
+
     await expect(page.getByTestId('dashboard-custom-date-apply-button')).toBeVisible();
     await expect(page.getByTestId('dashboard-custom-date-cancel-button')).toBeVisible();
 
     // Cancel closes the dialog without applying any range.
     await page.getByTestId('dashboard-custom-date-cancel-button').click();
-    await expect(page.getByText('Custom Date Range')).not.toBeVisible();
+    await expect(page.getByText('Date Range', { exact: true })).not.toBeVisible();
     await expect(page.getByTestId('recap-title')).toContainText('7-Day Recap');
   });
 
@@ -362,9 +383,10 @@ test.describe('Dashboard page', () => {
     await expect(main.getByRole('heading', { name: 'Pipeline Stages' })).toBeVisible();
     await expect(main.getByRole('heading', { name: 'Activity Feed' })).toBeVisible();
 
-    // Switching to 14 days should update the Recap title (and internally all sections).
-    await page.getByTestId('dashboard-date-preset-14d').click();
-    await expect(page.getByTestId('recap-title')).toContainText('14-Day Recap');
+    // Switching to 30 days should update the Recap title (and internally all sections).
+    await page.getByTestId('dashboard-date-range-trigger').click();
+    await page.getByTestId('dashboard-date-preset-30d').click();
+    await expect(page.getByTestId('recap-title')).toContainText('30-Day Recap');
     // The other sections stay visible — no section disappears during the range change.
     await expect(main.getByText('Pipeline Stages')).toBeVisible();
     await expect(main.getByText('Activity Feed')).toBeVisible();
@@ -703,7 +725,7 @@ test.describe('Dashboard page', () => {
     const main = page.locator('main');
 
     // Date-range selector is desktop-only — it must be hidden on mobile.
-    await expect(page.getByTestId('dashboard-date-preset-7d')).toBeHidden();
+    await expect(page.getByTestId('dashboard-date-range-trigger')).toBeHidden();
 
     // First page renders (newest first). The first event is a dropped deal.
     await expect(page.getByTestId('feed-event-company-button-co-feed-0')).toBeVisible();
