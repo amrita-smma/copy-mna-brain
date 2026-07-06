@@ -8,6 +8,7 @@ import type {
   CompanyFinancialRepository,
   CompanyFxAdjustmentRepository,
   CompanyScreeningDerivedRepository,
+  FileRepository,
   Tables,
 } from "@/lib/repositories";
 import { CompanyDroppedError, CompanyL0RequirementsError, CompanyService } from "./companyService";
@@ -91,6 +92,10 @@ function makeRepos() {
     upsertByCompany: vi.fn().mockResolvedValue(undefined),
   } as unknown as CompanyScreeningDerivedRepository;
 
+  const fileRepo = {
+    removeMatchedCompany: vi.fn().mockResolvedValue(undefined),
+  } as unknown as FileRepository;
+
   return {
     companyRepo,
     companyLogRepo,
@@ -100,6 +105,7 @@ function makeRepos() {
     companyFinancialRepo,
     companyFxAdjustmentRepo,
     companyScreeningDerivedRepo,
+    fileRepo,
   };
 }
 
@@ -121,6 +127,8 @@ function buildService(
     repos.companyFxAdjustmentRepo,
     repos.companyScreeningDerivedRepo,
     trackMatchingService as never,
+    undefined,
+    repos.fileRepo,
   );
 }
 
@@ -229,6 +237,36 @@ describe("CompanyService.delete", () => {
 
     // Files are intentionally left in storage — we only drop the DB reference.
     expect(deleteFile).not.toHaveBeenCalled();
+    expect(repos.companyRepo.delete).toHaveBeenCalledWith("company-1");
+  });
+
+  it("strips the company from files' matched_companies before removing the DB record", async () => {
+    const repos = makeRepos();
+    vi.mocked(repos.dealDocRepo.findFilePathsByDealId).mockResolvedValue([]);
+    const service = buildService(repos);
+
+    await service.delete("company-1");
+
+    expect(repos.fileRepo.removeMatchedCompany).toHaveBeenCalledWith("company-1");
+    expect(repos.fileRepo.removeMatchedCompany).toHaveBeenCalledTimes(1);
+    expect(repos.companyRepo.delete).toHaveBeenCalledWith("company-1");
+  });
+
+  it("does not throw when no fileRepo is wired in", async () => {
+    const repos = makeRepos();
+    vi.mocked(repos.dealDocRepo.findFilePathsByDealId).mockResolvedValue([]);
+    const service = new CompanyService(
+      repos.companyRepo,
+      repos.companyLogRepo,
+      repos.dealDocRepo,
+      repos.dealNoteRepo,
+      repos.dealLinkRepo,
+      repos.companyFinancialRepo,
+      repos.companyFxAdjustmentRepo,
+      repos.companyScreeningDerivedRepo,
+    );
+
+    await expect(service.delete("company-1")).resolves.toBeUndefined();
     expect(repos.companyRepo.delete).toHaveBeenCalledWith("company-1");
   });
 });

@@ -175,6 +175,7 @@ export function createContainer(db: DbClient): Container {
     companyScreeningDerivedRepo,
     trackMatchingService,
     userRepo,
+    fileRepo,
   );
   const companyGraphService = new CompanyGraphService(companyGraphRepo, jobDispatcher);
   const companyRelationshipService = new CompanyRelationshipService(

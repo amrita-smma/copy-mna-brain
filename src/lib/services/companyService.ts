@@ -9,6 +9,7 @@ import type {
   DealDocumentRepository,
   DealNoteRepository,
   DealLinkRepository,
+  FileRepository,
   Tables,
   TablesInsert,
   TablesUpdate,
@@ -82,6 +83,10 @@ export class CompanyService {
     // matching. Left out in contexts that never create/promote (e.g. read-only).
     private readonly trackMatchingService?: TrackMatchingService,
     private readonly userRepo?: UserRepository,
+    // Optional: when present, deleting a company also strips its reference out
+    // of every file's `matched_companies` array. Left out in contexts that
+    // never delete (e.g. the file-ingest-built service).
+    private readonly fileRepo?: FileRepository,
   ) {}
 
   findById(id: string) {
@@ -423,6 +428,9 @@ export class CompanyService {
     // Deleting a company drops the DB references to its deal documents (via the
     // cascade FK), but intentionally leaves the underlying files in storage —
     // we only lose the loose reference, we don't remove the files themselves.
+    // Also drop this company from any file's `matched_companies` so no file
+    // keeps a dangling reference to a company that no longer exists.
+    await this.fileRepo?.removeMatchedCompany(id);
     await this.companyRepo.delete(id);
   }
 

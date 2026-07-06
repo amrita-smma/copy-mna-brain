@@ -69,6 +69,29 @@ export class FileRepository {
   }
 
   /**
+   * Strip a company reference out of every file's `matched_companies` array.
+   * Called when a company is deleted so no file points at a company that no
+   * longer exists. Only rows that actually reference the company are touched
+   * (the `@>` containment guard), and `jsonb_agg` is coalesced to an empty
+   * array so a file whose sole match was this company ends up with `[]`.
+   */
+  async removeMatchedCompany(companyId: string): Promise<void> {
+    await this.db.execute(sql`
+      UPDATE ${files}
+      SET matched_companies = COALESCE(
+            (
+              SELECT jsonb_agg(elem)
+              FROM jsonb_array_elements(${files.matched_companies}) AS elem
+              WHERE elem->>'id' <> ${companyId}
+            ),
+            '[]'::jsonb
+          ),
+          updated_at = now()
+      WHERE ${files.matched_companies} @> ${JSON.stringify([{ id: companyId }])}::jsonb
+    `);
+  }
+
+  /**
    * Search used by the AI agent tools. Supports filtering by company name
    * (matches raw_notes / structured_notes), tag (via array containment), and a
    * general search term across file_name / notes. Results ordered by file_date
