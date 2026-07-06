@@ -237,7 +237,7 @@ export default function MasterData({ showCompanyGraph = false }: MasterDataProps
     try {
       const [data, discovered] = await Promise.all([
         getCompanies({
-          stageIn: ['L0', 'L1', 'L2', 'L3', 'L4', 'L5'],
+          stageIn: ['market_screening', 'unreviewed', 'L0', 'L1', 'L2', 'L3', 'L4', 'L5'],
           orderBy: 'created_at',
           orderDir: 'desc',
         }),
@@ -336,7 +336,7 @@ export default function MasterData({ showCompanyGraph = false }: MasterDataProps
   const droppedCompanies = companies.filter(c => c.status === 'dropped');
   const activeCompanies = companies.filter(c =>
     c.status !== 'dropped' &&
-    ['L0', 'L1', 'L2', 'L3', 'L4', 'L5'].includes(c.current_stage as string)
+    ['market_screening', 'unreviewed', 'L0', 'L1', 'L2', 'L3', 'L4', 'L5'].includes(c.current_stage as string)
   );
 
   const countActiveAtStage = (stage: string) =>
@@ -347,6 +347,8 @@ export default function MasterData({ showCompanyGraph = false }: MasterDataProps
     active: activeCompanies.length,
     drop: droppedCompanies.length,
     byStage: {
+      market_screening: countActiveAtStage('market_screening'),
+      unreviewed: countActiveAtStage('unreviewed'),
       L0: countActiveAtStage('L0'),
       L1: countActiveAtStage('L1'),
       L2: countActiveAtStage('L2'),
@@ -672,6 +674,8 @@ export default function MasterData({ showCompanyGraph = false }: MasterDataProps
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="all">All Stages</SelectItem>
+                      <SelectItem value="market_screening">Market Screening</SelectItem>
+                      <SelectItem value="unreviewed">Unreviewed</SelectItem>
                       <SelectItem value="L0">L0 - Sourcing</SelectItem>
                       <SelectItem value="L1">L1 - Screening</SelectItem>
                       <SelectItem value="L2">L2 - Initial Review</SelectItem>
