@@ -8,6 +8,13 @@ import type {
 } from '@/lib/repositories/dashboardInsightsRepository';
 import { PIPELINE_FUNNEL_STAGES } from '@/lib/repositories/dashboardInsightsRepository';
 import type { AppSettingsRepository } from '@/lib/repositories/appSettingsRepository';
+import type { InvestmentThesisRepository } from '@/lib/repositories/investmentThesisRepository';
+import {
+  dealLeadField,
+  dealLeadLabel,
+  matchedTrackPics,
+  type TrackLike,
+} from '@/lib/tracks/matchTracks';
 
 // ─── Configurable settings (persisted in app_settings) ──────────────────────────
 
@@ -86,6 +93,15 @@ export interface StaleDeal {
   days: number;
   reason: string;
   severity: 'red' | 'amber';
+  /** Effective deal lead name for the stage (sponsor at L0–L2, captain at L3+,
+   * captain inheriting the sponsor when unset; falling back to the matched
+   * Track's PIC). Null when none can be resolved. */
+  leadName: string | null;
+  /** Label for the lead: "Deal Sponsor" (L0–L2) or "Deal Captain" (L3+). */
+  leadLabel: string;
+  /** True when `leadName` came from the matched Track's PIC rather than a stored
+   * sponsor/captain — the UI appends a "(from Track)" suffix. */
+  leadFromTrack: boolean;
 }
 
 export interface BreakdownRow {
@@ -129,6 +145,7 @@ export class DashboardInsightsService {
   constructor(
     private repo: DashboardInsightsRepository,
     private settingsRepo: AppSettingsRepository,
+    private thesisRepo: InvestmentThesisRepository,
   ) {}
 
   /** Current Insights settings, with defaults filled in for any missing field. */
@@ -180,6 +197,7 @@ export class DashboardInsightsService {
       countryBreakdown,
       bankerBreakdown,
       staleCandidates,
+      tracks,
       newDeals,
       screenedL0,
       decksGenerated,
@@ -195,6 +213,9 @@ export class DashboardInsightsService {
       this.repo.getCountryBreakdown(from, to),
       this.repo.getBankerBreakdown(from, to),
       this.repo.getStaleCandidates(from, to),
+      // All Tracks (investment theses) — the matched-Track PIC fallback for the
+      // stale-deal lead uses the same full set the pipeline UI does.
+      this.thesisRepo.findAll(),
       this.repo.countNewDeals(from, to),
       this.repo.countScreenedL0(from, to),
       this.repo.countDecksGenerated(from, to),
@@ -219,7 +240,7 @@ export class DashboardInsightsService {
     const l0l1Conversion = l0 > 0 ? Math.round((l1 / l0) * 1000) / 10 : 0;
     const { min, max } = settings.l0l1Conversion;
 
-    const staleDeals = buildStaleDeals(staleCandidates, now, settings.staleThresholds);
+    const staleDeals = buildStaleDeals(staleCandidates, now, settings.staleThresholds, tracks);
 
     const kpis: InsightsKpis = {
       totalInPipeline,
@@ -316,6 +337,7 @@ function buildStaleDeals(
   candidates: StaleCandidate[],
   now: Date,
   thresholds: Record<string, number>,
+  tracks: TrackLike[],
 ): StaleDeal[] {
   const nowMs = now.getTime();
 
@@ -342,11 +364,35 @@ function buildStaleDeals(
         reason: c.last_activity_at ? `Last activity ${days} days ago` : 'No activity logged',
         // Any deal past its stage SLA is flagged red (uniform coloring per review).
         severity: 'red',
+        ...resolveLead(c, tracks),
+        leadLabel: dealLeadLabel(c.pipeline_stage),
       },
     });
   }
 
   return scored.sort((a, b) => b.sortKey - a.sortKey).map((s) => s.deal);
+}
+
+/** Effective deal-lead for a stale candidate, mirroring `effectiveDealLead`:
+ * the stored deal sponsor at L0–L2 / deal captain at L3+ (captain inheriting the
+ * sponsor when unset), falling back to the matched Track's PIC(s). When the name
+ * comes from the Track, `leadFromTrack` is set so the UI can suffix "(from
+ * Track)". `leadName` is null when nothing resolves. */
+function resolveLead(
+  c: StaleCandidate,
+  tracks: TrackLike[],
+): { leadName: string | null; leadFromTrack: boolean } {
+  const field = dealLeadField(c.pipeline_stage);
+  const stored =
+    field === 'deal_captain'
+      ? c.deal_captain_name?.trim() || c.deal_sponsor_name?.trim()
+      : c.deal_sponsor_name?.trim();
+  if (stored) return { leadName: stored, leadFromTrack: false };
+
+  const pics = matchedTrackPics(c, tracks);
+  return pics.length > 0
+    ? { leadName: pics.join(', '), leadFromTrack: true }
+    : { leadName: null, leadFromTrack: false };
 }
 
 /** Pivot `(key, stage)` counts into per-key rows and compute conversion.

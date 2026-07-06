@@ -11,7 +11,7 @@ import {
   sql,
   type SQL,
 } from 'drizzle-orm';
-import type { PgColumn } from 'drizzle-orm/pg-core';
+import { alias, type PgColumn } from 'drizzle-orm/pg-core';
 import {
   aiWorkforceQueue,
   companies,
@@ -19,6 +19,7 @@ import {
   companyLogs,
   companySlides,
   screenings,
+  users,
 } from '@/lib/db/schema';
 import type { DbClient } from './types';
 
@@ -73,6 +74,15 @@ export interface StaleCandidate {
   last_activity_at: string | null;
   created_at: string | null;
   updated_at: string | null;
+  /** Resolved deal-sponsor name (uuid FK → users), null when unset. */
+  deal_sponsor_name: string | null;
+  /** Resolved deal-captain name (uuid FK → users), null when unset. */
+  deal_captain_name: string | null;
+  /** Descriptive fields backing the matched-Track PIC fallback. */
+  segment: string | null;
+  geography: string | null;
+  thesis_content: string | null;
+  matched_track_ids: string[] | null;
 }
 
 /**
@@ -149,8 +159,12 @@ export class DashboardInsightsRepository {
 
   /** Active funnel deals (L0–L5) created within the window, with activity
    * timestamps, for staleness analysis. Which stages actually carry an SLA is
-   * decided by the service (the configurable stale thresholds). */
+   * decided by the service (the configurable stale thresholds). The deal
+   * sponsor/captain names are resolved via joins so the stale list can show who
+   * owns each deal. */
   async getStaleCandidates(from: Date, to: Date): Promise<StaleCandidate[]> {
+    const sponsorUsers = alias(users, 'stale_sponsor_users');
+    const captainUsers = alias(users, 'stale_captain_users');
     const rows = await this.db
       .select({
         id: companies.id,
@@ -160,8 +174,18 @@ export class DashboardInsightsRepository {
         last_activity_at: companies.last_activity_at,
         created_at: companies.created_at,
         updated_at: companies.updated_at,
+        deal_sponsor_name: sponsorUsers.name,
+        deal_captain_name: captainUsers.name,
+        // Descriptive fields for the matched-Track PIC fallback (see the
+        // service's `resolveLeadName`).
+        segment: companies.segment,
+        geography: companies.geography,
+        thesis_content: companies.thesis_content,
+        matched_track_ids: companies.matched_track_ids,
       })
       .from(companies)
+      .leftJoin(sponsorUsers, eq(sponsorUsers.id, companies.deal_sponsor))
+      .leftJoin(captainUsers, eq(captainUsers.id, companies.deal_captain))
       .where(
         and(
           eq(companies.status, 'active'),

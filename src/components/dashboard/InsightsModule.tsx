@@ -28,6 +28,10 @@ import type {
 } from '@/lib/services/dashboardInsightsService';
 import { useChatContext } from '@/components/chat/ChatProvider';
 import { AskAIButton } from '@/components/chat/AskAIButton';
+import CompanyDetailDialog, {
+  type CompanyData,
+} from '@/components/pipeline/CompanyDetailDialog';
+import { getCompanies } from '@/lib/api/pipeline';
 import {
   Table,
   TableBody,
@@ -54,6 +58,7 @@ import {
   Globe,
   BarChart3,
   Settings,
+  UserCheck,
 } from 'lucide-react';
 
 interface InsightsModuleProps {
@@ -251,6 +256,7 @@ export default function InsightsModule({ from, to }: InsightsModuleProps) {
             settings={settings}
             onAsk={askAI}
             onSaveSettings={saveSettings}
+            onRefresh={fetchInsights}
           />
         )}
       </CardContent>
@@ -263,11 +269,14 @@ function InsightsContent({
   settings,
   onAsk,
   onSaveSettings,
+  onRefresh,
 }: {
   data: DashboardInsights;
   settings: InsightsSettingsWithMeta;
   onAsk: (topic: string) => void;
   onSaveSettings: (next: InsightsSettings) => Promise<void>;
+  /** Refetch insights after a company edit made from the detail dialog. */
+  onRefresh: () => void;
 }) {
   const { kpis, funnel, staleDeals, staleThresholdLabel, bankers, segments, countries, aiThroughput } =
     data;
@@ -275,6 +284,24 @@ function InsightsContent({
   const [targetModalOpen, setTargetModalOpen] = useState(false);
   const [conversionModalOpen, setConversionModalOpen] = useState(false);
   const [staleModalOpen, setStaleModalOpen] = useState(false);
+
+  // Company detail popup, opened by clicking a deal name (e.g. in the stale
+  // list). Mirrors the main Dashboard's handleCompanyClick — the Insights module
+  // is desktop-only, so there's no mobile full-screen fallback to handle.
+  const [selectedCompany, setSelectedCompany] = useState<CompanyData | null>(null);
+  const [companyDialogOpen, setCompanyDialogOpen] = useState(false);
+
+  const openCompany = useCallback(async (id: string) => {
+    try {
+      const company = await getCompanies({ id });
+      if (company) {
+        setSelectedCompany(company as CompanyData);
+        setCompanyDialogOpen(true);
+      }
+    } catch (err) {
+      console.error('Failed to load company details', err);
+    }
+  }, []);
 
   return (
     <div className="space-y-3">
@@ -435,7 +462,30 @@ function InsightsContent({
                 {staleDeals.map((deal) => (
                   <div key={deal.id} className="flex items-center gap-3 py-2 first:pt-0 last:pb-0">
                     <div className="min-w-0 flex-1">
-                      <div className="truncate text-[13px] font-medium">{deal.name}</div>
+                      <div className="flex min-w-0 items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => openCompany(deal.id)}
+                          title={`Open ${deal.name}`}
+                          className="min-w-0 truncate text-left text-[13px] font-medium text-foreground transition-colors hover:text-primary hover:underline"
+                        >
+                          {deal.name}
+                        </button>
+                        {deal.leadName && (
+                          <span
+                            title={`${deal.leadLabel}: ${deal.leadName}${deal.leadFromTrack ? ' (from Track)' : ''}`}
+                            className="flex shrink-0 items-center gap-1 text-[11px] text-muted-foreground"
+                          >
+                            <UserCheck className="h-3 w-3" />
+                            <span className="max-w-[10rem] truncate">
+                              {deal.leadName}
+                              {deal.leadFromTrack && (
+                                <span className="text-muted-foreground/70"> (from Track)</span>
+                              )}
+                            </span>
+                          </span>
+                        )}
+                      </div>
                       <div className="text-[11px] text-muted-foreground">{deal.reason}</div>
                     </div>
                     <span className="shrink-0 rounded border bg-muted px-2 py-0.5 font-mono text-[10.5px] text-muted-foreground">
@@ -551,7 +601,7 @@ function InsightsContent({
         </Card>
       </div>
 
-      {/* ── Row 3: Segment + Country ── */}
+      {/* ── Row 4: Segment + Country ── */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
         <Card className="border bg-card">
           <CardHeader className="pb-3">
@@ -610,6 +660,15 @@ function InsightsContent({
           </CardContent>
         </Card>
       </div>
+
+      {selectedCompany && (
+        <CompanyDetailDialog
+          company={selectedCompany}
+          open={companyDialogOpen}
+          onOpenChange={setCompanyDialogOpen}
+          onUpdate={onRefresh}
+        />
+      )}
     </div>
   );
 }

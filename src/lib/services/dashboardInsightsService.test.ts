@@ -33,6 +33,12 @@ class MockSettingsRepo {
   set = vi.fn();
 }
 
+/** Mock of the Tracks (investment thesis) repo. `findAll` backs the stale-deal
+ * matched-Track PIC fallback; defaults to no tracks. */
+class MockThesisRepo {
+  findAll = vi.fn();
+}
+
 const FROM = new Date('2026-06-01T00:00:00.000Z');
 const TO = new Date('2026-06-22T00:00:00.000Z');
 const NOW = new Date('2026-06-22T00:00:00.000Z');
@@ -48,6 +54,12 @@ function staleRow(over: Partial<StaleCandidate> & { id: string; pipeline_stage: 
     last_activity_at: null,
     created_at: null,
     updated_at: null,
+    deal_sponsor_name: null,
+    deal_captain_name: null,
+    segment: null,
+    geography: null,
+    thesis_content: null,
+    matched_track_ids: null,
     ...over,
   };
 }
@@ -55,6 +67,7 @@ function staleRow(over: Partial<StaleCandidate> & { id: string; pipeline_stage: 
 describe('DashboardInsightsService.getInsights', () => {
   let repo: MockRepo;
   let settingsRepo: MockSettingsRepo;
+  let thesisRepo: MockThesisRepo;
   let service: DashboardInsightsService;
 
   beforeEach(() => {
@@ -81,9 +94,12 @@ describe('DashboardInsightsService.getInsights', () => {
     repo.getHitlStats.mockResolvedValue({ resolved: 0, pending: 0 });
     settingsRepo = new MockSettingsRepo();
     settingsRepo.get.mockResolvedValue(null); // no stored settings → defaults
+    thesisRepo = new MockThesisRepo();
+    thesisRepo.findAll.mockResolvedValue([]); // no tracks → no Track-PIC fallback
     service = new DashboardInsightsService(
       repo as unknown as DashboardInsightsRepository,
       settingsRepo as unknown as AppSettingsRepository,
+      thesisRepo as unknown as import('@/lib/repositories/investmentThesisRepository').InvestmentThesisRepository,
     );
   });
 
@@ -221,6 +237,84 @@ describe('DashboardInsightsService.getInsights', () => {
     expect(bankers[1]).toMatchObject({ total: 9, l1plus: 3, conversion: 33 }); // 3/9 ≈ 33%
   });
 
+  it('resolves the stale deal lead: sponsor at L0–L2, captain (inheriting sponsor) at L3+', async () => {
+    repo.getStaleCandidates.mockResolvedValue([
+      // L0 (sponsor stage) → shows the deal sponsor
+      staleRow({
+        id: 'a',
+        pipeline_stage: 'L0',
+        target: 'Alpha',
+        created_at: new Date('2026-05-01T00:00:00.000Z').toISOString(),
+        deal_sponsor_name: 'Jane Doe',
+      }),
+      // L3 (captain stage) with a captain set → shows the captain
+      staleRow({
+        id: 'b',
+        pipeline_stage: 'L3',
+        target: 'Bravo',
+        created_at: new Date('2026-04-01T00:00:00.000Z').toISOString(),
+        deal_sponsor_name: 'Jane Doe',
+        deal_captain_name: 'Max Power',
+      }),
+      // L3 with no captain → inherits the sponsor
+      staleRow({
+        id: 'c',
+        pipeline_stage: 'L3',
+        target: 'Charlie',
+        created_at: new Date('2026-04-01T00:00:00.000Z').toISOString(),
+        deal_sponsor_name: 'Jane Doe',
+      }),
+    ]);
+
+    const { staleDeals } = await service.getInsights(FROM, TO, NOW);
+
+    const byName = Object.fromEntries(staleDeals.map((d) => [d.name, d]));
+    expect(byName.Alpha).toMatchObject({
+      leadName: 'Jane Doe',
+      leadLabel: 'Deal Sponsor',
+      leadFromTrack: false,
+    });
+    expect(byName.Bravo).toMatchObject({
+      leadName: 'Max Power',
+      leadLabel: 'Deal Captain',
+      leadFromTrack: false,
+    });
+    expect(byName.Charlie).toMatchObject({
+      leadName: 'Jane Doe',
+      leadLabel: 'Deal Captain',
+      leadFromTrack: false,
+    });
+  });
+
+  it('falls back to the matched Track PIC (flagged leadFromTrack) when no sponsor/captain is set', async () => {
+    repo.getStaleCandidates.mockResolvedValue([
+      // No stored sponsor; matched to a track via matched_track_ids → uses the Track PIC.
+      staleRow({
+        id: 'a',
+        pipeline_stage: 'L0',
+        target: 'Delta',
+        created_at: new Date('2026-05-01T00:00:00.000Z').toISOString(),
+        matched_track_ids: ['t1'],
+      }),
+      // No stored lead and no track match → null.
+      staleRow({
+        id: 'b',
+        pipeline_stage: 'L0',
+        target: 'Echo',
+        created_at: new Date('2026-05-01T00:00:00.000Z').toISOString(),
+      }),
+    ]);
+    thesisRepo.findAll.mockResolvedValue([
+      { id: 't1', title: 'Fintech', content: 'fintech thesis', pic: 'Track Owner' },
+    ]);
+
+    const { staleDeals } = await service.getInsights(FROM, TO, NOW);
+
+    const byName = Object.fromEntries(staleDeals.map((d) => [d.name, d]));
+    expect(byName.Delta).toMatchObject({ leadName: 'Track Owner', leadFromTrack: true });
+    expect(byName.Echo).toMatchObject({ leadName: null, leadFromTrack: false });
+  });
+
   it('passes the window to period-scoped counters and surfaces AI throughput', async () => {
     repo.countNewDeals.mockResolvedValue(45);
     repo.countScreenedL0.mockResolvedValue(138);
@@ -308,6 +402,7 @@ describe('DashboardInsightsService settings', () => {
     service = new DashboardInsightsService(
       new MockRepo() as unknown as DashboardInsightsRepository,
       settingsRepo as unknown as AppSettingsRepository,
+      new MockThesisRepo() as unknown as import('@/lib/repositories/investmentThesisRepository').InvestmentThesisRepository,
     );
   });
 

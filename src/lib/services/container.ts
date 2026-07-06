@@ -235,6 +235,7 @@ export function createContainer(db: DbClient): Container {
   const dashboardInsightsService = new DashboardInsightsService(
     dashboardInsightsRepo,
     appSettingsRepo,
+    thesisRepo,
   );
 
   const apiKeyRepo = new ApiKeyRepository(db);

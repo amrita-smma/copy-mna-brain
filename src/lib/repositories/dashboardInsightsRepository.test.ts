@@ -8,6 +8,7 @@ import { DashboardInsightsRepository } from './dashboardInsightsRepository';
 const mockDb = {
   select: vi.fn().mockReturnThis(),
   from: vi.fn().mockReturnThis(),
+  leftJoin: vi.fn().mockReturnThis(),
   where: vi.fn().mockReturnThis(),
   groupBy: vi.fn(),
   execute: vi.fn(),
@@ -17,6 +18,7 @@ function resetDb() {
   vi.clearAllMocks();
   mockDb.select.mockReturnThis();
   mockDb.from.mockReturnThis();
+  mockDb.leftJoin.mockReturnThis();
   mockDb.where.mockReturnThis();
 }
 
@@ -82,6 +84,7 @@ describe('DashboardInsightsRepository breakdowns', () => {
       { key: 'Japan', stage: 'L0', count: 41 },
     ]);
   });
+
 });
 
 describe('DashboardInsightsRepository.getStaleCandidates', () => {
@@ -92,7 +95,7 @@ describe('DashboardInsightsRepository.getStaleCandidates', () => {
     repo = new DashboardInsightsRepository(mockDb as never);
   });
 
-  it('selects the staleness timestamps and stringifies the stage', async () => {
+  it('joins sponsor/captain users, selects the staleness timestamps, and stringifies the stage', async () => {
     mockDb.where.mockResolvedValueOnce([
       {
         id: 'c1',
@@ -102,6 +105,8 @@ describe('DashboardInsightsRepository.getStaleCandidates', () => {
         last_activity_at: null,
         created_at: '2026-06-01T00:00:00.000Z',
         updated_at: '2026-06-02T00:00:00.000Z',
+        deal_sponsor_name: 'Jane Doe',
+        deal_captain_name: null,
       },
     ]);
 
@@ -110,7 +115,16 @@ describe('DashboardInsightsRepository.getStaleCandidates', () => {
     const selectArg = mockDb.select.mock.calls[0][0];
     expect(selectArg).toHaveProperty('last_activity_at');
     expect(selectArg).toHaveProperty('pipeline_stage');
-    expect(result[0]).toMatchObject({ id: 'c1', pipeline_stage: 'L2' });
+    expect(selectArg).toHaveProperty('deal_sponsor_name');
+    expect(selectArg).toHaveProperty('deal_captain_name');
+    // Two joins: one for the sponsor user, one for the captain user.
+    expect(mockDb.leftJoin).toHaveBeenCalledTimes(2);
+    expect(result[0]).toMatchObject({
+      id: 'c1',
+      pipeline_stage: 'L2',
+      deal_sponsor_name: 'Jane Doe',
+      deal_captain_name: null,
+    });
   });
 });
 
