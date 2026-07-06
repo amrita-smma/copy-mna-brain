@@ -126,7 +126,7 @@ function initials(name: string): string {
  * Frontend-only display filter (the backend still counts them). Matched
  * case-insensitively as a substring, so "Sinarmas" also hides "Sinarmas
  * Sekuritas". */
-const EXCLUDED_BANKER_SOURCES = ['Starcapital', 'Sinarmas'];
+const EXCLUDED_BANKER_SOURCES = ['Starcapital', 'Sinarmas', 'Jien Lit'];
 
 function isExcludedBankerSource(key: string): boolean {
   const k = key.toLowerCase();
