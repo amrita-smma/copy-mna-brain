@@ -34,6 +34,7 @@ describe('DashboardActivityRepository.getDroppedDeals', () => {
     expect(selectArg).toHaveProperty('dropped_reason');
     expect(selectArg).toHaveProperty('remarks');
     expect(selectArg).toHaveProperty('thesis_content');
+    expect(selectArg).toHaveProperty('logo_url');
   });
 
   it('selects FY financials and entered_by_name for the per-row summary', async () => {
@@ -97,6 +98,7 @@ describe('DashboardActivityRepository.getPipelineMoves', () => {
 
     const selectArg = mockDb.select.mock.calls[0][0];
     expect(selectArg).toHaveProperty('action');
+    expect(selectArg).toHaveProperty('logo_url');
     expect(selectArg).toHaveProperty('revenue_usd_mn');
     expect(selectArg).toHaveProperty('ebitda_usd_mn');
     expect(selectArg).toHaveProperty('ev_usd_mn');
@@ -128,6 +130,7 @@ describe('DashboardActivityRepository.getDiscoveredCompanies', () => {
     const selectArg = mockDb.select.mock.calls[0][0];
     expect(selectArg).toHaveProperty('target');
     expect(selectArg).toHaveProperty('event_at');
+    expect(selectArg).toHaveProperty('logo_url');
     expect(selectArg).toHaveProperty('revenue_usd_mn');
     expect(selectArg).toHaveProperty('ebitda_usd_mn');
     expect(selectArg).toHaveProperty('ev_usd_mn');

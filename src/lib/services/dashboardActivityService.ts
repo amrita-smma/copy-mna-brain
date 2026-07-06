@@ -40,6 +40,8 @@ export interface FeedEvent {
   type: FeedEventType;
   company_id: string;
   company_name: string;
+  /** Latest analysis logo for the company, when one exists. */
+  logo_url: string | null;
   segment: string | null;
   geography: string | null;
   source: string | null;
@@ -232,6 +234,7 @@ export function buildFeedEvents(activity: {
       type: 'ai_discovered',
       company_id: c.id,
       company_name: companyDisplayName(c, '—'),
+      logo_url: c.logo_url ?? null,
       segment: c.segment ?? null,
       geography: c.geography ?? null,
       source: c.source ?? null,
@@ -251,6 +254,7 @@ export function buildFeedEvents(activity: {
       type: 'new_deal',
       company_id: c.id,
       company_name: companyDisplayName(c, '—'),
+      logo_url: c.logo_url ?? null,
       segment: c.segment ?? null,
       geography: c.geography ?? null,
       source: c.source ?? null,
@@ -274,6 +278,7 @@ export function buildFeedEvents(activity: {
       type: 'stage_move',
       company_id: m.company_id ?? '',
       company_name: companyDisplayName(m, '—'),
+      logo_url: m.logo_url ?? null,
       segment: m.segment ?? null,
       geography: m.geography ?? null,
       source: m.source ?? null,
@@ -297,6 +302,7 @@ export function buildFeedEvents(activity: {
       type: 'dropped',
       company_id: d.id,
       company_name: companyDisplayName(d, '—'),
+      logo_url: d.logo_url ?? null,
       segment: d.segment ?? null,
       geography: d.geography ?? null,
       source: d.source ?? null,
@@ -318,6 +324,7 @@ export function buildFeedEvents(activity: {
       type: 'note_updated',
       company_id: n.company_id,
       company_name: companyDisplayName(n, '—'),
+      logo_url: n.logo_url ?? null,
       segment: n.segment ?? null,
       geography: n.geography ?? null,
       source: n.source ?? null,

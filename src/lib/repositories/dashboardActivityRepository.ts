@@ -68,8 +68,28 @@ export class DashboardActivityRepository {
     );
   }
 
+  /**
+   * Correlated subquery selecting the company's most recent analysis logo
+   * (highest `updated_at`, skipping null logos). Rendered as a scalar column on
+   * feed rows so the activity feed can show a company logo when one exists,
+   * without a join that would fan out rows across multiple analyses.
+   *
+   * Built as a plain `sql` template (not the query builder) so it never issues
+   * its own `.select()` call — feed queries expose a single top-level select.
+   */
+  private latestLogoUrl() {
+    return sql<string | null>`(
+      SELECT "company_analyses"."logo_url"
+      FROM "company_analyses"
+      WHERE "company_analyses"."company_id" = "companies"."id"
+        AND "company_analyses"."logo_url" IS NOT NULL
+      ORDER BY "company_analyses"."updated_at" DESC NULLS LAST
+      LIMIT 1
+    )`;
+  }
+
   async getNewL0Companies(from: Date, to: Date, limit?: number, companyId?: string): Promise<
-    ({ id: string; target: string | null; project_name: string | null; source: string | null; segment: string | null; geography: string | null; remarks: string | null; thesis_content: string | null; deal_sponsor_name: string | null; entered_by: string | null; entered_by_name: string | null; event_at: string; reason: 'created' | 'demoted' } & FeedFinancials)[]
+    ({ id: string; target: string | null; project_name: string | null; source: string | null; segment: string | null; geography: string | null; remarks: string | null; thesis_content: string | null; logo_url: string | null; deal_sponsor_name: string | null; entered_by: string | null; entered_by_name: string | null; event_at: string; reason: 'created' | 'demoted' } & FeedFinancials)[]
   > {
     const fromIso = from.toISOString();
     const toIso = to.toISOString();
@@ -86,6 +106,7 @@ export class DashboardActivityRepository {
         geography: companies.geography,
         remarks: companies.remarks,
         thesis_content: companies.thesis_content,
+        logo_url: this.latestLogoUrl(),
         deal_sponsor_name: sponsorUsers.name,
         entered_by: companies.entered_by,
         entered_by_name: users.name,
@@ -119,6 +140,7 @@ export class DashboardActivityRepository {
         geography: companies.geography,
         remarks: companies.remarks,
         thesis_content: companies.thesis_content,
+        logo_url: this.latestLogoUrl(),
         deal_sponsor_name: sponsorUsers.name,
         entered_by: companies.entered_by,
         entered_by_name: users.name,
@@ -186,6 +208,7 @@ export class DashboardActivityRepository {
         geography: companies.geography,
         remarks: companies.remarks,
         thesis_content: companies.thesis_content,
+        logo_url: this.latestLogoUrl(),
         revenue_usd_mn: companyFinancials.revenue_usd_mn,
         ebitda_usd_mn: companyFinancials.ebitda_usd_mn,
         ev_usd_mn: companyFinancials.ev_usd_mn,
@@ -244,6 +267,7 @@ export class DashboardActivityRepository {
         source: companies.source,
         remarks: companies.remarks,
         thesis_content: companies.thesis_content,
+        logo_url: this.latestLogoUrl(),
         promoted_reasons: companies.promoted_reasons,
         deal_sponsor_name: sponsorUsers.name,
         entered_by: companies.entered_by,
@@ -304,6 +328,7 @@ export class DashboardActivityRepository {
         geography: companies.geography,
         source: companies.source,
         thesis_content: companies.thesis_content,
+        logo_url: this.latestLogoUrl(),
         deal_sponsor_name: sponsorUsers.name,
         entered_by: companies.entered_by,
         entered_by_name: users.name,
@@ -343,6 +368,7 @@ export class DashboardActivityRepository {
         source: companies.source,
         remarks: companies.remarks,
         thesis_content: companies.thesis_content,
+        logo_url: this.latestLogoUrl(),
         revenue_usd_mn: companyFinancials.revenue_usd_mn,
         ebitda_usd_mn: companyFinancials.ebitda_usd_mn,
         ev_usd_mn: companyFinancials.ev_usd_mn,

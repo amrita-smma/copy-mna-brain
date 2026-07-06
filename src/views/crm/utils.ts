@@ -1,3 +1,4 @@
+import { nameInitials } from "@/lib/companyDisplay";
 import type { LastContactPreset } from "./types";
 
 export const PAGE_SIZE = 50;
@@ -61,13 +62,9 @@ export function formatResponseP50(seconds: number | null): string {
 }
 
 export function initialsOf(name: string): string {
-  return name
-    .split(/\s+/)
-    .filter(Boolean)
-    .map((s) => s[0])
-    .join("")
-    .slice(0, 2)
-    .toUpperCase();
+  // English-only initials so non-Latin / special characters never leak into the
+  // avatar. Empty when nothing resolves (callers render their own placeholder).
+  return nameInitials(name, "");
 }
 
 // Seed list shown inside the Add-tag input's <datalist>. The full menu of

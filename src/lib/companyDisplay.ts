@@ -13,12 +13,31 @@ export function companyDisplayName(
   return clean(company?.target) || clean(company?.name) || clean(company?.project_name) || fallback;
 }
 
+/**
+ * Build up-to-two-letter initials from a name using only English (A–Z) letters.
+ *
+ * For each word (whitespace-separated), the word's initial is its FIRST English
+ * letter appearing anywhere in the word — so a leading digit, symbol or
+ * non-Latin character is skipped rather than shown. Words with no English letter
+ * at all (e.g. purely CJK / Cyrillic / emoji / punctuation) contribute nothing.
+ *
+ * The first two qualifying words give a two-letter avatar. If only one word has
+ * an English letter, the avatar is that single letter. If none do, `fallback`
+ * is returned.
+ */
+export function nameInitials(name: string | null | undefined, fallback = "U") {
+  const letters: string[] = [];
+  for (const word of clean(name).split(/\s+/)) {
+    const letter = word.match(/[A-Za-z]/)?.[0];
+    if (!letter) continue;
+    letters.push(letter.toUpperCase());
+    if (letters.length === 2) break;
+  }
+  return letters.length > 0 ? letters.join("") : fallback;
+}
+
 export function companyInitials(company: CompanyNameLike | null | undefined, fallback = "U") {
-  return companyDisplayName(company, fallback)
-    .split(/\s+/)
-    .slice(0, 2)
-    .map((word) => word[0]?.toUpperCase() ?? "")
-    .join("");
+  return nameInitials(companyDisplayName(company, fallback), fallback);
 }
 
 /**

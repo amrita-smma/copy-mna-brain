@@ -296,6 +296,24 @@ describe('DashboardActivityService.getFeed', () => {
     expect(events[0].to_stage).toBe('L2');
   });
 
+  it('carries the company logo_url through onto the feed event', async () => {
+    repo.getNewL0Companies.mockResolvedValue([
+      { ...newDealRow('a', '2026-06-10T00:00:00.000Z'), logo_url: 'https://cdn/a.png' },
+    ]);
+
+    const { events } = await service.getFeed({ from: FROM, to: TO, offset: 0, limit: 10 });
+
+    expect(events[0].logo_url).toBe('https://cdn/a.png');
+  });
+
+  it('defaults logo_url to null when the source row has none', async () => {
+    repo.getNewL0Companies.mockResolvedValue([newDealRow('a', '2026-06-10T00:00:00.000Z')]);
+
+    const { events } = await service.getFeed({ from: FROM, to: TO, offset: 0, limit: 10 });
+
+    expect(events[0].logo_url).toBeNull();
+  });
+
   it('emits ai_discovered events and only queries that source when filtered', async () => {
     repo.getDiscoveredCompanies.mockResolvedValue([
       discoveredRow('x', '2026-06-15T00:00:00.000Z'),

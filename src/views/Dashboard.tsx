@@ -66,7 +66,7 @@ import {
 } from "@/components/ui/carousel";
 import { useChatContext } from "@/components/chat/ChatProvider";
 import { AskAIButton } from "@/components/chat/AskAIButton";
-import { companyDisplayName } from "@/lib/companyDisplay";
+import { companyDisplayName, companyInitials } from "@/lib/companyDisplay";
 
 interface StageCounts {
   stage: string;
@@ -223,6 +223,7 @@ interface FeedEvent {
   type: FeedEventType;
   company_id: string;
   company_name: string;
+  logo_url: string | null;
   segment: string | null;
   geography: string | null;
   source: string | null;
@@ -259,6 +260,7 @@ function buildFeedEvents(activity: DashboardActivity): FeedEvent[] {
       type: "ai_discovered",
       company_id: c.id,
       company_name: companyDisplayName(c, "—"),
+      logo_url: c.logo_url ?? null,
       segment: c.segment ?? null,
       geography: c.geography ?? null,
       source: c.source ?? null,
@@ -278,6 +280,7 @@ function buildFeedEvents(activity: DashboardActivity): FeedEvent[] {
       type: "new_deal",
       company_id: c.id,
       company_name: companyDisplayName(c, "—"),
+      logo_url: c.logo_url ?? null,
       segment: c.segment ?? null,
       geography: c.geography ?? null,
       source: c.source ?? null,
@@ -299,6 +302,7 @@ function buildFeedEvents(activity: DashboardActivity): FeedEvent[] {
       type: "stage_move",
       company_id: m.company_id ?? "",
       company_name: companyDisplayName(m, "—"),
+      logo_url: m.logo_url ?? null,
       segment: m.segment ?? null,
       geography: m.geography ?? null,
       source: m.source ?? null,
@@ -322,6 +326,7 @@ function buildFeedEvents(activity: DashboardActivity): FeedEvent[] {
       type: "dropped",
       company_id: d.id,
       company_name: companyDisplayName(d, "—"),
+      logo_url: d.logo_url ?? null,
       segment: d.segment ?? null,
       geography: d.geography ?? null,
       source: d.source ?? null,
@@ -344,6 +349,7 @@ function buildFeedEvents(activity: DashboardActivity): FeedEvent[] {
       type: "note_updated",
       company_id: n.company_id,
       company_name: companyDisplayName(n, "—"),
+      logo_url: n.logo_url ?? null,
       segment: n.segment ?? null,
       geography: n.geography ?? null,
       source: n.source ?? null,
@@ -367,6 +373,8 @@ function buildFeedEvents(activity: DashboardActivity): FeedEvent[] {
 interface CompanyFeedGroup {
   company_id: string;
   company_name: string;
+  /** Latest analysis logo for the company, when one exists. */
+  logo_url: string | null;
   /** Chronological, oldest first. */
   events: FeedEvent[];
   /** ISO timestamp of the most recent event — drives feed/date ordering. */
@@ -389,6 +397,7 @@ function groupEventsByCompany(events: FeedEvent[]): CompanyFeedGroup[] {
       groups.push({
         company_id: event.company_id,
         company_name: event.company_name,
+        logo_url: event.logo_url,
         events: [event],
         latestEventAt: event.event_at,
       });
@@ -2137,6 +2146,45 @@ function FinancialSummary({
   );
 }
 
+// Circular company avatar for the activity feed: the analysis logo when one
+// exists, otherwise English-only initials on a tinted disc (mirrors the company
+// detail header's logo/fallback pattern).
+function FeedAvatar({
+  name,
+  logoUrl,
+  className = "h-8 w-8",
+}: {
+  name: string;
+  logoUrl: string | null | undefined;
+  className?: string;
+}) {
+  return (
+    <div
+      className={`${className} shrink-0 overflow-hidden rounded-full border border-violet-200 bg-violet-100 dark:border-violet-700 dark:bg-violet-900/40 flex items-center justify-center`}
+    >
+      {logoUrl ? (
+        <img
+          src={logoUrl}
+          alt={name}
+          className="h-full w-full object-cover"
+          onError={(e) => {
+            (e.currentTarget as HTMLImageElement).style.display = "none";
+            (
+              e.currentTarget.nextSibling as HTMLElement | null
+            )?.removeAttribute("style");
+          }}
+        />
+      ) : null}
+      <span
+        className="text-xs font-bold text-violet-600 dark:text-violet-300"
+        style={logoUrl ? { display: "none" } : undefined}
+      >
+        {companyInitials({ name })}
+      </span>
+    </div>
+  );
+}
+
 function FeedEventRow({
   event,
   onCompanyClick,
@@ -2173,53 +2221,60 @@ function FeedEventRow({
       }}
       className={
         bare
-          ? "flex items-start gap-3 rounded-md cursor-pointer transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          : "flex items-start gap-3 rounded-lg border bg-card p-4 shadow-sm cursor-pointer transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          ? "rounded-md cursor-pointer transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          : "rounded-lg border bg-card p-4 shadow-sm cursor-pointer transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       }
     >
-      {/* Color dot */}
-      <div className="mt-1.5 shrink-0">
-        <div className={`h-2.5 w-2.5 rounded-full ${dotColors[event.type]}`} />
-      </div>
-
-      {/* Content */}
-      <div className="flex-1 min-w-0 space-y-1.5">
-        {/* Company name (top-left) + desktop analyze icon (top-right). In bare
-            carousel slides the name is a shared header, so surface the event's
-            own date here instead. */}
-        {(showCompanyName ||
-          bare ||
-          (onAnalyze && analyzeLabel && analyzeVariant === "icon")) && (
-          <div className="flex items-start justify-between gap-2">
-            <div className="min-w-0">
-              {showCompanyName && (
-                <button
-                  type="button"
-                  data-testid={`feed-event-company-button-${event.company_id}`}
-                  onClick={(e) => { e.stopPropagation(); onCompanyClick(event.company_id); }}
-                  className="text-sm font-semibold text-left hover:text-primary transition-colors"
-                >
-                  {event.company_name}
-                </button>
-              )}
-              {bare && (
-                <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-                  {formatFeedEventDate(event.event_at)}
-                </p>
-              )}
-            </div>
-            {onAnalyze && analyzeLabel && analyzeVariant === "icon" && (
-              <span onClick={(e) => e.stopPropagation()}>
-                <AskAIButton
-                  variant="icon"
-                  label={analyzeLabel}
-                  onClick={onAnalyze}
-                />
-              </span>
-            )}
+      {/* Header row: leading avatar (company rows) or plain event-type dot
+          (bare carousel slides, where the company avatar already sits in the
+          shared header) + the company name / date and desktop analyze icon. */}
+      <div className="flex items-start gap-3">
+        {showCompanyName ? (
+          <div className="relative shrink-0">
+            <FeedAvatar name={event.company_name} logoUrl={event.logo_url} />
+            <span
+              className={`absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full ring-2 ring-card ${dotColors[event.type]}`}
+            />
+          </div>
+        ) : (
+          <div className="mt-1.5 shrink-0">
+            <div className={`h-2.5 w-2.5 rounded-full ${dotColors[event.type]}`} />
           </div>
         )}
 
+        <div className="flex flex-1 min-w-0 items-start justify-between gap-2">
+          <div className="min-w-0">
+            {showCompanyName && (
+              <button
+                type="button"
+                data-testid={`feed-event-company-button-${event.company_id}`}
+                onClick={(e) => { e.stopPropagation(); onCompanyClick(event.company_id); }}
+                className="text-sm font-semibold text-left hover:text-primary transition-colors"
+              >
+                {event.company_name}
+              </button>
+            )}
+            {bare && (
+              <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                {formatFeedEventDate(event.event_at)}
+              </p>
+            )}
+          </div>
+          {onAnalyze && analyzeLabel && analyzeVariant === "icon" && (
+            <span onClick={(e) => e.stopPropagation()}>
+              <AskAIButton
+                variant="icon"
+                label={analyzeLabel}
+                onClick={onAnalyze}
+              />
+            </span>
+          )}
+        </div>
+      </div>
+
+      {/* Card contents (chips, remarks, financials, badges) — a full-width row
+          below the avatar and company name. */}
+      <div className="space-y-1.5 mt-2">
         {/* Event detail line — only rendered for event types that have chips */}
         {(event.type === "stage_move" || event.type === "dropped") && (
         <div className="flex items-center gap-2 flex-wrap">
@@ -2445,16 +2500,23 @@ function CompanyFeedCarousel({
       data-testid={`feed-company-carousel-${company.company_id}`}
       className="rounded-lg border bg-card p-4 shadow-sm"
     >
-      {/* Header: company name + position indicator and desktop arrows */}
+      {/* Header: company avatar + name + position indicator and desktop arrows */}
       <div className="flex items-center justify-between gap-2 mb-3">
-        <button
-          type="button"
-          data-testid={`feed-event-company-button-${company.company_id}`}
-          onClick={() => onCompanyClick(company.company_id)}
-          className="text-sm font-semibold text-left hover:text-primary transition-colors truncate"
-        >
-          {company.company_name}
-        </button>
+        <div className="flex items-center gap-2 min-w-0">
+          <FeedAvatar
+            name={company.company_name}
+            logoUrl={company.logo_url}
+            className="h-7 w-7"
+          />
+          <button
+            type="button"
+            data-testid={`feed-event-company-button-${company.company_id}`}
+            onClick={() => onCompanyClick(company.company_id)}
+            className="text-sm font-semibold text-left hover:text-primary transition-colors truncate"
+          >
+            {company.company_name}
+          </button>
+        </div>
         <div className="flex items-center gap-1 shrink-0">
           <button
             type="button"
