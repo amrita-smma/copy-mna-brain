@@ -447,13 +447,22 @@ export default function CompanyGraph({
 
     return {
       nodes: nodes.map((n) => ({ ...n })),
-      links: links.map((l) => ({
-        source: endpointId(l.source),
-        target: endpointId(l.target),
-        label: l.label,
-        evidence: l.evidence,
-        date: l.date,
-      })),
+      links: links.map((l) => {
+        const source = endpointId(l.source);
+        const target = endpointId(l.target);
+        // INVESTED_IN is stored as investor(source) -> investee(target), but the
+        // graph's arrow should read the other way. Swap the endpoints for this
+        // relation type only so the drawn arrow (and the edge-detail dialog,
+        // which reads from these endpoints) point in the correct direction.
+        const reversed = (l.label as RelationType) === 'INVESTED_IN';
+        return {
+          source: reversed ? target : source,
+          target: reversed ? source : target,
+          label: l.label,
+          evidence: l.evidence,
+          date: l.date,
+        };
+      }),
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [graphData, ownership, geography, pipelineStage, status, connectedIds, enabledTypes, hasEvidenceOnly, dateFrom, dateTo, nodeCharacteristics]);
