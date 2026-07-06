@@ -21,6 +21,7 @@ import {
 } from '@/lib/dto/companyDTO';
 import type { TrackMatchingService } from './trackMatchingService';
 import type { UserRepository } from '@/lib/repositories';
+import { bestFuzzyMatch } from '@/lib/fuzzySearch';
 
 const L0_STAGE: DealStage = 'L0';
 // Stages above L0. A move into L0 from one of these is a *demotion*, not a fresh
@@ -104,6 +105,27 @@ export class CompanyService {
 
   findByNameFuzzy(namePart: string) {
     return this.companyRepo.findByNameFuzzy(namePart);
+  }
+
+  /**
+   * Levenshtein-based fuzzy dedup fallback for ingest. The cheap SQL substring
+   * match (`findByNameFuzzy`) only catches names that literally contain one
+   * another; this catches spelling variants, typos, and OCR noise (e.g. "Acme
+   * Corp" vs "Acme Crop"). Skipped for very short names (< 5 chars), where
+   * relative-distance matching is too aggressive and the exact substring gate
+   * already suffices. Returns the full matched company row, or null when
+   * nothing clears the similarity threshold.
+   */
+  async findBestFuzzyMatch(
+    name: string,
+    threshold = 0.3,
+  ): Promise<Tables<'companies'> | null> {
+    const trimmed = name.trim();
+    if (trimmed.length < 5) return null;
+    const candidates = await this.companyRepo.findAllIdAndTarget();
+    const match = bestFuzzyMatch(trimmed, candidates, threshold);
+    if (!match) return null;
+    return this.companyRepo.findById(match.id);
   }
 
   async markPossibleDuplicate(id: string, possibleDuplicateCompanyId: string): Promise<void> {

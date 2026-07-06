@@ -169,6 +169,7 @@ function makeCompanyServiceStub(): CompanyService {
   return {
     findById: vi.fn().mockResolvedValue(makeCompany()),
     findByNameFuzzy: vi.fn().mockResolvedValue(null),
+    findBestFuzzyMatch: vi.fn().mockResolvedValue(null),
     createFromDTO: vi.fn().mockResolvedValue({ id: 'company-new' }),
     markPossibleDuplicate: vi.fn().mockResolvedValue(undefined),
     updateFromDTO: vi.fn().mockResolvedValue({ id: 'company-1' }),
@@ -480,6 +481,29 @@ describe('FileService.processUpload', () => {
         processing_status: 'awaiting_review',
       }),
     );
+  });
+
+  it('falls back to the Levenshtein matcher when the substring match misses, and skips create', async () => {
+    vi.mocked(processFileContent).mockResolvedValue({
+      file_type: 'prospectus',
+      prospectus_summary: {
+        company_name: 'Acme Crop', // typo of an existing "Acme Corp"
+        segment: 'Industrial Tech',
+      },
+    } as never);
+    // Substring gate misses the typo...
+    vi.mocked(companyService.findByNameFuzzy).mockResolvedValue(null as never);
+    // ...but the Levenshtein fallback resolves the existing company.
+    vi.mocked(companyService.findBestFuzzyMatch).mockResolvedValue(
+      makeCompany({ id: 'company-existing', target: 'Acme Corp', pipeline_stage: 'L2' }) as never,
+    );
+
+    await service.processUpload('uploads/teaser.pdf', 'teaser.pdf', 'application/pdf');
+
+    expect(companyService.findByNameFuzzy).toHaveBeenCalledWith('Acme Crop');
+    expect(companyService.findBestFuzzyMatch).toHaveBeenCalledWith('Acme Crop');
+    // Matched an existing company — no duplicate is created.
+    expect(companyService.createFromDTO).not.toHaveBeenCalled();
   });
 
   it('auto-accepts the extracted changes when the match is NOT in the L0–L5 pipeline', async () => {

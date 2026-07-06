@@ -881,7 +881,14 @@ export class FileService {
 
       const result = await this.withCompanyNameLock(identityName, async (companyService) => {
         // Dedup gate: an existing company with this name is never re-created.
-        const existing = await companyService.findByNameFuzzy(identityName);
+        //  1) Fast SQL substring match (suffix-stripped) — catches "Acme Ltd"
+        //     vs "Acme Co." style variations.
+        //  2) Levenshtein fallback — catches spelling variants, typos, and OCR
+        //     noise that substring matching misses (e.g. "Acme Corp" vs "Acme
+        //     Crop") so the same target isn't ingested twice.
+        const existing =
+          (await companyService.findByNameFuzzy(identityName)) ??
+          (await companyService.findBestFuzzyMatch(identityName));
         if (existing) {
           console.log(
             `[fileService] file ${opts.fileId}: "${identityName}" matches existing company ${existing.id}, skipping create`,
@@ -1158,8 +1165,13 @@ export class FileService {
     let companyId = matchedCompany?.id ?? null;
 
     // Fallback: fuzzy match by company_name from the financial_statement_summary.
+    // Substring match first, then Levenshtein so a typo'd/variant name still
+    // merges financials into the existing company rather than silently dropping.
     if (!companyId && opts.financialStatementSummary?.company_name) {
-      const found = await this.companyService.findByNameFuzzy(opts.financialStatementSummary.company_name);
+      const name = opts.financialStatementSummary.company_name;
+      const found =
+        (await this.companyService.findByNameFuzzy(name)) ??
+        (await this.companyService.findBestFuzzyMatch(name));
       companyId = found?.id ?? null;
     }
 

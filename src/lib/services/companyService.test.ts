@@ -36,6 +36,8 @@ function makeRepos() {
     // Default: every guard lookup returns an active company. Tests that
     // exercise the dropped-write guard override this with a dropped row.
     findById: vi.fn().mockResolvedValue(makeCompany()),
+    findByNameFuzzy: vi.fn().mockResolvedValue(null),
+    findAllIdAndTarget: vi.fn().mockResolvedValue([]),
     findAll: vi.fn(),
     findIdAndTargetPage: vi.fn().mockResolvedValue([]),
     count: vi.fn(),
@@ -121,6 +123,47 @@ function buildService(
     trackMatchingService as never,
   );
 }
+
+describe("CompanyService.findBestFuzzyMatch", () => {
+  it("returns null without hitting the DB for names shorter than 5 chars", async () => {
+    const repos = makeRepos();
+    const service = buildService(repos);
+
+    const result = await service.findBestFuzzyMatch("SEB");
+
+    expect(result).toBeNull();
+    expect(repos.companyRepo.findAllIdAndTarget).not.toHaveBeenCalled();
+  });
+
+  it("resolves a Levenshtein match to the full company row", async () => {
+    const repos = makeRepos();
+    vi.mocked(repos.companyRepo.findAllIdAndTarget).mockResolvedValue([
+      { id: "company-1", target: "Acme Corp", project_name: null },
+    ]);
+    const matched = makeCompany({ id: "company-1", target: "Acme Corp" });
+    vi.mocked(repos.companyRepo.findById).mockResolvedValue(matched);
+    const service = buildService(repos);
+
+    // "Acme Crop" is a one-transposition typo of "Acme Corp".
+    const result = await service.findBestFuzzyMatch("Acme Crop");
+
+    expect(repos.companyRepo.findById).toHaveBeenCalledWith("company-1");
+    expect(result).toBe(matched);
+  });
+
+  it("returns null when no candidate clears the similarity threshold", async () => {
+    const repos = makeRepos();
+    vi.mocked(repos.companyRepo.findAllIdAndTarget).mockResolvedValue([
+      { id: "company-1", target: "Acme Corp", project_name: null },
+    ]);
+    const service = buildService(repos);
+
+    const result = await service.findBestFuzzyMatch("Totally Different Name");
+
+    expect(result).toBeNull();
+    expect(repos.companyRepo.findById).not.toHaveBeenCalled();
+  });
+});
 
 describe("CompanyService.create", () => {
   it("inserts a log when logAction is provided", async () => {
