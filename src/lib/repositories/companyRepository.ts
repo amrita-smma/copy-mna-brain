@@ -150,6 +150,14 @@ export interface CompanyAgentFilters {
   maxRevenue?: number;
   minEbitda?: number;
   maxEbitda?: number;
+  /**
+   * Keep only companies created on/after this timestamp (inclusive). Compared
+   * against `companies.created_at`; accepts any Postgres-parseable date string
+   * (e.g. "2026-01-01" or a full ISO-8601 timestamp).
+   */
+  createdAfter?: string;
+  /** Keep only companies created on/before this timestamp (inclusive). */
+  createdBefore?: string;
   /** Free-text ILIKE across target, project_name, segment, and geography. */
   searchTerm?: string;
   limit?: number;
@@ -497,6 +505,11 @@ export class CompanyRepository {
         sql`lower(${companies.ai_opinion_verdict}) = ${filters.aiOpinionVerdict.toLowerCase()}`,
       );
 
+    if (filters.createdAfter)
+      push(gte(companies.created_at, filters.createdAfter));
+    if (filters.createdBefore)
+      push(lte(companies.created_at, filters.createdBefore));
+
     // Revenue/EBITDA filters apply against fiscal_year 2024 rows in company_financials.
     const needsFinancialsJoin =
       filters.minRevenue !== undefined ||
@@ -561,7 +574,12 @@ export class CompanyRepository {
   ): Promise<Tables<"companies">[]> {
     const { conditions, needsFinancialsJoin } =
       this.buildAgentConditions(filters);
-    const where = conditions.length > 0 ? and(...conditions) : undefined;
+    // The stats snapshot summarizes the origination pipeline only. `discovered`
+    // rows are auto-created relationship-graph stubs that sit outside the L0–L5
+    // funnel, so they must never inflate the aggregate — exclude them here
+    // (this is stats-only; searchForAgent/query_companies still surfaces them).
+    conditions.push(ne(companies.pipeline_stage, "discovered" as DealStage));
+    const where = and(...conditions);
     const HARD_CAP = 5000;
     if (needsFinancialsJoin) {
       const rows = await this.db

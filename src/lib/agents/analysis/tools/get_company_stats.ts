@@ -128,6 +128,8 @@ export const getCompanyStats = tool(
     max_revenue,
     min_ebitda,
     max_ebitda,
+    created_after,
+    created_before,
     search_term,
   }: {
     group_by?: GroupByDimension[];
@@ -149,6 +151,8 @@ export const getCompanyStats = tool(
     max_revenue?: number;
     min_ebitda?: number;
     max_ebitda?: number;
+    created_after?: string;
+    created_before?: string;
     search_term?: string;
   }) => {
     const groupBy =
@@ -181,6 +185,8 @@ export const getCompanyStats = tool(
         maxRevenue: max_revenue,
         minEbitda: min_ebitda,
         maxEbitda: max_ebitda,
+        createdAfter: created_after,
+        createdBefore: created_before,
         searchTerm: search_term,
       };
       const hasFilter = Object.values(filters).some((v) => v !== undefined);
@@ -293,7 +299,10 @@ Scope the cohort with the SAME filters as query_companies (all optional, AND-com
     has_ai_opinion (true → only companies WITH an AI Opinion; false → only those WITHOUT),
     ai_opinion_verdict ("pass"|"fail"|"tentative"),
     min_revenue / max_revenue / min_ebitda / max_ebitda (FY2024, USD M),
+    created_after / created_before (companies.created_at bounds, inclusive; date or ISO-8601 timestamp),
     search_term (target name/project name/segment/geography).
+
+Note: "discovered" relationship-graph stubs are always excluded from the snapshot — the aggregate covers the origination pipeline only.
 
 group_by: optional array of breakdown dimensions to append as tables. Any of:
     "segment", "geography", "stage", "source", "status", "ownership", "deal_type", "ai_opinion".
@@ -379,6 +388,18 @@ Returns:
       max_revenue: z.number().optional().describe("Maximum FY2024 revenue (USD M)"),
       min_ebitda: z.number().optional().describe("Minimum FY2024 EBITDA (USD M)"),
       max_ebitda: z.number().optional().describe("Maximum FY2024 EBITDA (USD M)"),
+      created_after: z
+        .string()
+        .optional()
+        .describe(
+          "Only companies added on/after this date (inclusive). Date or ISO-8601 timestamp, matched against companies.created_at",
+        ),
+      created_before: z
+        .string()
+        .optional()
+        .describe(
+          "Only companies added on/before this date (inclusive). Date or ISO-8601 timestamp, matched against companies.created_at",
+        ),
       search_term: z
         .string()
         .optional()

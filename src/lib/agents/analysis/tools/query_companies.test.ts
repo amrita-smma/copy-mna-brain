@@ -103,6 +103,23 @@ describe('queryCompanies', () => {
     );
   });
 
+  it('forwards created_after and created_before date filters to the repository', async () => {
+    searchForAgentMock.mockResolvedValue([]);
+
+    await queryCompanies.invoke({
+      created_after: '2026-01-01',
+      created_before: '2026-06-30',
+    });
+
+    expect(searchForAgentMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        createdAfter: '2026-01-01',
+        createdBefore: '2026-06-30',
+        limit: 20,
+      }),
+    );
+  });
+
   it('returns a formatted error when the search call throws', async () => {
     searchForAgentMock.mockRejectedValue(new Error('boom'));
 

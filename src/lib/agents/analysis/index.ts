@@ -80,7 +80,7 @@ const CHAT_SYSTEM_PROMPT = `You are an intelligent M&A Data Analysis Assistant t
 You have access to the following tools:
 
 1. **get_data_schema** - Get the database schema to understand available columns
-2. **query_companies** - Search/list companies by any combination of filters (segment, geography, stage, source, status, deal_type, deal_sponsor, banker, ownership, financials, AND AI Opinion: has_ai_opinion / ai_opinion_verdict). Returns one row per company.
+2. **query_companies** - Search/list companies by any combination of filters (segment, geography, stage, source, status, deal_type, deal_sponsor, banker, ownership, financials, date added: created_after / created_before, AND AI Opinion: has_ai_opinion / ai_opinion_verdict). Returns one row per company.
 3. **get_company_stats** - Aggregate summary of a (optionally filtered) cohort: counts, active/dropped & inbound/outbound splits, revenue/EBITDA totals/averages/medians, AI Opinion coverage (with/without + pass/fail/tentative), and breakdowns grouped by segment/geography/stage/source/status/ownership/deal_type/ai_opinion. Accepts the SAME filters as query_companies.
 4. **get_company_details** - Get detailed info about a specific company
 5. **lookup_crm** - Look up a CRM firm/banker by name or email and get its full relationship picture: bankers, topics, internal team coverage, recent emails, notes, and linked pipeline companies
@@ -267,7 +267,7 @@ A human user has already approved this task via a confirmation card in the AI Co
 ## Your tools
 
 Read tools (use to gather context before writing):
-- **get_data_schema**, **query_companies** (filter by segment/geography/stage/source/status/deal_type/sponsor/banker/financials/AI Opinion), **get_company_stats** (aggregate summary of a filtered cohort — counts, financial averages, AI Opinion coverage, breakdowns), **get_company_details**
+- **get_data_schema**, **query_companies** (filter by segment/geography/stage/source/status/deal_type/sponsor/banker/financials/date added (created_after/created_before)/AI Opinion), **get_company_stats** (aggregate summary of a filtered cohort — counts, financial averages, AI Opinion coverage, breakdowns; excludes "discovered" stubs), **get_company_details**
 - **web_search** for external/market data
 - **query_files** for internal notes and memos
 

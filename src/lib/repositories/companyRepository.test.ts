@@ -293,6 +293,50 @@ describe('CompanyRepository.searchForAgent', () => {
     expect(rendered).toContain('"geography" ilike');
     expect(params.filter((p) => p === '%中文股份%')).toHaveLength(4);
   });
+
+  it('renders inclusive created_at bounds for createdAfter/createdBefore', async () => {
+    const { db, where } = makeAgentSearchDb([]);
+    const repo = new CompanyRepository(db);
+
+    await repo.searchForAgent({
+      createdAfter: '2026-01-01',
+      createdBefore: '2026-06-30',
+    });
+
+    const condition = where.mock.calls[0][0] as SQL;
+    const { sql: rendered, params } = renderSql(condition);
+    expect(rendered).toContain('"created_at" >=');
+    expect(rendered).toContain('"created_at" <=');
+    expect(params).toContain('2026-01-01');
+    expect(params).toContain('2026-06-30');
+  });
+});
+
+describe('CompanyRepository.findForAgentStats', () => {
+  it('always excludes discovered-stage companies from the snapshot', async () => {
+    const { db, where } = makeAgentSearchDb([]);
+    const repo = new CompanyRepository(db);
+
+    await repo.findForAgentStats({});
+
+    const condition = where.mock.calls[0][0] as SQL;
+    const { sql: rendered, params } = renderSql(condition);
+    expect(rendered).toContain('"pipeline_stage" <>');
+    expect(params).toContain('discovered');
+  });
+
+  it('excludes discovered even alongside other filters', async () => {
+    const { db, where } = makeAgentSearchDb([]);
+    const repo = new CompanyRepository(db);
+
+    await repo.findForAgentStats({ segment: 'Tech' });
+
+    const condition = where.mock.calls[0][0] as SQL;
+    const { sql: rendered, params } = renderSql(condition);
+    expect(rendered).toContain('"segment" ilike');
+    expect(rendered).toContain('"pipeline_stage" <>');
+    expect(params).toContain('discovered');
+  });
 });
 
 describe('CompanyRepository.findAll targetSearch', () => {

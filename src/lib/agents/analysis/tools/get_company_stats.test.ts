@@ -94,6 +94,22 @@ describe('getCompanyStats', () => {
     );
   });
 
+  it('forwards created_after and created_before date filters to the repository', async () => {
+    findForAgentStatsMock.mockResolvedValue([]);
+
+    await getCompanyStats.invoke({
+      created_after: '2026-01-01',
+      created_before: '2026-06-30',
+    });
+
+    expect(findForAgentStatsMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        createdAfter: '2026-01-01',
+        createdBefore: '2026-06-30',
+      }),
+    );
+  });
+
   it('appends multiple requested breakdowns', async () => {
     findForAgentStatsMock.mockResolvedValue([
       { id: 'c1', segment: 'Tech', geography: 'US', pipeline_stage: 'L1' },

@@ -31,6 +31,8 @@ export const queryCompanies = tool(
     max_revenue,
     min_ebitda,
     max_ebitda,
+    created_after,
+    created_before,
     search_term,
     limit = 20,
   }: {
@@ -52,6 +54,8 @@ export const queryCompanies = tool(
     max_revenue?: number;
     min_ebitda?: number;
     max_ebitda?: number;
+    created_after?: string;
+    created_before?: string;
     search_term?: string;
     limit?: number;
   }) => {
@@ -80,6 +84,8 @@ export const queryCompanies = tool(
         maxRevenue: max_revenue,
         minEbitda: min_ebitda,
         maxEbitda: max_ebitda,
+        createdAfter: created_after,
+        createdBefore: created_before,
         searchTerm: search_term,
         limit,
       });
@@ -145,6 +151,7 @@ Available filters (every one maps to a real column):
     ai_opinion_verdict: AI Opinion verdict (exact, one of: "pass", "fail", "tentative")
     min_revenue / max_revenue: FY2024 revenue bounds (USD millions)
     min_ebitda / max_ebitda: FY2024 EBITDA bounds (USD millions)
+    created_after / created_before: Filter by when the company was added to the pipeline (companies.created_at). Inclusive bounds. Accept a date ("2026-01-01") or full ISO-8601 timestamp; combine both for a range.
     search_term: Free-text search across target name, project name, segment, and geography (works for non-English names, e.g. Mandarin — matches whichever of target/project_name holds the string)
     limit: Max rows to return (default: 20, max: 50)
 
@@ -217,6 +224,18 @@ Returns:
       max_revenue: z.number().optional().describe("Maximum FY2024 revenue (USD M)"),
       min_ebitda: z.number().optional().describe("Minimum FY2024 EBITDA (USD M)"),
       max_ebitda: z.number().optional().describe("Maximum FY2024 EBITDA (USD M)"),
+      created_after: z
+        .string()
+        .optional()
+        .describe(
+          "Only companies added on/after this date (inclusive). Date or ISO-8601 timestamp, matched against companies.created_at",
+        ),
+      created_before: z
+        .string()
+        .optional()
+        .describe(
+          "Only companies added on/before this date (inclusive). Date or ISO-8601 timestamp, matched against companies.created_at",
+        ),
       search_term: z
         .string()
         .optional()
