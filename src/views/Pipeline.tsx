@@ -166,6 +166,8 @@ export interface PipelineCompany {
   banker_source: string | null;
   possible_duplicate_company_id: string | null;
   matched_track_ids: string[];
+  track_specific_variables?: Record<string, Record<string, string>> | null;
+  slide_track_variable_ids?: string[] | null;
   ai_opinion_verdict: string | null;
   ai_opinion_summary: string | null;
   ai_opinion_status: string | null;
@@ -504,6 +506,8 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
           possible_duplicate_company_id:
             company.possible_duplicate_company_id ?? null,
           matched_track_ids: company.matched_track_ids ?? [],
+          track_specific_variables: company.track_specific_variables ?? null,
+          slide_track_variable_ids: company.slide_track_variable_ids ?? null,
           ai_opinion_verdict: company.ai_opinion_verdict ?? null,
           ai_opinion_summary: company.ai_opinion_summary ?? null,
           ai_opinion_status: company.ai_opinion_status ?? null,
