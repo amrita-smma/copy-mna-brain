@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
-import { Loader2, Check, SlidersHorizontal, Eye, EyeOff } from "lucide-react";
+import { Loader2, Check, SlidersHorizontal, Eye, EyeOff, Pencil } from "lucide-react";
 import { toast } from "sonner";
 import {
   getTrackVariables,
@@ -56,6 +56,9 @@ export default function TrackVariablesSection({
   const [loading, setLoading] = useState(true);
   const [draft, setDraft] = useState<TrackSpecificVariables>({});
   const [saving, setSaving] = useState(false);
+  // Inline edit mode for the variable values (mirrors the Company Information
+  // card): read-only by default, pen to edit, Save/Cancel while editing.
+  const [isEditing, setIsEditing] = useState(false);
   // Variable ids shown on the slide deck. Toggled via the per-variable eye icon
   // and persisted immediately (optimistic).
   const [slideSelected, setSlideSelected] = useState<Set<string>>(new Set());
@@ -85,10 +88,12 @@ export default function TrackVariablesSection({
     };
   }, []);
 
-  // Reset the editable draft whenever the persisted values change.
+  // Keep the draft in sync with the persisted values while not editing. Skip
+  // during an active edit so an external refresh can't discard in-progress input.
   useEffect(() => {
+    if (isEditing) return;
     setDraft(values ? JSON.parse(JSON.stringify(values)) : {});
-  }, [values]);
+  }, [values, isEditing]);
 
   // Mirror the persisted slide-deck selection into local state.
   useEffect(() => {
@@ -136,8 +141,13 @@ export default function TrackVariablesSection({
     });
   }, [allVariables, matchedSet, tracks]);
 
+  // Draft value while editing.
   const getValue = (trackId: string, variableId: string): string =>
     draft[trackId]?.[variableId] ?? "";
+
+  // Persisted value for the read-only view.
+  const getPersistedValue = (trackId: string, variableId: string): string =>
+    values?.[trackId]?.[variableId] ?? "";
 
   const setValue = (trackId: string, variableId: string, value: string) =>
     setDraft((prev) => ({
@@ -145,10 +155,15 @@ export default function TrackVariablesSection({
       [trackId]: { ...(prev[trackId] ?? {}), [variableId]: value },
     }));
 
-  const dirty = useMemo(
-    () => JSON.stringify(draft) !== JSON.stringify(values ?? {}),
-    [draft, values],
-  );
+  const startEditing = () => {
+    setDraft(values ? JSON.parse(JSON.stringify(values)) : {});
+    setIsEditing(true);
+  };
+
+  const cancelEditing = () => {
+    setDraft(values ? JSON.parse(JSON.stringify(values)) : {});
+    setIsEditing(false);
+  };
 
   const handleSave = async () => {
     setSaving(true);
@@ -156,6 +171,7 @@ export default function TrackVariablesSection({
       await updateCompany(companyId, { track_specific_variables: draft });
       toast.success("Variables saved");
       onSaved?.(draft);
+      setIsEditing(false);
     } catch (error) {
       console.error("Failed to save track variables:", error);
       toast.error("Failed to save variables");
@@ -173,21 +189,46 @@ export default function TrackVariablesSection({
           <SlidersHorizontal className="h-3.5 w-3.5" />
           Track Variables
         </p>
-        {dirty && (
-          <Button
-            type="button"
-            size="sm"
-            className="h-7 gap-1"
-            onClick={handleSave}
-            disabled={saving || disabled}
-          >
-            {saving ? (
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            ) : (
-              <Check className="h-3.5 w-3.5" />
-            )}
-            Save
-          </Button>
+        {isEditing ? (
+          <div className="flex items-center gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-7"
+              onClick={cancelEditing}
+              disabled={saving}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              className="h-7 gap-1"
+              onClick={handleSave}
+              disabled={saving || disabled}
+            >
+              {saving ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Check className="h-3.5 w-3.5" />
+              )}
+              Save
+            </Button>
+          </div>
+        ) : (
+          !disabled && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={startEditing}
+              aria-label="Edit Track Variables"
+              className="h-6 w-6 p-0"
+            >
+              <Pencil className="h-3.5 w-3.5" />
+            </Button>
+          )
         )}
       </div>
 
@@ -245,7 +286,11 @@ export default function TrackVariablesSection({
                       );
                     })()}
                   </Label>
-                  {variable.type === "radio" ? (
+                  {!isEditing ? (
+                    <p className="text-sm font-medium break-words">
+                      {getPersistedValue(group.trackId, variable.id) || "—"}
+                    </p>
+                  ) : variable.type === "radio" ? (
                     <RadioGroup
                       value={getValue(group.trackId, variable.id)}
                       onValueChange={(v) =>

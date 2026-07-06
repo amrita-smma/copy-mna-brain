@@ -746,11 +746,27 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
     "overview" | "details" | "filters" | "attachments"
   >(initialTab);
 
+  // Re-fetch the authoritative company record whenever the dialog opens. The
+  // `company` prop can be stale on reopen: some parents keep the dialog mounted
+  // and hand back the same (pre-edit) object for an unchanged id, and some save
+  // paths (e.g. track variables) update local state without refreshing the
+  // parent. Pulling the DTO on open guarantees a reopen shows the saved values.
+  const refreshCompany = async () => {
+    try {
+      const refreshed = await getCompanies({ id: company.id });
+      if (refreshed) setCompany((prev) => ({ ...prev, ...refreshed }));
+    } catch (error) {
+      console.error("Error refreshing company:", error);
+    }
+  };
+
   useEffect(() => {
     if (open) {
+      refreshCompany();
       fetchDetails();
       fetchAnalysis();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, company.id]);
 
   // When opened via the "Update" action, jump straight to the Details tab with

@@ -100,6 +100,8 @@ interface MarketScreeningResult {
   deal_captain: string | null;
   deal_captain_name?: string | null;
   matched_track_ids?: string[] | null;
+  track_specific_variables?: Record<string, Record<string, string>> | null;
+  slide_track_variable_ids?: string[] | null;
 
   financials_raw?: import('@/lib/repositories').Tables<'company_financials'>[];
 }
@@ -612,6 +614,8 @@ export default function MarketScreeningResults({ refreshTrigger, onAddedToPipeli
                   deal_captain: selectedResult.deal_captain ?? null,
                   deal_captain_name: selectedResult.deal_captain_name ?? null,
                   matched_track_ids: selectedResult.matched_track_ids ?? null,
+                  track_specific_variables: selectedResult.track_specific_variables ?? null,
+                  slide_track_variable_ids: selectedResult.slide_track_variable_ids ?? null,
                   financials_raw: selectedResult.financials_raw,
                 }}
                 open={detailDialogOpen}
