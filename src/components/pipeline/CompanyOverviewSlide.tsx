@@ -439,8 +439,8 @@ export default function CompanyOverviewSlide({
 
   return (
     <div className="rounded-lg border bg-white dark:bg-card p-6 text-[12px] leading-relaxed text-foreground shadow-sm">
-      {/* Header */}
-      <div className="mb-4 flex items-start justify-between gap-4 border-b-2 border-blue-800 pb-3">
+      {/* Header — title on the left, stage track pushed all the way right */}
+      <div className="mb-4 flex flex-col gap-3 border-b-2 border-blue-800 pb-3 lg:flex-row lg:items-start lg:justify-between lg:gap-4">
         <div className="min-w-0">
           <div className="text-[20px] font-bold leading-tight text-blue-900 dark:text-blue-200">
             L0 to L1 Submission: {title}
@@ -450,6 +450,27 @@ export default function CompanyOverviewSlide({
             investment in {sector}
             {company.geography ? ` · ${company.geography}` : ""}
           </div>
+        </div>
+
+        {/* Stage track */}
+        <div className="flex flex-wrap items-center gap-px text-[10px] font-semibold text-muted-foreground lg:shrink-0 lg:justify-end">
+          {STAGES.map((s) => (
+            <span
+              key={s}
+              className={
+                "border border-border px-2.5 py-1 " +
+                (s === currentStage
+                  ? "bg-blue-800 text-white border-blue-800"
+                  : "bg-muted/40")
+              }
+            >
+              {s}
+            </span>
+          ))}
+          <span className="ml-2 inline-flex items-center gap-1 text-blue-800">
+            <ArrowRight className="h-3.5 w-3.5" />
+            Seeking approval
+          </span>
         </div>
       </div>
 
@@ -517,56 +538,75 @@ export default function CompanyOverviewSlide({
         </div>
       </div>
 
-      {/* Stage track */}
-      <div className="mb-5 flex flex-wrap items-center gap-px text-[10px] font-semibold text-muted-foreground">
-        {STAGES.map((s) => (
-          <span
-            key={s}
-            className={
-              "border border-border px-2.5 py-1 " +
-              (s === currentStage
-                ? "bg-blue-800 text-white border-blue-800"
-                : "bg-muted/40")
-            }
+      {/* Body — narrative + structural sections flow across columns:
+          three columns on large screens, two on smaller laptops, one on mobile. */}
+      <div className="grid gap-5 md:grid-cols-2 lg:grid-cols-3">
+        <section>
+          <SectionHeading icon={Building2} index={1} title="Target Overview" />
+          <EditableSection
+            sectionKey="business_overview"
+            sectionTitle="Target Overview"
+            currentContent={analysis?.business_overview ?? null}
+            isEditing={editingSectionKey === "business_overview"}
+            onEditSection={onEditSection}
           >
-            {s}
-          </span>
-        ))}
-        <span className="ml-2 inline-flex items-center gap-1 text-blue-800">
-          <ArrowRight className="h-3.5 w-3.5" />
-          Seeking approval
-        </span>
-      </div>
+            <AIText
+              content={analysis?.business_overview ?? null}
+              placeholder="Target overview will appear here once the AI Company Card is generated."
+            />
+          </EditableSection>
+          {company.ownership && (
+            <p className="mt-2 text-[11.5px] text-muted-foreground">
+              <span className="font-semibold">Shareholding:</span>{" "}
+              {company.ownership}
+            </p>
+          )}
+        </section>
 
-      {/* Body */}
-      <div className="grid gap-5 md:grid-cols-2">
-        {/* Left column */}
-        <div className="space-y-5">
-          <section>
-            <SectionHeading icon={Building2} index={1} title="Target Overview" />
-            <EditableSection
-              sectionKey="business_overview"
-              sectionTitle="Target Overview"
-              currentContent={analysis?.business_overview ?? null}
-              isEditing={editingSectionKey === "business_overview"}
-              onEditSection={onEditSection}
-            >
-              <AIText
-                content={analysis?.business_overview ?? null}
-                placeholder="Target overview will appear here once the AI Company Card is generated."
-              />
-            </EditableSection>
-            {company.ownership && (
-              <p className="mt-2 text-[11.5px] text-muted-foreground">
-                <span className="font-semibold">Shareholding:</span>{" "}
-                {company.ownership}
-              </p>
-            )}
-          </section>
+        <section>
+          <SectionHeading icon={TrendingUp} index={2} title="Investment Thesis" />
+          <EditableSection
+            sectionKey="investment_highlights"
+            sectionTitle="Investment Thesis"
+            currentContent={analysis?.investment_highlights ?? null}
+            isEditing={editingSectionKey === "investment_highlights"}
+            onEditSection={onEditSection}
+          >
+            <AIText
+              content={analysis?.investment_highlights ?? null}
+              placeholder="Investment highlights will appear here once the AI Company Card is generated."
+            />
+          </EditableSection>
+          {analysis?.business_model_summary && (
+            <div className="mt-2">
+              <div className="text-[11px] font-bold text-blue-900 dark:text-blue-300">
+                Business model &amp; value chain
+              </div>
+              <EditableSection
+                sectionKey="business_model_summary"
+                sectionTitle="Business Model & Value Chain"
+                currentContent={analysis.business_model_summary}
+                isEditing={editingSectionKey === "business_model_summary"}
+                onEditSection={onEditSection}
+              >
+                <AIText content={analysis.business_model_summary} placeholder="" />
+              </EditableSection>
+            </div>
+          )}
+        </section>
 
-          <section>
-            <SectionHeading icon={FileBarChart} index={4} title="Indicative Financials (USD m)" />
-            {financials.length > 0 ? (
+        <section>
+          <SectionHeading icon={FileBarChart} index={3} title="Proposed Deal Structure" />
+          <ul className="list-disc space-y-1 pl-4 text-[11.5px]">
+            {dealStructure.map((line) => (
+              <li key={line}>{line}</li>
+            ))}
+          </ul>
+        </section>
+
+        <section>
+          <SectionHeading icon={FileBarChart} index={4} title="Indicative Financials (USD m)" />
+          {financials.length > 0 ? (
               <table className="w-full border-collapse text-[11px]">
                 <thead>
                   <tr>
@@ -642,54 +682,6 @@ export default function CompanyOverviewSlide({
               </dl>
             )}
           </section>
-        </div>
-
-        {/* Right column */}
-        <div className="space-y-5">
-          <section>
-            <SectionHeading icon={TrendingUp} index={2} title="Investment Thesis" />
-            <EditableSection
-              sectionKey="investment_highlights"
-              sectionTitle="Investment Thesis"
-              currentContent={analysis?.investment_highlights ?? null}
-              isEditing={editingSectionKey === "investment_highlights"}
-              onEditSection={onEditSection}
-            >
-              <AIText
-                content={analysis?.investment_highlights ?? null}
-                placeholder="Investment highlights will appear here once the AI Company Card is generated."
-              />
-            </EditableSection>
-            {analysis?.business_model_summary && (
-              <div className="mt-2">
-                <div className="text-[11px] font-bold text-blue-900 dark:text-blue-300">
-                  Business model &amp; value chain
-                </div>
-                <EditableSection
-                  sectionKey="business_model_summary"
-                  sectionTitle="Business Model & Value Chain"
-                  currentContent={analysis.business_model_summary}
-                  isEditing={editingSectionKey === "business_model_summary"}
-                  onEditSection={onEditSection}
-                >
-                  <AIText content={analysis.business_model_summary} placeholder="" />
-                </EditableSection>
-              </div>
-            )}
-          </section>
-        </div>
-      </div>
-
-      {/* Bottom row */}
-      <div className="mt-5 grid gap-5 border-t border-border pt-4 md:grid-cols-2">
-        <section>
-          <SectionHeading icon={FileBarChart} index={3} title="Proposed Deal Structure" />
-          <ul className="list-disc space-y-1 pl-4 text-[11.5px]">
-            {dealStructure.map((line) => (
-              <li key={line}>{line}</li>
-            ))}
-          </ul>
-        </section>
 
         <section>
           <SectionHeading
