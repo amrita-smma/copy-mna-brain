@@ -10,6 +10,11 @@ const mocks = vi.hoisted(() => ({
   findById: vi.fn(),
   findByCompanyFinancials: vi.fn(),
   findByCompanyScreening: vi.fn(),
+  capture: vi.fn(),
+}));
+
+vi.mock('@/lib/posthog-server', () => ({
+  getPostHogClient: () => ({ capture: mocks.capture }),
 }));
 
 vi.mock('@/lib/agents/analysis', () => ({
@@ -63,6 +68,7 @@ beforeEach(() => {
   mocks.findById.mockReset();
   mocks.findByCompanyFinancials.mockReset();
   mocks.findByCompanyScreening.mockReset();
+  mocks.capture.mockReset();
 
   mocks.findById.mockResolvedValue({ id: 'co-1', target: 'Acme Corp' });
   mocks.findByCompanyFinancials.mockResolvedValue([]);
@@ -132,5 +138,51 @@ describe('generateCompanyCard', () => {
     expect(mocks.upsertByCompanyId).toHaveBeenCalledWith(
       expect.objectContaining({ company_id: 'co-1', status: 'processing', job_id: null }),
     );
+  });
+
+  it('captures a company_card_generated PostHog event on success', async () => {
+    mocks.updateByCompanyId.mockResolvedValue({ id: 'analysis-1' } as Tables<'company_analyses'>);
+    mocks.invoke.mockResolvedValue({
+      messages: [
+        {
+          content: JSON.stringify({
+            business_overview: 'overview',
+            business_model_summary: 'summary',
+            key_takeaways: 'takeaways',
+            investment_highlights: 'highlights',
+            investment_risks: 'risks',
+            diligence_priorities: 'priorities',
+            related_companies: [
+              { name: 'Beta Supplier', relation_type: 'SUPPLIER' },
+            ],
+          }),
+        },
+      ],
+    });
+
+    await generateCompanyCard({ companyId: 'co-1' }, { db: {} as never });
+
+    expect(mocks.capture).toHaveBeenCalledWith(
+      expect.objectContaining({
+        distinctId: 'server',
+        event: 'company_card_generated',
+        properties: expect.objectContaining({
+          company_id: 'co-1',
+          company_name: 'Acme Corp',
+          related_company_count: 1,
+        }),
+      }),
+    );
+  });
+
+  it('does not capture a company_card_generated event when parsing fails', async () => {
+    mocks.invoke.mockResolvedValue({
+      messages: [{ content: 'not json at all' }],
+    });
+
+    await expect(
+      generateCompanyCard({ companyId: 'co-1' }, { db: {} as never }),
+    ).rejects.toThrow();
+    expect(mocks.capture).not.toHaveBeenCalled();
   });
 });

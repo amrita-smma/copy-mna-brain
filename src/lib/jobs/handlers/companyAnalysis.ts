@@ -15,6 +15,7 @@ import {
   RELATION_TYPES,
   type RelationType,
 } from "@/lib/repositories/companyRelationRepository";
+import { getPostHogClient } from "@/lib/posthog-server";
 import { z } from "zod";
 
 export const COMPANY_ANALYSIS_TIMEOUT_SECONDS = 480; // 8 minutes
@@ -367,6 +368,17 @@ export async function generateCompanyCard(
     sources: analysisResult.sources_used || [],
     logo_url: analysisResult.logo_url ?? null,
     error_message: null,
+  });
+
+  getPostHogClient()?.capture({
+    distinctId: "server",
+    event: "company_card_generated",
+    properties: {
+      company_id: companyId,
+      company_name: companyName,
+      source: source || "files",
+      related_company_count: analysisResult.related_companies?.length ?? 0,
+    },
   });
 
   return {

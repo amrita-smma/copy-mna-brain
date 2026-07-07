@@ -2,6 +2,7 @@
 
 import { Sparkles } from "lucide-react";
 import { useRouter } from "next/navigation";
+import posthog from "posthog-js";
 import { cn } from "@/lib/utils";
 import { useLayoutControl } from "@/components/layout/LayoutControlContext";
 import { useIsMobile } from "@/hooks/use-mobile";
@@ -41,6 +42,8 @@ export function AskAIButton({
   const handleClick = () => {
     onClick();
     if (isMobile) {
+      // Mobile has no side pane — analysis opens the full-screen chat route.
+      posthog.capture("mobile_ai_analysis_opened", { label });
       router.push("/chat");
       return;
     }

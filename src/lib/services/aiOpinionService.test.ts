@@ -1,11 +1,18 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { enqueueAgentRun, findActiveByCompanyId } = vi.hoisted(() => ({
-  enqueueAgentRun: vi.fn(),
-  findActiveByCompanyId: vi.fn(),
-}));
+const { enqueueAgentRun, findActiveByCompanyId, captureMock } = vi.hoisted(
+  () => ({
+    enqueueAgentRun: vi.fn(),
+    findActiveByCompanyId: vi.fn(),
+    captureMock: vi.fn(),
+  }),
+);
 
 vi.mock('@/lib/workforce', () => ({ enqueueAgentRun }));
+
+vi.mock('@/lib/posthog-server', () => ({
+  getPostHogClient: () => ({ capture: captureMock }),
+}));
 
 vi.mock('@/lib/repositories', () => ({
   AiWorkforceQueueRepository: class {
@@ -32,6 +39,7 @@ describe('AiOpinionService.dispatch', () => {
   beforeEach(() => {
     enqueueAgentRun.mockReset();
     findActiveByCompanyId.mockReset();
+    captureMock.mockReset();
     findActiveByCompanyId.mockResolvedValue(null);
     enqueueAgentRun.mockResolvedValue({ runId: 'run-9' });
   });
@@ -56,6 +64,36 @@ describe('AiOpinionService.dispatch', () => {
     expect(companyRepo.update).toHaveBeenCalledWith('co-1', {
       ai_opinion_status: 'processing',
     });
+    // A reused run is not a new opinion request — no event.
+    expect(captureMock).not.toHaveBeenCalled();
+  });
+
+  it('captures an ai_opinion_requested PostHog event attributed to the user', async () => {
+    const service = makeService(makeCompanyRepo());
+
+    await service.dispatch('co-1', 'user-1');
+
+    expect(captureMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        distinctId: 'user-1',
+        event: 'ai_opinion_requested',
+        properties: expect.objectContaining({
+          company_id: 'co-1',
+          company_name: 'Acme Corp',
+          run_id: 'run-9',
+        }),
+      }),
+    );
+  });
+
+  it('falls back to a server distinctId when no user triggered the run', async () => {
+    const service = makeService(makeCompanyRepo());
+
+    await service.dispatch('co-1');
+
+    expect(captureMock).toHaveBeenCalledWith(
+      expect.objectContaining({ distinctId: 'server' }),
+    );
   });
 
   it('marks the company processing, clears the stale verdict, and enqueues the run', async () => {

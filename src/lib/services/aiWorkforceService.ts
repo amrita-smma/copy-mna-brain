@@ -6,6 +6,7 @@ import type {
   WorkforceStatus,
 } from '@/lib/repositories';
 import { enqueueAgentRun } from '@/lib/workforce';
+import { getPostHogClient } from '@/lib/posthog-server';
 import type { PendingUserMessage } from '@/lib/db/schema';
 
 export interface ChatHandoffInput {
@@ -136,6 +137,18 @@ export class AiWorkforceService {
         `enqueueFromChat: row ${runId} was inserted but findById returned null`,
       );
     }
+
+    getPostHogClient()?.capture({
+      distinctId: data.user_id ?? 'server',
+      event: 'workforce_task_assigned',
+      properties: {
+        run_id: runId,
+        agent_name: data.agent_name,
+        priority: data.priority ?? 0,
+        has_conversation: Boolean(data.conversation_id),
+      },
+    });
+
     return row;
   }
 

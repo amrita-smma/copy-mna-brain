@@ -1,4 +1,5 @@
 import { SESv2Client, SendEmailCommand } from '@aws-sdk/client-sesv2';
+import { getPostHogClient } from '@/lib/posthog-server';
 
 // SES Configuration
 //
@@ -128,6 +129,19 @@ export async function sendEmail(input: SendEmailInput): Promise<SendEmailResult>
   });
 
   const response = await client.send(command);
+
+  getPostHogClient()?.capture({
+    distinctId: 'server',
+    event: 'email_sent',
+    properties: {
+      recipient_count: toAddresses.length,
+      cc_count: ccAddresses.length,
+      subject: input.subject,
+      from_address: fromAddress,
+      has_attachments: false,
+    },
+  });
+
   return { messageId: response.MessageId ?? '' };
 }
 
@@ -235,6 +249,20 @@ export async function sendEmailWithAttachment(
   });
 
   const response = await client.send(command);
+
+  getPostHogClient()?.capture({
+    distinctId: 'server',
+    event: 'email_sent',
+    properties: {
+      recipient_count: toAddresses.length,
+      cc_count: ccAddresses.length,
+      subject: input.subject,
+      from_address: fromAddress,
+      has_attachments: true,
+      attachment_count: input.attachments.length,
+    },
+  });
+
   return { messageId: response.MessageId ?? '' };
 }
 

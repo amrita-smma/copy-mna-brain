@@ -1,10 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { enqueueAgentRun } = vi.hoisted(() => ({
+const { enqueueAgentRun, captureMock } = vi.hoisted(() => ({
   enqueueAgentRun: vi.fn(),
+  captureMock: vi.fn(),
 }));
 
 vi.mock('@/lib/workforce', () => ({ enqueueAgentRun }));
+
+vi.mock('@/lib/posthog-server', () => ({
+  getPostHogClient: () => ({ capture: captureMock }),
+}));
 
 import {
   AiWorkforceService,
@@ -28,6 +33,36 @@ function makeServiceWith(
 describe('AiWorkforceService.enqueueFromChat', () => {
   beforeEach(() => {
     enqueueAgentRun.mockReset();
+    captureMock.mockReset();
+  });
+
+  it('captures a workforce_task_assigned PostHog event attributed to the user', async () => {
+    enqueueAgentRun.mockResolvedValueOnce({ runId: 'run-1', created: true });
+    const service = makeService(
+      vi.fn().mockResolvedValueOnce({ id: 'run-1', status: 'pending' }),
+    );
+
+    await service.enqueueFromChat({
+      agent_name: 'chat_handoff',
+      title: 't',
+      instruction: 'i',
+      conversation_id: 'conv-7',
+      user_id: 'user-1',
+      priority: 3,
+    });
+
+    expect(captureMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        distinctId: 'user-1',
+        event: 'workforce_task_assigned',
+        properties: expect.objectContaining({
+          run_id: 'run-1',
+          agent_name: 'chat_handoff',
+          priority: 3,
+          has_conversation: true,
+        }),
+      }),
+    );
   });
 
   it('routes through enqueueAgentRun with the right shape + idempotency key + user id', async () => {

@@ -2,10 +2,10 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 // ses.ts reads AWS creds into module-scope consts at import time, so they must
 // be present before the import below runs — set them in a hoisted block.
-const { sendMock } = vi.hoisted(() => {
+const { sendMock, captureMock } = vi.hoisted(() => {
   process.env.AWS_ACCESS_KEY_ID = 'test-key';
   process.env.AWS_SECRET_ACCESS_KEY = 'test-secret';
-  return { sendMock: vi.fn() };
+  return { sendMock: vi.fn(), captureMock: vi.fn() };
 });
 
 vi.mock('@aws-sdk/client-sesv2', () => ({
@@ -19,6 +19,10 @@ vi.mock('@aws-sdk/client-sesv2', () => ({
       this.input = input;
     }
   },
+}));
+
+vi.mock('@/lib/posthog-server', () => ({
+  getPostHogClient: () => ({ capture: captureMock }),
 }));
 
 import {
@@ -43,10 +47,32 @@ function lastCommandInput(): CapturedCommand['input'] {
 describe('sendEmail (CC handling)', () => {
   beforeEach(() => {
     sendMock.mockReset().mockResolvedValue({ MessageId: 'msg-1' });
+    captureMock.mockReset();
     _resetSesClientForTests();
   });
 
   afterEach(() => vi.clearAllMocks());
+
+  it('captures an email_sent PostHog event on success', async () => {
+    await sendEmail({
+      to: ['a@b.com', 'c@d.com'],
+      subject: 'Hello',
+      html: '<p>x</p>',
+      text: 'x',
+    });
+
+    expect(captureMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        distinctId: 'server',
+        event: 'email_sent',
+        properties: expect.objectContaining({
+          recipient_count: 2,
+          subject: 'Hello',
+          has_attachments: false,
+        }),
+      }),
+    );
+  });
 
   it('always CCs the hardcoded address when no cc is supplied', async () => {
     await sendEmail({ to: 'a@b.com', subject: 's', html: '<p>x</p>', text: 'x' });
@@ -97,12 +123,35 @@ describe('sendEmail (CC handling)', () => {
 describe('sendEmailWithAttachment (CC handling)', () => {
   beforeEach(() => {
     sendMock.mockReset().mockResolvedValue({ MessageId: 'msg-2' });
+    captureMock.mockReset();
     process.env.AWS_ACCESS_KEY_ID = 'test-key';
     process.env.AWS_SECRET_ACCESS_KEY = 'test-secret';
     _resetSesClientForTests();
   });
 
   afterEach(() => vi.clearAllMocks());
+
+  it('captures an email_sent PostHog event with has_attachments true', async () => {
+    await sendEmailWithAttachment({
+      to: 'a@b.com',
+      subject: 's',
+      html: '<p>x</p>',
+      text: 'x',
+      attachments: [
+        { filename: 'f.txt', content: Buffer.from('hi'), contentType: 'text/plain' },
+      ],
+    });
+
+    expect(captureMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: 'email_sent',
+        properties: expect.objectContaining({
+          has_attachments: true,
+          attachment_count: 1,
+        }),
+      }),
+    );
+  });
 
   it('sets CcAddresses on the destination and a Cc header in the raw MIME', async () => {
     await sendEmailWithAttachment({

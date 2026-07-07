@@ -4,6 +4,7 @@ import DashboardLayout from "@/components/layout/DashboardLayout";
 import { Input } from "@/components/ui/input";
 import { AlertTriangle, Loader2, Search, Users, X } from "lucide-react";
 import { useRouter } from "next/navigation";
+import posthog from "posthog-js";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { useAuth } from "@/hooks/useAuth";
@@ -72,6 +73,11 @@ export default function CRM({
     toast.error("Your session has expired. Please sign in again.");
     router.replace("/login");
   }, [router]);
+
+  // ─── Track CRM usage (fires once per mount) ───────────────────────────────
+  useEffect(() => {
+    posthog.capture("crm_viewed");
+  }, []);
 
   // ─── Debounce search ──────────────────────────────────────────────────────
   useEffect(() => {
@@ -308,6 +314,10 @@ export default function CRM({
                 users={teamUsers}
                 selected={teamFilter}
                 onChange={(next) => {
+                  posthog.capture("crm_banker_filter_applied", {
+                    banker_count: next.size,
+                    banker_ids: Array.from(next),
+                  });
                   setTeamFilter(next);
                   setPage(1);
                 }}

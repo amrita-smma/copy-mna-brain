@@ -1,6 +1,7 @@
 import type { CompanyRepository } from '@/lib/repositories';
 import type { DbClient } from '@/lib/repositories';
 import { AiWorkforceQueueRepository } from '@/lib/repositories';
+import { getPostHogClient } from '@/lib/posthog-server';
 import { enqueueAgentRun } from '@/lib/workforce';
 
 /** agent_name recorded on the AI Workforce queue row for AI Opinion runs. */
@@ -97,6 +98,16 @@ export class AiOpinionService {
         company_id: id,
       },
       triggeredByUserId: triggeredByUserId ?? null,
+    });
+
+    getPostHogClient()?.capture({
+      distinctId: triggeredByUserId ?? 'server',
+      event: 'ai_opinion_requested',
+      properties: {
+        company_id: id,
+        company_name: companyName,
+        run_id: runId,
+      },
     });
 
     return { runId };
