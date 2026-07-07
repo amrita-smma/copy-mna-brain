@@ -538,75 +538,38 @@ export default function CompanyOverviewSlide({
         </div>
       </div>
 
-      {/* Body — narrative + structural sections flow across columns:
-          three columns on large screens, two on smaller laptops, one on mobile. */}
-      <div className="grid gap-5 md:grid-cols-2 lg:grid-cols-3">
-        <section>
-          <SectionHeading icon={Building2} index={1} title="Target Overview" />
-          <EditableSection
-            sectionKey="business_overview"
-            sectionTitle="Target Overview"
-            currentContent={analysis?.business_overview ?? null}
-            isEditing={editingSectionKey === "business_overview"}
-            onEditSection={onEditSection}
-          >
-            <AIText
-              content={analysis?.business_overview ?? null}
-              placeholder="Target overview will appear here once the AI Company Card is generated."
-            />
-          </EditableSection>
-          {company.ownership && (
-            <p className="mt-2 text-[11.5px] text-muted-foreground">
-              <span className="font-semibold">Shareholding:</span>{" "}
-              {company.ownership}
-            </p>
-          )}
-        </section>
+      {/* Body — single 3-column grid, columns aligned to the top so content
+          fills upward and any leftover whitespace collapses to the bottom.
+          Col 1: Overview + Indicative Financials + Proposed Deal Structure.
+          Col 2: Investment Thesis. Col 3: scope of work / diligence priorities. */}
+      <div className="grid items-start gap-5 md:grid-cols-3">
+        {/* Column 1 */}
+        <div className="space-y-5">
+          <section>
+            <SectionHeading icon={Building2} index={1} title="Target Overview" />
+            <EditableSection
+              sectionKey="business_overview"
+              sectionTitle="Target Overview"
+              currentContent={analysis?.business_overview ?? null}
+              isEditing={editingSectionKey === "business_overview"}
+              onEditSection={onEditSection}
+            >
+              <AIText
+                content={analysis?.business_overview ?? null}
+                placeholder="Target overview will appear here once the AI Company Card is generated."
+              />
+            </EditableSection>
+            {company.ownership && (
+              <p className="mt-2 text-[11.5px] text-muted-foreground">
+                <span className="font-semibold">Shareholding:</span>{" "}
+                {company.ownership}
+              </p>
+            )}
+          </section>
 
-        <section>
-          <SectionHeading icon={TrendingUp} index={2} title="Investment Thesis" />
-          <EditableSection
-            sectionKey="investment_highlights"
-            sectionTitle="Investment Thesis"
-            currentContent={analysis?.investment_highlights ?? null}
-            isEditing={editingSectionKey === "investment_highlights"}
-            onEditSection={onEditSection}
-          >
-            <AIText
-              content={analysis?.investment_highlights ?? null}
-              placeholder="Investment highlights will appear here once the AI Company Card is generated."
-            />
-          </EditableSection>
-          {analysis?.business_model_summary && (
-            <div className="mt-2">
-              <div className="text-[11px] font-bold text-blue-900 dark:text-blue-300">
-                Business model &amp; value chain
-              </div>
-              <EditableSection
-                sectionKey="business_model_summary"
-                sectionTitle="Business Model & Value Chain"
-                currentContent={analysis.business_model_summary}
-                isEditing={editingSectionKey === "business_model_summary"}
-                onEditSection={onEditSection}
-              >
-                <AIText content={analysis.business_model_summary} placeholder="" />
-              </EditableSection>
-            </div>
-          )}
-        </section>
-
-        <section>
-          <SectionHeading icon={FileBarChart} index={3} title="Proposed Deal Structure" />
-          <ul className="list-disc space-y-1 pl-4 text-[11.5px]">
-            {dealStructure.map((line) => (
-              <li key={line}>{line}</li>
-            ))}
-          </ul>
-        </section>
-
-        <section>
-          <SectionHeading icon={FileBarChart} index={4} title="Indicative Financials (USD m)" />
-          {financials.length > 0 ? (
+          <section>
+            <SectionHeading icon={FileBarChart} index={4} title="Indicative Financials (USD m)" />
+            {financials.length > 0 ? (
               <table className="w-full border-collapse text-[11px]">
                 <thead>
                   <tr>
@@ -683,38 +646,86 @@ export default function CompanyOverviewSlide({
             )}
           </section>
 
-        <section>
-          <SectionHeading
-            icon={ClipboardCheck}
-            index={5}
-            title="L1 scope of work / diligence priorities"
-          />
-          <EditableSection
-            sectionKey="diligence_priorities"
-            sectionTitle="L1 Scope of Work / Diligence Priorities"
-            currentContent={analysis?.diligence_priorities ?? null}
-            isEditing={editingSectionKey === "diligence_priorities"}
-            onEditSection={onEditSection}
-          >
-            <AIText
-              content={analysis?.diligence_priorities ?? null}
-              placeholder="Diligence priorities will appear here once the AI Company Card is generated."
+          <section>
+            <SectionHeading icon={FileBarChart} index={3} title="Proposed Deal Structure" />
+            <ul className="list-disc space-y-1 pl-4 text-[11.5px]">
+              {dealStructure.map((line) => (
+                <li key={line}>{line}</li>
+              ))}
+            </ul>
+          </section>
+        </div>
+
+        {/* Column 2 */}
+        <div className="space-y-5">
+          <section>
+            <SectionHeading icon={TrendingUp} index={2} title="Investment Thesis" />
+            <EditableSection
+              sectionKey="investment_highlights"
+              sectionTitle="Investment Thesis"
+              currentContent={analysis?.investment_highlights ?? null}
+              isEditing={editingSectionKey === "investment_highlights"}
+              onEditSection={onEditSection}
+            >
+              <AIText
+                content={analysis?.investment_highlights ?? null}
+                placeholder="Investment highlights will appear here once the AI Company Card is generated."
+              />
+            </EditableSection>
+            {analysis?.business_model_summary && (
+              <div className="mt-2">
+                <div className="text-[11px] font-bold text-blue-900 dark:text-blue-300">
+                  Business model &amp; value chain
+                </div>
+                <EditableSection
+                  sectionKey="business_model_summary"
+                  sectionTitle="Business Model & Value Chain"
+                  currentContent={analysis.business_model_summary}
+                  isEditing={editingSectionKey === "business_model_summary"}
+                  onEditSection={onEditSection}
+                >
+                  <AIText content={analysis.business_model_summary} placeholder="" />
+                </EditableSection>
+              </div>
+            )}
+          </section>
+        </div>
+
+        {/* Column 3 */}
+        <div className="space-y-5">
+          <section>
+            <SectionHeading
+              icon={ClipboardCheck}
+              index={5}
+              title="L1 scope of work / diligence priorities"
             />
-          </EditableSection>
-          <div className="mt-2 text-[11px] font-bold text-red-600">Kill criteria</div>
-          <EditableSection
-            sectionKey="investment_risks"
-            sectionTitle="Kill Criteria / Investment Risks"
-            currentContent={analysis?.investment_risks ?? null}
-            isEditing={editingSectionKey === "investment_risks"}
-            onEditSection={onEditSection}
-          >
-            <AIText
-              content={analysis?.investment_risks ?? null}
-              placeholder="Investment risks will appear here once the AI Company Card is generated."
-            />
-          </EditableSection>
-        </section>
+            <EditableSection
+              sectionKey="diligence_priorities"
+              sectionTitle="L1 Scope of Work / Diligence Priorities"
+              currentContent={analysis?.diligence_priorities ?? null}
+              isEditing={editingSectionKey === "diligence_priorities"}
+              onEditSection={onEditSection}
+            >
+              <AIText
+                content={analysis?.diligence_priorities ?? null}
+                placeholder="Diligence priorities will appear here once the AI Company Card is generated."
+              />
+            </EditableSection>
+            <div className="mt-2 text-[11px] font-bold text-red-600">Kill criteria</div>
+            <EditableSection
+              sectionKey="investment_risks"
+              sectionTitle="Kill Criteria / Investment Risks"
+              currentContent={analysis?.investment_risks ?? null}
+              isEditing={editingSectionKey === "investment_risks"}
+              onEditSection={onEditSection}
+            >
+              <AIText
+                content={analysis?.investment_risks ?? null}
+                placeholder="Investment risks will appear here once the AI Company Card is generated."
+              />
+            </EditableSection>
+          </section>
+        </div>
       </div>
 
       <div className="mt-5 border-t border-border pt-2 text-[9px] font-bold uppercase tracking-wider text-muted-foreground">
