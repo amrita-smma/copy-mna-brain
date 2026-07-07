@@ -96,6 +96,15 @@ const companyRepo = {
   findById: vi.fn(),
 };
 
+const workspaceCorrespondentRepo = {
+  addMembership: vi.fn(),
+  addMemberships: vi.fn(),
+  listVisibleCorrespondentIds: vi.fn(),
+  isVisible: vi.fn(),
+};
+
+const WORKSPACE_ID = 'ws-1';
+
 function makeService(): CRMService {
   return new CRMService(
     employerRepo as never,
@@ -108,6 +117,8 @@ function makeService(): CRMService {
     correspondentCurationRepo as never,
     relatedCompanyRepo as never,
     companyRepo as never,
+    workspaceCorrespondentRepo as never,
+    WORKSPACE_ID,
   );
 }
 
@@ -123,8 +134,8 @@ describe('CRMService.listEmployers', () => {
     const out = await makeService().listEmployers({ search: 'gs' });
 
     expect(out).toEqual({ data: [{ id: '1', name: 'GS' }], total: 1 });
-    expect(employerRepo.list).toHaveBeenCalledWith({ search: 'gs' });
-    expect(employerRepo.count).toHaveBeenCalledWith({ search: 'gs' });
+    expect(employerRepo.list).toHaveBeenCalledWith({ search: 'gs' }, WORKSPACE_ID);
+    expect(employerRepo.count).toHaveBeenCalledWith({ search: 'gs' }, WORKSPACE_ID);
   });
 });
 
@@ -207,6 +218,7 @@ describe('CRMService.addRelatedCompanyToEmployer', () => {
     expect(relatedCompanyRepo.createManual).toHaveBeenCalledWith(
       expect.objectContaining({
         employer_id: 'e1',
+        workspace_id: WORKSPACE_ID,
         company_id: 'co-1',
         company_name: 'TechSlurry Inc.',
         normalized_company_name: 'techslurry', // legal suffix stripped by shared normalizer
@@ -235,9 +247,13 @@ describe('CRMService.addRelatedCompanyToEmployer', () => {
 });
 
 describe('CRMService.removeRelatedCompanyFromEmployer', () => {
-  it('delegates to the repo hard-delete', async () => {
+  it('delegates to the repo hard-delete, scoped to the workspace', async () => {
     await makeService().removeRelatedCompanyFromEmployer('e1', 'rc-manual');
-    expect(relatedCompanyRepo.deleteManual).toHaveBeenCalledWith('e1', 'rc-manual');
+    expect(relatedCompanyRepo.deleteManual).toHaveBeenCalledWith(
+      'e1',
+      'rc-manual',
+      WORKSPACE_ID,
+    );
   });
 });
 
@@ -305,6 +321,44 @@ describe('CRMService.createContact', () => {
     );
     expect(correspondentRepo.insert).toHaveBeenCalledWith(
       expect.objectContaining({ employer_id: 'new-emp', email: 'john@new.com' }),
+      WORKSPACE_ID,
+    );
+  });
+
+  it('grants the creating workspace visibility into a brand-new contact', async () => {
+    employerRepo.findByNormalizedName.mockResolvedValue(undefined);
+    employerRepo.insert.mockResolvedValue({ id: 'new-emp' });
+    correspondentRepo.findByEmployerAndEmail.mockResolvedValue(undefined);
+    correspondentRepo.insert.mockResolvedValue({ id: 'new-c' });
+
+    await makeService().createContact({
+      firmName: 'New Firm',
+      name: 'John',
+      email: 'john@new.com',
+    });
+
+    expect(workspaceCorrespondentRepo.addMembership).toHaveBeenCalledWith(
+      WORKSPACE_ID,
+      'new-c',
+      'manual',
+    );
+  });
+
+  it('grants the creating workspace visibility into a pre-existing (dupe) contact too', async () => {
+    employerRepo.findById.mockResolvedValue({ id: 'e1' });
+    correspondentRepo.findByEmployerAndEmail.mockResolvedValue({ id: 'dupe-c' });
+    correspondentRepo.findById.mockResolvedValue({ id: 'dupe-c', name: 'Updated' });
+
+    await makeService().createContact({
+      employerId: 'e1',
+      name: 'Updated',
+      email: 'a@b.com',
+    });
+
+    expect(workspaceCorrespondentRepo.addMembership).toHaveBeenCalledWith(
+      WORKSPACE_ID,
+      'dupe-c',
+      'manual',
     );
   });
 });
@@ -354,9 +408,11 @@ describe('CRMService.addTopicToEmployer', () => {
     await makeService().addTopicToEmployer('e1', 'acquisition', {
       is_deal_related: true,
     });
-    expect(topicRepo.findOrCreate).toHaveBeenCalledWith('acquisition', {
-      is_deal_related: true,
-    });
+    expect(topicRepo.findOrCreate).toHaveBeenCalledWith(
+      'acquisition',
+      { is_deal_related: true },
+      WORKSPACE_ID,
+    );
   });
 });
 
@@ -412,9 +468,11 @@ describe('CRMService.curateEmployer', () => {
       { name: 'New Name', title: 'MD', phone: '+1 555' },
       null,
     );
-    expect(correspondentRepo.update).toHaveBeenCalledWith('c-primary', {
-      email: null,
-    });
+    expect(correspondentRepo.update).toHaveBeenCalledWith(
+      'c-primary',
+      { email: null },
+      WORKSPACE_ID,
+    );
     expect(correspondentRepo.insert).not.toHaveBeenCalled();
   });
 
@@ -432,9 +490,14 @@ describe('CRMService.curateEmployer', () => {
         employer_id: 'e1',
         name: 'Brand New',
         email: 'b@n.com',
-        is_primary: true,
         source: 'manual',
       }),
+      WORKSPACE_ID,
+    );
+    expect(workspaceCorrespondentRepo.addMembership).toHaveBeenCalledWith(
+      WORKSPACE_ID,
+      'c-new',
+      'manual',
     );
   });
 
@@ -532,6 +595,16 @@ describe('CRMService.ingestEmails', () => {
     expect(emailRepo.insertParticipants).toHaveBeenCalledWith([
       expect.objectContaining({ role: 'from', correspondent_id: 'c1' }),
     ]);
+    // Existing (dupe) correspondent still gets a membership row for this
+    // workspace, so re-ingesting a known contact doesn't leave it invisible.
+    // 'direct', not 'ingest' — this path (Vault export / file-extracted
+    // communications) has no mailbox/message_id and must stay durable
+    // regardless of is_email_synced.
+    expect(workspaceCorrespondentRepo.addMembership).toHaveBeenCalledWith(
+      WORKSPACE_ID,
+      'c1',
+      'direct',
+    );
   });
 
   it('creates the employer when one is missing', async () => {

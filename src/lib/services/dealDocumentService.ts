@@ -4,7 +4,7 @@ import type { DealDocumentRepository, TablesInsert } from '@/lib/repositories';
 export class DealDocumentService {
   constructor(private readonly dealDocRepo: DealDocumentRepository) {}
 
-  register(data: TablesInsert<'deal_documents'>) {
+  register(data: Omit<TablesInsert<'deal_documents'>, 'workspace_id'>) {
     return this.dealDocRepo.insert(data);
   }
 

@@ -5,6 +5,7 @@ import type { Tables } from '@/lib/repositories';
 function makeCompany(overrides: Partial<Tables<'companies'>> = {}): Tables<'companies'> {
   return {
     id: 'c1',
+    workspace_id: 'workspace-1',
     entry_id: null,
     watchlist_id: null,
     segment: null,

@@ -27,7 +27,7 @@ describe('InvestmentThesisRepository.findAll', () => {
 
   beforeEach(() => {
     resetDb();
-    repo = new InvestmentThesisRepository(mockDb as never);
+    repo = new InvestmentThesisRepository(mockDb as never, 'workspace-1');
   });
 
   it('returns all theses ordered by the query', async () => {
@@ -45,7 +45,7 @@ describe('InvestmentThesisRepository.findAllActive', () => {
 
   beforeEach(() => {
     resetDb();
-    repo = new InvestmentThesisRepository(mockDb as never);
+    repo = new InvestmentThesisRepository(mockDb as never, 'workspace-1');
   });
 
   it('returns the active theses from the ordered query', async () => {
@@ -63,7 +63,7 @@ describe('InvestmentThesisRepository.findByIds', () => {
 
   beforeEach(() => {
     resetDb();
-    repo = new InvestmentThesisRepository(mockDb as never);
+    repo = new InvestmentThesisRepository(mockDb as never, 'workspace-1');
   });
 
   it('returns [] without hitting the DB when the id list is empty', async () => {
@@ -86,7 +86,7 @@ describe('InvestmentThesisRepository.deleteById', () => {
 
   beforeEach(() => {
     resetDb();
-    repo = new InvestmentThesisRepository(mockDb as never);
+    repo = new InvestmentThesisRepository(mockDb as never, 'workspace-1');
   });
 
   it('deletes the row matching the id', async () => {
@@ -104,7 +104,7 @@ describe('InvestmentThesisRepository.setActive', () => {
 
   beforeEach(() => {
     resetDb();
-    repo = new InvestmentThesisRepository(mockDb as never);
+    repo = new InvestmentThesisRepository(mockDb as never, 'workspace-1');
   });
 
   it('deactivates all theses then activates the given ids', async () => {
@@ -113,7 +113,8 @@ describe('InvestmentThesisRepository.setActive', () => {
     expect(mockDb.update).toHaveBeenCalledTimes(2);
     expect(mockDb.set).toHaveBeenNthCalledWith(1, { is_active: false });
     expect(mockDb.set).toHaveBeenNthCalledWith(2, { is_active: true });
-    expect(mockDb.where).toHaveBeenCalledTimes(1);
+    // Both updates are workspace-scoped, so where() is called for each.
+    expect(mockDb.where).toHaveBeenCalledTimes(2);
   });
 
   it('only deactivates when the active set is empty', async () => {
@@ -121,7 +122,8 @@ describe('InvestmentThesisRepository.setActive', () => {
 
     expect(mockDb.update).toHaveBeenCalledTimes(1);
     expect(mockDb.set).toHaveBeenCalledWith({ is_active: false });
-    expect(mockDb.where).not.toHaveBeenCalled();
+    // The deactivate-all update is still workspace-scoped.
+    expect(mockDb.where).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -130,7 +132,7 @@ describe('InvestmentThesisRepository.updateMany', () => {
 
   beforeEach(() => {
     resetDb();
-    repo = new InvestmentThesisRepository(mockDb as never);
+    repo = new InvestmentThesisRepository(mockDb as never, 'workspace-1');
   });
 
   it('applies updates to the given ids', async () => {

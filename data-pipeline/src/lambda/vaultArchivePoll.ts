@@ -12,7 +12,6 @@ import {
   pollVaultExport,
   downloadExportFileStream,
   closeVaultMatter,
-  VAULT_CUSTODIAN_EMAILS,
   type VaultExportFile,
 } from '@/lib/services/googleVaultService';
 import { inferCustodianFromEntry, buildS3Key } from '../handlers/vaultArchive';
@@ -28,6 +27,11 @@ interface VaultExportsRow extends Record<string, unknown> {
   window_start: string;
   window_end: string;
   mode: string;
+  // Snapshot of the custodian list resolved by vault-archive-start at
+  // creation time — used (not a fresh DB lookup) so entries are matched
+  // against exactly what was requested for this export, even if a custodian
+  // mailbox is un-synced between start and poll.
+  custodian_emails: string[];
 }
 
 async function setStatus(
@@ -100,7 +104,7 @@ async function processZipFile(
     });
 
     const basename = entryPath.split('/').pop() ?? entryPath;
-    const custodian = inferCustodianFromEntry(entryPath, VAULT_CUSTODIAN_EMAILS);
+    const custodian = inferCustodianFromEntry(entryPath, opts.row.custodian_emails);
     const s3Key = buildS3Key(
       opts.year,
       opts.month,
@@ -167,7 +171,7 @@ export const handler = async (
   try {
     // 1. Pick ONE row to process (oldest first).
     const [row] = await db.execute<VaultExportsRow>(
-      sql`SELECT id, matter_id, export_id, window_start, window_end, mode
+      sql`SELECT id, matter_id, export_id, window_start, window_end, mode, custodian_emails
           FROM analytics.vault_exports
           WHERE status = 'exporting'
           ORDER BY created_at

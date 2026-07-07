@@ -13,6 +13,7 @@ export class CompanyAnalysisService {
     private readonly companyAnalysisRepo: CompanyAnalysisRepository,
     private readonly companyRepo: CompanyRepository,
     private readonly db: DbClient,
+    private readonly workspaceId: string,
   ) {}
 
   findByCompanyId(companyId: string) {
@@ -84,7 +85,7 @@ export class CompanyAnalysisService {
     companyId: string,
     cancelledByUserId?: string | null,
   ): Promise<{ cancelled: boolean }> {
-    const queueRepo = new AiWorkforceQueueRepository(this.db);
+    const queueRepo = new AiWorkforceQueueRepository(this.db, this.workspaceId);
     const active = await queueRepo.findActiveByCompanyId(
       COMPANY_CARD_AGENT_NAME,
       companyId,

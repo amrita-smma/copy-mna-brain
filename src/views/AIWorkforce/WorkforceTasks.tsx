@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Input } from '@/components/ui/input';
+import { useWorkspaceHref } from '@/hooks/useWorkspaceHref';
 
 import { RailGroup, RailItem } from './rail';
 import { TaskCanvas } from './TaskCanvas';
@@ -58,6 +59,12 @@ interface ApiQueueItem {
   // Needed to tell user-cancelled rows apart from genuine failures —
   // both share status='failed' at the DB level.
   error?: Record<string, unknown> | null;
+  // How many rows GLOBALLY (any workspace) are ahead of this one in the
+  // shared single-worker queue. Only populated for pending/resume_ready rows.
+  ahead_globally?: number | null;
+  // Subset of ahead_globally belonging to a different workspace than this
+  // row's own. See AiWorkforceQueueRepository.getGlobalQueuePositions.
+  ahead_other_workspaces?: number | null;
 }
 
 // Categorises a terminal queue row for sidebar rendering. `succeeded` →
@@ -216,6 +223,8 @@ function toQueueTask(
     routineId,
     routineName,
     relTime: relTime(tsCandidate),
+    aheadGlobally: item.ahead_globally,
+    aheadOtherWorkspaces: item.ahead_other_workspaces,
   };
 }
 
@@ -476,6 +485,14 @@ export function WorkforceTasks({ initialTaskId = null }: WorkforceTasksProps = {
       pendingItems.slice(queuePage * QUEUE_PAGE_SIZE, (queuePage + 1) * QUEUE_PAGE_SIZE),
     [pendingItems, queuePage],
   );
+  // Shown once, above the list, only on page 0. When it renders, item #1's
+  // own inline note would repeat the identical "other workspaces" framing —
+  // suppressed there instead of shown twice (see WorkforceTasks review).
+  const topAheadOtherWorkspaces = pendingItems[0]?.aheadOtherWorkspaces;
+  const showsTopSummaryRow =
+    queuePage === 0 &&
+    typeof topAheadOtherWorkspaces === 'number' &&
+    topAheadOtherWorkspaces > 0;
 
   const selectedRoutine =
     selection.kind === 'routine'
@@ -501,18 +518,18 @@ export function WorkforceTasks({ initialTaskId = null }: WorkforceTasksProps = {
   // still work because the browser dispatches popstate events that Next
   // intercepts for the actual route change.
   const urlReconciled = useRef(false);
+  const taskUrlTarget = useWorkspaceHref(
+    selectedTaskId ? `/ai-workforce/tasks/${selectedTaskId}` : '/ai-workforce',
+  );
   useEffect(() => {
     if (!urlReconciled.current) {
       urlReconciled.current = true;
       return;
     }
-    const target = selectedTaskId
-      ? `/ai-workforce/tasks/${selectedTaskId}`
-      : '/ai-workforce';
-    if (typeof window !== 'undefined' && window.location.pathname !== target) {
-      window.history.replaceState(null, '', target);
+    if (typeof window !== 'undefined' && window.location.pathname !== taskUrlTarget) {
+      window.history.replaceState(null, '', taskUrlTarget);
     }
-  }, [selectedTaskId]);
+  }, [taskUrlTarget]);
 
   const handleDragStart = (e: React.DragEvent, id: string) => {
     setDraggingId(id);
@@ -724,10 +741,42 @@ export function WorkforceTasks({ initialTaskId = null }: WorkforceTasksProps = {
               </div>
             ) : (
               <>
+                {showsTopSummaryRow && (
+                  <div
+                    data-testid="workforce-queue-other-workspaces-ahead"
+                    className="px-2 py-1 text-[11px] text-muted-foreground/70"
+                  >
+                    {topAheadOtherWorkspaces} job
+                    {topAheadOtherWorkspaces === 1 ? '' : 's'} ahead · other
+                    workspaces
+                  </div>
+                )}
                 <div className="space-y-0.5">
                   {paginatedQueue.map((task) => {
                     const Icon = task.icon;
+                    // Position within this workspace's own list — still the
+                    // right number for drag-to-reorder context, since
+                    // reordering only affects this workspace's priorities.
                     const position = pendingItems.findIndex((t) => t.id === task.id) + 1;
+                    // True cross-workspace position under the shared
+                    // single-worker queue (RFC: "show how many jobs in
+                    // front"). Other workspaces' rows can sit ahead of this
+                    // one invisibly to a workspace-local count, so surface
+                    // both rather than let #N imply a false guarantee.
+                    const aheadGlobally = task.aheadGlobally;
+                    // Suppressed on item #1 when the top summary row is
+                    // already showing this same "other workspaces" count —
+                    // otherwise the two would sit stacked, one saying e.g.
+                    // "2 jobs ahead · other workspaces" and the other "2
+                    // ahead platform-wide" for the identical row.
+                    const globalNote =
+                      position === 1 && showsTopSummaryRow
+                        ? null
+                        : typeof aheadGlobally === 'number'
+                          ? aheadGlobally === 0
+                            ? 'next up platform-wide'
+                            : `${aheadGlobally} ahead platform-wide`
+                          : null;
                     return (
                       <RailItem
                         key={task.id}
@@ -751,7 +800,11 @@ export function WorkforceTasks({ initialTaskId = null }: WorkforceTasksProps = {
                             {task.title}
                           </>
                         }
-                        tooltipText={`#${position} ${task.title}`}
+                        tooltipText={
+                          globalNote
+                            ? `#${position} ${task.title} — ${globalNote}`
+                            : `#${position} ${task.title}`
+                        }
                         meta={
                           <span className="flex items-center gap-1.5 min-w-0">
                             {task.routineName && task.routineId ? (
@@ -771,6 +824,11 @@ export function WorkforceTasks({ initialTaskId = null }: WorkforceTasksProps = {
                                 </span>
                                 <span className="truncate">{task.owner}</span>
                               </>
+                            )}
+                            {globalNote && (
+                              <span className="truncate text-muted-foreground/60">
+                                · {globalNote}
+                              </span>
                             )}
                             {task.relTime && (
                               <span className="text-muted-foreground/70 flex-shrink-0">

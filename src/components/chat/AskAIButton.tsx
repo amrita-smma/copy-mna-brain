@@ -6,6 +6,7 @@ import posthog from "posthog-js";
 import { cn } from "@/lib/utils";
 import { useLayoutControl } from "@/components/layout/LayoutControlContext";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { useWorkspaceHref } from "@/hooks/useWorkspaceHref";
 
 interface AskAIButtonProps {
   /** Click handler — the consumer wires this to `sendMessage(...)` from `useChatContext`. */
@@ -33,6 +34,7 @@ export function AskAIButton({
   const { focusCopilot } = useLayoutControl();
   const isMobile = useIsMobile();
   const router = useRouter();
+  const chatHref = useWorkspaceHref("/chat");
 
   // Every analyze trigger runs the consumer's send handler (the chat lives in a
   // root provider, so the message persists across navigation) and then surfaces
@@ -44,7 +46,7 @@ export function AskAIButton({
     if (isMobile) {
       // Mobile has no side pane — analysis opens the full-screen chat route.
       posthog.capture("mobile_ai_analysis_opened", { label });
-      router.push("/chat");
+      router.push(chatHref);
       return;
     }
     focusCopilot();

@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createDb } from '@/lib/server/db';
+import { getActiveWorkspaceId } from '@/lib/workspace';
 import { createContainer } from '@/lib/services';
 
 export async function GET(req: NextRequest) {
   try {
     const db = createDb();
-    const { trackVariableService } = createContainer(db);
+    const { trackVariableService } = createContainer(db, await getActiveWorkspaceId());
     const trackId = req.nextUrl.searchParams.get('trackId') ?? undefined;
     const data = await trackVariableService.findAll(trackId);
     return NextResponse.json({ data });
@@ -18,7 +19,7 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   try {
     const db = createDb();
-    const { trackVariableService } = createContainer(db);
+    const { trackVariableService } = createContainer(db, await getActiveWorkspaceId());
     const { trackId, name, unit, type, options, sortOrder } = await req.json();
     if (!trackId || !name) {
       return NextResponse.json(

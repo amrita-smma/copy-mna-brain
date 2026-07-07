@@ -23,6 +23,7 @@ config();
 import { drizzle } from 'drizzle-orm/postgres-js';
 import { and, gte, lte } from 'drizzle-orm';
 import { companies, companyFinancials } from '../src/lib/db/schema';
+import { MNA_WORKSPACE_ID } from '../src/lib/constants';
 
 const SEED_ENTRY_ID_MIN = 8901;
 const SEED_ENTRY_ID_MAX = 8999;
@@ -181,6 +182,7 @@ async function main() {
           pipeline_stage: 'L0',
           status: 'active',
           watchlist_status: c.watchlist_status,
+          workspace_id: MNA_WORKSPACE_ID,
         })
         .returning({ id: companies.id });
       if (!inserted) continue;
@@ -188,6 +190,7 @@ async function main() {
         await db.insert(companyFinancials).values(
           c.financials.map((f) => ({
             company_id: inserted.id,
+            workspace_id: MNA_WORKSPACE_ID,
             fiscal_year: f.fiscal_year,
             revenue_usd_mn: f.revenue_usd_mn ?? null,
             ebitda_usd_mn: f.ebitda_usd_mn ?? null,

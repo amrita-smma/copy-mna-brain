@@ -2,6 +2,7 @@ import { after, NextRequest, NextResponse } from 'next/server';
 import { getAgentGraph, AIMessage, extractFirstTurn } from '@/lib/agents/analysis';
 import { ChatAnthropic } from '@langchain/anthropic';
 import { createDb } from '@/lib/server/db';
+import { getActiveWorkspaceId } from '@/lib/workspace';
 import { createContainer } from '@/lib/services';
 import { isCacheableResponse } from '@/lib/services/copilotChatsService';
 import {
@@ -52,7 +53,7 @@ async function generateAndSaveTitle(opts: {
     if (!title) return null;
 
     const db = createDb();
-    const { copilotChatsService } = createContainer(db);
+    const { copilotChatsService } = createContainer(db, await getActiveWorkspaceId());
     await copilotChatsService.setTitle(opts.chatId, title);
     return title;
   } catch (err) {
@@ -74,7 +75,7 @@ export async function POST(req: NextRequest) {
     const requestedChatId: string | undefined = body.chat_id;
 
     const db = createDb();
-    const { chatService, copilotChatsService } = createContainer(db);
+    const { chatService, copilotChatsService } = createContainer(db, await getActiveWorkspaceId());
 
     let chat;
     if (requestedChatId) {

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/auth';
 import { createDb } from '@/lib/server/db';
+import { getActiveWorkspaceId } from '@/lib/workspace';
 import { createContainer } from '@/lib/services';
 import {
   CopilotChatNotFoundError,
@@ -139,7 +140,7 @@ export async function GET(
   const { id: chatId } = await params;
 
   const db = createDb();
-  const { copilotChatsService } = createContainer(db);
+  const { copilotChatsService } = createContainer(db, await getActiveWorkspaceId());
 
   try {
     await copilotChatsService.assertOwnedBy(chatId, session.user.id);

@@ -2,15 +2,11 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
+import { useWorkspaceHref } from '@/hooks/useWorkspaceHref';
 import DashboardLayout from '@/components/layout/DashboardLayout';
 import { MarkdownRenderer } from '@/components/chat/MarkdownRenderer';
 import { useChatContext } from '@/components/chat/ChatProvider';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
+import { AskAIButton } from '@/components/chat/AskAIButton';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { useEventStream } from '@/hooks/useEventStream';
 import { companyDisplayName, companyDisplayTitle, companyInitials } from '@/lib/companyDisplay';
@@ -51,7 +47,6 @@ import {
   Pencil,
   Check,
   X,
-  MoreHorizontal,
 } from 'lucide-react';
 import {
   Select,
@@ -190,11 +185,8 @@ interface CompanyData {
   matched_track_ids?: string[] | null;
   track_specific_variables?: Record<string, Record<string, string>> | null;
   slide_track_variable_ids?: string[] | null;
-  // uuid FKs to users.id; `*_name` carries the resolved display name.
   deal_sponsor?: string | null;
-  deal_sponsor_name?: string | null;
   deal_captain?: string | null;
-  deal_captain_name?: string | null;
   financials_raw?: import('@/lib/repositories').Tables<'company_financials'>[];
 }
 
@@ -352,7 +344,10 @@ export default function CompanyDetail({ showCompanyGraph = false }: CompanyDetai
   const searchParams = useSearchParams();
   const isMobile = useIsMobile();
   const companyId = params.dealId as string;
-  const returnTo = searchParams.get('from') || '/pipeline';
+  const pipelineHref = useWorkspaceHref('/pipeline');
+  const chatHref = useWorkspaceHref('/chat');
+  const aiFileDumpHref = useWorkspaceHref('/ai-file-dump');
+  const returnTo = searchParams.get('from') || pipelineHref;
 
   const [company, setCompany] = useState<CompanyData | null>(null);
 
@@ -362,7 +357,7 @@ export default function CompanyDetail({ showCompanyGraph = false }: CompanyDetai
     analyzeWithAI(
       `Analyze ${companyDisplayName(company, 'this company')} and provide insights about it as a potential deal.`,
     );
-    if (isMobile) router.push('/chat');
+    if (isMobile) router.push(chatHref);
   };
   const [stageHistory, setStageHistory] = useState<StageHistory[]>([]);
   const [notes, setNotes] = useState<DealNote[]>([]);
@@ -415,7 +410,7 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
 
     analyzeWithAI(prompt);
     if (isMobile) {
-      router.push('/chat');
+      router.push(chatHref);
     } else {
       focusCopilot();
     }
@@ -493,8 +488,10 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
   const [isSaving, setIsSaving] = useState(false);
   const [editForm, setEditForm] = useState<EditForm | null>(null);
   const [bankerOptions, setBankerOptions] = useState<string[]>([]);
-  // Id-keyed users list backing the Deal Sponsor / Deal Captain and
-  // "Entered by" pickers — all three columns are uuid FKs to users.id.
+  const [userOptions, setUserOptions] = useState<string[]>([]);
+  // Full users list (id + name) for the `entered_by` picker — it's a uuid FK,
+  // so it can't reuse the name-only `userOptions` (those back the free-text
+  // Deal Sponsor / Deal Captain comboboxes).
   const [users, setUsers] = useState<UserSummary[]>([]);
 
   const startEditing = async () => {
@@ -528,9 +525,12 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
         .then(setBankerOptions)
         .catch((err) => console.error('Failed to load bankers:', err));
     }
-    if (users.length === 0) {
+    if (userOptions.length === 0) {
       getUsers()
-        .then(setUsers)
+        .then((rows: UserSummary[]) => {
+          setUsers(rows);
+          setUserOptions(rows.map((u) => u.name).filter((n): n is string => !!n));
+        })
         .catch((err) => console.error('Failed to load users:', err));
     }
   };
@@ -1142,57 +1142,61 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
             </div>
             </div>
           </div>
-          {/* Action menu — the AI/slides CTAs live behind an ellipsis menu.
-              Generation progress (and Cancel) surfaces in the AI card section. */}
-          <div className="flex items-center gap-2 md:shrink-0 md:self-center">
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
+          {/* Action buttons */}
+          <div className="flex flex-wrap items-center gap-2 md:shrink-0 md:self-center">
+            {analysis?.status === 'completed' && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-2"
+                onClick={() => router.push(`${pipelineHref}/${companyId}/slides`)}
+              >
+                <Presentation className="h-4 w-4" />
+                Generate Slides
+              </Button>
+            )}
+            {analysisGenerating ? (
+              <div className="flex items-center gap-2">
+                <Button
+                  size="sm"
+                  className="bg-accent hover:bg-accent/90 text-accent-foreground gap-2"
+                  disabled
+                >
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Generating...
+                </Button>
                 <Button
                   variant="outline"
-                  size="icon"
-                  className="h-8 w-8"
-                  aria-label="Company actions"
+                  size="sm"
+                  className="gap-2"
+                  onClick={cancelAnalysis}
+                  disabled={analysisCancelling}
                 >
-                  <MoreHorizontal className="h-4 w-4" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                {analysis?.status === 'completed' && (
-                  <DropdownMenuItem
-                    onSelect={() => router.push(`/pipeline/${companyId}/slides`)}
-                  >
-                    <Presentation className="mr-2 h-4 w-4" />
-                    Generate Slides
-                  </DropdownMenuItem>
-                )}
-                <DropdownMenuItem
-                  disabled={analysisGenerating}
-                  onSelect={
-                    analysis?.status === 'completed' ? regenerateAnalysis : generateAnalysis
-                  }
-                >
-                  {analysisGenerating ? (
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  {analysisCancelling ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
                   ) : (
-                    <Sparkles className="mr-2 h-4 w-4" />
+                    <X className="h-4 w-4" />
                   )}
-                  {analysisGenerating
-                    ? 'Generating...'
-                    : analysis?.status === 'completed'
-                      ? 'Regenerate AI Card'
-                      : 'Generate AI Company Card'}
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  onSelect={() => {
-                    handleAnalyzeWithAI();
-                    if (!isMobile) focusCopilot();
-                  }}
-                >
-                  <Sparkles className="mr-2 h-4 w-4 text-purple-500" />
-                  Analyze using AI
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
+                  Cancel
+                </Button>
+              </div>
+            ) : (
+              <Button
+                size="sm"
+                className="bg-accent hover:bg-accent/90 text-accent-foreground gap-2"
+                onClick={analysis?.status === 'completed' ? regenerateAnalysis : generateAnalysis}
+              >
+                <Sparkles className="h-4 w-4" />
+                {analysis?.status === 'completed'
+                  ? 'Regenerate AI Card'
+                  : 'Generate AI Company Card'}
+              </Button>
+            )}
+            <AskAIButton
+              variant="button"
+              label="Analyze using AI"
+              onClick={handleAnalyzeWithAI}
+            />
           </div>
         </div>
 
@@ -1263,7 +1267,6 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
               <CompanyOverviewSlide
                 company={company}
                 analysis={analysis}
-                tracks={tracks}
                 onEditSection={handleEditSection}
                 editingSectionKey={editingSectionKey}
               />
@@ -1460,9 +1463,10 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
                         <p className="text-xs text-muted-foreground">{dealLeadLabel(stage)}</p>
                         {isEditing && editForm ? (
                           <div className="mt-1">
-                            <UserSelectCombobox
+                            <StatusCombobox
                               value={editForm[field] || null}
-                              users={users}
+                              options={userOptions}
+                              allowCreate={false}
                               placeholder={
                                 fallback ? `${fallback} (from track)` : `Set ${dealLeadLabel(stage)}…`
                               }
@@ -1800,7 +1804,7 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
                             <Button
                               variant="ghost"
                               size="icon"
-                              onClick={() => router.push(`/ai-file-dump?highlight=${encodeURIComponent(file.id)}`)}
+                              onClick={() => router.push(`${aiFileDumpHref}?highlight=${encodeURIComponent(file.id)}`)}
                               title="Open in AI File Dump"
                             >
                               <ExternalLink className="h-4 w-4" />

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { getActiveWorkspaceId } from '@/lib/workspace';
 import { z } from 'zod';
 import { auth } from '@/auth';
 import { RoutinesRepository } from '@/lib/repositories';
@@ -43,7 +44,7 @@ export async function GET() {
   }
   try {
     const db = createDb();
-    const repo = new RoutinesRepository(db);
+    const repo = new RoutinesRepository(db, await getActiveWorkspaceId());
     const items = await repo.list();
     return NextResponse.json({ items });
   } catch (error: unknown) {
@@ -91,7 +92,7 @@ export async function POST(req: NextRequest) {
     );
 
     const db = createDb();
-    const repo = new RoutinesRepository(db);
+    const repo = new RoutinesRepository(db, await getActiveWorkspaceId());
     const row = await repo.create({
       title: parsed.data.title,
       prompt: parsed.data.prompt,

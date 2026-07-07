@@ -22,6 +22,7 @@ import { sql } from 'drizzle-orm';
 import { createDb } from '@/lib/server/db';
 import { AiWorkforceQueueRepository } from '@/lib/repositories';
 import { dispatcherTick, reapStuckRuns } from '@/lib/workforce';
+import { getActiveWorkspaceId } from '@/lib/workspace';
 
 async function main() {
   const [, , cmd, ...rest] = process.argv;
@@ -30,7 +31,7 @@ async function main() {
   switch (cmd) {
     case 'enqueue': {
       const agentName = rest[0] ?? 'test_agent';
-      const repo = new AiWorkforceQueueRepository(db);
+      const repo = new AiWorkforceQueueRepository(db, await getActiveWorkspaceId());
       const { row, created } = await repo.createOrGetByIdempotencyKey({
         agent_name: agentName,
         trigger_source: 'api',
@@ -48,7 +49,7 @@ async function main() {
     case 'claim': {
       // Tier 2: bypass workflow trigger. Just claim a row so you can verify
       // the atomic-claim SQL without needing the WDK runtime.
-      const repo = new AiWorkforceQueueRepository(db);
+      const repo = new AiWorkforceQueueRepository(db, await getActiveWorkspaceId());
       const claimed = await repo.claimNextRunnable();
       console.log(JSON.stringify(claimed, null, 2));
       break;

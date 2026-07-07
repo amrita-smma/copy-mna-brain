@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import Link from "next/link";
+import { WorkspaceLink } from "@/components/WorkspaceLink";
+import { useWorkspaceHref } from "@/hooks/useWorkspaceHref";
 import { useRouter } from "next/navigation";
 import { useIsMobile } from "@/hooks/use-mobile";
 import DashboardLayout from "@/components/layout/DashboardLayout";
@@ -649,6 +650,8 @@ export default function Dashboard({
   const [dialogOpen, setDialogOpen] = useState(false);
   const router = useRouter();
   const isMobile = useIsMobile();
+  const pipelineHref = useWorkspaceHref("/pipeline");
+  const dashboardHref = useWorkspaceHref("/dashboard");
 
   // Date range
   const defaultRange = presetToRange("7d");
@@ -755,7 +758,7 @@ export default function Dashboard({
       // On mobile, open the full-screen company profile instead of the dialog.
       // Back returns here to the activity feed (dashboard).
       if (isMobile) {
-        router.push(`/pipeline/${id}?from=/dashboard`);
+        router.push(`${pipelineHref}/${id}?from=${encodeURIComponent(dashboardHref)}`);
         return;
       }
       const cached = companies.find((c: any) => c.id === id);
@@ -777,7 +780,7 @@ export default function Dashboard({
         console.error("Failed to load company details", err);
       }
     },
-    [companies, isMobile, router],
+    [companies, isMobile, router, pipelineHref, dashboardHref],
   );
 
   useEffect(() => {
@@ -1849,7 +1852,7 @@ export default function Dashboard({
                       <p className="text-center text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
                         L0 · Sourcing
                       </p>
-                      <Link
+                      <WorkspaceLink
                         data-testid="dashboard-stage-l0-inbound-link"
                         href="/pipeline?stage=L0"
                         className="flex flex-1 flex-col items-center justify-center gap-0.5 rounded-xl bg-gradient-to-br from-indigo-400 to-indigo-600 p-3 text-white no-underline transition-transform hover:scale-[1.02]"
@@ -1863,8 +1866,8 @@ export default function Dashboard({
                         <span className="text-[10px] text-white/70">
                           {pctOfTotal(displayL0Inbound)}% of total
                         </span>
-                      </Link>
-                      <Link
+                      </WorkspaceLink>
+                      <WorkspaceLink
                         data-testid="dashboard-stage-l0-outbound-link"
                         href="/pipeline?stage=L0"
                         className="flex flex-1 flex-col items-center justify-center gap-0.5 rounded-xl bg-gradient-to-br from-blue-400 to-blue-600 p-3 text-white no-underline transition-transform hover:scale-[1.02]"
@@ -1878,7 +1881,7 @@ export default function Dashboard({
                         <span className="text-[10px] text-white/70">
                           {pctOfTotal(displayL0Outbound)}% of total
                         </span>
-                      </Link>
+                      </WorkspaceLink>
                       {(droppedByStage["L0"] ?? 0) > 0 && (
                         <div className="flex items-center justify-between rounded-md bg-red-500/10 px-2 py-1 text-[10px] font-bold text-red-600 dark:text-red-400">
                           <span>DROPPED</span>
@@ -1902,7 +1905,7 @@ export default function Dashboard({
                             ? Math.round((item.count / displayL0) * 100)
                             : 0;
                         return (
-                          <Link
+                          <WorkspaceLink
                             key={item.stage}
                             data-testid={`dashboard-stage-${item.stage.toLowerCase()}-link`}
                             href={`/pipeline?stage=${item.stage}`}
@@ -1942,7 +1945,7 @@ export default function Dashboard({
                             <div className="text-center text-[10px] text-muted-foreground">
                               {item.label}
                             </div>
-                          </Link>
+                          </WorkspaceLink>
                         );
                       })}
                     </div>

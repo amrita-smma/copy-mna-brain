@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/auth';
 import { createDb } from '@/lib/server/db';
+import { getActiveWorkspaceId } from '@/lib/workspace';
 import { createContainer } from '@/lib/services';
 import { isCacheableResponse } from '@/lib/services/copilotChatsService';
 import { getAgentGraph, extractFirstTurn } from '@/lib/agents/analysis';
@@ -27,7 +28,7 @@ export async function POST(req: NextRequest) {
     }
 
     const db = createDb();
-    const { copilotChatsService } = createContainer(db);
+    const { copilotChatsService } = createContainer(db, await getActiveWorkspaceId());
 
     const match = await copilotChatsService.findCachedFirstTurn(message);
     if (!match) {

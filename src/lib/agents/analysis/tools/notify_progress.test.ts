@@ -17,6 +17,7 @@ vi.mock('@/lib/repositories', () => ({
   AiWorkforceQueueRepository: class {},
   RoutinesRepository: class {},
   UserRepository: class {},
+  WorkspaceRepository: class {},
 }));
 
 import { notifyProgress } from './notify_progress';

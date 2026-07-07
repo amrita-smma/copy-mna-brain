@@ -37,7 +37,6 @@ function makeUserRepoStub(): UserRepository {
     findByEmail: vi.fn(),
     create: vi.fn(),
     update: vi.fn(),
-    findFavoriteCompanies: vi.fn(),
   } as unknown as UserRepository;
 }
 

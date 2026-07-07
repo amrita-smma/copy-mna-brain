@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createDb } from '@/lib/server/db';
+import { getActiveWorkspaceId } from '@/lib/workspace';
 import { createContainer } from '@/lib/services';
 
 interface RouteContext {
@@ -14,7 +15,7 @@ export async function DELETE(request: NextRequest, context: RouteContext) {
     }
 
     const db = createDb();
-    const { fileService } = createContainer(db);
+    const { fileService } = createContainer(db, await getActiveWorkspaceId());
     await fileService.delete(id);
 
     return NextResponse.json({ success: true, message: 'File deleted successfully' });

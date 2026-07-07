@@ -31,7 +31,7 @@ describe('CopilotChatsRepository', () => {
       update: vi.fn().mockReturnThis(),
       set: vi.fn().mockReturnThis(),
     };
-    repo = new CopilotChatsRepository(mockDb as never);
+    repo = new CopilotChatsRepository(mockDb as never, 'workspace-1');
   });
 
   it('listByUser returns rows ordered by last_active_at desc', async () => {
@@ -54,7 +54,7 @@ describe('CopilotChatsRepository', () => {
     const result = await repo.create('u1');
 
     expect(result).toEqual(row);
-    expect(mockDb.values).toHaveBeenCalledWith({ user_id: 'u1' });
+    expect(mockDb.values).toHaveBeenCalledWith({ user_id: 'u1', workspace_id: 'workspace-1' });
   });
 
   it('getById returns the row when found', async () => {

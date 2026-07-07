@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createDb } from '@/lib/server/db';
+import { getActiveWorkspaceId } from '@/lib/workspace';
 import { createContainer } from '@/lib/services';
 
 interface Ctx {
@@ -10,7 +11,7 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
   try {
     const { id } = await ctx.params;
     const db = createDb();
-    const { crmService } = createContainer(db);
+    const { crmService } = createContainer(db, await getActiveWorkspaceId());
     const data = await crmService.listContacts(id);
     return NextResponse.json({ data });
   } catch (err) {
@@ -33,7 +34,7 @@ export async function POST(req: NextRequest, ctx: Ctx) {
       );
     }
     const db = createDb();
-    const { crmService } = createContainer(db);
+    const { crmService } = createContainer(db, await getActiveWorkspaceId());
     const data = await crmService.createContact({
       employerId: id,
       name: body.name,
@@ -41,7 +42,6 @@ export async function POST(req: NextRequest, ctx: Ctx) {
       phone: body.phone,
       title: body.title,
       type: body.type,
-      isPrimary: body.is_primary,
     });
     return NextResponse.json({ data }, { status: 201 });
   } catch (err) {

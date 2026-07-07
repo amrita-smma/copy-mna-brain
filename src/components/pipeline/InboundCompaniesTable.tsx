@@ -175,9 +175,6 @@ interface InboundCompaniesTableProps {
   tracks: TrackLike[];
   stage: DealStage;
   viewMode: "active" | "dropped";
-  favoriteIds: Set<string>;
-  togglingFavorite: string | null;
-  onToggleFavorite: (id: string) => void;
   updatingCompanyIds: Set<string>;
   statusOptions: string[];
   sortField: string | null;
@@ -212,7 +209,6 @@ export default function InboundCompaniesTable({
   tracks,
   stage,
   viewMode,
-  favoriteIds,
   updatingCompanyIds,
   statusOptions,
   sortField,
@@ -686,10 +682,7 @@ export default function InboundCompaniesTable({
           </TableRow>
         )}
         {groupedCompanies.map((company, index) => {
-          const isFav = favoriteIds.has(company.id);
-          const stickyBg = isFav
-            ? "bg-amber-50 group-hover:bg-amber-100 dark:bg-amber-950 dark:group-hover:bg-amber-900"
-            : "bg-card group-hover:bg-muted";
+          const stickyBg = "bg-card group-hover:bg-muted";
           const isUpdating = updatingCompanyIds.has(company.id);
           const rev = latestFin(company.financials_raw, "revenue_usd_mn");
           const ebitda = latestFin(company.financials_raw, "ebitda_usd_mn");
@@ -729,10 +722,7 @@ export default function InboundCompaniesTable({
                 sectionGap()}
               <TableRow
                 className={cn(
-                  "group transition-colors",
-                  isFav
-                    ? "bg-amber-50/60 dark:bg-amber-900/10 hover:bg-amber-100/60 dark:hover:bg-amber-900/20"
-                    : "hover:bg-muted/50",
+                  "group transition-colors hover:bg-muted/50",
                   isUpdating && "animate-pulse opacity-60",
                 )}
               >

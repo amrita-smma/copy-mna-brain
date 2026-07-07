@@ -1,4 +1,5 @@
 import { tool } from "@langchain/core/tools";
+import { getActiveWorkspaceId } from '@/lib/workspace';
 import { z } from "zod";
 import { logger } from "../../logger";
 import { createDb } from "@/lib/server/db";
@@ -20,7 +21,7 @@ export const addCompanyNoteTool = tool(
     logger.debug(`🔧 TOOL CALLED: add_company_note(id='${id}')`);
     try {
       const db = createDb();
-      const dealNoteRepo = new DealNoteRepository(db);
+      const dealNoteRepo = new DealNoteRepository(db, await getActiveWorkspaceId());
       await dealNoteRepo.insert({
         deal_id: id,
         content,

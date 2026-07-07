@@ -22,6 +22,7 @@ import { Input } from '@/components/ui/input';
 import { toast } from 'sonner';
 import { Loader2, Settings, Radar, Play, Sparkles, EyeOff, Eye, ChevronUp, ChevronDown } from 'lucide-react';
 import { getTracks, configureMarketScan, type Track } from '@/lib/api/pipeline';
+import { apiRequest } from '@/lib/api/client';
 import { trackDisplayName } from '@/lib/tracks/matchTracks';
 import TrackMultiSelect from '@/components/pipeline/TrackMultiSelect';
 import { waitForWorkforceRun } from '@/lib/jobs/useJob';
@@ -105,21 +106,16 @@ export default function MarketScreeningStatus({ onScanComplete, newCandidatesCou
 
     setScanning(true);
     try {
-      const response = await fetch('/api/market-screening', {
+      const data = await apiRequest<{ jobId?: string }>('/api/market-screening', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
         body: JSON.stringify({
           thesis: combinedThesis,
           sourcesCount: primaryThesis?.sources_count ?? sourcesCount,
         }),
       });
 
-      const data = await response.json();
-
-      if (!response.ok || !data.jobId) {
-        throw new Error(data.error || 'Failed to start market screening');
+      if (!data.jobId) {
+        throw new Error('Failed to start market screening');
       }
 
       const run = await waitForWorkforceRun(data.jobId);

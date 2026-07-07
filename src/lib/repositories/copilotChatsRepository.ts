@@ -5,14 +5,21 @@ import type { DbClient } from './types';
 export type CopilotChatRow = typeof copilotChats.$inferSelect;
 
 export class CopilotChatsRepository {
-  constructor(private readonly db: DbClient) {}
+  constructor(
+    private readonly db: DbClient,
+    private readonly workspaceId: string,
+  ) {}
 
   async listByUser(userId: string): Promise<CopilotChatRow[]> {
     return this.db
       .select()
       .from(copilotChats)
       .where(
-        and(eq(copilotChats.user_id, userId), isNull(copilotChats.archived_at)),
+        and(
+          eq(copilotChats.user_id, userId),
+          isNull(copilotChats.archived_at),
+          eq(copilotChats.workspace_id, this.workspaceId),
+        ),
       )
       .orderBy(desc(copilotChats.last_active_at));
   }
@@ -20,7 +27,7 @@ export class CopilotChatsRepository {
   async create(userId: string): Promise<CopilotChatRow> {
     const [row] = await this.db
       .insert(copilotChats)
-      .values({ user_id: userId })
+      .values({ user_id: userId, workspace_id: this.workspaceId })
       .returning();
     return row;
   }
@@ -29,7 +36,7 @@ export class CopilotChatsRepository {
     const [row] = await this.db
       .select()
       .from(copilotChats)
-      .where(eq(copilotChats.id, id))
+      .where(and(eq(copilotChats.id, id), eq(copilotChats.workspace_id, this.workspaceId)))
       .limit(1);
     return row ?? null;
   }
@@ -38,14 +45,14 @@ export class CopilotChatsRepository {
     await this.db
       .update(copilotChats)
       .set({ last_active_at: sql`now()` })
-      .where(eq(copilotChats.id, id));
+      .where(and(eq(copilotChats.id, id), eq(copilotChats.workspace_id, this.workspaceId)));
   }
 
   async setTitle(id: string, title: string): Promise<void> {
     await this.db
       .update(copilotChats)
       .set({ title })
-      .where(eq(copilotChats.id, id));
+      .where(and(eq(copilotChats.id, id), eq(copilotChats.workspace_id, this.workspaceId)));
   }
 
   /** Persist the chat's first user message and the hash used for cache lookups. */
@@ -57,13 +64,15 @@ export class CopilotChatsRepository {
     await this.db
       .update(copilotChats)
       .set({ first_user_message: message, first_user_message_hash: hash })
-      .where(eq(copilotChats.id, id));
+      .where(and(eq(copilotChats.id, id), eq(copilotChats.workspace_id, this.workspaceId)));
   }
 
   /**
    * Find the most recently active, non-archived chat whose first user message
-   * matches the given hash. Global (not scoped to a user) so any prior answer
-   * can be reused. Returns null when there's no match.
+   * matches the given hash. Scoped to this workspace only — a cached answer
+   * may reference this workspace's proprietary company/thesis data, so it
+   * must never be reused across workspaces even though it's not scoped to a
+   * single user. Returns null when there's no match.
    */
   async findLatestFirstMessageMatch(
     hash: string,
@@ -75,6 +84,7 @@ export class CopilotChatsRepository {
         and(
           eq(copilotChats.first_user_message_hash, hash),
           isNull(copilotChats.archived_at),
+          eq(copilotChats.workspace_id, this.workspaceId),
         ),
       )
       .orderBy(desc(copilotChats.last_active_at))

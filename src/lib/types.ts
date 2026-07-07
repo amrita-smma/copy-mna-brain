@@ -51,7 +51,6 @@ export interface Company {
   financials?: CompanyFinancial[];
   fx_adjustments?: CompanyFxAdjustment[];
   screening_derived?: CompanyScreeningDerived | null;
-  favorited_by?: string[];
 }
 
 // ============================================

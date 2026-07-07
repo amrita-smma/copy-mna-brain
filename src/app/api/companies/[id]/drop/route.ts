@@ -1,19 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { auth } from '@/auth';
 import { createDb } from '@/lib/server/db';
+import { getActiveWorkspaceId } from '@/lib/workspace';
 import { createContainer } from '@/lib/services';
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await params;
-    const { currentStage, reason, resurfaceAt } = await req.json();
-    const session = await auth();
+    const { currentStage, reason } = await req.json();
     const db = createDb();
-    const { companyService } = createContainer(db);
-    await companyService.dropDeal(id, currentStage, reason, {
-      resurfaceAt: typeof resurfaceAt === 'string' && resurfaceAt ? resurfaceAt : null,
-      droppedBy: session?.user?.id ?? null,
-    });
+    const { companyService } = createContainer(db, await getActiveWorkspaceId());
+    await companyService.dropDeal(id, currentStage, reason);
     return NextResponse.json({ data: { success: true } });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : 'Failed to drop deal';

@@ -8,6 +8,7 @@ import remarkGfm from 'remark-gfm';
 import { Loader2, FileText, AlertCircle, Download, Presentation } from 'lucide-react';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Button } from '@/components/ui/button';
+import { useWorkspaceHref } from '@/hooks/useWorkspaceHref';
 
 interface FilePreviewProps {
   url: string;
@@ -23,6 +24,7 @@ interface FilePreviewProps {
 
 export default function FilePreview({ url, onDownload, fileName, fileKey }: FilePreviewProps) {
   const router = useRouter();
+  const presentationHref = useWorkspaceHref('/presentation');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [content, setContent] = useState<string | null>(null);
@@ -84,7 +86,7 @@ export default function FilePreview({ url, onDownload, fileName, fileKey }: File
       params.set('url', url);
     }
     params.set('name', fileName);
-    router.push(`/presentation?${params.toString()}`);
+    router.push(`${presentationHref}?${params.toString()}`);
   };
 
   const handleDownload = async () => {

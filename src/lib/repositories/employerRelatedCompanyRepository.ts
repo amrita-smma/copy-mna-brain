@@ -1,7 +1,8 @@
-import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNull, or, sql } from 'drizzle-orm';
 import {
   employerRelatedCompanies,
   employerRelatedCompanyEvidence,
+  userWorkspaces,
 } from '@/lib/db/schema';
 import type { DbClient, Tables, TablesInsert } from '@/lib/repositories';
 
@@ -15,6 +16,7 @@ export type RelatedCompanyWithEvidence = EmployerRelatedCompany & {
 
 export interface UpsertRelatedCompanyInput {
   employer_id: string;
+  workspace_id: string;
   company_id: string | null;
   company_name: string;
   normalized_company_name: string;
@@ -37,14 +39,38 @@ export interface InsertEvidenceInput {
 export class EmployerRelatedCompanyRepository {
   constructor(private readonly db: DbClient) {}
 
-  async listForEmployer(employerId: string): Promise<RelatedCompanyWithEvidence[]> {
+  /**
+   * A `source='manual'` link (createManual) is a durable membership — stays
+   * regardless of any mailbox's sync state. Only `source='auto'` (ingest's
+   * LLM-detected match) is gated on this workspace having at least one
+   * currently synced member — workspace-level, matching
+   * CorrespondentRepository.visibleCorrespondentIds exactly, so the same
+   * un-sync action can't hide a related-company while leaving a contact from
+   * the same mailbox visible on the same employer card (or vice versa).
+   * Checking `!= 'auto'` rather than `= 'manual'` means a future new source
+   * value defaults to visible, not silently hidden. Live, no refresh step
+   * needed.
+   */
+  async listForEmployer(
+    employerId: string,
+    workspaceId: string,
+  ): Promise<RelatedCompanyWithEvidence[]> {
     const rows = await this.db
       .select()
       .from(employerRelatedCompanies)
       .where(
         and(
           eq(employerRelatedCompanies.employer_id, employerId),
+          eq(employerRelatedCompanies.workspace_id, workspaceId),
           isNull(employerRelatedCompanies.dismissed_at),
+          or(
+            sql`${employerRelatedCompanies.source} != 'auto'`,
+            sql`EXISTS (
+              SELECT 1 FROM ${userWorkspaces}
+              WHERE ${userWorkspaces.workspace_id} = ${workspaceId}
+                AND ${userWorkspaces.is_email_synced} = true
+            )`,
+          ),
         ),
       );
 
@@ -86,6 +112,7 @@ export class EmployerRelatedCompanyRepository {
       .insert(employerRelatedCompanies)
       .values({
         employer_id: input.employer_id,
+        workspace_id: input.workspace_id,
         company_id: input.company_id,
         company_name: input.company_name,
         normalized_company_name: input.normalized_company_name,
@@ -96,7 +123,10 @@ export class EmployerRelatedCompanyRepository {
         evidence_count: 0,
       } satisfies TablesInsert<'employer_related_companies'>)
       .onConflictDoUpdate({
+        // Must match uq_erc_workspace_employer_company_source exactly — see
+        // 20260705000002_employer_related_companies_workspace_id.sql.
         target: [
+          employerRelatedCompanies.workspace_id,
           employerRelatedCompanies.employer_id,
           employerRelatedCompanies.normalized_company_name,
           employerRelatedCompanies.source,
@@ -173,6 +203,7 @@ export class EmployerRelatedCompanyRepository {
    */
   async createManual(input: {
     employer_id: string;
+    workspace_id: string;
     company_id: string;
     company_name: string;
     normalized_company_name: string;
@@ -181,6 +212,7 @@ export class EmployerRelatedCompanyRepository {
       .insert(employerRelatedCompanies)
       .values({
         employer_id: input.employer_id,
+        workspace_id: input.workspace_id,
         company_id: input.company_id,
         company_name: input.company_name,
         normalized_company_name: input.normalized_company_name,
@@ -201,13 +233,18 @@ export class EmployerRelatedCompanyRepository {
    * UNIQUE(employer_id, normalized_company_name, source) slot staying occupied by
    * a soft-dismissed row. Evidence (none for manual) cascades.
    */
-  async deleteManual(employerId: string, id: string): Promise<void> {
+  async deleteManual(
+    employerId: string,
+    id: string,
+    workspaceId: string,
+  ): Promise<void> {
     await this.db
       .delete(employerRelatedCompanies)
       .where(
         and(
           eq(employerRelatedCompanies.id, id),
           eq(employerRelatedCompanies.employer_id, employerId),
+          eq(employerRelatedCompanies.workspace_id, workspaceId),
           eq(employerRelatedCompanies.source, 'manual'),
         ),
       );
@@ -217,6 +254,7 @@ export class EmployerRelatedCompanyRepository {
   async findByCompanyId(
     employerId: string,
     companyId: string,
+    workspaceId: string,
   ): Promise<EmployerRelatedCompany[]> {
     return this.db
       .select()
@@ -225,6 +263,7 @@ export class EmployerRelatedCompanyRepository {
         and(
           eq(employerRelatedCompanies.employer_id, employerId),
           eq(employerRelatedCompanies.company_id, companyId),
+          eq(employerRelatedCompanies.workspace_id, workspaceId),
           isNull(employerRelatedCompanies.dismissed_at),
         ),
       );

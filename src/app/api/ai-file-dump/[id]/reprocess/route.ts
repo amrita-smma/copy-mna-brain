@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createDb } from '@/lib/server/db';
 import { createContainer } from '@/lib/services';
+import { getActiveWorkspaceId } from '@/lib/workspace';
 
 interface RouteContext {
   params: Promise<{ id: string }>;
@@ -14,7 +15,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
     }
 
     const db = createDb();
-    const { fileService } = createContainer(db);
+    const { fileService } = createContainer(db, await getActiveWorkspaceId());
     const result = await fileService.reprocess(id);
 
     return NextResponse.json({ success: true, data: result });

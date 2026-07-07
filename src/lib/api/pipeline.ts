@@ -250,7 +250,7 @@ export interface Criteria {
   name: string;
   prompt: string;
   /** The Track (investment_thesis) this criterion belongs to. */
-  investment_thesis_id: string | null;
+  investment_thesis_id: string;
 }
 
 /** All criteria, or — when `thesisId` is set — only those belonging to that Track. */
@@ -262,7 +262,7 @@ export async function getCriterias(thesisId?: string) {
 export async function createCriteria(
   name: string,
   prompt: string,
-  investmentThesisId?: string | null,
+  investmentThesisId: string,
 ) {
   return apiRequest<any>('/api/criterias', {
     method: 'POST',
@@ -435,16 +435,5 @@ export async function saveTrack(payload: {
 export async function deleteTrack(id: string) {
   return apiRequest<{ id: string }>(`/api/investment-thesis/${encodeURIComponent(id)}`, {
     method: 'DELETE',
-  });
-}
-
-export async function getFavoriteCompanies(userId: string): Promise<string[]> {
-  return apiRequest<string[]>(`/api/users/${encodeURIComponent(userId)}/favorites`);
-}
-
-export async function toggleFavoriteCompany(userId: string, companyId: string): Promise<string[]> {
-  return apiRequest<string[]>(`/api/users/${encodeURIComponent(userId)}/favorites`, {
-    method: 'PATCH',
-    body: JSON.stringify({ companyId }),
   });
 }

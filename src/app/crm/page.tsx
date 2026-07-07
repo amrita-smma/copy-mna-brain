@@ -1,11 +1,10 @@
-import CRM from '@/views/CRM';
-import { crmGoogleVaultSyncEnabled, companyGraphEnabled } from '@/lib/flags';
+import { redirectToWorkspaceScoped } from '@/lib/legacyWorkspaceRedirect';
 
-export default async function CRMPage() {
-  const [showVaultSync, showCompanyGraph] = await Promise.all([
-    crmGoogleVaultSyncEnabled().then(Boolean),
-    companyGraphEnabled().then(Boolean),
-  ]);
-
-  return <CRM showCompanyGraph={showCompanyGraph} showVaultSync={showVaultSync} />;
+/** Pre-migration deeplink bridge — see `redirectToWorkspaceScoped`. */
+export default async function LegacyCrmRedirect({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  await redirectToWorkspaceScoped('/crm', await searchParams);
 }

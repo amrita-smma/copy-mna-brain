@@ -1,4 +1,5 @@
 import { tool } from "@langchain/core/tools";
+import { getActiveWorkspaceId } from '@/lib/workspace';
 import { z } from "zod";
 import { logger } from "../../logger";
 import { createDb } from "@/lib/server/db";
@@ -55,7 +56,7 @@ export const generateRelationshipGraph = tool(
 
     try {
       const db = createDb();
-      const { companyRelationshipService } = createContainer(db);
+      const { companyRelationshipService } = createContainer(db, await getActiveWorkspaceId());
 
       const linked: string[] = [];
       const discovered = new Set<string>();

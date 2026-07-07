@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createDb } from '@/lib/server/db';
+import { getActiveWorkspaceId } from '@/lib/workspace';
 import { createContainer } from '@/lib/services';
 
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -7,7 +8,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     const { id } = await params;
     const { name, unit, type, options, sortOrder } = await req.json();
     const db = createDb();
-    const { trackVariableService } = createContainer(db);
+    const { trackVariableService } = createContainer(db, await getActiveWorkspaceId());
     const data = await trackVariableService.update(id, {
       name,
       unit,
@@ -26,7 +27,7 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
   try {
     const { id } = await params;
     const db = createDb();
-    const { trackVariableService } = createContainer(db);
+    const { trackVariableService } = createContainer(db, await getActiveWorkspaceId());
     await trackVariableService.delete(id);
     return NextResponse.json({ data: { success: true } });
   } catch (error: unknown) {

@@ -20,6 +20,8 @@ export async function dispatchJob<T>(opts: {
   payload: Record<string, unknown>;
   timeoutSeconds: number;
   work: (ctx: { job: Tables<'jobs'>; db: DbClient }) => Promise<T>;
+  /** Omitted by pipeline/cron callers that dispatch outside a workspace context — `jobs.workspace_id` stays NULL. */
+  workspaceId?: string;
 }): Promise<{ jobId: string }> {
   const jobRepo = new JobRepository(opts.db);
 
@@ -27,6 +29,7 @@ export async function dispatchJob<T>(opts: {
     type: opts.type,
     payload: opts.payload as Tables<'jobs'>['payload'],
     timeout_seconds: opts.timeoutSeconds,
+    workspace_id: opts.workspaceId ?? null,
   };
 
   const job = await jobRepo.create(insert);

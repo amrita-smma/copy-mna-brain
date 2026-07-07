@@ -1,4 +1,4 @@
-import { and, desc, eq, isNull } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNull } from 'drizzle-orm';
 import { companies, criterias, investmentThesis, screenings } from '@/lib/db/schema';
 import type { DbClient, Tables, TablesInsert, TablesUpdate } from './types';
 
@@ -24,13 +24,25 @@ export interface ScreeningGroupInput {
 }
 
 export class ScreeningRepository {
-  constructor(private readonly db: DbClient) {}
+  constructor(
+    private readonly db: DbClient,
+    private readonly workspaceId: string,
+  ) {}
+
+  /** Companies belonging to this workspace — used to scope screenings (a
+   * child of companies with no workspace_id column of its own). */
+  private workspaceCompanyIds() {
+    return this.db.select({ id: companies.id }).from(companies).where(eq(companies.workspace_id, this.workspaceId));
+  }
 
   async findAllWithRelations(opts: {
     companyId?: string;
     onlyL0?: boolean;
   } = {}): Promise<ScreeningWithRelations[]> {
-    const whereExpr = opts.companyId ? eq(screenings.company_id, opts.companyId) : undefined;
+    const workspaceCond = eq(companies.workspace_id, this.workspaceId);
+    const whereExpr = opts.companyId
+      ? and(eq(screenings.company_id, opts.companyId), workspaceCond)
+      : workspaceCond;
 
     const rows = await this.db
       .select({
@@ -53,7 +65,7 @@ export class ScreeningRepository {
         track_title: investmentThesis.title,
       })
       .from(screenings)
-      .leftJoin(companies, eq(companies.id, screenings.company_id))
+      .innerJoin(companies, eq(companies.id, screenings.company_id))
       .leftJoin(criterias, eq(criterias.id, screenings.criteria_id))
       .leftJoin(investmentThesis, eq(investmentThesis.id, screenings.track_id))
       .where(whereExpr)
@@ -104,7 +116,7 @@ export class ScreeningRepository {
     const [row] = await this.db
       .update(screenings)
       .set(updates)
-      .where(eq(screenings.id, id))
+      .where(and(eq(screenings.id, id), inArray(screenings.company_id, this.workspaceCompanyIds())))
       .returning();
     if (!row) throw new Error(`Screening ${id} not found`);
     return row;
@@ -127,7 +139,13 @@ export class ScreeningRepository {
         result: 'error',
         remarks,
       } as TablesUpdate<'screenings'>)
-      .where(and(eq(screenings.id, id), eq(screenings.state, 'pending')))
+      .where(
+        and(
+          eq(screenings.id, id),
+          eq(screenings.state, 'pending'),
+          inArray(screenings.company_id, this.workspaceCompanyIds()),
+        ),
+      )
       .returning();
     return row ?? null;
   }
@@ -158,6 +176,7 @@ export class ScreeningRepository {
                 ? isNull(screenings.track_id)
                 : eq(screenings.track_id, trackId),
               eq(screenings.criteria_id, criteriaId),
+              inArray(screenings.company_id, this.workspaceCompanyIds()),
             ),
           )
           .limit(1);

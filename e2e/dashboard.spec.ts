@@ -647,7 +647,13 @@ test.describe('Dashboard page', () => {
     ];
 
     for (const [name, href] of navLinks) {
-      await expect(page.getByRole('link', { name })).toHaveAttribute('href', href);
+      // Nav links are workspace-scoped (/w/<slug>/...) since MB-337 — match
+      // the suffix rather than a hardcoded slug so this stays portable across
+      // whichever workspace the signed-in test user belongs to.
+      await expect(page.getByRole('link', { name })).toHaveAttribute(
+        'href',
+        new RegExp(`^/w/[^/]+${href.replace(/\//g, '\\/')}$`),
+      );
     }
   });
 
@@ -691,7 +697,8 @@ test.describe('Dashboard page', () => {
     // L1 has activity in the fixture (2 promoted moves) — it carries a pipeline link.
     const l1Link = page.getByTestId('dashboard-stage-l1-link');
     await expect(l1Link).toBeVisible();
-    await expect(l1Link).toHaveAttribute('href', '/pipeline?stage=L1');
+    // Workspace-scoped (/w/<slug>/...) since MB-337 — see the sidebar-links test above.
+    await expect(l1Link).toHaveAttribute('href', /^\/w\/[^/]+\/pipeline\?stage=L1$/);
   });
 
   test('User clicks a company in the activity feed', async ({ page }) => {

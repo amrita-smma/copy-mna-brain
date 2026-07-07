@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { getActiveWorkspaceId } from '@/lib/workspace';
 import { auth } from '@/auth';
 import { createDb } from '@/lib/server/db';
 import { AiWorkforceQueueRepository } from '@/lib/repositories';
@@ -84,7 +85,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
   try {
     const db = createDb();
-    const repo = new AiWorkforceQueueRepository(db);
+    const repo = new AiWorkforceQueueRepository(db, await getActiveWorkspaceId());
     await repo.setPriorities(parsed.order);
     return NextResponse.json({ ok: true, updated: parsed.order.length });
   } catch (error: unknown) {

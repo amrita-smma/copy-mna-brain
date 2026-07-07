@@ -1,11 +1,14 @@
-import { asc, eq } from 'drizzle-orm';
-import { companyLogs } from '@/lib/db/schema';
+import { and, asc, eq } from 'drizzle-orm';
+import { companies, companyLogs } from '@/lib/db/schema';
 import type { DbClient, Tables, TablesInsert } from './types';
 
 type CompanyLogSummary = Pick<Tables<'company_logs'>, 'id' | 'action' | 'created_at'>;
 
 export class CompanyLogRepository {
-  constructor(private readonly db: DbClient) {}
+  constructor(
+    private readonly db: DbClient,
+    private readonly workspaceId: string,
+  ) {}
 
   async findByCompanyId(companyId: string): Promise<CompanyLogSummary[]> {
     return this.db
@@ -15,7 +18,8 @@ export class CompanyLogRepository {
         created_at: companyLogs.created_at,
       })
       .from(companyLogs)
-      .where(eq(companyLogs.company_id, companyId))
+      .innerJoin(companies, eq(companies.id, companyLogs.company_id))
+      .where(and(eq(companyLogs.company_id, companyId), eq(companies.workspace_id, this.workspaceId)))
       .orderBy(asc(companyLogs.created_at));
   }
 

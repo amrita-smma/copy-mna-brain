@@ -1,4 +1,5 @@
 import { tool } from "@langchain/core/tools";
+import { getActiveWorkspaceId } from '@/lib/workspace';
 import { z } from "zod";
 import { logger } from "../../logger";
 import { createDb } from "@/lib/server/db";
@@ -95,7 +96,7 @@ export const getTaskProgress = tool(
     );
 
     try {
-      const repo = new AiWorkforceQueueRepository(createDb());
+      const repo = new AiWorkforceQueueRepository(createDb(), await getActiveWorkspaceId());
       const rows = await repo.listFiltered({
         status: resolveStatusFilter(status),
         agentName: agent_name?.trim() || undefined,

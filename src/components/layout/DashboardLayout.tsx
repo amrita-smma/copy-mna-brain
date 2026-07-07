@@ -1,8 +1,9 @@
 'use client';
 
 import { ReactNode, useEffect, useState } from 'react';
-import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useParams, useRouter } from 'next/navigation';
+import { WorkspaceLink } from '@/components/WorkspaceLink';
+import { useWorkspaceHref } from '@/hooks/useWorkspaceHref';
 import {
   Sidebar,
   SidebarContent,
@@ -30,7 +31,20 @@ import {
   Minimize2,
   Network,
   Presentation,
+  ArrowLeft,
+  ChevronsUpDown,
+  Check,
 } from 'lucide-react';
+import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
+import {
+  Command,
+  CommandInput,
+  CommandList,
+  CommandEmpty,
+  CommandGroup,
+  CommandItem,
+} from '@/components/ui/command';
+import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { ProtectedRoute } from '@/components/auth/ProtectedRoute';
 import { useAuth } from '@/hooks/useAuth';
@@ -71,9 +85,13 @@ export default function DashboardLayout({ children, showCompanyGraph = false }: 
   const [isCopilotExpanded, setIsCopilotExpanded] = useLocalStorage('layout:copilot-expanded', false);
   const [copilotWidth, setCopilotWidth] = useLocalStorage('layout:copilot-width', COPILOT_DEFAULT_WIDTH);
 
-  const isOnAiWorkforce = pathname.startsWith('/ai-workforce');
+  // Every route this layout wraps lives under /w/<slug>/... — strip that
+  // prefix once so route-matching below (`isActive`, `isChatRoute`, etc.)
+  // compares against the same bare paths `baseNavigation` uses.
+  const logicalPath = pathname.replace(/^\/w\/[^/]+/, '') || '/';
+  const isOnAiWorkforce = logicalPath.startsWith('/ai-workforce');
   const showCopilotPane = !isOnAiWorkforce;
-  const isChatRoute = pathname.startsWith('/chat');
+  const isChatRoute = logicalPath.startsWith('/chat');
 
   // On desktop, landing on the dedicated /chat route opens the copilot in its
   // expanded (full-screen) view. We react only to entering the route, so a
@@ -128,16 +146,18 @@ export default function DashboardLayout({ children, showCompanyGraph = false }: 
           <Sidebar collapsible="icon" className="border-r border-sidebar-border bg-white/70 dark:bg-[hsl(220,20%,8%)]/70 backdrop-blur-xl">
             <SidebarHeader className="border-b border-sidebar-border p-2 group-data-[state=expanded]:p-4">
               <div className="flex items-center justify-between group-data-[state=collapsed]:flex-col group-data-[state=collapsed]:gap-2">
-                <Link href="/dashboard" className="flex items-center gap-3 group">
-                  <div className="relative flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-purple-500 via-violet-500 to-indigo-600 shadow-lg shadow-purple-500/25 transition-all duration-300 group-hover:shadow-purple-500/40 group-hover:scale-105 shrink-0">
-                    <Brain className="h-5 w-5 text-white" />
-                    <div className="absolute inset-0 rounded-xl bg-white/10 opacity-0 group-hover:opacity-100 transition-opacity" />
-                  </div>
+                <div className="flex items-center gap-3">
+                  <WorkspaceLink href="/dashboard" aria-label="Go to dashboard" className="group shrink-0">
+                    <div className="relative flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-purple-500 via-violet-500 to-indigo-600 shadow-lg shadow-purple-500/25 transition-all duration-300 group-hover:shadow-purple-500/40 group-hover:scale-105">
+                      <Brain className="h-5 w-5 text-white" />
+                      <div className="absolute inset-0 rounded-xl bg-white/10 opacity-0 group-hover:opacity-100 transition-opacity" />
+                    </div>
+                  </WorkspaceLink>
                   <div className="flex flex-col group-data-[state=collapsed]:hidden">
                     <span className="text-sm font-bold bg-gradient-to-r from-purple-400 via-violet-400 to-indigo-400 bg-clip-text text-transparent">Brain 2.0</span>
-                    <span className="text-xs text-sidebar-foreground/50 font-medium">M&A Intelligence</span>
+                    <WorkspaceSwitcher />
                   </div>
-                </Link>
+                </div>
                 <SidebarTrigger className="h-8 w-8 shrink-0" />
               </div>
             </SidebarHeader>
@@ -148,8 +168,8 @@ export default function DashboardLayout({ children, showCompanyGraph = false }: 
                 <SidebarGroupContent>
                   <SidebarMenu>
                     {filteredNavigation.map((item) => {
-                      const isActive = pathname === item.href ||
-                        (item.href !== '/dashboard' && item.href !== '#' && pathname.startsWith(item.href));
+                      const isActive = logicalPath === item.href ||
+                        (item.href !== '/dashboard' && item.href !== '#' && logicalPath.startsWith(item.href));
                       const isColored = item.color !== 'default';
                       const isTeal = item.color === 'teal';
                       const isIndigo = item.color === 'indigo';
@@ -188,7 +208,7 @@ export default function DashboardLayout({ children, showCompanyGraph = false }: 
                                 <span>{item.name}</span>
                               </div>
                             ) : (
-                              <Link href={item.href} onClick={() => setIsCopilotExpanded(false)}>
+                              <WorkspaceLink href={item.href} onClick={() => setIsCopilotExpanded(false)}>
                                 <item.icon className={cn(
                                   'h-4 w-4',
                                   isTeal && 'text-teal-400',
@@ -197,7 +217,7 @@ export default function DashboardLayout({ children, showCompanyGraph = false }: 
                                   isCyan && 'text-cyan-400'
                                 )} />
                                 <span>{item.name}</span>
-                              </Link>
+                              </WorkspaceLink>
                             )}
                           </SidebarMenuButton>
                         </SidebarMenuItem>
@@ -212,6 +232,10 @@ export default function DashboardLayout({ children, showCompanyGraph = false }: 
 
             <SidebarFooter className="border-t border-sidebar-border p-2 group-data-[state=expanded]:p-4">
               <div className="flex flex-col gap-4">
+                {/* Admin Portal is intentionally NOT linked from inside a
+                    workspace. It is only reachable from the /workspace picker
+                    (the root level), so superadmins enter it before selecting a
+                    workspace rather than from within one. */}
                 {/* User info - hidden when collapsed */}
                 <div className="flex items-center justify-between group-data-[state=collapsed]:hidden">
                   {user && (
@@ -342,6 +366,149 @@ export default function DashboardLayout({ children, showCompanyGraph = false }: 
         </div>
       </SidebarProvider>
     </ProtectedRoute>
+  );
+}
+
+interface Membership {
+  workspaceId: string;
+  workspaceName: string;
+  workspaceSlug: string;
+}
+
+function initialsFor(name: string) {
+  return name
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((word) => word[0]!.toUpperCase())
+    .join('') || '?';
+}
+
+/**
+ * Sidebar brand subtitle: the current workspace name, clickable to switch
+ * when the user belongs to more than one. Lives under the "Brain 2.0" title
+ * in the sidebar header, matching the original workspace-picker placement.
+ *
+ * The current value comes from the URL's own `workspaceSlug` param, not the
+ * session's globally-active `workspaceId` — two tabs on two different
+ * workspaces must each show their own selection, not a shared one. Switching
+ * hard-navigates to the same page under the new slug (not `router.push`,
+ * matching this file's existing hard-reload convention) so every
+ * client-fetched view remounts scoped to the new workspace; `switchWorkspace`
+ * is still called first to keep the session cookie in sync for any
+ * not-yet-migrated flat-route reads.
+ */
+function WorkspaceSwitcher() {
+  const pathname = usePathname();
+  const router = useRouter();
+  const params = useParams<{ workspaceSlug?: string }>();
+  const { switchWorkspace } = useAuth();
+  const [memberships, setMemberships] = useState<Membership[] | null>(null);
+  const [open, setOpen] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch('/api/workspaces');
+        if (!res.ok) return;
+        const { data } = await res.json();
+        if (!cancelled) setMemberships(data ?? []);
+      } catch {
+        if (!cancelled) setMemberships([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const currentSlug = params.workspaceSlug;
+  const current = memberships?.find((m) => m.workspaceSlug === currentSlug) ?? memberships?.[0];
+
+  // Loading, or a single-membership user — nothing to switch to, so render
+  // the name (if known yet) as inert text instead of the dropdown trigger.
+  if (!memberships || memberships.length <= 1) {
+    return (
+      <span className="max-w-[150px] truncate text-xs font-medium text-sidebar-foreground/50">
+        {current?.workspaceName ?? ' '}
+      </span>
+    );
+  }
+
+  const handleSelect = async (slug: string) => {
+    setOpen(false);
+    if (slug === currentSlug) return;
+    const target = memberships.find((m) => m.workspaceSlug === slug);
+    if (!target) return;
+    try {
+      await switchWorkspace(target.workspaceId);
+      window.location.assign(pathname.replace(/^\/w\/[^/]+/, `/w/${slug}`));
+    } catch {
+      // Popover is already closed and switchWorkspace's session update never
+      // landed — without this the user is left on the old workspace with no
+      // sign anything went wrong.
+      toast.error('Could not switch workspace — please try again');
+    }
+  };
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          aria-label="Switch workspace"
+          className="flex max-w-[150px] items-center gap-1 rounded text-xs font-medium text-sidebar-foreground/50 transition-colors hover:text-sidebar-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring"
+        >
+          <span className="truncate">{current?.workspaceName}</span>
+          <ChevronsUpDown className="h-3 w-3 shrink-0 text-sidebar-foreground/40" />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent align="start" className="w-64 p-0">
+        <Command>
+          <CommandInput placeholder="Search workspaces…" />
+          <CommandList>
+            <CommandEmpty>No workspaces found.</CommandEmpty>
+            <CommandGroup>
+              {memberships.map((m) => (
+                <CommandItem
+                  key={m.workspaceId}
+                  value={m.workspaceName}
+                  onSelect={() => handleSelect(m.workspaceSlug)}
+                  className="gap-2"
+                >
+                  <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-gradient-to-br from-violet-500 to-purple-600 text-[10px] font-bold text-white">
+                    {initialsFor(m.workspaceName)}
+                  </span>
+                  <span className="min-w-0 flex-1 truncate text-sm font-medium">
+                    {m.workspaceName}
+                  </span>
+                  <Check
+                    className={cn(
+                      'h-4 w-4 shrink-0',
+                      m.workspaceSlug === current?.workspaceSlug ? 'opacity-100' : 'opacity-0',
+                    )}
+                  />
+                </CommandItem>
+              ))}
+            </CommandGroup>
+          </CommandList>
+        </Command>
+        <div className="border-t p-1">
+          <button
+            type="button"
+            onClick={() => {
+              setOpen(false);
+              router.push('/workspace');
+            }}
+            className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground focus:outline-none"
+          >
+            <ArrowLeft className="h-4 w-4 shrink-0" />
+            Back to Workspaces
+          </button>
+        </div>
+      </PopoverContent>
+    </Popover>
   );
 }
 

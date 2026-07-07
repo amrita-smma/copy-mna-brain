@@ -1,9 +1,9 @@
 'use client';
 
-import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { Activity, MessageSquare, Search, type LucideIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { WorkspaceLink } from '@/components/WorkspaceLink';
 
 interface MobileNavItem {
   name: string;
@@ -39,6 +39,9 @@ const navItems: MobileNavItem[] = [
 
 export function MobileBottomNav({ className }: { className?: string }) {
   const pathname = usePathname();
+  // Every route this nav appears on lives under /w/<slug>/... — strip that
+  // prefix so `isActive` compares against the same bare paths `navItems` uses.
+  const logicalPath = pathname.replace(/^\/w\/[^/]+/, '') || '/';
 
   return (
     <nav
@@ -48,9 +51,9 @@ export function MobileBottomNav({ className }: { className?: string }) {
       )}
     >
       {navItems.map((item) => {
-        const active = item.isActive(pathname);
+        const active = item.isActive(logicalPath);
         return (
-          <Link
+          <WorkspaceLink
             key={item.name}
             href={item.href}
             aria-label={item.name}
@@ -64,7 +67,7 @@ export function MobileBottomNav({ className }: { className?: string }) {
           >
             <item.icon className={cn('h-5 w-5', active && 'scale-110')} />
             <span>{item.name}</span>
-          </Link>
+          </WorkspaceLink>
         );
       })}
     </nav>

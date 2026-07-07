@@ -339,9 +339,9 @@ export function toCompanyDTO(
 export type CompanyDTOInput = Partial<CompanyDTO>;
 
 type CompanyWrite = Partial<TablesInsert<'companies'>>;
-type FinancialWrite = Omit<TablesInsert<'company_financials'>, 'company_id' | 'id'>;
-type FxWrite = Omit<TablesInsert<'company_fx_adjustments'>, 'company_id'>;
-type ScreeningWrite = Partial<Omit<TablesInsert<'company_screening_derived'>, 'company_id'>>;
+type FinancialWrite = Omit<TablesInsert<'company_financials'>, 'company_id' | 'id' | 'workspace_id'>;
+type FxWrite = Omit<TablesInsert<'company_fx_adjustments'>, 'company_id' | 'workspace_id'>;
+type ScreeningWrite = Partial<Omit<TablesInsert<'company_screening_derived'>, 'company_id' | 'workspace_id'>>;
 
 function yesNoToBool(s: string | null | undefined): boolean | null {
   if (s == null) return null;

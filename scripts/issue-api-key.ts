@@ -25,13 +25,14 @@ async function main() {
 
   const { createDb } = await import('../src/lib/server/db');
   const { createContainer } = await import('../src/lib/services');
+  const { getActiveWorkspaceId } = await import('../src/lib/workspace');
 
   const scopes = scopesArg
     ? scopesArg.split(',').map((s) => s.trim()).filter(Boolean)
     : undefined;
 
   const db = createDb();
-  const { apiKeyService } = createContainer(db);
+  const { apiKeyService } = createContainer(db, await getActiveWorkspaceId());
 
   const { token, key } = await apiKeyService.issue({ name, scopes });
 

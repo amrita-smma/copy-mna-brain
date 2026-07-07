@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { auth } from '@/auth';
 import { createDb } from '@/lib/server/db';
+import { getActiveWorkspaceId } from '@/lib/workspace';
 import { createContainer } from '@/lib/services';
 
 export async function GET() {
@@ -9,7 +10,7 @@ export async function GET() {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
   const db = createDb();
-  const { copilotChatsService } = createContainer(db);
+  const { copilotChatsService } = createContainer(db, await getActiveWorkspaceId());
   const chats = await copilotChatsService.list(session.user.id);
   return NextResponse.json({ chats });
 }
@@ -20,7 +21,7 @@ export async function POST() {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
   const db = createDb();
-  const { copilotChatsService } = createContainer(db);
+  const { copilotChatsService } = createContainer(db, await getActiveWorkspaceId());
   const chat = await copilotChatsService.create(session.user.id);
   return NextResponse.json({ chat }, { status: 201 });
 }

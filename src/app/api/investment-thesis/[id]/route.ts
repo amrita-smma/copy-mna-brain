@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createDb } from '@/lib/server/db';
+import { getActiveWorkspaceId } from '@/lib/workspace';
 import { createContainer } from '@/lib/services';
 
 export async function DELETE(
@@ -9,7 +10,7 @@ export async function DELETE(
   try {
     const { id } = await params;
     const db = createDb();
-    const { investmentThesisService } = createContainer(db);
+    const { investmentThesisService } = createContainer(db, await getActiveWorkspaceId());
     await investmentThesisService.remove(id);
     return NextResponse.json({ data: { id } });
   } catch (error: unknown) {

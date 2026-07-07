@@ -6,6 +6,7 @@ import {
 import { CompanyRepository, InvestmentThesisRepository } from '@/lib/repositories';
 import type { DbClient } from '@/lib/repositories';
 import { suggestTrackIds, type TrackLike } from '@/lib/tracks/matchTracks';
+import { getActiveWorkspaceId } from '@/lib/workspace';
 
 export const TRACK_MATCHING_TIMEOUT_SECONDS = 120;
 
@@ -93,10 +94,11 @@ ${tracksBlock || '(none)'}
  */
 export async function runTrackMatching(
   payload: TrackMatchingPayload,
-  deps: { db: DbClient },
+  deps: { db: DbClient; workspaceId?: string | null },
 ): Promise<TrackMatchingResult> {
-  const companyRepo = new CompanyRepository(deps.db);
-  const thesisRepo = new InvestmentThesisRepository(deps.db);
+  const workspaceId = deps.workspaceId ?? (await getActiveWorkspaceId());
+  const companyRepo = new CompanyRepository(deps.db, workspaceId);
+  const thesisRepo = new InvestmentThesisRepository(deps.db, workspaceId);
 
   const company = await companyRepo.findById(payload.companyId);
   const tracks = await thesisRepo.findAll();

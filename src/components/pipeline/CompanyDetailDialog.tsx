@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
+import { useWorkspaceHref } from "@/hooks/useWorkspaceHref";
 import { useEventStream } from "@/hooks/useEventStream";
 import {
   Dialog,
@@ -61,7 +62,7 @@ import CompanyOverviewSlide, {
 } from "@/components/pipeline/CompanyOverviewSlide";
 import FilePreview from "@/components/Files/FilePreview";
 import { DealStage } from "@/lib/types";
-import { STAGE_LABELS, isAnalysisInProgress } from "@/lib/constants";
+import { STAGE_LABELS, isAnalysisInProgress, type AnalysisJobStatus } from "@/lib/constants";
 import { formatDistanceToNow, format } from "date-fns";
 import {
   addCompanyLink,
@@ -77,6 +78,7 @@ import {
   type Track,
   type UserSummary,
 } from "@/lib/api/pipeline";
+import { apiRequest } from "@/lib/api/client";
 import {
   Select,
   SelectContent,
@@ -370,7 +372,7 @@ function OverallStatusBadge({ status }: { status: OverallScreeningStatus }) {
 interface CompanyAnalysis {
   id?: string;
   company_id: string;
-  status: string;
+  status: AnalysisJobStatus;
   business_overview: string | null;
   business_model_summary: string | null;
   key_takeaways: string | null;
@@ -428,6 +430,8 @@ export default function CompanyDetailDialog({
   initialEditing = false,
 }: CompanyDetailDialogProps) {
   const router = useRouter();
+  const pipelineHref = useWorkspaceHref("/pipeline");
+  const aiFileDumpHref = useWorkspaceHref("/ai-file-dump");
   const { analyzeWithAI } = useChatContext();
   const { focusCopilot } = useLayoutControl();
   const [company, setCompany] = useState<CompanyData>(companyProp);
@@ -699,23 +703,20 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
     const interval = setInterval(async () => {
       attempts++;
       try {
-        const res = await fetch(
+        const data = await apiRequest<CompanyAnalysis>(
           `/api/company-analysis?companyId=${company.id}`,
         );
-        if (res.ok) {
-          const data = (await res.json()) as CompanyAnalysis;
-          const next = data?.[req.sectionKey];
-          if (
-            data &&
-            typeof next === "string" &&
-            next.trim() !== previousContent.trim()
-          ) {
-            setAnalysis(data);
-            setEditingSectionKey(null);
-            stopSectionEditPoll();
-            toast.success(`Updated "${req.sectionTitle}"`);
-            return;
-          }
+        const next = data?.[req.sectionKey];
+        if (
+          data &&
+          typeof next === "string" &&
+          next.trim() !== previousContent.trim()
+        ) {
+          setAnalysis(data);
+          setEditingSectionKey(null);
+          stopSectionEditPoll();
+          toast.success(`Updated "${req.sectionTitle}"`);
+          return;
         }
       } catch {
         // transient — keep polling until the cap
@@ -837,22 +838,24 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
 
   const fetchAnalysis = async () => {
     try {
-      const res = await fetch(`/api/company-analysis?companyId=${company.id}`);
-      if (res.ok) {
-        const data = await res.json();
-        if (data && data.status) {
-          setAnalysis(data);
-          if (isAnalysisInProgress(data.status)) {
-            setAnalysisGenerating(true);
-            pollAnalysis();
-          }
-          return;
+      const data = await apiRequest<CompanyAnalysis | null>(
+        `/api/company-analysis?companyId=${company.id}`,
+      );
+      if (data && data.status) {
+        setAnalysis(data);
+        if (isAnalysisInProgress(data.status)) {
+          setAnalysisGenerating(true);
+          pollAnalysis();
         }
+        return;
       }
       // No analysis exists yet → leave it empty. Generation is triggered
       // manually via the "Generate AI Company Card" button.
     } catch (error) {
-      console.error("Error fetching analysis:", error);
+      // A 404 just means no analysis has been generated yet — not an error.
+      if ((error as Error).message !== "No analysis found for this company") {
+        console.error("Error fetching analysis:", error);
+      }
     }
   };
 
@@ -860,16 +863,13 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
     stopAnalysisPoll();
     const interval = setInterval(async () => {
       try {
-        const res = await fetch(
+        const data = await apiRequest<CompanyAnalysis>(
           `/api/company-analysis?companyId=${company.id}`,
         );
-        if (res.ok) {
-          const data = await res.json();
-          setAnalysis(data);
-          if (!isAnalysisInProgress(data.status)) {
-            setAnalysisGenerating(false);
-            stopAnalysisPoll();
-          }
+        setAnalysis(data);
+        if (!isAnalysisInProgress(data.status)) {
+          setAnalysisGenerating(false);
+          stopAnalysisPoll();
         }
       } catch {
         stopAnalysisPoll();
@@ -889,19 +889,15 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
     setAnalysisGenerating(true);
     let dispatched = false;
     try {
-      const res = await fetch("/api/company-analysis", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ companyId: company.id }),
-      });
+      const data = await apiRequest<CompanyAnalysis & { runId?: string }>(
+        "/api/company-analysis",
+        {
+          method: "POST",
+          body: JSON.stringify({ companyId: company.id }),
+        },
+      );
 
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.error || "Failed to generate analysis");
-      }
-
-      const data = await res.json();
-      if (res.status === 202 || data.jobId) {
+      if (data.runId) {
         dispatched = true;
         pollAnalysis();
         return;
@@ -921,7 +917,7 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
 
   const regenerateAnalysis = async () => {
     try {
-      await fetch(`/api/company-analysis?companyId=${company.id}`, {
+      await apiRequest(`/api/company-analysis?companyId=${company.id}`, {
         method: "DELETE",
       });
       setAnalysis(null);
@@ -943,15 +939,10 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
   const cancelAnalysis = async () => {
     setAnalysisCancelling(true);
     try {
-      const res = await fetch("/api/company-analysis/cancel", {
+      await apiRequest("/api/company-analysis/cancel", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ companyId: company.id }),
       });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err.error || "Failed to cancel generation");
-      }
       stopAnalysisPoll();
       setAnalysis(null);
       setAnalysisGenerating(false);
@@ -1010,35 +1001,18 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
     try {
       const contentType = file.type || "application/octet-stream";
 
-      let uploadUrlRes: Response;
+      let uploadUrlData: { uploadUrl: string; key: string };
       try {
-        uploadUrlRes = await fetch(
+        uploadUrlData = await apiRequest(
           `/api/deal-documents/upload-url?dealId=${encodeURIComponent(company.id)}&fileName=${encodeURIComponent(file.name)}&contentType=${encodeURIComponent(contentType)}`,
         );
-      } catch (netErr) {
+      } catch (apiErr: any) {
         throw new Error(
-          "Could not reach server. Check your connection and that the app is running.",
+          apiErr?.message ||
+            "Could not reach server. Check your connection and that the app is running.",
         );
       }
-      const uploadUrlText = await uploadUrlRes.text();
-      let uploadUrlData: {
-        success?: boolean;
-        error?: string;
-        data?: { uploadUrl: string; key: string };
-      };
-      try {
-        uploadUrlData = JSON.parse(uploadUrlText);
-      } catch {
-        throw new Error(
-          uploadUrlRes.ok
-            ? "Invalid server response"
-            : `Get upload URL failed: ${uploadUrlRes.status}`,
-        );
-      }
-      if (!uploadUrlData.success || !uploadUrlData.data) {
-        throw new Error(uploadUrlData.error || "Failed to get upload URL");
-      }
-      const { uploadUrl, key } = uploadUrlData.data;
+      const { uploadUrl, key } = uploadUrlData;
 
       let s3Res: Response;
       try {
@@ -1054,11 +1028,9 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
       }
       if (!s3Res.ok) throw new Error("Failed to upload file to storage");
 
-      let registerRes: Response;
       try {
-        registerRes = await fetch("/api/deal-documents", {
+        await apiRequest("/api/deal-documents", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             dealId: company.id,
             key,
@@ -1068,22 +1040,10 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
             stage: company.pipeline_stage || "L0",
           }),
         });
-      } catch (netErr) {
-        throw new Error("Could not register document. Check your connection.");
-      }
-      const registerText = await registerRes.text();
-      let registerData: { success?: boolean; error?: string };
-      try {
-        registerData = registerText ? JSON.parse(registerText) : {};
-      } catch {
+      } catch (apiErr: any) {
         throw new Error(
-          registerRes.ok
-            ? "Invalid server response"
-            : `Register failed: ${registerRes.status}`,
+          apiErr?.message || "Could not register document. Check your connection.",
         );
-      }
-      if (!registerData.success) {
-        throw new Error(registerData.error || "Failed to register document");
       }
 
       fetchDetails();
@@ -1119,16 +1079,9 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
 
   const deleteDocument = async (doc: DealDocument) => {
     try {
-      const res = await fetch(
-        `/api/deal-documents?id=${encodeURIComponent(doc.id)}`,
-        {
-          method: "DELETE",
-        },
-      );
-      const data = await res.json();
-      if (!res.ok || !data.success) {
-        throw new Error(data.error || "Failed to delete document");
-      }
+      await apiRequest(`/api/deal-documents?id=${encodeURIComponent(doc.id)}`, {
+        method: "DELETE",
+      });
       fetchDetails();
       toast.success("Document deleted");
     } catch (error) {
@@ -1138,13 +1091,9 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
 
   const downloadDocument = async (doc: DealDocument) => {
     try {
-      const res = await fetch(
+      const data = await apiRequest<{ url: string }>(
         `/api/deal-documents/download-url?id=${encodeURIComponent(doc.id)}`,
       );
-      const data = await res.json();
-      if (!res.ok || !data.success) {
-        throw new Error(data.error || "Failed to get download URL");
-      }
       const url = data.url;
       const a = document.createElement("a");
       a.href = url;
@@ -1162,13 +1111,9 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
     setLoadingPreview(true);
     setPreviewUrl(null);
     try {
-      const res = await fetch(
+      const data = await apiRequest<{ url: string }>(
         `/api/deal-documents/download-url?id=${encodeURIComponent(doc.id)}&preview=true`,
       );
-      const data = await res.json();
-      if (!res.ok || !data.success) {
-        throw new Error(data.error || "Failed to get preview URL");
-      }
       setPreviewUrl(data.url);
     } catch (error) {
       toast.error((error as Error)?.message || "Failed to load preview");
@@ -1186,13 +1131,9 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
 
   const downloadMatchedFile = async (file: MatchedFile) => {
     try {
-      const res = await fetch(
+      const data = await apiRequest<{ url: string }>(
         `/api/ai-file-dump/${encodeURIComponent(file.id)}/download-url`,
       );
-      const data = await res.json();
-      if (!res.ok || !data.success) {
-        throw new Error(data.error || "Failed to get download URL");
-      }
       const a = document.createElement("a");
       a.href = data.url;
       a.download = file.file_name;
@@ -1210,13 +1151,9 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
     setLoadingPreview(true);
     setPreviewUrl(null);
     try {
-      const res = await fetch(
+      const data = await apiRequest<{ url: string }>(
         `/api/ai-file-dump/${encodeURIComponent(file.id)}/download-url`,
       );
-      const data = await res.json();
-      if (!res.ok || !data.success) {
-        throw new Error(data.error || "Failed to get preview URL");
-      }
       setPreviewUrl(data.url);
     } catch (error) {
       toast.error((error as Error)?.message || "Failed to load preview");
@@ -1294,7 +1231,7 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
                       className="gap-1.5 h-7 text-xs"
                       onClick={() => {
                         onOpenChange(false);
-                        router.push(`/pipeline/${company.id}/slides`);
+                        router.push(`${pipelineHref}/${company.id}/slides`);
                       }}
                     >
                       <Presentation className="h-3.5 w-3.5" />
@@ -1355,7 +1292,7 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
             <button
               onClick={() => {
                 onOpenChange(false);
-                router.push(`/pipeline/${company.id}`);
+                router.push(`${pipelineHref}/${company.id}`);
               }}
               className="absolute right-10 top-4 rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
               title="Open full page"
@@ -2392,7 +2329,7 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
                                 size="icon"
                                 onClick={() =>
                                   router.push(
-                                    `/ai-file-dump?highlight=${encodeURIComponent(file.id)}`,
+                                    `${aiFileDumpHref}?highlight=${encodeURIComponent(file.id)}`,
                                   )
                                 }
                                 title="Open in AI File Dump"

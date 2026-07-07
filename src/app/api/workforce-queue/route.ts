@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/auth';
 import { CompanyRepository, UserRepository } from '@/lib/repositories';
 import { createDb } from '@/lib/server/db';
+import { getActiveWorkspaceId } from '@/lib/workspace';
 import { createContainer } from '@/lib/services';
 
 interface HandoffBody {
@@ -23,10 +24,16 @@ export async function GET(req: NextRequest) {
   }
   try {
     const db = createDb();
-    const { aiWorkforceService } = createContainer(db);
+    const workspaceId = await getActiveWorkspaceId();
+    const { aiWorkforceService } = createContainer(db, workspaceId);
     const toolCallId = req.nextUrl.searchParams.get('tool_call_id');
     if (toolCallId) {
       const item = await aiWorkforceService.findByToolCallId(toolCallId);
+      // findByToolCallId is unscoped (shared with system-internal callers) —
+      // enforce workspace ownership here, at the user-facing edge.
+      if (item && item.workspace_id !== workspaceId) {
+        return NextResponse.json({ item: null });
+      }
       return NextResponse.json({ item });
     }
     const items = await aiWorkforceService.listQueue();
@@ -47,11 +54,22 @@ export async function GET(req: NextRequest) {
       const users = await userRepo.findByIds(userIds);
       for (const u of users) userMap.set(u.id, u.name);
     }
+    // Global (cross-workspace) queue position — the shared single-worker
+    // queue (RFC: "1 Worker model for all applications") means this
+    // workspace's own pending items can each be blocked by other
+    // workspaces' higher-priority or earlier rows, invisibly to a
+    // workspace-local count.
+    const queuedIds = items
+      .filter((it) => it.status === 'pending' || it.status === 'resume_ready')
+      .map((it) => it.id);
+    const positions = await aiWorkforceService.getGlobalQueuePositions(queuedIds);
     const enriched = items.map((it) => ({
       ...it,
       triggered_by_user_name: it.triggered_by_user_id
         ? userMap.get(it.triggered_by_user_id) ?? null
         : null,
+      ahead_globally: positions.get(it.id)?.aheadGlobally ?? null,
+      ahead_other_workspaces: positions.get(it.id)?.aheadOtherWorkspaces ?? null,
     }));
     return NextResponse.json({ items: enriched });
   } catch (error: unknown) {
@@ -88,7 +106,7 @@ export async function POST(req: NextRequest) {
     // direct curl/replay can't bypass it.
     const companyIds = Array.isArray(body.company_ids) ? body.company_ids : [];
     if (companyIds.length > 0) {
-      const droppedIds = await new CompanyRepository(db).findDroppedIds(
+      const droppedIds = await new CompanyRepository(db, await getActiveWorkspaceId()).findDroppedIds(
         companyIds,
       );
       if (droppedIds.length > 0) {
@@ -102,7 +120,7 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    const { aiWorkforceService } = createContainer(db);
+    const { aiWorkforceService } = createContainer(db, await getActiveWorkspaceId());
     const row = await aiWorkforceService.enqueueFromChat({
       agent_name: body.agent_name?.trim() || DEFAULT_AGENT,
       title,

@@ -1,12 +1,13 @@
 import { createDb } from '@/lib/server/db';
+import { getActiveWorkspaceId } from '@/lib/workspace';
 import { createContainer } from '@/lib/services/container';
-import { runVaultExport, VAULT_EXPORT_TIMEOUT_SECONDS, VAULT_CUSTODIAN_EMAILS } from '@/lib/jobs/handlers/vaultExport';
+import { runVaultExport, VAULT_EXPORT_TIMEOUT_SECONDS } from '@/lib/jobs/handlers/vaultExport';
 import { NextResponse } from 'next/server';
 
 export async function POST() {
   try {
     const db = createDb();
-    const { jobService } = createContainer(db);
+    const { jobService } = createContainer(db, await getActiveWorkspaceId());
 
     // Validate that the service account is configured before queuing
     if (!process.env.GOOGLE_VAULT_SERVICE_ACCOUNT) {
@@ -24,15 +25,11 @@ export async function POST() {
       createDb: createFreshDb,
       type: 'vault_export',
       payload: {
-        custodianEmails: VAULT_CUSTODIAN_EMAILS,
         daysBack: 5,
       },
       timeoutSeconds: VAULT_EXPORT_TIMEOUT_SECONDS,
       work: ({ job, db: jobDb }) =>
-        runVaultExport(
-          { custodianEmails: VAULT_CUSTODIAN_EMAILS, daysBack: 1 },
-          { db: jobDb, job },
-        ),
+        runVaultExport({ daysBack: 1 }, { db: jobDb, job }),
     });
 
     return NextResponse.json({ data: { jobId } }, { status: 202 });

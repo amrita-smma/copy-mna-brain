@@ -1,15 +1,22 @@
-import { and, eq, sql } from 'drizzle-orm';
-import { companyAnalyses } from '@/lib/db/schema';
+import { and, eq, inArray, sql } from 'drizzle-orm';
+import { companies, companyAnalyses } from '@/lib/db/schema';
 import type { DbClient, Tables, TablesInsert, TablesUpdate } from './types';
 
 export class CompanyAnalysisRepository {
-  constructor(private readonly db: DbClient) {}
+  constructor(
+    private readonly db: DbClient,
+    private readonly workspaceId: string,
+  ) {}
+
+  private workspaceCompanyIds() {
+    return this.db.select({ id: companies.id }).from(companies).where(eq(companies.workspace_id, this.workspaceId));
+  }
 
   async findByCompanyId(companyId: string): Promise<Tables<'company_analyses'> | null> {
     const [row] = await this.db
       .select()
       .from(companyAnalyses)
-      .where(eq(companyAnalyses.company_id, companyId))
+      .where(and(eq(companyAnalyses.company_id, companyId), inArray(companyAnalyses.company_id, this.workspaceCompanyIds())))
       .limit(1);
     return row ?? null;
   }
@@ -18,7 +25,13 @@ export class CompanyAnalysisRepository {
     const [row] = await this.db
       .select()
       .from(companyAnalyses)
-      .where(and(eq(companyAnalyses.company_id, companyId), eq(companyAnalyses.status, 'completed')))
+      .where(
+        and(
+          eq(companyAnalyses.company_id, companyId),
+          eq(companyAnalyses.status, 'completed'),
+          inArray(companyAnalyses.company_id, this.workspaceCompanyIds()),
+        ),
+      )
       .limit(1);
     return row ?? null;
   }
@@ -51,13 +64,15 @@ export class CompanyAnalysisRepository {
     const [row] = await this.db
       .update(companyAnalyses)
       .set(updates)
-      .where(eq(companyAnalyses.company_id, companyId))
+      .where(and(eq(companyAnalyses.company_id, companyId), inArray(companyAnalyses.company_id, this.workspaceCompanyIds())))
       .returning();
     if (!row) throw new Error(`Company analysis for ${companyId} not found`);
     return row;
   }
 
   async deleteByCompanyId(companyId: string): Promise<void> {
-    await this.db.delete(companyAnalyses).where(eq(companyAnalyses.company_id, companyId));
+    await this.db
+      .delete(companyAnalyses)
+      .where(and(eq(companyAnalyses.company_id, companyId), inArray(companyAnalyses.company_id, this.workspaceCompanyIds())));
   }
 }

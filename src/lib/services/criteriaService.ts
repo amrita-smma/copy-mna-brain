@@ -7,11 +7,11 @@ export class CriteriaService {
     return this.criteriaRepo.findAll(thesisId);
   }
 
-  create(name: string, prompt: string, investmentThesisId?: string | null) {
+  create(name: string, prompt: string, investmentThesisId: string) {
     return this.criteriaRepo.insert({
       name,
       prompt,
-      investment_thesis_id: investmentThesisId ?? null,
+      investment_thesis_id: investmentThesisId,
     });
   }
 

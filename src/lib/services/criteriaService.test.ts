@@ -48,13 +48,4 @@ describe('CriteriaService.create', () => {
       investment_thesis_id: 'thesis-1',
     });
   });
-
-  it('defaults investment_thesis_id to null when no Track is given', async () => {
-    await service.create('Global', 'Some prompt');
-    expect(repo.insert).toHaveBeenCalledWith({
-      name: 'Global',
-      prompt: 'Some prompt',
-      investment_thesis_id: null,
-    });
-  });
 });

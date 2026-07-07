@@ -31,7 +31,6 @@ type TableMap = {
   job_logs: typeof schema.jobLogs;
   reset_password_tokens: typeof schema.resetPasswordTokens;
   screenings: typeof schema.screenings;
-  user_company_favorites: typeof schema.userCompanyFavorites;
   recent_files: typeof schema.recentFiles;
   users: typeof schema.users;
   ai_workforce_queue: typeof schema.aiWorkforceQueue;
@@ -56,6 +55,9 @@ type TableMap = {
   employer_related_companies: typeof schema.employerRelatedCompanies;
   employer_related_company_evidence: typeof schema.employerRelatedCompanyEvidence;
   email_attachments: typeof schema.emailAttachments;
+  workspaces: typeof schema.workspaces;
+  roles: typeof schema.roles;
+  user_workspaces: typeof schema.userWorkspaces;
 };
 
 export type Tables<T extends keyof TableMap> = TableMap[T]["$inferSelect"];

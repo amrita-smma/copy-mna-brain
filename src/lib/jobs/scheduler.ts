@@ -1,4 +1,4 @@
-import { JobRepository, ScreeningRepository } from '@/lib/repositories';
+import { JobRepository } from '@/lib/repositories';
 import type { DbClient } from '@/lib/repositories';
 import { JobService } from '@/lib/services/jobService';
 import { runJob } from './runner';
@@ -61,8 +61,7 @@ async function execute(db: DbClient, options: SchedulerRunOptions): Promise<bool
   });
 
   await runJob(jobRepo, created.id, created.timeout_seconds * 1000, async () => {
-    const screeningRepo = new ScreeningRepository(db);
-    const service = new JobService(jobRepo, screeningRepo);
+    const service = new JobService(jobRepo, db);
     return service.cleanupStuckJobs();
   });
 

@@ -7,6 +7,7 @@
  * enforced by the system prompt — but tool definitions are kept under
  * ./tools so adding tools later is a one-line change.
  */
+import { getActiveWorkspaceId } from '@/lib/workspace';
 import Anthropic, { toFile } from "@anthropic-ai/sdk";
 import { ChatAnthropic } from "@langchain/anthropic";
 import { BaseMessage, HumanMessage } from "@langchain/core/messages";
@@ -45,7 +46,7 @@ type TrackRef = { id: string; title: string | null; content: string | null };
 async function getAllInvestmentTracks(): Promise<TrackRef[]> {
   try {
     const db = createDb();
-    const repo = new InvestmentThesisRepository(db);
+    const repo = new InvestmentThesisRepository(db, await getActiveWorkspaceId());
     const rows = await repo.findAll();
     return rows.map((r) => ({ id: r.id, title: r.title ?? null, content: r.content ?? null }));
   } catch {

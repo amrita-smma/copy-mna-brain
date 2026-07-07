@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse, after } from 'next/server';
 import { auth } from '@/auth';
 import { createDb } from '@/lib/server/db';
+import { getActiveWorkspaceId } from '@/lib/workspace';
 import { createContainer } from '@/lib/services';
 import { dispatcherTick } from '@/lib/workforce';
 
@@ -34,7 +35,7 @@ export async function POST(request: NextRequest) {
     }
 
     const db = createDb();
-    const { companyAnalysisService } = createContainer(db);
+    const { companyAnalysisService } = createContainer(db, await getActiveWorkspaceId());
     const result = await companyAnalysisService.cancelDispatch(
       companyId,
       session.user.id,

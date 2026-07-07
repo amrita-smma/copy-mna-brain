@@ -1,10 +1,12 @@
 import { NextRequest, NextResponse, after } from 'next/server';
+import { getActiveWorkspaceId } from '@/lib/workspace';
 import { auth } from '@/auth';
 import { createDb } from '@/lib/server/db';
 import {
   AiWorkforceQueueRepository,
   RoutinesRepository,
   UserRepository,
+  WorkspaceRepository,
 } from '@/lib/repositories';
 import { EmailNotificationService } from '@/lib/services/emailNotificationService';
 import { dispatcherTick } from '@/lib/workforce';
@@ -52,7 +54,8 @@ export async function POST(
   try {
     const { id } = await params;
     const db = createDb();
-    const repo = new AiWorkforceQueueRepository(db);
+    const workspaceId = await getActiveWorkspaceId();
+    const repo = new AiWorkforceQueueRepository(db, workspaceId);
     const item = await repo.findById(id);
     if (!item) {
       return NextResponse.json({ error: 'Not found' }, { status: 404 });
@@ -88,9 +91,10 @@ export async function POST(
       // Best-effort cancellation notification (MB-90). The service no-ops when
       // the feature flag is off and swallows its own errors.
       const notifier = new EmailNotificationService({
-        workforceRepo: new AiWorkforceQueueRepository(freshDb),
-        routinesRepo: new RoutinesRepository(freshDb),
+        workforceRepo: new AiWorkforceQueueRepository(freshDb, workspaceId),
+        routinesRepo: new RoutinesRepository(freshDb, workspaceId),
         userRepo: new UserRepository(freshDb),
+        workspaceRepo: new WorkspaceRepository(freshDb),
       });
       await notifier.notifyTaskFailed(id, { cancelled: true, reason });
     });

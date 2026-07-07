@@ -13,7 +13,7 @@ export class MarketScreeningService {
       type: 'market_screening',
       payload: payload as unknown as Record<string, unknown>,
       timeoutSeconds: MARKET_SCREENING_TIMEOUT_SECONDS,
-      work: ({ db: runDb }) => runMarketScreening(payload, { db: runDb }),
+      work: ({ db: runDb, job }) => runMarketScreening(payload, { db: runDb, workspaceId: job.workspace_id }),
     });
   }
 }

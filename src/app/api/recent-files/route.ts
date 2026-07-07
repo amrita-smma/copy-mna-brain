@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/auth';
 import { createDb } from '@/lib/server/db';
+import { getActiveWorkspaceId } from '@/lib/workspace';
 import { createContainer } from '@/lib/services';
 
 export async function GET(req: NextRequest) {
@@ -13,7 +14,7 @@ export async function GET(req: NextRequest) {
     const page = Number(req.nextUrl.searchParams.get('page') ?? '1');
 
     const db = createDb();
-    const { recentFileService } = createContainer(db);
+    const { recentFileService } = createContainer(db, await getActiveWorkspaceId());
     const data = await recentFileService.listRecent(session.user.id, page);
 
     return NextResponse.json({ data });
@@ -42,7 +43,7 @@ export async function POST(req: NextRequest) {
     }
 
     const db = createDb();
-    const { recentFileService } = createContainer(db);
+    const { recentFileService } = createContainer(db, await getActiveWorkspaceId());
     await recentFileService.recordOpen(session.user.id, fileName, fileKey);
 
     return NextResponse.json({ data: { success: true } });

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { getActiveWorkspaceId } from '@/lib/workspace';
 import { z } from 'zod';
 import { auth } from '@/auth';
 import { RoutinesRepository } from '@/lib/repositories';
@@ -67,7 +68,7 @@ export async function GET(
   try {
     const { id } = await params;
     const db = createDb();
-    const repo = new RoutinesRepository(db);
+    const repo = new RoutinesRepository(db, await getActiveWorkspaceId());
     const item = await repo.findById(id);
     if (!item) {
       return NextResponse.json({ error: 'Not found' }, { status: 404 });
@@ -109,7 +110,7 @@ export async function PATCH(
   try {
     const { id } = await params;
     const db = createDb();
-    const repo = new RoutinesRepository(db);
+    const repo = new RoutinesRepository(db, await getActiveWorkspaceId());
 
     const existing = await repo.findById(id);
     if (!existing) {
@@ -179,7 +180,7 @@ export async function DELETE(
   try {
     const { id } = await params;
     const db = createDb();
-    const repo = new RoutinesRepository(db);
+    const repo = new RoutinesRepository(db, await getActiveWorkspaceId());
     const existing = await repo.findById(id);
     if (!existing) {
       return NextResponse.json({ error: 'Not found' }, { status: 404 });

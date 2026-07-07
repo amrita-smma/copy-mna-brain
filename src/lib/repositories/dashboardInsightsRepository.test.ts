@@ -9,6 +9,7 @@ const mockDb = {
   select: vi.fn().mockReturnThis(),
   from: vi.fn().mockReturnThis(),
   leftJoin: vi.fn().mockReturnThis(),
+  innerJoin: vi.fn().mockReturnThis(),
   where: vi.fn().mockReturnThis(),
   groupBy: vi.fn(),
   execute: vi.fn(),
@@ -19,6 +20,7 @@ function resetDb() {
   mockDb.select.mockReturnThis();
   mockDb.from.mockReturnThis();
   mockDb.leftJoin.mockReturnThis();
+  mockDb.innerJoin.mockReturnThis();
   mockDb.where.mockReturnThis();
 }
 
@@ -30,7 +32,7 @@ describe('DashboardInsightsRepository.getStageCounts', () => {
 
   beforeEach(() => {
     resetDb();
-    repo = new DashboardInsightsRepository(mockDb as never);
+    repo = new DashboardInsightsRepository(mockDb as never, 'workspace-1');
   });
 
   it('groups by pipeline_stage and coerces counts to numbers', async () => {
@@ -54,7 +56,7 @@ describe('DashboardInsightsRepository breakdowns', () => {
 
   beforeEach(() => {
     resetDb();
-    repo = new DashboardInsightsRepository(mockDb as never);
+    repo = new DashboardInsightsRepository(mockDb as never, 'workspace-1');
   });
 
   it('normalises null keys and groups by the dimension plus stage', async () => {
@@ -92,7 +94,7 @@ describe('DashboardInsightsRepository.getStaleCandidates', () => {
 
   beforeEach(() => {
     resetDb();
-    repo = new DashboardInsightsRepository(mockDb as never);
+    repo = new DashboardInsightsRepository(mockDb as never, 'workspace-1');
   });
 
   it('joins sponsor/captain users, selects the staleness timestamps, and stringifies the stage', async () => {
@@ -133,7 +135,7 @@ describe('DashboardInsightsRepository count helpers', () => {
 
   beforeEach(() => {
     resetDb();
-    repo = new DashboardInsightsRepository(mockDb as never);
+    repo = new DashboardInsightsRepository(mockDb as never, 'workspace-1');
   });
 
   const FROM = new Date('2026-06-01T00:00:00.000Z');
@@ -207,7 +209,7 @@ describe('DashboardInsightsRepository.getHitlStats', () => {
 
   beforeEach(() => {
     resetDb();
-    repo = new DashboardInsightsRepository(mockDb as never);
+    repo = new DashboardInsightsRepository(mockDb as never, 'workspace-1');
   });
 
   it('sums resolved decisions in-window and counts pending runs as a snapshot', async () => {

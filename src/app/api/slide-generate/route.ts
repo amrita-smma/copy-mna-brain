@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createDb } from '@/lib/server/db';
+import { getActiveWorkspaceId } from '@/lib/workspace';
 import { createContainer } from '@/lib/services';
 import type { SlideGenerationPayload } from '@/lib/jobs/handlers/slideGeneration';
 
@@ -14,7 +15,7 @@ export async function POST(request: NextRequest) {
     }
 
     const db = createDb();
-    const { slideService } = createContainer(db);
+    const { slideService } = createContainer(db, await getActiveWorkspaceId());
     const { jobId } = await slideService.generateDispatch(body);
 
     return NextResponse.json({ jobId }, { status: 202 });

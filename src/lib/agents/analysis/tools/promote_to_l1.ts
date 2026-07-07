@@ -1,4 +1,5 @@
 import { tool } from "@langchain/core/tools";
+import { getActiveWorkspaceId } from '@/lib/workspace';
 import { z } from "zod";
 import { logger } from "../../logger";
 import { createDb } from "@/lib/server/db";
@@ -47,7 +48,7 @@ export const promoteToL1 = tool(
 
     try {
       const db = createDb();
-      const companyRepo = new CompanyRepository(db);
+      const companyRepo = new CompanyRepository(db, await getActiveWorkspaceId());
       const company = await companyRepo.findByNameFuzzy(trimmedName);
 
       if (!company) {
@@ -71,7 +72,7 @@ export const promoteToL1 = tool(
       const recordedNote = trimmedNote
         ? `Reason: ${trimmedReason}\n\nNote: ${trimmedNote}`
         : `Reason: ${trimmedReason}`;
-      const { companyService } = createContainer(db);
+      const { companyService } = createContainer(db, await getActiveWorkspaceId());
       await companyService.promote(
         company.id,
         CURRENT_STAGE,

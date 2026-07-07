@@ -1,5 +1,10 @@
-import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
-import { correspondents, correspondentEffective } from "@/lib/db/schema";
+import { and, asc, eq, inArray, or, sql } from "drizzle-orm";
+import {
+  correspondents,
+  correspondentEffective,
+  workspaceCorrespondents,
+  userWorkspaces,
+} from "@/lib/db/schema";
 import type { DbClient } from "./types";
 
 export type Correspondent = typeof correspondents.$inferSelect;
@@ -9,25 +14,83 @@ export type CorrespondentUpdate = Partial<CorrespondentInsert>;
 export class CorrespondentRepository {
   constructor(private db: DbClient) {}
 
-  // Reads go through the effective view so the human overlay wins (RFC §3.4).
-  async findByEmployerId(employerId: string): Promise<Correspondent[]> {
+  /**
+   * Correspondent identity is shared/global (see workspace_correspondents
+   * migration comment) — `workspaceId` here is a required read-time filter,
+   * not a constructor-bound scope, because crmIngest needs unscoped writes
+   * through this same class. Mirrors the `workspaceTrackIds()`
+   * derived-table subquery idiom used by CriteriaRepository/TrackVariableRepository.
+   *
+   * `source='manual'` (createContact/curateEmployer) and `source='direct'`
+   * (CRMService.ingestEmails — Vault export / file-extracted communications,
+   * no mailbox or message_id, never governed by any sync concept) are durable
+   * memberships: they stay regardless of any mailbox's sync state. Only
+   * `source='ingest'` (crmIngest's real mailbox-sync pipeline,
+   * message_id/raw_emails-backed) is gated on this workspace having at least
+   * one currently synced member — workspace-level, not per-custodian (see
+   * 20260705000006_workspace_correspondents_direct_source.sql for why a
+   * per-custodian email-evidence check was tried and rejected: it can't tell
+   * a Vault/file-direct link apart from a real one and would hide the former
+   * permanently). Checking `!= 'ingest'` rather than enumerating durable
+   * values means a future new source defaults to visible, not silently
+   * hidden — the safer direction here. Live, no refresh step needed.
+   */
+  private visibleCorrespondentIds(workspaceId: string) {
     return this.db
-      .select()
-      .from(correspondentEffective)
-      .where(eq(correspondentEffective.employer_id, employerId))
-      .orderBy(
-        desc(correspondentEffective.is_primary),
-        asc(correspondentEffective.created_at),
+      .select({ id: workspaceCorrespondents.correspondent_id })
+      .from(workspaceCorrespondents)
+      .where(
+        and(
+          eq(workspaceCorrespondents.workspace_id, workspaceId),
+          or(
+            sql`${workspaceCorrespondents.source} != 'ingest'`,
+            sql`EXISTS (
+              SELECT 1 FROM ${userWorkspaces}
+              WHERE ${userWorkspaces.workspace_id} = ${workspaceId}
+                AND ${userWorkspaces.is_email_synced} = true
+            )`,
+          ),
+        ),
       );
   }
 
-  async findById(id: string): Promise<Correspondent | undefined> {
+  // Reads go through the effective view so the human overlay wins (RFC §3.4).
+  // Primary PIC is always the oldest visible correspondent — no user-settable
+  // designation, just positional: first in the sorted list.
+  async findByEmployerId(
+    employerId: string,
+    workspaceId: string,
+  ): Promise<Correspondent[]> {
     const rows = await this.db
       .select()
       .from(correspondentEffective)
-      .where(eq(correspondentEffective.id, id))
+      .where(
+        and(
+          eq(correspondentEffective.employer_id, employerId),
+          inArray(correspondentEffective.id, this.visibleCorrespondentIds(workspaceId)),
+        ),
+      )
+      .orderBy(asc(correspondentEffective.created_at), asc(correspondentEffective.id));
+    return rows.map((r, i) => ({ ...r, is_primary: i === 0 }));
+  }
+
+  async findById(
+    id: string,
+    workspaceId: string,
+  ): Promise<Correspondent | undefined> {
+    const rows = await this.db
+      .select()
+      .from(correspondentEffective)
+      .where(
+        and(
+          eq(correspondentEffective.id, id),
+          inArray(correspondentEffective.id, this.visibleCorrespondentIds(workspaceId)),
+        ),
+      )
       .limit(1);
-    return rows[0];
+    const row = rows[0];
+    if (!row) return undefined;
+    return { ...row, is_primary: false };
   }
 
   async findByEmployerAndEmail(
@@ -54,35 +117,47 @@ export class CorrespondentRepository {
       .where(eq(correspondentEffective.email, email));
   }
 
-  async insert(data: CorrespondentInsert): Promise<Correspondent> {
-    if (data.is_primary) {
-      await this.clearPrimary(data.employer_id);
-    }
+  async insert(data: CorrespondentInsert, workspaceId: string): Promise<Correspondent> {
+    const { is_primary: _ignored, ...rest } = data;
     const [row] = await this.db
       .insert(correspondents)
-      .values(data)
+      .values(rest)
       .returning();
-    return row;
+    return { ...row, is_primary: false };
   }
 
   async update(
     id: string,
     data: CorrespondentUpdate,
+    workspaceId: string,
   ): Promise<Correspondent | undefined> {
-    if (data.is_primary === true) {
-      const current = await this.findById(id);
-      if (current) await this.clearPrimary(current.employer_id);
+    const { is_primary: _ignored, ...rest } = data;
+    if (Object.keys(rest).length === 0) {
+      return this.findById(id, workspaceId);
     }
     const [row] = await this.db
       .update(correspondents)
-      .set({ ...data, updated_at: new Date().toISOString() })
-      .where(eq(correspondents.id, id))
+      .set({ ...rest, updated_at: new Date().toISOString() })
+      .where(
+        and(
+          eq(correspondents.id, id),
+          inArray(correspondents.id, this.visibleCorrespondentIds(workspaceId)),
+        ),
+      )
       .returning();
-    return row;
+    if (!row) return undefined;
+    return { ...row, is_primary: false };
   }
 
-  async delete(id: string): Promise<void> {
-    await this.db.delete(correspondents).where(eq(correspondents.id, id));
+  async delete(id: string, workspaceId: string): Promise<void> {
+    await this.db
+      .delete(correspondents)
+      .where(
+        and(
+          eq(correspondents.id, id),
+          inArray(correspondents.id, this.visibleCorrespondentIds(workspaceId)),
+        ),
+      );
   }
 
   async findByIds(ids: string[]): Promise<Correspondent[]> {
@@ -91,23 +166,6 @@ export class CorrespondentRepository {
       .select()
       .from(correspondentEffective)
       .where(inArray(correspondentEffective.id, ids));
-  }
-
-  /**
-   * Clears the primary flag for all correspondents on an employer. Used when
-   * promoting a different correspondent so the partial unique index doesn't
-   * fire.
-   */
-  private async clearPrimary(employerId: string): Promise<void> {
-    await this.db
-      .update(correspondents)
-      .set({ is_primary: false })
-      .where(
-        and(
-          eq(correspondents.employer_id, employerId),
-          eq(correspondents.is_primary, true),
-        ),
-      );
   }
 
   /** Sums emails-with-this-correspondent per employer for quick stats. */

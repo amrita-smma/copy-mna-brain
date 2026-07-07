@@ -82,6 +82,28 @@ describe('enqueueAgentRun', () => {
     expect(afterCalls).toHaveLength(1);
   });
 
+  // Regression guard: createOrGetByIdempotencyKey is deliberately unscoped
+  // (MB-147 surface) and does not stamp workspace_id itself — the caller
+  // must supply a complete row. A prior version omitted this field (masked
+  // by an `as never` cast) and violated the NOT NULL constraint on every
+  // real insert despite this exact test passing, since the mock never
+  // checked for the field's presence.
+  it('always includes workspace_id in the insert payload', async () => {
+    createOrGetByIdempotencyKey.mockResolvedValueOnce({
+      row: { id: 'r-1' },
+      created: true,
+    });
+
+    await enqueueAgentRun(fakeDb, {
+      agentName: 'research',
+      triggerSource: 'chat',
+      input: { topic: 'X' },
+    });
+
+    const [insertArg] = createOrGetByIdempotencyKey.mock.calls[0];
+    expect(insertArg.workspace_id).toBeTruthy();
+  });
+
   it('does not schedule dispatch when idempotency-key returned an existing row', async () => {
     createOrGetByIdempotencyKey.mockResolvedValueOnce({
       row: { id: 'r-existing' },

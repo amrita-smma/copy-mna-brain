@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import { employerTopics, topics } from "@/lib/db/schema";
 import type { DbClient } from "./types";
 
@@ -29,15 +29,32 @@ function slugify(name: string): string {
 export class TopicRepository {
   constructor(private db: DbClient) {}
 
-  async listAll(): Promise<Topic[]> {
-    return this.db.select().from(topics).orderBy(asc(topics.name));
+  async listAll(workspaceId: string): Promise<Topic[]> {
+    return this.db
+      .select()
+      .from(topics)
+      .where(or(isNull(topics.workspace_id), eq(topics.workspace_id, workspaceId)))
+      .orderBy(asc(topics.name));
   }
 
-  async findByName(name: string): Promise<Topic | undefined> {
+  /**
+   * `workspaceId` omitted looks up the shared classification vocabulary
+   * (workspace_id IS NULL); passed looks up that workspace's own private
+   * topic of the same name. See 20260705000003_topics_workspace_id.sql.
+   */
+  async findByName(
+    name: string,
+    workspaceId?: string,
+  ): Promise<Topic | undefined> {
     const rows = await this.db
       .select()
       .from(topics)
-      .where(eq(topics.name, name))
+      .where(
+        and(
+          eq(topics.name, name),
+          workspaceId ? eq(topics.workspace_id, workspaceId) : isNull(topics.workspace_id),
+        ),
+      )
       .limit(1);
     return rows[0];
   }
@@ -59,16 +76,31 @@ export class TopicRepository {
   async findOrCreate(
     name: string,
     opts: { is_deal_related?: boolean } = {},
+    workspaceId?: string,
   ): Promise<Topic> {
-    const existing = await this.findByName(name);
+    const existing = await this.findByName(name, workspaceId);
     if (existing) return existing;
     const [row] = await this.db
       .insert(topics)
-      .values({ name, slug: slugify(name), is_deal_related: opts.is_deal_related ?? false })
-      .onConflictDoUpdate({
-        target: topics.name,
-        set: { name },
+      .values({
+        name,
+        slug: slugify(name),
+        is_deal_related: opts.is_deal_related ?? false,
+        workspace_id: workspaceId ?? null,
       })
+      .onConflictDoUpdate(
+        workspaceId
+          ? {
+              target: [topics.workspace_id, topics.name],
+              targetWhere: sql`workspace_id IS NOT NULL`,
+              set: { name },
+            }
+          : {
+              target: topics.name,
+              targetWhere: sql`workspace_id IS NULL`,
+              set: { name },
+            },
+      )
       .returning();
     return row;
   }
@@ -86,6 +118,7 @@ export class TopicRepository {
    */
   async listForEmployer(
     employerId: string,
+    workspaceId: string,
   ): Promise<EmployerTopicAssignment[]> {
     const rows = await this.db
       .select({
@@ -99,7 +132,12 @@ export class TopicRepository {
       })
       .from(employerTopics)
       .innerJoin(topics, eq(employerTopics.topic_id, topics.id))
-      .where(eq(employerTopics.employer_id, employerId))
+      .where(
+        and(
+          eq(employerTopics.employer_id, employerId),
+          or(isNull(topics.workspace_id), eq(topics.workspace_id, workspaceId)),
+        ),
+      )
       .orderBy(
         desc(employerTopics.is_highlight),
         asc(employerTopics.source),
@@ -183,11 +221,15 @@ export class TopicRepository {
         slug: item.slug,
         is_deal_related: item.is_deal_related ?? false,
       }));
+      // crmIngest only ever creates shared-vocabulary topics (workspace_id
+      // stays NULL) — must match topics_slug_global_key exactly, see
+      // 20260705000003_topics_workspace_id.sql.
       const res = await this.db
         .insert(topics)
         .values(chunk)
         .onConflictDoUpdate({
           target: topics.slug,
+          targetWhere: sql`workspace_id IS NULL`,
           set: {
             name: sql`EXCLUDED.name`,
             is_deal_related: sql`${topics.is_deal_related} OR EXCLUDED.is_deal_related`,

@@ -47,6 +47,28 @@ export const DOC_TYPE_OPTIONS: { value: string; label: string }[] = [
   { value: 'ai_screening', label: 'AI Screening' },
 ];
 
+/**
+ * Fixed IDs for the tenancy seed data. Hardcoded (not `defaultRandom()`) so
+ * staging, prod, and dev always agree on the same workspace/role rows across
+ * independently-applied migrations. See `drizzle/migrations/*_add_workspace_tables.sql`.
+ */
+export const MNA_WORKSPACE_ID = '00000000-0000-0000-0000-000000000001';
+export const ROLE_ADMIN_ID = '00000000-0000-0000-0000-000000000101';
+export const ROLE_EDITOR_ID = '00000000-0000-0000-0000-000000000102';
+export const ROLE_VIEWER_ID = '00000000-0000-0000-0000-000000000103';
+
+/**
+ * The nil UUID — deliberately guaranteed to never match a real `workspaces.id`
+ * row (every real workspace id is `gen_random_uuid()`). Returned by
+ * `getActiveWorkspaceId()` for a logged-in user with no active workspace
+ * (unassigned new user, or a superadmin with no membership), so
+ * workspace-scoped reads come back empty and workspace-scoped writes fail the
+ * `workspace_id` foreign key — instead of silently falling back to another
+ * tenant's data. Distinct from `MNA_WORKSPACE_ID`, which is reserved for
+ * non-request code paths (jobs, cron, dispatcher) that have no session at all.
+ */
+export const NO_ACTIVE_WORKSPACE_ID = '00000000-0000-0000-0000-000000000000';
+
 export const STAGE_LABELS: Record<DealStage | 'Acquired', string> = {
   market_screening: 'Market Scanning',
   unreviewed: 'Unreviewed',

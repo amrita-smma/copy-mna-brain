@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createDb } from '@/lib/server/db';
+import { getActiveWorkspaceId } from '@/lib/workspace';
 import { createContainer } from '@/lib/services';
 import { EmployerNotFoundError } from '@/lib/services/crmService';
 
@@ -19,7 +20,7 @@ export async function POST(req: NextRequest, ctx: Ctx) {
       );
     }
     const db = createDb();
-    const { crmService } = createContainer(db);
+    const { crmService } = createContainer(db, await getActiveWorkspaceId());
     const data = await crmService.addRelatedCompanyToEmployer(id, companyId);
     return NextResponse.json({ data }, { status: 201 });
   } catch (err) {

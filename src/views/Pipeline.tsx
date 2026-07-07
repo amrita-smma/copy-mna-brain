@@ -4,7 +4,8 @@ import { useState, useEffect } from "react";
 import { useLocalStorage } from "@/hooks/useLocalStorage";
 import { useEventStream } from "@/hooks/useEventStream";
 import { useSearchParams, useRouter } from "next/navigation";
-import Link from "next/link";
+import { WorkspaceLink } from "@/components/WorkspaceLink";
+import { useWorkspaceHref } from "@/hooks/useWorkspaceHref";
 import DashboardLayout from "@/components/layout/DashboardLayout";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
@@ -90,12 +91,9 @@ import { cn } from "@/lib/utils";
 import { companyDisplayName } from "@/lib/companyDisplay";
 import { isDealLive } from "@/lib/dealStatus";
 import posthog from "posthog-js";
-import { useAuth } from "@/hooks/useAuth";
 import {
   getCompanies,
   getCompaniesCount,
-  getFavoriteCompanies,
-  toggleFavoriteCompany,
   promoteCompany,
   runCompanyL1Filters,
   dropDeal,
@@ -327,9 +325,9 @@ interface PipelineProps {
 }
 
 export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
-  const { user } = useAuth();
   const searchParams = useSearchParams();
   const router = useRouter();
+  const pipelineHref = useWorkspaceHref("/pipeline");
   const initialTab = searchParams.get("stage") || "L0";
   const [activeTab, setActiveTab] = useState<DealStage>(
     initialTab as DealStage,
@@ -404,10 +402,6 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
   const [trackFilter, setTrackFilter] = useState<string[]>([]);
   // Bumped after Track Settings saves so the AI Market Scanning banner refetches.
   const [tracksRefreshKey, setTracksRefreshKey] = useState(0);
-
-  // Favorites state
-  const [favoriteIds, setFavoriteIds] = useState<Set<string>>(new Set());
-  const [togglingFavorite, setTogglingFavorite] = useState<string | null>(null);
 
   // Pagination
   const [currentPage, setCurrentPage] = useState(1);
@@ -555,38 +549,10 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
     }
   };
 
-  const fetchFavorites = async () => {
-    if (!user?.id) return;
-    try {
-      const favs = await getFavoriteCompanies(user.id);
-      setFavoriteIds(new Set(favs || []));
-    } catch (error: any) {
-      console.error("Error fetching favorites:", error);
-    }
-  };
-
-  const handleToggleFavorite = async (companyId: string) => {
-    if (!user?.id) return;
-    setTogglingFavorite(companyId);
-    try {
-      const updated = await toggleFavoriteCompany(user.id, companyId);
-      setFavoriteIds(new Set(updated || []));
-    } catch (error: any) {
-      console.error("Error toggling favorite:", error);
-      toast.error("Failed to update favorite");
-    } finally {
-      setTogglingFavorite(null);
-    }
-  };
-
   useEffect(() => {
     fetchCompanies();
     fetchNewCandidatesCount();
   }, []);
-
-  useEffect(() => {
-    fetchFavorites();
-  }, [user?.id]);
 
   const handleTabChange = (value: string) => {
     // Capture pipeline stage change event
@@ -597,7 +563,7 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
 
     setActiveTab(value as DealStage);
     setCurrentPage(1);
-    router.push(`/pipeline?stage=${value}`);
+    router.push(`${pipelineHref}?stage=${value}`);
   };
 
   // Load tracks (investment theses) once, for matching + filtering + editing.
@@ -790,12 +756,8 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
     );
   });
 
-  // Apply sorting (favorites always first)
+  // Apply sorting
   const sortedCompanies = [...filteredCompanies].sort((a, b) => {
-    const aFav = favoriteIds.has(a.id) ? 1 : 0;
-    const bFav = favoriteIds.has(b.id) ? 1 : 0;
-    if (aFav !== bFav) return bFav - aFav;
-
     // Default sort (no column actively selected):
     // - Dropped view: newest dropped date first
     // - Active view: newest created date first
@@ -1391,12 +1353,12 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
                                 </Button>
                               )}
                               {showL0Pipeline && (
-                                <Link href="/ai-file-dump">
+                                <WorkspaceLink href="/ai-file-dump">
                                   <Button data-testid="pipeline-add-company-button">
                                     <Plus className="mr-2 h-4 w-4" />
                                     Add Company
                                   </Button>
-                                </Link>
+                                </WorkspaceLink>
                               )}
                               {/* Visibility toggle — always rightmost */}
                               <Button
@@ -1577,9 +1539,6 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
                                       stage="L0"
                                       viewMode={viewMode}
                                       groupByReviewState={false}
-                                      favoriteIds={favoriteIds}
-                                      togglingFavorite={togglingFavorite}
-                                      onToggleFavorite={handleToggleFavorite}
                                       updatingCompanyIds={updatingCompanyIds}
                                       statusOptions={inboundStatusOptions}
                                       onRunScreening={runScreeningForCompany}
@@ -1693,9 +1652,6 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
                                       tracks={tracks}
                                       stage="L0"
                                       viewMode={viewMode}
-                                      favoriteIds={favoriteIds}
-                                      togglingFavorite={togglingFavorite}
-                                      onToggleFavorite={handleToggleFavorite}
                                       updatingCompanyIds={updatingCompanyIds}
                                       statusOptions={outboundStatusOptions}
                                       onRunScreening={runScreeningForCompany}
@@ -1872,9 +1828,6 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
                               tracks={tracks}
                               stage={stage}
                               viewMode={viewMode}
-                              favoriteIds={favoriteIds}
-                              togglingFavorite={togglingFavorite}
-                              onToggleFavorite={handleToggleFavorite}
                               updatingCompanyIds={updatingCompanyIds}
                               statusOptions={inboundStatusOptions}
                               onRunScreening={runScreeningForCompany}
@@ -1961,9 +1914,6 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
                               tracks={tracks}
                               stage={stage}
                               viewMode={viewMode}
-                              favoriteIds={favoriteIds}
-                              togglingFavorite={togglingFavorite}
-                              onToggleFavorite={handleToggleFavorite}
                               updatingCompanyIds={updatingCompanyIds}
                               statusOptions={outboundStatusOptions}
                               onRunScreening={runScreeningForCompany}

@@ -12,6 +12,10 @@ vi.mock("@/lib/server/db", () => ({
   createDb: vi.fn(() => ({})),
 }));
 
+vi.mock("@/lib/workspace", () => ({
+  getActiveWorkspaceId: vi.fn(() => Promise.resolve("ws-1")),
+}));
+
 vi.mock("@/lib/repositories", () => ({
   EmployerRepository: function EmployerRepository() {
     return { list: employerListMock };
@@ -61,7 +65,7 @@ describe("lookupCrm", () => {
   it("returns a not-found message when no firms match", async () => {
     employerListMock.mockResolvedValue([]);
     const result = (await lookupCrm.invoke({ query: "Ghost Bank" })) as string;
-    expect(employerListMock).toHaveBeenCalledWith({ search: "Ghost Bank", limit: 5 });
+    expect(employerListMock).toHaveBeenCalledWith({ search: "Ghost Bank", limit: 5 }, "ws-1");
     expect(result).toContain('No CRM firms or bankers found matching "Ghost Bank"');
   });
 
@@ -105,8 +109,8 @@ describe("lookupCrm", () => {
 
     const result = (await lookupCrm.invoke({ query: "Evercore" })) as string;
 
-    expect(findByEmployerIdMock).toHaveBeenCalledWith("emp-1");
-    expect(listForEmployerMock).toHaveBeenCalledWith("emp-1");
+    expect(findByEmployerIdMock).toHaveBeenCalledWith("emp-1", "ws-1");
+    expect(listForEmployerMock).toHaveBeenCalledWith("emp-1", "ws-1");
     expect(result).toContain("## Evercore");
     expect(result).toContain("**Industry:** Investment Banking");
     expect(result).toContain("**Jane Doe** (primary) — Managing Director — jane@evercore.com");
@@ -231,6 +235,6 @@ describe("lookupCrm", () => {
   it("passes through an explicit in-range limit", async () => {
     employerListMock.mockResolvedValue([]);
     await lookupCrm.invoke({ query: "anything", limit: 10 });
-    expect(employerListMock).toHaveBeenCalledWith({ search: "anything", limit: 10 });
+    expect(employerListMock).toHaveBeenCalledWith({ search: "anything", limit: 10 }, "ws-1");
   });
 });

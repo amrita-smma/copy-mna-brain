@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/auth';
 import { createDb } from '@/lib/server/db';
+import { getActiveWorkspaceId } from '@/lib/workspace';
 import { createContainer } from '@/lib/services';
 
 export async function GET(
@@ -14,9 +15,13 @@ export async function GET(
   try {
     const { id } = await params;
     const db = createDb();
-    const { aiWorkforceService } = createContainer(db);
+    const workspaceId = await getActiveWorkspaceId();
+    const { aiWorkforceService } = createContainer(db, workspaceId);
     const item = await aiWorkforceService.findById(id);
-    if (!item) {
+    // findById is unscoped (shared with system-internal callers) — enforce
+    // workspace ownership here, at the user-facing edge. 404 rather than 403
+    // so a cross-workspace id doesn't reveal that the task exists at all.
+    if (!item || item.workspace_id !== workspaceId) {
       return NextResponse.json({ error: 'Not found' }, { status: 404 });
     }
     return NextResponse.json({ item });

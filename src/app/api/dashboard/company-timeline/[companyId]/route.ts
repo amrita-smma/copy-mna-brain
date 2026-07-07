@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createDb } from '@/lib/server/db';
 import { createContainer } from '@/lib/services';
+import { getActiveWorkspaceId } from '@/lib/workspace';
 
 export async function GET(
   _req: NextRequest,
@@ -14,7 +15,7 @@ export async function GET(
     }
 
     const db = createDb();
-    const { dashboardActivityService } = createContainer(db);
+    const { dashboardActivityService } = createContainer(db, await getActiveWorkspaceId());
     const data = await dashboardActivityService.getCompanyTimeline(companyId);
 
     return NextResponse.json({ data });

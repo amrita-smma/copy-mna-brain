@@ -2,6 +2,7 @@ import { tool } from "@langchain/core/tools";
 import { z } from "zod";
 import { logger } from "../../logger";
 import { createDb } from "@/lib/server/db";
+import { getActiveWorkspaceId } from "@/lib/workspace";
 import {
   CorrespondentRepository,
   EmailRepository,
@@ -49,6 +50,7 @@ export const lookupCrm = tool(
 
     try {
       const db = createDb();
+      const workspaceId = await getActiveWorkspaceId();
       const employerRepo = new EmployerRepository(db);
       const correspondentRepo = new CorrespondentRepository(db);
       const relatedCompanyRepo = new EmployerRelatedCompanyRepository(db);
@@ -57,10 +59,10 @@ export const lookupCrm = tool(
       const teamRepo = new EmployerTeamRepository(db);
       const emailRepo = new EmailRepository(db);
 
-      const firms = await employerRepo.list({
-        search: trimmed,
-        limit: cappedLimit,
-      });
+      const firms = await employerRepo.list(
+        { search: trimmed, limit: cappedLimit },
+        workspaceId,
+      );
 
       if (firms.length === 0) {
         return `No CRM firms or bankers found matching "${trimmed}".`;
@@ -70,12 +72,12 @@ export const lookupCrm = tool(
         firms.map(async (firm) => {
           const [bankers, relatedCompanies, topics, team, emails, notes] =
             await Promise.all([
-              correspondentRepo.findByEmployerId(firm.id),
-              relatedCompanyRepo.listForEmployer(firm.id),
-              topicRepo.listForEmployer(firm.id),
+              correspondentRepo.findByEmployerId(firm.id, workspaceId),
+              relatedCompanyRepo.listForEmployer(firm.id, workspaceId),
+              topicRepo.listForEmployer(firm.id, workspaceId),
               teamRepo.listForEmployer(firm.id),
               emailRepo.findByEmployerId(firm.id, { limit: RECENT_EMAILS }),
-              noteRepo.findByEmployerId(firm.id),
+              noteRepo.findByEmployerId(firm.id, workspaceId),
             ]);
 
           const bankerLines =

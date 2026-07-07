@@ -5,7 +5,11 @@ import type { JobDispatcher } from './jobDispatcher';
 describe('TrackMatchingService.dispatch', () => {
   it('dispatches a track_matching job for the company', async () => {
     const dispatch = vi.fn().mockResolvedValue({ jobId: 'job-1' });
-    const service = new TrackMatchingService({ dispatch } as unknown as JobDispatcher, {} as never);
+    const service = new TrackMatchingService(
+      { dispatch } as unknown as JobDispatcher,
+      {} as never,
+      'workspace-1',
+    );
 
     const result = await service.dispatch({ companyId: 'c1' });
 

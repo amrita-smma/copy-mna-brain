@@ -6,8 +6,8 @@ import {
   getVaultAccessToken,
   createVaultMatter,
   createVaultExport,
-  VAULT_CUSTODIAN_EMAILS,
 } from '@/lib/services/googleVaultService';
+import { UserWorkspaceRepository } from '@/lib/repositories';
 import {
   currentDayUTC,
   previousDay,
@@ -47,6 +47,17 @@ export const handler = async (
   const { pgClient, db } = await createLambdaDb();
 
   try {
+    // 0. Custodian mailboxes to watch — sourced from user_workspaces.is_email_synced,
+    // not a hardcoded list, so syncing/un-syncing a mailbox in the app takes
+    // effect on the next scheduled export. An empty result is surfaced loudly
+    // (not a silent no-op) since this is a scheduled job hitting a real
+    // external system.
+    const custodianEmails = await new UserWorkspaceRepository(db).findSyncedCustodianEmails();
+    if (custodianEmails.length === 0) {
+      log('WARNING: no user_workspaces rows have is_email_synced=true — skipping, nothing to export');
+      return { ok: true, result: { dispatched: [], skipped_in_flight: 0 } };
+    }
+
     // 1. Count in-flight exports.
     const [{ count: inFlight }] = await db.execute<{ count: number }>(
       sql`SELECT COUNT(*) AS count FROM analytics.vault_exports WHERE status = 'exporting'`,
@@ -121,7 +132,7 @@ export const handler = async (
 
       let exportId: string;
       try {
-        exportId = await createVaultExport(token, matterId, VAULT_CUSTODIAN_EMAILS, start, end);
+        exportId = await createVaultExport(token, matterId, custodianEmails, start, end);
         log(`export created: ${exportId}`);
       } catch (err) {
         console.error(`[vault-archive-start] failed to create export for ${matterId}:`, err);
@@ -137,7 +148,7 @@ export const handler = async (
               (matter_id, export_id, custodian_emails, window_start, window_end, mode, status)
             VALUES (
               ${matterId}, ${exportId},
-              ARRAY[${sql.join(VAULT_CUSTODIAN_EMAILS.map((e) => sql`${e}`), sql`, `)}]::text[],
+              ARRAY[${sql.join(custodianEmails.map((e) => sql`${e}`), sql`, `)}]::text[],
               ${windowStartIso}::timestamptz,
               ${windowEndIso}::timestamptz,
               'daily',

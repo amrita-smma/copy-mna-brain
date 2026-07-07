@@ -1,15 +1,22 @@
 import { and, eq, inArray } from 'drizzle-orm';
-import { companyFinancials } from '@/lib/db/schema';
+import { companies, companyFinancials } from '@/lib/db/schema';
 import type { DbClient, Tables, TablesInsert } from './types';
 
 export class CompanyFinancialRepository {
-  constructor(private readonly db: DbClient) {}
+  constructor(
+    private readonly db: DbClient,
+    private readonly workspaceId: string,
+  ) {}
+
+  private workspaceCompanyIds() {
+    return this.db.select({ id: companies.id }).from(companies).where(eq(companies.workspace_id, this.workspaceId));
+  }
 
   async findByCompany(companyId: string): Promise<Tables<'company_financials'>[]> {
     return this.db
       .select()
       .from(companyFinancials)
-      .where(eq(companyFinancials.company_id, companyId))
+      .where(and(eq(companyFinancials.company_id, companyId), inArray(companyFinancials.company_id, this.workspaceCompanyIds())))
       .orderBy(companyFinancials.fiscal_year);
   }
 
@@ -24,6 +31,7 @@ export class CompanyFinancialRepository {
         and(
           eq(companyFinancials.company_id, companyId),
           eq(companyFinancials.fiscal_year, fiscalYear),
+          inArray(companyFinancials.company_id, this.workspaceCompanyIds()),
         ),
       )
       .limit(1);
@@ -35,7 +43,12 @@ export class CompanyFinancialRepository {
     const all = await this.db
       .select()
       .from(companyFinancials)
-      .where(inArray(companyFinancials.company_id, companyIds))
+      .where(
+        and(
+          inArray(companyFinancials.company_id, companyIds),
+          inArray(companyFinancials.company_id, this.workspaceCompanyIds()),
+        ),
+      )
       .orderBy(companyFinancials.company_id, companyFinancials.fiscal_year);
     const latestByCompany = new Map<string, Tables<'company_financials'>>();
     for (const row of all) {
@@ -56,6 +69,7 @@ export class CompanyFinancialRepository {
         and(
           inArray(companyFinancials.company_id, companyIds),
           inArray(companyFinancials.fiscal_year, years),
+          inArray(companyFinancials.company_id, this.workspaceCompanyIds()),
         ),
       );
   }
@@ -65,7 +79,12 @@ export class CompanyFinancialRepository {
     return this.db
       .select()
       .from(companyFinancials)
-      .where(inArray(companyFinancials.company_id, companyIds))
+      .where(
+        and(
+          inArray(companyFinancials.company_id, companyIds),
+          inArray(companyFinancials.company_id, this.workspaceCompanyIds()),
+        ),
+      )
       .orderBy(companyFinancials.company_id, companyFinancials.fiscal_year);
   }
 
@@ -121,6 +140,7 @@ export class CompanyFinancialRepository {
         and(
           eq(companyFinancials.company_id, companyId),
           inArray(companyFinancials.fiscal_year, years),
+          inArray(companyFinancials.company_id, this.workspaceCompanyIds()),
         ),
       );
   }

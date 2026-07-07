@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createDb } from "@/lib/server/db";
+import { getActiveWorkspaceId } from "@/lib/workspace";
 import { DealDocumentRepository } from "@/lib/repositories";
 import { getSignedUrl } from "@/lib/s3";
 
@@ -20,7 +21,7 @@ export async function GET(request: NextRequest) {
     }
 
     const db = createDb();
-    const dealDocRepo = new DealDocumentRepository(db);
+    const dealDocRepo = new DealDocumentRepository(db, await getActiveWorkspaceId());
 
     const row = await dealDocRepo.findPathAndNameById(id);
 

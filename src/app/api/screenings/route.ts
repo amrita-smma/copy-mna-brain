@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createDb } from '@/lib/server/db';
+import { getActiveWorkspaceId } from '@/lib/workspace';
 import { createContainer } from '@/lib/services';
 
 export async function GET(req: NextRequest) {
   try {
     const db = createDb();
-    const { screeningService } = createContainer(db);
+    const { screeningService } = createContainer(db, await getActiveWorkspaceId());
     const params = req.nextUrl.searchParams;
     const companyId = params.get('companyId') ?? undefined;
     const onlyL0 = params.get('onlyL0') === 'true';
@@ -20,7 +21,7 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   try {
     const db = createDb();
-    const { screeningService } = createContainer(db);
+    const { screeningService } = createContainer(db, await getActiveWorkspaceId());
     const body = await req.json();
     const data = await screeningService.create(body);
     return NextResponse.json({ data });

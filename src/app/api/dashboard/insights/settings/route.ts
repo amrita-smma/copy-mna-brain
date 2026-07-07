@@ -1,13 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/auth';
 import { createDb } from '@/lib/server/db';
+import { getActiveWorkspaceId } from '@/lib/workspace';
 import { createContainer } from '@/lib/services';
 import type { InsightsSettings } from '@/lib/services/dashboardInsightsService';
 
 export async function GET() {
   try {
     const db = createDb();
-    const { dashboardInsightsService } = createContainer(db);
+    const { dashboardInsightsService } = createContainer(db, await getActiveWorkspaceId());
     const data = await dashboardInsightsService.getSettingsWithMeta();
     return NextResponse.json({ data });
   } catch (err) {
@@ -39,7 +40,7 @@ export async function PUT(req: NextRequest) {
     }
 
     const db = createDb();
-    const { dashboardInsightsService } = createContainer(db);
+    const { dashboardInsightsService } = createContainer(db, await getActiveWorkspaceId());
     const data = await dashboardInsightsService.saveSettings(
       body as InsightsSettings,
       session.user.id,

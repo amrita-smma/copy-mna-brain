@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createDb } from '@/lib/server/db';
+import { getActiveWorkspaceId } from '@/lib/workspace';
 import { createContainer } from '@/lib/services';
 
 /**
@@ -16,7 +17,7 @@ import { createContainer } from '@/lib/services';
 export async function GET() {
   try {
     const db = createDb();
-    const { apiKeyService } = createContainer(db);
+    const { apiKeyService } = createContainer(db, await getActiveWorkspaceId());
     const data = await apiKeyService.list();
     return NextResponse.json({ data });
   } catch (err) {
@@ -47,7 +48,7 @@ export async function POST(req: NextRequest) {
     }
 
     const db = createDb();
-    const { apiKeyService } = createContainer(db);
+    const { apiKeyService } = createContainer(db, await getActiveWorkspaceId());
     const { token, key } = await apiKeyService.issue({ name: name.trim(), scopes });
 
     // `token` is returned only here — surface it explicitly so callers know to save it.

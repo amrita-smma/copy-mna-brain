@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createDb } from '@/lib/server/db';
+import { getActiveWorkspaceId } from '@/lib/workspace';
 import { createContainer } from '@/lib/services';
 import { ApiKeyNotFoundError } from '@/lib/services/apiKeyService';
 
@@ -19,7 +20,7 @@ export async function GET(
     const { id } = await params;
 
     const db = createDb();
-    const { apiKeyService } = createContainer(db);
+    const { apiKeyService } = createContainer(db, await getActiveWorkspaceId());
     const data = await apiKeyService.get(id);
     return NextResponse.json({ data });
   } catch (err) {
@@ -70,7 +71,7 @@ export async function PATCH(
     }
 
     const db = createDb();
-    const { apiKeyService } = createContainer(db);
+    const { apiKeyService } = createContainer(db, await getActiveWorkspaceId());
     const data = await apiKeyService.update(id, fields);
     return NextResponse.json({ data });
   } catch (err) {
@@ -90,7 +91,7 @@ export async function DELETE(
     const { id } = await params;
 
     const db = createDb();
-    const { apiKeyService } = createContainer(db);
+    const { apiKeyService } = createContainer(db, await getActiveWorkspaceId());
     const data = await apiKeyService.revoke(id);
     return NextResponse.json({ data });
   } catch (err) {

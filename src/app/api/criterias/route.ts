@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createDb } from '@/lib/server/db';
+import { getActiveWorkspaceId } from '@/lib/workspace';
 import { createContainer } from '@/lib/services';
 
 export async function GET(req: NextRequest) {
   try {
     const db = createDb();
-    const { criteriaService } = createContainer(db);
+    const { criteriaService } = createContainer(db, await getActiveWorkspaceId());
     const thesisId = req.nextUrl.searchParams.get('thesisId') ?? undefined;
     const data = await criteriaService.findAll(thesisId);
     return NextResponse.json({ data });
@@ -18,7 +19,7 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   try {
     const db = createDb();
-    const { criteriaService } = createContainer(db);
+    const { criteriaService } = createContainer(db, await getActiveWorkspaceId());
     const { name, prompt, investmentThesisId } = await req.json();
     const data = await criteriaService.create(name, prompt, investmentThesisId);
     return NextResponse.json({ data });

@@ -1,12 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createDb } from '@/lib/server/db';
+import { getActiveWorkspaceId } from '@/lib/workspace';
 import { createContainer } from '@/lib/services';
 import { DuplicateEmployerError } from '@/lib/services/crmService';
-import { JobRepository, type EmployerListFilters } from '@/lib/repositories';
-import {
-  VAULT_CUSTODIAN_EMAILS,
-  VAULT_SYNC_CADENCE_MS,
-} from '@/lib/jobs/handlers/vaultExport';
+import { JobRepository, UserWorkspaceRepository, type EmployerListFilters } from '@/lib/repositories';
+import { VAULT_SYNC_CADENCE_MS } from '@/lib/jobs/handlers/vaultExport';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -62,15 +60,19 @@ export async function GET(req: NextRequest) {
     };
 
     const db = createDb();
-    const { crmService } = createContainer(db);
+    const workspaceId = await getActiveWorkspaceId();
+    const { crmService } = createContainer(db, workspaceId);
     const jobRepo = new JobRepository(db);
     const lastSyncJob = await jobRepo.findLatestByTypeAndStatus(
       'vault_export',
       'completed',
     );
     const { data, total } = await crmService.listEmployers(filters);
+    const vaultCustodianCount = await new UserWorkspaceRepository(db).countSyncedCustodians(
+      workspaceId,
+    );
     const insights = await crmService.insights({
-      vaultCustodianCount: VAULT_CUSTODIAN_EMAILS.length,
+      vaultCustodianCount,
       lastVaultSyncedAt: lastSyncJob?.completed_at ?? null,
       vaultSyncCadenceMs: VAULT_SYNC_CADENCE_MS,
     });
@@ -91,7 +93,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'name is required' }, { status: 400 });
     }
     const db = createDb();
-    const { crmService } = createContainer(db);
+    const { crmService } = createContainer(db, await getActiveWorkspaceId());
     const data = await crmService.createEmployer({
       name: body.name,
       industry: body.industry,

@@ -10,10 +10,17 @@ export interface FileAgentSearchOptions {
 }
 
 export class FileRepository {
-  constructor(private readonly db: DbClient) {}
+  constructor(
+    private readonly db: DbClient,
+    private readonly workspaceId: string,
+  ) {}
 
   async findById(id: string): Promise<Tables<'files'>> {
-    const [row] = await this.db.select().from(files).where(eq(files.id, id)).limit(1);
+    const [row] = await this.db
+      .select()
+      .from(files)
+      .where(and(eq(files.id, id), eq(files.workspace_id, this.workspaceId)))
+      .limit(1);
     if (!row) throw new Error(`File ${id} not found`);
     return row;
   }
@@ -24,7 +31,7 @@ export class FileRepository {
     const [row] = await this.db
       .select({ file_link: files.file_link, file_name: files.file_name })
       .from(files)
-      .where(eq(files.id, id))
+      .where(and(eq(files.id, id), eq(files.workspace_id, this.workspaceId)))
       .limit(1);
     if (!row) throw new Error(`File ${id} not found`);
     return row;
@@ -42,30 +49,44 @@ export class FileRepository {
   }
 
   async findAll(fileType?: string): Promise<Tables<'files'>[]> {
+    const workspaceCond = eq(files.workspace_id, this.workspaceId);
     return this.db
       .select()
       .from(files)
-      .where(fileType ? eq(files.file_type, fileType) : undefined)
+      .where(fileType ? and(eq(files.file_type, fileType), workspaceCond) : workspaceCond)
       .orderBy(desc(files.created_at));
   }
 
+  /**
+   * Fan-out insert: the attachment pipeline resolves the target workspace(s)
+   * for a custodian mailbox and calls this once per workspace, so callers
+   * must supply `workspace_id` explicitly rather than it being bound at
+   * construction (unlike every other workspace-scoped repository).
+   */
   async insert(data: TablesInsert<'files'>): Promise<Tables<'files'>> {
     const [row] = await this.db.insert(files).values(data).returning();
     return row;
   }
 
   async update(id: string, updates: TablesUpdate<'files'>): Promise<Tables<'files'>> {
-    const [row] = await this.db.update(files).set(updates).where(eq(files.id, id)).returning();
+    const [row] = await this.db
+      .update(files)
+      .set(updates)
+      .where(and(eq(files.id, id), eq(files.workspace_id, this.workspaceId)))
+      .returning();
     if (!row) throw new Error(`File ${id} not found`);
     return row;
   }
 
   async updatePartial(id: string, updates: TablesUpdate<'files'>): Promise<void> {
-    await this.db.update(files).set(updates).where(eq(files.id, id));
+    await this.db
+      .update(files)
+      .set(updates)
+      .where(and(eq(files.id, id), eq(files.workspace_id, this.workspaceId)));
   }
 
   async delete(id: string): Promise<void> {
-    await this.db.delete(files).where(eq(files.id, id));
+    await this.db.delete(files).where(and(eq(files.id, id), eq(files.workspace_id, this.workspaceId)));
   }
 
   /**
@@ -99,7 +120,7 @@ export class FileRepository {
    */
   async searchForAgent(opts: FileAgentSearchOptions): Promise<Tables<'files'>[]> {
     const { companyName, tag, searchTerm, limit = 20 } = opts;
-    const conditions: (SQL | undefined)[] = [];
+    const conditions: (SQL | undefined)[] = [eq(files.workspace_id, this.workspaceId)];
 
     if (companyName) {
       conditions.push(
@@ -125,7 +146,7 @@ export class FileRepository {
     return this.db
       .select()
       .from(files)
-      .where(conditions.length > 0 ? and(...conditions) : undefined)
+      .where(and(...conditions))
       .orderBy(desc(files.file_date))
       .limit(Math.min(limit, 20));
   }

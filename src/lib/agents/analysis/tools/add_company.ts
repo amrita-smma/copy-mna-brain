@@ -1,4 +1,5 @@
 import { tool } from "@langchain/core/tools";
+import { getActiveWorkspaceId } from '@/lib/workspace';
 import { z } from "zod";
 import { logger } from "../../logger";
 import { createDb } from "@/lib/server/db";
@@ -86,7 +87,7 @@ export const addCompany = tool(
 
     try {
       const db = createDb();
-      const companyRepo = new CompanyRepository(db);
+      const companyRepo = new CompanyRepository(db, await getActiveWorkspaceId());
 
       // Duplicate guard: fuzzy-match against target/project_name to avoid
       // inserting a near-duplicate of a company already in the pipeline.
@@ -96,7 +97,7 @@ export const addCompany = tool(
         return `A company matching "${trimmedTarget}" already exists in the pipeline (id: ${existing.id}, target: "${existing.target}", stage: ${stageLabel}). Did not create a duplicate.`;
       }
 
-      const { companyService } = createContainer(db);
+      const { companyService } = createContainer(db, await getActiveWorkspaceId());
       const trimmedNote = note?.trim() || undefined;
       const trimmedSegment = segment?.trim() || undefined;
       const trimmedGeography = geography?.trim() || undefined;

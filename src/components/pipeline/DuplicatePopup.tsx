@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { AlertTriangle, X, ExternalLink } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { WorkspaceLink } from "@/components/WorkspaceLink";
 import { companyDisplayName } from "@/lib/companyDisplay";
 import {
   Popover,
@@ -75,10 +76,10 @@ export function DuplicatePopup({ possibleDuplicateId }: DuplicatePopupProps) {
                   className="h-7 gap-1.5 text-xs"
                   asChild
                 >
-                  <a href={`/pipeline?stage=L0`} target="_blank" rel="noreferrer">
+                  <WorkspaceLink href="/pipeline?stage=L0" target="_blank" rel="noreferrer">
                     <ExternalLink className="h-3 w-3" />
                     View in pipeline
-                  </a>
+                  </WorkspaceLink>
                 </Button>
               </div>
             </>

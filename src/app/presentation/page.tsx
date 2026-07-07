@@ -1,21 +1,10 @@
-import { Suspense } from 'react';
-import { Loader2 } from 'lucide-react';
-import Presentation from '@/views/Presentation';
-import { companyGraphEnabled } from '@/lib/flags';
+import { redirectToWorkspaceScoped } from '@/lib/legacyWorkspaceRedirect';
 
-function PresentationLoading() {
-  return (
-    <div className="flex h-screen items-center justify-center">
-      <Loader2 className="h-8 w-8 animate-spin text-primary" />
-    </div>
-  );
-}
-
-export default async function PresentationPage() {
-  const showCompanyGraph = await companyGraphEnabled().then(Boolean);
-  return (
-    <Suspense fallback={<PresentationLoading />}>
-      <Presentation showCompanyGraph={showCompanyGraph} />
-    </Suspense>
-  );
+/** Pre-migration deeplink bridge — see `redirectToWorkspaceScoped`. */
+export default async function LegacyPresentationRedirect({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  await redirectToWorkspaceScoped('/presentation', await searchParams);
 }

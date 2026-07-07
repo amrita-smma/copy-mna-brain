@@ -1,12 +1,13 @@
-import { Suspense } from 'react';
-import CompanyDetail from '@/views/CompanyDetail';
-import { companyGraphEnabled } from '@/lib/flags';
+import { redirectToWorkspaceScoped } from '@/lib/legacyWorkspaceRedirect';
 
-export default async function CompanyDetailPage() {
-  const showCompanyGraph = await companyGraphEnabled().then(Boolean);
-  return (
-    <Suspense fallback={null}>
-      <CompanyDetail showCompanyGraph={showCompanyGraph} />
-    </Suspense>
-  );
+/** Pre-migration deeplink bridge — see `redirectToWorkspaceScoped`. */
+export default async function LegacyPipelineDealRedirect({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ dealId: string }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  const { dealId } = await params;
+  await redirectToWorkspaceScoped(`/pipeline/${dealId}`, await searchParams);
 }

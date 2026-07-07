@@ -1,7 +1,10 @@
-import MasterData from '@/views/MasterData';
-import { companyGraphEnabled } from '@/lib/flags';
+import { redirectToWorkspaceScoped } from '@/lib/legacyWorkspaceRedirect';
 
-export default async function MasterDataPage() {
-  const showCompanyGraph = await companyGraphEnabled().then(Boolean);
-  return <MasterData showCompanyGraph={showCompanyGraph} />;
+/** Pre-migration deeplink bridge — see `redirectToWorkspaceScoped`. */
+export default async function LegacyMasterDataRedirect({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  await redirectToWorkspaceScoped('/master-data', await searchParams);
 }

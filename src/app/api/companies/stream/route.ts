@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createDb } from '@/lib/server/db';
 import { createContainer } from '@/lib/services';
+import { getActiveWorkspaceId } from '@/lib/workspace';
 import { changeStream, SSE_HEADERS } from '@/lib/server/sse';
 
 export const dynamic = 'force-dynamic';
@@ -22,7 +23,7 @@ export const maxDuration = 300;
 export async function GET(req: NextRequest) {
   try {
     const db = createDb();
-    const { companyService } = createContainer(db);
+    const { companyService } = createContainer(db, await getActiveWorkspaceId());
 
     const stream = changeStream({
       snapshot: () => companyService.findProcessingAiOpinions(),

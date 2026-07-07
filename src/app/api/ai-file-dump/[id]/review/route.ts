@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createDb } from '@/lib/server/db';
+import { getActiveWorkspaceId } from '@/lib/workspace';
 import { createContainer } from '@/lib/services';
 
 interface RouteContext {
@@ -22,7 +23,7 @@ export async function GET(request: NextRequest, context: RouteContext) {
       : undefined;
 
     const db = createDb();
-    const { fileService } = createContainer(db);
+    const { fileService } = createContainer(db, await getActiveWorkspaceId());
     const data = await fileService.getReviewData(id, companyIdOverride);
 
     return NextResponse.json({ success: true, data });

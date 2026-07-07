@@ -7,6 +7,7 @@ import type {
   CompanyFxAdjustmentRepository,
   DbClient,
   Tables,
+  UserWorkspaceRepository,
 } from '@/lib/repositories';
 import type { CompanyAnalysisService } from './companyAnalysisService';
 import type { AIScreeningService } from './aiScreeningService';
@@ -151,6 +152,19 @@ function makeCompanyFxAdjustmentRepoStub(): CompanyFxAdjustmentRepository {
   } as unknown as CompanyFxAdjustmentRepository;
 }
 
+function makeUserWorkspaceRepoStub(): UserWorkspaceRepository {
+  return {
+    // No test exercises the multi-workspace mailbox fan-out (none pass
+    // enteredByEmail), so resolveTargetWorkspaceIds never calls this — it's a
+    // pure constructor placeholder. Non-empty return matches the "mailbox is
+    // watched by workspace-1" convention if a future test wires it up.
+    findWorkspaceIdsBySyncedEmail: vi.fn().mockResolvedValue(['workspace-1']),
+    findByUserId: vi.fn(),
+    findByWorkspaceId: vi.fn(),
+    insert: vi.fn(),
+  } as unknown as UserWorkspaceRepository;
+}
+
 function makeCompanyAnalysisServiceStub(): CompanyAnalysisService {
   return {
     dispatch: vi.fn(),
@@ -189,6 +203,7 @@ function makeService(overrides: {
 } = {}) {
   return new FileService(
     null as unknown as DbClient,
+    'workspace-1',
     overrides.fileRepo ?? makeFileRepoStub(),
     overrides.companyAnalysisService ?? makeCompanyAnalysisServiceStub(),
     overrides.aiScreeningService ?? makeAIScreeningServiceStub(),
@@ -197,6 +212,7 @@ function makeService(overrides: {
     overrides.companyFinancialRepo ?? makeCompanyFinancialRepoStub(),
     overrides.companyService ?? makeCompanyServiceStub(),
     overrides.companyFxAdjustmentRepo ?? makeCompanyFxAdjustmentRepoStub(),
+    makeUserWorkspaceRepoStub(),
   );
 }
 
@@ -220,6 +236,7 @@ describe('FileService.processUpload', () => {
     companyService = makeCompanyServiceStub();
     service = new FileService(
       null as unknown as DbClient,
+      'workspace-1',
       fileRepo,
       companyAnalysisService,
       aiScreeningService,
@@ -228,6 +245,7 @@ describe('FileService.processUpload', () => {
       companyFinancialRepo,
       companyService,
       makeCompanyFxAdjustmentRepoStub(),
+      makeUserWorkspaceRepoStub(),
     );
 
     vi.mocked(downloadFile).mockResolvedValue(Buffer.from('content'));
@@ -1071,6 +1089,7 @@ describe('FileService.processUpload', () => {
     );
     service = new FileService(
       { transaction } as unknown as DbClient,
+      'workspace-1',
       fileRepo,
       companyAnalysisService,
       aiScreeningService,
@@ -1079,6 +1098,7 @@ describe('FileService.processUpload', () => {
       companyFinancialRepo,
       companyService,
       makeCompanyFxAdjustmentRepoStub(),
+      makeUserWorkspaceRepoStub(),
     );
     (service as unknown as { buildCompanyService: () => CompanyService }).buildCompanyService =
       () => companyService;
@@ -1137,6 +1157,7 @@ describe('FileService.approve', () => {
     aiScreeningService = makeAIScreeningServiceStub();
     service = new FileService(
       null as unknown as DbClient,
+      'workspace-1',
       fileRepo,
       companyAnalysisService,
       aiScreeningService,
@@ -1145,6 +1166,7 @@ describe('FileService.approve', () => {
       companyFinancialRepo,
       companyService,
       companyFxAdjustmentRepo,
+      makeUserWorkspaceRepoStub(),
     );
     vi.mocked(criteriaRepo.findAll).mockResolvedValue([]);
     vi.mocked(companyAnalysisService.dispatch).mockResolvedValue({ runId: 'run-1' });
@@ -1543,6 +1565,7 @@ describe('FileService.getReviewData', () => {
 
     const service = new FileService(
       null as unknown as DbClient,
+      'workspace-1',
       fileRepo,
       makeCompanyAnalysisServiceStub(),
       makeAIScreeningServiceStub(),
@@ -1551,6 +1574,7 @@ describe('FileService.getReviewData', () => {
       companyFinancialRepo,
       companyService,
       companyFxAdjustmentRepo,
+      makeUserWorkspaceRepoStub(),
     );
 
     const result = await service.getReviewData('file-1');
@@ -1886,6 +1910,7 @@ describe('FileService.processUpload — company_assigned emails', () => {
     enqueueEmail = vi.fn().mockResolvedValue({ messageId: 'q-1' });
     service = new FileService(
       null as unknown as DbClient,
+      'workspace-1',
       fileRepo,
       makeCompanyAnalysisServiceStub(),
       makeAIScreeningServiceStub(),
@@ -1894,6 +1919,7 @@ describe('FileService.processUpload — company_assigned emails', () => {
       makeCompanyFinancialRepoStub(),
       companyService,
       makeCompanyFxAdjustmentRepoStub(),
+      makeUserWorkspaceRepoStub(),
       undefined,
       userRepo as unknown as import('@/lib/repositories').UserRepository,
       enqueueEmail as never,

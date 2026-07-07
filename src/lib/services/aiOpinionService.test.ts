@@ -23,7 +23,7 @@ vi.mock('@/lib/repositories', () => ({
 import { AI_OPINION_AGENT_NAME, AiOpinionService } from './aiOpinionService';
 
 function makeService(companyRepo: Record<string, ReturnType<typeof vi.fn>>) {
-  return new AiOpinionService(companyRepo as never, {} as never);
+  return new AiOpinionService(companyRepo as never, {} as never, 'workspace-1');
 }
 
 function makeCompanyRepo() {

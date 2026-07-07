@@ -133,6 +133,7 @@ export const jobs = pgTable(
     updated_at: timestamp({ withTimezone: true, mode: "string" })
       .defaultNow()
       .notNull(),
+    workspace_id: uuid().references((): AnyPgColumn => workspaces.id),
   },
   (table) => {
     return {
@@ -147,6 +148,10 @@ export const jobs = pgTable(
       idxJobsType: index("idx_jobs_type").using(
         "btree",
         table.type.asc().nullsLast().op("enum_ops"),
+      ),
+      idxJobsWorkspaceId: index("idx_jobs_workspace_id").using(
+        "btree",
+        table.workspace_id.asc().nullsLast().op("uuid_ops"),
       ),
       allowDeleteAccessOnJobs: pgPolicy("Allow delete access on jobs", {
         as: "permissive",
@@ -223,10 +228,11 @@ export const criterias = pgTable(
     name: text().notNull(),
     prompt: text().notNull(),
     // The Track (investment_thesis) this screening criterion belongs to.
-    investment_thesis_id: uuid().references(
-      (): AnyPgColumn => investmentThesis.id,
-      { onDelete: "cascade" },
-    ),
+    investment_thesis_id: uuid()
+      .notNull()
+      .references((): AnyPgColumn => investmentThesis.id, {
+        onDelete: "cascade",
+      }),
     created_at: timestamp({ withTimezone: true, mode: "string" }).defaultNow(),
     updated_at: timestamp({ withTimezone: true, mode: "string" }).defaultNow(),
   },
@@ -295,6 +301,36 @@ export const trackVariables = pgTable(
         "btree",
         table.track_id.asc().nullsLast().op("uuid_ops"),
       ),
+    };
+  },
+);
+
+export const workspaces = pgTable(
+  "workspaces",
+  {
+    id: uuid().defaultRandom().primaryKey().notNull(),
+    name: text().notNull(),
+    slug: text().notNull(),
+    created_at: timestamp({ withTimezone: true, mode: "string" }).defaultNow().notNull(),
+    updated_at: timestamp({ withTimezone: true, mode: "string" }).defaultNow().notNull(),
+  },
+  (table) => {
+    return {
+      workspacesSlugKey: unique("workspaces_slug_key").on(table.slug),
+    };
+  },
+);
+
+export const roles = pgTable(
+  "roles",
+  {
+    id: uuid().defaultRandom().primaryKey().notNull(),
+    name: text().notNull(),
+    created_at: timestamp({ withTimezone: true, mode: "string" }).defaultNow().notNull(),
+  },
+  (table) => {
+    return {
+      rolesNameKey: unique("roles_name_key").on(table.name),
     };
   },
 );
@@ -387,9 +423,14 @@ export const companies = pgTable(
     ai_opinion_summary: text(),
     ai_opinion_status: text(),
     ai_opinion_updated_at: timestamp({ withTimezone: true, mode: "string" }),
+    workspace_id: uuid().notNull().references(() => workspaces.id),
   },
   (table) => {
     return {
+      idxCompaniesWorkspaceId: index("idx_companies_workspace_id").using(
+        "btree",
+        table.workspace_id.asc().nullsLast().op("uuid_ops"),
+      ),
       idxCompaniesEntryId: index("idx_companies_entry_id").using(
         "btree",
         table.entry_id.asc().nullsLast().op("int4_ops"),
@@ -470,6 +511,12 @@ export const users = pgTable(
     updated_at: timestamp({ withTimezone: true, mode: "string" }).defaultNow(),
     email: text(),
     role: text(),
+    // Platform-wide superadmin flag — grants admin-portal access (create
+    // workspaces, manage members/roles) across every workspace, independent
+    // of any user_workspaces membership. Not to be confused with `role`
+    // above (a free-text job title) or the per-workspace admin/editor/viewer
+    // role on user_workspaces.role_id (in-workspace only).
+    is_superadmin: boolean().default(false).notNull(),
   },
   (table) => {
     return {
@@ -499,6 +546,51 @@ export const users = pgTable(
         for: "select",
         to: ["public"],
       }),
+    };
+  },
+);
+
+export const userWorkspaces = pgTable(
+  "user_workspaces",
+  {
+    id: uuid().defaultRandom().primaryKey().notNull(),
+    user_id: uuid().notNull(),
+    workspace_id: uuid().notNull(),
+    role_id: uuid().notNull(),
+    // The user's own email is the "custodian mailbox" being watched for this
+    // workspace when true (replaces the old workspace_email_to_sync table).
+    is_email_synced: boolean().default(false).notNull(),
+    created_at: timestamp({ withTimezone: true, mode: "string" }).defaultNow().notNull(),
+    updated_at: timestamp({ withTimezone: true, mode: "string" }).defaultNow().notNull(),
+  },
+  (table) => {
+    return {
+      idxUserWorkspacesUserId: index("idx_user_workspaces_user_id").using(
+        "btree",
+        table.user_id.asc().nullsLast().op("uuid_ops"),
+      ),
+      idxUserWorkspacesWorkspaceId: index("idx_user_workspaces_workspace_id").using(
+        "btree",
+        table.workspace_id.asc().nullsLast().op("uuid_ops"),
+      ),
+      userWorkspacesUserIdFkey: foreignKey({
+        columns: [table.user_id],
+        foreignColumns: [users.id],
+        name: "user_workspaces_user_id_fkey",
+      }).onDelete("cascade"),
+      userWorkspacesWorkspaceIdFkey: foreignKey({
+        columns: [table.workspace_id],
+        foreignColumns: [workspaces.id],
+        name: "user_workspaces_workspace_id_fkey",
+      }).onDelete("cascade"),
+      userWorkspacesRoleIdFkey: foreignKey({
+        columns: [table.role_id],
+        foreignColumns: [roles.id],
+        name: "user_workspaces_role_id_fkey",
+      }),
+      userWorkspacesUserIdWorkspaceIdKey: unique(
+        "user_workspaces_user_id_workspace_id_key",
+      ).on(table.user_id, table.workspace_id),
     };
   },
 );
@@ -685,9 +777,13 @@ export const investmentThesis = pgTable(
     sources_count: integer().default(5),
     created_at: timestamp({ withTimezone: true, mode: "string" }).defaultNow(),
     updated_at: timestamp({ withTimezone: true, mode: "string" }).defaultNow(),
+    workspace_id: uuid().notNull().references(() => workspaces.id),
   },
   (table) => {
     return {
+      idxInvestmentThesisWorkspaceId: index(
+        "idx_investment_thesis_workspace_id",
+      ).using("btree", table.workspace_id.asc().nullsLast().op("uuid_ops")),
       idxInvestmentThesisIsActive: index(
         "idx_investment_thesis_is_active",
       ).using("btree", table.is_active.asc().nullsLast().op("bool_ops")),
@@ -1249,9 +1345,14 @@ export const files = pgTable(
     file_date: date(),
     file_type: varchar().default("mom").notNull(),
     origin_email: boolean().default(false).notNull(),
+    workspace_id: uuid().notNull().references(() => workspaces.id),
   },
   (table) => {
     return {
+      idxFilesWorkspaceId: index("idx_files_workspace_id").using(
+        "btree",
+        table.workspace_id.asc().nullsLast().op("uuid_ops"),
+      ),
       idxFilesCreatedAt: index("idx_files_created_at").using(
         "btree",
         table.created_at.asc().nullsLast().op("timestamptz_ops"),
@@ -1698,38 +1799,6 @@ export const companyScreeningDerived = pgTable(
   },
 );
 
-export const userCompanyFavorites = pgTable(
-  "user_company_favorites",
-  {
-    user_id: uuid().notNull(),
-    company_id: uuid().notNull(),
-    created_at: timestamp({ withTimezone: true, mode: "string" })
-      .defaultNow()
-      .notNull(),
-  },
-  (table) => {
-    return {
-      idxUserCompanyFavoritesCompanyId: index(
-        "idx_user_company_favorites_company_id",
-      ).using("btree", table.company_id.asc().nullsLast().op("uuid_ops")),
-      userCompanyFavoritesUserIdFkey: foreignKey({
-        columns: [table.user_id],
-        foreignColumns: [users.id],
-        name: "user_company_favorites_user_id_fkey",
-      }).onDelete("cascade"),
-      userCompanyFavoritesCompanyIdFkey: foreignKey({
-        columns: [table.company_id],
-        foreignColumns: [companies.id],
-        name: "user_company_favorites_company_id_fkey",
-      }).onDelete("cascade"),
-      userCompanyFavoritesPkey: primaryKey({
-        columns: [table.user_id, table.company_id],
-        name: "user_company_favorites_pkey",
-      }),
-    };
-  },
-);
-
 // MB-260: per-user history of files opened in the Presentation page. One row
 // per (user, file_key); re-opening a file bumps opened_at via upsert so the
 // list stays a deduped, most-recent-first feed.
@@ -1743,9 +1812,13 @@ export const recentFiles = pgTable(
     opened_at: timestamp({ withTimezone: true, mode: "string" })
       .defaultNow()
       .notNull(),
+    workspace_id: uuid().notNull().references(() => workspaces.id),
   },
   (table) => {
     return {
+      idxRecentFilesWorkspaceId: index(
+        "idx_recent_files_workspace_id",
+      ).using("btree", table.workspace_id.asc().nullsLast().op("uuid_ops")),
       idxRecentFilesUserOpened: index("idx_recent_files_user_opened").using(
         "btree",
         table.user_id.asc().nullsLast().op("uuid_ops"),
@@ -1891,11 +1964,54 @@ export const correspondents = pgTable(
   }),
 );
 
+// Correspondent visibility membership — see 20260705000000_add_workspace_correspondents.sql.
+// employers/correspondents stay shared, global identity; this add-only
+// junction is what makes a workspace only see the contacts sourced from its
+// own custodian mailboxes (crmIngest) or manually added by it (createContact).
+export const workspaceCorrespondents = pgTable(
+  "workspace_correspondents",
+  {
+    workspace_id: uuid().notNull(),
+    correspondent_id: uuid().notNull(),
+    created_at: timestamp({ withTimezone: true, mode: "string" })
+      .defaultNow()
+      .notNull(),
+    // Provenance — 'ingest' (crmIngest fan-out) or 'manual' (createContact/
+    // curateEmployer). Prerequisite for a future revoke-on-unsync sweep: a
+    // manually-added contact must never be revoked just because an unrelated
+    // mailbox in the workspace got un-synced. See
+    // 20260705000005_workspace_correspondents_source.sql.
+    source: text().notNull().default("ingest"),
+  },
+  (table) => ({
+    pk: primaryKey({ columns: [table.workspace_id, table.correspondent_id] }),
+    idxWorkspaceCorrespondentsCorrespondentId: index(
+      "idx_workspace_correspondents_correspondent_id",
+    ).using("btree", table.correspondent_id.asc().nullsLast().op("uuid_ops")),
+    workspaceCorrespondentsWorkspaceFkey: foreignKey({
+      columns: [table.workspace_id],
+      foreignColumns: [workspaces.id],
+      name: "workspace_correspondents_workspace_id_fkey",
+    }).onDelete("cascade"),
+    workspaceCorrespondentsCorrespondentFkey: foreignKey({
+      columns: [table.correspondent_id],
+      foreignColumns: [correspondents.id],
+      name: "workspace_correspondents_correspondent_id_fkey",
+    }).onDelete("cascade"),
+    workspaceCorrespondentsSourceChk: check(
+      "chk_workspace_correspondents_source",
+      sql`source IN ('ingest', 'manual')`,
+    ),
+  }),
+);
+
+
 export const employerNotes = pgTable(
   "employer_notes",
   {
     id: uuid().defaultRandom().primaryKey().notNull(),
     employer_id: uuid().notNull(),
+    workspace_id: uuid().notNull(),
     author_user_id: uuid(),
     content: text().notNull(),
     created_at: timestamp({ withTimezone: true, mode: "string" })
@@ -1911,11 +2027,20 @@ export const employerNotes = pgTable(
       table.employer_id.asc().nullsLast().op("uuid_ops"),
       table.created_at.asc().nullsLast().op("timestamptz_ops"),
     ),
+    idxEmployerNotesWorkspaceId: index("idx_employer_notes_workspace_id").using(
+      "btree",
+      table.workspace_id.asc().nullsLast().op("uuid_ops"),
+    ),
     employerNotesEmployerFkey: foreignKey({
       columns: [table.employer_id],
       foreignColumns: [employers.id],
       name: "employer_notes_employer_id_fkey",
     }).onDelete("cascade"),
+    employerNotesWorkspaceFkey: foreignKey({
+      columns: [table.workspace_id],
+      foreignColumns: [workspaces.id],
+      name: "employer_notes_workspace_id_fkey",
+    }),
     employerNotesAuthorFkey: foreignKey({
       columns: [table.author_user_id],
       foreignColumns: [users.id],
@@ -1949,13 +2074,32 @@ export const topics = pgTable(
     slug: text().notNull(),
     description: text(),
     is_deal_related: boolean().default(false).notNull(),
+    // NULL = shared classification vocabulary (LLM enrichment taxonomy,
+    // untouched by workspace scoping); set = a workspace's own private
+    // topic. See 20260705000003_topics_workspace_id.sql.
+    workspace_id: uuid(),
     created_at: timestamp({ withTimezone: true, mode: "string" })
       .defaultNow()
       .notNull(),
   },
   (table) => ({
-    topicsNameKey: unique("topics_name_key").on(table.name),
-    topicsSlugKey: unique("topics_slug_key").on(table.slug),
+    topicsNameGlobalKey: uniqueIndex("topics_name_global_key")
+      .on(table.name)
+      .where(sql`workspace_id IS NULL`),
+    topicsNameWorkspaceKey: uniqueIndex("topics_name_workspace_key")
+      .on(table.workspace_id, table.name)
+      .where(sql`workspace_id IS NOT NULL`),
+    topicsSlugGlobalKey: uniqueIndex("topics_slug_global_key")
+      .on(table.slug)
+      .where(sql`workspace_id IS NULL`),
+    topicsSlugWorkspaceKey: uniqueIndex("topics_slug_workspace_key")
+      .on(table.workspace_id, table.slug)
+      .where(sql`workspace_id IS NOT NULL`),
+    topicsWorkspaceFkey: foreignKey({
+      columns: [table.workspace_id],
+      foreignColumns: [workspaces.id],
+      name: "topics_workspace_id_fkey",
+    }),
     allowReadTopics: pgPolicy("Allow read access on topics", {
       as: "permissive",
       for: "select",
@@ -2036,6 +2180,11 @@ export const employerRelatedCompanies = pgTable(
     id: uuid().defaultRandom().primaryKey().notNull(),
     employer_id: uuid().notNull(),
     company_id: uuid(),
+    // Stamped directly at write time (both the auto/ingest and manual
+    // paths), not derived through company_id — company_id is nullable
+    // (free-text company name with no match), so it can't reliably supply
+    // a workspace. See 20260705000002_employer_related_companies_workspace_id.sql.
+    workspace_id: uuid().notNull(),
     company_name: text().notNull(),
     normalized_company_name: text().notNull(),
     source: text().default("auto").notNull(),
@@ -2054,7 +2203,10 @@ export const employerRelatedCompanies = pgTable(
       .notNull(),
   },
   (table) => ({
-    uqErcEmployerCompanySource: unique("uq_erc_employer_company_source").on(
+    uqErcWorkspaceEmployerCompanySource: unique(
+      "uq_erc_workspace_employer_company_source",
+    ).on(
+      table.workspace_id,
       table.employer_id,
       table.normalized_company_name,
       table.source,
@@ -2067,6 +2219,10 @@ export const employerRelatedCompanies = pgTable(
       "btree",
       table.company_id.asc().nullsLast().op("uuid_ops"),
     ),
+    idxErcWorkspaceId: index("idx_erc_workspace_id").using(
+      "btree",
+      table.workspace_id.asc().nullsLast().op("uuid_ops"),
+    ),
     ercEmployerFkey: foreignKey({
       columns: [table.employer_id],
       foreignColumns: [employers.id],
@@ -2077,6 +2233,11 @@ export const employerRelatedCompanies = pgTable(
       foreignColumns: [companies.id],
       name: "employer_related_companies_company_id_fkey",
     }).onDelete("set null"),
+    ercWorkspaceFkey: foreignKey({
+      columns: [table.workspace_id],
+      foreignColumns: [workspaces.id],
+      name: "employer_related_companies_workspace_id_fkey",
+    }),
     allowReadErc: pgPolicy("Allow read access on employer_related_companies", {
       as: "permissive",
       for: "select",
@@ -2660,9 +2821,13 @@ export const aiWorkforceQueue = pgTable(
       .default([])
       .notNull(),
     retried_from_id: uuid(),
+    workspace_id: uuid().notNull().references(() => workspaces.id),
   },
   (table) => {
     return {
+      idxAiWorkforceQueueWorkspaceId: index(
+        "idx_ai_workforce_queue_workspace_id",
+      ).using("btree", table.workspace_id.asc().nullsLast().op("uuid_ops")),
       idxAiWorkforceQueueTriggeredBy: index(
         "idx_ai_workforce_queue_triggered_by",
       ).using(
@@ -2774,12 +2939,17 @@ export const routines = pgTable(
       .notNull(),
     archived_at: timestamp({ withTimezone: true, mode: "string" }),
     is_system: boolean().default(false).notNull(),
+    workspace_id: uuid().references(() => workspaces.id),
   },
   (table) => {
     return {
       idxRoutinesActiveDue: index("idx_routines_active_due").using(
         "btree",
         table.next_fire_at.asc().nullsLast().op("timestamptz_ops"),
+      ),
+      idxRoutinesWorkspaceId: index("idx_routines_workspace_id").using(
+        "btree",
+        table.workspace_id.asc().nullsLast().op("uuid_ops"),
       ),
       routinesCreatedByFkey: foreignKey({
         columns: [table.created_by],
@@ -2829,9 +2999,13 @@ export const copilotChats = pgTable(
     // detects when a brand-new chat repeats an earlier question.
     first_user_message: text(),
     first_user_message_hash: text(),
+    workspace_id: uuid().notNull().references(() => workspaces.id),
   },
   (table) => {
     return {
+      idxCopilotChatsWorkspaceId: index(
+        "idx_copilot_chats_workspace_id",
+      ).using("btree", table.workspace_id.asc().nullsLast().op("uuid_ops")),
       idxCopilotChatsUserActive: index("idx_copilot_chats_user_active").using(
         "btree",
         table.user_id.asc().nullsLast().op("uuid_ops"),
@@ -2908,9 +3082,13 @@ export const apiChatConversations = pgTable(
     last_active_at: timestamp({ withTimezone: true, mode: "string" })
       .defaultNow()
       .notNull(),
+    workspace_id: uuid().notNull().references(() => workspaces.id),
   },
   (table) => {
     return {
+      idxApiChatConversationsWorkspaceId: index(
+        "idx_api_chat_conversations_workspace_id",
+      ).using("btree", table.workspace_id.asc().nullsLast().op("uuid_ops")),
       idxApiChatConversationsKeyActive: index(
         "idx_api_chat_conversations_key_active",
       ).using(

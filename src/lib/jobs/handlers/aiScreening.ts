@@ -11,6 +11,7 @@ import {
   ScreeningRepository,
 } from '@/lib/repositories';
 import type { DbClient, Tables } from '@/lib/repositories';
+import { getActiveWorkspaceId } from '@/lib/workspace';
 import { z } from 'zod';
 import { getPostHogClient } from '@/lib/posthog-server';
 
@@ -195,7 +196,8 @@ export async function runAIScreening(
   deps: { db: DbClient; job: Tables<'jobs'> },
 ): Promise<AIScreeningJobResult> {
   const { companyId, criteriaId, criteriaPrompt, company, screeningId } = payload;
-  const screeningRepo = new ScreeningRepository(deps.db);
+  const workspaceId = deps.job.workspace_id ?? (await getActiveWorkspaceId());
+  const screeningRepo = new ScreeningRepository(deps.db, workspaceId);
   let resultWritten = false;
 
   try {
@@ -210,9 +212,9 @@ export async function runAIScreening(
       throw new Error('Agent not available. Please ensure ANTHROPIC_API_KEY is set.');
     }
 
-    const companyRepo = new CompanyRepository(deps.db);
-    const financialRepo = new CompanyFinancialRepository(deps.db);
-    const screeningDerivedRepo = new CompanyScreeningDerivedRepository(deps.db);
+    const companyRepo = new CompanyRepository(deps.db, workspaceId);
+    const financialRepo = new CompanyFinancialRepository(deps.db, workspaceId);
+    const screeningDerivedRepo = new CompanyScreeningDerivedRepository(deps.db, workspaceId);
 
     const [dbCompany, financials, screeningDerived] = await Promise.all([
       companyRepo.findById(companyId),

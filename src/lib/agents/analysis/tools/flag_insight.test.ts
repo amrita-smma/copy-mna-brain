@@ -17,6 +17,7 @@ vi.mock('@/lib/repositories', () => ({
   AiWorkforceQueueRepository: class {},
   RoutinesRepository: class {},
   UserRepository: class {},
+  WorkspaceRepository: class {},
 }));
 
 import { flagInsight } from './flag_insight';

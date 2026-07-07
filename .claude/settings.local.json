@@ -35,7 +35,17 @@
       "Bash(rtk vitest *)",
       "Bash(rtk grep *)",
       "Bash(rtk tsc *)",
-      "Bash(rtk read *)"
+      "Bash(rtk read *)",
+      "mcp__claude_ai_Atlassian__getConfluencePage",
+      "Bash(rtk find *)",
+      "mcp__claude_ai_Atlassian__getJiraIssue",
+      "Bash(rtk wc *)",
+      "Bash(rtk gh *)",
+      "Bash(rtk proxy *)",
+      "Bash(docker compose exec postgres psql -U postgres -d mna -c ' *)",
+      "Bash(docker compose *)",
+      "Bash(rtk ls *)",
+      "Bash(rtk npx *)"
     ]
   }
 }

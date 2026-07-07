@@ -12,7 +12,17 @@ import type { NextAuthConfig } from 'next-auth';
  * route during sign-in, never in middleware.
  */
 export const authConfig = {
-  session: { strategy: 'jwt' },
+  // maxAge bounds how stale `token.workspaces` (the JWT-embedded membership
+  // list every workspace-scoped check validates against, zero DB calls) can
+  // get: it's only refreshed from the DB on sign-in or an explicit
+  // `update()` call, never passively. A superadmin removing a member's
+  // workspace access doesn't take effect for that member until their token
+  // is reissued — shortened from the 30-day default to 12h to bound that
+  // window, not to give a rolling/sliding session. NextAuth's default
+  // `updateAge` (24h) is longer than this maxAge, so a session hard-expires
+  // (forcing full re-login, which does refresh `workspaces` from the DB)
+  // rather than silently rolling forward on activity.
+  session: { strategy: 'jwt', maxAge: 60 * 60 * 12 },
   pages: { signIn: '/login' },
   providers: [],
   callbacks: {
@@ -21,6 +31,9 @@ export const authConfig = {
         token.id = user.id;
         token.name = user.name;
         token.email = user.email;
+        token.workspaceId = user.workspaceId ?? null;
+        token.isSuperadmin = user.isSuperadmin ?? false;
+        token.workspaces = user.workspaces ?? [];
       }
       return token;
     },
@@ -29,6 +42,9 @@ export const authConfig = {
         session.user.id = token.id as string;
         session.user.name = (token.name as string) ?? session.user.name;
         session.user.email = (token.email as string) ?? session.user.email;
+        session.user.workspaceId = (token.workspaceId as string | null) ?? null;
+        session.user.isSuperadmin = Boolean(token.isSuperadmin);
+        session.user.workspaces = token.workspaces ?? [];
       }
       return session;
     },

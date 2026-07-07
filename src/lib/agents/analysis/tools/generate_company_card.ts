@@ -1,4 +1,5 @@
 import { tool } from "@langchain/core/tools";
+import { getActiveWorkspaceId } from '@/lib/workspace';
 import { z } from "zod";
 import { logger } from "../../logger";
 import { createDb } from "@/lib/server/db";
@@ -35,7 +36,7 @@ export const generateCompanyCard = tool(
       const { analysis, relatedCompanies, companyName } =
         await runGenerateCompanyCard({ companyId: id }, { db });
 
-      const { companyRelationshipService } = createContainer(db);
+      const { companyRelationshipService } = createContainer(db, await getActiveWorkspaceId());
 
       const linked: string[] = [];
       for (const rc of relatedCompanies) {

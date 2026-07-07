@@ -2,11 +2,6 @@ import { computeNextFireAt, normalizeSchedule } from '@/lib/routines';
 import type { ScheduleKind } from '@/lib/routines';
 import type { RoutineInsert, RoutinesRepository } from '@/lib/repositories';
 
-// Fixed id so the permanent market-scanning routine is a singleton: every sync
-// targets the same row rather than spawning duplicates.
-export const MARKET_SCANNING_ROUTINE_ID =
-  '00000000-0000-0000-0000-000000000001';
-
 const ROUTINE_AGENT = 'analysis';
 // WIB (West Indonesia Time, UTC+7). The scan fires at 12am WIB, so the schedule
 // is computed in this timezone rather than UTC.
@@ -65,11 +60,11 @@ export class MarketScanningRoutineService {
       { kind, spec: scheduleSpec },
     );
 
-    const existing = await this.routinesRepo.findById(
-      MARKET_SCANNING_ROUTINE_ID,
+    const existing = await this.routinesRepo.findSystemRoutineByTitle(
+      ROUTINE_TITLE,
     );
     if (existing) {
-      await this.routinesRepo.update(MARKET_SCANNING_ROUTINE_ID, {
+      await this.routinesRepo.update(existing.id, {
         schedule_kind: kind,
         schedule_spec: scheduleSpec,
         cron_expression: cronExpression,
@@ -79,7 +74,6 @@ export class MarketScanningRoutineService {
     }
 
     await this.routinesRepo.create({
-      id: MARKET_SCANNING_ROUTINE_ID,
       title: ROUTINE_TITLE,
       prompt: ROUTINE_PROMPT,
       schedule_kind: kind,

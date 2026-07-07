@@ -1,15 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { RoutinesRepository } from '@/lib/repositories';
-import {
-  MARKET_SCANNING_ROUTINE_ID,
-  MarketScanningRoutineService,
-} from './marketScanningRoutineService';
+import { MarketScanningRoutineService } from './marketScanningRoutineService';
+
+const ROUTINE_TITLE = 'Market Scanning';
+const EXISTING_ID = 'routine-in-this-workspace';
 
 function makeRepoStub() {
   return {
-    findById: vi.fn(),
-    create: vi.fn().mockResolvedValue({ id: MARKET_SCANNING_ROUTINE_ID }),
-    update: vi.fn().mockResolvedValue({ id: MARKET_SCANNING_ROUTINE_ID }),
+    findSystemRoutineByTitle: vi.fn(),
+    create: vi.fn().mockResolvedValue({ id: EXISTING_ID }),
+    update: vi.fn().mockResolvedValue({ id: EXISTING_ID }),
   };
 }
 
@@ -22,31 +22,36 @@ describe('MarketScanningRoutineService.sync', () => {
     service = new MarketScanningRoutineService(repo as unknown as RoutinesRepository);
   });
 
-  it('creates the singleton system routine when none exists', async () => {
-    repo.findById.mockResolvedValueOnce(null);
+  it('creates the routine for this workspace when none exists yet', async () => {
+    repo.findSystemRoutineByTitle.mockResolvedValueOnce(null);
 
     await service.sync('weekly');
 
-    expect(repo.findById).toHaveBeenCalledWith(MARKET_SCANNING_ROUTINE_ID);
+    expect(repo.findSystemRoutineByTitle).toHaveBeenCalledWith(ROUTINE_TITLE);
     expect(repo.create).toHaveBeenCalledWith(
       expect.objectContaining({
-        id: MARKET_SCANNING_ROUTINE_ID,
+        title: ROUTINE_TITLE,
         is_system: true,
         created_by: null,
         agent_name: 'analysis',
         schedule_kind: 'weekly',
       }),
     );
+    // No fixed id in the payload — a second workspace must get its own row,
+    // not collide on a shared primary key.
+    expect(repo.create).toHaveBeenCalledWith(
+      expect.not.objectContaining({ id: expect.anything() }),
+    );
     expect(repo.update).not.toHaveBeenCalled();
   });
 
-  it('updates the existing routine instead of creating a duplicate', async () => {
-    repo.findById.mockResolvedValueOnce({ id: MARKET_SCANNING_ROUTINE_ID });
+  it('updates this workspace\'s existing routine instead of creating a duplicate', async () => {
+    repo.findSystemRoutineByTitle.mockResolvedValueOnce({ id: EXISTING_ID });
 
     await service.sync('daily');
 
     expect(repo.update).toHaveBeenCalledWith(
-      MARKET_SCANNING_ROUTINE_ID,
+      EXISTING_ID,
       expect.objectContaining({
         schedule_kind: 'daily',
         cron_expression: '0 0 * * *',
@@ -56,7 +61,7 @@ describe('MarketScanningRoutineService.sync', () => {
   });
 
   it('maps a monthly cadence onto a monthly schedule on day 1', async () => {
-    repo.findById.mockResolvedValueOnce(null);
+    repo.findSystemRoutineByTitle.mockResolvedValueOnce(null);
 
     await service.sync('monthly');
 
@@ -70,7 +75,7 @@ describe('MarketScanningRoutineService.sync', () => {
   });
 
   it('maps a weekly cadence onto Monday 12am WIB', async () => {
-    repo.findById.mockResolvedValueOnce(null);
+    repo.findSystemRoutineByTitle.mockResolvedValueOnce(null);
 
     await service.sync('weekly');
 
@@ -83,7 +88,7 @@ describe('MarketScanningRoutineService.sync', () => {
   });
 
   it('falls back to weekly for an unknown or empty cadence', async () => {
-    repo.findById.mockResolvedValueOnce(null);
+    repo.findSystemRoutineByTitle.mockResolvedValueOnce(null);
 
     await service.sync(undefined);
 

@@ -39,7 +39,7 @@ describe('RoutinesRepository', () => {
 
   beforeEach(() => {
     mockDb = makeMockDb();
-    repo = new RoutinesRepository(mockDb as never);
+    repo = new RoutinesRepository(mockDb as never, 'workspace-1');
   });
 
   it('create returns the inserted row', async () => {
@@ -73,6 +73,49 @@ describe('RoutinesRepository', () => {
     expect(await repo.findById('missing')).toBeNull();
   });
 
+  it('findById scopes the lookup to this workspace (or system-wide rows)', async () => {
+    mockDb.limit.mockResolvedValueOnce([{ id: 'rt-1' }]);
+
+    await repo.findById('rt-1');
+
+    expect(mockDb.where).toHaveBeenCalledWith(expect.anything());
+    expect(mockDb.where).not.toHaveBeenCalledWith(undefined);
+  });
+
+  it('update scopes the write to this workspace (or system-wide rows), not by id alone', async () => {
+    mockDb.returning.mockResolvedValueOnce([{ id: 'rt-1', title: 'x' }]);
+
+    await repo.update('rt-1', { title: 'x' });
+
+    expect(mockDb.where).toHaveBeenCalledWith(expect.anything());
+    expect(mockDb.where).not.toHaveBeenCalledWith(undefined);
+  });
+
+  it('a repository bound to a different workspace cannot update this workspace\'s routine', async () => {
+    const otherDb = makeMockDb();
+    const otherRepo = new RoutinesRepository(otherDb as never, 'workspace-2');
+    otherDb.returning.mockResolvedValueOnce([]);
+
+    await expect(otherRepo.update('rt-owned-by-workspace-1', { title: 'hijacked' })).rejects.toThrow(
+      /not found/,
+    );
+  });
+
+  it('findSystemRoutineByTitle scopes to this workspace only (no legacy-NULL fallback)', async () => {
+    mockDb.limit.mockResolvedValueOnce([{ id: 'rt-system-1', is_system: true }]);
+
+    const result = await repo.findSystemRoutineByTitle('Market Scanning');
+
+    expect(result).toEqual({ id: 'rt-system-1', is_system: true });
+    expect(mockDb.where).toHaveBeenCalledWith(expect.anything());
+  });
+
+  it('findSystemRoutineByTitle returns null when this workspace has no matching routine', async () => {
+    mockDb.limit.mockResolvedValueOnce([]);
+
+    expect(await repo.findSystemRoutineByTitle('Market Scanning')).toBeNull();
+  });
+
   it('list returns rows ordered newest-first, excluding archived', async () => {
     const rows = [{ id: 'rt-2' }, { id: 'rt-1' }];
     mockDb.orderBy.mockResolvedValueOnce(rows);
@@ -87,7 +130,10 @@ describe('RoutinesRepository', () => {
 
     await repo.list({ includeArchived: true });
 
-    expect(mockDb.where).toHaveBeenCalledWith(undefined);
+    // Still workspace-scoped (this workspace's routines plus system-wide ones),
+    // just without the archived_at filter.
+    expect(mockDb.where).toHaveBeenCalledTimes(1);
+    expect(mockDb.where).not.toHaveBeenCalledWith(undefined);
   });
 
   it('update throws when row is missing', async () => {

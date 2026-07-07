@@ -2,6 +2,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { ScreeningRepository } from './screeningRepository';
 
 const mockDb = {
+  select: vi.fn().mockReturnThis(),
+  from: vi.fn().mockReturnThis(),
   update: vi.fn().mockReturnThis(),
   set: vi.fn().mockReturnThis(),
   where: vi.fn().mockReturnThis(),
@@ -13,7 +15,7 @@ describe('ScreeningRepository.markFailedIfPending', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    repo = new ScreeningRepository(mockDb as never);
+    repo = new ScreeningRepository(mockDb as never, 'workspace-1');
   });
 
   it('writes failed/error/remarks and returns the updated row when the row was still pending', async () => {

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/auth';
 import { createDb } from '@/lib/server/db';
+import { getActiveWorkspaceId } from '@/lib/workspace';
 import { createContainer } from '@/lib/services';
 import {
   getAgentGraph,
@@ -41,7 +42,7 @@ export async function POST(req: NextRequest) {
     }
 
     const db = createDb();
-    const { copilotChatsService } = createContainer(db);
+    const { copilotChatsService } = createContainer(db, await getActiveWorkspaceId());
 
     const chat = await copilotChatsService.create(userId);
     await agent.seedMessages(chat.id, [

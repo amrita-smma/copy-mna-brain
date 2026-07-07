@@ -98,7 +98,7 @@ describe('EmployerRepository', () => {
           source: 'manual',
         },
       ]);
-      const out = await repo.list();
+      const out = await repo.list({}, 'w1');
       expect(out).toHaveLength(1);
       expect(out[0]).toMatchObject({
         id: 'e1',
@@ -112,11 +112,75 @@ describe('EmployerRepository', () => {
 
     it('uses the participant-based join for lastContactBefore so the filter matches the displayed last_contact_at', async () => {
       db.offset.mockResolvedValueOnce([]);
-      await repo.list({ lastContactBefore: '2026-05-01T00:00:00Z' });
+      await repo.list({ lastContactBefore: '2026-05-01T00:00:00Z' }, 'w1');
       const whereArg = db.where.mock.calls[0]?.[0];
       const { sql: text } = new PgDialect().sqlToQuery(whereArg);
       expect(text).toContain('email_participants');
       expect(text).toContain('correspondents');
+    });
+
+    it('scopes the query to employers visible to the given workspace', async () => {
+      db.offset.mockResolvedValueOnce([]);
+      await repo.list({}, 'w1');
+      const whereArg = db.where.mock.calls[0]?.[0];
+      const { sql: text } = new PgDialect().sqlToQuery(whereArg);
+      expect(text).toContain('workspace_correspondents');
+      expect(text).toContain('employer_related_companies');
+    });
+
+    it('excludes dismissed related-company links from the visibility gate', async () => {
+      db.offset.mockResolvedValueOnce([]);
+      await repo.list({}, 'w1');
+      const whereArg = db.where.mock.calls[0]?.[0];
+      const { sql: text } = new PgDialect().sqlToQuery(whereArg);
+      expect(text).toContain('dismissed_at');
+    });
+
+    it('also surfaces an employer via a workspace-owned note or private topic, not just correspondents/related-companies', async () => {
+      db.offset.mockResolvedValueOnce([]);
+      await repo.list({}, 'w1');
+      const whereArg = db.where.mock.calls[0]?.[0];
+      const { sql: text } = new PgDialect().sqlToQuery(whereArg);
+      expect(text).toContain('employer_notes');
+      expect(text).toContain('employer_topics');
+    });
+
+    it('scopes primary_pic to correspondents visible to the workspace, ordered by created_at (positional primary)', async () => {
+      db.offset.mockResolvedValueOnce([]);
+      await repo.list({}, 'w1');
+      const selectArg = db.select.mock.calls[0]?.[0];
+      const { sql: text } = new PgDialect().sqlToQuery(selectArg.primary_pic);
+      expect(text).toContain('workspace_correspondents');
+      expect(text).not.toContain('workspace_primary_correspondents');
+      expect(text).not.toContain('is_primary');
+    });
+
+    it('scopes the auto/manual source badge to correspondents visible to the workspace', async () => {
+      db.offset.mockResolvedValueOnce([]);
+      await repo.list({}, 'w1');
+      const selectArg = db.select.mock.calls[0]?.[0];
+      const { sql: text } = new PgDialect().sqlToQuery(selectArg.source);
+      expect(text).toContain('workspace_correspondents');
+    });
+
+    it('gates primary_pic on the workspace having a synced member, for an ingest-derived contact', async () => {
+      db.offset.mockResolvedValueOnce([]);
+      await repo.list({}, 'w1');
+      const selectArg = db.select.mock.calls[0]?.[0];
+      const { sql: text } = new PgDialect().sqlToQuery(selectArg.primary_pic);
+      expect(text).toContain('user_workspaces');
+      expect(text).toContain('is_email_synced');
+    });
+
+    it('gates the correspondent/related-company visibility branches on the same sync check, so the list agrees with the detail view', async () => {
+      db.offset.mockResolvedValueOnce([]);
+      await repo.list({}, 'w1');
+      const whereArg = db.where.mock.calls[0]?.[0];
+      const { sql: text } = new PgDialect().sqlToQuery(whereArg);
+      expect(text).toContain("!= 'ingest'");
+      expect(text).toContain("!= 'auto'");
+      expect(text).toContain('user_workspaces');
+      expect(text).toContain('is_email_synced');
     });
 
     it('coerces numeric response fields from strings and keeps a null p50', async () => {
@@ -142,7 +206,7 @@ describe('EmployerRepository', () => {
           source: 'auto',
         },
       ]);
-      const out = await repo.list();
+      const out = await repo.list({}, 'w1');
       expect(out[0].response_p50_seconds).toBeNull();
       expect(out[0].response_pair_count).toBe(0);
     });

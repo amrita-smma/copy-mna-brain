@@ -6,6 +6,7 @@ import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { apiRequest } from "@/lib/api/client";
 
 export interface WorkforceHandoffPayload {
   handoff_id?: string;
@@ -48,11 +49,9 @@ export function WorkforceHandoffCard({
     let cancelled = false;
     (async () => {
       try {
-        const res = await fetch(
+        const body = await apiRequest<{ item?: { id?: string } | null }>(
           `/api/workforce-queue?tool_call_id=${encodeURIComponent(handoffId)}`,
         );
-        if (!res.ok) return;
-        const body = (await res.json()) as { item?: { id?: string } | null };
         if (cancelled) return;
         if (body.item?.id) {
           setQueueId(body.item.id);
@@ -71,9 +70,8 @@ export function WorkforceHandoffCard({
     setStatus("submitting");
     setError(null);
     try {
-      const res = await fetch("/api/workforce-queue", {
+      const body = await apiRequest<{ id?: string }>("/api/workforce-queue", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           agent_name: payload.agent_name,
           title: payload.title,
@@ -82,12 +80,7 @@ export function WorkforceHandoffCard({
           company_ids: payload.company_ids ?? [],
         }),
       });
-      if (!res.ok) {
-        const body = (await res.json().catch(() => ({}))) as { error?: string };
-        throw new Error(body.error || `Failed (${res.status})`);
-      }
-      const body = (await res.json()) as { data?: { id?: string } };
-      setQueueId(body.data?.id ?? null);
+      setQueueId(body?.id ?? null);
       setStatus("assigned");
       toast.success("Assigned to Workforce");
     } catch (e) {

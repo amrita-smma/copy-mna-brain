@@ -617,6 +617,83 @@
       "when": 1783094400000,
       "tag": "20260703160000_add_resurface_scheduling_to_companies",
       "breakpoints": true
+    },
+    {
+      "idx": 88,
+      "version": "7",
+      "when": 1783094401000,
+      "tag": "20260703160001_add_workspace_tables",
+      "breakpoints": true
+    },
+    {
+      "idx": 89,
+      "version": "7",
+      "when": 1783094402000,
+      "tag": "20260703160002_add_workspace_id_broad",
+      "breakpoints": true
+    },
+    {
+      "idx": 90,
+      "version": "7",
+      "when": 1783094403000,
+      "tag": "20260703160003_drop_user_company_favorites",
+      "breakpoints": true
+    },
+    {
+      "idx": 91,
+      "version": "7",
+      "when": 1783094404000,
+      "tag": "20260703160004_criterias_require_investment_thesis",
+      "breakpoints": true
+    },
+    {
+      "idx": 92,
+      "version": "7",
+      "when": 1783094405000,
+      "tag": "20260703160005_add_users_is_superadmin",
+      "breakpoints": true
+    },
+    {
+      "idx": 93,
+      "version": "7",
+      "when": 1783209600000,
+      "tag": "20260705000000_add_workspace_correspondents",
+      "breakpoints": true
+    },
+    {
+      "idx": 94,
+      "version": "7",
+      "when": 1783209601000,
+      "tag": "20260705000001_employer_notes_workspace_id",
+      "breakpoints": true
+    },
+    {
+      "idx": 95,
+      "version": "7",
+      "when": 1783209602000,
+      "tag": "20260705000002_employer_related_companies_workspace_id",
+      "breakpoints": true
+    },
+    {
+      "idx": 96,
+      "version": "7",
+      "when": 1783209603000,
+      "tag": "20260705000003_topics_workspace_id",
+      "breakpoints": true
+    },
+    {
+      "idx": 97,
+      "version": "7",
+      "when": 1783209605000,
+      "tag": "20260705000005_workspace_correspondents_source",
+      "breakpoints": true
+    },
+    {
+      "idx": 98,
+      "version": "7",
+      "when": 1783209606000,
+      "tag": "20260705000006_workspace_correspondents_direct_source",
+      "breakpoints": true
     }
   ]
 }

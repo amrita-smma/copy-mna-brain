@@ -22,24 +22,58 @@ import {
   emailParticipants,
   emails,
   employerNotes,
+  employerRelatedCompanies,
   employerTeamMembers,
   employerTopics,
   employers,
   files,
   investmentThesis,
+  mboxFiles,
+  rawEmails,
+  roles,
   topics,
-  userCompanyFavorites,
   users,
+  userWorkspaces,
+  workspaceCorrespondents,
+  workspaces,
 } from '../src/lib/db/schema';
 import { hashPassword } from '../src/lib/services/password';
+import { MNA_WORKSPACE_ID, ROLE_ADMIN_ID, ROLE_EDITOR_ID, ROLE_VIEWER_ID } from '../src/lib/constants';
+import { normalizeCompanyName } from '../src/lib/crm/normalizeCompanyName';
 
 const SEED_USER_EMAIL = 'test@sqe.co.id';
 const SEED_USER_PASSWORD = 'password';
 const SEED_USER_ROLE = 'admin';
 const SEED_ENTRY_ID_MIN = 9001;
 const SEED_ENTRY_ID_MAX = 9999;
-// entry_ids that the seed user starts with as favorites (subset of seedCompanies).
-const SEED_FAVORITE_ENTRY_IDS = [9001, 9002, 9004];
+
+// Extra workspaces + users for exercising multi-tenant switching locally
+// (login → picker with 1 vs. several options → switcher). Hardcoded ids so
+// they're stable across reseeds, same convention as MNA_WORKSPACE_ID.
+const TEST_WORKSPACE_2_ID = '00000000-0000-0000-0000-000000000002'; // Starhouse Prime VCC
+const TEST_WORKSPACE_3_ID = '00000000-0000-0000-0000-000000000003'; // Togan VCC
+const TEST_WORKSPACE_4_ID = '00000000-0000-0000-0000-000000000004'; // Aeliana VCC
+
+const SEED_EXTRA_WORKSPACES = [
+  { id: TEST_WORKSPACE_2_ID, name: 'Starhouse Prime VCC', slug: 'starhouse-prime-vcc' },
+  { id: TEST_WORKSPACE_3_ID, name: 'Togan VCC', slug: 'togan-vcc' },
+  { id: TEST_WORKSPACE_4_ID, name: 'Aeliana VCC', slug: 'aeliana-vcc' },
+];
+
+const SEED_EXTRA_USERS = [
+  { email: 'test2@sqe.co.id', name: 'Test User 2' },
+  { email: 'test3@sqe.co.id', name: 'Test User 3' },
+  { email: 'test4@sqe.co.id', name: 'Test User 4' },
+];
+
+// test2 and test3 each belong to exactly one workspace (auto-skip path);
+// test4 belongs to two (picker + switcher path).
+const SEED_EXTRA_MEMBERSHIPS: Array<{ email: string; workspaceId: string }> = [
+  { email: 'test2@sqe.co.id', workspaceId: TEST_WORKSPACE_2_ID },
+  { email: 'test3@sqe.co.id', workspaceId: TEST_WORKSPACE_3_ID },
+  { email: 'test4@sqe.co.id', workspaceId: TEST_WORKSPACE_3_ID },
+  { email: 'test4@sqe.co.id', workspaceId: TEST_WORKSPACE_4_ID },
+];
 
 const seedThesis = {
   title: 'Seed: SEA Industrial Tech Roll-Up',
@@ -1943,6 +1977,269 @@ const seedAfdFiles: SeedAfdFile[] = [
   },
 ];
 
+// Lightweight per-workspace company fixtures — enough to prove tenant
+// isolation when switching workspaces, not a full replica of `seedCompanies`.
+const starhouseCompanies: SeedCompany[] = [
+  {
+    entry_id: 9100,
+    target: 'Nordfjord Robotics',
+    segment: 'Robotics',
+    company_focus: 'Warehouse automation robotics for Nordic 3PL operators',
+    website: 'https://nordfjordrobotics.example',
+    geography: 'Norway',
+    ownership: 'Private',
+    pipeline_stage: 'unreviewed',
+    status: 'active',
+    source: 'inbound',
+    watchlist_status: 'New',
+    financials: [{ fiscal_year: 2024, revenue_usd_mn: 18.5, ebitda_usd_mn: 3.1 }],
+  },
+  {
+    entry_id: 9101,
+    target: 'Baltic Cold Chain',
+    segment: 'Logistics',
+    company_focus: 'Temperature-controlled logistics network across the Baltics',
+    website: 'https://balticcoldchain.example',
+    geography: 'Latvia',
+    ownership: 'Family-owned',
+    pipeline_stage: 'L0',
+    status: 'active',
+    source: 'inbound',
+    watchlist_status: 'New',
+    financials: [{ fiscal_year: 2024, revenue_usd_mn: 32.0, ebitda_usd_mn: 5.8 }],
+  },
+  {
+    entry_id: 9102,
+    target: 'Alden Precision Optics',
+    segment: 'Manufacturing',
+    company_focus: 'Precision optics manufacturer for medical imaging OEMs',
+    website: 'https://aldenoptics.example',
+    geography: 'Sweden',
+    ownership: 'PE-owned',
+    pipeline_stage: 'L1',
+    status: 'active',
+    source: 'outbound',
+    watchlist_status: 'Reviewing',
+    financials: [{ fiscal_year: 2024, revenue_usd_mn: 27.4, ebitda_usd_mn: 6.2 }],
+  },
+  {
+    entry_id: 9103,
+    target: 'Fenwick Marine Services',
+    segment: 'Maritime',
+    company_focus: 'Offshore wind maintenance vessel operator',
+    website: 'https://fenwickmarine.example',
+    geography: 'Denmark',
+    ownership: 'Private',
+    pipeline_stage: 'unreviewed',
+    status: 'active',
+    source: 'inbound',
+    watchlist_status: 'New',
+    financials: [],
+  },
+  {
+    entry_id: 9104,
+    target: 'Solvik Data Centers',
+    segment: 'Infrastructure',
+    company_focus: 'Renewable-powered edge data centers across Scandinavia',
+    website: 'https://solvikdc.example',
+    geography: 'Finland',
+    ownership: 'PE-owned',
+    pipeline_stage: 'L2',
+    status: 'active',
+    source: 'outbound',
+    watchlist_status: 'Reviewing',
+    financials: [{ fiscal_year: 2024, revenue_usd_mn: 41.2, ebitda_usd_mn: 12.7 }],
+  },
+];
+
+const toganCompanies: SeedCompany[] = [
+  {
+    entry_id: 9110,
+    target: 'Kestane Agri Processing',
+    segment: 'Agriculture',
+    company_focus: 'Nut and dried-fruit processing for European export',
+    website: 'https://kestaneagri.example',
+    geography: 'Turkey',
+    ownership: 'Family-owned',
+    pipeline_stage: 'unreviewed',
+    status: 'active',
+    source: 'inbound',
+    watchlist_status: 'New',
+    financials: [{ fiscal_year: 2024, revenue_usd_mn: 22.1, ebitda_usd_mn: 4.0 }],
+  },
+  {
+    entry_id: 9111,
+    target: 'Bosphorus Fintech Rails',
+    segment: 'Fintech',
+    company_focus: 'Cross-border payment rails for SME exporters',
+    website: 'https://bosphorusrails.example',
+    geography: 'Turkey',
+    ownership: 'Private',
+    pipeline_stage: 'L0',
+    status: 'active',
+    source: 'outbound',
+    watchlist_status: 'New',
+    financials: [],
+  },
+  {
+    entry_id: 9112,
+    target: 'Anadolu Ceramics Group',
+    segment: 'Manufacturing',
+    company_focus: 'Architectural ceramics manufacturer with EU distribution',
+    website: 'https://anadoluceramics.example',
+    geography: 'Turkey',
+    ownership: 'Private',
+    pipeline_stage: 'L1',
+    status: 'active',
+    source: 'inbound',
+    watchlist_status: 'Reviewing',
+    financials: [{ fiscal_year: 2024, revenue_usd_mn: 35.6, ebitda_usd_mn: 7.9 }],
+  },
+  {
+    entry_id: 9113,
+    target: 'Marmara Textile Labs',
+    segment: 'Textiles',
+    company_focus: 'Technical textile R&D and small-batch production',
+    website: 'https://marmaratextile.example',
+    geography: 'Turkey',
+    ownership: 'PE-owned',
+    pipeline_stage: 'unreviewed',
+    status: 'active',
+    source: 'inbound',
+    watchlist_status: 'New',
+    financials: [],
+  },
+  {
+    entry_id: 9114,
+    target: 'Cappadocia Tourism Holdings',
+    segment: 'Hospitality',
+    company_focus: 'Boutique hotel roll-up across Central Anatolia',
+    website: 'https://cappadociath.example',
+    geography: 'Turkey',
+    ownership: 'Family-owned',
+    pipeline_stage: 'L2',
+    status: 'active',
+    source: 'outbound',
+    watchlist_status: 'Reviewing',
+    financials: [{ fiscal_year: 2024, revenue_usd_mn: 15.3, ebitda_usd_mn: 3.4 }],
+  },
+];
+
+const aelianaCompanies: SeedCompany[] = [
+  {
+    entry_id: 9120,
+    target: 'Meridian Subsea Cables',
+    segment: 'Telecom Infrastructure',
+    company_focus: 'Subsea fiber cable maintenance and installation',
+    website: 'https://meridiansubsea.example',
+    geography: 'Greece',
+    ownership: 'PE-owned',
+    pipeline_stage: 'L1',
+    status: 'active',
+    source: 'inbound',
+    watchlist_status: 'Reviewing',
+    financials: [{ fiscal_year: 2024, revenue_usd_mn: 29.8, ebitda_usd_mn: 8.1 }],
+  },
+  {
+    entry_id: 9121,
+    target: 'Aegean Olive Exports',
+    segment: 'Agriculture',
+    company_focus: 'Premium olive oil producer and EU/US export house',
+    website: 'https://aegeanolive.example',
+    geography: 'Greece',
+    ownership: 'Family-owned',
+    pipeline_stage: 'unreviewed',
+    status: 'active',
+    source: 'inbound',
+    watchlist_status: 'New',
+    financials: [],
+  },
+  {
+    entry_id: 9122,
+    target: 'Delphi Shipping Analytics',
+    segment: 'Maritime Software',
+    company_focus: 'Fleet-routing and fuel-optimization SaaS for tanker operators',
+    website: 'https://delphishipping.example',
+    geography: 'Greece',
+    ownership: 'Private',
+    pipeline_stage: 'L0',
+    status: 'active',
+    source: 'inbound',
+    watchlist_status: 'New',
+    financials: [{ fiscal_year: 2024, revenue_usd_mn: 8.9, ebitda_usd_mn: 1.6 }],
+  },
+  {
+    entry_id: 9123,
+    target: 'Ionian Solar Partners',
+    segment: 'Renewable Energy',
+    company_focus: 'Utility-scale solar developer across the Ionian islands',
+    website: 'https://ioniansolar.example',
+    geography: 'Greece',
+    ownership: 'PE-owned',
+    pipeline_stage: 'L3',
+    status: 'active',
+    source: 'outbound',
+    watchlist_status: 'Reviewing',
+    financials: [{ fiscal_year: 2024, revenue_usd_mn: 52.0, ebitda_usd_mn: 19.4 }],
+  },
+  {
+    entry_id: 9124,
+    target: 'Santorini Craft Distillers',
+    segment: 'Consumer',
+    company_focus: 'Premium spirits producer with growing export volumes',
+    website: 'https://santorinidistillers.example',
+    geography: 'Greece',
+    ownership: 'Family-owned',
+    pipeline_stage: 'unreviewed',
+    status: 'active',
+    source: 'inbound',
+    watchlist_status: 'New',
+    financials: [{ fiscal_year: 2024, revenue_usd_mn: 6.2, ebitda_usd_mn: 1.1 }],
+  },
+];
+
+/** Insert a batch of lightweight companies (+ financials) into one workspace. */
+async function insertCompaniesForWorkspace(
+  db: ReturnType<typeof drizzle>,
+  workspaceId: string,
+  list: SeedCompany[],
+): Promise<Array<{ entry_id: number; id: string }>> {
+  const inserted: Array<{ entry_id: number; id: string }> = [];
+  for (const c of list) {
+    const [row] = await db
+      .insert(companies)
+      .values({
+        entry_id: c.entry_id,
+        target: c.target ?? null,
+        project_name: c.project_name ?? null,
+        segment: c.segment,
+        company_focus: c.company_focus,
+        website: c.website,
+        geography: c.geography,
+        ownership: c.ownership,
+        pipeline_stage: c.pipeline_stage,
+        status: c.status,
+        source: c.source ?? null,
+        watchlist_status: c.watchlist_status,
+        workspace_id: workspaceId,
+      })
+      .returning({ id: companies.id });
+    if (!row) continue;
+    inserted.push({ entry_id: c.entry_id, id: row.id });
+    if (c.financials.length === 0) continue;
+    await db.insert(companyFinancials).values(
+      c.financials.map((f) => ({
+        company_id: row.id,
+        fiscal_year: f.fiscal_year,
+        revenue_usd_mn: f.revenue_usd_mn ?? null,
+        ebitda_usd_mn: f.ebitda_usd_mn ?? null,
+        ev_usd_mn: f.ev_usd_mn ?? null,
+      })),
+    );
+  }
+  return inserted;
+}
+
 async function main() {
   const { createPostgresClientFromEnv } = await import('../src/lib/server/db');
   const client = createPostgresClientFromEnv({
@@ -1966,17 +2263,77 @@ async function main() {
         email: SEED_USER_EMAIL,
         password: passwordHash,
         role: SEED_USER_ROLE,
+        is_superadmin: true,
       })
       .onConflictDoUpdate({
         target: users.email,
-        set: { name: 'Test User', password: passwordHash, role: SEED_USER_ROLE },
+        set: { name: 'Test User', password: passwordHash, role: SEED_USER_ROLE, is_superadmin: true },
       })
       .returning({ id: users.id });
     if (!seedUser) throw new Error('failed to upsert seed user');
-    console.log(`  ✓ user ${SEED_USER_EMAIL} (password: ${SEED_USER_PASSWORD}, role: ${SEED_USER_ROLE})`);
+    console.log(`  ✓ user ${SEED_USER_EMAIL} (password: ${SEED_USER_PASSWORD}, role: ${SEED_USER_ROLE}, superadmin: true)`);
+
+    // Tenancy (MB-337) — hardcoded MNA workspace + the 3 roles, mirroring the
+    // migration's prod backfill so local dev matches staging/prod exactly.
+    await db
+      .insert(workspaces)
+      .values({ id: MNA_WORKSPACE_ID, name: 'MnA', slug: 'mna' })
+      .onConflictDoNothing({ target: workspaces.id });
+    await db
+      .insert(roles)
+      .values([
+        { id: ROLE_ADMIN_ID, name: 'admin' },
+        { id: ROLE_EDITOR_ID, name: 'editor' },
+        { id: ROLE_VIEWER_ID, name: 'viewer' },
+      ])
+      .onConflictDoNothing({ target: roles.id });
+    await db
+      .insert(userWorkspaces)
+      .values({ user_id: seedUser.id, workspace_id: MNA_WORKSPACE_ID, role_id: ROLE_EDITOR_ID, is_email_synced: true })
+      .onConflictDoUpdate({
+        target: [userWorkspaces.user_id, userWorkspaces.workspace_id],
+        set: { is_email_synced: true },
+      });
+    console.log('  ✓ MNA workspace + roles + seed user membership (is_email_synced=true — toggle it in admin portal to test)');
+
+    // Extra workspaces + test users (test2/test3/test4) — for exercising the
+    // workspace picker/switcher locally: test2 and test3 each have exactly
+    // one membership (auto-skip path), test4 has two (picker + switcher path).
+    await db
+      .insert(workspaces)
+      .values(SEED_EXTRA_WORKSPACES)
+      .onConflictDoNothing({ target: workspaces.id });
+
+    const extraUserIdByEmail = new Map<string, string>();
+    for (const u of SEED_EXTRA_USERS) {
+      const [row] = await db
+        .insert(users)
+        .values({ name: u.name, email: u.email, password: passwordHash, role: SEED_USER_ROLE })
+        .onConflictDoUpdate({
+          target: users.email,
+          set: { name: u.name, password: passwordHash, role: SEED_USER_ROLE },
+        })
+        .returning({ id: users.id });
+      if (row) extraUserIdByEmail.set(u.email, row.id);
+    }
+
+    for (const m of SEED_EXTRA_MEMBERSHIPS) {
+      const userId = extraUserIdByEmail.get(m.email);
+      if (!userId) continue;
+      await db
+        .insert(userWorkspaces)
+        .values({ user_id: userId, workspace_id: m.workspaceId, role_id: ROLE_EDITOR_ID })
+        .onConflictDoNothing({ target: [userWorkspaces.user_id, userWorkspaces.workspace_id] });
+    }
+    console.log(
+      `  ✓ ${SEED_EXTRA_WORKSPACES.length} extra workspaces + ${SEED_EXTRA_USERS.length} test users (password: ${SEED_USER_PASSWORD})`,
+    );
+    console.log('    test2@sqe.co.id -> Starhouse Prime VCC (1 workspace)');
+    console.log('    test3@sqe.co.id -> Togan VCC (1 workspace)');
+    console.log('    test4@sqe.co.id -> Togan VCC + Aeliana VCC (2 workspaces)');
 
     // Companies — clear prior seed rows (identified by entry_id range), re-insert.
-    // company_financials and user_company_favorites rows cascade on company delete.
+    // company_financials rows cascade on company delete.
     await db
       .delete(companies)
       .where(
@@ -2017,6 +2374,7 @@ async function main() {
           deal_size: c.deal_size ?? null,
           workflow_status: c.workflow_status ?? null,
           key_rationale: c.key_rationale ?? null,
+          workspace_id: MNA_WORKSPACE_ID,
         })
         .returning({ id: companies.id });
       if (!inserted) continue;
@@ -2025,6 +2383,7 @@ async function main() {
         await db.insert(companyFinancials).values(
           c.financials.map((f) => ({
             company_id: inserted.id,
+            workspace_id: MNA_WORKSPACE_ID,
             fiscal_year: f.fiscal_year,
             revenue_usd_mn: f.revenue_usd_mn ?? null,
             ebitda_usd_mn: f.ebitda_usd_mn ?? null,
@@ -2053,6 +2412,28 @@ async function main() {
         .where(eq(companies.id, id));
     }
     console.log(`  ✓ ${seedCompanies.length} companies (+ financials)`);
+
+    // Populate each extra workspace with its own companies, so switching
+    // workspaces actually shows different data (tenant isolation, not just
+    // an empty screen).
+    const insertedStarhouseCompanies = await insertCompaniesForWorkspace(
+      db,
+      TEST_WORKSPACE_2_ID,
+      starhouseCompanies,
+    );
+    const insertedToganCompanies = await insertCompaniesForWorkspace(
+      db,
+      TEST_WORKSPACE_3_ID,
+      toganCompanies,
+    );
+    const insertedAelianaCompanies = await insertCompaniesForWorkspace(
+      db,
+      TEST_WORKSPACE_4_ID,
+      aelianaCompanies,
+    );
+    console.log(
+      `  ✓ ${starhouseCompanies.length} companies in Starhouse Prime VCC, ${toganCompanies.length} in Togan VCC, ${aelianaCompanies.length} in Aeliana VCC`,
+    );
 
     // AI File Dump — seed a few processed files, including one matched to a
     // project-name-only company. Identified by distinctive file names.
@@ -2088,33 +2469,11 @@ async function main() {
           file_date: file.file_date,
           file_type: file.file_type,
           origin_email: false,
+          workspace_id: MNA_WORKSPACE_ID,
         };
       }),
     );
     console.log(`  ✓ ${seedAfdFiles.length} AI File Dump files`);
-
-    // Favorites — link the seed user to a subset of the seeded companies via the
-    // user_company_favorites join table (replaces the removed users.favorite_companies jsonb).
-    const favoriteCompanyIds = insertedCompanies
-      .filter((c) => SEED_FAVORITE_ENTRY_IDS.includes(c.entry_id))
-      .map((c) => c.id);
-    if (favoriteCompanyIds.length > 0) {
-      await db
-        .delete(userCompanyFavorites)
-        .where(
-          and(
-            eq(userCompanyFavorites.user_id, seedUser.id),
-            inArray(userCompanyFavorites.company_id, favoriteCompanyIds),
-          ),
-        );
-      await db.insert(userCompanyFavorites).values(
-        favoriteCompanyIds.map((company_id) => ({
-          user_id: seedUser.id,
-          company_id,
-        })),
-      );
-      console.log(`  ✓ ${favoriteCompanyIds.length} user_company_favorites for seed user`);
-    }
 
     // Investment thesis — single seed thesis, identified by title.
     await db
@@ -2122,7 +2481,7 @@ async function main() {
       .where(eq(investmentThesis.title, seedThesis.title));
     const [insertedThesis] = await db
       .insert(investmentThesis)
-      .values(seedThesis)
+      .values({ ...seedThesis, workspace_id: MNA_WORKSPACE_ID })
       .returning({ id: investmentThesis.id });
     console.log(`  ✓ investment_thesis "${seedThesis.title}"`);
 
@@ -2135,6 +2494,7 @@ async function main() {
       seedCriterias.map((c) => ({
         ...c,
         investment_thesis_id: insertedThesis.id,
+        workspace_id: MNA_WORKSPACE_ID,
       })),
     );
     console.log(`  ✓ ${seedCriterias.length} criterias`);
@@ -2180,7 +2540,26 @@ async function main() {
       source: 'manual',
     }));
 
-    await db.insert(correspondents).values(correspondentRows);
+    const insertedCorrespondents = await db
+      .insert(correspondents)
+      .values(correspondentRows)
+      .returning({ id: correspondents.id });
+
+    // Every seeded correspondent must be visible to MNA — the migration
+    // backfill only covered rows that existed at migration time, and this
+    // script deletes+reinserts seed correspondents on every run.
+    if (insertedCorrespondents.length > 0) {
+      await db
+        .insert(workspaceCorrespondents)
+        .values(
+          insertedCorrespondents.map((c) => ({
+            workspace_id: MNA_WORKSPACE_ID,
+            correspondent_id: c.id,
+            source: 'ingest' as const,
+          })),
+        )
+        .onConflictDoNothing();
+    }
     console.log(
       `  ✓ ${insertedEmployers.length} employers + ${correspondentRows.length} correspondents`,
     );
@@ -2217,7 +2596,11 @@ async function main() {
         .insert(topics)
         .values({ name: t.name, slug: slugify(t.name), is_deal_related: t.is_deal_related })
         .onConflictDoUpdate({
+          // Seed topics are all shared vocabulary (workspace_id stays NULL) —
+          // must match topics_name_global_key exactly, see
+          // 20260705000003_topics_workspace_id.sql.
           target: topics.name,
+          targetWhere: sql`workspace_id IS NULL`,
           set: {
             slug: slugify(t.name),
             is_deal_related: sql`${topics.is_deal_related} OR ${t.is_deal_related}`,
@@ -2278,6 +2661,7 @@ async function main() {
       for (const note of enrich.notes ?? []) {
         await db.insert(employerNotes).values({
           employer_id: employerId,
+          workspace_id: MNA_WORKSPACE_ID,
           content: note,
           author_user_id: teamUserIdByEmail.get('alvin.wobblebottom@sparklecapital.example') ?? null,
         });
@@ -2305,6 +2689,14 @@ async function main() {
       .delete(emails)
       .where(like(emails.message_id, `${AV_MID_PREFIX}%${AV_MID_SUFFIX}`));
     await db.delete(employers).where(eq(employers.normalized_name, AV_NORM));
+    // Wipe the matching raw_emails fixture (the ingest "source of truth" these
+    // analytics.emails rows claim to have come from) and its mbox_files parent.
+    await db
+      .delete(rawEmails)
+      .where(like(rawEmails.message_id, `${AV_MID_PREFIX}%${AV_MID_SUFFIX}`));
+    await db
+      .delete(mboxFiles)
+      .where(eq(mboxFiles.s3_key, 'seed/auto-vehicle.mbox'));
 
     const [avEmployer] = await db
       .insert(employers)
@@ -2350,6 +2742,18 @@ async function main() {
     const avCorrIdByEmail = new Map(
       insertedAvCorrespondents.map((r) => [r.email!.toLowerCase(), r.id]),
     );
+    if (insertedAvCorrespondents.length > 0) {
+      await db
+        .insert(workspaceCorrespondents)
+        .values(
+          insertedAvCorrespondents.map((c) => ({
+            workspace_id: MNA_WORKSPACE_ID,
+            correspondent_id: c.id,
+            source: 'ingest' as const,
+          })),
+        )
+        .onConflictDoNothing();
+    }
 
     const INTERNAL = { name: 'Wendy Wobble', email: 'wendy.wobble@sparklecapital.example' };
     const PIC = avContacts[0]!;
@@ -2418,6 +2822,73 @@ async function main() {
       },
     ];
 
+    // Backing raw_emails/mbox_files fixture — MB-337 CRM follow-up: the
+    // per-workspace marts (mart_crm/mart_mom/mart_topics) attribute an email
+    // to a workspace via analytics.emails.message_id -> raw_emails.message_id
+    // -> raw_emails.custodian_email -> a synced user_workspaces row (see
+    // data-pipeline/migrations/20260705000004_workspace_scoped_marts.sql).
+    // Without a matching raw_emails row, these seeded emails are invisible to
+    // that bridge and every per-workspace KPI shows 0 for AUTO VEHICLE.
+    // Wendy Wobble (the internal party on this thread) is the custodian
+    // whose mailbox "received" these emails.
+    const [avMboxFile] = await db
+      .insert(mboxFiles)
+      .values({
+        source: 'seed',
+        s3_bucket: 'seed-fixtures',
+        s3_key: 'seed/auto-vehicle.mbox',
+        size_bytes: 0,
+        custodian_email: INTERNAL.email,
+        window_start: new Date(avBase).toISOString(),
+        window_end: new Date(avBase + 30 * dayMs).toISOString(),
+        mode: 'incremental',
+        parse_status: 'parsed',
+        parsed_at: new Date().toISOString(),
+        raw_email_count: avMails.length,
+      })
+      .returning({ id: mboxFiles.id });
+    if (!avMboxFile) throw new Error('failed to insert AUTO VEHICLE mbox_files fixture');
+
+    const [wendyUser] = await db
+      .insert(users)
+      .values({ name: INTERNAL.name, email: INTERNAL.email, password: passwordHash })
+      .onConflictDoUpdate({
+        target: users.email,
+        set: { name: INTERNAL.name },
+      })
+      .returning({ id: users.id });
+    if (!wendyUser) throw new Error('failed to upsert Wendy Wobble (AUTO VEHICLE custodian)');
+    await db
+      .insert(userWorkspaces)
+      .values({
+        user_id: wendyUser.id,
+        workspace_id: MNA_WORKSPACE_ID,
+        role_id: ROLE_EDITOR_ID,
+        is_email_synced: true,
+      })
+      .onConflictDoUpdate({
+        target: [userWorkspaces.user_id, userWorkspaces.workspace_id],
+        set: { is_email_synced: true },
+      });
+
+    const avRawEmailRows = avMails.map((m) => ({
+      file_id: avMboxFile.id,
+      custodian_email: INTERNAL.email,
+      message_id: `${AV_MID_PREFIX}${m.idx}${AV_MID_SUFFIX}`,
+      from_address: m.from.email.toLowerCase(),
+      from_display_name: m.from.name,
+      to_addresses: m.to.map((r) => r.email.toLowerCase()),
+      cc_addresses: (m.cc ?? []).map((r) => r.email.toLowerCase()),
+      subject: m.subject,
+      body_text: m.body,
+      sent_at: new Date(avBase + m.daysOffset * dayMs).toISOString(),
+      ingest_status: 'ingested',
+      ingested_at: new Date().toISOString(),
+      llm_status: 'enriched',
+      llm_enriched_at: new Date().toISOString(),
+    }));
+    await db.insert(rawEmails).values(avRawEmailRows);
+
     const avEmailRows = avMails.map((m) => ({
       message_id: `${AV_MID_PREFIX}${m.idx}${AV_MID_SUFFIX}`,
       employer_id: avEmployer.id,
@@ -2473,8 +2944,708 @@ async function main() {
       await db.insert(emailParticipants).values(avParticipantRows);
     }
     console.log(
-      `  ✓ AUTO VEHICLE: 1 employer + ${insertedAvCorrespondents.length} mbox correspondents + ${insertedAvEmails.length} emails + ${avParticipantRows.length} participants`,
+      `  ✓ AUTO VEHICLE: 1 employer + ${insertedAvCorrespondents.length} mbox correspondents + ${insertedAvEmails.length} emails + ${avParticipantRows.length} participants + ${avRawEmailRows.length} raw_emails (custodian: ${INTERNAL.email}, synced to MNA)`,
     );
+
+    // ── Starhouse Prime VCC — CRM workspace-isolation fixture ─────────────────
+    // MB-337 CRM follow-up. Layers Starhouse's own private CRM data onto the
+    // SAME shared "Golden Sacks" employer MNA already has correspondents/
+    // notes/topics for — demonstrates that employer *identity* stays shared
+    // while contacts/notes/topics/related-companies/KPIs are workspace-scoped.
+    // Everything here is wiped and reinserted by stable identifiers, same
+    // idempotency discipline as the AUTO VEHICLE fixture above.
+    const isolationEmployerId = firmIdByName.get(normalize('Golden Sacks'));
+    if (isolationEmployerId) {
+      const STARHOUSE_CONTACT_EMAIL = 'priya.kapoor@starhouseprime.example';
+      const STARHOUSE_MID_PREFIX = 'seed-starhouse-gs-';
+      const STARHOUSE_MID_SUFFIX = '@seed.local';
+      const test2UserId = extraUserIdByEmail.get('test2@sqe.co.id');
+
+      // Wipe prior fixture rows.
+      await db
+        .delete(emails)
+        .where(like(emails.message_id, `${STARHOUSE_MID_PREFIX}%${STARHOUSE_MID_SUFFIX}`));
+      await db
+        .delete(rawEmails)
+        .where(like(rawEmails.message_id, `${STARHOUSE_MID_PREFIX}%${STARHOUSE_MID_SUFFIX}`));
+      await db
+        .delete(mboxFiles)
+        .where(eq(mboxFiles.s3_key, 'seed/starhouse-golden-sacks.mbox'));
+      await db
+        .delete(employerNotes)
+        .where(
+          and(
+            eq(employerNotes.employer_id, isolationEmployerId),
+            eq(employerNotes.workspace_id, TEST_WORKSPACE_2_ID),
+          ),
+        );
+      await db
+        .delete(employerRelatedCompanies)
+        .where(
+          and(
+            eq(employerRelatedCompanies.employer_id, isolationEmployerId),
+            eq(employerRelatedCompanies.workspace_id, TEST_WORKSPACE_2_ID),
+          ),
+        );
+      await db.delete(correspondents).where(eq(correspondents.email, STARHOUSE_CONTACT_EMAIL));
+
+      // Private contact: another banker at Golden Sacks that only Starhouse's
+      // deal team has a relationship with — MNA must never see her.
+      const [priya] = await db
+        .insert(correspondents)
+        .values({
+          employer_id: isolationEmployerId,
+          name: 'Priya Kapoor',
+          email: STARHOUSE_CONTACT_EMAIL,
+          title: 'Principal',
+          type: 'external',
+          is_primary: false,
+          source: 'manual',
+          origin: 'manual',
+        })
+        .returning({ id: correspondents.id });
+      if (priya) {
+        await db
+          .insert(workspaceCorrespondents)
+          .values({ workspace_id: TEST_WORKSPACE_2_ID, correspondent_id: priya.id, source: 'manual' })
+          .onConflictDoNothing();
+      }
+
+      // Private note — must not appear in MNA's notes list for Golden Sacks.
+      await db.insert(employerNotes).values({
+        employer_id: isolationEmployerId,
+        workspace_id: TEST_WORKSPACE_2_ID,
+        content:
+          'Starhouse-only: Priya flagged Golden Sacks for a potential co-investment on Project Comet. Do not share outside Starhouse yet.',
+      });
+
+      // Private topic + tag — must not appear in MNA's topic list (global or
+      // per-employer) for Golden Sacks.
+      const [starhouseTopic] = await db
+        .insert(topics)
+        .values({
+          name: 'Project Comet',
+          slug: 'project-comet',
+          workspace_id: TEST_WORKSPACE_2_ID,
+          is_deal_related: true,
+        })
+        .onConflictDoUpdate({
+          target: [topics.workspace_id, topics.name],
+          targetWhere: sql`workspace_id IS NOT NULL`,
+          set: { slug: 'project-comet' },
+        })
+        .returning({ id: topics.id });
+      if (starhouseTopic) {
+        await db
+          .insert(employerTopics)
+          .values({
+            employer_id: isolationEmployerId,
+            topic_id: starhouseTopic.id,
+            source: 'manual',
+            is_highlight: true,
+          })
+          .onConflictDoNothing();
+      }
+
+      // Private related-company link to one of Starhouse's own companies —
+      // must not appear in MNA's related-companies tab for Golden Sacks.
+      const nordfjord = insertedStarhouseCompanies.find((c) => c.entry_id === 9100);
+      if (nordfjord) {
+        await db.insert(employerRelatedCompanies).values({
+          employer_id: isolationEmployerId,
+          workspace_id: TEST_WORKSPACE_2_ID,
+          company_id: nordfjord.id,
+          company_name: 'Nordfjord Robotics',
+          normalized_company_name: normalizeCompanyName('Nordfjord Robotics'),
+          source: 'manual',
+          reason: 'manual',
+          reason_summary: 'Added manually',
+          confidence: 'high',
+          evidence_count: 0,
+        });
+      }
+
+      // Separate mailbox history: test2 (Starhouse's own user) is the synced
+      // custodian, so mart_crm/mart_mom show Starhouse's OWN email KPIs for
+      // Golden Sacks — distinct from MNA's numbers for the same employer.
+      if (test2UserId && priya) {
+        await db
+          .insert(userWorkspaces)
+          .values({
+            user_id: test2UserId,
+            workspace_id: TEST_WORKSPACE_2_ID,
+            role_id: ROLE_EDITOR_ID,
+            is_email_synced: true,
+          })
+          .onConflictDoUpdate({
+            target: [userWorkspaces.user_id, userWorkspaces.workspace_id],
+            set: { is_email_synced: true },
+          });
+
+        const shBase = new Date('2026-04-15T09:00:00Z').getTime();
+        const shMails = [
+          {
+            idx: 1,
+            subject: 'Golden Sacks — Introduction (Starhouse)',
+            body: 'Hi team, introducing myself as your Starhouse contact at Golden Sacks. Keen to discuss Project Comet. — Priya',
+            from: { name: 'Priya Kapoor', email: STARHOUSE_CONTACT_EMAIL, correspondentId: priya.id },
+            to: { name: 'Test User 2', email: 'test2@sqe.co.id' },
+            direction: 'inbound' as const,
+            daysOffset: 0,
+          },
+          {
+            idx: 2,
+            subject: 'RE: Golden Sacks — Introduction (Starhouse)',
+            body: 'Hi Priya, thanks for reaching out — happy to set up a call this week. — Starhouse',
+            from: { name: 'Test User 2', email: 'test2@sqe.co.id', correspondentId: null },
+            to: { name: 'Priya Kapoor', email: STARHOUSE_CONTACT_EMAIL, correspondentId: priya.id },
+            direction: 'outbound' as const,
+            daysOffset: 2,
+          },
+        ];
+
+        const [shMboxFile] = await db
+          .insert(mboxFiles)
+          .values({
+            source: 'seed',
+            s3_bucket: 'seed-fixtures',
+            s3_key: 'seed/starhouse-golden-sacks.mbox',
+            size_bytes: 0,
+            custodian_email: 'test2@sqe.co.id',
+            window_start: new Date(shBase).toISOString(),
+            window_end: new Date(shBase + 7 * dayMs).toISOString(),
+            mode: 'incremental',
+            parse_status: 'parsed',
+            parsed_at: new Date().toISOString(),
+            raw_email_count: shMails.length,
+          })
+          .returning({ id: mboxFiles.id });
+
+        if (shMboxFile) {
+          await db.insert(rawEmails).values(
+            shMails.map((m) => ({
+              file_id: shMboxFile.id,
+              custodian_email: 'test2@sqe.co.id',
+              message_id: `${STARHOUSE_MID_PREFIX}${m.idx}${STARHOUSE_MID_SUFFIX}`,
+              from_address: m.from.email.toLowerCase(),
+              from_display_name: m.from.name,
+              to_addresses: [m.to.email.toLowerCase()],
+              cc_addresses: [],
+              subject: m.subject,
+              body_text: m.body,
+              sent_at: new Date(shBase + m.daysOffset * dayMs).toISOString(),
+              ingest_status: 'ingested',
+              ingested_at: new Date().toISOString(),
+              llm_status: 'enriched',
+              llm_enriched_at: new Date().toISOString(),
+            })),
+          );
+
+          const shEmailRows = shMails.map((m) => ({
+            message_id: `${STARHOUSE_MID_PREFIX}${m.idx}${STARHOUSE_MID_SUFFIX}`,
+            employer_id: isolationEmployerId,
+            from_address: m.from.email.toLowerCase(),
+            from_display_name: m.from.name,
+            subject: m.subject,
+            body_text: m.body,
+            sent_at: new Date(shBase + m.daysOffset * dayMs).toISOString(),
+            direction: m.direction,
+            filter_status: 'processed',
+            processed_at: new Date().toISOString(),
+          }));
+          const insertedShEmails = await db
+            .insert(emails)
+            .values(shEmailRows)
+            .returning({ id: emails.id, message_id: emails.message_id });
+          const shEmailIdByMid = new Map(insertedShEmails.map((r) => [r.message_id!, r.id]));
+
+          const shParticipantRows: (typeof emailParticipants.$inferInsert)[] = [];
+          for (const m of shMails) {
+            const mid = `${STARHOUSE_MID_PREFIX}${m.idx}${STARHOUSE_MID_SUFFIX}`;
+            const emailId = shEmailIdByMid.get(mid);
+            if (!emailId) continue;
+            shParticipantRows.push({
+              email_id: emailId,
+              correspondent_id: m.from.correspondentId,
+              address: m.from.email.toLowerCase(),
+              display_name: m.from.name,
+              role: 'from',
+            });
+            shParticipantRows.push({
+              email_id: emailId,
+              correspondent_id: m.to.correspondentId,
+              address: m.to.email.toLowerCase(),
+              display_name: m.to.name,
+              role: 'to',
+            });
+          }
+          if (shParticipantRows.length > 0) {
+            await db.insert(emailParticipants).values(shParticipantRows);
+          }
+          console.log(
+            `  ✓ Starhouse isolation fixture: 1 private contact + 1 private note + 1 private topic + 1 private related-company + ${insertedShEmails.length} emails (custodian: test2@sqe.co.id, synced to Starhouse Prime VCC)`,
+          );
+        }
+      }
+    }
+
+    // ── Togan VCC — CRM workspace-isolation fixture ───────────────────────────
+    // Same MB-337 demonstration as Starhouse above, layered onto the shared
+    // "JP Organ" employer instead of "Golden Sacks" so the two fixtures don't
+    // collide. test3 and test4 both belong to Togan VCC, so this also proves
+    // workspace-scoped (not user-scoped) CRM data: either user sees it while
+    // in the Togan workspace.
+    const toganIsolationEmployerId = firmIdByName.get(normalize('JP Organ'));
+    if (toganIsolationEmployerId) {
+      const TOGAN_CONTACT_EMAIL = 'deniz.aydin@togan-vcc.example';
+      const TOGAN_MID_PREFIX = 'seed-togan-jp-';
+      const TOGAN_MID_SUFFIX = '@seed.local';
+      const test3UserId = extraUserIdByEmail.get('test3@sqe.co.id');
+
+      await db
+        .delete(emails)
+        .where(like(emails.message_id, `${TOGAN_MID_PREFIX}%${TOGAN_MID_SUFFIX}`));
+      await db
+        .delete(rawEmails)
+        .where(like(rawEmails.message_id, `${TOGAN_MID_PREFIX}%${TOGAN_MID_SUFFIX}`));
+      await db
+        .delete(mboxFiles)
+        .where(eq(mboxFiles.s3_key, 'seed/togan-jp-organ.mbox'));
+      await db
+        .delete(employerNotes)
+        .where(
+          and(
+            eq(employerNotes.employer_id, toganIsolationEmployerId),
+            eq(employerNotes.workspace_id, TEST_WORKSPACE_3_ID),
+          ),
+        );
+      await db
+        .delete(employerRelatedCompanies)
+        .where(
+          and(
+            eq(employerRelatedCompanies.employer_id, toganIsolationEmployerId),
+            eq(employerRelatedCompanies.workspace_id, TEST_WORKSPACE_3_ID),
+          ),
+        );
+      await db.delete(correspondents).where(eq(correspondents.email, TOGAN_CONTACT_EMAIL));
+
+      const [deniz] = await db
+        .insert(correspondents)
+        .values({
+          employer_id: toganIsolationEmployerId,
+          name: 'Deniz Aydın',
+          email: TOGAN_CONTACT_EMAIL,
+          title: 'Managing Director',
+          type: 'external',
+          is_primary: false,
+          source: 'manual',
+          origin: 'manual',
+        })
+        .returning({ id: correspondents.id });
+      if (deniz) {
+        await db
+          .insert(workspaceCorrespondents)
+          .values({ workspace_id: TEST_WORKSPACE_3_ID, correspondent_id: deniz.id, source: 'manual' })
+          .onConflictDoNothing();
+      }
+
+      await db.insert(employerNotes).values({
+        employer_id: toganIsolationEmployerId,
+        workspace_id: TEST_WORKSPACE_3_ID,
+        content:
+          'Togan-only: Deniz flagged JP Organ for a co-investment lead on Project Bosphorus. Do not share outside Togan yet.',
+      });
+
+      const [toganTopic] = await db
+        .insert(topics)
+        .values({
+          name: 'Project Bosphorus',
+          slug: 'project-bosphorus',
+          workspace_id: TEST_WORKSPACE_3_ID,
+          is_deal_related: true,
+        })
+        .onConflictDoUpdate({
+          target: [topics.workspace_id, topics.name],
+          targetWhere: sql`workspace_id IS NOT NULL`,
+          set: { slug: 'project-bosphorus' },
+        })
+        .returning({ id: topics.id });
+      if (toganTopic) {
+        await db
+          .insert(employerTopics)
+          .values({
+            employer_id: toganIsolationEmployerId,
+            topic_id: toganTopic.id,
+            source: 'manual',
+            is_highlight: true,
+          })
+          .onConflictDoNothing();
+      }
+
+      const kestane = insertedToganCompanies.find((c) => c.entry_id === 9110);
+      if (kestane) {
+        await db.insert(employerRelatedCompanies).values({
+          employer_id: toganIsolationEmployerId,
+          workspace_id: TEST_WORKSPACE_3_ID,
+          company_id: kestane.id,
+          company_name: 'Kestane Agri Processing',
+          normalized_company_name: normalizeCompanyName('Kestane Agri Processing'),
+          source: 'manual',
+          reason: 'manual',
+          reason_summary: 'Added manually',
+          confidence: 'high',
+          evidence_count: 0,
+        });
+      }
+
+      if (test3UserId && deniz) {
+        await db
+          .insert(userWorkspaces)
+          .values({
+            user_id: test3UserId,
+            workspace_id: TEST_WORKSPACE_3_ID,
+            role_id: ROLE_EDITOR_ID,
+            is_email_synced: true,
+          })
+          .onConflictDoUpdate({
+            target: [userWorkspaces.user_id, userWorkspaces.workspace_id],
+            set: { is_email_synced: true },
+          });
+
+        const tgBase = new Date('2026-04-20T09:00:00Z').getTime();
+        const tgMails = [
+          {
+            idx: 1,
+            subject: 'JP Organ — Introduction (Togan)',
+            body: 'Hi team, introducing myself as your Togan contact at JP Organ. Keen to discuss Project Bosphorus. — Deniz',
+            from: { name: 'Deniz Aydın', email: TOGAN_CONTACT_EMAIL, correspondentId: deniz.id },
+            to: { name: 'Test User 3', email: 'test3@sqe.co.id' },
+            direction: 'inbound' as const,
+            daysOffset: 0,
+          },
+          {
+            idx: 2,
+            subject: 'RE: JP Organ — Introduction (Togan)',
+            body: 'Hi Deniz, thanks for reaching out — happy to set up a call this week. — Togan',
+            from: { name: 'Test User 3', email: 'test3@sqe.co.id', correspondentId: null },
+            to: { name: 'Deniz Aydın', email: TOGAN_CONTACT_EMAIL, correspondentId: deniz.id },
+            direction: 'outbound' as const,
+            daysOffset: 2,
+          },
+        ];
+
+        const [tgMboxFile] = await db
+          .insert(mboxFiles)
+          .values({
+            source: 'seed',
+            s3_bucket: 'seed-fixtures',
+            s3_key: 'seed/togan-jp-organ.mbox',
+            size_bytes: 0,
+            custodian_email: 'test3@sqe.co.id',
+            window_start: new Date(tgBase).toISOString(),
+            window_end: new Date(tgBase + 7 * dayMs).toISOString(),
+            mode: 'incremental',
+            parse_status: 'parsed',
+            parsed_at: new Date().toISOString(),
+            raw_email_count: tgMails.length,
+          })
+          .returning({ id: mboxFiles.id });
+
+        if (tgMboxFile) {
+          await db.insert(rawEmails).values(
+            tgMails.map((m) => ({
+              file_id: tgMboxFile.id,
+              custodian_email: 'test3@sqe.co.id',
+              message_id: `${TOGAN_MID_PREFIX}${m.idx}${TOGAN_MID_SUFFIX}`,
+              from_address: m.from.email.toLowerCase(),
+              from_display_name: m.from.name,
+              to_addresses: [m.to.email.toLowerCase()],
+              cc_addresses: [],
+              subject: m.subject,
+              body_text: m.body,
+              sent_at: new Date(tgBase + m.daysOffset * dayMs).toISOString(),
+              ingest_status: 'ingested',
+              ingested_at: new Date().toISOString(),
+              llm_status: 'enriched',
+              llm_enriched_at: new Date().toISOString(),
+            })),
+          );
+
+          const tgEmailRows = tgMails.map((m) => ({
+            message_id: `${TOGAN_MID_PREFIX}${m.idx}${TOGAN_MID_SUFFIX}`,
+            employer_id: toganIsolationEmployerId,
+            from_address: m.from.email.toLowerCase(),
+            from_display_name: m.from.name,
+            subject: m.subject,
+            body_text: m.body,
+            sent_at: new Date(tgBase + m.daysOffset * dayMs).toISOString(),
+            direction: m.direction,
+            filter_status: 'processed',
+            processed_at: new Date().toISOString(),
+          }));
+          const insertedTgEmails = await db
+            .insert(emails)
+            .values(tgEmailRows)
+            .returning({ id: emails.id, message_id: emails.message_id });
+          const tgEmailIdByMid = new Map(insertedTgEmails.map((r) => [r.message_id!, r.id]));
+
+          const tgParticipantRows: (typeof emailParticipants.$inferInsert)[] = [];
+          for (const m of tgMails) {
+            const mid = `${TOGAN_MID_PREFIX}${m.idx}${TOGAN_MID_SUFFIX}`;
+            const emailId = tgEmailIdByMid.get(mid);
+            if (!emailId) continue;
+            tgParticipantRows.push({
+              email_id: emailId,
+              correspondent_id: m.from.correspondentId,
+              address: m.from.email.toLowerCase(),
+              display_name: m.from.name,
+              role: 'from',
+            });
+            tgParticipantRows.push({
+              email_id: emailId,
+              correspondent_id: m.to.correspondentId,
+              address: m.to.email.toLowerCase(),
+              display_name: m.to.name,
+              role: 'to',
+            });
+          }
+          if (tgParticipantRows.length > 0) {
+            await db.insert(emailParticipants).values(tgParticipantRows);
+          }
+          console.log(
+            `  ✓ Togan isolation fixture: 1 private contact + 1 private note + 1 private topic + 1 private related-company + ${insertedTgEmails.length} emails (custodian: test3@sqe.co.id, synced to Togan VCC)`,
+          );
+        }
+      }
+    }
+
+    // ── Aeliana VCC — CRM workspace-isolation fixture ─────────────────────────
+    // Same pattern again, layered onto the shared "Credit Sweets" employer.
+    // test4's second membership (alongside Togan VCC) — exercises the
+    // workspace switcher with genuinely different CRM data per workspace.
+    const aelianaIsolationEmployerId = firmIdByName.get(normalize('Credit Sweets'));
+    if (aelianaIsolationEmployerId) {
+      const AELIANA_CONTACT_EMAIL = 'elena.papadopoulos@aeliana-vcc.example';
+      const AELIANA_MID_PREFIX = 'seed-aeliana-cs-';
+      const AELIANA_MID_SUFFIX = '@seed.local';
+      const test4UserId = extraUserIdByEmail.get('test4@sqe.co.id');
+
+      await db
+        .delete(emails)
+        .where(like(emails.message_id, `${AELIANA_MID_PREFIX}%${AELIANA_MID_SUFFIX}`));
+      await db
+        .delete(rawEmails)
+        .where(like(rawEmails.message_id, `${AELIANA_MID_PREFIX}%${AELIANA_MID_SUFFIX}`));
+      await db
+        .delete(mboxFiles)
+        .where(eq(mboxFiles.s3_key, 'seed/aeliana-credit-sweets.mbox'));
+      await db
+        .delete(employerNotes)
+        .where(
+          and(
+            eq(employerNotes.employer_id, aelianaIsolationEmployerId),
+            eq(employerNotes.workspace_id, TEST_WORKSPACE_4_ID),
+          ),
+        );
+      await db
+        .delete(employerRelatedCompanies)
+        .where(
+          and(
+            eq(employerRelatedCompanies.employer_id, aelianaIsolationEmployerId),
+            eq(employerRelatedCompanies.workspace_id, TEST_WORKSPACE_4_ID),
+          ),
+        );
+      await db.delete(correspondents).where(eq(correspondents.email, AELIANA_CONTACT_EMAIL));
+
+      const [elena] = await db
+        .insert(correspondents)
+        .values({
+          employer_id: aelianaIsolationEmployerId,
+          name: 'Elena Papadopoulos',
+          email: AELIANA_CONTACT_EMAIL,
+          title: 'Partner',
+          type: 'external',
+          is_primary: false,
+          source: 'manual',
+          origin: 'manual',
+        })
+        .returning({ id: correspondents.id });
+      if (elena) {
+        await db
+          .insert(workspaceCorrespondents)
+          .values({ workspace_id: TEST_WORKSPACE_4_ID, correspondent_id: elena.id, source: 'manual' })
+          .onConflictDoNothing();
+      }
+
+      await db.insert(employerNotes).values({
+        employer_id: aelianaIsolationEmployerId,
+        workspace_id: TEST_WORKSPACE_4_ID,
+        content:
+          'Aeliana-only: Elena connected us to a private credit desk at Credit Sweets for Project Meridian financing. Keep within Aeliana team.',
+      });
+
+      const [aelianaTopic] = await db
+        .insert(topics)
+        .values({
+          name: 'Project Meridian',
+          slug: 'project-meridian',
+          workspace_id: TEST_WORKSPACE_4_ID,
+          is_deal_related: true,
+        })
+        .onConflictDoUpdate({
+          target: [topics.workspace_id, topics.name],
+          targetWhere: sql`workspace_id IS NOT NULL`,
+          set: { slug: 'project-meridian' },
+        })
+        .returning({ id: topics.id });
+      if (aelianaTopic) {
+        await db
+          .insert(employerTopics)
+          .values({
+            employer_id: aelianaIsolationEmployerId,
+            topic_id: aelianaTopic.id,
+            source: 'manual',
+            is_highlight: true,
+          })
+          .onConflictDoNothing();
+      }
+
+      const meridian = insertedAelianaCompanies.find((c) => c.entry_id === 9120);
+      if (meridian) {
+        await db.insert(employerRelatedCompanies).values({
+          employer_id: aelianaIsolationEmployerId,
+          workspace_id: TEST_WORKSPACE_4_ID,
+          company_id: meridian.id,
+          company_name: 'Meridian Subsea Cables',
+          normalized_company_name: normalizeCompanyName('Meridian Subsea Cables'),
+          source: 'manual',
+          reason: 'manual',
+          reason_summary: 'Added manually',
+          confidence: 'high',
+          evidence_count: 0,
+        });
+      }
+
+      if (test4UserId && elena) {
+        await db
+          .insert(userWorkspaces)
+          .values({
+            user_id: test4UserId,
+            workspace_id: TEST_WORKSPACE_4_ID,
+            role_id: ROLE_EDITOR_ID,
+            is_email_synced: true,
+          })
+          .onConflictDoUpdate({
+            target: [userWorkspaces.user_id, userWorkspaces.workspace_id],
+            set: { is_email_synced: true },
+          });
+
+        const aeBase = new Date('2026-04-25T09:00:00Z').getTime();
+        const aeMails = [
+          {
+            idx: 1,
+            subject: 'Credit Sweets — Introduction (Aeliana)',
+            body: 'Hi team, introducing myself as your Aeliana contact at Credit Sweets. Keen to discuss Project Meridian financing. — Elena',
+            from: { name: 'Elena Papadopoulos', email: AELIANA_CONTACT_EMAIL, correspondentId: elena.id },
+            to: { name: 'Test User 4', email: 'test4@sqe.co.id' },
+            direction: 'inbound' as const,
+            daysOffset: 0,
+          },
+          {
+            idx: 2,
+            subject: 'RE: Credit Sweets — Introduction (Aeliana)',
+            body: 'Hi Elena, thanks for reaching out — happy to set up a call this week. — Aeliana',
+            from: { name: 'Test User 4', email: 'test4@sqe.co.id', correspondentId: null },
+            to: { name: 'Elena Papadopoulos', email: AELIANA_CONTACT_EMAIL, correspondentId: elena.id },
+            direction: 'outbound' as const,
+            daysOffset: 2,
+          },
+        ];
+
+        const [aeMboxFile] = await db
+          .insert(mboxFiles)
+          .values({
+            source: 'seed',
+            s3_bucket: 'seed-fixtures',
+            s3_key: 'seed/aeliana-credit-sweets.mbox',
+            size_bytes: 0,
+            custodian_email: 'test4@sqe.co.id',
+            window_start: new Date(aeBase).toISOString(),
+            window_end: new Date(aeBase + 7 * dayMs).toISOString(),
+            mode: 'incremental',
+            parse_status: 'parsed',
+            parsed_at: new Date().toISOString(),
+            raw_email_count: aeMails.length,
+          })
+          .returning({ id: mboxFiles.id });
+
+        if (aeMboxFile) {
+          await db.insert(rawEmails).values(
+            aeMails.map((m) => ({
+              file_id: aeMboxFile.id,
+              custodian_email: 'test4@sqe.co.id',
+              message_id: `${AELIANA_MID_PREFIX}${m.idx}${AELIANA_MID_SUFFIX}`,
+              from_address: m.from.email.toLowerCase(),
+              from_display_name: m.from.name,
+              to_addresses: [m.to.email.toLowerCase()],
+              cc_addresses: [],
+              subject: m.subject,
+              body_text: m.body,
+              sent_at: new Date(aeBase + m.daysOffset * dayMs).toISOString(),
+              ingest_status: 'ingested',
+              ingested_at: new Date().toISOString(),
+              llm_status: 'enriched',
+              llm_enriched_at: new Date().toISOString(),
+            })),
+          );
+
+          const aeEmailRows = aeMails.map((m) => ({
+            message_id: `${AELIANA_MID_PREFIX}${m.idx}${AELIANA_MID_SUFFIX}`,
+            employer_id: aelianaIsolationEmployerId,
+            from_address: m.from.email.toLowerCase(),
+            from_display_name: m.from.name,
+            subject: m.subject,
+            body_text: m.body,
+            sent_at: new Date(aeBase + m.daysOffset * dayMs).toISOString(),
+            direction: m.direction,
+            filter_status: 'processed',
+            processed_at: new Date().toISOString(),
+          }));
+          const insertedAeEmails = await db
+            .insert(emails)
+            .values(aeEmailRows)
+            .returning({ id: emails.id, message_id: emails.message_id });
+          const aeEmailIdByMid = new Map(insertedAeEmails.map((r) => [r.message_id!, r.id]));
+
+          const aeParticipantRows: (typeof emailParticipants.$inferInsert)[] = [];
+          for (const m of aeMails) {
+            const mid = `${AELIANA_MID_PREFIX}${m.idx}${AELIANA_MID_SUFFIX}`;
+            const emailId = aeEmailIdByMid.get(mid);
+            if (!emailId) continue;
+            aeParticipantRows.push({
+              email_id: emailId,
+              correspondent_id: m.from.correspondentId,
+              address: m.from.email.toLowerCase(),
+              display_name: m.from.name,
+              role: 'from',
+            });
+            aeParticipantRows.push({
+              email_id: emailId,
+              correspondent_id: m.to.correspondentId,
+              address: m.to.email.toLowerCase(),
+              display_name: m.to.name,
+              role: 'to',
+            });
+          }
+          if (aeParticipantRows.length > 0) {
+            await db.insert(emailParticipants).values(aeParticipantRows);
+          }
+          console.log(
+            `  ✓ Aeliana isolation fixture: 1 private contact + 1 private note + 1 private topic + 1 private related-company + ${insertedAeEmails.length} emails (custodian: test4@sqe.co.id, synced to Aeliana VCC)`,
+          );
+        }
+      }
+    }
 
     console.log('done.');
   } finally {

@@ -1,4 +1,5 @@
 import { AiWorkforceQueueRepository } from '@/lib/repositories';
+import { NO_ACTIVE_WORKSPACE_ID } from '@/lib/constants';
 import type { DbClient } from '@/lib/repositories';
 import { triggerWorkflowForRun } from './workflowTrigger';
 
@@ -19,7 +20,12 @@ export type DispatchResult =
  * or outcome='empty' — both benign.
  */
 export async function dispatcherTick(db: DbClient): Promise<DispatchResult> {
-  const queueRepo = new AiWorkforceQueueRepository(db);
+  // NO_ACTIVE_WORKSPACE_ID is a placeholder, not a scope: the constructor
+  // requires a workspaceId, but hasRunning/claimNextRunnable are the MB-147
+  // queue-mechanics surface, which is deliberately workspace-agnostic (one
+  // shared worker queue across every workspace — see the repo's constructor
+  // doc comment). This tick never touches the workspace-scoped CRUD surface.
+  const queueRepo = new AiWorkforceQueueRepository(db, NO_ACTIVE_WORKSPACE_ID);
 
   // Fast precheck without acquiring the lock — avoids txn churn on the common
   // case where nothing is runnable. The advisory lock inside claimNextRunnable
@@ -68,7 +74,8 @@ export async function reapStuckRuns(
   const now = options.now ?? (() => new Date());
   const cutoff = new Date(now().getTime() - stalenessSeconds * 1000).toISOString();
 
-  const queueRepo = new AiWorkforceQueueRepository(db);
+  // Same placeholder as dispatcherTick — findStuckRunning is workspace-agnostic.
+  const queueRepo = new AiWorkforceQueueRepository(db, NO_ACTIVE_WORKSPACE_ID);
   const stuck = await queueRepo.findStuckRunning(cutoff);
 
   const reaped: string[] = [];

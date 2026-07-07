@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createDb } from '@/lib/server/db';
+import { getActiveWorkspaceId } from '@/lib/workspace';
 import { createContainer } from '@/lib/services';
 import { EmployerNotFoundError } from '@/lib/services/crmService';
 
@@ -11,7 +12,7 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
   try {
     const { id } = await ctx.params;
     const db = createDb();
-    const { crmService } = createContainer(db);
+    const { crmService } = createContainer(db, await getActiveWorkspaceId());
     const data = await crmService.getEmployerDetail(id);
     return NextResponse.json({ data });
   } catch (err) {
@@ -31,7 +32,7 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
     const { id } = await ctx.params;
     const body = await req.json();
     const db = createDb();
-    const { crmService } = createContainer(db);
+    const { crmService } = createContainer(db, await getActiveWorkspaceId());
     const data = await crmService.updateEmployer(id, body);
     return NextResponse.json({ data });
   } catch (err) {
@@ -50,7 +51,7 @@ export async function DELETE(_req: NextRequest, ctx: Ctx) {
   try {
     const { id } = await ctx.params;
     const db = createDb();
-    const { crmService } = createContainer(db);
+    const { crmService } = createContainer(db, await getActiveWorkspaceId());
     await crmService.deleteEmployer(id);
     return NextResponse.json({ data: { ok: true } });
   } catch (err) {

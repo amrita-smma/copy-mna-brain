@@ -29,7 +29,7 @@ describe('RecentFileRepository', () => {
       values: vi.fn().mockReturnThis(),
       onConflictDoUpdate: vi.fn(),
     };
-    repo = new RecentFileRepository(mockDb as never);
+    repo = new RecentFileRepository(mockDb as never, 'workspace-1');
   });
 
   it('recordOpen upserts on the (user_id, file_key) conflict target', async () => {
@@ -41,6 +41,7 @@ describe('RecentFileRepository', () => {
       user_id: 'u1',
       file_name: 'deck.pptx',
       file_key: 'deals/abc/deck.pptx',
+      workspace_id: 'workspace-1',
     });
     expect(mockDb.onConflictDoUpdate).toHaveBeenCalledTimes(1);
     const arg = mockDb.onConflictDoUpdate.mock.calls[0][0];

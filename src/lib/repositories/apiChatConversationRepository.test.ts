@@ -31,7 +31,7 @@ describe('ApiChatConversationRepository', () => {
       update: vi.fn().mockReturnThis(),
       set: vi.fn().mockReturnThis(),
     };
-    repo = new ApiChatConversationRepository(mockDb as never);
+    repo = new ApiChatConversationRepository(mockDb as never, 'workspace-1');
   });
 
   it('listByApiKey returns rows ordered by last_active_at desc', async () => {
@@ -51,7 +51,7 @@ describe('ApiChatConversationRepository', () => {
     const result = await repo.create('k1');
 
     expect(result).toEqual(row);
-    expect(mockDb.values).toHaveBeenCalledWith({ api_key_id: 'k1' });
+    expect(mockDb.values).toHaveBeenCalledWith({ api_key_id: 'k1', workspace_id: 'workspace-1' });
   });
 
   it('getByIdForApiKey returns the row when found', async () => {

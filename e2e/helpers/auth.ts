@@ -1,25 +1,59 @@
 import type { Page } from '@playwright/test';
+import { encode } from 'next-auth/jwt';
 import { getTestCredentials } from './credentials';
 
-export const MOCK_USER = {
-  id: 'test-user-id',
+// UUID-shaped so routes not intercepted by a mock-mode spec's page.route()
+// calls (e.g. ChatProvider's /api/copilot/chats) still get a well-formed id
+// to query with — Postgres throws a type-cast error on a plain string, which
+// previously never mattered because those unintercepted calls got a 401
+// (no real session) instead of reaching the DB at all.
+export const MOCK_USER: MockSessionUser = {
+  id: '00000000-0000-0000-0000-0000000000e2',
   name: 'Test User',
   email: 'test@example.com',
+  workspaceId: '00000000-0000-0000-0000-0000000000e2',
+  isSuperadmin: false,
+  workspaces: [{ workspaceId: '00000000-0000-0000-0000-0000000000e2', slug: 'mock-workspace' }],
 };
 
 export type MockSessionUser = {
   id: string;
   name: string;
   email: string;
+  /** Active workspace claim — see `getActiveWorkspaceId`. Defaults to a
+   *  single mock membership so workspace-scoped routes (`/w/[workspaceSlug]/...`
+   *  and the legacy flat-path redirect bridge) resolve without hitting the DB. */
+  workspaceId?: string | null;
+  isSuperadmin?: boolean;
+  workspaces?: { workspaceId: string; slug: string }[];
 };
 
+const SESSION_COOKIE_NAME = 'authjs.session-token';
+
 /**
- * Stub NextAuth's `/api/auth/session` so `useSession()` resolves with a
- * predictable user (or `null` for unauthenticated). The app moved from a
- * localStorage-based auth to NextAuth (JWT session cookies) — setting
- * localStorage no longer makes `useSession()` return a user.
+ * Forges a real, decryptable NextAuth session cookie (JWE, same format
+ * `next-auth`'s own sign-in issues — see `@auth/core/jwt`'s `encode()`) and
+ * sets it on the browser context, rather than only stubbing the client-side
+ * `/api/auth/session` fetch as this helper did previously.
  *
- * Returns a `setUser` function so a single registered route can flip between
+ * That client-only stub stopped being sufficient once workspace-scoped
+ * routes moved under `/w/[workspaceSlug]/...` (MB-337): the membership gate
+ * in `src/app/w/[workspaceSlug]/layout.tsx`, the legacy flat-path redirect
+ * bridge (`src/lib/legacyWorkspaceRedirect.ts`), and `src/proxy.ts` all call
+ * the real server-side `auth()`, which reads the actual session cookie, not
+ * the mocked fetch response. A real cookie satisfies both the client
+ * `useSession()` call (now served by the real `/api/auth/session` handler,
+ * decoding this cookie) and every server-side check in one shot — and keeps
+ * them from ever disagreeing.
+ *
+ * Requires `AUTH_SECRET` in `.env.local` to match what the server under test
+ * uses to decrypt cookies — true for the local docker/dev stack this suite
+ * targets, per `playwright.config.ts`'s `TEST_ENV=local` default. Not
+ * expected to work against staging/production (different, CI-only secrets),
+ * which is also true of every other assumption `mockAuthSession`-based specs
+ * make (mocked API routes replacing real data).
+ *
+ * Returns a `setUser` function so a single call site can flip between
  * unauthenticated and authenticated state mid-test (e.g. before vs. after a
  * successful sign-in).
  */
@@ -27,28 +61,46 @@ export const mockAuthSession = async (
   page: Page,
   initialUser: MockSessionUser | null = MOCK_USER,
 ) => {
-  let currentUser: MockSessionUser | null = initialUser;
-  await page.route('**/api/auth/session', (route) => {
-    if (route.request().method() !== 'GET') return route.fallback();
-    return route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify(
-        currentUser
-          ? {
-              user: currentUser,
-              expires: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
-            }
-          : null,
-      ),
+  const setUser = async (user: MockSessionUser | null): Promise<void> => {
+    const context = page.context();
+    if (!user) {
+      await context.clearCookies({ name: SESSION_COOKIE_NAME });
+      return;
+    }
+    const secret = process.env.AUTH_SECRET;
+    if (!secret) {
+      throw new Error(
+        'AUTH_SECRET must be set (see .env.local) for mockAuthSession() to forge a ' +
+          'valid session cookie — workspace-scoped routes now require a real ' +
+          'server-side session, not just a mocked /api/auth/session response.',
+      );
+    }
+    const token = await encode({
+      token: {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        workspaceId: user.workspaceId ?? null,
+        isSuperadmin: user.isSuperadmin ?? false,
+        workspaces: user.workspaces ?? [],
+      },
+      secret,
+      salt: SESSION_COOKIE_NAME,
+      maxAge: 30 * 24 * 60 * 60,
     });
-  });
-
-  return {
-    setUser: (user: MockSessionUser | null) => {
-      currentUser = user;
-    },
+    await context.addCookies([
+      {
+        name: SESSION_COOKIE_NAME,
+        value: token,
+        url: process.env.LOCAL_BASE_URL ?? 'http://localhost:3000',
+        httpOnly: true,
+        sameSite: 'Lax',
+      },
+    ]);
   };
+
+  await setUser(initialUser);
+  return { setUser };
 };
 
 /**

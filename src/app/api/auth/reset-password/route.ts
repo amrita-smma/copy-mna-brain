@@ -1,12 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createDb } from '@/lib/server/db';
+import { getActiveWorkspaceId } from '@/lib/workspace';
 import { createContainer } from '@/lib/services';
 
 export async function POST(req: NextRequest) {
   try {
     const { key, password } = await req.json();
     const db = createDb();
-    const { authService } = createContainer(db);
+    const { authService } = createContainer(db, await getActiveWorkspaceId());
     await authService.resetPassword(key, password);
     return NextResponse.json({ error: null });
   } catch (error: unknown) {

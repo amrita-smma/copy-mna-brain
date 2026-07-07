@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createDb } from '@/lib/server/db';
+import { getActiveWorkspaceId } from '@/lib/workspace';
 import { createContainer } from '@/lib/services';
 
 export async function GET(request: NextRequest) {
@@ -13,7 +14,7 @@ export async function GET(request: NextRequest) {
     }
 
     const db = createDb();
-    const { slideService } = createContainer(db);
+    const { slideService } = createContainer(db, await getActiveWorkspaceId());
     const slides = await slideService.findByCompanyId(companyId);
     return NextResponse.json({ slides });
   } catch (error) {
@@ -34,7 +35,7 @@ export async function POST(request: NextRequest) {
     }
 
     const db = createDb();
-    const { slideService } = createContainer(db);
+    const { slideService } = createContainer(db, await getActiveWorkspaceId());
     const slide = await slideService.create({
       company_id: companyId,
       title: title || 'Untitled',
@@ -69,7 +70,7 @@ export async function PUT(request: NextRequest) {
     }
 
     const db = createDb();
-    const { slideService } = createContainer(db);
+    const { slideService } = createContainer(db, await getActiveWorkspaceId());
     const slide = await slideService.update(id, updates);
     return NextResponse.json({ slide });
   } catch (error) {
@@ -92,7 +93,7 @@ export async function DELETE(request: NextRequest) {
     }
 
     const db = createDb();
-    const { slideService } = createContainer(db);
+    const { slideService } = createContainer(db, await getActiveWorkspaceId());
     await slideService.delete(id);
     return NextResponse.json({ success: true });
   } catch (error) {

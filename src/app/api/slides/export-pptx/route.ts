@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createDb } from '@/lib/server/db';
+import { getActiveWorkspaceId } from '@/lib/workspace';
 import { createContainer } from '@/lib/services';
 import { exportSlidesToPptx } from '@/lib/services/slideExportService';
 
@@ -14,7 +15,7 @@ export async function GET(request: NextRequest) {
     }
 
     const db = createDb();
-    const { slideService } = createContainer(db);
+    const { slideService } = createContainer(db, await getActiveWorkspaceId());
     const slides = await slideService.findByCompanyId(companyId);
 
     if (slides.length === 0) {

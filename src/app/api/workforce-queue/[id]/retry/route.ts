@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse, after } from 'next/server';
+import { getActiveWorkspaceId } from '@/lib/workspace';
 import { auth } from '@/auth';
 import { createDb } from '@/lib/server/db';
 import { AiWorkforceQueueRepository } from '@/lib/repositories';
@@ -35,7 +36,7 @@ export async function POST(
   try {
     const { id } = await params;
     const db = createDb();
-    const repo = new AiWorkforceQueueRepository(db);
+    const repo = new AiWorkforceQueueRepository(db, await getActiveWorkspaceId());
     const original = await repo.findById(id);
     if (!original) {
       return NextResponse.json({ error: 'Not found' }, { status: 404 });

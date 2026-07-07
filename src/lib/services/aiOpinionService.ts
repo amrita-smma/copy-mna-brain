@@ -28,6 +28,7 @@ export class AiOpinionService {
   constructor(
     private readonly companyRepo: CompanyRepository,
     private readonly db: DbClient,
+    private readonly workspaceId: string,
   ) {}
 
   /**
@@ -49,7 +50,7 @@ export class AiOpinionService {
     const id = companyId?.trim();
     if (!id) throw new Error('Missing required field: companyId');
 
-    const queueRepo = new AiWorkforceQueueRepository(this.db);
+    const queueRepo = new AiWorkforceQueueRepository(this.db, this.workspaceId);
     const active = await queueRepo.findActiveByCompanyId(
       AI_OPINION_AGENT_NAME,
       id,

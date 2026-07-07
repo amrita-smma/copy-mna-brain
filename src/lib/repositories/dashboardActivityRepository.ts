@@ -42,7 +42,10 @@ type FeedFinancials = {
 };
 
 export class DashboardActivityRepository {
-  constructor(private db: DbClient) {}
+  constructor(
+    private db: DbClient,
+    private readonly workspaceId: string,
+  ) {}
 
   /**
    * Join condition that attaches the company's MOST RECENT financials row
@@ -122,6 +125,7 @@ export class DashboardActivityRepository {
       .leftJoin(sponsorUsers, eq(sponsorUsers.id, companies.deal_sponsor))
       .where(
         and(
+          eq(companies.workspace_id, this.workspaceId),
           eq(companies.pipeline_stage, 'L0'),
           gte(companies.created_at, fromIso),
           lte(companies.created_at, toIso),
@@ -157,6 +161,7 @@ export class DashboardActivityRepository {
       .leftJoin(sponsorUsers, eq(sponsorUsers.id, companies.deal_sponsor))
       .where(
         and(
+          eq(companies.workspace_id, this.workspaceId),
           like(companyLogs.action, '%_TO_L0'),
           logDateInRange(fromIso, toIso),
           companyId ? eq(companies.id, companyId) : undefined,
@@ -219,6 +224,7 @@ export class DashboardActivityRepository {
       .leftJoin(companyFinancials, this.latestFinancialsOn())
       .where(
         and(
+          eq(companies.workspace_id, this.workspaceId),
           eq(companies.pipeline_stage, 'market_screening'),
           gte(companies.created_at, from.toISOString()),
           lte(companies.created_at, to.toISOString()),
@@ -244,6 +250,7 @@ export class DashboardActivityRepository {
       .innerJoin(companies, eq(companyLogs.company_id, companies.id))
       .where(
         and(
+          eq(companies.workspace_id, this.workspaceId),
           eq(companyLogs.action, 'CREATED_AS_L0'),
           logDateInRange(fromIso, toIso),
         ),
@@ -284,6 +291,7 @@ export class DashboardActivityRepository {
       .leftJoin(sponsorUsers, eq(sponsorUsers.id, companies.deal_sponsor))
       .where(
         and(
+          eq(companies.workspace_id, this.workspaceId),
           like(companyLogs.action, 'PROMOTED_%'),
           logDateInRange(fromIso, toIso),
           companyId ? eq(companies.id, companyId) : undefined,
@@ -307,6 +315,7 @@ export class DashboardActivityRepository {
       .innerJoin(companies, eq(companySlides.company_id, companies.id))
       .where(
         and(
+          eq(companies.workspace_id, this.workspaceId),
           gte(companySlides.created_at, from.toISOString()),
           lte(companySlides.created_at, to.toISOString()),
         ),
@@ -343,6 +352,7 @@ export class DashboardActivityRepository {
       .leftJoin(sponsorUsers, eq(sponsorUsers.id, companies.deal_sponsor))
       .where(
         and(
+          eq(companies.workspace_id, this.workspaceId),
           eq(companies.status, 'dropped'),
           gte(companies.dropped_at, from.toISOString()),
           lte(companies.dropped_at, to.toISOString()),
@@ -379,6 +389,7 @@ export class DashboardActivityRepository {
       .leftJoin(companyFinancials, this.latestFinancialsOn())
       .where(
         and(
+          eq(companies.workspace_id, this.workspaceId),
           gte(dealNotes.created_at, from.toISOString()),
           lte(dealNotes.created_at, to.toISOString()),
           companyId ? eq(companies.id, companyId) : undefined,
@@ -400,6 +411,7 @@ export class DashboardActivityRepository {
       .from(aiWorkforceQueue)
       .where(
         and(
+          eq(aiWorkforceQueue.workspace_id, this.workspaceId),
           isNull(aiWorkforceQueue.parent_run_id),
           gte(aiWorkforceQueue.created_at, from.toISOString()),
           lte(aiWorkforceQueue.created_at, to.toISOString()),
@@ -408,6 +420,7 @@ export class DashboardActivityRepository {
       .orderBy(desc(aiWorkforceQueue.created_at));
   }
 
+  /** CRM contacts are shared across every workspace, so this stays unscoped. */
   async getNewContacts(from: Date, to: Date) {
     return this.db
       .select({

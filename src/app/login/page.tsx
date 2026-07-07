@@ -15,6 +15,7 @@ import { GoogleSignInButton } from '@/components/GoogleSignInButton';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Loader2, AlertCircle } from 'lucide-react';
 import posthog from 'posthog-js';
+import { apiRequest } from '@/lib/api/client';
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');
@@ -28,7 +29,7 @@ export default function LoginPage() {
 
   useEffect(() => {
     if (!loading && user) {
-      router.replace('/chat');
+      router.replace('/workspace');
     }
   }, [user, loading, router]);
 
@@ -41,7 +42,7 @@ export default function LoginPage() {
       email: normalizedEmail,
       method,
     });
-    router.push('/chat');
+    router.push('/workspace');
   };
 
   const handleSignIn = async (e: React.FormEvent) => {
@@ -68,20 +69,13 @@ export default function LoginPage() {
     // (the NextAuth provider only returns an opaque failure code).
     let signedInEmail = '';
     try {
-      const res = await fetch('/api/auth/google-signin', {
+      const data = await apiRequest<{ email?: string }>('/api/auth/google-signin', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ token }),
       });
-      const body = await res.json();
-      if (!res.ok) {
-        setError(body?.error ?? 'Google sign-in failed');
-        setIsLoading(false);
-        return;
-      }
-      signedInEmail = body?.data?.email ?? '';
-    } catch {
-      setError('Google sign-in failed');
+      signedInEmail = data?.email ?? '';
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Google sign-in failed');
       setIsLoading(false);
       return;
     }

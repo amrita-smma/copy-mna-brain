@@ -26,6 +26,11 @@ const mocks = vi.hoisted(() => ({
   insertTopicsBatch: vi.fn(),
   // MartRepository
   martRefreshAll: vi.fn(),
+  // UserWorkspaceRepository
+  findWorkspaceIdsBySyncedEmail: vi.fn().mockResolvedValue([]),
+  companyRepoWorkspaceIds: [] as string[],
+  // WorkspaceCorrespondentRepository
+  addMemberships: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock('@/lib/repositories', () => ({
@@ -57,6 +62,9 @@ vi.mock('@/lib/repositories', () => ({
     insertTopicsBatch = mocks.insertTopicsBatch;
   },
   CompanyRepository: class {
+    constructor(_db: unknown, workspaceId: string) {
+      mocks.companyRepoWorkspaceIds.push(workspaceId);
+    }
     findAllIdAndTarget = vi.fn().mockResolvedValue([]);
     findByNameFuzzy = vi.fn().mockResolvedValue(null);
   },
@@ -64,6 +72,12 @@ vi.mock('@/lib/repositories', () => ({
     upsertAuto = vi.fn().mockResolvedValue('rc-1');
     insertEvidence = vi.fn().mockResolvedValue(undefined);
     refreshAggregates = vi.fn().mockResolvedValue(undefined);
+  },
+  UserWorkspaceRepository: class {
+    findWorkspaceIdsBySyncedEmail = mocks.findWorkspaceIdsBySyncedEmail;
+  },
+  WorkspaceCorrespondentRepository: class {
+    addMemberships = mocks.addMemberships;
   },
 }));
 
@@ -133,6 +147,10 @@ function makeDb() {
     // missingMessageIds fallback lookup (both run outside the tx).
     update: vi.fn().mockReturnThis(),
     set: vi.fn().mockReturnThis(),
+    // Exposed so tests can control the in-transaction backfill lookup (the
+    // [5/7] missingMessageIdsForParticipants query) before invoking
+    // runCrmIngest — not part of the real DbClient shape.
+    _tx: tx,
   };
 }
 
@@ -160,11 +178,13 @@ describe('runCrmIngest', () => {
     mocks.insertParticipantsBatch.mockResolvedValue([]);
     mocks.insertTopicsBatch.mockResolvedValue([]);
     mocks.martRefreshAll.mockResolvedValue(['mart_crm', 'mart_mom', 'mart_topics']);
+    mocks.findWorkspaceIdsBySyncedEmail.mockResolvedValue([]);
+    mocks.companyRepoWorkspaceIds.length = 0;
   });
 
   afterEach(() => vi.clearAllMocks());
 
-  it('returns immediately when no targets', async () => {
+  it('returns immediately when no targets, but still refreshes marts', async () => {
     mocks.listReadyForIngest.mockResolvedValueOnce([]);
     const result = await runCrmIngest(
       {},
@@ -172,9 +192,11 @@ describe('runCrmIngest', () => {
     );
     expect(result.rows_ingested).toBe(0);
     expect(mocks.employersUpsertBatch).not.toHaveBeenCalled();
+    expect(mocks.martRefreshAll).toHaveBeenCalledTimes(1);
+    expect(result.marts_refreshed).toEqual(['mart_crm', 'mart_mom', 'mart_topics']);
   });
 
-  it('excludes rows whose sender domain is in _excluded', async () => {
+  it('excludes rows whose sender domain is in _excluded, but still refreshes marts', async () => {
     mocks.listReadyForIngest.mockResolvedValueOnce([
       makeRow({ id: 'r1', from_address: 'spam@fireflies.ai' }),
     ]);
@@ -184,6 +206,8 @@ describe('runCrmIngest', () => {
     );
     expect(result.rows_excluded).toBe(1);
     expect(result.rows_ingested).toBe(0);
+    expect(mocks.martRefreshAll).toHaveBeenCalledTimes(1);
+    expect(result.marts_refreshed).toEqual(['mart_crm', 'mart_mom', 'mart_topics']);
   });
 
   it('runs the full transaction for a single eligible row', async () => {
@@ -358,6 +382,211 @@ describe('runCrmIngest', () => {
     expect(mocks.topicsUpsertBatch).toHaveBeenCalledWith([
       { slug: 'nda', is_deal_related: false },
     ]);
+  });
+
+  it('matches related companies against the custodian\'s synced workspace, not the platform default', async () => {
+    mocks.listReadyForIngest.mockResolvedValueOnce([
+      makeRow({ id: 'r1', message_id: 'msg-1@x', custodian_email: 'custodianA@sqe.co.id' }),
+      makeRow({ id: 'r2', message_id: 'msg-2@x', custodian_email: 'custodianB@sqe.co.id' }),
+    ]);
+    mocks.findByRawEmailIds.mockResolvedValueOnce([
+      {
+        raw_email_id: 'r1',
+        topics: ['nda'],
+        people: [],
+        candidates: [],
+        related_companies: [
+          {
+            company_name: 'Acme Co',
+            matched_text: 'Acme',
+            reason: 'company_mention',
+            reason_summary: 'mentioned',
+            keywords: [],
+            confidence: 'medium',
+          },
+        ],
+      },
+      {
+        raw_email_id: 'r2',
+        topics: ['nda'],
+        people: [],
+        candidates: [],
+        related_companies: [
+          {
+            company_name: 'Beta Co',
+            matched_text: 'Beta',
+            reason: 'company_mention',
+            reason_summary: 'mentioned',
+            keywords: [],
+            confidence: 'medium',
+          },
+        ],
+      },
+    ]);
+    mocks.employersUpsertBatch.mockResolvedValueOnce([
+      { id: 'emp-goldman', normalized_name: 'goldman-sachs' },
+    ]);
+    mocks.correspondentsUpsertBatch.mockResolvedValueOnce([]);
+    mocks.insertBatchIgnoringDupes.mockResolvedValueOnce([
+      { id: 'e1', message_id: 'msg-1@x' },
+      { id: 'e2', message_id: 'msg-2@x' },
+    ]);
+    // Two custodians, each synced to a different workspace.
+    mocks.findWorkspaceIdsBySyncedEmail.mockImplementation(async (email: string) => {
+      if (email === 'custodianA@sqe.co.id') return ['ws-A'];
+      if (email === 'custodianB@sqe.co.id') return ['ws-B'];
+      return [];
+    });
+
+    await runCrmIngest(
+      {},
+      { db: makeDb() as never, job: { id: 'j1' } as never },
+    );
+
+    // One CompanyRepository for the default workspace (loaded up front) plus
+    // one each for ws-A and ws-B — not one shared instance for every row.
+    expect(mocks.companyRepoWorkspaceIds).toContain('ws-A');
+    expect(mocks.companyRepoWorkspaceIds).toContain('ws-B');
+    expect(new Set(mocks.companyRepoWorkspaceIds).size).toBe(
+      mocks.companyRepoWorkspaceIds.length,
+    );
+    expect(mocks.findWorkspaceIdsBySyncedEmail).toHaveBeenCalledWith('custodianA@sqe.co.id');
+    expect(mocks.findWorkspaceIdsBySyncedEmail).toHaveBeenCalledWith('custodianB@sqe.co.id');
+  });
+
+  it('attaches correspondent workspace membership per-email, not per-batch (no cross-contamination)', async () => {
+    mocks.listReadyForIngest.mockResolvedValueOnce([
+      makeRow({
+        id: 'r1',
+        message_id: 'msg-1@x',
+        from_address: 'alice@goldman.com',
+        to_addresses: [],
+        custodian_email: 'custodianA@sqe.co.id',
+      }),
+      makeRow({
+        id: 'r2',
+        message_id: 'msg-2@x',
+        from_address: 'bob@morgan.com',
+        to_addresses: [],
+        custodian_email: 'custodianB@sqe.co.id',
+      }),
+    ]);
+    mocks.findByRawEmailIds.mockResolvedValueOnce([
+      { raw_email_id: 'r1', topics: [], people: [], candidates: [] },
+      { raw_email_id: 'r2', topics: [], people: [], candidates: [] },
+    ]);
+    mocks.employersUpsertBatch.mockResolvedValueOnce([]);
+    mocks.correspondentsUpsertBatch.mockResolvedValueOnce([
+      { id: 'c-alice', email: 'alice@goldman.com' },
+      { id: 'c-bob', email: 'bob@morgan.com' },
+    ]);
+    mocks.insertBatchIgnoringDupes.mockResolvedValueOnce([
+      { id: 'e1', message_id: 'msg-1@x' },
+      { id: 'e2', message_id: 'msg-2@x' },
+    ]);
+    mocks.insertParticipantsBatch.mockResolvedValueOnce([]);
+    // Two custodians in the same ingest batch, each synced to a different
+    // workspace — this is the scenario that would silently defeat isolation
+    // if membership were attached after the whole batch upsert instead of
+    // per source email.
+    mocks.findWorkspaceIdsBySyncedEmail.mockImplementation(async (email: string) => {
+      if (email === 'custodianA@sqe.co.id') return ['ws-A'];
+      if (email === 'custodianB@sqe.co.id') return ['ws-B'];
+      return [];
+    });
+
+    await runCrmIngest(
+      {},
+      { db: makeDb() as never, job: { id: 'j1' } as never },
+    );
+
+    expect(mocks.addMemberships).toHaveBeenCalledWith([
+      { workspaceId: 'ws-A', correspondentId: 'c-alice', source: 'ingest' },
+      { workspaceId: 'ws-B', correspondentId: 'c-bob', source: 'ingest' },
+    ]);
+  });
+
+  it('grants membership for a message_id already ingested in a prior run when a new custodian now sees it', async () => {
+    // msg-1@x was already ingested in a previous run (e.g. by a different
+    // custodian) — insertBatchIgnoringDupes skips it as an existing row, so
+    // it's absent from insertedEmails. This run's custodian receives the same
+    // message and must still get workspace_correspondents membership.
+    mocks.listReadyForIngest.mockResolvedValueOnce([
+      makeRow({
+        id: 'r1',
+        message_id: 'msg-1@x',
+        from_address: 'alice@goldman.com',
+        to_addresses: [],
+        custodian_email: 'custodianC@sqe.co.id',
+      }),
+    ]);
+    mocks.findByRawEmailIds.mockResolvedValueOnce([
+      { raw_email_id: 'r1', topics: [], people: [], candidates: [] },
+    ]);
+    mocks.employersUpsertBatch.mockResolvedValueOnce([]);
+    mocks.correspondentsUpsertBatch.mockResolvedValueOnce([
+      { id: 'c-alice', email: 'alice@goldman.com' },
+    ]);
+    // Nothing new inserted — msg-1@x already exists from a prior run.
+    mocks.insertBatchIgnoringDupes.mockResolvedValueOnce([]);
+    mocks.insertParticipantsBatch.mockResolvedValueOnce([]);
+    mocks.findWorkspaceIdsBySyncedEmail.mockImplementation(async (email: string) => {
+      if (email === 'custodianC@sqe.co.id') return ['ws-C'];
+      return [];
+    });
+
+    const db = makeDb();
+    // The [5/7] backfill query resolves msg-1@x to its already-existing email id.
+    (db._tx.where as ReturnType<typeof vi.fn>).mockResolvedValueOnce([
+      { id: 'e-existing', message_id: 'msg-1@x' },
+    ]);
+
+    await runCrmIngest({}, { db: db as never, job: { id: 'j1' } as never });
+
+    expect(mocks.addMemberships).toHaveBeenCalledWith([
+      { workspaceId: 'ws-C', correspondentId: 'c-alice', source: 'ingest' },
+    ]);
+  });
+
+  it('falls back to the default workspace when a custodian has no synced workspace', async () => {
+    mocks.listReadyForIngest.mockResolvedValueOnce([
+      makeRow({ id: 'r1', message_id: 'msg-1@x', custodian_email: 'unsynced@sqe.co.id' }),
+    ]);
+    mocks.findByRawEmailIds.mockResolvedValueOnce([
+      {
+        raw_email_id: 'r1',
+        topics: ['nda'],
+        people: [],
+        candidates: [],
+        related_companies: [
+          {
+            company_name: 'Acme Co',
+            matched_text: 'Acme',
+            reason: 'company_mention',
+            reason_summary: 'mentioned',
+            keywords: [],
+            confidence: 'medium',
+          },
+        ],
+      },
+    ]);
+    mocks.employersUpsertBatch.mockResolvedValueOnce([
+      { id: 'emp-goldman', normalized_name: 'goldman-sachs' },
+    ]);
+    mocks.correspondentsUpsertBatch.mockResolvedValueOnce([]);
+    mocks.insertBatchIgnoringDupes.mockResolvedValueOnce([
+      { id: 'e1', message_id: 'msg-1@x' },
+    ]);
+    mocks.findWorkspaceIdsBySyncedEmail.mockResolvedValue([]);
+
+    await runCrmIngest(
+      {},
+      { db: makeDb() as never, job: { id: 'j1' } as never },
+    );
+
+    // Only the default workspace's CompanyRepository was ever constructed —
+    // no extra one for the unsynced custodian.
+    expect(new Set(mocks.companyRepoWorkspaceIds).size).toBe(1);
   });
 
   it('threads the raw in_reply_to onto the inserted email', async () => {

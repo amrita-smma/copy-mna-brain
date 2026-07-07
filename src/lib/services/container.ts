@@ -19,7 +19,6 @@ import {
   JobRepository,
   ResetPasswordTokenRepository,
   UserRepository,
-  UserCompanyFavoriteRepository,
   RecentFileRepository,
   EmployerRepository,
   EmployerCurationRepository,
@@ -38,6 +37,10 @@ import {
   ApiKeyRepository,
   ApiChatConversationRepository,
   RoutinesRepository,
+  UserWorkspaceRepository,
+  WorkspaceRepository,
+  RoleRepository,
+  WorkspaceCorrespondentRepository,
 } from '@/lib/repositories';
 import { JobDispatcher } from './jobDispatcher';
 import { CompanyService } from './companyService';
@@ -73,6 +76,7 @@ import { DashboardInsightsService } from './dashboardInsightsService';
 import { ApiKeyService } from './apiKeyService';
 import { ApiChatConversationService } from './apiChatConversationService';
 import { NotificationService } from './notificationService';
+import { WorkspaceService } from './workspaceService';
 import { DealResurfaceService } from './dealResurfaceService';
 
 export interface Container {
@@ -107,11 +111,12 @@ export interface Container {
   apiKeyService: ApiKeyService;
   apiChatConversationService: ApiChatConversationService;
   notificationService: NotificationService;
+  workspaceService: WorkspaceService;
   dealResurfaceService: DealResurfaceService;
 }
 
-export function createContainer(db: DbClient): Container {
-  const jobDispatcher = new JobDispatcher(db, createDb);
+export function createContainer(db: DbClient, workspaceId: string): Container {
+  const jobDispatcher = new JobDispatcher(db, createDb, workspaceId);
 
   // Neo4j mirror: the relationship-graph repo doubles as the write-through
   // mirror for company writes. The driver is a cached global singleton and is
@@ -120,30 +125,32 @@ export function createContainer(db: DbClient): Container {
   // follows every insert/update/delete that flows through CompanyRepository.
   const companyGraphRepo = new CompanyRelationRepository(createNeo4jDriver());
 
-  const companyRepo = new CompanyRepository(db, companyGraphRepo);
-  const companyLogRepo = new CompanyLogRepository(db);
-  const screeningRepo = new ScreeningRepository(db);
-  const criteriaRepo = new CriteriaRepository(db);
-  const dealDocRepo = new DealDocumentRepository(db);
-  const dealNoteRepo = new DealNoteRepository(db);
-  const dealLinkRepo = new DealLinkRepository(db);
-  const companyAnalysisRepo = new CompanyAnalysisRepository(db);
-  const companySlidesRepo = new CompanySlidesRepository(db);
-  const fileRepo = new FileRepository(db);
-  const thesisRepo = new InvestmentThesisRepository(db);
-  const trackVariableRepo = new TrackVariableRepository(db);
+  const companyRepo = new CompanyRepository(db, workspaceId, companyGraphRepo);
+  const companyLogRepo = new CompanyLogRepository(db, workspaceId);
+  const screeningRepo = new ScreeningRepository(db, workspaceId);
+  const criteriaRepo = new CriteriaRepository(db, workspaceId);
+  const dealDocRepo = new DealDocumentRepository(db, workspaceId);
+  const dealNoteRepo = new DealNoteRepository(db, workspaceId);
+  const dealLinkRepo = new DealLinkRepository(db, workspaceId);
+  const companyAnalysisRepo = new CompanyAnalysisRepository(db, workspaceId);
+  const companySlidesRepo = new CompanySlidesRepository(db, workspaceId);
+  const fileRepo = new FileRepository(db, workspaceId);
+  const thesisRepo = new InvestmentThesisRepository(db, workspaceId);
+  const trackVariableRepo = new TrackVariableRepository(db, workspaceId);
   const jobRepo = new JobRepository(db);
   const userRepo = new UserRepository(db);
   const resetTokenRepo = new ResetPasswordTokenRepository(db);
-  const userFavoriteRepo = new UserCompanyFavoriteRepository(db);
-  const recentFileRepo = new RecentFileRepository(db);
-  const companyFinancialRepo = new CompanyFinancialRepository(db);
-  const companyFxAdjustmentRepo = new CompanyFxAdjustmentRepository(db);
-  const companyScreeningDerivedRepo = new CompanyScreeningDerivedRepository(db);
+  const recentFileRepo = new RecentFileRepository(db, workspaceId);
+  const companyFinancialRepo = new CompanyFinancialRepository(db, workspaceId);
+  const companyFxAdjustmentRepo = new CompanyFxAdjustmentRepository(db, workspaceId);
+  const companyScreeningDerivedRepo = new CompanyScreeningDerivedRepository(db, workspaceId);
+  const userWorkspaceRepo = new UserWorkspaceRepository(db);
+  const workspaceRepo = new WorkspaceRepository(db);
+  const roleRepo = new RoleRepository(db);
 
   const criteriaService = new CriteriaService(criteriaRepo);
   const screeningService = new ScreeningService(screeningRepo);
-  const routinesRepo = new RoutinesRepository(db);
+  const routinesRepo = new RoutinesRepository(db, workspaceId);
   const marketScanningRoutineService = new MarketScanningRoutineService(routinesRepo);
   const investmentThesisService = new InvestmentThesisService(
     thesisRepo,
@@ -152,16 +159,17 @@ export function createContainer(db: DbClient): Container {
   const trackVariableService = new TrackVariableService(trackVariableRepo);
   const dealNoteService = new DealNoteService(dealNoteRepo);
   const dealLinkService = new DealLinkService(dealLinkRepo);
-  const jobService = new JobService(jobRepo, screeningRepo);
+  const jobService = new JobService(jobRepo, db);
   const authService = new AuthService(userRepo, resetTokenRepo);
-  const userService = new UserService(userRepo, userFavoriteRepo);
+  const userService = new UserService(userRepo);
   const chatService = new ChatService(thesisRepo, criteriaRepo);
+  const workspaceService = new WorkspaceService(workspaceRepo, userWorkspaceRepo, roleRepo, userRepo);
 
-  const companyAnalysisService = new CompanyAnalysisService(companyAnalysisRepo, companyRepo, db);
-  const aiOpinionService = new AiOpinionService(companyRepo, db);
+  const companyAnalysisService = new CompanyAnalysisService(companyAnalysisRepo, companyRepo, db, workspaceId);
+  const aiOpinionService = new AiOpinionService(companyRepo, db, workspaceId);
   const aiScreeningService = new AIScreeningService(screeningRepo, jobDispatcher);
   const marketScreeningService = new MarketScreeningService(jobDispatcher);
-  const trackMatchingService = new TrackMatchingService(jobDispatcher, db);
+  const trackMatchingService = new TrackMatchingService(jobDispatcher, db, workspaceId);
   const slideService = new SlideService(companySlidesRepo, jobDispatcher);
 
   const companyService = new CompanyService(
@@ -187,6 +195,7 @@ export function createContainer(db: DbClient): Container {
   const recentFileService = new RecentFileService(recentFileRepo);
   const fileService = new FileService(
     db,
+    workspaceId,
     fileRepo,
     companyAnalysisService,
     aiScreeningService,
@@ -195,6 +204,7 @@ export function createContainer(db: DbClient): Container {
     companyFinancialRepo,
     companyService,
     companyFxAdjustmentRepo,
+    userWorkspaceRepo,
     trackMatchingService,
     userRepo,
   );
@@ -208,6 +218,7 @@ export function createContainer(db: DbClient): Container {
   const employerCurationRepo = new EmployerCurationRepository(db);
   const correspondentCurationRepo = new CorrespondentCurationRepository(db);
   const employerRelatedCompanyRepo = new EmployerRelatedCompanyRepository(db);
+  const workspaceCorrespondentRepo = new WorkspaceCorrespondentRepository(db);
   const crmService = new CRMService(
     employerRepo,
     correspondentRepo,
@@ -219,19 +230,21 @@ export function createContainer(db: DbClient): Container {
     correspondentCurationRepo,
     employerRelatedCompanyRepo,
     companyRepo,
+    workspaceCorrespondentRepo,
+    workspaceId,
   );
 
-  const aiWorkforceQueueRepo = new AiWorkforceQueueRepository(db);
+  const aiWorkforceQueueRepo = new AiWorkforceQueueRepository(db, workspaceId);
   const aiWorkforceService = new AiWorkforceService(aiWorkforceQueueRepo, db);
   const notificationService = new NotificationService(aiWorkforceQueueRepo);
 
-  const copilotChatsRepo = new CopilotChatsRepository(db);
+  const copilotChatsRepo = new CopilotChatsRepository(db, workspaceId);
   const copilotChatsService = new CopilotChatsService(copilotChatsRepo);
 
-  const dashboardActivityRepo = new DashboardActivityRepository(db);
+  const dashboardActivityRepo = new DashboardActivityRepository(db, workspaceId);
   const dashboardActivityService = new DashboardActivityService(dashboardActivityRepo);
 
-  const dashboardInsightsRepo = new DashboardInsightsRepository(db);
+  const dashboardInsightsRepo = new DashboardInsightsRepository(db, workspaceId);
   const appSettingsRepo = new AppSettingsRepository(db);
   const dashboardInsightsService = new DashboardInsightsService(
     dashboardInsightsRepo,
@@ -242,7 +255,7 @@ export function createContainer(db: DbClient): Container {
   const apiKeyRepo = new ApiKeyRepository(db);
   const apiKeyService = new ApiKeyService(apiKeyRepo);
 
-  const apiChatConversationRepo = new ApiChatConversationRepository(db);
+  const apiChatConversationRepo = new ApiChatConversationRepository(db, workspaceId);
   const apiChatConversationService = new ApiChatConversationService(apiChatConversationRepo);
 
   const dealResurfaceService = new DealResurfaceService(
@@ -287,6 +300,7 @@ export function createContainer(db: DbClient): Container {
     apiKeyService,
     apiChatConversationService,
     notificationService,
+    workspaceService,
     dealResurfaceService,
   };
 }

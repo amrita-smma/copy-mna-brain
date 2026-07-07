@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { auth } from '@/auth';
 import { createDb } from '@/lib/server/db';
+import { getActiveWorkspaceId } from '@/lib/workspace';
 import { createContainer } from '@/lib/services/container';
 
 /**
@@ -16,7 +17,7 @@ export async function POST() {
     }
 
     const db = createDb();
-    const { companyGraphService } = createContainer(db);
+    const { companyGraphService } = createContainer(db, await getActiveWorkspaceId());
     const { jobId } = await companyGraphService.dispatchSync();
 
     return NextResponse.json({ data: { jobId } }, { status: 202 });

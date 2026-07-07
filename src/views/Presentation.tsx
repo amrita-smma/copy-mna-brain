@@ -21,6 +21,7 @@ import {
   usePresentationViewer,
   fileKind,
 } from "@/components/presentation/PresentationViewerContext";
+import { useWorkspaceHref } from "@/hooks/useWorkspaceHref";
 
 interface PresentationProps {
   showCompanyGraph?: boolean;
@@ -37,6 +38,7 @@ const PAGE_SIZE = 10;
 
 export default function Presentation({ showCompanyGraph = false }: PresentationProps) {
   const router = useRouter();
+  const presentationHref = useWorkspaceHref("/presentation");
   const searchParams = useSearchParams();
   const key = searchParams.get("key");
   const urlParam = searchParams.get("url");
@@ -99,7 +101,7 @@ export default function Presentation({ showCompanyGraph = false }: PresentationP
   const openRecent = (item: RecentFileItem) => {
     openFile({ key: item.file_key, name: item.file_name });
     const params = new URLSearchParams({ key: item.file_key, name: item.file_name });
-    router.replace(`/presentation?${params.toString()}`);
+    router.replace(`${presentationHref}?${params.toString()}`);
   };
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
@@ -108,7 +110,7 @@ export default function Presentation({ showCompanyGraph = false }: PresentationP
   // immediately reopen on the next render.
   const goToRecent = () => {
     clearFile();
-    router.replace("/presentation");
+    router.replace(presentationHref);
   };
 
   // While the persisted selection is still hydrating, avoid flashing the recent

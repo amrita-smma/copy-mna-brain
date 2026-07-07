@@ -26,6 +26,7 @@ import {
 import { DealStage } from "@/lib/types";
 import posthog from "posthog-js";
 import { promoteCompany } from "@/lib/api/pipeline";
+import { apiRequest } from "@/lib/api/client";
 
 interface PromoteDialogProps {
   open: boolean;
@@ -79,9 +80,8 @@ export default function PromoteDialog({
 
       // Auto-trigger AI Company Card when promoting to L1
       if (nextStage === "L1") {
-        fetch("/api/company-analysis", {
+        apiRequest("/api/company-analysis", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ companyId: dealId }),
         }).catch(() => {}); // Silent — don't block promotion on analysis
       }
@@ -92,24 +92,18 @@ export default function PromoteDialog({
           const contentType = selectedFile.type || "application/octet-stream";
 
           // 1. Get presigned URL
-          let uploadUrlRes: Response;
+          let uploadUrlData: { uploadUrl: string; key: string };
           try {
-            uploadUrlRes = await fetch(
+            uploadUrlData = await apiRequest(
               `/api/deal-documents/upload-url?dealId=${encodeURIComponent(dealId)}&fileName=${encodeURIComponent(selectedFile.name)}&contentType=${encodeURIComponent(contentType)}`,
             );
-          } catch (netErr) {
-            throw new Error("Could not reach server to get upload URL.");
+          } catch (apiErr: any) {
+            throw new Error(
+              apiErr?.message || "Could not reach server to get upload URL.",
+            );
           }
 
-          if (!uploadUrlRes.ok)
-            throw new Error(`Get upload URL failed: ${uploadUrlRes.status}`);
-
-          const uploadUrlData = await uploadUrlRes.json();
-          if (!uploadUrlData.success || !uploadUrlData.data) {
-            throw new Error(uploadUrlData.error || "Failed to get upload URL");
-          }
-
-          const { uploadUrl, key } = uploadUrlData.data;
+          const { uploadUrl, key } = uploadUrlData;
 
           // 2. Upload to S3
           let s3Res: Response;
@@ -126,11 +120,9 @@ export default function PromoteDialog({
           if (!s3Res.ok) throw new Error("Failed to upload file to storage");
 
           // 3. Register document in database
-          let registerRes: Response;
           try {
-            registerRes = await fetch("/api/deal-documents", {
+            await apiRequest("/api/deal-documents", {
               method: "POST",
-              headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
                 dealId: dealId,
                 key,
@@ -140,17 +132,9 @@ export default function PromoteDialog({
                 stage: currentStage,
               }),
             });
-          } catch (netErr) {
-            throw new Error("Could not register document in database.");
-          }
-
-          if (!registerRes.ok)
-            throw new Error(`Register document failed: ${registerRes.status}`);
-
-          const registerData = await registerRes.json();
-          if (!registerData.success) {
+          } catch (apiErr: any) {
             throw new Error(
-              registerData.error || "Failed to register document",
+              apiErr?.message || "Failed to register document",
             );
           }
         } catch (docError: any) {

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/auth';
 import { createDb } from '@/lib/server/db';
+import { getActiveWorkspaceId } from '@/lib/workspace';
 import { createContainer } from '@/lib/services';
 import type { ApproveFileInput } from '@/lib/services/fileService';
 import { CompanyL0RequirementsError } from '@/lib/services/companyService';
@@ -39,7 +40,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
       }
     }
 
-    const { fileService } = createContainer(db);
+    const { fileService } = createContainer(db, await getActiveWorkspaceId());
     const result = await fileService.approve(id, body, enteredBy);
 
     return NextResponse.json({ success: true, data: result });

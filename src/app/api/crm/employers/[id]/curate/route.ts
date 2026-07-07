@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createDb } from '@/lib/server/db';
+import { getActiveWorkspaceId } from '@/lib/workspace';
 import { createContainer } from '@/lib/services';
 import { EmployerNotFoundError } from '@/lib/services/crmService';
 import type { EmployerUpdate } from '@/lib/repositories';
@@ -41,7 +42,7 @@ export async function POST(req: NextRequest, ctx: Ctx) {
     const decision = body?.decision === 'skip' ? 'skip' : 'approve';
     const patch = pickPatch((body?.patch ?? {}) as Record<string, unknown>);
     const db = createDb();
-    const { crmService } = createContainer(db);
+    const { crmService } = createContainer(db, await getActiveWorkspaceId());
     const data = await crmService.curateEmployer(id, decision, patch);
     return NextResponse.json({ data });
   } catch (err) {

@@ -1,4 +1,5 @@
 import { tool } from "@langchain/core/tools";
+import { getActiveWorkspaceId } from '@/lib/workspace';
 import { z } from "zod";
 import { logger } from "../../logger";
 import { createDb } from "@/lib/server/db";
@@ -64,7 +65,7 @@ export const queryCompanies = tool(
     );
 
     try {
-      const companyRepo = new CompanyRepository(createDb());
+      const companyRepo = new CompanyRepository(createDb(), await getActiveWorkspaceId());
       const companies = await companyRepo.searchForAgent({
         segment,
         geography,
@@ -94,7 +95,7 @@ export const queryCompanies = tool(
         return "No companies found matching your criteria.";
       }
 
-      const financialRepo = new CompanyFinancialRepository(createDb());
+      const financialRepo = new CompanyFinancialRepository(createDb(), await getActiveWorkspaceId());
       const latestFin = await financialRepo.findLatestByCompanies(
         companies.map((c) => c.id),
       );

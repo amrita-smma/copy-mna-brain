@@ -184,9 +184,6 @@ interface OutboundCompaniesTableProps {
   tracks: TrackLike[];
   stage: DealStage;
   viewMode: "active" | "dropped";
-  favoriteIds: Set<string>;
-  togglingFavorite: string | null;
-  onToggleFavorite: (id: string) => void;
   updatingCompanyIds: Set<string>;
   statusOptions: string[];
   sortField: string | null;
@@ -217,7 +214,6 @@ export default function OutboundCompaniesTable({
   tracks,
   stage,
   viewMode,
-  favoriteIds,
   updatingCompanyIds,
   statusOptions,
   sortField,
@@ -551,10 +547,7 @@ export default function OutboundCompaniesTable({
           </TableRow>
         )}
         {companies.map((company, index) => {
-          const isFav = favoriteIds.has(company.id);
-          const stickyBg = isFav
-            ? "bg-amber-50 group-hover:bg-amber-100 dark:bg-amber-950 dark:group-hover:bg-amber-900"
-            : "bg-card group-hover:bg-muted";
+          const stickyBg = "bg-card group-hover:bg-muted";
           const isUpdating = updatingCompanyIds.has(company.id);
           // AI screening runs only against a company's explicitly matched
           // tracks; with none matched there is nothing to screen, so the action
@@ -567,10 +560,7 @@ export default function OutboundCompaniesTable({
             <TableRow
               key={company.id}
               className={cn(
-                "group transition-colors",
-                isFav
-                  ? "bg-amber-50/60 dark:bg-amber-900/10 hover:bg-amber-100/60 dark:hover:bg-amber-900/20"
-                  : "hover:bg-muted/50",
+                "group transition-colors hover:bg-muted/50",
                 isUpdating && "animate-pulse opacity-60",
               )}
             >

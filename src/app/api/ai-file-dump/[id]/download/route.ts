@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createDb } from '@/lib/server/db';
+import { getActiveWorkspaceId } from '@/lib/workspace';
 import { createContainer } from '@/lib/services';
 
 export async function GET(
@@ -13,7 +14,7 @@ export async function GET(
     }
 
     const db = createDb();
-    const { fileService } = createContainer(db);
+    const { fileService } = createContainer(db, await getActiveWorkspaceId());
     const { downloadUrl } = await fileService.getDownloadUrl(id);
 
     return NextResponse.json({ success: true, download_url: downloadUrl });

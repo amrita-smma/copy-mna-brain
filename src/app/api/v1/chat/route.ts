@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createDb } from '@/lib/server/db';
+import { getActiveWorkspaceId } from '@/lib/workspace';
 import { createContainer } from '@/lib/services';
 import {
   getAgentGraph,
@@ -23,7 +24,7 @@ import {
 export async function POST(req: NextRequest) {
   try {
     const db = createDb();
-    const { apiKeyService, apiChatConversationService } = createContainer(db);
+    const { apiKeyService, apiChatConversationService } = createContainer(db, await getActiveWorkspaceId());
 
     const body = await req.json().catch(() => undefined);
     const { conversationId, messages } = await prepareConversationRun(req, body, {

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createDb } from '@/lib/server/db';
+import { getActiveWorkspaceId } from '@/lib/workspace';
 import { createContainer } from '@/lib/services';
 
 export async function POST(request: NextRequest) {
@@ -15,7 +16,7 @@ export async function POST(request: NextRequest) {
     }
 
     const db = createDb();
-    const { dealDocumentService } = createContainer(db);
+    const { dealDocumentService } = createContainer(db, await getActiveWorkspaceId());
     await dealDocumentService.register({
       deal_id: dealId,
       file_path: key,
@@ -43,7 +44,7 @@ export async function DELETE(request: NextRequest) {
     }
 
     const db = createDb();
-    const { dealDocumentService } = createContainer(db);
+    const { dealDocumentService } = createContainer(db, await getActiveWorkspaceId());
     await dealDocumentService.delete(id);
 
     return NextResponse.json({ success: true });

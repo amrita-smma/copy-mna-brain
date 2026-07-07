@@ -5,20 +5,28 @@ import type { DbClient } from './types';
 export type ApiChatConversationRow = typeof apiChatConversations.$inferSelect;
 
 export class ApiChatConversationRepository {
-  constructor(private readonly db: DbClient) {}
+  constructor(
+    private readonly db: DbClient,
+    private readonly workspaceId: string,
+  ) {}
 
   async listByApiKey(apiKeyId: string): Promise<ApiChatConversationRow[]> {
     return this.db
       .select()
       .from(apiChatConversations)
-      .where(eq(apiChatConversations.api_key_id, apiKeyId))
+      .where(
+        and(
+          eq(apiChatConversations.api_key_id, apiKeyId),
+          eq(apiChatConversations.workspace_id, this.workspaceId),
+        ),
+      )
       .orderBy(desc(apiChatConversations.last_active_at));
   }
 
   async create(apiKeyId: string): Promise<ApiChatConversationRow> {
     const [row] = await this.db
       .insert(apiChatConversations)
-      .values({ api_key_id: apiKeyId })
+      .values({ api_key_id: apiKeyId, workspace_id: this.workspaceId })
       .returning();
     return row;
   }
@@ -34,6 +42,7 @@ export class ApiChatConversationRepository {
         and(
           eq(apiChatConversations.id, id),
           eq(apiChatConversations.api_key_id, apiKeyId),
+          eq(apiChatConversations.workspace_id, this.workspaceId),
         ),
       )
       .limit(1);
@@ -44,13 +53,13 @@ export class ApiChatConversationRepository {
     await this.db
       .update(apiChatConversations)
       .set({ last_active_at: sql`now()` })
-      .where(eq(apiChatConversations.id, id));
+      .where(and(eq(apiChatConversations.id, id), eq(apiChatConversations.workspace_id, this.workspaceId)));
   }
 
   async setTitle(id: string, title: string): Promise<void> {
     await this.db
       .update(apiChatConversations)
       .set({ title })
-      .where(eq(apiChatConversations.id, id));
+      .where(and(eq(apiChatConversations.id, id), eq(apiChatConversations.workspace_id, this.workspaceId)));
   }
 }

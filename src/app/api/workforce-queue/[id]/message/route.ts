@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse, after } from 'next/server';
 import { auth } from '@/auth';
 import { createDb } from '@/lib/server/db';
+import { getActiveWorkspaceId } from '@/lib/workspace';
 import { createContainer } from '@/lib/services';
 import {
   TaskBusyError,
@@ -63,7 +64,7 @@ export async function POST(
   try {
     const { id } = await params;
     const db = createDb();
-    const { aiWorkforceService } = createContainer(db);
+    const { aiWorkforceService } = createContainer(db, await getActiveWorkspaceId());
     const result = await aiWorkforceService.submitUserMessage({
       runId: id,
       userId: session.user.id,

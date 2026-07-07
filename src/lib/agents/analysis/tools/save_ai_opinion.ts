@@ -1,4 +1,5 @@
 import { tool } from "@langchain/core/tools";
+import { getActiveWorkspaceId } from '@/lib/workspace';
 import { z } from "zod";
 import { logger } from "../../logger";
 import { createDb } from "@/lib/server/db";
@@ -53,7 +54,7 @@ export const saveAiOpinion = tool(
 
     try {
       const db = createDb();
-      const repo = new CompanyRepository(db);
+      const repo = new CompanyRepository(db, await getActiveWorkspaceId());
 
       const clamped = clampWords(text, 50);
       const updates: TablesUpdate<"companies"> = {

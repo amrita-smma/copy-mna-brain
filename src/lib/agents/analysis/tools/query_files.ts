@@ -1,4 +1,5 @@
 import { tool } from "@langchain/core/tools";
+import { getActiveWorkspaceId } from '@/lib/workspace';
 import { z } from "zod";
 import { logger } from "../../logger";
 import { createDb } from "@/lib/server/db";
@@ -86,7 +87,7 @@ export const queryMeetingNotes = tool(
     );
 
     try {
-      const fileRepo = new FileRepository(createDb());
+      const fileRepo = new FileRepository(createDb(), await getActiveWorkspaceId());
       const notes = await fileRepo.searchForAgent({
         companyName: company_name,
         tag,

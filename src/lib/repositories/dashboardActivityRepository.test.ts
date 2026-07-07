@@ -20,7 +20,7 @@ describe('DashboardActivityRepository.getDroppedDeals', () => {
     mockDb.innerJoin.mockReturnThis();
     mockDb.leftJoin.mockReturnThis();
     mockDb.where.mockReturnThis();
-    repo = new DashboardActivityRepository(mockDb as never);
+    repo = new DashboardActivityRepository(mockDb as never, 'workspace-1');
   });
 
   it('selects the core dropped-deal fields', async () => {
@@ -88,7 +88,7 @@ describe('DashboardActivityRepository.getPipelineMoves', () => {
     mockDb.innerJoin.mockReturnThis();
     mockDb.leftJoin.mockReturnThis();
     mockDb.where.mockReturnThis();
-    repo = new DashboardActivityRepository(mockDb as never);
+    repo = new DashboardActivityRepository(mockDb as never, 'workspace-1');
   });
 
   it('left-joins financials and users, selecting them alongside the move metadata', async () => {
@@ -119,7 +119,7 @@ describe('DashboardActivityRepository.getDiscoveredCompanies', () => {
     mockDb.innerJoin.mockReturnThis();
     mockDb.leftJoin.mockReturnThis();
     mockDb.where.mockReturnThis();
-    repo = new DashboardActivityRepository(mockDb as never);
+    repo = new DashboardActivityRepository(mockDb as never, 'workspace-1');
   });
 
   it('selects company + FY financials and uses created_at as event_at', async () => {

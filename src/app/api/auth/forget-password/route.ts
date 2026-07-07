@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createDb } from '@/lib/server/db';
+import { getActiveWorkspaceId } from '@/lib/workspace';
 import { createContainer } from '@/lib/services';
 
 /**
@@ -21,7 +22,7 @@ export async function POST(req: NextRequest) {
     // localhost, preview deployments, and production without any env var).
     const appUrl = req.nextUrl.origin;
     const db = createDb();
-    const { authService } = createContainer(db);
+    const { authService } = createContainer(db, await getActiveWorkspaceId());
     await authService.forgetPassword(email, appUrl);
     return NextResponse.json({ ok: true });
   } catch (error: unknown) {

@@ -1,15 +1,18 @@
-import { desc, eq, inArray } from 'drizzle-orm';
+import { and, desc, eq, inArray } from 'drizzle-orm';
 import { investmentThesis } from '@/lib/db/schema';
 import type { DbClient, Tables, TablesInsert, TablesUpdate } from './types';
 
 export class InvestmentThesisRepository {
-  constructor(private readonly db: DbClient) {}
+  constructor(
+    private readonly db: DbClient,
+    private readonly workspaceId: string,
+  ) {}
 
   async findActive(): Promise<Tables<'investment_thesis'> | null> {
     const [row] = await this.db
       .select()
       .from(investmentThesis)
-      .where(eq(investmentThesis.is_active, true))
+      .where(and(eq(investmentThesis.is_active, true), eq(investmentThesis.workspace_id, this.workspaceId)))
       .orderBy(desc(investmentThesis.created_at))
       .limit(1);
     return row ?? null;
@@ -20,7 +23,7 @@ export class InvestmentThesisRepository {
     return this.db
       .select()
       .from(investmentThesis)
-      .where(eq(investmentThesis.is_active, true))
+      .where(and(eq(investmentThesis.is_active, true), eq(investmentThesis.workspace_id, this.workspaceId)))
       .orderBy(desc(investmentThesis.created_at));
   }
 
@@ -39,7 +42,7 @@ export class InvestmentThesisRepository {
     return this.db
       .select({ title: investmentThesis.title, content: investmentThesis.content })
       .from(investmentThesis)
-      .where(eq(investmentThesis.is_active, true))
+      .where(and(eq(investmentThesis.is_active, true), eq(investmentThesis.workspace_id, this.workspaceId)))
       .orderBy(desc(investmentThesis.updated_at))
       .limit(limit);
   }
@@ -49,24 +52,31 @@ export class InvestmentThesisRepository {
     return this.db
       .select()
       .from(investmentThesis)
+      .where(eq(investmentThesis.workspace_id, this.workspaceId))
       .orderBy(desc(investmentThesis.created_at));
   }
 
   async deleteById(id: string): Promise<void> {
-    await this.db.delete(investmentThesis).where(eq(investmentThesis.id, id));
+    await this.db
+      .delete(investmentThesis)
+      .where(and(eq(investmentThesis.id, id), eq(investmentThesis.workspace_id, this.workspaceId)));
   }
 
   /**
    * Set the active scanning set: marks the given theses active and every other
-   * thesis inactive. Passing `[]` deactivates all theses.
+   * thesis in this workspace inactive. Passing `[]` deactivates all of this
+   * workspace's theses.
    */
   async setActive(ids: string[]): Promise<void> {
-    await this.db.update(investmentThesis).set({ is_active: false });
+    await this.db
+      .update(investmentThesis)
+      .set({ is_active: false })
+      .where(eq(investmentThesis.workspace_id, this.workspaceId));
     if (ids.length === 0) return;
     await this.db
       .update(investmentThesis)
       .set({ is_active: true })
-      .where(inArray(investmentThesis.id, ids));
+      .where(and(inArray(investmentThesis.id, ids), eq(investmentThesis.workspace_id, this.workspaceId)));
   }
 
   async updateMany(
@@ -77,11 +87,16 @@ export class InvestmentThesisRepository {
     await this.db
       .update(investmentThesis)
       .set(updates)
-      .where(inArray(investmentThesis.id, ids));
+      .where(and(inArray(investmentThesis.id, ids), eq(investmentThesis.workspace_id, this.workspaceId)));
   }
 
-  async insert(data: TablesInsert<'investment_thesis'>): Promise<Tables<'investment_thesis'>> {
-    const [row] = await this.db.insert(investmentThesis).values(data).returning();
+  async insert(
+    data: Omit<TablesInsert<'investment_thesis'>, 'workspace_id'>,
+  ): Promise<Tables<'investment_thesis'>> {
+    const [row] = await this.db
+      .insert(investmentThesis)
+      .values({ ...data, workspace_id: this.workspaceId })
+      .returning();
     return row;
   }
 
@@ -92,7 +107,7 @@ export class InvestmentThesisRepository {
     const [row] = await this.db
       .update(investmentThesis)
       .set(updates)
-      .where(eq(investmentThesis.id, id))
+      .where(and(eq(investmentThesis.id, id), eq(investmentThesis.workspace_id, this.workspaceId)))
       .returning();
     if (!row) throw new Error(`Investment thesis ${id} not found`);
     return row;

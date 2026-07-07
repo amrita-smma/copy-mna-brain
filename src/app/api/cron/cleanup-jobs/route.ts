@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createDb } from '@/lib/server/db';
+import { getActiveWorkspaceId } from '@/lib/workspace';
 import { createContainer } from '@/lib/services';
 import { runSchedulerIfDue } from '@/lib/jobs/scheduler';
 
@@ -30,7 +31,7 @@ export async function GET(req: NextRequest) {
   try {
     const db = createDb();
     if (force) {
-      const { jobService } = createContainer(db);
+      const { jobService } = createContainer(db, await getActiveWorkspaceId());
       const result = await jobService.cleanupStuckJobs();
       return NextResponse.json({ ran: true, forced: true, ...result });
     }

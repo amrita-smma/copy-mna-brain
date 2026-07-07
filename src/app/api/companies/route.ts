@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { createDb } from "@/lib/server/db";
+import { getActiveWorkspaceId, getActiveWorkspaceIdOrThrow, NoActiveWorkspaceError } from "@/lib/workspace";
 import { createContainer } from "@/lib/services";
 import { CompanyL0RequirementsError } from "@/lib/services/companyService";
 
@@ -11,7 +12,7 @@ function parseBool(value: string | null) {
 export async function GET(req: NextRequest) {
   try {
     const db = createDb();
-    const { companyService } = createContainer(db);
+    const { companyService } = createContainer(db, await getActiveWorkspaceId());
     const params = req.nextUrl.searchParams;
 
     const id = params.get("id") ?? undefined;
@@ -97,7 +98,7 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   try {
     const db = createDb();
-    const { companyService } = createContainer(db);
+    const { companyService } = createContainer(db, await getActiveWorkspaceIdOrThrow());
     const { company, logAction } = await req.json();
     // `company` is a flat CompanyDTOInput — split across companies +
     // company_financials + company_fx_adjustments + company_screening_derived.
@@ -110,6 +111,9 @@ export async function POST(req: NextRequest) {
     const data = await companyService.createFromDTO(company, logAction);
     return NextResponse.json({ data });
   } catch (error: unknown) {
+    if (error instanceof NoActiveWorkspaceError) {
+      return NextResponse.json({ error: error.message }, { status: 403 });
+    }
     const cause = error instanceof Error ? error.cause : undefined;
     console.error('[POST /api/companies]', cause ?? error);
     // Surface the underlying DB error (drizzle wraps the real Postgres message
@@ -128,7 +132,7 @@ export async function POST(req: NextRequest) {
 export async function PATCH(req: NextRequest) {
   try {
     const db = createDb();
-    const { companyService } = createContainer(db);
+    const { companyService } = createContainer(db, await getActiveWorkspaceId());
     const { id, ids, updates, logAction } = await req.json();
 
     if (!updates || (!id && (!Array.isArray(ids) || ids.length === 0))) {
@@ -170,7 +174,7 @@ export async function DELETE(req: NextRequest) {
       );
 
     const db = createDb();
-    const { companyService } = createContainer(db);
+    const { companyService } = createContainer(db, await getActiveWorkspaceId());
     await companyService.delete(id);
     return NextResponse.json({ data: { success: true } });
   } catch (error: unknown) {

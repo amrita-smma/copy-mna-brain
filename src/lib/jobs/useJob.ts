@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import type { Tables } from '@/lib/repositories';
+import { apiRequest } from '@/lib/api/client';
 
 export type Job = Tables<'jobs'>;
 export type JobLog = Tables<'job_logs'>;
@@ -28,9 +29,10 @@ export async function waitForWorkforceRun(
   const intervalMs = opts.intervalMs ?? 2000;
   while (true) {
     if (opts.signal?.aborted) throw new Error('Aborted');
-    const res = await fetch(`/api/workforce-queue/${runId}`, { signal: opts.signal });
-    if (!res.ok) throw new Error(`Failed to load run ${runId}: ${res.status}`);
-    const { item } = (await res.json()) as { item: { status: string; output?: unknown; error?: Record<string, unknown> | null } };
+    const { item } = await apiRequest<{ item: { status: string; output?: unknown; error?: Record<string, unknown> | null } }>(
+      `/api/workforce-queue/${runId}`,
+      { signal: opts.signal },
+    );
     if (WORKFORCE_TERMINAL.has(item.status)) {
       const errMsg = item.error
         ? (typeof item.error.message === 'string' ? item.error.message : JSON.stringify(item.error))
@@ -54,9 +56,7 @@ export async function waitForJob(
   // eslint-disable-next-line no-constant-condition
   while (true) {
     if (opts.signal?.aborted) throw new Error('Aborted');
-    const res = await fetch(`/api/jobs/${jobId}`, { signal: opts.signal });
-    if (!res.ok) throw new Error(`Failed to load job ${jobId}: ${res.status}`);
-    const job = (await res.json()) as JobWithLogs;
+    const job = await apiRequest<JobWithLogs>(`/api/jobs/${jobId}`, { signal: opts.signal });
     if (isTerminalStatus(job.status)) return job;
     await new Promise((resolve) => setTimeout(resolve, intervalMs));
   }
@@ -86,9 +86,7 @@ export function useJob(
     const tick = async () => {
       if (!aliveRef.current) return;
       try {
-        const res = await fetch(`/api/jobs/${jobId}`, { signal: controller.signal });
-        if (!res.ok) throw new Error(`Failed to load job: ${res.status}`);
-        const data = (await res.json()) as JobWithLogs;
+        const data = await apiRequest<JobWithLogs>(`/api/jobs/${jobId}`, { signal: controller.signal });
         if (!aliveRef.current) return;
         setJob(data);
         if (!isTerminalStatus(data.status)) {

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createDb } from '@/lib/server/db';
+import { getActiveWorkspaceId } from '@/lib/workspace';
 import { createContainer } from '@/lib/services';
 import type { FeedFilter } from '@/lib/services/dashboardActivityService';
 
@@ -37,7 +38,7 @@ export async function GET(req: NextRequest) {
         : 'all';
 
     const db = createDb();
-    const { dashboardActivityService } = createContainer(db);
+    const { dashboardActivityService } = createContainer(db, await getActiveWorkspaceId());
     const data = await dashboardActivityService.getFeed({ from, to, offset, limit, filter });
 
     return NextResponse.json({ data });

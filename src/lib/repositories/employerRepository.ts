@@ -7,10 +7,14 @@ import {
   employerCuration,
   employerDomains,
   employerEffective,
+  employerNotes,
+  employerRelatedCompanies,
   employerTeamMembers,
   employerTopics,
   topics,
   users,
+  userWorkspaces,
+  workspaceCorrespondents,
 } from "@/lib/db/schema";
 import type { DbClient } from "./types";
 
@@ -81,10 +85,78 @@ export interface EmployerSummary {
 export class EmployerRepository {
   constructor(private db: DbClient) {}
 
-  private buildWhere(filters: EmployerListFilters): SQL | undefined {
+  private buildWhere(
+    filters: EmployerListFilters,
+    workspaceId: string,
+  ): SQL | undefined {
     const searchPattern = filters.search ? `%${filters.search}%` : null;
     return and(
       eq(employers.curation_status, filters.curationStatus ?? "published"),
+      // Workspace visibility: an employer shows up if this workspace has any
+      // relationship with it — a visible correspondent, a related-company
+      // link, a note, or a private topic. Employer identity itself stays
+      // shared/unscoped — this only gates which shared employers appear in
+      // this workspace's CRM list. All four workspace-scoped CRM surfaces
+      // this PR introduced must be listed here, or a workspace that has only
+      // written one of them (e.g. a note, with no correspondent) can never
+      // find that employer again via the normal list view.
+      //
+      // The correspondent/related-company branches mirror
+      // CorrespondentRepository.visibleCorrespondentIds /
+      // EmployerRelatedCompanyRepository.listForEmployer's workspace-level
+      // sync gate — only the mailbox-sync-derived value (`source='ingest'`
+      // for correspondents, `'auto'` for related-companies) is gated on this
+      // workspace having a synced member; everything else (manual, and
+      // correspondents' `'direct'` — see
+      // 20260705000006_workspace_correspondents_direct_source.sql) always
+      // counts. Checking `!=` the known sync-derived value rather than
+      // enumerating durable ones means a future new source defaults to
+      // visible, not silently hidden. Without this, a fully-unsynced
+      // workspace would still list an employer here (this row still exists)
+      // only to land on an empty detail card, since the detail reads already
+      // hide it — this keeps the list and the detail view agreeing with
+      // each other.
+      sql`(
+        EXISTS (
+          SELECT 1 FROM ${correspondents}
+          JOIN ${workspaceCorrespondents} ON ${workspaceCorrespondents.correspondent_id} = ${correspondents.id}
+          WHERE ${correspondents.employer_id} = ${employers.id}
+            AND ${workspaceCorrespondents.workspace_id} = ${workspaceId}
+            AND (
+              ${workspaceCorrespondents.source} != 'ingest'
+              OR EXISTS (
+                SELECT 1 FROM ${userWorkspaces}
+                WHERE ${userWorkspaces.workspace_id} = ${workspaceId}
+                  AND ${userWorkspaces.is_email_synced} = true
+              )
+            )
+        )
+        OR EXISTS (
+          SELECT 1 FROM ${employerRelatedCompanies}
+          WHERE ${employerRelatedCompanies.employer_id} = ${employers.id}
+            AND ${employerRelatedCompanies.workspace_id} = ${workspaceId}
+            AND ${employerRelatedCompanies.dismissed_at} IS NULL
+            AND (
+              ${employerRelatedCompanies.source} != 'auto'
+              OR EXISTS (
+                SELECT 1 FROM ${userWorkspaces}
+                WHERE ${userWorkspaces.workspace_id} = ${workspaceId}
+                  AND ${userWorkspaces.is_email_synced} = true
+              )
+            )
+        )
+        OR EXISTS (
+          SELECT 1 FROM ${employerNotes}
+          WHERE ${employerNotes.employer_id} = ${employers.id}
+            AND ${employerNotes.workspace_id} = ${workspaceId}
+        )
+        OR EXISTS (
+          SELECT 1 FROM ${employerTopics}
+          JOIN ${topics} ON ${topics.id} = ${employerTopics.topic_id}
+          WHERE ${employerTopics.employer_id} = ${employers.id}
+            AND ${topics.workspace_id} = ${workspaceId}
+        )
+      )`,
       filters.status ? eq(employers.status, filters.status) : undefined,
       searchPattern
         ? or(
@@ -122,7 +194,10 @@ export class EmployerRepository {
     );
   }
 
-  async list(filters: EmployerListFilters = {}): Promise<EmployerSummary[]> {
+  async list(
+    filters: EmployerListFilters = {},
+    workspaceId: string,
+  ): Promise<EmployerSummary[]> {
     // NOTE: Drizzle's `select({ key: tableObject, ... })` shorthand strips
     // table qualifiers from every column reference inside the select clause —
     // including those nested in `sql\`\`` correlated subqueries. That makes
@@ -146,36 +221,50 @@ export class EmployerRepository {
         // KPIs are served from the precomputed analytics.mart_crm (RFC MB-205
         // §Phase 5b) rather than recomputed per request — chiefly the
         // response_p50 percentile, which is an O(emails) LATERAL self-join.
-        // mart_crm holds the SAME arithmetic as the former inline subqueries
-        // (email_count via COUNT(DISTINCT participant email), last_contact via
-        // MAX(sent_at), p50/pair_count via the inbound→earliest-outbound reply
-        // gap capped at 30 days), one row per employer, refreshed after each
-        // ingest — so served numbers are unchanged. Verify with a SELECT-diff
-        // before relying on it. CAVEAT: mart_crm groups email_count/
-        // last_contact by correspondents.employer_id, so it only stays correct
-        // while ingest is the sole writer of those links. If a future UI
-        // feature reassigns an already-emailed contact to another firm, refresh
-        // the mart on that write (or keep these two columns live).
+        // mart_crm is now keyed by (workspace_id, employer_id) — see
+        // 20260705000004_workspace_scoped_marts.sql — so every correlated
+        // subquery below must filter by this workspace too, or a shared
+        // employer's numbers would sum across every workspace's activity.
+        // CAVEAT: mart_crm groups email_count/last_contact by
+        // correspondents.employer_id, so it only stays correct while ingest
+        // is the sole writer of those links. If a future UI feature
+        // reassigns an already-emailed contact to another firm, refresh the
+        // mart on that write (or keep these two columns live).
         email_count: sql<number>`COALESCE((
           SELECT "mart_crm"."email_count"
           FROM "analytics"."mart_crm"
           WHERE "mart_crm"."employer_id" = "employers"."id"
+            AND "mart_crm"."workspace_id" = ${workspaceId}
         ), 0)`,
         last_contact_at: sql<string | null>`(
           SELECT "mart_crm"."last_contact_at"
           FROM "analytics"."mart_crm"
           WHERE "mart_crm"."employer_id" = "employers"."id"
+            AND "mart_crm"."workspace_id" = ${workspaceId}
         )`,
         response_p50_seconds: sql<number | null>`(
           SELECT "mart_crm"."response_p50_seconds"
           FROM "analytics"."mart_crm"
           WHERE "mart_crm"."employer_id" = "employers"."id"
+            AND "mart_crm"."workspace_id" = ${workspaceId}
         )`,
         response_pair_count: sql<number>`COALESCE((
           SELECT "mart_crm"."response_pair_count"
           FROM "analytics"."mart_crm"
           WHERE "mart_crm"."employer_id" = "employers"."id"
+            AND "mart_crm"."workspace_id" = ${workspaceId}
         ), 0)`,
+        // Scoped to correspondents THIS workspace can see (workspace_correspondents),
+        // ordered by whether this workspace designated them primary
+        // (workspace_primary_correspondents — see
+        // 20260705000004_workspace_primary_correspondents.sql), falling back to
+        // oldest-visible when no explicit designation exists. Unscoped reads
+        // here previously leaked another workspace's private contact.
+        // Same sync gate as CorrespondentRepository.visibleCorrespondentIds:
+        // only 'ingest' (mailbox-sync) is gated on this workspace having a
+        // synced member; 'manual' and 'direct' always count — otherwise the
+        // list could show a "primary contact" that findByEmployerId's detail
+        // read wouldn't.
         primary_pic: sql<EmployerSummary["primary_pic"]>`(
           SELECT jsonb_build_object(
             'id', "correspondents"."id",
@@ -185,8 +274,19 @@ export class EmployerRepository {
             'phone', "correspondents"."phone"
           )
           FROM "correspondents"
+          JOIN "workspace_correspondents"
+            ON "workspace_correspondents"."correspondent_id" = "correspondents"."id"
+            AND "workspace_correspondents"."workspace_id" = ${workspaceId}
+            AND (
+              "workspace_correspondents"."source" != 'ingest'
+              OR EXISTS (
+                SELECT 1 FROM "user_workspaces"
+                WHERE "user_workspaces"."workspace_id" = ${workspaceId}
+                  AND "user_workspaces"."is_email_synced" = true
+              )
+            )
           WHERE "correspondents"."employer_id" = "employers"."id"
-          ORDER BY "correspondents"."is_primary" DESC, "correspondents"."created_at" ASC
+          ORDER BY "correspondents"."created_at" ASC, "correspondents"."id" ASC
           LIMIT 1
         )`,
         topics: sql<EmployerSummary["topics"]>`COALESCE((
@@ -199,6 +299,7 @@ export class EmployerRepository {
           FROM "employer_topics"
           JOIN "topics" ON "topics"."id" = "employer_topics"."topic_id"
           WHERE "employer_topics"."employer_id" = "employers"."id"
+            AND ("topics"."workspace_id" IS NULL OR "topics"."workspace_id" = ${workspaceId})
         ), '[]'::jsonb)`,
         team: sql<EmployerSummary["team"]>`COALESCE((
           SELECT jsonb_agg(jsonb_build_object(
@@ -215,17 +316,23 @@ export class EmployerRepository {
         // auto; otherwise (UI-created, future API source, etc.) it's manual.
         // We lock in based on origin instead of "has emails right now" so the
         // badge doesn't flip when revert/re-ingest temporarily empties data.
+        // Scoped to correspondents visible to this workspace — the first
+        // correspondent visible to THIS workspace, not the globally-first one
+        // (which may belong to a custodian this workspace can't see).
         source: sql<"auto" | "manual">`CASE
           WHEN (
             SELECT "correspondents"."source"
             FROM "correspondents"
+            JOIN "workspace_correspondents"
+              ON "workspace_correspondents"."correspondent_id" = "correspondents"."id"
+              AND "workspace_correspondents"."workspace_id" = ${workspaceId}
             WHERE "correspondents"."employer_id" = "employers"."id"
             ORDER BY "correspondents"."created_at" ASC, "correspondents"."id" ASC
             LIMIT 1
           ) = 'mbox' THEN 'auto'::text ELSE 'manual'::text END`,
       })
       .from(employers)
-      .where(this.buildWhere(filters))
+      .where(this.buildWhere(filters, workspaceId))
       .orderBy(
         // Sort by the same mart-sourced last_contact_at selected above, so the
         // order agrees with the displayed value.
@@ -233,6 +340,7 @@ export class EmployerRepository {
           SELECT "mart_crm"."last_contact_at"
           FROM "analytics"."mart_crm"
           WHERE "mart_crm"."employer_id" = "employers"."id"
+            AND "mart_crm"."workspace_id" = ${workspaceId}
         ) DESC NULLS LAST`,
         asc(employers.name),
       )
@@ -260,11 +368,14 @@ export class EmployerRepository {
     }));
   }
 
-  async count(filters: EmployerListFilters = {}): Promise<number> {
+  async count(
+    filters: EmployerListFilters = {},
+    workspaceId: string,
+  ): Promise<number> {
     const rows = await this.db
       .select({ n: sql<number>`COUNT(*)` })
       .from(employers)
-      .where(this.buildWhere(filters));
+      .where(this.buildWhere(filters, workspaceId));
     return Number(rows[0]?.n ?? 0);
   }
 

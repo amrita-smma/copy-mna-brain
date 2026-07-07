@@ -16,8 +16,8 @@ type ParsedSlug =
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-function parseSlug(slug?: string[]): ParsedSlug {
-  if (!slug || slug.length === 0) {
+function parseSlug(taskSlug?: string[]): ParsedSlug {
+  if (!taskSlug || taskSlug.length === 0) {
     return {
       kind: 'ok',
       initialTab: 'workforce',
@@ -25,22 +25,22 @@ function parseSlug(slug?: string[]): ParsedSlug {
       initialTaskId: null,
     };
   }
-  if (slug[0] === 'ai-copilot' && slug.length <= 2) {
+  if (taskSlug[0] === 'ai-copilot' && taskSlug.length <= 2) {
     return {
       kind: 'ok',
       initialTab: 'copilot',
-      initialChatId: slug[1] ?? null,
+      initialChatId: taskSlug[1] ?? null,
       initialTaskId: null,
     };
   }
   // /ai-workforce/tasks/<uuid> — workforce tab with a specific row preselected.
   // Validate the UUID so a junk path 404s instead of silently selecting nothing.
-  if (slug[0] === 'tasks' && slug.length === 2 && UUID_RE.test(slug[1])) {
+  if (taskSlug[0] === 'tasks' && taskSlug.length === 2 && UUID_RE.test(taskSlug[1])) {
     return {
       kind: 'ok',
       initialTab: 'workforce',
       initialChatId: null,
-      initialTaskId: slug[1],
+      initialTaskId: taskSlug[1],
     };
   }
   // Unknown slug (e.g. analytics scripts using path-relative URLs). 404 so
@@ -51,12 +51,12 @@ function parseSlug(slug?: string[]): ParsedSlug {
 export default async function AIWorkforcePage({
   params,
 }: {
-  params: Promise<{ slug?: string[] }>;
+  params: Promise<{ workspaceSlug: string; taskSlug?: string[] }>;
 }) {
   const showCompanyGraph = await companyGraphEnabled().then(Boolean);
 
-  const { slug } = await params;
-  const parsed = parseSlug(slug);
+  const { taskSlug } = await params;
+  const parsed = parseSlug(taskSlug);
   if (parsed.kind === 'not-found') {
     notFound();
   }

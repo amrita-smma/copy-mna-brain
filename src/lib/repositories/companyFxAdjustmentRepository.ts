@@ -1,15 +1,27 @@
-import { eq, inArray } from 'drizzle-orm';
-import { companyFxAdjustments } from '@/lib/db/schema';
+import { and, eq, inArray } from 'drizzle-orm';
+import { companies, companyFxAdjustments } from '@/lib/db/schema';
 import type { DbClient, Tables, TablesInsert } from './types';
 
 export class CompanyFxAdjustmentRepository {
-  constructor(private readonly db: DbClient) {}
+  constructor(
+    private readonly db: DbClient,
+    private readonly workspaceId: string,
+  ) {}
+
+  private workspaceCompanyIds() {
+    return this.db.select({ id: companies.id }).from(companies).where(eq(companies.workspace_id, this.workspaceId));
+  }
 
   async findByCompany(companyId: string): Promise<Tables<'company_fx_adjustments'>[]> {
     return this.db
       .select()
       .from(companyFxAdjustments)
-      .where(eq(companyFxAdjustments.company_id, companyId))
+      .where(
+        and(
+          eq(companyFxAdjustments.company_id, companyId),
+          inArray(companyFxAdjustments.company_id, this.workspaceCompanyIds()),
+        ),
+      )
       .orderBy(companyFxAdjustments.fiscal_year);
   }
 
@@ -18,7 +30,12 @@ export class CompanyFxAdjustmentRepository {
     return this.db
       .select()
       .from(companyFxAdjustments)
-      .where(inArray(companyFxAdjustments.company_id, companyIds))
+      .where(
+        and(
+          inArray(companyFxAdjustments.company_id, companyIds),
+          inArray(companyFxAdjustments.company_id, this.workspaceCompanyIds()),
+        ),
+      )
       .orderBy(companyFxAdjustments.fiscal_year);
   }
 

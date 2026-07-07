@@ -17,6 +17,7 @@ import {
 } from "@/lib/repositories/companyRelationRepository";
 import { getPostHogClient } from "@/lib/posthog-server";
 import { z } from "zod";
+import { getActiveWorkspaceId } from "@/lib/workspace";
 
 export const COMPANY_ANALYSIS_TIMEOUT_SECONDS = 480; // 8 minutes
 
@@ -241,17 +242,18 @@ function buildCompanyContext(
  */
 export async function generateCompanyCard(
   payload: CompanyAnalysisPayload,
-  deps: { db: DbClient; jobId?: string | null },
+  deps: { db: DbClient; jobId?: string | null; workspaceId?: string | null },
 ): Promise<CompanyCardResult> {
   const { companyId, source } = payload;
   const jobId = deps.jobId ?? null;
+  const workspaceId = deps.workspaceId ?? (await getActiveWorkspaceId());
 
   if (!companyId) throw new Error("Missing required field: companyId");
 
-  const analysisRepo = new CompanyAnalysisRepository(deps.db);
-  const companyRepo = new CompanyRepository(deps.db);
-  const financialRepo = new CompanyFinancialRepository(deps.db);
-  const screeningRepo = new CompanyScreeningDerivedRepository(deps.db);
+  const analysisRepo = new CompanyAnalysisRepository(deps.db, workspaceId);
+  const companyRepo = new CompanyRepository(deps.db, workspaceId);
+  const financialRepo = new CompanyFinancialRepository(deps.db, workspaceId);
+  const screeningRepo = new CompanyScreeningDerivedRepository(deps.db, workspaceId);
 
   const [company, financials, screening] = await Promise.all([
     companyRepo.findById(companyId),
@@ -400,6 +402,7 @@ export async function runCompanyAnalysis(
   const { analysis } = await generateCompanyCard(payload, {
     db: deps.db,
     jobId: deps.job.id,
+    workspaceId: deps.job.workspace_id,
   });
   return analysis;
 }

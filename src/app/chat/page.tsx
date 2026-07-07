@@ -1,7 +1,10 @@
-import Chat from '@/views/Chat';
-import { companyGraphEnabled } from '@/lib/flags';
+import { redirectToWorkspaceScoped } from '@/lib/legacyWorkspaceRedirect';
 
-export default async function ChatPage() {
-  const showCompanyGraph = await companyGraphEnabled().then(Boolean);
-  return <Chat showCompanyGraph={showCompanyGraph} />;
+/** Pre-migration deeplink bridge — see `redirectToWorkspaceScoped`. */
+export default async function LegacyChatRedirect({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  await redirectToWorkspaceScoped('/chat', await searchParams);
 }

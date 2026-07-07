@@ -27,6 +27,16 @@ export type QueueTask = {
   //   running   → time since started_at (falls back to created_at)
   //   done      → time since ended_at (falls back to created_at)
   relTime?: string;
+  // Queued tasks only: how many rows GLOBALLY (any workspace) are ahead of
+  // this one under the shared single-worker queue. null/undefined for
+  // non-queued tasks, or if the server hasn't computed it (e.g. this task's
+  // status flipped between the list fetch and render).
+  aheadGlobally?: number | null;
+  // Subset of aheadGlobally belonging to a workspace other than this one.
+  // Excludes same-workspace resume_ready rows, which aheadGlobally counts
+  // but which aren't "another workspace's" job — see
+  // AiWorkforceQueueRepository.getGlobalQueuePositions.
+  aheadOtherWorkspaces?: number | null;
 };
 
 export type DoneTask = {

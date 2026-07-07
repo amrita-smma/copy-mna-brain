@@ -14,6 +14,8 @@ import {
   type RefObject,
 } from "react";
 import { toast } from "sonner";
+import { useAuth } from "@/hooks/useAuth";
+import { apiRequest, buildWorkspaceHeaders } from "@/lib/api/client";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -143,6 +145,8 @@ interface ServerUIMessage {
 }
 
 export function ChatProvider({ children }: { children: ReactNode }) {
+  const { user, loading: authLoading } = useAuth();
+
   // Active chat. `null` means "the next message will mint a new chat row on
   // the server"; the server's response header (X-Chat-Id) tells us which.
   const [chatId, setChatIdState] = useState<string | null>(null);
@@ -172,7 +176,10 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         api: CHAT_API,
         body: () => (chatIdRef.current ? { chat_id: chatIdRef.current } : {}),
         fetch: async (input: RequestInfo | URL, init?: RequestInit) => {
-          const res = await fetch(input, init);
+          const res = await fetch(input, {
+            ...init,
+            headers: buildWorkspaceHeaders(input, init?.headers),
+          });
           // Capture the chat_id minted server-side on the first message of a
           // brand-new chat. Set it before the stream finishes so the next
           // user message in the same session sticks to the same thread.
@@ -231,9 +238,9 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 
   const refreshChats = useCallback(async () => {
     try {
-      const res = await fetch('/api/copilot/chats');
-      if (!res.ok) return;
-      const data = (await res.json()) as { chats: CopilotChatSummary[] };
+      const data = await apiRequest<{ chats: CopilotChatSummary[] }>(
+        '/api/copilot/chats',
+      );
       setChats(data.chats ?? []);
     } catch (err) {
       console.error('[chat] failed to load chat list:', err);
@@ -242,8 +249,13 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   refreshChatsRef.current = refreshChats;
 
   useEffect(() => {
+    // ChatProvider is mounted at the app root (providers.tsx), so this runs
+    // on every page including /login and the brief window before the
+    // session resolves — skip until we actually have a logged-in user to
+    // avoid a guaranteed 401 on every unauthenticated page load.
+    if (authLoading || !user) return;
     void refreshChats();
-  }, [refreshChats]);
+  }, [authLoading, user, refreshChats]);
 
   // When chatId changes (user clicked a chat in the sidebar), load that
   // chat's history from the server. Skip when we just minted this ID
@@ -286,9 +298,9 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 
     const fetchMessages = async (): Promise<UIMessage[] | null> => {
       try {
-        const res = await fetch(`/api/copilot/chats/${chatId}/messages`);
-        if (!res.ok) return null;
-        const data = (await res.json()) as { messages: ServerUIMessage[] };
+        const data = await apiRequest<{ messages: ServerUIMessage[] }>(
+          `/api/copilot/chats/${chatId}/messages`,
+        );
         return (data.messages ?? []) as unknown as UIMessage[];
       } catch (err) {
         console.error('[chat] failed to load chat messages:', err);
@@ -363,31 +375,25 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       return;
     }
     try {
-      const res = await fetch('/api/chat/cache-check', {
+      const data = await apiRequest<{
+        hit?: boolean;
+        chatId?: string;
+        createdAt?: string;
+        firstUserMessage?: string;
+        firstAssistantMessage?: string;
+      }>('/api/chat/cache-check', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ message: trimmed }),
       });
-      if (res.ok) {
-        const { data } = (await res.json()) as {
-          data?: {
-            hit?: boolean;
-            chatId?: string;
-            createdAt?: string;
-            firstUserMessage?: string;
-            firstAssistantMessage?: string;
-          };
-        };
-        if (data?.hit && data.chatId) {
-          setCacheHit({
-            chatId: data.chatId,
-            createdAt: data.createdAt ?? '',
-            firstUserMessage: data.firstUserMessage ?? '',
-            firstAssistantMessage: data.firstAssistantMessage ?? '',
-            pendingText: text,
-          });
-          return;
-        }
+      if (data?.hit && data.chatId) {
+        setCacheHit({
+          chatId: data.chatId,
+          createdAt: data.createdAt ?? '',
+          firstUserMessage: data.firstUserMessage ?? '',
+          firstAssistantMessage: data.firstAssistantMessage ?? '',
+          pendingText: text,
+        });
+        return;
       }
     } catch (err) {
       console.error('[chat] cache-check failed:', err);
@@ -404,13 +410,13 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     setCacheHit(null);
     if (!hit) return;
     try {
-      const res = await fetch('/api/copilot/chats/fork', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sourceChatId: hit.chatId }),
-      });
-      if (!res.ok) throw new Error(`fork failed: ${res.status}`);
-      const { data } = (await res.json()) as { data?: { chatId?: string } };
+      const data = await apiRequest<{ chatId?: string }>(
+        '/api/copilot/chats/fork',
+        {
+          method: 'POST',
+          body: JSON.stringify({ sourceChatId: hit.chatId }),
+        },
+      );
       if (!data?.chatId) throw new Error('fork returned no chatId');
       await refreshChats();
       setChatId(data.chatId);

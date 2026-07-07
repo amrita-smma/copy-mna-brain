@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createDb } from '@/lib/server/db';
+import { getActiveWorkspaceId } from '@/lib/workspace';
 import { createContainer } from '@/lib/services';
 
 export async function GET(req: NextRequest) {
   try {
     const db = createDb();
-    const { investmentThesisService } = createContainer(db);
+    const { investmentThesisService } = createContainer(db, await getActiveWorkspaceId());
     // `?all=1` returns every thesis ("Track"); default returns the active one.
     const all = req.nextUrl.searchParams.get('all');
     const data = all
@@ -21,7 +22,7 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   try {
     const db = createDb();
-    const { investmentThesisService } = createContainer(db);
+    const { investmentThesisService } = createContainer(db, await getActiveWorkspaceId());
     const body = await req.json();
     const data = await investmentThesisService.upsert(body);
     return NextResponse.json({ data });

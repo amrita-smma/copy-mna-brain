@@ -1,4 +1,5 @@
 import { tool } from "@langchain/core/tools";
+import { getActiveWorkspaceId } from '@/lib/workspace';
 import { z } from "zod";
 import { logger } from "../../logger";
 import { createDb } from "@/lib/server/db";
@@ -61,7 +62,7 @@ export const updateCompanyCardSection = tool(
 
     try {
       const db = createDb();
-      const repo = new CompanyAnalysisRepository(db);
+      const repo = new CompanyAnalysisRepository(db, await getActiveWorkspaceId());
       const existing = await repo.findByCompanyId(id);
       if (!existing) {
         return `**Error:** No AI Company Card exists for company_id "${id}" yet. The card must be generated before a section can be edited.`;

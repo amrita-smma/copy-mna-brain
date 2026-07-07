@@ -1,15 +1,22 @@
-import { eq } from 'drizzle-orm';
-import { dealDocuments } from '@/lib/db/schema';
+import { and, eq, inArray } from 'drizzle-orm';
+import { companies, dealDocuments } from '@/lib/db/schema';
 import type { DbClient, Tables, TablesInsert } from './types';
 
 export class DealDocumentRepository {
-  constructor(private readonly db: DbClient) {}
+  constructor(
+    private readonly db: DbClient,
+    private readonly workspaceId: string,
+  ) {}
+
+  private workspaceCompanyIds() {
+    return this.db.select({ id: companies.id }).from(companies).where(eq(companies.workspace_id, this.workspaceId));
+  }
 
   async findById(id: string): Promise<Tables<'deal_documents'>> {
     const [row] = await this.db
       .select()
       .from(dealDocuments)
-      .where(eq(dealDocuments.id, id))
+      .where(and(eq(dealDocuments.id, id), inArray(dealDocuments.deal_id, this.workspaceCompanyIds())))
       .limit(1);
     if (!row) throw new Error(`Deal document ${id} not found`);
     return row;
@@ -21,7 +28,7 @@ export class DealDocumentRepository {
     const [row] = await this.db
       .select({ file_path: dealDocuments.file_path, file_name: dealDocuments.file_name })
       .from(dealDocuments)
-      .where(eq(dealDocuments.id, id))
+      .where(and(eq(dealDocuments.id, id), inArray(dealDocuments.deal_id, this.workspaceCompanyIds())))
       .limit(1);
     if (!row) throw new Error(`Deal document ${id} not found`);
     return row;
@@ -31,7 +38,7 @@ export class DealDocumentRepository {
     const rows = await this.db
       .select({ file_path: dealDocuments.file_path })
       .from(dealDocuments)
-      .where(eq(dealDocuments.deal_id, dealId));
+      .where(and(eq(dealDocuments.deal_id, dealId), inArray(dealDocuments.deal_id, this.workspaceCompanyIds())));
     return rows.map((d) => d.file_path).filter(Boolean);
   }
 
@@ -40,6 +47,8 @@ export class DealDocumentRepository {
   }
 
   async delete(id: string): Promise<void> {
-    await this.db.delete(dealDocuments).where(eq(dealDocuments.id, id));
+    await this.db
+      .delete(dealDocuments)
+      .where(and(eq(dealDocuments.id, id), inArray(dealDocuments.deal_id, this.workspaceCompanyIds())));
   }
 }

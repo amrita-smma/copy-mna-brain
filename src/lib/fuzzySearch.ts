@@ -1,6 +1,7 @@
 import levenshtein from 'fast-levenshtein';
 import { createDb } from '@/lib/server/db';
 import { CompanyRepository } from '@/lib/repositories';
+import { getActiveWorkspaceId } from '@/lib/workspace';
 
 interface MatchResult {
   id: string;
@@ -83,7 +84,7 @@ export async function findBestCompanyMatch(
   threshold: number = 0.3,
 ): Promise<MatchResult | null> {
   const db = createDb();
-  const companyRepo = new CompanyRepository(db);
+  const companyRepo = new CompanyRepository(db, await getActiveWorkspaceId());
   const companies = await companyRepo.findAllIdAndTarget();
   return bestFuzzyMatch(searchName, companies, threshold);
 }
@@ -94,7 +95,7 @@ export async function findBestCompanyMatch(
  */
 export async function getAllCompanyReferences(): Promise<MatchResult[]> {
   const db = createDb();
-  const companyRepo = new CompanyRepository(db);
+  const companyRepo = new CompanyRepository(db, await getActiveWorkspaceId());
 
   const companies = await companyRepo.findAllIdAndTarget();
 

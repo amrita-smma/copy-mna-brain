@@ -33,7 +33,7 @@ describe('AiWorkforceQueueRepository.createOrGetByIdempotencyKey', () => {
     const newRow = { id: 'r1', agent_name: 'foo' };
     insertChain.returning.mockResolvedValueOnce([newRow]);
 
-    const repo = new AiWorkforceQueueRepository(db as never);
+    const repo = new AiWorkforceQueueRepository(db as never, 'workspace-1');
     const result = await repo.createOrGetByIdempotencyKey({
       agent_name: 'foo',
       trigger_source: 'chat',
@@ -50,7 +50,7 @@ describe('AiWorkforceQueueRepository.createOrGetByIdempotencyKey', () => {
     const newRow = { id: 'r2', idempotency_key: 'k1' };
     insertChain.returning.mockResolvedValueOnce([newRow]);
 
-    const repo = new AiWorkforceQueueRepository(db as never);
+    const repo = new AiWorkforceQueueRepository(db as never, 'workspace-1');
     const result = await repo.createOrGetByIdempotencyKey({
       agent_name: 'foo',
       trigger_source: 'webhook',
@@ -68,7 +68,7 @@ describe('AiWorkforceQueueRepository.createOrGetByIdempotencyKey', () => {
     const existing = { id: 'r3', idempotency_key: 'k2' };
     selectChain.limit.mockResolvedValueOnce([existing]);
 
-    const repo = new AiWorkforceQueueRepository(db as never);
+    const repo = new AiWorkforceQueueRepository(db as never, 'workspace-1');
     const result = await repo.createOrGetByIdempotencyKey({
       agent_name: 'foo',
       trigger_source: 'webhook',
@@ -84,7 +84,7 @@ describe('AiWorkforceQueueRepository.createOrGetByIdempotencyKey', () => {
     insertChain.returning.mockResolvedValueOnce([]);
     selectChain.limit.mockResolvedValueOnce([]);
 
-    const repo = new AiWorkforceQueueRepository(db as never);
+    const repo = new AiWorkforceQueueRepository(db as never, 'workspace-1');
     await expect(
       repo.createOrGetByIdempotencyKey({
         agent_name: 'foo',
@@ -93,6 +93,62 @@ describe('AiWorkforceQueueRepository.createOrGetByIdempotencyKey', () => {
         idempotency_key: 'k3',
       } as never),
     ).rejects.toThrow(/idempotency_key k3 conflicted but row not found/);
+  });
+});
+
+describe('AiWorkforceQueueRepository.getGlobalQueuePositions', () => {
+  it('returns [] without hitting the DB when the id list is empty', async () => {
+    const { db } = makeMockDb();
+    const repo = new AiWorkforceQueueRepository(db as never, 'workspace-1');
+
+    const result = await repo.getGlobalQueuePositions([]);
+
+    expect(result).toEqual(new Map());
+    expect(db.select).not.toHaveBeenCalled();
+  });
+
+  it('maps each id to its computed global ahead-count and other-workspace ahead-count', async () => {
+    const { db, selectChain } = makeMockDb();
+    selectChain.where.mockResolvedValueOnce([
+      { id: 'r1', status: 'pending', priority: 0, created_at: 't1', workspace_id: 'workspace-1' },
+      { id: 'r2', status: 'resume_ready', priority: 0, created_at: 't2', workspace_id: 'workspace-1' },
+    ]);
+    db.execute
+      .mockResolvedValueOnce([{ ahead_count: '0', ahead_count_other: '0' }])
+      .mockResolvedValueOnce([{ ahead_count: '3', ahead_count_other: '2' }]);
+
+    const repo = new AiWorkforceQueueRepository(db as never, 'workspace-1');
+    const result = await repo.getGlobalQueuePositions(['r1', 'r2']);
+
+    expect(result).toEqual(
+      new Map([
+        ['r1', { aheadGlobally: 0, aheadOtherWorkspaces: 0 }],
+        ['r2', { aheadGlobally: 3, aheadOtherWorkspaces: 2 }],
+      ]),
+    );
+  });
+
+  it('filters the other-workspace count by the target row\'s own workspace_id, not the repo instance\'s', async () => {
+    const { db, selectChain } = makeMockDb();
+    // Target row belongs to workspace-2 even though the repo instance was
+    // constructed for workspace-1 — getGlobalQueuePositions is called with
+    // ids the caller already scoped, so the exclusion must key off the row's
+    // own workspace_id to stay correct regardless of which repo instance
+    // happens to make the call.
+    selectChain.where.mockResolvedValueOnce([
+      { id: 'r1', status: 'pending', priority: 0, created_at: 't1', workspace_id: 'workspace-2' },
+    ]);
+    db.execute.mockResolvedValueOnce([{ ahead_count: '5', ahead_count_other: '4' }]);
+
+    const repo = new AiWorkforceQueueRepository(db as never, 'workspace-1');
+    await repo.getGlobalQueuePositions(['r1']);
+
+    // db.execute receives a drizzle SQL object whose bound params live in
+    // queryChunks (interleaved with the raw text chunks), not in its
+    // toString() — inspect that directly rather than stringifying.
+    const executedSql = db.execute.mock.calls[0][0] as { queryChunks: unknown[] };
+    expect(executedSql.queryChunks).toContain('workspace-2');
+    expect(executedSql.queryChunks).not.toContain('workspace-1');
   });
 });
 
@@ -115,7 +171,7 @@ describe('AiWorkforceQueueRepository.claimNextRunnable', () => {
       async (fn: (t: typeof tx) => Promise<unknown>) => fn(tx),
     );
 
-    const repo = new AiWorkforceQueueRepository(db as never);
+    const repo = new AiWorkforceQueueRepository(db as never, 'workspace-1');
     const result = await repo.claimNextRunnable();
 
     expect(result).toBeNull();
@@ -132,7 +188,7 @@ describe('AiWorkforceQueueRepository.claimNextRunnable', () => {
       async (fn: (t: typeof tx) => Promise<unknown>) => fn(tx),
     );
 
-    const repo = new AiWorkforceQueueRepository(db as never);
+    const repo = new AiWorkforceQueueRepository(db as never, 'workspace-1');
     const result = await repo.claimNextRunnable();
 
     expect(result).toBeNull();
@@ -150,7 +206,7 @@ describe('AiWorkforceQueueRepository.claimNextRunnable', () => {
       async (fn: (t: typeof tx) => Promise<unknown>) => fn(tx),
     );
 
-    const repo = new AiWorkforceQueueRepository(db as never);
+    const repo = new AiWorkforceQueueRepository(db as never, 'workspace-1');
     const result = await repo.claimNextRunnable();
 
     expect(result).toBeNull();
@@ -169,7 +225,7 @@ describe('AiWorkforceQueueRepository.claimNextRunnable', () => {
       async (fn: (t: typeof tx) => Promise<unknown>) => fn(tx),
     );
 
-    const repo = new AiWorkforceQueueRepository(db as never);
+    const repo = new AiWorkforceQueueRepository(db as never, 'workspace-1');
     const result = await repo.claimNextRunnable();
 
     expect(result).toEqual(claimed);
@@ -184,7 +240,7 @@ describe('AiWorkforceQueueRepository.markFailed / markSucceeded', () => {
     const row = { id: 'r1', status: 'succeeded', output: { ok: true } };
     updateChain.returning.mockResolvedValueOnce([row]);
 
-    const repo = new AiWorkforceQueueRepository(db as never);
+    const repo = new AiWorkforceQueueRepository(db as never, 'workspace-1');
     const result = await repo.markSucceeded('r1', { ok: true });
 
     expect(result).toEqual(row);
@@ -201,7 +257,7 @@ describe('AiWorkforceQueueRepository.markFailed / markSucceeded', () => {
     const { db, updateChain } = makeMockDb();
     updateChain.returning.mockResolvedValueOnce([]);
 
-    const repo = new AiWorkforceQueueRepository(db as never);
+    const repo = new AiWorkforceQueueRepository(db as never, 'workspace-1');
     await expect(
       repo.markFailed('missing', { code: 'oops' }),
     ).rejects.toThrow(/row missing not found/);
@@ -216,7 +272,7 @@ describe('AiWorkforceQueueRepository.cancelById', () => {
     const row = { id: 'r1', status: 'failed' };
     updateChain.returning.mockResolvedValueOnce([row]);
 
-    const repo = new AiWorkforceQueueRepository(db as never);
+    const repo = new AiWorkforceQueueRepository(db as never, 'workspace-1');
     const result = await repo.cancelById('r1', { userId: 'u1', reason: 'too slow' });
 
     expect(result).toBe(row);
@@ -235,7 +291,7 @@ describe('AiWorkforceQueueRepository.cancelById', () => {
     const { db, updateChain } = makeMockDb();
     updateChain.returning.mockResolvedValueOnce([{ id: 'r2', status: 'failed' }]);
 
-    const repo = new AiWorkforceQueueRepository(db as never);
+    const repo = new AiWorkforceQueueRepository(db as never, 'workspace-1');
     await repo.cancelById('r2');
 
     const setArg = updateChain.set.mock.calls[0][0];
@@ -248,7 +304,7 @@ describe('AiWorkforceQueueRepository.cancelById', () => {
     const { db, updateChain } = makeMockDb();
     updateChain.returning.mockResolvedValueOnce([]);
 
-    const repo = new AiWorkforceQueueRepository(db as never);
+    const repo = new AiWorkforceQueueRepository(db as never, 'workspace-1');
     const result = await repo.cancelById('r3');
 
     expect(result).toBeNull();
@@ -276,7 +332,7 @@ describe('AiWorkforceQueueRepository.retryById', () => {
     const newRow = { id: 'new', retried_from_id: 'orig' };
     insertChain.returning.mockResolvedValueOnce([newRow]);
 
-    const repo = new AiWorkforceQueueRepository(db as never);
+    const repo = new AiWorkforceQueueRepository(db as never, 'workspace-1');
     const result = await repo.retryById('orig', { userId: 'u-new' });
 
     expect(result).toBe(newRow);
@@ -315,7 +371,7 @@ describe('AiWorkforceQueueRepository.retryById', () => {
     ]);
     insertChain.returning.mockResolvedValueOnce([{ id: 'new' }]);
 
-    const repo = new AiWorkforceQueueRepository(db as never);
+    const repo = new AiWorkforceQueueRepository(db as never, 'workspace-1');
     await repo.retryById('orig');
 
     const values = insertChain.values.mock.calls[0][0];
@@ -327,7 +383,7 @@ describe('AiWorkforceQueueRepository.retryById', () => {
     const { db, selectChain } = makeMockDb();
     selectChain.limit.mockResolvedValueOnce([]);
 
-    const repo = new AiWorkforceQueueRepository(db as never);
+    const repo = new AiWorkforceQueueRepository(db as never, 'workspace-1');
     await expect(repo.retryById('missing')).rejects.toThrow(/row missing not found/);
   });
 });
@@ -338,7 +394,7 @@ describe('AiWorkforceQueueRepository.markWaitingForHumanInput', () => {
     const row = { id: 'r1', status: 'waiting_for_human_input' };
     updateChain.returning.mockResolvedValueOnce([row]);
 
-    const repo = new AiWorkforceQueueRepository(db as never);
+    const repo = new AiWorkforceQueueRepository(db as never, 'workspace-1');
     const result = await repo.markWaitingForHumanInput('r1', 'awaiting approval');
 
     expect(result).toBe(row);
@@ -352,7 +408,7 @@ describe('AiWorkforceQueueRepository.markWaitingForHumanInput', () => {
     const { db, updateChain } = makeMockDb();
     updateChain.returning.mockResolvedValueOnce([]);
 
-    const repo = new AiWorkforceQueueRepository(db as never);
+    const repo = new AiWorkforceQueueRepository(db as never, 'workspace-1');
     await expect(
       repo.markWaitingForHumanInput('missing', 'x'),
     ).rejects.toThrow(/not found/);
@@ -365,7 +421,7 @@ describe('AiWorkforceQueueRepository.appendDecision', () => {
     const row = { id: 'r1', human_decisions: [] };
     updateChain.returning.mockResolvedValueOnce([row]);
 
-    const repo = new AiWorkforceQueueRepository(db as never);
+    const repo = new AiWorkforceQueueRepository(db as never, 'workspace-1');
     const decision = {
       tool_call_id: 'c-1',
       tool_name: 'promote_to_l1',
@@ -386,7 +442,7 @@ describe('AiWorkforceQueueRepository.appendDecision', () => {
     const { db, updateChain } = makeMockDb();
     updateChain.returning.mockResolvedValueOnce([]);
 
-    const repo = new AiWorkforceQueueRepository(db as never);
+    const repo = new AiWorkforceQueueRepository(db as never, 'workspace-1');
     await expect(
       repo.appendDecision('missing', {
         tool_call_id: 'c-1',
@@ -404,7 +460,7 @@ describe('AiWorkforceQueueRepository.markResumeReady', () => {
     const row = { id: 'r1', status: 'resume_ready' };
     updateChain.returning.mockResolvedValueOnce([row]);
 
-    const repo = new AiWorkforceQueueRepository(db as never);
+    const repo = new AiWorkforceQueueRepository(db as never, 'workspace-1');
     const payloadJson = JSON.stringify({ decisions: [{ type: 'approve' }] });
     const result = await repo.markResumeReady('r1', 'human approve', payloadJson);
 
@@ -420,7 +476,7 @@ describe('AiWorkforceQueueRepository.markResumeReady', () => {
     const { db, updateChain } = makeMockDb();
     updateChain.returning.mockResolvedValueOnce([{ id: 'r1' }]);
 
-    const repo = new AiWorkforceQueueRepository(db as never);
+    const repo = new AiWorkforceQueueRepository(db as never, 'workspace-1');
     await repo.markResumeReady('r1', 'subagent done');
 
     const setArg = updateChain.set.mock.calls[0][0];
@@ -435,7 +491,7 @@ describe('AiWorkforceQueueRepository.markResumeReady', () => {
 describe('AiWorkforceQueueRepository.setPriorities', () => {
   it('returns early without opening a transaction when the update list is empty', async () => {
     const { db } = makeMockDb();
-    const repo = new AiWorkforceQueueRepository(db as never);
+    const repo = new AiWorkforceQueueRepository(db as never, 'workspace-1');
 
     await repo.setPriorities([]);
 
@@ -450,7 +506,7 @@ describe('AiWorkforceQueueRepository.setPriorities', () => {
       async (fn: (tx: typeof db) => Promise<unknown>) => fn(db),
     );
 
-    const repo = new AiWorkforceQueueRepository(db as never);
+    const repo = new AiWorkforceQueueRepository(db as never, 'workspace-1');
     await repo.setPriorities([
       { id: 'r1', priority: 3 },
       { id: 'r2', priority: 2 },
@@ -471,7 +527,7 @@ describe('AiWorkforceQueueRepository.clearResumeToken', () => {
     // No .returning() chain expected — clearResumeToken is fire-and-forget.
     updateChain.returning.mockResolvedValueOnce([]);
 
-    const repo = new AiWorkforceQueueRepository(db as never);
+    const repo = new AiWorkforceQueueRepository(db as never, 'workspace-1');
     await expect(repo.clearResumeToken('r1')).resolves.toBeUndefined();
 
     expect(updateChain.set).toHaveBeenCalledWith({ resume_token: null });
@@ -487,7 +543,7 @@ describe('AiWorkforceQueueRepository.appendPendingUserMessage', () => {
     };
     updateChain.returning.mockResolvedValueOnce([row]);
 
-    const repo = new AiWorkforceQueueRepository(db as never);
+    const repo = new AiWorkforceQueueRepository(db as never, 'workspace-1');
     const result = await repo.appendPendingUserMessage('r1', {
       id: 'm-new',
       text: 'hello',
@@ -505,7 +561,7 @@ describe('AiWorkforceQueueRepository.appendPendingUserMessage', () => {
     const { db, updateChain } = makeMockDb();
     updateChain.returning.mockResolvedValueOnce([]);
 
-    const repo = new AiWorkforceQueueRepository(db as never);
+    const repo = new AiWorkforceQueueRepository(db as never, 'workspace-1');
     await expect(
       repo.appendPendingUserMessage('missing', {
         id: 'm',
@@ -543,7 +599,7 @@ describe('AiWorkforceQueueRepository.consumePendingUserMessages', () => {
       async (fn: (t: typeof tx) => Promise<unknown>) => fn(tx),
     );
 
-    const repo = new AiWorkforceQueueRepository(db as never);
+    const repo = new AiWorkforceQueueRepository(db as never, 'workspace-1');
     const result = await repo.consumePendingUserMessages('r1');
 
     expect(result).toEqual([]);
@@ -561,7 +617,7 @@ describe('AiWorkforceQueueRepository.consumePendingUserMessages', () => {
       async (fn: (t: typeof tx) => Promise<unknown>) => fn(tx),
     );
 
-    const repo = new AiWorkforceQueueRepository(db as never);
+    const repo = new AiWorkforceQueueRepository(db as never, 'workspace-1');
     const result = await repo.consumePendingUserMessages('r1');
 
     expect(result).toEqual(msgs);
@@ -575,7 +631,7 @@ describe('AiWorkforceQueueRepository.consumePendingUserMessages', () => {
       async (fn: (t: typeof tx) => Promise<unknown>) => fn(tx),
     );
 
-    const repo = new AiWorkforceQueueRepository(db as never);
+    const repo = new AiWorkforceQueueRepository(db as never, 'workspace-1');
     const result = await repo.consumePendingUserMessages('missing');
 
     expect(result).toEqual([]);
@@ -630,7 +686,7 @@ describe('AiWorkforceQueueRepository notifications', () => {
       async (fn: (t: typeof tx) => Promise<unknown>) => fn(tx),
     );
 
-    const repo = new AiWorkforceQueueRepository(db as never);
+    const repo = new AiWorkforceQueueRepository(db as never, 'workspace-1');
     const result = await repo.addNotification('r-1', makeNotif());
 
     expect(result).toBe(newRow);
@@ -648,7 +704,7 @@ describe('AiWorkforceQueueRepository notifications', () => {
       async (fn: (t: typeof tx) => Promise<unknown>) => fn(tx),
     );
 
-    const repo = new AiWorkforceQueueRepository(db as never);
+    const repo = new AiWorkforceQueueRepository(db as never, 'workspace-1');
     await repo.addNotification('r-1', makeNotif());
 
     const patch = updateChain.set.mock.calls[0][0] as { error: Record<string, unknown> };
@@ -673,7 +729,7 @@ describe('AiWorkforceQueueRepository notifications', () => {
       async (fn: (t: typeof tx) => Promise<unknown>) => fn(tx),
     );
 
-    const repo = new AiWorkforceQueueRepository(db as never);
+    const repo = new AiWorkforceQueueRepository(db as never, 'workspace-1');
     await expect(repo.addNotification('missing', makeNotif())).rejects.toThrow(
       /ai_workforce_queue row missing not found/,
     );
@@ -690,7 +746,7 @@ describe('AiWorkforceQueueRepository notifications', () => {
       async (fn: (t: typeof tx) => Promise<unknown>) => fn(tx),
     );
 
-    const repo = new AiWorkforceQueueRepository(db as never);
+    const repo = new AiWorkforceQueueRepository(db as never, 'workspace-1');
     await repo.dismissNotification('r-1', 'b');
 
     const patch = updateChain.set.mock.calls[0][0] as {
@@ -708,7 +764,7 @@ describe('AiWorkforceQueueRepository notifications', () => {
   });
 
   it('listNotifications filters dismissed by default', () => {
-    const repo = new AiWorkforceQueueRepository({} as never);
+    const repo = new AiWorkforceQueueRepository({} as never, 'workspace-1');
     const a = makeNotif({ id: 'a' });
     const b = makeNotif({ id: 'b', dismissedAt: '2026-01-01T00:00:00Z' });
     const row = { error: { notifications: [a, b] } } as never;
@@ -720,7 +776,7 @@ describe('AiWorkforceQueueRepository notifications', () => {
   });
 
   it('listNotifications tolerates null/non-object error payloads', () => {
-    const repo = new AiWorkforceQueueRepository({} as never);
+    const repo = new AiWorkforceQueueRepository({} as never, 'workspace-1');
     expect(repo.listNotifications({ error: null } as never)).toEqual([]);
     expect(repo.listNotifications({ error: 'oops' } as never)).toEqual([]);
     expect(repo.listNotifications({ error: ['arr'] } as never)).toEqual([]);
@@ -761,7 +817,7 @@ describe('AiWorkforceQueueRepository.listFiltered', () => {
 
   it('returns [] without hitting the DB when status is an empty array', async () => {
     const { db } = makeListDb();
-    const repo = new AiWorkforceQueueRepository(db as never);
+    const repo = new AiWorkforceQueueRepository(db as never, 'workspace-1');
 
     const result = await repo.listFiltered({ status: [] });
 
@@ -769,15 +825,17 @@ describe('AiWorkforceQueueRepository.listFiltered', () => {
     expect(db.select).not.toHaveBeenCalled();
   });
 
-  it('passes no WHERE clause when no filters are provided', async () => {
+  it('scopes to the workspace only when no other filters are provided', async () => {
     const { db, chain } = makeListDb();
     chain.limit.mockResolvedValueOnce([]);
 
-    const repo = new AiWorkforceQueueRepository(db as never);
+    const repo = new AiWorkforceQueueRepository(db as never, 'workspace-1');
     await repo.listFiltered({});
 
     expect(chain.where).toHaveBeenCalledTimes(1);
-    expect(chain.where).toHaveBeenCalledWith(undefined);
+    // A single condition (the workspace_id predicate) is passed through
+    // `and(...)`, so the arg is a defined clause, not undefined.
+    expect(chain.where.mock.calls[0][0]).toBeDefined();
     expect(chain.limit).toHaveBeenCalledWith(10);
   });
 
@@ -786,7 +844,7 @@ describe('AiWorkforceQueueRepository.listFiltered', () => {
     const rows = [{ id: 'r1' }];
     chain.limit.mockResolvedValueOnce(rows);
 
-    const repo = new AiWorkforceQueueRepository(db as never);
+    const repo = new AiWorkforceQueueRepository(db as never, 'workspace-1');
     const result = await repo.listFiltered({
       status: 'running',
       agentName: 'chat_handoff',
@@ -806,7 +864,7 @@ describe('AiWorkforceQueueRepository.listFiltered', () => {
     const { db, chain } = makeListDb();
     chain.limit.mockResolvedValueOnce([{ id: 'a' }, { id: 'b' }]);
 
-    const repo = new AiWorkforceQueueRepository(db as never);
+    const repo = new AiWorkforceQueueRepository(db as never, 'workspace-1');
     const result = await repo.listFiltered({
       status: ['failed', 'rejected', 'timed_out'],
     });

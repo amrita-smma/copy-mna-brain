@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createDb } from '@/lib/server/db';
 import { createContainer } from '@/lib/services';
+import { getActiveWorkspaceId } from '@/lib/workspace';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -29,7 +30,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
 
   try {
     const db = createDb();
-    const { dealResurfaceService } = createContainer(db);
+    const { dealResurfaceService } = createContainer(db, await getActiveWorkspaceId());
     const result = await dealResurfaceService.processDue();
     return NextResponse.json({ ok: true, ...result });
   } catch (err) {

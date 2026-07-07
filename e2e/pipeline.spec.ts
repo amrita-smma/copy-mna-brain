@@ -1,5 +1,5 @@
 import { test, expect, Page } from '@playwright/test';
-import { MOCK_USER, mockAuthSession } from './helpers/auth';
+import { mockAuthSession } from './helpers/auth';
 
 type Company = {
   id: string;
@@ -69,9 +69,7 @@ const MOCK_COMPANIES: Company[] = [
   baseCompany({ id: 'co-8', target: 'Wonka', segment: 'Consumer', pipeline_stage: 'L5' }),
 ];
 
-const mockApis = async (page: Page, companies: Company[], opts?: { favorites?: string[] }) => {
-  const favoritesState: string[] = [...(opts?.favorites ?? [])];
-
+const mockApis = async (page: Page, companies: Company[]) => {
   await page.route('**/api/companies**', (route) => {
     const req = route.request();
     const method = req.method();
@@ -128,23 +126,6 @@ const mockApis = async (page: Page, companies: Company[], opts?: { favorites?: s
     return route.fallback();
   });
 
-  await page.route('**/api/users/*/favorites**', (route) => {
-    const method = route.request().method();
-    if (method === 'PATCH') {
-      const body = JSON.parse(route.request().postData() || '{}') as { companyId?: string };
-      if (body.companyId) {
-        const idx = favoritesState.indexOf(body.companyId);
-        if (idx >= 0) favoritesState.splice(idx, 1);
-        else favoritesState.push(body.companyId);
-      }
-    }
-    return route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({ data: [...favoritesState] }),
-    });
-  });
-
   // Supporting panels on L0 — stub with empty/no-op payloads so the page settles.
   await page.route('**/api/market-screening**', (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ data: [] }) }),
@@ -153,7 +134,7 @@ const mockApis = async (page: Page, companies: Company[], opts?: { favorites?: s
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ data: [] }) }),
   );
   await page.route('**/api/investment-thesis**', (route) =>
-    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ data: null }) }),
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ data: [] }) }),
   );
 };
 
@@ -269,27 +250,6 @@ test.describe('Pipeline page', () => {
 
     await page.getByRole('button', { name: 'Wayne Enterprises', exact: true }).click();
     await expect(page.getByRole('dialog')).toBeVisible();
-  });
-
-  test('User stars a company', async ({ page }) => {
-    await mockAuthSession(page, MOCK_USER);
-    await mockApis(page, MOCK_COMPANIES);
-
-    await Promise.all([
-      page.waitForResponse((res) => res.url().includes('/api/companies') && !res.url().includes('countOnly') && res.status() === 200),
-      page.goto('/pipeline?stage=L2'),
-    ]);
-
-    const starBtn = page
-      .getByRole('row')
-      .filter({ has: page.getByRole('button', { name: 'Stark Industries', exact: true }) })
-      .locator('button:has(svg.lucide-star)');
-
-    const [req] = await Promise.all([
-      page.waitForRequest((r) => r.method() === 'PATCH' && r.url().includes('/favorites')),
-      starBtn.click(),
-    ]);
-    expect(JSON.parse(req.postData() || '{}')).toEqual({ companyId: 'co-5' });
   });
 
   test('User views a stage with no companies', async ({ page }) => {

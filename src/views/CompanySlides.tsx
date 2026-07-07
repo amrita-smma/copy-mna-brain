@@ -8,6 +8,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Input } from '@/components/ui/input';
 import { Slider } from '@/components/ui/slider';
 import { toast } from 'sonner';
+import { useWorkspaceHref } from '@/hooks/useWorkspaceHref';
 import {
   ArrowLeft,
   Plus,
@@ -362,6 +363,7 @@ export default function CompanySlides({ showCompanyGraph = false }: CompanySlide
   const params = useParams();
   const router = useRouter();
   const companyId = params.dealId as string;
+  const pipelineHref = useWorkspaceHref('/pipeline');
 
   const [company, setCompany] = useState<CompanyData | null>(null);
   const [analysis, setAnalysis] = useState<CompanyAnalysis | null>(null);
@@ -743,7 +745,7 @@ export default function CompanySlides({ showCompanyGraph = false }: CompanySlide
       <DashboardLayout showCompanyGraph={showCompanyGraph}>
         <div className="flex flex-col items-center justify-center h-full gap-4">
           <p className="text-muted-foreground">Company not found</p>
-          <Button onClick={() => router.push('/pipeline')}>
+          <Button onClick={() => router.push(pipelineHref)}>
             <ArrowLeft className="h-4 w-4 mr-2" />
             Go Back
           </Button>
@@ -758,7 +760,7 @@ export default function CompanySlides({ showCompanyGraph = false }: CompanySlide
         {/* Top bar */}
         <div className="flex items-center justify-between px-4 py-2 border-b bg-background/80 backdrop-blur-sm shrink-0">
           <div className="flex items-center gap-3">
-            <Button variant="ghost" size="icon" onClick={() => router.push(`/pipeline/${companyId}`)}>
+            <Button variant="ghost" size="icon" onClick={() => router.push(`${pipelineHref}/${companyId}`)}>
               <ArrowLeft className="h-4 w-4" />
             </Button>
             <div className="flex items-center gap-2">

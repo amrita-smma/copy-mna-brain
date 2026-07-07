@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { FileText, Sparkles, Users } from 'lucide-react';
 import DashboardLayout from '@/components/layout/DashboardLayout';
 import { useChatContext } from '@/components/chat/ChatProvider';
+import { useWorkspaceHref } from '@/hooks/useWorkspaceHref';
 import { cn } from '@/lib/utils';
 
 import { CoPilotPanel, ComingSoonPanel } from './CoPilotPanel';
@@ -34,6 +35,9 @@ export default function AIWorkforce({
   const [activeTab, setActiveTab] = useState<TabKey>(initialTab);
   const router = useRouter();
   const { chatId, setChatId } = useChatContext();
+  const copilotTarget = useWorkspaceHref(
+    chatId ? `/ai-workforce/ai-copilot/${chatId}` : '/ai-workforce/ai-copilot',
+  );
 
   // Seed chatId from the URL on mount, then keep URL in sync with subsequent
   // state changes — but only for the copilot tab. The workforce tab manages
@@ -53,13 +57,10 @@ export default function AIWorkforce({
     }
     // Workforce tab owns its URL — see WorkforceTasks.
     if (activeTab !== 'copilot') return;
-    const target = chatId
-      ? `/ai-workforce/ai-copilot/${chatId}`
-      : '/ai-workforce/ai-copilot';
-    if (typeof window !== 'undefined' && window.location.pathname !== target) {
-      router.replace(target);
+    if (typeof window !== 'undefined' && window.location.pathname !== copilotTarget) {
+      router.replace(copilotTarget);
     }
-  }, [initialChatId, activeTab, chatId, setChatId, router]);
+  }, [initialChatId, activeTab, chatId, setChatId, router, copilotTarget]);
 
   return (
     <DashboardLayout showCompanyGraph={showCompanyGraph}>

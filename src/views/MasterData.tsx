@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { useWorkspaceHref } from '@/hooks/useWorkspaceHref';
 import DashboardLayout from '@/components/layout/DashboardLayout';
 import CompanyDetailDialog, { type CompanyData } from '@/components/pipeline/CompanyDetailDialog';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -196,12 +197,14 @@ export default function MasterData({ showCompanyGraph = false }: MasterDataProps
   const router = useRouter();
   const isMobile = useIsMobile();
   const { nearEdge, edgeHandlers } = useNearRightEdge();
+  const pipelineHref = useWorkspaceHref('/pipeline');
+  const masterDataHref = useWorkspaceHref('/master-data');
 
   // On mobile, a company opens its own full-screen profile page (with a back
   // button to the Search list). On desktop it opens the detail dialog.
   const openCompany = (companyId: string) => {
     if (isMobile) {
-      router.push(`/pipeline/${companyId}?from=/master-data`);
+      router.push(`${pipelineHref}/${companyId}?from=${encodeURIComponent(masterDataHref)}`);
     } else {
       void openCompanyDialog(companyId);
     }

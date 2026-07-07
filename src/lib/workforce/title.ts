@@ -1,4 +1,5 @@
 import { ChatAnthropic } from '@langchain/anthropic';
+import { getActiveWorkspaceId } from '@/lib/workspace';
 import { AiWorkforceQueueRepository } from '@/lib/repositories';
 import { createDb } from '@/lib/server/db';
 
@@ -48,7 +49,7 @@ export async function generateWorkforceTitle(
     if (!title) return null;
 
     const db = createDb();
-    const repo = new AiWorkforceQueueRepository(db);
+    const repo = new AiWorkforceQueueRepository(db, await getActiveWorkspaceId());
     await repo.setTitle(runId, title);
     return title;
   } catch (err) {

@@ -1,8 +1,10 @@
-import CompanyGraph from '@/views/CompanyGraph';
-import { companyGraphEnabled } from '@/lib/flags';
+import { redirectToWorkspaceScoped } from '@/lib/legacyWorkspaceRedirect';
 
-export default async function GraphPage() {
-  const showCompanyGraph = await companyGraphEnabled().then(Boolean);
-
-  return <CompanyGraph showCompanyGraph={showCompanyGraph} />;
+/** Pre-migration deeplink bridge — see `redirectToWorkspaceScoped`. */
+export default async function LegacyGraphRedirect({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  await redirectToWorkspaceScoped('/graph', await searchParams);
 }

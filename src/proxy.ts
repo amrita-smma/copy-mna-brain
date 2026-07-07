@@ -56,8 +56,72 @@ function unauthorized() {
   return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 }
 
+/** Extracts the `<slug>` segment from a `/w/<slug>/...` pathname, or null if the path doesn't match. */
+export function extractWorkspaceSlug(pathname: string): string | null {
+  const match = pathname.match(/^\/w\/([^/]+)(?:\/|$)/);
+  return match ? match[1] : null;
+}
+
+/**
+ * Whether `slug` is one this user can enter — a real membership, or implicit
+ * access via the platform-wide superadmin flag. Pure function, no DB access
+ * (matches this file's existing edge-safe constraint): validated purely
+ * against the JWT-embedded membership list from `session.user.workspaces`.
+ */
+export function isValidWorkspaceSlug(
+  slug: string,
+  workspaces: { slug: string }[],
+  isSuperadmin: boolean,
+): boolean {
+  if (isSuperadmin) return true;
+  return workspaces.some((w) => w.slug === slug);
+}
+
+/**
+ * Extracts a same-origin `/w/<slug>/...` referer's slug, or null if the
+ * referer is missing, cross-origin, or not a workspace-scoped path.
+ */
+export function extractRefererWorkspaceSlug(refererHeader: string | null, requestHost: string | null): string | null {
+  if (!refererHeader) return null;
+  try {
+    const refererUrl = new URL(refererHeader);
+    // Compare hosts, not full origins computed by the framework — behind a
+    // reverse proxy or a Docker bind-to-0.0.0.0 setup, `req.nextUrl.origin`
+    // reflects the internal bind address, not the externally-visible host
+    // the browser actually sent the Referer against. The incoming `Host`
+    // header is the value browsers keep in sync with the visible URL.
+    if (refererUrl.host !== requestHost) return null;
+    return extractWorkspaceSlug(refererUrl.pathname);
+  } catch {
+    return null;
+  }
+}
+
 export const proxy = auth((req) => {
-  const mode = classifyApiRoute(req.nextUrl.pathname);
+  const pathname = req.nextUrl.pathname;
+
+  if (pathname.startsWith('/w/')) {
+    if (!req.auth?.user?.id) {
+      return NextResponse.redirect(new URL('/login', req.url));
+    }
+
+    const slug = extractWorkspaceSlug(pathname);
+    const workspaces = req.auth.user.workspaces ?? [];
+    if (!slug || !isValidWorkspaceSlug(slug, workspaces, req.auth.user.isSuperadmin)) {
+      return NextResponse.redirect(new URL('/workspace', req.url));
+    }
+
+    // Inject (not merely forward) X-Workspace-Slug from the validated URL —
+    // this is what makes `getActiveWorkspaceId()`'s header check work for
+    // document/RSC requests, which never go through `apiRequest`'s client-side
+    // header injection. Setting it here, from the already-authenticated URL,
+    // also means a client can never spoof this header on a page request.
+    const requestHeaders = new Headers(req.headers);
+    requestHeaders.set('X-Workspace-Slug', slug);
+    return NextResponse.next({ request: { headers: requestHeaders } });
+  }
+
+  const mode = classifyApiRoute(pathname);
   if (mode === 'allow') return NextResponse.next();
 
   const expectedSecret = process.env.ADMIN_SECRET;
@@ -72,12 +136,43 @@ export const proxy = auth((req) => {
   // mode === 'session': a logged-in user, or an internal call carrying the
   // shared secret (server-to-server `apiRequest`).
   const hasSession = Boolean(req.auth?.user?.id);
-  return hasSession || hasValidSecret ? NextResponse.next() : unauthorized();
+  if (!hasSession && !hasValidSecret) return unauthorized();
+
+  // Net for the client-side fetch sweep: a same-origin caller's own URL
+  // already proves which workspace it's scoped to. If the request didn't
+  // already carry an explicit header (apiRequest's client-side injection,
+  // or a call site not yet converted), derive it from the Referer instead
+  // of relying on every call site being swept. Still validated against
+  // membership and still fails closed downstream in getActiveWorkspaceId()
+  // — this only ever narrows scope, never widens it.
+  const hasExplicitWorkspaceHeader =
+    req.headers.has('x-workspace-slug') || req.headers.has('x-workspace-id');
+  if (!hasExplicitWorkspaceHeader && req.auth?.user) {
+    const refererSlug = extractRefererWorkspaceSlug(req.headers.get('referer'), req.headers.get('host'));
+    const workspaces = req.auth.user.workspaces ?? [];
+    if (refererSlug && isValidWorkspaceSlug(refererSlug, workspaces, req.auth.user.isSuperadmin)) {
+      const requestHeaders = new Headers(req.headers);
+      requestHeaders.set('X-Workspace-Slug', refererSlug);
+      return NextResponse.next({ request: { headers: requestHeaders } });
+    }
+    if (process.env.NODE_ENV !== 'production') {
+      const referer = req.headers.get('referer') ?? '';
+      if (referer.includes('/w/')) {
+        console.warn(
+          `[proxy] ${pathname} received no X-Workspace-Slug header and its Referer (${referer}) could not be resolved to a valid membership — this request will fall back to the session's active workspace instead of the calling tab's own workspace. Likely an unconverted fetch() call site or a stripped Referer.`,
+        );
+      }
+    }
+  }
+
+  return NextResponse.next();
 });
 
-// Gate every API route. Page routes are unaffected (they enforce auth in their
-// own server components). New `/api/*` routes are protected by default — add
-// them to `classifyApiRoute` only if they need to be public or self-authed.
+// Gate every API route, plus workspace-scoped page routes (membership check +
+// header injection — see the `/w/` branch above). Other page routes are
+// unaffected (they enforce auth in their own server components). New
+// `/api/*` routes are protected by default — add them to `classifyApiRoute`
+// only if they need to be public or self-authed.
 export const config = {
-  matcher: ['/api/:path*'],
+  matcher: ['/api/:path*', '/w/:path*'],
 };

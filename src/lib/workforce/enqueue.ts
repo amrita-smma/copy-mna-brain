@@ -1,4 +1,5 @@
 import { after } from 'next/server';
+import { getActiveWorkspaceId } from '@/lib/workspace';
 import { AiWorkforceQueueRepository } from '@/lib/repositories';
 import type { DbClient } from '@/lib/repositories';
 import { createDb } from '@/lib/server/db';
@@ -44,7 +45,8 @@ export async function enqueueAgentRun(
   db: DbClient,
   input: EnqueueAgentRunInput,
 ): Promise<EnqueueAgentRunResult> {
-  const queueRepo = new AiWorkforceQueueRepository(db);
+  const workspaceId = await getActiveWorkspaceId();
+  const queueRepo = new AiWorkforceQueueRepository(db, workspaceId);
 
   const { row, created } = await queueRepo.createOrGetByIdempotencyKey({
     agent_name: input.agentName,
@@ -56,7 +58,14 @@ export async function enqueueAgentRun(
     origin_routine_id: input.originRoutineId ?? null,
     idempotency_key: input.idempotencyKey ?? null,
     triggered_by_user_id: input.triggeredByUserId ?? null,
-  } as never);
+    // createOrGetByIdempotencyKey is deliberately unscoped (MB-147 surface —
+    // idempotency lookups by key must see every workspace), so it doesn't
+    // stamp this itself; the caller must supply a complete insert row.
+    // Previously this object omitted workspace_id and was cast `as never`
+    // to bypass the resulting type error — every insert violated the
+    // NOT NULL constraint at runtime instead of failing at compile time.
+    workspace_id: workspaceId,
+  });
 
   if (created) {
     scheduleDispatch();

@@ -93,13 +93,17 @@ export interface StaleCandidate {
  * excluded.
  */
 export class DashboardInsightsRepository {
-  constructor(private db: DbClient) {}
+  constructor(
+    private db: DbClient,
+    private readonly workspaceId: string,
+  ) {}
 
   /** Predicate: active company sitting in the L0–L5 funnel, created within the
    * `[from, to]` window. The window scopes every funnel/breakdown aggregate so
    * the dashboard's date filter (7d / 14d / custom) applies consistently. */
   private inFunnel(from: Date, to: Date) {
     return and(
+      eq(companies.workspace_id, this.workspaceId),
       eq(companies.status, 'active'),
       inArray(companies.pipeline_stage, ['L0', 'L1', 'L2', 'L3', 'L4', 'L5']),
       gte(companies.created_at, from.toISOString()),
@@ -214,13 +218,16 @@ export class DashboardInsightsRepository {
       SELECT COUNT(DISTINCT id) AS count FROM (
         SELECT ${companies.id} AS id
         FROM ${companies}
-        WHERE ${eq(companies.pipeline_stage, 'L0')}
+        WHERE ${eq(companies.workspace_id, this.workspaceId)}
+          AND ${eq(companies.pipeline_stage, 'L0')}
           AND ${gte(companies.created_at, fromIso)}
           AND ${lte(companies.created_at, toIso)}
         UNION
         SELECT ${companyLogs.company_id} AS id
         FROM ${companyLogs}
-        WHERE ${like(companyLogs.action, '%_TO_L0')}
+        INNER JOIN ${companies} ON ${eq(companies.id, companyLogs.company_id)}
+        WHERE ${eq(companies.workspace_id, this.workspaceId)}
+          AND ${like(companyLogs.action, '%_TO_L0')}
           AND ${gte(companyLogs.created_at, fromIso)}
           AND ${lte(companyLogs.created_at, toIso)}
       ) sub
@@ -232,6 +239,7 @@ export class DashboardInsightsRepository {
   countScreenedL0(from: Date, to: Date): Promise<number> {
     return this.countWhere(
       and(
+        eq(companies.workspace_id, this.workspaceId),
         eq(companies.status, 'active'),
         eq(companies.pipeline_stage, 'L0'),
         gte(companies.created_at, from.toISOString()),
@@ -245,8 +253,10 @@ export class DashboardInsightsRepository {
     const [row] = await this.db
       .select({ value: drizzleCount() })
       .from(companySlides)
+      .innerJoin(companies, eq(companies.id, companySlides.company_id))
       .where(
         and(
+          eq(companies.workspace_id, this.workspaceId),
           gte(companySlides.created_at, from.toISOString()),
           lte(companySlides.created_at, to.toISOString()),
         ),
@@ -265,8 +275,10 @@ export class DashboardInsightsRepository {
         failed: sql<number>`count(*) filter (where ${companyAnalyses.status} = 'failed')`,
       })
       .from(companyAnalyses)
+      .innerJoin(companies, eq(companies.id, companyAnalyses.company_id))
       .where(
         and(
+          eq(companies.workspace_id, this.workspaceId),
           gte(companyAnalyses.created_at, from.toISOString()),
           lte(companyAnalyses.created_at, to.toISOString()),
         ),
@@ -292,6 +304,7 @@ export class DashboardInsightsRepository {
       .from(companies)
       .where(
         and(
+          eq(companies.workspace_id, this.workspaceId),
           isNotNull(companies.ai_opinion_verdict),
           gte(companies.ai_opinion_updated_at, from.toISOString()),
           lte(companies.ai_opinion_updated_at, to.toISOString()),
@@ -319,8 +332,10 @@ export class DashboardInsightsRepository {
         error: sql<number>`count(*) filter (where ${screenings.result} = 'error')`,
       })
       .from(screenings)
+      .innerJoin(companies, eq(companies.id, screenings.company_id))
       .where(
         and(
+          eq(companies.workspace_id, this.workspaceId),
           isNotNull(screenings.result),
           gte(screenings.created_at, from.toISOString()),
           lte(screenings.created_at, to.toISOString()),
@@ -343,6 +358,7 @@ export class DashboardInsightsRepository {
       .from(aiWorkforceQueue)
       .where(
         and(
+          eq(aiWorkforceQueue.workspace_id, this.workspaceId),
           isNull(aiWorkforceQueue.parent_run_id),
           gte(aiWorkforceQueue.created_at, from.toISOString()),
           lte(aiWorkforceQueue.created_at, to.toISOString()),
@@ -366,6 +382,7 @@ export class DashboardInsightsRepository {
       .from(aiWorkforceQueue)
       .where(
         and(
+          eq(aiWorkforceQueue.workspace_id, this.workspaceId),
           gte(aiWorkforceQueue.created_at, from.toISOString()),
           lte(aiWorkforceQueue.created_at, to.toISOString()),
         ),
@@ -374,7 +391,12 @@ export class DashboardInsightsRepository {
     const [pendingRow] = await this.db
       .select({ value: drizzleCount() })
       .from(aiWorkforceQueue)
-      .where(eq(aiWorkforceQueue.status, 'waiting_for_human_input'));
+      .where(
+        and(
+          eq(aiWorkforceQueue.workspace_id, this.workspaceId),
+          eq(aiWorkforceQueue.status, 'waiting_for_human_input'),
+        ),
+      );
 
     return {
       resolved: Number(resolvedRow?.value ?? 0),

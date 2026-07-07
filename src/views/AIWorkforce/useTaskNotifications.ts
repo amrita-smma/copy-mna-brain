@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { apiRequest } from '@/lib/api/client';
 import { NOTIFICATION_DEFS } from '@/lib/notifications/registry';
 import type {
   NotificationAction,
@@ -45,11 +46,9 @@ export function useTaskNotifications({
       if (!taskId) return;
       setPendingDismiss((prev) => new Set(prev).add(n.id));
       try {
-        const res = await fetch(
-          `/api/workforce-queue/${taskId}/notifications/${n.id}/dismiss`,
-          { method: 'POST' },
-        );
-        if (!res.ok) throw new Error(`Dismiss failed (HTTP ${res.status})`);
+        await apiRequest(`/api/workforce-queue/${taskId}/notifications/${n.id}/dismiss`, {
+          method: 'POST',
+        });
       } catch (err) {
         setPendingDismiss((prev) => {
           const next = new Set(prev);

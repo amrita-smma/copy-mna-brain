@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { createDb } from '@/lib/server/db';
+import { getActiveWorkspaceId } from '@/lib/workspace';
 import { createContainer } from '@/lib/services';
 import type { FinancialUpsertInput } from '@/lib/services/companyService';
 
@@ -40,7 +41,7 @@ export async function PUT(req: NextRequest, ctx: { params: Promise<{ id: string 
       return NextResponse.json({ error: parsed.error.message }, { status: 400 });
     }
     const db = createDb();
-    const { companyService } = createContainer(db);
+    const { companyService } = createContainer(db, await getActiveWorkspaceId());
     const data = await companyService.updateFinancials(
       id,
       parsed.data.rows as FinancialUpsertInput[],

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createDb } from '@/lib/server/db';
+import { getActiveWorkspaceId } from '@/lib/workspace';
 import { createContainer } from '@/lib/services';
 import { UserNotRegisteredError } from '@/lib/services/authService';
 
@@ -25,7 +26,7 @@ export async function POST(req: NextRequest) {
     }
 
     const db = createDb();
-    const { authService } = createContainer(db);
+    const { authService } = createContainer(db, await getActiveWorkspaceId());
 
     try {
       const user = await authService.signInWithGoogleToken(token);

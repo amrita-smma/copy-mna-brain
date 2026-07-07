@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { getActiveWorkspaceId } from '@/lib/workspace';
 import { tool } from "@langchain/core/tools";
 import { z } from "zod";
 import { logger } from "../../logger";
@@ -46,7 +47,7 @@ export const proposeWorkforceHandoff = tool(
     logger.debug(`🔧 TOOL CALLED: propose_workforce_handoff(title='${title}')`);
 
     const db = createDb();
-    const companyRepo = new CompanyRepository(db);
+    const companyRepo = new CompanyRepository(db, await getActiveWorkspaceId());
 
     // Resolve each provided name. Unresolved names are not fatal (the agent
     // may legitimately reference companies that aren't in the pipeline yet,

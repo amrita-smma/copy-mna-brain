@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createDb } from '@/lib/server/db';
+import { getActiveWorkspaceId } from '@/lib/workspace';
 import { createContainer } from '@/lib/services';
 import { auth } from '@/auth';
 
@@ -48,7 +49,7 @@ export async function POST(request: NextRequest) {
     const uploaderUserId = session?.user?.id ?? null;
 
     const db = createDb();
-    const { fileService } = createContainer(db);
+    const { fileService } = createContainer(db, await getActiveWorkspaceId());
     const data = await fileService.processUpload(
       key,
       fileName,
@@ -79,7 +80,7 @@ export async function GET(request: NextRequest) {
     const fileType = raw === "" ? "mom" : (raw ?? undefined);
 
     const db = createDb();
-    const { fileService } = createContainer(db);
+    const { fileService } = createContainer(db, await getActiveWorkspaceId());
     const data = await fileService.findAll(fileType);
     return NextResponse.json({ success: true, data });
   } catch (error) {
@@ -99,7 +100,7 @@ export async function PATCH(request: NextRequest) {
     }
 
     const db = createDb();
-    const { fileService } = createContainer(db);
+    const { fileService } = createContainer(db, await getActiveWorkspaceId());
     const data = await fileService.update(id, updates);
     return NextResponse.json({ success: true, data });
   } catch (error) {

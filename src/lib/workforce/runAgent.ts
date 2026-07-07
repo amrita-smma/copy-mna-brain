@@ -1,4 +1,6 @@
 import { FatalError, RetryableError } from 'workflow';
+import { NO_ACTIVE_WORKSPACE_ID } from '@/lib/constants';
+import { runWithWorkforceWorkspaceId } from '@/lib/workspace';
 import {
   extractMessageText,
   getWorkforceAgentGraph,
@@ -9,6 +11,7 @@ import {
   AiWorkforceQueueRepository,
   RoutinesRepository,
   UserRepository,
+  WorkspaceRepository,
 } from '@/lib/repositories';
 import { EmailNotificationService } from '@/lib/services/emailNotificationService';
 import { NotificationService } from '@/lib/services/notificationService';
@@ -67,12 +70,19 @@ interface LoadResult {
   // while the row was paused/queued. Already cleared from the DB by the
   // consume call below; the workflow drains them through the agent.
   pendingMessages: string[];
+  // The row's own workspace_id. There is no session here to resolve it from
+  // (this runs as a durable workflow step, not an HTTP request), so every
+  // downstream step that needs workspace scoping — agent tool calls via
+  // runWithWorkforceWorkspaceId, and the notifier's RoutinesRepository —
+  // takes it as an explicit parameter threaded from here rather than calling
+  // getActiveWorkspaceId(), which would silently resolve to MnA.
+  workspaceId: string;
 }
 
 async function loadAndHeartbeat(runId: string): Promise<LoadResult> {
   'use step';
   const db = createDb();
-  const repo = new AiWorkforceQueueRepository(db);
+  const repo = new AiWorkforceQueueRepository(db, NO_ACTIVE_WORKSPACE_ID);
 
   const row = await repo.findById(runId);
   if (!row) {
@@ -116,6 +126,7 @@ async function loadAndHeartbeat(runId: string): Promise<LoadResult> {
     resumePayloadJson: row.resume_token ?? null,
     threadId,
     pendingMessages: pending.map((m) => m.text),
+    workspaceId: row.workspace_id,
   };
 }
 
@@ -164,6 +175,7 @@ async function invokeAgent(
   resumePayloadJson: string | null,
   threadId: string,
   pendingMessages: string[],
+  workspaceId: string,
 ): Promise<InvokeStepResult> {
   'use step';
   if (!process.env.ANTHROPIC_API_KEY) {
@@ -178,23 +190,26 @@ async function invokeAgent(
     throw new RetryableError('workforce agent graph unavailable');
   }
 
-  // Build the message list. For a fresh invoke this is the row's prompt
-  // followed by any buffered user updates. For a resume we feed only the
-  // resume payload first (the agent picks up where it left off); buffered
-  // updates are appended via a follow-up invoke after the resume returns
-  // (or are skipped if the resume itself interrupted again — they stay
-  // buffered for the next claim).
-  const result = resumePayloadJson
-    ? await graph.resume(runId, JSON.parse(resumePayloadJson))
-    : await graph.invoke(
-        {
-          messages: [
-            new HumanMessage(prompt),
-            ...pendingMessages.map((t) => new HumanMessage(t)),
-          ],
-        },
-        { configurable: { thread_id: threadId }, recursionLimit: 50 },
-      );
+  // Agent tools call getActiveWorkspaceId() the same way request-handling
+  // code does, but there's no session here to resolve it from. Wrapping the
+  // whole invoke (and any tool calls LangGraph makes inside it) in this
+  // context makes the seam resolve to the row's real workspace instead of
+  // silently falling back to MnA. Verified this survives through
+  // LangChain's tool() wrapper and an async DB-call hop, not just a bare
+  // promise chain.
+  const result = await runWithWorkforceWorkspaceId(workspaceId, () =>
+    resumePayloadJson
+      ? graph.resume(runId, JSON.parse(resumePayloadJson))
+      : graph.invoke(
+          {
+            messages: [
+              new HumanMessage(prompt),
+              ...pendingMessages.map((t) => new HumanMessage(t)),
+            ],
+          },
+          { configurable: { thread_id: threadId }, recursionLimit: 50 },
+        ),
+  );
 
   // HITL interrupt fired — the agent has paused awaiting a human decision.
   // Hand off to the decision endpoint via status; don't finalize and don't
@@ -210,9 +225,11 @@ async function invokeAgent(
   // handled by the same WDK retry envelope as the main invoke.
   let finalResult = result;
   if (resumePayloadJson && pendingMessages.length > 0) {
-    finalResult = await graph.invoke(
-      { messages: pendingMessages.map((t) => new HumanMessage(t)) },
-      { configurable: { thread_id: threadId }, recursionLimit: 50 },
+    finalResult = await runWithWorkforceWorkspaceId(workspaceId, () =>
+      graph.invoke(
+        { messages: pendingMessages.map((t) => new HumanMessage(t)) },
+        { configurable: { thread_id: threadId }, recursionLimit: 50 },
+      ),
     );
     if (finalResult.interrupt?.actionRequests?.length) {
       return interruptedFrom(finalResult.interrupt.actionRequests[0]);
@@ -241,10 +258,11 @@ async function invokeAgent(
 async function finalize(
   runId: string,
   result: Extract<InvokeStepResult, { kind: 'completed' }>,
+  workspaceId: string,
 ): Promise<void> {
   'use step';
   const db = createDb();
-  const repo = new AiWorkforceQueueRepository(db);
+  const repo = new AiWorkforceQueueRepository(db, workspaceId);
   await repo.clearResumeToken(runId);
   await repo.markSucceeded(runId, {
     final_message: result.finalMessage,
@@ -254,24 +272,25 @@ async function finalize(
   await kickDispatcher(db);
   // Best-effort completion notification (MB-90). Skips cron runs internally —
   // those roll up into the routine digest instead.
-  await makeNotifier(db).notifyTaskCompleted(runId);
+  await makeNotifier(db, workspaceId).notifyTaskCompleted(runId);
 }
 
 async function markWaitingStep(
   runId: string,
   reason: string,
+  workspaceId: string,
   toolName?: string,
   toolArgs?: Record<string, unknown>,
 ): Promise<void> {
   'use step';
   const db = createDb();
-  const repo = new AiWorkforceQueueRepository(db);
+  const repo = new AiWorkforceQueueRepository(db, workspaceId);
   await repo.clearResumeToken(runId);
   await repo.markWaitingForHumanInput(runId, reason);
   await kickDispatcher(db);
   // The reason is the human-readable fallback; toolName/toolArgs let the email
   // render the structured proposal card (e.g. promote_to_l1 → L0→L1).
-  await makeNotifier(db).notifyTaskWaitingApproval(runId, {
+  await makeNotifier(db, workspaceId).notifyTaskWaitingApproval(runId, {
     action: reason,
     toolName,
     toolArgs,
@@ -281,26 +300,31 @@ async function markWaitingStep(
 async function markFailedStep(
   runId: string,
   errorPayload: Record<string, unknown>,
+  workspaceId: string,
 ): Promise<void> {
   'use step';
   const db = createDb();
-  const repo = new AiWorkforceQueueRepository(db);
+  const repo = new AiWorkforceQueueRepository(db, workspaceId);
   await repo.clearResumeToken(runId);
   await repo.markFailed(runId, errorPayload);
   await kickDispatcher(db);
   const reason =
     typeof errorPayload.message === 'string' ? errorPayload.message : undefined;
-  await makeNotifier(db).notifyTaskFailed(runId, { cancelled: false, reason });
+  await makeNotifier(db, workspaceId).notifyTaskFailed(runId, { cancelled: false, reason });
 }
 
 // Build an EmailNotificationService bound to this step's db. Notifications are
 // best-effort — the service swallows its own errors, so this never throws into
-// the workflow.
-function makeNotifier(db: ReturnType<typeof createDb>): EmailNotificationService {
+// the workflow. workspaceId comes from the queue row itself (threaded from
+// loadAndHeartbeat) — RoutinesRepository.findById is workspace-scoped, so a
+// run originating from a routine in a non-MnA workspace would otherwise
+// silently fail to resolve the routine's context in the notification.
+function makeNotifier(db: ReturnType<typeof createDb>, workspaceId: string): EmailNotificationService {
   return new EmailNotificationService({
-    workforceRepo: new AiWorkforceQueueRepository(db),
-    routinesRepo: new RoutinesRepository(db),
+    workforceRepo: new AiWorkforceQueueRepository(db, workspaceId),
+    routinesRepo: new RoutinesRepository(db, workspaceId),
     userRepo: new UserRepository(db),
+    workspaceRepo: new WorkspaceRepository(db),
   });
 }
 
@@ -309,11 +333,12 @@ function makeNotifier(db: ReturnType<typeof createDb>): EmailNotificationService
 async function dispatchNotificationStep(
   runId: string,
   kind: NotificationKind,
+  workspaceId: string,
   overrides: { title?: string; description?: string } = {},
 ): Promise<void> {
   'use step';
   const db = createDb();
-  const repo = new AiWorkforceQueueRepository(db);
+  const repo = new AiWorkforceQueueRepository(db, workspaceId);
   const service = new NotificationService(repo);
   try {
     await service.dispatch(runId, kind, overrides);
@@ -338,7 +363,7 @@ async function kickDispatcher(
 
 export async function runAgent({ runId }: { runId: string }): Promise<void> {
   'use workflow';
-  const { prompt, resumePayloadJson, threadId, pendingMessages } =
+  const { prompt, resumePayloadJson, threadId, pendingMessages, workspaceId } =
     await loadAndHeartbeat(runId);
 
   // TODO(Tier 3+): heartbeat periodically inside long invokeAgent runs so
@@ -353,6 +378,7 @@ export async function runAgent({ runId }: { runId: string }): Promise<void> {
       resumePayloadJson,
       threadId,
       pendingMessages,
+      workspaceId,
     );
     if (result.kind === 'interrupted') {
       // Healthy pause: HITL middleware caught a gated tool call. The decision
@@ -360,28 +386,33 @@ export async function runAgent({ runId }: { runId: string }): Promise<void> {
       await markWaitingStep(
         runId,
         result.reason,
+        workspaceId,
         result.toolName,
         result.toolArgs,
       );
       return;
     }
-    await finalize(runId, result);
+    await finalize(runId, result, workspaceId);
   } catch (err) {
     // WDK has already exhausted step retries by the time we get here.
     // Persist a terminal failure so the reaper doesn't have to.
-    await markFailedStep(runId, {
-      code: 'agent_execution_failed',
-      message: err instanceof Error ? err.message : String(err),
-    });
+    await markFailedStep(
+      runId,
+      {
+        code: 'agent_execution_failed',
+        message: err instanceof Error ? err.message : String(err),
+      },
+      workspaceId,
+    );
     // Surface a critical notification so TaskCanvas shows actionable copy
     // alongside the failure pill. addNotification merges into error.notifications,
     // preserving the markFailedStep payload above.
     if (err instanceof ToolTimeoutError) {
-      await dispatchNotificationStep(runId, 'request_timeout', {
+      await dispatchNotificationStep(runId, 'request_timeout', workspaceId, {
         description: `${err.toolName} did not respond within ${Math.round(err.timeoutMs / 1000)}s.`,
       });
     } else if (isRateLimitError(err)) {
-      await dispatchNotificationStep(runId, 'request_timeout', {
+      await dispatchNotificationStep(runId, 'request_timeout', workspaceId, {
         title: 'Rate limit reached',
         description:
           'The model API is throttling requests. Wait a moment and retry, or skip this step.',

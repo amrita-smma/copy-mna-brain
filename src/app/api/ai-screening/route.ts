@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getStatelessAgentGraph } from '@/lib/agents/analysis';
 import { createDb } from '@/lib/server/db';
+import { getActiveWorkspaceId } from '@/lib/workspace';
 import { createContainer } from '@/lib/services';
 import type { AIScreeningPayload } from '@/lib/jobs/handlers/aiScreening';
 
@@ -17,7 +18,7 @@ export async function POST(request: NextRequest) {
     }
 
     const db = createDb();
-    const { aiScreeningService } = createContainer(db);
+    const { aiScreeningService } = createContainer(db, await getActiveWorkspaceId());
     const { jobId } = await aiScreeningService.dispatch(body);
 
     return NextResponse.json({ jobId }, { status: 202 });

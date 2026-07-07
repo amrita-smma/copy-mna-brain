@@ -194,8 +194,8 @@ const ORDERABLE_COLUMNS: Record<string, AnyPgColumn> = {
   entry_id: companies.entry_id,
 };
 
-function buildFilterWhere(filters: CompanyFilters): SQL | undefined {
-  const conditions: (SQL | undefined)[] = [];
+function buildFilterWhere(filters: CompanyFilters, workspaceId: string): SQL | undefined {
+  const conditions: (SQL | undefined)[] = [eq(companies.workspace_id, workspaceId)];
   if (filters.id) conditions.push(eq(companies.id, filters.id));
   if (filters.stage)
     conditions.push(eq(companies.pipeline_stage, filters.stage as DealStage));
@@ -221,13 +221,14 @@ function buildFilterWhere(filters: CompanyFilters): SQL | undefined {
       or(ilike(companies.target, term), ilike(companies.project_name, term)),
     );
   }
-  if (conditions.length === 0) return undefined;
   return and(...conditions);
 }
 
 export class CompanyRepository {
   /**
    * @param db    Postgres client — the source of truth.
+   * @param workspaceId Active workspace — applied as a predicate on every
+   *   read/update/delete and stamped on every insert.
    * @param graph Optional Neo4j mirror. When wired (by the container), every
    *   company write is reflected onto the graph so Neo4j follows Postgres:
    *   inserts/updates upsert the node, deletes remove it. Graph failures are
@@ -236,6 +237,7 @@ export class CompanyRepository {
    */
   constructor(
     private readonly db: DbClient,
+    private readonly workspaceId: string,
     private readonly graph?: CompanyGraphMirror,
   ) {}
 
@@ -271,7 +273,7 @@ export class CompanyRepository {
     const [row] = await this.db
       .select()
       .from(companies)
-      .where(eq(companies.id, id))
+      .where(and(eq(companies.id, id), eq(companies.workspace_id, this.workspaceId)))
       .limit(1);
     if (!row) throw new Error(`Company ${id} not found`);
     return row;
@@ -279,7 +281,7 @@ export class CompanyRepository {
 
   async findAll(filters: CompanyFilters = {}): Promise<Tables<"companies">[]> {
     const { orderBy = "updated_at", orderDir = "desc", limit, offset } = filters;
-    const where = buildFilterWhere(filters);
+    const where = buildFilterWhere(filters, this.workspaceId);
     const orderCol = ORDERABLE_COLUMNS[orderBy] ?? companies.updated_at;
     const orderExpr = orderDir === "asc" ? asc(orderCol) : desc(orderCol);
 
@@ -307,7 +309,12 @@ export class CompanyRepository {
         ai_opinion_status: companies.ai_opinion_status,
       })
       .from(companies)
-      .where(eq(companies.ai_opinion_status, "processing"));
+      .where(
+        and(
+          eq(companies.workspace_id, this.workspaceId),
+          eq(companies.ai_opinion_status, "processing"),
+        ),
+      );
   }
 
   /**
@@ -328,6 +335,7 @@ export class CompanyRepository {
   > {
     const { limit, offset, targetSearch } = filters;
     const conditions: (SQL | undefined)[] = [
+      eq(companies.workspace_id, this.workspaceId),
       or(isNotNull(companies.target), isNotNull(companies.project_name)),
     ];
     if (targetSearch && targetSearch.trim().length > 0) {
@@ -354,7 +362,7 @@ export class CompanyRepository {
   async count(
     filters: Omit<CompanyFilters, "orderBy" | "orderDir" | "limit"> = {},
   ): Promise<number> {
-    const where = buildFilterWhere(filters);
+    const where = buildFilterWhere(filters, this.workspaceId);
     const [row] = await this.db
       .select({ value: drizzleCount() })
       .from(companies)
@@ -369,7 +377,8 @@ export class CompanyRepository {
   async findTargetNames(): Promise<string[]> {
     const rows = await this.db
       .select({ target: companies.target })
-      .from(companies);
+      .from(companies)
+      .where(eq(companies.workspace_id, this.workspaceId));
     return rows.map((c) => c.target ?? "").filter(Boolean);
   }
 
@@ -383,7 +392,8 @@ export class CompanyRepository {
   async findBankerNames(): Promise<string[]> {
     const rows = await this.db
       .select({ banker: companies.banker })
-      .from(companies);
+      .from(companies)
+      .where(eq(companies.workspace_id, this.workspaceId));
     const byKey = new Map<string, string>();
     for (const r of rows) {
       const value = r.banker?.trim();
@@ -401,7 +411,8 @@ export class CompanyRepository {
   > {
     return this.db
       .select({ id: companies.id, target: companies.target, project_name: companies.project_name })
-      .from(companies);
+      .from(companies)
+      .where(eq(companies.workspace_id, this.workspaceId));
   }
 
   async findByNameFuzzy(namePart: string): Promise<Tables<"companies"> | null> {
@@ -438,9 +449,12 @@ export class CompanyRepository {
     const [row] = await this.db
       .select()
       .from(companies)
-      .where(or(
-        sql`lower(${companies.target}) like ${pattern} escape '\\'`,
-        sql`lower(${companies.project_name}) like ${pattern} escape '\\'`,
+      .where(and(
+        eq(companies.workspace_id, this.workspaceId),
+        or(
+          sql`lower(${companies.target}) like ${pattern} escape '\\'`,
+          sql`lower(${companies.project_name}) like ${pattern} escape '\\'`,
+        ),
       ))
       .limit(1);
     return row ?? null;
@@ -456,7 +470,7 @@ export class CompanyRepository {
     conditions: SQL[];
     needsFinancialsJoin: boolean;
   } {
-    const conditions: SQL[] = [];
+    const conditions: SQL[] = [eq(companies.workspace_id, this.workspaceId)];
     const push = (c: SQL | undefined) => {
       if (c) conditions.push(c);
     };
@@ -546,7 +560,7 @@ export class CompanyRepository {
   ): Promise<Tables<"companies">[]> {
     const { conditions, needsFinancialsJoin } =
       this.buildAgentConditions(filters);
-    const where = conditions.length > 0 ? and(...conditions) : undefined;
+    const where = and(...conditions);
     const limit = Math.min(filters.limit ?? 50, 50);
     if (needsFinancialsJoin) {
       const rows = await this.db
@@ -597,16 +611,22 @@ export class CompanyRepository {
   }
 
   async insert(
-    company: TablesInsert<"companies">,
+    company: Omit<TablesInsert<"companies">, "workspace_id">,
   ): Promise<Tables<"companies">> {
-    const [row] = await this.db.insert(companies).values(company).returning();
+    const [row] = await this.db
+      .insert(companies)
+      .values({ ...company, workspace_id: this.workspaceId })
+      .returning();
     await this.mirrorUpsert([row]);
     return row;
   }
 
-  async insertMany(list: TablesInsert<"companies">[]): Promise<void> {
+  async insertMany(list: Array<Omit<TablesInsert<"companies">, "workspace_id">>): Promise<void> {
     if (list.length === 0) return;
-    const rows = await this.db.insert(companies).values(list).returning();
+    const rows = await this.db
+      .insert(companies)
+      .values(list.map((c) => ({ ...c, workspace_id: this.workspaceId })))
+      .returning();
     await this.mirrorUpsert(rows);
   }
 
@@ -617,7 +637,7 @@ export class CompanyRepository {
     const rows = await this.db
       .update(companies)
       .set(updates)
-      .where(eq(companies.id, id))
+      .where(and(eq(companies.id, id), eq(companies.workspace_id, this.workspaceId)))
       .returning();
     await this.mirrorUpsert(rows);
     return rows;
@@ -631,7 +651,7 @@ export class CompanyRepository {
     const rows = await this.db
       .update(companies)
       .set(updates)
-      .where(inArray(companies.id, ids))
+      .where(and(inArray(companies.id, ids), eq(companies.workspace_id, this.workspaceId)))
       .returning();
     await this.mirrorUpsert(rows);
     return rows;
@@ -655,7 +675,11 @@ export class CompanyRepository {
   }
 
   async countUnreviewed(source?: string): Promise<number> {
-    const conditions = [eq(companies.pipeline_stage, 'unreviewed'), eq(companies.status, 'active')];
+    const conditions = [
+      eq(companies.pipeline_stage, 'unreviewed'),
+      eq(companies.status, 'active'),
+      eq(companies.workspace_id, this.workspaceId),
+    ];
     if (source && source !== 'all') {
       conditions.push(eq(companies.source, source as 'inbound' | 'outbound'));
     }
@@ -671,12 +695,20 @@ export class CompanyRepository {
     const rows = await this.db
       .select({ id: companies.id })
       .from(companies)
-      .where(and(inArray(companies.id, ids), eq(companies.status, "dropped")));
+      .where(
+        and(
+          inArray(companies.id, ids),
+          eq(companies.status, "dropped"),
+          eq(companies.workspace_id, this.workspaceId),
+        ),
+      );
     return rows.map((r) => r.id);
   }
 
   async delete(id: string): Promise<void> {
-    await this.db.delete(companies).where(eq(companies.id, id));
+    await this.db
+      .delete(companies)
+      .where(and(eq(companies.id, id), eq(companies.workspace_id, this.workspaceId)));
     await this.mirrorDelete(id);
   }
 
@@ -692,7 +724,13 @@ export class CompanyRepository {
       })
       .from(companyAssignees)
       .innerJoin(users, eq(users.id, companyAssignees.user_id))
-      .where(eq(companyAssignees.company_id, companyId))
+      .innerJoin(companies, eq(companies.id, companyAssignees.company_id))
+      .where(
+        and(
+          eq(companyAssignees.company_id, companyId),
+          eq(companies.workspace_id, this.workspaceId),
+        ),
+      )
       .orderBy(asc(users.name));
   }
 
@@ -716,7 +754,13 @@ export class CompanyRepository {
       })
       .from(companyAssignees)
       .innerJoin(users, eq(users.id, companyAssignees.user_id))
-      .where(inArray(companyAssignees.company_id, companyIds))
+      .innerJoin(companies, eq(companies.id, companyAssignees.company_id))
+      .where(
+        and(
+          inArray(companyAssignees.company_id, companyIds),
+          eq(companies.workspace_id, this.workspaceId),
+        ),
+      )
       .orderBy(asc(users.name));
   }
 
@@ -724,13 +768,24 @@ export class CompanyRepository {
     await this.db.transaction(async (tx) => {
       await tx
         .delete(companyAssignees)
-        .where(eq(companyAssignees.company_id, companyId));
+        .where(
+          and(
+            eq(companyAssignees.company_id, companyId),
+            inArray(
+              companyAssignees.company_id,
+              tx.select({ id: companies.id }).from(companies).where(eq(companies.workspace_id, this.workspaceId)),
+            ),
+          ),
+        );
       if (userIds.length > 0) {
         const unique = Array.from(new Set(userIds));
         await tx
           .insert(companyAssignees)
           .values(
-            unique.map((user_id) => ({ company_id: companyId, user_id })),
+            unique.map((user_id) => ({
+              company_id: companyId,
+              user_id,
+            })),
           );
       }
     });
@@ -741,6 +796,11 @@ export class CompanyRepository {
     // convention (`deal_id_param`), so behavior is identical if the prod
     // function is declared with strict named-only semantics or defaults on
     // other positional parameters.
+    //
+    // NOTE: this calls into a Postgres stored function that isn't
+    // workspace-aware at the SQL level. It's keyed by `id` (a specific
+    // company's primary key), so it can't cross into another workspace's
+    // data, but it's a known gap for the Story 3 SQL-enforcement pass.
     const result = await this.db.execute<{ run_l1_filters: unknown }>(
       sql`SELECT run_l1_filters(deal_id_param => ${id}) AS run_l1_filters`,
     );
@@ -748,6 +808,11 @@ export class CompanyRepository {
   }
 
   async findDetails(id: string): Promise<CompanyDetails> {
+    const workspaceCompanyIds = this.db
+      .select({ id: companies.id })
+      .from(companies)
+      .where(eq(companies.workspace_id, this.workspaceId));
+
     const [
       logsRes,
       notesRes,
@@ -763,25 +828,25 @@ export class CompanyRepository {
           created_at: companyLogs.created_at,
         })
         .from(companyLogs)
-        .where(eq(companyLogs.company_id, id))
+        .where(and(eq(companyLogs.company_id, id), inArray(companyLogs.company_id, workspaceCompanyIds)))
         .orderBy(asc(companyLogs.created_at)),
 
       this.db
         .select()
         .from(dealNotes)
-        .where(eq(dealNotes.deal_id, id))
+        .where(and(eq(dealNotes.deal_id, id), inArray(dealNotes.deal_id, workspaceCompanyIds)))
         .orderBy(desc(dealNotes.created_at)),
 
       this.db
         .select()
         .from(dealLinks)
-        .where(eq(dealLinks.deal_id, id))
+        .where(and(eq(dealLinks.deal_id, id), inArray(dealLinks.deal_id, workspaceCompanyIds)))
         .orderBy(desc(dealLinks.created_at)),
 
       this.db
         .select()
         .from(dealDocuments)
-        .where(eq(dealDocuments.deal_id, id))
+        .where(and(eq(dealDocuments.deal_id, id), inArray(dealDocuments.deal_id, workspaceCompanyIds)))
         .orderBy(desc(dealDocuments.created_at)),
 
       this.db
@@ -796,7 +861,7 @@ export class CompanyRepository {
         .from(screenings)
         .leftJoin(criterias, eq(criterias.id, screenings.criteria_id))
         .leftJoin(investmentThesis, eq(investmentThesis.id, screenings.track_id))
-        .where(eq(screenings.company_id, id))
+        .where(and(eq(screenings.company_id, id), inArray(screenings.company_id, workspaceCompanyIds)))
         .orderBy(desc(screenings.created_at)),
 
       this.db
@@ -809,7 +874,10 @@ export class CompanyRepository {
         })
         .from(files)
         .where(
-          sql`${files.matched_companies} @> ${JSON.stringify([{ id }])}::jsonb`,
+          and(
+            sql`${files.matched_companies} @> ${JSON.stringify([{ id }])}::jsonb`,
+            eq(files.workspace_id, this.workspaceId),
+          ),
         )
         .orderBy(desc(files.created_at))
         .limit(100),

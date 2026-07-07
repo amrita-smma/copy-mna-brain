@@ -1,15 +1,10 @@
-import Dashboard from '@/views/Dashboard';
-import { companyGraphEnabled, insightsDashboardEnabled } from '@/lib/flags';
+import { redirectToWorkspaceScoped } from '@/lib/legacyWorkspaceRedirect';
 
-export default async function DashboardPage() {
-  const [showCompanyGraph, showInsightsDashboard] = await Promise.all([
-    companyGraphEnabled().then(Boolean),
-    insightsDashboardEnabled().then(Boolean),
-  ]);
-  return (
-    <Dashboard
-      showCompanyGraph={showCompanyGraph}
-      showInsightsDashboard={showInsightsDashboard}
-    />
-  );
+/** Pre-migration deeplink bridge — see `redirectToWorkspaceScoped`. */
+export default async function LegacyDashboardRedirect({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  await redirectToWorkspaceScoped('/dashboard', await searchParams);
 }

@@ -1,4 +1,5 @@
 import { RoutinesRepository } from '@/lib/repositories';
+import { getActiveWorkspaceId } from '@/lib/workspace';
 import type { DbClient, RoutineRow } from '@/lib/repositories';
 import { enqueueAgentRun } from '@/lib/workforce';
 import { computeNextFireAt } from './schedule';
@@ -34,7 +35,7 @@ export async function fireDueRoutines(
   db: DbClient,
   now: Date = new Date(),
 ): Promise<FireResult> {
-  const routinesRepo = new RoutinesRepository(db);
+  const routinesRepo = new RoutinesRepository(db, await getActiveWorkspaceId());
   const due = await routinesRepo.claimDue(now);
   const fired: FireResult['fired'] = [];
   const errors: FireResult['errors'] = [];

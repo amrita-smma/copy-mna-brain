@@ -28,6 +28,16 @@ describe('TopicRepository', () => {
     repo = new TopicRepository(db as never);
   });
 
+  describe('listAll', () => {
+    it('scopes to shared vocabulary and this workspace\'s own private topics', async () => {
+      const rows = [{ id: 't1', name: 'ECM', workspace_id: null }];
+      db.orderBy.mockResolvedValueOnce(rows);
+      const out = await repo.listAll('w1');
+      expect(out).toEqual(rows);
+      expect(db.where).toHaveBeenCalled();
+    });
+  });
+
   describe('findOrCreate', () => {
     it('returns the existing topic instead of double-inserting', async () => {
       db.limit.mockResolvedValueOnce([{ id: '1', name: 'CMP' }]);
@@ -61,6 +71,27 @@ describe('TopicRepository', () => {
       await repo.findOrCreate('lithography');
       expect(db.values).toHaveBeenCalledWith(
         expect.objectContaining({ is_deal_related: false }),
+      );
+    });
+
+    it('creates a workspace-private topic (workspace_id set) when a workspaceId is given', async () => {
+      db.limit.mockResolvedValueOnce([]);
+      db.returning.mockResolvedValueOnce([{ id: '5', name: 'Deal Alpha', slug: 'deal-alpha', workspace_id: 'w1' }]);
+      await repo.findOrCreate('Deal Alpha', {}, 'w1');
+      expect(db.values).toHaveBeenCalledWith(
+        expect.objectContaining({ workspace_id: 'w1' }),
+      );
+      expect(db.onConflictDoUpdate).toHaveBeenCalledWith(
+        expect.objectContaining({ target: [expect.anything(), expect.anything()] }),
+      );
+    });
+
+    it('inserts with workspace_id null for the shared vocabulary when no workspaceId is given', async () => {
+      db.limit.mockResolvedValueOnce([]);
+      db.returning.mockResolvedValueOnce([{ id: '6', name: 'ECM', slug: 'ecm', workspace_id: null }]);
+      await repo.findOrCreate('ECM');
+      expect(db.values).toHaveBeenCalledWith(
+        expect.objectContaining({ workspace_id: null }),
       );
     });
   });
@@ -135,7 +166,7 @@ describe('TopicRepository', () => {
     it('joins on topics and returns the assignment rows', async () => {
       const rows = [{ id: 'et1', topic_id: 't1', name: 'CMP', source: 'auto', is_highlight: true }];
       db.orderBy.mockResolvedValueOnce(rows);
-      const out = await repo.listForEmployer('e1');
+      const out = await repo.listForEmployer('e1', 'w1');
       expect(out).toEqual(rows);
       expect(db.innerJoin).toHaveBeenCalled();
     });

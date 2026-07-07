@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, isNull, lte, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, isNull, lte, or, sql } from 'drizzle-orm';
 import { aiWorkforceQueue, routines } from '@/lib/db/schema';
 import type { DbClient, Tables, TablesInsert, TablesUpdate } from './types';
 
@@ -9,24 +9,65 @@ export type RoutineUpdate = TablesUpdate<'routines'>;
 const ROUTINE_DISPATCHER_LOCK_KEY = BigInt('0x4d4231343852'); // "MB148R"
 
 export class RoutinesRepository {
-  constructor(private readonly db: DbClient) {}
+  /**
+   * @param workspaceId Stamped on every routine this repository creates.
+   *   `routines.workspace_id` is nullable only for pre-tenancy rows that
+   *   predate this column; `is_system` is orthogonal (marks a routine as
+   *   service-authored rather than user-authored) and every `is_system`
+   *   routine still belongs to exactly one workspace.
+   */
+  constructor(
+    private readonly db: DbClient,
+    private readonly workspaceId: string,
+  ) {}
 
   async create(data: RoutineInsert): Promise<RoutineRow> {
-    const [row] = await this.db.insert(routines).values(data).returning();
+    const [row] = await this.db
+      .insert(routines)
+      .values({ ...data, workspace_id: data.workspace_id ?? this.workspaceId })
+      .returning();
     return row;
+  }
+
+  private scopeCond() {
+    return or(eq(routines.workspace_id, this.workspaceId), isNull(routines.workspace_id));
   }
 
   async findById(id: string): Promise<RoutineRow | null> {
     const [row] = await this.db
       .select()
       .from(routines)
-      .where(eq(routines.id, id))
+      .where(and(eq(routines.id, id), this.scopeCond()))
       .limit(1);
     return row ?? null;
   }
 
+  /**
+   * This workspace's own `is_system` routine matching `title` — e.g. the
+   * per-workspace market-scanning routine. Scoped strictly to this
+   * workspace (not `scopeCond()`'s legacy-NULL fallback) since every
+   * `is_system` routine created going forward carries a real workspace_id.
+   */
+  async findSystemRoutineByTitle(title: string): Promise<RoutineRow | null> {
+    const [row] = await this.db
+      .select()
+      .from(routines)
+      .where(
+        and(
+          eq(routines.workspace_id, this.workspaceId),
+          eq(routines.is_system, true),
+          eq(routines.title, title),
+        ),
+      )
+      .limit(1);
+    return row ?? null;
+  }
+
+  /** This workspace's own routines plus legacy pre-tenancy rows with no workspace_id. */
   async list(opts: { includeArchived?: boolean } = {}): Promise<RoutineRow[]> {
-    const where = opts.includeArchived ? undefined : isNull(routines.archived_at);
+    const where = opts.includeArchived
+      ? this.scopeCond()
+      : and(this.scopeCond(), isNull(routines.archived_at));
     return this.db
       .select()
       .from(routines)
@@ -38,7 +79,7 @@ export class RoutinesRepository {
     const [row] = await this.db
       .update(routines)
       .set({ ...patch, updated_at: sql`now()` as unknown as string })
-      .where(eq(routines.id, id))
+      .where(and(eq(routines.id, id), this.scopeCond()))
       .returning();
     if (!row) throw new Error(`routine ${id} not found`);
     return row;

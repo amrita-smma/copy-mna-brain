@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { getActiveWorkspaceId } from '@/lib/workspace';
 import { tool } from "@langchain/core/tools";
 import { z } from "zod";
 import { logger } from "../../logger";
@@ -63,7 +64,7 @@ export const proposeBulkPromoteCompanies = tool(
     );
 
     const db = createDb();
-    const companyRepo = new CompanyRepository(db);
+    const companyRepo = new CompanyRepository(db, await getActiveWorkspaceId());
 
     const resolved: BulkPromoteCandidate[] = [];
     const unresolved: string[] = [];

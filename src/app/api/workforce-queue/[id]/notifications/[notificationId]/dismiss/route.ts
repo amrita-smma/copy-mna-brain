@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/auth';
 import { createDb } from '@/lib/server/db';
+import { getActiveWorkspaceId } from '@/lib/workspace';
 import { createContainer } from '@/lib/services';
 
 export async function POST(
@@ -15,7 +16,7 @@ export async function POST(
   try {
     const { id, notificationId } = await params;
     const db = createDb();
-    const { aiWorkforceService, notificationService } = createContainer(db);
+    const { aiWorkforceService, notificationService } = createContainer(db, await getActiveWorkspaceId());
 
     const item = await aiWorkforceService.findById(id);
     if (!item) {

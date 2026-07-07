@@ -11,7 +11,6 @@ import {
   parseMboxContent,
   classifyEmails,
   closeVaultMatter,
-  VAULT_CUSTODIAN_EMAILS,
 } from '@/lib/services/googleVaultService';
 import {
   CompanyRepository,
@@ -24,9 +23,12 @@ import {
   TopicRepository,
   EmailRepository,
   EmployerTeamRepository,
+  WorkspaceCorrespondentRepository,
+  UserWorkspaceRepository,
 } from '@/lib/repositories';
 import type { DbClient, Tables } from '@/lib/repositories';
 import { CRMService } from '@/lib/services/crmService';
+import { getActiveWorkspaceId } from '@/lib/workspace';
 
 export const VAULT_EXPORT_TIMEOUT_SECONDS = 1800; // 30 minutes
 
@@ -36,8 +38,6 @@ export const VAULT_EXPORT_TIMEOUT_SECONDS = 1800; // 30 minutes
  * constant just feeds the UX hint.
  */
 export const VAULT_SYNC_CADENCE_MS = 24 * 60 * 60 * 1000;
-
-export { VAULT_CUSTODIAN_EMAILS };
 
 export interface VaultExportPayload {
   custodianEmails?: string[];
@@ -62,8 +62,24 @@ export async function runVaultExport(
   payload: VaultExportPayload,
   deps: { db: DbClient; job: Tables<'jobs'> },
 ): Promise<VaultExportResult> {
-  const custodianEmails = payload.custodianEmails ?? VAULT_CUSTODIAN_EMAILS;
+  // Custodian mailboxes are sourced from user_workspaces.is_email_synced, not
+  // a hardcoded list, so syncing/un-syncing a mailbox in the app takes effect
+  // on the next export. Explicit payload.custodianEmails still wins (used by
+  // tests and any future manual override).
+  const custodianEmails =
+    payload.custodianEmails ?? (await new UserWorkspaceRepository(deps.db).findSyncedCustodianEmails());
   const daysBack = payload.daysBack ?? 5;
+
+  if (custodianEmails.length === 0) {
+    log('WARNING: no user_workspaces rows have is_email_synced=true — nothing to export');
+    return {
+      matters_created: 0,
+      files_downloaded: 0,
+      emails_parsed: 0,
+      employers_created: 0,
+      emails_added: 0,
+    };
+  }
 
   log(`starting job=${deps.job.id} custodians=${custodianEmails.length} daysBack=${daysBack}`);
 
@@ -131,8 +147,11 @@ export async function runVaultExport(
     throw new Error('Vault export did not complete within the timeout window');
   }
 
-  // Download, parse, and import
+  // Download, parse, and import. vault_export runs at the mailbox level,
+  // before the workspace fan-out — company matching defaults to the platform
+  // workspace until this handler is made workspace-aware (RFC Story 5).
   const custodianSet = new Set(custodianEmails.map((e) => e.toLowerCase()));
+  const workspaceId = deps.job.workspace_id ?? (await getActiveWorkspaceId());
   const crmService = new CRMService(
     new EmployerRepository(deps.db),
     new CorrespondentRepository(deps.db),
@@ -143,7 +162,9 @@ export async function runVaultExport(
     new EmployerCurationRepository(deps.db),
     new CorrespondentCurationRepository(deps.db),
     new EmployerRelatedCompanyRepository(deps.db),
-    new CompanyRepository(deps.db),
+    new CompanyRepository(deps.db, workspaceId),
+    new WorkspaceCorrespondentRepository(deps.db),
+    workspaceId,
   );
 
   let filesDownloaded = 0;

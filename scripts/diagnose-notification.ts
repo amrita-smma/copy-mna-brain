@@ -22,13 +22,15 @@ async function main() {
     AiWorkforceQueueRepository,
     RoutinesRepository,
     UserRepository,
+    WorkspaceRepository,
   } = await import('@/lib/repositories');
   const { EmailNotificationService } = await import(
     '@/lib/services/emailNotificationService'
   );
+  const { getActiveWorkspaceId } = await import('@/lib/workspace');
 
   const db = createDb();
-  const wf = new AiWorkforceQueueRepository(db);
+  const wf = new AiWorkforceQueueRepository(db, await getActiveWorkspaceId());
 
   console.log('TASK_NOTIFICATIONS_ENABLED =', JSON.stringify(process.env.TASK_NOTIFICATIONS_ENABLED));
   console.log('APP_URL =', JSON.stringify(process.env.APP_URL ?? process.env.NEXT_PUBLIC_APP_URL ?? process.env.NEXTAUTH_URL ?? ''));
@@ -65,8 +67,9 @@ async function main() {
 
   const svc = new EmailNotificationService({
     workforceRepo: wf,
-    routinesRepo: new RoutinesRepository(db),
+    routinesRepo: new RoutinesRepository(db, await getActiveWorkspaceId()),
     userRepo: new UserRepository(db),
+    workspaceRepo: new WorkspaceRepository(db),
     enqueue: fakeEnqueue,
   });
 

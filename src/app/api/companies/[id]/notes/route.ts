@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createDb } from '@/lib/server/db';
+import { getActiveWorkspaceId } from '@/lib/workspace';
 import { createContainer } from '@/lib/services';
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -7,7 +8,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     const { id } = await params;
     const { content, stage } = await req.json();
     const db = createDb();
-    const { dealNoteService } = createContainer(db);
+    const { dealNoteService } = createContainer(db, await getActiveWorkspaceId());
     const data = await dealNoteService.create(id, content, stage);
     return NextResponse.json({ data });
   } catch (error: unknown) {

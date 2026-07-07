@@ -51,7 +51,20 @@ const TERMINAL_STATUSES: readonly Status[] = [
 const DISPATCHER_LOCK_KEY = BigInt('0x4d42313437');
 
 export class AiWorkforceQueueRepository {
-  constructor(private readonly db: DbClient) {}
+  /**
+   * @param workspaceId Applied only to the MB-151 CRUD surface below (the
+   *   `/api/workforce-queue` routes a user browses). The MB-147 dispatcher
+   *   surface (claim/lock/heartbeat/status-transition methods) intentionally
+   *   stays workspace-agnostic: RFC Story 4 specifies one shared worker queue
+   *   across every workspace for cost throttling, so the claim query must see
+   *   every workspace's pending rows, not just this one. Do not add workspace
+   *   scoping to `claimNextRunnable`/`hasRunning`/`findStuckRunning` — that
+   *   would silently break the shared-worker model.
+   */
+  constructor(
+    private readonly db: DbClient,
+    private readonly workspaceId: string,
+  ) {}
 
   // ─────────────────────────────────────────────────────────────────────
   // MB-151 surface — simple CRUD used by /api/workforce-queue routes
@@ -70,6 +83,7 @@ export class AiWorkforceQueueRepository {
         origin_routine_id: data.origin_routine_id ?? null,
         idempotency_key: data.idempotency_key ?? null,
         triggered_by_user_id: data.triggered_by_user_id ?? null,
+        workspace_id: this.workspaceId,
       } as TablesInsert<'ai_workforce_queue'>)
       .returning();
     return row;
@@ -79,6 +93,7 @@ export class AiWorkforceQueueRepository {
     return this.db
       .select()
       .from(aiWorkforceQueue)
+      .where(eq(aiWorkforceQueue.workspace_id, this.workspaceId))
       .orderBy(desc(aiWorkforceQueue.created_at))
       .limit(limit);
   }
@@ -94,7 +109,7 @@ export class AiWorkforceQueueRepository {
     triggeredByUserId?: string;
     limit?: number;
   }): Promise<Row[]> {
-    const conditions = [];
+    const conditions = [eq(aiWorkforceQueue.workspace_id, this.workspaceId)];
     if (status !== undefined) {
       const statuses = Array.isArray(status) ? status : [status];
       if (statuses.length === 0) return [];
@@ -110,10 +125,35 @@ export class AiWorkforceQueueRepository {
     return this.db
       .select()
       .from(aiWorkforceQueue)
-      .where(conditions.length > 0 ? and(...conditions) : undefined)
+      .where(and(...conditions))
       .orderBy(desc(aiWorkforceQueue.created_at))
       .limit(limit);
   }
+
+  async findActiveByCompanyId(
+    agentName: string,
+    companyId: string,
+  ): Promise<Row | null> {
+    const [row] = await this.db
+      .select()
+      .from(aiWorkforceQueue)
+      .where(
+        and(
+          eq(aiWorkforceQueue.agent_name, agentName),
+          sql`${aiWorkforceQueue.trigger_meta}->>'company_id' = ${companyId}`,
+          sql`${aiWorkforceQueue.status} NOT IN ('succeeded', 'failed', 'rejected', 'timed_out')`,
+          eq(aiWorkforceQueue.workspace_id, this.workspaceId),
+        ),
+      )
+      .orderBy(desc(aiWorkforceQueue.created_at))
+      .limit(1);
+    return row ?? null;
+  }
+
+  // ─────────────────────────────────────────────────────────────────────
+  // MB-147 surface — queue mechanics: idempotency, atomic claim, reaper.
+  // Deliberately NOT workspace-scoped — see the constructor doc comment.
+  // ─────────────────────────────────────────────────────────────────────
 
   async findById(id: string): Promise<Row | null> {
     const [row] = await this.db
@@ -135,32 +175,6 @@ export class AiWorkforceQueueRepository {
       .limit(1);
     return row ?? null;
   }
-
-  // Find the most recent non-terminal run for a given agent + company. Used to
-  // cancel an in-flight Company Card generation (whose runId the client may not
-  // have, e.g. after a page reload) by matching trigger_meta.company_id.
-  async findActiveByCompanyId(
-    agentName: string,
-    companyId: string,
-  ): Promise<Row | null> {
-    const [row] = await this.db
-      .select()
-      .from(aiWorkforceQueue)
-      .where(
-        and(
-          eq(aiWorkforceQueue.agent_name, agentName),
-          sql`${aiWorkforceQueue.trigger_meta}->>'company_id' = ${companyId}`,
-          sql`${aiWorkforceQueue.status} NOT IN ('succeeded', 'failed', 'rejected', 'timed_out')`,
-        ),
-      )
-      .orderBy(desc(aiWorkforceQueue.created_at))
-      .limit(1);
-    return row ?? null;
-  }
-
-  // ─────────────────────────────────────────────────────────────────────
-  // MB-147 surface — queue mechanics: idempotency, atomic claim, reaper
-  // ─────────────────────────────────────────────────────────────────────
 
   async findByIdempotencyKey(key: string): Promise<Row | null> {
     const [row] = await this.db
@@ -263,6 +277,91 @@ export class AiWorkforceQueueRepository {
     );
   }
 
+  /**
+   * For each of the given rows, count how many rows GLOBALLY (any workspace)
+   * would be claimed before it — the true "jobs in front" figure under the
+   * shared single-worker queue model (RFC: "Share queues (show how many jobs
+   * in front)"). A workspace-local count is misleading here: another
+   * workspace's higher-priority or earlier-created row still claims the slot
+   * first, invisibly to this workspace's own queue view.
+   *
+   * Also returns `aheadOtherWorkspaces`, the subset of that count belonging
+   * to a *different* workspace than the target row's own — used for the "N
+   * jobs ahead · other workspaces" summary. This must NOT be derived by
+   * subtracting a same-workspace guess from `aheadGlobally`: a target's own
+   * workspace can itself have a `resume_ready` row (shown under "In
+   * progress", not "Queued"), which always outranks a plain `pending` row
+   * and would otherwise be miscounted as "another workspace's" job ahead of
+   * you. Filtering by `workspace_id` directly in the query sidesteps that.
+   *
+   * Mirrors claimNextRunnable's exact ordering: resume_ready before pending,
+   * then priority DESC, then created_at ASC. Ids not currently in
+   * ('pending', 'resume_ready') aren't in this map — "ahead" is meaningless
+   * for a row that's already running or terminal.
+   */
+  async getGlobalQueuePositions(
+    ids: string[],
+  ): Promise<Map<string, { aheadGlobally: number; aheadOtherWorkspaces: number }>> {
+    if (ids.length === 0) return new Map();
+    const targets = await this.db
+      .select({
+        id: aiWorkforceQueue.id,
+        status: aiWorkforceQueue.status,
+        priority: aiWorkforceQueue.priority,
+        created_at: aiWorkforceQueue.created_at,
+        workspace_id: aiWorkforceQueue.workspace_id,
+      })
+      .from(aiWorkforceQueue)
+      .where(
+        and(
+          inArray(aiWorkforceQueue.id, ids),
+          inArray(aiWorkforceQueue.status, ['pending', 'resume_ready']),
+        ),
+      );
+
+    // One count query per target row rather than a single correlated
+    // subquery: a scalar subquery referencing the outer row's columns by
+    // name is ambiguous here, since the subquery's own FROM (aliased `g`,
+    // same physical table) has columns of the same name — Postgres resolves
+    // the unqualified reference to the innermost scope (`g`) instead of the
+    // outer row, silently comparing every row to itself. Binding the
+    // target's own values as parameters instead of column references
+    // sidesteps the ambiguity entirely. Bounded by the size of `ids` (one
+    // workspace's own pending/resume_ready rows — small in practice).
+    const result = new Map<string, { aheadGlobally: number; aheadOtherWorkspaces: number }>();
+    for (const target of targets) {
+      const statusPriority = target.status === 'resume_ready' ? 0 : 1;
+      const countResult = await this.db.execute<{
+        ahead_count: string;
+        ahead_count_other: string;
+      }>(sql`
+        SELECT
+          COUNT(*) AS ahead_count,
+          COUNT(*) FILTER (WHERE g.workspace_id != ${target.workspace_id}) AS ahead_count_other
+        FROM ai_workforce_queue g
+        WHERE g.status IN ('pending', 'resume_ready')
+          AND (
+            (CASE WHEN g.status = 'resume_ready' THEN 0 ELSE 1 END) < ${statusPriority}
+            OR (
+              (CASE WHEN g.status = 'resume_ready' THEN 0 ELSE 1 END) = ${statusPriority}
+              AND (
+                g.priority > ${target.priority}
+                OR (g.priority = ${target.priority} AND g.created_at < ${target.created_at})
+              )
+            )
+          )
+      `);
+      const row = (
+        countResult as unknown as Array<{ ahead_count: string; ahead_count_other: string }>
+      )[0];
+      result.set(target.id, {
+        aheadGlobally: Number(row?.ahead_count ?? '0'),
+        aheadOtherWorkspaces: Number(row?.ahead_count_other ?? '0'),
+      });
+    }
+    return result;
+  }
+
   // Find rows stuck in 'running' with stale heartbeats. Used by the reaper.
   async findStuckRunning(stalerThanIso: string): Promise<Row[]> {
     return this.db
@@ -340,7 +439,9 @@ export class AiWorkforceQueueRepository {
   // routine-membership are correct). Drops idempotency_key (a retry by
   // definition is a fresh attempt and shouldn't collide with the original
   // key), drops trigger_meta (HITL tool_call_id contexts don't transfer to
-  // a from-scratch re-run), and starts in status='pending'.
+  // a from-scratch re-run), and starts in status='pending'. Inherits the
+  // original row's workspace_id (not `this.workspaceId`) so a retry always
+  // lands in the same workspace as the run being retried.
   async retryById(
     originalId: string,
     options: { userId?: string | null } = {},
@@ -362,6 +463,7 @@ export class AiWorkforceQueueRepository {
         triggered_by_user_id: options.userId ?? original.triggered_by_user_id,
         title: original.title,
         retried_from_id: original.id,
+        workspace_id: original.workspace_id,
       } as TablesInsert<'ai_workforce_queue'>)
       .returning();
     return row;

@@ -1,9 +1,26 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { JobRepository, ScreeningRepository } from '@/lib/repositories';
+import type { DbClient, JobRepository } from '@/lib/repositories';
 import type { Tables } from '@/lib/repositories';
 import { JobService } from './jobService';
 
 type Job = Tables<'jobs'>;
+
+const { markFailedIfPending } = vi.hoisted(() => ({
+  markFailedIfPending: vi.fn(),
+}));
+
+// mirrorTerminalJobToSideRecord builds `new ScreeningRepository(db, workspaceId)`
+// internally per stuck job — mock the repository class so we can assert on the
+// shared markFailedIfPending mock without needing a real DbClient/query chain.
+vi.mock('@/lib/repositories', async () => {
+  const actual = await vi.importActual<typeof import('@/lib/repositories')>('@/lib/repositories');
+  return {
+    ...actual,
+    ScreeningRepository: class {
+      markFailedIfPending = markFailedIfPending;
+    },
+  };
+});
 
 function makeJob(overrides: Partial<Job>): Job {
   return {
@@ -14,6 +31,7 @@ function makeJob(overrides: Partial<Job>): Job {
     result: null,
     error: null,
     timeout_seconds: 240,
+    workspace_id: 'workspace-1',
     created_at: new Date().toISOString(),
     started_at: null,
     completed_at: null,
@@ -30,21 +48,14 @@ function makeJobRepoStub(): JobRepository {
   } as unknown as JobRepository;
 }
 
-function makeScreeningRepoStub(): ScreeningRepository {
-  return {
-    markFailedIfPending: vi.fn(),
-  } as unknown as ScreeningRepository;
-}
-
 describe('JobService.cleanupStuckJobs', () => {
   let jobRepo: JobRepository;
-  let screeningRepo: ScreeningRepository;
   let service: JobService;
 
   beforeEach(() => {
     jobRepo = makeJobRepoStub();
-    screeningRepo = makeScreeningRepoStub();
-    service = new JobService(jobRepo, screeningRepo);
+    markFailedIfPending.mockReset();
+    service = new JobService(jobRepo, {} as unknown as DbClient);
   });
 
   it('returns zero when nothing is stuck', async () => {
@@ -54,7 +65,7 @@ describe('JobService.cleanupStuckJobs', () => {
 
     expect(result).toEqual({ cleaned: 0, failed: 0, jobIds: [] });
     expect(jobRepo.markStuckAsTimedOut).not.toHaveBeenCalled();
-    expect(screeningRepo.markFailedIfPending).not.toHaveBeenCalled();
+    expect(markFailedIfPending).not.toHaveBeenCalled();
   });
 
   it('marks stuck pending and running jobs as timed out', async () => {
@@ -128,8 +139,8 @@ describe('JobService.cleanupStuckJobs', () => {
 
     await service.cleanupStuckJobs();
 
-    expect(screeningRepo.markFailedIfPending).toHaveBeenCalledTimes(1);
-    const [screeningId, remarks] = vi.mocked(screeningRepo.markFailedIfPending).mock.calls[0];
+    expect(markFailedIfPending).toHaveBeenCalledTimes(1);
+    const [screeningId, remarks] = markFailedIfPending.mock.calls[0];
     expect(screeningId).toBe('screening-x');
     expect(remarks).toContain('job-x');
     expect(remarks).toMatch(/timed out/i);
@@ -151,7 +162,7 @@ describe('JobService.cleanupStuckJobs', () => {
 
     await service.cleanupStuckJobs();
 
-    expect(screeningRepo.markFailedIfPending).not.toHaveBeenCalled();
+    expect(markFailedIfPending).not.toHaveBeenCalled();
   });
 
   it('skips the mirror when payload has no screeningId', async () => {
@@ -170,7 +181,7 @@ describe('JobService.cleanupStuckJobs', () => {
 
     await service.cleanupStuckJobs();
 
-    expect(screeningRepo.markFailedIfPending).not.toHaveBeenCalled();
+    expect(markFailedIfPending).not.toHaveBeenCalled();
   });
 
   it('still counts the job as cleaned even if the screening mirror itself throws', async () => {
@@ -186,7 +197,7 @@ describe('JobService.cleanupStuckJobs', () => {
     vi.mocked(jobRepo.markStuckAsTimedOut).mockImplementation(async (id) =>
       makeJob({ id, status: 'timed_out' }),
     );
-    vi.mocked(screeningRepo.markFailedIfPending).mockRejectedValue(new Error('mirror failed'));
+    markFailedIfPending.mockRejectedValue(new Error('mirror failed'));
 
     const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 

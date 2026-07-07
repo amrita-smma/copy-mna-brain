@@ -8,25 +8,30 @@ function makeDeps(overrides: {
   run?: Record<string, unknown> | null;
   routine?: Record<string, unknown> | null;
   users?: Array<{ id: string; name: string; email: string | null }>;
+  workspaceSlug?: string | null;
 }): {
   deps: NotificationDeps;
   enqueue: ReturnType<typeof vi.fn>;
   findById: ReturnType<typeof vi.fn>;
   findRoutine: ReturnType<typeof vi.fn>;
   findByIds: ReturnType<typeof vi.fn>;
+  findWorkspace: ReturnType<typeof vi.fn>;
 } {
   const enqueue = vi.fn().mockResolvedValue({ messageId: 'm' });
   const findById = vi.fn().mockResolvedValue(overrides.run ?? null);
   const findRoutine = vi.fn().mockResolvedValue(overrides.routine ?? null);
   const findByIds = vi.fn().mockResolvedValue(overrides.users ?? []);
+  const workspaceSlug = overrides.workspaceSlug === undefined ? 'togan-vcc' : overrides.workspaceSlug;
+  const findWorkspace = vi.fn().mockResolvedValue(workspaceSlug ? { slug: workspaceSlug } : undefined);
   const deps: NotificationDeps = {
     workforceRepo: { findById } as never,
     routinesRepo: { findById: findRoutine } as never,
     userRepo: { findByIds } as never,
+    workspaceRepo: { findById: findWorkspace } as never,
     enqueue,
     appUrl: APP_URL,
   };
-  return { deps, enqueue, findById, findRoutine, findByIds };
+  return { deps, enqueue, findById, findRoutine, findByIds, findWorkspace };
 }
 
 describe('EmailNotificationService', () => {
@@ -50,27 +55,69 @@ describe('EmailNotificationService', () => {
     expect(findById).not.toHaveBeenCalled();
   });
 
-  it('enqueues task_completed to the triggering user with a deep link', async () => {
-    const { deps, enqueue } = makeDeps({
+  it('enqueues task_completed to the triggering user with a workspace-scoped deep link', async () => {
+    const { deps, enqueue, findWorkspace } = makeDeps({
       run: {
         id: 'r1',
         trigger_source: 'chat',
         triggered_by_user_id: 'u1',
         title: 'Project Maple screening',
         output: { final_message: 'All done.' },
+        workspace_id: 'ws1',
       },
       users: [{ id: 'u1', name: 'Ana', email: 'ana@e.com' }],
     });
     const svc = new EmailNotificationService(deps);
     const ok = await svc.notifyTaskCompleted('r1');
     expect(ok).toBe(true);
+    expect(findWorkspace).toHaveBeenCalledWith('ws1');
     expect(enqueue).toHaveBeenCalledWith({
       kind: 'task_completed',
       to: 'ana@e.com',
       taskName: 'Project Maple screening',
-      taskUrl: `${APP_URL}/ai-workforce/tasks/r1`,
+      taskUrl: `${APP_URL}/w/togan-vcc/ai-workforce/tasks/r1`,
       summary: 'All done.',
     });
+  });
+
+  it('falls back to the un-prefixed URL when the workspace lookup fails to resolve a slug', async () => {
+    const { deps, enqueue } = makeDeps({
+      run: {
+        id: 'r1',
+        trigger_source: 'chat',
+        triggered_by_user_id: 'u1',
+        title: 'Project Maple screening',
+        workspace_id: 'ws-deleted',
+      },
+      users: [{ id: 'u1', name: 'Ana', email: 'ana@e.com' }],
+      workspaceSlug: null,
+    });
+    const svc = new EmailNotificationService(deps);
+    await svc.notifyTaskCompleted('r1');
+    expect(enqueue).toHaveBeenCalledWith(
+      expect.objectContaining({ taskUrl: `${APP_URL}/ai-workforce/tasks/r1` }),
+    );
+  });
+
+  it('falls back to the un-prefixed URL when the workspace lookup throws', async () => {
+    const { deps, enqueue } = makeDeps({
+      run: {
+        id: 'r1',
+        trigger_source: 'chat',
+        triggered_by_user_id: 'u1',
+        title: 'Project Maple screening',
+        workspace_id: 'ws1',
+      },
+      users: [{ id: 'u1', name: 'Ana', email: 'ana@e.com' }],
+    });
+    deps.workspaceRepo = { findById: vi.fn().mockRejectedValue(new Error('db down')) } as never;
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const svc = new EmailNotificationService(deps);
+    await svc.notifyTaskCompleted('r1');
+    expect(enqueue).toHaveBeenCalledWith(
+      expect.objectContaining({ taskUrl: `${APP_URL}/ai-workforce/tasks/r1` }),
+    );
+    errSpy.mockRestore();
   });
 
   it('builds SUMMARY rows from timestamps and RESULTS rows from structured output', async () => {
@@ -122,7 +169,7 @@ describe('EmailNotificationService', () => {
 
   it('resolves a cron run recipient via the routine creator for waiting notifications', async () => {
     const { deps, enqueue, findRoutine } = makeDeps({
-      run: { id: 'r1', trigger_source: 'cron', triggered_by_user_id: null, origin_routine_id: 'ro1', title: 'Daily scan' },
+      run: { id: 'r1', trigger_source: 'cron', triggered_by_user_id: null, origin_routine_id: 'ro1', title: 'Daily scan', workspace_id: 'ws1' },
       routine: { id: 'ro1', created_by: 'u9' },
       users: [{ id: 'u9', name: 'Owner', email: 'owner@e.com' }],
     });
@@ -138,7 +185,7 @@ describe('EmailNotificationService', () => {
         to: 'owner@e.com',
         action: 'Promote NovaSpec to L2',
         taskName: 'Daily scan',
-        taskUrl: `${APP_URL}/ai-workforce/tasks/r1`,
+        taskUrl: `${APP_URL}/w/togan-vcc/ai-workforce/tasks/r1`,
       }),
     );
   });
@@ -209,6 +256,7 @@ describe('EmailNotificationService', () => {
       } as never,
       routinesRepo: { findById: vi.fn() } as never,
       userRepo: { findByIds: vi.fn().mockResolvedValue([{ id: 'u1', name: 'A', email: 'a@e.com' }]) } as never,
+      workspaceRepo: { findById: vi.fn() } as never,
       enqueue,
       appUrl: '',
     });

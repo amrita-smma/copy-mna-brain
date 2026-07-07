@@ -1,4 +1,5 @@
 import { tool } from '@langchain/core/tools';
+import { getActiveWorkspaceId } from '@/lib/workspace';
 import { z } from 'zod';
 import type { RunnableConfig } from '@langchain/core/runnables';
 import { logger } from '../../logger';
@@ -7,6 +8,7 @@ import {
   AiWorkforceQueueRepository,
   RoutinesRepository,
   UserRepository,
+  WorkspaceRepository,
 } from '@/lib/repositories';
 import { EmailNotificationService } from '@/lib/services/emailNotificationService';
 
@@ -45,9 +47,10 @@ export const notifyProgress = tool(
     try {
       const db = createDb();
       const notifier = new EmailNotificationService({
-        workforceRepo: new AiWorkforceQueueRepository(db),
-        routinesRepo: new RoutinesRepository(db),
+        workforceRepo: new AiWorkforceQueueRepository(db, await getActiveWorkspaceId()),
+        routinesRepo: new RoutinesRepository(db, await getActiveWorkspaceId()),
         userRepo: new UserRepository(db),
+        workspaceRepo: new WorkspaceRepository(db),
       });
       const sent = await notifier.notifyTaskProgress(runId, {
         progress: args.progress,

@@ -68,6 +68,11 @@ export class UserRepository {
     return row ?? null;
   }
 
+  async findById(id: string): Promise<Tables<'users'> | null> {
+    const [row] = await this.db.select().from(users).where(eq(users.id, id)).limit(1);
+    return row ?? null;
+  }
+
   async create(row: TablesInsert<'users'>): Promise<Tables<'users'>> {
     const [created] = await this.db.insert(users).values(row).returning();
     return created;

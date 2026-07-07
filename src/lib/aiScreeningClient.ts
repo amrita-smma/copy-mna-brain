@@ -1,6 +1,7 @@
 import posthog from 'posthog-js';
 import { companyDisplayName } from '@/lib/companyDisplay';
 import { getCriterias, prepareScreenings } from '@/lib/api/pipeline';
+import { buildWorkspaceHeaders } from '@/lib/api/client';
 import {
   buildTrackScreeningGroups,
   type TrackLike,
@@ -95,7 +96,7 @@ export async function runAIScreeningForCompanyTracks(
 
     void fetch('/api/ai-screening', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: buildWorkspaceHeaders('/api/ai-screening', { 'Content-Type': 'application/json' }),
       body: JSON.stringify({
         companyId: company.id,
         criteriaId: criterion.id,

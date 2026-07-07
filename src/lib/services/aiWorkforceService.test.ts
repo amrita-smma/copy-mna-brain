@@ -30,6 +30,19 @@ function makeServiceWith(
   return new AiWorkforceService(queueRepo as never, {} as never);
 }
 
+describe('AiWorkforceService.getGlobalQueuePositions', () => {
+  it('delegates to the repository unchanged', async () => {
+    const positions = new Map([['r1', 2]]);
+    const getGlobalQueuePositions = vi.fn().mockResolvedValue(positions);
+    const service = makeServiceWith({ getGlobalQueuePositions });
+
+    const result = await service.getGlobalQueuePositions(['r1']);
+
+    expect(getGlobalQueuePositions).toHaveBeenCalledWith(['r1']);
+    expect(result).toBe(positions);
+  });
+});
+
 describe('AiWorkforceService.enqueueFromChat', () => {
   beforeEach(() => {
     enqueueAgentRun.mockReset();

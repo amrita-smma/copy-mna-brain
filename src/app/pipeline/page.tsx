@@ -1,21 +1,10 @@
-import { Suspense } from 'react';
-import Pipeline from '@/views/Pipeline';
-import { Loader2 } from 'lucide-react';
-import { companyGraphEnabled } from '@/lib/flags';
+import { redirectToWorkspaceScoped } from '@/lib/legacyWorkspaceRedirect';
 
-function PipelineLoading() {
-  return (
-    <div className="flex h-screen items-center justify-center">
-      <Loader2 className="h-8 w-8 animate-spin text-primary" />
-    </div>
-  );
-}
-
-export default async function PipelinePage() {
-  const showCompanyGraph = await companyGraphEnabled().then(Boolean);
-  return (
-    <Suspense fallback={<PipelineLoading />}>
-      <Pipeline showCompanyGraph={showCompanyGraph} />
-    </Suspense>
-  );
+/** Pre-migration deeplink bridge — see `redirectToWorkspaceScoped`. */
+export default async function LegacyPipelineRedirect({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  await redirectToWorkspaceScoped('/pipeline', await searchParams);
 }

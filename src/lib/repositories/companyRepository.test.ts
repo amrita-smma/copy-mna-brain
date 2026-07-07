@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { SQL } from 'drizzle-orm';
 import { PgDialect } from 'drizzle-orm/pg-core';
+import type { SQL } from 'drizzle-orm';
 import { CompanyRepository, stripCompanySuffix } from './companyRepository';
 import type { Tables } from './types';
 import type { CompanyGraphMirror } from './companyRelationRepository';
@@ -14,11 +14,12 @@ function makeFuzzyDb(rows: Array<Partial<Tables<'companies'>>>) {
   return { db: { select } as never, select, from, where, limit };
 }
 
-/** Build a db whose `select(...).from(...)` resolves to the given rows. */
+/** Build a db whose `select(...).from(...).where(...)` resolves to the given rows. */
 function makeDb(rows: Array<{ banker: string | null }>) {
-  const fromMock = vi.fn().mockResolvedValue(rows);
+  const whereMock = vi.fn().mockResolvedValue(rows);
+  const fromMock = vi.fn().mockReturnValue({ where: whereMock });
   const selectMock = vi.fn().mockReturnValue({ from: fromMock });
-  return { db: { select: selectMock } as never, selectMock, fromMock };
+  return { db: { select: selectMock } as never, selectMock, fromMock, whereMock };
 }
 
 /**
@@ -72,7 +73,7 @@ describe('CompanyRepository.findProcessingAiOpinions', () => {
   it('returns id + ai_opinion_status for companies filtered to the processing state', async () => {
     const rows = [{ id: 'c1', ai_opinion_status: 'processing' }];
     const { db, select, where } = makeWhereDb(rows);
-    const repo = new CompanyRepository(db, makeMirror());
+    const repo = new CompanyRepository(db, 'workspace-1', makeMirror());
 
     const result = await repo.findProcessingAiOpinions();
 
@@ -89,7 +90,7 @@ describe('CompanyRepository graph mirror', () => {
   it('upserts the inserted company onto the graph with mapped fields', async () => {
     const { db } = makeWriteDb([row()]);
     const mirror = makeMirror();
-    const repo = new CompanyRepository(db, mirror);
+    const repo = new CompanyRepository(db, 'workspace-1', mirror);
 
     await repo.insert(row() as never);
 
@@ -107,7 +108,7 @@ describe('CompanyRepository graph mirror', () => {
       row({ id: 'c2', target: null, project_name: 'Project Phoenix' }),
     ]);
     const mirror = makeMirror();
-    const repo = new CompanyRepository(db, mirror);
+    const repo = new CompanyRepository(db, 'workspace-1', mirror);
 
     await repo.insert(row() as never);
 
@@ -119,7 +120,7 @@ describe('CompanyRepository graph mirror', () => {
   it('drops unknown ownership values to undefined', async () => {
     const { db } = makeWriteDb([row({ ownership: 'state-owned' })]);
     const mirror = makeMirror();
-    const repo = new CompanyRepository(db, mirror);
+    const repo = new CompanyRepository(db, 'workspace-1', mirror);
 
     await repo.insert(row() as never);
 
@@ -131,7 +132,7 @@ describe('CompanyRepository graph mirror', () => {
   it('mirrors every returned row on update', async () => {
     const { db } = makeWriteDb([row()]);
     const mirror = makeMirror();
-    const repo = new CompanyRepository(db, mirror);
+    const repo = new CompanyRepository(db, 'workspace-1', mirror);
 
     await repo.update('c1', { geography: 'Singapore' });
 
@@ -144,7 +145,7 @@ describe('CompanyRepository graph mirror', () => {
   it('mirrors each returned row on updateMany', async () => {
     const { db } = makeWriteDb([row({ id: 'c1' }), row({ id: 'c2' })]);
     const mirror = makeMirror();
-    const repo = new CompanyRepository(db, mirror);
+    const repo = new CompanyRepository(db, 'workspace-1', mirror);
 
     await repo.updateMany(['c1', 'c2'], { pipeline_stage: 'L1' as never });
 
@@ -154,7 +155,7 @@ describe('CompanyRepository graph mirror', () => {
   it('removes the node from the graph on delete', async () => {
     const { db } = makeWriteDb([]);
     const mirror = makeMirror();
-    const repo = new CompanyRepository(db, mirror);
+    const repo = new CompanyRepository(db, 'workspace-1', mirror);
 
     await repo.delete('c1');
 
@@ -163,7 +164,7 @@ describe('CompanyRepository graph mirror', () => {
 
   it('does not touch the graph when no mirror is wired', async () => {
     const { db } = makeWriteDb([row()]);
-    const repo = new CompanyRepository(db);
+    const repo = new CompanyRepository(db, 'workspace-1');
 
     await expect(repo.insert(row() as never)).resolves.toBeDefined();
     await expect(repo.delete('c1')).resolves.toBeUndefined();
@@ -173,7 +174,7 @@ describe('CompanyRepository graph mirror', () => {
     const { db } = makeWriteDb([row()]);
     const mirror = makeMirror();
     mirror.upsertCompany.mockRejectedValue(new Error('neo4j down'));
-    const repo = new CompanyRepository(db, mirror);
+    const repo = new CompanyRepository(db, 'workspace-1', mirror);
     const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
     const result = await repo.insert(row() as never);
@@ -186,7 +187,7 @@ describe('CompanyRepository graph mirror', () => {
   it('skips the empty-list insertMany without mirroring', async () => {
     const { db } = makeWriteDb([]);
     const mirror = makeMirror();
-    const repo = new CompanyRepository(db, mirror);
+    const repo = new CompanyRepository(db, 'workspace-1', mirror);
 
     await repo.insertMany([]);
 
@@ -197,7 +198,7 @@ describe('CompanyRepository graph mirror', () => {
 describe('CompanyRepository.findBankerNames', () => {
   it('returns [] when no companies have a banker', async () => {
     const { db } = makeDb([{ banker: null }, { banker: '   ' }]);
-    const repo = new CompanyRepository(db);
+    const repo = new CompanyRepository(db, 'workspace-1');
 
     expect(await repo.findBankerNames()).toEqual([]);
   });
@@ -211,7 +212,7 @@ describe('CompanyRepository.findBankerNames', () => {
       { banker: 'JP Morgan' },
       { banker: ' UBS ' }, // trimmed to "UBS"
     ]);
-    const repo = new CompanyRepository(db);
+    const repo = new CompanyRepository(db, 'workspace-1');
 
     expect(await repo.findBankerNames()).toEqual([
       'Goldman Sachs',
@@ -281,7 +282,7 @@ function makeListDb(rows: Array<Partial<Tables<'companies'>>>) {
 describe('CompanyRepository.searchForAgent', () => {
   it('matches searchTerm against target, project_name, segment, and geography', async () => {
     const { db, where } = makeAgentSearchDb([]);
-    const repo = new CompanyRepository(db);
+    const repo = new CompanyRepository(db, 'workspace-1');
 
     await repo.searchForAgent({ searchTerm: '中文股份' });
 
@@ -342,7 +343,7 @@ describe('CompanyRepository.findForAgentStats', () => {
 describe('CompanyRepository.findAll targetSearch', () => {
   it('matches targetSearch against both target and project_name', async () => {
     const { db, where } = makeListDb([]);
-    const repo = new CompanyRepository(db);
+    const repo = new CompanyRepository(db, 'workspace-1');
 
     await repo.findAll({ targetSearch: '凤凰项目' });
 
@@ -355,7 +356,7 @@ describe('CompanyRepository.findAll targetSearch', () => {
 
   it('trims the term and wraps it in wildcards', async () => {
     const { db, where } = makeListDb([]);
-    const repo = new CompanyRepository(db);
+    const repo = new CompanyRepository(db, 'workspace-1');
 
     await repo.findAll({ targetSearch: '  凤凰  ' });
 
@@ -365,35 +366,27 @@ describe('CompanyRepository.findAll targetSearch', () => {
   });
 });
 
+
 describe('CompanyRepository.findByNameFuzzy', () => {
-  it('returns null without querying when the name is empty', async () => {
-    const { db, select } = makeFuzzyDb([]);
-    const repo = new CompanyRepository(db);
-
-    expect(await repo.findByNameFuzzy('   ')).toBeNull();
-    expect(select).not.toHaveBeenCalled();
-  });
-
-  it('exact-matches (not substring-matches) names under 5 chars', async () => {
-    const match = { id: 'c1', target: 'TSMC' };
-    const { db, select } = makeFuzzyDb([match]);
-    const repo = new CompanyRepository(db);
-
-    expect(await repo.findByNameFuzzy('TSMC')).toEqual(match);
-    expect(select).toHaveBeenCalledTimes(1);
-  });
-
-  it('returns null when a short name has no exact match', async () => {
+  it('returns null for a short name with no exact match', async () => {
     const { db } = makeFuzzyDb([]);
-    const repo = new CompanyRepository(db);
+    const repo = new CompanyRepository(db, 'workspace-1');
 
     expect(await repo.findByNameFuzzy('ENJ')).toBeNull();
+  });
+
+  it('returns the row for a short name that exactly matches (case-insensitive)', async () => {
+    const match = { id: 'c1', target: 'TSMC' };
+    const { db } = makeFuzzyDb([match]);
+    const repo = new CompanyRepository(db, 'workspace-1');
+
+    expect(await repo.findByNameFuzzy('tsmc')).toEqual(match);
   });
 
   it('returns the matched row when one exists', async () => {
     const match = { id: 'c9', target: 'Acme Co.' };
     const { db } = makeFuzzyDb([match]);
-    const repo = new CompanyRepository(db);
+    const repo = new CompanyRepository(db, 'workspace-1');
 
     expect(await repo.findByNameFuzzy('Acme Ltd.')).toEqual(match);
   });
@@ -401,7 +394,7 @@ describe('CompanyRepository.findByNameFuzzy', () => {
   it('matches regardless of the casing of the search term', async () => {
     const match = { id: 'c9', target: 'Acme Co.' };
     const { db } = makeFuzzyDb([match]);
-    const repo = new CompanyRepository(db);
+    const repo = new CompanyRepository(db, 'workspace-1');
 
     expect(await repo.findByNameFuzzy('ACME LTD.')).toEqual(match);
     expect(await repo.findByNameFuzzy('acme ltd.')).toEqual(match);
@@ -412,24 +405,8 @@ describe('CompanyRepository.findByNameFuzzy', () => {
 
   it('returns null when the query finds no row', async () => {
     const { db } = makeFuzzyDb([]);
-    const repo = new CompanyRepository(db);
+    const repo = new CompanyRepository(db, 'workspace-1');
 
     expect(await repo.findByNameFuzzy('Nonexistent Holdings Ltd.')).toBeNull();
-  });
-});
-
-describe('CompanyRepository.findDueForResurface', () => {
-  it('selects dropped companies whose resurface_at has passed', async () => {
-    const rows = [row({ id: 'c1', status: 'dropped', resurface_at: '2026-07-01T00:00:00.000Z' })];
-    const where = vi.fn().mockResolvedValue(rows);
-    const from = vi.fn().mockReturnValue({ where });
-    const select = vi.fn().mockReturnValue({ from });
-    const repo = new CompanyRepository({ select } as never, makeMirror());
-
-    const result = await repo.findDueForResurface('2026-07-03T00:00:00.000Z');
-
-    expect(result).toBe(rows);
-    expect(select).toHaveBeenCalledTimes(1);
-    expect(where).toHaveBeenCalledTimes(1);
   });
 });

@@ -1,5 +1,6 @@
-import type { JobRepository, ScreeningRepository, Tables } from '@/lib/repositories';
+import { ScreeningRepository, type DbClient, type JobRepository, type Tables } from '@/lib/repositories';
 import { DEFAULT_STUCK_BUFFER_SECONDS, buildStuckReason } from '@/lib/jobs/stuck';
+import { getActiveWorkspaceId } from '@/lib/workspace';
 
 export interface StuckJobCleanupResult {
   cleaned: number;
@@ -10,9 +11,15 @@ export interface StuckJobCleanupResult {
 type Job = Tables<'jobs'>;
 
 export class JobService {
+  /**
+   * @param db `findStuck()` sweeps jobs across every workspace (it's a
+   *   global maintenance job, not scoped to one request), so each stuck
+   *   `ai_screening` job's `ScreeningRepository` is built per-job from its
+   *   own `workspace_id` rather than a single bound instance.
+   */
   constructor(
     private readonly jobRepo: JobRepository,
-    private readonly screeningRepo: ScreeningRepository,
+    private readonly db: DbClient,
   ) {}
 
   findByIdWithLogs(id: string) {
@@ -45,7 +52,9 @@ export class JobService {
     const screeningId = payload?.screeningId;
     if (typeof screeningId !== 'string' || !screeningId) return;
     try {
-      await this.screeningRepo.markFailedIfPending(
+      const workspaceId = job.workspace_id ?? (await getActiveWorkspaceId());
+      const screeningRepo = new ScreeningRepository(this.db, workspaceId);
+      await screeningRepo.markFailedIfPending(
         screeningId,
         `Job ${job.id} marked as timed out: ${reason}`,
       );

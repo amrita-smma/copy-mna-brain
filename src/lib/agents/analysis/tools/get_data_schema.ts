@@ -1,4 +1,5 @@
 import { tool } from "@langchain/core/tools";
+import { getActiveWorkspaceId } from '@/lib/workspace';
 import { logger } from "../../logger";
 import { createDb } from "@/lib/server/db";
 import { CompanyRepository } from "@/lib/repositories";
@@ -17,7 +18,7 @@ export const getDataSchema = tool(
 
     let rowCount = 0;
     try {
-      const companyRepo = new CompanyRepository(createDb());
+      const companyRepo = new CompanyRepository(createDb(), await getActiveWorkspaceId());
       rowCount = await companyRepo.countAll();
     } catch (error) {
       logger.error(`Error getting row count: ${(error as Error).message}`);

@@ -2,6 +2,7 @@ import {
   AiWorkforceQueueRepository,
   RoutinesRepository,
   UserRepository,
+  WorkspaceRepository,
 } from '@/lib/repositories';
 import type { WorkforceQueueRow } from '@/lib/repositories';
 import { enqueueSendEmail } from '@/lib/queue';
@@ -31,6 +32,7 @@ export interface NotificationDeps {
   workforceRepo: AiWorkforceQueueRepository;
   routinesRepo: RoutinesRepository;
   userRepo: UserRepository;
+  workspaceRepo: WorkspaceRepository;
   /** Injectable for tests; defaults to the real Vercel-queue enqueue. */
   enqueue?: EnqueueFn;
   /** Base URL used to build deep links into the task UI. */
@@ -207,6 +209,7 @@ export class EmailNotificationService {
   private readonly workforceRepo: AiWorkforceQueueRepository;
   private readonly routinesRepo: RoutinesRepository;
   private readonly userRepo: UserRepository;
+  private readonly workspaceRepo: WorkspaceRepository;
   private readonly enqueue: EnqueueFn;
   private readonly appUrl: string;
   private readonly isEnabled: EnabledResolver;
@@ -215,6 +218,7 @@ export class EmailNotificationService {
     this.workforceRepo = deps.workforceRepo;
     this.routinesRepo = deps.routinesRepo;
     this.userRepo = deps.userRepo;
+    this.workspaceRepo = deps.workspaceRepo;
     this.enqueue = deps.enqueue ?? enqueueSendEmail;
     this.appUrl = (deps.appUrl ?? resolveAppUrl()).replace(/\/+$/, '');
     this.isEnabled = deps.isEnabled ?? defaultIsEnabled;
@@ -248,7 +252,7 @@ export class EmailNotificationService {
         kind: 'task_completed',
         to: recipient.email,
         taskName: this.taskName(run),
-        taskUrl: this.taskUrl(runId),
+        taskUrl: await this.taskUrl(runId, run.workspace_id),
         finishedAtLabel: fmtFinished(run.ended_at),
         summaryRows: summaryRows.length ? summaryRows : undefined,
         resultRows: parseResultRows(output),
@@ -281,7 +285,7 @@ export class EmailNotificationService {
         to: recipient.email,
         action,
         taskName: this.taskName(run),
-        taskUrl: this.taskUrl(runId),
+        taskUrl: await this.taskUrl(runId, run.workspace_id),
         company: details.company,
         proposedAction: details.proposedAction,
         reason: details.reason,
@@ -317,7 +321,7 @@ export class EmailNotificationService {
         taskName: this.taskName(run),
         reason,
         cancelled,
-        taskUrl: this.taskUrl(runId),
+        taskUrl: await this.taskUrl(runId, run.workspace_id),
       };
     });
   }
@@ -334,7 +338,7 @@ export class EmailNotificationService {
       taskName: this.taskName(run),
       progress: opts.progress,
       headline: opts.headline,
-      taskUrl: this.taskUrl(runId),
+      taskUrl: await this.taskUrl(runId, run.workspace_id),
     }));
   }
 
@@ -349,14 +353,14 @@ export class EmailNotificationService {
     },
   ): Promise<boolean> {
     if (!opts.companyName?.trim() || !opts.level?.trim()) return false;
-    return this.dispatch(runId, 'task_insight', async (_run, recipient) => ({
+    return this.dispatch(runId, 'task_insight', async (run, recipient) => ({
       kind: 'task_insight',
       to: recipient.email,
       companyName: opts.companyName,
       level: opts.level,
       detail: opts.detail,
       confidencePct: opts.confidencePct,
-      taskUrl: this.taskUrl(runId),
+      taskUrl: await this.taskUrl(runId, run.workspace_id),
     }));
   }
 
@@ -462,7 +466,18 @@ export class EmailNotificationService {
     return trimmed.length > 90 ? `${trimmed.slice(0, 89).trimEnd()}…` : trimmed;
   }
 
-  private taskUrl(runId: string): string | undefined {
-    return this.appUrl ? `${this.appUrl}/ai-workforce/tasks/${runId}` : undefined;
+  // Falls back to the un-prefixed URL (today's behavior) if the workspace
+  // lookup fails — a wrong-but-working deeplink beats a broken email.
+  private async taskUrl(runId: string, workspaceId: string): Promise<string | undefined> {
+    if (!this.appUrl) return undefined;
+    try {
+      const workspace = await this.workspaceRepo.findById(workspaceId);
+      if (workspace?.slug) {
+        return `${this.appUrl}/w/${workspace.slug}/ai-workforce/tasks/${runId}`;
+      }
+    } catch (err) {
+      console.error(`[EmailNotificationService] taskUrl: workspace lookup failed for ${workspaceId}:`, err);
+    }
+    return `${this.appUrl}/ai-workforce/tasks/${runId}`;
   }
 }

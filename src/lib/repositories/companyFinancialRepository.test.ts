@@ -4,13 +4,25 @@ import { CompanyFinancialRepository } from './companyFinancialRepository';
 function makeDb(deleteMock = vi.fn()) {
   const whereMock = vi.fn().mockResolvedValue(undefined);
   deleteMock.mockReturnValue({ where: whereMock });
-  return { db: { delete: deleteMock } as any, whereMock, deleteMock };
+  const selectMock = vi.fn().mockReturnThis();
+  const fromMock = vi.fn().mockReturnThis();
+  const selectWhereMock = vi.fn().mockReturnThis();
+  return {
+    db: {
+      delete: deleteMock,
+      select: selectMock,
+      from: fromMock,
+      where: selectWhereMock,
+    } as any,
+    whereMock,
+    deleteMock,
+  };
 }
 
 describe('CompanyFinancialRepository.deleteByCompanyAndYears', () => {
   it('makes no DB call when years array is empty', async () => {
     const { db, deleteMock } = makeDb();
-    const repo = new CompanyFinancialRepository(db);
+    const repo = new CompanyFinancialRepository(db, 'workspace-1');
 
     await repo.deleteByCompanyAndYears('company-1', []);
 
@@ -19,7 +31,7 @@ describe('CompanyFinancialRepository.deleteByCompanyAndYears', () => {
 
   it('calls db.delete with the correct table and where clause for non-empty years', async () => {
     const { db, deleteMock, whereMock } = makeDb();
-    const repo = new CompanyFinancialRepository(db);
+    const repo = new CompanyFinancialRepository(db, 'workspace-1');
 
     await repo.deleteByCompanyAndYears('company-1', [2021, 2022]);
 

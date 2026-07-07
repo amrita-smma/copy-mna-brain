@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createDb } from '@/lib/server/db';
+import { getActiveWorkspaceId } from '@/lib/workspace';
 import { createContainer } from '@/lib/services';
 
 /**
@@ -10,7 +11,7 @@ import { createContainer } from '@/lib/services';
 export async function POST(req: NextRequest) {
   try {
     const db = createDb();
-    const { investmentThesisService } = createContainer(db);
+    const { investmentThesisService } = createContainer(db, await getActiveWorkspaceId());
     const body = await req.json();
     const data = await investmentThesisService.configureScan({
       thesisIds: Array.isArray(body.thesisIds) ? body.thesisIds : [],

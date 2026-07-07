@@ -7,6 +7,7 @@ import { companiesSchema } from '@/lib/agents/analysis/tools';
 import { CompanyFinancialRepository, CompanyRepository, InvestmentThesisRepository } from '@/lib/repositories';
 import type { DbClient } from '@/lib/repositories';
 import { getPostHogClient } from '@/lib/posthog-server';
+import { getActiveWorkspaceId } from '@/lib/workspace';
 
 export const MARKET_SCREENING_TIMEOUT_SECONDS = 480; // 8 minutes
 
@@ -111,7 +112,7 @@ function getSchemaFieldsForPrompt(): string {
 
 export async function runMarketScreening(
   payload: MarketScreeningPayload,
-  deps: { db: DbClient },
+  deps: { db: DbClient; workspaceId?: string | null },
 ): Promise<MarketScreeningResult> {
   const { thesis, thesisId, sourcesCount = 5 } = payload;
   const thesisIds = [...new Set([...(payload.thesisIds ?? []), ...(thesisId ? [thesisId] : [])])];
@@ -123,9 +124,10 @@ export async function runMarketScreening(
     throw new Error('Agent not available. Please ensure ANTHROPIC_API_KEY is set.');
   }
 
-  const companyRepo = new CompanyRepository(deps.db);
-  const financialRepo = new CompanyFinancialRepository(deps.db);
-  const thesisRepo = new InvestmentThesisRepository(deps.db);
+  const workspaceId = deps.workspaceId ?? (await getActiveWorkspaceId());
+  const companyRepo = new CompanyRepository(deps.db, workspaceId);
+  const financialRepo = new CompanyFinancialRepository(deps.db, workspaceId);
+  const thesisRepo = new InvestmentThesisRepository(deps.db, workspaceId);
 
   const existingNames = (await companyRepo.findTargetNames()).join(', ');
   const schemaFields = getSchemaFieldsForPrompt();

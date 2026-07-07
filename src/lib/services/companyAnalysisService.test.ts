@@ -36,6 +36,7 @@ function makeService(): CompanyAnalysisService {
     { findCompletedByCompanyId } as unknown as CompanyAnalysisRepository,
     { findById } as unknown as CompanyRepository,
     {} as never,
+    'workspace-1',
   );
 }
 

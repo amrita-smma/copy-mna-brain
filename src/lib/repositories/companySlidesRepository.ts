@@ -1,15 +1,22 @@
-import { asc, eq } from 'drizzle-orm';
-import { companySlides } from '@/lib/db/schema';
+import { and, asc, eq, inArray } from 'drizzle-orm';
+import { companies, companySlides } from '@/lib/db/schema';
 import type { DbClient, Tables, TablesInsert, TablesUpdate } from './types';
 
 export class CompanySlidesRepository {
-  constructor(private readonly db: DbClient) {}
+  constructor(
+    private readonly db: DbClient,
+    private readonly workspaceId: string,
+  ) {}
+
+  private workspaceCompanyIds() {
+    return this.db.select({ id: companies.id }).from(companies).where(eq(companies.workspace_id, this.workspaceId));
+  }
 
   async findByCompanyId(companyId: string): Promise<Tables<'company_slides'>[]> {
     return this.db
       .select()
       .from(companySlides)
-      .where(eq(companySlides.company_id, companyId))
+      .where(and(eq(companySlides.company_id, companyId), inArray(companySlides.company_id, this.workspaceCompanyIds())))
       .orderBy(asc(companySlides.sort_order));
   }
 
@@ -25,13 +32,15 @@ export class CompanySlidesRepository {
     const [row] = await this.db
       .update(companySlides)
       .set(updates)
-      .where(eq(companySlides.id, id))
+      .where(and(eq(companySlides.id, id), inArray(companySlides.company_id, this.workspaceCompanyIds())))
       .returning();
     if (!row) throw new Error(`Company slide ${id} not found`);
     return row;
   }
 
   async delete(id: string): Promise<void> {
-    await this.db.delete(companySlides).where(eq(companySlides.id, id));
+    await this.db
+      .delete(companySlides)
+      .where(and(eq(companySlides.id, id), inArray(companySlides.company_id, this.workspaceCompanyIds())));
   }
 }

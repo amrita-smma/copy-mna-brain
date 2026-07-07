@@ -16,7 +16,7 @@ export class SlideService {
     return this.slidesRepo.findByCompanyId(companyId);
   }
 
-  create(data: TablesInsert<'company_slides'>) {
+  create(data: Omit<TablesInsert<'company_slides'>, 'workspace_id'>) {
     return this.slidesRepo.insert(data);
   }
 

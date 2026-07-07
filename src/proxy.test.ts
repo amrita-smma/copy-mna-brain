@@ -8,7 +8,12 @@ vi.mock('next-auth', () => ({
 }));
 vi.mock('@/auth.config', () => ({ authConfig: {} }));
 
-import { classifyApiRoute } from './proxy';
+import {
+  classifyApiRoute,
+  extractRefererWorkspaceSlug,
+  extractWorkspaceSlug,
+  isValidWorkspaceSlug,
+} from './proxy';
 
 describe('classifyApiRoute', () => {
   it('gates the admin signup route on the shared secret', () => {
@@ -53,5 +58,75 @@ describe('classifyApiRoute', () => {
     expect(classifyApiRoute('/api/crm/employers/42/notes')).toBe('session');
     expect(classifyApiRoute('/api/screenings')).toBe('session');
     expect(classifyApiRoute('/api/users')).toBe('session');
+  });
+});
+
+describe('extractWorkspaceSlug', () => {
+  it('extracts the slug from a /w/<slug>/... pathname', () => {
+    expect(extractWorkspaceSlug('/w/togan-vcc/pipeline')).toBe('togan-vcc');
+  });
+
+  it('extracts the slug when the pathname is just /w/<slug>', () => {
+    expect(extractWorkspaceSlug('/w/togan-vcc')).toBe('togan-vcc');
+  });
+
+  it('returns null for a non-/w/ pathname', () => {
+    expect(extractWorkspaceSlug('/api/companies')).toBeNull();
+  });
+});
+
+describe('isValidWorkspaceSlug', () => {
+  it('matches a real membership', () => {
+    expect(isValidWorkspaceSlug('togan-vcc', [{ slug: 'togan-vcc' }], false)).toBe(true);
+  });
+
+  it('rejects a slug not in the membership list', () => {
+    expect(isValidWorkspaceSlug('aeliana-vcc', [{ slug: 'togan-vcc' }], false)).toBe(false);
+  });
+
+  it('grants implicit access to a superadmin regardless of membership', () => {
+    expect(isValidWorkspaceSlug('any-workspace', [], true)).toBe(true);
+  });
+
+  it('rejects an empty membership list for a non-superadmin', () => {
+    expect(isValidWorkspaceSlug('togan-vcc', [], false)).toBe(false);
+  });
+});
+
+describe('extractRefererWorkspaceSlug', () => {
+  const host = 'app.example.com';
+
+  it('extracts the slug from a same-host /w/<slug>/... referer', () => {
+    expect(
+      extractRefererWorkspaceSlug(`https://${host}/w/togan-vcc/pipeline`, host),
+    ).toBe('togan-vcc');
+  });
+
+  it('returns null when there is no referer', () => {
+    expect(extractRefererWorkspaceSlug(null, host)).toBeNull();
+  });
+
+  it('returns null when there is no request host', () => {
+    expect(extractRefererWorkspaceSlug(`https://${host}/w/togan-vcc/pipeline`, null)).toBeNull();
+  });
+
+  it('returns null for a cross-host referer, even if it looks workspace-scoped', () => {
+    expect(
+      extractRefererWorkspaceSlug('https://evil.example.com/w/togan-vcc/pipeline', host),
+    ).toBeNull();
+  });
+
+  it('matches by host regardless of scheme, mirroring TLS-terminating reverse proxies', () => {
+    expect(
+      extractRefererWorkspaceSlug(`http://${host}/w/togan-vcc/pipeline`, host),
+    ).toBe('togan-vcc');
+  });
+
+  it('returns null for a same-host referer that is not workspace-scoped', () => {
+    expect(extractRefererWorkspaceSlug(`https://${host}/workspace`, host)).toBeNull();
+  });
+
+  it('returns null for a malformed referer', () => {
+    expect(extractRefererWorkspaceSlug('not-a-url', host)).toBeNull();
   });
 });

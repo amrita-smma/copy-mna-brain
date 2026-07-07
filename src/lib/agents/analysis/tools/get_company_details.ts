@@ -1,4 +1,5 @@
 import { tool } from "@langchain/core/tools";
+import { getActiveWorkspaceId } from '@/lib/workspace';
 import { z } from "zod";
 import { logger } from "../../logger";
 import { createDb } from "@/lib/server/db";
@@ -22,9 +23,9 @@ export const getCompanyDetails = tool(
 
     try {
       const db = createDb();
-      const companyRepo = new CompanyRepository(db);
-      const financialRepo = new CompanyFinancialRepository(db);
-      const screeningRepo = new CompanyScreeningDerivedRepository(db);
+      const companyRepo = new CompanyRepository(db, await getActiveWorkspaceId());
+      const financialRepo = new CompanyFinancialRepository(db, await getActiveWorkspaceId());
+      const screeningRepo = new CompanyScreeningDerivedRepository(db, await getActiveWorkspaceId());
       const c = await companyRepo.findByNameFuzzy(trimmed);
 
       if (!c) {

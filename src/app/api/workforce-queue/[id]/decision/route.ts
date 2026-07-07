@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse, after } from 'next/server';
 import { auth } from '@/auth';
 import { createDb } from '@/lib/server/db';
+import { getActiveWorkspaceId } from '@/lib/workspace';
 import { createContainer } from '@/lib/services';
 import { AiWorkforceQueueRepository } from '@/lib/repositories';
 import { dispatcherTick } from '@/lib/workforce';
@@ -67,7 +68,7 @@ export async function POST(
   try {
     const { id } = await params;
     const db = createDb();
-    const { aiWorkforceService } = createContainer(db);
+    const { aiWorkforceService } = createContainer(db, await getActiveWorkspaceId());
     const item = await aiWorkforceService.findById(id);
     if (!item) {
       return NextResponse.json({ error: 'Not found' }, { status: 404 });
@@ -102,7 +103,7 @@ export async function POST(
     // calls graph.resume with the stashed payload. This keeps the "1 active
     // run at a time" cap honest — the resume goes through the same gating as
     // a fresh dispatch.
-    const repo = new AiWorkforceQueueRepository(db);
+    const repo = new AiWorkforceQueueRepository(db, await getActiveWorkspaceId());
     const auditEntry: HumanDecision = {
       tool_call_id: parsed.tool_call_id,
       tool_name: parsed.tool_name,

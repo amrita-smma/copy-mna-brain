@@ -1,4 +1,5 @@
 import { tool } from "@langchain/core/tools";
+import { getActiveWorkspaceId } from '@/lib/workspace';
 import { z } from "zod";
 import { logger } from "../../logger";
 import { createDb } from "@/lib/server/db";
@@ -10,7 +11,7 @@ export const runMarketScreeningTool = tool(
     logger.debug(`🔧 TOOL CALLED: run_market_screening(sources_count=${sources_count ?? 5})`);
     try {
       const db = createDb();
-      const thesisRepo = new InvestmentThesisRepository(db);
+      const thesisRepo = new InvestmentThesisRepository(db, await getActiveWorkspaceId());
       const activeTheses = await thesisRepo.findAllActive();
       if (activeTheses.length === 0) {
         return "No active investment thesis found. Please set an active investment thesis before running market screening.";

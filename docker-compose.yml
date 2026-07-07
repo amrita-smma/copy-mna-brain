@@ -64,6 +64,8 @@ services:
         condition: service_healthy
       minio:
         condition: service_healthy
+      neo4j:
+        condition: service_healthy
     env_file:
       - .env.local
     environment:
@@ -84,6 +86,10 @@ services:
       # `minio` — expose the host-mapped port instead.
       AWS_S3_PUBLIC_ENDPOINT: http://localhost:9000
       AWS_S3_FORCE_PATH_STYLE: "true"
+      # neo4j-driver defaults to bolt://localhost:7687 when unset, which
+      # inside this container resolves to the app's own network namespace,
+      # not the `neo4j` service — graph features silently fail to connect.
+      NEO4J_URI: bolt://neo4j:7687
     ports:
       - "3000:3000"
     volumes:

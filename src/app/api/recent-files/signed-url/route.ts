@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/auth';
 import { createDb } from '@/lib/server/db';
+import { getActiveWorkspaceId } from '@/lib/workspace';
 import { createContainer } from '@/lib/services';
 
 export async function GET(req: NextRequest) {
@@ -17,7 +18,7 @@ export async function GET(req: NextRequest) {
     }
 
     const db = createDb();
-    const { recentFileService } = createContainer(db);
+    const { recentFileService } = createContainer(db, await getActiveWorkspaceId());
     const [url, downloadUrl] = await Promise.all([
       recentFileService.resolveSignedUrl(key),
       recentFileService.resolveDownloadUrl(key, name || key.split('/').pop() || 'download'),

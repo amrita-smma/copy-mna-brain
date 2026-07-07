@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/auth';
 import { createDb } from '@/lib/server/db';
+import { getActiveWorkspaceId } from '@/lib/workspace';
 import { createContainer } from '@/lib/services';
 import type { CompanyAnalysisPayload } from '@/lib/jobs/handlers/companyAnalysis';
 
@@ -15,7 +16,7 @@ export async function GET(request: NextRequest) {
     }
 
     const db = createDb();
-    const { companyAnalysisService } = createContainer(db);
+    const { companyAnalysisService } = createContainer(db, await getActiveWorkspaceId());
     const data = await companyAnalysisService.findByCompanyId(companyId);
 
     if (!data) {
@@ -48,7 +49,7 @@ export async function POST(request: NextRequest) {
     }
 
     const db = createDb();
-    const { companyAnalysisService } = createContainer(db);
+    const { companyAnalysisService } = createContainer(db, await getActiveWorkspaceId());
     // Attribute the workforce run to the user who clicked "Generate Company
     // Card" so it shows as their task (not "System") and they get the email.
     const result = await companyAnalysisService.dispatch(body, session.user.id);
@@ -79,7 +80,7 @@ export async function DELETE(request: NextRequest) {
     }
 
     const db = createDb();
-    const { companyAnalysisService } = createContainer(db);
+    const { companyAnalysisService } = createContainer(db, await getActiveWorkspaceId());
     await companyAnalysisService.delete(companyId);
     return NextResponse.json({ success: true });
   } catch (error) {

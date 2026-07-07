@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createDb } from '@/lib/server/db';
+import { getActiveWorkspaceId } from '@/lib/workspace';
 import { createContainer } from '@/lib/services';
 import { CompanyDroppedError } from '@/lib/services/companyService';
 
@@ -26,7 +27,7 @@ export async function POST(req: NextRequest) {
     }
 
     const db = createDb();
-    const { companyService } = createContainer(db);
+    const { companyService } = createContainer(db, await getActiveWorkspaceId());
     await companyService.promoteMany(normalized, body.nextStage);
     return NextResponse.json({ data: { success: true, count: normalized.length } });
   } catch (error: unknown) {

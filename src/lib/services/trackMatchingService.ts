@@ -16,6 +16,7 @@ export class TrackMatchingService {
   constructor(
     private readonly jobDispatcher: JobDispatcher,
     private readonly db: DbClient,
+    private readonly workspaceId: string,
   ) {}
 
   dispatch(payload: TrackMatchingPayload): Promise<{ jobId: string }> {
@@ -23,13 +24,13 @@ export class TrackMatchingService {
       type: 'track_matching',
       payload: payload as unknown as Record<string, unknown>,
       timeoutSeconds: TRACK_MATCHING_TIMEOUT_SECONDS,
-      work: ({ db: runDb }) => runTrackMatching(payload, { db: runDb }),
+      work: ({ db: runDb, job }) => runTrackMatching(payload, { db: runDb, workspaceId: job.workspace_id }),
     });
   }
 
   /** Run track matching inline (blocking). Use before an L0 stage change so
    *  the track is assigned before the company lands in L0. */
   runSync(payload: TrackMatchingPayload): Promise<TrackMatchingResult> {
-    return runTrackMatching(payload, { db: this.db });
+    return runTrackMatching(payload, { db: this.db, workspaceId: this.workspaceId });
   }
 }

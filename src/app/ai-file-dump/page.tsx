@@ -1,7 +1,10 @@
-import AIFileDump from '@/views/AIFileDump';
-import { companyGraphEnabled } from '@/lib/flags';
+import { redirectToWorkspaceScoped } from '@/lib/legacyWorkspaceRedirect';
 
-export default async function AIFileDumpPage() {
-  const showCompanyGraph = await companyGraphEnabled().then(Boolean);
-  return <AIFileDump showCompanyGraph={showCompanyGraph} />;
+/** Pre-migration deeplink bridge — see `redirectToWorkspaceScoped`. */
+export default async function LegacyAiFileDumpRedirect({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  await redirectToWorkspaceScoped('/ai-file-dump', await searchParams);
 }

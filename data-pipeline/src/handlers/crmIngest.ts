@@ -23,10 +23,14 @@ import {
   EmployerRelatedCompanyRepository,
   EmployerTeamRepository,
   TopicRepository,
+  UserWorkspaceRepository,
+  WorkspaceCorrespondentRepository,
   UserRepository,
 } from '@/lib/repositories';
 import { loadCompanyIndex, matchRelatedCompany, normalizeCompanyName } from '../helpers/matchRelatedCompany';
+import type { CompanyRow } from '../helpers/matchRelatedCompany';
 import type { DbClient, Tables } from '@/lib/repositories';
+import { getActiveWorkspaceId } from '@/lib/workspace';
 import type { EnrichedPerson } from '../mboxParser';
 
 export const VAULT_CRM_INGEST_TIMEOUT_SECONDS = 1800; // 30 minutes
@@ -175,8 +179,68 @@ export async function runCrmIngest(
   const emailRepo = new EmailRepository(deps.db);
   const overrideRepo = new EmployerOverrideRepository(deps.db);
   const employerDomainRepo = new EmployerDomainRepository(deps.db);
-  const companyRepo = new CompanyRepository(deps.db);
   const relatedCompanyRepo = new EmployerRelatedCompanyRepository(deps.db);
+
+  // Default company-matching context for rows with no resolvable custodian
+  // (no custodian_email, or a custodian not synced to any workspace) — same
+  // fallback the attachment pipeline uses in resolveTargetWorkspaceIds when
+  // findWorkspaceIdsBySyncedEmail comes back empty.
+  const defaultWorkspaceId = await getActiveWorkspaceId();
+  const defaultCompanyRepo = new CompanyRepository(deps.db, defaultWorkspaceId);
+  const defaultCompanyIndex = await loadCompanyIndex(defaultCompanyRepo);
+
+  const userWorkspaceRepo = new UserWorkspaceRepository(deps.db);
+  const workspaceIdsByCustodian = new Map<string, string[]>();
+  const companyContextByWorkspace = new Map<
+    string,
+    { repo: CompanyRepository; index: CompanyRow[] }
+  >();
+  companyContextByWorkspace.set(defaultWorkspaceId, {
+    repo: defaultCompanyRepo,
+    index: defaultCompanyIndex,
+  });
+
+  /**
+   * All workspaces this raw email is relevant to, fanned out by
+   * user_workspaces.is_email_synced — exactly like the attachment
+   * pipeline's resolveTargetWorkspaceIds. Falls back to the default
+   * workspace when the custodian is missing or not synced to any workspace.
+   * Cached per custodian for the duration of this ingest run.
+   */
+  async function resolveWorkspaceIdsForCustodian(
+    custodianEmail: string | null,
+  ): Promise<string[]> {
+    if (!custodianEmail) return [defaultWorkspaceId];
+    let workspaceIds = workspaceIdsByCustodian.get(custodianEmail);
+    if (workspaceIds === undefined) {
+      workspaceIds = await userWorkspaceRepo.findWorkspaceIdsBySyncedEmail(custodianEmail);
+      workspaceIdsByCustodian.set(custodianEmail, workspaceIds);
+    }
+    return workspaceIds.length > 0 ? workspaceIds : [defaultWorkspaceId];
+  }
+
+  /**
+   * Company-matching context for one raw email's custodian mailbox. A
+   * mailbox synced to more than one workspace matches against the first
+   * resolved workspace only (primary, same convention as fileService.ts) —
+   * employer_related_companies scopes by a single workspace_id now (see
+   * 20260705000002_employer_related_companies_workspace_id.sql), so only the
+   * primary workspace's company search space is used for matching.
+   */
+  async function resolveCompanyContext(
+    custodianEmail: string | null,
+  ): Promise<{ repo: CompanyRepository; index: CompanyRow[]; workspaceId: string }> {
+    const workspaceIds = await resolveWorkspaceIdsForCustodian(custodianEmail);
+    const primaryWorkspaceId = workspaceIds[0];
+    let context = companyContextByWorkspace.get(primaryWorkspaceId);
+    if (!context) {
+      const repo = new CompanyRepository(deps.db, primaryWorkspaceId);
+      const index = await loadCompanyIndex(repo);
+      context = { repo, index };
+      companyContextByWorkspace.set(primaryWorkspaceId, context);
+    }
+    return { ...context, workspaceId: primaryWorkspaceId };
+  }
 
   const result: CrmIngestResult = {
     rows_ingested: 0,
@@ -205,9 +269,20 @@ export async function runCrmIngest(
     targets = await enrichmentRepo.listReadyForIngest(limit);
   }
 
+  // Marts are precomputed read models over analytics.emails, but they also
+  // reflect user_workspaces.is_email_synced (via analytics.email_workspace) —
+  // a sync toggle with nothing new to ingest would otherwise never refresh
+  // them. Runs OUTSIDE any transaction (REFRESH … CONCURRENTLY requirement)
+  // and swallows per-mart errors, reporting only the ones that refreshed.
+  const refreshMarts = async () => {
+    log('refreshing analytics marts');
+    result.marts_refreshed = await new MartRepository(deps.db).refreshAll();
+  };
+
   log(`starting job=${deps.job.id} targets=${targets.length}`);
   if (targets.length === 0) {
     log('nothing to ingest');
+    await refreshMarts();
     return result;
   }
 
@@ -245,6 +320,7 @@ export async function runCrmIngest(
 
   if (rowsToIngest.length === 0) {
     log('all targets excluded by domain');
+    await refreshMarts();
     return result;
   }
 
@@ -290,6 +366,24 @@ export async function runCrmIngest(
   const midToEmailId = new Map<string, string>();
   const domainToEmployerId = new Map<string, string>();
 
+  // Pre-warm the custodian->workspace cache via the OUTER db connection,
+  // before opening the transaction below. resolveWorkspaceIdsForCustodian is
+  // called again inside the tx (for the per-email correspondent membership
+  // fan-out) — if that cache were still cold there, it would issue a query
+  // through the outer `deps.db` pool from inside an active transaction,
+  // which can deadlock: the transaction holds the pool's only connection
+  // while waiting for a second connection to service that query. Warming the
+  // cache here means every lookup made *inside* the transaction is a pure
+  // in-memory hit, never touching the pool.
+  const uniqueCustodianEmails = new Set(
+    rowsToIngest
+      .map((r) => r.custodian_email)
+      .filter((e): e is string => !!e),
+  );
+  for (const custodianEmail of uniqueCustodianEmails) {
+    await resolveWorkspaceIdsForCustodian(custodianEmail);
+  }
+
   await deps.db.transaction(async (tx) => {
     // PgTransaction is API-compatible with DbClient for our query patterns,
     // but missing the `$client` property TS expects on PostgresJsDatabase.
@@ -300,6 +394,7 @@ export async function runCrmIngest(
     const txEmployerRepo = new EmployerRepository(txClient);
     const txCorrespondentRepo = new CorrespondentRepository(txClient);
     const txEmailRepo = new EmailRepository(txClient);
+    const txWorkspaceCorrespondentRepo = new WorkspaceCorrespondentRepository(txClient);
     const txEmployerTeamRepo = new EmployerTeamRepository(txClient);
     const txUserRepo = new UserRepository(txClient);
 
@@ -504,6 +599,27 @@ export async function runCrmIngest(
       if (e.message_id) midToEmailId.set(e.message_id, e.id);
     }
 
+    // A message_id already ingested in a PRIOR run (e.g. the same email
+    // reaching a different custodian's mailbox later) is skipped by
+    // insertBatchIgnoringDupes and so is absent from insertedEmails/
+    // midToEmailId above. Without this backfill, the [5/7] loop below would
+    // silently drop workspace_correspondents membership for that later
+    // custodian's workspace — the contact was really seen there, but never
+    // gets marked visible. Mirrors the same backfill [8] related_companies
+    // already does for the same reason.
+    const missingMessageIdsForParticipants = rowsToIngest
+      .map((r) => r.message_id)
+      .filter((mid): mid is string => !!mid && !midToEmailId.has(mid));
+    if (missingMessageIdsForParticipants.length > 0) {
+      const existingEmailsForParticipants = await tx
+        .select({ id: emailsTable.id, message_id: emailsTable.message_id })
+        .from(emailsTable)
+        .where(inArray(emailsTable.message_id, missingMessageIdsForParticipants));
+      for (const e of existingEmailsForParticipants) {
+        if (e.message_id) midToEmailId.set(e.message_id, e.id);
+      }
+    }
+
     // [5/7] Email participants — only for emails we actually just inserted.
     log('[5/7] participants');
     const partRows: Array<{
@@ -514,44 +630,64 @@ export async function runCrmIngest(
       display_name: string | null;
       role: 'from' | 'to' | 'cc';
     }> = [];
+    // Correspondent visibility fan-out: attached per-email (not after this
+    // whole batch upsert) so a contact only becomes visible to the
+    // workspace(s) whose custodian mailbox actually surfaced it in *this*
+    // email — attaching post-batch would let one email's custodian bleed
+    // visibility onto every other correspondent in the same ingest run.
+    const membershipPairs: Array<{ workspaceId: string; correspondentId: string; source: 'ingest' }> = [];
+    const addMembershipPairs = async (correspondentId: string | null, custodianEmail: string | null) => {
+      if (!correspondentId) return;
+      const workspaceIds = await resolveWorkspaceIdsForCustodian(custodianEmail);
+      for (const workspaceId of workspaceIds) {
+        membershipPairs.push({ workspaceId, correspondentId, source: 'ingest' });
+      }
+    };
     for (const r of rowsToIngest) {
       const emailId = midToEmailId.get(r.message_id);
       if (!emailId) continue;
       if (r.from_address && !isExcluded(r.from_address)) {
+        const correspondentId = emailToCorrId.get(r.from_address.toLowerCase()) ?? null;
         partRows.push({
           email_id: emailId,
           user_id: userIdByEmail.get(r.from_address.toLowerCase()) ?? null,
-          correspondent_id: emailToCorrId.get(r.from_address.toLowerCase()) ?? null,
+          correspondent_id: correspondentId,
           address: r.from_address.toLowerCase(),
           display_name: r.from_display_name || null,
           role: 'from',
         });
+        await addMembershipPairs(correspondentId, r.custodian_email);
       }
       for (const addr of r.to_addresses ?? []) {
         if (isExcluded(addr)) continue;
+        const correspondentId = emailToCorrId.get(addr.toLowerCase()) ?? null;
         partRows.push({
           email_id: emailId,
           user_id: userIdByEmail.get(addr.toLowerCase()) ?? null,
-          correspondent_id: emailToCorrId.get(addr.toLowerCase()) ?? null,
+          correspondent_id: correspondentId,
           address: addr.toLowerCase(),
           display_name: null,
           role: 'to',
         });
+        await addMembershipPairs(correspondentId, r.custodian_email);
       }
       for (const addr of r.cc_addresses ?? []) {
         if (isExcluded(addr)) continue;
+        const correspondentId = emailToCorrId.get(addr.toLowerCase()) ?? null;
         partRows.push({
           email_id: emailId,
           user_id: userIdByEmail.get(addr.toLowerCase()) ?? null,
-          correspondent_id: emailToCorrId.get(addr.toLowerCase()) ?? null,
+          correspondent_id: correspondentId,
           address: addr.toLowerCase(),
           display_name: null,
           role: 'cc',
         });
+        await addMembershipPairs(correspondentId, r.custodian_email);
       }
     }
     const insertedParts = await txEmailRepo.insertParticipantsBatch(partRows);
     result.participants_inserted = insertedParts.length;
+    await txWorkspaceCorrespondentRepo.addMemberships(membershipPairs);
 
     // [6/7] Email topics.
     log('[6/7] email_topics');
@@ -658,8 +794,7 @@ export async function runCrmIngest(
   // that would hold the main transaction's locks unnecessarily long. midToEmailId
   // is already populated from the committed inserts above.
   log('[8] related_companies');
-  const companyIndex = await loadCompanyIndex(companyRepo);
-  log(`[8] company index loaded: ${companyIndex.length} companies`);
+  log(`[8] default company index loaded: ${defaultCompanyIndex.length} companies`);
 
   // On re-ingest (rawEmailIds path), emails already exist in analytics.emails so
   // insertBatchIgnoringDupes skips them and they never land in midToEmailId. Fall
@@ -692,13 +827,16 @@ export async function runCrmIngest(
     if (!employerId) continue;
 
     rcEmailsProcessed++;
+    const { repo: companyRepoForRow, index: companyIndexForRow, workspaceId: rowWorkspaceId } =
+      await resolveCompanyContext(r.custodian_email);
     for (const rc of relatedCompanies) {
       if (!rc.company_name?.trim()) continue;
       try {
-        const companyId = await matchRelatedCompany(rc.company_name, companyRepo, companyIndex);
+        const companyId = await matchRelatedCompany(rc.company_name, companyRepoForRow, companyIndexForRow);
         const normalizedName = normalizeCompanyName(rc.company_name);
         const relatedCompanyId = await relatedCompanyRepo.upsertAuto({
           employer_id: employerId,
+          workspace_id: rowWorkspaceId,
           company_id: companyId,
           company_name: rc.company_name,
           normalized_company_name: normalizedName,
@@ -730,13 +868,10 @@ export async function runCrmIngest(
   }
   log(`[8] related_companies done`);
 
-  // Marts are precomputed read models over analytics.emails — keep them in step
-  // with the data just ingested. Runs OUTSIDE the tx above (REFRESH …
-  // CONCURRENTLY cannot run inside a transaction) and after it has committed, so
-  // a missing/failed mart never invalidates the durable ingest. refreshAll
-  // swallows per-mart errors and reports only the ones that refreshed.
-  log('refreshing analytics marts');
-  result.marts_refreshed = await new MartRepository(deps.db).refreshAll();
+  // Runs OUTSIDE the tx above (REFRESH … CONCURRENTLY cannot run inside a
+  // transaction) and after it has committed, so a missing/failed mart never
+  // invalidates the durable ingest.
+  await refreshMarts();
 
   log(`done: ${JSON.stringify(result)}`);
   return result;

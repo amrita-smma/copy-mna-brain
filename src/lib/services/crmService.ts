@@ -21,6 +21,7 @@ import type {
   TeamMember,
   Topic,
   TopicRepository,
+  WorkspaceCorrespondentRepository,
 } from "@/lib/repositories";
 import { normalizeCompanyName } from "@/lib/crm/normalizeCompanyName";
 
@@ -146,6 +147,8 @@ export class CRMService {
     private correspondentCurationRepo: CorrespondentCurationRepository,
     private relatedCompanyRepo: EmployerRelatedCompanyRepository,
     private companyRepo: CompanyRepository,
+    private workspaceCorrespondentRepo: WorkspaceCorrespondentRepository,
+    private workspaceId: string,
   ) {}
 
   // ─── Employers ───────────────────────────────────────────────────────────
@@ -154,8 +157,8 @@ export class CRMService {
     filters: EmployerListFilters = {},
   ): Promise<{ data: EmployerSummary[]; total: number }> {
     const [data, total] = await Promise.all([
-      this.employerRepo.list(filters),
-      this.employerRepo.count(filters),
+      this.employerRepo.list(filters, this.workspaceId),
+      this.employerRepo.count(filters, this.workspaceId),
     ]);
     return { data, total };
   }
@@ -166,13 +169,13 @@ export class CRMService {
 
     const [correspondents, notes, topics, team, emailCount, emails, relatedCompanies] =
       await Promise.all([
-        this.correspondentRepo.findByEmployerId(id),
-        this.noteRepo.findByEmployerId(id),
-        this.topicRepo.listForEmployer(id),
+        this.correspondentRepo.findByEmployerId(id, this.workspaceId),
+        this.noteRepo.findByEmployerId(id, this.workspaceId),
+        this.topicRepo.listForEmployer(id, this.workspaceId),
         this.teamRepo.listForEmployer(id),
         this.emailRepo.countByEmployer(id),
         this.emailRepo.findByEmployerId(id, { limit: 1 }),
-        this.relatedCompanyRepo.listForEmployer(id),
+        this.relatedCompanyRepo.listForEmployer(id, this.workspaceId),
       ]);
 
     const primary_pic =
@@ -294,7 +297,10 @@ export class CRMService {
     if (!updated) throw new EmployerNotFoundError(id);
 
     if (decision === "approve" && picPatch) {
-      const correspondents = await this.correspondentRepo.findByEmployerId(id);
+      const correspondents = await this.correspondentRepo.findByEmployerId(
+        id,
+        this.workspaceId,
+      );
       const primary =
         correspondents.find((c) => c.is_primary) ?? correspondents[0] ?? null;
 
@@ -313,16 +319,23 @@ export class CRMService {
         }
       } else if (pic.name) {
         // Brand-new human-authored contact: base row, origin='manual'.
-        await this.correspondentRepo.insert({
-          employer_id: id,
-          name: pic.name,
-          title: pic.title ?? null,
-          email: pic.email ?? null,
-          phone: pic.phone ?? null,
-          is_primary: true,
-          source: "manual",
-          origin: "manual",
-        });
+        const created = await this.correspondentRepo.insert(
+          {
+            employer_id: id,
+            name: pic.name,
+            title: pic.title ?? null,
+            email: pic.email ?? null,
+            phone: pic.phone ?? null,
+            source: "manual",
+            origin: "manual",
+          },
+          this.workspaceId,
+        );
+        await this.workspaceCorrespondentRepo.addMembership(
+          this.workspaceId,
+          created.id,
+          "manual",
+        );
       }
     }
 
@@ -351,7 +364,14 @@ export class CRMService {
       );
       if (dupe) {
         // Adding a contact that already exists (by email) = a human edit of the
-        // existing row → goes to the overlay via updateContact.
+        // existing row → goes to the overlay via updateContact. Also ensures
+        // this workspace gets a membership row, so re-adding a contact that
+        // was only visible to another workspace makes it visible here too.
+        await this.workspaceCorrespondentRepo.addMembership(
+          this.workspaceId,
+          dupe.id,
+          "manual",
+        );
         return this.updateContact(dupe.id, {
           name: input.name,
           title: input.title,
@@ -361,31 +381,38 @@ export class CRMService {
       }
     }
 
-    return this.correspondentRepo.insert({
-      employer_id: employer.id,
-      name: input.name,
-      email: input.email,
-      phone: input.phone,
-      title: input.title,
-      type: input.type,
-      is_primary: input.isPrimary ?? false,
-      source: "manual",
-      // Human-added: the ETL must never touch this row (RFC §3.4).
-      origin: "manual",
-    });
+    const created = await this.correspondentRepo.insert(
+      {
+        employer_id: employer.id,
+        name: input.name,
+        email: input.email,
+        phone: input.phone,
+        title: input.title,
+        type: input.type,
+        source: "manual",
+        // Human-added: the ETL must never touch this row (RFC §3.4).
+        origin: "manual",
+      },
+      this.workspaceId,
+    );
+    await this.workspaceCorrespondentRepo.addMembership(
+      this.workspaceId,
+      created.id,
+      "manual",
+    );
+    return created;
   }
 
   async listContacts(employerId: string): Promise<Correspondent[]> {
-    return this.correspondentRepo.findByEmployerId(employerId);
+    return this.correspondentRepo.findByEmployerId(employerId, this.workspaceId);
   }
 
   async updateContact(
     id: string,
     data: Partial<CorrespondentInsert>,
   ): Promise<Correspondent> {
-    // Split: name/title/phone/type are machine-derived → overlay. is_primary
-    // and email (the natural key) plus last_edited_* stay on the base table —
-    // is_primary so the one-primary unique index keeps enforcing (RFC §3.4).
+    // Split: name/title/phone/type are machine-derived → overlay.
+    // email (the natural key) and last_edited_* stay on the base table.
     const editedBy = data.last_edited_by_user_id ?? null;
     const overlay: {
       name?: string | null;
@@ -402,53 +429,56 @@ export class CRMService {
     }
 
     const base: Partial<CorrespondentInsert> = {};
-    if (data.is_primary !== undefined) base.is_primary = data.is_primary;
     if (data.email !== undefined) base.email = data.email;
     if (data.last_edited_by_user_id !== undefined) {
       base.last_edited_by_user_id = data.last_edited_by_user_id;
     }
     if (Object.keys(base).length > 0) {
-      const updated = await this.correspondentRepo.update(id, base);
+      const updated = await this.correspondentRepo.update(
+        id,
+        base,
+        this.workspaceId,
+      );
       if (!updated) throw new Error(`Correspondent ${id} not found`);
     }
 
-    const row = await this.correspondentRepo.findById(id);
+    const row = await this.correspondentRepo.findById(id, this.workspaceId);
     if (!row) throw new Error(`Correspondent ${id} not found`);
     return row;
   }
 
   async deleteContact(id: string): Promise<void> {
-    await this.correspondentRepo.delete(id);
-  }
-
-  async setPrimaryContact(id: string): Promise<Correspondent> {
-    return this.updateContact(id, { is_primary: true });
+    await this.correspondentRepo.delete(id, this.workspaceId);
   }
 
   // ─── Notes ───────────────────────────────────────────────────────────────
 
-  async addNote(input: EmployerNoteInsert): Promise<EmployerNote> {
-    return this.noteRepo.insert(input);
+  async addNote(
+    input: Omit<EmployerNoteInsert, "workspace_id">,
+  ): Promise<EmployerNote> {
+    // Stamped from the service's own workspace context, not trusted from the
+    // caller — a route should never be able to write another workspace's note.
+    return this.noteRepo.insert({ ...input, workspace_id: this.workspaceId });
   }
 
   async listNotes(employerId: string): Promise<EmployerNote[]> {
-    return this.noteRepo.findByEmployerId(employerId);
+    return this.noteRepo.findByEmployerId(employerId, this.workspaceId);
   }
 
   async deleteNote(id: string): Promise<void> {
-    await this.noteRepo.delete(id);
+    await this.noteRepo.delete(id, this.workspaceId);
   }
 
   // ─── Topics ──────────────────────────────────────────────────────────────
 
   async listAllTopics(): Promise<Topic[]> {
-    return this.topicRepo.listAll();
+    return this.topicRepo.listAll(this.workspaceId);
   }
 
   async listEmployerTopics(
     employerId: string,
   ): Promise<EmployerTopicAssignment[]> {
-    return this.topicRepo.listForEmployer(employerId);
+    return this.topicRepo.listForEmployer(employerId, this.workspaceId);
   }
 
   async addTopicToEmployer(
@@ -456,7 +486,10 @@ export class CRMService {
     name: string,
     opts: { source?: "auto" | "manual"; is_highlight?: boolean; is_deal_related?: boolean } = {},
   ): Promise<EmployerTopicAssignment[]> {
-    const existing = await this.topicRepo.listForEmployer(employerId);
+    const existing = await this.topicRepo.listForEmployer(
+      employerId,
+      this.workspaceId,
+    );
     if (existing.length >= 20) {
       throw new Error("Maximum 20 topics per employer");
     }
@@ -465,14 +498,18 @@ export class CRMService {
     ) {
       throw new Error("Topic already attached");
     }
-    const topic = await this.topicRepo.findOrCreate(name, {
-      is_deal_related: opts.is_deal_related ?? false,
-    });
+    // A manually-added topic name becomes this workspace's own private topic
+    // (not a new shared-vocabulary entry) — see topicRepository.findOrCreate.
+    const topic = await this.topicRepo.findOrCreate(
+      name,
+      { is_deal_related: opts.is_deal_related ?? false },
+      this.workspaceId,
+    );
     await this.topicRepo.assignToEmployer(employerId, topic.id, {
       source: opts.source ?? "manual",
       is_highlight: opts.is_highlight ?? false,
     });
-    return this.topicRepo.listForEmployer(employerId);
+    return this.topicRepo.listForEmployer(employerId, this.workspaceId);
   }
 
   async reclassifyTopic(
@@ -512,17 +549,19 @@ export class CRMService {
     const existing = await this.relatedCompanyRepo.findByCompanyId(
       employerId,
       companyId,
+      this.workspaceId,
     );
     if (existing.length > 0) throw new Error("Company already linked");
 
     await this.relatedCompanyRepo.createManual({
       employer_id: employerId,
+      workspace_id: this.workspaceId,
       company_id: companyId,
       company_name: name,
       normalized_company_name: normalizeCompanyName(name),
     });
     return dedupeRelatedCompanies(
-      await this.relatedCompanyRepo.listForEmployer(employerId),
+      await this.relatedCompanyRepo.listForEmployer(employerId, this.workspaceId),
     );
   }
 
@@ -531,7 +570,11 @@ export class CRMService {
     employerId: string,
     relatedCompanyId: string,
   ): Promise<void> {
-    await this.relatedCompanyRepo.deleteManual(employerId, relatedCompanyId);
+    await this.relatedCompanyRepo.deleteManual(
+      employerId,
+      relatedCompanyId,
+      this.workspaceId,
+    );
   }
 
   // ─── Team members ────────────────────────────────────────────────────────
@@ -607,6 +650,7 @@ export class CRMService {
       flagged.map(async (emp) => {
         const correspondents = await this.correspondentRepo.findByEmployerId(
           emp.id,
+          this.workspaceId,
         );
         const primary =
           correspondents.find((c) => c.is_primary) ?? correspondents[0] ?? null;
@@ -709,6 +753,13 @@ export class CRMService {
     return { employers_created: employersCreated, emails_added: emailsAdded };
   }
 
+  // "direct", not "ingest" — this path (Google Vault export / file-extracted
+  // communications, called from vaultExport.ts/fileService.ts) has no
+  // mailbox or message_id at all and is never governed by
+  // user_workspaces.is_email_synced, unlike crmIngest's real mailbox-sync
+  // pipeline. Labeling it "ingest" would let the sync gate hide it
+  // permanently for a workspace with no currently-synced member, even
+  // though this content was never tied to mailbox sync in the first place.
   private async upsertCorrespondent(
     employerId: string,
     data: { email?: string; name?: string },
@@ -718,14 +769,30 @@ export class CRMService {
       employerId,
       data.email,
     );
-    if (existing) return existing;
-    return this.correspondentRepo.insert({
-      employer_id: employerId,
-      name: data.name?.trim() || data.email,
-      email: data.email,
-      source: "auto",
-      is_primary: false,
-    });
+    if (existing) {
+      await this.workspaceCorrespondentRepo.addMembership(
+        this.workspaceId,
+        existing.id,
+        "direct",
+      );
+      return existing;
+    }
+    const created = await this.correspondentRepo.insert(
+      {
+        employer_id: employerId,
+        name: data.name?.trim() || data.email,
+        email: data.email,
+        source: "auto",
+        is_primary: false,
+      },
+      this.workspaceId,
+    );
+    await this.workspaceCorrespondentRepo.addMembership(
+      this.workspaceId,
+      created.id,
+      "direct",
+    );
+    return created;
   }
 }
 

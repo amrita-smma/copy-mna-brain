@@ -98,6 +98,13 @@ export class AiWorkforceService {
     return this.queueRepo.findById(id);
   }
 
+  /** See AiWorkforceQueueRepository.getGlobalQueuePositions. */
+  getGlobalQueuePositions(
+    ids: string[],
+  ): Promise<Map<string, { aheadGlobally: number; aheadOtherWorkspaces: number }>> {
+    return this.queueRepo.getGlobalQueuePositions(ids);
+  }
+
   /**
    * Enqueue a chat handoff. Goes through enqueueAgentRun() so we get:
    *   - idempotency on tool_call_id (set as idempotency_key — same handoff

@@ -16,12 +16,13 @@ import {
   DealDocumentRepository,
   DealNoteRepository,
   DealLinkRepository,
+  FileRepository,
   type DbClient,
-  type FileRepository,
   type CriteriaRepository,
   type ScreeningRepository,
   type Tables,
   type TablesInsert,
+  type UserWorkspaceRepository,
 } from '@/lib/repositories';
 import { enqueueSendEmail } from '@/lib/queue';
 import type { CompanyAnalysisService } from './companyAnalysisService';
@@ -170,6 +171,7 @@ export class FileService {
 
   constructor(
     private readonly db: DbClient,
+    private readonly workspaceId: string,
     private readonly fileRepo: FileRepository,
     private readonly companyAnalysisService: CompanyAnalysisService,
     private readonly aiScreeningService: AIScreeningService,
@@ -178,6 +180,7 @@ export class FileService {
     private readonly companyFinancialRepo: CompanyFinancialRepository,
     private readonly companyService: CompanyService,
     private readonly companyFxAdjustmentRepo: CompanyFxAdjustmentRepository,
+    private readonly userWorkspaceRepo: UserWorkspaceRepository,
     // Passed to transaction-scoped CompanyService instances so AI File Dump
     // inbound companies entering L0 also trigger agent-driven track matching.
     private readonly trackMatchingService?: TrackMatchingService,
@@ -202,6 +205,25 @@ export class FileService {
         }
       }),
     );
+  }
+
+  /**
+   * Resolve which workspace(s) a promoted file belongs to. The pipeline
+   * knows only the custodian mailbox (`enteredByEmail`); it may be watched
+   * by several workspaces at once, so this can fan out to more than one id.
+   * Manual (session-authenticated) uploads have no mailbox at all — they
+   * land in this request's own workspace, same as every other write path.
+   */
+  private async resolveTargetWorkspaceIds(enteredByEmail?: string): Promise<string[]> {
+    if (!enteredByEmail) return [this.workspaceId];
+    const workspaceIds = await this.userWorkspaceRepo.findWorkspaceIdsBySyncedEmail(enteredByEmail);
+    if (workspaceIds.length === 0) {
+      console.warn(
+        `[fileService] custodian ${enteredByEmail} has no synced user_workspaces mapping; defaulting to ${this.workspaceId}`,
+      );
+      return [this.workspaceId];
+    }
+    return workspaceIds;
   }
 
   async processUpload(
@@ -239,13 +261,48 @@ export class FileService {
     const buffer = await downloadFile(key);
     const fileType = contentType || 'application/octet-stream';
 
-    const initialData = await this.fileRepo.insert({
+    // Fan-out: one mailbox may be watched by several workspaces. The first
+    // resolved workspace is treated as primary — it drives company
+    // matching/creation and screening dispatch below, exactly as before this
+    // ticket. Extra workspaces (beyond the first) only get their own `files`
+    // row; auto-merge/create and screening dispatch for those is deferred
+    // until there's a second real workspace to build and test that against.
+    const [primaryWorkspaceId, ...secondaryWorkspaceIds] =
+      await this.resolveTargetWorkspaceIds(enteredByEmail);
+    if (secondaryWorkspaceIds.length > 0) {
+      console.warn(
+        `[fileService] fanning out file "${fileName}" to ${secondaryWorkspaceIds.length} additional workspace(s); company matching/screening dispatch only runs for the primary workspace ${primaryWorkspaceId}`,
+      );
+    }
+    const primaryFileRepo =
+      primaryWorkspaceId === this.workspaceId
+        ? this.fileRepo
+        : new FileRepository(this.db, primaryWorkspaceId);
+
+    const initialData = await primaryFileRepo.insert({
       file_name: fileName,
       file_link: key,
       processing_status: 'processing',
       file_type: fileTypeOverride ?? 'other',
       origin_email: originEmail ?? false,
+      workspace_id: primaryWorkspaceId,
     });
+
+    const secondaryFileRepos = secondaryWorkspaceIds.map(
+      (workspaceId) => new FileRepository(this.db, workspaceId),
+    );
+    const secondaryInitialRows = await Promise.all(
+      secondaryFileRepos.map((repo, i) =>
+        repo.insert({
+          file_name: fileName,
+          file_link: key,
+          processing_status: 'processing',
+          file_type: fileTypeOverride ?? 'other',
+          origin_email: originEmail ?? false,
+          workspace_id: secondaryWorkspaceIds[i],
+        }),
+      ),
+    );
 
     let rawText = '';
     let structuredResult: Awaited<ReturnType<typeof processFileContent>> = null;
@@ -277,10 +334,14 @@ export class FileService {
       // Financial statements, legal docs, and buyer/sponsor/advisor material
       // must NOT auto-create a company — they describe counterparties, not
       // targets. (MB-300)
+      // Company matching/creation only runs for the primary (container-bound)
+      // workspace — secondary fan-out workspaces are deferred (see the
+      // warning logged above).
       let createdCompanies: Tables<'companies'>[] = [];
       let enrichedCompanies: Tables<'companies'>[] = [];
       let needsHitlReview = false;
-      if (structuredResult && MULTI_COMPANY_FILE_TYPES.has(effectiveFileType)) {
+      const isPrimaryWorkspace = primaryWorkspaceId === this.workspaceId;
+      if (isPrimaryWorkspace && structuredResult && MULTI_COMPANY_FILE_TYPES.has(effectiveFileType)) {
         try {
           const result = await this.createCompaniesFromExtraction({
             companies: this.parseExtractedCompanies(structuredResult as Record<string, unknown>),
@@ -305,7 +366,7 @@ export class FileService {
 
       // MB-300: financial statements update company_financials for matched existing
       // deal targets but never create new company rows.
-      if (originEmail && structuredResult && effectiveFileType === 'financial_statement') {
+      if (isPrimaryWorkspace && originEmail && structuredResult && effectiveFileType === 'financial_statement') {
         try {
           const fss = (structuredResult as Record<string, unknown>).financial_statement_summary as FinancialStatementSummary | undefined;
           await this.mergeFinancialStatementCompanyFinancials({
@@ -318,7 +379,7 @@ export class FileService {
         }
       }
 
-      await this.fileRepo.updatePartial(initialData.id, {
+      await primaryFileRepo.updatePartial(initialData.id, {
         raw_notes: rawText,
         file_type: effectiveFileType,
         structured_notes: structuredResult ? JSON.stringify(structuredResult, null, 2) : null,
@@ -330,6 +391,20 @@ export class FileService {
         // review dialog. Everything else is auto-accepted.
         processing_status: needsHitlReview ? 'awaiting_review' : 'completed',
       });
+      // Secondary fan-out rows share the same extracted content — no
+      // company-matching side effects run for them (see warning above).
+      await Promise.all(
+        secondaryFileRepos.map((repo, i) =>
+          repo.updatePartial(secondaryInitialRows[i].id, {
+            raw_notes: rawText,
+            file_type: effectiveFileType,
+            structured_notes: structuredResult ? JSON.stringify(structuredResult, null, 2) : null,
+            tags,
+            file_date: structuredResult?.file_date || null,
+            processing_status: needsHitlReview ? 'awaiting_review' : 'completed',
+          }),
+        ),
+      );
 
       // Kick off analysis + screening for every company minted or auto-
       // enriched from this file (mirrors the post-approve dispatch;
@@ -342,13 +417,21 @@ export class FileService {
       }
     } catch (processError) {
       console.error('Error during file processing:', processError);
-      await this.fileRepo.updatePartial(initialData.id, {
+      await primaryFileRepo.updatePartial(initialData.id, {
         processing_status: 'failed',
         raw_notes: rawText || 'Extraction failed',
       });
+      await Promise.all(
+        secondaryFileRepos.map((repo, i) =>
+          repo.updatePartial(secondaryInitialRows[i].id, {
+            processing_status: 'failed',
+            raw_notes: rawText || 'Extraction failed',
+          }),
+        ),
+      );
     }
 
-    const updatedData = await this.fileRepo.findById(initialData.id);
+    const updatedData = await primaryFileRepo.findById(initialData.id);
     const signedUrl = await getSignedUrl(key);
 
     if (structuredResult?.file_type === 'banker_communications' && structuredResult?.communications && this.crmService) {
@@ -553,7 +636,7 @@ export class FileService {
         });
         if (missing.length > 0) throw new CompanyL0RequirementsError(missing);
 
-        const insertData: TablesInsert<'companies'> = {
+        const insertData: Omit<TablesInsert<'companies'>, 'workspace_id'> = {
           pipeline_stage: 'L0',
           target: safeTarget,
           project_name: safeProjectName,
@@ -1142,14 +1225,14 @@ export class FileService {
   private buildCompanyService(db: DbClient): CompanyService {
     const companyGraphRepo = new CompanyRelationRepository(createNeo4jDriver());
     return new CompanyService(
-      new CompanyRepository(db, companyGraphRepo),
-      new CompanyLogRepository(db),
-      new DealDocumentRepository(db),
-      new DealNoteRepository(db),
-      new DealLinkRepository(db),
-      new CompanyFinancialRepository(db),
-      new CompanyFxAdjustmentRepository(db),
-      new CompanyScreeningDerivedRepository(db),
+      new CompanyRepository(db, this.workspaceId, companyGraphRepo),
+      new CompanyLogRepository(db, this.workspaceId),
+      new DealDocumentRepository(db, this.workspaceId),
+      new DealNoteRepository(db, this.workspaceId),
+      new DealLinkRepository(db, this.workspaceId),
+      new CompanyFinancialRepository(db, this.workspaceId),
+      new CompanyFxAdjustmentRepository(db, this.workspaceId),
+      new CompanyScreeningDerivedRepository(db, this.workspaceId),
       this.trackMatchingService,
     );
   }

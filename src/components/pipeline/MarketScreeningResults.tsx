@@ -34,8 +34,7 @@ import { useChatContext } from '@/components/chat/ChatProvider';
 import { cn } from '@/lib/utils';
 import { companyDisplayName } from '@/lib/companyDisplay';
 import { DealStage } from '@/lib/types';
-import { deleteCompanyById, getCompanies, getFavoriteCompanies } from '@/lib/api/pipeline';
-import { useAuth } from '@/hooks/useAuth';
+import { deleteCompanyById, getCompanies } from '@/lib/api/pipeline';
 import type { TrackLike } from '@/lib/tracks/matchTracks';
 
 interface MarketScreeningResult {
@@ -137,7 +136,6 @@ const latestFin = (
 const ITEMS_PER_PAGE = 10;
 
 export default function MarketScreeningResults({ refreshTrigger, onAddedToPipeline, collapsed = false, onToggleCollapse }: MarketScreeningResultsProps) {
-  const { user } = useAuth();
   const { analyzeWithAI } = useChatContext();
   const [results, setResults] = useState<MarketScreeningResult[]>([]);
   const [loading, setLoading] = useState(true);
@@ -154,9 +152,6 @@ export default function MarketScreeningResults({ refreshTrigger, onAddedToPipeli
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1);
 
-  // Favorites state (used for row highlighting + sort ordering)
-  const [favoriteIds, setFavoriteIds] = useState<Set<string>>(new Set());
-
   const fetchResults = async (opts: { silent?: boolean } = {}) => {
     try {
       const data = await getCompanies({
@@ -172,23 +167,9 @@ export default function MarketScreeningResults({ refreshTrigger, onAddedToPipeli
     }
   };
 
-  const fetchFavorites = async () => {
-    if (!user?.id) return;
-    try {
-      const favs = await getFavoriteCompanies(user.id);
-      setFavoriteIds(new Set(favs || []));
-    } catch (error: any) {
-      console.error('Error fetching favorites:', error);
-    }
-  };
-
   useEffect(() => {
     fetchResults();
   }, [refreshTrigger]);
-
-  useEffect(() => {
-    fetchFavorites();
-  }, [user?.id]);
 
   const dismissResult = async (id: string) => {
     try {
@@ -213,11 +194,6 @@ export default function MarketScreeningResults({ refreshTrigger, onAddedToPipeli
 
   const sortedResults = useMemo(() => {
     const sorted = [...results].sort((a, b) => {
-      // Favorites always come first
-      const aFav = favoriteIds.has(a.id) ? 1 : 0;
-      const bFav = favoriteIds.has(b.id) ? 1 : 0;
-      if (aFav !== bFav) return bFav - aFav;
-
       if (!sortField) return 0;
 
       let aVal: any = 0;
@@ -253,7 +229,7 @@ export default function MarketScreeningResults({ refreshTrigger, onAddedToPipeli
       return 0;
     });
     return sorted;
-  }, [results, favoriteIds, sortField, sortDirection]);
+  }, [results, sortField, sortDirection]);
 
   const totalPages = Math.max(1, Math.ceil(sortedResults.length / ITEMS_PER_PAGE));
   const paginatedResults = sortedResults.slice(
@@ -459,16 +435,12 @@ export default function MarketScreeningResults({ refreshTrigger, onAddedToPipeli
                 />
                 <TableBody>
                   {paginatedResults.map((result, index) => {
-                    const isFav = favoriteIds.has(result.id);
                     const displayName = companyDisplayName(result, "this company");
                     return (
                       <TableRow
                         key={result.id}
                         className={cn(
-                          "transition-colors",
-                          isFav
-                            ? "bg-amber-50/60 dark:bg-amber-900/10 hover:bg-amber-100/60 dark:hover:bg-amber-900/20"
-                            : "hover:bg-purple-50/50 dark:hover:bg-purple-900/10"
+                          "transition-colors hover:bg-purple-50/50 dark:hover:bg-purple-900/10"
                         )}
                       >
                         <TableCell className="pr-0">
