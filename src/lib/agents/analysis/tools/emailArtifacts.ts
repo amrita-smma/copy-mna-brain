@@ -1,8 +1,17 @@
-import { tool } from '@langchain/core/tools';
+/**
+ * Shared email-artifact builders for the composite `send_email` tool.
+ *
+ * These functions build the *contents* of an email (an Excel workbook, a
+ * research-summary PDF) as ready-to-attach buffers, but never send anything.
+ * `send_email` composes whichever artifacts the agent asked for and delivers
+ * them in a SINGLE email — so a body + spreadsheet + PDF arrive together
+ * instead of as three disjointed messages.
+ *
+ * Zod sub-schemas for each artifact spec live here too, so the tool file just
+ * nests them under its top-level schema.
+ */
 import { z } from 'zod';
-import type { RunnableConfig } from '@langchain/core/runnables';
 import { getActiveWorkspaceId } from '@/lib/workspace';
-import { logger } from '../../logger';
 import { createDb } from '@/lib/server/db';
 import {
   CompanyRepository,
@@ -11,18 +20,47 @@ import {
   CompanyFxAdjustmentRepository,
   UserRepository,
   type CompanyAgentFilters,
+  type Tables,
 } from '@/lib/repositories';
 import {
   generateCompanyExcel,
   type ExcelSheet,
   type ExcelCellValue,
 } from '@/lib/companyExcel';
-import { EmailService } from '@/lib/services/emailService';
-import type { Tables } from '@/lib/repositories';
+import {
+  generateResearchSummaryPdf,
+  type ResearchSummaryPdfInput,
+  type SectionBlock,
+  type KpiInput,
+  type YearValueInput,
+  type GaugeInput,
+  type ScorecardRowInput,
+  type PriorityItemInput,
+  type QuadrantsInput,
+  type PillInput,
+} from '@/lib/pdfSummary';
+import type { EmailAttachment } from '@/lib/ses';
 
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const XLSX_CONTENT_TYPE =
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 
-const argsSchema = z.object({
+/** Slugify a title for use as an attachment filename. */
+export function slugifyTitle(title: string, fallback: string): string {
+  return (
+    title
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 60) || fallback
+  );
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+// Company Excel artifact
+// ───────────────────────────────────────────────────────────────────────────
+
+/** Spec the agent passes to attach a comprehensive company Excel workbook. */
+export const companyExcelSpecSchema = z.object({
   // Filters — mirror query_companies. All optional, AND-combined.
   segment: z.string().optional().describe('Filter by segment (partial match)'),
   geography: z.string().optional().describe('Filter by geography (partial match)'),
@@ -60,81 +98,69 @@ const argsSchema = z.object({
     .string()
     .optional()
     .describe('Free-text search across target, project name, segment, and geography'),
-  // Output options.
   title: z
     .string()
     .optional()
-    .describe('Optional title for the export (email subject + filename). Defaults to a filter-derived title.'),
-  recipients: z
-    .array(z.string())
-    .optional()
-    .describe(
-      'Optional recipient email addresses — each must be a registered platform user. Omit to send to the signed-in user.',
-    ),
+    .describe('Optional title for the workbook (used in the file). Defaults to a filter-derived title.'),
 });
 
-type Args = z.infer<typeof argsSchema>;
+export type CompanyExcelSpec = z.infer<typeof companyExcelSpecSchema>;
 
-function extractUserEmailFromConfig(config: RunnableConfig | undefined): string | null {
-  const value = config?.configurable?.userEmail;
-  return typeof value === 'string' && value.trim().length > 0 ? value : null;
-}
-
-function mapFilters(args: Args): CompanyAgentFilters {
+function mapFilters(spec: CompanyExcelSpec): CompanyAgentFilters {
   return {
-    segment: args.segment,
-    geography: args.geography,
-    watchlistStatus: args.watchlist_status,
-    stage: args.stage,
-    name: args.name,
-    ownership: args.ownership,
-    companyFocus: args.company_focus,
-    source: args.source,
-    status: args.status,
-    dealType: args.deal_type,
-    dealSponsor: args.deal_sponsor,
-    banker: args.banker,
-    hasAiOpinion: args.has_ai_opinion,
-    aiOpinionVerdict: args.ai_opinion_verdict,
-    minRevenue: args.min_revenue,
-    maxRevenue: args.max_revenue,
-    minEbitda: args.min_ebitda,
-    maxEbitda: args.max_ebitda,
-    createdAfter: args.created_after,
-    createdBefore: args.created_before,
-    searchTerm: args.search_term,
+    segment: spec.segment,
+    geography: spec.geography,
+    watchlistStatus: spec.watchlist_status,
+    stage: spec.stage,
+    name: spec.name,
+    ownership: spec.ownership,
+    companyFocus: spec.company_focus,
+    source: spec.source,
+    status: spec.status,
+    dealType: spec.deal_type,
+    dealSponsor: spec.deal_sponsor,
+    banker: spec.banker,
+    hasAiOpinion: spec.has_ai_opinion,
+    aiOpinionVerdict: spec.ai_opinion_verdict,
+    minRevenue: spec.min_revenue,
+    maxRevenue: spec.max_revenue,
+    minEbitda: spec.min_ebitda,
+    maxEbitda: spec.max_ebitda,
+    createdAfter: spec.created_after,
+    createdBefore: spec.created_before,
+    searchTerm: spec.search_term,
   };
 }
 
 /** One-line, human-readable summary of the active filters (for email + title). */
-function summarizeFilters(args: Args): string {
+export function summarizeFilters(spec: CompanyExcelSpec): string {
   const parts: string[] = [];
   const add = (label: string, value: unknown) => {
     if (value !== undefined && value !== null && `${value}`.length > 0) {
       parts.push(`${label}=${value}`);
     }
   };
-  add('segment', args.segment);
-  add('geography', args.geography);
-  add('stage', args.stage);
-  add('name', args.name);
-  add('ownership', args.ownership);
-  add('focus', args.company_focus);
-  add('source', args.source);
-  add('status', args.status);
-  add('deal_type', args.deal_type);
-  add('sponsor', args.deal_sponsor);
-  add('banker', args.banker);
-  add('watchlist', args.watchlist_status);
-  if (args.has_ai_opinion !== undefined) add('has_ai_opinion', args.has_ai_opinion);
-  add('ai_verdict', args.ai_opinion_verdict);
-  add('min_revenue', args.min_revenue);
-  add('max_revenue', args.max_revenue);
-  add('min_ebitda', args.min_ebitda);
-  add('max_ebitda', args.max_ebitda);
-  add('created_after', args.created_after);
-  add('created_before', args.created_before);
-  add('search', args.search_term);
+  add('segment', spec.segment);
+  add('geography', spec.geography);
+  add('stage', spec.stage);
+  add('name', spec.name);
+  add('ownership', spec.ownership);
+  add('focus', spec.company_focus);
+  add('source', spec.source);
+  add('status', spec.status);
+  add('deal_type', spec.deal_type);
+  add('sponsor', spec.deal_sponsor);
+  add('banker', spec.banker);
+  add('watchlist', spec.watchlist_status);
+  if (spec.has_ai_opinion !== undefined) add('has_ai_opinion', spec.has_ai_opinion);
+  add('ai_verdict', spec.ai_opinion_verdict);
+  add('min_revenue', spec.min_revenue);
+  add('max_revenue', spec.max_revenue);
+  add('min_ebitda', spec.min_ebitda);
+  add('max_ebitda', spec.max_ebitda);
+  add('created_after', spec.created_after);
+  add('created_before', spec.created_before);
+  add('search', spec.search_term);
   return parts.length > 0 ? parts.join(', ') : 'All companies (no filter applied)';
 }
 
@@ -365,167 +391,261 @@ export function buildCompanySheets(data: {
   return sheets;
 }
 
+export interface CompanyExcelArtifact {
+  attachment: EmailAttachment;
+  title: string;
+  companyCount: number;
+  filterSummary: string;
+}
+
 /**
- * email_company_excel — build a comprehensive Excel export of the companies
- * matching a filter (joined across companies, financials, screening, FX, and
- * the resolved sponsor/captain/enterer user names) and email it as an .xlsx.
- *
- * Recipients default to the signed-in user (resolved from runtime config, never
- * agent text). An optional `recipients` list may target other users, but every
- * address must belong to a registered platform user — the same whitelist guard
- * as send_email, so this tool cannot exfiltrate the pipeline to a third party.
+ * Fetch the comprehensive joined company data set for the given filters and
+ * render it into a ready-to-attach .xlsx buffer. Returns `null` when the
+ * filter matches no companies (the caller should tell the user nothing was
+ * attached rather than mail an empty workbook).
  */
-export const emailCompanyExcel = tool(
-  async (args: Args, runtime?: RunnableConfig) => {
-    logger.debug(
-      `🔧 TOOL CALLED: email_company_excel(filters='${summarizeFilters(args)}', recipients=[${(args.recipients ?? []).join(', ')}])`,
-    );
+export async function buildCompanyExcelAttachment(
+  spec: CompanyExcelSpec,
+): Promise<CompanyExcelArtifact | null> {
+  const db = createDb();
+  const workspaceId = await getActiveWorkspaceId();
 
-    try {
-      const db = createDb();
-      const workspaceId = await getActiveWorkspaceId();
+  const companyRepo = new CompanyRepository(db, workspaceId);
+  const companies = await companyRepo.findForAgentStats(mapFilters(spec));
+  if (companies.length === 0) {
+    return null;
+  }
 
-      // ── Resolve + validate recipients (platform-user whitelist). ──
-      const userRepo = new UserRepository(db);
-      const platformUsers = await userRepo.findAll();
-      const allowed = new Map<string, { email: string; name: string }>();
-      for (const u of platformUsers) {
-        const email = u.email?.trim();
-        if (email) allowed.set(email.toLowerCase(), { email, name: u.name });
-      }
+  const ids = companies.map((c) => c.id);
+  const [financials, screening, fx] = await Promise.all([
+    new CompanyFinancialRepository(db, workspaceId).findByCompanies(ids),
+    new CompanyScreeningDerivedRepository(db, workspaceId).findByCompanies(ids),
+    new CompanyFxAdjustmentRepository(db, workspaceId).findByCompanies(ids),
+  ]);
 
-      const recipients: Array<{ email: string; name: string }> = [];
-      const rejected: string[] = [];
-      const requested = Array.from(
-        new Set((args.recipients ?? []).map((e) => e.trim().toLowerCase()).filter(Boolean)),
-      );
-      if (requested.length > 0) {
-        const malformed = requested.filter((e) => !EMAIL_RE.test(e));
-        if (malformed.length > 0) {
-          return `**Error:** malformed email address(es): ${malformed.join(', ')}.`;
-        }
-        for (const e of requested) {
-          const match = allowed.get(e);
-          if (match) recipients.push(match);
-          else rejected.push(e);
-        }
-        if (recipients.length === 0) {
-          return `**Error:** none of the requested recipients are registered platform users, so nothing was sent. Rejected: ${rejected.join(', ')}.`;
-        }
-      } else {
-        // Default: the signed-in user from runtime config.
-        const signedIn = extractUserEmailFromConfig(runtime);
-        if (!signedIn) {
-          return '**Error:** No recipients given and no signed-in user email is available on the runtime.';
-        }
-        if (!EMAIL_RE.test(signedIn)) {
-          logger.error(`email_company_excel: malformed userEmail in config: ${signedIn}`);
-          return '**Error:** The signed-in user email on file is malformed; cannot send.';
-        }
-        const match = allowed.get(signedIn.toLowerCase());
-        recipients.push(match ?? { email: signedIn, name: '' });
-      }
+  const userIds = Array.from(
+    new Set(
+      companies
+        .flatMap((c) => [c.deal_sponsor, c.deal_captain, c.entered_by, c.dropped_by])
+        .filter((v): v is string => Boolean(v)),
+    ),
+  );
+  const users = await new UserRepository(db).findByIds(userIds);
+  const userNamesById = new Map(users.map((u) => [u.id, u.name]));
 
-      // ── Fetch the comprehensive, joined data set. ──
-      const companyRepo = new CompanyRepository(db, workspaceId);
-      const companies = await companyRepo.findForAgentStats(mapFilters(args));
-      if (companies.length === 0) {
-        return 'No companies matched your criteria, so no export was sent.';
-      }
+  const sheets = buildCompanySheets({
+    companies,
+    financials,
+    screening,
+    fx,
+    userNamesById,
+  });
 
-      const ids = companies.map((c) => c.id);
-      const [financials, screening, fx] = await Promise.all([
-        new CompanyFinancialRepository(db, workspaceId).findByCompanies(ids),
-        new CompanyScreeningDerivedRepository(db, workspaceId).findByCompanies(ids),
-        new CompanyFxAdjustmentRepository(db, workspaceId).findByCompanies(ids),
-      ]);
+  const filterSummary = summarizeFilters(spec);
+  const title = spec.title?.trim() || `Company export - ${filterSummary}`.slice(0, 120);
+  const generatedAt = new Date().toISOString();
 
-      const userIds = Array.from(
-        new Set(
-          companies
-            .flatMap((c) => [c.deal_sponsor, c.deal_captain, c.entered_by, c.dropped_by])
-            .filter((v): v is string => Boolean(v)),
-        ),
-      );
-      const users = await userRepo.findByIds(userIds);
-      const userNamesById = new Map(users.map((u) => [u.id, u.name]));
+  const excelBuffer = await generateCompanyExcel({ title, generatedAt, sheets });
 
-      const sheets = buildCompanySheets({
-        companies,
-        financials,
-        screening,
-        fx,
-        userNamesById,
-      });
+  return {
+    attachment: {
+      filename: `${slugifyTitle(title, 'company-export')}.xlsx`,
+      content: excelBuffer,
+      contentType: XLSX_CONTENT_TYPE,
+    },
+    title,
+    companyCount: companies.length,
+    filterSummary,
+  };
+}
 
-      const filterSummary = summarizeFilters(args);
-      const title = args.title?.trim() || `Company export - ${filterSummary}`.slice(0, 120);
-      const generatedAt = new Date().toISOString();
+// ───────────────────────────────────────────────────────────────────────────
+// Research-summary PDF artifact
+// ───────────────────────────────────────────────────────────────────────────
 
-      const excelBuffer = await generateCompanyExcel({ title, generatedAt, sheets });
+const pillSchema = z.object({
+  label: z.string().describe('Short pill text, e.g. "PASS", "STRENGTH", "URGENT", "POSITIVE", "INFO"'),
+  tone: z
+    .enum(['positive', 'negative', 'neutral', 'warning', 'info'])
+    .describe('Pill color: positive=green, negative=red, warning=amber, info=blue, neutral=gray'),
+});
 
-      // ── Send to each validated recipient. ──
-      const emailService = new EmailService();
-      const sent: string[] = [];
-      const failed: string[] = [];
-      for (const r of recipients) {
-        try {
-          const { messageId } = await emailService.sendCompanyExcelEmail({
-            email: r.email,
-            title,
-            companyCount: companies.length,
-            filterSummary,
-            excelBuffer,
-          });
-          sent.push(r.email);
-          logger.info(
-            `📧 email_company_excel → ${r.email} (${companies.length} companies, messageId=${messageId || 'n/a'})`,
-          );
-        } catch (err) {
-          failed.push(r.email);
-          logger.error(`email_company_excel to ${r.email} failed: ${(err as Error).message}`);
-        }
-      }
+const kpiSchema = z.object({
+  label: z.string().describe('Short uppercase-able card label'),
+  value: z.string().describe('Single-line headline value'),
+  hint: z.string().optional().describe('Optional one-line context under the value'),
+});
 
-      const parts: string[] = [];
-      if (sent.length > 0) {
-        parts.push(
-          `Emailed an Excel export of ${companies.length} compan${companies.length === 1 ? 'y' : 'ies'} to: ${sent.join(', ')}.`,
-        );
-      }
-      if (rejected.length > 0) {
-        parts.push(`Skipped ${rejected.length} address(es) not on the platform: ${rejected.join(', ')}.`);
-      }
-      if (failed.length > 0) {
-        parts.push(`Failed to send to: ${failed.join(', ')}.`);
-      }
-      if (sent.length === 0) {
-        return `**Error:** ${parts.join(' ')}`;
-      }
-      return parts.join(' ');
-    } catch (error) {
-      const message = (error as Error).message;
-      logger.error(`email_company_excel failed: ${message}`);
-      return `**Error:** Could not build or send the export — ${message}`;
-    }
-  },
-  {
-    name: 'email_company_excel',
-    description: `Build a comprehensive Excel (.xlsx) export of the companies matching a filter and email it. The workbook joins across many tables into multiple sheets: "Companies" (full profile + resolved deal sponsor/captain/enterer names + latest-year financials + AI Opinion), "Financials by Year", "Screening", and "FX Adjustments".
+const yearValueSchema = z.object({
+  year: z.string().describe('X-axis label, e.g. "FY2024", "2024 Q1", "Mar"'),
+  value: z.number().describe('Numeric value for the bar height'),
+});
 
-Use this when the user asks to export/download/email a spreadsheet of companies (optionally filtered). For a formatted narrative PDF write-up, use email_research_summary instead.
+const gaugeSchema = z.object({
+  label: z.string().describe('Gauge label, e.g. "EBITDA margin", "Sentiment", "Approval %"'),
+  valuePct: z.number().describe('Fill percentage 0–100'),
+  tone: z
+    .enum(['positive', 'negative', 'neutral'])
+    .optional()
+    .describe('Bar fill color: positive=green, negative=red, neutral=gray'),
+  trendLabel: z
+    .string()
+    .optional()
+    .describe('Optional inline label after the value, e.g. "rising", "vs Q4: +3pp"'),
+});
 
-Recipients: by default the export is emailed to the signed-in user (you do NOT need to pass an email). To send to someone else, pass their address in \`recipients\` — but each MUST be a registered platform user (resolve names to emails with lookup_user first). Non-platform addresses are silently skipped and reported back; the export is never delivered to external parties.
+const scorecardRowSchema = z.object({
+  label: z.string().describe('Row label, e.g. a criterion, a player, a metric'),
+  pill: pillSchema,
+  rationale: z.string().describe('One-sentence note rendered in the rationale column'),
+});
 
-Filters (all optional, AND-combined — same semantics as query_companies): segment, geography, watchlist_status, stage, name, ownership, company_focus, source, status, deal_type, deal_sponsor, banker, has_ai_opinion, ai_opinion_verdict, min_revenue, max_revenue, min_ebitda, max_ebitda, created_after, created_before, search_term. Omit all filters to export the entire pipeline.
+const priorityItemSchema = z.object({
+  priority: z.object({
+    label: z.string().describe('Short tag shown in the colored pill, e.g. "P1", "URGENT", "WATCH"'),
+    tone: z.enum(['high', 'medium', 'low']).describe('Pill color: high=red, medium=amber, low=blue'),
+  }),
+  description: z.string().describe('Bolded action / item line'),
+  meta: z
+    .string()
+    .optional()
+    .describe('Optional muted meta line below the description, e.g. "Owner: Workforce - Due: this week"'),
+});
 
-Args:
-    ...filters above...
-    title: Optional export title (email subject + filename). Defaults to a filter-derived title.
-    recipients: Optional platform-user email addresses. Omit to send to the signed-in user.
+const quadrantsSchema = z.object({
+  topLeft: z.array(z.string()).default([]),
+  topRight: z.array(z.string()).default([]),
+  bottomLeft: z.array(z.string()).default([]),
+  bottomRight: z.array(z.string()).default([]),
+  xLabelLow: z.string().optional().describe('X-axis label rendered above the left column'),
+  xLabelHigh: z.string().optional().describe('X-axis label rendered above the right column'),
+  yLabelHigh: z.string().optional().describe('Y-axis label rendered next to the top row'),
+  yLabelLow: z.string().optional().describe('Y-axis label rendered next to the bottom row'),
+});
 
-Returns:
-    A confirmation string with the recipients and company count, or an error string starting with **Error:**.`,
-    schema: argsSchema,
-  },
-);
+const sectionBlockSchema = z.discriminatedUnion('kind', [
+  z.object({
+    kind: z.literal('heading'),
+    level: z.enum(['section', 'subsection']).optional(),
+    text: z.string(),
+  }),
+  z.object({ kind: z.literal('paragraph'), text: z.string() }),
+  z.object({ kind: z.literal('bullets'), items: z.array(z.string()) }),
+  z.object({ kind: z.literal('kpi_cards'), cards: z.array(kpiSchema).min(1).max(12) }),
+  z.object({
+    kind: z.literal('bar_chart'),
+    title: z.string().optional(),
+    unit: z.string().optional(),
+    data: z.array(yearValueSchema).min(1).max(12),
+    accent: z.enum(['primary', 'secondary']).optional(),
+  }),
+  z.object({ kind: z.literal('gauges'), gauges: z.array(gaugeSchema).min(1).max(8) }),
+  z.object({
+    kind: z.literal('scorecard'),
+    rows: z.array(scorecardRowSchema).min(1),
+    overallPill: pillSchema.optional(),
+    overallNote: z.string().optional(),
+    columns: z
+      .object({
+        label: z.string().optional(),
+        verdict: z.string().optional(),
+        rationale: z.string().optional(),
+      })
+      .optional(),
+  }),
+  z.object({ kind: z.literal('quadrants'), quadrants: quadrantsSchema }),
+  z.object({ kind: z.literal('priority_list'), items: z.array(priorityItemSchema).min(1) }),
+]);
+
+const referenceSchema = z.object({
+  name: z.string(),
+  link: z.string().optional(),
+  date: z.string().optional(),
+});
+
+/** Spec the agent passes to attach a formatted research-summary PDF. */
+export const researchSummarySpecSchema = z.object({
+  title: z.string().describe('Document title (used for the PDF and its filename slug).'),
+  sections: z
+    .array(sectionBlockSchema)
+    .min(1)
+    .describe('Ordered list of rendered blocks. Compose freely; no required structure.'),
+  references: z.array(referenceSchema).optional().describe('Optional source list rendered at the end.'),
+});
+
+export type ResearchSummarySpec = z.infer<typeof researchSummarySpecSchema>;
+
+function mapSection(s: ResearchSummarySpec['sections'][number]): SectionBlock {
+  switch (s.kind) {
+    case 'heading':
+      return { kind: 'heading', level: s.level, text: s.text };
+    case 'paragraph':
+      return { kind: 'paragraph', text: s.text };
+    case 'bullets':
+      return { kind: 'bullets', items: s.items };
+    case 'kpi_cards':
+      return { kind: 'kpi_cards', cards: s.cards as KpiInput[] };
+    case 'bar_chart':
+      return {
+        kind: 'bar_chart',
+        title: s.title,
+        unit: s.unit,
+        data: s.data as YearValueInput[],
+        accent: s.accent,
+      };
+    case 'gauges':
+      return { kind: 'gauges', gauges: s.gauges as GaugeInput[] };
+    case 'scorecard':
+      return {
+        kind: 'scorecard',
+        rows: s.rows as ScorecardRowInput[],
+        overallPill: s.overallPill as PillInput | undefined,
+        overallNote: s.overallNote,
+        columns: s.columns,
+      };
+    case 'quadrants':
+      return { kind: 'quadrants', quadrants: s.quadrants as QuadrantsInput };
+    case 'priority_list':
+      return { kind: 'priority_list', items: s.items as PriorityItemInput[] };
+  }
+}
+
+export interface ResearchSummaryArtifact {
+  attachment: EmailAttachment;
+  title: string;
+}
+
+/**
+ * Render a research-summary spec into a ready-to-attach PDF buffer. The
+ * `preparedFor` label is stamped into the document subtitle.
+ */
+export async function buildResearchSummaryAttachment(
+  spec: ResearchSummarySpec,
+  preparedFor?: string,
+): Promise<ResearchSummaryArtifact> {
+  const dateLabel = new Date().toISOString().slice(0, 10);
+  const subtitle = preparedFor
+    ? `Prepared for ${preparedFor} - ${dateLabel}`
+    : `Prepared ${dateLabel}`;
+  const pdfInput: ResearchSummaryPdfInput = {
+    title: spec.title,
+    subtitle,
+    sections: spec.sections.map(mapSection),
+    references: spec.references?.map((r) => ({
+      name: r.name,
+      link: r.link ?? null,
+      date: r.date ?? null,
+    })),
+  };
+
+  const pdfBuffer = await generateResearchSummaryPdf(pdfInput);
+
+  return {
+    attachment: {
+      filename: `${slugifyTitle(spec.title, 'research-summary')}.pdf`,
+      content: pdfBuffer,
+      contentType: 'application/pdf',
+    },
+    title: spec.title,
+  };
+}

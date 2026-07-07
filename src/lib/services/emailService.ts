@@ -5,6 +5,7 @@ import {
   type SendEmailInput,
   type SendEmailResult,
   type SendEmailWithAttachmentInput,
+  type EmailAttachment,
 } from '@/lib/ses';
 
 const RESET_PATH = '/reset-password';
@@ -656,6 +657,20 @@ export interface AgentEmailInput {
   body: string;
 }
 
+export interface ComposedEmailInput {
+  /** Recipient address. Callers (the send_email tool) must have already
+   * validated this against the platform user whitelist. */
+  email: string;
+  subject: string;
+  /** Plain-text body composed by the agent. Newlines become <br /> in HTML. */
+  body: string;
+  /**
+   * Optional file attachments (e.g. a company Excel workbook and/or a research
+   * PDF), all delivered in this SINGLE email. When empty, a plain email is sent.
+   */
+  attachments?: EmailAttachment[];
+}
+
 /**
  * Render a generic agent-composed email. Used by the `send_email` tool so the
  * agent can send free-form messages (the body is supplied by the model) while
@@ -856,8 +871,12 @@ export class EmailService {
    * Send a company-export email with a comprehensive .xlsx attached. The body
    * carries the company count and filter summary so the message is useful even
    * before opening the workbook. The recipient MUST already be validated
-   * against the platform-user whitelist by the caller (the email_company_excel
-   * tool), same guardrail as sendAgentEmail.
+   * against the platform-user whitelist by the caller, same guardrail as
+   * sendAgentEmail.
+   *
+   * NOTE: the agent path now composes everything through the single `send_email`
+   * tool + {@link sendComposedEmail}; this single-artifact helper is retained as
+   * a reusable email primitive.
    */
   async sendCompanyExcelEmail(
     input: CompanyExcelEmailInput,
@@ -1005,6 +1024,44 @@ export class EmailService {
       html,
       text,
       from: buildAgentFromAddress(DEFAULT_FROM_EMAIL),
+    });
+  }
+
+  /**
+   * Send a single agent-composed email that carries a free-form body plus any
+   * number of attachments (e.g. a company Excel workbook and a research PDF)
+   * together. This is what lets the `send_email` tool deliver everything the
+   * agent assembled in ONE message instead of several disjointed emails.
+   *
+   * Uses the same branded agent shell + "MnA Brain 2.0" sender as
+   * {@link sendAgentEmail}. When there are no attachments it degrades to the
+   * plain (non-raw) SES path; otherwise it uses the raw/attachment path. The
+   * recipient MUST already be validated against the platform-user whitelist by
+   * the caller.
+   */
+  async sendComposedEmail(input: ComposedEmailInput): Promise<SendEmailResult> {
+    if (!input.email) throw new Error('sendComposedEmail: email is required');
+    if (!input.subject) throw new Error('sendComposedEmail: subject is required');
+    if (!input.body) throw new Error('sendComposedEmail: body is required');
+
+    const { subject, html, text } = renderAgentEmail({
+      subject: input.subject,
+      body: input.body,
+    });
+    const from = buildAgentFromAddress(DEFAULT_FROM_EMAIL);
+    const attachments = input.attachments ?? [];
+
+    if (attachments.length === 0) {
+      return this.sender({ to: input.email, subject, html, text, from });
+    }
+
+    return this.attachmentSender({
+      to: input.email,
+      subject,
+      html,
+      text,
+      from,
+      attachments,
     });
   }
 

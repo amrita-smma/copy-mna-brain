@@ -10,8 +10,7 @@ import { UserRepository } from '@/lib/repositories';
  * Returns ONLY the matching users' name and email — never ids, roles, or any
  * other profile field. Its purpose is to let the agent turn a natural-language
  * reference ("send an email to nico ...") into the concrete email address that
- * `send_email` (or `email_company_excel`) needs, without exposing anything else
- * about the user record.
+ * `send_email` needs, without exposing anything else about the user record.
  */
 
 const MAX_RESULTS = 10;
@@ -64,7 +63,7 @@ export const lookupUser = tool(
     name: 'lookup_user',
     description: `Look up registered platform users by a name or email fragment. Returns ONLY each match's name and email — no ids, roles, or other fields.
 
-Use this to resolve a person referenced by name into their email address before calling send_email or email_company_excel. For example, when the user says "send an email to nico with ...", call lookup_user(query: "nico") to get nico's email, then pass that address to send_email.
+Use this to resolve a person referenced by name into their email address before calling send_email. For example, when the user says "send an email to nico with ...", call lookup_user(query: "nico") to get nico's email, then pass that address to send_email's \`to\`.
 
 Args:
     query: Required. A name or email fragment (case-insensitive, partial match against both name and email).

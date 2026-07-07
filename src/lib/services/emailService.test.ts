@@ -330,6 +330,75 @@ describe('EmailService.sendCompanyExcelEmail', () => {
   });
 });
 
+describe('EmailService.sendComposedEmail', () => {
+  let sender: EmailSender;
+  let attachmentSender: AttachmentSender;
+  let service: EmailService;
+
+  beforeEach(() => {
+    sender = vi.fn().mockResolvedValue({ messageId: 'ses-plain' });
+    attachmentSender = vi.fn().mockResolvedValue({ messageId: 'ses-attach' });
+    service = new EmailService(sender, attachmentSender);
+  });
+
+  it('throws when required fields are missing', async () => {
+    await expect(
+      service.sendComposedEmail({ email: '', subject: 's', body: 'b' }),
+    ).rejects.toThrow('email is required');
+    await expect(
+      service.sendComposedEmail({ email: 'a@b.com', subject: '', body: 'b' }),
+    ).rejects.toThrow('subject is required');
+    await expect(
+      service.sendComposedEmail({ email: 'a@b.com', subject: 's', body: '' }),
+    ).rejects.toThrow('body is required');
+  });
+
+  it('uses the plain (non-attachment) path when there are no attachments', async () => {
+    const result = await service.sendComposedEmail({
+      email: 'user@example.com',
+      subject: 'Heads up',
+      body: 'A quick note.',
+    });
+    expect(result).toEqual({ messageId: 'ses-plain' });
+    expect(attachmentSender).not.toHaveBeenCalled();
+    const arg = vi.mocked(sender).mock.calls[0][0];
+    expect(arg.to).toBe('user@example.com');
+    expect(arg.subject).toBe('Heads up');
+    expect(arg.html).toContain('A quick note.');
+    // Branded on behalf of the app, not the user.
+    expect(arg.from).toMatch(/MnA Brain 2\.0/);
+  });
+
+  it('carries every attachment in one email via the attachment path', async () => {
+    const pdf = Buffer.from('%PDF fake');
+    const xlsx = Buffer.from('PK xlsx');
+    const result = await service.sendComposedEmail({
+      email: 'user@example.com',
+      subject: 'Your summary + spreadsheet',
+      body: 'Both attached.',
+      attachments: [
+        { filename: 'summary.pdf', content: pdf, contentType: 'application/pdf' },
+        {
+          filename: 'export.xlsx',
+          content: xlsx,
+          contentType:
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        },
+      ],
+    });
+    expect(result).toEqual({ messageId: 'ses-attach' });
+    expect(sender).not.toHaveBeenCalled();
+    const arg = vi.mocked(attachmentSender).mock.calls[0][0];
+    expect(arg.attachments).toHaveLength(2);
+    expect(arg.attachments.map((a) => a.filename)).toEqual([
+      'summary.pdf',
+      'export.xlsx',
+    ]);
+    expect(arg.from).toMatch(/MnA Brain 2\.0/);
+    expect(arg.html).toContain('Both attached.');
+  });
+});
+
 // ── Notification renderers (MB-90) ───────────────────────────────────────────
 
 describe('renderTaskCompletedEmail', () => {
