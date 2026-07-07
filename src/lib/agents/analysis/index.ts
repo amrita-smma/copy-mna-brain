@@ -10,6 +10,14 @@ import { PostgresSaver } from "@langchain/langgraph-checkpoint-postgres";
 import type { BaseCheckpointSaver } from "@langchain/langgraph-checkpoint";
 import type { CheckpointPendingWrite } from "@langchain/langgraph-checkpoint";
 
+/**
+ * Beta flag required for the Files API — carried on the chat LLM so messages
+ * may reference user-attached documents by their uploaded file id.
+ */
+const FILES_API_BETA = "files-api-2025-04-14" as const;
+
+import { rewriteStaleFileBlocks } from "./rewriteFileReferences";
+
 // HITL middleware for the workforce agent: gates write tools that require
 // human approval before execution.
 //
@@ -417,6 +425,10 @@ export function createLocalAgent(
   const llm = new ChatAnthropic({
     model: "claude-sonnet-5",
     anthropicApiKey: config.apiKey,
+    // Documents attached to a chat are uploaded via the Files API and referenced
+    // by id in the message; both the upload and any message that references it
+    // must carry this beta header. Harmless when no file is attached.
+    betas: [FILES_API_BETA],
     // Sonnet 5 rejects `temperature` (400: "temperature is deprecated for
     // this model"). Explicitly leave it unset — ChatAnthropic omits the field
     // from the request when this is undefined (see invocationParams).
@@ -592,6 +604,32 @@ export class AgentGraph {
    * Returns an empty array when the thread has no checkpoint yet (e.g. a
    * brand-new chat row that was created but never sent a message).
    */
+  /**
+   * Repoint (or neutralize) stale Files-API references in a thread's persisted
+   * history so replaying it doesn't 404. Chat attachments are deleted from
+   * Anthropic after every turn; `freshFileIds` are the ids re-uploaded for the
+   * current turn. Rewritten messages reuse their original id, so the messages
+   * reducer overwrites them in place rather than appending duplicates.
+   */
+  async rewriteFileReferences(
+    threadId: string,
+    freshFileIds: string[],
+  ): Promise<void> {
+    const messages = await this.getMessages(threadId);
+    const replacements = rewriteStaleFileBlocks(messages, freshFileIds);
+    if (replacements.length === 0) return;
+    const agent = this.defaultAgent as unknown as {
+      updateState: (
+        config: { configurable: { thread_id: string } },
+        values: { messages: BaseMessage[] },
+      ) => Promise<unknown>;
+    };
+    await agent.updateState(
+      { configurable: { thread_id: threadId } },
+      { messages: replacements },
+    );
+  }
+
   async getMessages(threadId: string): Promise<BaseMessage[]> {
     // getState is marked @internal in LangChain v1 typings (return type
     // `never`) but it's the documented LangGraph API and works at runtime.

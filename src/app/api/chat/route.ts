@@ -10,9 +10,13 @@ import {
   CopilotChatForbiddenError,
 } from '@/lib/services/copilotChatsService';
 import { auth } from '@/auth';
-import { BaseMessage } from '@langchain/core/messages';
+import { BaseMessage, HumanMessage } from '@langchain/core/messages';
 import { toUIMessageStream, toBaseMessages } from '@ai-sdk/langchain';
 import { createUIMessageStream, createUIMessageStreamResponse, UIMessage } from 'ai';
+import {
+  ChatAttachmentForbiddenError,
+  type ChatAttachmentRef,
+} from '@/lib/services/chatAttachmentService';
 
 const convertLangChainMessageToVercelMessage = (message: BaseMessage) => {
   if (message._getType() === 'human') {
@@ -75,7 +79,18 @@ export async function POST(req: NextRequest) {
     const requestedChatId: string | undefined = body.chat_id;
 
     const db = createDb();
-    const { chatService, copilotChatsService } = createContainer(db, await getActiveWorkspaceId());
+    const { chatService, copilotChatsService, chatAttachmentService } = createContainer(
+      db,
+      await getActiveWorkspaceId(),
+    );
+
+    // Composer attachments the client is carrying for this turn. Each is an S3
+    // key under the workspace's `chat-attachments/` prefix plus display
+    // metadata; the file itself persists in S3 across turns and is uploaded to
+    // Anthropic per-request (and deleted again once the turn settles).
+    const attachments: ChatAttachmentRef[] = Array.isArray(body.attachments)
+      ? (body.attachments as ChatAttachmentRef[])
+      : [];
 
     let chat;
     if (requestedChatId) {
@@ -133,7 +148,56 @@ export async function POST(req: NextRequest) {
       } as UIMessage;
     })();
 
-    const messages: BaseMessage[] = await toBaseMessages([normalizedLast]);
+    const firstUserText = (normalizedLast.parts ?? [])
+      .filter((p): p is { type: 'text'; text: string } => p.type === 'text' && 'text' in p)
+      .map((p) => p.text)
+      .join('\n');
+
+    // When the turn carries attachments, upload each to Anthropic's Files API
+    // and build the human message ourselves with `file` content blocks —
+    // `toBaseMessages` only preserves text. `uploadedFileIds` is what we clean
+    // up when the turn finishes, is stopped, or the connection drops.
+    let messages: BaseMessage[];
+    let uploadedFileIds: string[] = [];
+    if (attachments.length > 0) {
+      try {
+        const { blocks, fileIds } = await chatAttachmentService.prepareForMessage(attachments);
+        uploadedFileIds = fileIds;
+        messages = [
+          new HumanMessage({
+            content: [
+              {
+                type: 'text',
+                text: firstUserText || 'Please review the attached file(s).',
+              },
+              ...blocks,
+            ],
+          }),
+        ];
+      } catch (err) {
+        if (err instanceof ChatAttachmentForbiddenError) {
+          return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+        }
+        throw err;
+      }
+    } else {
+      messages = await toBaseMessages([normalizedLast]);
+    }
+
+    // Best-effort, idempotent teardown of the per-turn Anthropic uploads. Wired
+    // to both `after()` (normal completion of the streamed response) and the
+    // request's abort signal (the UI's stop() or a dropped SSE connection).
+    let attachmentsCleaned = false;
+    const cleanupAttachments = async () => {
+      if (attachmentsCleaned || uploadedFileIds.length === 0) return;
+      attachmentsCleaned = true;
+      await chatAttachmentService.deleteFromAnthropic(uploadedFileIds);
+    };
+    if (uploadedFileIds.length > 0) {
+      req.signal.addEventListener('abort', () => {
+        void cleanupAttachments();
+      });
+    }
 
     const agent = await getAgentGraph();
     if (!agent) {
@@ -150,15 +214,19 @@ export async function POST(req: NextRequest) {
 
     await copilotChatsService.touchLastActive(chat.id);
 
-    // First message of the chat → start title generation in parallel with the
-    // agent stream so the title is ready sooner. `after()` keeps the runtime
-    // alive until the promise resolves. Intentionally NOT going through the
-    // jobs table: title generation is a one-shot side effect with no need
-    // for status tracking, retry, or visibility.
-    const firstUserText = (normalizedLast.parts ?? [])
-      .filter((p): p is { type: 'text'; text: string } => p.type === 'text' && 'text' in p)
-      .map((p) => p.text)
-      .join('\n');
+    // Prior turns' persisted `file` blocks reference Anthropic uploads we
+    // already deleted, so replaying the thread would 404. Repoint them at this
+    // turn's fresh uploads (or neutralize them when nothing is attached) before
+    // the agent runs. Only existing threads have history to fix.
+    if (requestedChatId) {
+      await agent.rewriteFileReferences(chat.id, uploadedFileIds);
+    }
+
+    // Title generation runs in parallel with the agent stream (see below) so
+    // the title is ready sooner. `after()` keeps the runtime alive until the
+    // promise resolves. Intentionally NOT going through the jobs table: it's a
+    // one-shot side effect with no need for status tracking, retry, or
+    // visibility. `firstUserText` is computed above with the message.
 
     // First turn of a brand-new chat → cache it AFTER the run finishes, never at
     // the start. Once the response stream closes we read the persisted turn-1
@@ -243,28 +311,38 @@ export async function POST(req: NextRequest) {
         },
       });
 
+      // Delete the per-turn Anthropic uploads once the streamed response has
+      // fully drained (the abort listener covers the stopped/disconnected case).
+      after(cleanupAttachments);
+
       return createUIMessageStreamResponse({ stream, headers });
     } else {
-      const result = await agent.invoke(
-        { messages, additionalSystemContext: contextData || undefined },
-        {
-          recursionLimit: 50,
-          configurable: { thread_id: chat.id, userEmail },
-          signal: req.signal,
-        },
-      );
+      try {
+        const result = await agent.invoke(
+          { messages, additionalSystemContext: contextData || undefined },
+          {
+            recursionLimit: 50,
+            configurable: { thread_id: chat.id, userEmail },
+            signal: req.signal,
+          },
+        );
 
-      const validMessages = result.messages.map((m: BaseMessage | string) => {
-        if (typeof m === 'string') {
-          return new AIMessage(m);
-        }
-        return m as BaseMessage;
-      });
+        const validMessages = result.messages.map((m: BaseMessage | string) => {
+          if (typeof m === 'string') {
+            return new AIMessage(m);
+          }
+          return m as BaseMessage;
+        });
 
-      return NextResponse.json(
-        { messages: validMessages.map(convertLangChainMessageToVercelMessage) },
-        { status: 200, headers },
-      );
+        return NextResponse.json(
+          { messages: validMessages.map(convertLangChainMessageToVercelMessage) },
+          { status: 200, headers },
+        );
+      } finally {
+        // Non-streaming path fully resolves here, so a finally reliably tears
+        // down the per-turn Anthropic uploads on success, error, or abort.
+        await cleanupAttachments();
+      }
     }
   } catch (e: unknown) {
     const err = e as { message?: string; status?: number };

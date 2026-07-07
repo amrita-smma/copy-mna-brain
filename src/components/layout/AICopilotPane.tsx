@@ -4,7 +4,6 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Sparkles, Maximize2, Minimize2, Send, Square, PenLine, History } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import {
   Sheet,
   SheetContent,
@@ -14,6 +13,12 @@ import {
 } from '@/components/ui/sheet';
 import { cn } from '@/lib/utils';
 import { useChatContext } from '@/components/chat/ChatProvider';
+import { ChatTextarea } from '@/components/chat/ChatTextarea';
+import {
+  AttachButton,
+  AttachmentChips,
+  useAttachmentDrop,
+} from '@/components/chat/ChatComposerAttachments';
 import { ChatSidebar } from '@/components/chat/ChatSidebar';
 import { ChatMessageBubble, LoadingBubble } from '@/components/chat/ChatMessageBubble';
 import { CachedChatPreview } from '@/components/chat/CachedChatPreview';
@@ -51,12 +56,15 @@ function ScrollContent({ children }: { children: React.ReactNode }) {
 
 function ChatInput({ isExpanded }: { isExpanded: boolean }) {
   const [input, setInput] = useState('');
-  const { sendWithCacheCheck, status, stop, chatInputRef } = useChatContext();
+  const { sendWithCacheCheck, status, stop, chatInputRef, attachments } = useChatContext();
   const isBusy = status === 'streaming' || status === 'submitted';
+  const hasReadyAttachment = attachments.some((a) => a.status === 'ready');
 
   const handleSubmit = () => {
-    if (!input.trim()) return;
-    sendWithCacheCheck(input);
+    if (!input.trim() && !hasReadyAttachment) return;
+    // Attachment-only send still needs a real user turn — fall back to a
+    // default prompt so the model has an instruction to act on.
+    sendWithCacheCheck(input.trim() ? input : 'Please review the attached file(s).');
     setInput('');
   };
 
@@ -90,11 +98,14 @@ function ChatInput({ isExpanded }: { isExpanded: boolean }) {
             handleSubmit();
           }}
         >
-          <div className="flex gap-2 p-2 bg-background rounded-2xl border">
-            <Input
+          <AttachmentChips className="mb-2" />
+          <div className="relative flex items-end gap-2 p-2 bg-background rounded-2xl border">
+            <AttachButton disabled={isBusy} className="self-end" />
+            <ChatTextarea
               ref={chatInputRef}
               value={input}
               onChange={(e) => setInput(e.target.value)}
+              onSubmit={handleSubmit}
               onFocus={handleFocus}
               placeholder="Ask anything..."
               autoComplete="off"
@@ -119,7 +130,7 @@ function ChatInput({ isExpanded }: { isExpanded: boolean }) {
               <Button
                 type="submit"
                 size="sm"
-                disabled={!input.trim()}
+                disabled={!input.trim() && !hasReadyAttachment}
                 className="bg-purple-600 hover:bg-purple-700 shrink-0 rounded-xl"
               >
                 <Send className="h-4 w-4" />
@@ -198,6 +209,9 @@ export function AICopilotPane({
   const [historyOpen, setHistoryOpen] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const dragState = useRef<{ startX: number; startWidth: number } | null>(null);
+  // File drag-and-drop covers the entire pane, not just the composer — drop a
+  // file anywhere on the copilot to attach it.
+  const { isDragging: isFileDragging, dropHandlers } = useAttachmentDrop();
 
   const handleResizeStart = useCallback(
     (e: React.MouseEvent) => {
@@ -255,7 +269,13 @@ export function AICopilotPane({
         duration: isDragging ? 0 : 0.3,
         ease: [0.4, 0, 0.2, 1],
       }}
+      {...dropHandlers}
     >
+      {isFileDragging && (
+        <div className="pointer-events-none absolute inset-0 z-30 flex items-center justify-center border-2 border-dashed border-purple-500 bg-purple-500/10 text-sm font-medium text-purple-700 backdrop-blur-[1px]">
+          Drop files to attach
+        </div>
+      )}
       {!isExpanded && onResize && (
         <div
           role="separator"

@@ -59,6 +59,7 @@ describe('getCompanyDetails', () => {
 
   it('renders financials, screening, and basic info for a real company', async () => {
     findByNameFuzzyMock.mockResolvedValue({
+      id: '11111111-1111-1111-1111-111111111111',
       target: 'Acme',
       project_name: 'Project Alpha',
       entry_id: 7,
@@ -79,6 +80,7 @@ describe('getCompanyDetails', () => {
     const result = (await getCompanyDetails.invoke({ company_name: 'Acme' })) as string;
 
     expect(result).toContain('## Company Details: Acme');
+    expect(result).toContain('**Company ID (UUID):** 11111111-1111-1111-1111-111111111111');
     expect(result).toContain('**Project Name:** Project Alpha');
     expect(result).toContain('**Pipeline Stage:** L1');
     expect(result).toContain('### Revenue (USD Millions)');

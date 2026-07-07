@@ -8,10 +8,11 @@ import { StickToBottom, useStickToBottomContext } from "use-stick-to-bottom";
 import { ArrowDown, LoaderCircle, MessageSquarePlus, Send, Lightbulb } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
+import { ChatTextarea } from "./ChatTextarea";
 import { ChatMessageBubble, LoadingBubble } from "./ChatMessageBubble";
 import { useChatContext } from "./ChatProvider";
+import { AttachButton, AttachmentChips, useAttachmentDrop } from "./ChatComposerAttachments";
 import { CachedChatPreview } from "./CachedChatPreview";
 import { ChatSuggestions } from "./ChatSuggestions";
 
@@ -89,15 +90,18 @@ const CHAT_INPUT_PLACEHOLDER =
 export function ChatInput(props: {
   onSubmit: () => void;
   value: string;
-  onChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
+  onChange: (e: React.ChangeEvent<HTMLTextAreaElement>) => void;
   loading?: boolean;
   placeholder?: string;
   suggestionChips?: string[];
   onChipClick?: (chip: string) => void;
   className?: string;
-  inputRef?: React.Ref<HTMLInputElement>;
+  inputRef?: React.Ref<HTMLTextAreaElement>;
 }) {
   const chips = props.suggestionChips ?? SUGGESTION_CHIPS;
+  const { attachments } = useChatContext();
+  const { isDragging, dropHandlers } = useAttachmentDrop();
+  const hasReadyAttachment = attachments.some((a) => a.status === "ready");
   return (
     <form
       onSubmit={(e) => {
@@ -105,19 +109,28 @@ export function ChatInput(props: {
         props.onSubmit();
       }}
       className={cn("w-full space-y-3", props.className)}
+      {...dropHandlers}
     >
-      <div className="flex gap-2">
-        <Input
+      <AttachmentChips />
+      <div
+        className={cn(
+          "relative flex items-end gap-2 rounded-md",
+          isDragging && "ring-2 ring-purple-500 ring-offset-2",
+        )}
+      >
+        <AttachButton disabled={props.loading} className="self-end" />
+        <ChatTextarea
           ref={props.inputRef}
           value={props.value}
           onChange={props.onChange}
+          onSubmit={props.onSubmit}
           placeholder={props.placeholder ?? CHAT_INPUT_PLACEHOLDER}
           className="flex-1"
           disabled={props.loading}
         />
         <Button
           type="submit"
-          disabled={!props.value.trim() || props.loading}
+          disabled={(!props.value.trim() && !hasReadyAttachment) || props.loading}
           className="bg-gradient-to-r from-purple-600 to-purple-500 hover:from-purple-700 hover:to-purple-600 shrink-0"
         >
           {props.loading ? (
@@ -126,6 +139,11 @@ export function ChatInput(props: {
             <Send className="h-4 w-4" />
           )}
         </Button>
+        {isDragging && (
+          <div className="pointer-events-none absolute inset-0 flex items-center justify-center rounded-md bg-purple-500/10 text-sm font-medium text-purple-700">
+            Drop files to attach
+          </div>
+        )}
       </div>
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
         <Lightbulb className="h-3.5 w-3.5 text-amber-500 shrink-0" />
@@ -253,7 +271,7 @@ export function ChatLayout(props: {
  */
 function ChatInputContainer({ placeholder }: { placeholder?: string }) {
   const [input, setInput] = useState("");
-  const { sendWithCacheCheck, status, chatInputRef } = useChatContext();
+  const { sendWithCacheCheck, status, chatInputRef, attachments } = useChatContext();
   const isBusy = status === "streaming" || status === "submitted";
 
   return (
@@ -263,8 +281,11 @@ function ChatInputContainer({ placeholder }: { placeholder?: string }) {
         value={input}
         onChange={(e) => setInput(e.target.value)}
         onSubmit={() => {
-          if (!input.trim()) return;
-          sendWithCacheCheck(input);
+          const hasReadyAttachment = attachments.some((a) => a.status === "ready");
+          if (!input.trim() && !hasReadyAttachment) return;
+          // Attachment-only send still needs a real user turn — fall back to a
+          // default prompt so the model has an instruction to act on.
+          sendWithCacheCheck(input.trim() ? input : "Please review the attached file(s).");
           setInput("");
         }}
         loading={isBusy}

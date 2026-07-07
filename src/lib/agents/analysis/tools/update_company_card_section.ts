@@ -92,7 +92,7 @@ export const updateCompanyCardSection = tool(
 
 You compose the FULL replacement markdown for that one section and pass it as \`content\`; the tool overwrites only that field and leaves every other section untouched. Match the existing concise, markdown bullet style of the card and stay factually grounded — if the request needs fresh facts, research first with the read tools (get_company_details, query_files, web_search) before composing the new content.
 
-The user's message will include the company_id, the section to edit, and that section's current content. Use the company_id verbatim — do NOT look it up by name.
+When invoked from the "right-click a section → Edit with AI" flow, the user's message includes the company_id, the section, and its current content — use that company_id verbatim. When the request is general (no company_id given), resolve it first: call get_company_details with the company name and use the "Company ID (UUID)" it returns as the company_id here.
 
 Args:
     company_id: UUID of the company whose card section to update. Required.

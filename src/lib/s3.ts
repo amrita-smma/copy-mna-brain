@@ -204,3 +204,24 @@ export function generateDealDocumentKey(dealId: string, fileName: string): strin
   const sanitizedFileName = fileName.replace(/[^a-zA-Z0-9._-]/g, '_');
   return `deal-documents/${dealId}/${uuid}_${timestamp}_${sanitizedFileName}`;
 }
+
+/** Prefix under which all copilot chat attachments live for a workspace. */
+export function chatAttachmentPrefix(workspaceId: string): string {
+  return `chat-attachments/${workspaceId}/`;
+}
+
+/**
+ * Generate a unique S3 key for a copilot chat attachment. Scoped by workspace
+ * so a request can only ever reference (or delete) keys under its own tenant's
+ * prefix. These files are transient composer attachments — they are NOT the
+ * AI File Dump `files` table and never enter the extraction pipeline.
+ * @param workspaceId - The active workspace id
+ * @param fileName - The original file name
+ * @returns A unique S3 key under chat-attachments/{workspaceId}/...
+ */
+export function generateChatAttachmentKey(workspaceId: string, fileName: string): string {
+  const timestamp = Date.now();
+  const uuid = crypto.randomUUID();
+  const sanitizedFileName = fileName.replace(/[^a-zA-Z0-9._-]/g, '_');
+  return `${chatAttachmentPrefix(workspaceId)}${uuid}_${timestamp}_${sanitizedFileName}`;
+}

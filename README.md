@@ -362,6 +362,53 @@ route handlers delegate to `CopilotChatsService` (`recordFirstMessage`,
 `findLatestFirstMessageMatch`), with turn-1 extraction and checkpoint seeding in
 the agent layer (`src/lib/agents/analysis`).
 
+## In-app Copilot chat attachments
+
+Files can be dropped **anywhere on the Copilot pane** (or picked via the
+paperclip) and referenced by the agent. **Any file type** is accepted, up to
+**100 MB** per file (`MAX_ATTACHMENT_BYTES`; larger files are rejected client-side
+with a toast). These are **plain S3 objects** — deliberately NOT the AI File Dump
+`files` table, and they never run through the extraction / company-matching
+pipeline.
+
+Lifecycle:
+
+- **Attach → S3.** On drop, the browser fetches a presigned PUT URL from
+  `GET /api/chat/attachments/upload-url` and uploads directly to S3 under
+  `chat-attachments/{workspaceId}/…` (`generateChatAttachmentKey`). The key is
+  scoped by workspace so a request can only ever reference its own tenant's
+  files. The S3 object is the **durable** store — it persists across turns.
+- **Send → Anthropic.** On every chat turn, `/api/chat` downloads each attached
+  S3 object. **PDFs and images** are uploaded to Anthropic's Files API
+  (`files-api-2025-04-14` beta, enabled on the chat `ChatAnthropic`) and
+  referenced as `file` content blocks. **Every other type** (docx, pptx, xlsx,
+  csv, json, …) is text-extracted via `extractTextFromFile` and inlined as a
+  labelled text block — the Files API only accepts PDF/plaintext/images, so this
+  is what lets *any* file type be sent. Because the S3 object persists, the file
+  is re-referenced on **every subsequent turn** of the conversation.
+- **Cleanup (done / stopped / disconnected).** The per-turn Anthropic upload is
+  ephemeral: it is deleted once the streamed response drains (`after()`), and
+  also on `req.signal` abort — which covers the UI's stop button and a dropped
+  SSE connection. Teardown is idempotent so both paths are safe.
+- **Multi-turn.** Because each turn's Anthropic upload is deleted, the `file`
+  block persisted in the checkpointed history would 404 when the next turn
+  replays it. So on every follow-up turn `AgentGraph.rewriteFileReferences`
+  repoints the history's stale `file` blocks at the freshly re-uploaded id
+  (`rewriteStaleFileBlocks`, reusing each message's id so the reducer overwrites
+  in place) — or neutralizes them to a text placeholder if the file was removed.
+- **Remove → S3 delete.** Removing a chip (`DELETE /api/chat/attachments`) or
+  starting a new chat deletes the S3 object. This is the only thing that removes
+  the durable file.
+
+Layering follows the handler → service convention: both route handlers and
+`/api/chat` delegate to `ChatAttachmentService`
+(`src/lib/services/chatAttachmentService.ts`) for the presigned-URL,
+S3-delete, and Anthropic upload/delete operations. Client state (the attachment
+list, upload progress, and the transport body that carries `attachments`) lives
+in `src/components/chat/ChatProvider.tsx`; the drag-drop / paperclip / chip UI is
+`src/components/chat/ChatComposerAttachments.tsx`, wired into both the full
+`ChatWindow` composer and the `AICopilotPane` composer.
+
 ## Admin routes (`/api/auth`)
 
 Privileged, machine-to-machine **admin** endpoints live under `/api/auth/*` and

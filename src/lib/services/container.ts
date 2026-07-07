@@ -78,6 +78,7 @@ import { ApiChatConversationService } from './apiChatConversationService';
 import { NotificationService } from './notificationService';
 import { WorkspaceService } from './workspaceService';
 import { DealResurfaceService } from './dealResurfaceService';
+import { ChatAttachmentService } from './chatAttachmentService';
 
 export interface Container {
   companyService: CompanyService;
@@ -113,6 +114,7 @@ export interface Container {
   notificationService: NotificationService;
   workspaceService: WorkspaceService;
   dealResurfaceService: DealResurfaceService;
+  chatAttachmentService: ChatAttachmentService;
 }
 
 export function createContainer(db: DbClient, workspaceId: string): Container {
@@ -268,6 +270,8 @@ export function createContainer(db: DbClient, workspaceId: string): Container {
 
   fileService.setCRMService(crmService);
 
+  const chatAttachmentService = new ChatAttachmentService(workspaceId);
+
   return {
     companyService,
     companyGraphService,
@@ -302,5 +306,6 @@ export function createContainer(db: DbClient, workspaceId: string): Container {
     notificationService,
     workspaceService,
     dealResurfaceService,
+    chatAttachmentService,
   };
 }

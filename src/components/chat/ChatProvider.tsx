@@ -29,6 +29,9 @@ import {
 
 const CHAT_API = "/api/chat";
 
+/** Max size for a single chat attachment. Any file type is accepted. */
+export const MAX_ATTACHMENT_BYTES = 100 * 1024 * 1024; // 100 MB
+
 function parseChatError(err: Error): { title: string; description: string } {
   // The AI SDK forwards Anthropic API errors as a JSON-stringified payload in
   // err.message (e.g. {"error":{"type":"overloaded_error",...}}). Translate
@@ -92,6 +95,21 @@ export interface CopilotChatSummary {
 }
 
 /**
+ * A file the user has dropped/attached to the composer. It is uploaded to S3
+ * as soon as it's added; `key` is populated once the presigned upload resolves.
+ * `status: 'ready'` attachments are sent (as `{ key, fileName, contentType }`)
+ * with every chat turn so the file can be referenced across the conversation.
+ */
+export interface ChatAttachment {
+  localId: string;
+  key: string | null;
+  fileName: string;
+  contentType: string;
+  size: number;
+  status: 'uploading' | 'ready' | 'error';
+}
+
+/**
  * A cached prior chat whose first message matches what the user is about to
  * send in a brand-new chat. Rendered inline as a dotted-bordered preview (see
  * CachedChatPreview) offering "continue from chat" or "start fresh".
@@ -133,7 +151,13 @@ interface ChatContextValue extends ReturnType<typeof useChat> {
   /** Discard the cached preview and run the agent on the original message. */
   startFreshFromCached: () => void;
   /** Ref the active chat input registers so we can focus it programmatically. */
-  chatInputRef: RefObject<HTMLInputElement | null>;
+  chatInputRef: RefObject<HTMLTextAreaElement | null>;
+  /** Files attached to the composer for the current chat (persist across turns). */
+  attachments: ChatAttachment[];
+  /** Upload files to S3 and attach them to the composer. */
+  addFiles: (files: File[]) => void;
+  /** Remove an attachment (deletes its S3 object) by its local id. */
+  removeAttachment: (localId: string) => void;
 }
 
 const ChatContext = createContext<ChatContextValue | null>(null);
@@ -165,16 +189,31 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   const [cacheHit, setCacheHit] = useState<CachedChatHit | null>(null);
   // The active chat input registers itself here so "continue from chat" can
   // return focus to the chat bar.
-  const chatInputRef = useRef<HTMLInputElement | null>(null);
+  const chatInputRef = useRef<HTMLTextAreaElement | null>(null);
   // Indirection so the transport closure (memoized once) can always call the
   // latest refreshChats without re-creating the transport.
   const refreshChatsRef = useRef<() => Promise<void>>(() => Promise.resolve());
+
+  // Composer attachments. Held in a ref too so the (memoized-once) transport
+  // body can read the latest set on every send without re-creating the
+  // transport. Only 'ready' ones (finished uploading to S3) are sent.
+  const [attachments, setAttachments] = useState<ChatAttachment[]>([]);
+  const attachmentsRef = useRef<ChatAttachment[]>([]);
+  attachmentsRef.current = attachments;
 
   const transport = useMemo(
     () =>
       new DefaultChatTransport({
         api: CHAT_API,
-        body: () => (chatIdRef.current ? { chat_id: chatIdRef.current } : {}),
+        body: () => {
+          const ready = attachmentsRef.current
+            .filter((a) => a.status === 'ready' && a.key)
+            .map((a) => ({ key: a.key!, fileName: a.fileName, contentType: a.contentType }));
+          return {
+            ...(chatIdRef.current ? { chat_id: chatIdRef.current } : {}),
+            ...(ready.length ? { attachments: ready } : {}),
+          };
+        },
         fetch: async (input: RequestInfo | URL, init?: RequestInit) => {
           const res = await fetch(input, {
             ...init,
@@ -356,12 +395,94 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     [],
   );
 
+  // Best-effort S3 delete of a single attachment key (fire-and-forget).
+  const deleteAttachmentObject = useCallback((key: string) => {
+    void apiRequest('/api/chat/attachments', {
+      method: 'DELETE',
+      body: JSON.stringify({ key }),
+    }).catch((err) => console.error('[chat] attachment delete failed:', err));
+  }, []);
+
+  const addFiles = useCallback(
+    (files: File[]) => {
+      for (const file of files) {
+        if (file.size > MAX_ATTACHMENT_BYTES) {
+          toast.error('File too large', {
+            description: `${file.name} exceeds the 100 MB limit.`,
+          });
+          continue;
+        }
+        const localId = crypto.randomUUID();
+        const contentType = file.type || 'application/octet-stream';
+        setAttachments((prev) => [
+          ...prev,
+          {
+            localId,
+            key: null,
+            fileName: file.name,
+            contentType,
+            size: file.size,
+            status: 'uploading',
+          },
+        ]);
+        void (async () => {
+          try {
+            const { uploadUrl, key } = await apiRequest<{ uploadUrl: string; key: string }>(
+              `/api/chat/attachments/upload-url?fileName=${encodeURIComponent(
+                file.name,
+              )}&contentType=${encodeURIComponent(contentType)}`,
+            );
+            // Direct-to-S3 PUT against the presigned URL — no workspace headers
+            // (buildWorkspaceHeaders already omits them for cross-origin URLs).
+            const put = await fetch(uploadUrl, {
+              method: 'PUT',
+              body: file,
+              headers: { 'Content-Type': contentType },
+            });
+            if (!put.ok) throw new Error(`S3 upload failed (${put.status})`);
+            setAttachments((prev) =>
+              prev.map((a) => (a.localId === localId ? { ...a, key, status: 'ready' } : a)),
+            );
+          } catch (err) {
+            console.error('[chat] attachment upload failed:', err);
+            toast.error('Failed to upload attachment', { description: file.name });
+            setAttachments((prev) =>
+              prev.map((a) => (a.localId === localId ? { ...a, status: 'error' } : a)),
+            );
+          }
+        })();
+      }
+    },
+    [],
+  );
+
+  const removeAttachment = useCallback(
+    (localId: string) => {
+      setAttachments((prev) => {
+        const target = prev.find((a) => a.localId === localId);
+        if (target?.key) deleteAttachmentObject(target.key);
+        return prev.filter((a) => a.localId !== localId);
+      });
+    },
+    [deleteAttachmentObject],
+  );
+
+  // Drop every attachment and delete its S3 object. Called when starting a
+  // brand-new chat so the composer starts clean.
+  const clearAttachments = useCallback(() => {
+    setAttachments((prev) => {
+      for (const a of prev) if (a.key) deleteAttachmentObject(a.key);
+      return [];
+    });
+  }, [deleteAttachmentObject]);
+
   const newChat = useCallback(() => {
     setChatId(null);
     setMessages([]);
     // Starting a new chat discards any pending cached-chat preview.
     setCacheHit(null);
-  }, [setChatId, setMessages]);
+    clearAttachments();
+  }, [setChatId, setMessages, clearAttachments]);
 
   // Entry point for sending the FIRST message of a chat. For a brand-new chat
   // (no chatId yet) it first asks the server whether the same question was
@@ -513,6 +634,9 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       continueFromCached,
       startFreshFromCached,
       chatInputRef,
+      attachments,
+      addFiles,
+      removeAttachment,
     }),
     [
       chat,
@@ -527,6 +651,9 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       cacheHit,
       continueFromCached,
       startFreshFromCached,
+      attachments,
+      addFiles,
+      removeAttachment,
     ],
   );
 

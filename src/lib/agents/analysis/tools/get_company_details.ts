@@ -58,6 +58,7 @@ export const getCompanyDetails = tool(
       const result = `## Company Details: ${c.target || "Unknown"}
 
 ### Basic Information
+- **Company ID (UUID):** ${c.id}
 - **Entry ID:** ${c.entry_id || "N/A"}
 - **Project Name:** ${c.project_name || "N/A"}
 - **Segment:** ${c.segment || "N/A"}
@@ -102,11 +103,15 @@ ${c.comments ? `### Comments\n${c.comments}` : ""}
 Use this when the user asks about a specific company's financials, details, or history.
 Matches case-insensitively against both the company target name and the project name.
 
+Also use this to resolve a company's ID (UUID) from its name — the returned
+"Company ID (UUID)" is the company_id required by tools like
+update_company_card_section when it wasn't supplied directly.
+
 Args:
     company_name: The company target name or project name (partial match) to look up
 
 Returns:
-    Detailed company profile with all available financial data.`,
+    Detailed company profile including the company ID (UUID) and all available financial data.`,
     schema: z.object({
       company_name: z
         .string()
