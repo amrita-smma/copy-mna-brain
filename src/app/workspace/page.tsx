@@ -148,7 +148,7 @@ export default function WorkspacePage() {
       {user.isSuperadmin && (
         <Link
           href="/admin-portal"
-          className="absolute bottom-6 left-6 z-10 flex items-center gap-2 rounded-lg border border-white/20 bg-white/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.15em] text-black/70 shadow-lg backdrop-blur-xl transition hover:border-white/40 hover:bg-white/20 hover:text-black focus:outline-none focus-visible:ring-2 focus-visible:ring-white/40 dark:text-white/70 dark:hover:text-white"
+          className="hidden absolute bottom-6 left-6 z-10 md:flex items-center gap-2 rounded-lg border border-white/20 bg-white/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.15em] text-black/70 shadow-lg backdrop-blur-xl transition hover:border-white/40 hover:bg-white/20 hover:text-black focus:outline-none focus-visible:ring-2 focus-visible:ring-white/40 dark:text-white/70 dark:hover:text-white"
         >
           <Settings className="h-4 w-4" />
           Admin Portal

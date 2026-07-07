@@ -4,6 +4,7 @@ import { usePathname } from 'next/navigation';
 import { Activity, MessageSquare, Search, type LucideIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { WorkspaceLink } from '@/components/WorkspaceLink';
+import { MobileWorkspaceSwitcher } from '@/components/layout/MobileWorkspaceSwitcher';
 
 interface MobileNavItem {
   name: string;
@@ -70,6 +71,7 @@ export function MobileBottomNav({ className }: { className?: string }) {
           </WorkspaceLink>
         );
       })}
+      <MobileWorkspaceSwitcher />
     </nav>
   );
 }
