@@ -120,6 +120,75 @@ export type AttachmentSender = (
   input: SendEmailWithAttachmentInput,
 ) => Promise<SendEmailResult>;
 
+const XLSX_CONTENT_TYPE =
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+
+export interface CompanyExcelEmailInput {
+  /** Recipient address — a registered platform user, validated by the caller. */
+  email: string;
+  /** Heading used in the email body and as the filename slug base. */
+  title: string;
+  /** Number of companies included — surfaced in the body for a quick sanity check. */
+  companyCount: number;
+  /** Pre-rendered .xlsx bytes to attach. */
+  excelBuffer: Buffer;
+  /** One-line description of the filter used, shown in the body. */
+  filterSummary?: string;
+  /** Optional override for the email subject. */
+  subject?: string;
+  /** Optional attachment filename — defaults to a slug of the title. */
+  filename?: string;
+}
+
+export function renderCompanyExcelEmail(input: {
+  title: string;
+  companyCount: number;
+  filterSummary?: string;
+}): { subject: string; html: string; text: string } {
+  const subject = `Company export: ${input.title}`;
+  const safeTitle = escapeHtml(input.title);
+  const safeFilter = input.filterSummary
+    ? escapeHtml(input.filterSummary)
+    : 'All companies (no filter applied).';
+  const countLine = `${input.companyCount} ${
+    input.companyCount === 1 ? 'company' : 'companies'
+  } included.`;
+
+  const html = `<!DOCTYPE html>
+<html>
+  <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background:#f4f4f5; padding:24px; color:#111;">
+    <div style="max-width:560px; margin:0 auto; background:#fff; border-radius:8px; padding:32px; border:1px solid #e4e4e7;">
+      <h1 style="margin:0 0 16px; font-size:20px;">${safeTitle}</h1>
+      <p style="margin:0 0 16px; line-height:1.5;">
+        Your company export is ready. The full detail is attached as an Excel workbook
+        (companies, financials by year, screening, and FX adjustments across multiple sheets).
+      </p>
+      <div style="margin:16px 0; padding:16px; background:#f9fafb; border-radius:6px; border:1px solid #e5e7eb; color:#374151; font-size:14px; line-height:1.5;">
+        <strong>${escapeHtml(countLine)}</strong><br />
+        Filter: ${safeFilter}
+      </div>
+      <p style="margin:16px 0 0; color:#52525b; font-size:13px;">
+        Sent by Brain 2.0 Copilot at your request.
+      </p>
+    </div>
+  </body>
+</html>`;
+
+  const text = [
+    input.title,
+    '',
+    'Your company export is ready. The full detail is attached as an Excel workbook',
+    '(companies, financials by year, screening, and FX adjustments across multiple sheets).',
+    '',
+    countLine,
+    `Filter: ${input.filterSummary ?? 'All companies (no filter applied).'}`,
+    '',
+    'Sent by Brain 2.0 Copilot at your request.',
+  ].join('\n');
+
+  return { subject, html, text };
+}
+
 export function renderResearchSummaryEmail(input: {
   title: string;
   summaryMarkdown: string;
@@ -778,6 +847,50 @@ export class EmailService {
           filename,
           content: input.pdfBuffer,
           contentType: 'application/pdf',
+        },
+      ],
+    });
+  }
+
+  /**
+   * Send a company-export email with a comprehensive .xlsx attached. The body
+   * carries the company count and filter summary so the message is useful even
+   * before opening the workbook. The recipient MUST already be validated
+   * against the platform-user whitelist by the caller (the email_company_excel
+   * tool), same guardrail as sendAgentEmail.
+   */
+  async sendCompanyExcelEmail(
+    input: CompanyExcelEmailInput,
+  ): Promise<SendEmailResult> {
+    if (!input.email) {
+      throw new Error('sendCompanyExcelEmail: email is required');
+    }
+    if (!input.title) {
+      throw new Error('sendCompanyExcelEmail: title is required');
+    }
+    if (!input.excelBuffer || input.excelBuffer.length === 0) {
+      throw new Error('sendCompanyExcelEmail: excelBuffer is required');
+    }
+
+    const { subject, html, text } = renderCompanyExcelEmail({
+      title: input.title,
+      companyCount: input.companyCount,
+      filterSummary: input.filterSummary,
+    });
+
+    const filename = input.filename ?? `${slugifyTitle(input.title)}.xlsx`;
+
+    return this.attachmentSender({
+      to: input.email,
+      subject: input.subject ?? subject,
+      html,
+      text,
+      from: buildAgentFromAddress(DEFAULT_FROM_EMAIL),
+      attachments: [
+        {
+          filename,
+          content: input.excelBuffer,
+          contentType: XLSX_CONTENT_TYPE,
         },
       ],
     });

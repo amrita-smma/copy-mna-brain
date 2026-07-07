@@ -27,6 +27,8 @@ import { notifyProgress } from "./notify_progress";
 import { flagInsight } from "./flag_insight";
 import { getTaskProgress } from "./get_task_progress";
 import { emailResearchSummary } from "./email_research_summary";
+import { emailCompanyExcel } from "./email_company_excel";
+import { lookupUser } from "./lookup_user";
 import { sendEmailTool } from "./send_email";
 import { runMarketScreeningTool } from "./run_market_screening";
 
@@ -55,6 +57,8 @@ export {
   flagInsight,
   getTaskProgress,
   emailResearchSummary,
+  emailCompanyExcel,
+  lookupUser,
   sendEmailTool,
   runMarketScreeningTool,
 };
@@ -81,6 +85,7 @@ export const tools = [
   webSearch,
   queryMeetingNotes,
   getTaskProgress,
+  lookupUser,
 ];
 
 /**
@@ -95,6 +100,7 @@ export const chatOnlyTools = [
   proposeBulkDropCompanies,
   proposeBulkPromoteCompanies,
   emailResearchSummary,
+  emailCompanyExcel,
   sendEmailTool,
   updateCompanyCardSection,
 ];
@@ -129,6 +135,7 @@ export const workforceOnlyTools = [
   notifyProgress,
   flagInsight,
   sendEmailTool,
+  emailCompanyExcel,
 ];
 
 /**
@@ -150,6 +157,8 @@ export function getToolDescriptions(): string {
     { name: "propose_bulk_drop_companies", description: "Propose dropping a batch of stale or out-of-mandate companies via an approval card with checkboxes" },
     { name: "propose_bulk_promote_companies", description: "Propose promoting a batch of L0 companies to L1 (or any stage) via an approval card with checkboxes, tags, and inline signals" },
     { name: "email_research_summary", description: "Email the requesting user a PDF copy of a research summary that the agent has composed" },
+    { name: "email_company_excel", description: "Build a comprehensive multi-sheet Excel (.xlsx) export of filtered companies (profile, financials by year, screening, FX) and email it to the signed-in user or named platform users" },
+    { name: "lookup_user", description: "Resolve a platform user by a name or email fragment, returning only their name and email — used to find a recipient's address before sending email" },
     { name: "send_email", description: "Send a free-form email (subject + body) to one or more platform users; recipients are restricted to registered users of the platform" },
     { name: "update_company_card_section", description: "Overwrite a single section (e.g. business overview, investment thesis, risks) of a company's AI Company Card / Overview slide with rewritten markdown" },
   ];

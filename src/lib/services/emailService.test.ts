@@ -252,6 +252,84 @@ describe('EmailService.sendResearchSummaryEmail', () => {
   });
 });
 
+describe('EmailService.sendCompanyExcelEmail', () => {
+  let attachmentSender: AttachmentSender;
+  let service: EmailService;
+
+  beforeEach(() => {
+    attachmentSender = vi.fn().mockResolvedValue({ messageId: 'ses-xlsx-1' });
+    service = new EmailService(vi.fn(), attachmentSender);
+  });
+
+  it('throws when required fields are missing', async () => {
+    await expect(
+      service.sendCompanyExcelEmail({
+        email: '',
+        title: 't',
+        companyCount: 1,
+        excelBuffer: Buffer.from('x'),
+      }),
+    ).rejects.toThrow('email is required');
+
+    await expect(
+      service.sendCompanyExcelEmail({
+        email: 'a@b.com',
+        title: '',
+        companyCount: 1,
+        excelBuffer: Buffer.from('x'),
+      }),
+    ).rejects.toThrow('title is required');
+
+    await expect(
+      service.sendCompanyExcelEmail({
+        email: 'a@b.com',
+        title: 't',
+        companyCount: 1,
+        excelBuffer: Buffer.alloc(0),
+      }),
+    ).rejects.toThrow('excelBuffer is required');
+  });
+
+  it('attaches the .xlsx with the correct content type and a slugified filename', async () => {
+    const excelBuffer = Buffer.from('PK fake xlsx');
+    const result = await service.sendCompanyExcelEmail({
+      email: 'user@example.com',
+      title: 'Family-owned Japan targets',
+      companyCount: 7,
+      filterSummary: 'geography=Japan, ownership=family',
+      excelBuffer,
+    });
+
+    expect(result).toEqual({ messageId: 'ses-xlsx-1' });
+    const arg = vi.mocked(attachmentSender).mock.calls[0][0];
+    expect(arg.to).toBe('user@example.com');
+    expect(arg.subject).toBe('Company export: Family-owned Japan targets');
+    expect(arg.attachments).toHaveLength(1);
+    expect(arg.attachments[0].filename).toBe('family-owned-japan-targets.xlsx');
+    expect(arg.attachments[0].content).toBe(excelBuffer);
+    expect(arg.attachments[0].contentType).toBe(
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    );
+    // Body carries the count + filter for a quick sanity check.
+    expect(arg.html).toContain('7 companies included.');
+    expect(arg.html).toContain('geography=Japan, ownership=family');
+  });
+
+  it('honours a custom subject and filename', async () => {
+    await service.sendCompanyExcelEmail({
+      email: 'user@example.com',
+      title: 'X',
+      companyCount: 1,
+      excelBuffer: Buffer.from('z'),
+      subject: 'Custom subject',
+      filename: 'custom.xlsx',
+    });
+    const arg = vi.mocked(attachmentSender).mock.calls[0][0];
+    expect(arg.subject).toBe('Custom subject');
+    expect(arg.attachments[0].filename).toBe('custom.xlsx');
+  });
+});
+
 // ── Notification renderers (MB-90) ───────────────────────────────────────────
 
 describe('renderTaskCompletedEmail', () => {
