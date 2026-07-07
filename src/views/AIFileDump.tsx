@@ -85,7 +85,6 @@ import {
   X,
   Zap,
 } from "lucide-react";
-import Link from "next/link";
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import posthog from "posthog-js";
@@ -94,6 +93,9 @@ import { MatchedCompanyCombobox, AUTO as COMBOBOX_AUTO, type CompanyOption as Co
 import { useChatContext } from "@/components/chat/ChatProvider";
 import { AskAIButton } from "@/components/chat/AskAIButton";
 import { HitlReviewDialog } from "@/components/Files/HitlReviewDialog";
+import CompanyDetailDialog, {
+  type CompanyData,
+} from "@/components/pipeline/CompanyDetailDialog";
 
 const AUTO = COMBOBOX_AUTO;
 
@@ -179,6 +181,7 @@ interface FileTableProps {
   toggleTags: (id: string) => void;
   expandedCompanies: Record<string, boolean>;
   toggleCompanies: (id: string) => void;
+  onOpenCompany: (companyId: string) => void;
   onUpdateDate: (id: string, date: Date | undefined) => void;
   onDownload: (id: string, fileName: string) => Promise<void>;
   onDelete: (id: string) => void;
@@ -209,6 +212,7 @@ function FileTable({
   toggleTags,
   expandedCompanies,
   toggleCompanies,
+  onOpenCompany,
   onUpdateDate,
   onDownload,
   onDelete,
@@ -351,15 +355,16 @@ function FileTable({
                 i: number,
               ) =>
                 isPipelineCompany(company) && company.id ? (
-                  <Link
+                  <button
                     key={i}
-                    href={`/pipeline/${company.id}`}
-                    className={`${chipClass} hover:text-primary hover:underline bg-sky-100 dark:bg-sky-900/30`}
+                    type="button"
+                    onClick={() => onOpenCompany(company.id!)}
+                    className={`${chipClass} text-left hover:text-primary hover:underline bg-sky-100 dark:bg-sky-900/30`}
                     title={company.name}
                   >
                     <Building className="h-3 w-3 shrink-0" />
                     <span className="truncate">{company.name}</span>
-                  </Link>
+                  </button>
                 ) : (
                   <div
                     key={i}
@@ -825,6 +830,11 @@ export default function AIFileDump({
     Record<string, string>
   >({});
   const [companyOptions, setCompanyOptions] = useState<CompanyOption[]>([]);
+  // Matched-company popup: clicking a matched company chip opens the full
+  // CompanyDetailDialog inline instead of navigating away to /pipeline/[id].
+  const [selectedCompany, setSelectedCompany] = useState<CompanyData | null>(
+    null,
+  );
   const [uploadProgress, setUploadProgress] = useState<{
     current: number;
     total: number;
@@ -970,6 +980,25 @@ export default function AIFileDump({
       toast.error("Failed to load other files");
     } finally {
       setLoading(false);
+    }
+  }, []);
+
+  // Load the full company DTO and open the detail dialog. The matched-company
+  // chips only carry id + name, but CompanyDetailDialog reads (and can edit)
+  // the full record, so fetch it here before opening — same pattern as
+  // MasterData / Pipeline.
+  const openCompany = useCallback(async (companyId: string) => {
+    try {
+      const data = (await getCompanies({ id: companyId })) as
+        | CompanyData
+        | null;
+      if (!data) {
+        toast.error("Could not load company");
+        return;
+      }
+      setSelectedCompany(data);
+    } catch {
+      toast.error("Could not load company");
     }
   }, []);
 
@@ -1977,6 +2006,7 @@ export default function AIFileDump({
           toggleTags={toggleTags}
           expandedCompanies={expandedCompanies}
           toggleCompanies={toggleCompanies}
+          onOpenCompany={openCompany}
           onUpdateDate={handleUpdateDate}
           onDownload={handleDownload}
           onDelete={handleDelete}
@@ -2007,6 +2037,7 @@ export default function AIFileDump({
           toggleTags={toggleTags}
           expandedCompanies={expandedCompanies}
           toggleCompanies={toggleCompanies}
+          onOpenCompany={openCompany}
           onUpdateDate={handleUpdateDate}
           onDownload={handleDownload}
           onDelete={handleDelete}
@@ -2037,6 +2068,7 @@ export default function AIFileDump({
           toggleTags={toggleTags}
           expandedCompanies={expandedCompanies}
           toggleCompanies={toggleCompanies}
+          onOpenCompany={openCompany}
           onUpdateDate={handleUpdateDate}
           onDownload={handleDownload}
           onDelete={handleDelete}
@@ -2067,6 +2099,7 @@ export default function AIFileDump({
           toggleTags={toggleTags}
           expandedCompanies={expandedCompanies}
           toggleCompanies={toggleCompanies}
+          onOpenCompany={openCompany}
           onUpdateDate={handleUpdateDate}
           onDownload={handleDownload}
           onDelete={handleDelete}
@@ -2097,6 +2130,7 @@ export default function AIFileDump({
           toggleTags={toggleTags}
           expandedCompanies={expandedCompanies}
           toggleCompanies={toggleCompanies}
+          onOpenCompany={openCompany}
           onUpdateDate={handleUpdateDate}
           onDownload={handleDownload}
           onDelete={handleDelete}
@@ -2119,6 +2153,21 @@ export default function AIFileDump({
           onClose={() => setReviewFileId(null)}
           onApproved={() => {
             setReviewFileId(null);
+            fetchMeetingNotes();
+            fetchProspectus();
+            fetchShoppingLists();
+            fetchBankerComms();
+            fetchOtherFiles();
+          }}
+        />
+      )}
+
+      {selectedCompany && (
+        <CompanyDetailDialog
+          company={selectedCompany}
+          open={!!selectedCompany}
+          onOpenChange={(open) => !open && setSelectedCompany(null)}
+          onUpdate={() => {
             fetchMeetingNotes();
             fetchProspectus();
             fetchShoppingLists();
