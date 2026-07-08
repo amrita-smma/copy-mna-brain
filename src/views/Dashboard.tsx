@@ -937,11 +937,11 @@ export default function Dashboard({
   );
 
   // ─── Cohort-based pipeline stage counts ─────────────────────────────────────
-  // Everything below reads from `overview` (the added cohort) so the Total
-  // Companies Added, Recap, and Pipeline Stages sections tally: the per-stage
-  // `count`/inbound/outbound are the ACTIVE deals sitting in each stage today,
-  // and `droppedByStage` is the cohort deals dropped at each stage. Their sum
-  // equals `displayTotal` (= overview.totalAdded) by construction.
+  // Reads from `overview` (the added cohort): the per-stage
+  // `count`/inbound/outbound are the ACTIVE deals sitting in each stage today.
+  // The funnel (`funnelStages`) and Conversion card cumulate these so each stage
+  // includes itself plus every later stage; the narrowing between stages is the
+  // attrition (dropped / not-yet-progressed), so no separate dropped count shows.
 
   const displayStageCounts = useMemo((): StageCounts[] => {
     const byStage = new Map(overview?.stages.map((s) => [s.stage, s]) ?? []);
@@ -964,31 +964,44 @@ export default function Dashboard({
     (c) => c.source?.toLowerCase() === "inbound",
   ).length;
   const displayOutbound = displayTotal - displayInbound;
-  const displayL0 = displayStageCounts[0]?.count || 0;
-  const displayL0Inbound = displayStageCounts[0]?.inbound ?? 0;
-  const displayL0Outbound = displayStageCounts[0]?.outbound ?? 0;
-  const droppedByStage = (overview?.stages ?? []).reduce(
-    (acc, s) => {
-      if (s.dropped > 0) acc[s.stage] = s.dropped;
-      return acc;
-    },
-    {} as Record<string, number>,
-  );
-  const stageConversions = PIPELINE_STAGES.slice(0, -1).map((stage, i) => {
-    const promoted =
-      displayStageCounts.find((s) => s.stage === PIPELINE_STAGES[i + 1].stage)
-        ?.count ?? 0;
-    const dropped = droppedByStage[stage.stage] ?? 0;
-    const denom = promoted + dropped;
+  // ─── Cumulative pipeline stage counts ───────────────────────────────────────
+  // Each stage is cumulative: it contains itself plus every stage after it,
+  // because reaching a later stage implies having passed the earlier ones. The
+  // attrition between stages represents companies that didn't make it through
+  // (i.e. were dropped), so no separate dropped chip is shown. `throughPct` is
+  // the share of the previous stage's cohort that also reached this stage.
+  const funnelStages = useMemo(() => {
+    const n = displayStageCounts.length;
+    const cumulative = displayStageCounts.map((s, i) => {
+      let count = 0;
+      let inbound = 0;
+      let outbound = 0;
+      for (let j = i; j < n; j++) {
+        count += displayStageCounts[j].count;
+        inbound += displayStageCounts[j].inbound ?? 0;
+        outbound += displayStageCounts[j].outbound ?? 0;
+      }
+      return { stage: s.stage, label: s.label, count, inbound, outbound };
+    });
+    return cumulative.map((s, i) => {
+      const prev = i > 0 ? cumulative[i - 1].count : 0;
+      const throughPct =
+        i === 0 ? 100 : prev > 0 ? Math.round((s.count / prev) * 100) : 0;
+      return { ...s, throughPct };
+    });
+  }, [displayStageCounts]);
+
+  // Conversion card — same cumulative funnel logic as the Pipeline Stages panel:
+  // each Ln → Ln+1 rate is the share of stage Ln's cohort that also reached Ln+1.
+  const stageConversions = funnelStages.slice(1).map((s, i) => {
+    const prev = funnelStages[i];
     return {
-      label: `${stage.stage} → ${PIPELINE_STAGES[i + 1].stage}`,
-      pct: denom > 0 ? Math.round((promoted / denom) * 100) : 0,
-      promoted,
-      denom,
+      label: `${prev.stage} → ${s.stage}`,
+      pct: s.throughPct,
+      promoted: s.count,
+      denom: prev.count,
     };
   });
-  const pctOfTotal = (n: number) =>
-    displayTotal > 0 ? Math.round((n / displayTotal) * 100) : 0;
 
   if (loading) {
     return (
@@ -1834,11 +1847,11 @@ export default function Dashboard({
                     </p>
                   </div>
                 ) : (
-                  <div className="flex items-stretch gap-3 overflow-x-auto">
-                    {/* L0 · Sourcing — split into inbound / outbound */}
+                  <div className="flex items-stretch gap-3 overflow-x-auto px-1.5 py-1">
+                    {/* L0 · Sourcing — split into inbound / outbound (cumulative) */}
                     <div className="flex w-[180px] shrink-0 flex-col gap-2">
                       <p className="text-center text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-                        L0 · Sourcing
+                        {funnelStages[0].stage} · {funnelStages[0].label}
                       </p>
                       <WorkspaceLink
                         data-testid="dashboard-stage-l0-inbound-link"
@@ -1849,10 +1862,17 @@ export default function Dashboard({
                           Inbound
                         </span>
                         <span className="text-2xl font-extrabold leading-none">
-                          {displayL0Inbound}
+                          {funnelStages[0].inbound}
                         </span>
                         <span className="text-[10px] text-white/70">
-                          {pctOfTotal(displayL0Inbound)}% of total
+                          {funnelStages[0].count > 0
+                            ? Math.round(
+                                (funnelStages[0].inbound /
+                                  funnelStages[0].count) *
+                                  100,
+                              )
+                            : 0}
+                          % of total
                         </span>
                       </WorkspaceLink>
                       <WorkspaceLink
@@ -1864,18 +1884,19 @@ export default function Dashboard({
                           Outbound
                         </span>
                         <span className="text-2xl font-extrabold leading-none">
-                          {displayL0Outbound}
+                          {funnelStages[0].outbound}
                         </span>
                         <span className="text-[10px] text-white/70">
-                          {pctOfTotal(displayL0Outbound)}% of total
+                          {funnelStages[0].count > 0
+                            ? Math.round(
+                                (funnelStages[0].outbound /
+                                  funnelStages[0].count) *
+                                  100,
+                              )
+                            : 0}
+                          % of total
                         </span>
                       </WorkspaceLink>
-                      {(droppedByStage["L0"] ?? 0) > 0 && (
-                        <div className="flex items-center justify-between rounded-md bg-red-500/10 px-2 py-1 text-[10px] font-bold text-red-600 dark:text-red-400">
-                          <span>DROPPED</span>
-                          <span>{droppedByStage["L0"]}</span>
-                        </div>
-                      )}
                     </div>
 
                     {/* divider */}
@@ -1883,15 +1904,11 @@ export default function Dashboard({
 
                     {/* L1 – L5 stage columns */}
                     <div className="flex flex-1 items-stretch gap-2 min-w-[360px]">
-                      {displayStageCounts.slice(1).map((item) => {
+                      {funnelStages.slice(1).map((item) => {
                         const pills = stagePillColors[item.stage] ?? {
                           inbound: "bg-gray-400",
                           outbound: "bg-gray-300",
                         };
-                        const conversionPercentStage =
-                          displayL0 > 0
-                            ? Math.round((item.count / displayL0) * 100)
-                            : 0;
                         return (
                           <WorkspaceLink
                             key={item.stage}
@@ -1899,12 +1916,13 @@ export default function Dashboard({
                             href={`/pipeline?stage=${item.stage}`}
                             className="group flex flex-1 flex-col items-center gap-1 no-underline text-inherit"
                           >
+                            {/* Cumulative count + share that made it through */}
                             <div className="text-center">
                               <div className="text-lg font-bold transition-transform group-hover:scale-110">
                                 {item.count}
                               </div>
                               <div className="text-[10px] text-muted-foreground">
-                                {conversionPercentStage}%
+                                {item.throughPct}%
                               </div>
                             </div>
                             <div className="flex w-full flex-1 flex-col gap-1">
@@ -1912,21 +1930,15 @@ export default function Dashboard({
                                 className={`flex items-center justify-between rounded-md px-2 py-1.5 text-[10px] font-bold text-white ${pills.inbound}`}
                               >
                                 <span>IN</span>
-                                <span>{item.inbound || 0}</span>
+                                <span>{item.inbound}</span>
                               </div>
                               <div
                                 className={`flex items-center justify-between rounded-md px-2 py-1.5 text-[10px] font-bold text-white ${pills.outbound}`}
                               >
                                 <span>OUT</span>
-                                <span>{item.outbound || 0}</span>
+                                <span>{item.outbound}</span>
                               </div>
                             </div>
-                            {(droppedByStage[item.stage] ?? 0) > 0 && (
-                              <div className="flex w-full items-center justify-between rounded-md bg-red-500/10 px-2 py-1 text-[10px] font-bold text-red-600 dark:text-red-400">
-                                <span>DROPPED</span>
-                                <span>{droppedByStage[item.stage]}</span>
-                              </div>
-                            )}
                             <div className="mt-1 text-sm font-bold">
                               {item.stage}
                             </div>
