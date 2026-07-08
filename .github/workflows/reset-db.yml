@@ -1,18 +1,18 @@
 name: Reset DB & Rerun Migrations
 
 # Manually-dispatched, DESTRUCTIVE workflow: drops every schema (all tables and
-# the drizzle migration bookkeeping) on the chosen Neon branch, then reruns all
+# the drizzle migration bookkeeping) on a PR's Neon branch, then reruns all
 # migrations from scratch. Data is NOT restored — only the schema is rebuilt.
+#
+# You supply only the PR number. The workflow resolves the PR's git branch (for
+# logging/validation) and targets its Neon branch, which by convention is
+# `preview/pr-<number>` (see preview-db.yml).
 
 on:
   workflow_dispatch:
     inputs:
-      neon_branch:
-        description: 'Neon branch to reset (e.g. main or preview/pr-123)'
-        required: true
-        default: 'main'
-      confirm:
-        description: 'Type the Neon branch name again to confirm the destructive reset'
+      pr_number:
+        description: 'PR number whose Neon branch to reset (e.g. 373)'
         required: true
       seed:
         description: 'Seed the database after migrating'
@@ -20,26 +20,33 @@ on:
         default: false
 
 concurrency:
-  group: reset-db-${{ inputs.neon_branch }}
+  group: reset-db-pr-${{ inputs.pr_number }}
   cancel-in-progress: false
+
+env:
+  NEON_BRANCH_NAME: preview/pr-${{ inputs.pr_number }}
 
 jobs:
   reset:
     runs-on: codebuild-mna-brain-runner-${{ github.run_id }}-${{ github.run_attempt }}
     steps:
-      - name: Verify confirmation
-        env:
-          NEON_BRANCH: ${{ inputs.neon_branch }}
-          CONFIRM: ${{ inputs.confirm }}
-        run: |
-          if [ "$CONFIRM" != "$NEON_BRANCH" ]; then
-            echo "::error::Confirmation '$CONFIRM' does not match target Neon branch '$NEON_BRANCH'. Aborting."
-            exit 1
-          fi
-          echo "Confirmed destructive reset of Neon branch '$NEON_BRANCH'."
-
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Resolve PR branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+        run: |
+          GIT_BRANCH=$(gh pr view "$PR_NUMBER" \
+            --repo "$GITHUB_REPOSITORY" \
+            --json headRefName -q .headRefName)
+          if [ -z "$GIT_BRANCH" ]; then
+            echo "::error::Could not resolve a git branch for PR #$PR_NUMBER. Aborting."
+            exit 1
+          fi
+          echo "PR #$PR_NUMBER -> git branch '$GIT_BRANCH' -> Neon branch '$NEON_BRANCH_NAME'."
+          echo "Resetting Neon branch '$NEON_BRANCH_NAME'."
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -58,7 +65,7 @@ jobs:
         uses: neondatabase/create-branch-action@v6
         with:
           project_id: ${{ secrets.NEON_PROJECT_ID }}
-          branch_name: ${{ inputs.neon_branch }}
+          branch_name: ${{ env.NEON_BRANCH_NAME }}
           api_key: ${{ secrets.NEON_API_KEY }}
 
       - name: Parse Neon direct URL
