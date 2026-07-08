@@ -52,3 +52,8 @@ output "github_actions_lambda_deploy_role_arn" {
   description = "GitHub Actions OIDC role ARN for code-only pipeline Lambda deploys"
   value       = aws_iam_role.github_actions_lambda_deploy.arn
 }
+
+output "slack_alerts_channel_configuration_arn" {
+  description = "ARN of the AWS Chatbot Slack channel configuration for alarm alerts (null when Slack alerting is disabled)"
+  value       = local.enable_slack_alerts ? aws_chatbot_slack_channel_configuration.alerts[0].chat_configuration_arn : null
+}

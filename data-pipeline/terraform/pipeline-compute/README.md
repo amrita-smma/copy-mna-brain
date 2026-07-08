@@ -5,7 +5,7 @@ Provisions all AWS resources for the CRM/Vault pipeline compute layer:
 - 7 Lambda functions (4 clean-lift + vaultParse streaming + vaultArchiveStart + vaultArchivePoll)
 - EventBridge rules triggering each function on its cron schedule
 - SQS DLQ per function (14-day retention)
-- CloudWatch Errors alarm per function → SNS
+- CloudWatch Errors alarm per function → SNS (email + optional AWS Chatbot → Slack)
 - Security group (private subnets → RDS + HTTPS egress)
 - S3 gateway endpoint (S3 traffic stays off NAT)
 - Data-lake S3 bucket (`mna-data-lake-<env>`) for mbox archive storage — created by this module
@@ -52,6 +52,15 @@ terraform apply ...
 3. Verify one stage end-to-end (EventBridge → Lambda → RDS)
 4. Verify vault-archive-start → vault-archive-poll → mbox_files round-trip
 5. **Only then** — delete the 6 Vercel cron routes and their `vercel.json` lines
+
+## Slack alerting
+
+Alarm state changes reach Slack via AWS Chatbot (`chatbot.tf`), which subscribes to the same `alerts` SNS topic the alarms already publish to (both `alarm_actions` and `ok_actions`, so OK↔ALARM transitions are covered). The channel is resolved per Terraform workspace from `local.workspace_config[*].slack_channel_id`:
+
+- `staging` → `C0BG0HR1KSQ` (`#mna-brain-alerts-staging`)
+- `production` → `C0BFWNGM4SW` (`#mna-brain-alerts-production`)
+
+Enabled whenever `slack_team_id` is set (defaults to the `T03MDGSH7QE` workspace). One-time prerequisite: authorize the Slack workspace in the AWS Chatbot console. Set `-var="slack_team_id=null"` to disable Slack and keep email-only alerts.
 
 ## Notes
 

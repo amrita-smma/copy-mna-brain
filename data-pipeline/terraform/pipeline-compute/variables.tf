@@ -33,6 +33,15 @@ variable "alarm_email" {
   default     = "kensen.huang@sqe.co.id"
 }
 
+# AWS Chatbot -> Slack alerting. The per-workspace channel is resolved from
+# local.current_config.slack_channel_id (see workspace_config below). Set
+# slack_team_id to null to disable Slack alerting entirely.
+variable "slack_team_id" {
+  description = "Slack workspace (team) ID for AWS Chatbot. Requires a one-time Slack workspace authorization in the AWS Chatbot console. Set to null to skip Slack alerting."
+  type        = string
+  default     = "T03MDGSH7QE"
+}
+
 # RDS IAM auth
 variable "rds_db_username" {
   description = "DB username the Lambda role will authenticate as via RDS IAM"
@@ -81,7 +90,8 @@ data "aws_caller_identity" "current" {}
 locals {
   workspace_config = {
     staging = {
-      environment = "staging"
+      environment      = "staging"
+      slack_channel_id = "C0BG0HR1KSQ" # #mna-brain-alerts-staging
       tags = {
         Environment = "staging"
         Project     = "MnA"
@@ -89,7 +99,8 @@ locals {
       }
     }
     production = {
-      environment = "production"
+      environment      = "production"
+      slack_channel_id = "C0BFWNGM4SW" # #mna-brain-alerts-production
       tags = {
         Environment = "production"
         Project     = "MnA"
