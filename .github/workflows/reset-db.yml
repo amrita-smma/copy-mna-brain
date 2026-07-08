@@ -35,14 +35,11 @@ jobs:
 
       - name: Resolve PR branch
         env:
-          GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ inputs.pr_number }}
         run: |
-          GIT_BRANCH=$(gh pr view "$PR_NUMBER" \
-            --repo "$GITHUB_REPOSITORY" \
-            --json headRefName -q .headRefName)
+          GIT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
           if [ -z "$GIT_BRANCH" ]; then
-            echo "::error::Could not resolve a git branch for PR #$PR_NUMBER. Aborting."
+            echo "::error::Could not resolve the checked-out git branch. Aborting."
             exit 1
           fi
           echo "PR #$PR_NUMBER -> git branch '$GIT_BRANCH' -> Neon branch '$NEON_BRANCH_NAME'."
