@@ -522,7 +522,15 @@ describe('DashboardActivityService.getAddedCohort', () => {
     // Always six stage buckets (L0–L5) in funnel order, all zero.
     expect(o.stages.map((s) => s.stage)).toEqual(['L0', 'L1', 'L2', 'L3', 'L4', 'L5']);
     for (const s of o.stages) {
-      expect(s).toMatchObject({ activeInbound: 0, activeOutbound: 0, active: 0, dropped: 0 });
+      expect(s).toMatchObject({
+        inbound: 0,
+        outbound: 0,
+        total: 0,
+        activeInbound: 0,
+        activeOutbound: 0,
+        active: 0,
+        dropped: 0,
+      });
     }
   });
 
@@ -558,6 +566,29 @@ describe('DashboardActivityService.getAddedCohort', () => {
     expect(o.droppedTotal).toBe(2);
   });
 
+  it('folds dropped deals into inbound / outbound / total by source', async () => {
+    repo.getAddedCompanies.mockResolvedValue([
+      addedRow('a', { stage: 'L1', status: 'dropped', source: 'inbound', droppedAt: '2026-04-01T00:00:00.000Z' }),
+      addedRow('b', { stage: 'L1', status: 'active', source: 'inbound' }),
+      addedRow('c', { stage: 'L1', status: 'dropped', source: 'outbound', droppedAt: '2026-04-02T00:00:00.000Z' }),
+      addedRow('d', { stage: 'L1', status: 'active', source: 'outbound' }),
+    ]);
+
+    const o = await service.getAddedCohort(FROM, TO);
+
+    const byStage = Object.fromEntries(o.stages.map((s) => [s.stage, s]));
+    // inbound / outbound count active + dropped alike; total is their sum.
+    expect(byStage.L1).toMatchObject({
+      inbound: 2,
+      outbound: 2,
+      total: 4,
+      activeInbound: 1,
+      activeOutbound: 1,
+      active: 2,
+      dropped: 2,
+    });
+  });
+
   it('holds the tally invariants: totalAdded === Σ(active+dropped) === addedCompanies.length, droppedTotal === Σ dropped === droppedCompanies.length', async () => {
     repo.getAddedCompanies.mockResolvedValue([
       addedRow('a', { stage: 'L0', source: 'inbound' }),
@@ -570,9 +601,11 @@ describe('DashboardActivityService.getAddedCohort', () => {
     const o = await service.getAddedCohort(FROM, TO);
 
     const stageSum = o.stages.reduce((n, s) => n + s.active + s.dropped, 0);
+    const totalSum = o.stages.reduce((n, s) => n + s.total, 0);
     const droppedSum = o.stages.reduce((n, s) => n + s.dropped, 0);
     expect(o.totalAdded).toBe(5);
     expect(stageSum).toBe(o.totalAdded);
+    expect(totalSum).toBe(o.totalAdded);
     expect(o.addedCompanies).toHaveLength(o.totalAdded);
     expect(droppedSum).toBe(o.droppedTotal);
     expect(o.droppedCompanies).toHaveLength(o.droppedTotal);

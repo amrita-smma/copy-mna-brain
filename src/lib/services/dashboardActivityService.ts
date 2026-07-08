@@ -32,11 +32,19 @@ export type AddedCompany = Awaited<ReturnType<DashboardActivityRepository['getAd
 /** The L0–L5 pipeline stages, in funnel order — the buckets of {@link DashboardOverview.stages}. */
 export const ADDED_COHORT_STAGES = ['L0', 'L1', 'L2', 'L3', 'L4', 'L5'] as const;
 
-/** Where the cohort sits **today**, per stage: active deals split inbound /
- * outbound, and deals dropped at that stage. `active + dropped` across all
- * buckets sums to {@link DashboardOverview.totalAdded}. */
+/** Where the cohort sits **today**, per stage. `inbound` / `outbound` count
+ * *every* deal at the stage — active and dropped alike — split by source, and
+ * `total` is their sum. `active*` / `dropped` retain the active-vs-dropped
+ * split for the conversion-rate section. `total` across all buckets sums to
+ * {@link DashboardOverview.totalAdded}. */
 export interface AddedStageBucket {
   stage: string;
+  /** All deals at this stage from an inbound source (active + dropped). */
+  inbound: number;
+  /** All deals at this stage from an outbound source (active + dropped). */
+  outbound: number;
+  /** `inbound + outbound` — every cohort deal at this stage. */
+  total: number;
   activeInbound: number;
   activeOutbound: number;
   /** `activeInbound + activeOutbound`. */
@@ -206,16 +214,30 @@ export class DashboardActivityService {
     const buckets = new Map<string, AddedStageBucket>(
       ADDED_COHORT_STAGES.map((stage) => [
         stage,
-        { stage, activeInbound: 0, activeOutbound: 0, active: 0, dropped: 0 },
+        {
+          stage,
+          inbound: 0,
+          outbound: 0,
+          total: 0,
+          activeInbound: 0,
+          activeOutbound: 0,
+          active: 0,
+          dropped: 0,
+        },
       ]),
     );
 
     for (const row of rows) {
       const bucket = buckets.get(String(row.pipeline_stage));
       if (!bucket) continue; // defensive: repo already restricts to L0–L5
+      const isInbound = row.source?.toLowerCase() === 'inbound';
+      // inbound / outbound / total count every deal at the stage, dropped included.
+      if (isInbound) bucket.inbound += 1;
+      else bucket.outbound += 1;
+      bucket.total += 1;
       if (row.status === 'dropped') {
         bucket.dropped += 1;
-      } else if (row.source?.toLowerCase() === 'inbound') {
+      } else if (isInbound) {
         bucket.activeInbound += 1;
         bucket.active += 1;
       } else {
