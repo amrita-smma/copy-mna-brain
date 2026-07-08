@@ -145,6 +145,28 @@ describe('DashboardInsightsRepository.getBankerResponseProfiles', () => {
     ]);
   });
 
+  it('parses a Postgres array-literal string for gaps (driver returns "{...}")', async () => {
+    // Some drivers return array_agg as the raw Postgres array literal rather
+    // than a JS array; it must be parsed instead of crashing on `.map`.
+    mockDb.execute.mockResolvedValueOnce([
+      { name: 'Golden Sacks', p50_seconds: '21600', pair_count: '3', gaps: '{6480,21600,51840}' },
+    ]);
+
+    await expect(repo.getBankerResponseProfiles()).resolves.toEqual([
+      { name: 'Golden Sacks', p50Seconds: 21600, pairCount: 3, gaps: [6480, 21600, 51840] },
+    ]);
+  });
+
+  it('parses an empty Postgres array literal ("{}") to []', async () => {
+    mockDb.execute.mockResolvedValueOnce([
+      { name: 'JP Organ', p50_seconds: '100', pair_count: '0', gaps: '{}' },
+    ]);
+
+    await expect(repo.getBankerResponseProfiles()).resolves.toEqual([
+      { name: 'JP Organ', p50Seconds: 100, pairCount: 0, gaps: [] },
+    ]);
+  });
+
   it('tolerates a null gaps array', async () => {
     mockDb.execute.mockResolvedValueOnce([
       { name: 'Organ Stanley', p50_seconds: '50400', pair_count: '1', gaps: null },

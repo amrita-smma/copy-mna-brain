@@ -23,6 +23,49 @@ export interface DashboardActivity {
   notesUpdated: NoteUpdated[];
 }
 
+// ─── Added cohort (dashboard tally) ───────────────────────────────────────────
+
+/** One company in the "added" cohort — created in the window and currently a
+ * pipeline deal (L0–L5), whether still active or already dropped. */
+export type AddedCompany = Awaited<ReturnType<DashboardActivityRepository['getAddedCompanies']>>[number];
+
+/** The L0–L5 pipeline stages, in funnel order — the buckets of {@link DashboardOverview.stages}. */
+export const ADDED_COHORT_STAGES = ['L0', 'L1', 'L2', 'L3', 'L4', 'L5'] as const;
+
+/** Where the cohort sits **today**, per stage: active deals split inbound /
+ * outbound, and deals dropped at that stage. `active + dropped` across all
+ * buckets sums to {@link DashboardOverview.totalAdded}. */
+export interface AddedStageBucket {
+  stage: string;
+  activeInbound: number;
+  activeOutbound: number;
+  /** `activeInbound + activeOutbound`. */
+  active: number;
+  /** Deals in the cohort dropped at this stage. */
+  dropped: number;
+}
+
+/**
+ * The dashboard's single source of truth for the three tally sections, all
+ * derived from one cohort (companies created in the window, currently L0–L5):
+ *
+ * - `totalAdded` — "Total Companies Added" (#1) = the cohort size.
+ * - `droppedTotal` — the recap's dropped subset (#2) = cohort members dropped.
+ * - `stages` — "Pipeline Stages" (#3): the cohort bucketed by where each company
+ *   is today. `Σ(active + dropped)` equals `totalAdded`, and `Σ dropped` equals
+ *   `droppedTotal`, so all three reconcile by construction.
+ *
+ * `addedCompanies` / `droppedCompanies` carry the full rows the recap columns
+ * render.
+ */
+export interface DashboardOverview {
+  totalAdded: number;
+  droppedTotal: number;
+  stages: AddedStageBucket[];
+  addedCompanies: AddedCompany[];
+  droppedCompanies: AddedCompany[];
+}
+
 // ─── Activity feed ────────────────────────────────────────────────────────────
 
 export type FeedEventType = 'new_deal' | 'stage_move' | 'dropped' | 'note_updated' | 'ai_discovered';
@@ -139,6 +182,58 @@ export class DashboardActivityService {
       workforceJobs,
       newContacts,
       notesUpdated,
+    };
+  }
+
+  /**
+   * The "added" cohort snapshot the dashboard's Total-Companies-Added, Recap,
+   * and Pipeline-Stages sections all read from, so their numbers tally. The
+   * cohort is every company created in `[from, to]` that is currently a pipeline
+   * deal (L0–L5); each member is bucketed by where it sits **today** — active
+   * deals under their current stage (split inbound / outbound), dropped deals
+   * under the stage they were dropped at. Every member lands in exactly one
+   * bucket, so `Σ(active + dropped) === totalAdded` and `Σ dropped ===
+   * droppedTotal` by construction.
+   *
+   * Edge case: for a custom historical window (`to` in the past) a deal created
+   * in-range but dropped *after* `to` is still counted as dropped here (the
+   * cohort ignores `dropped_at`). For the default presets (`to = now`) this is
+   * exact.
+   */
+  async getAddedCohort(from: Date, to: Date): Promise<DashboardOverview> {
+    const rows = await this.repo.getAddedCompanies(from, to);
+
+    const buckets = new Map<string, AddedStageBucket>(
+      ADDED_COHORT_STAGES.map((stage) => [
+        stage,
+        { stage, activeInbound: 0, activeOutbound: 0, active: 0, dropped: 0 },
+      ]),
+    );
+
+    for (const row of rows) {
+      const bucket = buckets.get(String(row.pipeline_stage));
+      if (!bucket) continue; // defensive: repo already restricts to L0–L5
+      if (row.status === 'dropped') {
+        bucket.dropped += 1;
+      } else if (row.source?.toLowerCase() === 'inbound') {
+        bucket.activeInbound += 1;
+        bucket.active += 1;
+      } else {
+        bucket.activeOutbound += 1;
+        bucket.active += 1;
+      }
+    }
+
+    const droppedCompanies = rows
+      .filter((r) => r.status === 'dropped')
+      .sort((a, b) => (b.dropped_at ?? '').localeCompare(a.dropped_at ?? ''));
+
+    return {
+      totalAdded: rows.length,
+      droppedTotal: droppedCompanies.length,
+      stages: ADDED_COHORT_STAGES.map((stage) => buckets.get(stage)!),
+      addedCompanies: rows,
+      droppedCompanies,
     };
   }
 

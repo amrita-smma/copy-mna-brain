@@ -27,6 +27,20 @@ import type { DbClient } from './types';
  * and `discovered`, which are not part of the origination funnel. */
 export const PIPELINE_FUNNEL_STAGES = ['L0', 'L1', 'L2', 'L3', 'L4', 'L5'] as const;
 
+/**
+ * Coerce a Postgres `array_agg` result into a `number[]`. Depending on the
+ * driver the value arrives either as a JS array (`[1, 2, 3]`) or as a Postgres
+ * array literal string (`"{1,2,3}"`); both — plus null — are normalized here so
+ * callers can map/filter without a runtime type crash.
+ */
+function toNumberArray(value: (string | number)[] | string | null | undefined): number[] {
+  if (value == null) return [];
+  const items = Array.isArray(value)
+    ? value
+    : value.replace(/^\{|\}$/g, '').split(',').filter((s) => s.length > 0);
+  return items.map((g) => Number(g));
+}
+
 /** A `(dimension value, pipeline stage)` count — the raw shape the service
  * pivots into per-segment / per-country / per-banker rows. */
 export interface DimensionStageCount {
@@ -253,7 +267,10 @@ export class DashboardInsightsRepository {
         name: string;
         p50_seconds: string | number;
         pair_count: string | number;
-        gaps: (string | number)[] | null;
+        // `array_agg` may come back either as a JS array or as a Postgres array
+        // literal string (e.g. "{1,2,3}") depending on the driver — normalized
+        // by `toNumberArray` below.
+        gaps: (string | number)[] | string | null;
       }>(sql`
         SELECT e.name AS name,
                percentile_cont(0.5) WITHIN GROUP (ORDER BY sub.gap_seconds) AS p50_seconds,
@@ -285,9 +302,7 @@ export class DashboardInsightsRepository {
         name: String(r.name),
         p50Seconds: Number(r.p50_seconds),
         pairCount: Number(r.pair_count),
-        gaps: (r.gaps ?? [])
-          .map((g) => Number(g))
-          .filter((n) => Number.isFinite(n) && n >= 0),
+        gaps: toNumberArray(r.gaps).filter((n) => Number.isFinite(n) && n >= 0),
       }));
     } catch (err) {
       console.warn('getBankerResponseProfiles: analytics tables unavailable', err);

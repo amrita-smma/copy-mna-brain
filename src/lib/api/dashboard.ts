@@ -1,6 +1,7 @@
 import { apiRequest } from '@/lib/api/client';
 import type {
   DashboardActivity,
+  DashboardOverview,
   FeedEvent,
   FeedFilter,
   FeedPage,
@@ -20,6 +21,23 @@ export async function getDashboardActivity(params: {
   search.set('to', params.to.toISOString());
   return apiRequest<DashboardActivity>(
     `/api/dashboard/activity?${search.toString()}`,
+  );
+}
+
+/**
+ * Fetch the "added" cohort snapshot backing the dashboard's tally sections
+ * (Total Companies Added, Recap, Pipeline Stages). All three reconcile because
+ * they derive from this single payload.
+ */
+export async function getDashboardOverview(params: {
+  from: Date;
+  to: Date;
+}): Promise<DashboardOverview> {
+  const search = new URLSearchParams();
+  search.set('from', params.from.toISOString());
+  search.set('to', params.to.toISOString());
+  return apiRequest<DashboardOverview>(
+    `/api/dashboard/overview?${search.toString()}`,
   );
 }
 

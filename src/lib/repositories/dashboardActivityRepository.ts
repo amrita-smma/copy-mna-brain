@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, isNotNull, isNull, like, lte, or, sql } from 'drizzle-orm';
+import { and, desc, eq, gte, inArray, isNotNull, isNull, like, lte, or, sql } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 import {
   aiWorkforceQueue,
@@ -193,6 +193,62 @@ export class DashboardActivityRepository {
       b.event_at.localeCompare(a.event_at),
     );
     return limit != null ? merged.slice(0, limit) : merged;
+  }
+
+  /**
+   * The dashboard "added" cohort: every company **created within the window**
+   * that is currently a pipeline deal (`pipeline_stage ∈ L0–L5`), regardless of
+   * `status`. Dropped deals keep the stage they were dropped at, so they stay in
+   * the cohort and can be bucketed by that stage downstream. Pre-pipeline stages
+   * (`market_screening` / `discovered` / `unreviewed`) are excluded.
+   *
+   * This is the single source of truth the dashboard's "Total Companies Added",
+   * "Recap", and "Pipeline Stages" sections all derive from, so they tally: no
+   * `company_logs` union (a company is counted once, by creation) and no
+   * `status` filter (active and dropped members are both returned, carrying the
+   * fields each section needs). Projection mirrors {@link getNewL0Companies}'s
+   * created half, plus `status` / `pipeline_stage` / `dropped_at` /
+   * `dropped_reason` / `created_at`; `event_at` is the creation timestamp.
+   */
+  async getAddedCompanies(from: Date, to: Date) {
+    return this.db
+      .select({
+        id: companies.id,
+        target: companies.target,
+        project_name: companies.project_name,
+        source: companies.source,
+        segment: companies.segment,
+        geography: companies.geography,
+        remarks: companies.remarks,
+        thesis_content: companies.thesis_content,
+        logo_url: this.latestLogoUrl(),
+        deal_sponsor_name: sponsorUsers.name,
+        entered_by: companies.entered_by,
+        entered_by_name: users.name,
+        status: companies.status,
+        pipeline_stage: companies.pipeline_stage,
+        dropped_at: companies.dropped_at,
+        dropped_reason: companies.dropped_reason,
+        created_at: companies.created_at,
+        revenue_usd_mn: companyFinancials.revenue_usd_mn,
+        ebitda_usd_mn: companyFinancials.ebitda_usd_mn,
+        ev_usd_mn: companyFinancials.ev_usd_mn,
+        financial_year: companyFinancials.fiscal_year,
+        event_at: companies.created_at,
+      })
+      .from(companies)
+      .leftJoin(companyFinancials, this.latestFinancialsOn())
+      .leftJoin(users, eq(users.id, companies.entered_by))
+      .leftJoin(sponsorUsers, eq(sponsorUsers.id, companies.deal_sponsor))
+      .where(
+        and(
+          eq(companies.workspace_id, this.workspaceId),
+          inArray(companies.pipeline_stage, ['L0', 'L1', 'L2', 'L3', 'L4', 'L5']),
+          gte(companies.created_at, from.toISOString()),
+          lte(companies.created_at, to.toISOString()),
+        ),
+      )
+      .orderBy(desc(companies.created_at));
   }
 
   /**

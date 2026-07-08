@@ -109,6 +109,55 @@ describe('DashboardActivityRepository.getPipelineMoves', () => {
   });
 });
 
+describe('DashboardActivityRepository.getAddedCompanies', () => {
+  let repo: DashboardActivityRepository;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockDb.select.mockReturnThis();
+    mockDb.from.mockReturnThis();
+    mockDb.innerJoin.mockReturnThis();
+    mockDb.leftJoin.mockReturnThis();
+    mockDb.where.mockReturnThis();
+    repo = new DashboardActivityRepository(mockDb as never, 'workspace-1');
+  });
+
+  it('selects the cohort fields needed for the tally sections', async () => {
+    mockDb.orderBy.mockResolvedValueOnce([]);
+
+    await repo.getAddedCompanies(new Date('2026-01-01'), new Date('2026-01-08'));
+
+    const selectArg = mockDb.select.mock.calls[0][0];
+    // Status + stage drive the bucketing; dropped_* + created_at/event_at feed
+    // the recap columns.
+    expect(selectArg).toHaveProperty('status');
+    expect(selectArg).toHaveProperty('pipeline_stage');
+    expect(selectArg).toHaveProperty('dropped_at');
+    expect(selectArg).toHaveProperty('dropped_reason');
+    expect(selectArg).toHaveProperty('created_at');
+    expect(selectArg).toHaveProperty('event_at');
+    expect(selectArg).toHaveProperty('logo_url');
+    expect(selectArg).toHaveProperty('deal_sponsor_name');
+    expect(selectArg).toHaveProperty('entered_by_name');
+    // Left joins: financials, users (entered_by), aliased users (deal_sponsor).
+    expect(mockDb.leftJoin).toHaveBeenCalledTimes(3);
+  });
+
+  it('returns the rows produced by the query, ordered by the terminal orderBy', async () => {
+    const rows = [
+      { id: 'c1', pipeline_stage: 'L0', status: 'active', created_at: '2026-01-05T00:00:00.000Z' },
+    ];
+    mockDb.orderBy.mockResolvedValueOnce(rows);
+
+    const result = await repo.getAddedCompanies(
+      new Date('2026-01-01'),
+      new Date('2026-01-08'),
+    );
+
+    expect(result).toEqual(rows);
+  });
+});
+
 describe('DashboardActivityRepository.getDiscoveredCompanies', () => {
   let repo: DashboardActivityRepository;
 

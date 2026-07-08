@@ -31,9 +31,11 @@ import {
   getCompanyTimeline,
   getDashboardActivity,
   getDashboardFeed,
+  getDashboardOverview,
 } from "@/lib/api/dashboard";
 import type {
   DashboardActivity,
+  DashboardOverview,
   FeedFilter,
 } from "@/lib/services/dashboardActivityService";
 import CompanyDetailDialog, {
@@ -644,6 +646,9 @@ export default function Dashboard({
   const [totalCompanies, setTotalCompanies] = useState(0);
   const [stageCounts, setStageCounts] = useState<StageCounts[]>([]);
   const [activity, setActivity] = useState<DashboardActivity | null>(null);
+  // Cohort snapshot backing the tally sections (Total Companies Added, Recap,
+  // Pipeline Stages). All three derive from this single payload so they tally.
+  const [overview, setOverview] = useState<DashboardOverview | null>(null);
   const [selectedCompany, setSelectedCompany] = useState<CompanyData | null>(
     null,
   );
@@ -739,11 +744,14 @@ export default function Dashboard({
     async (range: ActiveDateRange, initialLoad = false) => {
       if (initialLoad) setActivityInitialising(true);
       try {
-        const data = await getDashboardActivity({
-          from: range.from,
-          to: range.to,
-        });
-        setActivity(data);
+        // Fetch the activity feed and the cohort snapshot together so the tally
+        // sections (which need `overview`) and the feed render in one pass.
+        const [activityData, overviewData] = await Promise.all([
+          getDashboardActivity({ from: range.from, to: range.to }),
+          getDashboardOverview({ from: range.from, to: range.to }),
+        ]);
+        setActivity(activityData);
+        setOverview(overviewData);
       } catch (error) {
         console.error("Error fetching activity:", error);
       } finally {
@@ -856,8 +864,11 @@ export default function Dashboard({
 
   // ─── Recap derivations ──────────────────────────────────────────────────────
 
-  const recapDropped = activity?.droppedDeals ?? [];
-  const recapNewDeals = activity?.newL0Companies ?? [];
+  // New Deals & Dropped come from the cohort (overview) so they tally with the
+  // Total Companies Added and Pipeline Stages sections. Stage Moves stays an
+  // informational activity list (not part of the tally).
+  const recapDropped = overview?.droppedCompanies ?? [];
+  const recapNewDeals = overview?.addedCompanies ?? [];
   const recapStageMoves = activity?.pipelineMoves ?? [];
   const recapNewInbound = recapNewDeals.filter(
     (c) => c.source?.toLowerCase() === "inbound",
@@ -926,65 +937,40 @@ export default function Dashboard({
     [feedCompanies, feedVisibleCount],
   );
 
-  // ─── Date-filtered pipeline stage counts ────────────────────────────────────
+  // ─── Cohort-based pipeline stage counts ─────────────────────────────────────
+  // Everything below reads from `overview` (the added cohort) so the Total
+  // Companies Added, Recap, and Pipeline Stages sections tally: the per-stage
+  // `count`/inbound/outbound are the ACTIVE deals sitting in each stage today,
+  // and `droppedByStage` is the cohort deals dropped at each stage. Their sum
+  // equals `displayTotal` (= overview.totalAdded) by construction.
 
-  const filteredStageCounts = useMemo((): StageCounts[] => {
-    if (!activity) return stageCounts;
-
-    const stageMap = new Map<
-      string,
-      { count: number; inbound: number; outbound: number }
-    >();
-    PIPELINE_STAGES.forEach(({ stage }) =>
-      stageMap.set(stage, { count: 0, inbound: 0, outbound: 0 }),
-    );
-
-    for (const c of activity.newL0Companies) {
-      const e = stageMap.get("L0")!;
-      e.count += 1;
-      if (c.source?.toLowerCase() === "inbound") e.inbound += 1;
-      else e.outbound += 1;
-    }
-
-    for (const m of activity.pipelineMoves) {
-      const { to: toStage } = parsePipelineMoveAction(m.action);
-      if (!toStage) continue;
-      const e = stageMap.get(toStage);
-      if (!e) continue;
-      e.count += 1;
-      if (m.source?.toLowerCase() === "inbound") e.inbound += 1;
-      else e.outbound += 1;
-    }
-
+  const displayStageCounts = useMemo((): StageCounts[] => {
+    const byStage = new Map(overview?.stages.map((s) => [s.stage, s]) ?? []);
     return PIPELINE_STAGES.map(({ stage, label }) => {
-      const data = stageMap.get(stage) ?? { count: 0, inbound: 0, outbound: 0 };
+      const b = byStage.get(stage);
       return {
         stage,
         label,
-        count: data.count,
-        inbound: data.inbound,
-        outbound: data.outbound,
+        count: b?.active ?? 0,
+        inbound: b?.activeInbound ?? 0,
+        outbound: b?.activeOutbound ?? 0,
       };
     });
-  }, [activity, stageCounts]);
+  }, [overview]);
 
-  const displayStageCounts = filteredStageCounts;
-  const displayTotal = displayStageCounts.reduce((s, x) => s + x.count, 0);
-  const displayInbound = displayStageCounts.reduce(
-    (s, x) => s + (x.inbound ?? 0),
-    0,
-  );
-  const displayOutbound = displayStageCounts.reduce(
-    (s, x) => s + (x.outbound ?? 0),
-    0,
-  );
+  const displayTotal = overview?.totalAdded ?? 0;
+  // Inbound / Outbound span the whole cohort (active + dropped) by source, so
+  // the two tiles sum to the Total Companies Added.
+  const displayInbound = (overview?.addedCompanies ?? []).filter(
+    (c) => c.source?.toLowerCase() === "inbound",
+  ).length;
+  const displayOutbound = displayTotal - displayInbound;
   const displayL0 = displayStageCounts[0]?.count || 0;
   const displayL0Inbound = displayStageCounts[0]?.inbound ?? 0;
   const displayL0Outbound = displayStageCounts[0]?.outbound ?? 0;
-  const droppedByStage = (activity?.droppedDeals ?? []).reduce(
-    (acc, d) => {
-      const stage = d.pipeline_stage ?? "L0";
-      acc[stage] = (acc[stage] ?? 0) + 1;
+  const droppedByStage = (overview?.stages ?? []).reduce(
+    (acc, s) => {
+      if (s.dropped > 0) acc[s.stage] = s.dropped;
       return acc;
     },
     {} as Record<string, number>,
@@ -1193,17 +1179,17 @@ export default function Dashboard({
                       <Globe className="h-4 w-4 text-blue-500" />
                     </div>
                     <p className="text-sm font-medium text-muted-foreground">
-                      Total Deals
+                      Total Companies Added
                     </p>
                   </div>
                   <AskAIButton
-                    label="Analyze total deals with AI"
-                    onClick={() => askCopilot("total deals")}
+                    label="Analyze total companies added with AI"
+                    onClick={() => askCopilot("total companies added")}
                   />
                 </div>
                 <p className="text-3xl font-semibold">{displayTotal}</p>
                 <p className="text-xs text-muted-foreground mt-1">
-                  {activity ? "Added in period" : "Active in pipeline"}
+                  Added in period
                 </p>
               </div>
 
@@ -1308,7 +1294,7 @@ export default function Dashboard({
               </p>
             </div>
           </div>
-        ) : activity ? (
+        ) : activity && overview ? (
           <>
             {/* ── 7-Day Recap Section ─────────────────────────────────────────────── */}
             <Card className="hidden md:block border bg-card" data-testid="recap-section">

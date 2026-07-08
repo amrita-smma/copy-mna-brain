@@ -16,6 +16,7 @@ class MockRepo {
   getSlidesGenerated = vi.fn();
   getWorkforceJobs = vi.fn();
   getNewContacts = vi.fn();
+  getAddedCompanies = vi.fn();
 }
 
 const FROM = new Date('2026-01-01T00:00:00.000Z');
@@ -116,6 +117,44 @@ function discoveredRow(id: string, eventAt: string) {
     ev_usd_mn: null,
     financial_year: null,
     event_at: eventAt,
+  };
+}
+
+// Cohort row fixture for getAddedCohort. `status` defaults to active; a dropped
+// row carries a dropped_at so the dropped subset can be sorted.
+function addedRow(
+  id: string,
+  opts: {
+    stage: string;
+    status?: 'active' | 'dropped';
+    source?: string | null;
+    createdAt?: string;
+    droppedAt?: string | null;
+  },
+) {
+  return {
+    id,
+    target: `Added ${id}`,
+    project_name: null,
+    source: opts.source ?? null,
+    segment: null,
+    geography: null,
+    remarks: null,
+    thesis_content: null,
+    logo_url: null,
+    deal_sponsor_name: null,
+    entered_by: null,
+    entered_by_name: null,
+    status: opts.status ?? 'active',
+    pipeline_stage: opts.stage,
+    dropped_at: opts.droppedAt ?? null,
+    dropped_reason: null,
+    created_at: opts.createdAt ?? '2026-03-01T00:00:00.000Z',
+    revenue_usd_mn: null,
+    ebitda_usd_mn: null,
+    ev_usd_mn: null,
+    financial_year: null,
+    event_at: opts.createdAt ?? '2026-03-01T00:00:00.000Z',
   };
 }
 
@@ -458,5 +497,97 @@ describe('DashboardActivityService.getCompanyTimeline', () => {
   it('returns [] when the company has no activity', async () => {
     const events = await service.getCompanyTimeline('co-empty');
     expect(events).toEqual([]);
+  });
+});
+
+describe('DashboardActivityService.getAddedCohort', () => {
+  let repo: MockRepo;
+  let service: DashboardActivityService;
+
+  beforeEach(() => {
+    repo = new MockRepo();
+    for (const fn of Object.values(repo)) fn.mockResolvedValue([]);
+    service = new DashboardActivityService(
+      repo as unknown as DashboardActivityRepository,
+    );
+  });
+
+  it('returns zeros and empty lists for an empty cohort', async () => {
+    const o = await service.getAddedCohort(FROM, TO);
+
+    expect(o.totalAdded).toBe(0);
+    expect(o.droppedTotal).toBe(0);
+    expect(o.addedCompanies).toEqual([]);
+    expect(o.droppedCompanies).toEqual([]);
+    // Always six stage buckets (L0–L5) in funnel order, all zero.
+    expect(o.stages.map((s) => s.stage)).toEqual(['L0', 'L1', 'L2', 'L3', 'L4', 'L5']);
+    for (const s of o.stages) {
+      expect(s).toMatchObject({ activeInbound: 0, activeOutbound: 0, active: 0, dropped: 0 });
+    }
+  });
+
+  it('buckets active deals by current stage and inbound/outbound source', async () => {
+    repo.getAddedCompanies.mockResolvedValue([
+      addedRow('a', { stage: 'L0', source: 'inbound' }),
+      addedRow('b', { stage: 'L0', source: 'outbound' }),
+      addedRow('c', { stage: 'L0', source: null }), // null source counts as outbound
+      addedRow('d', { stage: 'L2', source: 'Inbound' }), // case-insensitive
+    ]);
+
+    const o = await service.getAddedCohort(FROM, TO);
+
+    const byStage = Object.fromEntries(o.stages.map((s) => [s.stage, s]));
+    expect(byStage.L0).toMatchObject({ activeInbound: 1, activeOutbound: 2, active: 3, dropped: 0 });
+    expect(byStage.L2).toMatchObject({ activeInbound: 1, activeOutbound: 0, active: 1, dropped: 0 });
+    expect(o.totalAdded).toBe(4);
+    expect(o.droppedTotal).toBe(0);
+  });
+
+  it('buckets dropped deals under the stage they were dropped at (not inbound/outbound)', async () => {
+    repo.getAddedCompanies.mockResolvedValue([
+      addedRow('a', { stage: 'L1', status: 'dropped', source: 'inbound', droppedAt: '2026-04-01T00:00:00.000Z' }),
+      addedRow('b', { stage: 'L1', status: 'active', source: 'inbound' }),
+      addedRow('c', { stage: 'L3', status: 'dropped', droppedAt: '2026-05-01T00:00:00.000Z' }),
+    ]);
+
+    const o = await service.getAddedCohort(FROM, TO);
+
+    const byStage = Object.fromEntries(o.stages.map((s) => [s.stage, s]));
+    expect(byStage.L1).toMatchObject({ activeInbound: 1, activeOutbound: 0, active: 1, dropped: 1 });
+    expect(byStage.L3).toMatchObject({ active: 0, dropped: 1 });
+    expect(o.droppedTotal).toBe(2);
+  });
+
+  it('holds the tally invariants: totalAdded === Σ(active+dropped) === addedCompanies.length, droppedTotal === Σ dropped === droppedCompanies.length', async () => {
+    repo.getAddedCompanies.mockResolvedValue([
+      addedRow('a', { stage: 'L0', source: 'inbound' }),
+      addedRow('b', { stage: 'L0', source: 'outbound' }),
+      addedRow('c', { stage: 'L2', source: 'inbound' }),
+      addedRow('d', { stage: 'L0', status: 'dropped', droppedAt: '2026-04-01T00:00:00.000Z' }),
+      addedRow('e', { stage: 'L4', status: 'dropped', droppedAt: '2026-05-01T00:00:00.000Z' }),
+    ]);
+
+    const o = await service.getAddedCohort(FROM, TO);
+
+    const stageSum = o.stages.reduce((n, s) => n + s.active + s.dropped, 0);
+    const droppedSum = o.stages.reduce((n, s) => n + s.dropped, 0);
+    expect(o.totalAdded).toBe(5);
+    expect(stageSum).toBe(o.totalAdded);
+    expect(o.addedCompanies).toHaveLength(o.totalAdded);
+    expect(droppedSum).toBe(o.droppedTotal);
+    expect(o.droppedCompanies).toHaveLength(o.droppedTotal);
+    expect(o.droppedTotal).toBe(2);
+  });
+
+  it('returns the dropped subset newest-first by dropped_at', async () => {
+    repo.getAddedCompanies.mockResolvedValue([
+      addedRow('old', { stage: 'L1', status: 'dropped', droppedAt: '2026-02-01T00:00:00.000Z' }),
+      addedRow('active', { stage: 'L0', source: 'inbound' }),
+      addedRow('new', { stage: 'L2', status: 'dropped', droppedAt: '2026-05-01T00:00:00.000Z' }),
+    ]);
+
+    const o = await service.getAddedCohort(FROM, TO);
+
+    expect(o.droppedCompanies.map((c) => c.id)).toEqual(['new', 'old']);
   });
 });
