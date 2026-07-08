@@ -14,6 +14,7 @@
     "db:migrate:status": "tsx scripts/status.ts",
     "db:migration:new": "tsx scripts/new-migration.ts",
     "db:seed": "tsx scripts/seed.ts",
+    "db:seed:staging-partial": "tsx scripts/seed-staging-partial.ts",
     "db:seed:crm": "tsx scripts/seed-crm.ts",
     "db:seed:neo4j": "tsx scripts/seed-neo4j.ts",
     "batch:status": "tsx scripts/batch-status.ts",
