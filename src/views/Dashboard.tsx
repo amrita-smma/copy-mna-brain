@@ -544,13 +544,12 @@ function NotesModal({ event, onClose }: NotesModalProps) {
               </Badge>
             )}
             <Badge
-              className={`text-xs ${
-                isDropped
-                  ? "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300"
-                  : isStageMove
-                    ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300"
-                    : "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300"
-              }`}
+              className={`text-xs ${isDropped
+                ? "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300"
+                : isStageMove
+                  ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300"
+                  : "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300"
+                }`}
             >
               {eventTypeLabels[event.type]}
             </Badge>
@@ -1822,6 +1821,9 @@ export default function Dashboard({
                     onClick={() => askCopilot("pipeline stage distribution")}
                   />
                 </div>
+                <p className="text-sm text-muted-foreground">
+                  Current status of companies added in this period
+                </p>
               </CardHeader>
               <CardContent className="pt-4">
                 {displayTotal === 0 ? (
@@ -2266,24 +2268,24 @@ function FeedEventRow({
       <div className="space-y-1.5 mt-2">
         {/* Event detail line — only rendered for event types that have chips */}
         {(event.type === "stage_move" || event.type === "dropped") && (
-        <div className="flex items-center gap-2 flex-wrap">
-          {event.type === "stage_move" && (
-            <>
-              {event.from_stage && <StageChip stage={event.from_stage} />}
-              {event.from_stage && event.to_stage && (
-                <ChevronRight className="h-3 w-3 text-muted-foreground shrink-0" />
-              )}
-              {event.to_stage && <StageChip stage={event.to_stage} />}
-            </>
-          )}
+          <div className="flex items-center gap-2 flex-wrap">
+            {event.type === "stage_move" && (
+              <>
+                {event.from_stage && <StageChip stage={event.from_stage} />}
+                {event.from_stage && event.to_stage && (
+                  <ChevronRight className="h-3 w-3 text-muted-foreground shrink-0" />
+                )}
+                {event.to_stage && <StageChip stage={event.to_stage} />}
+              </>
+            )}
 
-          {event.type === "dropped" && (
-            <>
-              <span className="text-xs text-muted-foreground">Dropped at</span>
-              {event.dropped_stage && <StageChip stage={event.dropped_stage} />}
-            </>
-          )}
-        </div>
+            {event.type === "dropped" && (
+              <>
+                <span className="text-xs text-muted-foreground">Dropped at</span>
+                {event.dropped_stage && <StageChip stage={event.dropped_stage} />}
+              </>
+            )}
+          </div>
         )}
 
         {/* Dropped reason */}
@@ -2561,9 +2563,8 @@ function CompanyFeedCarousel({
             type="button"
             aria-label={`Go to event ${i + 1}`}
             onClick={() => api?.scrollTo(i)}
-            className={`h-1.5 rounded-full transition-all ${
-              i === current ? "w-4 bg-primary" : "w-1.5 bg-muted-foreground/30"
-            }`}
+            className={`h-1.5 rounded-full transition-all ${i === current ? "w-4 bg-primary" : "w-1.5 bg-muted-foreground/30"
+              }`}
           />
         ))}
       </div>
@@ -2624,17 +2625,14 @@ function feedAnalysisPrompt(event: FeedEvent): string {
     case "new_deal":
       return `Analyze why ${name} was added to the deal pipeline and assess the opportunity.`;
     case "dropped":
-      return `Analyze why ${name} was dropped${
-        event.dropped_stage ? ` at ${event.dropped_stage}` : ""
-      }${
-        event.dropped_reason ? ` (reason: ${event.dropped_reason})` : ""
-      } and whether that was the right call.`;
+      return `Analyze why ${name} was dropped${event.dropped_stage ? ` at ${event.dropped_stage}` : ""
+        }${event.dropped_reason ? ` (reason: ${event.dropped_reason})` : ""
+        } and whether that was the right call.`;
     case "stage_move":
-      return `Analyze why ${name}${
-        event.from_stage && event.to_stage
-          ? ` moved from ${event.from_stage} to ${event.to_stage}`
-          : " advanced in the pipeline"
-      } and what it means for the deal.`;
+      return `Analyze why ${name}${event.from_stage && event.to_stage
+        ? ` moved from ${event.from_stage} to ${event.to_stage}`
+        : " advanced in the pipeline"
+        } and what it means for the deal.`;
     case "note_updated":
       return `Analyze the latest note update on ${name} and summarize the key takeaways.`;
     case "ai_discovered":
