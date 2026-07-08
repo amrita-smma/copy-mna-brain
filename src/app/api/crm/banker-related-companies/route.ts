@@ -7,8 +7,9 @@ import { createContainer } from '@/lib/services';
  * GET /api/crm/banker-related-companies
  *
  * Bankers (employers) ranked by the number of distinct related companies
- * attached to each, most first. Optional `?limit=N` caps the result (the
- * dashboard card requests a small top-N; the full page omits it).
+ * attached to each, most first. Backs the dashboard "Banker related companies"
+ * card, which fetches the full ranking and paginates it client-side. Optional
+ * `?limit=N` caps the result to a top-N.
  */
 export async function GET(req: NextRequest) {
   try {

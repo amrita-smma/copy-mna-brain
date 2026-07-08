@@ -59,6 +59,18 @@ describe('EmployerRelatedCompanyRepository.listForEmployer', () => {
     expect(text).toContain('user_workspaces');
     expect(text).toContain('is_email_synced');
   });
+
+  it('excludes related companies that are not in the system (company_id IS NULL)', async () => {
+    const db = makeDb();
+    db.where.mockResolvedValueOnce([]);
+    const repo = new EmployerRelatedCompanyRepository(db as never);
+    await repo.listForEmployer('emp-1', 'w1');
+
+    const whereArg = db.where.mock.calls[0]?.[0];
+    const { sql: text } = new PgDialect().sqlToQuery(whereArg);
+    expect(text).toContain('company_id');
+    expect(text.toLowerCase()).toContain('is not null');
+  });
 });
 
 describe('EmployerRelatedCompanyRepository.upsertAuto', () => {
@@ -224,6 +236,9 @@ describe('EmployerRelatedCompanyRepository.rankByRelatedCompanyCount', () => {
     expect(text).toContain('dismissed_at');
     expect(text).toContain("!= 'auto'");
     expect(text).toContain('is_email_synced');
+    // Only companies in the system are counted.
+    expect(text).toContain('company_id');
+    expect(text.toLowerCase()).toContain('is not null');
   });
 });
 

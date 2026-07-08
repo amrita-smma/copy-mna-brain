@@ -3,7 +3,7 @@
 import DashboardLayout from "@/components/layout/DashboardLayout";
 import { Input } from "@/components/ui/input";
 import { AlertTriangle, Loader2, Search, Users, X } from "lucide-react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import posthog from "posthog-js";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
@@ -37,15 +37,23 @@ export default function CRM({
   showVaultSync = false,
 }: CRMProps) {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { user, loading: authLoading } = useAuth();
   const userId = user?.id ?? null;
+
+  // Deep-link support (e.g. from the dashboard's "Banker related companies"
+  // card): `?firm=<name>` seeds the search so the row surfaces in the list,
+  // `?employerId=<id>` picks which card to auto-expand. Read once on mount.
+  const [initialFirm] = useState(() => searchParams.get("firm") ?? "");
+  const [initialEmployerId] = useState(() => searchParams.get("employerId"));
+
   const [employers, setEmployers] = useState<EmployerSummary[]>([]);
   const [total, setTotal] = useState(0);
   const [insights, setInsights] = useState<Insights | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const [search, setSearch] = useState("");
-  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [search, setSearch] = useState(initialFirm);
+  const [debouncedSearch, setDebouncedSearch] = useState(initialFirm);
 
   const [lastContact, setLastContact] = useState<LastContactPreset | null>(
     null,
@@ -58,7 +66,7 @@ export default function CRM({
   const [teamUsers, setTeamUsers] = useState<TeamMemberSummary[]>([]);
 
   const [page, setPage] = useState(1);
-  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [expandedId, setExpandedId] = useState<string | null>(initialEmployerId);
   const [details, setDetails] = useState<Record<string, EmployerDetail>>({});
   const [loadingDetail, setLoadingDetail] = useState<string | null>(null);
 
@@ -190,6 +198,17 @@ export default function CRM({
       if (!details[id]) loadDetail(id);
     }
   };
+
+  // A deep-linked employer (`?employerId=`) is expanded from the initial state
+  // above; load its detail once auth is ready. Runs once — after that,
+  // expand/collapse is driven by toggleExpand.
+  useEffect(() => {
+    if (authLoading || !userId) return;
+    if (initialEmployerId && !details[initialEmployerId]) {
+      loadDetail(initialEmployerId);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authLoading, userId, initialEmployerId]);
 
   // ─── Active filter chips ──────────────────────────────────────────────────
   const activeTags = useMemo(() => {

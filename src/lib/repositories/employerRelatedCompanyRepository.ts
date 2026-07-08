@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, isNull, or, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNotNull, isNull, or, sql } from 'drizzle-orm';
 import {
   employers,
   employerRelatedCompanies,
@@ -17,7 +17,7 @@ export type RelatedCompanyWithEvidence = EmployerRelatedCompany & {
 
 /** One banker (employer) with a count of the distinct related companies attached
  * to it in a workspace — the row shape behind the "Banker related companies"
- * dashboard card and page. */
+ * dashboard card. */
 export interface EmployerRelatedCompanyRanking {
   employerId: string;
   employerName: string;
@@ -66,6 +66,11 @@ export class EmployerRelatedCompanyRepository {
    * Checking `!= 'auto'` rather than `= 'manual'` means a future new source
    * value defaults to visible, not silently hidden. Live, no refresh step
    * needed.
+   *
+   * Only companies that exist in the system are returned: rows are gated on
+   * `company_id IS NOT NULL` so an auto-detected name that never matched a
+   * company in the pipeline (Master Data) is excluded. Manual links always
+   * carry a `company_id`, so they are unaffected.
    */
   async listForEmployer(
     employerId: string,
@@ -79,6 +84,7 @@ export class EmployerRelatedCompanyRepository {
           eq(employerRelatedCompanies.employer_id, employerId),
           eq(employerRelatedCompanies.workspace_id, workspaceId),
           isNull(employerRelatedCompanies.dismissed_at),
+          isNotNull(employerRelatedCompanies.company_id),
           or(
             sql`${employerRelatedCompanies.source} != 'auto'`,
             sql`EXISTS (
@@ -270,29 +276,28 @@ export class EmployerRelatedCompanyRepository {
    * Rank every banker (employer) in the workspace by how many distinct related
    * companies are attached to it, most first. Uses the exact same visibility
    * rules as {@link listForEmployer} so the counts match what a user sees on the
-   * employer cards: non-dismissed rows only, and `source='auto'` rows count only
-   * when the workspace has at least one email-synced member.
+   * employer cards: non-dismissed rows only, `source='auto'` rows count only
+   * when the workspace has at least one email-synced member, and only companies
+   * that exist in the system (`company_id IS NOT NULL`) are counted — an
+   * unmatched auto name is excluded exactly as it is from the employer card.
    *
-   * The distinct count collapses auto + manual rows for the same company — keyed
-   * on `company_id`, falling back to the normalized name for auto rows that
-   * haven't matched a Master Data company yet — mirroring `dedupeRelatedCompanies`
-   * in the CRM service. Employers with no attached related companies are omitted
-   * (INNER JOIN).
+   * The distinct count collapses auto + manual rows for the same company (keyed
+   * on `company_id`), mirroring `dedupeRelatedCompanies` in the CRM service.
+   * Employers with no attached related companies are omitted (INNER JOIN).
    */
   async rankByRelatedCompanyCount(
     workspaceId: string,
   ): Promise<EmployerRelatedCompanyRanking[]> {
-    // "Same company" key: the matched company_id when present, else the
-    // normalized name (namespaced so a name can't collide with a uuid).
-    const dedupeKey = sql`coalesce(${employerRelatedCompanies.company_id}::text, 'name:' || ${employerRelatedCompanies.normalized_company_name})`;
-    const relatedCount = sql<number>`count(distinct ${dedupeKey})`;
+    // Every counted row has a company_id (gated below), so it is the "same
+    // company" key directly.
+    const relatedCount = sql<number>`count(distinct ${employerRelatedCompanies.company_id})`;
 
     const rows = await this.db
       .select({
         employerId: employers.id,
         employerName: employers.name,
         relatedCompanyCount: relatedCount,
-        matchedCompanyCount: sql<number>`count(distinct ${employerRelatedCompanies.company_id})`,
+        matchedCompanyCount: relatedCount,
         lastSeenAt: sql<string | null>`max(${employerRelatedCompanies.last_seen_at})`,
       })
       .from(employers)
@@ -304,6 +309,7 @@ export class EmployerRelatedCompanyRepository {
         and(
           eq(employerRelatedCompanies.workspace_id, workspaceId),
           isNull(employerRelatedCompanies.dismissed_at),
+          isNotNull(employerRelatedCompanies.company_id),
           or(
             sql`${employerRelatedCompanies.source} != 'auto'`,
             sql`EXISTS (

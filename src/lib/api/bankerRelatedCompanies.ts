@@ -3,8 +3,9 @@ import type { BankerRelatedCompaniesRow } from '@/lib/services/crmService';
 
 /**
  * Fetch bankers ranked by the number of related companies attached to each
- * (descending). Pass `limit` to request only the top-N (the dashboard card);
- * omit it for the full ranking (the Banker Related Companies page).
+ * (descending). Backs the dashboard "Banker related companies" card, which
+ * fetches the full ranking and paginates it client-side. Pass `limit` to cap
+ * the result to a top-N.
  */
 export async function getBankerRelatedCompanies(params?: {
   limit?: number;

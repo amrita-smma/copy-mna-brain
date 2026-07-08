@@ -1,17 +1,16 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { WorkspaceLink } from '@/components/WorkspaceLink';
 import { AskAIButton } from '@/components/chat/AskAIButton';
 import { getBankerRelatedCompanies } from '@/lib/api/bankerRelatedCompanies';
 import type { BankerRelatedCompaniesRow } from '@/lib/services/crmService';
 import { nameInitials } from '@/lib/companyDisplay';
-import { Handshake, ChevronRight, Loader2 } from 'lucide-react';
+import { Handshake, ChevronLeft, ChevronRight, Loader2 } from 'lucide-react';
 
-/** Top-N bankers shown in the compact dashboard card; the full ranking lives on
- * the Banker Related Companies page. */
-const TOP_N = 6;
+/** Bankers shown per page in the card. */
+const PAGE_SIZE = 6;
 
 const AVATAR_TINTS = [
   'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300',
@@ -25,18 +24,31 @@ function avatarTint(name: string): string {
   return AVATAR_TINTS[(name.charCodeAt(0) || 0) % AVATAR_TINTS.length];
 }
 
+/** Deep-link into the CRM with a specific banker (employer) opened: `firm`
+ * seeds the CRM search so the row surfaces in the filtered list, `employerId`
+ * tells the CRM which card to auto-expand. */
+function crmHref(row: BankerRelatedCompaniesRow): string {
+  const params = new URLSearchParams({
+    employerId: row.employerId,
+    firm: row.employerName,
+  });
+  return `/crm?${params.toString()}`;
+}
+
 /**
  * Compact dashboard card ranking bankers by how many related companies are
  * attached to each. Self-fetching (this is CRM data, kept out of the pipeline
- * insights payload) and links to the full Banker Related Companies page.
+ * insights payload), paginated in place, and each banker links straight into
+ * the CRM with that firm's card opened.
  */
 export function BankerRelatedCompaniesCard({ onAsk }: { onAsk?: () => void }) {
   const [rows, setRows] = useState<BankerRelatedCompaniesRow[] | null>(null);
   const [error, setError] = useState(false);
+  const [page, setPage] = useState(0);
 
   useEffect(() => {
     let active = true;
-    getBankerRelatedCompanies({ limit: TOP_N })
+    getBankerRelatedCompanies()
       .then((data) => {
         if (active) setRows(data);
       })
@@ -50,6 +62,11 @@ export function BankerRelatedCompaniesCard({ onAsk }: { onAsk?: () => void }) {
   }, []);
 
   const max = rows && rows.length ? Math.max(...rows.map((r) => r.relatedCompanyCount), 1) : 1;
+  const totalPages = rows ? Math.max(1, Math.ceil(rows.length / PAGE_SIZE)) : 1;
+  const pageRows = useMemo(
+    () => (rows ? rows.slice(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE) : []),
+    [rows, page],
+  );
 
   return (
     <Card className="border bg-card">
@@ -79,9 +96,14 @@ export function BankerRelatedCompaniesCard({ onAsk }: { onAsk?: () => void }) {
           </p>
         ) : (
           <>
-            <div className="space-y-2">
-              {rows.map((r) => (
-                <div key={r.employerId} className="flex items-center gap-2.5">
+            <div className="space-y-1">
+              {pageRows.map((r) => (
+                <WorkspaceLink
+                  key={r.employerId}
+                  href={crmHref(r)}
+                  title={`Open ${r.employerName} in CRM`}
+                  className="flex items-center gap-2.5 rounded-md px-1.5 py-1 transition-colors hover:bg-muted/60"
+                >
                   <span
                     className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[9.5px] font-bold ${avatarTint(
                       r.employerName,
@@ -101,17 +123,37 @@ export function BankerRelatedCompaniesCard({ onAsk }: { onAsk?: () => void }) {
                   <span className="w-8 shrink-0 text-right font-mono text-xs font-semibold tabular-nums">
                     {r.relatedCompanyCount}
                   </span>
-                </div>
+                </WorkspaceLink>
               ))}
             </div>
-            <div className="pt-3">
-              <WorkspaceLink
-                href="/banker-related-companies"
-                className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
-              >
-                View all bankers <ChevronRight className="h-3.5 w-3.5" />
-              </WorkspaceLink>
-            </div>
+            {totalPages > 1 && (
+              <div className="flex items-center justify-between pt-3">
+                <span className="text-[11px] text-muted-foreground">
+                  {page * PAGE_SIZE + 1}–{Math.min((page + 1) * PAGE_SIZE, rows.length)} of{' '}
+                  {rows.length}
+                </span>
+                <div className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() => setPage((p) => Math.max(0, p - 1))}
+                    disabled={page === 0}
+                    aria-label="Previous page"
+                    className="inline-flex h-6 w-6 items-center justify-center rounded border text-muted-foreground transition-colors hover:bg-muted disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    <ChevronLeft className="h-3.5 w-3.5" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
+                    disabled={page >= totalPages - 1}
+                    aria-label="Next page"
+                    className="inline-flex h-6 w-6 items-center justify-center rounded border text-muted-foreground transition-colors hover:bg-muted disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    <ChevronRight className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              </div>
+            )}
           </>
         )}
       </CardContent>
