@@ -92,17 +92,18 @@ describe('DashboardInsightsRepository breakdowns', () => {
     repo = new DashboardInsightsRepository(mockDb as never, 'workspace-1');
   });
 
-  it('normalises null keys and groups by the dimension plus stage', async () => {
-    mockDb.groupBy.mockResolvedValueOnce([
-      { key: 'CMP', stage: 'L0', count: 42 },
+  it('runs a single UNION query (created + moved-in) and coerces null keys / counts', async () => {
+    mockDb.execute.mockResolvedValueOnce([
+      { key: 'CMP', stage: 'L0', count: '42' },
       { key: null, stage: 'L1', count: 3 },
     ]);
 
     const result = await repo.getSegmentBreakdown(WINDOW_FROM, WINDOW_TO);
 
-    // Grouped by two columns (dimension, pipeline_stage).
-    expect(mockDb.groupBy).toHaveBeenCalledTimes(1);
-    expect(mockDb.groupBy.mock.calls[0]).toHaveLength(2);
+    // Raw-SQL UNION (created-at-stage UNION stage-change logs), not a grouped
+    // select — covers dropped companies and companies promoted into a stage.
+    expect(mockDb.execute).toHaveBeenCalledTimes(1);
+    expect(mockDb.groupBy).not.toHaveBeenCalled();
     expect(result).toEqual([
       { key: 'CMP', stage: 'L0', count: 42 },
       { key: null, stage: 'L1', count: 3 },
@@ -110,7 +111,7 @@ describe('DashboardInsightsRepository breakdowns', () => {
   });
 
   it('exposes country and banker breakdowns via the same shape', async () => {
-    mockDb.groupBy.mockResolvedValue([{ key: 'Japan', stage: 'L0', count: 41 }]);
+    mockDb.execute.mockResolvedValue([{ key: 'Japan', stage: 'L0', count: 41 }]);
 
     await expect(repo.getCountryBreakdown(WINDOW_FROM, WINDOW_TO)).resolves.toEqual([
       { key: 'Japan', stage: 'L0', count: 41 },
@@ -119,7 +120,6 @@ describe('DashboardInsightsRepository breakdowns', () => {
       { key: 'Japan', stage: 'L0', count: 41 },
     ]);
   });
-
 });
 
 describe('DashboardInsightsRepository.getBankerResponseProfiles', () => {

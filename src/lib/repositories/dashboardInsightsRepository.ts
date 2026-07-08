@@ -11,7 +11,7 @@ import {
   sql,
   type SQL,
 } from 'drizzle-orm';
-import { alias, type PgColumn } from 'drizzle-orm/pg-core';
+import { alias } from 'drizzle-orm/pg-core';
 import {
   aiWorkforceQueue,
   companies,
@@ -160,19 +160,51 @@ export class DashboardInsightsRepository {
     return rows.map((r) => ({ stage: String(r.stage), count: Number(r.count) }));
   }
 
-  /** Count active funnel companies created in the window, grouped by an
-   * arbitrary text key (a column or SQL expression) and pipeline stage. Shared
-   * by the segment / country / banker breakdowns. */
-  private async breakdownByKey(
-    key: PgColumn | SQL,
-    from: Date,
-    to: Date,
-  ): Promise<DimensionStageCount[]> {
-    const rows = await this.db
-      .select({ key, stage: companies.pipeline_stage, count: drizzleCount() })
-      .from(companies)
-      .where(this.inFunnel(from, to))
-      .groupBy(key, companies.pipeline_stage);
+  /**
+   * Companies *added to* each funnel stage within the window, grouped by an
+   * arbitrary text key (a column or SQL expression) and stage. Shares the
+   * "added to a stage" definition with {@link getStageEntryCounts}: a company
+   * counts toward a `(key, stage)` cell when it was created directly at that
+   * stage in the window, or moved into it via a stage-change log (`…_TO_L<n>`)
+   * whose timestamp falls in the window.
+   *
+   * Unlike the snapshot aggregates this deliberately ignores `status`, so the
+   * segment / country / banker breakdowns cover **every** company that passed
+   * through a stage in the period — dropped and resurfaced deals included, not
+   * just the ones still active. Counts are `COUNT(DISTINCT id)` and the two
+   * branches are `UNION`-ed (not `UNION ALL`), so a company that was both
+   * created at a stage and logged into it — or logged into it more than once —
+   * is counted a single time per stage.
+   */
+  private async breakdownByKey(key: SQL, from: Date, to: Date): Promise<DimensionStageCount[]> {
+    const fromIso = from.toISOString();
+    const toIso = to.toISOString();
+    const stages = [...PIPELINE_FUNNEL_STAGES];
+
+    const rows = await this.db.execute<{ key: string | null; stage: string; count: string }>(sql`
+      SELECT key, stage, COUNT(DISTINCT id) AS count FROM (
+        SELECT ${companies.id} AS id,
+               ${key} AS key,
+               ${companies.pipeline_stage}::text AS stage
+        FROM ${companies}
+        WHERE ${eq(companies.workspace_id, this.workspaceId)}
+          AND ${inArray(companies.pipeline_stage, stages)}
+          AND ${gte(companies.created_at, fromIso)}
+          AND ${lte(companies.created_at, toIso)}
+        UNION
+        SELECT ${companyLogs.company_id} AS id,
+               ${key} AS key,
+               substring(${companyLogs.action} from '_TO_(L[0-5])$') AS stage
+        FROM ${companyLogs}
+        INNER JOIN ${companies} ON ${eq(companies.id, companyLogs.company_id)}
+        WHERE ${eq(companies.workspace_id, this.workspaceId)}
+          AND ${like(companyLogs.action, '%_TO_L%')}
+          AND ${gte(companyLogs.created_at, fromIso)}
+          AND ${lte(companyLogs.created_at, toIso)}
+      ) sub
+      WHERE ${inArray(sql`stage`, stages)}
+      GROUP BY key, stage
+    `);
     return rows.map((r) => ({
       key: r.key == null ? null : String(r.key),
       stage: String(r.stage),
@@ -181,11 +213,11 @@ export class DashboardInsightsRepository {
   }
 
   getSegmentBreakdown(from: Date, to: Date): Promise<DimensionStageCount[]> {
-    return this.breakdownByKey(companies.segment, from, to);
+    return this.breakdownByKey(sql`${companies.segment}`, from, to);
   }
 
   getCountryBreakdown(from: Date, to: Date): Promise<DimensionStageCount[]> {
-    return this.breakdownByKey(companies.geography, from, to);
+    return this.breakdownByKey(sql`${companies.geography}`, from, to);
   }
 
   /** Banker breakdown keyed on `banker`, falling back per-row to `banker_source`
@@ -193,7 +225,7 @@ export class DashboardInsightsRepository {
    * `banker_source`). */
   getBankerBreakdown(from: Date, to: Date): Promise<DimensionStageCount[]> {
     return this.breakdownByKey(
-      sql<string | null>`coalesce(nullif(${companies.banker}, ''), ${companies.banker_source})`,
+      sql`coalesce(nullif(${companies.banker}, ''), ${companies.banker_source})`,
       from,
       to,
     );

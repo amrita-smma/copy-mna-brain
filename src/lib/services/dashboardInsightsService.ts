@@ -208,14 +208,16 @@ export class DashboardInsightsService {
   }
 
   /**
-   * Assemble the Insights dashboard for the given window. Most metrics are
-   * scoped to companies created within `[from, to]` (totals, conversion, stale
-   * deals, and breakdowns are grouped by current stage), alongside the
-   * period-scoped activity counters (new deals, AI throughput). The `funnel`
-   * counts instead reflect companies *added to* each stage during the window
-   * (created there or moved in), compared against each stage's annual target
-   * prorated to the window length. The sole
-   * exception is `aiThroughput.hitlPending`, which is intentionally a live
+   * Assemble the Insights dashboard for the given window. The current-snapshot
+   * KPIs (`totalInPipeline`, `l0l1Conversion`) count active companies created
+   * within `[from, to]` by their current stage, alongside the period-scoped
+   * activity counters (new deals, AI throughput). The `funnel` and the segment
+   * / country / banker breakdowns instead reflect companies *added to* each
+   * stage during the window (created there or moved in) — covering **all**
+   * companies that passed through a stage in the period, dropped ones included,
+   * and counting each company at most once per stage. The funnel compares those
+   * counts against each stage's annual target prorated to the window length. The
+   * sole exception is `aiThroughput.hitlPending`, which is intentionally a live
    * snapshot ("work awaiting a human now"). `now` is injectable for
    * deterministic staleness math in tests.
    */
@@ -304,8 +306,10 @@ export class DashboardInsightsService {
       staleThresholdLabel: formatStaleThresholdLabel(settings.staleThresholds),
       staleDeals: staleDeals.slice(0, MAX_STALE_ROWS),
       // Segments & countries convert off their L0 base; bankers off total leads.
-      // Segments/countries return every row (the UI paginates); bankers stay
-      // capped at a fixed top-N and carry our response-time profile per firm.
+      // All three now count companies *added to* each stage in the window (the
+      // funnel basis: dropped included, deduped per stage), not just the active
+      // snapshot. Segments/countries return every row (the UI paginates);
+      // bankers stay capped at a fixed top-N and carry our response-time profile.
       segments: buildBreakdown(segmentBreakdown, 'l0'),
       countries: buildBreakdown(countryBreakdown, 'l0'),
       bankers: attachResponseProfiles(
