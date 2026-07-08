@@ -41,6 +41,7 @@
     "upload-mbox": "tsx scripts/upload-mbox.ts",
     "build": "tsx scripts/build.ts",
     "sam": "bash scripts/sam-invoke.sh",
-    "pipeline-demo": "tsx scripts/pipeline-demo.ts"
+    "pipeline-demo": "tsx scripts/pipeline-demo.ts",
+    "reprocess-related-companies": "tsx scripts/reprocess-related-companies.ts"
   }
 }

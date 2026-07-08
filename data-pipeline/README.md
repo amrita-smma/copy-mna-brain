@@ -159,8 +159,46 @@ All four take POST or GET (cron-friendly), validated against `CRON_SECRET` when 
 - **Cost** — `crm_llm_submit` in batch mode (~$1.50/1K emails); `crm_domain_classify` is essentially free (~$0.01/run); `crm_llm_fetch` and `crm_ingest` are free.
 - **Sync mode** — `crm_llm_submit { mode: 'sync' }` skips the batch path and writes enrichment directly. Useful for spot-checks and dev. ~2x cost; one `messages.create` per row.
 
+### Reprocessing related-company insights
+
+`analytics.raw_email_enrichments.related_companies` (and therefore
+`public.employer_related_companies` + `analytics.employer_related_company_evidence`,
+populated by `crm_ingest` step [8]) only gets filled when the LLM enrichment ran
+with `wantRelatedCompanies: true` — the default only since migration
+`20260611000000_related_companies_analytics.sql`. Emails ingested before then
+were never scanned for related companies.
+
+Scope is every real business email since the beginning of the deal —
+`ingest_status IN ('ingested', 'pending')` (filtered/failed rows are skipped).
+`pending` rows matter: they were parsed/enriched but `crm_ingest` never ran, so
+their related companies were never written; Phase 2 ingests them. If nothing is
+in scope, the script prints the current `ingest_status` / `llm_status` breakdown
+so you can see where the emails actually are.
+
+To backfill the insight across those emails:
+
+```bash
+# Preview scope + how many rows need re-enrichment, no changes:
+pnpm --filter data-pipeline reprocess-related-companies --dry-run
+
+# Full backfill from the beginning (re-enrich only NULL rows via Anthropic
+# batches, poll until done, then re-ingest everything):
+pnpm --filter data-pipeline reprocess-related-companies
+
+# Free path — skip the LLM, only re-ingest rows already carrying extracted data:
+pnpm --filter data-pipeline reprocess-related-companies --no-enrich
+```
+
+The script (`scripts/reprocess-related-companies.ts`) runs each step through
+`withJob`, so every `crm_llm_submit` / `crm_llm_fetch` / `crm_ingest` unit lands
+in the `jobs` table with `job_logs`. Both phases are idempotent (unique
+constraints on the evidence table), so it is safe to re-run. Flags: `--since`,
+`--no-enrich`, `--enrich-all`, `--enrich-chunk`, `--ingest-chunk`,
+`--poll-interval`, `--poll-timeout`.
+
 ### Deferred from PR #3
 
 - **CRM UI** for the new state columns (`llm_status`, `ingest_status` exposed read-only on raw_emails — no UI surface yet).
-- **Re-ingest tooling** beyond `force: true` payload overrides.
+- **Re-ingest tooling** beyond `force: true` payload overrides and the
+  `reprocess-related-companies` script (see above).
 - **Backfill of pre-PR-#2 emails** — only ingests `raw_emails` produced by `vault_parse`.
