@@ -133,7 +133,9 @@ export const jobs = pgTable(
     updated_at: timestamp({ withTimezone: true, mode: "string" })
       .defaultNow()
       .notNull(),
-    workspace_id: uuid().references((): AnyPgColumn => workspaces.id),
+    workspace_id: uuid().references((): AnyPgColumn => workspaces.id, {
+      onDelete: "cascade",
+    }),
   },
   (table) => {
     return {
@@ -423,7 +425,9 @@ export const companies = pgTable(
     ai_opinion_summary: text(),
     ai_opinion_status: text(),
     ai_opinion_updated_at: timestamp({ withTimezone: true, mode: "string" }),
-    workspace_id: uuid().notNull().references(() => workspaces.id),
+    workspace_id: uuid()
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
   },
   (table) => {
     return {
@@ -777,7 +781,9 @@ export const investmentThesis = pgTable(
     sources_count: integer().default(5),
     created_at: timestamp({ withTimezone: true, mode: "string" }).defaultNow(),
     updated_at: timestamp({ withTimezone: true, mode: "string" }).defaultNow(),
-    workspace_id: uuid().notNull().references(() => workspaces.id),
+    workspace_id: uuid()
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
   },
   (table) => {
     return {
@@ -1345,7 +1351,9 @@ export const files = pgTable(
     file_date: date(),
     file_type: varchar().default("mom").notNull(),
     origin_email: boolean().default(false).notNull(),
-    workspace_id: uuid().notNull().references(() => workspaces.id),
+    workspace_id: uuid()
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
   },
   (table) => {
     return {
@@ -1812,7 +1820,9 @@ export const recentFiles = pgTable(
     opened_at: timestamp({ withTimezone: true, mode: "string" })
       .defaultNow()
       .notNull(),
-    workspace_id: uuid().notNull().references(() => workspaces.id),
+    workspace_id: uuid()
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
   },
   (table) => {
     return {
@@ -2040,7 +2050,7 @@ export const employerNotes = pgTable(
       columns: [table.workspace_id],
       foreignColumns: [workspaces.id],
       name: "employer_notes_workspace_id_fkey",
-    }),
+    }).onDelete("cascade"),
     employerNotesAuthorFkey: foreignKey({
       columns: [table.author_user_id],
       foreignColumns: [users.id],
@@ -2099,7 +2109,7 @@ export const topics = pgTable(
       columns: [table.workspace_id],
       foreignColumns: [workspaces.id],
       name: "topics_workspace_id_fkey",
-    }),
+    }).onDelete("cascade"),
     allowReadTopics: pgPolicy("Allow read access on topics", {
       as: "permissive",
       for: "select",
@@ -2237,7 +2247,7 @@ export const employerRelatedCompanies = pgTable(
       columns: [table.workspace_id],
       foreignColumns: [workspaces.id],
       name: "employer_related_companies_workspace_id_fkey",
-    }),
+    }).onDelete("cascade"),
     allowReadErc: pgPolicy("Allow read access on employer_related_companies", {
       as: "permissive",
       for: "select",
@@ -2821,7 +2831,9 @@ export const aiWorkforceQueue = pgTable(
       .default([])
       .notNull(),
     retried_from_id: uuid(),
-    workspace_id: uuid().notNull().references(() => workspaces.id),
+    workspace_id: uuid()
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
   },
   (table) => {
     return {
@@ -2939,7 +2951,9 @@ export const routines = pgTable(
       .notNull(),
     archived_at: timestamp({ withTimezone: true, mode: "string" }),
     is_system: boolean().default(false).notNull(),
-    workspace_id: uuid().references(() => workspaces.id),
+    workspace_id: uuid().references(() => workspaces.id, {
+      onDelete: "cascade",
+    }),
   },
   (table) => {
     return {
@@ -2999,7 +3013,9 @@ export const copilotChats = pgTable(
     // detects when a brand-new chat repeats an earlier question.
     first_user_message: text(),
     first_user_message_hash: text(),
-    workspace_id: uuid().notNull().references(() => workspaces.id),
+    workspace_id: uuid()
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
   },
   (table) => {
     return {
@@ -3082,7 +3098,9 @@ export const apiChatConversations = pgTable(
     last_active_at: timestamp({ withTimezone: true, mode: "string" })
       .defaultNow()
       .notNull(),
-    workspace_id: uuid().notNull().references(() => workspaces.id),
+    workspace_id: uuid()
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
   },
   (table) => {
     return {

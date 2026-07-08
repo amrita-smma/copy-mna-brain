@@ -694,6 +694,13 @@
       "when": 1783209606000,
       "tag": "20260705000006_workspace_correspondents_direct_source",
       "breakpoints": true
+    },
+    {
+      "idx": 99,
+      "version": "7",
+      "when": 1783468800000,
+      "tag": "20260708000000_workspace_fk_on_delete_cascade",
+      "breakpoints": true
     }
   ]
 }
