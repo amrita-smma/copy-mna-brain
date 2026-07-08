@@ -90,6 +90,7 @@ const relatedCompanyRepo = {
   createManual: vi.fn(),
   deleteManual: vi.fn(),
   findByCompanyId: vi.fn().mockResolvedValue([]),
+  rankByRelatedCompanyCount: vi.fn(),
 };
 
 const companyRepo = {
@@ -136,6 +137,26 @@ describe('CRMService.listEmployers', () => {
     expect(out).toEqual({ data: [{ id: '1', name: 'GS' }], total: 1 });
     expect(employerRepo.list).toHaveBeenCalledWith({ search: 'gs' }, WORKSPACE_ID);
     expect(employerRepo.count).toHaveBeenCalledWith({ search: 'gs' }, WORKSPACE_ID);
+  });
+});
+
+describe('CRMService.getBankersByRelatedCompanyCount', () => {
+  it('delegates to the repository ranking, scoped to the workspace', async () => {
+    const ranked = [
+      {
+        employerId: 'e1',
+        employerName: 'Golden Sacks',
+        relatedCompanyCount: 12,
+        matchedCompanyCount: 7,
+        lastSeenAt: '2026-06-01T00:00:00.000Z',
+      },
+    ];
+    relatedCompanyRepo.rankByRelatedCompanyCount.mockResolvedValue(ranked);
+
+    const out = await makeService().getBankersByRelatedCompanyCount();
+
+    expect(relatedCompanyRepo.rankByRelatedCompanyCount).toHaveBeenCalledWith(WORKSPACE_ID);
+    expect(out).toBe(ranked);
   });
 });
 

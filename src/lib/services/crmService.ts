@@ -11,6 +11,7 @@ import type {
   EmployerNote,
   EmployerNoteInsert,
   EmployerNoteRepository,
+  EmployerRelatedCompanyRanking,
   EmployerRelatedCompanyRepository,
   EmployerRepository,
   EmployerSummary,
@@ -76,6 +77,11 @@ function dedupeRelatedCompanies(
   }
   return out;
 }
+
+/** A banker (employer) ranked by the number of related companies attached to
+ * it — the DTO returned to the dashboard card and the Banker Related Companies
+ * page. Re-exported from the repository ranking shape. */
+export type BankerRelatedCompaniesRow = EmployerRelatedCompanyRanking;
 
 export interface EmployerDetail {
   employer: Employer;
@@ -192,6 +198,15 @@ export class CRMService {
       last_contact_at: emails[0]?.sent_at ?? null,
       related_companies: dedupeRelatedCompanies(relatedCompanies),
     };
+  }
+
+  /**
+   * Bankers (employers) in this workspace ranked by how many distinct related
+   * companies are attached to each, most first. Backs the dashboard "Banker
+   * related companies" card and the Banker Related Companies page.
+   */
+  async getBankersByRelatedCompanyCount(): Promise<BankerRelatedCompaniesRow[]> {
+    return this.relatedCompanyRepo.rankByRelatedCompanyCount(this.workspaceId);
   }
 
   async createEmployer(input: {

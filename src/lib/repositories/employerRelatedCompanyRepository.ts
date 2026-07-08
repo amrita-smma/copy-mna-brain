@@ -1,5 +1,6 @@
-import { and, eq, inArray, isNull, or, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNull, or, sql } from 'drizzle-orm';
 import {
+  employers,
   employerRelatedCompanies,
   employerRelatedCompanyEvidence,
   userWorkspaces,
@@ -13,6 +14,21 @@ export type EmployerRelatedCompanyEvidence =
 export type RelatedCompanyWithEvidence = EmployerRelatedCompany & {
   evidence: EmployerRelatedCompanyEvidence[];
 };
+
+/** One banker (employer) with a count of the distinct related companies attached
+ * to it in a workspace — the row shape behind the "Banker related companies"
+ * dashboard card and page. */
+export interface EmployerRelatedCompanyRanking {
+  employerId: string;
+  employerName: string;
+  /** Distinct related companies attached (auto + manual collapsed, mirroring the
+   * employer card's dedupe: keyed on `company_id`, else the normalized name). */
+  relatedCompanyCount: number;
+  /** Of those, how many resolve to a company in Master Data (`company_id` set). */
+  matchedCompanyCount: number;
+  /** Most recent evidence timestamp across the attached companies, if any. */
+  lastSeenAt: string | null;
+}
 
 export interface UpsertRelatedCompanyInput {
   employer_id: string;
@@ -248,6 +264,66 @@ export class EmployerRelatedCompanyRepository {
           eq(employerRelatedCompanies.source, 'manual'),
         ),
       );
+  }
+
+  /**
+   * Rank every banker (employer) in the workspace by how many distinct related
+   * companies are attached to it, most first. Uses the exact same visibility
+   * rules as {@link listForEmployer} so the counts match what a user sees on the
+   * employer cards: non-dismissed rows only, and `source='auto'` rows count only
+   * when the workspace has at least one email-synced member.
+   *
+   * The distinct count collapses auto + manual rows for the same company — keyed
+   * on `company_id`, falling back to the normalized name for auto rows that
+   * haven't matched a Master Data company yet — mirroring `dedupeRelatedCompanies`
+   * in the CRM service. Employers with no attached related companies are omitted
+   * (INNER JOIN).
+   */
+  async rankByRelatedCompanyCount(
+    workspaceId: string,
+  ): Promise<EmployerRelatedCompanyRanking[]> {
+    // "Same company" key: the matched company_id when present, else the
+    // normalized name (namespaced so a name can't collide with a uuid).
+    const dedupeKey = sql`coalesce(${employerRelatedCompanies.company_id}::text, 'name:' || ${employerRelatedCompanies.normalized_company_name})`;
+    const relatedCount = sql<number>`count(distinct ${dedupeKey})`;
+
+    const rows = await this.db
+      .select({
+        employerId: employers.id,
+        employerName: employers.name,
+        relatedCompanyCount: relatedCount,
+        matchedCompanyCount: sql<number>`count(distinct ${employerRelatedCompanies.company_id})`,
+        lastSeenAt: sql<string | null>`max(${employerRelatedCompanies.last_seen_at})`,
+      })
+      .from(employers)
+      .innerJoin(
+        employerRelatedCompanies,
+        eq(employerRelatedCompanies.employer_id, employers.id),
+      )
+      .where(
+        and(
+          eq(employerRelatedCompanies.workspace_id, workspaceId),
+          isNull(employerRelatedCompanies.dismissed_at),
+          or(
+            sql`${employerRelatedCompanies.source} != 'auto'`,
+            sql`EXISTS (
+              SELECT 1 FROM ${userWorkspaces}
+              WHERE ${userWorkspaces.workspace_id} = ${workspaceId}
+                AND ${userWorkspaces.is_email_synced} = true
+            )`,
+          ),
+        ),
+      )
+      .groupBy(employers.id, employers.name)
+      .orderBy(desc(relatedCount), employers.name);
+
+    return rows.map((r) => ({
+      employerId: String(r.employerId),
+      employerName: String(r.employerName),
+      relatedCompanyCount: Number(r.relatedCompanyCount),
+      matchedCompanyCount: Number(r.matchedCompanyCount),
+      lastSeenAt: r.lastSeenAt == null ? null : String(r.lastSeenAt),
+    }));
   }
 
   /** Non-dismissed rows for an employer that link to a given company_id. */

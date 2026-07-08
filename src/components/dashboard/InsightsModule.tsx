@@ -34,6 +34,7 @@ import CompanyDetailDialog, {
   type CompanyData,
 } from '@/components/pipeline/CompanyDetailDialog';
 import { getCompanies } from '@/lib/api/pipeline';
+import { BankerRelatedCompaniesCard } from '@/components/dashboard/BankerRelatedCompaniesCard';
 import {
   Table,
   TableBody,
@@ -532,7 +533,7 @@ function InsightsContent({
         </Card>
       </div>
 
-      {/* ── Row 2: Banker quality + Country ── */}
+      {/* ── Row 2: Banker quality + Banker related companies ── */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
         <Card className="border bg-card">
           <CardHeader className="pb-3">
@@ -570,6 +571,15 @@ function InsightsContent({
           </CardContent>
         </Card>
 
+        <BankerRelatedCompaniesCard
+          onAsk={() =>
+            onAsk('analyze which bankers have the most related companies attached and what that implies')
+          }
+        />
+      </div>
+
+      {/* ── Row 3: Country + Segment ── */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
         <Card className="border bg-card">
           <CardHeader className="pb-3">
             <div className="flex items-start justify-between gap-2">
@@ -601,10 +611,7 @@ function InsightsContent({
             />
           </CardContent>
         </Card>
-      </div>
 
-      {/* ── Row 3: Segment + AI throughput ── */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
         <Card className="border bg-card">
           <CardHeader className="pb-3">
             <div className="flex items-start justify-between gap-2">
@@ -631,62 +638,54 @@ function InsightsContent({
             />
           </CardContent>
         </Card>
-
-        <Card className="border bg-card">
-          <CardHeader className="pb-3">
-            <div className="flex items-start justify-between gap-2">
-              <CardTitle className="flex items-center gap-2 text-sm font-semibold">
-                <Sparkles className="h-4 w-4 text-muted-foreground" /> AI screening &amp; deck throughput
-              </CardTitle>
-              <AskAIButton
-                label="Analyze AI throughput with AI"
-                onClick={() => onAsk('analyze AI screening and deck-generation throughput')}
-              />
-            </div>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid grid-cols-3 gap-4">
-              <ThroughputHero label="Companies screened (L0)" value={aiThroughput.screenedL0} unit="companies" />
-              <ThroughputHero
-                label="Company cards generated"
-                value={aiThroughput.companyCards.total}
-                unit="cards"
-              />
-              <ThroughputHero label="Company decks generated" value={aiThroughput.decksGenerated} unit="decks" />
-            </div>
-            <div className="divide-y divide-border">
-              <MetaRow
-                label="Company cards (completed / failed)"
-                value={`${aiThroughput.companyCards.completed} done · ${aiThroughput.companyCards.failed} failed`}
-                tone={aiThroughput.companyCards.failed > 0 ? 'amber' : undefined}
-              />
-              <MetaRow
-                label={`AI opinions given (${aiThroughput.aiOpinions.total})`}
-                value={`${aiThroughput.aiOpinions.pass} pass · ${aiThroughput.aiOpinions.fail} fail · ${aiThroughput.aiOpinions.tentative} tentative`}
-              />
-              <MetaRow
-                label={`AI screenings done (${aiThroughput.screenings.total})`}
-                value={`${aiThroughput.screenings.pass} pass · ${aiThroughput.screenings.fail} fail · ${aiThroughput.screenings.inconclusive} inc · ${aiThroughput.screenings.error} err`}
-                tone={aiThroughput.screenings.error > 0 ? 'amber' : undefined}
-              />
-              <MetaRow
-                label="Companies screened by AI"
-                value={`${aiThroughput.screenings.companiesScreened} companies`}
-              />
-              <MetaRow label="AI Workforce runs" value={`${aiThroughput.workforceRuns} runs`} />
-              <MetaRow
-                label="HITL interventions resolved"
-                value={`${aiThroughput.hitlResolved} of ${aiThroughput.hitlResolved + aiThroughput.hitlPending}`}
-              />
-              <MetaRow
-                label="Pending interventions"
-                value={`${aiThroughput.hitlPending} waiting`}
-                tone={aiThroughput.hitlPending > 0 ? 'amber' : undefined}
-              />
-            </div>
-          </CardContent>
-        </Card>
       </div>
+
+      {/* ── Row 4: AI throughput (full width, compact) ── */}
+      <Card className="border bg-card">
+        <CardHeader className="pb-3">
+          <div className="flex items-start justify-between gap-2">
+            <CardTitle className="flex items-center gap-2 text-sm font-semibold">
+              <Sparkles className="h-4 w-4 text-muted-foreground" /> AI screening &amp; deck throughput
+            </CardTitle>
+            <AskAIButton
+              label="Analyze AI throughput with AI"
+              onClick={() => onAsk('analyze AI screening and deck-generation throughput')}
+            />
+          </div>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-2 gap-x-6 gap-y-4 sm:grid-cols-4 lg:grid-cols-7">
+            <ThroughputStat label="Screened (L0)" value={aiThroughput.screenedL0} sub="companies" />
+            <ThroughputStat
+              label="Company cards"
+              value={aiThroughput.companyCards.total}
+              sub={`${aiThroughput.companyCards.completed} done · ${aiThroughput.companyCards.failed} failed`}
+              subTone={aiThroughput.companyCards.failed > 0 ? 'amber' : undefined}
+            />
+            <ThroughputStat label="Decks" value={aiThroughput.decksGenerated} sub="generated" />
+            <ThroughputStat
+              label="AI opinions"
+              value={aiThroughput.aiOpinions.total}
+              sub={`${aiThroughput.aiOpinions.pass} pass · ${aiThroughput.aiOpinions.fail} fail · ${aiThroughput.aiOpinions.tentative} tent`}
+            />
+            <ThroughputStat
+              label="AI screenings"
+              value={aiThroughput.screenings.total}
+              sub={`${aiThroughput.screenings.pass} pass · ${aiThroughput.screenings.fail} fail${
+                aiThroughput.screenings.error > 0 ? ` · ${aiThroughput.screenings.error} err` : ''
+              }`}
+              subTone={aiThroughput.screenings.error > 0 ? 'amber' : undefined}
+            />
+            <ThroughputStat label="Workforce runs" value={aiThroughput.workforceRuns} sub="runs" />
+            <ThroughputStat
+              label="HITL resolved"
+              value={`${aiThroughput.hitlResolved}/${aiThroughput.hitlResolved + aiThroughput.hitlPending}`}
+              sub={`${aiThroughput.hitlPending} pending`}
+              subTone={aiThroughput.hitlPending > 0 ? 'amber' : undefined}
+            />
+          </div>
+        </CardContent>
+      </Card>
 
       {selectedCompany && (
         <CompanyDetailDialog
@@ -757,29 +756,36 @@ function KpiCard({
   );
 }
 
-function ThroughputHero({ label, value, unit }: { label: string; value: number; unit: string }) {
+/** Compact AI-throughput stat tile: a label, a mono value, and an optional
+ * sub-line. Used in the full-width throughput card's horizontal grid so the
+ * whole card stays short. */
+function ThroughputStat({
+  label,
+  value,
+  sub,
+  subTone,
+}: {
+  label: string;
+  value: string | number;
+  sub?: string;
+  subTone?: 'amber';
+}) {
   return (
-    <div>
-      <div className="text-[11px] text-muted-foreground">{label}</div>
-      <div className="mt-1">
-        <span className="font-mono text-2xl font-semibold tracking-tight">{value}</span>
-        <span className="ml-1 text-[13px] text-muted-foreground">{unit}</span>
-      </div>
-    </div>
-  );
-}
-
-function MetaRow({ label, value, tone }: { label: string; value: string; tone?: 'amber' }) {
-  return (
-    <div className="flex items-center justify-between py-2 first:pt-0 last:pb-0">
-      <span className="text-xs text-muted-foreground">{label}</span>
-      <span
-        className={`font-mono text-xs font-semibold ${
-          tone === 'amber' ? 'text-amber-600 dark:text-amber-400' : 'text-foreground'
-        }`}
-      >
-        {value}
-      </span>
+    <div className="min-w-0">
+      <div className="truncate text-[11px] text-muted-foreground">{label}</div>
+      <div className="mt-0.5 font-mono text-xl font-semibold tracking-tight">{value}</div>
+      {sub && (
+        <div
+          className={`mt-0.5 truncate text-[10.5px] ${
+            subTone === 'amber'
+              ? 'text-amber-600 dark:text-amber-400'
+              : 'text-muted-foreground'
+          }`}
+          title={sub}
+        >
+          {sub}
+        </div>
+      )}
     </div>
   );
 }

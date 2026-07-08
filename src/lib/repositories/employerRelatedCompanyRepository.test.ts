@@ -6,7 +6,10 @@ function makeDb() {
   return {
     select: vi.fn().mockReturnThis(),
     from: vi.fn().mockReturnThis(),
+    innerJoin: vi.fn().mockReturnThis(),
     where: vi.fn().mockReturnThis(),
+    groupBy: vi.fn().mockReturnThis(),
+    orderBy: vi.fn(),
     limit: vi.fn(),
     insert: vi.fn().mockReturnThis(),
     values: vi.fn().mockReturnThis(),
@@ -163,6 +166,64 @@ describe('EmployerRelatedCompanyRepository.deleteManual', () => {
     await repo.deleteManual('emp-1', 'rc-manual', 'w1');
     expect(db.delete).toHaveBeenCalled();
     expect(db.update).not.toHaveBeenCalled(); // hard delete, not a soft dismiss
+  });
+});
+
+describe('EmployerRelatedCompanyRepository.rankByRelatedCompanyCount', () => {
+  it('maps the ranked rows, coercing the aggregate counts to numbers', async () => {
+    const db = makeDb();
+    db.orderBy.mockResolvedValueOnce([
+      {
+        employerId: 'e1',
+        employerName: 'Golden Sacks',
+        relatedCompanyCount: '12',
+        matchedCompanyCount: '7',
+        lastSeenAt: '2026-06-01T00:00:00.000Z',
+      },
+      {
+        employerId: 'e2',
+        employerName: 'JP Organ',
+        relatedCompanyCount: 3,
+        matchedCompanyCount: 1,
+        lastSeenAt: null,
+      },
+    ]);
+    const repo = new EmployerRelatedCompanyRepository(db as never);
+
+    const out = await repo.rankByRelatedCompanyCount('w1');
+
+    expect(db.innerJoin).toHaveBeenCalledTimes(1);
+    expect(db.groupBy).toHaveBeenCalledTimes(1);
+    expect(out).toEqual([
+      {
+        employerId: 'e1',
+        employerName: 'Golden Sacks',
+        relatedCompanyCount: 12,
+        matchedCompanyCount: 7,
+        lastSeenAt: '2026-06-01T00:00:00.000Z',
+      },
+      {
+        employerId: 'e2',
+        employerName: 'JP Organ',
+        relatedCompanyCount: 3,
+        matchedCompanyCount: 1,
+        lastSeenAt: null,
+      },
+    ]);
+  });
+
+  it('excludes dismissed rows and gates auto rows on workspace sync state', async () => {
+    const db = makeDb();
+    db.orderBy.mockResolvedValueOnce([]);
+    const repo = new EmployerRelatedCompanyRepository(db as never);
+
+    await repo.rankByRelatedCompanyCount('w1');
+
+    const whereArg = db.where.mock.calls[0]?.[0];
+    const { sql: text } = new PgDialect().sqlToQuery(whereArg);
+    expect(text).toContain('dismissed_at');
+    expect(text).toContain("!= 'auto'");
+    expect(text).toContain('is_email_synced');
   });
 });
 
