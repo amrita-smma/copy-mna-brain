@@ -11,9 +11,11 @@ import type { AppSettingsRepository } from '@/lib/repositories/appSettingsReposi
  * so each test only stubs the source it asserts on. */
 class MockRepo {
   getStageCounts = vi.fn();
+  getStageEntryCounts = vi.fn();
   getSegmentBreakdown = vi.fn();
   getCountryBreakdown = vi.fn();
   getBankerBreakdown = vi.fn();
+  getBankerResponseProfiles = vi.fn();
   getStaleCandidates = vi.fn();
   countNewDeals = vi.fn();
   countScreenedL0 = vi.fn();
@@ -73,9 +75,11 @@ describe('DashboardInsightsService.getInsights', () => {
   beforeEach(() => {
     repo = new MockRepo();
     repo.getStageCounts.mockResolvedValue([]);
+    repo.getStageEntryCounts.mockResolvedValue([]);
     repo.getSegmentBreakdown.mockResolvedValue([]);
     repo.getCountryBreakdown.mockResolvedValue([]);
     repo.getBankerBreakdown.mockResolvedValue([]);
+    repo.getBankerResponseProfiles.mockResolvedValue([]);
     repo.getStaleCandidates.mockResolvedValue([]);
     repo.countNewDeals.mockResolvedValue(0);
     repo.countScreenedL0.mockResolvedValue(0);
@@ -103,12 +107,15 @@ describe('DashboardInsightsService.getInsights', () => {
     );
   });
 
-  it('builds the funnel in stage order with targets and current counts', async () => {
-    repo.getStageCounts.mockResolvedValue([
+  it('builds the funnel in stage order from stage-entry counts, not the snapshot', async () => {
+    // Funnel counts come from getStageEntryCounts (companies *added to* each
+    // stage), independent of the current-snapshot getStageCounts.
+    repo.getStageEntryCounts.mockResolvedValue([
       { stage: 'L1', count: 13 },
       { stage: 'L0', count: 138 },
       { stage: 'L3', count: 2 },
     ]);
+    repo.getStageCounts.mockResolvedValue([{ stage: 'L0', count: 9999 }]);
 
     const { funnel } = await service.getInsights(FROM, TO, NOW);
 
@@ -116,8 +123,19 @@ describe('DashboardInsightsService.getInsights', () => {
     expect(funnel[0]).toMatchObject({ stage: 'L0', count: 138, target: 200 });
     // Fixed (non-range) per-stage targets.
     expect(funnel[1]).toMatchObject({ stage: 'L1', count: 13, target: 30, targetLabel: 'target 30' });
-    // A stage with no rows falls back to a zero count, not undefined.
+    // A stage with no entries falls back to a zero count, not undefined.
     expect(funnel[2]).toMatchObject({ stage: 'L2', count: 0 });
+  });
+
+  it('prorates each annual target to the window length (365-day basis)', async () => {
+    // FROM→TO spans 21 days. proratedTarget = round(target × 21 / 365).
+    const { funnel } = await service.getInsights(FROM, TO, NOW);
+    const byStage = Object.fromEntries(funnel.map((f) => [f.stage, f]));
+
+    expect(funnel[0].windowDays).toBe(21);
+    expect(byStage.L0).toMatchObject({ target: 200, proratedTarget: 12 }); // 200×21/365 ≈ 11.5
+    expect(byStage.L1).toMatchObject({ target: 30, proratedTarget: 2 }); // 30×21/365 ≈ 1.7
+    expect(byStage.L3).toMatchObject({ target: 3, proratedTarget: 0 }); // 3×21/365 ≈ 0.17
   });
 
   it('computes total in pipeline and L0→L1 conversion with the target flag', async () => {
@@ -235,6 +253,79 @@ describe('DashboardInsightsService.getInsights', () => {
     expect(bankers.map((b) => b.key)).toEqual(['JP Morgan', 'Goldman Sachs']);
     expect(bankers[0]).toMatchObject({ total: 12, l1plus: 1, conversion: 8 }); // 1/12 ≈ 8%
     expect(bankers[1]).toMatchObject({ total: 9, l1plus: 3, conversion: 33 }); // 3/9 ≈ 33%
+  });
+
+  it('returns every segment/country row sorted descending by L0 (UI paginates)', async () => {
+    // 8 segments — more than the old top-6 cap — to prove no slicing happens.
+    repo.getSegmentBreakdown.mockResolvedValue(
+      Array.from({ length: 8 }, (_, i) => dim(`Seg${i}`, 'L0', (i + 1) * 3)),
+    );
+
+    const { segments } = await service.getInsights(FROM, TO, NOW);
+
+    expect(segments).toHaveLength(8);
+    // Sorted by L0 desc: Seg7 (24) … Seg0 (3).
+    expect(segments.map((s) => s.key)).toEqual([
+      'Seg7', 'Seg6', 'Seg5', 'Seg4', 'Seg3', 'Seg2', 'Seg1', 'Seg0',
+    ]);
+    expect(segments[0]).toMatchObject({ key: 'Seg7', l0: 24 });
+  });
+
+  it('keeps bankers capped at the fixed top-N by lead volume', async () => {
+    repo.getBankerBreakdown.mockResolvedValue(
+      Array.from({ length: 9 }, (_, i) => dim(`Bank${i}`, 'L0', i + 1)),
+    );
+
+    const { bankers } = await service.getInsights(FROM, TO, NOW);
+
+    // Still capped at 6 rows (top by total leads), unlike segments/countries.
+    expect(bankers).toHaveLength(6);
+    expect(bankers[0].key).toBe('Bank8');
+  });
+
+  it('attaches each banker its response p50 + distribution, matched by firm name', async () => {
+    repo.getBankerBreakdown.mockResolvedValue([
+      dim('Golden Sacks', 'L0', 6),
+      dim('Golden Sacks', 'L1', 3),
+      dim('Evercore', 'L0', 4), // no email history → unmatched
+    ]);
+    repo.getBankerResponseProfiles.mockResolvedValue([
+      // Matched case-insensitively / normalized ("golden sacks").
+      { name: 'Golden Sacks', p50Seconds: 21600, pairCount: 3, gaps: [1800, 21600, 300000] },
+    ]);
+
+    const { bankers } = await service.getInsights(FROM, TO, NOW);
+
+    const gs = bankers.find((b) => b.key === 'Golden Sacks')!;
+    expect(gs.responseP50Seconds).toBe(21600);
+    const byLabel = Object.fromEntries((gs.responseBuckets ?? []).map((b) => [b.label, b.count]));
+    expect(byLabel['<1h']).toBe(1); // 1800
+    expect(byLabel['4–12h']).toBe(1); // 21600
+    expect(byLabel['3–5d']).toBe(1); // 300000
+    expect(gs.responseBuckets).toHaveLength(10);
+
+    // A banker with no matching firm keeps a null p50 and no buckets (renders "—").
+    const ev = bankers.find((b) => b.key === 'Evercore')!;
+    expect(ev.responseP50Seconds).toBeNull();
+    expect(ev.responseBuckets).toBeUndefined();
+  });
+
+  it('leaves banker response fields null when no profiles are returned', async () => {
+    repo.getBankerBreakdown.mockResolvedValue([dim('JP Organ', 'L0', 5)]);
+
+    const { bankers } = await service.getInsights(FROM, TO, NOW);
+
+    expect(bankers[0].responseP50Seconds).toBeNull();
+    expect(bankers[0].responseBuckets).toBeUndefined();
+  });
+
+  it('does not attach response fields to segment/country rows', async () => {
+    repo.getSegmentBreakdown.mockResolvedValue([dim('CMP', 'L0', 5)]);
+
+    const { segments } = await service.getInsights(FROM, TO, NOW);
+
+    expect(segments[0].responseP50Seconds).toBeUndefined();
+    expect(segments[0].responseBuckets).toBeUndefined();
   });
 
   it('resolves the stale deal lead: sponsor at L0–L2, captain (inheriting sponsor) at L3+', async () => {

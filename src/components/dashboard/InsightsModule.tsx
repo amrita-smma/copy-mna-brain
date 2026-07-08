@@ -25,6 +25,7 @@ import type {
   InsightsSettings,
   InsightsSettingsMeta,
   InsightsSettingsWithMeta,
+  ResponseTimeBucket,
 } from '@/lib/services/dashboardInsightsService';
 import { nameInitials } from '@/lib/companyDisplay';
 import { useChatContext } from '@/components/chat/ChatProvider';
@@ -60,6 +61,8 @@ import {
   BarChart3,
   Settings,
   UserCheck,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react';
 
 interface InsightsModuleProps {
@@ -278,8 +281,16 @@ function InsightsContent({
   /** Refetch insights after a company edit made from the detail dialog. */
   onRefresh: () => void;
 }) {
-  const { kpis, funnel, staleDeals, staleThresholdLabel, bankers, segments, countries, aiThroughput } =
-    data;
+  const {
+    kpis,
+    funnel,
+    staleDeals,
+    staleThresholdLabel,
+    bankers,
+    segments,
+    countries,
+    aiThroughput,
+  } = data;
 
   const [targetModalOpen, setTargetModalOpen] = useState(false);
   const [conversionModalOpen, setConversionModalOpen] = useState(false);
@@ -353,41 +364,54 @@ function InsightsContent({
             </div>
           </CardHeader>
           <CardContent className="space-y-2">
+            <p className="text-[11px] text-muted-foreground">
+              Companies added to each stage this period · marker = prorated target
+            </p>
             {funnel.map((stage) => {
-              const target = stage.target;
-              // Bar shows progress toward the stage target (capped at 100%).
-              // Stages with no target fill fully once they have any deals.
-              const targetPct =
-                target > 0
-                  ? Math.min(100, (stage.count / target) * 100)
-                  : stage.count > 0
-                    ? 100
-                    : 0;
-              const barWidth = stage.count > 0 ? Math.max(6, targetPct) : 0;
+              const { count, proratedTarget, windowDays } = stage;
+              // Bars now show the flow *into* the stage this period, compared to
+              // the annual target prorated to the window (the marker line).
+              // Scale the bar to whichever is larger (count or prorated target),
+              // with 10% headroom, so both the fill and the marker stay visible.
+              const scaleMax = Math.max(count, proratedTarget, 1) * 1.1;
+              const fillPct = count > 0 ? Math.max(4, (count / scaleMax) * 100) : 0;
+              const markerPct = proratedTarget > 0 ? (proratedTarget / scaleMax) * 100 : null;
+              // On/off target is judged against the prorated goal for the period.
+              const onTarget = proratedTarget > 0 && count >= proratedTarget;
               return (
                 <div key={stage.stage} className="flex items-center gap-3">
                   <span className="w-6 shrink-0 font-mono text-xs font-semibold text-muted-foreground">
                     {stage.stage}
                   </span>
-                  <div className="flex-1 h-5 rounded bg-muted overflow-hidden">
+                  <div className="relative flex-1 h-5 rounded bg-muted overflow-hidden">
                     <div
                       className={`h-full rounded ${FUNNEL_BAR_COLORS[stage.stage] ?? 'bg-primary/70'} transition-[width] duration-500`}
-                      style={{ width: `${barWidth}%` }}
+                      style={{ width: `${fillPct}%` }}
                     />
+                    {markerPct != null && (
+                      <span
+                        className="absolute inset-y-0 w-0.5 bg-foreground/70"
+                        style={{ left: `${markerPct}%` }}
+                        title={`Prorated target ${proratedTarget} (${windowDays} days)`}
+                      />
+                    )}
                   </div>
-                  <div className="w-20 shrink-0 text-right">
+                  <div className="w-24 shrink-0 text-right">
                     <div
                       className={`font-mono text-sm font-semibold ${
-                        stage.count >= target
+                        onTarget
                           ? 'text-emerald-600 dark:text-emerald-400'
-                          : stage.count === 0
+                          : count === 0
                             ? 'text-muted-foreground'
                             : 'text-amber-600 dark:text-amber-400'
                       }`}
                     >
-                      {stage.count}
+                      {count}
                     </div>
-                    <div className="text-[10px] text-muted-foreground">target {target}</div>
+                    <div className="text-[10px] text-muted-foreground">
+                      {proratedTarget} (prorated {windowDays}d)
+                    </div>
+                    <div className="text-[10px] text-muted-foreground/70">target {stage.target}</div>
                   </div>
                 </div>
               );
@@ -508,7 +532,7 @@ function InsightsContent({
         </Card>
       </div>
 
-      {/* ── Row 2: Banker quality + AI throughput ── */}
+      {/* ── Row 2: Banker quality + Country ── */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
         <Card className="border bg-card">
           <CardHeader className="pb-3">
@@ -530,6 +554,7 @@ function InsightsContent({
               leadHeader="Leads"
               leadValue={(r) => r.total}
               convBase={(r) => r.total}
+              showResponse
               renderKey={(r) => (
                 <div className="flex items-center gap-2.5">
                   <span
@@ -541,6 +566,68 @@ function InsightsContent({
                 </div>
               )}
               emptyLabel="No banker-sourced deals."
+            />
+          </CardContent>
+        </Card>
+
+        <Card className="border bg-card">
+          <CardHeader className="pb-3">
+            <div className="flex items-start justify-between gap-2">
+              <CardTitle className="flex items-center gap-2 text-sm font-semibold">
+                <Globe className="h-4 w-4 text-muted-foreground" /> Deals by country
+              </CardTitle>
+              <AskAIButton
+                label="Analyze deals by country with AI"
+                onClick={() => onAsk('analyze deal distribution and conversion by country')}
+              />
+            </div>
+          </CardHeader>
+          <CardContent>
+            <BreakdownTable
+              tableId="dashboard-insights-countries"
+              rows={countries}
+              firstHeader="Country"
+              leadHeader="L0"
+              leadValue={(r) => r.l0}
+              convBase={(r) => r.l0}
+              pageSize={6}
+              renderKey={(r) => (
+                <span className="flex items-center gap-2 text-[13px]">
+                  <span className="text-base leading-none">{countryFlag(r.key)}</span>
+                  {r.key}
+                </span>
+              )}
+              emptyLabel="No country data."
+            />
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* ── Row 3: Segment + AI throughput ── */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+        <Card className="border bg-card">
+          <CardHeader className="pb-3">
+            <div className="flex items-start justify-between gap-2">
+              <CardTitle className="flex items-center gap-2 text-sm font-semibold">
+                <LayoutGrid className="h-4 w-4 text-muted-foreground" /> Deals by industry segment
+              </CardTitle>
+              <AskAIButton
+                label="Analyze deals by segment with AI"
+                onClick={() => onAsk('analyze deal distribution and conversion by industry segment')}
+              />
+            </div>
+          </CardHeader>
+          <CardContent>
+            <BreakdownTable
+              tableId="dashboard-insights-segments"
+              rows={segments}
+              firstHeader="Segment"
+              leadHeader="L0"
+              leadValue={(r) => r.l0}
+              convBase={(r) => r.l0}
+              pageSize={6}
+              renderKey={(r) => <span className="text-[13px]">{r.key}</span>}
+              emptyLabel="No segmented deals."
             />
           </CardContent>
         </Card>
@@ -597,66 +684,6 @@ function InsightsContent({
                 tone={aiThroughput.hitlPending > 0 ? 'amber' : undefined}
               />
             </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* ── Row 4: Segment + Country ── */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-        <Card className="border bg-card">
-          <CardHeader className="pb-3">
-            <div className="flex items-start justify-between gap-2">
-              <CardTitle className="flex items-center gap-2 text-sm font-semibold">
-                <LayoutGrid className="h-4 w-4 text-muted-foreground" /> Deals by industry segment
-              </CardTitle>
-              <AskAIButton
-                label="Analyze deals by segment with AI"
-                onClick={() => onAsk('analyze deal distribution and conversion by industry segment')}
-              />
-            </div>
-          </CardHeader>
-          <CardContent>
-            <BreakdownTable
-              tableId="dashboard-insights-segments"
-              rows={segments}
-              firstHeader="Segment"
-              leadHeader="L0"
-              leadValue={(r) => r.l0}
-              convBase={(r) => r.l0}
-              renderKey={(r) => <span className="text-[13px]">{r.key}</span>}
-              emptyLabel="No segmented deals."
-            />
-          </CardContent>
-        </Card>
-
-        <Card className="border bg-card">
-          <CardHeader className="pb-3">
-            <div className="flex items-start justify-between gap-2">
-              <CardTitle className="flex items-center gap-2 text-sm font-semibold">
-                <Globe className="h-4 w-4 text-muted-foreground" /> Deals by country
-              </CardTitle>
-              <AskAIButton
-                label="Analyze deals by country with AI"
-                onClick={() => onAsk('analyze deal distribution and conversion by country')}
-              />
-            </div>
-          </CardHeader>
-          <CardContent>
-            <BreakdownTable
-              tableId="dashboard-insights-countries"
-              rows={countries}
-              firstHeader="Country"
-              leadHeader="L0"
-              leadValue={(r) => r.l0}
-              convBase={(r) => r.l0}
-              renderKey={(r) => (
-                <span className="flex items-center gap-2 text-[13px]">
-                  <span className="text-base leading-none">{countryFlag(r.key)}</span>
-                  {r.key}
-                </span>
-              )}
-              emptyLabel="No country data."
-            />
           </CardContent>
         </Card>
       </div>
@@ -766,6 +793,8 @@ function BreakdownTable({
   convBase,
   renderKey,
   emptyLabel,
+  pageSize,
+  showResponse = false,
 }: {
   /** Unique, stable key for persisting this table's column layout. */
   tableId: string;
@@ -776,7 +805,22 @@ function BreakdownTable({
   convBase: (r: BreakdownRow) => number;
   renderKey: (r: BreakdownRow) => React.ReactNode;
   emptyLabel: string;
+  /** When set, show this many rows per page with prev/next controls. Rows
+   * arrive pre-sorted descending, so page 1 is always the biggest values. */
+  pageSize?: number;
+  /** Bankers only: add a "Response (p50)" column with a per-firm reply-time
+   * sparkline + median. Rows without matching email history render "—". */
+  showResponse?: boolean;
 }) {
+  const [page, setPage] = useState(0);
+
+  // Clamp the page if the row set shrinks (e.g. the window changes) so we never
+  // land on an empty page past the end.
+  const pageCount = pageSize ? Math.max(1, Math.ceil(rows.length / pageSize)) : 1;
+  const safePage = Math.min(page, pageCount - 1);
+  const pagedRows = pageSize
+    ? rows.slice(safePage * pageSize, safePage * pageSize + pageSize)
+    : rows;
   // Managed (reorderable / hideable / groupable) columns. The identity column
   // (`firstHeader` / `renderKey`) is pinned leading and rendered outside this
   // set; there is no trailing/actions column.
@@ -819,8 +863,23 @@ function BreakdownTable({
           return hasBase ? `${r.conversion}%` : '—';
         },
       },
+      ...(showResponse
+        ? [
+            {
+              id: 'response',
+              label: 'Response (p50)',
+              header: (
+                <span className="whitespace-nowrap font-semibold">Response (p50)</span>
+              ),
+              headerClassName:
+                'h-auto px-0 pb-2 text-right align-bottom text-[10.5px] font-semibold uppercase tracking-wide text-muted-foreground',
+              cellClassName: 'p-0 py-2 pl-3 text-right',
+              cell: (r: BreakdownRow) => <ResponseCell row={r} />,
+            } satisfies ColumnDef<BreakdownRow>,
+          ]
+        : []),
     ],
-    [leadHeader, leadValue, convBase],
+    [leadHeader, leadValue, convBase, showResponse],
   );
 
   const mgr = useColumnLayout<BreakdownRow>(tableId, columns);
@@ -846,7 +905,7 @@ function BreakdownTable({
           }
         />
         <TableBody>
-          {rows.map((r, index) => (
+          {pagedRows.map((r, index) => (
             <TableRow
               key={r.key}
               className="border-b border-border last:border-0 hover:bg-transparent"
@@ -857,7 +916,98 @@ function BreakdownTable({
           ))}
         </TableBody>
       </Table>
+      {pageSize && rows.length > pageSize && (
+        <div className="flex items-center justify-between pt-2 text-[11px] text-muted-foreground">
+          <span>
+            {safePage * pageSize + 1}–{Math.min((safePage + 1) * pageSize, rows.length)} of{' '}
+            {rows.length}
+          </span>
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={() => setPage(safePage - 1)}
+              disabled={safePage === 0}
+              className="inline-flex h-6 w-6 items-center justify-center rounded-md transition-colors hover:bg-muted hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
+              aria-label="Previous page"
+            >
+              <ChevronLeft className="h-3.5 w-3.5" />
+            </button>
+            <span className="tabular-nums">
+              {safePage + 1} / {pageCount}
+            </span>
+            <button
+              type="button"
+              onClick={() => setPage(safePage + 1)}
+              disabled={safePage >= pageCount - 1}
+              className="inline-flex h-6 w-6 items-center justify-center rounded-md transition-colors hover:bg-muted hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
+              aria-label="Next page"
+            >
+              <ChevronRight className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        </div>
+      )}
     </ColumnManagerProvider>
+  );
+}
+
+/** Humanise a response-time duration in seconds, e.g. "3 days", "5 hrs",
+ * "12 mins" (sub-minute rounds up to "1 min"). Mirrors the CRM's
+ * `formatResponseP50` so the two surfaces read consistently. */
+function formatResponseDuration(seconds: number): string {
+  const days = seconds / 86400;
+  if (days >= 1) {
+    const d = Math.round(days);
+    return `${d} day${d === 1 ? '' : 's'}`;
+  }
+  const hours = seconds / 3600;
+  if (hours >= 1) {
+    const h = Math.round(hours);
+    return `${h} hr${h === 1 ? '' : 's'}`;
+  }
+  const mins = Math.max(1, Math.round(seconds / 60));
+  return `${mins} min${mins === 1 ? '' : 's'}`;
+}
+
+/** Tiny per-banker response-time "bell curve": a compact bar sparkline of that
+ * firm's reply-gap distribution across the response-time bands. Empty bands
+ * render as gaps so the shape reads correctly. */
+function ResponseSparkline({ buckets }: { buckets: ResponseTimeBucket[] }) {
+  const max = Math.max(1, ...buckets.map((b) => b.count));
+  const label = buckets
+    .filter((b) => b.count > 0)
+    .map((b) => `${b.label}: ${b.count}`)
+    .join(' · ');
+  return (
+    <span
+      className="inline-flex h-4 items-end gap-px align-middle"
+      title={`Reply-time distribution — ${label || 'no data'}`}
+      aria-hidden
+    >
+      {buckets.map((b, i) => (
+        <span
+          key={i}
+          className="w-[3px] rounded-sm bg-primary/60"
+          style={{ height: b.count === 0 ? '0%' : `${Math.max(20, (b.count / max) * 100)}%` }}
+        />
+      ))}
+    </span>
+  );
+}
+
+/** Banker "Response (p50)" cell: reply-time sparkline + median. Falls back to a
+ * muted em-dash when no email history matched this banker. */
+function ResponseCell({ row }: { row: BreakdownRow }) {
+  if (row.responseP50Seconds == null || !row.responseBuckets) {
+    return <span className="font-mono text-xs text-muted-foreground">—</span>;
+  }
+  return (
+    <div className="flex items-center justify-end gap-2">
+      <ResponseSparkline buckets={row.responseBuckets} />
+      <span className="whitespace-nowrap font-mono text-xs text-muted-foreground">
+        {formatResponseDuration(row.responseP50Seconds)}
+      </span>
+    </div>
   );
 }
 
@@ -913,7 +1063,8 @@ function TargetSettingsModal({
         <DialogHeader>
           <DialogTitle>Set stage targets</DialogTitle>
           <DialogDescription>
-            Target number of companies per pipeline stage.
+            Annual target number of companies added per pipeline stage. The funnel
+            prorates these to the selected period.
           </DialogDescription>
         </DialogHeader>
 

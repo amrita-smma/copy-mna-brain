@@ -51,6 +51,39 @@ describe('DashboardInsightsRepository.getStageCounts', () => {
   });
 });
 
+describe('DashboardInsightsRepository.getStageEntryCounts', () => {
+  let repo: DashboardInsightsRepository;
+
+  beforeEach(() => {
+    resetDb();
+    repo = new DashboardInsightsRepository(mockDb as never, 'workspace-1');
+  });
+
+  it('runs a single UNION query and coerces the per-stage counts to numbers', async () => {
+    mockDb.execute.mockResolvedValueOnce([
+      { stage: 'L0', count: '45' },
+      { stage: 'L1', count: 12 },
+      { stage: 'L3', count: '2' },
+    ]);
+
+    const result = await repo.getStageEntryCounts(WINDOW_FROM, WINDOW_TO);
+
+    // One raw-SQL query (created-at UNION stage-change logs), not a grouped select.
+    expect(mockDb.execute).toHaveBeenCalledTimes(1);
+    expect(mockDb.groupBy).not.toHaveBeenCalled();
+    expect(result).toEqual([
+      { stage: 'L0', count: 45 },
+      { stage: 'L1', count: 12 },
+      { stage: 'L3', count: 2 },
+    ]);
+  });
+
+  it('returns [] when no companies entered any stage in the window', async () => {
+    mockDb.execute.mockResolvedValueOnce([]);
+    await expect(repo.getStageEntryCounts(WINDOW_FROM, WINDOW_TO)).resolves.toEqual([]);
+  });
+});
+
 describe('DashboardInsightsRepository breakdowns', () => {
   let repo: DashboardInsightsRepository;
 
@@ -87,6 +120,46 @@ describe('DashboardInsightsRepository breakdowns', () => {
     ]);
   });
 
+});
+
+describe('DashboardInsightsRepository.getBankerResponseProfiles', () => {
+  let repo: DashboardInsightsRepository;
+
+  beforeEach(() => {
+    resetDb();
+    repo = new DashboardInsightsRepository(mockDb as never, 'workspace-1');
+  });
+
+  it('maps per-firm rows, coercing p50/pair_count and the gap array to numbers', async () => {
+    mockDb.execute.mockResolvedValueOnce([
+      { name: 'Golden Sacks', p50_seconds: '21600', pair_count: '9', gaps: ['6480', 21600, '51840'] },
+      { name: 'JP Organ', p50_seconds: 108000, pair_count: 9, gaps: [108000] },
+    ]);
+
+    const result = await repo.getBankerResponseProfiles();
+
+    expect(mockDb.execute).toHaveBeenCalledTimes(1);
+    expect(result).toEqual([
+      { name: 'Golden Sacks', p50Seconds: 21600, pairCount: 9, gaps: [6480, 21600, 51840] },
+      { name: 'JP Organ', p50Seconds: 108000, pairCount: 9, gaps: [108000] },
+    ]);
+  });
+
+  it('tolerates a null gaps array', async () => {
+    mockDb.execute.mockResolvedValueOnce([
+      { name: 'Organ Stanley', p50_seconds: '50400', pair_count: '1', gaps: null },
+    ]);
+    await expect(repo.getBankerResponseProfiles()).resolves.toEqual([
+      { name: 'Organ Stanley', p50Seconds: 50400, pairCount: 1, gaps: [] },
+    ]);
+  });
+
+  it('returns [] (not throw) when the analytics tables are unavailable', async () => {
+    mockDb.execute.mockRejectedValueOnce(
+      new Error('relation "analytics.email_workspace" does not exist'),
+    );
+    await expect(repo.getBankerResponseProfiles()).resolves.toEqual([]);
+  });
 });
 
 describe('DashboardInsightsRepository.getStaleCandidates', () => {

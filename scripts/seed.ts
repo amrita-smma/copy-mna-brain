@@ -3647,6 +3647,266 @@ async function main() {
       }
     }
 
+    // ── Banker response-time distributions ───────────────────────────────────
+    // Gives the banker firms that source deals a real spread of email response
+    // times, so the Insights → "Banker source quality" table can show each
+    // banker's response-time bell curve + p50 (matched to the firm by name).
+    // Each firm gets several inbound emails, each answered by our earliest
+    // outbound reply; the reply gaps are sampled around a per-firm centre so the
+    // firm's own gaps form a mini distribution and its median (p50) sits near
+    // that centre. Firm names mirror the `companies.banker` values above so the
+    // dashboard can match them. Idempotent via a stable message_id prefix; the
+    // employer is upserted by normalized_name (reusing the existing CRM firm
+    // when one already exists — e.g. Golden Sacks — rather than duplicating it).
+    // Bankers omitted here (e.g. Evercore) intentionally render "—".
+    {
+      const RT_MID_PREFIX = 'seed-rt-dist-';
+      const RT_MID_SUFFIX = '@seed.local';
+      const RT_MBOX_KEY = 'seed/response-times.mbox';
+      const RT_CUSTODIAN = {
+        name: 'Wendy Wobble',
+        email: 'wendy.wobble@sparklecapital.example',
+      };
+
+      // Banker (matches companies.banker / banker_source) + the median hours we
+      // take to reply. Centres are spread across the histogram bands so the
+      // per-firm sparklines look distinct.
+      const RT_FIRMS: Array<{ banker: string; centreHours: number }> = [
+        { banker: 'Kitti', centreHours: 3 },
+        { banker: 'Golden Sacks', centreHours: 6 },
+        { banker: 'Organ Stanley', centreHours: 14 },
+        { banker: 'UBSnacks', centreHours: 20 },
+        { banker: 'JP Organ', centreHours: 30 },
+        { banker: 'HSBQ', centreHours: 44 },
+        { banker: 'Kittygroup', centreHours: 60 },
+        { banker: 'Doodle Bank', centreHours: 90 },
+      ];
+
+      // Multipliers applied to each firm's centre — one inbound/reply pair each.
+      // Symmetric-ish around 1.0 so the median ≈ the centre and the gaps span
+      // ~3–4 adjacent (log-scaled) bands, giving a bell-ish per-firm shape.
+      const RT_MULTIPLIERS = [0.3, 0.5, 0.7, 0.85, 1.0, 1.15, 1.4, 1.8, 2.4];
+
+      const rtSlug = (name: string) =>
+        name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+
+      // Wipe prior fixture emails/raw_emails/mbox (idempotent). Employers are
+      // upserted (never deleted) so we don't drop a real CRM firm.
+      await db.delete(emails).where(like(emails.message_id, `${RT_MID_PREFIX}%${RT_MID_SUFFIX}`));
+      await db.delete(rawEmails).where(like(rawEmails.message_id, `${RT_MID_PREFIX}%${RT_MID_SUFFIX}`));
+      await db.delete(mboxFiles).where(eq(mboxFiles.s3_key, RT_MBOX_KEY));
+
+      // Custodian mailbox synced to MNA — the workspace bridge for every inbound
+      // email below (idempotent; AUTO VEHICLE also sets this up).
+      const [rtCustodian] = await db
+        .insert(users)
+        .values({ name: RT_CUSTODIAN.name, email: RT_CUSTODIAN.email, password: passwordHash })
+        .onConflictDoUpdate({ target: users.email, set: { name: RT_CUSTODIAN.name } })
+        .returning({ id: users.id });
+      if (rtCustodian) {
+        await db
+          .insert(userWorkspaces)
+          .values({
+            user_id: rtCustodian.id,
+            workspace_id: MNA_WORKSPACE_ID,
+            role_id: ROLE_EDITOR_ID,
+            is_email_synced: true,
+          })
+          .onConflictDoUpdate({
+            target: [userWorkspaces.user_id, userWorkspaces.workspace_id],
+            set: { is_email_synced: true },
+          });
+      }
+
+      const rtDayMs = 24 * 60 * 60 * 1000;
+      const rtBase = new Date('2026-05-02T09:00:00Z').getTime();
+      const nowIso = new Date().toISOString();
+
+      const [rtMbox] = await db
+        .insert(mboxFiles)
+        .values({
+          source: 'seed',
+          s3_bucket: 'seed-fixtures',
+          s3_key: RT_MBOX_KEY,
+          size_bytes: 0,
+          custodian_email: RT_CUSTODIAN.email,
+          window_start: new Date(rtBase).toISOString(),
+          window_end: new Date(rtBase + 90 * rtDayMs).toISOString(),
+          mode: 'incremental',
+          parse_status: 'parsed',
+          parsed_at: nowIso,
+          raw_email_count: RT_FIRMS.length * RT_MULTIPLIERS.length,
+        })
+        .returning({ id: mboxFiles.id });
+      if (!rtMbox) throw new Error('failed to insert response-time mbox_files fixture');
+
+      const rtRawRows: (typeof rawEmails.$inferInsert)[] = [];
+      const rtEmailRows: (typeof emails.$inferInsert)[] = [];
+      // inbound message_id → firm correspondent, for participants after insert.
+      const rtCorrByInMid = new Map<string, { corrId: string; email: string; name: string }>();
+
+      for (let fi = 0; fi < RT_FIRMS.length; fi++) {
+        const firm = RT_FIRMS[fi]!;
+        const slug = rtSlug(firm.banker);
+        const contactName = `${firm.banker} Coverage`;
+        const contactEmail = `banker@${slug}.example`;
+
+        // Reuse the existing CRM firm when one already carries this name;
+        // otherwise create it. `normalized_name` is unique, so the upsert is
+        // idempotent and never duplicates a firm across re-runs.
+        const [rtEmployer] = await db
+          .insert(employers)
+          .values({ name: firm.banker, normalized_name: normalize(firm.banker), industry: 'Financial Services' })
+          .onConflictDoUpdate({
+            target: employers.normalized_name,
+            set: { updated_at: nowIso },
+          })
+          .returning({ id: employers.id });
+        if (!rtEmployer) continue;
+
+        const [rtCorr] = await db
+          .insert(correspondents)
+          .values({
+            employer_id: rtEmployer.id,
+            name: contactName,
+            email: contactEmail,
+            title: 'Coverage Banker',
+            type: 'external',
+            is_primary: false,
+            source: 'mbox',
+          })
+          .onConflictDoNothing()
+          .returning({ id: correspondents.id });
+        // On re-run the correspondent already exists (onConflictDoNothing → no
+        // row returned); look it up so participants still link.
+        const corrId =
+          rtCorr?.id ??
+          (
+            await db
+              .select({ id: correspondents.id })
+              .from(correspondents)
+              .where(eq(correspondents.email, contactEmail))
+              .limit(1)
+          )[0]?.id;
+        if (!corrId) continue;
+        await db
+          .insert(workspaceCorrespondents)
+          .values({ workspace_id: MNA_WORKSPACE_ID, correspondent_id: corrId, source: 'ingest' as const })
+          .onConflictDoNothing();
+
+        for (let pi = 0; pi < RT_MULTIPLIERS.length; pi++) {
+          const gapHours = firm.centreHours * RT_MULTIPLIERS[pi]!;
+          const inMid = `${RT_MID_PREFIX}${fi}-${pi}-in${RT_MID_SUFFIX}`;
+          const outMid = `${RT_MID_PREFIX}${fi}-${pi}-out${RT_MID_SUFFIX}`;
+          // Space inbound emails a day apart so they don't collide.
+          const inSentAt = new Date(rtBase + (fi * RT_MULTIPLIERS.length + pi) * rtDayMs).toISOString();
+          const outSentAt = new Date(
+            new Date(inSentAt).getTime() + gapHours * 60 * 60 * 1000,
+          ).toISOString();
+
+          rtEmailRows.push({
+            message_id: inMid,
+            employer_id: rtEmployer.id,
+            from_address: contactEmail,
+            from_display_name: contactName,
+            subject: `Deal intro — ${firm.banker}`,
+            body_text: `Sharing an opportunity from ${firm.banker}. Keen to discuss.`,
+            sent_at: inSentAt,
+            direction: 'inbound',
+            filter_status: 'processed',
+            processed_at: nowIso,
+          });
+          rtEmailRows.push({
+            message_id: outMid,
+            in_reply_to: inMid,
+            employer_id: rtEmployer.id,
+            from_address: RT_CUSTODIAN.email,
+            from_display_name: RT_CUSTODIAN.name,
+            subject: `RE: Deal intro — ${firm.banker}`,
+            body_text: `Thanks — let us set up a call to review the materials.`,
+            sent_at: outSentAt,
+            direction: 'outbound',
+            filter_status: 'processed',
+            processed_at: nowIso,
+          });
+          rtCorrByInMid.set(inMid, { corrId, email: contactEmail, name: contactName });
+
+          // Only the inbound parent needs the raw_emails → workspace bridge (the
+          // response p50 is attributed to the inbound email's workspace).
+          rtRawRows.push({
+            file_id: rtMbox.id,
+            custodian_email: RT_CUSTODIAN.email,
+            message_id: inMid,
+            from_address: contactEmail.toLowerCase(),
+            from_display_name: contactName,
+            to_addresses: [RT_CUSTODIAN.email.toLowerCase()],
+            cc_addresses: [],
+            subject: `Deal intro — ${firm.banker}`,
+            body_text: '',
+            sent_at: inSentAt,
+            ingest_status: 'ingested',
+            ingested_at: nowIso,
+            llm_status: 'enriched',
+            llm_enriched_at: nowIso,
+          });
+        }
+      }
+
+      if (rtRawRows.length > 0) await db.insert(rawEmails).values(rtRawRows);
+      const rtInsertedEmails =
+        rtEmailRows.length > 0
+          ? await db
+              .insert(emails)
+              .values(rtEmailRows)
+              .returning({ id: emails.id, message_id: emails.message_id })
+          : [];
+
+      // Participants: the firm contact is the 'from' on each inbound email (this
+      // is what ties email volume to the employer); the custodian is the 'to'.
+      const rtParticipantRows: (typeof emailParticipants.$inferInsert)[] = [];
+      for (const e of rtInsertedEmails) {
+        const contact = e.message_id ? rtCorrByInMid.get(e.message_id) : undefined;
+        if (!contact) continue; // outbound replies carry no firm participant
+        rtParticipantRows.push(
+          {
+            email_id: e.id,
+            correspondent_id: contact.corrId,
+            address: contact.email.toLowerCase(),
+            display_name: contact.name,
+            role: 'from',
+          },
+          {
+            email_id: e.id,
+            correspondent_id: null,
+            address: RT_CUSTODIAN.email.toLowerCase(),
+            display_name: RT_CUSTODIAN.name,
+            role: 'to',
+          },
+        );
+      }
+      if (rtParticipantRows.length > 0) {
+        await db.insert(emailParticipants).values(rtParticipantRows);
+      }
+
+      console.log(
+        `  ✓ Banker response times: ${RT_FIRMS.length} firms × ${RT_MULTIPLIERS.length} reply pairs (${rtInsertedEmails.length} emails, custodian: ${RT_CUSTODIAN.email})`,
+      );
+    }
+
+    // Refresh the CRM marts so the seeded email activity is reflected in the
+    // CRM cards' KPIs (email_count / last_contact / response p50), which read
+    // from the precomputed analytics.mart_crm — otherwise only refreshed by the
+    // ingest pipeline. (The Insights banker bell curve computes response times
+    // live from analytics.emails and does not depend on this refresh.)
+    // Best-effort: the analytics marts may be absent where the data-pipeline
+    // migrations haven't run.
+    try {
+      await db.execute(sql`REFRESH MATERIALIZED VIEW analytics.mart_crm`);
+      console.log('  ✓ refreshed analytics.mart_crm');
+    } catch (err) {
+      console.warn('  ⚠ skipped analytics.mart_crm refresh (marts unavailable):', err);
+    }
+
     console.log('done.');
   } finally {
     await client.end();

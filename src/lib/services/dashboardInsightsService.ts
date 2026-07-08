@@ -15,6 +15,7 @@ import {
   matchedTrackPics,
   type TrackLike,
 } from '@/lib/tracks/matchTracks';
+import { normalizeCompanyName } from '@/lib/crm/normalizeCompanyName';
 
 // ─── Configurable settings (persisted in app_settings) ──────────────────────────
 
@@ -62,6 +63,10 @@ const MAX_BREAKDOWN_ROWS = 6;
 
 const MS_PER_DAY = 1000 * 60 * 60 * 24;
 
+/** Base period the configurable funnel targets are expressed over. Targets are
+ * annual goals, prorated down to the selected window on the dashboard. */
+const TARGET_PERIOD_DAYS = 365;
+
 // ─── DTO ────────────────────────────────────────────────────────────────────────
 
 export interface InsightsKpis {
@@ -80,9 +85,17 @@ export interface InsightsKpis {
 
 export interface FunnelStage {
   stage: string;
+  /** Companies *added to* this stage during the window (created at it or moved
+   * into it), not the current snapshot. */
   count: number;
+  /** Full-period (annual) target headcount for the stage. */
   target: number;
   targetLabel: string;
+  /** {@link target} scaled to the selected window: `target × windowDays / 365`,
+   * rounded — the fair goal to compare `count` against for a partial period. */
+  proratedTarget: number;
+  /** Whole days spanned by the selected window (used for the prorated label). */
+  windowDays: number;
 }
 
 export interface StaleDeal {
@@ -104,6 +117,14 @@ export interface StaleDeal {
   leadFromTrack: boolean;
 }
 
+/** One bar of a banker's response-time distribution sparkline. */
+export interface ResponseTimeBucket {
+  /** Response-time band, e.g. "1–4h" or "14d+". */
+  label: string;
+  /** Reply pairs whose gap falls in this band. */
+  count: number;
+}
+
 export interface BreakdownRow {
   key: string;
   l0: number;
@@ -112,6 +133,12 @@ export interface BreakdownRow {
   total: number;
   /** Conversion percentage (rounded). */
   conversion: number;
+  /** Bankers only: our median reply time to this firm (seconds), matched by
+   * firm name. Null when no email history matches. */
+  responseP50Seconds?: number | null;
+  /** Bankers only: distribution of our reply times, for the row's sparkline.
+   * Undefined for non-banker rows and unmatched bankers. */
+  responseBuckets?: ResponseTimeBucket[];
 }
 
 export interface AiThroughput {
@@ -181,10 +208,13 @@ export class DashboardInsightsService {
   }
 
   /**
-   * Assemble the Insights dashboard for the given window. Every metric is scoped
-   * to companies created within `[from, to]` (funnel, totals, conversion, stale
+   * Assemble the Insights dashboard for the given window. Most metrics are
+   * scoped to companies created within `[from, to]` (totals, conversion, stale
    * deals, and breakdowns are grouped by current stage), alongside the
-   * period-scoped activity counters (new deals, AI throughput). The sole
+   * period-scoped activity counters (new deals, AI throughput). The `funnel`
+   * counts instead reflect companies *added to* each stage during the window
+   * (created there or moved in), compared against each stage's annual target
+   * prorated to the window length. The sole
    * exception is `aiThroughput.hitlPending`, which is intentionally a live
    * snapshot ("work awaiting a human now"). `now` is injectable for
    * deterministic staleness math in tests.
@@ -193,9 +223,11 @@ export class DashboardInsightsService {
     const [
       settings,
       stageCounts,
+      stageEntryCounts,
       segmentBreakdown,
       countryBreakdown,
       bankerBreakdown,
+      bankerResponseProfiles,
       staleCandidates,
       tracks,
       newDeals,
@@ -209,9 +241,11 @@ export class DashboardInsightsService {
     ] = await Promise.all([
       this.getSettings(),
       this.repo.getStageCounts(from, to),
+      this.repo.getStageEntryCounts(from, to),
       this.repo.getSegmentBreakdown(from, to),
       this.repo.getCountryBreakdown(from, to),
       this.repo.getBankerBreakdown(from, to),
+      this.repo.getBankerResponseProfiles(),
       this.repo.getStaleCandidates(from, to),
       // All Tracks (investment theses) — the matched-Track PIC fallback for the
       // stale-deal lead uses the same full set the pipeline UI does.
@@ -229,9 +263,22 @@ export class DashboardInsightsService {
     const countByStage = new Map(stageCounts.map((s) => [s.stage, s.count]));
     const stageCount = (stage: string) => countByStage.get(stage) ?? 0;
 
+    const entriesByStage = new Map(stageEntryCounts.map((s) => [s.stage, s.count]));
+
+    // Whole days in the window — the numerator when prorating annual targets.
+    const windowDays = Math.max(1, Math.round((to.getTime() - from.getTime()) / MS_PER_DAY));
+
     const funnel: FunnelStage[] = PIPELINE_FUNNEL_STAGES.map((stage) => {
       const target = settings.funnelTargets[stage] ?? 0;
-      return { stage, count: stageCount(stage), target, targetLabel: `target ${target}` };
+      const proratedTarget = Math.round((target * windowDays) / TARGET_PERIOD_DAYS);
+      return {
+        stage,
+        count: entriesByStage.get(stage) ?? 0,
+        target,
+        targetLabel: `target ${target}`,
+        proratedTarget,
+        windowDays,
+      };
     });
 
     const totalInPipeline = stageCounts.reduce((s, x) => s + x.count, 0);
@@ -257,9 +304,14 @@ export class DashboardInsightsService {
       staleThresholdLabel: formatStaleThresholdLabel(settings.staleThresholds),
       staleDeals: staleDeals.slice(0, MAX_STALE_ROWS),
       // Segments & countries convert off their L0 base; bankers off total leads.
+      // Segments/countries return every row (the UI paginates); bankers stay
+      // capped at a fixed top-N and carry our response-time profile per firm.
       segments: buildBreakdown(segmentBreakdown, 'l0'),
       countries: buildBreakdown(countryBreakdown, 'l0'),
-      bankers: buildBreakdown(bankerBreakdown, 'total'),
+      bankers: attachResponseProfiles(
+        buildBreakdown(bankerBreakdown, 'total', MAX_BREAKDOWN_ROWS),
+        bankerResponseProfiles,
+      ),
       aiThroughput: {
         screenedL0,
         decksGenerated,
@@ -395,12 +447,66 @@ function resolveLead(
     : { leadName: null, leadFromTrack: false };
 }
 
+/** Response-time histogram bands, ascending. Each firm's median falls in the
+ * first band whose exclusive upper bound (seconds) it is under. Log-ish spacing
+ * so the typically log-normal response times form a bell-ish shape. */
+const RESPONSE_TIME_BUCKETS: { label: string; maxSeconds: number }[] = [
+  { label: '<1h', maxSeconds: 3600 },
+  { label: '1–4h', maxSeconds: 4 * 3600 },
+  { label: '4–12h', maxSeconds: 12 * 3600 },
+  { label: '12–24h', maxSeconds: 86400 },
+  { label: '1–2d', maxSeconds: 2 * 86400 },
+  { label: '2–3d', maxSeconds: 3 * 86400 },
+  { label: '3–5d', maxSeconds: 5 * 86400 },
+  { label: '5–7d', maxSeconds: 7 * 86400 },
+  { label: '7–14d', maxSeconds: 14 * 86400 },
+  { label: '14d+', maxSeconds: Number.POSITIVE_INFINITY },
+];
+
+/** Bucket a firm's reply-gap seconds into the histogram bands for its sparkline.
+ * Empty bands are kept so the shape reads correctly (a gap means "no replies
+ * this fast/slow", not a missing band). */
+function bucketResponseGaps(seconds: number[]): ResponseTimeBucket[] {
+  const buckets = RESPONSE_TIME_BUCKETS.map((b) => ({ label: b.label, count: 0 }));
+  for (const s of seconds) {
+    const idx = RESPONSE_TIME_BUCKETS.findIndex((b) => s < b.maxSeconds);
+    buckets[idx === -1 ? buckets.length - 1 : idx].count += 1;
+  }
+  return buckets;
+}
+
+/** Attach each banker's response-time profile (median + distribution) to its
+ * breakdown row, matching the free-text banker name to a firm by normalized
+ * name. Rows with no matching email history keep a null median (rendered "—").
+ * Non-banker breakdowns never call this, so their rows stay response-free. */
+function attachResponseProfiles(
+  rows: BreakdownRow[],
+  profiles: { name: string; p50Seconds: number; pairCount: number; gaps: number[] }[],
+): BreakdownRow[] {
+  const byFirm = new Map(
+    profiles.map((p) => [
+      normalizeCompanyName(p.name),
+      { p50Seconds: p.p50Seconds, buckets: bucketResponseGaps(p.gaps) },
+    ]),
+  );
+  return rows.map((row) => {
+    const match = byFirm.get(normalizeCompanyName(row.key));
+    return match
+      ? { ...row, responseP50Seconds: match.p50Seconds, responseBuckets: match.buckets }
+      : { ...row, responseP50Seconds: null };
+  });
+}
+
 /** Pivot `(key, stage)` counts into per-key rows and compute conversion.
- * `base` selects the conversion denominator: `l0` for segment/country tables
- * (L1+ as a share of L0), `total` for bankers (L1+ as a share of all leads). */
+ * `base` selects both the conversion denominator and the sort/display metric:
+ * `l0` for segment/country tables (L1+ as a share of L0, sorted by L0 volume),
+ * `total` for bankers (L1+ as a share of all leads, sorted by lead volume).
+ * `limit` caps the returned rows (bankers keep a fixed top-N); omit it to
+ * return every row (segment/country, which paginate client-side). */
 function buildBreakdown(
   rows: DimensionStageCount[],
   base: 'l0' | 'total',
+  limit?: number,
 ): BreakdownRow[] {
   const byKey = new Map<string, { l0: number; l1plus: number; total: number }>();
 
@@ -413,7 +519,7 @@ function buildBreakdown(
     byKey.set(row.key, agg);
   }
 
-  return Array.from(byKey.entries())
+  const built = Array.from(byKey.entries())
     .map(([key, agg]) => {
       const denom = base === 'l0' ? agg.l0 : agg.total;
       return {
@@ -424,6 +530,9 @@ function buildBreakdown(
         conversion: denom > 0 ? Math.round((agg.l1plus / denom) * 100) : 0,
       };
     })
-    .sort((a, b) => b.total - a.total)
-    .slice(0, MAX_BREAKDOWN_ROWS);
+    // Descending by the primary displayed metric so the visible lead column
+    // reads biggest-first (L0 for segment/country, total leads for bankers).
+    .sort((a, b) => (base === 'l0' ? b.l0 - a.l0 : b.total - a.total));
+
+  return limit == null ? built : built.slice(0, limit);
 }

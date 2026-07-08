@@ -122,6 +122,44 @@ export class DashboardInsightsRepository {
     return rows.map((r) => ({ stage: String(r.stage), count: Number(r.count) }));
   }
 
+  /**
+   * Companies *added to* each funnel stage (L0–L5) within the window — the flow
+   * into a stage, not the current snapshot. A company counts toward a stage when
+   * it was either created directly at that stage in the window, or moved into it
+   * via a stage-change log (`…_TO_L<n>`: promotions, resurfaces, restores) whose
+   * timestamp falls in the window. This generalises {@link countNewDeals} (the
+   * L0 case) across every stage, so a company promoted through several stages in
+   * the window is counted once per stage it entered. Distinct per stage.
+   */
+  async getStageEntryCounts(from: Date, to: Date): Promise<{ stage: string; count: number }[]> {
+    const fromIso = from.toISOString();
+    const toIso = to.toISOString();
+    const stages = [...PIPELINE_FUNNEL_STAGES];
+
+    const rows = await this.db.execute<{ stage: string; count: string }>(sql`
+      SELECT stage, COUNT(DISTINCT id) AS count FROM (
+        SELECT ${companies.id} AS id, ${companies.pipeline_stage}::text AS stage
+        FROM ${companies}
+        WHERE ${eq(companies.workspace_id, this.workspaceId)}
+          AND ${inArray(companies.pipeline_stage, stages)}
+          AND ${gte(companies.created_at, fromIso)}
+          AND ${lte(companies.created_at, toIso)}
+        UNION
+        SELECT ${companyLogs.company_id} AS id,
+               substring(${companyLogs.action} from '_TO_(L[0-5])$') AS stage
+        FROM ${companyLogs}
+        INNER JOIN ${companies} ON ${eq(companies.id, companyLogs.company_id)}
+        WHERE ${eq(companies.workspace_id, this.workspaceId)}
+          AND ${like(companyLogs.action, '%_TO_L%')}
+          AND ${gte(companyLogs.created_at, fromIso)}
+          AND ${lte(companyLogs.created_at, toIso)}
+      ) sub
+      WHERE ${inArray(sql`stage`, stages)}
+      GROUP BY stage
+    `);
+    return rows.map((r) => ({ stage: String(r.stage), count: Number(r.count) }));
+  }
+
   /** Count active funnel companies created in the window, grouped by an
    * arbitrary text key (a column or SQL expression) and pipeline stage. Shared
    * by the segment / country / banker breakdowns. */
@@ -159,6 +197,70 @@ export class DashboardInsightsRepository {
       from,
       to,
     );
+  }
+
+  /**
+   * Per banker firm (employer) in this workspace, our email response-time
+   * profile: the firm name, the median seconds we take to reply, the reply-pair
+   * sample size, and the full list of gap seconds (for a per-firm distribution
+   * sparkline). Computed live from `analytics.emails` — one earliest outbound
+   * reply per inbound email, gaps capped at 30 days — using the same logic as
+   * the `mart_crm` response p50, but returning the raw gaps rather than only
+   * the median. Workspace scoping is via the `analytics.email_workspace` bridge
+   * (message_id → raw_emails.custodian → synced user_workspaces).
+   *
+   * Defensive: the analytics tables are produced by the data pipeline and may
+   * be absent in some environments, so any failure yields `[]` rather than
+   * failing the whole Insights response.
+   */
+  async getBankerResponseProfiles(): Promise<
+    { name: string; p50Seconds: number; pairCount: number; gaps: number[] }[]
+  > {
+    try {
+      const rows = await this.db.execute<{
+        name: string;
+        p50_seconds: string | number;
+        pair_count: string | number;
+        gaps: (string | number)[] | null;
+      }>(sql`
+        SELECT e.name AS name,
+               percentile_cont(0.5) WITHIN GROUP (ORDER BY sub.gap_seconds) AS p50_seconds,
+               count(*) AS pair_count,
+               array_agg(sub.gap_seconds ORDER BY sub.gap_seconds) AS gaps
+        FROM (
+          SELECT parent.employer_id AS employer_id,
+                 EXTRACT(EPOCH FROM (mr.reply_at - parent.sent_at)) AS gap_seconds
+          FROM "analytics"."emails" parent
+          JOIN "analytics"."email_workspace" ew
+            ON ew.email_id = parent.id AND ew.workspace_id = ${this.workspaceId}
+          CROSS JOIN LATERAL (
+            SELECT MIN(reply.sent_at) AS reply_at
+            FROM "analytics"."emails" reply
+            WHERE reply.in_reply_to = parent.message_id
+              AND reply.direction = 'outbound'
+              AND reply.sent_at > parent.sent_at
+          ) mr
+          WHERE parent.direction = 'inbound'
+            AND parent.message_id IS NOT NULL
+            AND parent.employer_id IS NOT NULL
+            AND mr.reply_at IS NOT NULL
+            AND mr.reply_at - parent.sent_at <= INTERVAL '30 days'
+        ) sub
+        JOIN "public"."employers" e ON e.id = sub.employer_id
+        GROUP BY e.name
+      `);
+      return rows.map((r) => ({
+        name: String(r.name),
+        p50Seconds: Number(r.p50_seconds),
+        pairCount: Number(r.pair_count),
+        gaps: (r.gaps ?? [])
+          .map((g) => Number(g))
+          .filter((n) => Number.isFinite(n) && n >= 0),
+      }));
+    } catch (err) {
+      console.warn('getBankerResponseProfiles: analytics tables unavailable', err);
+      return [];
+    }
   }
 
   /** Active funnel deals (L0–L5) created within the window, with activity
