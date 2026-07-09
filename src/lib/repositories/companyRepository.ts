@@ -560,6 +560,10 @@ export class CompanyRepository {
   ): Promise<Tables<"companies">[]> {
     const { conditions, needsFinancialsJoin } =
       this.buildAgentConditions(filters);
+    // `discovered` rows are auto-created relationship-graph stubs that sit
+    // outside the L0–L5 origination funnel, so the agent search must never
+    // surface them.
+    conditions.push(ne(companies.pipeline_stage, "discovered" as DealStage));
     const where = and(...conditions);
     const limit = Math.min(filters.limit ?? 50, 50);
     if (needsFinancialsJoin) {
@@ -591,7 +595,7 @@ export class CompanyRepository {
     // The stats snapshot summarizes the origination pipeline only. `discovered`
     // rows are auto-created relationship-graph stubs that sit outside the L0–L5
     // funnel, so they must never inflate the aggregate — exclude them here
-    // (this is stats-only; searchForAgent/query_companies still surfaces them).
+    // (matching the same exclusion applied in searchForAgent).
     conditions.push(ne(companies.pipeline_stage, "discovered" as DealStage));
     const where = and(...conditions);
     const HARD_CAP = 5000;

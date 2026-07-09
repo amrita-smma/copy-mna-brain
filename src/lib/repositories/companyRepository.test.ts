@@ -311,6 +311,18 @@ describe('CompanyRepository.searchForAgent', () => {
     expect(params).toContain('2026-01-01');
     expect(params).toContain('2026-06-30');
   });
+
+  it('always excludes discovered-stage companies from the search', async () => {
+    const { db, where } = makeAgentSearchDb([]);
+    const repo = new CompanyRepository(db);
+
+    await repo.searchForAgent({});
+
+    const condition = where.mock.calls[0][0] as SQL;
+    const { sql: rendered, params } = renderSql(condition);
+    expect(rendered).toContain('"pipeline_stage" <>');
+    expect(params).toContain('discovered');
+  });
 });
 
 describe('CompanyRepository.findForAgentStats', () => {
