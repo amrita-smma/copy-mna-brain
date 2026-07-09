@@ -71,9 +71,10 @@ export interface InsightsKpis {
   totalInPipeline: number;
   /** Funnel companies created within the window. */
   newDeals: number;
-  /** L0→L1 conversion as a percentage (one decimal). Computed the same way as
-   * the main dashboard's pipeline-stages view: `promoted / (promoted + dropped)`
-   * (L1 promotions over promotions plus deals dropped while at L0). */
+  /** L0→L1 conversion as a whole-number percentage. Computed the same way as the
+   * main dashboard's "Pipeline Stages" card: the cumulative share of the whole
+   * L0 cohort (active + dropped) that reached L1 or beyond — `l1plus /
+   * cohortTotal`. */
   l0l1Conversion: number;
   /** Whether `l0l1Conversion` sits within the healthy band. */
   l0l1OnTarget: boolean;
@@ -209,10 +210,10 @@ export class DashboardInsightsService {
   /**
    * Assemble the Insights dashboard for the given window. `totalInPipeline`
    * counts active companies created within `[from, to]` by their current stage.
-   * `l0l1Conversion` uses the main dashboard's pipeline-stages formula —
-   * `promoted / (promoted + dropped)`, i.e. L1 promotions over promotions plus
-   * L0-stage drops — so the Insights and Dashboard views report the same rate.
-   * These sit alongside the period-scoped
+   * `l0l1Conversion` uses the main dashboard's "Pipeline Stages" formula —
+   * `l1plus / cohortTotal`, the cumulative share of the whole L0 cohort (active +
+   * dropped) that reached L1 or beyond — so the Insights and Dashboard views
+   * report the same rate. These sit alongside the period-scoped
    * activity counters (new deals, AI throughput). The `funnel` and the segment
    * / country / banker breakdowns instead reflect companies *added to* each
    * stage during the window (created there or moved in) — covering **all**
@@ -288,16 +289,28 @@ export class DashboardInsightsService {
     });
 
     const totalInPipeline = stageCounts.reduce((s, x) => s + x.count, 0);
-    // L0→L1 conversion mirrors the main dashboard's pipeline-stages view: the
-    // share of the L0 cohort that advanced, measured as L1 promotions over
-    // promotions plus the deals dropped while still at L0
-    // (`promoted / (promoted + dropped)`). This intentionally differs from a
-    // raw L1/L0 active-snapshot ratio so the two surfaces report the same rate.
     const droppedByStage = new Map(droppedStageCounts.map((s) => [s.stage, s.count]));
-    const l0l1Promoted = stageCount('L1');
-    const l0l1Denominator = l0l1Promoted + (droppedByStage.get('L0') ?? 0);
+
+    // L0→L1 conversion mirrors the main dashboard's "Pipeline Stages" card
+    // (`Dashboard.tsx` `conversionPercentStage`): the cumulative share of the
+    // whole L0 cohort — every company created in the window, active and dropped
+    // alike — that reached L1 or beyond. A company at L2/L3/… today also passed
+    // through L1, so the numerator rolls up the cohort from L1 onward
+    // (`l1plus / cohortTotal`). The cohort per stage is active + dropped, so this
+    // reconciles with the Dashboard funnel and the segment/country breakdown
+    // tables below, which use the same cumulative base.
+    const cohortByStage = (stage: string) =>
+      stageCount(stage) + (droppedByStage.get(stage) ?? 0);
+    const cohortTotal = PIPELINE_FUNNEL_STAGES.reduce(
+      (s, stage) => s + cohortByStage(stage),
+      0,
+    );
+    const l0l1Promoted = PIPELINE_FUNNEL_STAGES.filter((stage) => stage !== 'L0').reduce(
+      (s, stage) => s + cohortByStage(stage),
+      0,
+    );
     const l0l1Conversion =
-      l0l1Denominator > 0 ? Math.round((l0l1Promoted / l0l1Denominator) * 1000) / 10 : 0;
+      cohortTotal > 0 ? Math.round((l0l1Promoted / cohortTotal) * 100) : 0;
     const { min, max } = settings.l0l1Conversion;
 
     const staleDeals = buildStaleDeals(staleCandidates, now, settings.staleThresholds, tracks);

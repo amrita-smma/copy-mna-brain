@@ -146,31 +146,35 @@ describe('DashboardInsightsService.getInsights', () => {
       { stage: 'L1', count: 13 },
       { stage: 'L2', count: 5 },
     ]);
-    // Conversion base = L1 promotions (13) + deals dropped at L0 (87) = 100.
-    repo.getDroppedStageCounts.mockResolvedValue([{ stage: 'L0', count: 87 }]);
+    repo.getDroppedStageCounts.mockResolvedValue([{ stage: 'L0', count: 82 }]);
 
     const { kpis } = await service.getInsights(FROM, TO, NOW);
 
+    // Cumulative cohort per stage (active + dropped): L0=182, L1=13, L2=5.
+    // cohortTotal = 200, l1plus = 18 → 18/200 = 9%.
     expect(kpis.totalInPipeline).toBe(118); // sum of active stage counts
-    expect(kpis.l0l1Conversion).toBe(13); // 13 / (13 + 87)
-    expect(kpis.l0l1OnTarget).toBe(true); // >= 10
+    expect(kpis.l0l1Conversion).toBe(9);
+    expect(kpis.l0l1OnTarget).toBe(false); // < 10
   });
 
-  it('uses the pipeline-stages formula: L1 promotions over promotions plus L0 drops', async () => {
-    // Matches src/views/Dashboard.tsx `stageConversions`: promoted / (promoted +
-    // dropped). The raw L1/L0 snapshot ratio (13/40 ≈ 32.5%) is NOT used.
+  it('uses the pipeline-stages formula: cumulative L1+ over the whole L0 cohort', async () => {
+    // Matches src/views/Dashboard.tsx `conversionPercentStage` (Pipeline Stages
+    // card): cumulative companies at L1-or-beyond / whole cohort, counting active
+    // and dropped alike. A company at L2 today also passed through L1.
     repo.getStageCounts.mockResolvedValue([
       { stage: 'L0', count: 40 },
       { stage: 'L1', count: 13 },
+      { stage: 'L2', count: 3 },
     ]);
     repo.getDroppedStageCounts.mockResolvedValue([
-      { stage: 'L0', count: 39 }, // 13 promoted + 39 dropped at L0 = 52 base
-      { stage: 'L1', count: 5 }, // dropped past L0 — irrelevant to L0→L1
+      { stage: 'L0', count: 39 },
+      { stage: 'L1', count: 5 }, // dropped past L0 — still counts toward L1+
     ]);
 
     const { kpis } = await service.getInsights(FROM, TO, NOW);
 
-    expect(kpis.l0l1Conversion).toBe(25); // 13 / (13 + 39) = 25%
+    // cohort: L0=79, L1=18, L2=3 → cohortTotal=100, l1plus=21 → 21%.
+    expect(kpis.l0l1Conversion).toBe(21);
   });
 
   it('flags conversion below the healthy band as off-target', async () => {
@@ -178,18 +182,18 @@ describe('DashboardInsightsService.getInsights', () => {
       { stage: 'L0', count: 200 },
       { stage: 'L1', count: 13 },
     ]);
-    // Base = 13 promoted + 187 dropped at L0 = 200.
     repo.getDroppedStageCounts.mockResolvedValue([{ stage: 'L0', count: 187 }]);
 
     const { kpis } = await service.getInsights(FROM, TO, NOW);
 
-    expect(kpis.l0l1Conversion).toBe(6.5); // 13/200 → 6.5%, one decimal
+    // cohort: L0=387, L1=13 → cohortTotal=400, l1plus=13 → round(3.25%) = 3%.
+    expect(kpis.l0l1Conversion).toBe(3);
     expect(kpis.l0l1OnTarget).toBe(false);
   });
 
-  it('returns zero conversion when nothing promoted and nothing dropped at L0 (no divide-by-zero)', async () => {
-    // No L1 promotions and no L0 drops → empty denominator.
-    repo.getStageCounts.mockResolvedValue([{ stage: 'L2', count: 4 }]);
+  it('returns zero conversion when the cohort is empty (no divide-by-zero)', async () => {
+    // No companies at any funnel stage → empty cohort denominator.
+    repo.getStageCounts.mockResolvedValue([]);
     repo.getDroppedStageCounts.mockResolvedValue([]);
 
     const { kpis } = await service.getInsights(FROM, TO, NOW);
@@ -481,11 +485,11 @@ describe('DashboardInsightsService.getInsights', () => {
 
   it('applies stored settings to funnel targets and the conversion band', async () => {
     repo.getStageCounts.mockResolvedValue([
-      { stage: 'L0', count: 100 },
+      { stage: 'L0', count: 91 },
       { stage: 'L1', count: 9 },
     ]);
-    // Base = 9 promoted + 91 dropped at L0 = 100.
-    repo.getDroppedStageCounts.mockResolvedValue([{ stage: 'L0', count: 91 }]);
+    // Cohort: L0=91, L1=9 → cohortTotal=100, l1plus=9 → 9%.
+    repo.getDroppedStageCounts.mockResolvedValue([]);
     settingsRepo.get.mockResolvedValue({
       funnelTargets: { L1: 50 },
       l0l1Conversion: { min: 8, max: 12 },

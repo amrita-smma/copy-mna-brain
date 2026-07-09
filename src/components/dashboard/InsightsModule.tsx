@@ -94,14 +94,6 @@ function formatUpdatedBy(meta: InsightsSettingsMeta): string | null {
 
 // ─── Presentation helpers ─────────────────────────────────────────────────────
 
-/** Conversion-rate color band, mirroring the source design's g/w/r scale. */
-function convClass(pct: number, hasBase: boolean): string {
-  if (!hasBase) return 'text-muted-foreground font-medium';
-  if (pct <= 0) return 'text-red-600 dark:text-red-400 font-semibold';
-  if (pct < 10) return 'text-amber-600 dark:text-amber-400 font-semibold';
-  return 'text-emerald-600 dark:text-emerald-400 font-semibold';
-}
-
 /** Solid fill colors for each funnel bar, L0 (top) → L5 (bottom). */
 const FUNNEL_BAR_COLORS: Record<string, string> = {
   L0: 'bg-blue-500/80',
@@ -555,9 +547,6 @@ function InsightsContent({
               tableId="dashboard-insights-bankers"
               rows={bankers.filter((r) => !isExcludedBankerSource(r.key))}
               firstHeader="Banker"
-              leadHeader="Leads"
-              leadValue={(r) => r.total}
-              convBase={(r) => r.total}
               pageSize={6}
               showResponse
               renderKey={(r) => (
@@ -603,9 +592,6 @@ function InsightsContent({
               tableId="dashboard-insights-countries"
               rows={countries}
               firstHeader="Country"
-              leadHeader="L0"
-              leadValue={(r) => r.total}
-              convBase={(r) => r.total}
               pageSize={6}
               renderKey={(r) => (
                 <span className="flex items-center gap-2 text-[13px]">
@@ -635,9 +621,6 @@ function InsightsContent({
               tableId="dashboard-insights-segments"
               rows={segments}
               firstHeader="Segment"
-              leadHeader="L0"
-              leadValue={(r) => r.total}
-              convBase={(r) => r.total}
               pageSize={6}
               renderKey={(r) => <span className="text-[13px]">{r.key}</span>}
               emptyLabel="No segmented deals."
@@ -817,9 +800,6 @@ function BreakdownTable({
   tableId,
   rows,
   firstHeader,
-  leadHeader,
-  leadValue,
-  convBase,
   renderKey,
   emptyLabel,
   pageSize,
@@ -829,9 +809,6 @@ function BreakdownTable({
   tableId: string;
   rows: BreakdownRow[];
   firstHeader: string;
-  leadHeader: string;
-  leadValue: (r: BreakdownRow) => number;
-  convBase: (r: BreakdownRow) => number;
   renderKey: (r: BreakdownRow) => React.ReactNode;
   emptyLabel: string;
   /** When set, show this many rows per page with prev/next controls. Rows
@@ -856,41 +833,14 @@ function BreakdownTable({
   const columns = useMemo<ColumnDef<BreakdownRow>[]>(
     () => [
       {
-        id: 'leads',
-        label: leadHeader,
-        header: (
-          <span className="whitespace-nowrap font-semibold">{leadHeader}</span>
-        ),
+        id: 'total',
+        label: 'Total',
+        header: <span className="whitespace-nowrap font-semibold">Total</span>,
         headerClassName:
           'h-auto px-0 pb-2 text-right align-bottom text-[10.5px] font-semibold uppercase tracking-wide text-muted-foreground',
         cellClassName:
           'p-0 py-2 text-right font-mono text-xs text-muted-foreground',
-        cell: (r) => leadValue(r),
-      },
-      {
-        id: 'l1plus',
-        label: 'L1+',
-        header: <span className="whitespace-nowrap font-semibold">L1+</span>,
-        headerClassName:
-          'h-auto px-0 pb-2 text-right align-bottom text-[10.5px] font-semibold uppercase tracking-wide text-muted-foreground',
-        cellClassName:
-          'p-0 py-2 text-right font-mono text-xs text-muted-foreground',
-        cell: (r) => r.l1plus,
-      },
-      {
-        id: 'conversion',
-        label: 'Conv.',
-        header: <span className="whitespace-nowrap font-semibold">Conv.</span>,
-        headerClassName:
-          'h-auto px-0 pb-2 text-right align-bottom text-[10.5px] font-semibold uppercase tracking-wide text-muted-foreground',
-        cellClassName: (r) => {
-          const hasBase = convBase(r) > 0;
-          return `p-0 py-2 text-right font-mono text-xs ${convClass(r.conversion, hasBase)}`;
-        },
-        cell: (r) => {
-          const hasBase = convBase(r) > 0;
-          return hasBase ? `${r.conversion}%` : '—';
-        },
+        cell: (r) => r.total,
       },
       ...(showResponse
         ? [
@@ -908,7 +858,7 @@ function BreakdownTable({
         ]
         : []),
     ],
-    [leadHeader, leadValue, convBase, showResponse],
+    [showResponse],
   );
 
   const mgr = useColumnLayout<BreakdownRow>(tableId, columns);
