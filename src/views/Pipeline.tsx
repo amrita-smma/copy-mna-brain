@@ -464,9 +464,9 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
           pic:
             Array.isArray(company.assignees) && company.assignees.length > 0
               ? company.assignees
-                  .map((a: { name: string | null }) => a.name)
-                  .filter(Boolean)
-                  .join(", ")
+                .map((a: { name: string | null }) => a.name)
+                .filter(Boolean)
+                .join(", ")
               : (company.pic ?? null),
           remarks: company.remarks || null,
           created_at: company.created_at,
@@ -1155,23 +1155,23 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
     activeBorder: string;
     badge: string;
   }[] = [
-    {
-      value: "inbound",
-      label: "Inbound",
-      dot: "bg-blue-600",
-      activeText: "text-blue-700",
-      activeBorder: "border-blue-700",
-      badge: "bg-blue-100 text-blue-700",
-    },
-    {
-      value: "outbound",
-      label: "Outbound",
-      dot: "bg-amber-600",
-      activeText: "text-amber-700",
-      activeBorder: "border-amber-700",
-      badge: "bg-amber-100 text-amber-700",
-    },
-  ];
+      {
+        value: "inbound",
+        label: "Inbound",
+        dot: "bg-blue-600",
+        activeText: "text-blue-700",
+        activeBorder: "border-blue-700",
+        badge: "bg-blue-100 text-blue-700",
+      },
+      {
+        value: "outbound",
+        label: "Outbound",
+        dot: "bg-amber-600",
+        activeText: "text-amber-700",
+        activeBorder: "border-amber-700",
+        badge: "bg-amber-100 text-amber-700",
+      },
+    ];
 
   const renderSourceTabs = (stage: DealStage) => (
     <div className="flex items-stretch gap-1 border-b mb-4">
@@ -1252,20 +1252,18 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
                 key={stage}
                 data-testid={`pipeline-tab-${stage.toLowerCase()}`}
                 value={stage}
-                className={`relative transition-all ${
-                  activeTab === stage
-                    ? `${stageColors[stage].bg} ${stageColors[stage].text} data-[state=active]:${stageColors[stage].bg} data-[state=active]:${stageColors[stage].text}`
-                    : `${stageColors[stage].bgLight} ${stageColors[stage].textLight} hover:opacity-80`
-                }`}
+                className={`relative transition-all ${activeTab === stage
+                  ? `${stageColors[stage].bg} ${stageColors[stage].text} data-[state=active]:${stageColors[stage].bg} data-[state=active]:${stageColors[stage].text}`
+                  : `${stageColors[stage].bgLight} ${stageColors[stage].textLight} hover:opacity-80`
+                  }`}
               >
                 {stage}
                 <Badge
                   variant="secondary"
-                  className={`ml-2 h-5 min-w-5 px-1.5 text-xs ${
-                    activeTab === stage
-                      ? "bg-white/20 text-white"
-                      : `${stageColors[stage].bg} text-white`
-                  }`}
+                  className={`ml-2 h-5 min-w-5 px-1.5 text-xs ${activeTab === stage
+                    ? "bg-white/20 text-white"
+                    : `${stageColors[stage].bg} text-white`
+                    }`}
                 >
                   {stageCount(stage)}
                 </Badge>
@@ -2096,11 +2094,11 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
             nextStage={
               dialogMode === "demote"
                 ? (STAGES[
-                    STAGES.indexOf(promotingCompany.pipeline_stage) - 1
-                  ] as DealStage)
+                  STAGES.indexOf(promotingCompany.pipeline_stage) - 1
+                ] as DealStage)
                 : (STAGES[
-                    STAGES.indexOf(promotingCompany.pipeline_stage) + 1
-                  ] as DealStage)
+                  STAGES.indexOf(promotingCompany.pipeline_stage) + 1
+                ] as DealStage)
             }
             onSuccess={() => {
               setPromotingCompany(null);

@@ -90,6 +90,7 @@ const PIPELINE_STAGES: { stage: string; label: string; color: string }[] = [
 
 // Solid pill colors for the L1–L5 stage columns (inbound = darker, outbound = lighter).
 const stagePillColors: Record<string, { inbound: string; outbound: string }> = {
+  L0: { inbound: "bg-blue-500", outbound: "bg-blue-300" },
   L1: { inbound: "bg-violet-500", outbound: "bg-violet-300" },
   L2: { inbound: "bg-amber-500", outbound: "bg-amber-300" },
   L3: { inbound: "bg-emerald-500", outbound: "bg-emerald-300" },
@@ -1872,49 +1873,9 @@ export default function Dashboard({
                   </div>
                 ) : (
                   <div className="flex items-stretch gap-3 overflow-x-auto">
-                    {/* L0 · Sourcing — split into inbound / outbound */}
-                    <div className="flex w-[180px] shrink-0 flex-col gap-2">
-                      <p className="text-center text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-                        L0 · Sourcing
-                      </p>
-                      <WorkspaceLink
-                        data-testid="dashboard-stage-l0-inbound-link"
-                        href="/pipeline?stage=L0"
-                        className="flex flex-1 flex-col items-center justify-center gap-0.5 rounded-xl bg-gradient-to-br from-indigo-400 to-indigo-600 p-3 text-white no-underline transition-transform hover:scale-[1.02]"
-                      >
-                        <span className="text-[10px] font-bold uppercase tracking-wide opacity-90">
-                          Inbound
-                        </span>
-                        <span className="text-2xl font-extrabold leading-none">
-                          {displayL0Inbound}
-                        </span>
-                        <span className="text-[10px] text-white/70">
-                          {pctOfTotal(displayL0Inbound)}% of total
-                        </span>
-                      </WorkspaceLink>
-                      <WorkspaceLink
-                        data-testid="dashboard-stage-l0-outbound-link"
-                        href="/pipeline?stage=L0"
-                        className="flex flex-1 flex-col items-center justify-center gap-0.5 rounded-xl bg-gradient-to-br from-blue-400 to-blue-600 p-3 text-white no-underline transition-transform hover:scale-[1.02]"
-                      >
-                        <span className="text-[10px] font-bold uppercase tracking-wide opacity-90">
-                          Outbound
-                        </span>
-                        <span className="text-2xl font-extrabold leading-none">
-                          {displayL0Outbound}
-                        </span>
-                        <span className="text-[10px] text-white/70">
-                          {pctOfTotal(displayL0Outbound)}% of total
-                        </span>
-                      </WorkspaceLink>
-                    </div>
-
-                    {/* divider */}
-                    <div className="w-px shrink-0 bg-border" />
-
                     {/* L1 – L5 stage columns */}
                     <div className="flex flex-1 items-stretch gap-2 min-w-[360px]">
-                      {cumulativeStageCounts.slice(1).map((item) => {
+                      {cumulativeStageCounts.map((item) => {
                         const pills = stagePillColors[item.stage] ?? {
                           inbound: "bg-gray-400",
                           outbound: "bg-gray-300",
@@ -1930,12 +1891,12 @@ export default function Dashboard({
                             href={`/pipeline?stage=${item.stage}`}
                             className="group flex flex-1 flex-col items-center gap-1 no-underline text-inherit"
                           >
-                            <div className="text-center">
+                            <div className="flex items-baseline gap-1.5 justify-center">
                               <div className="text-lg font-bold transition-transform group-hover:scale-110">
                                 {item.count}
                               </div>
-                              <div className="text-[10px] text-muted-foreground">
-                                {conversionPercentStage}%
+                              <div className="text-[10px] text-muted-foreground transition-transform group-hover:scale-110">
+                                ({conversionPercentStage}%)
                               </div>
                             </div>
                             <div className="flex w-full flex-1 flex-col gap-1">
@@ -2073,15 +2034,17 @@ export default function Dashboard({
         )}
       </div>
 
-      {selectedCompany && (
-        <CompanyDetailDialog
-          company={selectedCompany}
-          open={dialogOpen}
-          onOpenChange={setDialogOpen}
-          onUpdate={fetchPipelineData}
-        />
-      )}
-    </DashboardLayout>
+      {
+        selectedCompany && (
+          <CompanyDetailDialog
+            company={selectedCompany}
+            open={dialogOpen}
+            onOpenChange={setDialogOpen}
+            onUpdate={fetchPipelineData}
+          />
+        )
+      }
+    </DashboardLayout >
   );
 }
 
