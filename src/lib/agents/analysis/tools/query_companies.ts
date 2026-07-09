@@ -1,9 +1,12 @@
 import { tool } from "@langchain/core/tools";
-import { getActiveWorkspaceId } from '@/lib/workspace';
+import { getActiveWorkspaceId } from "@/lib/workspace";
 import { z } from "zod";
 import { logger } from "../../logger";
 import { createDb } from "@/lib/server/db";
-import { CompanyFinancialRepository, CompanyRepository } from "@/lib/repositories";
+import {
+  CompanyFinancialRepository,
+  CompanyRepository,
+} from "@/lib/repositories";
 
 /**
  * Query companies with filters.
@@ -61,11 +64,14 @@ export const queryCompanies = tool(
     limit?: number;
   }) => {
     logger.debug(
-      `🔧 TOOL CALLED: query_companies(segment='${segment}', geography='${geography}', stage='${stage}', name='${name}', ownership='${ownership}', source='${source}', status='${status}', deal_type='${deal_type}', has_ai_opinion='${has_ai_opinion}', ai_opinion_verdict='${ai_opinion_verdict}', search='${search_term}')`
+      `🔧 TOOL CALLED: query_companies(segment='${segment}', geography='${geography}', stage='${stage}', name='${name}', ownership='${ownership}', source='${source}', status='${status}', deal_type='${deal_type}', has_ai_opinion='${has_ai_opinion}', ai_opinion_verdict='${ai_opinion_verdict}', search='${search_term}')`,
     );
 
     try {
-      const companyRepo = new CompanyRepository(createDb(), await getActiveWorkspaceId());
+      const companyRepo = new CompanyRepository(
+        createDb(),
+        await getActiveWorkspaceId(),
+      );
       const companies = await companyRepo.searchForAgent({
         segment,
         geography,
@@ -95,11 +101,14 @@ export const queryCompanies = tool(
         return "No companies found matching your criteria.";
       }
 
-      const financialRepo = new CompanyFinancialRepository(createDb(), await getActiveWorkspaceId());
+      const financialRepo = new CompanyFinancialRepository(
+        createDb(),
+        await getActiveWorkspaceId(),
+      );
       const latestFin = await financialRepo.findLatestByCompanies(
         companies.map((c) => c.id),
       );
-      const finByCompany = new Map<string, typeof latestFin[number]>();
+      const finByCompany = new Map<string, (typeof latestFin)[number]>();
       for (const r of latestFin) finByCompany.set(r.company_id, r);
 
       const header =
@@ -109,8 +118,10 @@ export const queryCompanies = tool(
 
       const rows = companies.map((c) => {
         const f = finByCompany.get(c.id);
-        const rev = f?.revenue_usd_mn != null ? `$${f.revenue_usd_mn.toFixed(1)}` : "-";
-        const ebitda = f?.ebitda_usd_mn != null ? `$${f.ebitda_usd_mn.toFixed(1)}` : "-";
+        const rev =
+          f?.revenue_usd_mn != null ? `$${f.revenue_usd_mn.toFixed(1)}` : "-";
+        const ebitda =
+          f?.ebitda_usd_mn != null ? `$${f.ebitda_usd_mn.toFixed(1)}` : "-";
         const ev = f?.ev_usd_mn != null ? `$${f.ev_usd_mn.toFixed(1)}` : "-";
         const opinion = c.ai_opinion_verdict
           ? c.ai_opinion_verdict.toUpperCase()
@@ -139,7 +150,7 @@ Available filters (every one maps to a real column):
     segment: Segment (partial match, e.g. "Technology", "Semiconductors")
     geography: Geography (partial match, e.g. "USA", "Japan", "APAC")
     watchlist_status: Watchlist status (partial match)
-    stage: Pipeline stage (exact, one of: "market_screening", "unreviewed", "L0", "L1", "L2", "L3", "L4", "L5", "discovered")
+    stage: Pipeline stage (exact, one of: "market_screening", "unreviewed", "L0", "L1", "L2", "L3", "L4", "L5")
     name: Company name (partial, case-insensitive against target OR project_name)
     ownership: Ownership (partial match, e.g. "family office", "PE", "public")
     company_focus: Company focus / what they do (partial match)
@@ -160,7 +171,10 @@ Returns:
     A markdown table: target, project, segment, geography, stage, status, AI opinion, and latest revenue/EBITDA/EV.`,
     schema: z.object({
       segment: z.string().optional().describe("Filter by segment (partial)"),
-      geography: z.string().optional().describe("Filter by geography (partial)"),
+      geography: z
+        .string()
+        .optional()
+        .describe("Filter by geography (partial)"),
       watchlist_status: z
         .string()
         .optional()
@@ -175,14 +189,15 @@ Returns:
           "L3",
           "L4",
           "L5",
-          "discovered",
         ])
         .optional()
         .describe("Filter by pipeline stage (exact match)"),
       name: z
         .string()
         .optional()
-        .describe("Filter by company name (partial, matches target or project_name)"),
+        .describe(
+          "Filter by company name (partial, matches target or project_name)",
+        ),
       ownership: z
         .string()
         .optional()
@@ -221,10 +236,22 @@ Returns:
         .enum(["pass", "fail", "tentative"])
         .optional()
         .describe("Filter by AI Opinion verdict (exact match)"),
-      min_revenue: z.number().optional().describe("Minimum FY2024 revenue (USD M)"),
-      max_revenue: z.number().optional().describe("Maximum FY2024 revenue (USD M)"),
-      min_ebitda: z.number().optional().describe("Minimum FY2024 EBITDA (USD M)"),
-      max_ebitda: z.number().optional().describe("Maximum FY2024 EBITDA (USD M)"),
+      min_revenue: z
+        .number()
+        .optional()
+        .describe("Minimum FY2024 revenue (USD M)"),
+      max_revenue: z
+        .number()
+        .optional()
+        .describe("Maximum FY2024 revenue (USD M)"),
+      min_ebitda: z
+        .number()
+        .optional()
+        .describe("Minimum FY2024 EBITDA (USD M)"),
+      max_ebitda: z
+        .number()
+        .optional()
+        .describe("Maximum FY2024 EBITDA (USD M)"),
       created_after: z
         .string()
         .optional()
@@ -243,7 +270,11 @@ Returns:
         .describe(
           "Free-text search across target name, project name, segment, and geography",
         ),
-      limit: z.number().optional().default(20).describe("Max results to return"),
+      limit: z
+        .number()
+        .optional()
+        .default(20)
+        .describe("Max results to return"),
     }),
-  }
+  },
 );
