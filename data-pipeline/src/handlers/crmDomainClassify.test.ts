@@ -7,7 +7,6 @@ const mocks = vi.hoisted(() => ({
   upsertBatch: vi.fn(),
   execute: vi.fn(),
   readFileSync: vi.fn(),
-  listInternalDomains: vi.fn(),
   listExcludedDomains: vi.fn(),
 }));
 
@@ -21,7 +20,6 @@ vi.mock('@anthropic-ai/sdk', () => ({
 
 vi.mock('@/lib/repositories', () => ({
   EmployerOverrideRepository: class {
-    listInternalDomains = mocks.listInternalDomains;
     listExcludedDomains = mocks.listExcludedDomains;
   },
 }));
@@ -55,8 +53,7 @@ describe('runCrmDomainClassify', () => {
       if (typeof m === 'function' && 'mockClear' in m) (m as ReturnType<typeof vi.fn>).mockClear();
     });
     process.env.ANTHROPIC_API_KEY = 'sk-test';
-    // Domain config now comes from employer_overrides (DB), not a file.
-    mocks.listInternalDomains.mockResolvedValue(['starcapital.co.id']);
+    // Excluded domains come from employer_overrides (DB), not a file.
     mocks.listExcludedDomains.mockResolvedValue(['fireflies.ai']);
     mocks.readFileSync.mockReturnValue('{}');
     mocks.listUnknownDomains.mockResolvedValue([]);
@@ -117,8 +114,6 @@ describe('runCrmDomainClassify', () => {
   });
 
   it('filters out hardcoded internal company domains regardless of employer_overrides', async () => {
-    // employer_overrides returns nothing — these are ignored via the hardcoded set.
-    mocks.listInternalDomains.mockResolvedValueOnce([]);
     mocks.listExcludedDomains.mockResolvedValueOnce([]);
     mocks.execute.mockResolvedValueOnce([
       { domain: 'starcapital.co.id', n: 100 },

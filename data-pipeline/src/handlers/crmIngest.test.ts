@@ -210,6 +210,153 @@ describe('runCrmIngest', () => {
     expect(result.marts_refreshed).toEqual(['mart_crm', 'mart_mom', 'mart_topics']);
   });
 
+  it('does not create an employer or correspondent for a domain marked internal', async () => {
+    mocks.listReadyForIngest.mockResolvedValueOnce([
+      makeRow({
+        from_address: 'alice@goldman.com',
+        to_addresses: ['hendric.g@starcapital.co.id'],
+      }),
+    ]);
+    mocks.employersUpsertBatch.mockResolvedValueOnce([
+      { id: 'emp-goldman', normalized_name: 'goldman-sachs' },
+    ]);
+    mocks.correspondentsUpsertBatch.mockResolvedValueOnce([
+      { id: 'c1', email: 'alice@goldman.com' },
+    ]);
+
+    const result = await runCrmIngest(
+      {},
+      { db: makeDb() as never, job: { id: 'j1' } as never },
+    );
+
+    // Only the external domain is resolved into an employer — the internal
+    // domain (starcapital.co.id) never gets its own employer card.
+    expect(mocks.employersUpsertBatch).toHaveBeenCalledWith([
+      {
+        name: 'Goldman Sachs',
+        normalized_name: 'goldman-sachs',
+        industry: 'Investment Banking',
+        status: 'inbound',
+        curation_status: 'published',
+      },
+    ]);
+    // The internal recipient never becomes a correspondent (no employer to
+    // attach it to).
+    expect(mocks.correspondentsUpsertBatch).toHaveBeenCalledWith(
+      expect.not.arrayContaining([
+        expect.objectContaining({ email: 'hendric.g@starcapital.co.id' }),
+      ]),
+    );
+    // No employer_domains mapping is persisted for the internal domain either.
+    expect(mocks.employerDomainPersistMany).toHaveBeenCalledWith(
+      expect.not.arrayContaining([
+        expect.objectContaining({ domain: 'starcapital.co.id' }),
+      ]),
+    );
+    expect(result.employers_upserted).toBe(1);
+  });
+
+  it('does not create an employer for a hardcoded internal domain even with no employer_overrides row at all', async () => {
+    mocks.overrideListAll.mockResolvedValueOnce([
+      { domain: 'goldman.com', employer_name: 'Goldman Sachs', industry: 'Investment Banking', internal: false, excluded: false },
+    ]);
+    mocks.listReadyForIngest.mockResolvedValueOnce([
+      makeRow({
+        from_address: 'alice@goldman.com',
+        to_addresses: ['bob@smma.id'],
+      }),
+    ]);
+    mocks.employersUpsertBatch.mockResolvedValueOnce([
+      { id: 'emp-goldman', normalized_name: 'goldman-sachs' },
+    ]);
+    mocks.correspondentsUpsertBatch.mockResolvedValueOnce([
+      { id: 'c1', email: 'alice@goldman.com' },
+    ]);
+
+    const result = await runCrmIngest(
+      {},
+      { db: makeDb() as never, job: { id: 'j1' } as never },
+    );
+
+    expect(mocks.employersUpsertBatch).toHaveBeenCalledWith([
+      {
+        name: 'Goldman Sachs',
+        normalized_name: 'goldman-sachs',
+        industry: 'Investment Banking',
+        status: 'inbound',
+        curation_status: 'published',
+      },
+    ]);
+    expect(mocks.correspondentsUpsertBatch).toHaveBeenCalledWith(
+      expect.not.arrayContaining([
+        expect.objectContaining({ email: 'bob@smma.id' }),
+      ]),
+    );
+    expect(result.employers_upserted).toBe(1);
+  });
+
+  it('creates an employer for a domain marked internal only in employer_overrides — that column is no longer read', async () => {
+    // INTERNAL_MAIL_DOMAINS (crmDomainClassify.ts) is the sole source of truth
+    // for "internal" now; employer_overrides.internal is dead data until the
+    // column itself is dropped in a follow-up migration.
+    mocks.overrideListAll.mockResolvedValueOnce([
+      { domain: 'newsub.co.id', employer_name: null, industry: null, internal: true, excluded: false },
+    ]);
+    mocks.listReadyForIngest.mockResolvedValueOnce([
+      makeRow({ from_address: 'alice@newsub.co.id', to_addresses: [] }),
+    ]);
+    mocks.employersUpsertBatch.mockResolvedValueOnce([
+      { id: 'emp-newsub', normalized_name: 'newsub' },
+    ]);
+
+    const result = await runCrmIngest(
+      {},
+      { db: makeDb() as never, job: { id: 'j1' } as never },
+    );
+
+    expect(mocks.employersUpsertBatch).toHaveBeenCalledWith([
+      expect.objectContaining({ name: 'Newsub', normalized_name: 'newsub' }),
+    ]);
+    expect(result.employers_upserted).toBe(1);
+  });
+
+  it('drops a stale persisted employer_domains mapping once a domain is marked internal', async () => {
+    // Simulates a domain that was resolved to a real employer in a prior run,
+    // before it was added to INTERNAL_MAIL_DOMAINS — the resolve-once cache
+    // must not keep re-adopting that stale mapping.
+    mocks.employerDomainLoadMap.mockResolvedValueOnce(
+      new Map([['starcapital.co.id', 'emp-star-old']]),
+    );
+    mocks.listReadyForIngest.mockResolvedValueOnce([
+      makeRow({
+        from_address: 'hendric.g@starcapital.co.id',
+        to_addresses: ['alice@goldman.com'],
+      }),
+    ]);
+    mocks.employersUpsertBatch.mockResolvedValueOnce([
+      { id: 'emp-goldman', normalized_name: 'goldman-sachs' },
+    ]);
+    mocks.correspondentsUpsertBatch.mockResolvedValueOnce([
+      { id: 'c1', email: 'alice@goldman.com' },
+    ]);
+    mocks.insertBatchIgnoringDupes.mockResolvedValueOnce([
+      { id: 'e1', message_id: 'msg-1@x' },
+    ]);
+
+    await runCrmIngest(
+      {},
+      { db: makeDb() as never, job: { id: 'j1' } as never },
+    );
+
+    const inserted = mocks.insertBatchIgnoringDupes.mock.calls[0][0];
+    expect(inserted[0]).toMatchObject({ employer_id: null, direction: 'outbound' });
+    expect(mocks.correspondentsUpsertBatch).toHaveBeenCalledWith(
+      expect.not.arrayContaining([
+        expect.objectContaining({ email: 'hendric.g@starcapital.co.id' }),
+      ]),
+    );
+  });
+
   it('runs the full transaction for a single eligible row', async () => {
     mocks.listReadyForIngest.mockResolvedValueOnce([makeRow({ id: 'r1' })]);
     mocks.findByRawEmailIds.mockResolvedValueOnce([

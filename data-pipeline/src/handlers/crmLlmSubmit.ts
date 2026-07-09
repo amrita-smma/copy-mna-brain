@@ -23,6 +23,7 @@ import {
   type SkipReason,
 } from '../mboxParser';
 import { modelSupportsTemperature } from '../lib/modelParams';
+import { INTERNAL_MAIL_DOMAINS } from './crmDomainClassify';
 
 export const VAULT_CRM_LLM_SUBMIT_TIMEOUT_SECONDS = 1200; // 20 minutes
 export const DEFAULT_MODEL = 'claude-haiku-4-5-20251001';
@@ -198,11 +199,18 @@ export async function runCrmLlmSubmit(
   const candidatesByRawEmailId: Record<string, Candidate[]> = {};
   for (const row of targets) {
     try {
-      // Filter out auto-replies / newsletters / calendar invites BEFORE
-      // spending LLM budget. shouldSkip operates on raw headers + body; we
-      // store both on raw_emails so this is a direct call.
+      // Filter out auto-replies / newsletters / calendar invites / purely
+      // internal (colleague-to-colleague, no external party) mail BEFORE
+      // spending LLM budget. Mail between an internal banker and an external
+      // firm — either direction — is kept: outbound replies still need to
+      // reach `emails` so mart_crm can pair them against the inbound message
+      // for response-time (P50) tracking. shouldSkip operates on raw headers
+      // + body; we store both on raw_emails so this is a direct call.
       const libHeaders = toLibraryHeaders(row);
-      const skip = shouldSkip(libHeaders, row.body_text);
+      const skip = shouldSkip(libHeaders, row.body_text, {
+        ourDomains: INTERNAL_MAIL_DOMAINS,
+        dropInternalOnly: true,
+      });
       if (skip.skip) {
         log(`filter ${row.id}: ${skip.reason}`);
         await markFiltered(deps.db, row.id, skip.reason);

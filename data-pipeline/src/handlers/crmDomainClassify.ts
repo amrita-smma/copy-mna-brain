@@ -49,7 +49,12 @@ const PERSONAL_MAIL_DOMAINS = new Set<string>([
 
 // Internal company domains we never classify — these are our own people, not
 // external employers. (These are always ignored regardless of employer_overrides.)
-const INTERNAL_MAIL_DOMAINS = new Set<string>([
+// Kept as a hardcoded belt-and-suspenders alongside employer_overrides: a brand
+// new internal domain must be caught here at ingest time, before anyone has a
+// chance to curate it in employer_overrides — the DB table today has no product
+// UI, so populating it requires the same code-change-and-deploy cycle as this
+// list, with none of this list's advantage of blocking on day one.
+export const INTERNAL_MAIL_DOMAINS = new Set<string>([
   'starcapital.co.id',
   'starcapitalholdings.com',
   'smma.id',
@@ -68,6 +73,12 @@ const INTERNAL_MAIL_DOMAINS = new Set<string>([
   'sinarmas.co.id',
   'sinarmas.org',
   'startechgv.com',
+  // Previously only marked internal via employer_overrides (pre-single-source-
+  // of-truth); folded in here so removing that column's read path doesn't
+  // regress them back into being tracked as external companies.
+  'aldiracita.com',
+  'adivira.com',
+  'lifewithsun.com',
 ]);
 
 const SYSTEM_PROMPT = `You identify companies from their email domain — both the proper name and the industry.
@@ -110,19 +121,14 @@ interface ClassifyResult {
   confidence: 'high' | 'medium' | 'low';
 }
 
-// MB-205: internal/excluded domains come from the curatable `employer_overrides`
-// table, not scripts/domains.json.
-async function loadDomainsConfig(
+// MB-205: excluded domains come from the curatable `employer_overrides` table,
+// not scripts/domains.json. Internal domains are INTERNAL_MAIL_DOMAINS above —
+// employer_overrides.internal is no longer read (see that set's comment).
+async function loadExcludedDomains(
   overrideRepo: EmployerOverrideRepository,
-): Promise<{ internal: Set<string>; excluded: Set<string> }> {
-  const [internal, excluded] = await Promise.all([
-    overrideRepo.listInternalDomains(),
-    overrideRepo.listExcludedDomains(),
-  ]);
-  return {
-    internal: new Set(internal.map((d) => d.toLowerCase())),
-    excluded: new Set(excluded.map((d) => d.toLowerCase())),
-  };
+): Promise<Set<string>> {
+  const excluded = await overrideRepo.listExcludedDomains();
+  return new Set(excluded.map((d) => d.toLowerCase()));
 }
 
 /**
@@ -188,7 +194,7 @@ export async function runCrmDomainClassify(
   const client = new Anthropic({ apiKey });
   const repo = new DomainClassificationRepository(deps.db);
   const overrideRepo = new EmployerOverrideRepository(deps.db);
-  const { internal, excluded } = await loadDomainsConfig(overrideRepo);
+  const excluded = await loadExcludedDomains(overrideRepo);
 
   // 1. Find candidate domains.
   let candidates = await collectDomainVolumes(deps.db);
@@ -196,7 +202,6 @@ export async function runCrmDomainClassify(
     (d) =>
       !PERSONAL_MAIL_DOMAINS.has(d) &&
       !INTERNAL_MAIL_DOMAINS.has(d) &&
-      !internal.has(d) &&
       !excluded.has(d),
   );
 

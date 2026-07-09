@@ -32,6 +32,7 @@ import type { CompanyRow } from '../helpers/matchRelatedCompany';
 import type { DbClient, Tables } from '@/lib/repositories';
 import { getActiveWorkspaceId } from '@/lib/workspace';
 import type { EnrichedPerson } from '../mboxParser';
+import { INTERNAL_MAIL_DOMAINS } from './crmDomainClassify';
 
 export const VAULT_CRM_INGEST_TIMEOUT_SECONDS = 1800; // 30 minutes
 export const DEFAULT_LIMIT = 5000;
@@ -67,7 +68,6 @@ const log = (msg: string) => console.log(`[crm-ingest] ${msg}`);
 
 interface DomainEntry {
   name: string;
-  internal?: boolean;
   industry?: string | null;
 }
 interface DomainConfig {
@@ -75,9 +75,10 @@ interface DomainConfig {
   excluded: Set<string>;
 }
 
-// MB-205: domain overrides now live in the `employer_overrides` table (curatable
-// in-app), not scripts/domains.json. Resolution rows (employer_name set) build
-// the map; `excluded` rows build the drop-set.
+// MB-205: curated employer name/industry come from the `employer_overrides`
+// table (curatable in-app), not scripts/domains.json. `excluded` rows build the
+// drop-set. Internal-domain determination is INTERNAL_MAIL_DOMAINS (see
+// crmDomainClassify.ts) only — employer_overrides.internal is no longer read.
 async function loadDomainConfig(
   overrideRepo: EmployerOverrideRepository,
 ): Promise<DomainConfig> {
@@ -88,11 +89,7 @@ async function loadDomainConfig(
     const domain = r.domain.toLowerCase();
     if (r.excluded) excluded.add(domain);
     if (r.employer_name) {
-      map.set(domain, {
-        name: r.employer_name,
-        internal: r.internal,
-        industry: r.industry,
-      });
+      map.set(domain, { name: r.employer_name, industry: r.industry });
     }
   }
   return { map, excluded };
@@ -109,7 +106,6 @@ function normalize(name: string): string {
 
 interface ResolvedEmployer {
   name: string;
-  internal: boolean;
   industry: string | null;
 }
 
@@ -125,22 +121,17 @@ function resolveEmployer(
   if (curated) {
     const industry =
       curated.industry ?? (trustCls ? cls?.industry ?? null : null);
-    return { name: curated.name, internal: !!curated.internal, industry };
+    return { name: curated.name, industry };
   }
 
   if (trustCls && cls?.name) {
-    return {
-      name: cls.name,
-      internal: false,
-      industry: cls.industry ?? null,
-    };
+    return { name: cls.name, industry: cls.industry ?? null };
   }
 
   // Fallback: titlecase the first label of the domain.
   const first = (domain.split('.')[0] || domain).toLowerCase();
   return {
     name: first.charAt(0).toUpperCase() + first.slice(1),
-    internal: false,
     industry: trustCls ? cls?.industry ?? null : null,
   };
 }
@@ -407,20 +398,24 @@ export async function runCrmIngest(
 
     // [2/7] Employers (one per unique domain; dedup by normalized_name).
     log('[2/7] employers');
-    // internal is an override property; applies to every domain we know of.
+    // internal comes solely from the hardcoded list — see INTERNAL_MAIL_DOMAINS
+    // for why employer_overrides.internal is no longer read.
     const domainToInternal = new Map<string, boolean>();
     for (const d of uniqueDomains) {
-      domainToInternal.set(d, domainMap.get(d)?.internal ?? false);
+      domainToInternal.set(d, INTERNAL_MAIL_DOMAINS.has(d));
     }
 
     // Resolve-once (RFC §6): domains mapped in a prior run reuse their stable
     // employer_id; we only resolve + create employers for unseen domains.
+    // Domains later flipped to `internal` must drop any stale persisted
+    // mapping too, or they keep resolving to their old employer_id forever.
     for (const d of uniqueDomains) {
+      if (domainToInternal.get(d)) continue;
       const existing = persistedDomainToEmployerId.get(d);
       if (existing) domainToEmployerId.set(d, existing);
     }
     const newDomains = [...uniqueDomains].filter(
-      (d) => !domainToEmployerId.has(d),
+      (d) => !domainToEmployerId.has(d) && !domainToInternal.get(d),
     );
 
     const resolvedByDomain = new Map<string, ResolvedEmployer>();

@@ -35,15 +35,6 @@ export class EmployerOverrideRepository {
     return this.db.select().from(employerOverrides);
   }
 
-  /** Lowercased domains flagged `internal = true` (own-firm senders). */
-  async listInternalDomains(): Promise<string[]> {
-    const rows = await this.db
-      .select()
-      .from(employerOverrides)
-      .where(eq(employerOverrides.internal, true));
-    return rows.map((r) => r.domain);
-  }
-
   /** Lowercased domains flagged `excluded = true` (dropped from ingest). */
   async listExcludedDomains(): Promise<string[]> {
     const rows = await this.db

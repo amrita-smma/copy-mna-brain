@@ -42,15 +42,6 @@ describe('EmployerOverrideRepository.findManyByDomains', () => {
   });
 });
 
-describe('EmployerOverrideRepository.listInternalDomains', () => {
-  it('returns the domains flagged internal', async () => {
-    const db = makeDb();
-    db.where.mockResolvedValueOnce([{ domain: 'us.com' }, { domain: 'us2.com' }]);
-    const repo = new EmployerOverrideRepository(db as never);
-    expect(await repo.listInternalDomains()).toEqual(['us.com', 'us2.com']);
-  });
-});
-
 describe('EmployerOverrideRepository.listExcludedDomains', () => {
   it('returns the domains flagged excluded', async () => {
     const db = makeDb();

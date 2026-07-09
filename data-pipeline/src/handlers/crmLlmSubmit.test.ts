@@ -32,8 +32,6 @@ vi.mock('../mboxParser', async () => {
   };
 });
 
-vi.mock('@/lib/repositories', () => ({}));
-
 vi.mock('../repositories', () => ({
   RawEmailEnrichmentRepository: class {
     upsertExtract = mocks.upsertExtract;
@@ -186,6 +184,81 @@ describe('runCrmLlmSubmit', () => {
     );
 
     expect(result.rows_filtered).toBe(1);
+  });
+
+  it('filters out mail where every sender and recipient is on the internal-domain list', async () => {
+    const db = makeDb();
+    db.limit.mockResolvedValueOnce([
+      makeRow({
+        id: 'r1',
+        raw_headers: { from: 'alice@smma.id', to: 'bob@smma.id' },
+      }),
+    ]);
+
+    const result = await runCrmLlmSubmit(
+      { mode: 'batch' },
+      { db: db as never, job: { id: 'j1' } as never },
+    );
+
+    expect(result.rows_filtered).toBe(1);
+    expect(result.rows_extracted).toBe(0);
+    expect(mocks.processEmail).not.toHaveBeenCalled();
+  });
+
+  it('keeps outbound mail from an internal sender to an external recipient (needed for response-time tracking)', async () => {
+    const db = makeDb();
+    db.limit.mockResolvedValueOnce([
+      makeRow({
+        id: 'r1',
+        raw_headers: { from: 'alice@smma.id', to: 'bob@external.com' },
+      }),
+    ]);
+    mocks.processEmail.mockReturnValueOnce({
+      message_id: 'msg-1@x',
+      subject: 'hi',
+      sender: { name: 'Alice', email: 'alice@smma.id' },
+      candidates: [],
+      domain_tag: null,
+      needs_llm: false,
+      llm_payload: null,
+    });
+
+    const result = await runCrmLlmSubmit(
+      { mode: 'batch' },
+      { db: db as never, job: { id: 'j1' } as never },
+    );
+
+    expect(result.rows_filtered).toBe(0);
+    expect(result.rows_extracted).toBe(1);
+    expect(mocks.processEmail).toHaveBeenCalled();
+  });
+
+  it('keeps inbound mail from an external sender to an internal recipient', async () => {
+    const db = makeDb();
+    db.limit.mockResolvedValueOnce([
+      makeRow({
+        id: 'r1',
+        raw_headers: { from: 'bob@external.com', to: 'alice@smma.id' },
+      }),
+    ]);
+    mocks.processEmail.mockReturnValueOnce({
+      message_id: 'msg-1@x',
+      subject: 'hi',
+      sender: { name: 'Bob', email: 'bob@external.com' },
+      candidates: [],
+      domain_tag: null,
+      needs_llm: false,
+      llm_payload: null,
+    });
+
+    const result = await runCrmLlmSubmit(
+      { mode: 'batch' },
+      { db: db as never, job: { id: 'j1' } as never },
+    );
+
+    expect(result.rows_filtered).toBe(0);
+    expect(result.rows_extracted).toBe(1);
+    expect(mocks.processEmail).toHaveBeenCalled();
   });
 
   it('sync mode calls messages.create per row and marks enriched', async () => {
