@@ -6,6 +6,7 @@ import { createDb } from "@/lib/server/db";
 import {
   CompanyFinancialRepository,
   CompanyRepository,
+  type CompanyAgentFilters,
 } from "@/lib/repositories";
 
 /**
@@ -72,7 +73,7 @@ export const queryCompanies = tool(
         createDb(),
         await getActiveWorkspaceId(),
       );
-      const companies = await companyRepo.searchForAgent({
+      const filters: CompanyAgentFilters = {
         segment,
         geography,
         watchlistStatus: watchlist_status,
@@ -95,7 +96,18 @@ export const queryCompanies = tool(
         createdBefore: created_before,
         searchTerm: search_term,
         limit,
-      });
+      };
+
+      // Unless the caller explicitly scopes a stage, default the cohort to the
+      // L0–L5 committed origination funnel. Earlier triage buckets
+      // (market_screening, unreviewed) are excluded from the default listing so
+      // results reflect real deals, not raw intake. An explicit `stage` filter
+      // overrides this default entirely.
+      if (!stage) {
+        filters.stageIn = ["L0", "L1", "L2", "L3", "L4", "L5"];
+      }
+
+      const companies = await companyRepo.searchForAgent(filters);
 
       if (!companies || companies.length === 0) {
         return "No companies found matching your criteria.";
@@ -150,7 +162,7 @@ Available filters (every one maps to a real column):
     segment: Segment (partial match, e.g. "Technology", "Semiconductors")
     geography: Geography (partial match, e.g. "USA", "Japan", "APAC")
     watchlist_status: Watchlist status (partial match)
-    stage: Pipeline stage (exact, one of: "market_screening", "unreviewed", "L0", "L1", "L2", "L3", "L4", "L5")
+    stage: Pipeline stage (exact, one of: "market_screening", "unreviewed", "L0", "L1", "L2", "L3", "L4", "L5"). If omitted, results default to the L0–L5 committed funnel only — earlier triage buckets ("market_screening", "unreviewed") are excluded. Pass an explicit stage to override and scope to any single stage.
     name: Company name (partial, case-insensitive against target OR project_name)
     ownership: Ownership (partial match, e.g. "family office", "PE", "public")
     company_focus: Company focus / what they do (partial match)

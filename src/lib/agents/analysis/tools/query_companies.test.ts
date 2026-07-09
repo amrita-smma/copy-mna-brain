@@ -57,9 +57,22 @@ describe('queryCompanies', () => {
 
     await queryCompanies.invoke({ stage: 'L2' });
 
+    const passed = searchForAgentMock.mock.calls[0][0];
+    expect(passed.stage).toBe('L2');
+    expect(passed.stageIn).toBeUndefined();
+  });
+
+  it('defaults the cohort to the L0–L5 funnel when no stage is specified', async () => {
+    searchForAgentMock.mockResolvedValue([]);
+
+    await queryCompanies.invoke({ segment: 'Tech' });
+
     expect(searchForAgentMock).toHaveBeenCalledWith(
-      expect.objectContaining({ stage: 'L2', limit: 20 }),
+      expect.objectContaining({
+        stageIn: ['L0', 'L1', 'L2', 'L3', 'L4', 'L5'],
+      }),
     );
+    expect(searchForAgentMock.mock.calls[0][0].stage).toBeUndefined();
   });
 
   it('forwards the name filter to the repository', async () => {

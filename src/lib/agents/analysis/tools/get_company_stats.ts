@@ -192,6 +192,15 @@ export const getCompanyStats = tool(
       };
       const hasFilter = Object.values(filters).some((v) => v !== undefined);
 
+      // Unless the caller explicitly scopes a stage, default the cohort to the
+      // L0–L5 committed origination funnel. Earlier triage buckets
+      // (market_screening, unreviewed) are excluded from the default snapshot
+      // so pipeline stats reflect real deals, not raw intake. An explicit
+      // `stage` filter overrides this default entirely.
+      if (!stage) {
+        filters.stageIn = ["L0", "L1", "L2", "L3", "L4", "L5"];
+      }
+
       const companies = await companyRepo.findForAgentStats(filters);
       if (!companies || companies.length === 0) {
         return hasFilter
@@ -305,6 +314,8 @@ Scope the cohort with the SAME filters as query_companies (all optional, AND-com
 
 Note: "discovered" relationship-graph stubs are always excluded from the snapshot — the aggregate covers the origination pipeline only.
 
+Stage default: unless the query explicitly asks about a stage (via the stage filter), the cohort defaults to the L0–L5 committed funnel only — earlier triage buckets ("market_screening", "unreviewed") are excluded. Pass an explicit stage to override this and scope to any single stage.
+
 group_by: optional array of breakdown dimensions to append as tables. Any of:
     "segment", "geography", "stage", "source", "status", "ownership", "deal_type", "ai_opinion".
     Defaults to ["segment"]. Pass multiple to get several breakdowns at once, e.g. ["stage", "ai_opinion"].
@@ -339,7 +350,6 @@ Returns:
           "L3",
           "L4",
           "L5",
-          "discovered",
         ])
         .optional()
         .describe("Filter by pipeline stage (exact)"),

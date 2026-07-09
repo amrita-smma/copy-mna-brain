@@ -110,6 +110,29 @@ describe('getCompanyStats', () => {
     );
   });
 
+  it('defaults the cohort to the L0–L5 funnel when no stage is specified', async () => {
+    findForAgentStatsMock.mockResolvedValue([]);
+
+    await getCompanyStats.invoke({});
+
+    expect(findForAgentStatsMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        stageIn: ['L0', 'L1', 'L2', 'L3', 'L4', 'L5'],
+      }),
+    );
+    expect(findForAgentStatsMock.mock.calls[0][0].stage).toBeUndefined();
+  });
+
+  it('does not apply the L0–L5 default when an explicit stage is given', async () => {
+    findForAgentStatsMock.mockResolvedValue([]);
+
+    await getCompanyStats.invoke({ stage: 'market_screening' });
+
+    const passed = findForAgentStatsMock.mock.calls[0][0];
+    expect(passed.stage).toBe('market_screening');
+    expect(passed.stageIn).toBeUndefined();
+  });
+
   it('appends multiple requested breakdowns', async () => {
     findForAgentStatsMock.mockResolvedValue([
       { id: 'c1', segment: 'Tech', geography: 'US', pipeline_stage: 'L1' },
