@@ -1279,42 +1279,6 @@ export default function Dashboard({
                   % of total
                 </p>
               </div>
-
-              {/* Conversion */}
-              <div data-testid="dashboard-conversion-card" className="rounded-xl border bg-card p-5">
-                <div className="flex items-center justify-between gap-3 mb-3">
-                  <div className="flex items-center gap-3">
-                    <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-amber-500/10">
-                      <ArrowLeftRight className="h-4 w-4 text-amber-500" />
-                    </div>
-                    <p className="text-sm font-medium text-muted-foreground">
-                      Conversion
-                    </p>
-                  </div>
-                  <AskAIButton
-                    label="Analyze conversion rates with AI"
-                    onClick={() => askCopilot("stage conversion rates")}
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  {stageConversions.map((sc) => (
-                    <div
-                      key={sc.label}
-                      className="flex items-center justify-between"
-                    >
-                      <span className="text-xs text-muted-foreground">
-                        {sc.label}
-                      </span>
-                      <span className="flex items-baseline gap-1.5">
-                        <span className="text-sm font-semibold">{sc.pct}%</span>
-                        <span className="text-[10px] text-muted-foreground">
-                          {sc.promoted}/{sc.denom}
-                        </span>
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </div>
             </div>
           </CardContent>
         </Card>
