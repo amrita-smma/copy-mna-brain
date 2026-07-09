@@ -11,6 +11,7 @@ import type { AppSettingsRepository } from '@/lib/repositories/appSettingsReposi
  * so each test only stubs the source it asserts on. */
 class MockRepo {
   getStageCounts = vi.fn();
+  getDroppedStageCounts = vi.fn();
   getStageEntryCounts = vi.fn();
   getSegmentBreakdown = vi.fn();
   getCountryBreakdown = vi.fn();
@@ -75,6 +76,7 @@ describe('DashboardInsightsService.getInsights', () => {
   beforeEach(() => {
     repo = new MockRepo();
     repo.getStageCounts.mockResolvedValue([]);
+    repo.getDroppedStageCounts.mockResolvedValue([]);
     repo.getStageEntryCounts.mockResolvedValue([]);
     repo.getSegmentBreakdown.mockResolvedValue([]);
     repo.getCountryBreakdown.mockResolvedValue([]);
@@ -144,12 +146,31 @@ describe('DashboardInsightsService.getInsights', () => {
       { stage: 'L1', count: 13 },
       { stage: 'L2', count: 5 },
     ]);
+    // Conversion base = L1 promotions (13) + deals dropped at L0 (87) = 100.
+    repo.getDroppedStageCounts.mockResolvedValue([{ stage: 'L0', count: 87 }]);
 
     const { kpis } = await service.getInsights(FROM, TO, NOW);
 
-    expect(kpis.totalInPipeline).toBe(118);
-    expect(kpis.l0l1Conversion).toBe(13); // 13/100
+    expect(kpis.totalInPipeline).toBe(118); // sum of active stage counts
+    expect(kpis.l0l1Conversion).toBe(13); // 13 / (13 + 87)
     expect(kpis.l0l1OnTarget).toBe(true); // >= 10
+  });
+
+  it('uses the pipeline-stages formula: L1 promotions over promotions plus L0 drops', async () => {
+    // Matches src/views/Dashboard.tsx `stageConversions`: promoted / (promoted +
+    // dropped). The raw L1/L0 snapshot ratio (13/40 ≈ 32.5%) is NOT used.
+    repo.getStageCounts.mockResolvedValue([
+      { stage: 'L0', count: 40 },
+      { stage: 'L1', count: 13 },
+    ]);
+    repo.getDroppedStageCounts.mockResolvedValue([
+      { stage: 'L0', count: 39 }, // 13 promoted + 39 dropped at L0 = 52 base
+      { stage: 'L1', count: 5 }, // dropped past L0 — irrelevant to L0→L1
+    ]);
+
+    const { kpis } = await service.getInsights(FROM, TO, NOW);
+
+    expect(kpis.l0l1Conversion).toBe(25); // 13 / (13 + 39) = 25%
   });
 
   it('flags conversion below the healthy band as off-target', async () => {
@@ -157,6 +178,8 @@ describe('DashboardInsightsService.getInsights', () => {
       { stage: 'L0', count: 200 },
       { stage: 'L1', count: 13 },
     ]);
+    // Base = 13 promoted + 187 dropped at L0 = 200.
+    repo.getDroppedStageCounts.mockResolvedValue([{ stage: 'L0', count: 187 }]);
 
     const { kpis } = await service.getInsights(FROM, TO, NOW);
 
@@ -164,8 +187,10 @@ describe('DashboardInsightsService.getInsights', () => {
     expect(kpis.l0l1OnTarget).toBe(false);
   });
 
-  it('returns zero conversion when there are no L0 deals (no divide-by-zero)', async () => {
-    repo.getStageCounts.mockResolvedValue([{ stage: 'L1', count: 4 }]);
+  it('returns zero conversion when nothing promoted and nothing dropped at L0 (no divide-by-zero)', async () => {
+    // No L1 promotions and no L0 drops → empty denominator.
+    repo.getStageCounts.mockResolvedValue([{ stage: 'L2', count: 4 }]);
+    repo.getDroppedStageCounts.mockResolvedValue([]);
 
     const { kpis } = await service.getInsights(FROM, TO, NOW);
 
@@ -455,6 +480,8 @@ describe('DashboardInsightsService.getInsights', () => {
       { stage: 'L0', count: 100 },
       { stage: 'L1', count: 9 },
     ]);
+    // Base = 9 promoted + 91 dropped at L0 = 100.
+    repo.getDroppedStageCounts.mockResolvedValue([{ stage: 'L0', count: 91 }]);
     settingsRepo.get.mockResolvedValue({
       funnelTargets: { L1: 50 },
       l0l1Conversion: { min: 8, max: 12 },

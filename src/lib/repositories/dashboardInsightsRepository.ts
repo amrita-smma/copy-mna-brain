@@ -137,6 +137,31 @@ export class DashboardInsightsRepository {
   }
 
   /**
+   * Dropped companies per pipeline stage, for funnel companies created in the
+   * window, grouped by the stage they were dropped at (their current
+   * `pipeline_stage`). This mirrors the main dashboard cohort's per-stage
+   * `dropped` bucket and is the complement to {@link getStageCounts} (which
+   * scopes to `status = 'active'`): together they let the L0→L1 conversion use
+   * the pipeline-stages formula `promoted / (promoted + dropped)`.
+   */
+  async getDroppedStageCounts(from: Date, to: Date): Promise<{ stage: string; count: number }[]> {
+    const rows = await this.db
+      .select({ stage: companies.pipeline_stage, count: drizzleCount() })
+      .from(companies)
+      .where(
+        and(
+          eq(companies.workspace_id, this.workspaceId),
+          eq(companies.status, 'dropped'),
+          inArray(companies.pipeline_stage, ['L0', 'L1', 'L2', 'L3', 'L4', 'L5']),
+          gte(companies.created_at, from.toISOString()),
+          lte(companies.created_at, to.toISOString()),
+        ),
+      )
+      .groupBy(companies.pipeline_stage);
+    return rows.map((r) => ({ stage: String(r.stage), count: Number(r.count) }));
+  }
+
+  /**
    * Companies *added to* each funnel stage (L0–L5) within the window — the flow
    * into a stage, not the current snapshot. A company counts toward a stage when
    * it was either created directly at that stage in the window, or moved into it

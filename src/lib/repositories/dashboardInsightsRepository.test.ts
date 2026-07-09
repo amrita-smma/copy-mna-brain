@@ -51,6 +51,30 @@ describe('DashboardInsightsRepository.getStageCounts', () => {
   });
 });
 
+describe('DashboardInsightsRepository.getDroppedStageCounts', () => {
+  let repo: DashboardInsightsRepository;
+
+  beforeEach(() => {
+    resetDb();
+    repo = new DashboardInsightsRepository(mockDb as never, 'workspace-1');
+  });
+
+  it('groups dropped companies by pipeline_stage and coerces counts to numbers', async () => {
+    mockDb.groupBy.mockResolvedValueOnce([
+      { stage: 'L0', count: '87' },
+      { stage: 'L1', count: 5 },
+    ]);
+
+    const result = await repo.getDroppedStageCounts(WINDOW_FROM, WINDOW_TO);
+
+    expect(mockDb.groupBy).toHaveBeenCalledTimes(1);
+    expect(result).toEqual([
+      { stage: 'L0', count: 87 },
+      { stage: 'L1', count: 5 },
+    ]);
+  });
+});
+
 describe('DashboardInsightsRepository.getStageEntryCounts', () => {
   let repo: DashboardInsightsRepository;
 

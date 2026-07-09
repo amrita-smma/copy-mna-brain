@@ -159,7 +159,7 @@ For each company, try to find and populate ALL of these fields (use null if data
 - company_focus: Main business focus and offerings
 - website: Company website URL
 - ownership: "Private", "Public", or "PE-backed"
-- geography: Headquarters country/region
+- geography: Headquarters country — a SINGLE country name only (e.g. "United States", "Switzerland", "South Korea"). Pick the one country where the company is headquartered. NEVER combine multiple countries, regions, cities, or facility/R&D locations (e.g. NOT "United States (HQ: New York City; R&D: Tel Aviv, Israel)" and NOT "Switzerland / China").
 - revenue_2021_usd_mn through revenue_2024_usd_mn: Annual revenue in USD millions
 - ebitda_2021_usd_mn through ebitda_2024_usd_mn: Annual EBITDA in USD millions
 - ev_2024: Enterprise value in USD millions

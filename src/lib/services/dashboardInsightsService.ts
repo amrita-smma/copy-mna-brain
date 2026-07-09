@@ -74,7 +74,9 @@ export interface InsightsKpis {
   totalInPipeline: number;
   /** Funnel companies created within the window. */
   newDeals: number;
-  /** L0→L1 conversion as a percentage (one decimal). */
+  /** L0→L1 conversion as a percentage (one decimal). Computed the same way as
+   * the main dashboard's pipeline-stages view: `promoted / (promoted + dropped)`
+   * (L1 promotions over promotions plus deals dropped while at L0). */
   l0l1Conversion: number;
   /** Whether `l0l1Conversion` sits within the healthy band. */
   l0l1OnTarget: boolean;
@@ -208,9 +210,12 @@ export class DashboardInsightsService {
   }
 
   /**
-   * Assemble the Insights dashboard for the given window. The current-snapshot
-   * KPIs (`totalInPipeline`, `l0l1Conversion`) count active companies created
-   * within `[from, to]` by their current stage, alongside the period-scoped
+   * Assemble the Insights dashboard for the given window. `totalInPipeline`
+   * counts active companies created within `[from, to]` by their current stage.
+   * `l0l1Conversion` uses the main dashboard's pipeline-stages formula —
+   * `promoted / (promoted + dropped)`, i.e. L1 promotions over promotions plus
+   * L0-stage drops — so the Insights and Dashboard views report the same rate.
+   * These sit alongside the period-scoped
    * activity counters (new deals, AI throughput). The `funnel` and the segment
    * / country / banker breakdowns instead reflect companies *added to* each
    * stage during the window (created there or moved in) — covering **all**
@@ -225,6 +230,7 @@ export class DashboardInsightsService {
     const [
       settings,
       stageCounts,
+      droppedStageCounts,
       stageEntryCounts,
       segmentBreakdown,
       countryBreakdown,
@@ -243,6 +249,7 @@ export class DashboardInsightsService {
     ] = await Promise.all([
       this.getSettings(),
       this.repo.getStageCounts(from, to),
+      this.repo.getDroppedStageCounts(from, to),
       this.repo.getStageEntryCounts(from, to),
       this.repo.getSegmentBreakdown(from, to),
       this.repo.getCountryBreakdown(from, to),
@@ -284,9 +291,16 @@ export class DashboardInsightsService {
     });
 
     const totalInPipeline = stageCounts.reduce((s, x) => s + x.count, 0);
-    const l0 = stageCount('L0');
-    const l1 = stageCount('L1');
-    const l0l1Conversion = l0 > 0 ? Math.round((l1 / l0) * 1000) / 10 : 0;
+    // L0→L1 conversion mirrors the main dashboard's pipeline-stages view: the
+    // share of the L0 cohort that advanced, measured as L1 promotions over
+    // promotions plus the deals dropped while still at L0
+    // (`promoted / (promoted + dropped)`). This intentionally differs from a
+    // raw L1/L0 active-snapshot ratio so the two surfaces report the same rate.
+    const droppedByStage = new Map(droppedStageCounts.map((s) => [s.stage, s.count]));
+    const l0l1Promoted = stageCount('L1');
+    const l0l1Denominator = l0l1Promoted + (droppedByStage.get('L0') ?? 0);
+    const l0l1Conversion =
+      l0l1Denominator > 0 ? Math.round((l0l1Promoted / l0l1Denominator) * 1000) / 10 : 0;
     const { min, max } = settings.l0l1Conversion;
 
     const staleDeals = buildStaleDeals(staleCandidates, now, settings.staleThresholds, tracks);

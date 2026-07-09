@@ -139,7 +139,7 @@ Args:
     target: Company name to record. Required.
     stage: Intake stage — one of "market_screening" (default) or "discovered". Defaults to "market_screening". L0 is NOT accepted.
     segment: Optional sector/segment classification (e.g. "specialty chemicals").
-    geography: Optional country/region (e.g. "Korea", "EU").
+    geography: Optional headquarters country — EXACTLY ONE country name (e.g. "South Korea", "United States"). Never combine multiple countries, regions, cities, or facility/R&D locations.
     source: Optional origin tag. One of "inbound" or "outbound"; defaults to "outbound" (AI-discovered companies are outbound by nature).
     note: Optional triage note. Recorded informationally on the action message; not persisted to the row.
 
@@ -162,7 +162,9 @@ Returns:
       geography: z
         .string()
         .optional()
-        .describe("Country or region (e.g. Korea, EU)"),
+        .describe(
+          'Headquarters country — EXACTLY ONE country name (e.g. "South Korea", "United States"). Never combine multiple countries, regions, cities, or facility/R&D locations.',
+        ),
       source: z
         .enum(ALLOWED_SOURCES)
         .optional()

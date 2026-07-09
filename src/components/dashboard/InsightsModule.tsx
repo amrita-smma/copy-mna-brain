@@ -34,7 +34,8 @@ import CompanyDetailDialog, {
   type CompanyData,
 } from '@/components/pipeline/CompanyDetailDialog';
 import { getCompanies } from '@/lib/api/pipeline';
-import { BankerRelatedCompaniesCard } from '@/components/dashboard/BankerRelatedCompaniesCard';
+// Temporarily hidden along with the "Banker related companies" card below.
+// import { BankerRelatedCompaniesCard } from '@/components/dashboard/BankerRelatedCompaniesCard';
 import {
   Table,
   TableBody,
@@ -83,10 +84,10 @@ function formatUpdatedBy(meta: InsightsSettingsMeta): string | null {
   const who = meta.updatedBy?.name || meta.updatedBy?.email || 'someone';
   const when = meta.updatedAt
     ? new Date(meta.updatedAt).toLocaleDateString('en-US', {
-        month: 'short',
-        day: 'numeric',
-        year: 'numeric',
-      })
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+    })
     : null;
   return `Last updated by ${who}${when ? ` · ${when}` : ''}`;
 }
@@ -318,7 +319,9 @@ function InsightsContent({
   return (
     <div className="space-y-3">
       {/* ── KPI row ── */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+      {/* L0→L1 conversion spans the full width now that the "Deals stale in
+          stage" KPI beside it is commented out. */}
+      <div className="grid grid-cols-1 gap-3">
         <KpiCard
           label="L0 → L1 conversion"
           value={`${kpis.l0l1Conversion}%`}
@@ -329,6 +332,7 @@ function InsightsContent({
           onConfigure={() => setConversionModalOpen(true)}
           configureLabel="Configure conversion target"
         />
+        {/* Deals stale in stage — temporarily hidden.
         <KpiCard
           label="Deals stale in stage"
           value={kpis.staleCount}
@@ -337,9 +341,10 @@ function InsightsContent({
           onAsk={() => onAsk('analyze the deals that are stale in their stage and what is blocking them')}
           askLabel="Analyze stale deals with AI"
         />
+        */}
       </div>
 
-      {/* ── Row 1: Funnel + Stale ── */}
+      {/* ── Row 1: Funnel + Banker source quality ── */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
         <Card className="border bg-card">
           <CardHeader className="pb-3">
@@ -399,13 +404,12 @@ function InsightsContent({
                   </div>
                   <div className="w-24 shrink-0 text-right">
                     <div
-                      className={`font-mono text-sm font-semibold ${
-                        onTarget
-                          ? 'text-emerald-600 dark:text-emerald-400'
-                          : count === 0
-                            ? 'text-muted-foreground'
-                            : 'text-amber-600 dark:text-amber-400'
-                      }`}
+                      className={`font-mono text-sm font-semibold ${onTarget
+                        ? 'text-emerald-600 dark:text-emerald-400'
+                        : count === 0
+                          ? 'text-muted-foreground'
+                          : 'text-amber-600 dark:text-amber-400'
+                        }`}
                     >
                       {count}
                     </div>
@@ -451,6 +455,7 @@ function InsightsContent({
           }
         />
 
+        {/* Deals stale in stage — temporarily hidden.
         <Card className="border bg-card">
           <CardHeader className="pb-3">
             <div className="flex items-start justify-between gap-2">
@@ -531,10 +536,8 @@ function InsightsContent({
             )}
           </CardContent>
         </Card>
-      </div>
+        */}
 
-      {/* ── Row 2: Banker quality + Banker related companies ── */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
         <Card className="border bg-card">
           <CardHeader className="pb-3">
             <div className="flex items-start justify-between gap-2">
@@ -571,11 +574,13 @@ function InsightsContent({
           </CardContent>
         </Card>
 
+        {/* Banker related companies — temporarily hidden.
         <BankerRelatedCompaniesCard
           onAsk={() =>
             onAsk('analyze which bankers have the most related companies attached and what that implies')
           }
         />
+        */}
       </div>
 
       {/* ── Row 3: Country + Segment ── */}
@@ -671,9 +676,8 @@ function InsightsContent({
             <ThroughputStat
               label="AI screenings"
               value={aiThroughput.screenings.total}
-              sub={`${aiThroughput.screenings.pass} pass · ${aiThroughput.screenings.fail} fail${
-                aiThroughput.screenings.error > 0 ? ` · ${aiThroughput.screenings.error} err` : ''
-              }`}
+              sub={`${aiThroughput.screenings.pass} pass · ${aiThroughput.screenings.fail} fail${aiThroughput.screenings.error > 0 ? ` · ${aiThroughput.screenings.error} err` : ''
+                }`}
               subTone={aiThroughput.screenings.error > 0 ? 'amber' : undefined}
             />
             <ThroughputStat label="Workforce runs" value={aiThroughput.workforceRuns} sub="runs" />
@@ -776,11 +780,10 @@ function ThroughputStat({
       <div className="mt-0.5 font-mono text-xl font-semibold tracking-tight">{value}</div>
       {sub && (
         <div
-          className={`mt-0.5 truncate text-[10.5px] ${
-            subTone === 'amber'
-              ? 'text-amber-600 dark:text-amber-400'
-              : 'text-muted-foreground'
-          }`}
+          className={`mt-0.5 truncate text-[10.5px] ${subTone === 'amber'
+            ? 'text-amber-600 dark:text-amber-400'
+            : 'text-muted-foreground'
+            }`}
           title={sub}
         >
           {sub}
@@ -871,18 +874,18 @@ function BreakdownTable({
       },
       ...(showResponse
         ? [
-            {
-              id: 'response',
-              label: 'Response (p50)',
-              header: (
-                <span className="whitespace-nowrap font-semibold">Response (p50)</span>
-              ),
-              headerClassName:
-                'h-auto px-0 pb-2 text-right align-bottom text-[10.5px] font-semibold uppercase tracking-wide text-muted-foreground',
-              cellClassName: 'p-0 py-2 pl-3 text-right',
-              cell: (r: BreakdownRow) => <ResponseCell row={r} />,
-            } satisfies ColumnDef<BreakdownRow>,
-          ]
+          {
+            id: 'response',
+            label: 'Response (p50)',
+            header: (
+              <span className="whitespace-nowrap font-semibold">Response (p50)</span>
+            ),
+            headerClassName:
+              'h-auto px-0 pb-2 text-right align-bottom text-[10.5px] font-semibold uppercase tracking-wide text-muted-foreground',
+            cellClassName: 'p-0 py-2 pl-3 text-right',
+            cell: (r: BreakdownRow) => <ResponseCell row={r} />,
+          } satisfies ColumnDef<BreakdownRow>,
+        ]
         : []),
     ],
     [leadHeader, leadValue, convBase, showResponse],
