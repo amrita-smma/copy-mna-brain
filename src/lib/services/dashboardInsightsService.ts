@@ -58,9 +58,6 @@ export const STALE_STAGES = ['L0', 'L1', 'L2', 'L3'] as const;
 /** Most-overdue deals to surface in the stale list. */
 const MAX_STALE_ROWS = 8;
 
-/** Top rows to surface in each breakdown table. */
-const MAX_BREAKDOWN_ROWS = 6;
-
 const MS_PER_DAY = 1000 * 60 * 60 * 24;
 
 /** Base period the configurable funnel targets are expressed over. Targets are
@@ -319,15 +316,17 @@ export class DashboardInsightsService {
       funnel,
       staleThresholdLabel: formatStaleThresholdLabel(settings.staleThresholds),
       staleDeals: staleDeals.slice(0, MAX_STALE_ROWS),
-      // Segments & countries convert off their L0 base; bankers off total leads.
-      // All three now count companies *added to* each stage in the window (the
-      // funnel basis: dropped included, deduped per stage), not just the active
-      // snapshot. Segments/countries return every row (the UI paginates);
-      // bankers stay capped at a fixed top-N and carry our response-time profile.
-      segments: buildBreakdown(segmentBreakdown, 'l0'),
-      countries: buildBreakdown(countryBreakdown, 'l0'),
+      // Segments & countries follow the DEAL FUNNEL: the cohort created in the
+      // window, bucketed by where each company sits today. Building off the
+      // `total` base makes the counts cumulative — a company at L1 today also
+      // counts toward L0 — so `l1plus / total` is the cumulative L0→L1
+      // conversion, reconciling with the funnel. Bankers stay on the stage-entry
+      // model, convert off total leads, and carry our response-time profile.
+      // All three return every row and let the UI paginate.
+      segments: buildBreakdown(segmentBreakdown, 'total'),
+      countries: buildBreakdown(countryBreakdown, 'total'),
       bankers: attachResponseProfiles(
-        buildBreakdown(bankerBreakdown, 'total', MAX_BREAKDOWN_ROWS),
+        buildBreakdown(bankerBreakdown, 'total'),
         bankerResponseProfiles,
       ),
       aiThroughput: {

@@ -1848,7 +1848,7 @@ export default function Dashboard({
                       <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10">
                         <TrendingUp className="h-4 w-4 text-primary" />
                       </div>
-                      Pipeline Stages
+                      Deal Funnel
                     </CardTitle>
                     <span className="text-sm text-muted-foreground">
                       {formatDate(dateRange.from)} – {formatDate(dateRange.to)}

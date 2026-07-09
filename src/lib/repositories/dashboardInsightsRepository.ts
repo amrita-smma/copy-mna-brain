@@ -251,23 +251,55 @@ export class DashboardInsightsRepository {
     }));
   }
 
+  /**
+   * Cohort breakdown keyed on `key`: companies **created in the window** that are
+   * currently a pipeline deal (L0–L5), grouped by the key and their **current**
+   * stage. This is the deal-funnel basis — a snapshot of where each company sits
+   * *today* (active and dropped alike, each counted once), matching
+   * `DashboardActivityService.getAddedCohort`. It deliberately differs from the
+   * stage-entry model in {@link breakdownByKey}: rolling these per-stage counts
+   * up cumulatively (a company at L1 today also passed through L0) is done in the
+   * service, so the segment/country conversion reconciles with the funnel.
+   */
+  private async cohortBreakdownByKey(
+    key: SQL,
+    from: Date,
+    to: Date,
+  ): Promise<DimensionStageCount[]> {
+    const stages = [...PIPELINE_FUNNEL_STAGES];
+    const rows = await this.db.execute<{ key: string | null; stage: string; count: string }>(sql`
+      SELECT ${key} AS key,
+             ${companies.pipeline_stage}::text AS stage,
+             COUNT(*) AS count
+      FROM ${companies}
+      WHERE ${eq(companies.workspace_id, this.workspaceId)}
+        AND ${inArray(companies.pipeline_stage, stages)}
+        AND ${gte(companies.created_at, from.toISOString())}
+        AND ${lte(companies.created_at, to.toISOString())}
+      GROUP BY ${key}, ${companies.pipeline_stage}
+    `);
+    return rows.map((r) => ({
+      key: r.key == null ? null : String(r.key),
+      stage: String(r.stage),
+      count: Number(r.count),
+    }));
+  }
+
+  /** Segment breakdown on the deal-funnel (cohort-by-current-stage) basis. */
   getSegmentBreakdown(from: Date, to: Date): Promise<DimensionStageCount[]> {
-    return this.breakdownByKey(sql`${companies.segment}`, from, to);
+    return this.cohortBreakdownByKey(sql`${companies.segment}`, from, to);
   }
 
+  /** Country breakdown on the deal-funnel (cohort-by-current-stage) basis. */
   getCountryBreakdown(from: Date, to: Date): Promise<DimensionStageCount[]> {
-    return this.breakdownByKey(sql`${companies.geography}`, from, to);
+    return this.cohortBreakdownByKey(sql`${companies.geography}`, from, to);
   }
 
-  /** Banker breakdown keyed on `banker`, falling back per-row to `banker_source`
-   * when `banker` is empty (the column was added later, so older rows only have
-   * `banker_source`). */
+  /** Banker breakdown keyed on the company's `banker` field. Rows with an empty
+   * `banker` are dropped downstream (`buildBreakdown` skips blank keys), so only
+   * companies with a named banker contribute to the card. */
   getBankerBreakdown(from: Date, to: Date): Promise<DimensionStageCount[]> {
-    return this.breakdownByKey(
-      sql`coalesce(nullif(${companies.banker}, ''), ${companies.banker_source})`,
-      from,
-      to,
-    );
+    return this.breakdownByKey(sql`nullif(${companies.banker}, '')`, from, to);
   }
 
   /**

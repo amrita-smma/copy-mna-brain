@@ -138,7 +138,7 @@ Before inserting, the tool fuzzy-matches the target name against existing compan
 Args:
     target: Company name to record. Required.
     stage: Intake stage — one of "market_screening" (default) or "discovered". Defaults to "market_screening". L0 is NOT accepted.
-    segment: Optional sector/segment classification (e.g. "specialty chemicals").
+    segment: Optional sector/segment classification. Keep it BROAD, not hyper-specific — a category many companies can share (e.g. "Semiconductor", "CMP Slurry", "Petrochemical"), not a narrow niche unique to one company. Over-specific segments create minimal overlap and make cohort grouping useless.
     geography: Optional headquarters country — EXACTLY ONE country name (e.g. "South Korea", "United States"). Never combine multiple countries, regions, cities, or facility/R&D locations.
     source: Optional origin tag. One of "inbound" or "outbound"; defaults to "outbound" (AI-discovered companies are outbound by nature).
     note: Optional triage note. Recorded informationally on the action message; not persisted to the row.
@@ -158,7 +158,9 @@ Returns:
       segment: z
         .string()
         .optional()
-        .describe("Sector / segment classification"),
+        .describe(
+          'Broad sector / segment classification — a category many companies can share (e.g. "Semiconductor", "CMP Slurry", "Petrochemical"), NOT a hyper-specific niche unique to one company. Too specific means minimal segment overlap and useless cohort grouping.',
+        ),
       geography: z
         .string()
         .optional()

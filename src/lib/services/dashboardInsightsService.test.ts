@@ -246,7 +246,8 @@ describe('DashboardInsightsService.getInsights', () => {
     expect(staleDeals[2]).toMatchObject({ stage: 'L2', days: 25, severity: 'red' });
   });
 
-  it('pivots segment breakdown and converts off the L0 base', async () => {
+  it('pivots segment breakdown on the deal-funnel basis (cumulative L0→L1 off the total)', async () => {
+    // Cohort snapshot by current stage: 42 at L0, 5 at L1, 2 at L2 → 49 added.
     repo.getSegmentBreakdown.mockResolvedValue([
       dim('CMP', 'L0', 42),
       dim('CMP', 'L1', 5),
@@ -258,10 +259,12 @@ describe('DashboardInsightsService.getInsights', () => {
     const { segments } = await service.getInsights(FROM, TO, NOW);
 
     expect(segments).toHaveLength(2);
+    // Conversion follows the funnel: everyone passed L0, so the base is the whole
+    // cohort (total) and l1plus is the cumulative count that reached ≥ L1.
     const cmp = segments.find((s) => s.key === 'CMP')!;
-    expect(cmp).toMatchObject({ l0: 42, l1plus: 7, conversion: 17 }); // 7/42 ≈ 17%
+    expect(cmp).toMatchObject({ l0: 42, l1plus: 7, total: 49, conversion: 14 }); // 7/49 ≈ 14%
     const pkg = segments.find((s) => s.key === 'Packaging')!;
-    expect(pkg).toMatchObject({ l0: 11, l1plus: 0, conversion: 0 });
+    expect(pkg).toMatchObject({ l0: 11, l1plus: 0, total: 11, conversion: 0 });
   });
 
   it('converts bankers off total leads, sorted by lead volume', async () => {
@@ -296,16 +299,17 @@ describe('DashboardInsightsService.getInsights', () => {
     expect(segments[0]).toMatchObject({ key: 'Seg7', l0: 24 });
   });
 
-  it('keeps bankers capped at the fixed top-N by lead volume', async () => {
+  it('returns every banker row sorted descending by lead volume (UI paginates)', async () => {
+    // 9 bankers — more than one page — to prove no slicing happens; the card
+    // paginates client-side like segments/countries.
     repo.getBankerBreakdown.mockResolvedValue(
       Array.from({ length: 9 }, (_, i) => dim(`Bank${i}`, 'L0', i + 1)),
     );
 
     const { bankers } = await service.getInsights(FROM, TO, NOW);
 
-    // Still capped at 6 rows (top by total leads), unlike segments/countries.
-    expect(bankers).toHaveLength(6);
-    expect(bankers[0].key).toBe('Bank8');
+    expect(bankers).toHaveLength(9);
+    expect(bankers[0].key).toBe('Bank8'); // highest lead volume first
   });
 
   it('attaches each banker its response p50 + distribution, matched by firm name', async () => {

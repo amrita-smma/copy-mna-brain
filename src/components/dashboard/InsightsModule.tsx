@@ -318,10 +318,11 @@ function InsightsContent({
 
   return (
     <div className="space-y-3">
-      {/* ── KPI row ── */}
-      {/* L0→L1 conversion spans the full width now that the "Deals stale in
-          stage" KPI beside it is commented out. */}
-      <div className="grid grid-cols-1 gap-3">
+      {/* ── Row 1: L0→L1 conversion + Leads from Bankers ── */}
+      {/* items-stretch (grid default) so every card in the row shares the same
+          height — the compact KPI tile grows to match the taller bankers
+          breakdown beside it. */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 items-stretch">
         <KpiCard
           label="L0 → L1 conversion"
           value={`${kpis.l0l1Conversion}%`}
@@ -331,8 +332,9 @@ function InsightsContent({
           askLabel="Analyze L0→L1 conversion with AI"
           onConfigure={() => setConversionModalOpen(true)}
           configureLabel="Configure conversion target"
+          centered
         />
-        {/* Deals stale in stage — temporarily hidden.
+        {/* Deals stale in stage KPI — temporarily hidden.
         <KpiCard
           label="Deals stale in stage"
           value={kpis.staleCount}
@@ -342,10 +344,7 @@ function InsightsContent({
           askLabel="Analyze stale deals with AI"
         />
         */}
-      </div>
-
-      {/* ── Row 1: Funnel + Banker source quality ── */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+        {/* Funnel vs. target panel — temporarily disabled
         <Card className="border bg-card">
           <CardHeader className="pb-3">
             <div className="flex items-start justify-between gap-2">
@@ -423,6 +422,7 @@ function InsightsContent({
             })}
           </CardContent>
         </Card>
+        */}
 
         <TargetSettingsModal
           open={targetModalOpen}
@@ -542,7 +542,7 @@ function InsightsContent({
           <CardHeader className="pb-3">
             <div className="flex items-start justify-between gap-2">
               <CardTitle className="flex items-center gap-2 text-sm font-semibold">
-                <Users className="h-4 w-4 text-muted-foreground" /> Banker source quality
+                <Users className="h-4 w-4 text-muted-foreground" /> Leads from Bankers
               </CardTitle>
               <AskAIButton
                 label="Analyze banker source quality with AI"
@@ -558,6 +558,7 @@ function InsightsContent({
               leadHeader="Leads"
               leadValue={(r) => r.total}
               convBase={(r) => r.total}
+              pageSize={6}
               showResponse
               renderKey={(r) => (
                 <div className="flex items-center gap-2.5">
@@ -566,7 +567,7 @@ function InsightsContent({
                   >
                     {initials(r.key)}
                   </span>
-                  <span className="truncate text-[13px] font-medium">{r.key}</span>
+                  <span className="min-w-0 break-words text-[13px] font-medium">{r.key}</span>
                 </div>
               )}
               emptyLabel="No banker-sourced deals."
@@ -603,8 +604,8 @@ function InsightsContent({
               rows={countries}
               firstHeader="Country"
               leadHeader="L0"
-              leadValue={(r) => r.l0}
-              convBase={(r) => r.l0}
+              leadValue={(r) => r.total}
+              convBase={(r) => r.total}
               pageSize={6}
               renderKey={(r) => (
                 <span className="flex items-center gap-2 text-[13px]">
@@ -635,8 +636,8 @@ function InsightsContent({
               rows={segments}
               firstHeader="Segment"
               leadHeader="L0"
-              leadValue={(r) => r.l0}
-              convBase={(r) => r.l0}
+              leadValue={(r) => r.total}
+              convBase={(r) => r.total}
               pageSize={6}
               renderKey={(r) => <span className="text-[13px]">{r.key}</span>}
               emptyLabel="No segmented deals."
@@ -714,6 +715,7 @@ function KpiCard({
   askLabel,
   onConfigure,
   configureLabel,
+  centered = false,
 }: {
   label: string;
   value: string | number;
@@ -724,6 +726,9 @@ function KpiCard({
   /** When provided, renders a grey gear button beside the AI-analysis icon. */
   onConfigure?: () => void;
   configureLabel?: string;
+  /** Fill the card height and center the label/value/sub both axes; the action
+   * buttons pin to the top-right corner so they don't offset the centering. */
+  centered?: boolean;
 }) {
   const subTone =
     tone === 'green'
@@ -733,25 +738,40 @@ function KpiCard({
         : tone === 'red'
           ? 'text-red-600 dark:text-red-400'
           : 'text-muted-foreground';
+  const actions = (
+    <div className="flex items-center gap-1">
+      {onConfigure && (
+        <button
+          type="button"
+          onClick={onConfigure}
+          aria-label={configureLabel ?? 'Configure'}
+          title={configureLabel ?? 'Configure'}
+          className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+        >
+          <Settings className="h-3.5 w-3.5" />
+        </button>
+      )}
+      <AskAIButton label={askLabel} onClick={onAsk} />
+    </div>
+  );
+  if (centered) {
+    return (
+      <Card className="flex h-full flex-col border bg-card">
+        <CardContent className="relative flex flex-1 flex-col items-center justify-center p-4 text-center">
+          <div className="absolute right-3 top-3">{actions}</div>
+          <div className="text-[11.5px] text-muted-foreground">{label}</div>
+          <div className="mt-1.5 font-mono text-2xl font-semibold tracking-tight">{value}</div>
+          <div className={`mt-1 text-[11px] font-medium ${subTone}`}>{sub}</div>
+        </CardContent>
+      </Card>
+    );
+  }
   return (
     <Card className="border bg-card">
       <CardContent className="p-4">
         <div className="flex items-center justify-between gap-2">
           <div className="text-[11.5px] text-muted-foreground">{label}</div>
-          <div className="flex items-center gap-1">
-            {onConfigure && (
-              <button
-                type="button"
-                onClick={onConfigure}
-                aria-label={configureLabel ?? 'Configure'}
-                title={configureLabel ?? 'Configure'}
-                className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-              >
-                <Settings className="h-3.5 w-3.5" />
-              </button>
-            )}
-            <AskAIButton label={askLabel} onClick={onAsk} />
-          </div>
+          {actions}
         </div>
         <div className="mt-1.5 font-mono text-2xl font-semibold tracking-tight">{value}</div>
         <div className={`mt-1 text-[11px] font-medium ${subTone}`}>{sub}</div>
