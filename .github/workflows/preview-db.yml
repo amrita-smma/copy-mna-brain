@@ -3,8 +3,6 @@ name: Preview DB & Deploy
 on:
   pull_request:
     types: [opened, synchronize, reopened, closed]
-    branches:
-      - main
 
 concurrency:
   group: preview-db-${{ github.event.number }}
