@@ -1,5 +1,5 @@
-import * as crypto from 'node:crypto';
-import { Readable } from 'node:stream';
+import * as crypto from "node:crypto";
+import { Readable } from "node:stream";
 
 export interface VaultCredentials {
   client_email: string;
@@ -35,14 +35,14 @@ export interface VaultExportFile {
 
 export interface VaultExportStatus {
   id: string;
-  status: 'IN_PROGRESS' | 'COMPLETED' | 'FAILED';
+  status: "IN_PROGRESS" | "COMPLETED" | "FAILED";
   files: VaultExportFile[];
 }
 
 export interface VaultImportMessage {
   contact_email: string;
   contact_name?: string;
-  direction: 'inbound' | 'outbound';
+  direction: "inbound" | "outbound";
   subject?: string;
   body: string;
   sent_at?: string;
@@ -50,64 +50,77 @@ export interface VaultImportMessage {
   to_email?: string;
 }
 
-const VAULT_BASE = 'https://vault.googleapis.com/v1';
-const STORAGE_DOWNLOAD_BASE = 'https://storage.googleapis.com/download/storage/v1';
+const VAULT_BASE = "https://vault.googleapis.com/v1";
+const STORAGE_DOWNLOAD_BASE =
+  "https://storage.googleapis.com/download/storage/v1";
 
 export const VAULT_CUSTODIAN_EMAILS = [
-  'hendric.g@starcapital.co.id',
-  'dessi.sari@aldiracita.com',
-  'jien.lit@starcapital.co.id',
-  'cp.tei@starcapitalholdings.com',
-  'samuel.nathaniel@lifewithsun.com',
-  'christin.chandra@starcapital.co.id',
-  'chandra.limi@starcapital.co.id',
+  "hendric.g@starcapital.co.id",
+  "dessi.sari@aldiracita.com",
+  "jien.lit@starcapital.co.id",
+  "cp.tei@starcapitalholdings.com",
+  "samuel.nathaniel@starcapital.co.id",
+  "christin.chandra@starcapital.co.id",
+  "chandra.limi@starcapital.co.id",
 ];
 
 export function loadVaultCredentials(): VaultCredentials {
   const encoded = process.env.GOOGLE_VAULT_SERVICE_ACCOUNT;
-  if (!encoded) throw new Error('GOOGLE_VAULT_SERVICE_ACCOUNT is not set');
-  const json = Buffer.from(encoded, 'base64').toString('utf-8');
+  if (!encoded) throw new Error("GOOGLE_VAULT_SERVICE_ACCOUNT is not set");
+  const json = Buffer.from(encoded, "base64").toString("utf-8");
   const creds = JSON.parse(json) as VaultCredentials;
   if (!creds.client_email || !creds.private_key) {
-    throw new Error('Invalid service account JSON: missing client_email or private_key');
+    throw new Error(
+      "Invalid service account JSON: missing client_email or private_key",
+    );
   }
   return creds;
 }
 
-function makeJwt(clientEmail: string, privateKey: string, scopes: string[], subject?: string): string {
+function makeJwt(
+  clientEmail: string,
+  privateKey: string,
+  scopes: string[],
+  subject?: string,
+): string {
   const now = Math.floor(Date.now() / 1000);
-  const header = Buffer.from(JSON.stringify({ alg: 'RS256', typ: 'JWT' })).toString('base64url');
+  const header = Buffer.from(
+    JSON.stringify({ alg: "RS256", typ: "JWT" }),
+  ).toString("base64url");
   const claimsObj: Record<string, unknown> = {
     iss: clientEmail,
-    scope: scopes.join(' '),
-    aud: 'https://oauth2.googleapis.com/token',
+    scope: scopes.join(" "),
+    aud: "https://oauth2.googleapis.com/token",
     iat: now,
     exp: now + 3600,
   };
   if (subject) claimsObj.sub = subject;
-  const payload = Buffer.from(JSON.stringify(claimsObj)).toString('base64url');
+  const payload = Buffer.from(JSON.stringify(claimsObj)).toString("base64url");
   const unsigned = `${header}.${payload}`;
-  const sign = crypto.createSign('RSA-SHA256');
+  const sign = crypto.createSign("RSA-SHA256");
   sign.update(unsigned);
-  const signature = sign.sign({ key: privateKey, format: 'pem' }, 'base64url');
+  const signature = sign.sign({ key: privateKey, format: "pem" }, "base64url");
   return `${unsigned}.${signature}`;
 }
 
-export async function getVaultAccessToken(creds: VaultCredentials, subject?: string): Promise<string> {
+export async function getVaultAccessToken(
+  creds: VaultCredentials,
+  subject?: string,
+): Promise<string> {
   const jwt = makeJwt(
     creds.client_email,
     creds.private_key,
     [
-      'https://www.googleapis.com/auth/ediscovery',
-      'https://www.googleapis.com/auth/devstorage.read_only',
+      "https://www.googleapis.com/auth/ediscovery",
+      "https://www.googleapis.com/auth/devstorage.read_only",
     ],
     subject,
   );
-  const resp = await fetch('https://oauth2.googleapis.com/token', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+  const resp = await fetch("https://oauth2.googleapis.com/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({
-      grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
+      grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
       assertion: jwt,
     }),
   });
@@ -129,23 +142,30 @@ async function vaultRequest<T>(
     method,
     headers: {
       Authorization: `Bearer ${token}`,
-      'Content-Type': 'application/json',
+      "Content-Type": "application/json",
     },
     body: body ? JSON.stringify(body) : undefined,
   });
   if (!resp.ok) {
     const err = await resp.text();
-    throw new Error(`Vault API error ${resp.status} on ${method} ${path}: ${err}`);
+    throw new Error(
+      `Vault API error ${resp.status} on ${method} ${path}: ${err}`,
+    );
   }
   return resp.json() as Promise<T>;
 }
 
 export async function createVaultMatter(token: string): Promise<string> {
-  const matter = await vaultRequest<{ matterId: string }>(token, 'POST', '/matters', {
-    name: `MNA Tracker Email Sync ${new Date().toISOString()}`,
-    description: 'Automated daily email export',
-    state: 'OPEN',
-  });
+  const matter = await vaultRequest<{ matterId: string }>(
+    token,
+    "POST",
+    "/matters",
+    {
+      name: `MNA Tracker Email Sync ${new Date().toISOString()}`,
+      description: "Automated daily email export",
+      state: "OPEN",
+    },
+  );
   return matter.matterId;
 }
 
@@ -158,14 +178,14 @@ export async function createVaultExport(
 ): Promise<string> {
   const exportObj = await vaultRequest<{ id: string }>(
     token,
-    'POST',
+    "POST",
     `/matters/${matterId}/exports`,
     {
       name: `Email Export ${new Date().toISOString()}`,
       query: {
-        corpus: 'MAIL',
-        dataScope: 'ALL_DATA',
-        searchMethod: 'ACCOUNT',
+        corpus: "MAIL",
+        dataScope: "ALL_DATA",
+        searchMethod: "ACCOUNT",
         accountInfo: { emails: custodianEmails },
         startTime: startTime.toISOString(),
         endTime: endTime.toISOString(),
@@ -173,7 +193,7 @@ export async function createVaultExport(
       },
       exportOptions: {
         mailOptions: {
-          exportFormat: 'MBOX',
+          exportFormat: "MBOX",
           showConfidentialModeContent: false,
           exportLinkedDriveFiles: false,
           useNewExport: true,
@@ -192,26 +212,36 @@ export async function pollVaultExport(
   const data = await vaultRequest<{
     id: string;
     status: string;
-    cloudStorageSink?: { files?: Array<{ bucketName: string; objectName: string; size: string }> };
-  }>(token, 'GET', `/matters/${matterId}/exports/${exportId}`);
+    cloudStorageSink?: {
+      files?: Array<{ bucketName: string; objectName: string; size: string }>;
+    };
+  }>(token, "GET", `/matters/${matterId}/exports/${exportId}`);
 
   const files: VaultExportFile[] = data.cloudStorageSink?.files ?? [];
-  const status = data.status as VaultExportStatus['status'];
+  const status = data.status as VaultExportStatus["status"];
   return { id: data.id, status, files };
 }
 
-export async function closeVaultMatter(token: string, matterId: string): Promise<void> {
-  await vaultRequest(token, 'POST', `/matters/${matterId}:close`, {});
+export async function closeVaultMatter(
+  token: string,
+  matterId: string,
+): Promise<void> {
+  await vaultRequest(token, "POST", `/matters/${matterId}:close`, {});
 }
 
-export async function downloadExportFile(token: string, file: VaultExportFile): Promise<Buffer> {
+export async function downloadExportFile(
+  token: string,
+  file: VaultExportFile,
+): Promise<Buffer> {
   const encodedObject = encodeURIComponent(file.objectName);
   const url = `${STORAGE_DOWNLOAD_BASE}/b/${file.bucketName}/o/${encodedObject}?alt=media`;
   const resp = await fetch(url, {
     headers: { Authorization: `Bearer ${token}` },
   });
   if (!resp.ok) {
-    throw new Error(`Failed to download export file ${file.objectName}: ${resp.status}`);
+    throw new Error(
+      `Failed to download export file ${file.objectName}: ${resp.status}`,
+    );
   }
   return Buffer.from(await resp.arrayBuffer());
 }
@@ -226,10 +256,14 @@ export async function downloadExportFileStream(
     headers: { Authorization: `Bearer ${token}` },
   });
   if (!resp.ok) {
-    throw new Error(`Failed to download export file ${file.objectName}: ${resp.status}`);
+    throw new Error(
+      `Failed to download export file ${file.objectName}: ${resp.status}`,
+    );
   }
   if (!resp.body) {
-    throw new Error(`Failed to download export file ${file.objectName}: empty response body`);
+    throw new Error(
+      `Failed to download export file ${file.objectName}: empty response body`,
+    );
   }
   return Readable.fromWeb(resp.body as never);
 }
@@ -238,28 +272,32 @@ export async function downloadExportFileStream(
 
 function decodeHeaderWord(encoded: string): string {
   // Decode =?charset?B?base64?= and =?charset?Q?qp?= encoded words
-  return encoded.replace(/=\?([^?]+)\?([BQbq])\?([^?]*)\?=/g, (_, charset, encoding, text) => {
-    try {
-      if (encoding.toUpperCase() === 'B') {
-        return Buffer.from(text, 'base64').toString('utf-8');
-      } else {
-        const qp = text.replace(/_/g, ' ').replace(
-          /=([0-9A-Fa-f]{2})/g,
-          (_match: string, hex: string) => String.fromCharCode(parseInt(hex, 16)),
-        );
-        return qp;
+  return encoded.replace(
+    /=\?([^?]+)\?([BQbq])\?([^?]*)\?=/g,
+    (_, charset, encoding, text) => {
+      try {
+        if (encoding.toUpperCase() === "B") {
+          return Buffer.from(text, "base64").toString("utf-8");
+        } else {
+          const qp = text
+            .replace(/_/g, " ")
+            .replace(/=([0-9A-Fa-f]{2})/g, (_match: string, hex: string) =>
+              String.fromCharCode(parseInt(hex, 16)),
+            );
+          return qp;
+        }
+      } catch {
+        return text;
       }
-    } catch {
-      return text;
-    }
-  });
+    },
+  );
 }
 
 function parseHeaders(raw: string): Record<string, string> {
-  const unfolded = raw.replace(/\r?\n[ \t]+/g, ' ');
+  const unfolded = raw.replace(/\r?\n[ \t]+/g, " ");
   const headers: Record<string, string> = {};
   for (const line of unfolded.split(/\r?\n/)) {
-    const colon = line.indexOf(':');
+    const colon = line.indexOf(":");
     if (colon < 1) continue;
     const key = line.slice(0, colon).trim().toLowerCase();
     const value = decodeHeaderWord(line.slice(colon + 1).trim());
@@ -288,22 +326,22 @@ export interface EmailListEntry {
 export function extractEmailList(header: string | undefined): EmailListEntry[] {
   if (!header) return [];
   const segments: string[] = [];
-  let buf = '';
+  let buf = "";
   let angleDepth = 0;
   let inQuotes = false;
   for (let i = 0; i < header.length; i++) {
     const c = header[i];
-    if (c === '"' && header[i - 1] !== '\\') {
+    if (c === '"' && header[i - 1] !== "\\") {
       inQuotes = !inQuotes;
       buf += c;
       continue;
     }
     if (!inQuotes) {
-      if (c === '<') angleDepth++;
-      else if (c === '>') angleDepth = Math.max(0, angleDepth - 1);
-      else if (c === ',' && angleDepth === 0) {
+      if (c === "<") angleDepth++;
+      else if (c === ">") angleDepth = Math.max(0, angleDepth - 1);
+      else if (c === "," && angleDepth === 0) {
         segments.push(buf);
-        buf = '';
+        buf = "";
         continue;
       }
     }
@@ -318,7 +356,7 @@ export function extractEmailList(header: string | undefined): EmailListEntry[] {
     const address = extractEmailAddress(trimmed);
     if (!address) continue;
     let displayName: string | null = null;
-    const angleIdx = trimmed.indexOf('<');
+    const angleIdx = trimmed.indexOf("<");
     if (angleIdx > 0) {
       let name = trimmed.slice(0, angleIdx).trim();
       if (name.startsWith('"') && name.endsWith('"')) name = name.slice(1, -1);
@@ -341,7 +379,7 @@ export function stripAngleBrackets(s: string | undefined): string | null {
   if (!s) return null;
   const trimmed = s.trim();
   if (!trimmed) return null;
-  if (trimmed.startsWith('<') && trimmed.endsWith('>')) {
+  if (trimmed.startsWith("<") && trimmed.endsWith(">")) {
     const inner = trimmed.slice(1, -1).trim();
     return inner || null;
   }
@@ -357,8 +395,8 @@ export function detectAttachments(
   headers: Record<string, string>,
   rawBody: string,
 ): boolean {
-  const contentType = headers['content-type'] ?? '';
-  const contentDisposition = headers['content-disposition'] ?? '';
+  const contentType = headers["content-type"] ?? "";
+  const contentDisposition = headers["content-disposition"] ?? "";
 
   if (/^attachment\b/i.test(contentDisposition)) return true;
   if (/\b(filename|name)\s*=/i.test(contentDisposition)) return true;
@@ -369,15 +407,15 @@ export function detectAttachments(
     return true;
   }
 
-  if (contentType.startsWith('multipart/')) {
+  if (contentType.startsWith("multipart/")) {
     const boundaryMatch = contentType.match(/boundary="?([^";,\s]+)"?/i);
     if (!boundaryMatch) return false;
     const boundary = boundaryMatch[1];
     const parts = rawBody.split(`--${boundary}`);
     for (const part of parts) {
       const trimmed = part.trim();
-      if (!trimmed || trimmed === '--') continue;
-      const divider = trimmed.indexOf('\n\n');
+      if (!trimmed || trimmed === "--") continue;
+      const divider = trimmed.indexOf("\n\n");
       if (divider === -1) continue;
       const partHeaders = parseHeaders(trimmed.slice(0, divider));
       const partBody = trimmed.slice(divider + 2);
@@ -389,36 +427,38 @@ export function detectAttachments(
 
 function decodeQuotedPrintable(str: string): string {
   return str
-    .replace(/=\r?\n/g, '')
-    .replace(/=([0-9A-Fa-f]{2})/g, (_, hex) => String.fromCharCode(parseInt(hex, 16)));
+    .replace(/=\r?\n/g, "")
+    .replace(/=([0-9A-Fa-f]{2})/g, (_, hex) =>
+      String.fromCharCode(parseInt(hex, 16)),
+    );
 }
 
 function decodeTransfer(body: string, encoding: string): string {
   const enc = encoding.toLowerCase().trim();
-  if (enc === 'base64') {
+  if (enc === "base64") {
     try {
-      return Buffer.from(body.replace(/\s+/g, ''), 'base64').toString('utf-8');
+      return Buffer.from(body.replace(/\s+/g, ""), "base64").toString("utf-8");
     } catch {
       return body;
     }
   }
-  if (enc === 'quoted-printable') return decodeQuotedPrintable(body);
+  if (enc === "quoted-printable") return decodeQuotedPrintable(body);
   return body;
 }
 
 function stripHtml(html: string): string {
   return html
-    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
-    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
-    .replace(/<[^>]+>/g, ' ')
-    .replace(/&nbsp;/g, ' ')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&amp;/g, '&')
+    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, "")
+    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, "")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&amp;/g, "&")
     .replace(/&quot;/g, '"')
     .replace(/&#39;/g, "'")
-    .replace(/[ \t]{2,}/g, ' ')
-    .replace(/\n{3,}/g, '\n\n')
+    .replace(/[ \t]{2,}/g, " ")
+    .replace(/\n{3,}/g, "\n\n")
     .trim();
 }
 
@@ -426,10 +466,10 @@ function extractTextFromMime(
   headers: Record<string, string>,
   rawBody: string,
 ): string {
-  const contentType = headers['content-type'] ?? 'text/plain';
-  const transferEncoding = headers['content-transfer-encoding'] ?? '';
+  const contentType = headers["content-type"] ?? "text/plain";
+  const transferEncoding = headers["content-transfer-encoding"] ?? "";
 
-  if (contentType.startsWith('multipart/')) {
+  if (contentType.startsWith("multipart/")) {
     const boundaryMatch = contentType.match(/boundary="?([^";,\s]+)"?/i);
     if (!boundaryMatch) return rawBody.trim();
 
@@ -440,20 +480,20 @@ function extractTextFromMime(
 
     for (const part of parts) {
       const trimmed = part.trim();
-      if (!trimmed || trimmed === '--') continue;
-      const divider = trimmed.indexOf('\n\n');
+      if (!trimmed || trimmed === "--") continue;
+      const divider = trimmed.indexOf("\n\n");
       if (divider === -1) continue;
       const partHeaders = parseHeaders(trimmed.slice(0, divider));
       const partBody = trimmed.slice(divider + 2);
-      const partCT = partHeaders['content-type'] ?? '';
-      const partTE = partHeaders['content-transfer-encoding'] ?? '';
+      const partCT = partHeaders["content-type"] ?? "";
+      const partTE = partHeaders["content-transfer-encoding"] ?? "";
 
-      if (partCT.startsWith('multipart/')) {
+      if (partCT.startsWith("multipart/")) {
         const nested = extractTextFromMime(partHeaders, partBody);
         if (nested && !textPart) textPart = nested;
-      } else if (partCT.startsWith('text/plain') && !textPart) {
+      } else if (partCT.startsWith("text/plain") && !textPart) {
         textPart = decodeTransfer(partBody, partTE).trim();
-      } else if (partCT.startsWith('text/html') && !htmlPart) {
+      } else if (partCT.startsWith("text/html") && !htmlPart) {
         htmlPart = stripHtml(decodeTransfer(partBody, partTE));
       }
     }
@@ -462,7 +502,7 @@ function extractTextFromMime(
   }
 
   const decoded = decodeTransfer(rawBody, transferEncoding);
-  if (contentType.startsWith('text/html')) return stripHtml(decoded);
+  if (contentType.startsWith("text/html")) return stripHtml(decoded);
   return decoded.trim();
 }
 
@@ -481,7 +521,7 @@ export function parseMboxContent(mboxContent: string): ParsedEmail[] {
   const emails: ParsedEmail[] = [];
 
   // Normalize CRLF → LF so all parsing logic only deals with \n
-  const content = mboxContent.replace(/\r\n/g, '\n');
+  const content = mboxContent.replace(/\r\n/g, "\n");
 
   // Split on mbox message boundaries (lines starting with "From ")
   const boundaries: number[] = [];
@@ -497,12 +537,12 @@ export function parseMboxContent(mboxContent: string): ParsedEmail[] {
     const msgText = content.slice(start, end);
 
     // Skip the From_ envelope line
-    const firstNewline = msgText.indexOf('\n');
+    const firstNewline = msgText.indexOf("\n");
     if (firstNewline === -1) continue;
     const msgBody = msgText.slice(firstNewline + 1);
 
     // Split headers from body
-    const hbDivider = msgBody.indexOf('\n\n');
+    const hbDivider = msgBody.indexOf("\n\n");
     if (hbDivider === -1) continue;
 
     const rawHeaders = msgBody.slice(0, hbDivider);
@@ -512,31 +552,32 @@ export function parseMboxContent(mboxContent: string): ParsedEmail[] {
     const body = extractTextFromMime(headers, rawBodyContent);
 
     // Unescape MBOX-escaped ">From " lines in the body
-    const cleanBody = body.replace(/^>From /gm, 'From ');
+    const cleanBody = body.replace(/^>From /gm, "From ");
 
     if (!cleanBody.trim()) continue;
 
-    const fromList = extractEmailList(headers['from']);
-    const toList = extractEmailList(headers['to']);
-    const ccList = extractEmailList(headers['cc']);
-    const fromAddr = fromList[0]?.address ?? extractEmailAddress(headers['from'] ?? '');
+    const fromList = extractEmailList(headers["from"]);
+    const toList = extractEmailList(headers["to"]);
+    const ccList = extractEmailList(headers["cc"]);
+    const fromAddr =
+      fromList[0]?.address ?? extractEmailAddress(headers["from"] ?? "");
     const fromDisplay = fromList[0]?.displayName ?? null;
 
     emails.push({
       from_email: fromAddr,
-      to_email: toList[0]?.address ?? extractEmailAddress(headers['to'] ?? ''),
-      subject: headers['subject'] ?? null,
+      to_email: toList[0]?.address ?? extractEmailAddress(headers["to"] ?? ""),
+      subject: headers["subject"] ?? null,
       body: cleanBody,
-      sent_at: parseMessageDate(headers['date']),
-      message_id: stripAngleBrackets(headers['message-id']),
+      sent_at: parseMessageDate(headers["date"]),
+      message_id: stripAngleBrackets(headers["message-id"]),
       from_display_name: fromDisplay,
       to_emails: toList.map((e) => e.address),
       cc_emails: ccList.map((e) => e.address),
-      in_reply_to: stripAngleBrackets(headers['in-reply-to']),
+      in_reply_to: stripAngleBrackets(headers["in-reply-to"]),
       // `References` is a space-separated chain of message-ids. Keep as-is
       // for now (downstream can split on whitespace if needed).
-      references: headers['references']?.trim() || null,
-      gmail_thread_id: headers['x-gm-thrid']?.trim() || null,
+      references: headers["references"]?.trim() || null,
+      gmail_thread_id: headers["x-gm-thrid"]?.trim() || null,
       has_attachments: detectAttachments(headers, rawBodyContent),
       raw_headers: headers,
     });
@@ -552,19 +593,19 @@ export function classifyEmails(
   const result: VaultImportMessage[] = [];
 
   for (const email of emails) {
-    const fromLower = email.from_email?.toLowerCase() ?? '';
-    const toLower = email.to_email?.toLowerCase() ?? '';
+    const fromLower = email.from_email?.toLowerCase() ?? "";
+    const toLower = email.to_email?.toLowerCase() ?? "";
     const fromIsCustodian = custodianEmails.has(fromLower);
     const toIsCustodian = custodianEmails.has(toLower);
 
     let contactEmail: string | null = null;
-    let direction: 'inbound' | 'outbound';
+    let direction: "inbound" | "outbound";
 
     if (fromIsCustodian && !toIsCustodian) {
-      direction = 'outbound';
+      direction = "outbound";
       contactEmail = email.to_email;
     } else if (!fromIsCustodian && toIsCustodian) {
-      direction = 'inbound';
+      direction = "inbound";
       contactEmail = email.from_email;
     } else if (fromIsCustodian && toIsCustodian) {
       // Internal email between custodians — skip
