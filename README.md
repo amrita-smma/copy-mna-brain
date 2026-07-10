@@ -647,3 +647,28 @@ partial index `idx_companies_resurface_due`). For each due deal it:
 Notifications are best-effort: the reactivation stands even if no recipient can
 be resolved or the queue is unavailable. A manual restore from the UI cancels
 any pending resurface schedule.
+
+## Stalled-deal analysis
+
+The Copilot analysis agent exposes an `analyze_stalled_deals` tool that surfaces
+active deals losing momentum — ones parked in the same pipeline stage for too
+long (default **2 weeks**, configurable via `stalled_weeks`; optionally scoped
+to a single `L0`–`L5` stage).
+
+There is no dedicated "stage entered at" column, so time-in-stage is
+reconstructed from the `company_logs` audit trail. `StalledDealService`
+(`src/lib/services/stalledDealService.ts`, wired in `container.ts`):
+
+1. pulls every `active` deal in the `L0`–`L5` funnel
+   (`CompanyRepository.findForAgentStats`),
+2. bulk-loads their logs (`CompanyLogRepository.findByCompanyIds`) and, for each
+   deal, finds the most recent stage-move action whose destination equals the
+   current stage (`PROMOTED_FROM_X_TO_Y` / `PROMOTED_TO_Y` / `RESTORED_TO_Y` /
+   `RESURFACED_TO_Y`), falling back to `companies.created_at` when no such log
+   exists, and
+3. computes whole days-in-stage as of "today", flags deals at/over the
+   threshold, and builds a chronological stage timeline per deal.
+
+The tool renders a markdown report: a summary count, a stalled-deals table
+ordered by days-in-stage, per-deal timelines, and a compact table of the
+remaining within-threshold actives.

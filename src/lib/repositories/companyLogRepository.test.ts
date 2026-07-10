@@ -43,6 +43,27 @@ describe('CompanyLogRepository', () => {
     expect(mockDb.where).toHaveBeenCalledTimes(1);
   });
 
+  it('findByCompanyIds returns [] without hitting the DB when the id list is empty', async () => {
+    const result = await repo.findByCompanyIds([]);
+
+    expect(result).toEqual([]);
+    expect(mockDb.select).not.toHaveBeenCalled();
+  });
+
+  it('findByCompanyIds joins companies to scope the bulk lookup to this workspace', async () => {
+    const rows = [
+      { id: 'log1', company_id: 'company-1', action: 'PROMOTED_TO_L1', created_at: '2026-01-01' },
+      { id: 'log2', company_id: 'company-2', action: 'PROMOTED_TO_L2', created_at: '2026-01-02' },
+    ];
+    mockDb.orderBy.mockResolvedValueOnce(rows);
+
+    const result = await repo.findByCompanyIds(['company-1', 'company-2']);
+
+    expect(result).toEqual(rows);
+    expect(mockDb.innerJoin).toHaveBeenCalledTimes(1);
+    expect(mockDb.where).toHaveBeenCalledTimes(1);
+  });
+
   it('insert writes the entry without a workspace_id (company_logs has no own column)', async () => {
     await repo.insert({ company_id: 'company-1', action: 'PROMOTED_TO_L1' });
 

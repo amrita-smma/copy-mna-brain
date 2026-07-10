@@ -79,6 +79,7 @@ import { NotificationService } from './notificationService';
 import { WorkspaceService } from './workspaceService';
 import { DealResurfaceService } from './dealResurfaceService';
 import { ChatAttachmentService } from './chatAttachmentService';
+import { StalledDealService } from './stalledDealService';
 
 export interface Container {
   companyService: CompanyService;
@@ -115,6 +116,7 @@ export interface Container {
   workspaceService: WorkspaceService;
   dealResurfaceService: DealResurfaceService;
   chatAttachmentService: ChatAttachmentService;
+  stalledDealService: StalledDealService;
 }
 
 export function createContainer(db: DbClient, workspaceId: string): Container {
@@ -272,6 +274,8 @@ export function createContainer(db: DbClient, workspaceId: string): Container {
 
   const chatAttachmentService = new ChatAttachmentService(workspaceId);
 
+  const stalledDealService = new StalledDealService(companyRepo, companyLogRepo);
+
   return {
     companyService,
     companyGraphService,
@@ -307,5 +311,6 @@ export function createContainer(db: DbClient, workspaceId: string): Container {
     workspaceService,
     dealResurfaceService,
     chatAttachmentService,
+    stalledDealService,
   };
 }

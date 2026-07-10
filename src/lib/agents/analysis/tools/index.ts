@@ -7,6 +7,7 @@ import { getDataSchema } from "./get_data_schema";
 import { queryCompanies } from "./query_companies";
 import { getCompanyStats } from "./get_company_stats";
 import { getCompanyDetails } from "./get_company_details";
+import { analyzeStalledDeals } from "./analyze_stalled_deals";
 import { lookupCrm } from "./lookup_crm";
 import { crmInsights } from "./crm_insights";
 import { webSearch } from "./web_search";
@@ -35,6 +36,7 @@ export {
   queryCompanies,
   getCompanyStats,
   getCompanyDetails,
+  analyzeStalledDeals,
   lookupCrm,
   crmInsights,
   webSearch,
@@ -76,6 +78,7 @@ export const tools = [
   queryCompanies,
   getCompanyStats,
   getCompanyDetails,
+  analyzeStalledDeals,
   lookupCrm,
   crmInsights,
   webSearch,
@@ -141,6 +144,7 @@ export function getToolDescriptions(): string {
     { name: "query_companies", description: "Search and filter companies by segment, geography, stage, source, status, deal type, sponsor, banker, ownership, revenue/EBITDA, and AI Opinion (has_ai_opinion / verdict)" },
     { name: "get_company_stats", description: "Aggregate summary of a filtered cohort: counts, active/dropped & inbound/outbound splits, revenue/EBITDA totals/averages/medians, AI Opinion coverage, and breakdowns by segment/geography/stage/source/status/ownership/deal_type/ai_opinion" },
     { name: "get_company_details", description: "Get detailed information about a specific company by name" },
+    { name: "analyze_stalled_deals", description: "Analyze active deals stuck in the same pipeline stage for too long (default 2+ weeks): summary count, a table of stalled deals by days-in-stage, per-deal stage timelines, and the remaining within-threshold actives" },
     { name: "lookup_crm", description: "Look up a CRM firm/banker by name or email and get its full relationship picture — bankers, topics, team coverage, recent emails, notes, and linked pipeline companies" },
     { name: "crm_insights", description: "Get portfolio-wide CRM health metrics: stale relationships, flagged records awaiting curation, and emails received today" },
     { name: "web_search", description: "Search the web for company data, financials, market info, and external benchmarks" },
