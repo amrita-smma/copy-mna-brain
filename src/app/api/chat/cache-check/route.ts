@@ -5,6 +5,7 @@ import { getActiveWorkspaceId } from '@/lib/workspace';
 import { createContainer } from '@/lib/services';
 import { isCacheableResponse } from '@/lib/services/copilotChatsService';
 import { getAgentGraph, extractFirstTurn } from '@/lib/agents/analysis';
+import { chatCacheEnabled } from '@/lib/flags';
 
 /**
  * Chat cache lookup. Given the first user message of a brand-new chat, find a
@@ -19,6 +20,13 @@ export async function POST(req: NextRequest) {
     const session = await auth();
     if (!session?.user?.id) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    // Chat caching is behind a feature flag. When disabled, always report a
+    // miss so the client sends the message normally and never surfaces the
+    // cached-chat dialog.
+    if (!(await chatCacheEnabled())) {
+      return NextResponse.json({ data: { hit: false } });
     }
 
     const body = await req.json();

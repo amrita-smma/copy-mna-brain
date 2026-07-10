@@ -34,6 +34,12 @@ async function loadCompanyGraphEnabled() {
   return companyGraphEnabled;
 }
 
+async function loadChatCacheEnabled() {
+  vi.resetModules();
+  const { chatCacheEnabled } = await import("./flags");
+  return chatCacheEnabled;
+}
+
 describe("Feature Flags", () => {
   const originalEnv = { ...process.env };
 
@@ -72,6 +78,29 @@ describe("Feature Flags", () => {
       process.env.FLAGS = JSON.stringify({ "other-flag": true });
       const companyGraphEnabled = await loadCompanyGraphEnabled();
       const result = await companyGraphEnabled();
+      expect(result).toBe(false);
+    });
+  });
+
+  describe("chatCacheEnabled", () => {
+    it("should return true when FLAGS contains CHAT_CACHE_ENABLED", async () => {
+      process.env.FLAGS = JSON.stringify({ CHAT_CACHE_ENABLED: true });
+      const chatCacheEnabled = await loadChatCacheEnabled();
+      const result = await chatCacheEnabled();
+      expect(result).toBe(true);
+    });
+
+    it("should default to false (caching off) when FLAGS is not set", async () => {
+      delete process.env.FLAGS;
+      const chatCacheEnabled = await loadChatCacheEnabled();
+      const result = await chatCacheEnabled();
+      expect(result).toBe(false);
+    });
+
+    it("should return false when FLAGS contains CHAT_CACHE_ENABLED: false", async () => {
+      process.env.FLAGS = JSON.stringify({ CHAT_CACHE_ENABLED: false });
+      const chatCacheEnabled = await loadChatCacheEnabled();
+      const result = await chatCacheEnabled();
       expect(result).toBe(false);
     });
   });

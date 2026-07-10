@@ -17,6 +17,7 @@ import {
   ChatAttachmentForbiddenError,
   type ChatAttachmentRef,
 } from '@/lib/services/chatAttachmentService';
+import { chatCacheEnabled } from '@/lib/flags';
 
 const convertLangChainMessageToVercelMessage = (message: BaseMessage) => {
   if (message._getType() === 'human') {
@@ -233,8 +234,9 @@ export async function POST(req: NextRequest) {
     // and only record the cache key when the assistant produced a complete,
     // substantial answer (`isCacheableResponse`). This keeps partial/aborted/
     // errored runs out of the cache. Gated on `!requestedChatId` so we never
-    // touch a resumed thread.
-    if (!requestedChatId) {
+    // touch a resumed thread, and on the `chatCacheEnabled` flag so caching can
+    // be turned off entirely.
+    if (!requestedChatId && (await chatCacheEnabled())) {
       after(async () => {
         try {
           const finalMessages = await agent.getMessages(chat.id);

@@ -30,3 +30,8 @@ export const insightsDashboardEnabled = booleanFlag(
   "INSIGHTS_DASHBOARD_ENABLED",
   process.env.INSIGHTS_DASHBOARD_ENABLED === "true",
 );
+
+export const chatCacheEnabled = booleanFlag(
+  "CHAT_CACHE_ENABLED",
+  process.env.CHAT_CACHE_ENABLED === "true",
+);

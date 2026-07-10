@@ -9,6 +9,7 @@ import {
   HumanMessage,
   AIMessage,
 } from '@/lib/agents/analysis';
+import { chatCacheEnabled } from '@/lib/flags';
 
 /**
  * Fork a cached chat's turn-1 into a brand-new chat owned by the requesting
@@ -50,8 +51,12 @@ export async function POST(req: NextRequest) {
       new AIMessage(assistantText),
     ]);
     await copilotChatsService.setTitle(chat.id, userText.slice(0, 80));
-    // Keep the fork itself cacheable for the next identical question.
-    await copilotChatsService.recordFirstMessage(chat.id, userText);
+    // Keep the fork itself cacheable for the next identical question — but only
+    // when caching is enabled, so nothing is written to the cache while the
+    // feature flag is off.
+    if (await chatCacheEnabled()) {
+      await copilotChatsService.recordFirstMessage(chat.id, userText);
+    }
 
     return NextResponse.json({ data: { chatId: chat.id } });
   } catch (err) {
