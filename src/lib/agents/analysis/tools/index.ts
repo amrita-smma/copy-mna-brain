@@ -13,7 +13,6 @@ import { crmInsights } from "./crm_insights";
 import { webSearch } from "./web_search";
 import { queryMeetingNotes } from "./query_files";
 import { proposeWorkforceHandoff } from "./propose_workforce_handoff";
-import { formatWorkforceInstruction } from "./format_workforce_instruction";
 import { proposeBulkDropCompanies } from "./propose_bulk_drop_companies";
 import { proposeBulkPromoteCompanies } from "./propose_bulk_promote_companies";
 import { promoteToL1 } from "./promote_to_l1";
@@ -43,7 +42,6 @@ export {
   webSearch,
   queryMeetingNotes,
   proposeWorkforceHandoff,
-  formatWorkforceInstruction,
   proposeBulkDropCompanies,
   proposeBulkPromoteCompanies,
   promoteToL1,
@@ -97,7 +95,6 @@ export const tools = [
  * tokens emitting handoff cards that have no UI to render them.
  */
 export const chatOnlyTools = [
-  formatWorkforceInstruction,
   proposeWorkforceHandoff,
   proposeBulkDropCompanies,
   proposeBulkPromoteCompanies,
