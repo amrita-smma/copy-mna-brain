@@ -16,6 +16,9 @@ export interface GraphSyncCompany {
   ownership: string | null;
   pipeline_stage?: string | null;
   status?: string | null;
+  // EV year fields (ev_2024, ev_2025, …) are picked up dynamically by
+  // companyRowToGraphNode — callers pass the full Postgres row.
+  [evKey: string]: unknown;
 }
 
 export interface GraphSyncResult {
@@ -35,6 +38,46 @@ export class CompanyGraphService {
 
   async getGraphData(): Promise<GraphData> {
     return this.repo.getGraphData();
+  }
+
+  async setNodeSizeOverride(id: string, override: number | null): Promise<void> {
+    await this.repo.setNodeSizeOverride(id, override);
+  }
+
+  async reassignAndDeleteNode(deletedId: string, replacementId?: string): Promise<void> {
+    await this.repo.reassignAndDeleteNode(deletedId, replacementId);
+  }
+
+  async deleteRelation(sourceId: string, targetId: string, type: RelationType): Promise<void> {
+    await this.repo.deleteRelation(sourceId, targetId, type);
+  }
+
+  async updateRelation(params: {
+    rawSourceId: string;
+    rawTargetId: string;
+    rawType: RelationType;
+    newSourceId: string;
+    newTargetId: string;
+    newType: RelationType;
+    notes?: string;
+    evidence?: string;
+    date?: string;
+  }): Promise<void> {
+    const changed =
+      params.rawSourceId !== params.newSourceId ||
+      params.rawTargetId !== params.newTargetId ||
+      params.rawType !== params.newType;
+    if (changed) {
+      await this.repo.deleteRelation(params.rawSourceId, params.rawTargetId, params.rawType);
+    }
+    await this.repo.upsertRelation({
+      sourceId: params.newSourceId,
+      targetId: params.newTargetId,
+      type: params.newType,
+      notes: params.notes,
+      evidence: params.evidence,
+      date: params.date,
+    });
   }
 
   /**

@@ -19,6 +19,10 @@ export interface CompanyNode {
   pipelineStage?: string;
   /** Lifecycle status: `active` or `dropped`. */
   status?: string;
+  /** Enterprise value in USD millions (latest `ev_YYYY` from Postgres). */
+  ev?: number | null;
+  /** Manual display-size override (1–5 scale). Null = derive from `ev`. */
+  graphSizeOverride?: number | null;
 }
 
 /**
@@ -38,6 +42,18 @@ function normalizeOwnership(raw: unknown): Ownership | undefined {
   const value = String(raw).trim().toLowerCase();
   if (value === 'public' || value === 'private') return value;
   return undefined;
+}
+
+/**
+ * Scan all `ev_YYYY` keys on an arbitrary row and return the value from the
+ * most recent year that is a non-null number. Returns null when no EV data
+ * is present. Works automatically when new year columns are added to the schema.
+ */
+function pickLatestEv(row: Record<string, unknown>): number | null {
+  const entries = Object.entries(row)
+    .filter((e): e is [string, number] => /^ev_\d{4}$/.test(e[0]) && typeof e[1] === 'number')
+    .sort(([a], [b]) => b.localeCompare(a)); // descending year (lexicographic on YYYY)
+  return entries[0]?.[1] ?? null;
 }
 
 /**
@@ -64,6 +80,7 @@ export function companyRowToGraphNode(row: {
     ownership: normalizeOwnership(row.ownership),
     pipelineStage: row.pipeline_stage ?? undefined,
     status: row.status ?? undefined,
+    ev: pickLatestEv(row as Record<string, unknown>) ?? undefined,
   };
 }
 
@@ -88,6 +105,10 @@ export interface GraphNode {
   pipelineStage?: string;
   /** Lifecycle status: `active` or `dropped`. */
   status?: string;
+  /** Enterprise value in USD millions. Null = unrecorded. */
+  ev?: number | null;
+  /** Manual display-size override (1–5 scale). Null = derive from `ev`. */
+  graphSizeOverride?: number | null;
   val: number;
 }
 
@@ -97,6 +118,7 @@ export interface GraphLink {
   label: string;
   evidence?: string;
   date?: string;
+  notes?: string;
 }
 
 export interface GraphData {
@@ -114,7 +136,7 @@ export class CompanyRelationRepository {
         `MERGE (c:Company {id: $id})
          SET c.name = $name, c.segment = $segment, c.industry = $industry,
              c.geography = $geography, c.ownership = $ownership,
-             c.pipelineStage = $pipelineStage, c.status = $status`,
+             c.pipelineStage = $pipelineStage, c.status = $status, c.ev = $ev`,
         {
           id: node.id,
           name: node.name,
@@ -124,6 +146,7 @@ export class CompanyRelationRepository {
           ownership: node.ownership ?? null,
           pipelineStage: node.pipelineStage ?? null,
           status: node.status ?? null,
+          ev: node.ev ?? null,
         },
       );
     } finally {
@@ -196,7 +219,7 @@ export class CompanyRelationRepository {
          MERGE (c:Company {id: row.id})
          SET c.name = row.name, c.segment = row.segment, c.industry = row.industry,
              c.geography = row.geography, c.ownership = row.ownership,
-             c.pipelineStage = row.pipelineStage, c.status = row.status`,
+             c.pipelineStage = row.pipelineStage, c.status = row.status, c.ev = row.ev`,
         {
           rows: nodes.map((n) => ({
             id: n.id,
@@ -207,6 +230,7 @@ export class CompanyRelationRepository {
             ownership: n.ownership ?? null,
             pipelineStage: n.pipelineStage ?? null,
             status: n.status ?? null,
+            ev: n.ev ?? null,
           })),
         },
       );
@@ -282,7 +306,7 @@ export class CompanyRelationRepository {
       const result = await session.run(
         `MATCH (a:Company)
          OPTIONAL MATCH (a)-[r]->(b:Company)
-         RETURN a, b, type(r) AS relType, r.evidence AS evidence, r.date AS date`,
+         RETURN a, b, type(r) AS relType, r.evidence AS evidence, r.date AS date, r.notes AS notes`,
       );
 
       const nodesMap = new Map<string, GraphNode>();
@@ -296,7 +320,9 @@ export class CompanyRelationRepository {
         ownership: c.ownership ?? undefined,
         pipelineStage: c.pipelineStage ?? undefined,
         status: c.status ?? undefined,
-        val: 3,
+        ev: c.ev ?? null,
+        graphSizeOverride: c.graphSizeOverride ?? null,
+        val: 3, // recomputed client-side from ev / graphSizeOverride
       });
 
       for (const record of result.records) {
@@ -313,15 +339,78 @@ export class CompanyRelationRepository {
         const b = bRaw.properties as CompanyNode;
         const evidence = (record.get('evidence') as string | null) ?? undefined;
         const date = (record.get('date') as string | null) ?? undefined;
+        const notes = (record.get('notes') as string | null) ?? undefined;
 
         if (!nodesMap.has(b.id)) {
           nodesMap.set(b.id, toNode(b));
         }
 
-        links.push({ source: a.id, target: b.id, label: relType, evidence, date });
+        links.push({ source: a.id, target: b.id, label: relType, evidence, date, notes });
       }
 
       return { nodes: Array.from(nodesMap.values()), links };
+    } finally {
+      await session.close();
+    }
+  }
+
+  /**
+   * If `replacementId` is provided, recreate every edge involving `deletedId`
+   * on `replacementId` first (all three relation types, both directions).
+   * Then DETACH DELETE the node. Uses individual auto-commit runs, consistent
+   * with the rest of the repository.
+   */
+  async reassignAndDeleteNode(deletedId: string, replacementId?: string): Promise<void> {
+    const session = this.driver.session();
+    try {
+      if (replacementId) {
+        for (const type of RELATION_TYPES) {
+          // Outgoing: deleted → other  becomes  replacement → other
+          await session.run(
+            `MATCH (del:Company {id: $deletedId})-[r:${type}]->(other:Company)
+             WHERE other.id <> $replacementId
+             MATCH (rep:Company {id: $replacementId})
+             MERGE (rep)-[newR:${type}]->(other)
+             SET newR.evidence = r.evidence, newR.date = r.date, newR.notes = r.notes`,
+            { deletedId, replacementId },
+          );
+          // Incoming: other → deleted  becomes  other → replacement
+          await session.run(
+            `MATCH (other:Company)-[r:${type}]->(del:Company {id: $deletedId})
+             WHERE other.id <> $replacementId
+             MATCH (rep:Company {id: $replacementId})
+             MERGE (other)-[newR:${type}]->(rep)
+             SET newR.evidence = r.evidence, newR.date = r.date, newR.notes = r.notes`,
+            { deletedId, replacementId },
+          );
+        }
+      }
+      await session.run('MATCH (c:Company {id: $deletedId}) DETACH DELETE c', { deletedId });
+    } finally {
+      await session.close();
+    }
+  }
+
+  async deleteRelation(sourceId: string, targetId: string, type: RelationType): Promise<void> {
+    const session = this.driver.session();
+    try {
+      await session.run(
+        `MATCH (a:Company {id: $sourceId})-[r:${type}]->(b:Company {id: $targetId}) DELETE r`,
+        { sourceId, targetId },
+      );
+    } finally {
+      await session.close();
+    }
+  }
+
+  /** Persist a manual display-size override (1–5) on a graph node. Pass `null` to revert to EV-derived sizing. */
+  async setNodeSizeOverride(id: string, override: number | null): Promise<void> {
+    const session = this.driver.session();
+    try {
+      await session.run(
+        `MATCH (c:Company {id: $id}) SET c.graphSizeOverride = $override`,
+        { id, override },
+      );
     } finally {
       await session.close();
     }

@@ -16,20 +16,23 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Check, Loader2, RefreshCw, Search } from 'lucide-react';
+import { ArrowLeftRight, Check, Loader2, Pencil, Plus, RefreshCw, Search, Trash2 } from 'lucide-react';
 // d3-force-3d is the force engine bundled with react-force-graph-2d; reusing it
 // here keeps our custom forces consistent with the graph's own simulation.
 import { forceCollide, forceX, forceY } from 'd3-force-3d';
-import { getCompanies } from '@/lib/api/pipeline';
 import CompanyDetailDialog, {
   type CompanyData,
 } from '@/components/pipeline/CompanyDetailDialog';
 import {
   Dialog,
   DialogContent,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import { Textarea } from '@/components/ui/textarea';
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import type {
   GraphData,
   GraphLink,
@@ -51,6 +54,54 @@ const RELATION_LABELS: Record<RelationType, string> = {
 };
 
 const RELATION_TYPES = Object.keys(RELATION_COLORS) as RelationType[];
+
+function NodeCombobox({
+  nodes,
+  value,
+  onChange,
+  placeholder = 'Select company…',
+}: {
+  nodes: GraphNode[];
+  value: string;
+  onChange: (id: string) => void;
+  placeholder?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const selected = nodes.find((n) => n.id === value);
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button variant="outline" role="combobox" className="w-full h-8 text-xs justify-between font-normal truncate">
+          <span className="truncate">{selected ? selected.name : placeholder}</span>
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-64 p-0" align="start">
+        <Command>
+          <CommandInput placeholder="Search company…" className="h-8 text-xs" />
+          <CommandList>
+            <CommandEmpty className="text-xs py-4 text-center text-muted-foreground">No company found.</CommandEmpty>
+            <CommandGroup>
+              {nodes.map((n) => (
+                <CommandItem
+                  key={n.id}
+                  value={n.name}
+                  onSelect={() => {
+                    onChange(n.id);
+                    setOpen(false);
+                  }}
+                  className="text-xs"
+                >
+                  <Check className={`mr-2 h-3 w-3 ${value === n.id ? 'opacity-100' : 'opacity-0'}`} />
+                  {n.name}
+                </CommandItem>
+              ))}
+            </CommandGroup>
+          </CommandList>
+        </Command>
+      </PopoverContent>
+    </Popover>
+  );
+}
 
 // Sentinel filter value for companies that have no relationships at all.
 const NO_RELATION = 'NONE' as const;
@@ -81,18 +132,44 @@ function pipelineStageLabel(stage: string): string {
 
 type StatusFilter = 'all' | 'active' | 'dropped';
 
-const SEGMENT_COLORS: Record<string, string> = {
-  technology: '#6366f1',
-  logistics: '#f59e0b',
-  healthcare: '#10b981',
-  finance: '#3b82f6',
-  manufacturing: '#64748b',
-  retail: '#ec4899',
-};
+const STAGE_COLOR_GREY = '#94a3b8';   // discovered
+const STAGE_COLOR_YELLOW = '#eab308'; // market_screening / no stage
+const STAGE_COLOR_BLUE = '#3b82f6';   // L0–L5
 
 function nodeColor(node: GraphNode): string {
-  const seg = node.segment?.toLowerCase() ?? '';
-  return SEGMENT_COLORS[seg] ?? '#94a3b8';
+  const stage = node.pipelineStage;
+  if (!stage || stage === 'market_screening') return STAGE_COLOR_YELLOW;
+  if (stage === 'discovered') return STAGE_COLOR_GREY;
+  if (/^L[0-5]$/.test(stage)) return STAGE_COLOR_BLUE;
+  return STAGE_COLOR_GREY;
+}
+
+// ─── EV-based node sizing ─────────────────────────────────────────────────────
+
+/**
+ * Map enterprise value (USD millions) to a 1–5 display size using a log scale.
+ * ≤ $1B → 1, ≥ $100B → 5, log-interpolated in between.
+ */
+function evToDisplaySize(evMn: number): number {
+  if (evMn <= 1000) return 1;
+  if (evMn >= 100000) return 5;
+  // log10(1000) = 3, log10(100000) = 5 → scale 1–5 across that 2-decade range
+  return 1 + ((Math.log10(evMn) - 3) / 2) * 4;
+}
+
+/** Resolved 1–5 display size: override beats EV-computed, fallback is 3. */
+function nodeDisplaySize(node: GraphNode): number {
+  if (node.graphSizeOverride != null) return node.graphSizeOverride;
+  if (node.ev != null) return evToDisplaySize(node.ev);
+  return 3;
+}
+
+/**
+ * Radius multiplier — size 1 is the baseline (1×) and each step is 1.3× the previous.
+ * size 1 → 1.00×  size 2 → 1.30×  size 3 → 1.69×  size 4 → 2.20×  size 5 → 2.86×
+ */
+function nodeSizeFactor(node: GraphNode): number {
+  return Math.pow(1.3, nodeDisplaySize(node) - 1);
 }
 
 const NODE_MIN_RADIUS_PX = 38;
@@ -134,47 +211,28 @@ function toUpperLabelLines(name: string): string[] {
   return limited;
 }
 
-/** Compute the node radius that fits the name lines + the relationship sub-label. */
-function getNodeRadius(
-  ctx: CanvasRenderingContext2D,
-  nameLines: string[],
-  subLabel: string | null,
-  globalScale: number,
-): number {
-  const nameFont = NODE_NAME_FONT_PX / globalScale;
-  ctx.font = `700 ${nameFont}px sans-serif`;
-  let maxWidth = nameLines.reduce((max, line) => Math.max(max, ctx.measureText(line).width), 0);
-  let totalHeight = nameLines.length * (NODE_NAME_LINE_HEIGHT_PX / globalScale);
+/** Node radius in canvas units — determined by size factor only; text fits within. */
+function getNodeRadius(globalScale: number, sizeFactor: number): number {
+  return (NODE_MIN_RADIUS_PX * sizeFactor) / globalScale;
+}
 
-  if (subLabel) {
-    const subFont = NODE_SUBLABEL_FONT_PX / globalScale;
-    ctx.font = `600 ${subFont}px sans-serif`;
-    maxWidth = Math.max(maxWidth, ctx.measureText(subLabel).width);
-    totalHeight += (NODE_SUBLABEL_GAP_PX + NODE_SUBLABEL_FONT_PX) / globalScale;
-  }
-
-  const pad = NODE_LABEL_PADDING_PX / globalScale;
-  const textHalfWidth = maxWidth / 2 + pad;
-  const textHalfHeight = totalHeight / 2 + pad;
-  const minRadius = NODE_MIN_RADIUS_PX / globalScale;
-  return Math.max(minRadius, textHalfWidth, textHalfHeight);
+/** Estimated radius in screen px — used by the force simulation. Matches getNodeRadius at globalScale = 1. */
+function estimateNodeRadius(sizeFactor: number): number {
+  return NODE_MIN_RADIUS_PX * sizeFactor;
 }
 
 /**
- * Estimate a node's drawn radius (in px) without a canvas context, used to size
- * the collision + link-distance forces so nodes don't overlap and edges stay
- * visible. Mirrors the layout logic in `getNodeRadius`.
+ * Truncate `text` so it fits within `maxWidth` canvas units, appending "…".
+ * Returns an empty string when even the ellipsis alone doesn't fit.
  */
-function estimateNodeRadius(name: string, hasSubLabel: boolean): number {
-  const lines = toUpperLabelLines(name);
-  const longest = lines.reduce((max, l) => Math.max(max, l.length), 0);
-  // ~0.62em per char for bold sans-serif at our font size.
-  const approxWidth = longest * NODE_NAME_FONT_PX * 0.62;
-  let approxHeight = lines.length * NODE_NAME_LINE_HEIGHT_PX;
-  if (hasSubLabel) approxHeight += NODE_SUBLABEL_GAP_PX + NODE_SUBLABEL_FONT_PX;
-  const halfW = approxWidth / 2 + NODE_LABEL_PADDING_PX;
-  const halfH = approxHeight / 2 + NODE_LABEL_PADDING_PX;
-  return Math.max(NODE_MIN_RADIUS_PX, halfW, halfH);
+function fitText(ctx: CanvasRenderingContext2D, text: string, maxWidth: number): string {
+  if (maxWidth <= 0 || !text) return '';
+  if (ctx.measureText(text).width <= maxWidth) return text;
+  let s = text;
+  while (s.length > 0 && ctx.measureText(s + '…').width > maxWidth) {
+    s = s.slice(0, -1);
+  }
+  return s.length > 0 ? s + '…' : '';
 }
 
 /** Convert a #rrggbb hex string to an `r, g, b` triplet for rgba() usage. */
@@ -274,16 +332,61 @@ export default function CompanyGraph({
   const [dialogOpen, setDialogOpen] = useState(false);
 
   // ─── Edge (relationship) detail modal ───────────────────────────────────────
-  // Holds the clicked link plus the resolved endpoint names, captured at click
-  // time so the dialog content is stable even after the simulation re-runs.
   const [selectedLink, setSelectedLink] = useState<{
     label: string;
     evidence?: string;
     date?: string;
+    notes?: string;
     sourceName: string;
     targetName: string;
   } | null>(null);
   const [linkDialogOpen, setLinkDialogOpen] = useState(false);
+
+  // ─── Edit mode ─────────────────────────────────────────────────────────────
+  const [editMode, setEditMode] = useState(false);
+
+  // Edit link dialog state — holds both the Neo4j key (raw*) and editable form values.
+  const [editingLink, setEditingLink] = useState<{
+    rawSourceId: string;
+    rawTargetId: string;
+    rawType: RelationType;
+    fromId: string;
+    toId: string;
+    type: RelationType;
+    notes: string;
+    evidence: string;
+    date: string;
+  } | null>(null);
+  const [editLinkOpen, setEditLinkOpen] = useState(false);
+  const [editLinkSaving, setEditLinkSaving] = useState(false);
+  const [editLinkDeleting, setEditLinkDeleting] = useState(false);
+
+  // Add connection form state
+  const [addConn, setAddConn] = useState({
+    fromId: '',
+    toId: '',
+    type: 'PARTNER' as RelationType,
+    notes: '',
+  });
+  const [addConnSaving, setAddConnSaving] = useState(false);
+
+  // Add company form state
+  const [addCompanyName, setAddCompanyName] = useState('');
+  const [addCompanyError, setAddCompanyError] = useState<string | null>(null);
+  const [addCompanySaving, setAddCompanySaving] = useState(false);
+
+  // Remove node dialog state
+  const [removeNodeTarget, setRemoveNodeTarget] = useState<GraphNode | null>(null);
+  const [removeNodeOpen, setRemoveNodeOpen] = useState(false);
+  const [removeNodeReplacement, setRemoveNodeReplacement] = useState('');
+  const [removeNodeSaving, setRemoveNodeSaving] = useState(false);
+
+  // Node size override dialog state
+  const [nodeSizeTarget, setNodeSizeTarget] = useState<GraphNode | null>(null);
+  const [nodeSizeOpen, setNodeSizeOpen] = useState(false);
+  // null = "Auto" (derive from EV); 1–5 = explicit override
+  const [nodeSizeValue, setNodeSizeValue] = useState<number | null>(null);
+  const [nodeSizeSaving, setNodeSizeSaving] = useState(false);
 
   useEffect(() => {
     import('react-force-graph-2d').then((mod) => setForceGraph2D(() => mod.default));
@@ -446,7 +549,7 @@ export default function CompanyGraph({
     });
 
     return {
-      nodes: nodes.map((n) => ({ ...n })),
+      nodes: nodes.map((n) => ({ ...n, val: nodeDisplaySize(n) })),
       links: links.map((l) => {
         const source = endpointId(l.source);
         const target = endpointId(l.target);
@@ -461,6 +564,7 @@ export default function CompanyGraph({
           label: l.label,
           evidence: l.evidence,
           date: l.date,
+          notes: l.notes,
         };
       }),
     };
@@ -502,6 +606,11 @@ export default function CompanyGraph({
     [filteredData],
   );
 
+  const sortedNodes = useMemo(
+    () => [...graphData.nodes].sort((a, b) => a.name.localeCompare(b.name)),
+    [graphData.nodes],
+  );
+
   // Tune the force simulation so connected nodes get enough breathing room for
   // their edges to read clearly, while disconnected sub-graphs stay grouped
   // toward the centre rather than drifting to the corners.
@@ -510,8 +619,7 @@ export default function CompanyGraph({
     const fg = graphRef.current;
     if (!fg || !ForceGraph2D) return;
 
-    const radiusOf = (n: GraphNode) =>
-      estimateNodeRadius(n.name, nodePrimaryRelation.has(n.id));
+    const radiusOf = (n: GraphNode) => estimateNodeRadius(nodeSizeFactor(n));
 
     // Collision keeps circles from overlapping; the extra padding leaves a gap
     // wide enough to see the edges between them.
@@ -561,19 +669,13 @@ export default function CompanyGraph({
     setHovered(match);
   };
 
-  const handleNodeClick = async (node: GraphNode) => {
-    try {
-      const company = await getCompanies({ id: node.id });
-      if (company) {
-        setSelectedCompany(company as CompanyData);
-        setDialogOpen(true);
-        return;
-      }
-    } catch (err) {
-      console.error('Failed to load company details', err);
-    }
-    // Fall back to the node's own attributes for seed/demo data that has no
-    // matching Postgres company row.
+  const handleNodeClick = (node: GraphNode) => {
+    // Seed the dialog with what the graph node already knows so it opens
+    // instantly. The dialog re-fetches the authoritative company DTO (and its
+    // details) itself on open, so we deliberately don't fetch here — a second
+    // fetch races the dialog's own load and is what caused the flicker /
+    // stale-company content. The `key` on <CompanyDetailDialog> guarantees a
+    // fresh instance per company, so no previous company's state ever leaks in.
     setSelectedCompany(fallbackCompany(node));
     setDialogOpen(true);
   };
@@ -590,9 +692,9 @@ export default function CompanyGraph({
     return map;
   }, [graphData.nodes]);
 
-  // Open the relationship detail dialog for a clicked edge. Endpoint names are
-  // resolved now (force-graph mutates source/target into node refs, so we read
-  // a name off the ref when present and fall back to the id lookup).
+  // Open the relationship detail (or edit) dialog for a clicked edge.
+  // `link` comes from filteredData, which swaps INVESTED_IN endpoints for display;
+  // rawSourceId/rawTargetId unswap them back to the Neo4j stored direction.
   const handleLinkClick = (link: GraphLink) => {
     const sourceId = endpointId(link.source);
     const targetId = endpointId(link.target);
@@ -600,14 +702,36 @@ export default function CompanyGraph({
       (typeof endpoint === 'object' ? endpoint.name : undefined) ??
       nodeNameById.get(id) ??
       id;
-    setSelectedLink({
-      label: link.label,
-      evidence: link.evidence,
-      date: link.date,
-      sourceName: nameOf(link.source, sourceId),
-      targetName: nameOf(link.target, targetId),
-    });
-    setLinkDialogOpen(true);
+
+    const isInvested = (link.label as RelationType) === 'INVESTED_IN';
+    const rawSourceId = isInvested ? targetId : sourceId;
+    const rawTargetId = isInvested ? sourceId : targetId;
+    const rawType = link.label as RelationType;
+
+    if (editMode) {
+      setEditingLink({
+        rawSourceId,
+        rawTargetId,
+        rawType,
+        fromId: rawSourceId,
+        toId: rawTargetId,
+        type: rawType,
+        notes: link.notes ?? '',
+        evidence: link.evidence ?? '',
+        date: link.date ?? '',
+      });
+      setEditLinkOpen(true);
+    } else {
+      setSelectedLink({
+        label: link.label,
+        evidence: link.evidence,
+        date: link.date,
+        notes: link.notes,
+        sourceName: nameOf(link.source, sourceId),
+        targetName: nameOf(link.target, targetId),
+      });
+      setLinkDialogOpen(true);
+    }
   };
 
   // Toggle the "connected only" filter for the right-clicked node. Selecting a
@@ -615,6 +739,181 @@ export default function CompanyGraph({
   const toggleConnectedOnly = (node: GraphNode) => {
     setConnectedTo((prev) => (prev?.id === node.id ? null : node));
     setContextMenu(null);
+  };
+
+  const openRemoveNode = (node: GraphNode) => {
+    setRemoveNodeTarget(node);
+    setRemoveNodeReplacement('');
+    setRemoveNodeOpen(true);
+    setContextMenu(null);
+  };
+
+  const openNodeSize = (node: GraphNode) => {
+    setNodeSizeTarget(node);
+    setNodeSizeValue(node.graphSizeOverride ?? null);
+    setNodeSizeOpen(true);
+    setContextMenu(null);
+  };
+
+  const handleNodeSizeSave = async () => {
+    if (!nodeSizeTarget) return;
+    setNodeSizeSaving(true);
+    try {
+      const res = await fetch('/api/graph/node', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ nodeId: nodeSizeTarget.id, sizeOverride: nodeSizeValue }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      await loadGraph();
+      setNodeSizeOpen(false);
+      toast.success('Node size updated');
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Failed to update size');
+    } finally {
+      setNodeSizeSaving(false);
+    }
+  };
+
+  const handleRemoveNode = async () => {
+    if (!removeNodeTarget) return;
+    setRemoveNodeSaving(true);
+    try {
+      const res = await fetch('/api/graph/company', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          nodeId: removeNodeTarget.id,
+          replacementId: removeNodeReplacement || undefined,
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error ?? `HTTP ${res.status}`);
+      await loadGraph();
+      setRemoveNodeOpen(false);
+      toast.success(`${removeNodeTarget.name} removed`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Failed to remove node');
+    } finally {
+      setRemoveNodeSaving(false);
+    }
+  };
+
+  const handleEditLinkSave = async () => {
+    if (!editingLink) return;
+    if (editingLink.fromId === editingLink.toId) {
+      toast.error('From and To companies must be different');
+      return;
+    }
+    setEditLinkSaving(true);
+    try {
+      const res = await fetch('/api/graph/relation', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          rawSourceId: editingLink.rawSourceId,
+          rawTargetId: editingLink.rawTargetId,
+          rawType: editingLink.rawType,
+          sourceId: editingLink.fromId,
+          targetId: editingLink.toId,
+          type: editingLink.type,
+          notes: editingLink.notes,
+          evidence: editingLink.evidence,
+          date: editingLink.date,
+        }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      await loadGraph();
+      setEditLinkOpen(false);
+      toast.success('Relationship updated');
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Failed to update');
+    } finally {
+      setEditLinkSaving(false);
+    }
+  };
+
+  const handleEditLinkDelete = async () => {
+    if (!editingLink) return;
+    setEditLinkDeleting(true);
+    try {
+      const res = await fetch('/api/graph/relation', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sourceId: editingLink.rawSourceId,
+          targetId: editingLink.rawTargetId,
+          type: editingLink.rawType,
+        }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      await loadGraph();
+      setEditLinkOpen(false);
+      toast.success('Relationship deleted');
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Failed to delete');
+    } finally {
+      setEditLinkDeleting(false);
+    }
+  };
+
+  const handleAddConnection = async () => {
+    if (!addConn.fromId || !addConn.toId) {
+      toast.error('Please select both From and To companies');
+      return;
+    }
+    if (addConn.fromId === addConn.toId) {
+      toast.error('From and To companies must be different');
+      return;
+    }
+    setAddConnSaving(true);
+    try {
+      const res = await fetch('/api/graph/relation', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sourceId: addConn.fromId,
+          targetId: addConn.toId,
+          type: addConn.type,
+          notes: addConn.notes,
+        }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      await loadGraph();
+      setAddConn({ fromId: '', toId: '', type: 'PARTNER', notes: '' });
+      toast.success('Connection added');
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Failed to add connection');
+    } finally {
+      setAddConnSaving(false);
+    }
+  };
+
+  const handleAddCompany = async () => {
+    const name = addCompanyName.trim();
+    if (!name) return;
+    setAddCompanyError(null);
+    setAddCompanySaving(true);
+    try {
+      const res = await fetch('/api/graph/company', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name }),
+      });
+      const json = await res.json();
+      if (res.status === 409) {
+        setAddCompanyError(json.error);
+        return;
+      }
+      if (!res.ok) throw new Error(json.error ?? `HTTP ${res.status}`);
+      await loadGraph();
+      setAddCompanyName('');
+      toast.success(`Company added to Discovered`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Failed to add company');
+    } finally {
+      setAddCompanySaving(false);
+    }
   };
 
   // Dismiss the context menu on scroll or Escape. (A left-click anywhere else is
@@ -643,7 +942,18 @@ export default function CompanyGraph({
           <aside className="w-64 shrink-0 space-y-5 overflow-y-auto pr-1">
             {/* Title */}
             <div>
-              <h1 className="text-lg font-bold tracking-tight">Relationship Graph</h1>
+              <div className="flex items-center justify-between">
+                <h1 className="text-lg font-bold tracking-tight">Relationship Graph</h1>
+                <Button
+                  variant={editMode ? 'default' : 'outline'}
+                  size="sm"
+                  className="h-7 px-2 text-xs gap-1"
+                  onClick={() => setEditMode((v) => !v)}
+                >
+                  <Pencil className="h-3 w-3" />
+                  {editMode ? 'Editing' : 'Edit'}
+                </Button>
+              </div>
               <p className="text-xs text-muted-foreground mt-0.5">
                 M&amp;A portfolio visualization
               </p>
@@ -665,6 +975,111 @@ export default function CompanyGraph({
                 Reconcile the graph from the company database.
               </p>
             </div>
+
+            {/* Add connection (edit mode only) */}
+            {editMode && (
+              <div className="space-y-3 rounded-lg border border-dashed border-indigo-300 bg-indigo-50/60 p-3">
+                <p className="flex items-center gap-1.5 text-xs font-semibold text-indigo-900 uppercase tracking-wider">
+                  <Plus className="h-3.5 w-3.5" />
+                  Add connection
+                </p>
+                <div className="space-y-1.5">
+                  <Label className="text-xs text-muted-foreground">From</Label>
+                  <NodeCombobox
+                    nodes={sortedNodes}
+                    value={addConn.fromId}
+                    onChange={(id) => setAddConn((p) => ({ ...p, fromId: id }))}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs text-muted-foreground">To</Label>
+                  <NodeCombobox
+                    nodes={sortedNodes}
+                    value={addConn.toId}
+                    onChange={(id) => setAddConn((p) => ({ ...p, toId: id }))}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs text-muted-foreground">Type</Label>
+                  <Select
+                    value={addConn.type}
+                    onValueChange={(v) => setAddConn((p) => ({ ...p, type: v as RelationType }))}
+                  >
+                    <SelectTrigger className="h-8 text-xs">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {RELATION_TYPES.map((t) => (
+                        <SelectItem key={t} value={t} className="text-xs">
+                          {RELATION_LABELS[t]}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs text-muted-foreground">Notes</Label>
+                  <Textarea
+                    value={addConn.notes}
+                    onChange={(e) => setAddConn((p) => ({ ...p, notes: e.target.value }))}
+                    placeholder="Optional notes…"
+                    className="h-16 text-xs resize-none"
+                  />
+                </div>
+                <Button
+                  size="sm"
+                  className="w-full h-8 text-xs"
+                  onClick={handleAddConnection}
+                  disabled={addConnSaving}
+                >
+                  {addConnSaving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
+                  {addConnSaving ? 'Adding…' : 'Add connection'}
+                </Button>
+              </div>
+            )}
+
+            {/* Add company (edit mode only) */}
+            {editMode && (
+              <div className="space-y-3 rounded-lg border border-dashed border-violet-300 bg-violet-50/60 p-3">
+                <p className="flex items-center gap-1.5 text-xs font-semibold text-violet-900 uppercase tracking-wider">
+                  <Plus className="h-3.5 w-3.5" />
+                  Add company
+                </p>
+                <div className="space-y-1.5">
+                  <Label className="text-xs text-muted-foreground">Company name</Label>
+                  <Input
+                    value={addCompanyName}
+                    onChange={(e) => {
+                      setAddCompanyName(e.target.value);
+                      setAddCompanyError(null);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') handleAddCompany();
+                    }}
+                    placeholder="e.g. Acme Corp…"
+                    className="h-8 text-xs"
+                  />
+                  {addCompanyError && (
+                    <p className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1.5 leading-snug">
+                      {addCompanyError}
+                    </p>
+                  )}
+                </div>
+                <Button
+                  size="sm"
+                  className="w-full h-8 text-xs"
+                  onClick={handleAddCompany}
+                  disabled={addCompanySaving || !addCompanyName.trim()}
+                >
+                  {addCompanySaving ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <Plus className="h-3.5 w-3.5" />
+                  )}
+                  {addCompanySaving ? 'Adding…' : 'Add to Discovered'}
+                </Button>
+              </div>
+            )}
 
             {/* Search */}
             <div>
@@ -903,21 +1318,36 @@ export default function CompanyGraph({
             {ready && (
               <div className="absolute top-3 right-3 z-10 w-56 rounded-xl border border-slate-300/70 bg-white/90 p-3 shadow-md backdrop-blur-sm">
                 <p className="text-[11px] font-semibold tracking-wider text-black uppercase mb-2">Legend</p>
+                <p className="text-[10px] font-semibold tracking-wider text-slate-500 uppercase mb-1.5">Nodes — Stage</p>
                 <ul className="space-y-1.5 mb-3">
-                  {RELATION_TYPES.map((type) => (
-                    <li key={`legend-${type}`} className="flex items-center gap-2">
-                      <span
-                        className="inline-block h-2.5 w-2.5 rounded-full"
-                        style={{ background: RELATION_COLORS[type] }}
-                      />
-                      <span className="text-[11px] tracking-wide text-black uppercase">
-                        {RELATION_LABELS[type]}
-                      </span>
+                  {([
+                    [STAGE_COLOR_BLUE, 'L0 – L5'],
+                    [STAGE_COLOR_YELLOW, 'Market Screening / No stage'],
+                    [STAGE_COLOR_GREY, 'Discovered'],
+                  ] as [string, string][]).map(([color, label]) => (
+                    <li key={label} className="flex items-center gap-2">
+                      <span className="inline-block h-2.5 w-2.5 rounded-full shrink-0" style={{ background: color }} />
+                      <span className="text-[11px] tracking-wide text-black uppercase">{label}</span>
                     </li>
                   ))}
                 </ul>
+                <div className="pt-2 border-t border-slate-300/80 mb-2">
+                  <p className="text-[10px] font-semibold tracking-wider text-slate-500 uppercase mb-1.5">Edges — Type</p>
+                  <ul className="space-y-1.5">
+                    {RELATION_TYPES.map((type) => (
+                      <li key={`legend-${type}`} className="flex items-center gap-2">
+                        <span className="inline-block h-2.5 w-2.5 rounded-full shrink-0" style={{ background: RELATION_COLORS[type] }} />
+                        <span className="text-[11px] tracking-wide text-black uppercase">{RELATION_LABELS[type]}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
                 <div className="pt-2 border-t border-slate-300/80">
                   <p className="text-[11px] tracking-wide text-black uppercase">Arrows: Source &rarr; Target</p>
+                </div>
+                <div className="pt-2 border-t border-slate-300/80">
+                  <p className="text-[10px] font-semibold tracking-wider text-slate-500 uppercase mb-1">Node size</p>
+                  <p className="text-[11px] text-black">1–5 scale by EV ($100B = 5)</p>
                 </div>
               </div>
             )}
@@ -934,6 +1364,12 @@ export default function CompanyGraph({
                 <span className="text-xs text-slate-600">
                   <span className="font-bold text-slate-900">{relationTypeCount}</span> Types
                 </span>
+              </div>
+            )}
+            {editMode && (
+              <div className="absolute top-3 left-3 z-10 flex items-center gap-1.5 rounded-full border border-indigo-300 bg-indigo-50 px-3 py-1.5 text-[11px] font-semibold text-indigo-800 shadow-sm">
+                <Pencil className="h-3 w-3" />
+                Edit mode — click edges to edit
               </div>
             )}
             {ready && (
@@ -961,7 +1397,8 @@ export default function CompanyGraph({
                   const primary = nodePrimaryRelation.get(n.id) ?? null;
                   const subLabel = primary ? RELATION_LABELS[primary] : null;
                   const lines = toUpperLabelLines(n.name);
-                  const r = getNodeRadius(ctx, lines, subLabel, globalScale);
+                  const sf = nodeSizeFactor(n);
+                  const r = getNodeRadius(globalScale, sf);
 
                   // Soft drop shadow under a white base so the tint stays clean.
                   ctx.save();
@@ -987,30 +1424,49 @@ export default function CompanyGraph({
                   ctx.strokeStyle = color;
                   ctx.stroke();
 
-                  // Company name (bold, uppercase, dark).
+                  // Text layout within the fixed-size circle.
+                  // Padding scales down proportionally for small nodes so there
+                  // is always usable interior space.
+                  const pad = Math.min(NODE_LABEL_PADDING_PX, r * globalScale * 0.4) / globalScale;
+                  const innerW = Math.max(0, 2 * (r - pad));
+                  const innerH = Math.max(0, 2 * (r - pad));
+
                   const nameFont = NODE_NAME_FONT_PX / globalScale;
                   const lineHeight = NODE_NAME_LINE_HEIGHT_PX / globalScale;
                   const subFont = NODE_SUBLABEL_FONT_PX / globalScale;
                   const subGap = NODE_SUBLABEL_GAP_PX / globalScale;
-                  const subBlock = subLabel ? subGap + subFont : 0;
-                  const totalHeight = lines.length * lineHeight + subBlock;
+
+                  // Truncate each line to fit the node width.
+                  ctx.font = `700 ${nameFont}px sans-serif`;
+                  const fittedLines = lines.map((l) => fitText(ctx, l, innerW));
+
+                  // Drop sublabel then lines until the text block fits vertically.
+                  let showSub = subLabel !== null;
+                  let nLines = fittedLines.length;
+                  while (nLines > 0) {
+                    const h = nLines * lineHeight + (showSub ? subGap + subFont : 0);
+                    if (h <= innerH) break;
+                    if (showSub) { showSub = false; } else { nLines--; }
+                  }
+                  const visibleLines = fittedLines.slice(0, nLines);
+
+                  const totalHeight = visibleLines.length * lineHeight + (showSub ? subGap + subFont : 0);
                   let cursorY = y - totalHeight / 2 + lineHeight / 2;
 
-                  ctx.font = `700 ${nameFont}px sans-serif`;
                   ctx.fillStyle = '#0f172a';
                   ctx.textAlign = 'center';
                   ctx.textBaseline = 'middle';
-                  for (const line of lines) {
+                  for (const line of visibleLines) {
                     ctx.fillText(line, x, cursorY);
                     cursorY += lineHeight;
                   }
 
                   // Relationship sub-label (colored to match the node).
-                  if (subLabel) {
+                  if (showSub && subLabel) {
                     cursorY = cursorY - lineHeight + lineHeight / 2 + subGap + subFont / 2;
                     ctx.font = `600 ${subFont}px sans-serif`;
                     ctx.fillStyle = color;
-                    ctx.fillText(subLabel, x, cursorY);
+                    ctx.fillText(fitText(ctx, subLabel, innerW), x, cursorY);
                   }
                 }}
                 nodePointerAreaPaint={(
@@ -1020,10 +1476,7 @@ export default function CompanyGraph({
                   globalScale: number,
                 ) => {
                   const n = node as GraphNode & { x?: number; y?: number };
-                  const primary = nodePrimaryRelation.get(n.id) ?? null;
-                  const subLabel = primary ? RELATION_LABELS[primary] : null;
-                  const lines = toUpperLabelLines(n.name);
-                  const r = getNodeRadius(ctx, lines, subLabel, globalScale);
+                  const r = getNodeRadius(globalScale, nodeSizeFactor(n));
                   const x = n.x ?? 0;
                   const y = n.y ?? 0;
                   ctx.fillStyle = color;
@@ -1080,12 +1533,41 @@ export default function CompanyGraph({
               />
               Display only connected companies
             </button>
+            {editMode && (
+              <>
+                <div className="mx-3 my-1 h-px bg-slate-100" />
+                <button
+                  type="button"
+                  className="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-slate-100"
+                  onClick={() => openNodeSize(contextMenu.node)}
+                >
+                  <span className="h-3.5 w-3.5 shrink-0 flex items-center justify-center text-[10px] font-bold text-slate-500">
+                    {Math.round(nodeDisplaySize(contextMenu.node))}
+                  </span>
+                  Set node size
+                </button>
+              </>
+            )}
+            {editMode && contextMenu.node.pipelineStage === 'discovered' && (
+              <>
+                <div className="mx-3 my-1 h-px bg-slate-100" />
+                <button
+                  type="button"
+                  className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-red-600 hover:bg-red-50"
+                  onClick={() => openRemoveNode(contextMenu.node)}
+                >
+                  <Trash2 className="h-3.5 w-3.5 shrink-0" />
+                  Remove node
+                </button>
+              </>
+            )}
           </div>
         </>
       )}
 
       {selectedCompany && (
         <CompanyDetailDialog
+          key={selectedCompany.id}
           company={selectedCompany}
           open={dialogOpen}
           onOpenChange={setDialogOpen}
@@ -1116,6 +1598,14 @@ export default function CompanyGraph({
                 <span className="text-muted-foreground">&rarr;</span>
                 <span>{selectedLink.targetName}</span>
               </div>
+              {selectedLink.notes && (
+                <div className="space-y-1">
+                  <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                    Notes
+                  </p>
+                  <p className="whitespace-pre-wrap break-words">{selectedLink.notes}</p>
+                </div>
+              )}
               <div className="space-y-1">
                 <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                   Added
@@ -1156,6 +1646,277 @@ export default function CompanyGraph({
                 )}
               </div>
             </div>
+          </DialogContent>
+        </Dialog>
+      )}
+
+      {/* ─── Edit link dialog ─────────────────────────────────────────── */}
+      {editingLink && (
+        <Dialog open={editLinkOpen} onOpenChange={setEditLinkOpen}>
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle>Edit Relationship</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4 text-sm">
+              {/* Company endpoints */}
+              <div className="space-y-2">
+                <div className="space-y-1.5">
+                  <Label className="text-xs text-muted-foreground">From</Label>
+                  <NodeCombobox
+                    nodes={sortedNodes}
+                    value={editingLink.fromId}
+                    onChange={(id) => setEditingLink((p) => p ? { ...p, fromId: id } : p)}
+                  />
+                </div>
+                <div className="flex justify-center">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 px-2 text-xs gap-1 text-muted-foreground"
+                    onClick={() =>
+                      setEditingLink((p) =>
+                        p ? { ...p, fromId: p.toId, toId: p.fromId } : p,
+                      )
+                    }
+                  >
+                    <ArrowLeftRight className="h-3.5 w-3.5" />
+                    Swap direction
+                  </Button>
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs text-muted-foreground">To</Label>
+                  <NodeCombobox
+                    nodes={sortedNodes}
+                    value={editingLink.toId}
+                    onChange={(id) => setEditingLink((p) => p ? { ...p, toId: id } : p)}
+                  />
+                </div>
+              </div>
+
+              {/* Type */}
+              <div className="space-y-1.5">
+                <Label className="text-xs text-muted-foreground">Type</Label>
+                <Select
+                  value={editingLink.type}
+                  onValueChange={(v) =>
+                    setEditingLink((p) => p ? { ...p, type: v as RelationType } : p)
+                  }
+                >
+                  <SelectTrigger className="h-8 text-sm">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {RELATION_TYPES.map((t) => (
+                      <SelectItem key={t} value={t}>
+                        {RELATION_LABELS[t]}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Notes */}
+              <div className="space-y-1.5">
+                <Label className="text-xs text-muted-foreground">Notes</Label>
+                <Textarea
+                  value={editingLink.notes}
+                  onChange={(e) =>
+                    setEditingLink((p) => p ? { ...p, notes: e.target.value } : p)
+                  }
+                  placeholder="Optional notes…"
+                  className="h-20 text-sm resize-none"
+                />
+              </div>
+
+              {/* Evidence */}
+              <div className="space-y-1.5">
+                <Label className="text-xs text-muted-foreground">Evidence</Label>
+                <Input
+                  value={editingLink.evidence}
+                  onChange={(e) =>
+                    setEditingLink((p) => p ? { ...p, evidence: e.target.value } : p)
+                  }
+                  placeholder="URL or description…"
+                  className="h-8 text-sm"
+                />
+              </div>
+
+              {/* Date */}
+              <div className="space-y-1.5">
+                <Label className="text-xs text-muted-foreground">Date</Label>
+                <Input
+                  type="date"
+                  value={editingLink.date}
+                  onChange={(e) =>
+                    setEditingLink((p) => p ? { ...p, date: e.target.value } : p)
+                  }
+                  className="h-8 text-sm"
+                />
+              </div>
+            </div>
+
+            <DialogFooter className="flex-row justify-between sm:justify-between gap-2 pt-2">
+              <Button
+                variant="destructive"
+                size="sm"
+                onClick={handleEditLinkDelete}
+                disabled={editLinkDeleting || editLinkSaving}
+              >
+                {editLinkDeleting ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Trash2 className="h-3.5 w-3.5" />
+                )}
+                Delete
+              </Button>
+              <div className="flex gap-2">
+                <Button variant="outline" size="sm" onClick={() => setEditLinkOpen(false)}>
+                  Cancel
+                </Button>
+                <Button
+                  size="sm"
+                  onClick={handleEditLinkSave}
+                  disabled={editLinkSaving || editLinkDeleting}
+                >
+                  {editLinkSaving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                  Save
+                </Button>
+              </div>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
+
+      {/* ─── Node size dialog ────────────────────────────────────────── */}
+      {nodeSizeTarget && (
+        <Dialog open={nodeSizeOpen} onOpenChange={setNodeSizeOpen}>
+          <DialogContent className="sm:max-w-xs">
+            <DialogHeader>
+              <DialogTitle>Node size — {nodeSizeTarget.name}</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4 text-sm">
+              {nodeSizeTarget.ev != null ? (
+                <p className="text-xs text-muted-foreground">
+                  EV: ${(nodeSizeTarget.ev / 1000).toFixed(1)}B →{' '}
+                  computed size{' '}
+                  <span className="font-semibold text-foreground">
+                    {evToDisplaySize(nodeSizeTarget.ev).toFixed(1)}
+                  </span>
+                </p>
+              ) : (
+                <p className="text-xs text-muted-foreground">
+                  No EV data recorded — default size is 3.
+                </p>
+              )}
+              <div className="space-y-2">
+                <Label className="text-xs text-muted-foreground">Display size</Label>
+                <Select
+                  value={nodeSizeValue === null ? 'auto' : String(nodeSizeValue)}
+                  onValueChange={(v) => setNodeSizeValue(v === 'auto' ? null : Number(v))}
+                >
+                  <SelectTrigger className="h-8 text-sm">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="auto">Auto (from EV)</SelectItem>
+                    {[1, 2, 3, 4, 5].map((s) => (
+                      <SelectItem key={s} value={String(s)}>
+                        {s}{s === 3 ? ' (default)' : s === 1 ? ' — smallest' : s === 5 ? ' — largest' : ''}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <DialogFooter className="gap-2 pt-2">
+              <Button variant="outline" size="sm" onClick={() => setNodeSizeOpen(false)}>
+                Cancel
+              </Button>
+              <Button size="sm" onClick={handleNodeSizeSave} disabled={nodeSizeSaving}>
+                {nodeSizeSaving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                Save
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
+
+      {/* ─── Remove node dialog ───────────────────────────────────────── */}
+      {removeNodeTarget && (
+        <Dialog open={removeNodeOpen} onOpenChange={setRemoveNodeOpen}>
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle>Remove node</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4 text-sm">
+              <p>
+                Remove <span className="font-semibold">{removeNodeTarget.name}</span> from the
+                graph? This will also delete the company record.
+              </p>
+
+              {/* Reassign edges */}
+              {(() => {
+                const edgeCount = graphData.links.filter(
+                  (l) =>
+                    endpointId(l.source) === removeNodeTarget.id ||
+                    endpointId(l.target) === removeNodeTarget.id,
+                ).length;
+                const replacementNodes = sortedNodes.filter((n) => n.id !== removeNodeTarget.id);
+                return edgeCount > 0 ? (
+                  <div className="space-y-2">
+                    <p className="text-muted-foreground">
+                      This node has{' '}
+                      <span className="font-medium text-foreground">{edgeCount}</span>{' '}
+                      {edgeCount === 1 ? 'connection' : 'connections'}.
+                      {removeNodeReplacement
+                        ? ' They will be reassigned to the selected company.'
+                        : ' Leave blank to delete them, or select a company to reassign them.'}
+                    </p>
+                    <Label className="text-xs text-muted-foreground">Reassign edges to</Label>
+                    <div className="flex gap-1.5 items-center">
+                      <div className="flex-1">
+                        <NodeCombobox
+                          nodes={replacementNodes}
+                          value={removeNodeReplacement}
+                          onChange={setRemoveNodeReplacement}
+                          placeholder="No reassignment (delete edges)"
+                        />
+                      </div>
+                      {removeNodeReplacement && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-8 w-8 p-0 shrink-0 text-muted-foreground"
+                          onClick={() => setRemoveNodeReplacement('')}
+                          aria-label="Clear reassignment"
+                        >
+                          ✕
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                ) : null;
+              })()}
+            </div>
+
+            <DialogFooter className="flex-row justify-between sm:justify-between gap-2 pt-2">
+              <Button
+                variant="destructive"
+                size="sm"
+                onClick={handleRemoveNode}
+                disabled={removeNodeSaving}
+              >
+                {removeNodeSaving ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Trash2 className="h-3.5 w-3.5" />
+                )}
+                Remove
+              </Button>
+              <Button variant="outline" size="sm" onClick={() => setRemoveNodeOpen(false)}>
+                Cancel
+              </Button>
+            </DialogFooter>
           </DialogContent>
         </Dialog>
       )}

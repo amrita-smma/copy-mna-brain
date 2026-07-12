@@ -39,8 +39,8 @@ describe('CompanyRelationRepository.getGraphData', () => {
     expect(run).toHaveBeenCalledTimes(1);
     expect(close).toHaveBeenCalledTimes(1);
     expect(data.nodes).toEqual([
-      { id: 'c1', name: 'TechCorp', segment: 'technology', geography: 'Indonesia', ownership: 'public', pipelineStage: 'L2', status: 'active', val: 3 },
-      { id: 'c2', name: 'LogistiKa', segment: 'logistics', geography: 'Singapore', ownership: 'private', pipelineStage: 'discovered', status: 'dropped', val: 3 },
+      { id: 'c1', name: 'TechCorp', segment: 'technology', geography: 'Indonesia', ownership: 'public', pipelineStage: 'L2', status: 'active', ev: null, graphSizeOverride: null, val: 3 },
+      { id: 'c2', name: 'LogistiKa', segment: 'logistics', geography: 'Singapore', ownership: 'private', pipelineStage: 'discovered', status: 'dropped', ev: null, graphSizeOverride: null, val: 3 },
     ]);
     expect(data.links).toEqual([
       {
@@ -75,6 +75,8 @@ describe('CompanyRelationRepository.getGraphData', () => {
       segment: undefined,
       geography: undefined,
       ownership: undefined,
+      ev: null,
+      graphSizeOverride: null,
       val: 3,
     });
     expect(data.links[0]).toEqual({
@@ -113,7 +115,7 @@ describe('CompanyRelationRepository.getGraphData', () => {
     const data = await repo.getGraphData();
 
     expect(data.nodes).toEqual([
-      { id: 'c9', name: 'Solo Inc', segment: 'finance', geography: undefined, ownership: undefined, val: 3 },
+      { id: 'c9', name: 'Solo Inc', segment: 'finance', geography: undefined, ownership: undefined, ev: null, graphSizeOverride: null, val: 3 },
     ]);
     expect(data.links).toEqual([]);
   });
@@ -284,8 +286,8 @@ describe('CompanyRelationRepository.upsertCompanies', () => {
     expect(cypher).toContain('c.pipelineStage = row.pipelineStage');
     expect(cypher).toContain('c.status = row.status');
     expect(params.rows).toEqual([
-      { id: 'c1', name: 'TechCorp', segment: 'tech', industry: null, geography: null, ownership: null, pipelineStage: null, status: null },
-      { id: 'c2', name: 'LogistiKa', segment: null, industry: null, geography: 'Singapore', ownership: null, pipelineStage: null, status: null },
+      { id: 'c1', name: 'TechCorp', segment: 'tech', industry: null, geography: null, ownership: null, pipelineStage: null, status: null, ev: null },
+      { id: 'c2', name: 'LogistiKa', segment: null, industry: null, geography: 'Singapore', ownership: null, pipelineStage: null, status: null, ev: null },
     ]);
   });
 
