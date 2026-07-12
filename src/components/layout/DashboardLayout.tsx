@@ -34,6 +34,7 @@ import {
   ArrowLeft,
   ChevronsUpDown,
   Check,
+  Loader2,
 } from 'lucide-react';
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
 import {
@@ -405,6 +406,7 @@ function WorkspaceSwitcher() {
   const { switchWorkspace } = useAuth();
   const [memberships, setMemberships] = useState<Membership[] | null>(null);
   const [open, setOpen] = useState(false);
+  const [isNavigating, setIsNavigating] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -441,6 +443,7 @@ function WorkspaceSwitcher() {
     if (slug === currentSlug) return;
     const target = memberships.find((m) => m.workspaceSlug === slug);
     if (!target) return;
+    setIsNavigating(true);
     try {
       await switchWorkspace(target.workspaceId);
       window.location.assign(pathname.replace(/^\/w\/[^/]+/, `/w/${slug}`));
@@ -448,12 +451,19 @@ function WorkspaceSwitcher() {
       // Popover is already closed and switchWorkspace's session update never
       // landed — without this the user is left on the old workspace with no
       // sign anything went wrong.
+      setIsNavigating(false);
       toast.error('Could not switch workspace — please try again');
     }
   };
 
   return (
-    <Popover open={open} onOpenChange={setOpen}>
+    <>
+      {isNavigating && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm">
+          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+        </div>
+      )}
+      <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <button
           type="button"
@@ -509,6 +519,7 @@ function WorkspaceSwitcher() {
         </div>
       </PopoverContent>
     </Popover>
+    </>
   );
 }
 

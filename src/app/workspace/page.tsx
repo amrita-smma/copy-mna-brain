@@ -32,6 +32,7 @@ export default function WorkspacePage() {
   const router = useRouter();
   const [memberships, setMemberships] = useState<Membership[] | null>(null);
   const [autoSelecting, setAutoSelecting] = useState(false);
+  const [isNavigating, setIsNavigating] = useState(false);
 
   useEffect(() => {
     if (!loading && !user) {
@@ -79,15 +80,17 @@ export default function WorkspacePage() {
   }, [memberships, autoSelecting, switchWorkspace, router, user?.isSuperadmin]);
 
   const handleSelect = async (membership: Membership) => {
+    setIsNavigating(true);
     try {
       await switchWorkspace(membership.workspaceId);
       router.push(`/w/${membership.workspaceSlug}/chat`);
     } catch {
+      setIsNavigating(false);
       toast.error('Could not enter workspace — please try again');
     }
   };
 
-  const showLoader = loading || !user || memberships === null || autoSelecting;
+  const showLoader = loading || !user || memberships === null || autoSelecting || isNavigating;
 
   if (showLoader) {
     return (

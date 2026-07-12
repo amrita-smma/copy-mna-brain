@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useParams, usePathname } from 'next/navigation';
-import { Check, CircleUser, LogOut } from 'lucide-react';
+import { Check, CircleUser, Loader2, LogOut } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/hooks/useAuth';
@@ -58,6 +58,7 @@ export function MobileWorkspaceSwitcher({ className }: { className?: string }) {
   const { switchWorkspace, signOut } = useAuth();
   const [memberships, setMemberships] = useState<Membership[] | null>(null);
   const [open, setOpen] = useState(false);
+  const [isNavigating, setIsNavigating] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -85,10 +86,12 @@ export function MobileWorkspaceSwitcher({ className }: { className?: string }) {
     if (slug === currentSlug) return;
     const target = memberships?.find((m) => m.workspaceSlug === slug);
     if (!target) return;
+    setIsNavigating(true);
     try {
       await switchWorkspace(target.workspaceId);
       window.location.assign(pathname.replace(/^\/w\/[^/]+/, `/w/${slug}`));
     } catch {
+      setIsNavigating(false);
       toast.error('Could not switch workspace — please try again');
     }
   };
@@ -103,7 +106,13 @@ export function MobileWorkspaceSwitcher({ className }: { className?: string }) {
   };
 
   return (
-    <Drawer open={open} onOpenChange={setOpen}>
+    <>
+      {isNavigating && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm">
+          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+        </div>
+      )}
+      <Drawer open={open} onOpenChange={setOpen}>
       <DrawerTrigger asChild>
         <button
           type="button"
@@ -205,5 +214,6 @@ export function MobileWorkspaceSwitcher({ className }: { className?: string }) {
         </div>
       </DrawerContent>
     </Drawer>
+    </>
   );
 }
