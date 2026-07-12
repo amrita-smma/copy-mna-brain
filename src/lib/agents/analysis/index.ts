@@ -431,6 +431,16 @@ export function createLocalAgent(
     // output-128k-2025-02-19 raises the output ceiling to 128k tokens.
     betas: [FILES_API_BETA, "output-128k-2025-02-19"],
     maxTokens: 128000,
+    // Stream under the hood even for non-streaming callers (AgentGraph.invoke,
+    // used by the workforce runtime and one-shot job handlers). The Anthropic
+    // SDK rejects any non-streaming request whose maxTokens is large enough
+    // that it could exceed the 10-minute request window ("Streaming is required
+    // for operations that may take longer than 10 minutes") — at maxTokens
+    // 128k that guard always fires. With streaming enabled, ChatAnthropic hits
+    // the streaming endpoint and reassembles the full message, so .invoke()
+    // still returns a complete result. The streamEvents (chat) path already
+    // streams, so this is a no-op there.
+    streaming: true,
     // Sonnet 5 rejects `temperature` (400: "temperature is deprecated for
     // this model"). Explicitly leave it unset — ChatAnthropic omits the field
     // from the request when this is undefined (see invocationParams).

@@ -134,6 +134,20 @@ describe('getStatelessAgentGraph', () => {
     expect(model.opts.model).toBe('claude-sonnet-5');
     expect(model.opts.temperature).toBeUndefined();
   });
+
+  it('constructs the model with token streaming enabled', async () => {
+    // With maxTokens 128000, the Anthropic SDK rejects non-streaming requests
+    // ("Streaming is required for operations that may take longer than 10
+    // minutes"). AgentGraph.invoke (used by the workforce runtime and one-shot
+    // job handlers) makes a non-streaming call, so the model itself must stream
+    // at the Messages API level — LangGraph's agent.invoke() alone does not.
+    await getStatelessAgentGraph();
+
+    const model = mocks.createAgent.mock.calls[0][0].model as {
+      opts: Record<string, unknown>;
+    };
+    expect(model.opts.streaming).toBe(true);
+  });
 });
 
 describe('AgentGraph abort signal forwarding', () => {
