@@ -61,6 +61,7 @@ function ChatInput({ isExpanded }: { isExpanded: boolean }) {
   const hasReadyAttachment = attachments.some((a) => a.status === 'ready');
 
   const handleSubmit = () => {
+    if (isBusy) return;
     if (!input.trim() && !hasReadyAttachment) return;
     // Attachment-only send still needs a real user turn — fall back to a
     // default prompt so the model has an instruction to act on.
@@ -145,6 +146,7 @@ function ChatInput({ isExpanded }: { isExpanded: boolean }) {
 
 function ChatContent({ isExpanded }: { isExpanded: boolean }) {
   const { messages, status, cacheHit } = useChatContext();
+  const isStreaming = status === 'streaming';
 
   return (
     <StickToBottom className="flex-1 flex flex-col min-h-0">
@@ -163,8 +165,12 @@ function ChatContent({ isExpanded }: { isExpanded: boolean }) {
             <ChatSuggestions className="mt-1 grid-cols-1" />
           )}
           <CachedChatPreview />
-          {messages.map((message) => (
-            <ChatMessageBubble key={message.id} message={message} />
+          {messages.map((message, index) => (
+            <ChatMessageBubble
+              key={message.id}
+              message={message}
+              isActive={isStreaming && index === messages.length - 1}
+            />
           ))}
           {status === 'submitted' && <LoadingBubble />}
         </motion.div>

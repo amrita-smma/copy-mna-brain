@@ -50,6 +50,7 @@ function ChatMessages(props: {
   aiEmoji?: string;
   className?: string;
   isLoading?: boolean;
+  isStreaming?: boolean;
   onClearHistory?: () => void;
 }) {
   return (
@@ -69,8 +70,13 @@ function ChatMessages(props: {
       )}
       <div className="flex flex-col min-w-0 max-w-[768px] mx-auto pb-12 w-full">
         <WelcomeMessage />
-        {props.messages.map((message) => (
-          <ChatMessageBubble key={message.id} message={message} aiEmoji={props.aiEmoji} />
+        {props.messages.map((message, index) => (
+          <ChatMessageBubble
+            key={message.id}
+            message={message}
+            aiEmoji={props.aiEmoji}
+            isActive={!!props.isStreaming && index === props.messages.length - 1}
+          />
         ))}
         {props.isLoading && <LoadingBubble />}
       </div>
@@ -348,6 +354,7 @@ export function ChatWindow(props: {
             messages={messages}
             emptyStateComponent={props.emptyStateComponent}
             isLoading={status === "submitted"}
+            isStreaming={status === "streaming"}
             onClearHistory={handleNewChat}
           />
         )

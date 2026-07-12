@@ -45,6 +45,8 @@ interface ChatMessageBubbleProps {
   aiEmoji?: string;
   sources?: any[];
   className?: string;
+  /** True only when this is the last message and the chat is actively streaming it. */
+  isActive?: boolean;
 }
 
 function ThinkingIndicator() {
@@ -91,8 +93,10 @@ function ChatMessageBubbleImpl(props: ChatMessageBubbleProps) {
       (part as any).state !== "output-available"
   );
 
-  // Show thinking indicator when: no text content yet OR tools are running (but not if thinking text is streaming)
-  const showThinking = !isUser && (!hasTextContent || hasRunningTools) && !isStreamingComplete;
+  // Show thinking indicator when: no text content yet OR tools are running (but not if thinking text
+  // is streaming). Also gated on isActive so that pressing Stop clears the spinner immediately —
+  // without this gate, hasRunningTools stays true on an aborted tool call indefinitely.
+  const showThinking = !isUser && (!hasTextContent || hasRunningTools) && !isStreamingComplete && (props.isActive ?? false);
 
   // Auto-collapse tool results when response text starts streaming
   const [toolsCollapsed, setToolsCollapsed] = useState(false);
