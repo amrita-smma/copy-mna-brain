@@ -1,9 +1,11 @@
 import type { Driver } from 'neo4j-driver';
 
-export type RelationType = 'INVESTED_IN' | 'PARTNER' | 'SUPPLIER';
+export type RelationType = 'INVESTED_IN' | 'PARTNER' | 'SELLS_TO' | 'SUPPLIER';
 
-/** The only relation types a company edge may have. */
-export const RELATION_TYPES: readonly RelationType[] = ['INVESTED_IN', 'PARTNER', 'SUPPLIER'];
+/** The only relation types a company edge may have.
+ *  `SELLS_TO` is the canonical forward-looking type (source sells to target).
+ *  `SUPPLIER` is kept for backwards-compatibility with existing graph edges. */
+export const RELATION_TYPES: readonly RelationType[] = ['INVESTED_IN', 'PARTNER', 'SELLS_TO', 'SUPPLIER'];
 
 /** Whether a company is publicly listed or privately held. */
 export type Ownership = 'public' | 'private';

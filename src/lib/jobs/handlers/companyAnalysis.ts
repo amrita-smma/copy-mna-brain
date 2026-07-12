@@ -135,7 +135,7 @@ Define the 3-7 most critical unknowns to resolve before advancing investment:
 
 ### 7. Related Companies
 Identify other companies that "{companyName}" has a concrete business relationship with — its notable suppliers, partners/collaborators, and investors/owners. For each, classify the relationship FROM "{companyName}" TO the related company using exactly one of these types:
-- **SUPPLIER**: "{companyName}" supplies products/services to the related company (the related company is a customer/downstream).
+- **SELLS_TO**: "{companyName}" sells products/services to the related company (the related company is a customer/downstream buyer). Use this for both supplier and customer perspectives — it is directional: source sells to target.
 - **PARTNER**: "{companyName}" has a partnership, JV, alliance, or significant commercial collaboration with the related company.
 - **INVESTED_IN**: "{companyName}" has invested in / owns a stake in the related company.
 
@@ -157,7 +157,7 @@ Respond ONLY with a JSON object. Each section value should be a markdown string 
   "diligence_priorities": "1. Question one?\\n2. Question two?\\n...",
   "logo_url": "https://...",
   "sources_used": [{"type": "database"}, {"type": "web", "url": "https://...", "title": "..."}, {"type": "inven"}, {"type": "{source}"}],
-  "related_companies": [{"name": "Some Customer Inc", "relation_type": "SUPPLIER", "notes": "Key wafer supplier relationship", "evidence": "https://..."}]
+  "related_companies": [{"name": "Some Customer Inc", "relation_type": "SELLS_TO", "notes": "Key buyer of {companyName}'s wafers", "evidence": "https://..."}]
 }
 \`\`\`
 

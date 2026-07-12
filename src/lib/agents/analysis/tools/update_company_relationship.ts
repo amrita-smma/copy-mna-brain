@@ -102,7 +102,7 @@ export const updateCompanyRelationship = tool(
     name: "update_company_relationship",
     description: `Create or update a directed relationship between two companies in the relationship graph.
 
-The relationship is directed: source_company --[relation_type]--> target_company. Allowed relation types are INVESTED_IN, PARTNER, and SUPPLIER.
+The relationship is directed: source_company --[relation_type]--> target_company. Allowed relation types are INVESTED_IN, PARTNER, and SELLS_TO. Use SELLS_TO for any commercial supply/customer relationship — it is directional (source sells to target), so it captures both "supplier" and "customer" perspectives depending on which company is the source. SUPPLIER is accepted for backwards-compatibility only; prefer SELLS_TO for all new edges.
 
 Each company is matched by name against existing records (company name or project name). If a company is not found, it is automatically added to the database at the special "discovered" stage — these are companies that surface only through a relationship, not through the L0–L5 deal pipeline. They appear in their own section of Master Data.
 
@@ -111,7 +111,7 @@ Re-running with the same pair and relation type updates the edge's notes/evidenc
 Args:
     source_company: Name of the company the relationship originates from. Required.
     target_company: Name of the company the relationship points to. Required; must differ from source.
-    relation_type: One of "INVESTED_IN", "PARTNER", or "SUPPLIER".
+    relation_type: One of "INVESTED_IN", "PARTNER", or "SELLS_TO". Use "SELLS_TO" for all commercial supply/customer relationships. "SUPPLIER" is accepted but deprecated.
     notes: Optional free-text note about the relationship.
     evidence: Optional supporting evidence (URL or short description).
     date: Optional ISO date (YYYY-MM-DD) the relationship was established or observed.
@@ -127,7 +127,7 @@ Returns:
         .describe("Name of the company the relationship points to"),
       relation_type: z
         .enum(RELATION_TYPES as unknown as [RelationType, ...RelationType[]])
-        .describe("Relationship type: INVESTED_IN, PARTNER, or SUPPLIER"),
+        .describe("Relationship type: INVESTED_IN, PARTNER, or SELLS_TO (preferred for all commercial supply/customer edges; SUPPLIER accepted but deprecated)"),
       notes: z
         .string()
         .optional()

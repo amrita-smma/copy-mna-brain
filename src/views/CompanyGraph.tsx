@@ -44,13 +44,15 @@ import type {
 const RELATION_COLORS: Record<RelationType, string> = {
   INVESTED_IN: '#3b82f6',
   PARTNER: '#22c55e',
-  SUPPLIER: '#f59e0b',
+  SELLS_TO: '#f59e0b',
+  SUPPLIER: '#f59e0b', // legacy — same colour as SELLS_TO
 };
 
 const RELATION_LABELS: Record<RelationType, string> = {
   INVESTED_IN: 'Invested in',
   PARTNER: 'Partner',
-  SUPPLIER: 'Supplier',
+  SELLS_TO: 'Sells to',
+  SUPPLIER: 'Supplier', // legacy
 };
 
 const RELATION_TYPES = Object.keys(RELATION_COLORS) as RelationType[];

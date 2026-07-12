@@ -1,5 +1,6 @@
 import { tool } from "@langchain/core/tools";
 import { z } from "zod";
+import { logger } from "../../logger";
 
 /**
  * report_progress — snapshot of an in-flight iteration for the trace UI.
@@ -17,7 +18,10 @@ import { z } from "zod";
  * Workforce-only (chat has no trace UI).
  */
 export const reportProgress = tool(
-  async () => "ok",
+  async ({ items }: { items: Array<{ label: string; status: string; detail?: string }> }) => {
+    logger.debug(`🔧 TOOL CALLED: report_progress(${items?.length ?? 0} item(s))`);
+    return "ok";
+  },
   {
     name: "report_progress",
     description: `Report progress on an in-flight iteration (e.g. screening N candidates one by one). The UI renders the items as a "Live · partial output" block on the current trace step so the user can watch each row's state update.

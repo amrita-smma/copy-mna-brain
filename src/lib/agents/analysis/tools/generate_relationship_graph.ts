@@ -126,7 +126,7 @@ export const generateRelationshipGraph = tool(
 
 This is the bulk counterpart to \`update_company_relationship\`. Use it when an instruction describes a whole set of relationships at once — e.g. mapping a company's suppliers, partners, and investors — instead of calling the single-edge tool repeatedly.
 
-Each edge is directed: source_company --[relation_type]--> target_company. Allowed relation types are INVESTED_IN, PARTNER, and SUPPLIER. Each company is matched by name against existing records; any company not found is automatically added at the special "discovered" stage. Re-running an edge with the same pair and type updates that edge's notes/evidence/date in place.
+Each edge is directed: source_company --[relation_type]--> target_company. Allowed relation types are INVESTED_IN, PARTNER, and SELLS_TO. Use SELLS_TO for any commercial supply/customer relationship (it is directional — source sells to target — so it captures both "supplier" and "customer" perspectives depending on which company is the source). SUPPLIER is accepted for backwards-compatibility only; prefer SELLS_TO for all new edges. Each company is matched by name against existing records; any company not found is automatically added at the special "discovered" stage. Re-running an edge with the same pair and type updates that edge's notes/evidence/date in place.
 
 Edges are processed independently: a malformed or failing edge is reported in the summary and skipped — it does NOT abort the rest of the batch. Auto-executes (no human approval).
 
@@ -134,7 +134,7 @@ Args:
     edges: Array of edges to write (1–${MAX_EDGES}). Each edge:
         source_company: Name of the company the relationship originates from. Required.
         target_company: Name of the company the relationship points to. Required; must differ from source.
-        relation_type: One of "INVESTED_IN", "PARTNER", or "SUPPLIER".
+        relation_type: One of "INVESTED_IN", "PARTNER", or "SELLS_TO". Use "SELLS_TO" for all commercial supply/customer relationships. "SUPPLIER" is accepted but deprecated.
         notes: Optional free-text note about the relationship.
         evidence: Optional supporting evidence (URL or short description).
         date: Optional ISO date (YYYY-MM-DD) the relationship was observed.
@@ -153,7 +153,7 @@ Returns:
               .describe("Name of the company the relationship points to"),
             relation_type: z
               .enum(RELATION_TYPES as unknown as [RelationType, ...RelationType[]])
-              .describe("Relationship type: INVESTED_IN, PARTNER, or SUPPLIER"),
+              .describe("Relationship type: INVESTED_IN, PARTNER, or SELLS_TO (preferred for all commercial supply/customer edges; SUPPLIER accepted but deprecated)"),
             notes: z
               .string()
               .optional()

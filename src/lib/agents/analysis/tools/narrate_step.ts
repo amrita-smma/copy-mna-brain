@@ -1,5 +1,6 @@
 import { tool } from "@langchain/core/tools";
 import { z } from "zod";
+import { logger } from "../../logger";
 
 /**
  * narrate_step — structured trace-card narration tool.
@@ -20,7 +21,10 @@ import { z } from "zod";
  * burn tokens with no consumer.
  */
 export const narrateStep = tool(
-  async () => "ok",
+  async ({ title }: { title: string; overview: string; plan?: string[] }) => {
+    logger.debug(`🔧 TOOL CALLED: narrate_step(title='${title}')`);
+    return "ok";
+  },
   {
     name: "narrate_step",
     description: `Record a structured narration of what you're doing this turn. Call this EVERY model turn, in parallel with any other tool calls, so the user sees a coherent trace.
