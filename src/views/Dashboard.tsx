@@ -807,6 +807,29 @@ export default function Dashboard({
     setCustomPickerOpen(false);
   };
 
+  const shiftDateRange = (direction: "left" | "right") => {
+    const msPerDay = 24 * 60 * 60 * 1000;
+    const daysDiff = Math.round(
+      (dateRange.to.getTime() - dateRange.from.getTime()) / msPerDay,
+    );
+    const msOffset = daysDiff * msPerDay;
+    if (direction === "left") {
+      setDateRange({
+        from: new Date(dateRange.from.getTime() - msOffset),
+        to: new Date(dateRange.to.getTime() - msOffset),
+        preset: "custom",
+      });
+    } else {
+      const todayEnd = new Date();
+      todayEnd.setHours(23, 59, 59, 999);
+      const newTo = new Date(
+        Math.min(dateRange.to.getTime() + msOffset, todayEnd.getTime()),
+      );
+      const newFrom = new Date(newTo.getTime() - msOffset);
+      setDateRange({ from: newFrom, to: newTo, preset: "custom" });
+    }
+  };
+
   const applyCustom = () => {
     if (!customFrom || !customTo) return;
     const to = new Date(customTo);
@@ -847,6 +870,15 @@ export default function Dashboard({
     dateRange.preset === "custom"
       ? `${formatDate(dateRange.from)} – ${formatDate(dateRange.to)}`
       : PRESET_LABELS[dateRange.preset];
+
+  const isAtLatestDate = (() => {
+    const today = new Date();
+    return (
+      dateRange.to.getFullYear() === today.getFullYear() &&
+      dateRange.to.getMonth() === today.getMonth() &&
+      dateRange.to.getDate() === today.getDate()
+    );
+  })();
 
   // ─── Copilot quick-analysis ─────────────────────────────────────────────────
 
@@ -1065,7 +1097,16 @@ export default function Dashboard({
           {/* Global date range filter — desktop only; the mobile feed scrolls
               infinitely and has no date window. Two components: the active
               date range trigger and the date picker popover. */}
-          <div className="hidden md:flex items-center shrink-0 self-start sm:mt-1">
+          <div className="hidden md:flex items-center gap-1 shrink-0 self-start sm:mt-1">
+            <button
+              type="button"
+              data-testid="dashboard-date-shift-left"
+              onClick={() => shiftDateRange("left")}
+              className="flex items-center justify-center h-9 w-9 rounded-lg border border-border/50 bg-muted/50 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+              aria-label="Previous period"
+            >
+              <ChevronLeft className="h-4 w-4" />
+            </button>
             <Popover
               open={customPickerOpen}
               onOpenChange={(open) => {
@@ -1192,6 +1233,16 @@ export default function Dashboard({
                 </div>
               </PopoverContent>
             </Popover>
+            <button
+              type="button"
+              data-testid="dashboard-date-shift-right"
+              onClick={() => shiftDateRange("right")}
+              disabled={isAtLatestDate}
+              className="flex items-center justify-center h-9 w-9 rounded-lg border border-border/50 bg-muted/50 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              aria-label="Next period"
+            >
+              <ChevronRight className="h-4 w-4" />
+            </button>
           </div>
         </div>
 
