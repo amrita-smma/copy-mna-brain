@@ -640,6 +640,7 @@ export default function FundManagement({
   const [addAssetFundId, setAddAssetFundId] = useState<string | null>(null);
   const [addEntityOpen, setAddEntityOpen] = useState(false);
   const [addSourceOpen, setAddSourceOpen] = useState(false);
+  const [editSource, setEditSource] = useState<{ id: string; name: string } | null>(null);
   const [editStakesFor, setEditStakesFor] = useState<string | null>(null);
   const [editFund, setEditFund] = useState<Fund | null>(null);
   // Bump to force a re-render after an in-place optimistic edit to a holding/fund.
@@ -710,6 +711,24 @@ export default function FundManagement({
         toast({
           title: 'Failed to delete source of fund',
           description: err instanceof Error ? err.message : 'The source was not deleted.',
+          variant: 'destructive',
+        });
+        throw err;
+      }
+    },
+    [reloadSources, toast],
+  );
+
+  const editSourceName = useCallback(
+    async (sourceId: string, name: string) => {
+      try {
+        await fundSourcesApi.updateFundSource(sourceId, { name });
+        await reloadSources();
+      } catch (err) {
+        console.error('Failed to rename source of fund', err);
+        toast({
+          title: 'Failed to rename source of fund',
+          description: err instanceof Error ? err.message : 'The source was not renamed.',
           variant: 'destructive',
         });
         throw err;
@@ -998,6 +1017,7 @@ export default function FundManagement({
                         sourceNames={sourceOptions}
                         sourceIdsByName={sourceIdsByName}
                         onDeleteSource={deleteSource}
+                        onEditSource={(id, name) => setEditSource({ id, name })}
                       />
                     )}
                   </div>
@@ -1047,6 +1067,19 @@ export default function FundManagement({
         onSubmit={async (name) => {
           await fundSourcesApi.createFundSource({ name });
           await reloadSources();
+        }}
+      />
+      <NameDialog
+        title="Edit Source of Fund"
+        label="Source of Fund Name"
+        submitLabel="Save changes"
+        open={editSource != null}
+        onOpenChange={(o) => !o && setEditSource(null)}
+        initialValue={editSource?.name ?? ''}
+        onSubmit={async (name) => {
+          if (!editSource) return;
+          await editSourceName(editSource.id, name);
+          setEditSource(null);
         }}
       />
       <StakeEditDialog
@@ -1277,12 +1310,17 @@ function NameDialog({
   open,
   onOpenChange,
   onSubmit,
+  initialValue = '',
+  submitLabel = 'Save',
 }: {
   title: string;
   label: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSubmit: (name: string) => Promise<void>;
+  /** Pre-fill the field (used when editing an existing name). */
+  initialValue?: string;
+  submitLabel?: string;
 }) {
   const [name, setName] = useState('');
   const [saving, setSaving] = useState(false);
@@ -1290,10 +1328,10 @@ function NameDialog({
 
   useEffect(() => {
     if (open) {
-      setName('');
+      setName(initialValue);
       setError(null);
     }
-  }, [open]);
+  }, [open, initialValue]);
 
   const submit = async () => {
     if (!name.trim()) {
@@ -1339,7 +1377,7 @@ function NameDialog({
             Cancel
           </Button>
           <Button onClick={submit} disabled={saving}>
-            {saving ? 'Saving…' : 'Save'}
+            {saving ? 'Saving…' : submitLabel}
           </Button>
         </DialogFooter>
       </DialogContent>

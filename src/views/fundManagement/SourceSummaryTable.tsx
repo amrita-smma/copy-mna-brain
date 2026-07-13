@@ -19,14 +19,16 @@ export function SourceSummaryTable({
   sourceNames = [],
   sourceIdsByName,
   onDeleteSource,
+  onEditSource,
 }: {
   funds: Fund[];
   sourceNames?: string[];
   /** Maps a managed source name to its funding_sources row id. Only sources
-   * present here (i.e. in the managed list) get a delete button — free-text /
-   * in-use-only and "Unspecified" sources have no row to delete. */
+   * present here (i.e. in the managed list) get edit/delete actions — free-text /
+   * in-use-only and "Unspecified" sources have no row to edit or delete. */
   sourceIdsByName?: Map<string, string>;
   onDeleteSource?: (sourceId: string) => Promise<void>;
+  onEditSource?: (sourceId: string, currentName: string) => void;
 }) {
   // Group holdings by source, then seed any managed source with no holdings yet
   // so a freshly-added Source of Fund shows up immediately (empty group).
@@ -73,6 +75,15 @@ export function SourceSummaryTable({
                   <div className="flex items-center justify-between gap-2">
                     <div className="flex items-center gap-2">
                       <span className="text-[13px] font-medium text-foreground">{src}</span>
+                      {onEditSource && sourceId && (
+                        <button
+                          type="button"
+                          onClick={() => onEditSource(sourceId, src)}
+                          className="text-[11px] text-muted-foreground hover:text-foreground hover:underline"
+                        >
+                          ✎ Edit
+                        </button>
+                      )}
                       <Pill>
                         {a.count} holding{a.count === 1 ? '' : 's'}
                       </Pill>
