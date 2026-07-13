@@ -106,6 +106,24 @@ export function listFunds(): Promise<Fund[]> {
   return apiRequest<Fund[]>('/api/funds');
 }
 
+export interface PortfolioAsset {
+  asset: FundAsset;
+  txns: FundAssetTransaction[];
+  valuations: FundAssetValuation[];
+}
+
+export type PortfolioFund = Fund & { assets: PortfolioAsset[] };
+
+/**
+ * One batched request for the whole portfolio: every fund with its assets and
+ * each asset's full transaction/valuation ledger already attached. Replaces
+ * the old per-asset `listTransactions`/`listValuations` fan-out that fired one
+ * HTTP request (and one DB connection) per asset.
+ */
+export function getPortfolio(): Promise<PortfolioFund[]> {
+  return apiRequest<PortfolioFund[]>('/api/funds/portfolio');
+}
+
 export function createFund(data: CreateFundInput): Promise<Fund> {
   return apiRequest<Fund>('/api/funds', { method: 'POST', body: JSON.stringify(data) });
 }

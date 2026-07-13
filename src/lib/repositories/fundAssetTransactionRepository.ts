@@ -29,6 +29,28 @@ export class FundAssetTransactionRepository {
       .orderBy(fundAssetTransactions.txn_date);
   }
 
+  /**
+   * The full ledger for many assets at once — the batched counterpart to
+   * findByFundAssetId, ordered by (fund_asset_id, txn_date) so callers can
+   * group by asset in a single pass while each asset's transactions keep the
+   * same oldest-first order the single-asset query returns.
+   */
+  async findByFundAssetIds(
+    fundAssetIds: string[],
+  ): Promise<Tables<'fund_asset_transactions'>[]> {
+    if (fundAssetIds.length === 0) return [];
+    return this.db
+      .select()
+      .from(fundAssetTransactions)
+      .where(
+        and(
+          inArray(fundAssetTransactions.fund_asset_id, fundAssetIds),
+          inArray(fundAssetTransactions.fund_asset_id, this.workspaceFundAssetIds()),
+        ),
+      )
+      .orderBy(fundAssetTransactions.fund_asset_id, fundAssetTransactions.txn_date);
+  }
+
   async findById(id: string): Promise<Tables<'fund_asset_transactions'> | undefined> {
     const [row] = await this.db
       .select()

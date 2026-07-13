@@ -29,6 +29,28 @@ export class FundAssetValuationRepository {
       .orderBy(desc(fundAssetValuations.as_of_date));
   }
 
+  /**
+   * All snapshots for many assets at once — the batched counterpart to
+   * findByFundAssetId. Ordered by (fund_asset_id, as_of_date desc) so callers
+   * can group by asset in a single pass while each asset's snapshots keep the
+   * newest-first order the single-asset query returns.
+   */
+  async findByFundAssetIds(
+    fundAssetIds: string[],
+  ): Promise<Tables<'fund_asset_valuations'>[]> {
+    if (fundAssetIds.length === 0) return [];
+    return this.db
+      .select()
+      .from(fundAssetValuations)
+      .where(
+        and(
+          inArray(fundAssetValuations.fund_asset_id, fundAssetIds),
+          inArray(fundAssetValuations.fund_asset_id, this.workspaceFundAssetIds()),
+        ),
+      )
+      .orderBy(fundAssetValuations.fund_asset_id, desc(fundAssetValuations.as_of_date));
+  }
+
   async findLatestByFundAssetId(
     fundAssetId: string,
   ): Promise<Tables<'fund_asset_valuations'> | undefined> {

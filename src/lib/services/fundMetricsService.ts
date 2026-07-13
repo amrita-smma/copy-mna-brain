@@ -76,7 +76,13 @@ export class FundMetricsService {
       await this.fundAssetRepo.update(assetId, { is_manually_overridden: false });
     }
 
-    const metrics = await this.computeAssetMetrics(asset);
+    // Fetch the ledger once and reuse it for both the metric calculation and
+    // the affected-fund lookup below (previously two separate reads).
+    const [transactions, latestValuation] = await Promise.all([
+      this.transactionRepo.findByFundAssetId(asset.id),
+      this.valuationRepo.findLatestByFundAssetId(asset.id),
+    ]);
+    const metrics = this.computeMetricsFromLedger(asset, transactions, latestValuation);
     await this.fundAssetRepo.update(assetId, {
       share_count: metrics.shareCount,
       invested_capital_amount: metrics.investedCapitalAmount,
@@ -87,7 +93,6 @@ export class FundMetricsService {
       metrics_computed_at: new Date().toISOString(),
     });
 
-    const transactions = await this.transactionRepo.findByFundAssetId(asset.id);
     const fundIds = new Set(transactions.map((t) => t.fund_id).filter((id): id is string => Boolean(id)));
     for (const fundId of fundIds) {
       await this.recomputeFund(fundId);
@@ -97,7 +102,36 @@ export class FundMetricsService {
   /** Recompute a fund's own rollup columns by summing across all of its assets. */
   async recomputeFund(fundId: string): Promise<void> {
     const assets = await this.fundAssetRepo.findByFundId(fundId);
-    const perAsset = await Promise.all(assets.map((asset) => this.computeAssetMetrics(asset)));
+    const assetIds = assets.map((asset) => asset.id);
+
+    // Batch the whole fund's ledger in two queries instead of firing one
+    // transaction query (plus a valuation query) per asset — the old per-asset
+    // Promise.all was a server-side N+1.
+    const [allTxns, allValuations] = await Promise.all([
+      this.transactionRepo.findByFundAssetIds(assetIds),
+      this.valuationRepo.findByFundAssetIds(assetIds),
+    ]);
+    const txnsByAsset = new Map<string, Tables<'fund_asset_transactions'>[]>();
+    for (const txn of allTxns) {
+      const list = txnsByAsset.get(txn.fund_asset_id);
+      if (list) list.push(txn);
+      else txnsByAsset.set(txn.fund_asset_id, [txn]);
+    }
+    // findByFundAssetIds orders valuations newest-first within each asset, so
+    // the first one seen per asset is its latest snapshot.
+    const latestValuationByAsset = new Map<string, Tables<'fund_asset_valuations'>>();
+    for (const valuation of allValuations) {
+      if (!latestValuationByAsset.has(valuation.fund_asset_id)) {
+        latestValuationByAsset.set(valuation.fund_asset_id, valuation);
+      }
+    }
+    const perAsset = assets.map((asset) =>
+      this.computeMetricsFromLedger(
+        asset,
+        txnsByAsset.get(asset.id) ?? [],
+        latestValuationByAsset.get(asset.id),
+      ),
+    );
 
     const calledAmount = sum(perAsset.map((m) => m.investedCapitalAmount));
     const realizedAmount = sum(perAsset.map((m) => m.netDistributionAmount));
@@ -123,9 +157,17 @@ export class FundMetricsService {
     });
   }
 
-  private async computeAssetMetrics(asset: Tables<'fund_assets'>): Promise<AssetMetrics> {
-    const transactions = await this.transactionRepo.findByFundAssetId(asset.id);
-
+  /**
+   * Pure per-asset rollup from an already-fetched ledger — takes the asset's
+   * transactions and its latest valuation snapshot rather than querying, so
+   * callers can batch the reads (see recomputeFund) instead of issuing a
+   * query per asset.
+   */
+  private computeMetricsFromLedger(
+    asset: Tables<'fund_assets'>,
+    transactions: Tables<'fund_asset_transactions'>[],
+    latestValuation: Tables<'fund_asset_valuations'> | undefined,
+  ): AssetMetrics {
     let investedCapitalAmount = 0;
     let netDistributionAmount = 0;
     let sharesAcquired = 0;
@@ -163,7 +205,6 @@ export class FundMetricsService {
         asset.investment_currency === asset.report_currency ? 1 : (latestFxRate ?? 1);
       unrealizedValueAmount = shareCount * asset.current_price_per_share * spotFactor;
     } else {
-      const latestValuation = await this.valuationRepo.findLatestByFundAssetId(asset.id);
       unrealizedValueAmount = latestValuation?.market_value_amount ?? 0;
     }
 

@@ -24,6 +24,32 @@ export class FundAssetRepository {
     return rows.map((r) => r.asset);
   }
 
+  /**
+   * The batched counterpart to findByFundId: returns (fundId, asset) pairs for
+   * every given fund in one query. A co-invested asset shared across funds
+   * appears once per fund it belongs to — mirroring findByFundId run per fund.
+   * Assets are ordered by name/id so callers can group by fund while keeping
+   * each fund's assets in the same order the single-fund query returns.
+   */
+  async findByFundIds(
+    fundIds: string[],
+  ): Promise<Array<{ fundId: string; asset: Tables<'fund_assets'> }>> {
+    if (fundIds.length === 0) return [];
+    const rows = await this.db
+      .select({ fundId: fundAssetTransactions.fund_id, asset: fundAssets })
+      .from(fundAssets)
+      .innerJoin(fundAssetTransactions, eq(fundAssets.id, fundAssetTransactions.fund_asset_id))
+      .where(
+        and(
+          eq(fundAssets.workspace_id, this.workspaceId),
+          inArray(fundAssetTransactions.fund_id, fundIds),
+        ),
+      )
+      .groupBy(fundAssetTransactions.fund_id, fundAssets.id)
+      .orderBy(fundAssets.asset_name, fundAssets.id);
+    return rows.map((r) => ({ fundId: r.fundId as string, asset: r.asset }));
+  }
+
   async findUnassignedAssets(): Promise<Tables<'fund_assets'>[]> {
     const rows = await this.db
       .select({ asset: fundAssets })

@@ -96,17 +96,14 @@ const HOLDING_TYPE_INFO: Partial<
 
 
 
-async function buildFund(fundId: string): Promise<Fund> {
-  const { assets, ...fundRow } = await fundsApi.getFund(fundId);
-  const perAsset = await Promise.all(
-    assets.map(async (asset) => {
-      const [txns, valuations] = await Promise.all([
-        fundsApi.listTransactions(fundId, asset.id),
-        fundsApi.listValuations(fundId, asset.id),
-      ]);
-      return { asset, txns, valuations };
-    }),
-  );
+// Turns a fund row + its assets' already-fetched ledgers into the view's Fund
+// domain object. Shared by the batched initial load (buildFundFromPayload) and
+// the single-fund refresh (buildFund) so both produce identical results.
+function assembleFund(
+  fundRow: Omit<fundsApi.PortfolioFund, 'assets'>,
+  perAsset: fundsApi.PortfolioAsset[],
+): Fund {
+  const fundId = fundRow.id;
   const fund = fundRowToFund(fundRow);
   // An asset shared across funds (co-investment) arrives once per fund with the
   // whole-asset numbers + full ledger. Scope each copy to this fund's share so
@@ -123,6 +120,29 @@ async function buildFund(fundId: string): Promise<Fund> {
   }));
   fund.hist = computeFundHistory(scopedPerAsset, fundRow.commitment_size_amount, trailingQuarterEnds(4));
   return fund;
+}
+
+// Builds a fund from one entry of the batched GET /api/funds/portfolio payload
+// — no per-asset network calls.
+function buildFundFromPayload(payload: fundsApi.PortfolioFund): Fund {
+  const { assets, ...fundRow } = payload;
+  return assembleFund(fundRow, assets);
+}
+
+// Single-fund refresh (after an edit). Still per-asset, but scoped to one
+// fund's handful of assets rather than the whole portfolio.
+async function buildFund(fundId: string): Promise<Fund> {
+  const { assets, ...fundRow } = await fundsApi.getFund(fundId);
+  const perAsset = await Promise.all(
+    assets.map(async (asset) => {
+      const [txns, valuations] = await Promise.all([
+        fundsApi.listTransactions(fundId, asset.id),
+        fundsApi.listValuations(fundId, asset.id),
+      ]);
+      return { asset, txns, valuations };
+    }),
+  );
+  return assembleFund(fundRow, perAsset);
 }
 
 function AddFundDialog({
@@ -662,9 +682,8 @@ export default function FundManagement({
 
   const reloadAll = useCallback(async () => {
     try {
-      const rows = await fundsApi.listFunds();
-      const built = await Promise.all(rows.map((r) => buildFund(r.id)));
-      setFunds(built);
+      const payloads = await fundsApi.getPortfolio();
+      setFunds(payloads.map(buildFundFromPayload));
       setLoadError(null);
     } catch (err) {
       setLoadError(err instanceof Error ? err.message : 'Failed to load funds');

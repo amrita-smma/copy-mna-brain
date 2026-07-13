@@ -74,6 +74,40 @@ export class CorrespondentRepository {
     return rows.map((r, i) => ({ ...r, is_primary: i === 0 }));
   }
 
+  /**
+   * Batched counterpart to findByEmployerId — the primary-PIC lookup for many
+   * employers in one query. `is_primary` stays positional (oldest visible
+   * correspondent per employer), computed by grouping the ordered rows and
+   * flagging the first of each employer's group. Callers group by
+   * `employer_id` to reconstruct each employer's list.
+   */
+  async findByEmployerIds(
+    employerIds: string[],
+    workspaceId: string,
+  ): Promise<Correspondent[]> {
+    if (employerIds.length === 0) return [];
+    const rows = await this.db
+      .select()
+      .from(correspondentEffective)
+      .where(
+        and(
+          inArray(correspondentEffective.employer_id, employerIds),
+          inArray(correspondentEffective.id, this.visibleCorrespondentIds(workspaceId)),
+        ),
+      )
+      .orderBy(
+        asc(correspondentEffective.employer_id),
+        asc(correspondentEffective.created_at),
+        asc(correspondentEffective.id),
+      );
+    const seen = new Set<string>();
+    return rows.map((r) => {
+      const isPrimary = !seen.has(r.employer_id);
+      seen.add(r.employer_id);
+      return { ...r, is_primary: isPrimary };
+    });
+  }
+
   async findById(
     id: string,
     workspaceId: string,

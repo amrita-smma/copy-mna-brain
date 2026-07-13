@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { cn } from '@/lib/utils';
 import type { Fund, Holding } from './types';
 import {
@@ -13,7 +13,10 @@ import {
 } from './calc';
 import { Chevron, DeleteRowMenu, GlossaryTerm, Pill } from './parts';
 import { HoldingDetail } from './HoldingDetail';
+import { TablePager } from './TablePager';
 import { useFundData } from './context';
+
+const PAGE_SIZE = 25;
 
 type GroupBy = 'none' | 'fund' | 'investor' | 'source';
 
@@ -72,6 +75,11 @@ export function AssetTable({
   const [groupBy, setGroupBy] = useState<GroupBy>('none');
   const [openGroups, setOpenGroups] = useState<Set<string>>(new Set());
   const [openAssets, setOpenAssets] = useState<Set<string>>(new Set());
+  const [page, setPage] = useState(1);
+
+  // Grouping mode changes what a "row" is (assets vs. groups), so restart
+  // paging from the first page to avoid landing on an out-of-range page.
+  useEffect(() => setPage(1), [groupBy]);
 
   const toggle = <T,>(set: Set<T>, val: T) => {
     const next = new Set(set);
@@ -147,6 +155,15 @@ export function AssetTable({
       : [...buildGroups().entries()]
           .map(([name, items]) => ({ name, items, a: aggSlices(items) }))
           .sort((x, y) => y.a.fmv - x.a.fmv);
+
+  // Paginate whichever list is being shown — flat asset rows when ungrouped,
+  // group rows when grouped. Slicing the top-level rows (not the expanded
+  // detail panels) keeps a heavy portfolio from rendering hundreds of rows at
+  // once, complementing the batched load that removed the per-asset fetches.
+  const total = groupBy === 'none' ? flat.length : groups.length;
+  const start = (Math.min(page, Math.max(1, Math.ceil(total / PAGE_SIZE))) - 1) * PAGE_SIZE;
+  const pagedFlat = [...flat].sort((x, y) => y.fmv - x.fmv).slice(start, start + PAGE_SIZE);
+  const pagedGroups = groups.slice(start, start + PAGE_SIZE);
 
   // A single asset row + (if open) its detail panel. `rowKey` scopes the
   // open-state so the same holding under two source groups toggles independently.
@@ -279,8 +296,8 @@ export function AssetTable({
                       </td>
                     </tr>,
                   ]
-                : assetRows(flat, false, 'all')
-              : groups.map(({ name, items, a }) => {
+                : assetRows(pagedFlat, false, 'all')
+              : pagedGroups.map(({ name, items, a }) => {
                   const gopen = openGroups.has(name);
                   const rows: ReactNode[] = [];
                   rows.push(
@@ -329,11 +346,13 @@ export function AssetTable({
           </tbody>
         </table>
       </div>
-      <div className="mt-2 text-right text-[11px] text-muted-foreground">
-        {groupBy === 'none'
-          ? `${flat.length} asset${flat.length === 1 ? '' : 's'}`
-          : `${groups.length} ${GROUP_HEAD[groupBy].toLowerCase()} group${groups.length === 1 ? '' : 's'}`}
-      </div>
+      <TablePager
+        page={page}
+        pageSize={PAGE_SIZE}
+        total={total}
+        onPageChange={setPage}
+        itemLabel={groupBy === 'none' ? 'asset' : `${GROUP_HEAD[groupBy].toLowerCase()} group`}
+      />
     </>
   );
 }

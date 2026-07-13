@@ -1,10 +1,14 @@
 'use client';
 
+import { useState } from 'react';
 import { cn } from '@/lib/utils';
 import type { Fund } from './types';
 import { money } from './calc';
 import { DeleteRowMenu, GlossaryTerm, Pill } from './parts';
+import { TablePager } from './TablePager';
 import { useFundData } from './context';
+
+const PAGE_SIZE = 25;
 
 const COLS: { label: string; term?: string; align: 'left' | 'right' }[] = [
   { label: 'Fund', align: 'left' },
@@ -27,6 +31,7 @@ export function FundSummaryTable({
   onEditFund?: (fund: Fund) => void;
 }) {
   const { deleteFund } = useFundData();
+  const [page, setPage] = useState(1);
 
   // Holdings are already scoped to each fund's transaction-level share (see
   // scopeHoldingToFund), so a fund's totals are just the sum of its holdings —
@@ -48,6 +53,9 @@ export function FundSummaryTable({
       };
     })
     .sort((a, b) => b.fmv - a.fmv);
+
+  const start = (Math.min(page, Math.max(1, Math.ceil(rows.length / PAGE_SIZE))) - 1) * PAGE_SIZE;
+  const pagedRows = rows.slice(start, start + PAGE_SIZE);
 
   return (
     <>
@@ -76,7 +84,7 @@ export function FundSummaryTable({
                 </td>
               </tr>
             )}
-            {rows.map(({ f, invested, fmv, real, moic, dpiVal, calledPct }) => {
+            {pagedRows.map(({ f, invested, fmv, real, moic, dpiVal, calledPct }) => {
               const phaseTerm = f.st === 'Investing' ? 'investing' : 'harvesting';
               return (
                 <tr key={f.id} className="border-b [&>td]:bg-card hover:[&>td]:bg-muted/40">
@@ -135,9 +143,13 @@ export function FundSummaryTable({
           </tbody>
         </table>
       </div>
-      <div className="mt-2 text-right text-[11px] text-muted-foreground">
-        {rows.length} fund{rows.length === 1 ? '' : 's'}
-      </div>
+      <TablePager
+        page={page}
+        pageSize={PAGE_SIZE}
+        total={rows.length}
+        onPageChange={setPage}
+        itemLabel="fund"
+      />
     </>
   );
 }

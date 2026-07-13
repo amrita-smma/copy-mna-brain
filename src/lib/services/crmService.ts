@@ -661,32 +661,38 @@ export class CRMService {
     }>
   > {
     const flagged = await this.employerRepo.listFlagged();
-    const result = await Promise.all(
-      flagged.map(async (emp) => {
-        const correspondents = await this.correspondentRepo.findByEmployerId(
-          emp.id,
-          this.workspaceId,
-        );
-        const primary =
-          correspondents.find((c) => c.is_primary) ?? correspondents[0] ?? null;
-        return {
-          id: emp.id,
-          name: emp.name,
-          industry: emp.industry,
-          status: emp.status,
-          primary_pic: primary
-            ? {
-                id: primary.id,
-                name: primary.name,
-                title: primary.title,
-                email: primary.email,
-                phone: primary.phone,
-              }
-            : null,
-        };
-      }),
+    // One batched correspondent read for all flagged employers instead of a
+    // per-employer query (was an N+1). Group by employer_id in memory.
+    const correspondents = await this.correspondentRepo.findByEmployerIds(
+      flagged.map((emp) => emp.id),
+      this.workspaceId,
     );
-    return result;
+    type Corr = (typeof correspondents)[number];
+    const byEmployer = new Map<string, Corr[]>();
+    for (const c of correspondents) {
+      const list = byEmployer.get(c.employer_id);
+      if (list) list.push(c);
+      else byEmployer.set(c.employer_id, [c]);
+    }
+    return flagged.map((emp) => {
+      const list = byEmployer.get(emp.id) ?? [];
+      const primary = list.find((c) => c.is_primary) ?? list[0] ?? null;
+      return {
+        id: emp.id,
+        name: emp.name,
+        industry: emp.industry,
+        status: emp.status,
+        primary_pic: primary
+          ? {
+              id: primary.id,
+              name: primary.name,
+              title: primary.title,
+              email: primary.email,
+              phone: primary.phone,
+            }
+          : null,
+      };
+    });
   }
 
   // ─── Email ingestion (Vault sync + file uploads) ────────────────────────

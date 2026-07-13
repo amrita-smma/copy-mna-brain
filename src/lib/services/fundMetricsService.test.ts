@@ -10,8 +10,8 @@ import type {
 function makeRepos() {
   const fundRepo = { update: vi.fn() };
   const fundAssetRepo = { findById: vi.fn(), findByFundId: vi.fn(), update: vi.fn() };
-  const transactionRepo = { findByFundAssetId: vi.fn() };
-  const valuationRepo = { findLatestByFundAssetId: vi.fn() };
+  const transactionRepo = { findByFundAssetId: vi.fn(), findByFundAssetIds: vi.fn() };
+  const valuationRepo = { findLatestByFundAssetId: vi.fn(), findByFundAssetIds: vi.fn() };
   return { fundRepo, fundAssetRepo, transactionRepo, valuationRepo };
 }
 
@@ -52,13 +52,16 @@ describe('FundMetricsService', () => {
         report_currency: 'USD',
         entry_date: '2023-01-01',
       };
+      const ledger = [
+        { fund_asset_id: 'a1', txn_type: 'contribution', txn_date: '2023-01-01', price_per_share: 5, share_count: 10, value_amount: null, fx_rate: null, fund_id: 'f1' },
+        { fund_asset_id: 'a1', txn_type: 'divestment', txn_date: '2024-01-01', price_per_share: 8, share_count: 2, value_amount: null, fx_rate: null, fund_id: 'f1' },
+      ];
       repos.fundAssetRepo.findById.mockResolvedValueOnce(asset);
-      repos.transactionRepo.findByFundAssetId.mockResolvedValue([
-        { txn_type: 'contribution', txn_date: '2023-01-01', price_per_share: 5, share_count: 10, value_amount: null, fx_rate: null, fund_id: 'f1' },
-        { txn_type: 'divestment', txn_date: '2024-01-01', price_per_share: 8, share_count: 2, value_amount: null, fx_rate: null, fund_id: 'f1' },
-      ]);
-      // recomputeFund's per-asset sweep re-fetches the asset list for the fund.
+      repos.transactionRepo.findByFundAssetId.mockResolvedValue(ledger);
+      // recomputeFund's sweep re-fetches the fund's assets and batches the ledger.
       repos.fundAssetRepo.findByFundId.mockResolvedValueOnce([asset]);
+      repos.transactionRepo.findByFundAssetIds.mockResolvedValue(ledger);
+      repos.valuationRepo.findByFundAssetIds.mockResolvedValue([]);
 
       await service.recomputeAsset('a1');
 
@@ -88,12 +91,15 @@ describe('FundMetricsService', () => {
         report_currency: 'USD',
         entry_date: '2023-01-01',
       };
+      const ledger = [
+        { fund_asset_id: 'a2', txn_type: 'contribution', txn_date: '2023-01-01', price_per_share: null, share_count: null, value_amount: 100, fx_rate: null, fund_id: 'f1' },
+      ];
       repos.fundAssetRepo.findById.mockResolvedValueOnce(asset);
-      repos.transactionRepo.findByFundAssetId.mockResolvedValue([
-        { txn_type: 'contribution', txn_date: '2023-01-01', price_per_share: null, share_count: null, value_amount: 100, fx_rate: null, fund_id: 'f1' },
-      ]);
+      repos.transactionRepo.findByFundAssetId.mockResolvedValue(ledger);
       repos.valuationRepo.findLatestByFundAssetId.mockResolvedValue({ market_value_amount: 120 });
       repos.fundAssetRepo.findByFundId.mockResolvedValueOnce([asset]);
+      repos.transactionRepo.findByFundAssetIds.mockResolvedValue(ledger);
+      repos.valuationRepo.findByFundAssetIds.mockResolvedValue([{ fund_asset_id: 'a2', market_value_amount: 120 }]);
 
       await service.recomputeAsset('a2');
 

@@ -20,6 +20,7 @@ const employerRepo = {
 
 const correspondentRepo = {
   findByEmployerId: vi.fn(),
+  findByEmployerIds: vi.fn(),
   findById: vi.fn(),
   findByEmployerAndEmail: vi.fn(),
   findByEmail: vi.fn(),
@@ -539,11 +540,11 @@ describe('CRMService.listFlaggedEmployerDetails', () => {
       { id: 'e1', name: 'GS', industry: 'IB', status: 'inbound' },
       { id: 'e2', name: 'MS', industry: null, status: 'outbound' },
     ]);
-    correspondentRepo.findByEmployerId
-      .mockResolvedValueOnce([
-        { id: 'c1', name: 'James', title: 'MD', email: 'j@gs.com', phone: null, is_primary: true },
-      ])
-      .mockResolvedValueOnce([]);
+    // Batched: one call returns all flagged employers' correspondents, keyed
+    // by employer_id. e2 has none → its primary_pic is null.
+    correspondentRepo.findByEmployerIds.mockResolvedValue([
+      { id: 'c1', employer_id: 'e1', name: 'James', title: 'MD', email: 'j@gs.com', phone: null, is_primary: true },
+    ]);
 
     const out = await makeService().listFlaggedEmployerDetails();
     expect(out).toHaveLength(2);
