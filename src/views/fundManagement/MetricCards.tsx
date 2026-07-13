@@ -46,8 +46,8 @@ export function MetricCards({ funds }: MetricCardsProps) {
       accent: false,
     },
     {
-      key: 'totalvalue',
-      label: 'Total Value',
+      key: 'moic',
+      label: 'MOIC',
       value: `${t.moic.toFixed(2)}×`,
       sub: 'MOIC across all funds',
       delta: growth(t.tvpiHist),
