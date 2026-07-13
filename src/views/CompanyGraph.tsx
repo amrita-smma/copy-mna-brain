@@ -388,6 +388,85 @@ function endpointId(endpoint: string | GraphNode): string {
   return typeof endpoint === 'object' ? endpoint.id : endpoint;
 }
 
+// ─── Connection pathfinding ───────────────────────────────────────────────────
+// Maximum path length when tracing connections between highlighted companies,
+// mirroring the Neo4j `MATCH path = (a)-[*1..5]-(b)` traversal.
+const MAX_PATH_DEPTH = 5;
+// Maximum number of alternative paths surfaced per pair (mirrors `LIMIT 5`).
+const MAX_PATHS_PER_PAIR = 5;
+// Safety valve on the enumeration so a dense graph can't stall the UI thread.
+const PATH_EXPLORE_CAP = 20000;
+
+/** A single traversed edge on a connection path (directed from → to along the walk). */
+interface PathHop {
+  fromId: string;
+  toId: string;
+  label: RelationType;
+  key: string;
+}
+
+/** The connection paths between a unique pair of highlighted companies. */
+interface PairPath {
+  aId: string;
+  bId: string;
+  aName: string;
+  bName: string;
+  /** Up to MAX_PATHS_PER_PAIR simple paths a → b, shortest first; empty when none exist. */
+  paths: PathHop[][];
+}
+
+type Adjacency = Map<string, Array<{ to: string; label: RelationType; key: string }>>;
+
+/** Canonical undirected key for an edge, including its relation label. */
+function linkEdgeKey(source: string | GraphNode, target: string | GraphNode, label: string): string {
+  const s = endpointId(source);
+  const t = endpointId(target);
+  const [a, b] = s < t ? [s, t] : [t, s];
+  return `${a}|${b}|${label}`;
+}
+
+/**
+ * Up to `maxPaths` distinct simple undirected paths (≤ maxDepth hops) between two
+ * nodes, mirroring the Neo4j `MATCH path = (a)-[*1..5]-(b) ... LIMIT n` traversal.
+ * BFS over partial paths yields them shortest-first; parallel edges of different
+ * relation types count as distinct connections. Returns `[[]]` when from === to
+ * and `[]` when no path exists within maxDepth.
+ */
+function findPaths(
+  adj: Adjacency,
+  from: string,
+  to: string,
+  maxDepth: number,
+  maxPaths: number,
+): PathHop[][] {
+  if (from === to) return [[]];
+  const results: PathHop[][] = [];
+  // FIFO queue of partial paths → dequeued shortest-first, so the earliest
+  // completions are the shortest paths.
+  const queue: Array<{ node: string; hops: PathHop[]; visited: Set<string> }> = [
+    { node: from, hops: [], visited: new Set([from]) },
+  ];
+  let explored = 0;
+  while (queue.length > 0 && results.length < maxPaths) {
+    const cur = queue.shift()!;
+    if (cur.hops.length >= maxDepth) continue;
+    if (++explored > PATH_EXPLORE_CAP) break;
+    for (const edge of adj.get(cur.node) ?? []) {
+      if (cur.visited.has(edge.to)) continue; // simple paths only — no revisits
+      const hop: PathHop = { fromId: cur.node, toId: edge.to, label: edge.label, key: edge.key };
+      if (edge.to === to) {
+        results.push([...cur.hops, hop]);
+        if (results.length >= maxPaths) break;
+        continue;
+      }
+      const visited = new Set(cur.visited);
+      visited.add(edge.to);
+      queue.push({ node: edge.to, hops: [...cur.hops, hop], visited });
+    }
+  }
+  return results;
+}
+
 /** Build a minimal CompanyData from a graph node when the company isn't in Postgres. */
 function fallbackCompany(node: GraphNode): CompanyData {
   const nowIso = new Date().toISOString();
@@ -662,6 +741,72 @@ export default function CompanyGraph({
     return map;
   }, [graphData.links]);
 
+  // Company id → display name, used by pathfinding and the edge/detail dialogs.
+  const nodeNameById = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const n of graphData.nodes) map.set(n.id, n.name);
+    return map;
+  }, [graphData.nodes]);
+
+  // Undirected adjacency over the full (unfiltered) edge set, used to trace
+  // connection paths between highlighted companies. Rebuilt only when the graph
+  // itself changes, so it's independent of the active filters.
+  const adjacency = useMemo<Adjacency>(() => {
+    const adj: Adjacency = new Map();
+    const add = (from: string, to: string, label: RelationType, key: string) => {
+      const arr = adj.get(from);
+      if (arr) arr.push({ to, label, key });
+      else adj.set(from, [{ to, label, key }]);
+    };
+    for (const l of graphData.links) {
+      const s = endpointId(l.source);
+      const t = endpointId(l.target);
+      const label = l.label as RelationType;
+      const key = linkEdgeKey(s, t, l.label);
+      add(s, t, label, key);
+      add(t, s, label, key);
+    }
+    return adj;
+  }, [graphData.links]);
+
+  // For every unique pair of highlighted companies, up to MAX_PATHS_PER_PAIR
+  // alternative connection paths (≤ MAX_PATH_DEPTH hops), shortest first —
+  // mirroring the Neo4j `MATCH path = (a)-[*1..5]-(b) ... LIMIT n` traversal. Also
+  // accumulates every node and edge lying on any path so the canvas can render the
+  // intermediaries, not just the highlighted companies themselves.
+  const highlightPaths = useMemo(() => {
+    const pathNodeIds = new Set<string>(highlightedIds);
+    const pathEdgeKeys = new Set<string>();
+    const pairs: PairPath[] = [];
+    if (highlightedIds.size < 2) return { pairs, pathNodeIds, pathEdgeKeys };
+
+    const ids = [...highlightedIds].sort((a, b) =>
+      (nodeNameById.get(a) ?? a).localeCompare(nodeNameById.get(b) ?? b),
+    );
+    for (let i = 0; i < ids.length; i++) {
+      for (let j = i + 1; j < ids.length; j++) {
+        const from = ids[i];
+        const to = ids[j];
+        const paths = findPaths(adjacency, from, to, MAX_PATH_DEPTH, MAX_PATHS_PER_PAIR);
+        pairs.push({
+          aId: from,
+          bId: to,
+          aName: nodeNameById.get(from) ?? from,
+          bName: nodeNameById.get(to) ?? to,
+          paths,
+        });
+        for (const path of paths) {
+          for (const hop of path) {
+            pathNodeIds.add(hop.fromId);
+            pathNodeIds.add(hop.toId);
+            pathEdgeKeys.add(hop.key);
+          }
+        }
+      }
+    }
+    return { pairs, pathNodeIds, pathEdgeKeys };
+  }, [highlightedIds, adjacency, nodeNameById]);
+
   // Apply node + edge filters. Rebuilds fresh node/link objects so force-graph's
   // in-place mutation never bleeds back into the raw data. Excludes `hovered`
   // from deps so hovering doesn't restart the simulation.
@@ -672,7 +817,9 @@ export default function CompanyGraph({
     const highlighting = highlightedIds.size > 0;
 
     const nodes = graphData.nodes.filter((n) => {
-      if (highlighting) return highlightedIds.has(n.id);
+      // When highlighting, keep the selected companies plus every company that
+      // lies on a connection path between a highlighted pair.
+      if (highlighting) return highlightPaths.pathNodeIds.has(n.id);
       if (ownership !== 'all' && n.ownership !== ownership) return false;
       if (geography !== 'all' && n.geography !== geography) return false;
       if (pipelineStage !== 'all') {
@@ -702,9 +849,13 @@ export default function CompanyGraph({
       const sid = endpointId(l.source);
       const tid = endpointId(l.target);
       if (!keptIds.has(sid) || !keptIds.has(tid)) return false;
-      // When highlighting, show every relationship between the selected
-      // companies regardless of the edge-type / evidence / date filters.
-      if (highlighting) return true;
+      // When highlighting, show every direct relationship between two selected
+      // companies plus the edges that make up a connection path between a pair,
+      // regardless of the edge-type / evidence / date filters.
+      if (highlighting) {
+        if (highlightedIds.has(sid) && highlightedIds.has(tid)) return true;
+        return highlightPaths.pathEdgeKeys.has(linkEdgeKey(sid, tid, l.label));
+      }
       if (!enabledTypes.has(l.label as RelationType)) return false;
       if (hasEvidenceOnly && !l.evidence) return false;
       if (dateFrom && (!l.date || l.date < dateFrom)) return false;
@@ -733,7 +884,7 @@ export default function CompanyGraph({
       }),
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [graphData, ownership, geography, pipelineStage, status, connectedIds, enabledTypes, hasEvidenceOnly, dateFrom, dateTo, nodeCharacteristics, highlightedIds]);
+  }, [graphData, ownership, geography, pipelineStage, status, connectedIds, enabledTypes, hasEvidenceOnly, dateFrom, dateTo, nodeCharacteristics, highlightedIds, highlightPaths]);
 
   // Each node's dominant relationship type (most frequent incident edge label),
   // used for the small sub-label rendered inside the circle. Tie-break follows
@@ -859,31 +1010,6 @@ export default function CompanyGraph({
     event.preventDefault();
     setContextMenu({ node, x: event.clientX, y: event.clientY });
   };
-
-  // Resolve an endpoint (string id or mutated node ref) to its company name.
-  const nodeNameById = useMemo(() => {
-    const map = new Map<string, string>();
-    for (const n of graphData.nodes) map.set(n.id, n.name);
-    return map;
-  }, [graphData.nodes]);
-
-  // Edges connecting the highlighted companies to one another. Derived from the
-  // already-filtered link set (which, while highlighting, is exactly the edges
-  // between highlighted companies) so the endpoint direction matches what's
-  // drawn on the canvas. Empty when fewer than two companies are highlighted or
-  // none of the selected companies share an edge.
-  const highlightConnections = useMemo(() => {
-    if (highlightedIds.size === 0) return [];
-    return filteredData.links.map((l) => {
-      const sid = endpointId(l.source);
-      const tid = endpointId(l.target);
-      return {
-        sourceName: nodeNameById.get(sid) ?? sid,
-        targetName: nodeNameById.get(tid) ?? tid,
-        label: l.label as RelationType,
-      };
-    });
-  }, [highlightedIds, filteredData.links, nodeNameById]);
 
   // Open the relationship detail (or edit) dialog for a clicked edge.
   // `link` comes from filteredData, which swaps INVESTED_IN endpoints for display;
@@ -1428,33 +1554,77 @@ export default function CompanyGraph({
                 Show only the selected companies and how they relate to one another.
               </p>
               {highlightedIds.size > 0 && (
-                <div className="mt-2.5 space-y-1.5">
+                <div className="mt-2.5 space-y-2">
                   <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-                    Connections ({highlightConnections.length})
+                    Connections
+                    {highlightPaths.pairs.length > 0 &&
+                      ` (${highlightPaths.pairs.filter((p) => p.paths.length > 0).length}/${highlightPaths.pairs.length} pairs)`}
                   </p>
-                  {highlightConnections.length === 0 ? (
+                  {highlightedIds.size < 2 ? (
                     <p className="text-[11px] leading-snug text-muted-foreground">
-                      No relationships between the selected companies.
+                      Highlight at least two companies to trace the connections between them.
                     </p>
                   ) : (
-                    <ul className="space-y-1">
-                      {highlightConnections.map((c, i) => (
+                    <ul className="space-y-2">
+                      {highlightPaths.pairs.map((pair) => (
                         <li
-                          key={`${c.sourceName}-${c.targetName}-${c.label}-${i}`}
-                          className="flex items-start gap-1.5 text-[11px] leading-snug"
+                          key={`${pair.aId}-${pair.bId}`}
+                          className="space-y-1.5 rounded-md border border-slate-200 bg-white/70 p-2"
                         >
-                          <span
-                            className="mt-1 inline-block h-2 w-2 shrink-0 rounded-full"
-                            style={{ background: RELATION_COLORS[c.label] ?? '#64748b' }}
-                          />
-                          <span className="min-w-0">
-                            <span className="text-foreground">{c.sourceName}</span>
-                            <span className="text-muted-foreground"> &rarr; </span>
-                            <span className="text-foreground">{c.targetName}</span>
-                            <span className="ml-1 text-muted-foreground">
-                              ({RELATION_LABELS[c.label] ?? c.label})
+                          <div className="flex items-center justify-between gap-1.5">
+                            <span className="min-w-0 truncate text-[11px] font-semibold text-foreground">
+                              {pair.aName} &harr; {pair.bName}
                             </span>
-                          </span>
+                            {pair.paths.length > 0 && (
+                              <span className="shrink-0 rounded-full bg-slate-100 px-1.5 text-[10px] leading-4 text-slate-600">
+                                {pair.paths.length} path{pair.paths.length === 1 ? '' : 's'}
+                              </span>
+                            )}
+                          </div>
+                          {pair.paths.length === 0 ? (
+                            <p className="text-[11px] leading-snug text-muted-foreground">
+                              No connection within {MAX_PATH_DEPTH} hops.
+                            </p>
+                          ) : (
+                            <div className="space-y-1.5">
+                              {pair.paths.map((path, pathIdx) => (
+                                <div
+                                  key={`${pair.aId}-${pair.bId}-${pathIdx}`}
+                                  className="space-y-0.5 border-l-2 border-slate-200 pl-2"
+                                >
+                                  <div className="flex items-center justify-between gap-1">
+                                    <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+                                      Path {pathIdx + 1}
+                                    </span>
+                                    <span className="text-[10px] text-slate-400">
+                                      {path.length} hop{path.length === 1 ? '' : 's'}
+                                    </span>
+                                  </div>
+                                  <div className="truncate text-[11px] font-medium text-foreground">
+                                    {pair.aName}
+                                  </div>
+                                  {path.map((hop, idx) => (
+                                    <div
+                                      key={`${hop.key}-${idx}`}
+                                      className="flex items-center gap-1 pl-1 text-[11px] leading-snug"
+                                    >
+                                      <span
+                                        className="inline-block h-2 w-2 shrink-0 rounded-full"
+                                        style={{ background: RELATION_COLORS[hop.label] ?? '#64748b' }}
+                                      />
+                                      <span className="shrink-0 text-muted-foreground">
+                                        {RELATION_LABELS[hop.label] ?? hop.label}
+                                      </span>
+                                      <span className="shrink-0 text-muted-foreground">&rarr;</span>
+                                      <span className="min-w-0 truncate font-medium text-foreground">
+                                        {nodeNameById.get(hop.toId) ?? hop.toId}
+                                      </span>
+                                    </div>
+                                  ))}
+                                </div>
+                              ))}
+                            </div>
+                          )}
                         </li>
                       ))}
                     </ul>
