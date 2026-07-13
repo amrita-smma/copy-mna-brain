@@ -125,6 +125,7 @@ const PIPELINE_STAGE_LABELS: Record<string, string> = {
   L4: 'L4',
   L5: 'L5',
   discovered: 'Discovered',
+  unreviewed: 'Unreviewed',
 };
 
 function pipelineStageLabel(stage: string): string {
@@ -140,7 +141,7 @@ const STAGE_COLOR_BLUE = '#3b82f6';   // L0–L5
 
 function nodeColor(node: GraphNode): string {
   const stage = node.pipelineStage;
-  if (!stage || stage === 'market_screening') return STAGE_COLOR_YELLOW;
+  if (!stage || stage === 'market_screening' || stage === 'unreviewed') return STAGE_COLOR_YELLOW;
   if (stage === 'discovered') return STAGE_COLOR_GREY;
   if (/^L[0-5]$/.test(stage)) return STAGE_COLOR_BLUE;
   return STAGE_COLOR_GREY;
@@ -1534,9 +1535,8 @@ export default function CompanyGraph({
               onClick={() => toggleConnectedOnly(contextMenu.node)}
             >
               <Check
-                className={`h-3.5 w-3.5 shrink-0 ${
-                  connectedTo?.id === contextMenu.node.id ? 'opacity-100' : 'opacity-0'
-                }`}
+                className={`h-3.5 w-3.5 shrink-0 ${connectedTo?.id === contextMenu.node.id ? 'opacity-100' : 'opacity-0'
+                  }`}
               />
               Display only connected companies
             </button>
@@ -1578,7 +1578,7 @@ export default function CompanyGraph({
           company={selectedCompany}
           open={dialogOpen}
           onOpenChange={setDialogOpen}
-          onUpdate={() => {}}
+          onUpdate={() => { }}
         />
       )}
 
