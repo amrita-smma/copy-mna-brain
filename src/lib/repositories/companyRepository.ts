@@ -427,9 +427,15 @@ export class CompanyRepository {
       const [row] = await this.db
         .select()
         .from(companies)
-        .where(or(
-          sql`lower(${companies.target}) = ${lowered}`,
-          sql`lower(${companies.project_name}) = ${lowered}`,
+        .where(and(
+          eq(companies.workspace_id, this.workspaceId),
+          or(
+            sql`lower(${companies.target}) = ${lowered}`,
+            sql`lower(${companies.project_name}) = ${lowered}`,
+            // Also match a recorded alias exactly (case-insensitive) so a short
+            // name absorbed into another company via "combine" still resolves.
+            sql`exists (select 1 from jsonb_array_elements_text(coalesce(${companies.aliases}, '[]'::jsonb)) as elem(txt) where lower(txt) = ${lowered})`,
+          ),
         ))
         .limit(1);
       return row ?? null;
@@ -454,6 +460,10 @@ export class CompanyRepository {
         or(
           sql`lower(${companies.target}) like ${pattern} escape '\\'`,
           sql`lower(${companies.project_name}) like ${pattern} escape '\\'`,
+          // Also substring-match any recorded alias so a name absorbed into
+          // another company via "combine" resolves to that company instead of
+          // spawning a fresh `discovered` duplicate.
+          sql`exists (select 1 from jsonb_array_elements_text(coalesce(${companies.aliases}, '[]'::jsonb)) as elem(txt) where lower(txt) like ${pattern} escape '\\')`,
         ),
       ))
       .limit(1);

@@ -764,6 +764,13 @@
       "when": 1783900800000,
       "tag": "20260713000000_fix_holding_entity_source_delete_rules",
       "breakpoints": true
+    },
+    {
+      "idx": 109,
+      "version": "7",
+      "when": 1783987200000,
+      "tag": "20260714000000_add_companies_aliases",
+      "breakpoints": true
     }
   ]
 }

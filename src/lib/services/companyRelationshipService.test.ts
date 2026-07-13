@@ -2,17 +2,25 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CompanyRepository } from '@/lib/repositories';
 import type { CompanyService } from './companyService';
 import type { CompanyGraphService } from './companyGraphService';
-import { CompanyRelationshipService } from './companyRelationshipService';
+import {
+  CompanyNotFoundError,
+  CompanyRelationshipService,
+  InvalidCombineError,
+} from './companyRelationshipService';
 
 const findByNameFuzzy = vi.fn();
+const findById = vi.fn();
+const update = vi.fn();
 const create = vi.fn();
+const deleteCompany = vi.fn();
 const relateCompanies = vi.fn();
+const reassignAndDeleteNode = vi.fn();
 
 function makeService(): CompanyRelationshipService {
   return new CompanyRelationshipService(
-    { findByNameFuzzy } as unknown as CompanyRepository,
-    { create } as unknown as CompanyService,
-    { relateCompanies } as unknown as CompanyGraphService,
+    { findByNameFuzzy, findById, update } as unknown as CompanyRepository,
+    { create, delete: deleteCompany } as unknown as CompanyService,
+    { relateCompanies, reassignAndDeleteNode } as unknown as CompanyGraphService,
   );
 }
 
@@ -95,5 +103,104 @@ describe('CompanyRelationshipService.linkByName', () => {
       expect.objectContaining({ target: 'Trimmed' }),
       'CREATED_AS_DISCOVERED',
     );
+  });
+});
+
+describe('CompanyRelationshipService.combineCompanies', () => {
+  let service: CompanyRelationshipService;
+
+  beforeEach(() => {
+    findById.mockReset();
+    update.mockReset().mockResolvedValue([]);
+    deleteCompany.mockReset().mockResolvedValue(undefined);
+    reassignAndDeleteNode.mockReset().mockResolvedValue(undefined);
+    service = makeService();
+  });
+
+  it('reroutes edges, records aliases on main, and deletes the absorbed rows', async () => {
+    findById.mockImplementation(async (id: string) => {
+      const rows: Record<string, unknown> = {
+        main: { id: 'main', target: 'Acme', aliases: [] },
+        dup1: { id: 'dup1', target: 'Acme Corp', aliases: ['ACME Inc'] },
+        dup2: { id: 'dup2', target: 'Acme Limited', aliases: [] },
+      };
+      return rows[id];
+    });
+
+    const result = await service.combineCompanies({
+      mainId: 'main',
+      otherIds: ['dup1', 'dup2'],
+    });
+
+    // Aliases: absorbed names + their aliases, deduped, excluding the main name.
+    expect(update).toHaveBeenCalledWith('main', {
+      aliases: ['Acme Corp', 'ACME Inc', 'Acme Limited'],
+    });
+    // aliases persisted BEFORE any node is rerouted (mirrors main node first).
+    expect(update.mock.invocationCallOrder[0]).toBeLessThan(
+      reassignAndDeleteNode.mock.invocationCallOrder[0],
+    );
+    // Each absorbed company is rerouted to main and deleted.
+    expect(reassignAndDeleteNode).toHaveBeenCalledWith('dup1', 'main');
+    expect(reassignAndDeleteNode).toHaveBeenCalledWith('dup2', 'main');
+    expect(deleteCompany).toHaveBeenCalledWith('dup1');
+    expect(deleteCompany).toHaveBeenCalledWith('dup2');
+    expect(result).toEqual({
+      mainId: 'main',
+      combined: 2,
+      aliases: ['Acme Corp', 'ACME Inc', 'Acme Limited'],
+    });
+  });
+
+  it('drops the main id and duplicates from the others list', async () => {
+    findById.mockImplementation(async (id: string) => ({ id, target: id, aliases: [] }));
+
+    await service.combineCompanies({
+      mainId: 'main',
+      otherIds: ['main', 'dup1', 'dup1', ''],
+    });
+
+    expect(reassignAndDeleteNode).toHaveBeenCalledTimes(1);
+    expect(reassignAndDeleteNode).toHaveBeenCalledWith('dup1', 'main');
+  });
+
+  it('excludes the main company name from the alias list case-insensitively', async () => {
+    findById.mockImplementation(async (id: string) => {
+      const rows: Record<string, unknown> = {
+        main: { id: 'main', target: 'Acme', aliases: [] },
+        dup1: { id: 'dup1', target: 'ACME', aliases: ['Acme'] },
+      };
+      return rows[id];
+    });
+
+    const result = await service.combineCompanies({ mainId: 'main', otherIds: ['dup1'] });
+
+    expect(result.aliases).toEqual([]);
+    expect(update).toHaveBeenCalledWith('main', { aliases: [] });
+  });
+
+  it('throws InvalidCombineError when no other companies are given', async () => {
+    await expect(
+      service.combineCompanies({ mainId: 'main', otherIds: [] }),
+    ).rejects.toBeInstanceOf(InvalidCombineError);
+    expect(findById).not.toHaveBeenCalled();
+  });
+
+  it('throws InvalidCombineError when mainId is blank', async () => {
+    await expect(
+      service.combineCompanies({ mainId: '   ', otherIds: ['dup1'] }),
+    ).rejects.toBeInstanceOf(InvalidCombineError);
+  });
+
+  it('throws CompanyNotFoundError when a company does not exist', async () => {
+    findById.mockImplementation(async (id: string) => {
+      if (id === 'main') return { id: 'main', target: 'Acme', aliases: [] };
+      throw new Error(`Company ${id} not found`);
+    });
+
+    await expect(
+      service.combineCompanies({ mainId: 'main', otherIds: ['ghost'] }),
+    ).rejects.toBeInstanceOf(CompanyNotFoundError);
+    expect(reassignAndDeleteNode).not.toHaveBeenCalled();
   });
 });

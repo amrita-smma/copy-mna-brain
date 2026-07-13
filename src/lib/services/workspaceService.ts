@@ -93,6 +93,20 @@ export class WorkspaceService {
     return user?.is_superadmin === true;
   }
 
+  /**
+   * Whether the user may perform workspace-admin-only actions in the given
+   * workspace: a platform superadmin (global access) or a member holding the
+   * `admin` role there. Used to gate privileged mutations such as combining
+   * companies in the relationship graph.
+   */
+  async isWorkspaceAdmin(userId: string, workspaceId: string): Promise<boolean> {
+    if (await this.isSuperadmin(userId)) return true;
+    const memberships = await this.userWorkspaceRepo.findMembershipsForUser(userId);
+    return memberships.some(
+      (m) => m.workspaceId === workspaceId && m.roleName === 'admin',
+    );
+  }
+
   listWorkspaces(): Promise<Tables<'workspaces'>[]> {
     return this.workspaceRepo.findAll();
   }

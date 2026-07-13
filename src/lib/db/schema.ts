@@ -421,6 +421,11 @@ export const companies = pgTable(
     // Track variable ids (track_variables.id) the user has opted to surface on
     // the Company Card slide deck under "Indicative Financials".
     slide_track_variable_ids: jsonb().$type<string[]>().default([]),
+    // Alternative names this company is known by. Populated when companies are
+    // combined (the absorbed companies' names/aliases roll up here) and consulted
+    // by fuzzy name matching so a relationship edge or ingest naming an alias
+    // resolves to this company instead of creating a duplicate.
+    aliases: jsonb().$type<string[]>().default([]),
     // AI Opinion: a firm PASS/FAIL/TENTATIVE verdict + ≤50-word rationale
     // produced by an AI Workforce run, surfaced as the right-most pipeline
     // column. `ai_opinion_status` tracks the in-flight run lifecycle

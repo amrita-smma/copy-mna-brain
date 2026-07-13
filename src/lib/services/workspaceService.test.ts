@@ -338,3 +338,56 @@ describe('WorkspaceService.updateCopilotAgent', () => {
     expect(repos.workspaceRepo.update).toHaveBeenCalledWith('w1', { copilot_agent: 'investment' });
   });
 });
+
+describe('WorkspaceService.isWorkspaceAdmin', () => {
+  let repos: ReturnType<typeof makeRepoStubs>;
+  let service: WorkspaceService;
+
+  beforeEach(() => {
+    repos = makeRepoStubs();
+    service = new WorkspaceService(repos.workspaceRepo, repos.userWorkspaceRepo, repos.roleRepo, repos.userRepo);
+  });
+
+  it('returns true for a platform superadmin without checking memberships', async () => {
+    (repos.userRepo.findById as ReturnType<typeof vi.fn>).mockResolvedValueOnce({ id: 'u1', is_superadmin: true });
+
+    const result = await service.isWorkspaceAdmin('u1', 'w1');
+
+    expect(result).toBe(true);
+    expect(repos.userWorkspaceRepo.findMembershipsForUser).not.toHaveBeenCalled();
+  });
+
+  it('returns true when the user has the admin role in the workspace', async () => {
+    (repos.userRepo.findById as ReturnType<typeof vi.fn>).mockResolvedValueOnce({ id: 'u1', is_superadmin: false });
+    (repos.userWorkspaceRepo.findMembershipsForUser as ReturnType<typeof vi.fn>).mockResolvedValueOnce([
+      { workspaceId: 'other', workspaceName: 'Other', workspaceSlug: 'other', roleId: 'r1', roleName: 'admin', isEmailSynced: false },
+      { workspaceId: 'w1', workspaceName: 'W1', workspaceSlug: 'w1', roleId: 'r2', roleName: 'admin', isEmailSynced: false },
+    ]);
+
+    const result = await service.isWorkspaceAdmin('u1', 'w1');
+
+    expect(result).toBe(true);
+  });
+
+  it('returns false when the user is only an editor/viewer in the workspace', async () => {
+    (repos.userRepo.findById as ReturnType<typeof vi.fn>).mockResolvedValueOnce({ id: 'u1', is_superadmin: false });
+    (repos.userWorkspaceRepo.findMembershipsForUser as ReturnType<typeof vi.fn>).mockResolvedValueOnce([
+      { workspaceId: 'w1', workspaceName: 'W1', workspaceSlug: 'w1', roleId: 'r2', roleName: 'editor', isEmailSynced: false },
+    ]);
+
+    const result = await service.isWorkspaceAdmin('u1', 'w1');
+
+    expect(result).toBe(false);
+  });
+
+  it('returns false when the admin role is for a different workspace', async () => {
+    (repos.userRepo.findById as ReturnType<typeof vi.fn>).mockResolvedValueOnce({ id: 'u1', is_superadmin: false });
+    (repos.userWorkspaceRepo.findMembershipsForUser as ReturnType<typeof vi.fn>).mockResolvedValueOnce([
+      { workspaceId: 'other', workspaceName: 'Other', workspaceSlug: 'other', roleId: 'r1', roleName: 'admin', isEmailSynced: false },
+    ]);
+
+    const result = await service.isWorkspaceAdmin('u1', 'w1');
+
+    expect(result).toBe(false);
+  });
+});

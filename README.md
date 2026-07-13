@@ -564,6 +564,26 @@ it.**
   with `CompanyRepository.findByNameFuzzy`; the graph reads go through
   `CompanyGraphService.getConnectedCompanies` / `getConnectionsAmong`
   (`CompanyRelationRepository` in the repository layer).
+- **Combining companies (workspace admins only).** `POST /api/graph/combine`
+  merges several companies into one surviving "main" company. Backed by
+  `CompanyRelationshipService.combineCompanies`, it (1) records each absorbed
+  company's display name and existing aliases on the main company's
+  `companies.aliases` column, (2) reroutes every graph edge to/from the absorbed
+  companies onto the main company via
+  `CompanyGraphService.reassignAndDeleteNode` (preserving edge notes/evidence/
+  date), and (3) deletes the absorbed Postgres rows (cascading their related
+  data). Aliases are persisted first so the main node is mirrored into Neo4j
+  before edges are rerouted onto it. The route is gated by
+  `WorkspaceService.isWorkspaceAdmin` (platform superadmin or the `admin` role in
+  the active workspace); the edit-mode "Combine companies" panel in
+  `CompanyGraph.tsx` only renders for admins.
+- **Aliases-aware matching.** `companies.aliases` (a `jsonb` string array) is
+  consulted by `CompanyRepository.findByNameFuzzy` alongside `target` /
+  `project_name`, so a relationship edge or ingest naming an absorbed company
+  resolves to the surviving main company instead of spawning a duplicate
+  `discovered` row. This applies automatically to the `generate_relationship_graph`
+  and `update_company_relationship` tools, which resolve names through
+  `findByNameFuzzy`.
 
 - **Visualizer (`src/views/CompanyGraph.tsx`).** The `/graph` canvas
   (`react-force-graph-2d`) supports client-side filtering on company metadata

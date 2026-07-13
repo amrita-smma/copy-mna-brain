@@ -421,4 +421,30 @@ describe('CompanyRepository.findByNameFuzzy', () => {
 
     expect(await repo.findByNameFuzzy('Nonexistent Holdings Ltd.')).toBeNull();
   });
+
+  it('matches against the aliases array (substring branch) scoped to the workspace', async () => {
+    const { db, where } = makeFuzzyDb([]);
+    const repo = new CompanyRepository(db, 'workspace-1');
+
+    await repo.findByNameFuzzy('Acme Holdings Ltd.');
+
+    const clause = new PgDialect().sqlToQuery(where.mock.calls[0][0] as SQL);
+    expect(clause.sql).toContain('jsonb_array_elements_text');
+    expect(clause.sql).toContain('"aliases"');
+    expect(clause.sql).toContain('like');
+    // workspace-scoped
+    expect(clause.params).toContain('workspace-1');
+  });
+
+  it('matches against the aliases array (short-name exact branch) scoped to the workspace', async () => {
+    const { db, where } = makeFuzzyDb([]);
+    const repo = new CompanyRepository(db, 'workspace-1');
+
+    await repo.findByNameFuzzy('IBM');
+
+    const clause = new PgDialect().sqlToQuery(where.mock.calls[0][0] as SQL);
+    expect(clause.sql).toContain('jsonb_array_elements_text');
+    expect(clause.sql).toContain('"aliases"');
+    expect(clause.params).toContain('workspace-1');
+  });
 });

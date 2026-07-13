@@ -16,7 +16,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { ArrowLeftRight, Check, Loader2, Pencil, Plus, RefreshCw, Search, Trash2 } from 'lucide-react';
+import { ArrowLeftRight, Check, Combine, Loader2, Pencil, Plus, RefreshCw, Search, Trash2 } from 'lucide-react';
 // d3-force-3d is the force engine bundled with react-force-graph-2d; reusing it
 // here keeps our custom forces consistent with the graph's own simulation.
 import { forceCollide, forceX, forceY } from 'd3-force-3d';
@@ -95,6 +95,59 @@ function NodeCombobox({
                 >
                   <Check className={`mr-2 h-3 w-3 ${value === n.id ? 'opacity-100' : 'opacity-0'}`} />
                   {n.name}
+                </CommandItem>
+              ))}
+            </CommandGroup>
+          </CommandList>
+        </Command>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+// Multi-select company picker for the "Combine companies" section: a searchable
+// checklist that shows each company's pipeline stage alongside its name.
+function CompanyMultiSelect({
+  nodes,
+  selected,
+  onToggle,
+  placeholder = 'Select companies…',
+}: {
+  nodes: GraphNode[];
+  selected: string[];
+  onToggle: (id: string) => void;
+  placeholder?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const label =
+    selected.length === 0
+      ? placeholder
+      : `${selected.length} compan${selected.length === 1 ? 'y' : 'ies'} selected`;
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button variant="outline" role="combobox" className="w-full h-8 text-xs justify-between font-normal truncate">
+          <span className="truncate">{label}</span>
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-64 p-0" align="start">
+        <Command>
+          <CommandInput placeholder="Search company…" className="h-8 text-xs" />
+          <CommandList>
+            <CommandEmpty className="text-xs py-4 text-center text-muted-foreground">No company found.</CommandEmpty>
+            <CommandGroup>
+              {nodes.map((n) => (
+                <CommandItem
+                  key={n.id}
+                  value={n.name}
+                  onSelect={() => onToggle(n.id)}
+                  className="text-xs"
+                >
+                  <Check className={`mr-2 h-3 w-3 shrink-0 ${selected.includes(n.id) ? 'opacity-100' : 'opacity-0'}`} />
+                  <span className="truncate">{n.name}</span>
+                  <span className="ml-auto pl-2 text-[10px] text-muted-foreground shrink-0">
+                    {pipelineStageLabel(n.pipelineStage ?? NO_STAGE)}
+                  </span>
                 </CommandItem>
               ))}
             </CommandGroup>
@@ -288,11 +341,14 @@ function fallbackCompany(node: GraphNode): CompanyData {
 interface CompanyGraphProps {
   showCompanyGraph?: boolean;
   showFundManagement?: boolean;
+  /** When true, the edit-mode "Combine companies" section is available. */
+  isWorkspaceAdmin?: boolean;
 }
 
 export default function CompanyGraph({
   showCompanyGraph = false,
   showFundManagement = false,
+  isWorkspaceAdmin = false,
 }: CompanyGraphProps) {
   const [graphData, setGraphData] = useState<GraphData>({ nodes: [], links: [] });
   const [loading, setLoading] = useState(true);
@@ -392,6 +448,13 @@ export default function CompanyGraph({
   // null = "Auto" (derive from EV); 1–5 = explicit override
   const [nodeSizeValue, setNodeSizeValue] = useState<number | null>(null);
   const [nodeSizeSaving, setNodeSizeSaving] = useState(false);
+
+  // Combine companies form state (workspace-admin only). `combineIds` are the
+  // companies selected to merge; `combineMainId` is the surviving company (must
+  // be one of the selected).
+  const [combineIds, setCombineIds] = useState<string[]>([]);
+  const [combineMainId, setCombineMainId] = useState('');
+  const [combineSaving, setCombineSaving] = useState(false);
 
   useEffect(() => {
     import('react-force-graph-2d').then((mod) => setForceGraph2D(() => mod.default));
@@ -921,6 +984,51 @@ export default function CompanyGraph({
     }
   };
 
+  const toggleCombineId = (id: string) => {
+    setCombineIds((prev) => {
+      const next = prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id];
+      // Keep the main selection valid: default it to the first pick, and clear
+      // it if the current main was just removed.
+      setCombineMainId((main) => {
+        if (next.length === 0) return '';
+        if (!main || !next.includes(main)) return next[0];
+        return main;
+      });
+      return next;
+    });
+  };
+
+  const handleCombine = async () => {
+    if (combineIds.length < 2) {
+      toast.error('Select at least two companies to combine');
+      return;
+    }
+    if (!combineMainId || !combineIds.includes(combineMainId)) {
+      toast.error('Select which company is the main one');
+      return;
+    }
+    const otherIds = combineIds.filter((id) => id !== combineMainId);
+    setCombineSaving(true);
+    try {
+      const res = await fetch('/api/graph/combine', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mainId: combineMainId, otherIds }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error ?? `HTTP ${res.status}`);
+      await loadGraph();
+      const mainName = graphData.nodes.find((n) => n.id === combineMainId)?.name ?? 'company';
+      setCombineIds([]);
+      setCombineMainId('');
+      toast.success(`Combined ${otherIds.length} compan${otherIds.length === 1 ? 'y' : 'ies'} into ${mainName}`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Failed to combine companies');
+    } finally {
+      setCombineSaving(false);
+    }
+  };
+
   // Dismiss the context menu on scroll or Escape. (A left-click anywhere else is
   // caught by the full-screen overlay rendered beneath the menu.)
   useEffect(() => {
@@ -1085,6 +1193,70 @@ export default function CompanyGraph({
                     <Plus className="h-3.5 w-3.5" />
                   )}
                   {addCompanySaving ? 'Adding…' : 'Add to Discovered'}
+                </Button>
+              </div>
+            )}
+
+            {/* Combine companies (edit mode, workspace admins only) */}
+            {editMode && isWorkspaceAdmin && (
+              <div className="space-y-3 rounded-lg border border-dashed border-rose-300 bg-rose-50/60 p-3">
+                <p className="flex items-center gap-1.5 text-xs font-semibold text-rose-900 uppercase tracking-wider">
+                  <Combine className="h-3.5 w-3.5" />
+                  Combine companies
+                </p>
+                <p className="text-[11px] text-muted-foreground/90 leading-snug">
+                  Merge duplicates into one. Every relationship on the other
+                  companies moves to the main company, their names become aliases
+                  of it, and the other records are deleted.
+                </p>
+                <div className="space-y-1.5">
+                  <Label className="text-xs text-muted-foreground">Companies to combine</Label>
+                  <CompanyMultiSelect
+                    nodes={sortedNodes}
+                    selected={combineIds}
+                    onToggle={toggleCombineId}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs text-muted-foreground">Main company (kept)</Label>
+                  <Select
+                    value={combineMainId}
+                    onValueChange={setCombineMainId}
+                    disabled={combineIds.length === 0}
+                  >
+                    <SelectTrigger className="h-8 text-xs">
+                      <SelectValue placeholder="Select the surviving company…" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {combineIds.map((id) => {
+                        const node = graphData.nodes.find((n) => n.id === id);
+                        if (!node) return null;
+                        return (
+                          <SelectItem key={id} value={id} className="text-xs">
+                            {node.name}
+                          </SelectItem>
+                        );
+                      })}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <Button
+                  size="sm"
+                  variant="destructive"
+                  className="w-full h-8 text-xs"
+                  onClick={handleCombine}
+                  disabled={combineSaving || combineIds.length < 2 || !combineMainId}
+                >
+                  {combineSaving ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <Combine className="h-3.5 w-3.5" />
+                  )}
+                  {combineSaving
+                    ? 'Combining…'
+                    : combineIds.length >= 2
+                      ? `Combine ${combineIds.length - (combineMainId ? 1 : 0)} into main`
+                      : 'Combine'}
                 </Button>
               </div>
             )}
