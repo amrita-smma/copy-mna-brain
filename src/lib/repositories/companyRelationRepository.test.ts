@@ -365,6 +365,66 @@ describe('CompanyRelationRepository.getAllCompanyIds', () => {
   });
 });
 
+describe('CompanyRelationRepository.getConnectedCompanies', () => {
+  it('maps each edge to a neighbour with direction relative to the queried node', async () => {
+    const beta = { id: 'c2', name: 'Beta' };
+    const gamma = { id: 'c3', name: 'Gamma' };
+    const { driver, run } = makeDriver([
+      // Queried node c1 is the start → outgoing.
+      makeRecord({ company: { properties: beta }, relType: 'SELLS_TO', startId: 'c1', notes: null, evidence: null, date: null }),
+      // Queried node c1 is the target → incoming.
+      makeRecord({ company: { properties: gamma }, relType: 'INVESTED_IN', startId: 'c3', notes: 'led round', evidence: 'url', date: '2024-01-01' }),
+    ]);
+    const repo = new CompanyRelationRepository(driver);
+
+    const result = await repo.getConnectedCompanies('c1');
+
+    const [cypher, params] = run.mock.calls[0];
+    expect(cypher).toContain('MATCH (a:Company {id: $id})-[r]-(b:Company)');
+    expect(params).toEqual({ id: 'c1' });
+    expect(result).toEqual([
+      { company: beta, type: 'SELLS_TO', direction: 'outgoing', notes: undefined, evidence: undefined, date: undefined },
+      { company: gamma, type: 'INVESTED_IN', direction: 'incoming', notes: 'led round', evidence: 'url', date: '2024-01-01' },
+    ]);
+  });
+
+  it('returns [] when the company has no edges', async () => {
+    const { driver } = makeDriver([]);
+    const repo = new CompanyRelationRepository(driver);
+    expect(await repo.getConnectedCompanies('c1')).toEqual([]);
+  });
+});
+
+describe('CompanyRelationRepository.getConnectionsAmong', () => {
+  it('returns every directed edge whose endpoints are both in the id set', async () => {
+    const { driver, run } = makeDriver([
+      makeRecord({ sourceId: 'c1', targetId: 'c2', relType: 'SELLS_TO', notes: null, evidence: null, date: null }),
+      makeRecord({ sourceId: 'c3', targetId: 'c1', relType: 'PARTNER', notes: 'jv', evidence: null, date: null }),
+    ]);
+    const repo = new CompanyRelationRepository(driver);
+
+    const result = await repo.getConnectionsAmong(['c1', 'c2', 'c3']);
+
+    const [cypher, params] = run.mock.calls[0];
+    expect(cypher).toContain('a.id IN $ids AND b.id IN $ids');
+    expect(params).toEqual({ ids: ['c1', 'c2', 'c3'] });
+    expect(result).toEqual([
+      { sourceId: 'c1', targetId: 'c2', type: 'SELLS_TO', notes: undefined, evidence: undefined, date: undefined },
+      { sourceId: 'c3', targetId: 'c1', type: 'PARTNER', notes: 'jv', evidence: undefined, date: undefined },
+    ]);
+  });
+
+  it('is a no-op returning [] for fewer than two ids', async () => {
+    const { driver, run, session } = makeDriver();
+    const repo = new CompanyRelationRepository(driver);
+
+    expect(await repo.getConnectionsAmong(['c1'])).toEqual([]);
+    expect(await repo.getConnectionsAmong([])).toEqual([]);
+    expect(run).not.toHaveBeenCalled();
+    expect(session).not.toHaveBeenCalled();
+  });
+});
+
 describe('companyRowToGraphNode', () => {
   it('maps target to name and normalizes ownership casing', () => {
     expect(

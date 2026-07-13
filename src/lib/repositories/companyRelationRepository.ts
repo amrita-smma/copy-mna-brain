@@ -128,6 +128,32 @@ export interface GraphData {
   links: GraphLink[];
 }
 
+/**
+ * A single directed edge touching a queried company, from that company's point
+ * of view. `direction` is relative to the queried node: `outgoing` means the
+ * queried company is the edge's source, `incoming` means it is the target.
+ */
+export interface ConnectedCompany {
+  /** The company on the other end of the edge. */
+  company: CompanyNode;
+  /** Relationship type (e.g. SELLS_TO, PARTNER). */
+  type: string;
+  direction: 'outgoing' | 'incoming';
+  notes?: string;
+  evidence?: string;
+  date?: string;
+}
+
+/** A directed edge between two companies, both identified by id. */
+export interface GraphConnection {
+  sourceId: string;
+  targetId: string;
+  type: string;
+  notes?: string;
+  evidence?: string;
+  date?: string;
+}
+
 export class CompanyRelationRepository {
   constructor(private readonly driver: Driver) {}
 
@@ -351,6 +377,67 @@ export class CompanyRelationRepository {
       }
 
       return { nodes: Array.from(nodesMap.values()), links };
+    } finally {
+      await session.close();
+    }
+  }
+
+  /**
+   * All companies directly connected to `id` by a single edge, in either
+   * direction. Each row is one edge; if two companies are linked by more than
+   * one relationship (or in both directions) each edge appears separately.
+   * Returns `[]` when the company has no edges or isn't in the graph.
+   */
+  async getConnectedCompanies(id: string): Promise<ConnectedCompany[]> {
+    const session = this.driver.session();
+    try {
+      const result = await session.run(
+        `MATCH (a:Company {id: $id})-[r]-(b:Company)
+         RETURN b AS company, type(r) AS relType, startNode(r).id AS startId,
+                r.notes AS notes, r.evidence AS evidence, r.date AS date`,
+        { id },
+      );
+      return result.records.map((record) => {
+        const company = record.get('company').properties as CompanyNode;
+        const startId = record.get('startId') as string;
+        return {
+          company,
+          type: record.get('relType') as string,
+          direction: startId === id ? ('outgoing' as const) : ('incoming' as const),
+          notes: (record.get('notes') as string | null) ?? undefined,
+          evidence: (record.get('evidence') as string | null) ?? undefined,
+          date: (record.get('date') as string | null) ?? undefined,
+        };
+      });
+    } finally {
+      await session.close();
+    }
+  }
+
+  /**
+   * Every directed edge whose both endpoints are within `ids`. Used to discover
+   * which pairs in a candidate set are connected. Returns `[]` for fewer than
+   * two ids (no pair can exist).
+   */
+  async getConnectionsAmong(ids: string[]): Promise<GraphConnection[]> {
+    if (ids.length < 2) return [];
+    const session = this.driver.session();
+    try {
+      const result = await session.run(
+        `MATCH (a:Company)-[r]->(b:Company)
+         WHERE a.id IN $ids AND b.id IN $ids AND a.id <> b.id
+         RETURN a.id AS sourceId, b.id AS targetId, type(r) AS relType,
+                r.notes AS notes, r.evidence AS evidence, r.date AS date`,
+        { ids },
+      );
+      return result.records.map((record) => ({
+        sourceId: record.get('sourceId') as string,
+        targetId: record.get('targetId') as string,
+        type: record.get('relType') as string,
+        notes: (record.get('notes') as string | null) ?? undefined,
+        evidence: (record.get('evidence') as string | null) ?? undefined,
+        date: (record.get('date') as string | null) ?? undefined,
+      }));
     } finally {
       await session.close();
     }

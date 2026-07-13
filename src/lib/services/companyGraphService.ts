@@ -1,6 +1,8 @@
 import {
   companyRowToGraphNode,
   type CompanyRelationRepository,
+  type ConnectedCompany,
+  type GraphConnection,
   type GraphData,
   type RelationType,
 } from '@/lib/repositories/companyRelationRepository';
@@ -38,6 +40,16 @@ export class CompanyGraphService {
 
   async getGraphData(): Promise<GraphData> {
     return this.repo.getGraphData();
+  }
+
+  /** Direct neighbours of a company (both edge directions). See repo doc. */
+  async getConnectedCompanies(id: string): Promise<ConnectedCompany[]> {
+    return this.repo.getConnectedCompanies(id);
+  }
+
+  /** All edges whose endpoints both fall within `ids`. See repo doc. */
+  async getConnectionsAmong(ids: string[]): Promise<GraphConnection[]> {
+    return this.repo.getConnectionsAmong(ids);
   }
 
   async setNodeSizeOverride(id: string, override: number | null): Promise<void> {

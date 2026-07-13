@@ -527,6 +527,14 @@ it.**
   edge so the relation always attaches. Two workforce-only tools drive this:
   `update_company_relationship` (a single explicit edge) and
   `generate_company_card` (one edge per related company a Company Card surfaces).
+- **Agent-read relationships.** The read-only `read_relationship_graph` tool
+  (base tool, available to chat and workforce) queries existing edges without
+  mutating anything. Given one company it lists every company that company is
+  directly connected to (relation type + direction); given a list of companies
+  it checks every unordered pair for a direct connection. Names are resolved
+  with `CompanyRepository.findByNameFuzzy`; the graph reads go through
+  `CompanyGraphService.getConnectedCompanies` / `getConnectionsAmong`
+  (`CompanyRelationRepository` in the repository layer).
 
 - **Visualizer (`src/views/CompanyGraph.tsx`).** The `/graph` canvas
   (`react-force-graph-2d`) supports client-side filtering on company metadata

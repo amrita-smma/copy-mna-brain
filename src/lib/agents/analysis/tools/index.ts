@@ -19,6 +19,7 @@ import { promoteToL1 } from "./promote_to_l1";
 import { addCompany } from "./add_company";
 import { updateCompanyRelationship } from "./update_company_relationship";
 import { generateRelationshipGraph } from "./generate_relationship_graph";
+import { readRelationshipGraph } from "./read_relationship_graph";
 import { generateCompanyCard } from "./generate_company_card";
 import { updateCompanyCardSection } from "./update_company_card_section";
 import { saveAiOpinion } from "./save_ai_opinion";
@@ -48,6 +49,7 @@ export {
   addCompany,
   updateCompanyRelationship,
   generateRelationshipGraph,
+  readRelationshipGraph,
   generateCompanyCard,
   updateCompanyCardSection,
   saveAiOpinion,
@@ -83,6 +85,7 @@ export const tools = [
   crmInsights,
   webSearch,
   queryMeetingNotes,
+  readRelationshipGraph,
   getTaskProgress,
   lookupUser,
 ];
@@ -183,6 +186,11 @@ export function getToolDescriptions(): string {
       name: "query_files",
       description:
         "Search and retrieve files related to companies, tags, or topics",
+    },
+    {
+      name: "read_relationship_graph",
+      description:
+        "Read the company relationship graph (Neo4j): list what a single company is connected to, or check every pair among a list of companies for a direct connection",
     },
     {
       name: "get_task_progress",
