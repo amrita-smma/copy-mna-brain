@@ -16,7 +16,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { ArrowLeftRight, Check, Combine, Loader2, Pencil, Plus, RefreshCw, Search, Trash2 } from 'lucide-react';
+import { ArrowLeftRight, Check, Combine, Loader2, Pencil, Plus, RefreshCw, Search, Trash2, X } from 'lucide-react';
 // d3-force-3d is the force engine bundled with react-force-graph-2d; reusing it
 // here keeps our custom forces consistent with the graph's own simulation.
 import { forceCollide, forceX, forceY } from 'd3-force-3d';
@@ -155,6 +155,89 @@ function CompanyMultiSelect({
         </Command>
       </PopoverContent>
     </Popover>
+  );
+}
+
+// Multi-select combobox for "highlighting" companies. Selecting companies
+// pins the graph to just those companies and the relationships between them.
+// Unlike NodeCombobox, the popover stays open across selections so several
+// companies can be toggled in one go, and selected companies show as removable
+// chips beneath the trigger.
+function NodeMultiCombobox({
+  nodes,
+  selected,
+  onToggle,
+  onClear,
+  placeholder = 'Highlight companies…',
+}: {
+  nodes: GraphNode[];
+  selected: Set<string>;
+  onToggle: (id: string) => void;
+  onClear: () => void;
+  placeholder?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const selectedNodes = nodes.filter((n) => selected.has(n.id));
+  return (
+    <div className="space-y-1.5">
+      <Popover open={open} onOpenChange={setOpen}>
+        <PopoverTrigger asChild>
+          <Button variant="outline" role="combobox" className="w-full h-8 text-xs justify-between font-normal">
+            <span className="truncate">
+              {selected.size > 0 ? `${selected.size} highlighted` : placeholder}
+            </span>
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent className="w-64 p-0" align="start">
+          <Command>
+            <CommandInput placeholder="Search company…" className="h-8 text-xs" />
+            <CommandList>
+              <CommandEmpty className="text-xs py-4 text-center text-muted-foreground">No company found.</CommandEmpty>
+              <CommandGroup>
+                {nodes.map((n) => (
+                  <CommandItem
+                    key={n.id}
+                    value={n.name}
+                    onSelect={() => onToggle(n.id)}
+                    className="text-xs"
+                  >
+                    <Check className={`mr-2 h-3 w-3 ${selected.has(n.id) ? 'opacity-100' : 'opacity-0'}`} />
+                    {n.name}
+                  </CommandItem>
+                ))}
+              </CommandGroup>
+            </CommandList>
+          </Command>
+        </PopoverContent>
+      </Popover>
+      {selectedNodes.length > 0 && (
+        <div className="flex flex-wrap items-center gap-1">
+          {selectedNodes.map((n) => (
+            <span
+              key={n.id}
+              className="inline-flex items-center gap-1 rounded-full border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-[11px] text-indigo-900"
+            >
+              <span className="max-w-[8rem] truncate">{n.name}</span>
+              <button
+                type="button"
+                aria-label={`Remove ${n.name}`}
+                className="text-indigo-500 hover:text-indigo-900"
+                onClick={() => onToggle(n.id)}
+              >
+                <X className="h-3 w-3" />
+              </button>
+            </span>
+          ))}
+          <button
+            type="button"
+            className="text-[11px] text-muted-foreground underline hover:text-foreground"
+            onClick={onClear}
+          >
+            Clear all
+          </button>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -366,6 +449,10 @@ export default function CompanyGraph({
 
   // ─── Filters ──────────────────────────────────────────────────────────────
   const [search, setSearch] = useState('');
+  // "Highlight" companies: when non-empty, the graph is pinned to exactly these
+  // companies and the relationships between them (all other filters are
+  // bypassed so the selection is shown verbatim).
+  const [highlightedIds, setHighlightedIds] = useState<Set<string>>(() => new Set());
   const [ownership, setOwnership] = useState<'all' | Ownership>('all');
   const [geography, setGeography] = useState<string>('all');
   const [pipelineStage, setPipelineStage] = useState<string>('all');
@@ -579,7 +666,13 @@ export default function CompanyGraph({
   // in-place mutation never bleeds back into the raw data. Excludes `hovered`
   // from deps so hovering doesn't restart the simulation.
   const filteredData = useMemo<GraphData>(() => {
+    // Highlight takes precedence: when companies are highlighted, show only
+    // those companies and the relationships between them, ignoring the other
+    // filters entirely.
+    const highlighting = highlightedIds.size > 0;
+
     const nodes = graphData.nodes.filter((n) => {
+      if (highlighting) return highlightedIds.has(n.id);
       if (ownership !== 'all' && n.ownership !== ownership) return false;
       if (geography !== 'all' && n.geography !== geography) return false;
       if (pipelineStage !== 'all') {
@@ -609,6 +702,9 @@ export default function CompanyGraph({
       const sid = endpointId(l.source);
       const tid = endpointId(l.target);
       if (!keptIds.has(sid) || !keptIds.has(tid)) return false;
+      // When highlighting, show every relationship between the selected
+      // companies regardless of the edge-type / evidence / date filters.
+      if (highlighting) return true;
       if (!enabledTypes.has(l.label as RelationType)) return false;
       if (hasEvidenceOnly && !l.evidence) return false;
       if (dateFrom && (!l.date || l.date < dateFrom)) return false;
@@ -637,7 +733,7 @@ export default function CompanyGraph({
       }),
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [graphData, ownership, geography, pipelineStage, status, connectedIds, enabledTypes, hasEvidenceOnly, dateFrom, dateTo, nodeCharacteristics]);
+  }, [graphData, ownership, geography, pipelineStage, status, connectedIds, enabledTypes, hasEvidenceOnly, dateFrom, dateTo, nodeCharacteristics, highlightedIds]);
 
   // Each node's dominant relationship type (most frequent incident edge label),
   // used for the small sub-label rendered inside the circle. Tie-break follows
@@ -724,6 +820,17 @@ export default function CompanyGraph({
     });
   };
 
+  const toggleHighlight = useCallback((id: string) => {
+    setHighlightedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+
+  const clearHighlight = useCallback(() => setHighlightedIds(new Set()), []);
+
   const handleSearch = () => {
     const q = search.trim().toLowerCase();
     if (!q || !graphRef.current) return;
@@ -759,6 +866,24 @@ export default function CompanyGraph({
     for (const n of graphData.nodes) map.set(n.id, n.name);
     return map;
   }, [graphData.nodes]);
+
+  // Edges connecting the highlighted companies to one another. Derived from the
+  // already-filtered link set (which, while highlighting, is exactly the edges
+  // between highlighted companies) so the endpoint direction matches what's
+  // drawn on the canvas. Empty when fewer than two companies are highlighted or
+  // none of the selected companies share an edge.
+  const highlightConnections = useMemo(() => {
+    if (highlightedIds.size === 0) return [];
+    return filteredData.links.map((l) => {
+      const sid = endpointId(l.source);
+      const tid = endpointId(l.target);
+      return {
+        sourceName: nodeNameById.get(sid) ?? sid,
+        targetName: nodeNameById.get(tid) ?? tid,
+        label: l.label as RelationType,
+      };
+    });
+  }, [highlightedIds, filteredData.links, nodeNameById]);
 
   // Open the relationship detail (or edit) dialog for a clicked edge.
   // `link` comes from filteredData, which swaps INVESTED_IN endpoints for display;
@@ -1288,6 +1413,56 @@ export default function CompanyGraph({
               </div>
             </div>
 
+            {/* Highlight companies */}
+            <div>
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
+                Highlight
+              </p>
+              <NodeMultiCombobox
+                nodes={sortedNodes}
+                selected={highlightedIds}
+                onToggle={toggleHighlight}
+                onClear={clearHighlight}
+              />
+              <p className="text-[11px] text-muted-foreground/80 mt-1.5">
+                Show only the selected companies and how they relate to one another.
+              </p>
+              {highlightedIds.size > 0 && (
+                <div className="mt-2.5 space-y-1.5">
+                  <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                    Connections ({highlightConnections.length})
+                  </p>
+                  {highlightConnections.length === 0 ? (
+                    <p className="text-[11px] leading-snug text-muted-foreground">
+                      No relationships between the selected companies.
+                    </p>
+                  ) : (
+                    <ul className="space-y-1">
+                      {highlightConnections.map((c, i) => (
+                        <li
+                          key={`${c.sourceName}-${c.targetName}-${c.label}-${i}`}
+                          className="flex items-start gap-1.5 text-[11px] leading-snug"
+                        >
+                          <span
+                            className="mt-1 inline-block h-2 w-2 shrink-0 rounded-full"
+                            style={{ background: RELATION_COLORS[c.label] ?? '#64748b' }}
+                          />
+                          <span className="min-w-0">
+                            <span className="text-foreground">{c.sourceName}</span>
+                            <span className="text-muted-foreground"> &rarr; </span>
+                            <span className="text-foreground">{c.targetName}</span>
+                            <span className="ml-1 text-muted-foreground">
+                              ({RELATION_LABELS[c.label] ?? c.label})
+                            </span>
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              )}
+            </div>
+
             {/* Company filters */}
             <div className="space-y-3">
               <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
@@ -1558,6 +1733,9 @@ export default function CompanyGraph({
                 // width={dimensions.width}
                 // height={dimensions.height}
                 graphData={filteredData}
+                // Nodes are fixed in place — dragging anywhere (including on a
+                // node) pans the whole chart instead of moving a single node.
+                enableNodeDrag={false}
                 nodeId="id"
                 nodeLabel="name"
                 nodeVal="val"
