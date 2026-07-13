@@ -2,7 +2,7 @@
 
 import { cn } from '@/lib/utils';
 import type { Fund } from './types';
-import { growth, money, portfolioTotals } from './calc';
+import { growth, holdingsPortfolioTotals, money } from './calc';
 import { DeltaBadge, GlossaryTerm } from './parts';
 
 interface MetricCardsProps {
@@ -11,7 +11,10 @@ interface MetricCardsProps {
 
 /** Section (a): the four portfolio summary cards across the top. */
 export function MetricCards({ funds }: MetricCardsProps) {
-  const t = portfolioTotals(funds);
+  // Sum Invested / Unrealized MV / Realized from the holdings (i.e. the ledger)
+  // rather than fund-level rollups, so the header ties out to every grouping —
+  // including assets under the synthetic "Unassigned Assets" fund.
+  const t = holdingsPortfolioTotals(funds);
   const cards = [
     {
       key: 'pledged',

@@ -8,6 +8,7 @@ import type {
   Holding,
   Investor,
   Quarter,
+  Txn,
 } from './types';
 import { quarterEndLabel, trailingQuarterEnds } from './adapters';
 
@@ -541,6 +542,331 @@ export function sourceAgg(items: SourceHolding[]): SourceAgg {
   });
   const gain = fmv + real - cost;
   return { cost, fmv, real, gain, moic: cost > 0 ? (fmv + real) / cost : 0, count: items.length };
+}
+
+// ============================================================================
+// Transaction-level attribution
+// ----------------------------------------------------------------------------
+// Every rollup below is derived from the transaction ledger: each transaction
+// is attributed to its own dimension key (holding entity / source of fund),
+// falling back to the asset's assignment when a transaction leaves that field
+// blank. Invested (cost) and Realized come straight from the ledger; Unrealized
+// market value — which has no per-transaction figure — is allocated within each
+// asset across the buckets that transacted in it, pro-rata by net shares held
+// (then invested cost, then an even split). The split always reconciles exactly
+// to the holding's own totals, so every view ties out to the Asset tab.
+// ============================================================================
+
+export const OTHERS_ENTITY = 'Others';
+
+/** The value of one Buy/Sell leg — share-priced when the ledger tracks shares,
+ * otherwise the raw amount. Mirrors `computeInv`'s per-txn convention. */
+function legValue(t: { pps?: number | null; shares?: number | null; value?: number | null }): number {
+  return t.pps && t.shares ? t.pps * t.shares : t.value || 0;
+}
+
+/** One holding's cost / realized / market value split across the buckets a
+ * `keyFor(txn)` assigns its ledger to. Returns an empty map for a ledger
+ * holding with no transactions, and `null` for a holding with no `inv` ledger. */
+export function splitHoldingByTxn(
+  h: Holding,
+  f: Fund,
+  keyFor: (t: Txn, h: Holding, f: Fund) => string,
+): Map<string, { cost: number; real: number; fmv: number }> | null {
+  const inv = h.inv;
+  if (!inv) return null;
+  const valueBased = isValueBased(h);
+  const per = new Map<string, { cost: number; real: number; shares: number }>();
+  const bucket = (k: string) => {
+    let b = per.get(k);
+    if (!b) {
+      b = { cost: 0, real: 0, shares: 0 };
+      per.set(k, b);
+    }
+    return b;
+  };
+
+  (inv.txns || []).forEach((t) => {
+    const b = bucket(keyFor(t, h, f));
+    if (valueBased) {
+      if (t.type === 'Buy') b.cost += t.value || 0;
+      else if (t.type === 'Distribution' || t.type === 'Other') b.real += t.value || 0;
+    } else {
+      if (t.type === 'Buy') {
+        b.cost += legValue(t);
+        b.shares += t.shares || 0;
+      } else if (t.type === 'Sell') {
+        b.real += legValue(t);
+        b.shares -= t.shares || 0;
+      } else if (t.type === 'Distribution') {
+        b.real += t.value || 0;
+      }
+    }
+  });
+
+  const out = new Map<string, { cost: number; real: number; fmv: number }>();
+  const keys = [...per.keys()];
+  if (keys.length === 0) return out;
+  const totalShares = keys.reduce((s, k) => s + Math.max(0, per.get(k)!.shares), 0);
+  const totalCost = keys.reduce((s, k) => s + per.get(k)!.cost, 0);
+  let allocated = 0;
+  keys.forEach((k, i) => {
+    const b = per.get(k)!;
+    let weight: number;
+    if (totalShares > 0) weight = Math.max(0, b.shares) / totalShares;
+    else if (totalCost > 0) weight = b.cost / totalCost;
+    else weight = 1 / keys.length;
+    // Last bucket absorbs the remainder so the split reconciles exactly.
+    const fmvShare = i === keys.length - 1 ? h.fmv - allocated : h.fmv * weight;
+    allocated += fmvShare;
+    out.set(k, { cost: b.cost, real: b.real, fmv: fmvShare });
+  });
+  return out;
+}
+
+/**
+ * Scope a shared asset's holding down to a single fund's share.
+ *
+ * Fund membership is transaction-driven: an asset is returned for every fund
+ * its ledger names (see FundAssetRepository.findByFundId), so a co-invested
+ * asset arrives once per fund, each copy carrying the WHOLE-asset numbers and
+ * the FULL ledger. Left as-is that double-counts. Here we keep only this fund's
+ * transactions and scale the whole-asset invested / realized / market value by
+ * this fund's ledger share, so summing the per-fund copies reconciles back to
+ * the asset total. A single-fund asset (every transaction already belongs to
+ * `fundId`) is returned untouched.
+ */
+export function scopeHoldingToFund(h: Holding, fundId: string): Holding {
+  const inv = h.inv;
+  if (!inv || !inv.txns || inv.txns.length === 0) return h;
+
+  const scoped = inv.txns.filter((t) => (t.fundId ?? null) === fundId);
+  // Whole ledger already belongs to this fund → nothing to split.
+  if (scoped.length === inv.txns.length) return h;
+
+  const valueBased = isValueBased(h);
+  let fundCost = 0;
+  let totalCost = 0;
+  let fundReal = 0;
+  let totalReal = 0;
+  let fundShares = 0;
+  let totalShares = 0;
+  inv.txns.forEach((t) => {
+    const mine = (t.fundId ?? null) === fundId;
+    if (valueBased) {
+      if (t.type === 'Buy') {
+        totalCost += t.value || 0;
+        if (mine) fundCost += t.value || 0;
+      } else if (t.type === 'Distribution' || t.type === 'Other') {
+        totalReal += t.value || 0;
+        if (mine) fundReal += t.value || 0;
+      }
+    } else if (t.type === 'Buy') {
+      const v = legValue(t);
+      const s = t.shares || 0;
+      totalCost += v;
+      totalShares += s;
+      if (mine) {
+        fundCost += v;
+        fundShares += s;
+      }
+    } else if (t.type === 'Sell') {
+      const v = legValue(t);
+      const s = t.shares || 0;
+      totalReal += v;
+      totalShares -= s;
+      if (mine) {
+        fundReal += v;
+        fundShares -= s;
+      }
+    } else if (t.type === 'Distribution') {
+      totalReal += t.value || 0;
+      if (mine) fundReal += t.value || 0;
+    }
+  });
+
+  const costFrac = totalCost > 0 ? fundCost / totalCost : 0;
+  const realFrac = totalReal > 0 ? fundReal / totalReal : 0;
+  const posTotal = Math.max(0, totalShares);
+  const fmvFrac = posTotal > 0 ? Math.max(0, fundShares) / posTotal : costFrac;
+
+  const cost = h.cost * costFrac;
+  const real = h.real * realFrac;
+  const fmv = h.fmv * fmvFrac;
+  // The detail panel prefers these stored whole-asset override fields over the
+  // ledger-derived figures, so scale them by the same fractions to keep the
+  // expanded card consistent with the scoped row (share count follows the
+  // market-value / net-share fraction). Per-share price stays as-is.
+  const scale = (v: number | null | undefined, frac: number) => (v == null ? v : v * frac);
+  return {
+    ...h,
+    cost,
+    fmv,
+    real,
+    moic: cost > 0 ? (fmv + real) / cost : 0,
+    inv: {
+      ...inv,
+      txns: scoped,
+      _investedCapitalAmount: scale(inv._investedCapitalAmount, costFrac),
+      _netDistributionAmount: scale(inv._netDistributionAmount, realFrac),
+      _fmvAmount: scale(inv._fmvAmount, fmvFrac),
+      _shareCount: scale(inv._shareCount, fmvFrac),
+    },
+  };
+}
+
+/** Roll a set of transaction-level slices up into a single aggregate row. */
+export function sumSlices(items: { cost: number; fmv: number; real: number }[]): SourceAgg {
+  let cost = 0;
+  let fmv = 0;
+  let real = 0;
+  items.forEach((it) => {
+    cost += it.cost;
+    fmv += it.fmv;
+    real += it.real;
+  });
+  const gain = fmv + real - cost;
+  return { cost, fmv, real, gain, moic: cost > 0 ? (fmv + real) / cost : 0, count: items.length };
+}
+
+/**
+ * Transaction-level aggregate keyed by an arbitrary dimension. `keyFor` maps a
+ * transaction to its bucket; `assetKeys` supplies the fallback bucket(s) for
+ * holdings with no ledger (or no transactions), so their manual amounts still
+ * land somewhere sensible. `count` is the number of holdings touching a bucket.
+ */
+export function aggregateByTxn(
+  funds: Fund[],
+  keyFor: (t: Txn, h: Holding, f: Fund) => string,
+  assetKeys: (h: Holding, f: Fund) => string[],
+): Map<string, SourceAgg> {
+  const out = new Map<string, SourceAgg>();
+  const ensure = (k: string): SourceAgg => {
+    let a = out.get(k);
+    if (!a) {
+      a = { cost: 0, fmv: 0, real: 0, gain: 0, moic: 0, count: 0 };
+      out.set(k, a);
+    }
+    return a;
+  };
+
+  funds.forEach((f) => {
+    f.h.forEach((h) => {
+      const split = splitHoldingByTxn(h, f, keyFor);
+      if (split === null || split.size === 0) {
+        // Ledger-less holding, or a ledger holding with no transactions: pin the
+        // whole-asset numbers to its asset-level bucket(s).
+        assetKeys(h, f).forEach((k) => {
+          const a = ensure(k);
+          a.cost += h.cost;
+          a.fmv += h.fmv;
+          a.real += h.real;
+          a.count += 1;
+        });
+        return;
+      }
+      split.forEach((s, k) => {
+        const a = ensure(k);
+        a.cost += s.cost;
+        a.fmv += s.fmv;
+        a.real += s.real;
+        a.count += 1;
+      });
+    });
+  });
+
+  out.forEach((a) => {
+    a.gain = a.fmv + a.real - a.cost;
+    a.moic = a.cost > 0 ? (a.fmv + a.real) / a.cost : 0;
+  });
+  return out;
+}
+
+/** A holding as it appears inside one transaction-level group, carrying only
+ * that group's slice of the holding's Invested / Realized / market value. */
+export interface HoldingSlice extends SourceHolding {
+  cost: number;
+  fmv: number;
+  real: number;
+  moic: number;
+}
+
+/**
+ * Group holdings for the Asset tab's transaction-level views: a holding is split
+ * across every bucket its ledger touches, so the same asset can appear under
+ * several groups, each showing only its own slice.
+ */
+export function sliceHoldingsByTxn(
+  funds: Fund[],
+  keyFor: (t: Txn, h: Holding, f: Fund) => string,
+  assetKeys: (h: Holding, f: Fund) => string[],
+): Map<string, HoldingSlice[]> {
+  const map = new Map<string, HoldingSlice[]>();
+  const push = (key: string, slice: HoldingSlice) => {
+    if (!map.has(key)) map.set(key, []);
+    map.get(key)!.push(slice);
+  };
+
+  funds.forEach((f) => {
+    f.h.forEach((h, hi) => {
+      const base: SourceHolding = { h, f, hkey: `${f.id}_${hi}` };
+      const split = splitHoldingByTxn(h, f, keyFor);
+      if (split === null || split.size === 0) {
+        assetKeys(h, f).forEach((key) =>
+          push(key, { ...base, cost: h.cost, fmv: h.fmv, real: h.real, moic: h.moic }),
+        );
+        return;
+      }
+      split.forEach((s, key) => {
+        push(key, {
+          ...base,
+          cost: s.cost,
+          fmv: s.fmv,
+          real: s.real,
+          moic: s.cost > 0 ? (s.fmv + s.real) / s.cost : 0,
+        });
+      });
+    });
+  });
+  return map;
+}
+
+/**
+ * Portfolio totals summed from the holdings themselves (not fund-level rollup
+ * fields), so the header cards reconcile with every grouping — including assets
+ * under the synthetic "Unassigned Assets" fund, whose fund-level rollups read 0.
+ * Commitment and the trailing-quarter history stay fund-level.
+ */
+export function holdingsPortfolioTotals(funds: Fund[]): PortfolioTotals {
+  let invested = 0;
+  let fmv = 0;
+  let real = 0;
+  funds.forEach((f) => {
+    f.h.forEach((h) => {
+      invested += h.cost;
+      fmv += h.fmv;
+      real += h.real;
+    });
+  });
+  const commitment = funds.reduce((s, f) => s + f.size, 0);
+  const committedHist = sumHist(funds, 'committed');
+  const calledHist = sumHist(funds, 'called');
+  const fmvHist = sumHist(funds, 'fmv');
+  const tvpiHist = QLABELS.map((_, qi) => {
+    const c = calledHist[qi];
+    return c ? (fmvHist[qi] + real * (qi === QLABELS.length - 1 ? 1 : 0.85)) / c : 0;
+  });
+  return {
+    commitment,
+    invested,
+    fmv,
+    real,
+    moic: invested ? (fmv + real) / invested : 0,
+    committedHist,
+    calledHist,
+    fmvHist,
+    tvpiHist,
+  };
 }
 
 // Keep a holding's roll-up fields consistent with its ledger after an edit.

@@ -2548,10 +2548,15 @@ async function seedFundManagement(db: DbClient, workspaceId: string) {
   ]);
 
   await db.insert(fundAssetTransactions).values([
-    // Acme Robotics — initial round + a 2025 follow-on + a partial dividend.
-    { fund_asset_id: SEED_ASSET_1_ID, fund_id: SEED_FUND_1_ID, holding_entity_id: INVESTOR_STARTECH_1, funding_source_id: SEED_FUND_SOURCES[0].id, txn_date: '2023-01-15', txn_type: 'contribution', price_per_share: 10, share_count: 50_000, value_amount: 500_000, txn_currency: 'USD', fx_rate: 1, notes: 'Initial investment' },
-    { fund_asset_id: SEED_ASSET_1_ID, fund_id: SEED_FUND_1_ID, holding_entity_id: INVESTOR_STARTECH_1, funding_source_id: SEED_FUND_SOURCES[0].id, txn_date: '2024-06-01', txn_type: 'distribution', value_amount: 50_000, txn_currency: 'USD', fx_rate: 1, notes: 'Partial dividend' },
-    { fund_asset_id: SEED_ASSET_1_ID, fund_id: SEED_FUND_1_ID, holding_entity_id: INVESTOR_STARTECH_1, funding_source_id: SEED_FUND_SOURCES[0].id, txn_date: '2025-03-01', txn_type: 'contribution', price_per_share: 12.5, share_count: 12_000, value_amount: 150_000, txn_currency: 'USD', fx_rate: 1, notes: 'Follow-on round' },
+    // Acme Robotics — a cross-tagged CO-INVESTMENT to exercise the
+    // transaction-level views. The asset's parent fund is Fund 1, but the 2025
+    // follow-on is tagged to Fund 2 / Startech Growth Fund 2 / "Commitment"
+    // source. So Acme shows up under TWO funds, TWO investment entities, and
+    // TWO sources of fund, with invested/realized exact per bucket and the
+    // single asset market value allocated pro-rata by net shares.
+    { fund_asset_id: SEED_ASSET_1_ID, fund_id: SEED_FUND_1_ID, holding_entity_id: INVESTOR_STARTECH_1, funding_source_id: SEED_FUND_SOURCES[0].id, txn_date: '2023-01-15', txn_type: 'contribution', price_per_share: 10, share_count: 50_000, value_amount: 500_000, txn_currency: 'USD', fx_rate: 1, notes: 'Initial investment (Fund 1 / Startech 1 / Series B)' },
+    { fund_asset_id: SEED_ASSET_1_ID, fund_id: SEED_FUND_1_ID, holding_entity_id: INVESTOR_STARTECH_1, funding_source_id: SEED_FUND_SOURCES[0].id, txn_date: '2024-06-01', txn_type: 'distribution', value_amount: 50_000, txn_currency: 'USD', fx_rate: 1, notes: 'Partial dividend (Fund 1 / Startech 1 / Series B)' },
+    { fund_asset_id: SEED_ASSET_1_ID, fund_id: SEED_FUND_2_ID, holding_entity_id: INVESTOR_STARTECH_2, funding_source_id: SEED_FUND_SOURCES[1].id, txn_date: '2025-03-01', txn_type: 'contribution', price_per_share: 12.5, share_count: 12_000, value_amount: 150_000, txn_currency: 'USD', fx_rate: 1, notes: 'Follow-on co-investment (Fund 2 / Startech 2 / Commitment)' },
 
     // Horizon Reserve — single deposit, no further ledger activity (cash).
     { fund_asset_id: SEED_ASSET_3_ID, fund_id: SEED_FUND_1_ID, holding_entity_id: INVESTOR_STARTECH_1, funding_source_id: SEED_FUND_SOURCES[0].id, txn_date: '2024-11-01', txn_type: 'contribution', value_amount: 300_000, txn_currency: 'USD', fx_rate: 1, notes: 'Cash deposit' },

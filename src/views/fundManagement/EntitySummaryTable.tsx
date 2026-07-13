@@ -2,7 +2,7 @@
 
 import { cn } from '@/lib/utils';
 import type { Fund, Investor } from './types';
-import { collectHoldingsByEntity, investorAgg, money, sourceAgg } from './calc';
+import { aggregateByTxn, getAssetEntity, investorAgg, money, OTHERS_ENTITY } from './calc';
 import { DeleteRowMenu, GlossaryTerm, Pill } from './parts';
 
 const COLS: { label: string; term?: string; align: 'left' | 'right' }[] = [
@@ -26,24 +26,34 @@ export function EntitySummaryTable({
   onEditStakes?: (investorId: string) => void;
   onDeleteInvestor?: (investorId: string) => Promise<void>;
 }) {
-  // Group every holding by its investing entity so each entity's performance
-  // (Invested / Unrealized MV / Net Gain / MOIC) rolls up directly from the
-  // assets — and therefore the transaction ledger — attributed to it, rather
-  // than a pro-rata slice of the fund totals. Commitment stays stake-based: a
-  // pledge isn't derivable from transactions.
-  const byEntity = collectHoldingsByEntity(
+  // Roll each entity's performance (Invested / Unrealized MV / Net Gain / MOIC)
+  // up from the transaction ledger: every transaction is attributed to its own
+  // holding entity (`txn.holdingEntityId`), falling back to the asset's entity
+  // when it names none, so a single asset can split across investors. Commitment
+  // stays stake-based — a pledge isn't derivable from transactions.
+  const idByName = new Map(investors.map((inv) => [inv.n.trim(), inv.id]));
+  const knownIds = new Set(investors.map((inv) => inv.id));
+  const assetEntityKey = (h: Parameters<typeof getAssetEntity>[0]) => {
+    const name = getAssetEntity(h);
+    return name && idByName.has(name) ? idByName.get(name)! : OTHERS_ENTITY;
+  };
+  const byEntity = aggregateByTxn(
     funds,
-    investors.map((inv) => inv.n),
+    (t, h) =>
+      t.holdingEntityId
+        ? knownIds.has(t.holdingEntityId)
+          ? t.holdingEntityId
+          : OTHERS_ENTITY
+        : assetEntityKey(h),
+    (h) => [assetEntityKey(h)],
   );
+  const zero = { cost: 0, fmv: 0, real: 0, gain: 0, moic: 0, count: 0 };
   const rows = investors
-    .map((inv) => {
-      const items = byEntity.get(inv.n) ?? [];
-      return {
-        inv,
-        commit: investorAgg(inv, funds).commit,
-        a: sourceAgg(items),
-      };
-    })
+    .map((inv) => ({
+      inv,
+      commit: investorAgg(inv, funds).commit,
+      a: byEntity.get(inv.id) ?? zero,
+    }))
     .sort((x, y) => y.a.fmv - x.a.fmv);
 
   return (

@@ -59,6 +59,7 @@ import {
   investorInvestedInFund,
   money,
   recomputeFund,
+  scopeHoldingToFund,
   sourceAgg,
 } from './fundManagement/calc';
 import type { Fund, HoldingType, Investor } from './fundManagement/types';
@@ -107,8 +108,20 @@ async function buildFund(fundId: string): Promise<Fund> {
     }),
   );
   const fund = fundRowToFund(fundRow);
-  fund.h = perAsset.map(({ asset, txns, valuations }) => assetRowToHolding(asset, txns, valuations));
-  fund.hist = computeFundHistory(perAsset, fundRow.commitment_size_amount, trailingQuarterEnds(4));
+  // An asset shared across funds (co-investment) arrives once per fund with the
+  // whole-asset numbers + full ledger. Scope each copy to this fund's share so
+  // the per-fund copies sum back to the asset total instead of double-counting.
+  fund.h = perAsset.map(({ asset, txns, valuations }) =>
+    scopeHoldingToFund(assetRowToHolding(asset, txns, valuations), fundId),
+  );
+  // Scope the ledger for the fund's NAV history the same way, so a co-invested
+  // asset's contributions aren't counted in full under every fund.
+  const scopedPerAsset = perAsset.map(({ asset, txns, valuations }) => ({
+    asset,
+    txns: txns.filter((t) => (t.fund_id ?? null) === fundId),
+    valuations,
+  }));
+  fund.hist = computeFundHistory(scopedPerAsset, fundRow.commitment_size_amount, trailingQuarterEnds(4));
   return fund;
 }
 

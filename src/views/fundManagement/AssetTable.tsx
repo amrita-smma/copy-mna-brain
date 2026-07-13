@@ -7,10 +7,9 @@ import {
   getAssetEntity,
   getAssetFundingSources,
   getAssetInvestType,
-  groupHoldings,
   money,
-  sourceAgg,
-  type SourceHolding,
+  sliceHoldingsByTxn,
+  type HoldingSlice,
 } from './calc';
 import { Chevron, DeleteRowMenu, GlossaryTerm, Pill } from './parts';
 import { HoldingDetail } from './HoldingDetail';
@@ -69,7 +68,7 @@ export function AssetTable({
 }: {
   funds: Fund[];
 }) {
-  const { deleteAsset } = useFundData();
+  const { deleteAsset, entityNameById, sourceNameById } = useFundData();
   const [groupBy, setGroupBy] = useState<GroupBy>('none');
   const [openGroups, setOpenGroups] = useState<Set<string>>(new Set());
   const [openAssets, setOpenAssets] = useState<Set<string>>(new Set());
@@ -80,31 +79,82 @@ export function AssetTable({
     return next;
   };
 
-  const flat: SourceHolding[] = funds.flatMap((f) =>
-    f.h.map((h, hi) => ({ h, f, hkey: `${f.id}_${hi}` })),
-  );
+  // Every row (grouped or not) is a HoldingSlice: for "No grouping" and "by
+  // Fund Type" the slice carries the whole-asset numbers; for "by Investor" and
+  // "by Source of Fund" it carries only that group's transaction-level slice.
+  const wholeSlice = (h: Holding, f: Fund, hi: number): HoldingSlice => ({
+    h,
+    f,
+    hkey: `${f.id}_${hi}`,
+    cost: h.cost,
+    fmv: h.fmv,
+    real: h.real,
+    moic: h.moic,
+  });
 
-  const keyFn =
-    groupBy === 'fund'
-      ? (_h: Holding, f: Fund) => [f.n]
-      : groupBy === 'investor'
-        ? (h: Holding) => [getAssetEntity(h) || 'Unspecified']
-        : (h: Holding) => getAssetFundingSources(h);
+  const flat: HoldingSlice[] = funds.flatMap((f) => f.h.map((h, hi) => wholeSlice(h, f, hi)));
+
+  const aggSlices = (items: HoldingSlice[]) => {
+    let cost = 0;
+    let fmv = 0;
+    let real = 0;
+    items.forEach((it) => {
+      cost += it.cost;
+      fmv += it.fmv;
+      real += it.real;
+    });
+    return { cost, fmv, real, moic: cost > 0 ? (fmv + real) / cost : 0, count: items.length };
+  };
+
+  const buildGroups = (): Map<string, HoldingSlice[]> => {
+    if (groupBy === 'fund') {
+      // Fund membership is already transaction-level at load time: a
+      // co-invested asset arrives once per fund, scoped to that fund's share
+      // (see scopeHoldingToFund). So we just group the whole (scoped) holdings
+      // by the fund they belong to.
+      const map = new Map<string, HoldingSlice[]>();
+      funds.forEach((f) =>
+        f.h.forEach((h, hi) => {
+          if (!map.has(f.n)) map.set(f.n, []);
+          map.get(f.n)!.push(wholeSlice(h, f, hi));
+        }),
+      );
+      return map;
+    }
+    if (groupBy === 'investor') {
+      return sliceHoldingsByTxn(
+        funds,
+        (t, h) =>
+          t.holdingEntityId
+            ? entityNameById.get(t.holdingEntityId) ?? getAssetEntity(h) ?? 'Unspecified'
+            : getAssetEntity(h) || 'Unspecified',
+        (h) => [getAssetEntity(h) || 'Unspecified'],
+      );
+    }
+    return sliceHoldingsByTxn(
+      funds,
+      (t, h) =>
+        t.fundingSourceId
+          ? sourceNameById.get(t.fundingSourceId) ?? getAssetFundingSources(h)[0]
+          : getAssetFundingSources(h)[0],
+      (h) => getAssetFundingSources(h),
+    );
+  };
 
   const groups =
     groupBy === 'none'
       ? []
-      : [...groupHoldings(funds, keyFn).entries()]
-          .map(([name, items]) => ({ name, items, a: sourceAgg(items) }))
+      : [...buildGroups().entries()]
+          .map(([name, items]) => ({ name, items, a: aggSlices(items) }))
           .sort((x, y) => y.a.fmv - x.a.fmv);
 
   // A single asset row + (if open) its detail panel. `rowKey` scopes the
   // open-state so the same holding under two source groups toggles independently.
-  const assetRows = (items: SourceHolding[], nested: boolean, scope: string): ReactNode[] => {
+  const assetRows = (items: HoldingSlice[], nested: boolean, scope: string): ReactNode[] => {
     const out: ReactNode[] = [];
     [...items]
-      .sort((x, y) => y.h.fmv - x.h.fmv)
-      .forEach(({ h, f, hkey }) => {
+      .sort((x, y) => y.fmv - x.fmv)
+      .forEach(({ h, f, hkey, cost, fmv, real, moic }) => {
         const rowKey = `${scope}::${hkey}`;
         const hopen = openAssets.has(rowKey);
         out.push(
@@ -147,18 +197,18 @@ export function AssetTable({
                 )}
               </div>
             </td>
-            <td className="px-3 py-2 text-right align-middle text-[13px] text-foreground">{money(h.cost)}</td>
+            <td className="px-3 py-2 text-right align-middle text-[13px] text-foreground">{money(cost)}</td>
             <td className="px-3 py-2 text-right align-middle text-[13px] text-foreground">
-              {h.fmv > 0 ? money(h.fmv) : '—'}
+              {fmv > 0 ? money(fmv) : '—'}
             </td>
             <td className="px-3 py-2 text-right align-middle text-[13px] font-medium text-foreground">
-              {h.moic.toFixed(2)}×
+              {moic.toFixed(2)}×
             </td>
             <td className="px-3 py-2 text-right align-middle text-[13px] text-foreground">
-              {h.real > 0 ? money(h.real) : '—'}
+              {real > 0 ? money(real) : '—'}
             </td>
             <td className="px-3 py-2 text-right align-middle text-[13px] text-foreground">
-              {dpi(h.cost, h.real).toFixed(2)}×
+              {dpi(cost, real).toFixed(2)}×
             </td>
             <td className="px-3 py-2 align-middle">
               <Pill>{h.st}</Pill>

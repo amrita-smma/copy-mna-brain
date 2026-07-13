@@ -2,8 +2,9 @@
 
 import { cn } from '@/lib/utils';
 import type { Fund } from './types';
-import { collectHoldingsBySource, money, sourceAgg } from './calc';
+import { aggregateByTxn, getAssetFundingSources, money } from './calc';
 import { DeleteRowMenu, GlossaryTerm, Pill } from './parts';
+import { useFundData } from './context';
 
 const COLS: { label: string; term?: string; align: 'left' | 'right' }[] = [
   { label: 'Source of Fund', term: 'fundingsource', align: 'left' },
@@ -30,14 +31,25 @@ export function SourceSummaryTable({
   onDeleteSource?: (sourceId: string) => Promise<void>;
   onEditSource?: (sourceId: string, currentName: string) => void;
 }) {
-  // Group holdings by source, then seed any managed source with no holdings yet
-  // so a freshly-added Source of Fund shows up immediately (empty group).
-  const bySource = collectHoldingsBySource(funds);
+  const { sourceNameById } = useFundData();
+  // Roll each source up from the transaction ledger: every transaction is
+  // attributed to its own funding source (`txn.fundingSourceId`), falling back
+  // to the asset's source when it names none, so a single asset can split across
+  // pools. Then seed any managed source with no holdings yet so a freshly-added
+  // Source of Fund shows up immediately (empty group).
+  const bySource = aggregateByTxn(
+    funds,
+    (t, h) =>
+      t.fundingSourceId
+        ? sourceNameById.get(t.fundingSourceId) ?? getAssetFundingSources(h)[0]
+        : getAssetFundingSources(h)[0],
+    (h) => getAssetFundingSources(h),
+  );
   sourceNames.forEach((name) => {
-    if (name && !bySource.has(name)) bySource.set(name, []);
+    if (name && !bySource.has(name)) bySource.set(name, { cost: 0, fmv: 0, real: 0, gain: 0, moic: 0, count: 0 });
   });
   const rows = [...bySource.entries()]
-    .map(([src, items]) => ({ src, a: sourceAgg(items) }))
+    .map(([src, a]) => ({ src, a }))
     .sort((x, y) => y.a.fmv - x.a.fmv);
 
   return (

@@ -27,7 +27,27 @@ export function FundSummaryTable({
   onEditFund?: (fund: Fund) => void;
 }) {
   const { deleteFund } = useFundData();
-  const sorted = [...funds].sort((a, b) => b.fmv - a.fmv);
+
+  // Holdings are already scoped to each fund's transaction-level share (see
+  // scopeHoldingToFund), so a fund's totals are just the sum of its holdings —
+  // this reconciles with the header cards and the Asset / Investor / Source
+  // tabs. Commitment / IRR / phase stay fund-level.
+  const rows = funds
+    .map((f) => {
+      const invested = f.h.reduce((s, h) => s + h.cost, 0);
+      const fmv = f.h.reduce((s, h) => s + h.fmv, 0);
+      const real = f.h.reduce((s, h) => s + h.real, 0);
+      return {
+        f,
+        invested,
+        fmv,
+        real,
+        moic: invested > 0 ? (fmv + real) / invested : 0,
+        dpiVal: invested > 0 ? real / invested : 0,
+        calledPct: f.size > 0 ? (invested / f.size) * 100 : 0,
+      };
+    })
+    .sort((a, b) => b.fmv - a.fmv);
 
   return (
     <>
@@ -49,14 +69,14 @@ export function FundSummaryTable({
             </tr>
           </thead>
           <tbody>
-            {sorted.length === 0 && (
+            {rows.length === 0 && (
               <tr>
                 <td colSpan={COLS.length} className="px-3 py-10 text-center text-sm text-muted-foreground">
                   No funds yet.
                 </td>
               </tr>
             )}
-            {sorted.map((f) => {
+            {rows.map(({ f, invested, fmv, real, moic, dpiVal, calledPct }) => {
               const phaseTerm = f.st === 'Investing' ? 'investing' : 'harvesting';
               return (
                 <tr key={f.id} className="border-b [&>td]:bg-card hover:[&>td]:bg-muted/40">
@@ -91,19 +111,19 @@ export function FundSummaryTable({
                   </td>
                   <td className="px-3 py-2.5 text-right align-middle text-[13px] font-medium text-foreground">{money(f.size)}</td>
                   <td className="px-3 py-2.5 text-right align-middle text-[13px] text-foreground">
-                    {money(f.called)}
-                    <div className="text-[11px] text-muted-foreground">{f.calledPct.toFixed(0)}% invested</div>
+                    {money(invested)}
+                    <div className="text-[11px] text-muted-foreground">{calledPct.toFixed(0)}% invested</div>
                   </td>
-                  <td className="px-3 py-2.5 text-right align-middle text-[13px] font-medium text-foreground">{money(f.fmv)}</td>
-                  <td className="px-3 py-2.5 text-right align-middle text-[13px] font-medium text-foreground">{f.tvpi.toFixed(2)}×</td>
+                  <td className="px-3 py-2.5 text-right align-middle text-[13px] font-medium text-foreground">{money(fmv)}</td>
+                  <td className="px-3 py-2.5 text-right align-middle text-[13px] font-medium text-foreground">{moic.toFixed(2)}×</td>
                   <td className="px-3 py-2.5 text-right align-middle text-[13px] font-medium text-foreground">
                     {f.irr > 0 ? '+' : ''}
                     {f.irr.toFixed(1)}%
                   </td>
                   <td className="px-3 py-2.5 text-right align-middle text-[13px] text-foreground">
-                    {f.real > 0 ? money(f.real) : '—'}
+                    {real > 0 ? money(real) : '—'}
                   </td>
-                  <td className="px-3 py-2.5 text-right align-middle text-[13px] font-medium text-foreground">{f.dpi.toFixed(2)}×</td>
+                  <td className="px-3 py-2.5 text-right align-middle text-[13px] font-medium text-foreground">{dpiVal.toFixed(2)}×</td>
                   <td className="px-3 py-2.5 align-middle">
                     <Pill>
                       <GlossaryTerm term={phaseTerm}>{f.st}</GlossaryTerm>
@@ -116,7 +136,7 @@ export function FundSummaryTable({
         </table>
       </div>
       <div className="mt-2 text-right text-[11px] text-muted-foreground">
-        {sorted.length} fund{sorted.length === 1 ? '' : 's'}
+        {rows.length} fund{rows.length === 1 ? '' : 's'}
       </div>
     </>
   );
