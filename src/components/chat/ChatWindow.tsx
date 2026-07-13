@@ -16,33 +16,57 @@ import { AttachButton, AttachmentChips, useAttachmentDrop } from "./ChatComposer
 import { CachedChatPreview } from "./CachedChatPreview";
 import { ChatSuggestions } from "./ChatSuggestions";
 import { ModelPill } from "./ModelSelector";
+import { useCopilotAgent } from "./CopilotAgentContext";
 
-const WELCOME_MESSAGE = `# Hello! I'm your M&A discovery assistant. I can help you with
-
----
-
-🔍 **Company Discovery** - Find acquisition targets by sector  
-🔬 **Deep Dive Analysis** - Detailed company assessments  
-⚖️ **Comparison & Synergy** - Compare companies, evaluate fit  
-📊 **Pipeline Insights** - Performance metrics and bottlenecks  
+const MNA_WELCOME_MESSAGE = `# Hello! I'm your M&A discovery assistant. I can help you with
 
 ---
 
-💡 **Try asking:**  
-• "Find semiconductor companies"  
-• "Show me the top 3 petrochemical companies in Korea between 100 million and 1 billion enterprise value"  
-• "Show me the notes where Project Sunrise is mentioned"  
+🔍 **Company Discovery** - Find acquisition targets by sector
+🔬 **Deep Dive Analysis** - Detailed company assessments
+⚖️ **Comparison & Synergy** - Compare companies, evaluate fit
+📊 **Pipeline Insights** - Performance metrics and bottlenecks
+
+---
+
+💡 **Try asking:**
+• "Find semiconductor companies"
+• "Show me the top 3 petrochemical companies in Korea between 100 million and 1 billion enterprise value"
+• "Show me the notes where Project Sunrise is mentioned"
 • "Pipeline performance summary"
 • "Which companies are in the L0 step and how long have they been there?"`;
 
-const welcomeUIMessage: UIMessage = {
-  id: "welcome",
-  role: "assistant",
-  parts: [{ type: "text", text: WELCOME_MESSAGE }],
-};
+const INVESTMENT_WELCOME_MESSAGE = `# Hello! I'm your Investment Assistant. I can help you with
+
+---
+
+💼 **Fund Asset Deep Dive** - Detailed fund and asset analysis
+📊 **Asset Statistics** - Performance and allocation metrics
+👥 **Investor Analysis** - LP profiles and investor insights
+🌍 **Market Context** - Macroeconomic comparisons and benchmarks
+
+---
+
+💡 **Try asking:**
+• "Analyze the performance of all fund assets"
+• "Show me the top assets by value"
+• "Give me an investor breakdown for this fund"
+• "Compare this fund's returns to market benchmarks"
+• "What is the current liquidity position across our holdings?"`;
 
 function WelcomeMessage() {
-  return <ChatMessageBubble message={welcomeUIMessage} />;
+  const agentType = useCopilotAgent();
+  const message: UIMessage = {
+    id: "welcome",
+    role: "assistant",
+    parts: [
+      {
+        type: "text",
+        text: agentType === "investment" ? INVESTMENT_WELCOME_MESSAGE : MNA_WELCOME_MESSAGE,
+      },
+    ],
+  };
+  return <ChatMessageBubble message={message} />;
 }
 
 function ChatMessages(props: {

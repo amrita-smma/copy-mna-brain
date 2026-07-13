@@ -1,7 +1,7 @@
 import { Suspense } from 'react';
 import Pipeline from '@/views/Pipeline';
 import { Loader2 } from 'lucide-react';
-import { companyGraphEnabled } from '@/lib/flags';
+import { companyGraphEnabled, fundManagementEnabled } from '@/lib/flags';
 
 function PipelineLoading() {
   return (
@@ -13,9 +13,13 @@ function PipelineLoading() {
 
 export default async function PipelinePage() {
   const showCompanyGraph = await companyGraphEnabled().then(Boolean);
+  const showFundManagement = await fundManagementEnabled().then(Boolean);
   return (
     <Suspense fallback={<PipelineLoading />}>
-      <Pipeline showCompanyGraph={showCompanyGraph} />
+      <Pipeline
+        showCompanyGraph={showCompanyGraph}
+        showFundManagement={showFundManagement}
+      />
     </Suspense>
   );
 }

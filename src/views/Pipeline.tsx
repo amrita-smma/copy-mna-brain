@@ -322,9 +322,13 @@ const L1StatusBadge = ({ status }: { status: L1Status | null }) => {
 
 interface PipelineProps {
   showCompanyGraph?: boolean;
+  showFundManagement?: boolean;
 }
 
-export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
+export default function Pipeline({
+  showCompanyGraph = false,
+  showFundManagement = false,
+}: PipelineProps) {
   const searchParams = useSearchParams();
   const router = useRouter();
   const pipelineHref = useWorkspaceHref("/pipeline");
@@ -1219,7 +1223,10 @@ export default function Pipeline({ showCompanyGraph = false }: PipelineProps) {
   );
 
   return (
-    <DashboardLayout showCompanyGraph={showCompanyGraph}>
+    <DashboardLayout
+      showCompanyGraph={showCompanyGraph}
+      showFundManagement={showFundManagement}
+    >
       <div className="p-6 space-y-6 animate-fade-in">
         <div className="flex items-center justify-between">
           <div>

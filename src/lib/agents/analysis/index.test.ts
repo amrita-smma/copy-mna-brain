@@ -40,6 +40,7 @@ vi.mock('@/lib/agents/analysis/tools', () => ({
   tools: [],
   chatOnlyTools: [],
   workforceOnlyTools: [],
+  investmentTools: [],
 }));
 
 // db.ts constructs a Postgres client at module load and throws without DB env
@@ -61,6 +62,7 @@ import {
   extractMessageText,
   extractFirstTurn,
   getStatelessAgentGraph,
+  getAgentGraph,
   resetAgent,
 } from '@/lib/agents/analysis';
 import type { BaseMessage } from '@langchain/core/messages';
@@ -147,6 +149,44 @@ describe('getStatelessAgentGraph', () => {
       opts: Record<string, unknown>;
     };
     expect(model.opts.streaming).toBe(true);
+  });
+});
+
+describe('getAgentGraph flavor selection', () => {
+  beforeEach(() => {
+    resetAgent();
+    mocks.createAgent.mockClear();
+    process.env.ANTHROPIC_API_KEY = 'test-key';
+  });
+
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("defaults to the M&A flavor and memoizes it separately from 'investment'", async () => {
+    const mna = await getAgentGraph();
+    const mnaAgain = await getAgentGraph('mna');
+    expect(mna).toBe(mnaAgain);
+    expect(mocks.createAgent).toHaveBeenCalledTimes(1);
+
+    const investment = await getAgentGraph('investment');
+    expect(investment).not.toBe(mna);
+    expect(mocks.createAgent).toHaveBeenCalledTimes(2);
+
+    // Each flavor is its own singleton after the first build.
+    expect(await getAgentGraph('investment')).toBe(investment);
+    expect(mocks.createAgent).toHaveBeenCalledTimes(2);
+  });
+
+  it('builds the investment flavor with a distinct system prompt', async () => {
+    await getAgentGraph('mna');
+    await getAgentGraph('investment');
+
+    const mnaPrompt = mocks.createAgent.mock.calls[0][0].systemPrompt as string;
+    const investmentPrompt = mocks.createAgent.mock.calls[1][0].systemPrompt as string;
+
+    expect(mnaPrompt).not.toBe(investmentPrompt);
+    expect(investmentPrompt).toContain('Investment & Funds Analysis Assistant');
   });
 });
 

@@ -31,6 +31,7 @@ import {
   Minimize2,
   Network,
   Presentation,
+  Landmark,
   ArrowLeft,
   ChevronsUpDown,
   Check,
@@ -64,11 +65,13 @@ import { useVisualViewport } from '@/hooks/use-visual-viewport';
 interface DashboardLayoutProps {
   children: ReactNode;
   showCompanyGraph?: boolean;
+  showFundManagement?: boolean;
 }
 
 const baseNavigation = [
   { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard, color: 'default' as const },
   { name: 'Pipeline', href: '/pipeline', icon: GitBranch, color: 'default' as const },
+  { name: 'Fund Management', href: '/fund-management', icon: Landmark, color: 'default' as const },
   { name: 'Master Data', href: '/master-data', icon: Database, color: 'default' as const },
   { name: 'CRM', href: '/crm', icon: Users, color: 'indigo' as const },
   { name: 'AI File Dump', href: '/ai-file-dump', icon: FileStack, color: 'teal' as const },
@@ -77,7 +80,7 @@ const baseNavigation = [
   { name: 'Company Graph', href: '/graph', icon: Network, color: 'cyan' as const },
 ];
 
-export default function DashboardLayout({ children, showCompanyGraph = false }: DashboardLayoutProps) {
+export default function DashboardLayout({ children, showCompanyGraph = false, showFundManagement = false }: DashboardLayoutProps) {
   const pathname = usePathname();
   const { user, signOut } = useAuth();
   const isMobile = useIsMobile();
@@ -132,6 +135,7 @@ export default function DashboardLayout({ children, showCompanyGraph = false }: 
 
   const filteredNavigation = baseNavigation.filter((item) => {
     if (item.href === '/graph') return showCompanyGraph;
+    if (item.href === '/fund-management') return showFundManagement;
     return true;
   });
 

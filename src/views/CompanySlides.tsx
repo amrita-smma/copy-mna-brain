@@ -357,9 +357,13 @@ function PresentationMode({
 
 interface CompanySlidesProps {
   showCompanyGraph?: boolean;
+  showFundManagement?: boolean;
 }
 
-export default function CompanySlides({ showCompanyGraph = false }: CompanySlidesProps) {
+export default function CompanySlides({
+  showCompanyGraph = false,
+  showFundManagement = false,
+}: CompanySlidesProps) {
   const params = useParams();
   const router = useRouter();
   const companyId = params.dealId as string;
@@ -732,7 +736,10 @@ export default function CompanySlides({ showCompanyGraph = false }: CompanySlide
 
   if (loading) {
     return (
-      <DashboardLayout showCompanyGraph={showCompanyGraph}>
+      <DashboardLayout
+      showCompanyGraph={showCompanyGraph}
+      showFundManagement={showFundManagement}
+    >
         <div className="flex items-center justify-center h-full">
           <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
         </div>
@@ -742,7 +749,10 @@ export default function CompanySlides({ showCompanyGraph = false }: CompanySlide
 
   if (!company) {
     return (
-      <DashboardLayout showCompanyGraph={showCompanyGraph}>
+      <DashboardLayout
+      showCompanyGraph={showCompanyGraph}
+      showFundManagement={showFundManagement}
+    >
         <div className="flex flex-col items-center justify-center h-full gap-4">
           <p className="text-muted-foreground">Company not found</p>
           <Button onClick={() => router.push(pipelineHref)}>
@@ -755,7 +765,10 @@ export default function CompanySlides({ showCompanyGraph = false }: CompanySlide
   }
 
   return (
-    <DashboardLayout showCompanyGraph={showCompanyGraph}>
+    <DashboardLayout
+      showCompanyGraph={showCompanyGraph}
+      showFundManagement={showFundManagement}
+    >
       <div className="flex flex-col h-[calc(100vh-0px)]">
         {/* Top bar */}
         <div className="flex items-center justify-between px-4 py-2 border-b bg-background/80 backdrop-blur-sm shrink-0">

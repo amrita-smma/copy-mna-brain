@@ -1,5 +1,5 @@
 import { notFound } from 'next/navigation';
-import { companyGraphEnabled } from '@/lib/flags';
+import { companyGraphEnabled, fundManagementEnabled } from '@/lib/flags';
 import AIWorkforce from '@/views/AIWorkforce';
 
 type TabKey = 'copilot' | 'workforce' | 'ingestion';
@@ -54,6 +54,7 @@ export default async function AIWorkforcePage({
   params: Promise<{ workspaceSlug: string; taskSlug?: string[] }>;
 }) {
   const showCompanyGraph = await companyGraphEnabled().then(Boolean);
+  const showFundManagement = await fundManagementEnabled().then(Boolean);
 
   const { taskSlug } = await params;
   const parsed = parseSlug(taskSlug);
@@ -64,6 +65,7 @@ export default async function AIWorkforcePage({
   return (
     <AIWorkforce
       showCompanyGraph={showCompanyGraph}
+      showFundManagement={showFundManagement}
       initialTab={parsed.initialTab}
       initialChatId={parsed.initialChatId}
       initialTaskId={parsed.initialTaskId}

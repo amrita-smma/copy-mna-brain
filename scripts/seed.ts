@@ -27,7 +27,14 @@ import {
   employerTopics,
   employers,
   files,
+  fundAssets,
+  fundAssetTransactions,
+  fundAssetValuations,
+  fundHoldingEntityStakes,
+  fundingSources,
+  funds,
   investmentThesis,
+  holdingEntities,
   mboxFiles,
   rawEmails,
   roles,
@@ -38,6 +45,8 @@ import {
   workspaces,
 } from '../src/lib/db/schema';
 import { hashPassword } from '../src/lib/services/password';
+import { createContainer } from '../src/lib/services';
+import type { DbClient } from '../src/lib/server/db';
 import { MNA_WORKSPACE_ID, ROLE_ADMIN_ID, ROLE_EDITOR_ID, ROLE_VIEWER_ID } from '../src/lib/constants';
 import { normalizeCompanyName } from '../src/lib/crm/normalizeCompanyName';
 
@@ -53,6 +62,75 @@ const SEED_ENTRY_ID_MAX = 9999;
 const TEST_WORKSPACE_2_ID = '00000000-0000-0000-0000-000000000002'; // Starhouse Prime VCC
 const TEST_WORKSPACE_3_ID = '00000000-0000-0000-0000-000000000003'; // Togan VCC
 const TEST_WORKSPACE_4_ID = '00000000-0000-0000-0000-000000000004'; // Aeliana VCC
+
+// Fund Management (Confluence 2641362965) — fixed ids so a reseed deletes and
+// reinserts the same rows (fund_assets/transactions/valuations cascade off
+// the fund delete).
+const SEED_FUND_1_ID = '00000000-0000-0000-0000-0000000f0001'; // Direct Investments
+const SEED_FUND_2_ID = '00000000-0000-0000-0000-0000000f0002'; // Growth Fund II
+const SEED_FUND_3_ID = '00000000-0000-0000-0000-0000000f0003'; // Legacy Fund I
+const SEED_ASSET_1_ID = '00000000-0000-0000-0000-0000000f0011'; // Acme Robotics (fund 1, Equity)
+const SEED_ASSET_2_ID = '00000000-0000-0000-0000-0000000f0021'; // Meridian Growth Partners III (fund 2, FoF)
+const SEED_ASSET_3_ID = '00000000-0000-0000-0000-0000000f0012'; // Horizon Reserve (fund 1, Cash)
+const SEED_ASSET_4_ID = '00000000-0000-0000-0000-0000000f0013'; // Meridian Bridge Note (fund 1, Obligation)
+const SEED_ASSET_5_ID = '00000000-0000-0000-0000-0000000f0022'; // Helios Public Holdings (fund 2, Shares)
+const SEED_ASSET_6_ID = '00000000-0000-0000-0000-0000000f0031'; // Kairos Semiconductor (fund 3, Equity, exited)
+const SEED_ASSET_7_ID = '00000000-0000-0000-0000-0000000f0032'; // NovaSilica Materials (fund 3, Equity, exiting)
+const SEED_ASSET_8_ID = '00000000-0000-0000-0000-0000000f0033'; // Chem Partners Note (fund 3, Obligation)
+const SEED_ASSET_9_ID = '00000000-0000-0000-0000-0000000f0034'; // Cash Reserve (fund 3, Cash)
+
+// Investment Entities (investors) + Sources of Fund (funding_sources) — the
+// managed picker lists behind the by-investment-entity / by-source-of-fund
+// views and the Add Asset comboboxes. Non-cash seed assets reference these
+// entities via type_details.investingEntity so the grouped views populate.
+const ENTITY_STARTECH_1 = 'Startech Growth Fund 1';
+const ENTITY_STARTECH_2 = 'Startech Growth Fund 2';
+const ENTITY_STARTECH_3 = 'Startech Growth Fund 3';
+const ENTITY_MERANTI = 'Meranti Global Investment Ltd';
+// The four canonical entities keep their own row in the by-investment-entity
+// tab; the trailing two (non-canonical) fold into the "Others" group so it has
+// data to render and break down by fund.
+const SEED_INVESTORS = [
+  { id: '00000000-0000-0000-0000-0000000f0101', name: ENTITY_STARTECH_1, type: 'Fund' },
+  { id: '00000000-0000-0000-0000-0000000f0102', name: ENTITY_STARTECH_2, type: 'Fund' },
+  { id: '00000000-0000-0000-0000-0000000f0103', name: ENTITY_STARTECH_3, type: 'Fund' },
+  { id: '00000000-0000-0000-0000-0000000f0104', name: ENTITY_MERANTI, type: 'Corporate' },
+  { id: '00000000-0000-0000-0000-0000000f0105', name: 'PT Sinar Mas Multiartha Tbk', type: 'Corporate' },
+  { id: '00000000-0000-0000-0000-0000000f0106', name: 'Co-invest Partners', type: 'Co-invest' },
+];
+const SEED_FUND_SOURCES = [
+  { id: '00000000-0000-0000-0000-0000000f0201', name: 'Series B' },
+  { id: '00000000-0000-0000-0000-0000000f0202', name: 'Commitment' },
+  { id: '00000000-0000-0000-0000-0000000f0203', name: 'Retained earnings' },
+  { id: '00000000-0000-0000-0000-0000000f0204', name: 'Bank facility' },
+];
+const INVESTOR_STARTECH_1 = SEED_INVESTORS[0].id;
+const INVESTOR_STARTECH_2 = SEED_INVESTORS[1].id;
+const INVESTOR_STARTECH_3 = SEED_INVESTORS[2].id;
+const INVESTOR_MERANTI = SEED_INVESTORS[3].id;
+const INVESTOR_SINARMAS = SEED_INVESTORS[4].id;
+const INVESTOR_COINVEST = SEED_INVESTORS[5].id;
+// LP / investment-entity commitment stakes in each fund — back the
+// by-investment-entity view. Each fund's stakes sum to its commitment size so
+// derived fractional ownership (commitment / fund size) lands on clean %s. The
+// two non-canonical entities (Sinar Mas, Co-invest) give the "Others" group
+// stakes across all three funds so its per-fund breakdown is populated.
+const SEED_INVESTOR_STAKES = [
+  // Fund 1 — Direct Investments ($5M commitment)
+  { id: '00000000-0000-0000-0000-0000000f0301', fund_id: SEED_FUND_1_ID, holding_entity_id: INVESTOR_STARTECH_1, commitment_amount: 1_500_000, invested_amount: 1_200_000 },
+  { id: '00000000-0000-0000-0000-0000000f0302', fund_id: SEED_FUND_1_ID, holding_entity_id: INVESTOR_MERANTI, commitment_amount: 1_000_000, invested_amount: 800_000 },
+  { id: '00000000-0000-0000-0000-0000000f0303', fund_id: SEED_FUND_1_ID, holding_entity_id: INVESTOR_STARTECH_2, commitment_amount: 1_000_000, invested_amount: 700_000 },
+  { id: '00000000-0000-0000-0000-0000000f0308', fund_id: SEED_FUND_1_ID, holding_entity_id: INVESTOR_SINARMAS, commitment_amount: 1_000_000, invested_amount: 800_000 },
+  { id: '00000000-0000-0000-0000-0000000f0309', fund_id: SEED_FUND_1_ID, holding_entity_id: INVESTOR_COINVEST, commitment_amount: 500_000, invested_amount: 300_000 },
+  // Fund 2 — Growth Fund II ($10M commitment)
+  { id: '00000000-0000-0000-0000-0000000f0304', fund_id: SEED_FUND_2_ID, holding_entity_id: INVESTOR_STARTECH_3, commitment_amount: 5_000_000, invested_amount: 3_500_000 },
+  { id: '00000000-0000-0000-0000-0000000f0305', fund_id: SEED_FUND_2_ID, holding_entity_id: INVESTOR_MERANTI, commitment_amount: 3_000_000, invested_amount: 2_200_000 },
+  { id: '00000000-0000-0000-0000-0000000f030a', fund_id: SEED_FUND_2_ID, holding_entity_id: INVESTOR_SINARMAS, commitment_amount: 2_000_000, invested_amount: 1_500_000 },
+  // Fund 3 — Legacy Fund I ($8M commitment)
+  { id: '00000000-0000-0000-0000-0000000f0306', fund_id: SEED_FUND_3_ID, holding_entity_id: INVESTOR_STARTECH_1, commitment_amount: 3_000_000, invested_amount: 3_000_000 },
+  { id: '00000000-0000-0000-0000-0000000f0307', fund_id: SEED_FUND_3_ID, holding_entity_id: INVESTOR_STARTECH_3, commitment_amount: 3_000_000, invested_amount: 2_500_000 },
+  { id: '00000000-0000-0000-0000-0000000f030b', fund_id: SEED_FUND_3_ID, holding_entity_id: INVESTOR_COINVEST, commitment_amount: 2_000_000, invested_amount: 1_500_000 },
+];
 
 const SEED_EXTRA_WORKSPACES = [
   { id: TEST_WORKSPACE_2_ID, name: 'Starhouse Prime VCC', slug: 'starhouse-prime-vcc' },
@@ -2240,6 +2318,348 @@ async function insertCompaniesForWorkspace(
   return inserted;
 }
 
+// Fund Management (Confluence 2641362965) — one direct-equity fund
+// (investing) and one fund-of-funds fund (harvesting), each with a couple of
+// ledger transactions and a valuation snapshot so the UI has something to
+// render/edit against. Rollups (gross_moic/dpi/called_amount/irr/...) are
+// left for FundMetricsService to derive from the ledger after insert, same
+// as a real create-fund flow — not hand-computed here.
+const SEED_FUND_IDS = [SEED_FUND_1_ID, SEED_FUND_2_ID, SEED_FUND_3_ID];
+const SEED_ASSET_IDS = [
+  SEED_ASSET_1_ID,
+  SEED_ASSET_2_ID,
+  SEED_ASSET_3_ID,
+  SEED_ASSET_4_ID,
+  SEED_ASSET_5_ID,
+  SEED_ASSET_6_ID,
+  SEED_ASSET_7_ID,
+  SEED_ASSET_8_ID,
+  SEED_ASSET_9_ID,
+];
+
+async function seedFundManagement(db: DbClient, workspaceId: string) {
+  await db.delete(funds).where(inArray(funds.id, SEED_FUND_IDS));
+
+  // Investment Entities + Sources of Fund (idempotent by fixed id).
+  await db.delete(holdingEntities).where(inArray(holdingEntities.id, SEED_INVESTORS.map((i) => i.id)));
+  await db.insert(holdingEntities).values(
+    SEED_INVESTORS.map((i) => ({
+      id: i.id,
+      workspace_id: workspaceId,
+      name: i.name,
+      entity_type: i.type,
+    })),
+  );
+  await db.delete(fundingSources).where(inArray(fundingSources.id, SEED_FUND_SOURCES.map((s) => s.id)));
+  await db.insert(fundingSources).values(
+    SEED_FUND_SOURCES.map((s) => ({ id: s.id, workspace_id: workspaceId, name: s.name })),
+  );
+
+  await db.insert(funds).values([
+    {
+      id: SEED_FUND_1_ID,
+      workspace_id: workspaceId,
+      name: 'Direct Investments',
+      description: 'Direct equity, credit, and cash positions taken outside a commingled vehicle.',
+      vintage_year: 2023,
+      commitment_size_amount: 5_000_000,
+      status: 'investing',
+      base_currency: 'USD',
+    },
+    {
+      id: SEED_FUND_2_ID,
+      workspace_id: workspaceId,
+      name: 'Growth Fund II',
+      description: 'Growth-stage fund-of-funds and public-market co-investment vehicle.',
+      vintage_year: 2020,
+      commitment_size_amount: 10_000_000,
+      status: 'harvesting',
+      base_currency: 'USD',
+    },
+    {
+      id: SEED_FUND_3_ID,
+      workspace_id: workspaceId,
+      name: 'Legacy Fund I',
+      description: 'Flagship 2018-vintage fund, now in harvest with two positions exited or exiting.',
+      vintage_year: 2018,
+      commitment_size_amount: 8_000_000,
+      status: 'harvesting',
+      base_currency: 'USD',
+    },
+  ]);
+
+  // LP stakes (funds + holding entities now exist; the delete(funds) above already
+  // cascade-removed any prior stakes for these funds).
+  await db.insert(fundHoldingEntityStakes).values(
+    SEED_INVESTOR_STAKES.map((s) => ({
+      id: s.id,
+      fund_id: s.fund_id,
+      holding_entity_id: s.holding_entity_id,
+      commitment_amount: s.commitment_amount,
+      commitment_amount_currency: 'USD',
+      invested_amount: s.invested_amount,
+      invested_amount_currency: 'USD',
+    })),
+  );
+
+  await db.insert(fundAssets).values([
+    // ---- Fund 1: Direct Investments ----
+    {
+      id: SEED_ASSET_1_ID,
+      workspace_id: workspaceId,
+      asset_type: 'direct_investment',
+      asset_name: 'Acme Robotics',
+      legal_name: 'Acme Robotics Pte Ltd',
+      country: 'Singapore',
+      funding_source: 'Series B',
+      investment_type: 'Direct Investment',
+      entry_date: '2023-01-15',
+      stake_pct: 14,
+      sector: 'Robotics',
+      investment_currency: 'USD',
+      report_currency: 'USD',
+      investment_description: 'Series B lead investment in an industrial robotics company.',
+      key_rights: 'Board seat, pro-rata rights',
+      mgmt_fee_rate_pct: 2,
+      carry_rate_pct: 20,
+      legal_fees_amount: 15000,
+      type_details: { instrumentType: 'equity', dealType: 'Series B', entryEV: 40_000_000, holdYrs: 3, revenue: 8_000_000, ebitda: 1_200_000, investingEntity: ENTITY_STARTECH_1 },
+      status: 'active',
+      current_price_per_share: 12.5,
+    },
+    {
+      id: SEED_ASSET_3_ID,
+      workspace_id: workspaceId,
+      asset_type: 'cash',
+      asset_name: 'Horizon Reserve',
+      country: 'Singapore',
+      entry_date: '2024-11-01',
+      investment_currency: 'USD',
+      report_currency: 'USD',
+      type_details: { institution: 'DBS Private Bank', yieldPct: 3.8 },
+      status: 'active',
+    },
+    {
+      id: SEED_ASSET_4_ID,
+      workspace_id: workspaceId,
+      asset_type: 'direct_investment',
+      asset_name: 'Meridian Bridge Note',
+      legal_name: 'Meridian Bridge Holdco',
+      country: 'United States',
+      investment_type: 'Direct Investment',
+      entry_date: '2024-02-01',
+      maturity_date: '2027-02-01',
+      investment_currency: 'USD',
+      report_currency: 'USD',
+      type_details: { instrumentType: 'obligation', noteType: 'Bridge loan', coupon: 8, principal: 400_000, investingEntity: ENTITY_STARTECH_1 },
+      status: 'active',
+    },
+    // ---- Fund 2: Growth Fund II ----
+    {
+      id: SEED_ASSET_2_ID,
+      workspace_id: workspaceId,
+      asset_type: 'fund_of_funds',
+      asset_name: 'Meridian Growth Partners III',
+      legal_name: 'Meridian Growth Partners III LP',
+      country: 'United States',
+      funding_source: 'Commitment',
+      entry_date: '2021-03-01',
+      commitment_amount: 3_000_000,
+      investment_currency: 'USD',
+      report_currency: 'USD',
+      type_details: { targetFundName: 'Meridian Growth Partners III', fundManagerName: 'Meridian Capital', fundLifeYears: 10, investingEntity: ENTITY_MERANTI },
+      status: 'active',
+    },
+    {
+      id: SEED_ASSET_5_ID,
+      workspace_id: workspaceId,
+      asset_type: 'direct_investment',
+      asset_name: 'Helios Public Holdings',
+      legal_name: 'Helios Energy Corp',
+      country: 'United States',
+      investment_type: 'Direct Investment',
+      entry_date: '2024-04-01',
+      investment_currency: 'USD',
+      report_currency: 'USD',
+      type_details: { instrumentType: 'shares', exchange: 'NASDAQ', ticker: 'HELP', sharesOutstanding: 8_000, investingEntity: ENTITY_STARTECH_2 },
+      status: 'active',
+      current_price_per_share: 33,
+    },
+    // ---- Fund 3: Legacy Fund I ----
+    {
+      id: SEED_ASSET_6_ID,
+      workspace_id: workspaceId,
+      asset_type: 'direct_investment',
+      asset_name: 'Kairos Semiconductor',
+      legal_name: 'Kairos Semiconductor Inc.',
+      country: 'Taiwan',
+      investment_type: 'Direct Investment',
+      entry_date: '2018-02-15',
+      sector: 'Semiconductors',
+      investment_currency: 'USD',
+      report_currency: 'USD',
+      investment_description: 'Fully exited fabless chip design position.',
+      type_details: { instrumentType: 'equity', dealType: 'Majority', entryEV: 12_000_000, holdYrs: 7.7, investingEntity: ENTITY_STARTECH_3 },
+      status: 'exited',
+    },
+    {
+      id: SEED_ASSET_7_ID,
+      workspace_id: workspaceId,
+      asset_type: 'direct_investment',
+      asset_name: 'NovaSilica Materials',
+      legal_name: 'NovaSilica Materials Ltd',
+      country: 'Taiwan',
+      investment_type: 'Direct Investment',
+      entry_date: '2019-05-01',
+      sector: 'Specialty Materials',
+      investment_currency: 'USD',
+      report_currency: 'USD',
+      investment_description: 'Partially exited advanced-materials supplier; remaining stake being wound down.',
+      type_details: { instrumentType: 'equity', dealType: 'Minority', entryEV: 15_000_000, holdYrs: 7, investingEntity: ENTITY_STARTECH_3 },
+      status: 'exiting',
+    },
+    {
+      id: SEED_ASSET_8_ID,
+      workspace_id: workspaceId,
+      asset_type: 'direct_investment',
+      asset_name: 'Chem Partners Note',
+      legal_name: 'Chem Partners Holdco',
+      country: 'United States',
+      investment_type: 'Direct Investment',
+      entry_date: '2020-06-01',
+      maturity_date: '2027-06-01',
+      investment_currency: 'USD',
+      report_currency: 'USD',
+      type_details: { instrumentType: 'obligation', noteType: 'Senior secured', coupon: 6, principal: 1_200_000, investingEntity: ENTITY_MERANTI },
+      status: 'active',
+    },
+    {
+      id: SEED_ASSET_9_ID,
+      workspace_id: workspaceId,
+      asset_type: 'cash',
+      asset_name: 'Cash Reserve',
+      country: 'United States',
+      entry_date: '2018-01-01',
+      investment_currency: 'USD',
+      report_currency: 'USD',
+      type_details: { institution: 'DBS', yieldPct: 2.5 },
+      status: 'active',
+    },
+  ]);
+
+  await db.insert(fundAssetTransactions).values([
+    // Acme Robotics — initial round + a 2025 follow-on + a partial dividend.
+    { fund_asset_id: SEED_ASSET_1_ID, fund_id: SEED_FUND_1_ID, holding_entity_id: INVESTOR_STARTECH_1, funding_source_id: SEED_FUND_SOURCES[0].id, txn_date: '2023-01-15', txn_type: 'contribution', price_per_share: 10, share_count: 50_000, value_amount: 500_000, txn_currency: 'USD', fx_rate: 1, notes: 'Initial investment' },
+    { fund_asset_id: SEED_ASSET_1_ID, fund_id: SEED_FUND_1_ID, holding_entity_id: INVESTOR_STARTECH_1, funding_source_id: SEED_FUND_SOURCES[0].id, txn_date: '2024-06-01', txn_type: 'distribution', value_amount: 50_000, txn_currency: 'USD', fx_rate: 1, notes: 'Partial dividend' },
+    { fund_asset_id: SEED_ASSET_1_ID, fund_id: SEED_FUND_1_ID, holding_entity_id: INVESTOR_STARTECH_1, funding_source_id: SEED_FUND_SOURCES[0].id, txn_date: '2025-03-01', txn_type: 'contribution', price_per_share: 12.5, share_count: 12_000, value_amount: 150_000, txn_currency: 'USD', fx_rate: 1, notes: 'Follow-on round' },
+
+    // Horizon Reserve — single deposit, no further ledger activity (cash).
+    { fund_asset_id: SEED_ASSET_3_ID, fund_id: SEED_FUND_1_ID, holding_entity_id: INVESTOR_STARTECH_1, funding_source_id: SEED_FUND_SOURCES[0].id, txn_date: '2024-11-01', txn_type: 'contribution', value_amount: 300_000, txn_currency: 'USD', fx_rate: 1, notes: 'Cash deposit' },
+
+    // Meridian Bridge Note — principal disbursed, then quarterly interest.
+    { fund_asset_id: SEED_ASSET_4_ID, fund_id: SEED_FUND_1_ID, holding_entity_id: INVESTOR_STARTECH_1, funding_source_id: SEED_FUND_SOURCES[0].id, txn_date: '2024-02-01', txn_type: 'contribution', value_amount: 400_000, txn_currency: 'USD', fx_rate: 1, notes: 'Principal disbursed' },
+    { fund_asset_id: SEED_ASSET_4_ID, fund_id: SEED_FUND_1_ID, holding_entity_id: INVESTOR_STARTECH_1, funding_source_id: SEED_FUND_SOURCES[0].id, txn_date: '2025-09-30', txn_type: 'interest_income', value_amount: 8_000, txn_currency: 'USD', fx_rate: 1, notes: 'Q3 2025 interest' },
+    { fund_asset_id: SEED_ASSET_4_ID, fund_id: SEED_FUND_1_ID, holding_entity_id: INVESTOR_STARTECH_1, funding_source_id: SEED_FUND_SOURCES[0].id, txn_date: '2025-12-31', txn_type: 'interest_income', value_amount: 8_000, txn_currency: 'USD', fx_rate: 1, notes: 'Q4 2025 interest' },
+    { fund_asset_id: SEED_ASSET_4_ID, fund_id: SEED_FUND_1_ID, holding_entity_id: INVESTOR_STARTECH_1, funding_source_id: SEED_FUND_SOURCES[0].id, txn_date: '2026-03-31', txn_type: 'interest_income', value_amount: 8_000, txn_currency: 'USD', fx_rate: 1, notes: 'Q1 2026 interest' },
+    { fund_asset_id: SEED_ASSET_4_ID, fund_id: SEED_FUND_1_ID, holding_entity_id: INVESTOR_STARTECH_1, funding_source_id: SEED_FUND_SOURCES[0].id, txn_date: '2026-06-30', txn_type: 'interest_income', value_amount: 8_000, txn_currency: 'USD', fx_rate: 1, notes: 'Q2 2026 interest' },
+
+    // Meridian Growth Partners III — two capital calls + a distribution.
+    { fund_asset_id: SEED_ASSET_2_ID, fund_id: SEED_FUND_2_ID, holding_entity_id: INVESTOR_MERANTI, funding_source_id: SEED_FUND_SOURCES[1].id, txn_date: '2021-03-01', txn_type: 'contribution', value_amount: 2_000_000, txn_currency: 'USD', fx_rate: 1, notes: 'Initial capital call' },
+    { fund_asset_id: SEED_ASSET_2_ID, fund_id: SEED_FUND_2_ID, holding_entity_id: INVESTOR_MERANTI, funding_source_id: SEED_FUND_SOURCES[1].id, txn_date: '2023-06-01', txn_type: 'contribution', value_amount: 500_000, txn_currency: 'USD', fx_rate: 1, notes: 'Second capital call' },
+    { fund_asset_id: SEED_ASSET_2_ID, fund_id: SEED_FUND_2_ID, holding_entity_id: INVESTOR_MERANTI, funding_source_id: SEED_FUND_SOURCES[1].id, txn_date: '2025-09-01', txn_type: 'distribution', value_amount: 300_000, txn_currency: 'USD', fx_rate: 1, notes: 'Distribution from portfolio exit' },
+
+    // Helios Public Holdings — purchase, then a partial sale.
+    { fund_asset_id: SEED_ASSET_5_ID, fund_id: SEED_FUND_2_ID, holding_entity_id: INVESTOR_STARTECH_2, funding_source_id: SEED_FUND_SOURCES[1].id, txn_date: '2024-04-01', txn_type: 'contribution', price_per_share: 25, share_count: 10_000, value_amount: 250_000, txn_currency: 'USD', fx_rate: 1, notes: 'Open-market purchase' },
+    { fund_asset_id: SEED_ASSET_5_ID, fund_id: SEED_FUND_2_ID, holding_entity_id: INVESTOR_STARTECH_2, funding_source_id: SEED_FUND_SOURCES[1].id, txn_date: '2026-02-01', txn_type: 'divestment', price_per_share: 30, share_count: 2_000, value_amount: 60_000, txn_currency: 'USD', fx_rate: 1, notes: 'Partial sell-down' },
+
+    // Kairos Semiconductor — full exit (contribution then a complete divestment).
+    { fund_asset_id: SEED_ASSET_6_ID, fund_id: SEED_FUND_3_ID, holding_entity_id: INVESTOR_STARTECH_3, funding_source_id: SEED_FUND_SOURCES[0].id, txn_date: '2018-02-15', txn_type: 'contribution', price_per_share: 10, share_count: 200_000, value_amount: 2_000_000, txn_currency: 'USD', fx_rate: 1, notes: 'Initial investment' },
+    { fund_asset_id: SEED_ASSET_6_ID, fund_id: SEED_FUND_3_ID, holding_entity_id: INVESTOR_STARTECH_3, funding_source_id: SEED_FUND_SOURCES[0].id, txn_date: '2025-11-01', txn_type: 'divestment', price_per_share: 18.5, share_count: 200_000, value_amount: 3_700_000, txn_currency: 'USD', fx_rate: 1, notes: 'Full exit — strategic sale' },
+
+    // NovaSilica Materials — partial exit, still winding down.
+    { fund_asset_id: SEED_ASSET_7_ID, fund_id: SEED_FUND_3_ID, holding_entity_id: INVESTOR_STARTECH_3, funding_source_id: SEED_FUND_SOURCES[0].id, txn_date: '2019-05-01', txn_type: 'contribution', price_per_share: 12, share_count: 150_000, value_amount: 1_800_000, txn_currency: 'USD', fx_rate: 1, notes: 'Initial investment' },
+    { fund_asset_id: SEED_ASSET_7_ID, fund_id: SEED_FUND_3_ID, holding_entity_id: INVESTOR_STARTECH_3, funding_source_id: SEED_FUND_SOURCES[0].id, txn_date: '2026-01-15', txn_type: 'divestment', price_per_share: 16, share_count: 60_000, value_amount: 960_000, txn_currency: 'USD', fx_rate: 1, notes: 'Partial secondary sale' },
+
+    // Chem Partners Note — principal, then quarterly interest.
+    { fund_asset_id: SEED_ASSET_8_ID, fund_id: SEED_FUND_3_ID, holding_entity_id: INVESTOR_MERANTI, funding_source_id: SEED_FUND_SOURCES[0].id, txn_date: '2020-06-01', txn_type: 'contribution', value_amount: 1_200_000, txn_currency: 'USD', fx_rate: 1, notes: 'Principal disbursed' },
+    { fund_asset_id: SEED_ASSET_8_ID, fund_id: SEED_FUND_3_ID, holding_entity_id: INVESTOR_MERANTI, funding_source_id: SEED_FUND_SOURCES[0].id, txn_date: '2025-09-30', txn_type: 'interest_income', value_amount: 18_000, txn_currency: 'USD', fx_rate: 1, notes: 'Q3 2025 interest' },
+    { fund_asset_id: SEED_ASSET_8_ID, fund_id: SEED_FUND_3_ID, holding_entity_id: INVESTOR_MERANTI, funding_source_id: SEED_FUND_SOURCES[0].id, txn_date: '2025-12-31', txn_type: 'interest_income', value_amount: 18_000, txn_currency: 'USD', fx_rate: 1, notes: 'Q4 2025 interest' },
+    { fund_asset_id: SEED_ASSET_8_ID, fund_id: SEED_FUND_3_ID, holding_entity_id: INVESTOR_MERANTI, funding_source_id: SEED_FUND_SOURCES[0].id, txn_date: '2026-03-31', txn_type: 'interest_income', value_amount: 18_000, txn_currency: 'USD', fx_rate: 1, notes: 'Q1 2026 interest' },
+    { fund_asset_id: SEED_ASSET_8_ID, fund_id: SEED_FUND_3_ID, holding_entity_id: INVESTOR_MERANTI, funding_source_id: SEED_FUND_SOURCES[0].id, txn_date: '2026-06-30', txn_type: 'interest_income', value_amount: 18_000, txn_currency: 'USD', fx_rate: 1, notes: 'Q2 2026 interest' },
+
+    // Cash Reserve — single deposit (cash).
+    { fund_asset_id: SEED_ASSET_9_ID, fund_id: SEED_FUND_3_ID, holding_entity_id: INVESTOR_STARTECH_3, funding_source_id: SEED_FUND_SOURCES[0].id, txn_date: '2018-01-01', txn_type: 'contribution', value_amount: 640_000, txn_currency: 'USD', fx_rate: 1, notes: 'Initial cash allocation' },
+  ]);
+
+  await db.insert(fundAssetValuations).values([
+    // Acme Robotics — quarterly comp marks.
+    { fund_asset_id: SEED_ASSET_1_ID, as_of_date: '2025-09-30', period_label: 'Q3 2025', valuation_method: 'comparables', currency: 'USD', market_value_amount: 560_000, price_per_share: 11.2, shares_outstanding: 50_000, shareholding_pct: 14, notes: 'Comp-based mark using peer EV/EBITDA.' },
+    { fund_asset_id: SEED_ASSET_1_ID, as_of_date: '2025-12-31', period_label: 'Q4 2025', valuation_method: 'comparables', currency: 'USD', market_value_amount: 690_000, price_per_share: 11.1, shares_outstanding: 62_000, shareholding_pct: 14, notes: 'Comp-based mark using peer EV/EBITDA.' },
+    { fund_asset_id: SEED_ASSET_1_ID, as_of_date: '2026-03-31', period_label: 'Q1 2026', valuation_method: 'comparables', currency: 'USD', market_value_amount: 719_200, price_per_share: 11.6, shares_outstanding: 62_000, shareholding_pct: 14, notes: 'Comp-based mark using peer EV/EBITDA.' },
+    { fund_asset_id: SEED_ASSET_1_ID, as_of_date: '2026-06-30', period_label: 'Q2 2026', valuation_method: 'comparables', currency: 'USD', market_value_amount: 775_000, price_per_share: 12.5, shares_outstanding: 62_000, shareholding_pct: 14, notes: 'Comp-based mark using peer EV/EBITDA.' },
+
+    // Horizon Reserve — cash + modest accrued yield.
+    { fund_asset_id: SEED_ASSET_3_ID, as_of_date: '2025-09-30', period_label: 'Q3 2025', valuation_method: 'at_cost', currency: 'USD', market_value_amount: 305_000, notes: 'Cash balance plus accrued interest.' },
+    { fund_asset_id: SEED_ASSET_3_ID, as_of_date: '2025-12-31', period_label: 'Q4 2025', valuation_method: 'at_cost', currency: 'USD', market_value_amount: 308_000, notes: 'Cash balance plus accrued interest.' },
+    { fund_asset_id: SEED_ASSET_3_ID, as_of_date: '2026-03-31', period_label: 'Q1 2026', valuation_method: 'at_cost', currency: 'USD', market_value_amount: 311_000, notes: 'Cash balance plus accrued interest.' },
+    { fund_asset_id: SEED_ASSET_3_ID, as_of_date: '2026-06-30', period_label: 'Q2 2026', valuation_method: 'at_cost', currency: 'USD', market_value_amount: 314_000, notes: 'Cash balance plus accrued interest.' },
+
+    // Meridian Bridge Note — held at par.
+    { fund_asset_id: SEED_ASSET_4_ID, as_of_date: '2025-09-30', period_label: 'Q3 2025', valuation_method: 'at_cost', currency: 'USD', market_value_amount: 400_000, notes: 'Held at par — no impairment indicators.' },
+    { fund_asset_id: SEED_ASSET_4_ID, as_of_date: '2025-12-31', period_label: 'Q4 2025', valuation_method: 'at_cost', currency: 'USD', market_value_amount: 400_000, notes: 'Held at par — no impairment indicators.' },
+    { fund_asset_id: SEED_ASSET_4_ID, as_of_date: '2026-03-31', period_label: 'Q1 2026', valuation_method: 'at_cost', currency: 'USD', market_value_amount: 400_000, notes: 'Held at par — no impairment indicators.' },
+    { fund_asset_id: SEED_ASSET_4_ID, as_of_date: '2026-06-30', period_label: 'Q2 2026', valuation_method: 'at_cost', currency: 'USD', market_value_amount: 400_000, notes: 'Held at par — no impairment indicators.' },
+
+    // Meridian Growth Partners III — GP capital account statements.
+    { fund_asset_id: SEED_ASSET_2_ID, as_of_date: '2025-09-30', period_label: 'Q3 2025', valuation_method: 'capital_account_statement', currency: 'USD', market_value_amount: 2_050_000, notes: 'Per GP capital account statement.' },
+    { fund_asset_id: SEED_ASSET_2_ID, as_of_date: '2025-12-31', period_label: 'Q4 2025', valuation_method: 'capital_account_statement', currency: 'USD', market_value_amount: 2_080_000, notes: 'Per GP capital account statement.' },
+    { fund_asset_id: SEED_ASSET_2_ID, as_of_date: '2026-03-31', period_label: 'Q1 2026', valuation_method: 'capital_account_statement', currency: 'USD', market_value_amount: 2_090_000, notes: 'Per GP capital account statement.' },
+    { fund_asset_id: SEED_ASSET_2_ID, as_of_date: '2026-06-30', period_label: 'Q2 2026', valuation_method: 'capital_account_statement', currency: 'USD', market_value_amount: 2_100_000, notes: 'Per GP capital account statement.' },
+
+    // Helios Public Holdings — public market close, share count drops after the Feb 2026 sell-down.
+    { fund_asset_id: SEED_ASSET_5_ID, as_of_date: '2025-09-30', period_label: 'Q3 2025', valuation_method: 'stock_market_price', currency: 'USD', market_value_amount: 270_000, price_per_share: 27, shares_outstanding: 10_000, notes: 'NASDAQ closing price.' },
+    { fund_asset_id: SEED_ASSET_5_ID, as_of_date: '2025-12-31', period_label: 'Q4 2025', valuation_method: 'stock_market_price', currency: 'USD', market_value_amount: 290_000, price_per_share: 29, shares_outstanding: 10_000, notes: 'NASDAQ closing price.' },
+    { fund_asset_id: SEED_ASSET_5_ID, as_of_date: '2026-03-31', period_label: 'Q1 2026', valuation_method: 'stock_market_price', currency: 'USD', market_value_amount: 248_000, price_per_share: 31, shares_outstanding: 8_000, notes: 'NASDAQ closing price, post sell-down.' },
+    { fund_asset_id: SEED_ASSET_5_ID, as_of_date: '2026-06-30', period_label: 'Q2 2026', valuation_method: 'stock_market_price', currency: 'USD', market_value_amount: 264_000, price_per_share: 33, shares_outstanding: 8_000, notes: 'NASDAQ closing price, post sell-down.' },
+
+    // Kairos Semiconductor — fully exited Nov 2025; no valuation needed after
+    // that (share_count is 0, so unrealized value is correctly $0 with no
+    // stale mark to fall back on).
+    { fund_asset_id: SEED_ASSET_6_ID, as_of_date: '2025-09-30', period_label: 'Q3 2025', valuation_method: 'comparables', currency: 'USD', market_value_amount: 3_500_000, price_per_share: 17.5, shares_outstanding: 200_000, notes: 'Last mark before the Nov 2025 exit.' },
+
+    // NovaSilica Materials — winding down; share count drops after the Jan 2026 partial sale.
+    { fund_asset_id: SEED_ASSET_7_ID, as_of_date: '2025-09-30', period_label: 'Q3 2025', valuation_method: 'comparables', currency: 'USD', market_value_amount: 2_250_000, price_per_share: 15, shares_outstanding: 150_000, notes: 'Comp-based mark ahead of the wind-down.' },
+    { fund_asset_id: SEED_ASSET_7_ID, as_of_date: '2025-12-31', period_label: 'Q4 2025', valuation_method: 'comparables', currency: 'USD', market_value_amount: 2_325_000, price_per_share: 15.5, shares_outstanding: 150_000, notes: 'Comp-based mark ahead of the wind-down.' },
+    { fund_asset_id: SEED_ASSET_7_ID, as_of_date: '2026-03-31', period_label: 'Q1 2026', valuation_method: 'comparables', currency: 'USD', market_value_amount: 1_485_000, price_per_share: 16.5, shares_outstanding: 90_000, notes: 'Post partial-sale mark.' },
+    { fund_asset_id: SEED_ASSET_7_ID, as_of_date: '2026-06-30', period_label: 'Q2 2026', valuation_method: 'comparables', currency: 'USD', market_value_amount: 1_530_000, price_per_share: 17, shares_outstanding: 90_000, notes: 'Post partial-sale mark.' },
+
+    // Chem Partners Note — held at par.
+    { fund_asset_id: SEED_ASSET_8_ID, as_of_date: '2025-09-30', period_label: 'Q3 2025', valuation_method: 'at_cost', currency: 'USD', market_value_amount: 1_200_000, notes: 'Held at par — no impairment indicators.' },
+    { fund_asset_id: SEED_ASSET_8_ID, as_of_date: '2025-12-31', period_label: 'Q4 2025', valuation_method: 'at_cost', currency: 'USD', market_value_amount: 1_200_000, notes: 'Held at par — no impairment indicators.' },
+    { fund_asset_id: SEED_ASSET_8_ID, as_of_date: '2026-03-31', period_label: 'Q1 2026', valuation_method: 'at_cost', currency: 'USD', market_value_amount: 1_200_000, notes: 'Held at par — no impairment indicators.' },
+    { fund_asset_id: SEED_ASSET_8_ID, as_of_date: '2026-06-30', period_label: 'Q2 2026', valuation_method: 'at_cost', currency: 'USD', market_value_amount: 1_200_000, notes: 'Held at par — no impairment indicators.' },
+
+    // Cash Reserve — flat balance with modest yield.
+    { fund_asset_id: SEED_ASSET_9_ID, as_of_date: '2025-09-30', period_label: 'Q3 2025', valuation_method: 'at_cost', currency: 'USD', market_value_amount: 660_000, notes: 'Cash balance plus accrued interest.' },
+    { fund_asset_id: SEED_ASSET_9_ID, as_of_date: '2025-12-31', period_label: 'Q4 2025', valuation_method: 'at_cost', currency: 'USD', market_value_amount: 662_000, notes: 'Cash balance plus accrued interest.' },
+    { fund_asset_id: SEED_ASSET_9_ID, as_of_date: '2026-03-31', period_label: 'Q1 2026', valuation_method: 'at_cost', currency: 'USD', market_value_amount: 664_000, notes: 'Cash balance plus accrued interest.' },
+    { fund_asset_id: SEED_ASSET_9_ID, as_of_date: '2026-06-30', period_label: 'Q2 2026', valuation_method: 'at_cost', currency: 'USD', market_value_amount: 666_000, notes: 'Cash balance plus accrued interest.' },
+  ]);
+
+  const { fundMetricsService } = createContainer(db, workspaceId);
+  // recomputeAsset (not recomputeFund) — it persists the asset's own rollups
+  // (gross_moic/invested_capital_amount/...) before cascading into the
+  // fund-level aggregate; calling recomputeFund alone leaves every asset row
+  // with null rollups even though the fund total comes out right.
+  for (const assetId of SEED_ASSET_IDS) {
+    await fundMetricsService.recomputeAsset(assetId);
+  }
+
+  console.log(
+    `  ✓ Fund Management: ${SEED_FUND_IDS.length} funds, ${SEED_ASSET_IDS.length} assets across all 5 holding types, multi-year ledgers + quarterly valuations (rollups derived via FundMetricsService)`,
+  );
+}
+
 async function main() {
   const { createPostgresClientFromEnv } = await import('../src/lib/server/db');
   const client = createPostgresClientFromEnv({
@@ -3906,6 +4326,8 @@ async function main() {
     } catch (err) {
       console.warn('  ⚠ skipped analytics.mart_crm refresh (marts unavailable):', err);
     }
+
+    await seedFundManagement(db as unknown as DbClient, MNA_WORKSPACE_ID);
 
     console.log('done.');
   } finally {

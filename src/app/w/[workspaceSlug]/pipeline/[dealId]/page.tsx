@@ -1,12 +1,16 @@
 import { Suspense } from 'react';
 import CompanyDetail from '@/views/CompanyDetail';
-import { companyGraphEnabled } from '@/lib/flags';
+import { companyGraphEnabled, fundManagementEnabled } from '@/lib/flags';
 
 export default async function CompanyDetailPage() {
   const showCompanyGraph = await companyGraphEnabled().then(Boolean);
+  const showFundManagement = await fundManagementEnabled().then(Boolean);
   return (
     <Suspense fallback={null}>
-      <CompanyDetail showCompanyGraph={showCompanyGraph} />
+      <CompanyDetail
+        showCompanyGraph={showCompanyGraph}
+        showFundManagement={showFundManagement}
+      />
     </Suspense>
   );
 }

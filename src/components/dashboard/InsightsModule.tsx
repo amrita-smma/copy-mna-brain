@@ -34,8 +34,7 @@ import CompanyDetailDialog, {
   type CompanyData,
 } from '@/components/pipeline/CompanyDetailDialog';
 import { getCompanies } from '@/lib/api/pipeline';
-// Temporarily hidden along with the "Banker related companies" card below.
-// import { BankerRelatedCompaniesCard } from '@/components/dashboard/BankerRelatedCompaniesCard';
+import { BankerRelatedCompaniesCard } from '@/components/dashboard/BankerRelatedCompaniesCard';
 import {
   Table,
   TableBody,
@@ -315,6 +314,7 @@ function InsightsContent({
           height — the compact KPI tile grows to match the taller bankers
           breakdown beside it. */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 items-stretch">
+        </div>
         <KpiCard
           label="L0 → L1 conversion"
           value={`${kpis.l0l1Conversion}%`}
@@ -395,12 +395,13 @@ function InsightsContent({
                   </div>
                   <div className="w-24 shrink-0 text-right">
                     <div
-                      className={`font-mono text-sm font-semibold ${onTarget
-                        ? 'text-emerald-600 dark:text-emerald-400'
-                        : count === 0
-                          ? 'text-muted-foreground'
-                          : 'text-amber-600 dark:text-amber-400'
-                        }`}
+                      className={`font-mono text-sm font-semibold ${
+                        onTarget
+                          ? 'text-emerald-600 dark:text-emerald-400'
+                          : count === 0
+                            ? 'text-muted-foreground'
+                            : 'text-amber-600 dark:text-amber-400'
+                      }`}
                     >
                       {count}
                     </div>
@@ -530,6 +531,8 @@ function InsightsContent({
         </Card>
         */}
 
+      {/* ── Row 2: Banker quality + Banker related companies ── */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
         <Card className="border bg-card">
           <CardHeader className="pb-3">
             <div className="flex items-start justify-between gap-2">
@@ -547,7 +550,8 @@ function InsightsContent({
               tableId="dashboard-insights-bankers"
               rows={bankers.filter((r) => !isExcludedBankerSource(r.key))}
               firstHeader="Banker"
-              pageSize={6}
+              leadHeader="Leads"
+              leadValue={(r) => r.total}
               showResponse
               renderKey={(r) => (
                 <div className="flex items-center gap-2.5">
@@ -564,13 +568,11 @@ function InsightsContent({
           </CardContent>
         </Card>
 
-        {/* Banker related companies — temporarily hidden.
         <BankerRelatedCompaniesCard
           onAsk={() =>
             onAsk('analyze which bankers have the most related companies attached and what that implies')
           }
         />
-        */}
       </div>
 
       {/* ── Row 3: Country + Segment ── */}
@@ -592,6 +594,8 @@ function InsightsContent({
               tableId="dashboard-insights-countries"
               rows={countries}
               firstHeader="Country"
+              leadHeader="L0"
+              leadValue={(r) => r.l0}
               pageSize={6}
               renderKey={(r) => (
                 <span className="flex items-center gap-2 text-[13px]">
@@ -621,6 +625,8 @@ function InsightsContent({
               tableId="dashboard-insights-segments"
               rows={segments}
               firstHeader="Segment"
+              leadHeader="L0"
+              leadValue={(r) => r.l0}
               pageSize={6}
               renderKey={(r) => <span className="text-[13px]">{r.key}</span>}
               emptyLabel="No segmented deals."
@@ -660,8 +666,9 @@ function InsightsContent({
             <ThroughputStat
               label="AI screenings"
               value={aiThroughput.screenings.total}
-              sub={`${aiThroughput.screenings.pass} pass · ${aiThroughput.screenings.fail} fail${aiThroughput.screenings.error > 0 ? ` · ${aiThroughput.screenings.error} err` : ''
-                }`}
+              sub={`${aiThroughput.screenings.pass} pass · ${aiThroughput.screenings.fail} fail${
+                aiThroughput.screenings.error > 0 ? ` · ${aiThroughput.screenings.error} err` : ''
+              }`}
               subTone={aiThroughput.screenings.error > 0 ? 'amber' : undefined}
             />
             <ThroughputStat label="Workforce runs" value={aiThroughput.workforceRuns} sub="runs" />
@@ -783,10 +790,11 @@ function ThroughputStat({
       <div className="mt-0.5 font-mono text-xl font-semibold tracking-tight">{value}</div>
       {sub && (
         <div
-          className={`mt-0.5 truncate text-[10.5px] ${subTone === 'amber'
-            ? 'text-amber-600 dark:text-amber-400'
-            : 'text-muted-foreground'
-            }`}
+          className={`mt-0.5 truncate text-[10.5px] ${
+            subTone === 'amber'
+              ? 'text-amber-600 dark:text-amber-400'
+              : 'text-muted-foreground'
+          }`}
           title={sub}
         >
           {sub}
@@ -800,6 +808,8 @@ function BreakdownTable({
   tableId,
   rows,
   firstHeader,
+  leadHeader,
+  leadValue,
   renderKey,
   emptyLabel,
   pageSize,
@@ -809,6 +819,10 @@ function BreakdownTable({
   tableId: string;
   rows: BreakdownRow[];
   firstHeader: string;
+  /** Header + accessor for the primary metric column (e.g. "Leads" → r.total,
+   * "L0" → r.l0). */
+  leadHeader: string;
+  leadValue: (r: BreakdownRow) => React.ReactNode;
   renderKey: (r: BreakdownRow) => React.ReactNode;
   emptyLabel: string;
   /** When set, show this many rows per page with prev/next controls. Rows
@@ -833,32 +847,32 @@ function BreakdownTable({
   const columns = useMemo<ColumnDef<BreakdownRow>[]>(
     () => [
       {
-        id: 'total',
-        label: 'Total',
-        header: <span className="whitespace-nowrap font-semibold">Total</span>,
+        id: 'lead',
+        label: leadHeader,
+        header: <span className="whitespace-nowrap font-semibold">{leadHeader}</span>,
         headerClassName:
           'h-auto px-0 pb-2 text-right align-bottom text-[10.5px] font-semibold uppercase tracking-wide text-muted-foreground',
         cellClassName:
           'p-0 py-2 text-right font-mono text-xs text-muted-foreground',
-        cell: (r) => r.total,
+        cell: (r) => leadValue(r),
       },
       ...(showResponse
         ? [
-          {
-            id: 'response',
-            label: 'Response (p50)',
-            header: (
-              <span className="whitespace-nowrap font-semibold">Response (p50)</span>
-            ),
-            headerClassName:
-              'h-auto px-0 pb-2 text-right align-bottom text-[10.5px] font-semibold uppercase tracking-wide text-muted-foreground',
-            cellClassName: 'p-0 py-2 pl-3 text-right',
-            cell: (r: BreakdownRow) => <ResponseCell row={r} />,
-          } satisfies ColumnDef<BreakdownRow>,
-        ]
+            {
+              id: 'response',
+              label: 'Response (p50)',
+              header: (
+                <span className="whitespace-nowrap font-semibold">Response (p50)</span>
+              ),
+              headerClassName:
+                'h-auto px-0 pb-2 text-right align-bottom text-[10.5px] font-semibold uppercase tracking-wide text-muted-foreground',
+              cellClassName: 'p-0 py-2 pl-3 text-right',
+              cell: (r: BreakdownRow) => <ResponseCell row={r} />,
+            } satisfies ColumnDef<BreakdownRow>,
+          ]
         : []),
     ],
-    [showResponse],
+    [leadHeader, leadValue, showResponse],
   );
 
   const mgr = useColumnLayout<BreakdownRow>(tableId, columns);

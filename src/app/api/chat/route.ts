@@ -1,6 +1,6 @@
 import { after, NextRequest, NextResponse } from 'next/server';
 import {
-  getAgentGraphForModel,
+  getAgentGraph,
   AIMessage,
   extractFirstTurn,
   type ModelChoice,
@@ -87,10 +87,9 @@ export async function POST(req: NextRequest) {
       body.model === 'opus' ? 'opus' : 'sonnet';
 
     const db = createDb();
-    const { chatService, copilotChatsService, chatAttachmentService } = createContainer(
-      db,
-      await getActiveWorkspaceId(),
-    );
+    const workspaceId = await getActiveWorkspaceId();
+    const { chatService, copilotChatsService, chatAttachmentService, workspaceService } =
+      createContainer(db, workspaceId);
 
     // Composer attachments the client is carrying for this turn. Each is an S3
     // key under the workspace's `chat-attachments/` prefix plus display
@@ -207,7 +206,11 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    const agent = await getAgentGraphForModel(modelChoice);
+    // The workspace picks its Copilot flavor ('mna' — M&A/acquisitions — or
+    // 'investment' — funds & investing). Resolve it and select the matching
+    // agent graph for the requested model; defaults to 'mna' when unset.
+    const copilotAgent = await workspaceService.getCopilotAgent(workspaceId);
+    const agent = await getAgentGraph(copilotAgent, modelChoice);
     if (!agent) {
       return NextResponse.json(
         {

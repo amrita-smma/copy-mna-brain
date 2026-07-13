@@ -633,11 +633,13 @@ function NotesModal({ event, onClose }: NotesModalProps) {
 
 interface DashboardProps {
   showCompanyGraph?: boolean;
+  showFundManagement?: boolean;
   showInsightsDashboard?: boolean;
 }
 
 export default function Dashboard({
   showCompanyGraph = false,
+  showFundManagement = false,
   showInsightsDashboard = false,
 }: DashboardProps) {
   const [loading, setLoading] = useState(true);
@@ -1062,7 +1064,10 @@ export default function Dashboard({
 
   if (loading) {
     return (
-      <DashboardLayout showCompanyGraph={showCompanyGraph}>
+      <DashboardLayout
+      showCompanyGraph={showCompanyGraph}
+      showFundManagement={showFundManagement}
+    >
         <div className="flex h-full items-center justify-center">
           <div className="flex flex-col items-center gap-4">
             <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
@@ -1076,7 +1081,10 @@ export default function Dashboard({
   }
 
   return (
-    <DashboardLayout showCompanyGraph={showCompanyGraph}>
+    <DashboardLayout
+      showCompanyGraph={showCompanyGraph}
+      showFundManagement={showFundManagement}
+    >
       <div className="p-6 lg:p-8 space-y-8 animate-fade-in">
         {/* Header */}
         <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between sm:gap-6">

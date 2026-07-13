@@ -40,6 +40,12 @@ async function loadChatCacheEnabled() {
   return chatCacheEnabled;
 }
 
+async function loadFundManagementEnabled() {
+  vi.resetModules();
+  const { fundManagementEnabled } = await import("./flags");
+  return fundManagementEnabled;
+}
+
 describe("Feature Flags", () => {
   const originalEnv = { ...process.env };
 
@@ -90,7 +96,7 @@ describe("Feature Flags", () => {
       expect(result).toBe(true);
     });
 
-    it("should default to false (caching off) when FLAGS is not set", async () => {
+    it("should default to false when FLAGS is not set", async () => {
       delete process.env.FLAGS;
       const chatCacheEnabled = await loadChatCacheEnabled();
       const result = await chatCacheEnabled();
@@ -101,6 +107,43 @@ describe("Feature Flags", () => {
       process.env.FLAGS = JSON.stringify({ CHAT_CACHE_ENABLED: false });
       const chatCacheEnabled = await loadChatCacheEnabled();
       const result = await chatCacheEnabled();
+      expect(result).toBe(false);
+    });
+
+    it("should return false when FLAGS does not contain the key", async () => {
+      process.env.FLAGS = JSON.stringify({ "other-flag": true });
+      const chatCacheEnabled = await loadChatCacheEnabled();
+      const result = await chatCacheEnabled();
+      expect(result).toBe(false);
+    });
+  });
+
+  describe("fundManagementEnabled", () => {
+    it("should return true when FLAGS contains FUND_MANAGEMENT_ENABLED", async () => {
+      process.env.FLAGS = JSON.stringify({ "FUND_MANAGEMENT_ENABLED": true });
+      const fundManagementEnabled = await loadFundManagementEnabled();
+      const result = await fundManagementEnabled();
+      expect(result).toBe(true);
+    });
+
+    it("should return false when FLAGS is not set", async () => {
+      delete process.env.FLAGS;
+      const fundManagementEnabled = await loadFundManagementEnabled();
+      const result = await fundManagementEnabled();
+      expect(result).toBe(false);
+    });
+
+    it("should return false when FLAGS contains FUND_MANAGEMENT_ENABLED: false", async () => {
+      process.env.FLAGS = JSON.stringify({ "FUND_MANAGEMENT_ENABLED": false });
+      const fundManagementEnabled = await loadFundManagementEnabled();
+      const result = await fundManagementEnabled();
+      expect(result).toBe(false);
+    });
+
+    it("should return false when FLAGS does not contain the key", async () => {
+      process.env.FLAGS = JSON.stringify({ "other-flag": true });
+      const fundManagementEnabled = await loadFundManagementEnabled();
+      const result = await fundManagementEnabled();
       expect(result).toBe(false);
     });
   });

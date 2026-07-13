@@ -31,21 +31,35 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { useCopilotAgent } from '@/components/chat/CopilotAgentContext';
 import { StickToBottom, useStickToBottomContext } from 'use-stick-to-bottom';
 import { motion, AnimatePresence } from 'framer-motion';
 import type { UIMessage } from '@ai-sdk/react';
 
-const WELCOME_MESSAGE = `# Hello! I'm your M&A discovery assistant.
+const MNA_WELCOME_MESSAGE = `# Hello! I'm your M&A discovery assistant.
 
 🔍 **Company Discovery** - Find acquisition targets
 🔬 **Deep Dive Analysis** - Detailed assessments
 📊 **Pipeline Insights** - Performance metrics`;
 
-const welcomeUIMessage: UIMessage = {
-  id: 'welcome-pane',
-  role: 'assistant',
-  parts: [{ type: 'text', text: WELCOME_MESSAGE }],
-};
+const INVESTMENT_WELCOME_MESSAGE = `# Hello! I'm your Investment Assistant.
+
+💼 **Fund Asset Deep Dive** - Detailed fund and asset analysis
+📊 **Asset Statistics** - Performance and allocation metrics
+👥 **Investor Analysis** - LP profiles and investor insights`;
+
+function makeWelcomeMessage(agentType: 'mna' | 'investment'): UIMessage {
+  return {
+    id: 'welcome-pane',
+    role: 'assistant',
+    parts: [
+      {
+        type: 'text',
+        text: agentType === 'investment' ? INVESTMENT_WELCOME_MESSAGE : MNA_WELCOME_MESSAGE,
+      },
+    ],
+  };
+}
 
 function ScrollContent({ children }: { children: React.ReactNode }) {
   const context = useStickToBottomContext();
@@ -156,6 +170,8 @@ function ChatInput({ isExpanded }: { isExpanded: boolean }) {
 function ChatContent({ isExpanded }: { isExpanded: boolean }) {
   const { messages, status, cacheHit } = useChatContext();
   const isStreaming = status === 'streaming';
+  const agentType = useCopilotAgent();
+  const welcomeUIMessage = makeWelcomeMessage(agentType);
 
   return (
     <StickToBottom className="flex-1 flex flex-col min-h-0">

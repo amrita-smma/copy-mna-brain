@@ -13,9 +13,13 @@ import { cn } from '@/lib/utils';
 
 interface AIDiscoveryProps {
   showCompanyGraph?: boolean;
+  showFundManagement?: boolean;
 }
 
-export default function AIDiscovery({ showCompanyGraph = false }: AIDiscoveryProps) {
+export default function AIDiscovery({
+  showCompanyGraph = false,
+  showFundManagement = false,
+}: AIDiscoveryProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
 
@@ -27,7 +31,10 @@ export default function AIDiscovery({ showCompanyGraph = false }: AIDiscoveryPro
   }, [searchParams, router]);
 
   return (
-    <DashboardLayout showCompanyGraph={showCompanyGraph}>
+    <DashboardLayout
+      showCompanyGraph={showCompanyGraph}
+      showFundManagement={showFundManagement}
+    >
       <div className="flex flex-col h-screen p-6">
         {/* Header - AI CoPilot */}
         <div className="relative mb-6 flex-shrink-0">

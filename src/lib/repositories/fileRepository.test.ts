@@ -9,7 +9,7 @@ function makeDb() {
 describe('FileRepository.removeMatchedCompany', () => {
   it('issues a single UPDATE against the files table', async () => {
     const { db, execute } = makeDb();
-    const repo = new FileRepository(db);
+    const repo = new FileRepository(db, 'workspace-1');
 
     await repo.removeMatchedCompany('company-1');
 
@@ -18,7 +18,7 @@ describe('FileRepository.removeMatchedCompany', () => {
 
   it('binds the company id into the statement so only matching files are rewritten', async () => {
     const { db, execute } = makeDb();
-    const repo = new FileRepository(db);
+    const repo = new FileRepository(db, 'workspace-1');
 
     await repo.removeMatchedCompany('company-1');
 

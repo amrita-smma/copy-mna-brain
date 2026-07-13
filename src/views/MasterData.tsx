@@ -174,9 +174,13 @@ const getRevenueChange = (year2: number | null, year3: number | null): { directi
 
 interface MasterDataProps {
   showCompanyGraph?: boolean;
+  showFundManagement?: boolean;
 }
 
-export default function MasterData({ showCompanyGraph = false }: MasterDataProps) {
+export default function MasterData({
+  showCompanyGraph = false,
+  showFundManagement = false,
+}: MasterDataProps) {
   const [companies, setCompanies] = useState<CompanyWithDeal[]>([]);
   // Companies the relationship-graph tooling auto-created (stage "discovered").
   // They sit outside the L0–L5 pipeline, so they get their own section below.
@@ -599,7 +603,10 @@ export default function MasterData({ showCompanyGraph = false }: MasterDataProps
 
   if (loading) {
     return (
-      <DashboardLayout showCompanyGraph={showCompanyGraph}>
+      <DashboardLayout
+      showCompanyGraph={showCompanyGraph}
+      showFundManagement={showFundManagement}
+    >
         <div className="flex h-full items-center justify-center">
           <Loader2 className="h-8 w-8 animate-spin text-primary" />
         </div>
@@ -608,7 +615,10 @@ export default function MasterData({ showCompanyGraph = false }: MasterDataProps
   }
 
   return (
-    <DashboardLayout showCompanyGraph={showCompanyGraph}>
+    <DashboardLayout
+      showCompanyGraph={showCompanyGraph}
+      showFundManagement={showFundManagement}
+    >
       <div className="p-6 space-y-6 animate-fade-in">
         {/* Header */}
         <div className="flex items-center justify-between">

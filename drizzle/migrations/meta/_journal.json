@@ -701,6 +701,69 @@
       "when": 1783468800000,
       "tag": "20260708000000_workspace_fk_on_delete_cascade",
       "breakpoints": true
+    },
+    {
+      "idx": 100,
+      "version": "7",
+      "when": 1783814401000,
+      "tag": "20260712000001_add_fund_management",
+      "breakpoints": true
+    },
+    {
+      "idx": 101,
+      "version": "7",
+      "when": 1783814402000,
+      "tag": "20260712000002_add_fund_description",
+      "breakpoints": true
+    },
+    {
+      "idx": 102,
+      "version": "7",
+      "when": 1783814403000,
+      "tag": "20260712000003_add_funding_sources_table",
+      "breakpoints": true
+    },
+    {
+      "idx": 103,
+      "version": "7",
+      "when": 1783814404000,
+      "tag": "20260712000004_relax_fund_investor_stake_nulls",
+      "breakpoints": true
+    },
+    {
+      "idx": 104,
+      "version": "7",
+      "when": 1783814405000,
+      "tag": "20260712000005_add_precalculated_metrics",
+      "breakpoints": true
+    },
+    {
+      "idx": 105,
+      "version": "7",
+      "when": 1783814406000,
+      "tag": "20260712000006_refactor_funds_architecture",
+      "breakpoints": true
+    },
+    {
+      "idx": 106,
+      "version": "7",
+      "when": 1783814407000,
+      "tag": "20260712000007_add_fund_asset_manual_flag",
+      "breakpoints": true
+    },
+    {
+      "idx": 107,
+      "version": "7",
+      "when": 1783814408000,
+      "tag": "20260712000008_add_workspace_copilot_agent",
+      "breakpoints": true
+    },
+    {
+      "idx": 108,
+      "version": "7",
+      "when": 1783900800000,
+      "tag": "20260713000000_fix_holding_entity_source_delete_rules",
+      "breakpoints": true
     }
   ]
 }

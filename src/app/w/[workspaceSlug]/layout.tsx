@@ -1,6 +1,10 @@
 import { ReactNode } from 'react';
 import { redirect } from 'next/navigation';
 import { auth } from '@/auth';
+import { createDb } from '@/lib/server/db';
+import { createContainer } from '@/lib/services';
+import { MNA_WORKSPACE_ID } from '@/lib/constants';
+import { CopilotAgentProvider } from '@/components/chat/CopilotAgentContext';
 
 /**
  * Membership gate for every `/w/[workspaceSlug]/...` route. `proxy.ts`
@@ -26,11 +30,16 @@ export default async function WorkspaceLayout({
   }
 
   const { workspaceSlug } = await params;
-  const isMember =
-    session.user.isSuperadmin || session.user.workspaces.some((w) => w.slug === workspaceSlug);
+  const membership = session.user.workspaces.find((w) => w.slug === workspaceSlug);
+  const isMember = session.user.isSuperadmin || !!membership;
   if (!isMember) {
     redirect('/workspace');
   }
 
-  return <>{children}</>;
+  const workspaceId = membership?.workspaceId ?? MNA_WORKSPACE_ID;
+  const db = createDb();
+  const { workspaceService } = createContainer(db, workspaceId);
+  const copilotAgent = await workspaceService.getCopilotAgent(workspaceId);
+
+  return <CopilotAgentProvider agentType={copilotAgent}>{children}</CopilotAgentProvider>;
 }

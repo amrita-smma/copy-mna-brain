@@ -297,7 +297,7 @@ describe('CompanyRepository.searchForAgent', () => {
 
   it('renders inclusive created_at bounds for createdAfter/createdBefore', async () => {
     const { db, where } = makeAgentSearchDb([]);
-    const repo = new CompanyRepository(db);
+    const repo = new CompanyRepository(db, 'workspace-1');
 
     await repo.searchForAgent({
       createdAfter: '2026-01-01',
@@ -314,7 +314,7 @@ describe('CompanyRepository.searchForAgent', () => {
 
   it('always excludes discovered-stage companies from the search', async () => {
     const { db, where } = makeAgentSearchDb([]);
-    const repo = new CompanyRepository(db);
+    const repo = new CompanyRepository(db, 'workspace-1');
 
     await repo.searchForAgent({});
 
@@ -328,7 +328,7 @@ describe('CompanyRepository.searchForAgent', () => {
 describe('CompanyRepository.findForAgentStats', () => {
   it('always excludes discovered-stage companies from the snapshot', async () => {
     const { db, where } = makeAgentSearchDb([]);
-    const repo = new CompanyRepository(db);
+    const repo = new CompanyRepository(db, 'workspace-1');
 
     await repo.findForAgentStats({});
 
@@ -340,7 +340,7 @@ describe('CompanyRepository.findForAgentStats', () => {
 
   it('excludes discovered even alongside other filters', async () => {
     const { db, where } = makeAgentSearchDb([]);
-    const repo = new CompanyRepository(db);
+    const repo = new CompanyRepository(db, 'workspace-1');
 
     await repo.findForAgentStats({ segment: 'Tech' });
 

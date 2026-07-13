@@ -41,6 +41,13 @@ import {
   WorkspaceRepository,
   RoleRepository,
   WorkspaceCorrespondentRepository,
+  FundRepository,
+  HoldingEntityRepository,
+  FundSourceRepository,
+  FundHoldingEntityStakeRepository,
+  FundAssetRepository,
+  FundAssetTransactionRepository,
+  FundAssetValuationRepository,
 } from '@/lib/repositories';
 import { JobDispatcher } from './jobDispatcher';
 import { CompanyService } from './companyService';
@@ -79,6 +86,12 @@ import { NotificationService } from './notificationService';
 import { WorkspaceService } from './workspaceService';
 import { DealResurfaceService } from './dealResurfaceService';
 import { ChatAttachmentService } from './chatAttachmentService';
+import { FundService } from './fundService';
+import { HoldingEntityService } from './holdingEntityService';
+import { FundSourceService } from './fundSourceService';
+import { FundHoldingEntityStakeService } from './fundHoldingEntityStakeService';
+import { FundAssetLedgerService } from './fundAssetLedgerService';
+import { FundMetricsService } from './fundMetricsService';
 import { StalledDealService } from './stalledDealService';
 
 export interface Container {
@@ -116,6 +129,12 @@ export interface Container {
   workspaceService: WorkspaceService;
   dealResurfaceService: DealResurfaceService;
   chatAttachmentService: ChatAttachmentService;
+  fundService: FundService;
+  holdingEntityService: HoldingEntityService;
+  fundSourceService: FundSourceService;
+  fundHoldingEntityStakeService: FundHoldingEntityStakeService;
+  fundAssetLedgerService: FundAssetLedgerService;
+  fundMetricsService: FundMetricsService;
   stalledDealService: StalledDealService;
 }
 
@@ -274,6 +293,33 @@ export function createContainer(db: DbClient, workspaceId: string): Container {
 
   const chatAttachmentService = new ChatAttachmentService(workspaceId);
 
+  const fundRepo = new FundRepository(db, workspaceId);
+  const fundAssetRepo = new FundAssetRepository(db, workspaceId);
+  const fundAssetTransactionRepo = new FundAssetTransactionRepository(db, workspaceId);
+  const fundAssetValuationRepo = new FundAssetValuationRepository(db, workspaceId);
+  const fundMetricsService = new FundMetricsService(
+    fundRepo,
+    fundAssetRepo,
+    fundAssetTransactionRepo,
+    fundAssetValuationRepo,
+  );
+  const fundService = new FundService(fundRepo, fundAssetRepo, fundMetricsService);
+  const holdingEntityRepo = new HoldingEntityRepository(db, workspaceId);
+  const holdingEntityService = new HoldingEntityService(holdingEntityRepo);
+  const fundSourceRepo = new FundSourceRepository(db, workspaceId);
+  const fundSourceService = new FundSourceService(fundSourceRepo);
+  const fundHoldingEntityStakeRepo = new FundHoldingEntityStakeRepository(db, workspaceId);
+  const fundHoldingEntityStakeService = new FundHoldingEntityStakeService(
+    fundHoldingEntityStakeRepo,
+    fundRepo,
+    holdingEntityRepo,
+  );
+  const fundAssetLedgerService = new FundAssetLedgerService(
+    fundAssetTransactionRepo,
+    fundAssetValuationRepo,
+    fundMetricsService,
+  );
+
   const stalledDealService = new StalledDealService(companyRepo, companyLogRepo);
 
   return {
@@ -311,6 +357,12 @@ export function createContainer(db: DbClient, workspaceId: string): Container {
     workspaceService,
     dealResurfaceService,
     chatAttachmentService,
+    fundService,
+    holdingEntityService,
+    fundSourceService,
+    fundHoldingEntityStakeService,
+    fundAssetLedgerService,
+    fundMetricsService,
     stalledDealService,
   };
 }

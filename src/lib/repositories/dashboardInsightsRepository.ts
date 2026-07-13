@@ -136,14 +136,9 @@ export class DashboardInsightsRepository {
     return rows.map((r) => ({ stage: String(r.stage), count: Number(r.count) }));
   }
 
-  /**
-   * Dropped companies per pipeline stage, for funnel companies created in the
-   * window, grouped by the stage they were dropped at (their current
-   * `pipeline_stage`). This mirrors the main dashboard cohort's per-stage
-   * `dropped` bucket and is the complement to {@link getStageCounts} (which
-   * scopes to `status = 'active'`): together they let the L0→L1 conversion use
-   * the pipeline-stages formula `promoted / (promoted + dropped)`.
-   */
+  /** Headcount per pipeline stage for **dropped** funnel companies created in
+   * the window. Used alongside {@link getStageCounts} to form the full L0 cohort
+   * (active + dropped) for the L0→L1 conversion rate. */
   async getDroppedStageCounts(from: Date, to: Date): Promise<{ stage: string; count: number }[]> {
     const rows = await this.db
       .select({ stage: companies.pipeline_stage, count: drizzleCount() })
@@ -287,19 +282,23 @@ export class DashboardInsightsRepository {
 
   /** Segment breakdown on the deal-funnel (cohort-by-current-stage) basis. */
   getSegmentBreakdown(from: Date, to: Date): Promise<DimensionStageCount[]> {
-    return this.cohortBreakdownByKey(sql`${companies.segment}`, from, to);
+    return this.breakdownByKey(sql`${companies.segment}`, from, to);
   }
 
   /** Country breakdown on the deal-funnel (cohort-by-current-stage) basis. */
   getCountryBreakdown(from: Date, to: Date): Promise<DimensionStageCount[]> {
-    return this.cohortBreakdownByKey(sql`${companies.geography}`, from, to);
+    return this.breakdownByKey(sql`${companies.geography}`, from, to);
   }
 
   /** Banker breakdown keyed on the company's `banker` field. Rows with an empty
    * `banker` are dropped downstream (`buildBreakdown` skips blank keys), so only
    * companies with a named banker contribute to the card. */
   getBankerBreakdown(from: Date, to: Date): Promise<DimensionStageCount[]> {
-    return this.breakdownByKey(sql`nullif(${companies.banker}, '')`, from, to);
+    return this.breakdownByKey(
+      sql`coalesce(nullif(${companies.banker}, ''), ${companies.banker_source})`,
+      from,
+      to,
+    );
   }
 
   /**

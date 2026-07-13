@@ -8,6 +8,16 @@ import type {
   WorkspaceRepository,
 } from '@/lib/repositories';
 import { MNA_WORKSPACE_ID } from '@/lib/constants';
+import type { CopilotAgentType } from '@/lib/agents/analysis';
+
+/** The AI Copilot flavors a workspace can be set to. Source of truth for
+ *  validating the `copilot_agent` column and the PATCH payload. */
+export const COPILOT_AGENTS: readonly CopilotAgentType[] = ['mna', 'investment'] as const;
+
+/** Narrow an arbitrary string to a valid CopilotAgentType, defaulting to 'mna'. */
+export function normalizeCopilotAgent(value: string | null | undefined): CopilotAgentType {
+  return value === 'investment' ? 'investment' : 'mna';
+}
 
 /** Raised when a role name passed to addMember/setMemberRole isn't a seeded role. */
 export class RoleNotFoundError extends Error {
@@ -97,6 +107,22 @@ export class WorkspaceService {
 
   updateWorkspaceSlug(id: string, slug: string): Promise<Tables<'workspaces'> | undefined> {
     return this.workspaceRepo.update(id, { slug });
+  }
+
+  /**
+   * The AI Copilot flavor this workspace uses. Defaults to 'mna' when unset or
+   * holding an unexpected value, so callers can rely on a valid CopilotAgentType.
+   */
+  async getCopilotAgent(id: string): Promise<CopilotAgentType> {
+    const ws = await this.workspaceRepo.findById(id);
+    return normalizeCopilotAgent(ws?.copilot_agent);
+  }
+
+  updateCopilotAgent(
+    id: string,
+    agent: CopilotAgentType,
+  ): Promise<Tables<'workspaces'> | undefined> {
+    return this.workspaceRepo.update(id, { copilot_agent: agent });
   }
 
   listRoles(): Promise<Tables<'roles'>[]> {

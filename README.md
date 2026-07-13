@@ -321,6 +321,35 @@ Layering follows the project's handler → service → repository convention:
 > **Not yet included:** per-key rate limiting. Add Vercel WAF rate rules or an
 > Upstash-backed limiter before exposing this to untrusted clients.
 
+## Copilot flavors (M&A vs Investment)
+
+The in-app Copilot ships in two selectable flavors, chosen per workspace:
+
+- **`mna`** (default) — the M&A / acquisitions assistant: company/CRM tools,
+  pipeline analysis, and Workforce handoffs (`CHAT_SYSTEM_PROMPT` +
+  `DEFAULT_TOOL_LIST`).
+- **`investment`** — the funds & investing assistant: read-only tools to see and
+  analyze the workspace's funds, assets/holdings, investors (LPs), and fund
+  sources, plus web search (`INVESTMENT_SYSTEM_PROMPT` + `INVESTMENT_TOOL_LIST`,
+  backed by the fund tools in `src/lib/agents/analysis/tools/`:
+  `get_fund_data_schema`, `query_funds`, `query_fund_assets`, `query_investors`,
+  `query_fund_sources`).
+
+How it's wired:
+
+- The choice persists on `workspaces.copilot_agent` (a text column, default
+  `'mna'`; migration `20260712000000_add_workspace_copilot_agent`).
+- A superadmin picks the flavor from the **AI Copilot** dropdown in the workspace
+  configuration panel (`/admin-portal`), which `PATCH`es
+  `/api/workspaces/{id}` with `{ copilot_agent }`.
+- `WorkspaceService.getCopilotAgent` / `updateCopilotAgent` read and write it;
+  `COPILOT_AGENTS` / `normalizeCopilotAgent` (in `workspaceService.ts`) are the
+  validation source of truth.
+- `/api/chat` resolves the active workspace's flavor and calls
+  `getAgentGraph(copilotAgent)`; the agent layer memoizes one `AgentGraph`
+  singleton per flavor (they share the same checkpointer, so a thread's history
+  is readable regardless of the active flavor).
+
 ## In-app Copilot chat caching
 
 The in-app Copilot (`/api/chat` + `src/components/chat/ChatProvider.tsx`)
@@ -656,27 +685,59 @@ Notifications are best-effort: the reactivation stands even if no recipient can
 be resolved or the queue is unavailable. A manual restore from the UI cancels
 any pending resurface schedule.
 
-## Stalled-deal analysis
+### Fund Management
 
-The Copilot analysis agent exposes an `analyze_stalled_deals` tool that surfaces
-active deals losing momentum — ones parked in the same pipeline stage for too
-long (default **2 weeks**, configurable via `stalled_weeks`; optionally scoped
-to a single `L0`–`L5` stage).
+The **Fund Management** page (`/fund-management`, nav item gated by the
+`FUND_MANAGEMENT_ENABLED` feature flag / `fundManagementEnabled` in
+`src/lib/flags.ts`) presents funds, their holdings, per-holding transaction and
+quarterly-valuation ledgers, editable fee structures, and by-investment-entity /
+by-source-of-fund rollups. Money fields use a currency input (USD/IDR prefix,
+live comma grouping, compact `$2M`/`$2k` on save). Editable numbers include
+transactions, current share price, fee rates, quarterly snapshots, and
+fund/holding financials, with live recomputation of MOIC / IRR / DPI and all
+downstream metrics.
 
-There is no dedicated "stage entered at" column, so time-in-stage is
-reconstructed from the `company_logs` audit trail. `StalledDealService`
-(`src/lib/services/stalledDealService.ts`, wired in `container.ts`):
+Funds, holdings, and their ledgers are backed by the Fund Management API
+(`/api/funds/*` → `FundService` / `FundAssetLedgerService` /
+`FundMetricsService`). **Investment Entities** and **Sources of Fund** are
+persisted too: the `investors` table (`/api/investors`, `InvestorService`) and
+the `fund_sources` table (`/api/fund-sources`, `FundSourceService`). The Add
+Asset drawer picks an entity + source from these lists. The **By Investment
+Entity** tab is an LP pro-rata view backed by `fund_investor_stakes`
+(`/api/investor-stakes`, `FundInvestorStakeService`): each entity holds a
+committed stake in one or more funds, and Commitment / Invested / Unrealized MV
+/ Net Gain / MOIC are that entity's `fund total × (committed ÷ fund commitment
+size)` summed across funds (edit an entity's per-fund stakes inline via
+✎ stakes). The **By Source of Fund** tab groups each fund's live holdings by
+`funding_source` (unmatched → "Others"). The view (`src/views/FundManagement.tsx`) is a
+modular React implementation styled with Tailwind + the app's shadcn design
+tokens (`bg-card`, `text-muted-foreground`, `bg-accent`, `text-success`, …), so
+it is theme-aware and matches the rest of the app in light and dark. It is split
+into co-located, single-responsibility modules under `src/views/fundManagement/`:
 
-1. pulls every `active` deal in the `L0`–`L5` funnel
-   (`CompanyRepository.findForAgentStats`),
-2. bulk-loads their logs (`CompanyLogRepository.findByCompanyIds`) and, for each
-   deal, finds the most recent stage-move action whose destination equals the
-   current stage (`PROMOTED_FROM_X_TO_Y` / `PROMOTED_TO_Y` / `RESTORED_TO_Y` /
-   `RESURFACED_TO_Y`), falling back to `companies.created_at` when no such log
-   exists, and
-3. computes whole days-in-stage as of "today", flags deals at/over the
-   threshold, and builds a chronological stage timeline per deal.
+- `types.ts` — domain types (`Fund`, `Holding`, `Inv`, `Txn`, `Quarter`, `Investor`).
+- `seed.ts` — the typed seed dataset (the single source of truth for the
+  starting funds/holdings/investors; edit here to change what loads).
+- `calc.ts` — pure calc + formatting (`computeInv`, `computeFoF`,
+  `portfolioTotals`, `collectHoldingsByEntity` / `collectHoldingsBySource`,
+  money/growth helpers).
+- `CurrencyInput.tsx` — the USD/IDR currency amount editor (`CurrencyInput`,
+  `MoneyInlineEdit`) + `formatCompact` / `formatGrouped` helpers.
+- `glossary.ts` + `parts.tsx` — the glossary definitions and shared primitives
+  (`GlossaryTerm` dotted-term tooltip, `Pill`, `DeltaBadge`, `MiniSpark`).
+- `MetricCards.tsx` — the four header cards (Total Commitment, Total Invested,
+  Unrealized Market Value, Total Value).
+- `MoneyBreakdown.tsx` — the stacked "Money breakdown" bar (by fund / by holding type).
+- `FundTable.tsx` + `HoldingDetail.tsx` — the "By fund" table (expandable funds →
+  holdings → tabbed detail panel: Performance, Company & legal, Business, Share
+  economics, Transactions, Historical value; the FoF variant swaps in a Capital
+  account tab). The current share price on Share economics is editable and
+  recomputes MOIC / IRR / return live.
+- `InvestorTable.tsx` — the "By Investment Entity" LP pro-rata rollup (per-fund
+  stake breakdown, `✎ stakes` inline editor) backed by `fund_investor_stakes`.
+- `SourceTable.tsx` — the "By Source of Fund" rollup, grouping the live holdings
+  by `funding_source` (with an "Others" bucket); both tabs have an inline
+  "Add …" header button.
 
-The tool renders a markdown report: a summary count, a stalled-deals table
-ordered by days-in-stage, per-deal timelines, and a compact table of the
-remaining within-threshold actives.
+The flag prop `showFundManagement` is threaded through every page and view
+alongside `showCompanyGraph` so the nav item renders consistently.

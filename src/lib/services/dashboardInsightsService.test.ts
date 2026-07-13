@@ -303,17 +303,16 @@ describe('DashboardInsightsService.getInsights', () => {
     expect(segments[0]).toMatchObject({ key: 'Seg7', l0: 24 });
   });
 
-  it('returns every banker row sorted descending by lead volume (UI paginates)', async () => {
-    // 9 bankers — more than one page — to prove no slicing happens; the card
-    // paginates client-side like segments/countries.
+  it('keeps bankers capped at the fixed top-N by lead volume', async () => {
     repo.getBankerBreakdown.mockResolvedValue(
       Array.from({ length: 9 }, (_, i) => dim(`Bank${i}`, 'L0', i + 1)),
     );
 
     const { bankers } = await service.getInsights(FROM, TO, NOW);
 
-    expect(bankers).toHaveLength(9);
-    expect(bankers[0].key).toBe('Bank8'); // highest lead volume first
+    // Still capped at 6 rows (top by total leads), unlike segments/countries.
+    expect(bankers).toHaveLength(6);
+    expect(bankers[0].key).toBe('Bank8');
   });
 
   it('attaches each banker its response p50 + distribution, matched by firm name', async () => {

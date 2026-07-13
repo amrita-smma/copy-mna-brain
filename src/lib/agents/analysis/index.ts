@@ -55,7 +55,12 @@ const WORKFORCE_HITL_MIDDLEWARE = humanInTheLoopMiddleware({
   },
 });
 import pg from "pg";
-import { tools, chatOnlyTools, workforceOnlyTools } from "./tools";
+import {
+  tools,
+  chatOnlyTools,
+  workforceOnlyTools,
+  investmentTools,
+} from "./tools";
 
 // Chat tool list: base + chat-only (e.g. propose_workforce_handoff).
 const DEFAULT_TOOL_LIST = [...tools, ...chatOnlyTools];
@@ -65,13 +70,23 @@ const DEFAULT_TOOL_LIST = [...tools, ...chatOnlyTools];
 // gets workforce-only tools (no direct writes — must go through handoff).
 const WORKFORCE_TOOL_LIST = [...tools, ...workforceOnlyTools];
 
+// Investment tool list: the read-only funds/investing tool set (funds, assets,
+// investors, fund sources + web search). Wholly separate from the M&A tools —
+// the "investment" Copilot flavor sees ONLY these.
+const INVESTMENT_TOOL_LIST = [...investmentTools];
+
+// The two user-selectable Copilot flavors. Persisted per-workspace on
+// `workspaces.copilot_agent` and resolved by the chat route.
+export type CopilotAgentType = "mna" | "investment";
+
 // Permissive union element type so a single function signature accepts
-// either array. Both arrays contain langchain tool() results — the
+// any of these arrays. Each contains langchain tool() results — the
 // structural shape is the same, only the specific subset differs.
 type ToolList = Array<
   | (typeof tools)[number]
   | (typeof chatOnlyTools)[number]
   | (typeof workforceOnlyTools)[number]
+  | (typeof investmentTools)[number]
 >;
 import { logger } from "../logger";
 import {
@@ -272,6 +287,59 @@ A weak EBITDA does **not** block the handoff — the user can still assign it vi
 - If a user asks about a company, proactively check if there are any related files to provide a more comprehensive answer.
 - **NEVER** assume internal knowledge is complete without searching files first.
 - **ALWAYS check files** (query_files) when a user asks about discussion history, specific deal context, or what we know about a company's internal strategy or previous meetings.`;
+
+const INVESTMENT_SYSTEM_PROMPT = `You are an intelligent Investment & Funds Analysis Assistant that helps users explore and analyze their fund portfolio: the funds themselves, the assets/holdings inside them, the investors (LPs) behind them, and the sources of capital that back them.
+
+You have access to the following tools:
+
+1. **get_fund_data_schema** - Describes the fund/investment data model (funds, fund assets, investors/LPs, fund sources) and the metrics available on each. Call this first when unsure which tool to use or what fields exist.
+2. **query_funds** - List the funds in this workspace with headline performance (commitment, called, FMV, realized, DPI, TVPI, IRR). Optionally filter by status (investing / harvesting / closed).
+3. **query_fund_assets** - List the assets (holdings) across funds with per-asset performance (invested capital, distributions, FMV, MOIC, DPI, IRR). Omit \`fund\` for the whole portfolio; pass a fund name to drill into one fund; optionally filter by asset status.
+4. **query_investors** - List the investors / limited partners (LPs) with their aggregate returns (invested, realized, FMV, DPI, MOIC, IRR).
+5. **query_fund_sources** - List the funding sources / capital pools ("sources of fund") with their aggregate returns.
+6. **web_search** - Search the web for external market data, benchmarks, comparable funds/deals, and macro context.
+
+## How to Help Users
+
+1. **For portfolio-level questions** ("what funds do we have?", "which fund has the best TVPI?", "show me our harvesting funds"): use query_funds.
+2. **For holding-level questions** ("what are our largest positions?", "show the assets in Fund II", "which holdings are exited?"): use query_fund_assets — scope to a fund by name when the user names one.
+3. **For investor/LP questions** ("who are our LPs?", "which investor has the most capital deployed?"): use query_investors.
+4. **For capital-source questions** ("what are our sources of capital?", "which pool has the best MOIC?"): use query_fund_sources.
+5. **For market context, benchmarks, or comparables**: use web_search (e.g. "typical net TVPI for a 2021-vintage growth fund", "median hold period for software buyouts").
+6. **When unsure what data exists**: call get_fund_data_schema first.
+
+## CRITICAL: Web Search Fallback and Proactive Use
+
+**Use web_search when internal data is insufficient or when the question is inherently external:**
+
+1. **Missing/incomplete data:** If a fund, asset, investor, or source is found but key metrics are missing/null, or the entity isn't in the workspace at all, use web_search to supplement.
+2. **Benchmarking:** Any request to compare portfolio performance "to market", "vs peers", "industry benchmark", "typical IRR/TVPI/DPI" → use web_search for external reference points, then contrast with the internal numbers.
+3. **Comparables & context:** Comparable funds, recent fundraising, sector/vintage trends, macro conditions → web_search.
+
+**Pattern to follow:**
+- First, pull the internal picture (query_funds / query_fund_assets / query_investors / query_fund_sources).
+- If data is missing or the user wants external comparison → web_search.
+- Combine internal data with web results, and clearly label which is which.
+
+## Thinking and Final Response
+
+- When you begin your internal reasoning (before using tools or answering), output exactly: \`<!-- THINKING_START -->\` on its own line, then write your reasoning.
+- When you have finished your internal reasoning and are about to write the final answer to the user, output exactly: \`<!-- THINKING_END -->\` on its own line, then provide your response.
+- Do not include \`<!-- THINKING_START -->\` or \`<!-- THINKING_END -->\` inside the response text; they are only delimiters. Content between them is shown as "Thinking"; content after \`<!-- THINKING_END -->\` is the final answer.
+
+## Response Guidelines
+
+- Always explain what you found in plain language and surface the meaningful takeaway (e.g. concentration, top/bottom performers, realized vs unrealized split).
+- When combining internal data with web search results, clearly distinguish between the two.
+- Format financial numbers clearly (use $M for millions, $B for billions). Report DPI/TVPI/MOIC as multiples (e.g. 1.8x) and IRR as a percentage.
+- Be concise but thorough.
+
+## Important Notes
+
+- This assistant is READ-ONLY: you can see and analyze funds, assets, investors, and fund sources, but you do not modify any records.
+- All fund/asset/investor/source metrics (called, FMV, realized, DPI, TVPI, MOIC, IRR) are precomputed rollups — report them as-is; do not attempt to recompute them from scratch.
+- Amounts are expressed in each entity's report/base currency; note the currency when it matters.
+- When a user names a specific fund, resolve it via query_fund_assets/query_funds rather than guessing.`;
 
 const WORKFORCE_SYSTEM_PROMPT = `You are an AI Workforce agent. You execute a single delegated M&A task end-to-end and return a concise structured report.
 
@@ -719,10 +787,12 @@ export class AgentGraph {
   }
 }
 
-// Singletons keyed by ModelChoice. chat and workforce graphs share the same
+// Chat graphs are keyed by `${agentType}:${model}` — the workspace-selected
+// Copilot flavor ('mna' | 'investment') crossed with the model ('sonnet' |
+// 'opus'). Workforce graphs are keyed by model. All share the same
 // checkpointer; thread_id namespaces conversations (copilot_chats.id vs
 // ai_workforce_queue.id).
-const chatAgentGraphs = new Map<ModelChoice, AgentGraph>();
+const chatAgentGraphs = new Map<string, AgentGraph>();
 const workforceAgentGraphs = new Map<ModelChoice, AgentGraph>();
 let statelessAgentGraph: AgentGraph | null = null;
 let checkpointerSetupPromise: Promise<PostgresSaver> | null = null;
@@ -826,29 +896,39 @@ async function buildAgentGraph(
 }
 
 /**
- * Singleton for the copilot chat agent for a specific model. Includes
- * chat-only tools like propose_workforce_handoff and uses the chatty,
- * user-facing system prompt.
+ * Singleton(s) for the copilot chat agent, keyed by the workspace-selected
+ * flavor crossed with the model:
+ *   - "mna" (default): M&A / acquisitions tools + the chatty CHAT_SYSTEM_PROMPT,
+ *     including chat-only tools like propose_workforce_handoff.
+ *   - "investment": read-only funds/investing tools (funds, assets, investors,
+ *     fund sources + web search) + INVESTMENT_SYSTEM_PROMPT.
+ *
+ * `model` selects the underlying Claude model ('sonnet' | 'opus'). All flavors
+ * share the same PostgresSaver checkpointer, so a thread's persisted history is
+ * readable regardless of which flavor/model is active. The chat route resolves
+ * the flavor from `workspaces.copilot_agent` and the model from the request.
  */
-export async function getAgentGraphForModel(
-  model: ModelChoice = 'sonnet',
+export async function getAgentGraph(
+  agentType: CopilotAgentType = "mna",
+  model: ModelChoice = "sonnet",
 ): Promise<AgentGraph | null> {
-  const cached = chatAgentGraphs.get(model);
+  const key = `${agentType}:${model}`;
+  const cached = chatAgentGraphs.get(key);
   if (cached) return cached;
-  const graph = await buildAgentGraph(
-    DEFAULT_TOOL_LIST,
-    CHAT_SYSTEM_PROMPT,
-    [],
-    true,
-    model,
-  );
-  if (graph) chatAgentGraphs.set(model, graph);
-  return chatAgentGraphs.get(model) ?? null;
+  const [toolList, systemPrompt] =
+    agentType === "investment"
+      ? [INVESTMENT_TOOL_LIST, INVESTMENT_SYSTEM_PROMPT]
+      : [DEFAULT_TOOL_LIST, CHAT_SYSTEM_PROMPT];
+  const graph = await buildAgentGraph(toolList, systemPrompt, [], true, model);
+  if (graph) chatAgentGraphs.set(key, graph);
+  return chatAgentGraphs.get(key) ?? null;
 }
 
-/** @deprecated Use getAgentGraphForModel('sonnet') */
-export async function getAgentGraph(): Promise<AgentGraph | null> {
-  return getAgentGraphForModel('sonnet');
+/** @deprecated Use getAgentGraph('mna', model) */
+export async function getAgentGraphForModel(
+  model: ModelChoice = "sonnet",
+): Promise<AgentGraph | null> {
+  return getAgentGraph("mna", model);
 }
 
 /**

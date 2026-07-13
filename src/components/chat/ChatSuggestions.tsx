@@ -1,10 +1,11 @@
 "use client";
 
-import { TrendingUp, Briefcase, Activity, Timer } from "lucide-react";
+import { TrendingUp, Briefcase, Activity, Timer, Search, Droplets, Target, Globe } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { useChatContext } from "./ChatProvider";
+import { useCopilotAgent } from "./CopilotAgentContext";
 
 interface ChatSuggestion {
   label: string;
@@ -12,12 +13,7 @@ interface ChatSuggestion {
   icon: LucideIcon;
 }
 
-/**
- * Generic, always-available starter prompts shown in the chat empty state.
- * Clicking one fires the prompt straight to the assistant. Keep these broad
- * (no specific company / project names) so they make sense for any pipeline.
- */
-const CHAT_SUGGESTIONS: ChatSuggestion[] = [
+const MNA_SUGGESTIONS: ChatSuggestion[] = [
   {
     label: "Pipeline Suggestions",
     prompt: "What suggestions do you have to improve my current pipeline?",
@@ -40,13 +36,38 @@ const CHAT_SUGGESTIONS: ChatSuggestion[] = [
   },
 ];
 
+const INVESTMENT_SUGGESTIONS: ChatSuggestion[] = [
+  {
+    label: "Asset Analysis",
+    prompt: "Give me a deep dive analysis of the fund assets and their performance.",
+    icon: Search,
+  },
+  {
+    label: "Liquidity Assessment",
+    prompt: "Evaluate the current liquidity position across all fund assets.",
+    icon: Droplets,
+  },
+  {
+    label: "Strategy Evaluation",
+    prompt: "Review and assess the current investment strategy and its alignment with fund objectives.",
+    icon: Target,
+  },
+  {
+    label: "Macroeconomic Comparison",
+    prompt: "Compare this fund's performance against relevant macroeconomic benchmarks and market trends.",
+    icon: Globe,
+  },
+];
+
 export function ChatSuggestions({ className }: { className?: string }) {
   const { sendWithCacheCheck, status } = useChatContext();
+  const agentType = useCopilotAgent();
   const isBusy = status === "streaming" || status === "submitted";
+  const suggestions = agentType === "investment" ? INVESTMENT_SUGGESTIONS : MNA_SUGGESTIONS;
 
   return (
     <div className={cn("grid grid-cols-1 gap-2 sm:grid-cols-2", className)}>
-      {CHAT_SUGGESTIONS.map((suggestion) => {
+      {suggestions.map((suggestion) => {
         const Icon = suggestion.icon;
         return (
           <button

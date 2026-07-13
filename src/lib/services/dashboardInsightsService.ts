@@ -58,6 +58,9 @@ export const STALE_STAGES = ['L0', 'L1', 'L2', 'L3'] as const;
 /** Most-overdue deals to surface in the stale list. */
 const MAX_STALE_ROWS = 8;
 
+/** Maximum banker rows returned in the breakdown (top by total leads). */
+const MAX_BREAKDOWN_ROWS = 6;
+
 const MS_PER_DAY = 1000 * 60 * 60 * 24;
 
 /** Base period the configurable funnel targets are expressed over. Targets are
@@ -208,12 +211,9 @@ export class DashboardInsightsService {
   }
 
   /**
-   * Assemble the Insights dashboard for the given window. `totalInPipeline`
-   * counts active companies created within `[from, to]` by their current stage.
-   * `l0l1Conversion` uses the main dashboard's "Pipeline Stages" formula —
-   * `l1plus / cohortTotal`, the cumulative share of the whole L0 cohort (active +
-   * dropped) that reached L1 or beyond — so the Insights and Dashboard views
-   * report the same rate. These sit alongside the period-scoped
+   * Assemble the Insights dashboard for the given window. The current-snapshot
+   * KPIs (`totalInPipeline`, `l0l1Conversion`) count active companies created
+   * within `[from, to]` by their current stage, alongside the period-scoped
    * activity counters (new deals, AI throughput). The `funnel` and the segment
    * / country / banker breakdowns instead reflect companies *added to* each
    * stage during the window (created there or moved in) — covering **all**
@@ -329,17 +329,15 @@ export class DashboardInsightsService {
       funnel,
       staleThresholdLabel: formatStaleThresholdLabel(settings.staleThresholds),
       staleDeals: staleDeals.slice(0, MAX_STALE_ROWS),
-      // Segments & countries follow the DEAL FUNNEL: the cohort created in the
-      // window, bucketed by where each company sits today. Building off the
-      // `total` base makes the counts cumulative — a company at L1 today also
-      // counts toward L0 — so `l1plus / total` is the cumulative L0→L1
-      // conversion, reconciling with the funnel. Bankers stay on the stage-entry
-      // model, convert off total leads, and carry our response-time profile.
-      // All three return every row and let the UI paginate.
-      segments: buildBreakdown(segmentBreakdown, 'total'),
-      countries: buildBreakdown(countryBreakdown, 'total'),
+      // Segments & countries convert off their L0 base; bankers off total leads.
+      // All three now count companies *added to* each stage in the window (the
+      // funnel basis: dropped included, deduped per stage), not just the active
+      // snapshot. Segments/countries return every row (the UI paginates);
+      // bankers stay capped at a fixed top-N and carry our response-time profile.
+      segments: buildBreakdown(segmentBreakdown, 'l0'),
+      countries: buildBreakdown(countryBreakdown, 'l0'),
       bankers: attachResponseProfiles(
-        buildBreakdown(bankerBreakdown, 'total'),
+        buildBreakdown(bankerBreakdown, 'total', MAX_BREAKDOWN_ROWS),
         bankerResponseProfiles,
       ),
       aiThroughput: {
@@ -550,16 +548,13 @@ function buildBreakdown(
   }
 
   const built = Array.from(byKey.entries())
-    .map(([key, agg]) => {
-      const denom = base === 'l0' ? agg.l0 : agg.total;
-      return {
-        key,
-        l0: agg.l0,
-        l1plus: agg.l1plus,
-        total: agg.total,
-        conversion: denom > 0 ? Math.round((agg.l1plus / denom) * 100) : 0,
-      };
-    })
+    .map(([key, agg]) => ({
+      key,
+      l0: agg.l0,
+      l1plus: agg.l1plus,
+      total: agg.total,
+      conversion: agg.total > 0 ? Math.round((agg.l1plus / agg.total) * 100) : 0,
+    }))
     // Descending by the primary displayed metric so the visible lead column
     // reads biggest-first (L0 for segment/country, total leads for bankers).
     .sort((a, b) => (base === 'l0' ? b.l0 - a.l0 : b.total - a.total));

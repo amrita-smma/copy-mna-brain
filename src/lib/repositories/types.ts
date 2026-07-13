@@ -58,6 +58,15 @@ type TableMap = {
   workspaces: typeof schema.workspaces;
   roles: typeof schema.roles;
   user_workspaces: typeof schema.userWorkspaces;
+  funds: typeof schema.funds;
+  holding_entities: typeof schema.holdingEntities;
+  funding_sources: typeof schema.fundingSources;
+  fund_assets: typeof schema.fundAssets;
+  fund_holding_entity_stakes: typeof schema.fundHoldingEntityStakes;
+  fund_asset_transactions: typeof schema.fundAssetTransactions;
+  fund_asset_valuations: typeof schema.fundAssetValuations;
+  fund_asset_holding_entity_stakes: typeof schema.fundAssetHoldingEntityStakes;
+  fund_valuations: typeof schema.fundValuations;
 };
 
 export type Tables<T extends keyof TableMap> = TableMap[T]["$inferSelect"];

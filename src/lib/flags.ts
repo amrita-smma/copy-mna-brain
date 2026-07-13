@@ -35,3 +35,8 @@ export const chatCacheEnabled = booleanFlag(
   "CHAT_CACHE_ENABLED",
   process.env.CHAT_CACHE_ENABLED === "true",
 );
+
+export const fundManagementEnabled = booleanFlag(
+  "FUND_MANAGEMENT_ENABLED",
+  process.env.FUND_MANAGEMENT_ENABLED === "true",
+);

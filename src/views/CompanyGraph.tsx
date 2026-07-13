@@ -286,10 +286,12 @@ function fallbackCompany(node: GraphNode): CompanyData {
 
 interface CompanyGraphProps {
   showCompanyGraph?: boolean;
+  showFundManagement?: boolean;
 }
 
 export default function CompanyGraph({
   showCompanyGraph = false,
+  showFundManagement = false,
 }: CompanyGraphProps) {
   const [graphData, setGraphData] = useState<GraphData>({ nodes: [], links: [] });
   const [loading, setLoading] = useState(true);
@@ -937,7 +939,10 @@ export default function CompanyGraph({
   const ready = !loading && !error && ForceGraph2D && graphData.nodes.length > 0;
 
   return (
-    <DashboardLayout showCompanyGraph={showCompanyGraph}>
+    <DashboardLayout
+      showCompanyGraph={showCompanyGraph}
+      showFundManagement={showFundManagement}
+    >
       <div className="flex flex-col h-full">
         <div className="flex flex-1 min-h-0 gap-4 p-4">
           {/* Filters + legend */}

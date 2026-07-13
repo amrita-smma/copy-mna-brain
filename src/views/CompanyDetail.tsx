@@ -334,9 +334,13 @@ const formatCurrency = (value: number | null) => {
 
 interface CompanyDetailProps {
   showCompanyGraph?: boolean;
+  showFundManagement?: boolean;
 }
 
-export default function CompanyDetail({ showCompanyGraph = false }: CompanyDetailProps) {
+export default function CompanyDetail({
+  showCompanyGraph = false,
+  showFundManagement = false,
+}: CompanyDetailProps) {
   const params = useParams();
   const router = useRouter();
   const { analyzeWithAI } = useChatContext();
@@ -1064,7 +1068,10 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
 
   if (loading) {
     return (
-      <DashboardLayout showCompanyGraph={showCompanyGraph}>
+      <DashboardLayout
+      showCompanyGraph={showCompanyGraph}
+      showFundManagement={showFundManagement}
+    >
         <div className="flex items-center justify-center h-full">
           <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
         </div>
@@ -1074,7 +1081,10 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
 
   if (!company) {
     return (
-      <DashboardLayout showCompanyGraph={showCompanyGraph}>
+      <DashboardLayout
+      showCompanyGraph={showCompanyGraph}
+      showFundManagement={showFundManagement}
+    >
         <div className="flex flex-col items-center justify-center h-full gap-4">
           <p className="text-muted-foreground">Company not found</p>
           <Button onClick={() => router.push(returnTo)}>
@@ -1095,7 +1105,10 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
     : null;
 
   return (
-    <DashboardLayout showCompanyGraph={showCompanyGraph}>
+    <DashboardLayout
+      showCompanyGraph={showCompanyGraph}
+      showFundManagement={showFundManagement}
+    >
       <div className="p-6 space-y-6">
         {/* Header */}
         <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between md:gap-6">

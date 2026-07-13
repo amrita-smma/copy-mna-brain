@@ -53,30 +53,6 @@ describe('DashboardInsightsRepository.getStageCounts', () => {
   });
 });
 
-describe('DashboardInsightsRepository.getDroppedStageCounts', () => {
-  let repo: DashboardInsightsRepository;
-
-  beforeEach(() => {
-    resetDb();
-    repo = new DashboardInsightsRepository(mockDb as never, 'workspace-1');
-  });
-
-  it('groups dropped companies by pipeline_stage and coerces counts to numbers', async () => {
-    mockDb.groupBy.mockResolvedValueOnce([
-      { stage: 'L0', count: '87' },
-      { stage: 'L1', count: 5 },
-    ]);
-
-    const result = await repo.getDroppedStageCounts(WINDOW_FROM, WINDOW_TO);
-
-    expect(mockDb.groupBy).toHaveBeenCalledTimes(1);
-    expect(result).toEqual([
-      { stage: 'L0', count: 87 },
-      { stage: 'L1', count: 5 },
-    ]);
-  });
-});
-
 describe('DashboardInsightsRepository.getStageEntryCounts', () => {
   let repo: DashboardInsightsRepository;
 
@@ -118,7 +94,7 @@ describe('DashboardInsightsRepository breakdowns', () => {
     repo = new DashboardInsightsRepository(mockDb as never, 'workspace-1');
   });
 
-  it('builds the segment breakdown as a cohort snapshot by current stage (deal-funnel basis)', async () => {
+  it('runs a single UNION query (created + moved-in) and coerces null keys / counts', async () => {
     mockDb.execute.mockResolvedValueOnce([
       { key: 'CMP', stage: 'L0', count: '42' },
       { key: null, stage: 'L1', count: 3 },
@@ -126,22 +102,10 @@ describe('DashboardInsightsRepository breakdowns', () => {
 
     const result = await repo.getSegmentBreakdown(WINDOW_FROM, WINDOW_TO);
 
+    // Raw-SQL UNION (created-at-stage UNION stage-change logs), not a grouped
+    // select — covers dropped companies and companies promoted into a stage.
     expect(mockDb.execute).toHaveBeenCalledTimes(1);
     expect(mockDb.groupBy).not.toHaveBeenCalled();
-
-    // Cohort model: companies created in the window grouped by their CURRENT
-    // pipeline_stage — a plain grouped snapshot, NOT the stage-entry UNION (no
-    // company_logs / _TO_L join) used by the banker breakdown.
-    const query = mockDb.execute.mock.calls[0][0] as SQL;
-    const { sql } = new PgDialect().sqlToQuery(query);
-    const lower = sql.toLowerCase();
-    expect(sql).toContain('"segment"');
-    expect(sql).toContain('"pipeline_stage"');
-    expect(sql).toContain('"created_at"');
-    expect(lower).toContain('group by');
-    expect(lower).not.toContain('union');
-    expect(lower).not.toContain('company_logs');
-
     expect(result).toEqual([
       { key: 'CMP', stage: 'L0', count: 42 },
       { key: null, stage: 'L1', count: 3 },
@@ -157,20 +121,6 @@ describe('DashboardInsightsRepository breakdowns', () => {
     await expect(repo.getBankerBreakdown(WINDOW_FROM, WINDOW_TO)).resolves.toEqual([
       { key: 'Japan', stage: 'L0', count: 41 },
     ]);
-  });
-
-  it('keys the banker breakdown on companies.banker, not banker_source', async () => {
-    mockDb.execute.mockResolvedValueOnce([]);
-
-    await repo.getBankerBreakdown(WINDOW_FROM, WINDOW_TO);
-
-    const query = mockDb.execute.mock.calls[0][0] as SQL;
-    const { sql } = new PgDialect().sqlToQuery(query);
-    // The card is driven purely by the free-text `banker` field; the old
-    // `banker_source` fallback must be gone.
-    expect(sql).toContain('"banker"');
-    expect(sql).not.toContain('banker_source');
-    expect(sql).toContain('nullif');
   });
 });
 

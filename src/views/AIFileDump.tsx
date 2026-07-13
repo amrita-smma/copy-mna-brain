@@ -784,10 +784,12 @@ function FileTable({
 
 interface AIFileDumpProps {
   showCompanyGraph?: boolean;
+  showFundManagement?: boolean;
 }
 
 export default function AIFileDump({
   showCompanyGraph = false,
+  showFundManagement = false,
 }: AIFileDumpProps) {
   const { analyzeWithAI } = useChatContext();
   const [meetingNotes, setMeetingNotes] = useState<MeetingNote[]>([]);
@@ -1581,7 +1583,10 @@ export default function AIFileDump({
 
   if (loading) {
     return (
-      <DashboardLayout showCompanyGraph={showCompanyGraph}>
+      <DashboardLayout
+      showCompanyGraph={showCompanyGraph}
+      showFundManagement={showFundManagement}
+    >
         <div className="flex h-full items-center justify-center">
           <Loader2 className="h-8 w-8 animate-spin text-primary" />
         </div>
@@ -1590,7 +1595,10 @@ export default function AIFileDump({
   }
 
   return (
-    <DashboardLayout showCompanyGraph={showCompanyGraph}>
+    <DashboardLayout
+      showCompanyGraph={showCompanyGraph}
+      showFundManagement={showFundManagement}
+    >
       <div className="flex flex-col h-full p-6 space-y-6 animate-fade-in">
         {/* Header */}
         <div className="relative flex-shrink-0">

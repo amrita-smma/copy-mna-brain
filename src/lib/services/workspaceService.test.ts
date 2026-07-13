@@ -6,7 +6,12 @@ import type {
   WorkspaceRepository,
 } from '@/lib/repositories';
 import { MNA_WORKSPACE_ID } from '@/lib/constants';
-import { RoleNotFoundError, WorkspaceService } from './workspaceService';
+import {
+  RoleNotFoundError,
+  WorkspaceService,
+  normalizeCopilotAgent,
+  COPILOT_AGENTS,
+} from './workspaceService';
 
 function makeRepoStubs() {
   const workspaceRepo = {
@@ -278,5 +283,58 @@ describe('WorkspaceService.updateWorkspaceSlug', () => {
 
     expect(result).toEqual(row);
     expect(repos.workspaceRepo.update).toHaveBeenCalledWith('w1', { slug: 'kenhua' });
+  });
+});
+
+describe('normalizeCopilotAgent', () => {
+  it('accepts the investment flavor', () => {
+    expect(normalizeCopilotAgent('investment')).toBe('investment');
+  });
+
+  it('defaults to mna for null, undefined, or unrecognized values', () => {
+    expect(normalizeCopilotAgent(null)).toBe('mna');
+    expect(normalizeCopilotAgent(undefined)).toBe('mna');
+    expect(normalizeCopilotAgent('mna')).toBe('mna');
+    expect(normalizeCopilotAgent('bogus')).toBe('mna');
+  });
+
+  it('exposes exactly the two supported flavors', () => {
+    expect([...COPILOT_AGENTS]).toEqual(['mna', 'investment']);
+  });
+});
+
+describe('WorkspaceService.getCopilotAgent', () => {
+  it('returns the stored flavor when it is investment', async () => {
+    const repos = makeRepoStubs();
+    (repos.workspaceRepo.findById as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      id: 'w1',
+      copilot_agent: 'investment',
+    });
+    const service = new WorkspaceService(repos.workspaceRepo, repos.userWorkspaceRepo, repos.roleRepo, repos.userRepo);
+
+    expect(await service.getCopilotAgent('w1')).toBe('investment');
+    expect(repos.workspaceRepo.findById).toHaveBeenCalledWith('w1');
+  });
+
+  it('defaults to mna when the workspace is missing or the value is unset', async () => {
+    const repos = makeRepoStubs();
+    (repos.workspaceRepo.findById as ReturnType<typeof vi.fn>).mockResolvedValueOnce(undefined);
+    const service = new WorkspaceService(repos.workspaceRepo, repos.userWorkspaceRepo, repos.roleRepo, repos.userRepo);
+
+    expect(await service.getCopilotAgent('missing')).toBe('mna');
+  });
+});
+
+describe('WorkspaceService.updateCopilotAgent', () => {
+  it('delegates to the repository update with the copilot_agent column', async () => {
+    const repos = makeRepoStubs();
+    const row = { id: 'w1', name: 'MnA', slug: 'mna', copilot_agent: 'investment' };
+    (repos.workspaceRepo.update as ReturnType<typeof vi.fn>).mockResolvedValueOnce(row);
+    const service = new WorkspaceService(repos.workspaceRepo, repos.userWorkspaceRepo, repos.roleRepo, repos.userRepo);
+
+    const result = await service.updateCopilotAgent('w1', 'investment');
+
+    expect(result).toEqual(row);
+    expect(repos.workspaceRepo.update).toHaveBeenCalledWith('w1', { copilot_agent: 'investment' });
   });
 });

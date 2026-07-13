@@ -73,7 +73,15 @@ interface Workspace {
   id: string;
   name: string;
   slug: string;
+  /** Which AI Copilot flavor the workspace's chat uses. */
+  copilot_agent?: string;
 }
+
+/** The AI Copilot flavors, mirrored from the server's COPILOT_AGENTS. */
+const COPILOT_AGENT_OPTIONS: { value: string; label: string }[] = [
+  { value: 'mna', label: 'M&A / Acquisitions' },
+  { value: 'investment', label: 'Funds & Investing' },
+];
 
 interface Role {
   id: string;
@@ -317,6 +325,25 @@ export default function AdminPortalPage() {
   };
 
   const cancelSlug = () => setEditingSlug(false);
+
+  const saveCopilotAgent = async (agent: string) => {
+    if (!selected || agent === (selected.copilot_agent ?? 'mna')) return;
+    const previous = workspaces;
+    setWorkspaces((prev) =>
+      prev.map((w) => (w.id === selected.id ? { ...w, copilot_agent: agent } : w)),
+    );
+    try {
+      const res = await fetch(`/api/workspaces/${selected.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ copilot_agent: agent }),
+      });
+      if (!res.ok) throw new Error((await res.json())?.error ?? 'Failed to update Copilot');
+    } catch (err) {
+      setWorkspaces(previous);
+      toast.error(err instanceof Error ? err.message : 'Could not update Copilot');
+    }
+  };
 
   const assignedUserIds = useMemo(() => new Set(members.map((m) => m.userId)), [members]);
   const hasEmptyDraft = draftRows.length > 0;
@@ -576,6 +603,32 @@ export default function AdminPortalPage() {
                     {selected.slug}
                   </button>
                 )}
+
+                {/* AI Copilot flavor */}
+                <div className="space-y-1.5">
+                  <h3 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+                    AI Copilot
+                  </h3>
+                  <Select
+                    value={selected.copilot_agent ?? 'mna'}
+                    onValueChange={saveCopilotAgent}
+                  >
+                    <SelectTrigger className="w-64 max-w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {COPILOT_AGENT_OPTIONS.map((opt) => (
+                        <SelectItem key={opt.value} value={opt.value}>
+                          {opt.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">
+                    Which Copilot flavor this workspace&apos;s chat uses — M&amp;A deal
+                    analysis or funds &amp; investing.
+                  </p>
+                </div>
 
                 {/* Users */}
                 <div className="flex min-h-0 flex-1 flex-col gap-3">

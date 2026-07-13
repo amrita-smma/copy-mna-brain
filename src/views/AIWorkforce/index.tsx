@@ -15,6 +15,7 @@ type TabKey = 'copilot' | 'workforce' | 'ingestion';
 
 interface AIWorkforceProps {
   showCompanyGraph?: boolean;
+  showFundManagement?: boolean;
   initialTab?: TabKey;
   initialChatId?: string | null;
   initialTaskId?: string | null;
@@ -28,6 +29,7 @@ const tabs: { key: TabKey; label: string; icon: typeof Sparkles; dot?: boolean }
 
 export default function AIWorkforce({
   showCompanyGraph = false,
+  showFundManagement = false,
   initialTab = 'workforce',
   initialChatId = null,
   initialTaskId = null,
@@ -63,7 +65,10 @@ export default function AIWorkforce({
   }, [initialChatId, activeTab, chatId, setChatId, router, copilotTarget]);
 
   return (
-    <DashboardLayout showCompanyGraph={showCompanyGraph}>
+    <DashboardLayout
+      showCompanyGraph={showCompanyGraph}
+      showFundManagement={showFundManagement}
+    >
       <div className="flex flex-col h-full">
         {/* Header */}
         <div className="flex-shrink-0 px-8 pt-8 pb-4 bg-card">

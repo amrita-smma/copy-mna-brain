@@ -25,6 +25,7 @@ import { useWorkspaceHref } from "@/hooks/useWorkspaceHref";
 
 interface PresentationProps {
   showCompanyGraph?: boolean;
+  showFundManagement?: boolean;
 }
 
 interface RecentFileItem {
@@ -36,7 +37,10 @@ interface RecentFileItem {
 
 const PAGE_SIZE = 10;
 
-export default function Presentation({ showCompanyGraph = false }: PresentationProps) {
+export default function Presentation({
+  showCompanyGraph = false,
+  showFundManagement = false,
+}: PresentationProps) {
   const router = useRouter();
   const presentationHref = useWorkspaceHref("/presentation");
   const searchParams = useSearchParams();
@@ -117,7 +121,10 @@ export default function Presentation({ showCompanyGraph = false }: PresentationP
   // list (the viewer is about to render).
   if (!hydrated) {
     return (
-      <DashboardLayout showCompanyGraph={showCompanyGraph}>
+      <DashboardLayout
+      showCompanyGraph={showCompanyGraph}
+      showFundManagement={showFundManagement}
+    >
         <div className="flex h-full items-center justify-center">
           <Loader2 className="h-8 w-8 animate-spin text-primary" />
         </div>
@@ -134,7 +141,10 @@ export default function Presentation({ showCompanyGraph = false }: PresentationP
     const canFullscreen = !!signedUrl && (kind === "pdf" || kind === "pptx");
 
     return (
-      <DashboardLayout showCompanyGraph={showCompanyGraph}>
+      <DashboardLayout
+      showCompanyGraph={showCompanyGraph}
+      showFundManagement={showFundManagement}
+    >
         <div className="flex h-full min-h-0 flex-col">
           <div className="flex items-center justify-between gap-2 border-b px-4 py-2.5">
             <div className="flex min-w-0 items-center gap-3">
@@ -202,7 +212,10 @@ export default function Presentation({ showCompanyGraph = false }: PresentationP
   // Recently-opened list
   // ---------------------------------------------------------------------------
   return (
-    <DashboardLayout showCompanyGraph={showCompanyGraph}>
+    <DashboardLayout
+      showCompanyGraph={showCompanyGraph}
+      showFundManagement={showFundManagement}
+    >
       <div className="mx-auto w-full max-w-3xl p-6">
         <div className="mb-6 flex items-center gap-3">
           <PresentationIcon className="h-7 w-7 text-primary" />

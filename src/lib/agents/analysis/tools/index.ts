@@ -31,6 +31,11 @@ import { getTaskProgress } from "./get_task_progress";
 import { lookupUser } from "./lookup_user";
 import { sendEmailTool } from "./send_email";
 import { runMarketScreeningTool } from "./run_market_screening";
+import { getFundDataSchema } from "./get_fund_data_schema";
+import { queryFunds } from "./query_funds";
+import { queryFundAssets } from "./query_fund_assets";
+import { queryInvestors } from "./query_investors";
+import { queryFundSources } from "./query_fund_sources";
 
 export {
   getDataSchema,
@@ -61,6 +66,11 @@ export {
   lookupUser,
   sendEmailTool,
   runMarketScreeningTool,
+  getFundDataSchema,
+  queryFunds,
+  queryFundAssets,
+  queryInvestors,
+  queryFundSources,
 };
 
 export {
@@ -135,6 +145,22 @@ export const workforceOnlyTools = [
   notifyProgress,
   flagInsight,
   sendEmailTool,
+];
+
+/**
+ * Investment tools — the read-only fund/investing tool set for the
+ * "investment" Copilot flavor. Lets the agent see and analyze the workspace's
+ * funds, assets/holdings, investors (LPs), and fund sources, plus web search
+ * for external market data. Distinct from the M&A tool set (companies/CRM);
+ * the two flavors never share a tool list.
+ */
+export const investmentTools = [
+  getFundDataSchema,
+  queryFunds,
+  queryFundAssets,
+  queryInvestors,
+  queryFundSources,
+  webSearch,
 ];
 
 /**

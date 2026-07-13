@@ -1,7 +1,13 @@
 import AIFileDump from '@/views/AIFileDump';
-import { companyGraphEnabled } from '@/lib/flags';
+import { companyGraphEnabled, fundManagementEnabled } from '@/lib/flags';
 
 export default async function AIFileDumpPage() {
   const showCompanyGraph = await companyGraphEnabled().then(Boolean);
-  return <AIFileDump showCompanyGraph={showCompanyGraph} />;
+  const showFundManagement = await fundManagementEnabled().then(Boolean);
+  return (
+    <AIFileDump
+      showCompanyGraph={showCompanyGraph}
+      showFundManagement={showFundManagement}
+    />
+  );
 }
