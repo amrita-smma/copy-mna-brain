@@ -113,9 +113,11 @@ function assembleFund(
   );
   // Scope the ledger for the fund's NAV history the same way, so a co-invested
   // asset's contributions aren't counted in full under every fund.
+  // The synthetic "unassigned" fund owns transactions with fund_id = null.
+  const histFundId: string | null = fundId === 'unassigned' ? null : fundId;
   const scopedPerAsset = perAsset.map(({ asset, txns, valuations }) => ({
     asset,
-    txns: txns.filter((t) => (t.fund_id ?? null) === fundId),
+    txns: txns.filter((t) => (t.fund_id ?? null) === histFundId),
     valuations,
   }));
   fund.hist = computeFundHistory(scopedPerAsset, fundRow.commitment_size_amount, trailingQuarterEnds(4));

@@ -640,7 +640,13 @@ export function scopeHoldingToFund(h: Holding, fundId: string): Holding {
   const inv = h.inv;
   if (!inv || !inv.txns || inv.txns.length === 0) return h;
 
-  const scoped = inv.txns.filter((t) => (t.fundId ?? null) === fundId);
+  // The synthetic "Unassigned Assets" fund owns transactions with no fund
+  // assignment (fund_id = null). Map the sentinel back to null so comparisons
+  // match correctly — otherwise every null-fund transaction is skipped and
+  // the asset's entire invested capital is zeroed out.
+  const txnFundId: string | null = fundId === 'unassigned' ? null : fundId;
+
+  const scoped = inv.txns.filter((t) => (t.fundId ?? null) === txnFundId);
   // Whole ledger already belongs to this fund → nothing to split.
   if (scoped.length === inv.txns.length) return h;
 
@@ -652,7 +658,7 @@ export function scopeHoldingToFund(h: Holding, fundId: string): Holding {
   let fundShares = 0;
   let totalShares = 0;
   inv.txns.forEach((t) => {
-    const mine = (t.fundId ?? null) === fundId;
+    const mine = (t.fundId ?? null) === txnFundId;
     if (valueBased) {
       if (t.type === 'Buy') {
         totalCost += t.value || 0;
