@@ -15,6 +15,7 @@ import { useChatContext } from "./ChatProvider";
 import { AttachButton, AttachmentChips, useAttachmentDrop } from "./ChatComposerAttachments";
 import { CachedChatPreview } from "./CachedChatPreview";
 import { ChatSuggestions } from "./ChatSuggestions";
+import { ModelPill } from "./ModelSelector";
 
 const WELCOME_MESSAGE = `# Hello! I'm your M&A discovery assistant. I can help you with
 
@@ -105,7 +106,7 @@ export function ChatInput(props: {
   inputRef?: React.Ref<HTMLTextAreaElement>;
 }) {
   const chips = props.suggestionChips ?? SUGGESTION_CHIPS;
-  const { attachments } = useChatContext();
+  const { attachments, modelChoice, setModelChoice } = useChatContext();
   const { isDragging, dropHandlers } = useAttachmentDrop();
   const hasReadyAttachment = attachments.some((a) => a.status === "ready");
   return (
@@ -120,7 +121,7 @@ export function ChatInput(props: {
       <AttachmentChips />
       <div
         className={cn(
-          "relative flex items-end gap-2 rounded-md",
+          "relative flex items-end gap-2 p-2 bg-background rounded-2xl border",
           isDragging && "ring-2 ring-purple-500 ring-offset-2",
         )}
       >
@@ -131,9 +132,10 @@ export function ChatInput(props: {
           onChange={props.onChange}
           onSubmit={props.onSubmit}
           placeholder={props.placeholder ?? CHAT_INPUT_PLACEHOLDER}
-          className="flex-1"
+          className="flex-1 border-0 bg-transparent focus-visible:ring-0 focus-visible:ring-offset-0"
           disabled={props.loading}
         />
+        <ModelPill value={modelChoice} onChange={setModelChoice} />
         <Button
           type="submit"
           disabled={(!props.value.trim() && !hasReadyAttachment) || props.loading}
@@ -146,7 +148,7 @@ export function ChatInput(props: {
           )}
         </Button>
         {isDragging && (
-          <div className="pointer-events-none absolute inset-0 flex items-center justify-center rounded-md bg-purple-500/10 text-sm font-medium text-purple-700">
+          <div className="pointer-events-none absolute inset-0 flex items-center justify-center rounded-2xl bg-purple-500/10 text-sm font-medium text-purple-700">
             Drop files to attach
           </div>
         )}

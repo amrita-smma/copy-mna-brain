@@ -130,6 +130,7 @@ describe('AiWorkforceService.enqueueFromChat', () => {
           title: 't',
           instruction: 'do the thing',
           prompt: 'do the thing',
+          model: 'sonnet',
         },
       }),
     );

@@ -3,8 +3,9 @@ import { NO_ACTIVE_WORKSPACE_ID } from '@/lib/constants';
 import { runWithWorkforceWorkspaceId } from '@/lib/workspace';
 import {
   extractMessageText,
-  getWorkforceAgentGraph,
+  getWorkforceAgentGraphForModel,
   HumanMessage,
+  type ModelChoice,
 } from '@/lib/agents/analysis';
 import { ToolTimeoutError } from '@/lib/agents/withToolTimeout';
 import {
@@ -77,6 +78,7 @@ interface LoadResult {
   // takes it as an explicit parameter threaded from here rather than calling
   // getActiveWorkspaceId(), which would silently resolve to MnA.
   workspaceId: string;
+  model: ModelChoice;
 }
 
 async function loadAndHeartbeat(runId: string): Promise<LoadResult> {
@@ -115,6 +117,10 @@ async function loadAndHeartbeat(runId: string): Promise<LoadResult> {
   const threadId =
     typeof followUp === 'string' && followUp.trim() ? followUp : runId;
 
+  const rawModel = input.model;
+  const model: ModelChoice =
+    rawModel === 'opus' ? 'opus' : 'sonnet';
+
   // Read-and-clear buffered updates atomically; if the consume step fails
   // mid-run, WDK retries the whole step — since the consume is wrapped in
   // its own transaction, the buffer is either fully drained or untouched.
@@ -127,6 +133,7 @@ async function loadAndHeartbeat(runId: string): Promise<LoadResult> {
     threadId,
     pendingMessages: pending.map((m) => m.text),
     workspaceId: row.workspace_id,
+    model,
   };
 }
 
@@ -176,13 +183,14 @@ async function invokeAgent(
   threadId: string,
   pendingMessages: string[],
   workspaceId: string,
+  model: ModelChoice,
 ): Promise<InvokeStepResult> {
   'use step';
   if (!process.env.ANTHROPIC_API_KEY) {
     throw new FatalError('ANTHROPIC_API_KEY is not set');
   }
 
-  const graph = await getWorkforceAgentGraph();
+  const graph = await getWorkforceAgentGraphForModel(model);
   if (!graph) {
     // Returns null on initialization failure (logs the cause). Surface as
     // retryable in case it was a transient DB blip during
@@ -363,7 +371,7 @@ async function kickDispatcher(
 
 export async function runAgent({ runId }: { runId: string }): Promise<void> {
   'use workflow';
-  const { prompt, resumePayloadJson, threadId, pendingMessages, workspaceId } =
+  const { prompt, resumePayloadJson, threadId, pendingMessages, workspaceId, model } =
     await loadAndHeartbeat(runId);
 
   // TODO(Tier 3+): heartbeat periodically inside long invokeAgent runs so
@@ -379,6 +387,7 @@ export async function runAgent({ runId }: { runId: string }): Promise<void> {
       threadId,
       pendingMessages,
       workspaceId,
+      model,
     );
     if (result.kind === 'interrupted') {
       // Healthy pause: HITL middleware caught a gated tool call. The decision

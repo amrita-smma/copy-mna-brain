@@ -372,9 +372,17 @@ When the instruction asks you to "analyze the AI Opinion" / "re-evaluate the AI 
 - Caveats the user acknowledged ("user acknowledged weak FY2024 EBITDA", "user approved despite missing financials") MUST end up in the \`note\` arg of the write tool so the audit trail captures that the user proceeded knowingly. The \`reason\` arg is for the positive case (why the company qualifies for the next stage); \`note\` is for caveats and risks. Both are persisted on the deal record.
 - When calling \`promote_to_l1\`, the \`reason\` arg is what the human reviewer sees in the approval card. Write it so a reviewer with no other context could decide: name the concrete fit (e.g. "Revenue $42M FY2024, EBITDA margin 18%, growing 28% YoY; comparable Asia-Pacific semicap deals closed at 11–14x EBITDA — Acme fits the thesis cleanly"). Avoid vague phrasing.`;
 
+export type ModelChoice = 'sonnet' | 'opus';
+
+const MODEL_IDS: Record<ModelChoice, string> = {
+  sonnet: 'claude-sonnet-5',
+  opus: 'claude-opus-4-8',
+};
+
 export interface AgentConfig {
   apiKey: string;
   checkpointer?: BaseCheckpointSaver;
+  model?: ModelChoice;
 }
 
 export interface InvokeOptions {
@@ -423,8 +431,9 @@ export function createLocalAgent(
   systemPrompt: string = CHAT_SYSTEM_PROMPT,
   middleware: ReadonlyArray<ReturnType<typeof humanInTheLoopMiddleware>> = [],
 ) {
+  const modelId = MODEL_IDS[config.model ?? 'sonnet'];
   const llm = new ChatAnthropic({
-    model: "claude-sonnet-5",
+    model: modelId,
     anthropicApiKey: config.apiKey,
     // Documents attached to a chat are uploaded via the Files API and referenced
     // by id in the message; both the upload and any message that references it
@@ -442,9 +451,9 @@ export function createLocalAgent(
     // still returns a complete result. The streamEvents (chat) path already
     // streams, so this is a no-op there.
     streaming: true,
-    // Sonnet 5 rejects `temperature` (400: "temperature is deprecated for
-    // this model"). Explicitly leave it unset — ChatAnthropic omits the field
-    // from the request when this is undefined (see invocationParams).
+    // Newer Anthropic models reject `temperature` (400: "temperature is
+    // deprecated for this model"). Explicitly leave it unset — ChatAnthropic
+    // omits the field from the request when this is undefined.
     temperature: undefined,
   });
 
@@ -484,12 +493,12 @@ export class AgentGraph {
     systemPrompt: string = CHAT_SYSTEM_PROMPT,
     middleware: ReadonlyArray<ReturnType<typeof humanInTheLoopMiddleware>> = [],
   ) {
-    this.config = config;
+    this.config = { ...config };
     this.toolList = toolList;
     this.systemPrompt = systemPrompt;
     this.middleware = middleware;
     this.defaultAgent = createLocalAgent(
-      config,
+      this.config,
       undefined,
       toolList,
       systemPrompt,
@@ -710,11 +719,11 @@ export class AgentGraph {
   }
 }
 
-// Two singletons: chat (base + chatOnly tools) and workforce (base only).
-// They share the same checkpointer; thread_id namespaces the conversations
-// (copilot_chats.id vs ai_workforce_queue.id).
-let chatAgentGraph: AgentGraph | null = null;
-let workforceAgentGraph: AgentGraph | null = null;
+// Singletons keyed by ModelChoice. chat and workforce graphs share the same
+// checkpointer; thread_id namespaces conversations (copilot_chats.id vs
+// ai_workforce_queue.id).
+const chatAgentGraphs = new Map<ModelChoice, AgentGraph>();
+const workforceAgentGraphs = new Map<ModelChoice, AgentGraph>();
 let statelessAgentGraph: AgentGraph | null = null;
 let checkpointerSetupPromise: Promise<PostgresSaver> | null = null;
 
@@ -788,6 +797,7 @@ async function buildAgentGraph(
   systemPrompt: string,
   middleware: ReadonlyArray<ReturnType<typeof humanInTheLoopMiddleware>> = [],
   useCheckpointer = true,
+  model: ModelChoice = 'sonnet',
 ): Promise<AgentGraph | null> {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) {
@@ -804,7 +814,7 @@ async function buildAgentGraph(
       ? await checkpointerPromise
       : undefined;
     return new AgentGraph(
-      { apiKey, checkpointer },
+      { apiKey, checkpointer, model },
       toolList,
       systemPrompt,
       middleware,
@@ -816,14 +826,29 @@ async function buildAgentGraph(
 }
 
 /**
- * Singleton for the copilot chat agent. Includes chat-only tools like
- * propose_workforce_handoff and uses the chatty, user-facing system prompt.
+ * Singleton for the copilot chat agent for a specific model. Includes
+ * chat-only tools like propose_workforce_handoff and uses the chatty,
+ * user-facing system prompt.
  */
+export async function getAgentGraphForModel(
+  model: ModelChoice = 'sonnet',
+): Promise<AgentGraph | null> {
+  const cached = chatAgentGraphs.get(model);
+  if (cached) return cached;
+  const graph = await buildAgentGraph(
+    DEFAULT_TOOL_LIST,
+    CHAT_SYSTEM_PROMPT,
+    [],
+    true,
+    model,
+  );
+  if (graph) chatAgentGraphs.set(model, graph);
+  return chatAgentGraphs.get(model) ?? null;
+}
+
+/** @deprecated Use getAgentGraphForModel('sonnet') */
 export async function getAgentGraph(): Promise<AgentGraph | null> {
-  if (chatAgentGraph) return chatAgentGraph;
-  const graph = await buildAgentGraph(DEFAULT_TOOL_LIST, CHAT_SYSTEM_PROMPT);
-  if (graph) chatAgentGraph = graph;
-  return chatAgentGraph;
+  return getAgentGraphForModel('sonnet');
 }
 
 /**
@@ -846,25 +871,33 @@ export async function getStatelessAgentGraph(): Promise<AgentGraph | null> {
 }
 
 /**
- * Singleton for the workforce agent. Uses base + workforce-only tools and
- * the terse "execute and report" system prompt. Excludes chat-only tools
- * like propose_workforce_handoff so workforce runs cannot recursively
- * spawn more workforce tasks.
+ * Singleton for the workforce agent for a specific model. Uses base +
+ * workforce-only tools and the terse "execute and report" system prompt.
  */
-export async function getWorkforceAgentGraph(): Promise<AgentGraph | null> {
-  if (workforceAgentGraph) return workforceAgentGraph;
+export async function getWorkforceAgentGraphForModel(
+  model: ModelChoice = 'sonnet',
+): Promise<AgentGraph | null> {
+  const cached = workforceAgentGraphs.get(model);
+  if (cached) return cached;
   const graph = await buildAgentGraph(
     WORKFORCE_TOOL_LIST,
     WORKFORCE_SYSTEM_PROMPT,
     [WORKFORCE_HITL_MIDDLEWARE],
+    true,
+    model,
   );
-  if (graph) workforceAgentGraph = graph;
-  return workforceAgentGraph;
+  if (graph) workforceAgentGraphs.set(model, graph);
+  return workforceAgentGraphs.get(model) ?? null;
+}
+
+/** @deprecated Use getWorkforceAgentGraphForModel('sonnet') */
+export async function getWorkforceAgentGraph(): Promise<AgentGraph | null> {
+  return getWorkforceAgentGraphForModel('sonnet');
 }
 
 export function resetAgent(): void {
-  chatAgentGraph = null;
-  workforceAgentGraph = null;
+  chatAgentGraphs.clear();
+  workforceAgentGraphs.clear();
   statelessAgentGraph = null;
   checkpointerSetupPromise = null;
 }

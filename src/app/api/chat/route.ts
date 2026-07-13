@@ -1,5 +1,10 @@
 import { after, NextRequest, NextResponse } from 'next/server';
-import { getAgentGraph, AIMessage, extractFirstTurn } from '@/lib/agents/analysis';
+import {
+  getAgentGraphForModel,
+  AIMessage,
+  extractFirstTurn,
+  type ModelChoice,
+} from '@/lib/agents/analysis';
 import { ChatAnthropic } from '@langchain/anthropic';
 import { createDb } from '@/lib/server/db';
 import { getActiveWorkspaceId } from '@/lib/workspace';
@@ -78,6 +83,8 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const returnIntermediateSteps = body.show_intermediate_steps;
     const requestedChatId: string | undefined = body.chat_id;
+    const modelChoice: ModelChoice =
+      body.model === 'opus' ? 'opus' : 'sonnet';
 
     const db = createDb();
     const { chatService, copilotChatsService, chatAttachmentService } = createContainer(
@@ -200,7 +207,7 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    const agent = await getAgentGraph();
+    const agent = await getAgentGraphForModel(modelChoice);
     if (!agent) {
       return NextResponse.json(
         {

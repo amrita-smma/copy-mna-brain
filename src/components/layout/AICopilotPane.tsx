@@ -23,6 +23,14 @@ import { ChatSidebar } from '@/components/chat/ChatSidebar';
 import { ChatMessageBubble, LoadingBubble } from '@/components/chat/ChatMessageBubble';
 import { CachedChatPreview } from '@/components/chat/CachedChatPreview';
 import { ChatSuggestions } from '@/components/chat/ChatSuggestions';
+import { OPTIONS } from '@/components/chat/ModelSelector';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { StickToBottom, useStickToBottomContext } from 'use-stick-to-bottom';
 import { motion, AnimatePresence } from 'framer-motion';
 import type { UIMessage } from '@ai-sdk/react';
@@ -101,6 +109,7 @@ function ChatInput({ isExpanded }: { isExpanded: boolean }) {
         >
           <AttachmentChips className="mb-2" />
           <div className="relative flex items-end gap-2 p-2 bg-background rounded-2xl border">
+
             <AttachButton disabled={isBusy} className="self-end" />
             <ChatTextarea
               ref={chatInputRef}
@@ -211,7 +220,7 @@ export function AICopilotPane({
   hideExpandToggle = false,
   showHistoryButton = false,
 }: AICopilotPaneProps) {
-  const { newChat } = useChatContext();
+  const { newChat, modelChoice, setModelChoice } = useChatContext();
   const [historyOpen, setHistoryOpen] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const dragState = useRef<{ startX: number; startWidth: number } | null>(null);
@@ -332,6 +341,18 @@ export function AICopilotPane({
           <span className="text-sm font-medium">AI CoPilot</span>
         </div>
         <div className="flex items-center gap-1">
+          <Select value={modelChoice} onValueChange={(v) => setModelChoice(v as typeof modelChoice)}>
+            <SelectTrigger className="h-7 w-auto min-w-[72px] max-w-[100px] text-xs border-0 bg-transparent shadow-none focus:ring-0 px-2 gap-1">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent align="end">
+              {OPTIONS.map((opt) => (
+                <SelectItem key={opt.value} value={opt.value} className="text-xs">
+                  <span className="font-medium">{opt.label}</span>
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
           <Tooltip>
             <TooltipTrigger asChild>
               <motion.div

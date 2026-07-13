@@ -16,6 +16,9 @@ import {
 import { toast } from "sonner";
 import { useAuth } from "@/hooks/useAuth";
 import { apiRequest, buildWorkspaceHeaders } from "@/lib/api/client";
+import type { ModelChoice } from "@/lib/agents/analysis";
+
+export type ChatModelChoice = 'auto' | ModelChoice;
 import {
   AlertDialog,
   AlertDialogAction,
@@ -158,6 +161,9 @@ interface ChatContextValue extends ReturnType<typeof useChat> {
   addFiles: (files: File[]) => void;
   /** Remove an attachment (deletes its S3 object) by its local id. */
   removeAttachment: (localId: string) => void;
+  /** Which model the chat will use. 'auto' defers to the server default (Sonnet). */
+  modelChoice: ChatModelChoice;
+  setModelChoice: (m: ChatModelChoice) => void;
 }
 
 const ChatContext = createContext<ChatContextValue | null>(null);
@@ -201,6 +207,10 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   const attachmentsRef = useRef<ChatAttachment[]>([]);
   attachmentsRef.current = attachments;
 
+  const [modelChoice, setModelChoice] = useState<ChatModelChoice>('auto');
+  const modelChoiceRef = useRef<ChatModelChoice>('auto');
+  modelChoiceRef.current = modelChoice;
+
   const transport = useMemo(
     () =>
       new DefaultChatTransport({
@@ -209,9 +219,11 @@ export function ChatProvider({ children }: { children: ReactNode }) {
           const ready = attachmentsRef.current
             .filter((a) => a.status === 'ready' && a.key)
             .map((a) => ({ key: a.key!, fileName: a.fileName, contentType: a.contentType }));
+          const mc = modelChoiceRef.current;
           return {
             ...(chatIdRef.current ? { chat_id: chatIdRef.current } : {}),
             ...(ready.length ? { attachments: ready } : {}),
+            ...(mc !== 'auto' ? { model: mc } : {}),
           };
         },
         fetch: async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -637,6 +649,8 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       attachments,
       addFiles,
       removeAttachment,
+      modelChoice,
+      setModelChoice,
     }),
     [
       chat,
@@ -654,6 +668,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       attachments,
       addFiles,
       removeAttachment,
+      modelChoice,
     ],
   );
 
