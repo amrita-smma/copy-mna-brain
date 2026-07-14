@@ -83,7 +83,11 @@ function fileIdentity(file: PresentationFile | null): string | null {
  */
 export function PresentationViewerProvider({ children }: { children: ReactNode }) {
   const pathname = usePathname();
-  const onPresentation = pathname === '/presentation' || pathname.startsWith('/presentation/');
+  const onPresentation =
+    pathname === '/presentation' ||
+    pathname.startsWith('/presentation/') ||
+    pathname.endsWith('/presentation') ||
+    pathname.includes('/presentation/');
 
   const [hydrated, setHydrated] = useState(false);
   const [currentFile, setCurrentFile] = useState<PresentationFile | null>(null);
