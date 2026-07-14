@@ -16,7 +16,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { ArrowLeftRight, Check, Combine, Loader2, Pencil, Plus, RefreshCw, Search, Trash2, X } from 'lucide-react';
+import { ArrowLeftRight, Check, ChevronDown, ChevronRight, Combine, Loader2, Pencil, Plus, RefreshCw, Search, Trash2, X } from 'lucide-react';
 // d3-force-3d is the force engine bundled with react-force-graph-2d; reusing it
 // here keeps our custom forces consistent with the graph's own simulation.
 import { forceCollide, forceX, forceY } from 'd3-force-3d';
@@ -241,6 +241,97 @@ function NodeMultiCombobox({
   );
 }
 
+// Toggle `value` in/out of a Set, returning a fresh Set (never mutates `prev`)
+// so React state updates are detected. Shared by every multi-select filter.
+function toggledSet<T>(prev: Set<T>, value: T): Set<T> {
+  const next = new Set(prev);
+  if (next.has(value)) next.delete(value);
+  else next.add(value);
+  return next;
+}
+
+// A generic multi-select dropdown for the company filters. An empty selection
+// means "no filter" (show everything), signalled by `allLabel` on the trigger.
+// Options can be searched when `searchPlaceholder` is provided (useful for long
+// lists like geographies or sectors).
+function MultiSelectFilter({
+  options,
+  selected,
+  onToggle,
+  onClear,
+  allLabel,
+  searchPlaceholder,
+}: {
+  options: { value: string; label: string }[];
+  selected: Set<string>;
+  onToggle: (value: string) => void;
+  onClear: () => void;
+  allLabel: string;
+  searchPlaceholder?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const listRef = useRef<HTMLDivElement>(null);
+  const triggerLabel =
+    selected.size === 0
+      ? allLabel
+      : selected.size === 1
+        ? (options.find((o) => o.value === [...selected][0])?.label ?? '1 selected')
+        : `${selected.size} selected`;
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button variant="outline" role="combobox" className="w-full h-8 text-sm justify-between font-normal">
+          <span className="truncate">{triggerLabel}</span>
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-56 p-0" align="start">
+        <Command>
+          {searchPlaceholder && (
+            <CommandInput
+              placeholder={searchPlaceholder}
+              className="h-8 text-xs"
+              // Reset the scroll box to the top on every keystroke so the best
+              // matches (which cmdk re-sorts to the top) are always in view.
+              onValueChange={() => {
+                if (listRef.current) listRef.current.scrollTop = 0;
+              }}
+            />
+          )}
+          <CommandList ref={listRef}>
+            <CommandEmpty className="text-xs py-4 text-center text-muted-foreground">No results.</CommandEmpty>
+            <CommandGroup>
+              {options.map((o) => (
+                <CommandItem
+                  key={o.value}
+                  value={o.label}
+                  onSelect={() => onToggle(o.value)}
+                  className="text-xs"
+                >
+                  <Check
+                    className={`mr-2 h-3.5 w-3.5 shrink-0 ${selected.has(o.value) ? 'opacity-100' : 'opacity-0'}`}
+                  />
+                  <span className="truncate">{o.label}</span>
+                </CommandItem>
+              ))}
+            </CommandGroup>
+          </CommandList>
+          {selected.size > 0 && (
+            <div className="border-t p-1">
+              <button
+                type="button"
+                className="w-full rounded-sm py-1.5 text-center text-[11px] text-muted-foreground hover:bg-slate-100 hover:text-foreground"
+                onClick={onClear}
+              >
+                Clear selection
+              </button>
+            </div>
+          )}
+        </Command>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
 // Sentinel filter value for companies that have no relationships at all.
 const NO_RELATION = 'NONE' as const;
 type RelationFilter = RelationType | typeof NO_RELATION;
@@ -269,7 +360,17 @@ function pipelineStageLabel(stage: string): string {
   return PIPELINE_STAGE_LABELS[stage] ?? stage;
 }
 
-type StatusFilter = 'all' | 'active' | 'dropped';
+// Lifecycle-status filter options. An empty selection shows both.
+const STATUS_OPTIONS: { value: string; label: string }[] = [
+  { value: 'active', label: 'Active' },
+  { value: 'dropped', label: 'Dropped' },
+];
+
+// Ownership filter options. An empty selection shows all.
+const OWNERSHIP_OPTIONS: { value: Ownership; label: string }[] = [
+  { value: 'public', label: 'Public' },
+  { value: 'private', label: 'Private' },
+];
 
 const STAGE_COLOR_GREY = '#94a3b8';   // discovered
 const STAGE_COLOR_YELLOW = '#eab308'; // market_screening / no stage
@@ -532,10 +633,12 @@ export default function CompanyGraph({
   // companies and the relationships between them (all other filters are
   // bypassed so the selection is shown verbatim).
   const [highlightedIds, setHighlightedIds] = useState<Set<string>>(() => new Set());
-  const [ownership, setOwnership] = useState<'all' | Ownership>('all');
-  const [geography, setGeography] = useState<string>('all');
-  const [pipelineStage, setPipelineStage] = useState<string>('all');
-  const [status, setStatus] = useState<StatusFilter>('all');
+  // Company filters are multi-select: an empty Set means "no filter" (show all).
+  const [ownership, setOwnership] = useState<Set<Ownership>>(() => new Set());
+  const [geography, setGeography] = useState<Set<string>>(() => new Set());
+  const [sector, setSector] = useState<Set<string>>(() => new Set());
+  const [pipelineStage, setPipelineStage] = useState<Set<string>>(() => new Set());
+  const [status, setStatus] = useState<Set<string>>(() => new Set());
   const [enabledTypes, setEnabledTypes] = useState<Set<RelationFilter>>(
     () => new Set<RelationFilter>([...RELATION_TYPES, NO_RELATION]),
   );
@@ -571,6 +674,9 @@ export default function CompanyGraph({
 
   // ─── Edit mode ─────────────────────────────────────────────────────────────
   const [editMode, setEditMode] = useState(false);
+
+  // Whether the settings/filters overlay card is expanded (collapsible).
+  const [settingsOpen, setSettingsOpen] = useState(true);
 
   // Edit link dialog state — holds both the Neo4j key (raw*) and editable form values.
   const [editingLink, setEditingLink] = useState<{
@@ -682,6 +788,13 @@ export default function CompanyGraph({
   const geographies = useMemo(() => {
     const set = new Set<string>();
     for (const n of graphData.nodes) if (n.geography) set.add(n.geography);
+    return Array.from(set).sort();
+  }, [graphData.nodes]);
+
+  // Distinct sectors (company `segment`) for the dropdown.
+  const sectors = useMemo(() => {
+    const set = new Set<string>();
+    for (const n of graphData.nodes) if (n.segment) set.add(n.segment);
     return Array.from(set).sort();
   }, [graphData.nodes]);
 
@@ -820,13 +933,12 @@ export default function CompanyGraph({
       // When highlighting, keep the selected companies plus every company that
       // lies on a connection path between a highlighted pair.
       if (highlighting) return highlightPaths.pathNodeIds.has(n.id);
-      if (ownership !== 'all' && n.ownership !== ownership) return false;
-      if (geography !== 'all' && n.geography !== geography) return false;
-      if (pipelineStage !== 'all') {
-        const stage = n.pipelineStage ?? NO_STAGE;
-        if (stage !== pipelineStage) return false;
-      }
-      if (status !== 'all' && n.status !== status) return false;
+      // Multi-select filters: an empty Set means the filter is inactive.
+      if (ownership.size > 0 && (!n.ownership || !ownership.has(n.ownership))) return false;
+      if (geography.size > 0 && (!n.geography || !geography.has(n.geography))) return false;
+      if (sector.size > 0 && (!n.segment || !sector.has(n.segment))) return false;
+      if (pipelineStage.size > 0 && !pipelineStage.has(n.pipelineStage ?? NO_STAGE)) return false;
+      if (status.size > 0 && (!n.status || !status.has(n.status))) return false;
       // "Display only connected companies": restrict to the pinned node and its
       // direct neighbours.
       if (connectedIds && !connectedIds.has(n.id)) return false;
@@ -884,7 +996,7 @@ export default function CompanyGraph({
       }),
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [graphData, ownership, geography, pipelineStage, status, connectedIds, enabledTypes, hasEvidenceOnly, dateFrom, dateTo, nodeCharacteristics, highlightedIds, highlightPaths]);
+  }, [graphData, ownership, geography, sector, pipelineStage, status, connectedIds, enabledTypes, hasEvidenceOnly, dateFrom, dateTo, nodeCharacteristics, highlightedIds, highlightPaths]);
 
   // Each node's dominant relationship type (most frequent incident edge label),
   // used for the small sub-label rendered inside the circle. Tie-break follows
@@ -1304,26 +1416,41 @@ export default function CompanyGraph({
       showFundManagement={showFundManagement}
     >
       <div className="flex flex-col h-full">
-        <div className="flex flex-1 min-h-0 gap-4 p-4">
-          {/* Filters + legend */}
-          <aside className="w-64 shrink-0 space-y-5 overflow-y-auto pr-1">
-            {/* Title */}
-            <div>
-              <div className="flex items-center justify-between">
-                <h1 className="text-lg font-bold tracking-tight">Relationship Graph</h1>
-                <Button
-                  variant={editMode ? 'default' : 'outline'}
-                  size="sm"
-                  className="h-7 px-2 text-xs gap-1"
-                  onClick={() => setEditMode((v) => !v)}
-                >
-                  <Pencil className="h-3 w-3" />
-                  {editMode ? 'Editing' : 'Edit'}
-                </Button>
-              </div>
-              <p className="text-xs text-muted-foreground mt-0.5">
-                M&amp;A portfolio visualization
-              </p>
+        <div className="relative flex flex-1 min-h-0 p-4">
+          {/* Filters + legend — a collapsible card overlaid on the graph */}
+          <aside className="absolute top-7 left-7 z-20 flex max-h-[calc(100%-3.5rem)] w-72 max-w-[calc(100%-3.5rem)] flex-col overflow-hidden rounded-xl border border-slate-300/70 bg-white/95 shadow-lg backdrop-blur-sm">
+            {/* Header — always visible; toggles the collapsible body */}
+            <div className="flex items-center justify-between gap-2 border-b border-slate-200/80 px-3 py-2">
+              <button
+                type="button"
+                className="flex min-w-0 items-center gap-1.5 text-left"
+                onClick={() => setSettingsOpen((v) => !v)}
+                aria-expanded={settingsOpen}
+              >
+                {settingsOpen ? (
+                  <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
+                ) : (
+                  <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
+                )}
+                <h1 className="truncate text-sm font-bold tracking-tight">Relationship Graph</h1>
+              </button>
+              <Button
+                variant={editMode ? 'default' : 'outline'}
+                size="sm"
+                className="h-7 px-2 text-xs gap-1 shrink-0"
+                onClick={() => setEditMode((v) => !v)}
+              >
+                <Pencil className="h-3 w-3" />
+                {editMode ? 'Editing' : 'Edit'}
+              </Button>
+            </div>
+            {settingsOpen && (
+              <div className="min-h-0 flex-1 space-y-5 overflow-y-auto p-3">
+                {/* Title */}
+                <div>
+                  <p className="text-xs text-muted-foreground">
+                    M&amp;A portfolio visualization
+                  </p>
               <Button
                 variant="outline"
                 size="sm"
@@ -1640,64 +1767,56 @@ export default function CompanyGraph({
               </p>
               <div className="space-y-1.5">
                 <Label className="text-xs text-muted-foreground">Ownership</Label>
-                <Select
-                  value={ownership}
-                  onValueChange={(v) => setOwnership(v as 'all' | Ownership)}
-                >
-                  <SelectTrigger className="h-8 text-sm">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All companies</SelectItem>
-                    <SelectItem value="public">Public</SelectItem>
-                    <SelectItem value="private">Private</SelectItem>
-                  </SelectContent>
-                </Select>
+                <MultiSelectFilter
+                  options={OWNERSHIP_OPTIONS}
+                  selected={ownership}
+                  onToggle={(v) => setOwnership((p) => toggledSet(p, v as Ownership))}
+                  onClear={() => setOwnership(new Set())}
+                  allLabel="All companies"
+                />
               </div>
               <div className="space-y-1.5">
                 <Label className="text-xs text-muted-foreground">Geography</Label>
-                <Select value={geography} onValueChange={setGeography}>
-                  <SelectTrigger className="h-8 text-sm">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All geographies</SelectItem>
-                    {geographies.map((g) => (
-                      <SelectItem key={g} value={g}>
-                        {g}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <MultiSelectFilter
+                  options={geographies.map((g) => ({ value: g, label: g }))}
+                  selected={geography}
+                  onToggle={(v) => setGeography((p) => toggledSet(p, v))}
+                  onClear={() => setGeography(new Set())}
+                  allLabel="All geographies"
+                  searchPlaceholder="Search geography…"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs text-muted-foreground">Sector</Label>
+                <MultiSelectFilter
+                  options={sectors.map((s) => ({ value: s, label: s }))}
+                  selected={sector}
+                  onToggle={(v) => setSector((p) => toggledSet(p, v))}
+                  onClear={() => setSector(new Set())}
+                  allLabel="All sectors"
+                  searchPlaceholder="Search sector…"
+                />
               </div>
               <div className="space-y-1.5">
                 <Label className="text-xs text-muted-foreground">Pipeline stage</Label>
-                <Select value={pipelineStage} onValueChange={setPipelineStage}>
-                  <SelectTrigger className="h-8 text-sm">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All stages</SelectItem>
-                    {pipelineStages.map((s) => (
-                      <SelectItem key={s} value={s}>
-                        {pipelineStageLabel(s)}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <MultiSelectFilter
+                  options={pipelineStages.map((s) => ({ value: s, label: pipelineStageLabel(s) }))}
+                  selected={pipelineStage}
+                  onToggle={(v) => setPipelineStage((p) => toggledSet(p, v))}
+                  onClear={() => setPipelineStage(new Set())}
+                  allLabel="All stages"
+                  searchPlaceholder="Search stage…"
+                />
               </div>
               <div className="space-y-1.5">
                 <Label className="text-xs text-muted-foreground">Status</Label>
-                <Select value={status} onValueChange={(v) => setStatus(v as StatusFilter)}>
-                  <SelectTrigger className="h-8 text-sm">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">Active &amp; dropped</SelectItem>
-                    <SelectItem value="active">Active only</SelectItem>
-                    <SelectItem value="dropped">Dropped only</SelectItem>
-                  </SelectContent>
-                </Select>
+                <MultiSelectFilter
+                  options={STATUS_OPTIONS}
+                  selected={status}
+                  onToggle={(v) => setStatus((p) => toggledSet(p, v))}
+                  onClear={() => setStatus(new Set())}
+                  allLabel="Active & dropped"
+                />
               </div>
               {connectedTo && (
                 <div className="flex items-center justify-between gap-2 rounded-md border border-indigo-200 bg-indigo-50 px-2.5 py-1.5">
@@ -1812,6 +1931,8 @@ export default function CompanyGraph({
                 <p className="text-[11px] text-muted-foreground/80 pt-1">Click to open company card</p>
               </div>
             )}
+              </div>
+            )}
           </aside>
 
           {/* Graph canvas */}
@@ -1892,7 +2013,7 @@ export default function CompanyGraph({
               </div>
             )}
             {editMode && (
-              <div className="absolute top-3 left-3 z-10 flex items-center gap-1.5 rounded-full border border-indigo-300 bg-indigo-50 px-3 py-1.5 text-[11px] font-semibold text-indigo-800 shadow-sm">
+              <div className="absolute top-3 left-1/2 z-10 -translate-x-1/2 flex items-center gap-1.5 rounded-full border border-indigo-300 bg-indigo-50 px-3 py-1.5 text-[11px] font-semibold text-indigo-800 shadow-sm">
                 <Pencil className="h-3 w-3" />
                 Edit mode — click edges to edit
               </div>
