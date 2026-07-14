@@ -34,6 +34,7 @@ locals {
       mna_maintainers_users = [
         "dicki.sujadi",
         "kensen.huang",
+        "nur.khairusy"
       ]
       ses_send_email_users = [
         "dicki.sujadi",
