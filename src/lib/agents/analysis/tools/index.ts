@@ -161,6 +161,12 @@ export const investmentTools = [
   queryInvestors,
   queryFundSources,
   webSearch,
+  queryMeetingNotes,
+  lookupCrm,
+  crmInsights,
+  lookupUser,
+  sendEmailTool,
+  proposeWorkforceHandoff,
 ];
 
 /**
