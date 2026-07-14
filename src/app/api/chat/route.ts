@@ -3,7 +3,7 @@ import {
   getAgentGraph,
   AIMessage,
   extractFirstTurn,
-  type ModelChoice,
+  type EffortChoice,
 } from '@/lib/agents/analysis';
 import { ChatAnthropic } from '@langchain/anthropic';
 import { createDb } from '@/lib/server/db';
@@ -83,8 +83,8 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const returnIntermediateSteps = body.show_intermediate_steps;
     const requestedChatId: string | undefined = body.chat_id;
-    const modelChoice: ModelChoice =
-      body.model === 'opus' ? 'opus' : 'sonnet';
+    const effort: EffortChoice =
+      body.effort === 'high' ? 'high' : 'medium';
 
     const db = createDb();
     const workspaceId = await getActiveWorkspaceId();
@@ -208,9 +208,9 @@ export async function POST(req: NextRequest) {
 
     // The workspace picks its Copilot flavor ('mna' — M&A/acquisitions — or
     // 'investment' — funds & investing). Resolve it and select the matching
-    // agent graph for the requested model; defaults to 'mna' when unset.
+    // agent graph for the requested effort tier; defaults to 'mna' when unset.
     const copilotAgent = await workspaceService.getCopilotAgent(workspaceId);
-    const agent = await getAgentGraph(copilotAgent, modelChoice);
+    const agent = await getAgentGraph(copilotAgent, effort);
     if (!agent) {
       return NextResponse.json(
         {

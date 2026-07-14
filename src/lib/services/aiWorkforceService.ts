@@ -17,7 +17,7 @@ export interface ChatHandoffInput {
   tool_call_id?: string;
   user_id?: string;
   priority?: number;
-  model?: string;
+  effort?: string;
 }
 
 export interface SubmitUserMessageInput {
@@ -133,7 +133,7 @@ export class AiWorkforceService {
         title: data.title,
         instruction: data.instruction,
         prompt: data.instruction,
-        model: data.model ?? 'sonnet',
+        effort: data.effort ?? 'medium',
       },
       priority: data.priority ?? 0,
       triggeredByUserId: data.user_id ?? null,

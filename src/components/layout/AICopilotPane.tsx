@@ -23,7 +23,7 @@ import { ChatSidebar } from '@/components/chat/ChatSidebar';
 import { ChatMessageBubble, LoadingBubble } from '@/components/chat/ChatMessageBubble';
 import { CachedChatPreview } from '@/components/chat/CachedChatPreview';
 import { ChatSuggestions } from '@/components/chat/ChatSuggestions';
-import { OPTIONS } from '@/components/chat/ModelSelector';
+import { OPTIONS } from '@/components/chat/EffortSelector';
 import {
   Select,
   SelectContent,
@@ -236,7 +236,7 @@ export function AICopilotPane({
   hideExpandToggle = false,
   showHistoryButton = false,
 }: AICopilotPaneProps) {
-  const { newChat, modelChoice, setModelChoice } = useChatContext();
+  const { newChat, effortChoice, setEffortChoice } = useChatContext();
   const [historyOpen, setHistoryOpen] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const dragState = useRef<{ startX: number; startWidth: number } | null>(null);
@@ -357,7 +357,7 @@ export function AICopilotPane({
           <span className="text-sm font-medium">AI CoPilot</span>
         </div>
         <div className="flex items-center gap-1">
-          <Select value={modelChoice} onValueChange={(v) => setModelChoice(v as typeof modelChoice)}>
+          <Select value={effortChoice} onValueChange={(v) => setEffortChoice(v as typeof effortChoice)}>
             <SelectTrigger className="h-7 w-auto min-w-[72px] max-w-[100px] text-xs border-0 bg-transparent shadow-none focus:ring-0 px-2 gap-1">
               <SelectValue />
             </SelectTrigger>

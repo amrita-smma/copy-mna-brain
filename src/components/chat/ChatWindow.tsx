@@ -15,7 +15,7 @@ import { useChatContext } from "./ChatProvider";
 import { AttachButton, AttachmentChips, useAttachmentDrop } from "./ChatComposerAttachments";
 import { CachedChatPreview } from "./CachedChatPreview";
 import { ChatSuggestions } from "./ChatSuggestions";
-import { ModelPill } from "./ModelSelector";
+import { EffortPill } from "./EffortSelector";
 import { useCopilotAgent } from "./CopilotAgentContext";
 
 const MNA_WELCOME_MESSAGE = `# Hello! I'm your M&A discovery assistant. I can help you with
@@ -130,7 +130,7 @@ export function ChatInput(props: {
   inputRef?: React.Ref<HTMLTextAreaElement>;
 }) {
   const chips = props.suggestionChips ?? SUGGESTION_CHIPS;
-  const { attachments, modelChoice, setModelChoice } = useChatContext();
+  const { attachments, effortChoice, setEffortChoice } = useChatContext();
   const { isDragging, dropHandlers } = useAttachmentDrop();
   const hasReadyAttachment = attachments.some((a) => a.status === "ready");
   return (
@@ -159,7 +159,7 @@ export function ChatInput(props: {
           className="flex-1 border-0 bg-transparent focus-visible:ring-0 focus-visible:ring-offset-0"
           disabled={props.loading}
         />
-        <ModelPill value={modelChoice} onChange={setModelChoice} />
+        <EffortPill value={effortChoice} onChange={setEffortChoice} />
         <Button
           type="submit"
           disabled={(!props.value.trim() && !hasReadyAttachment) || props.loading}

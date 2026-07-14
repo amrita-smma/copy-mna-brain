@@ -15,7 +15,8 @@ export interface AiOpinionDispatchResult {
  * Drives the right-most "AI Opinion" pipeline column.
  *
  * Clicking "Analyze AI Opinion" (or "Re-evaluate") enqueues an AI Workforce
- * run that researches the company, forms a FIRM pass/fail/tentative verdict,
+ * run — at HIGH effort (Opus, the strongest model) — that researches the company, takes a
+ * FIRM pass/fail verdict (reserving `tentative` for genuinely balanced cases),
  * and finishes by calling the `save_ai_opinion` tool — which writes the
  * verdict + ≤50-word rationale back onto the `companies` row. The pipeline
  * tables poll the companies list and swap the spinner for the verdict icon
@@ -75,12 +76,16 @@ export class AiOpinionService {
 
     const instruction =
       `Analyze the AI Opinion for "${companyName}" (company_id: ${id}). ` +
-      `Research the company with the read tools, then form a FIRM investment view and ` +
+      `Research the company with the read tools, then take a FIRM, decisive investment stance and ` +
       `call the save_ai_opinion tool with company_id "${id}", a verdict of exactly one of ` +
       `pass / fail / tentative, and a summary of AT MOST 50 words justifying it. ` +
-      `Be decisive: even if the automated AI Screening criteria all fail, do not default to ` +
-      `"tentative" — give a firm pass or fail unless the evidence is genuinely balanced. ` +
-      `Use "tentative" only as a last resort. ` +
+      `Commit to "pass" or "fail". Even when every automated AI Screening criterion fails, that is ` +
+      `itself a strong signal — it points to "fail", not "tentative". Do NOT use "tentative" unless ` +
+      `it is absolutely necessary: reserve it for the rare case where the evidence is genuinely and ` +
+      `exactly balanced and further analysis cannot break the tie. In almost every case you MUST ` +
+      `pick pass or fail. Write the summary in confident, direct language — state your verdict as a ` +
+      `conclusion, not a possibility. Avoid hedging words such as "may", "might", "could", "possibly", ` +
+      `"appears", or "seems". ` +
       `Form the view independently, on fundamentals: do NOT read any recorded drop reason before ` +
       `deciding — only if your verdict disagrees with an existing drop decision should you then ` +
       `evaluate the drop reason and note the disagreement in your summary. Matched investment ` +
@@ -97,6 +102,10 @@ export class AiOpinionService {
         instruction,
         prompt: instruction,
         company_id: id,
+        // Form the opinion at HIGH effort (Opus, the strongest model) so the
+        // verdict is as firm and well-reasoned as possible. runAgent reads
+        // input.effort ('medium' | 'high') to pick the workforce agent's model.
+        effort: 'high',
       },
       triggeredByUserId: triggeredByUserId ?? null,
     });

@@ -60,7 +60,7 @@ vi.mock('@/lib/server/db', () => ({ createDb }));
 
 vi.mock('@/lib/agents/analysis', () => ({
   getWorkforceAgentGraph,
-  getWorkforceAgentGraphForModel: getWorkforceAgentGraph,
+  getWorkforceAgentGraphForEffort: getWorkforceAgentGraph,
   HumanMessage,
   // Faithful copy of the real helper (a pure function) so we don't pull the
   // heavy tools/db deps the rest of this mock avoids.

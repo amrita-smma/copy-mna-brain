@@ -12,7 +12,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { cn } from '@/lib/utils';
 import { MarkdownRenderer } from '@/components/chat/MarkdownRenderer';
 import { useChatContext } from '@/components/chat/ChatProvider';
-import { ModelSelector } from '@/components/chat/ModelSelector';
+import { EffortSelector } from '@/components/chat/EffortSelector';
 
 function getTextFromUIMessage(m: UIMessage): string {
   const parts = (m as { parts?: Array<{ type: string; text?: string }> }).parts ?? [];
@@ -108,7 +108,7 @@ export function ChatbotWidget({ defaultOpen = false }: { defaultOpen?: boolean }
   const [isMinimized, setIsMinimized] = useState(false);
   const [isHydrated, setIsHydrated] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
-  const { messages, sendMessage, status, modelChoice, setModelChoice } = useChatContext();
+  const { messages, sendMessage, status, effortChoice, setEffortChoice } = useChatContext();
 
   const fabDrag = useDraggable({ x: 0, y: 0 });
   const widgetDrag = useDraggable({ x: 0, y: 0 });
@@ -336,7 +336,7 @@ export function ChatbotWidget({ defaultOpen = false }: { defaultOpen?: boolean }
                 </Button>
               </div>
               <div className="flex justify-end mt-1.5">
-                <ModelSelector value={modelChoice} onChange={setModelChoice} />
+                <EffortSelector value={effortChoice} onChange={setEffortChoice} />
               </div>
             </div>
           </>

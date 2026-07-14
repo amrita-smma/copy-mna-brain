@@ -4,7 +4,7 @@ import { CompanyRepository, UserRepository } from '@/lib/repositories';
 import { createDb } from '@/lib/server/db';
 import { getActiveWorkspaceId } from '@/lib/workspace';
 import { createContainer } from '@/lib/services';
-import type { ModelChoice } from '@/lib/agents/analysis';
+import type { EffortChoice } from '@/lib/agents/analysis';
 
 interface HandoffBody {
   agent_name?: string;
@@ -14,7 +14,7 @@ interface HandoffBody {
   tool_call_id?: string;
   priority?: number;
   company_ids?: string[];
-  model?: ModelChoice;
+  effort?: EffortChoice;
 }
 
 const DEFAULT_AGENT = 'chat_handoff';
@@ -131,7 +131,7 @@ export async function POST(req: NextRequest) {
       tool_call_id: body.tool_call_id,
       user_id: userId,
       priority: body.priority,
-      model: body.model === 'opus' ? 'opus' : 'sonnet',
+      effort: body.effort === 'high' ? 'high' : 'medium',
     });
 
     return NextResponse.json({

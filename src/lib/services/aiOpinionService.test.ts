@@ -146,6 +146,25 @@ describe('AiOpinionService.dispatch', () => {
     );
   });
 
+  it('routes the AI Opinion run to high effort (Opus)', async () => {
+    const service = makeService(makeCompanyRepo());
+    await service.dispatch('co-1');
+
+    const { input } = enqueueAgentRun.mock.calls[0][1];
+    expect(input.effort).toBe('high');
+  });
+
+  it('instructs the agent to avoid tentative unless absolutely necessary', async () => {
+    const service = makeService(makeCompanyRepo());
+    await service.dispatch('co-1');
+
+    const { input } = enqueueAgentRun.mock.calls[0][1];
+    expect(input.instruction).toContain(
+      'Do NOT use "tentative" unless',
+    );
+    expect(input.instruction).toContain('Commit to "pass" or "fail"');
+  });
+
   it('mirrors the instruction into input.prompt and includes the company id verbatim', async () => {
     const service = makeService(makeCompanyRepo());
     await service.dispatch('co-1');

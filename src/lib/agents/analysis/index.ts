@@ -357,7 +357,7 @@ Write tools (use to actually mutate state — the whole point of this run):
 - **promote_to_l1** — move a company from pipeline stage L0 to L1. Requires a \`reason\` (the human reviewer sees this in the approval card; cite concrete evidence — financial fit, comparable multiples, screening criteria met) and accepts an optional \`note\` for caveats. Idempotent guard refuses any company not currently at L0. Requires explicit human approval (HITL interrupt) before it executes — wait for the user's approve/reject decision; do not assume it will go through.
 - **update_company_relationship** — record a SINGLE directed relationship between two companies in the relationship graph (\`source_company\` --[\`relation_type\`]--> \`target_company\`). Allowed relation_type values: INVESTED_IN, PARTNER, SELLS_TO (preferred for any commercial supply/customer relationship — it is directional, so source SELLS_TO target; use it for both supplier and customer perspectives). SUPPLIER is also accepted for backwards-compatibility. Auto-executes (no human approval). Each side is matched by name; any company not on record is auto-created at the special \`discovered\` stage (outside the L0–L5 pipeline).
 - **generate_relationship_graph** — write a BATCH of directed edges to the relationship graph in one call (the bulk counterpart to \`update_company_relationship\`). Auto-executes (no human approval). Pass an \`edges\` array (max 100 per call); each edge: \`source_company\`, \`target_company\`, \`relation_type\` (INVESTED_IN / PARTNER / SELLS_TO — prefer SELLS_TO for commercial relationships), plus optional \`notes\`, \`evidence\`, \`date\`. Same name-matching and \`discovered\` auto-creation rules. Edges are processed independently — a bad edge is skipped and reported, not fatal. When an instruction specifies more than 100 edges, split into multiple calls. The instruction will tell you the exact source_company, target_company, and relation_type to use for each edge.
-- **save_ai_opinion** — record a company's AI Opinion: a FIRM verdict (\`pass\` / \`fail\` / \`tentative\`) plus a ≤50-word rationale. Auto-executes (no human approval). This is the final step of an "Analyze AI Opinion" / "Re-evaluate" task: research the company, form a decisive view, then call it exactly once with the \`company_id\` from the instruction. See "Forming an AI Opinion" below.
+- **save_ai_opinion** — record a company's AI Opinion: a FIRM verdict (\`pass\` / \`fail\`, or \`tentative\` only as a near-forbidden last resort) plus a ≤50-word rationale. Auto-executes (no human approval). This is the final step of an "Analyze AI Opinion" / "Re-evaluate" task: research the company, commit to a decisive view, then call it exactly once with the \`company_id\` from the instruction. See "Forming an AI Opinion" below.
 
 Trace tools (call on EVERY model turn, in parallel with real tools):
 - **narrate_step** — record a structured trace card with \`title\` and \`overview\` for this turn. The user sees these in the Reasoning trace panel. Always include narrate_step in your tool_calls. Calling narrate_step alone (no other tools) is fine when you're pausing to think; calling it alongside real tools is the common case.
@@ -425,13 +425,14 @@ When the instruction asks you to "analyze the AI Opinion" / "re-evaluate the AI 
 1. Research the company with the read tools (\`get_company_details\` for the company_id in the instruction, then \`web_search\`, \`query_files\` as useful). The automated AI Screening results, if any, are context — not the verdict.
 2. **Form the view independently — do not anchor on prior human decisions.** Do NOT read or consider any recorded drop reason (dropped-deal rationale, drop notes in files or comments) before forming your verdict — seeing it first biases the opinion. Judge the company on its fundamentals alone. Only AFTER you have committed to a verdict: if the company was dropped and your verdict disagrees with that decision, then read the drop reason, evaluate whether it holds up, and note the disagreement in your summary.
 3. **Tracks are organizational, not investment signals.** Matched investment tracks are just a way of grouping the pipeline. A company matching no track is NOT evidence against it and must never drive a \`fail\`. Give track fit little weight either way — fundamentals (financials, market position, strategic rationale) decide the verdict.
-4. Form a FIRM view and pick exactly one verdict:
+4. Take a FIRM view and pick exactly one verdict:
    - \`pass\` — you'd advance this as an acquisition target.
    - \`fail\` — you'd pass on it.
-   - \`tentative\` — genuinely on the fence. Use this SPARINGLY, only when the evidence is truly balanced.
-5. **Be decisive even when every AI Screening criterion fails.** Failing the mechanical screen is itself a strong signal — usually it points to \`fail\`, not \`tentative\`. Do not hide behind "tentative" to avoid committing. Weigh the company on its merits and give a real take.
-6. Call \`save_ai_opinion\` ONCE with the \`company_id\` (verbatim from the instruction), your \`verdict\`, and a \`summary\` of AT MOST 50 words in plain prose that justifies the verdict. The summary is truncated server-side if it runs long, so lead with the decisive reasoning.
-7. After it returns, write your usual short final report. The "AI Opinion" column refreshes automatically.
+   - \`tentative\` — reserved for the rare case where the evidence is genuinely and exactly balanced and no further analysis could break the tie. **Do NOT use \`tentative\` unless it is absolutely necessary.** In almost every case you MUST commit to \`pass\` or \`fail\`. Treat \`tentative\` as a near-forbidden last resort, not a safe middle option.
+5. **Be decisive even when every AI Screening criterion fails.** Failing the mechanical screen is itself a strong signal — it points to \`fail\`, not \`tentative\`. Do not hide behind "tentative" to avoid committing. Weigh the company on its merits and give a real take.
+6. **Write the summary in confident, direct language.** State the verdict as a conclusion, not a possibility. Avoid hedging words — "may", "might", "could", "possibly", "appears", "seems", "likely", "somewhat". Say "X drives the fail" rather than "X might suggest this could be a fail".
+7. Call \`save_ai_opinion\` ONCE with the \`company_id\` (verbatim from the instruction), your \`verdict\`, and a \`summary\` of AT MOST 50 words in plain prose that justifies the verdict. The summary is truncated server-side if it runs long, so lead with the decisive reasoning.
+8. After it returns, write your usual short final report. The "AI Opinion" column refreshes automatically.
 
 ## Important domain rules
 
@@ -440,17 +441,20 @@ When the instruction asks you to "analyze the AI Opinion" / "re-evaluate the AI 
 - Caveats the user acknowledged ("user acknowledged weak FY2024 EBITDA", "user approved despite missing financials") MUST end up in the \`note\` arg of the write tool so the audit trail captures that the user proceeded knowingly. The \`reason\` arg is for the positive case (why the company qualifies for the next stage); \`note\` is for caveats and risks. Both are persisted on the deal record.
 - When calling \`promote_to_l1\`, the \`reason\` arg is what the human reviewer sees in the approval card. Write it so a reviewer with no other context could decide: name the concrete fit (e.g. "Revenue $42M FY2024, EBITDA margin 18%, growing 28% YoY; comparable Asia-Pacific semicap deals closed at 11–14x EBITDA — Acme fits the thesis cleanly"). Avoid vague phrasing.`;
 
-export type ModelChoice = 'sonnet' | 'opus';
+// Reasoning-effort tiers shown to the user. Each maps to the underlying Claude
+// model that delivers that level of effort: 'high' → Opus (most powerful,
+// slower), 'medium' → Sonnet (fast and capable).
+export type EffortChoice = 'medium' | 'high';
 
-const MODEL_IDS: Record<ModelChoice, string> = {
-  sonnet: 'claude-sonnet-5',
-  opus: 'claude-opus-4-8',
+const MODEL_IDS: Record<EffortChoice, string> = {
+  medium: 'claude-sonnet-5',
+  high: 'claude-opus-4-8',
 };
 
 export interface AgentConfig {
   apiKey: string;
   checkpointer?: BaseCheckpointSaver;
-  model?: ModelChoice;
+  effort?: EffortChoice;
 }
 
 export interface InvokeOptions {
@@ -499,7 +503,7 @@ export function createLocalAgent(
   systemPrompt: string = CHAT_SYSTEM_PROMPT,
   middleware: ReadonlyArray<ReturnType<typeof humanInTheLoopMiddleware>> = [],
 ) {
-  const modelId = MODEL_IDS[config.model ?? 'sonnet'];
+  const modelId = MODEL_IDS[config.effort ?? 'medium'];
   const llm = new ChatAnthropic({
     model: modelId,
     anthropicApiKey: config.apiKey,
@@ -787,13 +791,13 @@ export class AgentGraph {
   }
 }
 
-// Chat graphs are keyed by `${agentType}:${model}` — the workspace-selected
-// Copilot flavor ('mna' | 'investment') crossed with the model ('sonnet' |
-// 'opus'). Workforce graphs are keyed by model. All share the same
+// Chat graphs are keyed by `${agentType}:${effort}` — the workspace-selected
+// Copilot flavor ('mna' | 'investment') crossed with the effort tier ('medium'
+// | 'high'). Workforce graphs are keyed by effort. All share the same
 // checkpointer; thread_id namespaces conversations (copilot_chats.id vs
 // ai_workforce_queue.id).
 const chatAgentGraphs = new Map<string, AgentGraph>();
-const workforceAgentGraphs = new Map<ModelChoice, AgentGraph>();
+const workforceAgentGraphs = new Map<EffortChoice, AgentGraph>();
 let statelessAgentGraph: AgentGraph | null = null;
 let checkpointerSetupPromise: Promise<PostgresSaver> | null = null;
 
@@ -867,7 +871,7 @@ async function buildAgentGraph(
   systemPrompt: string,
   middleware: ReadonlyArray<ReturnType<typeof humanInTheLoopMiddleware>> = [],
   useCheckpointer = true,
-  model: ModelChoice = 'sonnet',
+  effort: EffortChoice = 'medium',
 ): Promise<AgentGraph | null> {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) {
@@ -884,7 +888,7 @@ async function buildAgentGraph(
       ? await checkpointerPromise
       : undefined;
     return new AgentGraph(
-      { apiKey, checkpointer, model },
+      { apiKey, checkpointer, effort },
       toolList,
       systemPrompt,
       middleware,
@@ -897,38 +901,39 @@ async function buildAgentGraph(
 
 /**
  * Singleton(s) for the copilot chat agent, keyed by the workspace-selected
- * flavor crossed with the model:
+ * flavor crossed with the effort tier:
  *   - "mna" (default): M&A / acquisitions tools + the chatty CHAT_SYSTEM_PROMPT,
  *     including chat-only tools like propose_workforce_handoff.
  *   - "investment": read-only funds/investing tools (funds, assets, investors,
  *     fund sources + web search) + INVESTMENT_SYSTEM_PROMPT.
  *
- * `model` selects the underlying Claude model ('sonnet' | 'opus'). All flavors
- * share the same PostgresSaver checkpointer, so a thread's persisted history is
- * readable regardless of which flavor/model is active. The chat route resolves
- * the flavor from `workspaces.copilot_agent` and the model from the request.
+ * `effort` selects the underlying Claude model ('medium' → Sonnet, 'high' →
+ * Opus). All flavors share the same PostgresSaver checkpointer, so a thread's
+ * persisted history is readable regardless of which flavor/effort is active.
+ * The chat route resolves the flavor from `workspaces.copilot_agent` and the
+ * effort from the request.
  */
 export async function getAgentGraph(
   agentType: CopilotAgentType = "mna",
-  model: ModelChoice = "sonnet",
+  effort: EffortChoice = "medium",
 ): Promise<AgentGraph | null> {
-  const key = `${agentType}:${model}`;
+  const key = `${agentType}:${effort}`;
   const cached = chatAgentGraphs.get(key);
   if (cached) return cached;
   const [toolList, systemPrompt] =
     agentType === "investment"
       ? [INVESTMENT_TOOL_LIST, INVESTMENT_SYSTEM_PROMPT]
       : [DEFAULT_TOOL_LIST, CHAT_SYSTEM_PROMPT];
-  const graph = await buildAgentGraph(toolList, systemPrompt, [], true, model);
+  const graph = await buildAgentGraph(toolList, systemPrompt, [], true, effort);
   if (graph) chatAgentGraphs.set(key, graph);
   return chatAgentGraphs.get(key) ?? null;
 }
 
-/** @deprecated Use getAgentGraph('mna', model) */
+/** @deprecated Use getAgentGraph('mna', effort) */
 export async function getAgentGraphForModel(
-  model: ModelChoice = "sonnet",
+  effort: EffortChoice = "medium",
 ): Promise<AgentGraph | null> {
-  return getAgentGraph("mna", model);
+  return getAgentGraph("mna", effort);
 }
 
 /**
@@ -951,28 +956,28 @@ export async function getStatelessAgentGraph(): Promise<AgentGraph | null> {
 }
 
 /**
- * Singleton for the workforce agent for a specific model. Uses base +
+ * Singleton for the workforce agent at a specific effort tier. Uses base +
  * workforce-only tools and the terse "execute and report" system prompt.
  */
-export async function getWorkforceAgentGraphForModel(
-  model: ModelChoice = 'sonnet',
+export async function getWorkforceAgentGraphForEffort(
+  effort: EffortChoice = 'medium',
 ): Promise<AgentGraph | null> {
-  const cached = workforceAgentGraphs.get(model);
+  const cached = workforceAgentGraphs.get(effort);
   if (cached) return cached;
   const graph = await buildAgentGraph(
     WORKFORCE_TOOL_LIST,
     WORKFORCE_SYSTEM_PROMPT,
     [WORKFORCE_HITL_MIDDLEWARE],
     true,
-    model,
+    effort,
   );
-  if (graph) workforceAgentGraphs.set(model, graph);
-  return workforceAgentGraphs.get(model) ?? null;
+  if (graph) workforceAgentGraphs.set(effort, graph);
+  return workforceAgentGraphs.get(effort) ?? null;
 }
 
-/** @deprecated Use getWorkforceAgentGraphForModel('sonnet') */
+/** @deprecated Use getWorkforceAgentGraphForEffort('medium') */
 export async function getWorkforceAgentGraph(): Promise<AgentGraph | null> {
-  return getWorkforceAgentGraphForModel('sonnet');
+  return getWorkforceAgentGraphForEffort('medium');
 }
 
 export function resetAgent(): void {

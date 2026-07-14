@@ -2,18 +2,18 @@
 
 import { cn } from '@/lib/utils';
 
-export type ModelOption = 'auto' | 'sonnet' | 'opus';
+export type EffortOption = 'auto' | 'medium' | 'high';
 
-export const OPTIONS: { value: ModelOption; label: string; title: string }[] = [
-  { value: 'auto', label: 'Auto', title: 'Let the system choose (Sonnet)' },
-  { value: 'sonnet', label: 'Sonnet', title: 'Claude Sonnet — fast and capable' },
-  { value: 'opus', label: 'Opus', title: 'Claude Opus — most powerful, slower' },
+export const OPTIONS: { value: EffortOption; label: string; title: string }[] = [
+  { value: 'auto', label: 'Auto', title: 'Let the system choose (Medium)' },
+  { value: 'medium', label: 'Medium', title: 'Medium effort — fast and capable' },
+  { value: 'high', label: 'High', title: 'High effort — most powerful, slower' },
 ];
 
-interface ModelSelectorProps {
-  value: ModelOption;
-  onChange: (v: ModelOption) => void;
-  /** Show only Sonnet/Opus (no Auto option). For workforce handoff card. */
+interface EffortSelectorProps {
+  value: EffortOption;
+  onChange: (v: EffortOption) => void;
+  /** Show only Medium/High (no Auto option). For workforce handoff card. */
   hideAuto?: boolean;
   className?: string;
 }
@@ -22,20 +22,20 @@ interface ModelSelectorProps {
  * Compact pill shown inside the input box. Cycles through options on click.
  * Used in the web full-page chat view.
  */
-interface ModelPillProps {
-  value: ModelOption;
-  onChange: (v: ModelOption) => void;
+interface EffortPillProps {
+  value: EffortOption;
+  onChange: (v: EffortOption) => void;
   className?: string;
 }
 
-export function ModelPill({ value, onChange, className }: ModelPillProps) {
+export function EffortPill({ value, onChange, className }: EffortPillProps) {
   const allOpts = OPTIONS;
   const current = allOpts.find((o) => o.value === value) ?? allOpts[0];
   const next = allOpts[(allOpts.indexOf(current) + 1) % allOpts.length];
   return (
     <button
       type="button"
-      title={`Model: ${current.title}. Click to switch to ${next.label}.`}
+      title={`Effort: ${current.title}. Click to switch to ${next.label}.`}
       onClick={() => onChange(next.value)}
       className={cn(
         'shrink-0 h-8 px-3 rounded-lg text-xs font-medium transition-colors select-none',
@@ -49,7 +49,7 @@ export function ModelPill({ value, onChange, className }: ModelPillProps) {
   );
 }
 
-export function ModelSelector({ value, onChange, hideAuto = false, className }: ModelSelectorProps) {
+export function EffortSelector({ value, onChange, hideAuto = false, className }: EffortSelectorProps) {
   const opts = hideAuto ? OPTIONS.filter((o) => o.value !== 'auto') : OPTIONS;
   return (
     <div
@@ -58,7 +58,7 @@ export function ModelSelector({ value, onChange, hideAuto = false, className }: 
         className,
       )}
       role="group"
-      aria-label="Model selection"
+      aria-label="Effort selection"
     >
       {opts.map((opt) => (
         <button

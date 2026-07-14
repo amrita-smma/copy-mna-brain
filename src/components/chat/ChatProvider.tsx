@@ -16,9 +16,9 @@ import {
 import { toast } from "sonner";
 import { useAuth } from "@/hooks/useAuth";
 import { apiRequest, buildWorkspaceHeaders } from "@/lib/api/client";
-import type { ModelChoice } from "@/lib/agents/analysis";
+import type { EffortChoice } from "@/lib/agents/analysis";
 
-export type ChatModelChoice = 'auto' | ModelChoice;
+export type ChatEffortChoice = 'auto' | EffortChoice;
 import {
   AlertDialog,
   AlertDialogAction,
@@ -161,9 +161,9 @@ interface ChatContextValue extends ReturnType<typeof useChat> {
   addFiles: (files: File[]) => void;
   /** Remove an attachment (deletes its S3 object) by its local id. */
   removeAttachment: (localId: string) => void;
-  /** Which model the chat will use. 'auto' defers to the server default (Sonnet). */
-  modelChoice: ChatModelChoice;
-  setModelChoice: (m: ChatModelChoice) => void;
+  /** Which effort tier the chat will use. 'auto' defers to the server default (Medium). */
+  effortChoice: ChatEffortChoice;
+  setEffortChoice: (m: ChatEffortChoice) => void;
 }
 
 const ChatContext = createContext<ChatContextValue | null>(null);
@@ -207,9 +207,9 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   const attachmentsRef = useRef<ChatAttachment[]>([]);
   attachmentsRef.current = attachments;
 
-  const [modelChoice, setModelChoice] = useState<ChatModelChoice>('auto');
-  const modelChoiceRef = useRef<ChatModelChoice>('auto');
-  modelChoiceRef.current = modelChoice;
+  const [effortChoice, setEffortChoice] = useState<ChatEffortChoice>('auto');
+  const effortChoiceRef = useRef<ChatEffortChoice>('auto');
+  effortChoiceRef.current = effortChoice;
 
   const transport = useMemo(
     () =>
@@ -219,11 +219,11 @@ export function ChatProvider({ children }: { children: ReactNode }) {
           const ready = attachmentsRef.current
             .filter((a) => a.status === 'ready' && a.key)
             .map((a) => ({ key: a.key!, fileName: a.fileName, contentType: a.contentType }));
-          const mc = modelChoiceRef.current;
+          const mc = effortChoiceRef.current;
           return {
             ...(chatIdRef.current ? { chat_id: chatIdRef.current } : {}),
             ...(ready.length ? { attachments: ready } : {}),
-            ...(mc !== 'auto' ? { model: mc } : {}),
+            ...(mc !== 'auto' ? { effort: mc } : {}),
           };
         },
         fetch: async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -649,8 +649,8 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       attachments,
       addFiles,
       removeAttachment,
-      modelChoice,
-      setModelChoice,
+      effortChoice,
+      setEffortChoice,
     }),
     [
       chat,
@@ -668,7 +668,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       attachments,
       addFiles,
       removeAttachment,
-      modelChoice,
+      effortChoice,
     ],
   );
 

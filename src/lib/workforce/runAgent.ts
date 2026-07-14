@@ -3,9 +3,9 @@ import { NO_ACTIVE_WORKSPACE_ID } from '@/lib/constants';
 import { runWithWorkforceWorkspaceId } from '@/lib/workspace';
 import {
   extractMessageText,
-  getWorkforceAgentGraphForModel,
+  getWorkforceAgentGraphForEffort,
   HumanMessage,
-  type ModelChoice,
+  type EffortChoice,
 } from '@/lib/agents/analysis';
 import { ToolTimeoutError } from '@/lib/agents/withToolTimeout';
 import {
@@ -78,7 +78,7 @@ interface LoadResult {
   // takes it as an explicit parameter threaded from here rather than calling
   // getActiveWorkspaceId(), which would silently resolve to MnA.
   workspaceId: string;
-  model: ModelChoice;
+  effort: EffortChoice;
 }
 
 async function loadAndHeartbeat(runId: string): Promise<LoadResult> {
@@ -117,9 +117,11 @@ async function loadAndHeartbeat(runId: string): Promise<LoadResult> {
   const threadId =
     typeof followUp === 'string' && followUp.trim() ? followUp : runId;
 
-  const rawModel = input.model;
-  const model: ModelChoice =
-    rawModel === 'opus' ? 'opus' : 'sonnet';
+  // Resolve the effort tier. Prefer the current `input.effort` field; fall
+  // back to the legacy `input.model` ('opus' | 'sonnet') for any queue row
+  // enqueued before the effort rename so in-flight/historical rows still run.
+  const rawEffort = input.effort ?? (input.model === 'opus' ? 'high' : input.model);
+  const effort: EffortChoice = rawEffort === 'high' ? 'high' : 'medium';
 
   // Read-and-clear buffered updates atomically; if the consume step fails
   // mid-run, WDK retries the whole step — since the consume is wrapped in
@@ -133,7 +135,7 @@ async function loadAndHeartbeat(runId: string): Promise<LoadResult> {
     threadId,
     pendingMessages: pending.map((m) => m.text),
     workspaceId: row.workspace_id,
-    model,
+    effort,
   };
 }
 
@@ -183,14 +185,14 @@ async function invokeAgent(
   threadId: string,
   pendingMessages: string[],
   workspaceId: string,
-  model: ModelChoice,
+  effort: EffortChoice,
 ): Promise<InvokeStepResult> {
   'use step';
   if (!process.env.ANTHROPIC_API_KEY) {
     throw new FatalError('ANTHROPIC_API_KEY is not set');
   }
 
-  const graph = await getWorkforceAgentGraphForModel(model);
+  const graph = await getWorkforceAgentGraphForEffort(effort);
   if (!graph) {
     // Returns null on initialization failure (logs the cause). Surface as
     // retryable in case it was a transient DB blip during
@@ -371,7 +373,7 @@ async function kickDispatcher(
 
 export async function runAgent({ runId }: { runId: string }): Promise<void> {
   'use workflow';
-  const { prompt, resumePayloadJson, threadId, pendingMessages, workspaceId, model } =
+  const { prompt, resumePayloadJson, threadId, pendingMessages, workspaceId, effort } =
     await loadAndHeartbeat(runId);
 
   // TODO(Tier 3+): heartbeat periodically inside long invokeAgent runs so
@@ -387,7 +389,7 @@ export async function runAgent({ runId }: { runId: string }): Promise<void> {
       threadId,
       pendingMessages,
       workspaceId,
-      model,
+      effort,
     );
     if (result.kind === 'interrupted') {
       // Healthy pause: HITL middleware caught a gated tool call. The decision

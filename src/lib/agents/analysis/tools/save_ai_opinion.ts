@@ -83,9 +83,9 @@ export const saveAiOpinion = tool(
 Verdict meaning (rendered as icons in the AI Opinion column):
 - "pass": green check — you'd advance this as an acquisition target.
 - "fail": red cross — you'd pass on it.
-- "tentative": yellow question mark — genuinely on the fence; use sparingly, only when the evidence is truly balanced.
+- "tentative": yellow question mark — a near-forbidden last resort, ONLY for the rare case where the evidence is genuinely and exactly balanced and no further analysis could break the tie.
 
-Be DECISIVE. Even when the automated AI Screening criteria all fail, do not default to "tentative" — weigh the company on its merits and commit to "pass" or "fail" unless the case is genuinely balanced. The summary must be ≤50 words, plain prose, and justify the verdict (it is truncated server-side if longer).
+Be DECISIVE. Do NOT use "tentative" unless it is absolutely necessary — in almost every case commit to "pass" or "fail". Even when every automated AI Screening criterion fails, that is itself a strong signal (usually "fail"), never grounds for "tentative". Write the summary in confident, direct language — state the verdict as a conclusion, and avoid hedging words like "may", "might", "could", "possibly", "appears", or "seems". The summary must be ≤50 words, plain prose, and justify the verdict (it is truncated server-side if longer).
 
 Keep the verdict UNBIASED:
 - Form it from fundamentals only. Do not read any human-recorded drop reason before deciding; consult it only afterwards, if your verdict disagrees with an existing drop decision, and note the disagreement in the summary.
@@ -104,7 +104,9 @@ Returns:
         .describe("UUID of the company to record the AI Opinion for"),
       verdict: z
         .enum(VERDICTS)
-        .describe("Firm verdict: pass, fail, or tentative"),
+        .describe(
+          "Firm verdict: pass or fail. Use tentative only as a near-forbidden last resort when the evidence is exactly balanced.",
+        ),
       summary: z
         .string()
         .min(1)
