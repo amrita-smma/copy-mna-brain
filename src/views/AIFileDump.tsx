@@ -46,6 +46,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import {
   useColumnLayout,
@@ -83,7 +84,6 @@ import {
   Trash2,
   Upload,
   X,
-  Zap,
 } from "lucide-react";
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
@@ -195,6 +195,8 @@ interface FileTableProps {
   currentPage: number;
   onPageChange: (page: number) => void;
   itemsPerPage?: number;
+  /** Hide category title/icon — tab bar already identifies the category. */
+  hideTitle?: boolean;
 }
 
 function FileTable({
@@ -226,6 +228,7 @@ function FileTable({
   currentPage,
   onPageChange,
   itemsPerPage = 10,
+  hideTitle = false,
 }: FileTableProps) {
   const totalPages = Math.max(
     1,
@@ -481,13 +484,20 @@ function FileTable({
 
   return (
     <ColumnManagerProvider value={mgr}>
-    <Card>
-      <CardHeader>
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <CardTitle className="flex items-center gap-2">
-            <span className={iconColor}>{icon}</span>
-            {title} ({filteredFiles.length})
-          </CardTitle>
+    <Card className={cn(hideTitle && "border-0 shadow-none rounded-none bg-transparent")}>
+      <CardHeader className={cn(hideTitle && "pb-2")}>
+        <div
+          className={cn(
+            "flex flex-col md:flex-row md:items-center gap-4",
+            hideTitle ? "justify-end" : "justify-between",
+          )}
+        >
+          {!hideTitle && (
+            <CardTitle className="flex items-center gap-2">
+              <span className={iconColor}>{icon}</span>
+              {title} ({filteredFiles.length})
+            </CardTitle>
+          )}
           <div className="relative w-full md:w-64">
             <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
             <Input
@@ -1602,14 +1612,14 @@ export default function AIFileDump({
       <div className="flex flex-col h-full p-6 space-y-6 animate-fade-in">
         {/* Header */}
         <div className="relative flex-shrink-0">
-          <div className="absolute -inset-2 rounded-2xl opacity-20 blur-xl transition-colors duration-500 bg-gradient-to-r from-teal-500 via-emerald-500 to-cyan-500" />
+          <div className="absolute -inset-2 rounded-2xl opacity-20 blur-xl transition-colors duration-500 bg-gradient-to-r from-blue-500 via-sky-500 to-indigo-500" />
           <div className="relative flex items-center gap-5">
             <div className="relative group">
-              <div className="absolute inset-0 rounded-2xl blur-md opacity-60 group-hover:opacity-80 transition-opacity bg-gradient-to-br from-teal-400 to-emerald-600" />
-              <div className="relative flex h-14 w-14 items-center justify-center rounded-2xl shadow-xl transition-all duration-300 group-hover:scale-105 bg-gradient-to-br from-teal-500 via-emerald-500 to-cyan-600">
+              <div className="absolute inset-0 rounded-2xl blur-md opacity-60 group-hover:opacity-80 transition-opacity bg-gradient-to-br from-blue-400 to-indigo-600" />
+              <div className="relative flex h-14 w-14 items-center justify-center rounded-2xl shadow-xl transition-all duration-300 group-hover:scale-105 bg-gradient-to-br from-blue-500 via-sky-500 to-indigo-600">
                 <FileStack className="h-7 w-7 text-white drop-shadow-lg" />
                 <div
-                  className="absolute inset-0 rounded-2xl animate-ping opacity-20 bg-teal-400"
+                  className="absolute inset-0 rounded-2xl animate-ping opacity-20 bg-blue-400"
                   style={{ animationDuration: "3s" }}
                 />
               </div>
@@ -1619,28 +1629,21 @@ export default function AIFileDump({
                 <h1 className="text-2xl font-bold tracking-tight bg-gradient-to-r from-foreground to-foreground/70 bg-clip-text">
                   AI File Dump
                 </h1>
-                <Badge
-                  variant="outline"
-                  className="text-xs font-medium px-2 py-0.5 border-0 bg-teal-500/10 text-teal-600 hover:bg-teal-500/20"
-                >
-                  <Zap className="h-3 w-3 mr-1" />
-                  AI Powered
-                </Badge>
+                <AskAIButton
+                  variant="button"
+                  label="Analyze"
+                  onClick={() =>
+                    analyzeWithAI(
+                      "Analyze the files in the AI File Dump and summarize the key takeaways across them.",
+                    )
+                  }
+                />
               </div>
               <p className="text-muted-foreground text-sm">
                 Drop your files and let AI automatically organize and categorize
                 them
               </p>
             </div>
-            <AskAIButton
-              variant="button"
-              label="Analyze using AI"
-              onClick={() =>
-                analyzeWithAI(
-                  "Analyze the files in the AI File Dump and summarize the key takeaways across them.",
-                )
-              }
-            />
           </div>
         </div>
 
@@ -1998,160 +2001,220 @@ export default function AIFileDump({
           </CardContent>
         </Card>
 
-        {/* MoM List */}
-        <FileTable
-          title="MoM"
-          icon={<FileText className="h-5 w-5" />}
-          iconColor="text-teal-500"
-          files={meetingNotes}
-          filteredFiles={filteredAndSortedNotes}
-          searchQuery={momSearchQuery}
-          onSearchChange={handleMomSearchChange}
-          sortField={momSortField}
-          sortDirection={momSortDirection}
-          onSort={handleMomSort}
-          expandedTags={expandedTags}
-          toggleTags={toggleTags}
-          expandedCompanies={expandedCompanies}
-          toggleCompanies={toggleCompanies}
-          onOpenCompany={openCompany}
-          onUpdateDate={handleUpdateDate}
-          onDownload={handleDownload}
-          onDelete={handleDelete}
-          onReview={setReviewFileId}
-          onReprocess={handleReprocess}
-          downloadingId={downloadingId}
-          deletingId={deletingId}
-          reprocessingId={reprocessingId}
-          emptyMessage="No MoM uploaded yet."
-          emptySubMessage="Upload your first MoM using the form above."
-          currentPage={momPage}
-          onPageChange={setMomPage}
-        />
+        <Card className="overflow-hidden">
+        <Tabs defaultValue="mom" className="w-full">
+          <TabsList className="h-auto w-full justify-start gap-0 overflow-x-auto rounded-none border-b bg-transparent px-2 pt-1">
+            {(
+              [
+                {
+                  value: "mom",
+                  label: "MoM",
+                  count: filteredAndSortedNotes.length,
+                },
+                {
+                  value: "prospectus",
+                  label: "Prospectus",
+                  count: filteredAndSortedProspectus.length,
+                },
+                {
+                  value: "shopping_list",
+                  label: "Shopping Lists",
+                  count: filteredAndSortedShoppingLists.length,
+                },
+                {
+                  value: "banker_communications",
+                  label: "Banker Communications",
+                  count: filteredAndSortedBankerComms.length,
+                },
+                {
+                  value: "other",
+                  label: "Other",
+                  count: filteredAndSortedOtherFiles.length,
+                },
+              ] as const
+            ).map((tab) => (
+              <TabsTrigger
+                key={tab.value}
+                value={tab.value}
+                className="relative -mb-px shrink-0 rounded-none border-b-2 border-transparent bg-transparent px-4 py-2.5 text-sm font-medium text-muted-foreground shadow-none transition-colors data-[state=active]:border-blue-500 data-[state=active]:bg-transparent data-[state=active]:text-blue-700 data-[state=active]:shadow-none dark:data-[state=active]:text-blue-300"
+              >
+                {tab.label}
+                <Badge
+                  variant="secondary"
+                  className="ml-2 h-5 min-w-5 px-1.5 text-xs font-normal"
+                >
+                  {tab.count}
+                </Badge>
+              </TabsTrigger>
+            ))}
+          </TabsList>
 
-        {/* Prospectus List */}
-        <FileTable
-          title="Prospectus"
-          icon={<FileSpreadsheet className="h-5 w-5" />}
-          iconColor="text-teal-500"
-          files={prospectus}
-          filteredFiles={filteredAndSortedProspectus}
-          searchQuery={prospectusSearchQuery}
-          onSearchChange={handleProspectusSearchChange}
-          sortField={prospectusSortField}
-          sortDirection={prospectusSortDirection}
-          onSort={handleProspectusSort}
-          expandedTags={expandedTags}
-          toggleTags={toggleTags}
-          expandedCompanies={expandedCompanies}
-          toggleCompanies={toggleCompanies}
-          onOpenCompany={openCompany}
-          onUpdateDate={handleUpdateDate}
-          onDownload={handleDownload}
-          onDelete={handleDelete}
-          onReview={setReviewFileId}
-          onReprocess={handleReprocess}
-          downloadingId={downloadingId}
-          deletingId={deletingId}
-          reprocessingId={reprocessingId}
-          emptyMessage="No prospectus uploaded yet."
-          emptySubMessage="Upload your first prospectus using the form above."
-          currentPage={prospectusPage}
-          onPageChange={setProspectusPage}
-        />
+          <TabsContent value="mom" className="mt-0">
+            <FileTable
+              title="MoM"
+              icon={<FileText className="h-5 w-5" />}
+              iconColor="text-blue-500"
+              files={meetingNotes}
+              filteredFiles={filteredAndSortedNotes}
+              searchQuery={momSearchQuery}
+              onSearchChange={handleMomSearchChange}
+              sortField={momSortField}
+              sortDirection={momSortDirection}
+              onSort={handleMomSort}
+              expandedTags={expandedTags}
+              toggleTags={toggleTags}
+              expandedCompanies={expandedCompanies}
+              toggleCompanies={toggleCompanies}
+              onOpenCompany={openCompany}
+              onUpdateDate={handleUpdateDate}
+              onDownload={handleDownload}
+              onDelete={handleDelete}
+              onReview={setReviewFileId}
+              onReprocess={handleReprocess}
+              downloadingId={downloadingId}
+              deletingId={deletingId}
+              reprocessingId={reprocessingId}
+              emptyMessage="No MoM uploaded yet."
+              emptySubMessage="Upload your first MoM using the form above."
+              currentPage={momPage}
+              onPageChange={setMomPage}
+              hideTitle
+            />
+          </TabsContent>
 
-        {/* Shopping Lists */}
-        <FileTable
-          title="Shopping Lists"
-          icon={<FileSpreadsheet className="h-5 w-5" />}
-          iconColor="text-amber-500"
-          files={shoppingLists}
-          filteredFiles={filteredAndSortedShoppingLists}
-          searchQuery={shoppingListSearchQuery}
-          onSearchChange={handleShoppingListSearchChange}
-          sortField={shoppingListSortField}
-          sortDirection={shoppingListSortDirection}
-          onSort={handleShoppingListSort}
-          expandedTags={expandedTags}
-          toggleTags={toggleTags}
-          expandedCompanies={expandedCompanies}
-          toggleCompanies={toggleCompanies}
-          onOpenCompany={openCompany}
-          onUpdateDate={handleUpdateDate}
-          onDownload={handleDownload}
-          onDelete={handleDelete}
-          onReview={setReviewFileId}
-          onReprocess={handleReprocess}
-          downloadingId={downloadingId}
-          deletingId={deletingId}
-          reprocessingId={reprocessingId}
-          emptyMessage="No shopping lists uploaded yet."
-          emptySubMessage="Upload a target list using the form above."
-          currentPage={shoppingListPage}
-          onPageChange={setShoppingListPage}
-        />
+          <TabsContent value="prospectus" className="mt-0">
+            <FileTable
+              title="Prospectus"
+              icon={<FileSpreadsheet className="h-5 w-5" />}
+              iconColor="text-blue-500"
+              files={prospectus}
+              filteredFiles={filteredAndSortedProspectus}
+              searchQuery={prospectusSearchQuery}
+              onSearchChange={handleProspectusSearchChange}
+              sortField={prospectusSortField}
+              sortDirection={prospectusSortDirection}
+              onSort={handleProspectusSort}
+              expandedTags={expandedTags}
+              toggleTags={toggleTags}
+              expandedCompanies={expandedCompanies}
+              toggleCompanies={toggleCompanies}
+              onOpenCompany={openCompany}
+              onUpdateDate={handleUpdateDate}
+              onDownload={handleDownload}
+              onDelete={handleDelete}
+              onReview={setReviewFileId}
+              onReprocess={handleReprocess}
+              downloadingId={downloadingId}
+              deletingId={deletingId}
+              reprocessingId={reprocessingId}
+              emptyMessage="No prospectus uploaded yet."
+              emptySubMessage="Upload your first prospectus using the form above."
+              currentPage={prospectusPage}
+              onPageChange={setProspectusPage}
+              hideTitle
+            />
+          </TabsContent>
 
-        {/* Banker Communications List */}
-        <FileTable
-          title="Banker Communications"
-          icon={<FileSpreadsheet className="h-5 w-5" />}
-          iconColor="text-blue-500"
-          files={bankerComms}
-          filteredFiles={filteredAndSortedBankerComms}
-          searchQuery={bankerCommsSearchQuery}
-          onSearchChange={handleBankerCommsSearchChange}
-          sortField={bankerCommsSortField}
-          sortDirection={bankerCommsSortDirection}
-          onSort={handleBankerCommsSort}
-          expandedTags={expandedTags}
-          toggleTags={toggleTags}
-          expandedCompanies={expandedCompanies}
-          toggleCompanies={toggleCompanies}
-          onOpenCompany={openCompany}
-          onUpdateDate={handleUpdateDate}
-          onDownload={handleDownload}
-          onDelete={handleDelete}
-          onReview={setReviewFileId}
-          onReprocess={handleReprocess}
-          downloadingId={downloadingId}
-          deletingId={deletingId}
-          reprocessingId={reprocessingId}
-          emptyMessage="No banker communications uploaded yet."
-          emptySubMessage="Upload CSV or MBOX files from Google Vault exports."
-          currentPage={bankerCommsPage}
-          onPageChange={setBankerCommsPage}
-        />
+          <TabsContent value="shopping_list" className="mt-0">
+            <FileTable
+              title="Shopping Lists"
+              icon={<FileSpreadsheet className="h-5 w-5" />}
+              iconColor="text-blue-500"
+              files={shoppingLists}
+              filteredFiles={filteredAndSortedShoppingLists}
+              searchQuery={shoppingListSearchQuery}
+              onSearchChange={handleShoppingListSearchChange}
+              sortField={shoppingListSortField}
+              sortDirection={shoppingListSortDirection}
+              onSort={handleShoppingListSort}
+              expandedTags={expandedTags}
+              toggleTags={toggleTags}
+              expandedCompanies={expandedCompanies}
+              toggleCompanies={toggleCompanies}
+              onOpenCompany={openCompany}
+              onUpdateDate={handleUpdateDate}
+              onDownload={handleDownload}
+              onDelete={handleDelete}
+              onReview={setReviewFileId}
+              onReprocess={handleReprocess}
+              downloadingId={downloadingId}
+              deletingId={deletingId}
+              reprocessingId={reprocessingId}
+              emptyMessage="No shopping lists uploaded yet."
+              emptySubMessage="Upload a target list using the form above."
+              currentPage={shoppingListPage}
+              onPageChange={setShoppingListPage}
+              hideTitle
+            />
+          </TabsContent>
 
-        {/* Other List */}
-        <FileTable
-          title="Other"
-          icon={<File className="h-5 w-5" />}
-          iconColor=""
-          files={otherFiles}
-          filteredFiles={filteredAndSortedOtherFiles}
-          searchQuery={otherFilesSearchQuery}
-          onSearchChange={handleOtherFilesSearchChange}
-          sortField={otherFilesSortField}
-          sortDirection={otherFilesSortDirection}
-          onSort={handleOtherFilesSort}
-          expandedTags={expandedTags}
-          toggleTags={toggleTags}
-          expandedCompanies={expandedCompanies}
-          toggleCompanies={toggleCompanies}
-          onOpenCompany={openCompany}
-          onUpdateDate={handleUpdateDate}
-          onDownload={handleDownload}
-          onDelete={handleDelete}
-          onReview={setReviewFileId}
-          onReprocess={handleReprocess}
-          downloadingId={downloadingId}
-          deletingId={deletingId}
-          reprocessingId={reprocessingId}
-          emptyMessage="No other files uploaded yet."
-          emptySubMessage="Upload your files using the form above."
-          currentPage={otherFilesPage}
-          onPageChange={setOtherFilesPage}
-        />
+          <TabsContent value="banker_communications" className="mt-0">
+            <FileTable
+              title="Banker Communications"
+              icon={<FileSpreadsheet className="h-5 w-5" />}
+              iconColor="text-blue-500"
+              files={bankerComms}
+              filteredFiles={filteredAndSortedBankerComms}
+              searchQuery={bankerCommsSearchQuery}
+              onSearchChange={handleBankerCommsSearchChange}
+              sortField={bankerCommsSortField}
+              sortDirection={bankerCommsSortDirection}
+              onSort={handleBankerCommsSort}
+              expandedTags={expandedTags}
+              toggleTags={toggleTags}
+              expandedCompanies={expandedCompanies}
+              toggleCompanies={toggleCompanies}
+              onOpenCompany={openCompany}
+              onUpdateDate={handleUpdateDate}
+              onDownload={handleDownload}
+              onDelete={handleDelete}
+              onReview={setReviewFileId}
+              onReprocess={handleReprocess}
+              downloadingId={downloadingId}
+              deletingId={deletingId}
+              reprocessingId={reprocessingId}
+              emptyMessage="No banker communications uploaded yet."
+              emptySubMessage="Upload CSV or MBOX files from Google Vault exports."
+              currentPage={bankerCommsPage}
+              onPageChange={setBankerCommsPage}
+              hideTitle
+            />
+          </TabsContent>
+
+          <TabsContent value="other" className="mt-0">
+            <FileTable
+              title="Other"
+              icon={<File className="h-5 w-5" />}
+              iconColor="text-blue-500"
+              files={otherFiles}
+              filteredFiles={filteredAndSortedOtherFiles}
+              searchQuery={otherFilesSearchQuery}
+              onSearchChange={handleOtherFilesSearchChange}
+              sortField={otherFilesSortField}
+              sortDirection={otherFilesSortDirection}
+              onSort={handleOtherFilesSort}
+              expandedTags={expandedTags}
+              toggleTags={toggleTags}
+              expandedCompanies={expandedCompanies}
+              toggleCompanies={toggleCompanies}
+              onOpenCompany={openCompany}
+              onUpdateDate={handleUpdateDate}
+              onDownload={handleDownload}
+              onDelete={handleDelete}
+              onReview={setReviewFileId}
+              onReprocess={handleReprocess}
+              downloadingId={downloadingId}
+              deletingId={deletingId}
+              reprocessingId={reprocessingId}
+              emptyMessage="No other files uploaded yet."
+              emptySubMessage="Upload your files using the form above."
+              currentPage={otherFilesPage}
+              onPageChange={setOtherFilesPage}
+              hideTitle
+            />
+          </TabsContent>
+        </Tabs>
+        </Card>
       </div>
 
       {reviewFileId && (
