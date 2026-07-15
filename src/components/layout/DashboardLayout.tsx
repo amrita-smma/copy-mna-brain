@@ -14,7 +14,6 @@ import {
   SidebarProvider,
   SidebarInset,
   SidebarGroup,
-  SidebarGroupLabel,
   SidebarGroupContent,
   SidebarFooter,
   SidebarTrigger,
@@ -36,6 +35,7 @@ import {
   ChevronsUpDown,
   Check,
   Loader2,
+  Sparkles,
 } from 'lucide-react';
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
 import {
@@ -82,11 +82,11 @@ const baseNavigation = [
   { name: 'Pipeline', href: '/pipeline', icon: GitBranch, color: 'default' as const, flag: 'PIPELINE_ENABLED' },
   { name: 'Fund Management', href: '/fund-management', icon: Landmark, color: 'default' as const, flag: 'FUND_MANAGEMENT_ENABLED' },
   { name: 'Master Data', href: '/master-data', icon: Database, color: 'default' as const, flag: 'MASTER_DATA_ENABLED' },
-  { name: 'CRM', href: '/crm', icon: Users, color: 'indigo' as const, flag: 'CRM_ENABLED' },
-  { name: 'AI File Dump', href: '/ai-file-dump', icon: FileStack, color: 'teal' as const, flag: 'AI_FILE_DUMP_ENABLED' },
+  { name: 'CRM', href: '/crm', icon: Users, color: 'default' as const, flag: 'CRM_ENABLED' },
+  { name: 'AI File Dump', href: '/ai-file-dump', icon: FileStack, color: 'default' as const, flag: 'AI_FILE_DUMP_ENABLED' },
   { name: 'Presentation', href: '/presentation', icon: Presentation, color: 'default' as const, flag: 'PRESENTATION_ENABLED' },
-  { name: 'AI Workforce', href: '/ai-workforce', icon: Users, color: 'orange' as const, flag: 'AI_WORKFORCE_ENABLED' },
-  { name: 'Company Graph', href: '/graph', icon: Network, color: 'cyan' as const, flag: 'COMPANY_GRAPH_ENABLED' },
+  { name: 'AI Workspace', href: '/ai-workforce', icon: Sparkles, color: 'default' as const, flag: 'AI_WORKFORCE_ENABLED' },
+  { name: 'Company Graph', href: '/graph', icon: Network, color: 'default' as const, flag: 'COMPANY_GRAPH_ENABLED' },
 ];
 
 export default function DashboardLayout({ children }: DashboardLayoutProps) {
@@ -158,36 +158,33 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
         <div className="relative z-10 flex min-h-screen w-full">
           <Sidebar collapsible="icon" className="border-r border-sidebar-border bg-white/70 dark:bg-[hsl(220,20%,8%)]/70 backdrop-blur-xl">
             <SidebarHeader className="border-b border-sidebar-border p-2 group-data-[state=expanded]:p-4">
-              <div className="flex items-center justify-between group-data-[state=collapsed]:flex-col group-data-[state=collapsed]:gap-2">
-                <div className="flex items-center gap-3">
-                  <WorkspaceLink href="/dashboard" aria-label="Go to dashboard" className="group shrink-0">
-                    <div className="relative flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-purple-500 via-violet-500 to-indigo-600 shadow-lg shadow-purple-500/25 transition-all duration-300 group-hover:shadow-purple-500/40 group-hover:scale-105">
-                      <Brain className="h-5 w-5 text-white" />
-                      <div className="absolute inset-0 rounded-xl bg-white/10 opacity-0 group-hover:opacity-100 transition-opacity" />
-                    </div>
-                  </WorkspaceLink>
-                  <div className="flex flex-col group-data-[state=collapsed]:hidden">
-                    <span className="text-sm font-bold bg-gradient-to-r from-purple-400 via-violet-400 to-indigo-400 bg-clip-text text-transparent">Brain 2.0</span>
-                    <WorkspaceSwitcher />
+              <div className="flex w-full items-stretch gap-3 group-data-[state=collapsed]:flex-col group-data-[state=collapsed]:items-center group-data-[state=collapsed]:gap-2">
+                  <div className="flex flex-col items-center gap-1">
+                    <WorkspaceLink href="/dashboard" aria-label="Go to dashboard" className="group shrink-0">
+                      <div className="relative flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-blue-500 via-blue-600 to-blue-700 shadow-lg shadow-blue-500/25 transition-all duration-300 group-hover:shadow-blue-500/40 group-hover:scale-105">
+                        <Brain className="h-5 w-5 text-white" />
+                        <div className="absolute inset-0 rounded-xl bg-white/10 opacity-0 group-hover:opacity-100 transition-opacity" />
+                      </div>
+                    </WorkspaceLink>
+                    <span className="mt-1 text-sm font-bold text-blue-600 group-data-[state=collapsed]:hidden">
+                      Brain 2.0
+                    </span>
                   </div>
+                  <div className="relative flex min-w-0 flex-1 group-data-[state=collapsed]:hidden">
+                    <WorkspaceSwitcher />
+                    <SidebarTrigger className="absolute bottom-0 right-0 h-6 w-6 shrink-0 text-muted-foreground hover:bg-muted hover:text-muted-foreground [&_svg]:size-3.5" />
+                  </div>
+                  <SidebarTrigger className="h-8 w-8 shrink-0 group-data-[state=expanded]:hidden" />
                 </div>
-                <SidebarTrigger className="h-8 w-8 shrink-0" />
-              </div>
             </SidebarHeader>
 
             <SidebarContent>
               <SidebarGroup>
-                <SidebarGroupLabel className="text-sidebar-foreground/50">Navigation</SidebarGroupLabel>
                 <SidebarGroupContent>
                   <SidebarMenu>
                     {filteredNavigation.map((item) => {
                       const isActive = logicalPath === item.href ||
                         (item.href !== '/dashboard' && item.href !== '#' && logicalPath.startsWith(item.href));
-                      const isColored = item.color !== 'default';
-                      const isTeal = item.color === 'teal';
-                      const isIndigo = item.color === 'indigo';
-                      const isOrange = item.color === 'orange';
-                      const isCyan = item.color === 'cyan';
                       const isDisabled = 'disabled' in item && item.disabled;
 
                       return (
@@ -198,37 +195,17 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
                             className={cn(
                               'transition-colors',
                               isDisabled && 'opacity-50 cursor-not-allowed',
-                              isTeal && !isDisabled && 'text-teal-400 hover:text-teal-300 hover:bg-teal-500/10',
-                              isIndigo && !isDisabled && 'text-indigo-400 hover:text-indigo-300 hover:bg-indigo-500/10',
-                              isOrange && !isDisabled && 'text-orange-400 hover:text-orange-300 hover:bg-orange-500/10',
-                              isCyan && !isDisabled && 'text-cyan-400 hover:text-cyan-300 hover:bg-cyan-500/10',
-                              isActive && !isColored && 'bg-sidebar-accent text-sidebar-accent-foreground',
-                              isActive && isTeal && 'bg-teal-500/20 text-teal-300',
-                              isActive && isIndigo && 'bg-indigo-500/20 text-indigo-300',
-                              isActive && isOrange && 'bg-orange-500/20 text-orange-300',
-                              isActive && isCyan && 'bg-cyan-500/20 text-cyan-300'
+                              isActive && 'bg-blue-50 text-blue-600 data-[active=true]:bg-blue-50 data-[active=true]:text-blue-600'
                             )}
                           >
                             {isDisabled ? (
                               <div className="flex items-center gap-2">
-                                <item.icon className={cn(
-                                  'h-4 w-4',
-                                  isTeal && 'text-teal-400',
-                                  isIndigo && 'text-indigo-400',
-                                  isOrange && 'text-orange-400',
-                                  isCyan && 'text-cyan-400'
-                                )} />
+                                <item.icon className="h-4 w-4" />
                                 <span>{item.name}</span>
                               </div>
                             ) : (
                               <WorkspaceLink href={item.href} onClick={() => setIsCopilotExpanded(false)}>
-                                <item.icon className={cn(
-                                  'h-4 w-4',
-                                  isTeal && 'text-teal-400',
-                                  isIndigo && 'text-indigo-400',
-                                  isOrange && 'text-orange-400',
-                                  isCyan && 'text-cyan-400'
-                                )} />
+                                <item.icon className="h-4 w-4" />
                                 <span>{item.name}</span>
                               </WorkspaceLink>
                             )}
@@ -444,7 +421,7 @@ function WorkspaceSwitcher() {
   // the name (if known yet) as inert text instead of the dropdown trigger.
   if (!memberships || memberships.length <= 1) {
     return (
-      <span className="max-w-[150px] truncate text-xs font-medium text-sidebar-foreground/50">
+      <span className="flex h-full w-full items-center truncate text-left text-base font-medium text-sidebar-foreground/60">
         {current?.workspaceName ?? ' '}
       </span>
     );
@@ -480,9 +457,9 @@ function WorkspaceSwitcher() {
         <button
           type="button"
           aria-label="Switch workspace"
-          className="flex max-w-[150px] items-center gap-1 rounded text-xs font-medium text-sidebar-foreground/50 transition-colors hover:text-sidebar-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring"
+          className="flex h-full w-full items-center justify-start gap-1 rounded text-left text-base font-medium text-sidebar-foreground/60 transition-colors hover:text-sidebar-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring"
         >
-          <span className="truncate">{current?.workspaceName}</span>
+          <span className="min-w-0 flex-1 truncate">{current?.workspaceName}</span>
           <ChevronsUpDown className="h-3 w-3 shrink-0 text-sidebar-foreground/40" />
         </button>
       </PopoverTrigger>
