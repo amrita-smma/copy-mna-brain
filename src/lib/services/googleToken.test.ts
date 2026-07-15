@@ -33,12 +33,36 @@ describe('verifyGoogleIdToken', () => {
     expect(verifyIdTokenMock).not.toHaveBeenCalled();
   });
 
+  const EXTERNAL_CLIENT_IDS = [
+    '225311131378-194cggar6d82as0lc68v85au6tp9bdml.apps.googleusercontent.com',
+    '129686335732-pholdt78pdlh3m5gu0vk4s2sg4c1o79c.apps.googleusercontent.com',
+  ];
+
   it('returns the normalized email for a valid verified token', async () => {
     getPayloadMock.mockReturnValue({ email: ' User@Example.COM ', email_verified: true });
     await expect(verifyGoogleIdToken('good-token')).resolves.toBe('user@example.com');
     expect(verifyIdTokenMock).toHaveBeenCalledWith({
       idToken: 'good-token',
-      audience: 'client-123.apps.googleusercontent.com',
+      audience: ['client-123.apps.googleusercontent.com', ...EXTERNAL_CLIENT_IDS],
+    });
+  });
+
+  it('accepts the external ?token client ids alongside GOOGLE_CLIENT_ID', async () => {
+    getPayloadMock.mockReturnValue({ email: 'user@example.com', email_verified: true });
+    await verifyGoogleIdToken('external-token');
+    const { audience } = verifyIdTokenMock.mock.calls[0][0];
+    expect(audience).toEqual(
+      expect.arrayContaining(['client-123.apps.googleusercontent.com', ...EXTERNAL_CLIENT_IDS]),
+    );
+  });
+
+  it('still enforces the external audiences when GOOGLE_CLIENT_ID is unset', async () => {
+    delete process.env.GOOGLE_CLIENT_ID;
+    getPayloadMock.mockReturnValue({ email: 'user@example.com', email_verified: true });
+    await verifyGoogleIdToken('external-token');
+    expect(verifyIdTokenMock).toHaveBeenCalledWith({
+      idToken: 'external-token',
+      audience: EXTERNAL_CLIENT_IDS,
     });
   });
 
