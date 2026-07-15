@@ -34,6 +34,13 @@ export async function redirectToWorkspaceScoped(
 
   const session = await auth();
   if (!session?.user) {
+    // Preserve a Google SSO token so GoogleSsoTokenGate can exchange it on
+    // the login page — without this the token is silently dropped and the
+    // auto-sign-in deeplink becomes a plain redirect to /login.
+    const tokenParam = searchParams?.token;
+    if (typeof tokenParam === 'string') {
+      redirect(`/login?token=${encodeURIComponent(tokenParam)}`);
+    }
     redirect('/login');
   }
   const match = session.user.workspaces.find((w) => w.workspaceId === session.user.workspaceId);

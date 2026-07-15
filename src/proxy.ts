@@ -102,7 +102,13 @@ export const proxy = auth((req) => {
 
   if (pathname.startsWith('/w/')) {
     if (!req.auth?.user?.id) {
-      return NextResponse.redirect(new URL('/login', req.url));
+      // Preserve a Google SSO token so GoogleSsoTokenGate can exchange it on
+      // the login page — without this a deeplink to /w/<slug>/*?token=... drops
+      // the token and the auto-sign-in link becomes a plain redirect to /login.
+      const loginUrl = new URL('/login', req.url);
+      const token = req.nextUrl.searchParams.get('token');
+      if (token) loginUrl.searchParams.set('token', token);
+      return NextResponse.redirect(loginUrl);
     }
 
     const slug = extractWorkspaceSlug(pathname);

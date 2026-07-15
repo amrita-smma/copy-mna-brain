@@ -29,11 +29,25 @@ export function GoogleSsoTokenGate({ children }: GoogleSsoTokenGateProps) {
   const searchParams = useSearchParams();
   const pathname = usePathname();
   const router = useRouter();
-  const { signInWithGoogleToken } = useAuth();
+  const { signInWithGoogleToken, user, loading } = useAuth();
 
   const token = searchParams.get('token');
   const [exchanging, setExchanging] = useState(Boolean(token));
   const attempted = useRef(false);
+
+  // Track the latest user/loading without capturing stale closures in the
+  // async exchange callback (the session may load while the exchange is in flight).
+  const latestUser = useRef(user);
+  const latestLoading = useRef(loading);
+  useEffect(() => { latestUser.current = user; }, [user]);
+  useEffect(() => { latestLoading.current = loading; }, [loading]);
+
+  // Reset the blocking state whenever the URL no longer carries a token so
+  // that navigating away after a failed exchange doesn't leave a stuck spinner
+  // on the destination page.
+  useEffect(() => {
+    if (!token) setExchanging(false);
+  }, [token]);
 
   useEffect(() => {
     if (!token || attempted.current) return;
@@ -41,15 +55,26 @@ export function GoogleSsoTokenGate({ children }: GoogleSsoTokenGateProps) {
 
     (async () => {
       const { error } = await signInWithGoogleToken(token);
-      if (error) {
-        router.replace('/login?error=google-sso');
-        return;
-      }
-      // Drop the token from the URL (keeping the current path and any other
-      // query params), then reveal the app now that the session cookie is set.
       const params = new URLSearchParams(searchParams.toString());
       params.delete('token');
       const query = params.toString();
+
+      if (error) {
+        // If the user already had an authenticated session when the exchange
+        // failed (e.g. the link token is expired), keep them on the current
+        // page — just strip the stale token. Only redirect to the error page
+        // when there is no session to fall back on.
+        if (!latestLoading.current && latestUser.current) {
+          router.replace(query ? `${pathname}?${query}` : pathname);
+        } else {
+          router.replace('/login?error=google-sso');
+        }
+        setExchanging(false);
+        return;
+      }
+
+      // Drop the token from the URL (keeping the current path and any other
+      // query params), then reveal the app now that the session cookie is set.
       router.replace(query ? `${pathname}?${query}` : pathname);
       setExchanging(false);
     })();
