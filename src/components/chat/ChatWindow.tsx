@@ -97,7 +97,7 @@ function ChatMessages(props: {
         <WelcomeMessage />
         {props.messages.map((message, index) => (
           <ChatMessageBubble
-            key={message.id}
+            key={`${message.id}-${index}`}
             message={message}
             aiEmoji={props.aiEmoji}
             isActive={!!props.isStreaming && index === props.messages.length - 1}

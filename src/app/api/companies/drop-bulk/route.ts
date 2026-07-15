@@ -5,7 +5,7 @@ import { createContainer } from '@/lib/services';
 import { CompanyDroppedError } from '@/lib/services/companyService';
 
 interface DropBulkBody {
-  deals?: Array<{ id?: unknown; currentStage?: unknown }>;
+  deals?: Array<{ id?: unknown; currentStage?: unknown; reason?: unknown }>;
   reason?: unknown;
 }
 
@@ -14,10 +14,11 @@ export async function POST(req: NextRequest) {
     const body = (await req.json()) as DropBulkBody;
     const deals = Array.isArray(body.deals) ? body.deals : [];
     const normalized = deals
-      .filter((d): d is { id: string; currentStage?: unknown } => typeof d?.id === 'string' && d.id.length > 0)
+      .filter((d): d is { id: string; currentStage?: unknown; reason?: unknown } => typeof d?.id === 'string' && d.id.length > 0)
       .map((d) => ({
         id: d.id,
         currentStage: typeof d.currentStage === 'string' ? d.currentStage : undefined,
+        reason: typeof d.reason === 'string' ? d.reason : undefined,
       }));
     if (normalized.length === 0) {
       return NextResponse.json({ error: 'deals must be a non-empty array of { id, currentStage? }' }, { status: 400 });

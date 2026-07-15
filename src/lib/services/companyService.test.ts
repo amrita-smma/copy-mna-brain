@@ -709,10 +709,6 @@ describe("CompanyService.dropDealMany", () => {
       { id: 'company-2', currentStage: 'L0' },
     ]);
 
-    expect(repos.companyRepo.findDroppedIds).toHaveBeenCalledWith([
-      'company-1',
-      'company-2',
-    ]);
     expect(repos.companyRepo.updateMany).toHaveBeenCalledWith(
       ['company-1', 'company-2'],
       expect.objectContaining({
@@ -756,8 +752,8 @@ describe("CompanyService.dropDealMany", () => {
       }),
     );
     expect(repos.dealNoteRepo.insertMany).toHaveBeenCalledWith([
-      { deal_id: 'company-1', content: '  no fit  ', stage: 'L2' },
-      { deal_id: 'company-2', content: '  no fit  ', stage: 'L0' },
+      { deal_id: 'company-1', content: 'no fit', stage: 'L2' },
+      { deal_id: 'company-2', content: 'no fit', stage: 'L0' },
     ]);
   });
 
@@ -770,21 +766,16 @@ describe("CompanyService.dropDealMany", () => {
     expect(repos.dealNoteRepo.insertMany).not.toHaveBeenCalled();
   });
 
-  it('throws CompanyDroppedError and writes nothing when any id is already dropped', async () => {
+  it('succeeds idempotently and writes to DB even when an id is already dropped', async () => {
     vi.mocked(repos.companyRepo.findDroppedIds).mockResolvedValue(['company-2']);
 
-    await expect(
-      service.dropDealMany([
-        { id: 'company-1', currentStage: 'L1' },
-        { id: 'company-2', currentStage: 'L1' },
-      ]),
-    ).rejects.toMatchObject({
-      name: 'CompanyDroppedError',
-      droppedIds: ['company-2'],
-    });
-    expect(repos.companyRepo.updateMany).not.toHaveBeenCalled();
-    expect(repos.companyLogRepo.insertMany).not.toHaveBeenCalled();
-    expect(repos.dealNoteRepo.insertMany).not.toHaveBeenCalled();
+    await service.dropDealMany([
+      { id: 'company-1', currentStage: 'L1' },
+      { id: 'company-2', currentStage: 'L1' },
+    ]);
+
+    expect(repos.companyRepo.updateMany).toHaveBeenCalled();
+    expect(repos.companyLogRepo.insertMany).toHaveBeenCalled();
   });
 });
 
@@ -1153,11 +1144,9 @@ describe("CompanyService dropped-company writes", () => {
     expect(repos.companyRepo.updateMany).not.toHaveBeenCalled();
   });
 
-  it("dropDealMany still throws when an id is already dropped", async () => {
-    await expect(
-      service.dropDealMany([{ id: "company-1" }]),
-    ).rejects.toBeInstanceOf(CompanyDroppedError);
-    expect(repos.companyRepo.updateMany).not.toHaveBeenCalled();
+  it("dropDealMany succeeds idempotently even when an id is already dropped", async () => {
+    await service.dropDealMany([{ id: "company-1" }]);
+    expect(repos.companyRepo.updateMany).toHaveBeenCalled();
   });
 
   it("restoreDeal still works on a dropped company (escape hatch)", async () => {

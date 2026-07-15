@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useMemo, useState } from "react";
+import { Fragment, useMemo, useState, useEffect } from "react";
 import { ArrowUp, Check, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -74,6 +74,17 @@ export function BulkPromoteCompaniesCard({
   const [resolutionText, setResolutionText] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  // Restore resolved state from localStorage across page reloads
+  useEffect(() => {
+    if (payload.approval_id) {
+      const saved = localStorage.getItem(`bulk_promote_resolved_${payload.approval_id}`);
+      if (saved) {
+        setResolutionText(saved);
+        setStatus("resolved");
+      }
+    }
+  }, [payload.approval_id]);
+
   const total = payload.candidates.length;
   const selectedCount = selected.size;
   const isResolved = status === "resolved";
@@ -109,12 +120,14 @@ export function BulkPromoteCompaniesCard({
       }
       const held = total - selectedCount;
       const noun = selectedCount === 1 ? "candidate" : "candidates";
-      setResolutionText(
-        `Approved — promoted ${selectedCount} ${noun} to ${targetStage}${
-          held > 0 ? ` (held ${held})` : ""
-        }.`,
-      );
+      const text = `Approved — promoted ${selectedCount} ${noun} to ${targetStage}${
+        held > 0 ? ` (held ${held})` : ""
+      }.`;
+      setResolutionText(text);
       setStatus("resolved");
+      if (payload.approval_id) {
+        localStorage.setItem(`bulk_promote_resolved_${payload.approval_id}`, text);
+      }
       toast.success(`Promoted ${selectedCount} ${noun} to ${targetStage}`);
     } catch (e) {
       const message = e instanceof Error ? e.message : "Failed to promote";
@@ -125,8 +138,12 @@ export function BulkPromoteCompaniesCard({
   };
 
   const handleHoldAll = () => {
-    setResolutionText(`Held all ${total} candidates at current stage for next review.`);
+    const text = `Held all ${total} candidates at current stage for next review.`;
+    setResolutionText(text);
     setStatus("resolved");
+    if (payload.approval_id) {
+      localStorage.setItem(`bulk_promote_resolved_${payload.approval_id}`, text);
+    }
   };
 
   return (

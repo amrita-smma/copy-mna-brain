@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useMemo, useState } from "react";
+import { Fragment, useMemo, useState, useEffect } from "react";
 import { Check, Loader2, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -60,6 +60,17 @@ export function BulkDropCompaniesCard({
   const [resolutionText, setResolutionText] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  // Restore resolved state from localStorage across page reloads
+  useEffect(() => {
+    if (payload.approval_id) {
+      const saved = localStorage.getItem(`bulk_drop_resolved_${payload.approval_id}`);
+      if (saved) {
+        setResolutionText(saved);
+        setStatus("resolved");
+      }
+    }
+  }, [payload.approval_id]);
+
   const total = payload.candidates.length;
   const selectedCount = selected.size;
   const isResolved = status === "resolved";
@@ -81,7 +92,7 @@ export function BulkDropCompaniesCard({
     setError(null);
     const deals = payload.candidates
       .filter((c) => selected.has(c.id))
-      .map((c) => ({ id: c.id, currentStage: c.current_stage ?? undefined }));
+      .map((c) => ({ id: c.id, currentStage: c.current_stage ?? undefined, reason: c.reason }));
     try {
       const res = await fetch("/api/companies/drop-bulk", {
         method: "POST",
@@ -94,12 +105,14 @@ export function BulkDropCompaniesCard({
       }
       const kept = total - selectedCount;
       const noun = selectedCount === 1 ? "company" : "companies";
-      setResolutionText(
-        `Approved — dropped ${selectedCount} ${noun}${
-          kept > 0 ? ` (kept ${kept})` : ""
-        }.`,
-      );
+      const text = `Approved — dropped ${selectedCount} ${noun}${
+        kept > 0 ? ` (kept ${kept})` : ""
+      }.`;
+      setResolutionText(text);
       setStatus("resolved");
+      if (payload.approval_id) {
+        localStorage.setItem(`bulk_drop_resolved_${payload.approval_id}`, text);
+      }
       toast.success(`Dropped ${selectedCount} ${noun}`);
     } catch (e) {
       const message = e instanceof Error ? e.message : "Failed to drop";
@@ -110,8 +123,12 @@ export function BulkDropCompaniesCard({
   };
 
   const handleKeepAll = () => {
-    setResolutionText(`Kept all ${total} candidates on the watchlist.`);
+    const text = `Kept all ${total} candidates on the watchlist.`;
+    setResolutionText(text);
     setStatus("resolved");
+    if (payload.approval_id) {
+      localStorage.setItem(`bulk_drop_resolved_${payload.approval_id}`, text);
+    }
   };
 
   return (

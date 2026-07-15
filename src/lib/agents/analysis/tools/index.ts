@@ -16,6 +16,7 @@ import { proposeWorkforceHandoff } from "./propose_workforce_handoff";
 import { proposeBulkDropCompanies } from "./propose_bulk_drop_companies";
 import { proposeBulkPromoteCompanies } from "./propose_bulk_promote_companies";
 import { promoteToL1 } from "./promote_to_l1";
+import { dropCompany } from "./drop_company";
 import { addCompany } from "./add_company";
 import { updateCompanyRelationship } from "./update_company_relationship";
 import { generateRelationshipGraph } from "./generate_relationship_graph";
@@ -145,6 +146,7 @@ export const workforceOnlyTools = [
   notifyProgress,
   flagInsight,
   sendEmailTool,
+  dropCompany,
 ];
 
 /**

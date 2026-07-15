@@ -556,32 +556,56 @@ export class CompanyService {
   }
 
   async dropDealMany(
-    deals: Array<{ id: string; currentStage?: string }>,
+    deals: Array<{ id: string; currentStage?: string; reason?: string }>,
     reason?: string,
   ) {
     if (deals.length === 0) return;
     const ids = deals.map((d) => d.id);
-    await this.guardWritableMany(ids);
-    const trimmedReason = reason?.trim() || null;
-    await this.companyRepo.updateMany(ids, {
-      status: 'dropped',
-      dropped_reason: trimmedReason,
-      dropped_at: new Date().toISOString(),
-    });
+    const trimmedGlobalReason = reason?.trim() || null;
+
+    const hasDistinctReasons = deals.some((d) => d.reason?.trim());
+    const droppedAt = new Date().toISOString();
+
+    if (hasDistinctReasons) {
+      await Promise.all(
+        deals.map((d) => {
+          const r = d.reason?.trim() || trimmedGlobalReason;
+          return this.companyRepo.update(d.id, {
+            status: 'dropped',
+            dropped_reason: r,
+            dropped_at: droppedAt,
+          });
+        })
+      );
+    } else {
+      await this.companyRepo.updateMany(ids, {
+        status: 'dropped',
+        dropped_reason: trimmedGlobalReason,
+        dropped_at: droppedAt,
+      });
+    }
+
     await this.companyLogRepo.insertMany(
       deals.map(({ id, currentStage }) => ({
         company_id: id,
         action: currentStage ? `DROPPED_FROM_${currentStage}` : 'DROPPED',
       })),
     );
-    if (reason?.trim()) {
-      await this.dealNoteRepo.insertMany(
-        deals.map(({ id, currentStage }) => ({
-          deal_id: id,
-          content: reason,
-          stage: currentStage || 'L0',
-        })),
-      );
+
+    const notesToInsert = deals
+      .map((d) => {
+        const r = d.reason?.trim() || trimmedGlobalReason;
+        if (!r) return null;
+        return {
+          deal_id: d.id,
+          content: r,
+          stage: d.currentStage || 'L0',
+        };
+      })
+      .filter((n): n is NonNullable<typeof n> => n !== null);
+
+    if (notesToInsert.length > 0) {
+      await this.dealNoteRepo.insertMany(notesToInsert);
     }
   }
 
