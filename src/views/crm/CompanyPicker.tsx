@@ -88,7 +88,7 @@ export function CompanyPicker({
           className={cn(
             "w-full justify-between gap-2 font-medium",
             value?.name &&
-              "border-indigo-300 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 dark:bg-indigo-950 dark:text-indigo-200",
+              "border-blue-300 bg-blue-50 text-blue-700 hover:bg-blue-100 dark:bg-blue-950 dark:text-blue-200",
             locked && "cursor-default opacity-90",
           )}
         >
@@ -127,7 +127,7 @@ export function CompanyPicker({
                   className={cn(
                     "flex w-full items-center gap-2 rounded-md p-1.5 text-left text-sm hover:bg-muted",
                     isSel &&
-                      "font-semibold text-indigo-700 dark:text-indigo-300",
+                      "font-semibold text-blue-700 dark:text-blue-300",
                   )}
                   onClick={() => {
                     onChange({ name: c.name, id: c.id });
@@ -143,7 +143,7 @@ export function CompanyPicker({
         {debounced && !hasExact && (
           <button
             type="button"
-            className="mt-2 flex w-full items-center gap-2 border-t pt-2 text-left text-sm font-semibold text-indigo-600 hover:underline"
+            className="mt-2 flex w-full items-center gap-2 border-t pt-2 text-left text-sm font-semibold text-blue-600 hover:underline"
             onClick={() => {
               onChange({ name: debounced, isNew: true });
               setOpen(false);

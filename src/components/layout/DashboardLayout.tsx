@@ -19,7 +19,6 @@ import {
   SidebarTrigger,
 } from '@/components/ui/sidebar';
 import {
-  Brain,
   LayoutDashboard,
   GitBranch,
   Database,
@@ -53,6 +52,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/button';
 import { ThemeToggle } from '@/components/theme-toggle';
 import { LivingBackground } from '@/components/LivingBackground';
+import { BrandMark, BrandWordmark } from '@/components/BrandMark';
 import { AICopilotPane, COPILOT_DEFAULT_WIDTH } from './AICopilotPane';
 import { LayoutControlProvider } from './LayoutControlContext';
 import { MobileBottomNav } from './MobileBottomNav';
@@ -82,11 +82,11 @@ const baseNavigation = [
   { name: 'Pipeline', href: '/pipeline', icon: GitBranch, color: 'default' as const, flag: 'PIPELINE_ENABLED' },
   { name: 'Fund Management', href: '/fund-management', icon: Landmark, color: 'default' as const, flag: 'FUND_MANAGEMENT_ENABLED' },
   { name: 'Master Data', href: '/master-data', icon: Database, color: 'default' as const, flag: 'MASTER_DATA_ENABLED' },
-  { name: 'CRM', href: '/crm', icon: Users, color: 'default' as const, flag: 'CRM_ENABLED' },
-  { name: 'AI File Dump', href: '/ai-file-dump', icon: FileStack, color: 'default' as const, flag: 'AI_FILE_DUMP_ENABLED' },
+  { name: 'CRM', href: '/crm', icon: Users, color: 'indigo' as const, flag: 'CRM_ENABLED' },
+  { name: 'AI File Dump', href: '/ai-file-dump', icon: FileStack, color: 'teal' as const, flag: 'AI_FILE_DUMP_ENABLED' },
   { name: 'Presentation', href: '/presentation', icon: Presentation, color: 'default' as const, flag: 'PRESENTATION_ENABLED' },
-  { name: 'AI Workspace', href: '/ai-workforce', icon: Sparkles, color: 'default' as const, flag: 'AI_WORKFORCE_ENABLED' },
-  { name: 'Company Graph', href: '/graph', icon: Network, color: 'default' as const, flag: 'COMPANY_GRAPH_ENABLED' },
+  { name: 'AI Workspace', href: '/ai-workforce', icon: Sparkles, color: 'orange' as const, flag: 'AI_WORKFORCE_ENABLED' },
+  { name: 'Company Graph', href: '/graph', icon: Network, color: 'cyan' as const, flag: 'COMPANY_GRAPH_ENABLED' },
 ];
 
 export default function DashboardLayout({ children }: DashboardLayoutProps) {
@@ -156,19 +156,18 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
       <LivingBackground variant="default" />
       <SidebarProvider open={isSidebarOpen} onOpenChange={setIsSidebarOpen}>
         <div className="relative z-10 flex min-h-screen w-full">
-          <Sidebar collapsible="icon" className="border-r border-sidebar-border bg-white/70 dark:bg-[hsl(220,20%,8%)]/70 backdrop-blur-xl">
+          <Sidebar collapsible="icon" className="border-r border-sidebar-border bg-white/70 dark:bg-[hsl(240,14%,4%)]/70 backdrop-blur-xl">
             <SidebarHeader className="border-b border-sidebar-border p-2 group-data-[state=expanded]:p-4">
               <div className="flex w-full items-stretch gap-3 group-data-[state=collapsed]:flex-col group-data-[state=collapsed]:items-center group-data-[state=collapsed]:gap-2">
                   <div className="flex flex-col items-center gap-1">
-                    <WorkspaceLink href="/dashboard" aria-label="Go to dashboard" className="group shrink-0">
-                      <div className="relative flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-blue-500 via-blue-600 to-blue-700 shadow-lg shadow-blue-500/25 transition-all duration-300 group-hover:shadow-blue-500/40 group-hover:scale-105">
-                        <Brain className="h-5 w-5 text-white" />
-                        <div className="absolute inset-0 rounded-xl bg-white/10 opacity-0 group-hover:opacity-100 transition-opacity" />
+                    <WorkspaceLink href="/dashboard" aria-label="Go to dashboard" className="group shrink-0 group-data-[state=expanded]:hidden">
+                      <div className="relative flex h-10 w-10 items-center justify-center transition-transform duration-300 group-hover:scale-105">
+                        <BrandMark className="h-9 w-9" />
                       </div>
                     </WorkspaceLink>
-                    <span className="mt-1 text-sm font-bold text-blue-600 group-data-[state=collapsed]:hidden">
-                      Brain 2.0
-                    </span>
+                    <WorkspaceLink href="/dashboard" aria-label="Go to dashboard" className="group group-data-[state=collapsed]:hidden">
+                      <BrandWordmark className="h-6 w-auto transition-transform duration-300 group-hover:scale-[1.02]" />
+                    </WorkspaceLink>
                   </div>
                   <div className="relative flex min-w-0 flex-1 group-data-[state=collapsed]:hidden">
                     <WorkspaceSwitcher />
@@ -185,6 +184,11 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
                     {filteredNavigation.map((item) => {
                       const isActive = logicalPath === item.href ||
                         (item.href !== '/dashboard' && item.href !== '#' && logicalPath.startsWith(item.href));
+                      const isColored = item.color !== 'default';
+                      const isTeal = item.color === 'teal';
+                      const isIndigo = item.color === 'indigo';
+                      const isOrange = item.color === 'orange';
+                      const isCyan = item.color === 'cyan';
                       const isDisabled = 'disabled' in item && item.disabled;
 
                       return (
@@ -195,17 +199,37 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
                             className={cn(
                               'transition-colors',
                               isDisabled && 'opacity-50 cursor-not-allowed',
-                              isActive && 'bg-blue-50 text-blue-600 data-[active=true]:bg-blue-50 data-[active=true]:text-blue-600'
+                              isTeal && !isDisabled && 'text-teal-400 hover:text-teal-300 hover:bg-teal-500/10',
+                              isIndigo && !isDisabled && 'text-blue-400 hover:text-blue-300 hover:bg-blue-500/10',
+                              isOrange && !isDisabled && 'text-orange-400 hover:text-orange-300 hover:bg-orange-500/10',
+                              isCyan && !isDisabled && 'text-cyan-400 hover:text-cyan-300 hover:bg-cyan-500/10',
+                              isActive && !isColored && 'bg-sidebar-accent text-sidebar-accent-foreground',
+                              isActive && isTeal && 'bg-teal-500/20 text-teal-300',
+                              isActive && isIndigo && 'bg-blue-500/20 text-blue-300',
+                              isActive && isOrange && 'bg-orange-500/20 text-orange-300',
+                              isActive && isCyan && 'bg-cyan-500/20 text-cyan-300'
                             )}
                           >
                             {isDisabled ? (
                               <div className="flex items-center gap-2">
-                                <item.icon className="h-4 w-4" />
+                                <item.icon className={cn(
+                                  'h-4 w-4',
+                                  isTeal && 'text-teal-400',
+                                  isIndigo && 'text-blue-400',
+                                  isOrange && 'text-orange-400',
+                                  isCyan && 'text-cyan-400'
+                                )} />
                                 <span>{item.name}</span>
                               </div>
                             ) : (
                               <WorkspaceLink href={item.href} onClick={() => setIsCopilotExpanded(false)}>
-                                <item.icon className="h-4 w-4" />
+                                <item.icon className={cn(
+                                  'h-4 w-4',
+                                  isTeal && 'text-teal-400',
+                                  isIndigo && 'text-blue-400',
+                                  isOrange && 'text-orange-400',
+                                  isCyan && 'text-cyan-400'
+                                )} />
                                 <span>{item.name}</span>
                               </WorkspaceLink>
                             )}
@@ -245,7 +269,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
                   variant="ghost"
                   size="sm"
                   onClick={handleSignOut}
-                  className="justify-start text-sidebar-foreground/70 hover:text-sidebar-foreground group-data-[state=collapsed]:justify-center group-data-[state=collapsed]:p-2"
+                  className="justify-start text-sidebar-foreground/70 hover:text-sidebar-foreground hover:text-white group-data-[state=collapsed]:justify-center group-data-[state=collapsed]:p-2"
                 >
                   <LogOut className="h-4 w-4 group-data-[state=expanded]:mr-2" />
                   <span className="group-data-[state=collapsed]:hidden">Sign Out</span>
@@ -376,7 +400,7 @@ function initialsFor(name: string) {
 
 /**
  * Sidebar brand subtitle: the current workspace name, clickable to switch
- * when the user belongs to more than one. Lives under the "Brain 2.0" title
+ * when the user belongs to more than one. Lives under the "Investment Brain" title
  * in the sidebar header, matching the original workspace-picker placement.
  *
  * The current value comes from the URL's own `workspaceSlug` param, not the
@@ -476,7 +500,7 @@ function WorkspaceSwitcher() {
                   onSelect={() => handleSelect(m.workspaceSlug)}
                   className="gap-2"
                 >
-                  <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-gradient-to-br from-violet-500 to-purple-600 text-[10px] font-bold text-white">
+                  <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-gradient-to-br from-blue-500 to-blue-600 text-[10px] font-bold text-white">
                     {initialsFor(m.workspaceName)}
                   </span>
                   <span className="min-w-0 flex-1 truncate text-sm font-medium">

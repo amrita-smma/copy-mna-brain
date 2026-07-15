@@ -203,7 +203,7 @@ export function TraceLine({
               type="button"
               data-testid="trace-view-report-button"
               onClick={() => setReportOpen(true)}
-              className="mt-2.5 inline-flex items-center gap-1.5 rounded-md border border-violet-200 bg-violet-50 px-2.5 py-1 text-[11px] font-semibold text-violet-700 hover:bg-violet-100 hover:border-violet-300 transition-colors"
+              className="mt-2.5 inline-flex items-center gap-1.5 rounded-md border border-blue-200 bg-blue-50 px-2.5 py-1 text-[11px] font-semibold text-blue-700 hover:bg-blue-100 hover:border-blue-300 transition-colors"
             >
               <FileText className="h-3 w-3" strokeWidth={2.5} />
               View full report
@@ -261,7 +261,7 @@ export function TraceLine({
           <DialogContent data-testid="trace-full-report-dialog" className="max-w-3xl max-h-[85vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle className="flex items-center gap-2">
-                <FileText className="h-4 w-4 text-violet-600" />
+                <FileText className="h-4 w-4 text-blue-600" />
                 {step.title}
               </DialogTitle>
             </DialogHeader>
@@ -305,7 +305,7 @@ function TraceNode({ step }: { step: TraceData }) {
       <span
         className={cn(
           ringBase,
-          'bg-violet-50 border-2 border-violet-500 text-violet-600',
+          'bg-blue-50 border-2 border-blue-500 text-blue-600',
         )}
       >
         <span className="text-[10px] font-extrabold leading-none">?</span>
@@ -349,7 +349,7 @@ function StatusBadge({ status }: { status: TraceStepStatus }) {
     active: { label: 'Running', className: 'bg-amber-50 text-amber-700' },
     'intervention-waiting': {
       label: 'Waiting',
-      className: 'bg-violet-50 text-violet-700',
+      className: 'bg-blue-50 text-blue-700',
     },
     pending: { label: 'Pending', className: 'bg-muted text-muted-foreground' },
     skipped: { label: 'Skipped', className: 'bg-muted text-muted-foreground/70' },
@@ -470,7 +470,7 @@ function ToolCallView({
   call: ToolCall;
   // True when the parent step is paused on a HITL interrupt — the call is
   // "running" in the LangGraph sense but actually waiting on the human, so we
-  // recolor the row violet and relabel the pill instead of using the amber
+  // recolor the row blue and relabel the pill instead of using the amber
   // "running" treatment that implies the agent is doing work.
   awaitingApproval?: boolean;
 }) {
@@ -479,7 +479,7 @@ function ToolCallView({
   const Icon = iconForTool(call.name);
   const isWaiting = call.running && awaitingApproval;
   const pillClass = isWaiting
-    ? 'bg-violet-50 text-violet-700'
+    ? 'bg-blue-50 text-blue-700'
     : call.running
       ? 'bg-amber-50 text-amber-700'
       : TONE_PILL_CLASS[call.tone ?? 'default'];
@@ -489,7 +489,7 @@ function ToolCallView({
       className={cn(
         'rounded-md border bg-card overflow-hidden transition-colors',
         isWaiting
-          ? 'border-violet-200 bg-violet-50/40'
+          ? 'border-blue-200 bg-blue-50/40'
           : call.running
             ? 'border-amber-200 bg-amber-50/40'
             : 'border-border hover:border-border/80',
@@ -508,10 +508,10 @@ function ToolCallView({
           className={cn(
             'h-[18px] w-[18px] rounded grid place-items-center flex-shrink-0',
             isWaiting
-              ? 'bg-violet-100 text-violet-700'
+              ? 'bg-blue-100 text-blue-700'
               : call.running
                 ? 'bg-amber-100 text-amber-600'
-                : 'bg-violet-100 text-violet-700',
+                : 'bg-blue-100 text-blue-700',
           )}
         >
           <Icon className="h-2.5 w-2.5" />
@@ -527,10 +527,10 @@ function ToolCallView({
           className={cn(
             'font-mono text-[11.5px] font-semibold flex-shrink-0',
             isWaiting
-              ? 'text-violet-700'
+              ? 'text-blue-700'
               : call.running
                 ? 'text-amber-700'
-                : 'text-violet-700',
+                : 'text-blue-700',
           )}
         >
           {call.name}
@@ -546,7 +546,7 @@ function ToolCallView({
             )}
           >
             {isWaiting ? (
-              <span className="h-1.5 w-1.5 rounded-full bg-violet-500 animate-pulse" />
+              <span className="h-1.5 w-1.5 rounded-full bg-blue-500 animate-pulse" />
             ) : (
               call.running && (
                 <Loader2 className="h-2 w-2 animate-spin" strokeWidth={3} />
@@ -720,7 +720,7 @@ function InterventionCard({
                 'px-1.5 py-px rounded text-[9px] font-bold',
                 resolution.decision === 'approved'
                   ? 'bg-emerald-50 text-emerald-700'
-                  : 'bg-violet-50 text-violet-700',
+                  : 'bg-blue-50 text-blue-700',
               )}
             >
               {resolution.decision === 'approved' ? 'Approved' : 'Modified'}
@@ -763,9 +763,9 @@ function InterventionCard({
   };
 
   return (
-    <div className="relative rounded-lg border-[1.5px] border-violet-300 bg-gradient-to-br from-violet-50/70 to-indigo-50/50 px-3.5 py-3 overflow-hidden">
-      <span className="absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r from-violet-500 to-indigo-500" />
-      <div className="inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-violet-600 mb-2">
+    <div className="relative rounded-lg border-[1.5px] border-blue-300 bg-gradient-to-br from-blue-50/70 to-blue-50/50 px-3.5 py-3 overflow-hidden">
+      <span className="absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r from-blue-500 to-blue-500" />
+      <div className="inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-blue-600 mb-2">
         <AlertCircle className="h-3 w-3" />
         Waiting on input
       </div>
@@ -774,7 +774,7 @@ function InterventionCard({
       </p>
       {intervention.proposal && (
         <div className="rounded-md border bg-card px-3 py-2 mb-2.5">
-          <div className="text-[10px] font-bold uppercase tracking-wider text-violet-600 mb-1">
+          <div className="text-[10px] font-bold uppercase tracking-wider text-blue-600 mb-1">
             Why
           </div>
           {/* whitespace-pre-line so the "reason\n\nNote: …" composition from
@@ -796,7 +796,7 @@ function InterventionCard({
             data-testid="intervention-approve-button"
             disabled={submitting}
             onClick={() => void submit('approve')}
-            className="inline-flex items-center gap-1.5 rounded-md bg-gradient-to-br from-violet-500 to-indigo-600 px-3 py-1.5 text-xs font-semibold text-white hover:from-violet-600 hover:to-indigo-700 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+            className="inline-flex items-center gap-1.5 rounded-md bg-gradient-to-br from-blue-500 to-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:from-blue-600 hover:to-blue-700 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
           >
             <Check className="h-3 w-3" strokeWidth={3} />
             Approve

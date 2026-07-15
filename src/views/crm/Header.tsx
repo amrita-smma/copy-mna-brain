@@ -47,8 +47,8 @@ export function PageHeader({
   return (
     <header className="border-b bg-background px-7 pt-4">
       <div className="mb-3 flex items-center gap-3">
-        <div className="grid h-9 w-9 place-items-center rounded-xl bg-gradient-to-br from-indigo-200 to-indigo-300 dark:from-indigo-900 dark:to-indigo-700">
-          <Users className="h-4 w-4 text-indigo-700 dark:text-indigo-200" />
+        <div className="grid h-9 w-9 place-items-center rounded-xl bg-gradient-to-br from-blue-200 to-blue-300 dark:from-blue-900 dark:to-blue-700">
+          <Users className="h-4 w-4 text-blue-700 dark:text-blue-200" />
         </div>
         <div className="flex-1">
           <div className="flex items-center gap-2">
@@ -176,7 +176,7 @@ function InsightItem({
           <div>{body}</div>
           {cta && (
             <button
-              className="cursor-pointer text-xs font-semibold text-indigo-600 hover:underline"
+              className="cursor-pointer text-xs font-semibold text-blue-600 hover:underline"
               onClick={cta.onClick}
             >
               {cta.label}

@@ -16,7 +16,7 @@ const RESET_TOKEN_TTL_MINUTES = Math.round(RESET_TOKEN_TTL_MS / 60_000);
  */
 export class UserNotRegisteredError extends Error {
   constructor() {
-    super('Your user is not registered in the system, please contact the MnA team');
+    super('Your user is not registered in the system, please contact the Investment Brain team');
     this.name = 'UserNotRegisteredError';
   }
 }

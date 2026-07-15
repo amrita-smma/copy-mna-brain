@@ -234,11 +234,11 @@ export default function ScreeningProgressPanel({
   };
 
   return (
-    <Card className="border-purple-200 bg-gradient-to-r from-purple-50/50 to-blue-50/50 dark:from-purple-950/20 dark:to-blue-950/20 dark:border-purple-800">
+    <Card className="border-blue-200 bg-gradient-to-r from-blue-50/50 to-blue-50/50 dark:from-blue-950/20 dark:to-blue-950/20 dark:border-blue-800">
       <CardHeader className="pb-6">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <Sparkles className="h-5 w-5 text-purple-600" />
+            <Sparkles className="h-5 w-5 text-blue-600" />
             <div>
               <CardTitle className="text-lg">AI Screening Progress</CardTitle>
               <CardDescription>

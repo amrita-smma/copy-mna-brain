@@ -1014,8 +1014,8 @@ export async function generateResearchSummaryPdf(
 ): Promise<Buffer> {
   const doc = await PDFDocument.create();
   doc.setTitle(input.title);
-  doc.setCreator('Brain 2.0');
-  doc.setProducer('Brain 2.0');
+  doc.setCreator('Investment Brain');
+  doc.setProducer('Investment Brain');
 
   const regular = await doc.embedFont(StandardFonts.Helvetica);
   const bold = await doc.embedFont(StandardFonts.HelveticaBold);

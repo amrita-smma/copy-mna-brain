@@ -275,7 +275,7 @@ function EditableSection({
         </ContextMenuTrigger>
         <ContextMenuContent>
           <ContextMenuItem onSelect={() => setOpen(true)}>
-            <Sparkles className="mr-2 h-3.5 w-3.5 text-purple-500" />
+            <Sparkles className="mr-2 h-3.5 w-3.5 text-blue-500" />
             Edit with AI
           </ContextMenuItem>
         </ContextMenuContent>
@@ -318,7 +318,7 @@ function EditableSection({
             <Button
               type="button"
               size="sm"
-              className="h-6 gap-1 bg-purple-600 px-2 text-[11px] text-white hover:bg-purple-700"
+              className="h-6 gap-1 bg-blue-600 px-2 text-[11px] text-white hover:bg-blue-700"
               onClick={submit}
               disabled={!instruction.trim()}
             >

@@ -119,7 +119,7 @@ export function MobileWorkspaceSwitcher({ className }: { className?: string }) {
           aria-label="Profile"
           className={cn(
             'flex flex-1 flex-col items-center justify-center gap-1 py-2.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground focus:outline-none',
-            open && 'text-purple-600 dark:text-purple-400',
+            open && 'text-blue-600 dark:text-blue-400',
             className,
           )}
         >
@@ -153,12 +153,12 @@ export function MobileWorkspaceSwitcher({ className }: { className?: string }) {
                         active ? 'bg-accent' : 'hover:bg-accent/60',
                       )}
                     >
-                      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-violet-500 to-purple-600 text-sm font-bold text-white">
+                      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-blue-500 to-blue-600 text-sm font-bold text-white">
                         {initialsFor(m.workspaceName)}
                       </span>
                       <span className="flex min-w-0 flex-1 flex-col">
                         <span className={cn("truncate text-sm font-medium text-foreground",
-                          active && 'text-gray-50 dark:text-purple-400'
+                          active && 'text-gray-50 dark:text-blue-400'
                         )}>
                           {m.workspaceName}
                         </span>
@@ -170,7 +170,7 @@ export function MobileWorkspaceSwitcher({ className }: { className?: string }) {
                       </span>
                       <Check
                         className={cn(
-                          'h-4 w-4 shrink-0 text-purple-600 dark:text-purple-400',
+                          'h-4 w-4 shrink-0 text-blue-600 dark:text-blue-400',
                           active ? 'opacity-100' : 'opacity-0',
                         )}
                       />

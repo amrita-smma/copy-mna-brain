@@ -127,7 +127,7 @@ export function RailItem({
       )}
     >
       {active && (
-        <span className="absolute left-0 top-2.5 bottom-2.5 w-[3px] rounded-r bg-violet-500" />
+        <span className="absolute left-0 top-2.5 bottom-2.5 w-[3px] rounded-r bg-blue-500" />
       )}
       <span
         className={cn(

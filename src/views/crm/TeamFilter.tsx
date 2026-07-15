@@ -46,7 +46,7 @@ export function TeamFilter({
           className={cn(
             "gap-1",
             selected.size &&
-              "bg-indigo-100 text-indigo-700 hover:bg-indigo-200 dark:bg-indigo-950 dark:text-indigo-200",
+              "bg-blue-100 text-blue-700 hover:bg-blue-200 dark:bg-blue-950 dark:text-blue-200",
           )}
         >
           <Users className="h-3 w-3" />
@@ -80,7 +80,7 @@ export function TeamFilter({
                   type="button"
                   className={cn(
                     "flex w-full items-center gap-2 rounded-md p-1.5 text-left text-sm hover:bg-muted",
-                    on && "font-semibold text-indigo-700 dark:text-indigo-300",
+                    on && "font-semibold text-blue-700 dark:text-blue-300",
                   )}
                   onClick={() => {
                     const next = new Set(draft);

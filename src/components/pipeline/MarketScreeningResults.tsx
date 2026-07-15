@@ -318,28 +318,28 @@ export default function MarketScreeningResults({ refreshTrigger, onAddedToPipeli
 
   const ModernHeader = ({ showDescription = false }: { showDescription?: boolean }) => (
     <CardHeader className="pb-4 relative">
-      <div className="absolute -top-10 -right-10 w-32 h-32 bg-purple-400/20 dark:bg-purple-500/10 rounded-full blur-3xl pointer-events-none" />
-      <div className="absolute -bottom-5 -left-5 w-24 h-24 bg-violet-400/15 dark:bg-violet-500/10 rounded-full blur-2xl pointer-events-none" />
+      <div className="absolute -top-10 -right-10 w-32 h-32 bg-blue-400/20 dark:bg-blue-500/10 rounded-full blur-3xl pointer-events-none" />
+      <div className="absolute -bottom-5 -left-5 w-24 h-24 bg-blue-400/15 dark:bg-blue-500/10 rounded-full blur-2xl pointer-events-none" />
 
       <div className="relative flex items-center justify-between">
         <div className="flex items-center gap-4">
           <div className="relative group">
             <div className={cn(
               "flex h-12 w-12 items-center justify-center rounded-2xl shadow-xl transition-all duration-300 group-hover:scale-105",
-              "bg-gradient-to-br from-purple-500 via-violet-500 to-fuchsia-500"
+              "bg-gradient-to-br from-blue-500 via-blue-500 to-blue-500"
             )}>
               <Target className="h-6 w-6 text-white" />
             </div>
-            <div className="absolute inset-0 rounded-2xl bg-gradient-to-br from-purple-500 via-violet-500 to-fuchsia-500 animate-ping opacity-20" />
-            <div className="absolute inset-0 rounded-2xl bg-purple-500/30 blur-xl opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
+            <div className="absolute inset-0 rounded-2xl bg-gradient-to-br from-blue-500 via-blue-500 to-blue-500 animate-ping opacity-20" />
+            <div className="absolute inset-0 rounded-2xl bg-blue-500/30 blur-xl opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
           </div>
 
           <div>
             <div className="flex items-center gap-2 mb-1">
-              <CardTitle className="text-lg font-bold tracking-tight bg-gradient-to-r from-purple-700 via-violet-600 to-fuchsia-600 dark:from-purple-300 dark:via-violet-300 dark:to-fuchsia-300 bg-clip-text text-transparent">
+              <CardTitle className="text-lg font-bold tracking-tight bg-gradient-to-r from-blue-700 via-blue-600 to-blue-600 dark:from-blue-300 dark:via-blue-300 dark:to-blue-300 bg-clip-text text-transparent">
                 AI-Discovered Companies
               </CardTitle>
-              <Badge variant="outline" className="bg-purple-100/80 dark:bg-purple-900/30 border-purple-300 dark:border-purple-700 text-purple-700 dark:text-purple-300 text-[10px] px-2 py-0.5 h-5">
+              <Badge variant="outline" className="bg-blue-100/80 dark:bg-blue-900/30 border-blue-300 dark:border-blue-700 text-blue-700 dark:text-blue-300 text-[10px] px-2 py-0.5 h-5">
                 <Zap className="h-2.5 w-2.5 mr-1" />
                 AI Powered
               </Badge>
@@ -371,12 +371,12 @@ export default function MarketScreeningResults({ refreshTrigger, onAddedToPipeli
 
   if (loading) {
     return (
-      <Card className="relative overflow-hidden border-purple-200 dark:border-purple-800/50 bg-gradient-to-br from-purple-50/50 via-violet-50/30 to-fuchsia-50/20 dark:from-purple-950/30 dark:via-violet-950/20 dark:to-fuchsia-950/10 shadow-lg shadow-purple-500/5">
+      <Card className="relative overflow-hidden border-blue-200 dark:border-blue-800/50 bg-gradient-to-br from-blue-50/50 via-blue-50/30 to-blue-50/20 dark:from-blue-950/30 dark:via-blue-950/20 dark:to-blue-950/10 shadow-lg shadow-blue-500/5">
         <ModernHeader />
         {!collapsed && (
           <CardContent>
             <div className="flex items-center justify-center py-12">
-              <Loader2 className="h-8 w-8 animate-spin text-purple-500" />
+              <Loader2 className="h-8 w-8 animate-spin text-blue-500" />
             </div>
           </CardContent>
         )}
@@ -386,14 +386,14 @@ export default function MarketScreeningResults({ refreshTrigger, onAddedToPipeli
 
   if (results.length === 0) {
     return (
-      <Card className="relative overflow-hidden border-purple-200 dark:border-purple-800/50 bg-gradient-to-br from-purple-50/50 via-violet-50/30 to-fuchsia-50/20 dark:from-purple-950/30 dark:via-violet-950/20 dark:to-fuchsia-950/10 shadow-lg shadow-purple-500/5">
+      <Card className="relative overflow-hidden border-blue-200 dark:border-blue-800/50 bg-gradient-to-br from-blue-50/50 via-blue-50/30 to-blue-50/20 dark:from-blue-950/30 dark:via-blue-950/20 dark:to-blue-950/10 shadow-lg shadow-blue-500/5">
         <ModernHeader showDescription />
         {!collapsed && (
           <CardContent>
             <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
               <div className="relative mb-4">
-                <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-purple-200 to-violet-200 dark:from-purple-800/50 dark:to-violet-800/50">
-                  <Sparkles className="h-8 w-8 text-purple-500 dark:text-purple-400" />
+                <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-blue-200 to-blue-200 dark:from-blue-800/50 dark:to-blue-800/50">
+                  <Sparkles className="h-8 w-8 text-blue-500 dark:text-blue-400" />
                 </div>
               </div>
               <p className="font-medium">No companies discovered yet</p>
@@ -406,7 +406,7 @@ export default function MarketScreeningResults({ refreshTrigger, onAddedToPipeli
   }
 
   return (
-    <Card className="relative overflow-hidden border-purple-200 dark:border-purple-800/50 bg-gradient-to-br from-purple-50/50 via-violet-50/30 to-fuchsia-50/20 dark:from-purple-950/30 dark:via-violet-950/20 dark:to-fuchsia-950/10 shadow-lg shadow-purple-500/5">
+    <Card className="relative overflow-hidden border-blue-200 dark:border-blue-800/50 bg-gradient-to-br from-blue-50/50 via-blue-50/30 to-blue-50/20 dark:from-blue-950/30 dark:via-blue-950/20 dark:to-blue-950/10 shadow-lg shadow-blue-500/5">
       <ModernHeader />
 
       <CardContent>
@@ -440,7 +440,7 @@ export default function MarketScreeningResults({ refreshTrigger, onAddedToPipeli
                       <TableRow
                         key={result.id}
                         className={cn(
-                          "transition-colors hover:bg-purple-50/50 dark:hover:bg-purple-900/10"
+                          "transition-colors hover:bg-blue-50/50 dark:hover:bg-blue-900/10"
                         )}
                       >
                         <TableCell className="pr-0">
@@ -462,7 +462,7 @@ export default function MarketScreeningResults({ refreshTrigger, onAddedToPipeli
                                 setSelectedResult(result);
                                 setDetailDialogOpen(true);
                               }}
-                              className="font-medium text-left hover:text-purple-600 dark:hover:text-purple-400 transition-colors"
+                              className="font-medium text-left hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
                             >
                               {displayName === "this company" ? "—" : displayName}
                             </button>

@@ -45,7 +45,7 @@ export function LastContactFilter({
           className={cn(
             "gap-1",
             value &&
-              "bg-indigo-100 text-indigo-700 hover:bg-indigo-200 dark:bg-indigo-950 dark:text-indigo-200",
+              "bg-blue-100 text-blue-700 hover:bg-blue-200 dark:bg-blue-950 dark:text-blue-200",
           )}
         >
           <Calendar className="h-3 w-3" />

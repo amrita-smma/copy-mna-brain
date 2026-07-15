@@ -130,7 +130,7 @@ export default function WorkspacePage() {
                 onClick={() => handleSelect(membership)}
                 className="group flex items-center gap-4 rounded-2xl border border-white/20 bg-white/10 p-4 text-left shadow-lg backdrop-blur-xl transition hover:border-white/40 hover:bg-white/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-white/40"
               >
-                <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-violet-500 to-purple-600 text-sm font-bold text-white shadow-md">
+                <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-blue-500 to-blue-600 text-sm font-bold text-white shadow-md">
                   {initialsFor(membership.workspaceName)}
                 </span>
                 <span className="flex-1 min-w-0">

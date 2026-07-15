@@ -146,7 +146,7 @@ export function ChatInput(props: {
       <div
         className={cn(
           "relative flex items-end gap-2 p-2 bg-background rounded-2xl border",
-          isDragging && "ring-2 ring-purple-500 ring-offset-2",
+          isDragging && "ring-2 ring-blue-500 ring-offset-2",
         )}
       >
         <AttachButton disabled={props.loading} className="self-end" />
@@ -163,7 +163,7 @@ export function ChatInput(props: {
         <Button
           type="submit"
           disabled={(!props.value.trim() && !hasReadyAttachment) || props.loading}
-          className="bg-gradient-to-r from-purple-600 to-purple-500 hover:from-purple-700 hover:to-purple-600 shrink-0"
+          className="bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-700 hover:to-blue-600 shrink-0"
         >
           {props.loading ? (
             <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden />
@@ -172,7 +172,7 @@ export function ChatInput(props: {
           )}
         </Button>
         {isDragging && (
-          <div className="pointer-events-none absolute inset-0 flex items-center justify-center rounded-2xl bg-purple-500/10 text-sm font-medium text-purple-700">
+          <div className="pointer-events-none absolute inset-0 flex items-center justify-center rounded-2xl bg-blue-500/10 text-sm font-medium text-blue-700">
             Drop files to attach
           </div>
         )}

@@ -232,8 +232,8 @@ export default function TrackSettingsDialog({
                     className={cn(
                       "group flex items-center gap-1 rounded-md border transition-colors",
                       t.id === activeId
-                        ? "bg-purple-300 border-purple-300 shadow-sm"
-                        : "border-transparent hover:bg-purple-100",
+                        ? "bg-blue-300 border-blue-300 shadow-sm"
+                        : "border-transparent hover:bg-blue-100",
                     )}
                   >
                     <button
@@ -244,7 +244,7 @@ export default function TrackSettingsDialog({
                       <div
                         className={cn(
                           "text-xs font-semibold truncate",
-                          t.id === activeId && "text-purple-950",
+                          t.id === activeId && "text-blue-950",
                         )}
                       >
                         {t.title.trim() || "Untitled track"}
@@ -253,7 +253,7 @@ export default function TrackSettingsDialog({
                         className={cn(
                           "text-[10.5px] truncate",
                           t.id === activeId
-                            ? "text-purple-800"
+                            ? "text-blue-800"
                             : "text-muted-foreground",
                         )}
                       >
@@ -315,22 +315,22 @@ export default function TrackSettingsDialog({
                   />
                 </div>
                 <Tabs defaultValue="thesis" className="w-full">
-                  <TabsList className="h-auto gap-1 rounded-full bg-purple-100 p-1">
+                  <TabsList className="h-auto gap-1 rounded-full bg-blue-100 p-1">
                     <TabsTrigger
                       value="thesis"
-                      className="rounded-full text-purple-700 hover:text-purple-900 data-[state=active]:bg-purple-300 data-[state=active]:text-purple-950 data-[state=active]:shadow-sm"
+                      className="rounded-full text-blue-700 hover:text-blue-900 data-[state=active]:bg-blue-300 data-[state=active]:text-blue-950 data-[state=active]:shadow-sm"
                     >
                       Investment Thesis
                     </TabsTrigger>
                     <TabsTrigger
                       value="criteria"
-                      className="rounded-full text-purple-700 hover:text-purple-900 data-[state=active]:bg-purple-300 data-[state=active]:text-purple-950 data-[state=active]:shadow-sm"
+                      className="rounded-full text-blue-700 hover:text-blue-900 data-[state=active]:bg-blue-300 data-[state=active]:text-blue-950 data-[state=active]:shadow-sm"
                     >
                       AI Screening Criteria
                     </TabsTrigger>
                     <TabsTrigger
                       value="variables"
-                      className="rounded-full text-purple-700 hover:text-purple-900 data-[state=active]:bg-purple-300 data-[state=active]:text-purple-950 data-[state=active]:shadow-sm"
+                      className="rounded-full text-blue-700 hover:text-blue-900 data-[state=active]:bg-blue-300 data-[state=active]:text-blue-950 data-[state=active]:shadow-sm"
                     >
                       Variables
                     </TabsTrigger>

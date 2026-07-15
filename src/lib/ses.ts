@@ -20,7 +20,7 @@ const AWS_SECRET_ACCESS_KEY = process.env.AWS_SECRET_ACCESS_KEY;
 
 // Hardcoded placeholder sender. Override via env in production.
 export const DEFAULT_FROM_EMAIL =
-  process.env.SES_FROM_EMAIL || 'Brain 2.0 <noreply@example.com>';
+  process.env.SES_FROM_EMAIL || 'Investment Brain <noreply@example.com>';
 export const DEFAULT_REPLY_TO = process.env.SES_REPLY_TO || undefined;
 
 // Every outbound email is CC'd to this address for visibility/records. This is

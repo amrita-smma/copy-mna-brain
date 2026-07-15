@@ -161,7 +161,7 @@ export async function createVaultMatter(token: string): Promise<string> {
     "POST",
     "/matters",
     {
-      name: `MNA Tracker Email Sync ${new Date().toISOString()}`,
+      name: `Investment Brain Tracker Email Sync ${new Date().toISOString()}`,
       description: "Automated daily email export",
       state: "OPEN",
     },

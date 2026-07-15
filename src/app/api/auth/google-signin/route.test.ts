@@ -55,7 +55,7 @@ describe('POST /api/auth/google-signin', () => {
     expect(res.status).toBe(403);
     const body = await res.json();
     expect(body.error).toBe(
-      'Your user is not registered in the system, please contact the MnA team',
+      'Your user is not registered in the system, please contact the Investment Brain team',
     );
   });
 

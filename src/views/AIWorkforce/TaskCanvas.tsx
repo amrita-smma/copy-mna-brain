@@ -95,11 +95,11 @@ interface ApiQueueItem {
 type StatusTone = { label: string; color: string; dot: string };
 const STATUS_TONE: Record<WorkforceQueueStatus, StatusTone> = {
   pending: { label: 'Queued', color: 'text-amber-600', dot: 'bg-amber-500' },
-  running: { label: 'Running', color: 'text-violet-600', dot: 'bg-violet-500 animate-pulse' },
+  running: { label: 'Running', color: 'text-blue-600', dot: 'bg-blue-500 animate-pulse' },
   waiting_for_human_input: {
     label: 'Waiting on input',
-    color: 'text-violet-600',
-    dot: 'bg-violet-500 animate-pulse',
+    color: 'text-blue-600',
+    dot: 'bg-blue-500 animate-pulse',
   },
   waiting_for_subagent: {
     label: 'Waiting on subagent',
@@ -458,7 +458,7 @@ export function TaskCanvas({
                     data-testid="task-retry-button"
                     onClick={handleRetry}
                     disabled={actionPending !== null}
-                    className="inline-flex items-center gap-1.5 rounded-md border border-violet-200 bg-violet-50 px-2.5 py-1 text-xs font-medium text-violet-700 hover:bg-violet-100 hover:border-violet-300 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="inline-flex items-center gap-1.5 rounded-md border border-blue-200 bg-blue-50 px-2.5 py-1 text-xs font-medium text-blue-700 hover:bg-blue-100 hover:border-blue-300 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     <RotateCcw className="h-3 w-3" strokeWidth={2.5} />
                     {actionPending === 'retry' ? 'Retrying…' : 'Retry'}
@@ -514,7 +514,7 @@ export function TaskCanvas({
             {item.trigger_source === 'chat' && (
               <>
                 <span className="h-1 w-1 rounded-full bg-muted-foreground/50" />
-                <span className="inline-flex items-center gap-1 text-violet-600 font-semibold">
+                <span className="inline-flex items-center gap-1 text-blue-600 font-semibold">
                   <Sparkles className="h-3 w-3" />
                   Spawned from CoPilot
                 </span>
@@ -640,7 +640,7 @@ export function TaskCanvas({
             data-testid="task-composer-send-button"
             disabled={composerDisabled || !composerText.trim()}
             onClick={() => void handleComposerSubmit()}
-            className="self-stretch w-9 grid place-items-center rounded-lg bg-gradient-to-br from-violet-500 to-indigo-600 text-white disabled:opacity-50 disabled:cursor-not-allowed"
+            className="self-stretch w-9 grid place-items-center rounded-lg bg-gradient-to-br from-blue-500 to-blue-600 text-white disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <Send className="h-3.5 w-3.5" />
           </button>

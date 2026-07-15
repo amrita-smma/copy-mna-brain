@@ -192,10 +192,10 @@ const stageColors: Record<
   { bg: string; text: string; bgLight: string; textLight: string }
 > = {
   market_screening: {
-    bg: "bg-purple-500",
+    bg: "bg-blue-500",
     text: "text-white",
-    bgLight: "bg-purple-500/15",
-    textLight: "text-purple-600",
+    bgLight: "bg-blue-500/15",
+    textLight: "text-blue-600",
   },
   unreviewed: {
     bg: "bg-amber-500",

@@ -11,7 +11,7 @@ test.describe('Login page', () => {
   test('Unauthenticated user opens the login page', async ({ page }) => {
     await page.goto('/login', { waitUntil: 'domcontentloaded' });
 
-    await expect(page.getByRole('heading', { name: 'BRAIN 2.0' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Investment Brain' })).toBeVisible();
     await expect(page.locator('#signin-email')).toBeVisible();
     await expect(page.locator('#signin-password')).toBeVisible();
     await expect(page.getByRole('button', { name: 'Sign In' })).toBeVisible();

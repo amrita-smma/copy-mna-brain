@@ -53,7 +53,7 @@ export function renderForgotPasswordEmail(input: {
 }): { subject: string; html: string; text: string } {
   const { resetUrl, ttlMinutes } = input;
   const safeUrl = escapeHtml(resetUrl);
-  const subject = 'Reset your Brain 2.0 password';
+  const subject = 'Reset your Investment Brain password';
 
   const html = `<!DOCTYPE html>
 <html>
@@ -61,7 +61,7 @@ export function renderForgotPasswordEmail(input: {
     <div style="max-width:560px; margin:0 auto; background:#fff; border-radius:8px; padding:32px; border:1px solid #e4e4e7;">
       <h1 style="margin:0 0 16px; font-size:20px;">Reset your password</h1>
       <p style="margin:0 0 16px; line-height:1.5;">
-        We received a request to reset the password for your Brain 2.0 account.
+        We received a request to reset the password for your Investment Brain account.
         Click the button below to choose a new password.
       </p>
       <p style="margin:24px 0;">
@@ -84,9 +84,9 @@ export function renderForgotPasswordEmail(input: {
 </html>`;
 
   const text = [
-    'Reset your Brain 2.0 password',
+    'Reset your Investment Brain password',
     '',
-    'We received a request to reset the password for your Brain 2.0 account.',
+    'We received a request to reset the password for your Investment Brain account.',
     'Open the following link in your browser to choose a new password:',
     '',
     resetUrl,
@@ -169,7 +169,7 @@ export function renderCompanyExcelEmail(input: {
         Filter: ${safeFilter}
       </div>
       <p style="margin:16px 0 0; color:#52525b; font-size:13px;">
-        Sent by Brain 2.0 Copilot at your request.
+        Sent by Investment Brain Copilot at your request.
       </p>
     </div>
   </body>
@@ -184,7 +184,7 @@ export function renderCompanyExcelEmail(input: {
     countLine,
     `Filter: ${input.filterSummary ?? 'All companies (no filter applied).'}`,
     '',
-    'Sent by Brain 2.0 Copilot at your request.',
+    'Sent by Investment Brain Copilot at your request.',
   ].join('\n');
 
   return { subject, html, text };
@@ -213,7 +213,7 @@ export function renderResearchSummaryEmail(input: {
         ${safePreview}
       </div>
       <p style="margin:16px 0 0; color:#52525b; font-size:13px;">
-        Sent by Brain 2.0 Copilot at your request.
+        Sent by Investment Brain Copilot at your request.
       </p>
     </div>
   </body>
@@ -226,7 +226,7 @@ export function renderResearchSummaryEmail(input: {
     '',
     preview,
     '',
-    'Sent by Brain 2.0 Copilot at your request.',
+    'Sent by Investment Brain Copilot at your request.',
   ].join('\n');
 
   return { subject, html, text };
@@ -243,7 +243,7 @@ export function renderResearchSummaryEmail(input: {
 
 /**
  * Shared card shell used by every notification email so they share branding.
- * Renders the gradient header band ("Brain 2.0 — M&A Intelligence" + a
+ * Renders the gradient header band ("Investment Brain — M&A Intelligence" + a
  * per-email `bannerTitle`), the caller-composed `bodyHtml`, an optional CTA
  * button (only when a URL is supplied), and a footer line.
  *
@@ -261,7 +261,7 @@ function renderNotificationShell(input: {
 }): string {
   const { bannerTitle, bodyHtml, accent } = input;
   const accentDark = input.accentDark ?? accent;
-  const footer = input.footer ?? 'Sent by Brain 2.0.';
+  const footer = input.footer ?? 'Sent by Investment Brain.';
   const cta =
     input.ctaUrl && input.ctaLabel
       ? `<div style="text-align:center; margin:28px 0 4px;">
@@ -273,7 +273,7 @@ function renderNotificationShell(input: {
   <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background:#f4f4f8; padding:24px; color:#111; margin:0;">
     <div style="max-width:600px; margin:0 auto; background:#fff; border-radius:16px; overflow:hidden; border:1px solid #e4e4e7;">
       <div style="background-color:${accent}; background-image:linear-gradient(135deg, ${accent}, ${accentDark}); padding:30px 32px; text-align:center;">
-        <div style="color:rgba(255,255,255,0.88); font-size:13px;">Brain 2.0 — M&amp;A Intelligence</div>
+        <div style="color:rgba(255,255,255,0.88); font-size:13px;">Investment Brain — M&amp;A Intelligence</div>
         <div style="color:#fff; font-size:23px; font-weight:700; margin-top:8px;">${escapeHtml(bannerTitle)}</div>
       </div>
       <div style="padding:32px;">
@@ -681,14 +681,14 @@ const AGENT_EMAIL_DISCLAIMER =
   'This email was auto-generated using BRAIN.';
 
 /** Display name every agent-composed email is sent on behalf of. */
-export const AGENT_EMAIL_SENDER_NAME = 'MnA Brain 2.0';
+export const AGENT_EMAIL_SENDER_NAME = 'Investment Brain';
 
 /** Public URL of the app, surfaced in agent-composed emails. */
 export const APP_URL = 'https://mna.sqe.co.id';
 
 /**
  * Build the SES "From" header for agent emails so they are always sent on
- * behalf of "MnA Brain 2.0". Reuses the verified sender address from
+ * behalf of "Investment Brain". Reuses the verified sender address from
  * DEFAULT_FROM_EMAIL (which may be either a bare address or already in
  * "Name <addr>" form) and just overrides the display name.
  */
@@ -715,7 +715,7 @@ export function renderAgentEmail(input: {
       <div style="margin:0; line-height:1.6; color:#374151; font-size:15px;">${safeBody}</div>
       ${disclaimerHtml}`,
     ctaUrl: APP_URL,
-    ctaLabel: 'Open MnA Brain 2.0',
+    ctaLabel: 'Open Investment Brain',
     footer: `Sent on behalf of ${AGENT_EMAIL_SENDER_NAME}.`,
   });
   const text = `${input.body}\n\n—\n${AGENT_EMAIL_DISCLAIMER}\nOpen the app: ${APP_URL}`;
@@ -1033,7 +1033,7 @@ export class EmailService {
    * together. This is what lets the `send_email` tool deliver everything the
    * agent assembled in ONE message instead of several disjointed emails.
    *
-   * Uses the same branded agent shell + "MnA Brain 2.0" sender as
+   * Uses the same branded agent shell + "Investment Brain" sender as
    * {@link sendAgentEmail}. When there are no attachments it degrades to the
    * plain (non-raw) SES path; otherwise it uses the raw/attachment path. The
    * recipient MUST already be validated against the platform-user whitelist by

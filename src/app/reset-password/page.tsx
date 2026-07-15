@@ -1,7 +1,7 @@
 'use client';
 
 import { Suspense, useState } from 'react';
-import Image from 'next/image';
+import { BrandWordmark } from '@/components/BrandMark';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Button } from '@/components/ui/button';
@@ -57,15 +57,8 @@ function PageShell({ children }: { children: React.ReactNode }) {
 function CardLogo() {
   return (
     <CardHeader className="text-center">
-      <div className="mx-auto mb-4 flex h-14 items-center justify-center">
-        <Image
-          src="/logo-light.png"
-          alt="Brain 2.0"
-          width={120}
-          height={56}
-          className="h-14 w-auto object-contain rounded-2xl"
-          priority
-        />
+      <div className="mx-auto mb-4 flex h-10 items-center justify-center">
+        <BrandWordmark className="h-9 w-auto" />
       </div>
       <CardTitle className="text-2xl font-bold tracking-tight text-black dark:text-white">
         Reset Password

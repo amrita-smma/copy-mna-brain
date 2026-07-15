@@ -1118,7 +1118,7 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
             </Button>
             <div className="flex items-center gap-4 min-w-0">
             {/* Logo / Acronym */}
-            <div className="h-16 w-16 rounded-full bg-violet-100 dark:bg-violet-900/40 flex items-center justify-center shrink-0 overflow-hidden border border-violet-200 dark:border-violet-700">
+            <div className="h-16 w-16 rounded-full bg-blue-100 dark:bg-blue-900/40 flex items-center justify-center shrink-0 overflow-hidden border border-blue-200 dark:border-blue-700">
               {analysis?.logo_url ? (
                 <img
                   src={analysis.logo_url}
@@ -1131,7 +1131,7 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
                 />
               ) : null}
               <span
-                className="text-xl font-bold text-violet-600 dark:text-violet-300"
+                className="text-xl font-bold text-blue-600 dark:text-blue-300"
                 style={analysis?.logo_url ? { display: 'none' } : undefined}
               >
                 {logoInitial}
@@ -1289,20 +1289,20 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
           <TabsContent value="company-card" className="space-y-6 mt-6">
             {/* AI Market Scanning Remarks */}
             {company.source?.toLowerCase() === 'outbound' && (
-              <Card className="border-purple-200 dark:border-purple-800/50 bg-gradient-to-br from-purple-50/50 to-violet-50/30 dark:from-purple-950/20 dark:to-violet-950/10">
+              <Card className="border-blue-200 dark:border-blue-800/50 bg-gradient-to-br from-blue-50/50 to-blue-50/30 dark:from-blue-950/20 dark:to-blue-950/10">
                 <CardHeader className="pb-2">
                   <div className="flex items-center justify-between">
-                    <CardTitle className="text-lg flex items-center gap-2 text-purple-700 dark:text-purple-400">
-                      <Sparkles className="h-5 w-5 text-purple-500" />
+                    <CardTitle className="text-lg flex items-center gap-2 text-blue-700 dark:text-blue-400">
+                      <Sparkles className="h-5 w-5 text-blue-500" />
                       AI Market Scanning Remarks
                     </CardTitle>
                     <div className="flex items-center gap-2">
-                      <Badge variant="secondary" className="bg-purple-100 dark:bg-purple-900/40 text-purple-700 dark:text-purple-300 border-purple-200 dark:border-purple-700">
+                      <Badge variant="secondary" className="bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-700">
                         <Sparkles className="h-3 w-3 mr-1" />
                         AI Discovered
                       </Badge>
                       {!isEditingRemarks && (
-                        <Button variant="ghost" size="sm" onClick={startEditingRemarks} aria-label="Edit remarks" className="h-6 w-6 p-0 text-purple-700 dark:text-purple-300">
+                        <Button variant="ghost" size="sm" onClick={startEditingRemarks} aria-label="Edit remarks" className="h-6 w-6 p-0 text-blue-700 dark:text-blue-300">
                           <Pencil className="h-3.5 w-3.5" />
                         </Button>
                       )}
@@ -1313,8 +1313,8 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
                   )}
                 </CardHeader>
                 <CardContent>
-                  <div className="p-4 rounded-lg border border-purple-200 dark:border-purple-800/50 bg-purple-50/80 dark:bg-purple-950/30">
-                    <p className="text-sm font-medium text-purple-700 dark:text-purple-300 flex items-center gap-2 mb-2">
+                  <div className="p-4 rounded-lg border border-blue-200 dark:border-blue-800/50 bg-blue-50/80 dark:bg-blue-950/30">
+                    <p className="text-sm font-medium text-blue-700 dark:text-blue-300 flex items-center gap-2 mb-2">
                       <Sparkles className="h-4 w-4" />
                       Why This Company Matches Your Investment Thesis
                     </p>

@@ -173,7 +173,7 @@ Args:
     target_stage: The destination stage, e.g. "L1". Used in the action label and log entries.
     candidates: One entry per company. Each carries:
       - company_name: target or project name (fuzzy-matched).
-      - tags: optional array of short labels rendered as pills (e.g. ["Passes L1"], ["Passes L1", "Strategic fit"]). Keep each under ~20 chars. **Tag ordering matters visually**: the FIRST tag is rendered as the primary green "Passes L1" pill — put the qualifying-criteria label there. Subsequent tags are rendered in neutral purple for additional context like "Strategic fit", "Adjacent thesis", "Sponsor pick".
+      - tags: optional array of short labels rendered as pills (e.g. ["Passes L1"], ["Passes L1", "Strategic fit"]). Keep each under ~20 chars. **Tag ordering matters visually**: the FIRST tag is rendered as the primary green "Passes L1" pill — put the qualifying-criteria label there. Subsequent tags are rendered in neutral blue for additional context like "Strategic fit", "Adjacent thesis", "Sponsor pick".
       - reason: REQUIRED. One sentence explaining why this company is ready — cite the killer signal (financial fit, ownership clean, banker outreach). User reads this verbatim.
       - signals: optional array of {label, value, status?} key/value chips rendered inline (e.g. {label:"Revenue", value:"$112M", status:"pass"}). Status colors: pass=green, fail=red, warn=amber. Use for at-a-glance L1 threshold checks.
       - meta: optional secondary line (e.g. "L0 since Feb 12 · Sponsor: Sarah Chen · Sector: Specialty materials").`,

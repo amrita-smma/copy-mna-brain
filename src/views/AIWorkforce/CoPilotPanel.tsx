@@ -18,8 +18,8 @@ export function CoPilotPanel() {
             emptyStateComponent={
               <div className="flex flex-col items-center justify-center h-full text-center px-6 py-12">
                 <div className="relative mb-5">
-                  <div className="absolute inset-0 rounded-2xl blur-md opacity-50 bg-gradient-to-br from-violet-400 to-indigo-500" />
-                  <div className="relative flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-violet-500 to-indigo-600 shadow-lg">
+                  <div className="absolute inset-0 rounded-2xl blur-md opacity-50 bg-gradient-to-br from-blue-400 to-blue-500" />
+                  <div className="relative flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-blue-500 to-blue-600 shadow-lg">
                     <Sparkles className="h-7 w-7 text-white" />
                   </div>
                 </div>

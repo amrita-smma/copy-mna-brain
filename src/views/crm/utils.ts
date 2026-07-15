@@ -13,17 +13,17 @@ export const LAST_CONTACT_LABELS: Record<LastContactPreset, string> = {
 };
 
 // Tab trigger styling for expanded-card tabs — strips the shadcn pill highlight
-// and replaces it with a purple bottom border on the active tab.
+// and replaces it with a blue bottom border on the active tab.
 export const tabTriggerCls =
-  "relative -mb-px rounded-none border-b-2 border-transparent bg-transparent px-3 py-2 text-sm font-medium text-muted-foreground shadow-none transition-colors data-[state=active]:border-indigo-600 data-[state=active]:bg-transparent data-[state=active]:text-indigo-700 data-[state=active]:shadow-none dark:data-[state=active]:text-indigo-300";
+  "relative -mb-px rounded-none border-b-2 border-transparent bg-transparent px-3 py-2 text-sm font-medium text-muted-foreground shadow-none transition-colors data-[state=active]:border-blue-600 data-[state=active]:bg-transparent data-[state=active]:text-blue-700 data-[state=active]:shadow-none dark:data-[state=active]:text-blue-300";
 
 const AVATAR_PALETTE = [
-  "from-indigo-500 to-violet-600",
+  "from-blue-500 to-blue-600",
   "from-amber-500 to-orange-600",
   "from-teal-500 to-emerald-600",
   "from-pink-500 to-rose-600",
   "from-slate-500 to-slate-700",
-  "from-violet-500 to-purple-600",
+  "from-blue-500 to-blue-600",
   "from-sky-500 to-blue-600",
 ] as const;
 

@@ -173,7 +173,7 @@ The app (`public` schema) overlays human curation on top of `analytics` mart dat
 Google is used for **authentication only** — a successful SSO flow proves the
 caller owns the email, never grants access on its own. The user must already
 exist in the `users` table; unknown emails are rejected with the message
-*"Your user is not registered in the system, please contact the MnA team"*.
+*"Your user is not registered in the system, please contact the Investment Brain team"*.
 No account is ever auto-provisioned. After sign-in the session is the identical
 NextAuth JWT a password login produces, so the rest of the app is unchanged.
 

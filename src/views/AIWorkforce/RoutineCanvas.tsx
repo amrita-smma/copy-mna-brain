@@ -167,7 +167,7 @@ export function RoutineCanvas({
         </div>
 
         {/* Summary card */}
-        <div className="relative rounded-xl border bg-gradient-to-br from-violet-50/30 to-card px-5 py-4 mb-7 overflow-hidden">
+        <div className="relative rounded-xl border bg-gradient-to-br from-blue-50/30 to-card px-5 py-4 mb-7 overflow-hidden">
           <span className="absolute left-0 top-0 bottom-0 w-1 bg-emerald-500" />
           <div className="grid grid-cols-[110px_1fr] gap-x-4 gap-y-2 text-sm">
             <div className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground pt-0.5">
@@ -378,8 +378,8 @@ function RunCard({
         {/* Show a small "awaiting decision" pulse when the run is paused on
             HITL. Helps the user notice action is needed without expanding. */}
         {run.rawStatus === 'waiting_for_human_input' && (
-          <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-violet-700 flex-shrink-0">
-            <span className="h-1.5 w-1.5 rounded-full bg-violet-500 animate-pulse" />
+          <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-blue-700 flex-shrink-0">
+            <span className="h-1.5 w-1.5 rounded-full bg-blue-500 animate-pulse" />
             Awaiting decision
           </span>
         )}

@@ -4,11 +4,11 @@ export type AvatarTone = 'amber' | 'indigo' | 'aqua' | 'rose' | 'slate' | 'viole
 
 export const avatarToneClass: Record<AvatarTone, string> = {
   amber: 'bg-gradient-to-br from-amber-400 to-amber-600 text-white',
-  indigo: 'bg-gradient-to-br from-violet-500 to-indigo-600 text-white',
+  indigo: 'bg-gradient-to-br from-blue-500 to-blue-600 text-white',
   aqua: 'bg-gradient-to-br from-emerald-400 to-teal-600 text-white',
   rose: 'bg-gradient-to-br from-pink-400 to-rose-600 text-white',
   slate: 'bg-gradient-to-br from-slate-500 to-slate-700 text-white',
-  violet: 'bg-violet-100 text-violet-700',
+  violet: 'bg-blue-100 text-blue-700',
 };
 
 export type QueueTask = {

@@ -178,7 +178,7 @@ export function ChatbotWidget({ defaultOpen = false }: { defaultOpen?: boolean }
               }}
               onMouseDown={fabDrag.handleMouseDown}
               className={cn(
-                'relative h-14 w-14 rounded-full shadow-xl bg-gradient-to-br from-accent to-purple-700 hover:from-purple-700 hover:to-accent border-2 border-white/20 transition-all duration-300 hover:scale-110 hover:shadow-accent/40 hover:shadow-2xl',
+                'relative h-14 w-14 rounded-full shadow-xl bg-gradient-to-br from-accent to-blue-700 hover:from-blue-700 hover:to-accent border-2 border-white/20 transition-all duration-300 hover:scale-110 hover:shadow-accent/40 hover:shadow-2xl',
                 fabDrag.isDragging && 'cursor-grabbing scale-110'
               )}
               size="icon"
@@ -192,14 +192,14 @@ export function ChatbotWidget({ defaultOpen = false }: { defaultOpen?: boolean }
       {isOpen && (
       <Card
         className={cn(
-          'fixed z-50 shadow-2xl border-purple-200 dark:border-purple-800/50 overflow-hidden transition-[width,height] duration-200',
+          'fixed z-50 shadow-2xl border-blue-200 dark:border-blue-800/50 overflow-hidden transition-[width,height] duration-200',
           isMinimized ? 'w-80 h-14' : 'w-96 h-[500px]'
         )}
         style={{ left: widgetDrag.position.x, top: widgetDrag.position.y }}
       >
         <div
           className={cn(
-            'flex items-center justify-between px-4 py-3 bg-gradient-to-r from-purple-600 to-purple-500 text-white',
+            'flex items-center justify-between px-4 py-3 bg-gradient-to-r from-blue-600 to-blue-500 text-white',
             widgetDrag.isDragging ? 'cursor-grabbing' : 'cursor-grab'
           )}
           onMouseDown={widgetDrag.handleMouseDown}
@@ -249,7 +249,7 @@ export function ChatbotWidget({ defaultOpen = false }: { defaultOpen?: boolean }
                 <div className="space-y-4">
                   {messages.length === 0 && (
                     <div className="flex gap-3">
-                      <div className="flex-shrink-0 h-8 w-8 rounded-lg flex items-center justify-center bg-gradient-to-br from-purple-500 to-purple-600">
+                      <div className="flex-shrink-0 h-8 w-8 rounded-lg flex items-center justify-center bg-gradient-to-br from-blue-500 to-blue-600">
                         <Bot className="h-4 w-4 text-white" />
                       </div>
                       <div className="flex-1 rounded-xl px-3 py-2 text-sm bg-muted">
@@ -272,7 +272,7 @@ export function ChatbotWidget({ defaultOpen = false }: { defaultOpen?: boolean }
                         <div
                           className={cn(
                             'flex-shrink-0 h-8 w-8 rounded-lg flex items-center justify-center',
-                            isUser ? 'bg-primary' : 'bg-gradient-to-br from-purple-500 to-purple-600'
+                            isUser ? 'bg-primary' : 'bg-gradient-to-br from-blue-500 to-blue-600'
                           )}
                         >
                           {isUser ? (
@@ -300,7 +300,7 @@ export function ChatbotWidget({ defaultOpen = false }: { defaultOpen?: boolean }
                   })}
                   {isBusy && (
                     <div className="flex gap-3">
-                      <div className="flex-shrink-0 h-8 w-8 rounded-lg flex items-center justify-center bg-gradient-to-br from-purple-500 to-purple-600">
+                      <div className="flex-shrink-0 h-8 w-8 rounded-lg flex items-center justify-center bg-gradient-to-br from-blue-500 to-blue-600">
                         <Bot className="h-4 w-4 text-white" />
                       </div>
                       <div className="bg-muted rounded-xl px-3 py-2">
@@ -330,7 +330,7 @@ export function ChatbotWidget({ defaultOpen = false }: { defaultOpen?: boolean }
                   onClick={handleSend}
                   disabled={!input.trim() || isBusy}
                   size="icon"
-                  className="bg-gradient-to-r from-purple-600 to-purple-500 hover:from-purple-700 hover:to-purple-600"
+                  className="bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-700 hover:to-blue-600"
                 >
                   <Send className="h-4 w-4" />
                 </Button>

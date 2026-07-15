@@ -371,7 +371,7 @@ export function NewRoutineModal({
                       className={cn(
                         'rounded-md border px-3 py-1.5 text-xs font-semibold transition-colors',
                         cadence === option.key
-                          ? 'border-violet-500 bg-violet-50 text-violet-700'
+                          ? 'border-blue-500 bg-blue-50 text-blue-700'
                           : 'border-border bg-card text-muted-foreground hover:text-foreground',
                       )}
                     >
@@ -397,7 +397,7 @@ export function NewRoutineModal({
                               className={cn(
                                 'flex-1 min-w-[36px] rounded-md border py-1.5 text-[11px] font-semibold transition-colors',
                                 weekday === d.value
-                                  ? 'border-violet-500 bg-violet-50 text-violet-700'
+                                  ? 'border-blue-500 bg-blue-50 text-blue-700'
                                   : 'border-border bg-card text-muted-foreground hover:text-foreground',
                               )}
                             >
@@ -530,9 +530,9 @@ export function NewRoutineModal({
               <p className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground mb-3">
                 Review your routine
               </p>
-              <div className="rounded-xl border bg-gradient-to-br from-violet-50/40 to-card px-4 py-3.5 space-y-3 text-sm">
+              <div className="rounded-xl border bg-gradient-to-br from-blue-50/40 to-card px-4 py-3.5 space-y-3 text-sm">
                 <SummaryRow label="Name">
-                  <span className="font-semibold text-violet-700">{name}</span>
+                  <span className="font-semibold text-blue-700">{name}</span>
                 </SummaryRow>
                 <SummaryRow label="Schedule">{scheduleLabel}</SummaryRow>
                 <SummaryRow label="Instruction">
@@ -574,7 +574,7 @@ export function NewRoutineModal({
                 size="sm"
                 disabled={!canContinue}
                 onClick={() => setStep(2)}
-                className="bg-gradient-to-br from-violet-500 to-indigo-600 hover:from-violet-600 hover:to-indigo-700"
+                className="bg-gradient-to-br from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700"
               >
                 Continue
                 <ChevronRight className="h-3 w-3 ml-1" />
@@ -585,7 +585,7 @@ export function NewRoutineModal({
                 size="sm"
                 onClick={handleSubmit}
                 disabled={submitting}
-                className="bg-gradient-to-br from-violet-500 to-indigo-600 hover:from-violet-600 hover:to-indigo-700"
+                className="bg-gradient-to-br from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700"
               >
                 <Check className="h-3 w-3 mr-1" strokeWidth={3} />
                 {submitting
@@ -610,7 +610,7 @@ function StepDot({ num, label, current }: { num: 1 | 2; label: string; current: 
     <span
       className={cn(
         'inline-flex items-center gap-1.5 font-semibold',
-        state === 'active' && 'text-violet-700',
+        state === 'active' && 'text-blue-700',
         state === 'done' && 'text-emerald-700',
         state === 'pending' && 'text-muted-foreground',
       )}
@@ -618,7 +618,7 @@ function StepDot({ num, label, current }: { num: 1 | 2; label: string; current: 
       <span
         className={cn(
           'h-[18px] w-[18px] rounded-full grid place-items-center text-[10px] font-bold',
-          state === 'active' && 'bg-violet-500 text-white',
+          state === 'active' && 'bg-blue-500 text-white',
           state === 'done' && 'bg-emerald-500 text-white',
           state === 'pending' && 'bg-border text-muted-foreground',
         )}

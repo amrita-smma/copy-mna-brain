@@ -1,4 +1,5 @@
 import type { Config } from "tailwindcss";
+import defaultTheme from "tailwindcss/defaultTheme";
 
 export default {
   darkMode: ["class"],
@@ -18,7 +19,20 @@ export default {
       },
     },
     extend: {
+      fontFamily: {
+        // Micro copy / body — Inter (default `font-sans`)
+        sans: ["var(--font-inter)", ...defaultTheme.fontFamily.sans],
+        // Logotype / display — Plus Jakarta Sans (`font-display`)
+        display: ["var(--font-jakarta)", ...defaultTheme.fontFamily.sans],
+      },
       colors: {
+        // SQE Enterprise Intelligence Suite brand palette
+        brand: {
+          ink: "hsl(var(--brand-ink))", // #0C0C10
+          azure: "hsl(var(--brand-azure))", // #3B82F6
+          midnight: "hsl(var(--brand-midnight))", // #1838CC
+          white: "hsl(var(--brand-white))", // #FFFFFF
+        },
         border: "hsl(var(--border))",
         input: "hsl(var(--input))",
         ring: "hsl(var(--ring))",

@@ -625,7 +625,7 @@ export default function OutboundCompaniesTable({
                                 disabled
                                 className="text-muted-foreground"
                               >
-                                <Loader2 className="mr-2 h-4 w-4 animate-spin text-purple-600" />
+                                <Loader2 className="mr-2 h-4 w-4 animate-spin text-blue-600" />
                                 AI Screening Running
                               </DropdownMenuItem>
                             ) : (
@@ -638,7 +638,7 @@ export default function OutboundCompaniesTable({
                                     : "No matched tracks to screen against"
                                 }
                               >
-                                <Sparkles className="mr-2 h-4 w-4 text-purple-600" />
+                                <Sparkles className="mr-2 h-4 w-4 text-blue-600" />
                                 Run AI Screening
                               </DropdownMenuItem>
                             )}

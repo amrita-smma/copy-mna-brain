@@ -4,19 +4,25 @@
 
 @layer base {
   :root {
-    --background: 220 20% 97%;
-    --foreground: 220 20% 10%;
+    /* SQE Enterprise Intelligence Suite brand palette (theme-agnostic) */
+    --brand-ink: 240 14% 5%; /* #0C0C10 */
+    --brand-azure: 217 91% 60%; /* #3B82F6 */
+    --brand-midnight: 229 79% 45%; /* #1838CC */
+    --brand-white: 0 0% 100%; /* #FFFFFF */
+
+    --background: 0 0% 100%; /* #FFFFFF */
+    --foreground: 240 14% 8%;
     --card: 0 0% 100%;
-    --card-foreground: 220 20% 10%;
+    --card-foreground: 240 14% 8%;
     --popover: 0 0% 100%;
-    --popover-foreground: 220 20% 10%;
-    --primary: 217 91% 60%;
+    --popover-foreground: 240 14% 8%;
+    --primary: 217 91% 60%; /* Azure #3B82F6 */
     --primary-foreground: 0 0% 100%;
     --secondary: 220 14% 96%;
     --secondary-foreground: 220 20% 20%;
     --muted: 220 14% 96%;
     --muted-foreground: 220 10% 46%;
-    --accent: 262 83% 58%;
+    --accent: 229 79% 45%; /* Midnight #1838CC */
     --accent-foreground: 0 0% 100%;
     --destructive: 0 84% 60%;
     --destructive-foreground: 0 0% 100%;
@@ -31,7 +37,7 @@
 
     /* Stage colors */
     --stage-l0: 217 91% 60%;
-    --stage-l1: 262 83% 58%;
+    --stage-l1: 229 79% 52%;
     --stage-l2: 38 92% 50%;
     --stage-l3: 142 76% 36%;
     --stage-l4: 173 80% 40%;
@@ -41,7 +47,7 @@
     --status-pass: 142 76% 36%;
     --status-no: 0 84% 60%;
     --status-exception: 38 92% 50%;
-    --status-watchlist: 262 83% 58%;
+    --status-watchlist: 229 79% 52%;
     --status-tbc: 220 10% 46%;
     --status-duplicate: 220 14% 75%;
 
@@ -57,19 +63,19 @@
   }
 
   .dark {
-    --background: 220 20% 10%;
-    --foreground: 220 14% 96%;
-    --card: 220 20% 14%;
-    --card-foreground: 220 14% 96%;
-    --popover: 220 20% 14%;
-    --popover-foreground: 220 14% 96%;
-    --primary: 217 91% 60%;
+    --background: 240 14% 5%; /* Ink #0C0C10 */
+    --foreground: 240 10% 96%;
+    --card: 240 12% 9%;
+    --card-foreground: 240 10% 96%;
+    --popover: 240 12% 9%;
+    --popover-foreground: 240 10% 96%;
+    --primary: 217 91% 60%; /* Azure #3B82F6 */
     --primary-foreground: 0 0% 100%;
-    --secondary: 220 20% 18%;
-    --secondary-foreground: 220 14% 96%;
-    --muted: 220 20% 18%;
-    --muted-foreground: 220 10% 60%;
-    --accent: 262 83% 58%;
+    --secondary: 240 10% 15%;
+    --secondary-foreground: 240 10% 96%;
+    --muted: 240 10% 15%;
+    --muted-foreground: 240 8% 62%;
+    --accent: 229 79% 55%; /* Midnight #1838CC, lifted for dark */
     --accent-foreground: 0 0% 100%;
     --destructive: 0 84% 60%;
     --destructive-foreground: 0 0% 100%;
@@ -77,24 +83,24 @@
     --success-foreground: 0 0% 100%;
     --warning: 38 92% 50%;
     --warning-foreground: 0 0% 100%;
-    --border: 220 20% 22%;
-    --input: 220 20% 22%;
+    --border: 240 10% 18%;
+    --input: 240 10% 18%;
     --ring: 217 91% 60%;
 
     /* Sidebar dark */
-    --sidebar-background: 220 20% 8%;
-    --sidebar-foreground: 220 14% 96%;
+    --sidebar-background: 240 14% 4%;
+    --sidebar-foreground: 240 10% 96%;
     --sidebar-primary: 217 91% 60%;
     --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 220 20% 14%;
-    --sidebar-accent-foreground: 220 14% 96%;
-    --sidebar-border: 220 20% 16%;
+    --sidebar-accent: 240 12% 10%;
+    --sidebar-accent-foreground: 240 10% 96%;
+    --sidebar-border: 240 10% 14%;
     --sidebar-ring: 217 91% 60%;
 
     /* Pipeline stage colors - dark mode */
     --stage-l0: 217 91% 60%;
     --stage-l1: 199 89% 48%;
-    --stage-l2: 262 83% 58%;
+    --stage-l2: 229 79% 52%;
     --stage-l3: 24 95% 53%;
     --stage-l4: 142 71% 45%;
     --stage-l5: 142 76% 36%;
@@ -103,7 +109,7 @@
     --status-pass: 142 76% 36%;
     --status-no: 0 62% 30%;
     --status-exception: 38 92% 50%;
-    --status-watchlist: 262 83% 58%;
+    --status-watchlist: 229 79% 52%;
     --status-tbc: 215 20% 65%;
     --status-duplicate: 217 32% 40%;
   }

@@ -1,7 +1,7 @@
 'use client';
 
 interface LivingBackgroundProps {
-  /** Grid variant keeps a darker purple palette for login/auth pages. */
+  /** Grid variant keeps a darker ink/midnight-blue palette for login/auth pages. */
   variant?: 'default' | 'grid';
 }
 
@@ -10,7 +10,7 @@ const LIGHT_GRADIENT =
 const DARK_GRADIENT =
   'linear-gradient(160deg, #0F1A28 0%, #1E2A3B 35%, #2A4B7D 65%, #1E2A3B 100%)';
 const GRID_GRADIENT =
-  'linear-gradient(160deg, #1e1c2e 0%, #2a2748 35%, #3d3865 65%, #25223a 100%)';
+  'linear-gradient(160deg, #0C0C10 0%, #141a33 35%, #22357a 65%, #12172b 100%)';
 
 export function LivingBackground({ variant = 'default' }: LivingBackgroundProps) {
   const isGridVariant = variant === 'grid';

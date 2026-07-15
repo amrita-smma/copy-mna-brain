@@ -272,7 +272,7 @@ const seedContacts: SeedContact[] = [
 // from seedContacts) are the source of truth; this layer attaches topic tags,
 // internal team coverage, and relationship notes on top of them.
 
-/** Internal team members (Brain 2.0 staff) — power the team-coverage filter. */
+/** Internal team members (Investment Brain staff) — power the team-coverage filter. */
 const SEED_TEAM_USERS = [
   { name: 'Alvin Wobblebottom', email: 'alvin.wobblebottom@sparklecapital.example', role: 'analyst' },
   { name: 'Sandy Sparkle', email: 'sandy.sparkle@sparklecapital.example', role: 'analyst' },

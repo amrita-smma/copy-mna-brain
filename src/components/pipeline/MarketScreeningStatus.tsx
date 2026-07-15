@@ -159,13 +159,13 @@ export default function MarketScreeningStatus({ onScanComplete, newCandidatesCou
     .reduce<string | null>((soonest, v) => (!soonest || new Date(v) < new Date(soonest) ? v : soonest), null);
 
   return (
-    <div className="border border-purple-100 dark:border-purple-900/20 rounded-xl p-3 bg-purple-50/50 dark:bg-purple-950/10 backdrop-blur-sm w-full">
+    <div className="border border-blue-100 dark:border-blue-900/20 rounded-xl p-3 bg-blue-50/50 dark:bg-blue-950/10 backdrop-blur-sm w-full">
       {/* Header Row: identity on the left, actions on the right */}
       <div className="flex flex-wrap items-center justify-between gap-3 w-full min-w-0">
 
         {/* Left Section: Icon & Title */}
         <div className="flex items-center gap-3 min-w-0">
-          <div className="relative h-10 w-10 rounded-lg bg-gradient-to-br from-[#8B5CF6] to-[#6D28D9] flex items-center justify-center shadow-md shadow-purple-500/20 shrink-0">
+          <div className="relative h-10 w-10 rounded-lg bg-gradient-to-br from-[#3B82F6] to-[#1838CC] flex items-center justify-center shadow-md shadow-blue-500/20 shrink-0">
             <Sparkles className="h-5 w-5 text-white" />
             {isActive && (
               <span className="absolute -bottom-1 -right-1 h-3 w-3 rounded-full bg-emerald-400 border-2 border-white dark:border-gray-900" />
@@ -174,11 +174,11 @@ export default function MarketScreeningStatus({ onScanComplete, newCandidatesCou
 
           <div className="flex flex-col justify-center min-w-0">
             <div className="flex items-center gap-2">
-              <h3 className="font-bold text-sm text-purple-600 dark:text-purple-400 whitespace-nowrap truncate">
+              <h3 className="font-bold text-sm text-blue-600 dark:text-blue-400 whitespace-nowrap truncate">
                 AI Market Scanning
               </h3>
               {isActive && (
-                <div className="flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-purple-100 dark:bg-purple-500/20 text-[10px] font-semibold text-purple-600 dark:text-purple-300 border border-purple-200 dark:border-purple-500/30 whitespace-nowrap shrink-0">
+                <div className="flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-blue-100 dark:bg-blue-500/20 text-[10px] font-semibold text-blue-600 dark:text-blue-300 border border-blue-200 dark:border-blue-500/30 whitespace-nowrap shrink-0">
                   <Radar className="h-2.5 w-2.5" />
                   Live
                 </div>
@@ -315,7 +315,7 @@ export default function MarketScreeningStatus({ onScanComplete, newCandidatesCou
 
       {/* Details Row: scan stats below the header */}
       {isVisible && (
-        <div className="flex flex-wrap items-center gap-x-8 gap-y-2 mt-3 pt-3 border-t border-purple-100 dark:border-purple-900/20">
+        <div className="flex flex-wrap items-center gap-x-8 gap-y-2 mt-3 pt-3 border-t border-blue-100 dark:border-blue-900/20">
           <div className="flex flex-col gap-0.5 shrink-0">
             <span className="text-[10px] font-bold text-muted-foreground/70 uppercase tracking-wider whitespace-nowrap">
               LAST SCAN COMPLETED

@@ -108,7 +108,7 @@ export function WorkforceHandoffCard({
         className,
       )}
     >
-      <div className="h-1 bg-gradient-to-r from-amber-400 via-orange-400 to-violet-500" />
+      <div className="h-1 bg-gradient-to-r from-amber-400 via-orange-400 to-blue-500" />
       <div className="p-5">
         <div className="inline-flex items-center gap-1.5 text-[11px] font-bold tracking-wider uppercase text-amber-700 dark:text-amber-400 mb-2">
           <Zap className="h-3.5 w-3.5" />
@@ -155,7 +155,7 @@ export function WorkforceHandoffCard({
               data-testid="workforce-handoff-assign-button"
               onClick={handleAssign}
               disabled={status === "submitting"}
-              className="w-full bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-700 hover:to-indigo-700 text-white"
+              className="w-full bg-gradient-to-r from-blue-600 to-blue-600 hover:from-blue-700 hover:to-blue-700 text-white"
             >
               {status === "submitting" ? (
                 <>

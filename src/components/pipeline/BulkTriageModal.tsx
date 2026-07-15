@@ -37,7 +37,7 @@ const DOC_TYPE_LABELS: Record<string, string> = {
 
 const DOC_TYPE_COLORS: Record<string, string> = {
   teaser: "bg-blue-50 text-blue-700 border-blue-200",
-  shopping_list: "bg-purple-50 text-purple-700 border-purple-200",
+  shopping_list: "bg-blue-50 text-blue-700 border-blue-200",
   market_study: "bg-green-50 text-green-700 border-green-200",
 };
 

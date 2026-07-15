@@ -685,7 +685,7 @@ export function WorkforceTasks({ initialTaskId = null }: WorkforceTasksProps = {
                       onClick={() => goToTask(task.id)}
                       active={showTaskCanvas && selectedTaskId === task.id}
                       icon={<Icon className="h-3 w-3" />}
-                      iconClass="bg-violet-100 text-violet-600"
+                      iconClass="bg-blue-100 text-blue-600"
                       title={task.title}
                       tooltipText={task.title}
                       meta={
@@ -791,7 +791,7 @@ export function WorkforceTasks({ initialTaskId = null }: WorkforceTasksProps = {
                         onDragEnd={handleDragEnd}
                         onDrop={(e) => e.preventDefault()}
                         icon={<Icon className="h-3 w-3" />}
-                        iconClass="bg-violet-50 text-violet-700"
+                        iconClass="bg-blue-50 text-blue-700"
                         title={
                           <>
                             <span className="font-mono text-[10px] text-muted-foreground/70 mr-1.5">

@@ -210,7 +210,7 @@ export const sendEmailTool = tool(
 
 IMPORTANT — recipients are restricted to a whitelist: only addresses that belong to a registered platform user (the users table) can be emailed. Omit \`to\` to send to the signed-in user (resolved by the runtime — you do NOT need their address). Any \`to\` address that is not a known platform user is silently skipped and reported back; the email is never delivered to non-platform addresses. Do NOT use this tool to email customers, bankers, or external parties.
 
-VOICE — always write and sign on behalf of the app, "MnA Brain 2.0", NOT the human user. Do NOT sign off with an individual person's name. If you include a signature, sign as "MnA Brain 2.0".
+VOICE — always write and sign on behalf of the app, "Investment Brain", NOT the human user. Do NOT sign off with an individual person's name. If you include a signature, sign as "Investment Brain".
 
 ## Attachments (both optional — include only what the user asked for)
 
@@ -239,7 +239,7 @@ After the tool returns, write ONE short sentence confirming, or surface its **Er
 Args:
     to: Optional. Recipient email addresses (each a registered platform user). Omit to send to the signed-in user.
     subject: Required. The email subject line.
-    body: Required. Plain-text body (Markdown is NOT rendered). Sign off as "MnA Brain 2.0".
+    body: Required. Plain-text body (Markdown is NOT rendered). Sign off as "Investment Brain".
     company_excel: Optional. Filters (+ title) for an attached Excel workbook.
     research_summary: Optional. Title + sections (+ references) for an attached PDF.
 

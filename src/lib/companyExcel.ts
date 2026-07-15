@@ -77,7 +77,7 @@ export async function generateCompanyExcel(
   }
 
   const workbook = new ExcelJS.Workbook();
-  workbook.creator = 'MnA Brain 2.0';
+  workbook.creator = 'Investment Brain';
   workbook.title = input.title;
   const created = new Date(input.generatedAt);
   if (!Number.isNaN(created.getTime())) {

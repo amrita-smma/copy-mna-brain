@@ -100,7 +100,7 @@ describe('AuthService.signInWithGoogleToken', () => {
       UserNotRegisteredError,
     );
     await expect(service.signInWithGoogleToken('good-token')).rejects.toThrow(
-      'Your user is not registered in the system, please contact the MnA team',
+      'Your user is not registered in the system, please contact the Investment Brain team',
     );
     expect(userRepo.findByEmail).toHaveBeenCalledWith('ghost@example.com');
   });

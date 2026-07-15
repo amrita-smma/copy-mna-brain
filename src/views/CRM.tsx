@@ -354,7 +354,7 @@ export default function CRM({
                 {activeTags.map((t) => (
                   <button
                     key={t.key}
-                    className="inline-flex items-center gap-1 rounded-md bg-indigo-100 px-2 py-0.5 text-xs font-semibold text-indigo-700 hover:bg-indigo-600 hover:text-white dark:bg-indigo-950 dark:text-indigo-300"
+                    className="inline-flex items-center gap-1 rounded-md bg-blue-100 px-2 py-0.5 text-xs font-semibold text-blue-700 hover:bg-blue-600 hover:text-white dark:bg-blue-950 dark:text-blue-300"
                     onClick={t.clear}
                   >
                     {t.label}

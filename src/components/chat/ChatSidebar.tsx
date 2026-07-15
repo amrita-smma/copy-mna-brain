@@ -68,7 +68,7 @@ export function ChatSidebar({
         <Button
           onClick={handleNewChat}
           variant="default"
-          className="w-full gap-2 bg-gradient-to-r from-purple-600 to-purple-500 hover:from-purple-700 hover:to-purple-600"
+          className="w-full gap-2 bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-700 hover:to-blue-600"
         >
           <MessageSquarePlus className="h-4 w-4" />
           New Chat
@@ -92,7 +92,7 @@ export function ChatSidebar({
                   className={cn(
                     "w-full flex items-start gap-2 rounded-md px-3 py-2 text-left text-sm transition-colors",
                     isActive
-                      ? "bg-purple-500/10 text-purple-700 dark:text-purple-300"
+                      ? "bg-blue-500/10 text-blue-700 dark:text-blue-300"
                       : "hover:bg-muted text-foreground/80",
                   )}
                 >

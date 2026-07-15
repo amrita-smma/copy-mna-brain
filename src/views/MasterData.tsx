@@ -111,7 +111,7 @@ const stageLabels: Record<DealStage | 'Acquired', string> = {
 };
 
 const stageColors: Record<DealStage | 'Acquired', string> = {
-  market_screening: 'bg-purple-500',
+  market_screening: 'bg-blue-500',
   unreviewed: 'bg-amber-500',
   L0: 'bg-stage-l0',
   L1: 'bg-stage-l1',

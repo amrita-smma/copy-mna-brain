@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import Image from 'next/image';
+import { BrandWordmark } from '@/components/BrandMark';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useTheme } from 'next-themes';
@@ -25,7 +25,6 @@ export default function LoginPage() {
   const { signIn, signInWithGoogleToken, user, loading } = useAuth();
   const { resolvedTheme } = useTheme();
   const router = useRouter();
-  const logoSrc = '/logo-light.png';
 
   useEffect(() => {
     if (!loading && user) {
@@ -114,17 +113,10 @@ export default function LoginPage() {
       <div className="relative z-10 w-full flex justify-center">
       <Card className="w-full max-w-md min-h-[480px] flex flex-col rounded-md border-white/20 bg-white/10 backdrop-blur-xl shadow-lg">
         <CardHeader className="text-center">
-          <div className="mx-auto mb-4 flex h-14 items-center justify-center">
-            <Image
-              src={logoSrc}
-              alt="Brain 2.0"
-              width={120}
-              height={56}
-              className="h-14 w-auto object-contain rounded-2xl"
-              priority
-            />
+          <div className="mx-auto mb-4 flex h-10 items-center justify-center">
+            <BrandWordmark className="h-9 w-auto" />
           </div>
-          <CardTitle className="text-2xl font-bold tracking-tight text-black dark:text-white">BRAIN 2.0</CardTitle>
+          <CardTitle className="font-display text-2xl font-bold tracking-tight text-black dark:text-white">Investment Brain</CardTitle>
           <CardDescription className="text-xs font-medium uppercase tracking-[0.2em] text-black/70 dark:text-white/70">
             ENTERPRISE DEAL INTELLIGENCE
           </CardDescription>

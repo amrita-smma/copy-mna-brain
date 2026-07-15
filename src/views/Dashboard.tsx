@@ -81,7 +81,7 @@ interface StageCounts {
 
 const PIPELINE_STAGES: { stage: string; label: string; color: string }[] = [
   { stage: "L0", label: "Sourcing", color: "bg-blue-500" },
-  { stage: "L1", label: "Screening", color: "bg-purple-500" },
+  { stage: "L1", label: "Screening", color: "bg-blue-500" },
   { stage: "L2", label: "Initial Review", color: "bg-amber-500" },
   { stage: "L3", label: "Due Diligence", color: "bg-green-500" },
   { stage: "L4", label: "Negotiation", color: "bg-teal-500" },
@@ -91,7 +91,7 @@ const PIPELINE_STAGES: { stage: string; label: string; color: string }[] = [
 // Solid pill colors for the L1–L5 stage columns (inbound = darker, outbound = lighter).
 const stagePillColors: Record<string, { inbound: string; outbound: string }> = {
   L0: { inbound: "bg-blue-500", outbound: "bg-blue-300" },
-  L1: { inbound: "bg-violet-500", outbound: "bg-violet-300" },
+  L1: { inbound: "bg-blue-500", outbound: "bg-blue-300" },
   L2: { inbound: "bg-amber-500", outbound: "bg-amber-300" },
   L3: { inbound: "bg-emerald-500", outbound: "bg-emerald-300" },
   L4: { inbound: "bg-cyan-500", outbound: "bg-cyan-300" },
@@ -451,7 +451,7 @@ function formatFeedEventDate(iso: string): string {
 
 const stageChipColors: Record<string, string> = {
   L0: "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300",
-  L1: "bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300",
+  L1: "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300",
   L2: "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300",
   L3: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300",
   L4: "bg-cyan-100 text-cyan-700 dark:bg-cyan-900/40 dark:text-cyan-300",
@@ -502,7 +502,7 @@ const dotColors: Record<FeedEventType, string> = {
   stage_move: "bg-emerald-500",
   dropped: "bg-red-500",
   note_updated: "bg-amber-500",
-  ai_discovered: "bg-violet-500",
+  ai_discovered: "bg-blue-500",
 };
 
 const eventTypeLabels: Record<FeedEventType, string> = {
@@ -1398,7 +1398,7 @@ export default function Dashboard({
                       <Popover>
                         <PopoverTrigger asChild>
                           <button type="button" data-testid="recap-new-deals-inbound-trigger" className="text-left">
-                            <p className="text-xl font-bold text-violet-600 dark:text-violet-400 leading-none underline decoration-dotted underline-offset-2">
+                            <p className="text-xl font-bold text-blue-600 dark:text-blue-400 leading-none underline decoration-dotted underline-offset-2">
                               {recapNewInbound.length}
                             </p>
                             <p className="text-xs text-muted-foreground mt-1">
@@ -1407,7 +1407,7 @@ export default function Dashboard({
                           </button>
                         </PopoverTrigger>
                         <PopoverContent className="w-64 p-3" align="start">
-                          <p className="text-xs font-bold uppercase tracking-wider text-violet-600 dark:text-violet-400 mb-2">
+                          <p className="text-xs font-bold uppercase tracking-wider text-blue-600 dark:text-blue-400 mb-2">
                             Inbound · New Deals
                           </p>
                           {recapNewInbound.length === 0 ? (
@@ -2096,7 +2096,7 @@ const eventTypeBadgeStyles: Record<FeedEventType, string> = {
   note_updated:
     "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300",
   ai_discovered:
-    "bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300",
+    "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300",
 };
 
 const eventTypeBadgeLabels: Record<FeedEventType, string> = {
@@ -2162,7 +2162,7 @@ function FeedAvatar({
 }) {
   return (
     <div
-      className={`${className} shrink-0 overflow-hidden rounded-full border border-violet-200 bg-violet-100 dark:border-violet-700 dark:bg-violet-900/40 flex items-center justify-center`}
+      className={`${className} shrink-0 overflow-hidden rounded-full border border-blue-200 bg-blue-100 dark:border-blue-700 dark:bg-blue-900/40 flex items-center justify-center`}
     >
       {logoUrl ? (
         <img
@@ -2178,7 +2178,7 @@ function FeedAvatar({
         />
       ) : null}
       <span
-        className="text-xs font-bold text-violet-600 dark:text-violet-300"
+        className="text-xs font-bold text-blue-600 dark:text-blue-300"
         style={logoUrl ? { display: "none" } : undefined}
       >
         {companyInitials({ name })}

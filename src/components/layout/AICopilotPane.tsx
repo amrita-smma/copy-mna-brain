@@ -155,7 +155,7 @@ function ChatInput({ isExpanded }: { isExpanded: boolean }) {
                 type="submit"
                 size="sm"
                 disabled={!input.trim() && !hasReadyAttachment}
-                className="bg-purple-600 hover:bg-purple-700 shrink-0 rounded-xl"
+                className="bg-blue-600 hover:bg-blue-700 shrink-0 rounded-xl"
               >
                 <Send className="h-4 w-4" />
               </Button>
@@ -303,7 +303,7 @@ export function AICopilotPane({
       {...dropHandlers}
     >
       {isFileDragging && (
-        <div className="pointer-events-none absolute inset-0 z-30 flex items-center justify-center border-2 border-dashed border-purple-500 bg-purple-500/10 text-sm font-medium text-purple-700 backdrop-blur-[1px]">
+        <div className="pointer-events-none absolute inset-0 z-30 flex items-center justify-center border-2 border-dashed border-blue-500 bg-blue-500/10 text-sm font-medium text-blue-700 backdrop-blur-[1px]">
           Drop files to attach
         </div>
       )}
@@ -314,8 +314,8 @@ export function AICopilotPane({
           onMouseDown={handleResizeStart}
           className={cn(
             'absolute left-0 top-0 z-20 h-full w-1.5 -translate-x-1/2 cursor-col-resize',
-            'transition-colors hover:bg-purple-500/40',
-            isDragging && 'bg-purple-500/60',
+            'transition-colors hover:bg-blue-500/40',
+            isDragging && 'bg-blue-500/60',
           )}
         />
       )}
@@ -348,11 +348,11 @@ export function AICopilotPane({
             </Sheet>
           )}
           <motion.div
-            className="flex h-7 w-7 items-center justify-center rounded-lg bg-purple-500/10"
+            className="flex h-7 w-7 items-center justify-center rounded-lg bg-blue-500/10"
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
           >
-            <Sparkles className="h-4 w-4 text-purple-500" />
+            <Sparkles className="h-4 w-4 text-blue-500" />
           </motion.div>
           <span className="text-sm font-medium">AI CoPilot</span>
         </div>

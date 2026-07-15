@@ -1,16 +1,32 @@
 import type { Metadata, Viewport } from 'next';
+import { Inter, Plus_Jakarta_Sans } from 'next/font/google';
 import './globals.css';
 import { Providers } from '@/components/providers';
 import { ServiceWorkerRegister } from '@/components/service-worker-register';
 
+// Micro copy / body text — Inter (exposed as the default `font-sans`).
+const inter = Inter({
+  subsets: ['latin'],
+  variable: '--font-inter',
+  display: 'swap',
+});
+
+// Logotype / display — Plus Jakarta Sans (exposed as `font-display`).
+const jakarta = Plus_Jakarta_Sans({
+  subsets: ['latin'],
+  weight: ['500', '600', '700'],
+  variable: '--font-jakarta',
+  display: 'swap',
+});
+
 export const metadata: Metadata = {
-  title: 'BRAIN 2.0',
+  title: 'Investment Brain',
   description: 'Deal Pipeline Management',
   manifest: '/manifest.webmanifest',
   appleWebApp: {
     capable: true,
     statusBarStyle: 'default',
-    title: 'BRAIN 2.0',
+    title: 'Investment Brain',
   },
   icons: {
     icon: '/favicon.ico',
@@ -19,7 +35,7 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  themeColor: '#0f172a',
+  themeColor: '#0C0C10',
   width: 'device-width',
   initialScale: 1,
   maximumScale: 1,
@@ -34,7 +50,11 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html
+      lang="en"
+      suppressHydrationWarning
+      className={`${inter.variable} ${jakarta.variable}`}
+    >
       <body className="font-sans antialiased">
         <ServiceWorkerRegister />
         <Providers>{children}</Providers>

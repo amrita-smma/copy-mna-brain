@@ -74,8 +74,8 @@ export default function AIWorkforce({
         <div className="flex-shrink-0 px-8 pt-8 pb-4 bg-card">
           <div className="flex items-start gap-4">
             <div className="relative">
-              <div className="absolute inset-0 rounded-2xl blur-md opacity-50 bg-gradient-to-br from-violet-400 to-indigo-500" />
-              <div className="relative flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-violet-500 to-indigo-600 shadow-lg">
+              <div className="absolute inset-0 rounded-2xl blur-md opacity-50 bg-gradient-to-br from-blue-400 to-blue-500" />
+              <div className="relative flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-blue-500 to-blue-600 shadow-lg">
                 <Sparkles className="h-6 w-6 text-white" />
               </div>
             </div>
@@ -102,7 +102,7 @@ export default function AIWorkforce({
                   className={cn(
                     'relative flex items-center gap-2 px-4 py-3 text-sm font-medium transition-colors',
                     active
-                      ? 'text-violet-600'
+                      ? 'text-blue-600'
                       : 'text-muted-foreground hover:text-foreground',
                   )}
                 >
@@ -112,7 +112,7 @@ export default function AIWorkforce({
                     <span className="ml-1 h-1.5 w-1.5 rounded-full bg-amber-500 animate-pulse" />
                   )}
                   {active && (
-                    <span className="absolute inset-x-2 -bottom-px h-0.5 bg-violet-600 rounded-full" />
+                    <span className="absolute inset-x-2 -bottom-px h-0.5 bg-blue-600 rounded-full" />
                   )}
                 </button>
               );

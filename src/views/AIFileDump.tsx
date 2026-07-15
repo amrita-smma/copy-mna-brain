@@ -2095,7 +2095,7 @@ export default function AIFileDump({
         <FileTable
           title="Banker Communications"
           icon={<FileSpreadsheet className="h-5 w-5" />}
-          iconColor="text-indigo-500"
+          iconColor="text-blue-500"
           files={bankerComms}
           filteredFiles={filteredAndSortedBankerComms}
           searchQuery={bankerCommsSearchQuery}

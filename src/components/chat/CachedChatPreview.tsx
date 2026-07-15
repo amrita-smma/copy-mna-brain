@@ -42,7 +42,7 @@ export function CachedChatPreview() {
   return (
     <div className="min-w-0">
       <ChatMessageBubble message={userMessage} />
-      <div className="mb-6 rounded-2xl border-2 border-dashed border-purple-300 p-3 dark:border-purple-700">
+      <div className="mb-6 rounded-2xl border-2 border-dashed border-blue-300 p-3 dark:border-blue-700">
         <div className="mb-1 px-2 text-xs font-medium text-muted-foreground">
           Cached chat history found{dateLabel ? ` on ${dateLabel}` : ""}
         </div>
@@ -54,7 +54,7 @@ export function CachedChatPreview() {
           <Button
             size="sm"
             onClick={continueFromCached}
-            className="bg-gradient-to-r from-purple-600 to-purple-500 hover:from-purple-700 hover:to-purple-600"
+            className="bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-700 hover:to-blue-600"
           >
             Continue from chat
           </Button>

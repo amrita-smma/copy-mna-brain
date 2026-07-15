@@ -2,14 +2,14 @@ import type { MetadataRoute } from 'next';
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: 'BRAIN 2.0',
-    short_name: 'BRAIN',
+    name: 'Investment Brain',
+    short_name: 'Investment Brain',
     description: 'Deal Pipeline Management',
     start_url: '/',
     scope: '/',
     display: 'standalone',
     background_color: '#ffffff',
-    theme_color: '#0f172a',
+    theme_color: '#0C0C10',
     orientation: 'portrait-primary',
     icons: [
       {

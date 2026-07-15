@@ -215,13 +215,13 @@ function NodeMultiCombobox({
           {selectedNodes.map((n) => (
             <span
               key={n.id}
-              className="inline-flex items-center gap-1 rounded-full border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-[11px] text-indigo-900"
+              className="inline-flex items-center gap-1 rounded-full border border-blue-200 bg-blue-50 px-2 py-0.5 text-[11px] text-blue-900"
             >
               <span className="max-w-[8rem] truncate">{n.name}</span>
               <button
                 type="button"
                 aria-label={`Remove ${n.name}`}
-                className="text-indigo-500 hover:text-indigo-900"
+                className="text-blue-500 hover:text-blue-900"
                 onClick={() => onToggle(n.id)}
               >
                 <X className="h-3 w-3" />
@@ -1472,8 +1472,8 @@ export default function CompanyGraph({
 
             {/* Add connection (edit mode only) */}
             {editMode && (
-              <div className="space-y-3 rounded-lg border border-dashed border-indigo-300 bg-indigo-50/60 p-3">
-                <p className="flex items-center gap-1.5 text-xs font-semibold text-indigo-900 uppercase tracking-wider">
+              <div className="space-y-3 rounded-lg border border-dashed border-blue-300 bg-blue-50/60 p-3">
+                <p className="flex items-center gap-1.5 text-xs font-semibold text-blue-900 uppercase tracking-wider">
                   <Plus className="h-3.5 w-3.5" />
                   Add connection
                 </p>
@@ -1534,8 +1534,8 @@ export default function CompanyGraph({
 
             {/* Add company (edit mode only) */}
             {editMode && (
-              <div className="space-y-3 rounded-lg border border-dashed border-violet-300 bg-violet-50/60 p-3">
-                <p className="flex items-center gap-1.5 text-xs font-semibold text-violet-900 uppercase tracking-wider">
+              <div className="space-y-3 rounded-lg border border-dashed border-blue-300 bg-blue-50/60 p-3">
+                <p className="flex items-center gap-1.5 text-xs font-semibold text-blue-900 uppercase tracking-wider">
                   <Plus className="h-3.5 w-3.5" />
                   Add company
                 </p>
@@ -1819,15 +1819,15 @@ export default function CompanyGraph({
                 />
               </div>
               {connectedTo && (
-                <div className="flex items-center justify-between gap-2 rounded-md border border-indigo-200 bg-indigo-50 px-2.5 py-1.5">
-                  <span className="text-[11px] leading-tight text-indigo-900">
+                <div className="flex items-center justify-between gap-2 rounded-md border border-blue-200 bg-blue-50 px-2.5 py-1.5">
+                  <span className="text-[11px] leading-tight text-blue-900">
                     Connected to{' '}
                     <span className="font-semibold">{connectedTo.name}</span>
                   </span>
                   <Button
                     variant="ghost"
                     size="sm"
-                    className="h-5 px-1.5 text-[11px] text-indigo-700 hover:text-indigo-900"
+                    className="h-5 px-1.5 text-[11px] text-blue-700 hover:text-blue-900"
                     onClick={() => setConnectedTo(null)}
                   >
                     Clear
@@ -2013,7 +2013,7 @@ export default function CompanyGraph({
               </div>
             )}
             {editMode && (
-              <div className="absolute top-3 left-1/2 z-10 -translate-x-1/2 flex items-center gap-1.5 rounded-full border border-indigo-300 bg-indigo-50 px-3 py-1.5 text-[11px] font-semibold text-indigo-800 shadow-sm">
+              <div className="absolute top-3 left-1/2 z-10 -translate-x-1/2 flex items-center gap-1.5 rounded-full border border-blue-300 bg-blue-50 px-3 py-1.5 text-[11px] font-semibold text-blue-800 shadow-sm">
                 <Pencil className="h-3 w-3" />
                 Edit mode — click edges to edit
               </div>
@@ -2280,7 +2280,7 @@ export default function CompanyGraph({
                       href={selectedLink.evidence}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="break-all text-indigo-600 underline hover:text-indigo-800"
+                      className="break-all text-blue-600 underline hover:text-blue-800"
                     >
                       {selectedLink.evidence}
                     </a>

@@ -1,4 +1,4 @@
-// Minimal service worker for the BRAIN 2.0 PWA PoC.
+// Minimal service worker for the Investment Brain PWA PoC.
 // Goal: satisfy installability (a registered SW with a fetch handler) and
 // provide a basic offline fallback for navigations. This is intentionally
 // conservative — it does NOT cache API responses or authenticated pages.

@@ -77,7 +77,7 @@ export function EmployerCard({
       className={cn(
         "overflow-hidden rounded-lg border bg-card transition-all",
         expanded
-          ? "border-indigo-500 shadow-md shadow-indigo-500/10"
+          ? "border-blue-500 shadow-md shadow-blue-500/10"
           : "hover:border-foreground/20",
       )}
     >
@@ -128,7 +128,7 @@ export function EmployerCard({
                 {employer.primary_pic.title ?? "—"}
               </div>
               {employer.primary_pic.email && (
-                <div className="truncate font-mono text-[9px] text-indigo-600 dark:text-indigo-400">
+                <div className="truncate font-mono text-[9px] text-blue-600 dark:text-blue-400">
                   {employer.primary_pic.email}
                 </div>
               )}
@@ -261,7 +261,7 @@ function TopicChipBadge({
       className={cn(
         "h-4 px-1.5 text-[10px] font-semibold",
         cls,
-        topic.is_highlight && "ring-1 ring-indigo-300",
+        topic.is_highlight && "ring-1 ring-blue-300",
       )}
     >
       {topic.name}
@@ -296,7 +296,7 @@ function TopicChipWithActions({
       <TopicChipBadge topic={topic} />
       <div className="absolute -right-1 -top-1 hidden gap-0.5 group-hover:flex">
         <button
-          className="flex h-4 w-4 items-center justify-center rounded-full border bg-background text-[10px] hover:bg-indigo-50"
+          className="flex h-4 w-4 items-center justify-center rounded-full border bg-background text-[10px] hover:bg-blue-50"
           onClick={onReclassify}
           aria-label={topic.is_deal_related ? "Move to non-deal" : "Move to deal"}
           title={topic.is_deal_related ? "Move to Non-Deal Related" : "Move to Deal Related"}
@@ -349,7 +349,7 @@ function TopicDropZone({
       className={cn(
         "mb-3 rounded-md border border-transparent p-1 transition-colors",
         dragActive && "border-dashed border-muted-foreground/30",
-        dragOver && "border-indigo-400 bg-indigo-50/50 dark:bg-indigo-950/20",
+        dragOver && "border-blue-400 bg-blue-50/50 dark:bg-blue-950/20",
       )}
       onDragOver={(e) => {
         e.preventDefault();
@@ -434,7 +434,7 @@ function ExpandedTabs({
         <div className="mb-3 flex items-center justify-between text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
           <span>Contacts ({detail.correspondents.length})</span>
           <button
-            className="text-xs font-bold normal-case text-indigo-600 hover:underline"
+            className="text-xs font-bold normal-case text-blue-600 hover:underline"
             onClick={onAddContact}
           >
             + Add contact
@@ -474,7 +474,7 @@ function ExpandedTabs({
                     </div>
                   )}
                   {c.email && (
-                    <div className="mt-0.5 font-mono text-[11px] text-indigo-600 dark:text-indigo-400">
+                    <div className="mt-0.5 font-mono text-[11px] text-blue-600 dark:text-blue-400">
                       {c.email}
                     </div>
                   )}
@@ -611,7 +611,7 @@ function TopicsTab({
       <div className="mb-3 flex items-center justify-between text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
         <span>Topics Tag ({topics.length})</span>
         <button
-          className="text-xs font-bold normal-case text-indigo-600 hover:underline"
+          className="text-xs font-bold normal-case text-blue-600 hover:underline"
           onClick={() => setAdding(true)}
         >
           + Add tag
@@ -626,7 +626,7 @@ function TopicsTab({
         <>
           <TopicDropZone
             label="Deal Related"
-            labelClassName="text-indigo-600"
+            labelClassName="text-blue-600"
             topics={dealTopics}
             isDealZone={true}
             dragActive={dragging !== null && !dragging.is_deal_related}
@@ -668,7 +668,7 @@ function TopicsTab({
         <div className="mt-3 flex flex-wrap items-center gap-2">
           <div className="flex rounded-md border text-xs font-semibold overflow-hidden">
             <button
-              className={`px-3 py-1 ${isDealRelated ? "bg-indigo-600 text-white" : "text-muted-foreground hover:bg-muted"}`}
+              className={`px-3 py-1 ${isDealRelated ? "bg-blue-600 text-white" : "text-muted-foreground hover:bg-muted"}`}
               onClick={() => setIsDealRelated(true)}
             >
               Deal Related
@@ -963,7 +963,7 @@ function RelatedCompaniesTab({
                 {c.evidence.length > 0 && (
                   <button
                     type="button"
-                    className="text-[10px] font-semibold text-indigo-600 hover:underline"
+                    className="text-[10px] font-semibold text-blue-600 hover:underline"
                     onClick={() =>
                       setExpanded(expanded === c.id ? null : c.id)
                     }
@@ -996,7 +996,7 @@ function RelatedCompaniesTab({
                     className="rounded border bg-muted/40 px-3 py-2 text-xs"
                   >
                     {e.matched_text && (
-                      <blockquote className="mb-1 border-l-2 border-indigo-300 pl-2 italic text-muted-foreground">
+                      <blockquote className="mb-1 border-l-2 border-blue-300 pl-2 italic text-muted-foreground">
                         "{e.matched_text}"
                       </blockquote>
                     )}

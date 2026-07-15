@@ -366,7 +366,7 @@ describe('EmailService.sendComposedEmail', () => {
     expect(arg.subject).toBe('Heads up');
     expect(arg.html).toContain('A quick note.');
     // Branded on behalf of the app, not the user.
-    expect(arg.from).toMatch(/MnA Brain 2\.0/);
+    expect(arg.from).toMatch(/Investment Brain/);
   });
 
   it('carries every attachment in one email via the attachment path', async () => {
@@ -394,7 +394,7 @@ describe('EmailService.sendComposedEmail', () => {
       'summary.pdf',
       'export.xlsx',
     ]);
-    expect(arg.from).toMatch(/MnA Brain 2\.0/);
+    expect(arg.from).toMatch(/Investment Brain/);
     expect(arg.html).toContain('Both attached.');
   });
 });

@@ -72,7 +72,7 @@ export function AiOpinionCell({
   if (isProcessing) {
     return (
       <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
-        <Loader2 className="h-3.5 w-3.5 animate-spin text-purple-600" />
+        <Loader2 className="h-3.5 w-3.5 animate-spin text-blue-600" />
         Analyzing…
       </span>
     );
@@ -107,7 +107,7 @@ export function AiOpinionCell({
               type="button"
               variant="ghost"
               size="sm"
-              className="h-6 w-fit gap-1 px-1.5 text-[11px] text-purple-700 hover:text-purple-800 dark:text-purple-300 dark:hover:text-purple-200"
+              className="h-6 w-fit gap-1 px-1.5 text-[11px] text-blue-700 hover:text-blue-800 dark:text-blue-300 dark:hover:text-blue-200"
               onClick={() => onDiveDeeper(company)}
             >
               <Sparkles className="h-3 w-3" />
@@ -125,7 +125,7 @@ export function AiOpinionCell({
         type="button"
         variant="outline"
         size="sm"
-        className="h-7 gap-1.5 text-xs text-purple-700 border-purple-200 hover:bg-purple-50 hover:text-purple-800 dark:text-purple-300 dark:border-purple-800 dark:hover:bg-purple-950/30"
+        className="h-7 gap-1.5 text-xs text-blue-700 border-blue-200 hover:bg-blue-50 hover:text-blue-800 dark:text-blue-300 dark:border-blue-800 dark:hover:bg-blue-950/30"
         onClick={() => onAnalyze(company)}
       >
         <Sparkles className="h-3.5 w-3.5" />

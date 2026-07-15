@@ -60,7 +60,7 @@ export function AskAIButton({
         aria-label={label}
         title={label}
         className={cn(
-          "inline-flex min-h-7 shrink-0 items-center gap-1.5 rounded-md border border-purple-500/30 px-2.5 py-1 text-xs font-medium leading-tight text-purple-600 transition-colors hover:bg-purple-500/10 dark:text-purple-400",
+          "inline-flex min-h-7 shrink-0 items-center gap-1.5 rounded-md border border-blue-500/30 px-2.5 py-1 text-xs font-medium leading-tight text-blue-600 transition-colors hover:bg-blue-500/10 dark:text-blue-400",
           className,
         )}
       >
@@ -77,7 +77,7 @@ export function AskAIButton({
       aria-label={label}
       title={label}
       className={cn(
-        "inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-purple-500 transition-colors hover:bg-purple-500/10 hover:text-purple-600 dark:hover:text-purple-400",
+        "inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-blue-500 transition-colors hover:bg-blue-500/10 hover:text-blue-600 dark:hover:text-blue-400",
         className,
       )}
     >

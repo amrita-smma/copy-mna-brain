@@ -85,9 +85,9 @@ const COPILOT_AGENT_OPTIONS: { value: string; label: string }[] = [
   { value: 'investment', label: 'Funds & Investing' },
 ];
 
-/** Active tab: primary (purple) background with white text. */
+/** Active tab: primary (blue) background with white text. */
 const ACTIVE_TAB_CLASS =
-  'data-[state=active]:bg-purple-700 data-[state=active]:text-white data-[state=active]:shadow-sm';
+  'data-[state=active]:bg-blue-700 data-[state=active]:text-white data-[state=active]:shadow-sm';
 
 interface Role {
   id: string;
@@ -529,8 +529,8 @@ export default function AdminPortalPage() {
           >
             <ArrowLeft className="h-4 w-4" />
           </Button>
-          <div className="grid h-9 w-9 place-items-center rounded-xl bg-gradient-to-br from-indigo-200 to-indigo-300 dark:from-indigo-900 dark:to-indigo-700">
-            <Settings className="h-4 w-4 text-indigo-700 dark:text-indigo-200" />
+          <div className="grid h-9 w-9 place-items-center rounded-xl bg-gradient-to-br from-blue-200 to-blue-300 dark:from-blue-900 dark:to-blue-700">
+            <Settings className="h-4 w-4 text-blue-700 dark:text-blue-200" />
           </div>
           <div>
             <h1 className="text-base font-extrabold tracking-tight">Workspace Configuration</h1>
@@ -569,10 +569,10 @@ export default function AdminPortalPage() {
                       onClick={() => selectWorkspace(workspace.id)}
                       className={cn(
                         'flex w-full items-start gap-3 rounded-xl border bg-card/80 p-3 text-left backdrop-blur-xl transition hover:border-primary/40 hover:bg-accent/40 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-                        isActive && 'border-primary/60 ring-1 ring-primary/30',
+                        isActive && 'border-primary/60 ring-1 ring-primary/30 border-blue-400 border-2',
                       )}
                     >
-                      <span className="grid h-11 w-11 shrink-0 place-items-center rounded-lg bg-gradient-to-br from-violet-500 to-purple-600 text-sm font-bold text-white shadow-sm">
+                      <span className="grid h-11 w-11 shrink-0 place-items-center rounded-lg bg-gradient-to-br from-blue-500 to-blue-600 text-sm font-bold text-white shadow-sm">
                         {initialsFor(workspace.name)}
                       </span>
                       <span className="min-w-0 flex-1">
