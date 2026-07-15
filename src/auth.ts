@@ -1,10 +1,10 @@
-import NextAuth from 'next-auth';
-import { MNA_WORKSPACE_ID } from '@/lib/constants';
-import Credentials from 'next-auth/providers/credentials';
-import { createDb } from '@/lib/server/db';
-import { createContainer } from '@/lib/services';
-import { authConfig } from '@/auth.config';
-import type { WorkspaceService } from '@/lib/services/workspaceService';
+import NextAuth from "next-auth";
+import { MNA_WORKSPACE_ID } from "@/lib/constants";
+import Credentials from "next-auth/providers/credentials";
+import { createDb } from "@/lib/server/db";
+import { createContainer } from "@/lib/services";
+import { authConfig } from "@/auth.config";
+import type { WorkspaceService } from "@/lib/services/workspaceService";
 
 /**
  * Shape embedded in the JWT so edge middleware (`src/proxy.ts`) and the
@@ -13,9 +13,16 @@ import type { WorkspaceService } from '@/lib/services/workspaceService';
  * `{workspaceId, slug}` — no name/role, since nothing downstream needs more
  * than "is this workspace in the list."
  */
-async function getWorkspaceClaims(workspaceService: WorkspaceService, userId: string) {
-  const accessible = await workspaceService.getAccessibleWorkspacesForUser(userId);
-  return accessible.map((m) => ({ workspaceId: m.workspaceId, slug: m.workspaceSlug }));
+async function getWorkspaceClaims(
+  workspaceService: WorkspaceService,
+  userId: string,
+) {
+  const accessible =
+    await workspaceService.getAccessibleWorkspacesForUser(userId);
+  return accessible.map((m) => ({
+    workspaceId: m.workspaceId,
+    slug: m.workspaceSlug,
+  }));
 }
 
 export const { handlers, signIn, signOut, auth } = NextAuth({
@@ -46,12 +53,15 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       // Membership is re-validated here BEFORE writing the new workspaceId
       // into the token — without this check a user could set an arbitrary
       // workspaceId via `update()` and read/write another tenant's data.
-      if (trigger === 'update') {
+      if (trigger === "update") {
         const db = createDb();
         const { workspaceService } = createContainer(db, MNA_WORKSPACE_ID);
 
-        if (typeof session?.workspaceId === 'string') {
-          const isMember = await workspaceService.isMember(token.id as string, session.workspaceId);
+        if (typeof session?.workspaceId === "string") {
+          const isMember = await workspaceService.isMember(
+            token.id as string,
+            session.workspaceId,
+          );
           if (isMember) {
             token.workspaceId = session.workspaceId;
           }
@@ -63,7 +73,10 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         // (besides sign-in) that touches the DB, so it's also the only
         // chance to un-stale a returning user's `token.workspaces` short of
         // a full re-login.
-        token.workspaces = await getWorkspaceClaims(workspaceService, token.id as string);
+        token.workspaces = await getWorkspaceClaims(
+          workspaceService,
+          token.id as string,
+        );
       }
 
       return token;
@@ -84,7 +97,10 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           // Workspace doesn't matter for authService/workspaceService (both
           // workspace-agnostic) — MNA_WORKSPACE_ID here is just a throwaway
           // container-construction arg, not a tenant decision.
-          const { authService, workspaceService } = createContainer(db, MNA_WORKSPACE_ID);
+          const { authService, workspaceService } = createContainer(
+            db,
+            MNA_WORKSPACE_ID,
+          );
           const user = await authService.signIn(email, password);
           const [workspaceId, isSuperadmin, workspaces] = await Promise.all([
             workspaceService.resolveDefaultWorkspaceId(user.id),
@@ -104,7 +120,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           // `CredentialsSignin` code. Log the real cause so prod failures
           // (DB unreachable, TLS handshake, bad hash shape, wrong password)
           // are distinguishable in the server logs.
-          console.error('[auth] authorize failed:', err);
+          console.error("[auth] authorize failed:", err);
           return null;
         }
       },
@@ -114,8 +130,8 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       // We validate that token against Google, resolve the local user by the
       // verified email, and from here the JWT session is identical to a
       // password sign-in — the rest of the auth flow is unchanged.
-      id: 'google-sso',
-      name: 'Google SSO',
+      id: "google-sso",
+      name: "Google SSO",
       credentials: {
         token: {},
       },
@@ -124,7 +140,10 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         if (!token) return null;
         try {
           const db = createDb();
-          const { authService, workspaceService } = createContainer(db, MNA_WORKSPACE_ID);
+          const { authService, workspaceService } = createContainer(
+            db,
+            MNA_WORKSPACE_ID,
+          );
           const user = await authService.signInWithGoogleToken(token);
           const [workspaceId, isSuperadmin, workspaces] = await Promise.all([
             workspaceService.resolveDefaultWorkspaceId(user.id),
@@ -140,7 +159,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
             workspaces,
           };
         } catch (err) {
-          console.error('[auth] google-sso authorize failed:', err);
+          console.error("[auth] google-sso authorize failed:", err);
           return null;
         }
       },
@@ -154,7 +173,7 @@ export interface WorkspaceClaim {
   slug: string;
 }
 
-declare module 'next-auth' {
+declare module "next-auth" {
   interface Session {
     user: {
       id: string;
@@ -184,8 +203,8 @@ declare module 'next-auth' {
 // is a structured array, not a scalar like `id`/`workspaceId`. The import
 // (unused otherwise) is load-bearing: without it TS can't resolve this as an
 // augmentation of the existing module rather than a failed ambient one.
-import type {} from 'next-auth/jwt';
-declare module 'next-auth/jwt' {
+import type {} from "next-auth/jwt";
+declare module "next-auth/jwt" {
   interface JWT {
     id: string;
     name?: string | null;
@@ -195,4 +214,3 @@ declare module 'next-auth/jwt' {
     workspaces: WorkspaceClaim[];
   }
 }
-

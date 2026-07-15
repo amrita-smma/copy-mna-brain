@@ -75,7 +75,45 @@ export function LoadingBubble() {
 }
 
 function ChatMessageBubbleImpl(props: ChatMessageBubbleProps) {
-  const isUser = props.message.role === "user";
+  // Hookless dispatcher. User and assistant bubbles call a different number of
+  // hooks, so they MUST be distinct component types. If a single component
+  // served both roles via an early `return` (as this did previously), a fiber
+  // whose message flips role across renders — which happens when the message
+  // list is swapped during the post-login re-render / streaming — would change
+  // its own hook count and throw "Rendered more hooks than during the previous
+  // render". Branching on component type makes React remount the correct
+  // subcomponent instead, keeping each one's hook count constant.
+  if (props.message.role === "user") {
+    return <UserMessageBubble message={props.message} />;
+  }
+  return <AssistantMessageBubble {...props} />;
+}
+
+function UserMessageBubble({ message }: { message: UIMessage }) {
+  const parts = message?.parts || [];
+  const textContent = parts
+    .filter((part) => part.type === "text")
+    .map((part) => (part as any).text)
+    .join("");
+
+  return (
+    <div className="flex gap-4 mb-6 flex-row-reverse min-w-0">
+      <div className="flex-shrink-0 h-10 w-10 rounded-xl flex items-center justify-center bg-primary">
+        <User className="h-5 w-5 text-primary-foreground" />
+      </div>
+      <div className="flex-1 min-w-0 max-w-full md:max-w-[80%] flex flex-col items-end">
+        <div className="rounded-2xl px-5 py-4 w-full min-w-0 overflow-auto break-words bg-primary text-primary-foreground">
+          <MarkdownRenderer
+            content={textContent}
+            className="prose-invert [&_*]:text-primary-foreground"
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AssistantMessageBubble(props: ChatMessageBubbleProps) {
   const parts = props.message?.parts || [];
 
   // Check if there's any text content being streamed (has text parts with content)
@@ -96,7 +134,7 @@ function ChatMessageBubbleImpl(props: ChatMessageBubbleProps) {
   // Show thinking indicator when: no text content yet OR tools are running (but not if thinking text
   // is streaming). Also gated on isActive so that pressing Stop clears the spinner immediately —
   // without this gate, hasRunningTools stays true on an aborted tool call indefinitely.
-  const showThinking = !isUser && (!hasTextContent || hasRunningTools) && !isStreamingComplete && (props.isActive ?? false);
+  const showThinking = (!hasTextContent || hasRunningTools) && !isStreamingComplete && (props.isActive ?? false);
 
   // Auto-collapse tool results when response text starts streaming
   const [toolsCollapsed, setToolsCollapsed] = useState(false);
@@ -107,30 +145,6 @@ function ChatMessageBubbleImpl(props: ChatMessageBubbleProps) {
       setToolsCollapsed(true);
     }
   }, [hasTextContent]);
-
-  // For user messages, just show text content
-  if (isUser) {
-    const textContent = parts
-      .filter((part) => part.type === "text")
-      .map((part) => (part as any).text)
-      .join("");
-
-    return (
-      <div className="flex gap-4 mb-6 flex-row-reverse min-w-0">
-        <div className="flex-shrink-0 h-10 w-10 rounded-xl flex items-center justify-center bg-primary">
-          <User className="h-5 w-5 text-primary-foreground" />
-        </div>
-        <div className="flex-1 min-w-0 max-w-full md:max-w-[80%] flex flex-col items-end">
-          <div className="rounded-2xl px-5 py-4 w-full min-w-0 overflow-auto break-words bg-primary text-primary-foreground">
-            <MarkdownRenderer
-              content={textContent}
-              className="prose-invert [&_*]:text-primary-foreground"
-            />
-          </div>
-        </div>
-      </div>
-    );
-  }
 
   // Separate tool parts from text parts
   const toolParts = parts.filter(

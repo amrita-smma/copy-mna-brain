@@ -1,12 +1,11 @@
 'use client';
 
-import { ReactNode, Suspense } from 'react';
+import { ReactNode } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Toaster } from '@/components/ui/toaster';
 import { Toaster as Sonner } from '@/components/ui/sonner';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { AuthProvider } from '@/hooks/useAuth';
-import { GoogleSsoTokenGate } from '@/components/auth/GoogleSsoTokenGate';
 import { ChatProvider } from '@/components/chat/ChatProvider';
 import { PresentationViewerProvider } from '@/components/presentation/PresentationViewerContext';
 import { ThemeProvider } from 'next-themes';
@@ -22,14 +21,16 @@ export function Providers({ children }: ProvidersProps) {
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
         <ThemeProvider attribute="class" defaultTheme="light" enableSystem={false}>
+          {/* Google-SSO `?token=` deeplinks are consumed server-side in
+              `proxy.ts` → `/api/auth/sso` before any page renders, so the
+              client never sees a token and there is no in-render sign-in gate
+              to race the app's redirects. */}
           <ChatProvider>
             <PresentationViewerProvider>
               <TooltipProvider>
                 <Toaster />
                 <Sonner />
-                <Suspense fallback={null}>
-                  <GoogleSsoTokenGate>{children}</GoogleSsoTokenGate>
-                </Suspense>
+                {children}
               </TooltipProvider>
             </PresentationViewerProvider>
           </ChatProvider>

@@ -34,13 +34,8 @@ export async function redirectToWorkspaceScoped(
 
   const session = await auth();
   if (!session?.user) {
-    // Preserve a Google SSO token so GoogleSsoTokenGate can exchange it on
-    // the login page — without this the token is silently dropped and the
-    // auto-sign-in deeplink becomes a plain redirect to /login.
-    const tokenParam = searchParams?.token;
-    if (typeof tokenParam === 'string') {
-      redirect(`/login?token=${encodeURIComponent(tokenParam)}`);
-    }
+    // A Google-SSO `?token=` deeplink is consumed server-side in `proxy.ts`
+    // before it ever reaches this bridge, so there's nothing to preserve here.
     redirect('/login');
   }
   const match = session.user.workspaces.find((w) => w.workspaceId === session.user.workspaceId);
@@ -50,6 +45,9 @@ export async function redirectToWorkspaceScoped(
 
   const query = new URLSearchParams();
   for (const [key, value] of Object.entries(searchParams ?? {})) {
+    // `token` is an SSO artifact consumed upstream — never carry it into the
+    // workspace-scoped URL.
+    if (key === 'token') continue;
     if (Array.isArray(value)) {
       value.forEach((v) => query.append(key, v));
     } else if (value !== undefined) {

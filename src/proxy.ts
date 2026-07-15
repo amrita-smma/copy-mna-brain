@@ -100,15 +100,28 @@ export function extractRefererWorkspaceSlug(refererHeader: string | null, reques
 export const proxy = auth((req) => {
   const pathname = req.nextUrl.pathname;
 
+  // Google-SSO deeplink. Any URL carrying `?token=` is a sign-in-and-land
+  // request; consume it server-side exactly once by handing off to
+  // `/api/auth/sso`, which validates the token, establishes the session, and
+  // redirects to the clean destination. Doing this before any page renders is
+  // what replaced the old client-side `GoogleSsoTokenGate` — whose in-render
+  // soft redirects raced the app's other redirects and crashed the App Router.
+  // The handler itself is excluded so it doesn't redirect to itself forever.
+  const ssoToken = req.nextUrl.searchParams.get('token');
+  if (ssoToken && pathname !== '/api/auth/sso') {
+    const clean = new URL(req.url);
+    clean.searchParams.delete('token');
+    const ssoUrl = new URL('/api/auth/sso', req.url);
+    ssoUrl.searchParams.set('token', ssoToken);
+    ssoUrl.searchParams.set('callbackUrl', clean.pathname + clean.search);
+    return NextResponse.redirect(ssoUrl);
+  }
+
   if (pathname.startsWith('/w/')) {
     if (!req.auth?.user?.id) {
-      // Preserve a Google SSO token so GoogleSsoTokenGate can exchange it on
-      // the login page — without this a deeplink to /w/<slug>/*?token=... drops
-      // the token and the auto-sign-in link becomes a plain redirect to /login.
-      const loginUrl = new URL('/login', req.url);
-      const token = req.nextUrl.searchParams.get('token');
-      if (token) loginUrl.searchParams.set('token', token);
-      return NextResponse.redirect(loginUrl);
+      // Not authenticated — send to login. Any `?token` deeplink was already
+      // consumed above, so there is nothing to preserve onto the login URL.
+      return NextResponse.redirect(new URL('/login', req.url));
     }
 
     const slug = extractWorkspaceSlug(pathname);
@@ -180,5 +193,15 @@ export const proxy = auth((req) => {
 // `/api/*` routes are protected by default — add them to `classifyApiRoute`
 // only if they need to be public or self-authed.
 export const config = {
-  matcher: ['/api/:path*', '/w/:path*'],
+  matcher: [
+    '/api/:path*',
+    '/w/:path*',
+    // Also run on ANY other route when it carries a `?token` query, so a
+    // Google-SSO deeplink (e.g. `/?token=...`, `/chat?token=...`) is consumed
+    // server-side before a page renders. Excludes Next internals/static assets.
+    {
+      source: '/((?!_next/static|_next/image|favicon.ico).*)',
+      has: [{ type: 'query', key: 'token' }],
+    },
+  ],
 };
