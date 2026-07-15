@@ -34,6 +34,7 @@ import {
   DashboardActivityRepository,
   DashboardInsightsRepository,
   AppSettingsRepository,
+  FeatureFlagRepository,
   ApiKeyRepository,
   ApiChatConversationRepository,
   RoutinesRepository,
@@ -94,6 +95,7 @@ import { FundAssetLedgerService } from './fundAssetLedgerService';
 import { FundPortfolioService } from './fundPortfolioService';
 import { FundMetricsService } from './fundMetricsService';
 import { StalledDealService } from './stalledDealService';
+import { FeatureFlagsService } from './featureFlagsService';
 
 export interface Container {
   companyService: CompanyService;
@@ -138,6 +140,7 @@ export interface Container {
   fundPortfolioService: FundPortfolioService;
   fundMetricsService: FundMetricsService;
   stalledDealService: StalledDealService;
+  featureFlagsService: FeatureFlagsService;
 }
 
 export function createContainer(db: DbClient, workspaceId: string): Container {
@@ -331,6 +334,9 @@ export function createContainer(db: DbClient, workspaceId: string): Container {
 
   const stalledDealService = new StalledDealService(companyRepo, companyLogRepo);
 
+  const featureFlagRepo = new FeatureFlagRepository(db);
+  const featureFlagsService = new FeatureFlagsService(featureFlagRepo);
+
   return {
     companyService,
     companyGraphService,
@@ -374,5 +380,6 @@ export function createContainer(db: DbClient, workspaceId: string): Container {
     fundPortfolioService,
     fundMetricsService,
     stalledDealService,
+    featureFlagsService,
   };
 }

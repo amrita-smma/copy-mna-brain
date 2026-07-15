@@ -771,6 +771,13 @@
       "when": 1783987200000,
       "tag": "20260714000000_add_companies_aliases",
       "breakpoints": true
+    },
+    {
+      "idx": 110,
+      "version": "7",
+      "when": 1783987201000,
+      "tag": "20260714000001_add_feature_flags",
+      "breakpoints": true
     }
   ]
 }

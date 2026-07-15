@@ -56,6 +56,7 @@ import { LivingBackground } from '@/components/LivingBackground';
 import { AICopilotPane, COPILOT_DEFAULT_WIDTH } from './AICopilotPane';
 import { LayoutControlProvider } from './LayoutControlContext';
 import { MobileBottomNav } from './MobileBottomNav';
+import { useFeatureFlags } from './FeatureFlagsContext';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useLocalStorage } from '@/hooks/useLocalStorage';
 import { useIsMobile } from '@/hooks/use-mobile';
@@ -64,24 +65,33 @@ import { useVisualViewport } from '@/hooks/use-visual-viewport';
 
 interface DashboardLayoutProps {
   children: ReactNode;
+  /**
+   * @deprecated Sidebar gating now comes from the per-workspace
+   * `FeatureFlagsProvider` context (resolved server-side in the workspace
+   * layout). These props are still accepted so existing call sites don't break,
+   * but they are ignored.
+   */
   showCompanyGraph?: boolean;
   showFundManagement?: boolean;
 }
 
+// Each nav item's `flag` is a feature key from src/lib/features/catalog.ts; the
+// item shows only when that feature is enabled for the active workspace.
 const baseNavigation = [
-  { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard, color: 'default' as const },
-  { name: 'Pipeline', href: '/pipeline', icon: GitBranch, color: 'default' as const },
-  { name: 'Fund Management', href: '/fund-management', icon: Landmark, color: 'default' as const },
-  { name: 'Master Data', href: '/master-data', icon: Database, color: 'default' as const },
-  { name: 'CRM', href: '/crm', icon: Users, color: 'indigo' as const },
-  { name: 'AI File Dump', href: '/ai-file-dump', icon: FileStack, color: 'teal' as const },
-  { name: 'Presentation', href: '/presentation', icon: Presentation, color: 'default' as const },
-  { name: 'AI Workforce', href: '/ai-workforce', icon: Users, color: 'orange' as const },
-  { name: 'Company Graph', href: '/graph', icon: Network, color: 'cyan' as const },
+  { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard, color: 'default' as const, flag: 'DASHBOARD_ENABLED' },
+  { name: 'Pipeline', href: '/pipeline', icon: GitBranch, color: 'default' as const, flag: 'PIPELINE_ENABLED' },
+  { name: 'Fund Management', href: '/fund-management', icon: Landmark, color: 'default' as const, flag: 'FUND_MANAGEMENT_ENABLED' },
+  { name: 'Master Data', href: '/master-data', icon: Database, color: 'default' as const, flag: 'MASTER_DATA_ENABLED' },
+  { name: 'CRM', href: '/crm', icon: Users, color: 'indigo' as const, flag: 'CRM_ENABLED' },
+  { name: 'AI File Dump', href: '/ai-file-dump', icon: FileStack, color: 'teal' as const, flag: 'AI_FILE_DUMP_ENABLED' },
+  { name: 'Presentation', href: '/presentation', icon: Presentation, color: 'default' as const, flag: 'PRESENTATION_ENABLED' },
+  { name: 'AI Workforce', href: '/ai-workforce', icon: Users, color: 'orange' as const, flag: 'AI_WORKFORCE_ENABLED' },
+  { name: 'Company Graph', href: '/graph', icon: Network, color: 'cyan' as const, flag: 'COMPANY_GRAPH_ENABLED' },
 ];
 
-export default function DashboardLayout({ children, showCompanyGraph = false, showFundManagement = false }: DashboardLayoutProps) {
+export default function DashboardLayout({ children }: DashboardLayoutProps) {
   const pathname = usePathname();
+  const featureFlags = useFeatureFlags();
   const { user, signOut } = useAuth();
   const isMobile = useIsMobile();
   const [isSidebarOpen, setIsSidebarOpen] = useLocalStorage('layout:sidebar-open', false);
@@ -133,11 +143,9 @@ export default function DashboardLayout({ children, showCompanyGraph = false, sh
     );
   }
 
-  const filteredNavigation = baseNavigation.filter((item) => {
-    if (item.href === '/graph') return showCompanyGraph;
-    if (item.href === '/fund-management') return showFundManagement;
-    return true;
-  });
+  // Show a nav item when its feature is enabled for the active workspace.
+  // Unknown/unresolved keys default to visible so a missing flag never hides UI.
+  const filteredNavigation = baseNavigation.filter((item) => featureFlags[item.flag] ?? true);
 
   const handleSignOut = async () => {
     await signOut();

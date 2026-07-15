@@ -5,6 +5,8 @@ import { createDb } from '@/lib/server/db';
 import { createContainer } from '@/lib/services';
 import { MNA_WORKSPACE_ID } from '@/lib/constants';
 import { CopilotAgentProvider } from '@/components/chat/CopilotAgentContext';
+import { FeatureFlagsProvider } from '@/components/layout/FeatureFlagsContext';
+import { resolveWorkspaceFeatureFlags } from '@/lib/features/overrides';
 
 /**
  * Membership gate for every `/w/[workspaceSlug]/...` route. `proxy.ts`
@@ -39,7 +41,14 @@ export default async function WorkspaceLayout({
   const workspaceId = membership?.workspaceId ?? MNA_WORKSPACE_ID;
   const db = createDb();
   const { workspaceService } = createContainer(db, workspaceId);
-  const copilotAgent = await workspaceService.getCopilotAgent(workspaceId);
+  const [copilotAgent, featureFlags] = await Promise.all([
+    workspaceService.getCopilotAgent(workspaceId),
+    resolveWorkspaceFeatureFlags(workspaceId),
+  ]);
 
-  return <CopilotAgentProvider agentType={copilotAgent}>{children}</CopilotAgentProvider>;
+  return (
+    <CopilotAgentProvider agentType={copilotAgent}>
+      <FeatureFlagsProvider flags={featureFlags}>{children}</FeatureFlagsProvider>
+    </CopilotAgentProvider>
+  );
 }

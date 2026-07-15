@@ -1,42 +1,40 @@
 import { flag } from "flags/next";
 import { vercelAdapter } from "@flags-sdk/vercel";
+import { featureEnvDefault } from "./features/catalog";
+import { resolveFeatureOverride } from "./features/overrides";
 
-function booleanFlag(key: string, value: boolean) {
-  return flag<boolean>({
+/**
+ * Build a boolean feature flag whose default comes from the env var named
+ * `key`, layered so a runtime admin override (persisted in `app_settings` and
+ * managed from the admin portal's Features tab) takes precedence. When no
+ * override is set the flag behaves exactly as before — Vercel adapter when
+ * `FLAGS` is configured, otherwise the static env default.
+ */
+function booleanFlag(key: string) {
+  const value = featureEnvDefault(key);
+  const base = flag<boolean>({
     key,
     defaultValue: value,
     ...(process.env.FLAGS
       ? { adapter: vercelAdapter<boolean, any>() }
       : { decide: () => value }),
   });
+  const wrapped = async () => {
+    const override = await resolveFeatureOverride(key);
+    if (override !== undefined) return override;
+    return base();
+  };
+  return Object.assign(wrapped, base) as typeof base;
 }
 
-export const crmGoogleVaultSyncEnabled = booleanFlag(
-  "CRM_GOOGLE_VAULT_SYNC",
-  process.env.CRM_GOOGLE_VAULT_SYNC === "true",
-);
+export const crmGoogleVaultSyncEnabled = booleanFlag("CRM_GOOGLE_VAULT_SYNC");
 
-export const taskNotificationsEnabled = booleanFlag(
-  "TASK_NOTIFICATIONS_ENABLED",
-  process.env.TASK_NOTIFICATIONS_ENABLED === "true",
-);
+export const taskNotificationsEnabled = booleanFlag("TASK_NOTIFICATIONS_ENABLED");
 
-export const companyGraphEnabled = booleanFlag(
-  "COMPANY_GRAPH_ENABLED",
-  process.env.COMPANY_GRAPH_ENABLED === "true",
-);
+export const companyGraphEnabled = booleanFlag("COMPANY_GRAPH_ENABLED");
 
-export const insightsDashboardEnabled = booleanFlag(
-  "INSIGHTS_DASHBOARD_ENABLED",
-  process.env.INSIGHTS_DASHBOARD_ENABLED === "true",
-);
+export const insightsDashboardEnabled = booleanFlag("INSIGHTS_DASHBOARD_ENABLED");
 
-export const chatCacheEnabled = booleanFlag(
-  "CHAT_CACHE_ENABLED",
-  process.env.CHAT_CACHE_ENABLED === "true",
-);
+export const chatCacheEnabled = booleanFlag("CHAT_CACHE_ENABLED");
 
-export const fundManagementEnabled = booleanFlag(
-  "FUND_MANAGEMENT_ENABLED",
-  process.env.FUND_MANAGEMENT_ENABLED === "true",
-);
+export const fundManagementEnabled = booleanFlag("FUND_MANAGEMENT_ENABLED");

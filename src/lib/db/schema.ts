@@ -3145,6 +3145,42 @@ export const appSettings = pgTable("app_settings", {
   updated_by: uuid().references(() => users.id, { onDelete: "set null" }),
 });
 
+// Per-workspace feature-flag overrides. Each row turns one feature on or off
+// for one workspace; the effective state is this override when a row exists,
+// otherwise the env/catalog default (see src/lib/features/catalog.ts). Read and
+// written via FeatureFlagRepository; consulted by @/lib/flags
+// (resolveFeatureOverride) for the request's active workspace.
+export const featureFlags = pgTable(
+  "feature_flags",
+  {
+    workspace_id: uuid().notNull(),
+    feature_key: text().notNull(),
+    enabled: boolean().notNull(),
+    updated_at: timestamp({ withTimezone: true, mode: "string" })
+      .defaultNow()
+      .notNull(),
+    // User who last toggled this flag (null when set by a system/internal caller).
+    updated_by: uuid().references(() => users.id, { onDelete: "set null" }),
+  },
+  (table) => {
+    return {
+      idxFeatureFlagsWorkspaceId: index("idx_feature_flags_workspace_id").using(
+        "btree",
+        table.workspace_id.asc().nullsLast().op("uuid_ops"),
+      ),
+      featureFlagsWorkspaceIdFkey: foreignKey({
+        columns: [table.workspace_id],
+        foreignColumns: [workspaces.id],
+        name: "feature_flags_workspace_id_fkey",
+      }).onDelete("cascade"),
+      featureFlagsPkey: primaryKey({
+        columns: [table.workspace_id, table.feature_key],
+        name: "feature_flags_pkey",
+      }),
+    };
+  },
+);
+
 // --- Fund Management (Confluence 2641362965) ---------------------------
 // Funds the firm manages, the assets each fund holds, their transaction
 // ledgers and valuation history, and fund-level performance rollups.

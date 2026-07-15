@@ -37,6 +37,7 @@ export * from './routinesRepository';
 export * from './dashboardActivityRepository';
 export * from './dashboardInsightsRepository';
 export * from './appSettingsRepository';
+export * from './featureFlagRepository';
 export * from './employerRelatedCompanyRepository';
 export * from './workspaceRepository';
 export * from './roleRepository';

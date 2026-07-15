@@ -14,6 +14,8 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Switch } from '@/components/ui/switch';
 import {
   Command,
   CommandEmpty,
@@ -83,6 +85,10 @@ const COPILOT_AGENT_OPTIONS: { value: string; label: string }[] = [
   { value: 'investment', label: 'Funds & Investing' },
 ];
 
+/** Active tab: primary (purple) background with white text. */
+const ACTIVE_TAB_CLASS =
+  'data-[state=active]:bg-purple-700 data-[state=active]:text-white data-[state=active]:shadow-sm';
+
 interface Role {
   id: string;
   name: string;
@@ -100,6 +106,17 @@ interface Member {
 /** An "Add user" row that hasn't picked a person yet — no server call until it does. */
 interface DraftRow {
   draftId: string;
+}
+
+/** One app feature and its effective on/off state, from `GET /api/workspaces/{id}/features`. */
+interface FeatureFlagState {
+  key: string;
+  label: string;
+  description: string;
+  enabled: boolean;
+  isOverridden: boolean;
+  /** True when the feature is a sidebar section; false when it's not on the navbar. */
+  navItem: boolean;
 }
 
 function slugify(name: string) {
@@ -136,6 +153,8 @@ export default function AdminPortalPage() {
   const [nameDraft, setNameDraft] = useState('');
   const [editingSlug, setEditingSlug] = useState(false);
   const [slugDraft, setSlugDraft] = useState('');
+  const [features, setFeatures] = useState<FeatureFlagState[]>([]);
+  const [featuresLoading, setFeaturesLoading] = useState(true);
 
   useEffect(() => {
     if (loading) return;
@@ -212,6 +231,51 @@ export default function AdminPortalPage() {
     })();
   }, [isAuthorized]);
 
+  // Per-workspace feature flags for the selected workspace.
+  const loadFeatures = useCallback(async (workspaceId: string) => {
+    setFeaturesLoading(true);
+    try {
+      const res = await fetch(`/api/workspaces/${workspaceId}/features`);
+      if (!res.ok) throw new Error('Failed to load features');
+      const body = await res.json();
+      setFeatures(body?.data?.features ?? []);
+    } catch {
+      toast.error('Could not load features');
+    } finally {
+      setFeaturesLoading(false);
+    }
+  }, []);
+
+  const toggleFeature = async (key: string, enabled: boolean) => {
+    if (!selectedId) return;
+    const label = features.find((f) => f.key === key)?.label ?? key;
+    const workspaceName = selected?.name ?? 'this workspace';
+    const previous = features;
+    setFeatures((prev) =>
+      prev.map((f) => (f.key === key ? { ...f, enabled, isOverridden: true } : f)),
+    );
+    try {
+      const res = await fetch(`/api/workspaces/${selectedId}/features`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key, enabled }),
+      });
+      if (!res.ok) throw new Error((await res.json())?.error ?? 'Failed to update feature');
+      const body = await res.json();
+      setFeatures(body?.data?.features ?? previous);
+      toast.success(
+        `${label} is now ${enabled ? 'available' : 'unavailable'} for ${workspaceName}`,
+      );
+    } catch (err) {
+      setFeatures(previous);
+      toast.error(
+        err instanceof Error
+          ? err.message
+          : `Could not ${enabled ? 'enable' : 'disable'} ${label} for ${workspaceName}`,
+      );
+    }
+  };
+
   // Members of the selected workspace.
   const loadMembers = useCallback(async (workspaceId: string) => {
     setMembersLoading(true);
@@ -231,7 +295,8 @@ export default function AdminPortalPage() {
     if (!selectedId) return;
     setDraftRows([]);
     loadMembers(selectedId);
-  }, [selectedId, loadMembers]);
+    loadFeatures(selectedId);
+  }, [selectedId, loadMembers, loadFeatures]);
 
   const usersById = useMemo(() => {
     const map = new Map<string, DbUser>();
@@ -241,6 +306,11 @@ export default function AdminPortalPage() {
 
   const selected = workspaces.find((w) => w.id === selectedId) ?? null;
   const defaultRoleName = roles.find((r) => r.name === 'editor')?.name ?? roles[0]?.name;
+
+  // Split features for the Features sub-tabs: sidebar sections vs. everything
+  // that isn't on the navbar (in-page flags, background/sub-features).
+  const navFeatures = useMemo(() => features.filter((f) => f.navItem), [features]);
+  const nonNavFeatures = useMemo(() => features.filter((f) => !f.navItem), [features]);
 
   const selectWorkspace = (id: string) => {
     setEditingName(false);
@@ -332,6 +402,7 @@ export default function AdminPortalPage() {
     setWorkspaces((prev) =>
       prev.map((w) => (w.id === selected.id ? { ...w, copilot_agent: agent } : w)),
     );
+    const agentLabel = COPILOT_AGENT_OPTIONS.find((o) => o.value === agent)?.label ?? agent;
     try {
       const res = await fetch(`/api/workspaces/${selected.id}`, {
         method: 'PATCH',
@@ -339,9 +410,12 @@ export default function AdminPortalPage() {
         body: JSON.stringify({ copilot_agent: agent }),
       });
       if (!res.ok) throw new Error((await res.json())?.error ?? 'Failed to update Copilot');
+      toast.success(`AI Copilot set to ${agentLabel} for ${selected.name}`);
     } catch (err) {
       setWorkspaces(previous);
-      toast.error(err instanceof Error ? err.message : 'Could not update Copilot');
+      toast.error(
+        err instanceof Error ? err.message : `Could not update AI Copilot for ${selected.name}`,
+      );
     }
   };
 
@@ -359,6 +433,7 @@ export default function AdminPortalPage() {
 
   const selectUserForDraft = async (draftId: string, userId: string) => {
     if (!selected || !defaultRoleName) return;
+    const userName = usersById.get(userId)?.name ?? 'User';
     try {
       const res = await fetch(`/api/workspaces/${selected.id}/members`, {
         method: 'POST',
@@ -368,14 +443,18 @@ export default function AdminPortalPage() {
       if (!res.ok) throw new Error((await res.json())?.error ?? 'Failed to add member');
       removeDraftRow(draftId);
       await loadMembers(selected.id);
+      toast.success(`${userName} added to ${selected.name}`);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Could not add member');
+      toast.error(
+        err instanceof Error ? err.message : `Could not add ${userName} to ${selected.name}`,
+      );
     }
   };
 
   const updateMemberRole = async (userId: string, roleName: string) => {
     if (!selected) return;
     const previous = members;
+    const memberName = members.find((m) => m.userId === userId)?.userName ?? 'User';
     setMembers((prev) => prev.map((m) => (m.userId === userId ? { ...m, roleName } : m)));
     try {
       const res = await fetch(`/api/workspaces/${selected.id}/members/${userId}`, {
@@ -384,15 +463,17 @@ export default function AdminPortalPage() {
         body: JSON.stringify({ roleName }),
       });
       if (!res.ok) throw new Error('Failed to update role');
+      toast.success(`${memberName} is now ${roleName} in ${selected.name}`);
     } catch {
       setMembers(previous);
-      toast.error('Could not update role');
+      toast.error(`Could not update ${memberName}'s role in ${selected.name}`);
     }
   };
 
   const updateMemberEmailSync = async (userId: string, isEmailSynced: boolean) => {
     if (!selected) return;
     const previous = members;
+    const memberName = members.find((m) => m.userId === userId)?.userName ?? 'User';
     setMembers((prev) => prev.map((m) => (m.userId === userId ? { ...m, isEmailSynced } : m)));
     try {
       const res = await fetch(`/api/workspaces/${selected.id}/members/${userId}`, {
@@ -401,22 +482,27 @@ export default function AdminPortalPage() {
         body: JSON.stringify({ isEmailSynced }),
       });
       if (!res.ok) throw new Error('Failed to update email sync');
+      toast.success(
+        `Email sync ${isEmailSynced ? 'enabled' : 'disabled'} for ${memberName} in ${selected.name}`,
+      );
     } catch {
       setMembers(previous);
-      toast.error('Could not update email sync');
+      toast.error(`Could not update email sync for ${memberName}`);
     }
   };
 
   const removeMember = async (userId: string) => {
     if (!selected) return;
     const previous = members;
+    const memberName = members.find((m) => m.userId === userId)?.userName ?? 'User';
     setMembers((prev) => prev.filter((m) => m.userId !== userId));
     try {
       const res = await fetch(`/api/workspaces/${selected.id}/members/${userId}`, { method: 'DELETE' });
       if (!res.ok) throw new Error('Failed to remove member');
+      toast.success(`${memberName} removed from ${selected.name}`);
     } catch {
       setMembers(previous);
-      toast.error('Could not remove member');
+      toast.error(`Could not remove ${memberName} from ${selected.name}`);
     }
   };
 
@@ -604,56 +690,68 @@ export default function AdminPortalPage() {
                   </button>
                 )}
 
-                {/* AI Copilot flavor */}
-                <div className="space-y-1.5">
-                  <h3 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-                    AI Copilot
-                  </h3>
-                  <Select
-                    value={selected.copilot_agent ?? 'mna'}
-                    onValueChange={saveCopilotAgent}
-                  >
-                    <SelectTrigger className="w-64 max-w-full">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {COPILOT_AGENT_OPTIONS.map((opt) => (
-                        <SelectItem key={opt.value} value={opt.value}>
-                          {opt.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <p className="text-xs text-muted-foreground">
-                    Which Copilot flavor this workspace&apos;s chat uses — M&amp;A deal
-                    analysis or funds &amp; investing.
-                  </p>
-                </div>
-
-                {/* Users */}
-                <div className="flex min-h-0 flex-1 flex-col gap-3">
-                  <div className="flex items-center justify-between">
-                    <h3 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+                <Tabs defaultValue="copilot" className="flex min-h-0 flex-1 flex-col">
+                  <TabsList className="w-fit">
+                    <TabsTrigger value="copilot" className={ACTIVE_TAB_CLASS}>
+                      AI Copilot
+                    </TabsTrigger>
+                    <TabsTrigger value="users" className={ACTIVE_TAB_CLASS}>
                       Users
-                    </h3>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      onClick={handleAddUserRow}
-                      disabled={usersLoading || hasEmptyDraft || allAssigned}
-                    >
-                      <Plus className="h-4 w-4" />
-                      {allAssigned ? 'All users added' : 'Add user'}
-                    </Button>
-                  </div>
+                    </TabsTrigger>
+                    <TabsTrigger value="features" className={ACTIVE_TAB_CLASS}>
+                      Features
+                    </TabsTrigger>
+                  </TabsList>
+
+                  <TabsContent value="copilot" className="flex min-h-0 flex-col">
+                    <div className="flex h-9 shrink-0 items-center">
+                      <h3 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+                        AI Copilot
+                      </h3>
+                    </div>
+                    <div className="mt-3 space-y-1.5">
+                      <Select value={selected.copilot_agent ?? 'mna'} onValueChange={saveCopilotAgent}>
+                        <SelectTrigger className="w-64 max-w-full">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {COPILOT_AGENT_OPTIONS.map((opt) => (
+                            <SelectItem key={opt.value} value={opt.value}>
+                              {opt.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <p className="text-xs text-muted-foreground">
+                        Which Copilot flavor this workspace&apos;s chat uses — M&amp;A deal
+                        analysis or funds &amp; investing.
+                      </p>
+                    </div>
+                  </TabsContent>
+
+                  <TabsContent value="users" className="mt-0 flex min-h-0 flex-col">
+                    <div className="flex h-9 shrink-0 items-center justify-between">
+                      <h3 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+                        Users
+                      </h3>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        onClick={handleAddUserRow}
+                        disabled={usersLoading || hasEmptyDraft || allAssigned}
+                      >
+                        <Plus className="h-4 w-4" />
+                        {allAssigned ? 'All users added' : 'Add user'}
+                      </Button>
+                    </div>
 
                   {usersLoading || membersLoading ? (
-                    <div className="flex items-center justify-center py-8 text-muted-foreground">
+                    <div className="mt-3 flex items-center justify-center py-8 text-muted-foreground">
                       <Loader2 className="h-5 w-5 animate-spin" />
                     </div>
                   ) : (
-                    <div className="min-h-0 flex-1 space-y-2 overflow-y-auto pr-1">
+                    <div className="mt-3 min-h-0 flex-1 space-y-2 overflow-y-auto pr-1">
                       {members.length === 0 && draftRows.length === 0 && (
                         <p className="rounded-lg border border-dashed py-6 text-center text-sm text-muted-foreground">
                           No users yet.
@@ -767,7 +865,55 @@ export default function AdminPortalPage() {
                       })}
                     </div>
                   )}
-                </div>
+                  </TabsContent>
+
+                  <TabsContent value="features" className="mt-0 flex min-h-0 flex-col">
+                    <div className="flex h-9 shrink-0 items-center">
+                      <h3 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+                        Features
+                      </h3>
+                    </div>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Turn features on or off for{' '}
+                      <span className="font-medium text-foreground">{selected.name}</span>. Only
+                      affects this workspace.
+                    </p>
+                    {featuresLoading ? (
+                      <div className="mt-3 flex items-center justify-center py-8 text-muted-foreground">
+                        <Loader2 className="h-5 w-5 animate-spin" />
+                      </div>
+                    ) : features.length === 0 ? (
+                      <p className="mt-3 rounded-lg border border-dashed py-6 text-center text-sm text-muted-foreground">
+                        No features available.
+                      </p>
+                    ) : (
+                      <div className="mt-3 min-h-0 flex-1 space-y-5 overflow-y-auto pr-1">
+                        <FeatureToggleList
+                          features={navFeatures}
+                          onToggle={toggleFeature}
+                          emptyLabel="No navigation features."
+                        />
+                        {nonNavFeatures.length > 0 && (
+                          <div className="space-y-2">
+                            <div className="border-t pt-4">
+                              <h4 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+                                Other features
+                              </h4>
+                              <p className="mt-1 text-xs text-muted-foreground">
+                                Not shown on the navbar — in-page flags and background behaviours.
+                              </p>
+                            </div>
+                            <FeatureToggleList
+                              features={nonNavFeatures}
+                              onToggle={toggleFeature}
+                              emptyLabel="No non-navbar features."
+                            />
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </TabsContent>
+                </Tabs>
               </div>
             )}
           </section>
@@ -936,5 +1082,44 @@ function EmailSyncCombobox({
         </Command>
       </PopoverContent>
     </Popover>
+  );
+}
+
+/** Renders a group of feature rows with per-feature on/off switches. */
+function FeatureToggleList({
+  features,
+  onToggle,
+  emptyLabel,
+}: {
+  features: FeatureFlagState[];
+  onToggle: (key: string, enabled: boolean) => void;
+  emptyLabel: string;
+}) {
+  if (features.length === 0) {
+    return (
+      <p className="rounded-lg border border-dashed py-6 text-center text-sm text-muted-foreground">
+        {emptyLabel}
+      </p>
+    );
+  }
+  return (
+    <div className="space-y-2">
+      {features.map((feature) => (
+        <div
+          key={feature.key}
+          className="flex items-center justify-between gap-4 rounded-lg border bg-background px-4 py-3"
+        >
+          <div className="min-w-0 flex-1">
+            <span className="text-sm font-medium">{feature.label}</span>
+            <p className="mt-0.5 text-xs text-muted-foreground">{feature.description}</p>
+          </div>
+          <Switch
+            checked={feature.enabled}
+            onCheckedChange={(next) => onToggle(feature.key, next)}
+            aria-label={`Toggle ${feature.label}`}
+          />
+        </div>
+      ))}
+    </div>
   );
 }
