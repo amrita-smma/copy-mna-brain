@@ -17,27 +17,14 @@ export const LAST_CONTACT_LABELS: Record<LastContactPreset, string> = {
 export const tabTriggerCls =
   "relative -mb-px rounded-none border-b-2 border-transparent bg-transparent px-3 py-2 text-sm font-medium text-muted-foreground shadow-none transition-colors data-[state=active]:border-blue-600 data-[state=active]:bg-transparent data-[state=active]:text-blue-700 data-[state=active]:shadow-none dark:data-[state=active]:text-blue-300";
 
-const AVATAR_PALETTE = [
-  "from-blue-500 to-blue-600",
-  "from-amber-500 to-orange-600",
-  "from-teal-500 to-emerald-600",
-  "from-pink-500 to-rose-600",
-  "from-slate-500 to-slate-700",
-  "from-blue-500 to-blue-600",
-  "from-sky-500 to-blue-600",
-] as const;
+const AVATAR_GREY = "from-slate-400 to-slate-500 dark:from-slate-500 dark:to-slate-600";
 
 /**
- * Deterministically picks an avatar gradient for a given id (or any string).
- * The same id always yields the same colour so cards / contact rows stay
- * stable across renders.
+ * Returns a grey avatar gradient for a given id (or any string).
+ * Kept as a function so call sites stay stable if per-id colours return later.
  */
-export function colorForId(id: string): string {
-  let hash = 0;
-  for (let i = 0; i < id.length; i++) {
-    hash = (hash * 31 + id.charCodeAt(i)) | 0;
-  }
-  return AVATAR_PALETTE[Math.abs(hash) % AVATAR_PALETTE.length];
+export function colorForId(_id: string): string {
+  return AVATAR_GREY;
 }
 
 /**

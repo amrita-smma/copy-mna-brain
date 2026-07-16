@@ -1,6 +1,7 @@
 "use client";
 
 import DashboardLayout from "@/components/layout/DashboardLayout";
+import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { AlertTriangle, Loader2, Search, Users, X } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -303,133 +304,138 @@ export default function CRM({
 
         <div className="flex-1 overflow-y-auto">
           <div className="mx-auto max-w-screen-2xl px-7 py-3">
-            {/* Toolbar */}
-            <div className="mb-2 flex flex-wrap items-center gap-2">
-              <div className="relative min-w-[180px] flex-1">
-                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                <Input
-                  placeholder="Search by firm name or PIC name…"
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  className="pl-9"
-                />
-              </div>
+            <Card className="border bg-gradient-to-br from-muted/40 to-muted/10">
+              <CardContent className="pt-6">
+                {/* Toolbar */}
+                <div className="mb-2 flex flex-wrap items-center gap-2">
+                  <div className="relative min-w-[180px] flex-1">
+                    <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                    <Input
+                      placeholder="Search by company name or PIC name…"
+                      value={search}
+                      onChange={(e) => setSearch(e.target.value)}
+                      className="pl-9 bg-background"
+                    />
+                  </div>
 
-              <LastContactFilter
-                value={lastContact}
-                customDate={customDate}
-                onChange={(v, custom) => {
-                  setLastContact(v);
-                  setCustomDate(custom ?? "");
-                  setPage(1);
-                }}
-              />
-
-              <TopicFilter
-                topics={topics}
-                selected={topicFilter}
-                onChange={(next) => {
-                  setTopicFilter(next);
-                  setPage(1);
-                }}
-              />
-
-              <TeamFilter
-                users={teamUsers}
-                selected={teamFilter}
-                onChange={(next) => {
-                  posthog.capture("crm_banker_filter_applied", {
-                    banker_count: next.size,
-                    banker_ids: Array.from(next),
-                  });
-                  setTeamFilter(next);
-                  setPage(1);
-                }}
-              />
-            </div>
-
-            {/* Active filter chips */}
-            {activeTags.length > 0 && (
-              <div className="mb-3 flex flex-wrap gap-1">
-                {activeTags.map((t) => (
-                  <button
-                    key={t.key}
-                    className="inline-flex items-center gap-1 rounded-md bg-blue-100 px-2 py-0.5 text-xs font-semibold text-blue-700 hover:bg-blue-600 hover:text-white dark:bg-blue-950 dark:text-blue-300"
-                    onClick={t.clear}
-                  >
-                    {t.label}
-                    <X className="h-3 w-3" />
-                  </button>
-                ))}
-              </div>
-            )}
-
-            {/* Column headers */}
-            <div className="mb-1 grid grid-cols-[36px_minmax(0,1.6fr)_minmax(0,1fr)_minmax(0,1.6fr)_minmax(0,0.8fr)_minmax(0,1fr)_minmax(0,1.6fr)_minmax(0,1.1fr)_28px] gap-3 px-3 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-              <div />
-              <div>Source</div>
-              <div>Industry Focus</div>
-              <div>Primary PIC</div>
-              <div>Response p50</div>
-              <div>Last Contact</div>
-              <div>Topics</div>
-              <div>Team Member</div>
-              <div />
-            </div>
-
-            {/* Cards. Only show the full-list spinner on the INITIAL load
-                (no rows yet). A background refetch — e.g. after reclassifying a
-                topic, which calls onRefreshList to refresh the collapsed-row
-                topic summary — keeps the existing list rendered and updates it
-                in place. Blanking the list to a spinner on every refresh
-                unmounted the expanded card and reset its tab to Contacts. */}
-            {loading && employers.length === 0 ? (
-              <div className="flex items-center justify-center py-16">
-                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-              </div>
-            ) : employers.length === 0 ? (
-              <div className="flex flex-col items-center gap-2 py-16 text-muted-foreground">
-                <Users className="h-10 w-10 opacity-50" />
-                <p>No employers match these filters.</p>
-              </div>
-            ) : (
-              <div className="space-y-2">
-                {employers.map((emp) => (
-                  <EmployerCard
-                    key={emp.id}
-                    employer={emp}
-                    expanded={expandedId === emp.id}
-                    detail={details[emp.id]}
-                    loadingDetail={loadingDetail === emp.id}
-                    onToggle={() => toggleExpand(emp.id)}
-                    onAddContact={() => {
-                      setAddContactEmployerId(emp.id);
-                      setAddContactOpen(true);
+                  <LastContactFilter
+                    value={lastContact}
+                    customDate={customDate}
+                    onChange={(v, custom) => {
+                      setLastContact(v);
+                      setCustomDate(custom ?? "");
+                      setPage(1);
                     }}
-                    onRefreshDetail={() => loadDetail(emp.id)}
-                    onRefreshList={() => fetchEmployers()}
                   />
-                ))}
-              </div>
-            )}
 
-            {/* Pagination */}
-            {total > 0 && (
-              <div className="mt-6 flex items-center justify-between border-t pt-4">
-                <div className="text-sm text-muted-foreground">
-                  Showing {(page - 1) * PAGE_SIZE + 1}–
-                  {Math.min(page * PAGE_SIZE, total)} of{" "}
-                  <strong>{total}</strong> firms
-                </div>
-                {total > PAGE_SIZE && (
-                  <Pagination
-                    page={page}
-                    totalPages={totalPages}
-                    onChange={setPage}
+                  <TopicFilter
+                    topics={topics}
+                    selected={topicFilter}
+                    onChange={(next) => {
+                      setTopicFilter(next);
+                      setPage(1);
+                    }}
                   />
+
+                  <TeamFilter
+                    users={teamUsers}
+                    selected={teamFilter}
+                    onChange={(next) => {
+                      posthog.capture("crm_banker_filter_applied", {
+                        banker_count: next.size,
+                        banker_ids: Array.from(next),
+                      });
+                      setTeamFilter(next);
+                      setPage(1);
+                    }}
+                  />
+                </div>
+
+                {/* Active filter chips */}
+                {activeTags.length > 0 && (
+                  <div className="mb-3 flex flex-wrap gap-1">
+                    {activeTags.map((t) => (
+                      <button
+                        key={t.key}
+                        className="inline-flex items-center gap-1 rounded-md bg-blue-100 px-2 py-0.5 text-xs font-semibold text-blue-700 hover:bg-blue-600 hover:text-white dark:bg-blue-950 dark:text-blue-300"
+                        onClick={t.clear}
+                      >
+                        {t.label}
+                        <X className="h-3 w-3" />
+                      </button>
+                    ))}
+                  </div>
                 )}
-              </div>
-            )}
+
+                {/* Column headers */}
+                <div className="mb-1 grid grid-cols-[36px_minmax(0,1.6fr)_minmax(0,1fr)_minmax(0,1.6fr)_minmax(0,0.8fr)_minmax(0,1fr)_minmax(0,1.6fr)_minmax(0,1.1fr)_28px] gap-3 px-3 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                  <div />
+                  <div>Source</div>
+                  <div>Industry Focus</div>
+                  <div>Primary PIC</div>
+                  <div>Response p50</div>
+                  <div>Last Contact</div>
+                  <div>Topics</div>
+                  <div>Team Member</div>
+                  <div />
+                </div>
+
+                {/* Cards. Only show the full-list spinner on the INITIAL load
+                    (no rows yet). A background refetch — e.g. after reclassifying a
+                    topic, which calls onRefreshList to refresh the collapsed-row
+                    topic summary — keeps the existing list rendered and updates it
+                    in place. Blanking the list to a spinner on every refresh
+                    unmounted the expanded card and reset its tab to Contacts. */}
+                {loading && employers.length === 0 ? (
+                  <div className="flex items-center justify-center py-16">
+                    <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                  </div>
+                ) : employers.length === 0 ? (
+                  <div className="flex flex-col items-center gap-2 py-16 text-muted-foreground">
+                    <Users className="h-10 w-10 opacity-50" />
+                    <p>No employers match these filters.</p>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {employers.map((emp) => (
+                      <EmployerCard
+                        key={emp.id}
+                        employer={emp}
+                        expanded={expandedId === emp.id}
+                        detail={details[emp.id]}
+                        loadingDetail={loadingDetail === emp.id}
+                        onToggle={() => toggleExpand(emp.id)}
+                        onAddContact={() => {
+                          setAddContactEmployerId(emp.id);
+                          setAddContactOpen(true);
+                        }}
+                        onRefreshDetail={() => loadDetail(emp.id)}
+                        onRefreshList={() => fetchEmployers()}
+                      />
+                    ))}
+                  </div>
+                )}
+
+                {/* Pagination */}
+                {total > 0 && (
+                  <div className="mt-6 flex items-center justify-between border-t pt-4">
+                    <div className="text-sm text-muted-foreground">
+                      Showing {(page - 1) * PAGE_SIZE + 1}–
+                      {Math.min(page * PAGE_SIZE, total)} of{" "}
+                      <strong>{total}</strong>{" "}
+                      {total === 1 ? "company" : "companies"}
+                    </div>
+                    {total > PAGE_SIZE && (
+                      <Pagination
+                        page={page}
+                        totalPages={totalPages}
+                        onChange={setPage}
+                      />
+                    )}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
           </div>
         </div>
       </div>

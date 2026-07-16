@@ -191,7 +191,7 @@ export function EmployerCard({
           {employer.team.length === 0 ? (
             <span className="text-[10px] text-muted-foreground">—</span>
           ) : (
-            <div className="flex flex-nowrap items-center gap-1 overflow-hidden">
+            <div className="flex flex-wrap items-center gap-1">
               {employer.team.slice(0, 3).map((t) => (
                 <Badge
                   key={t.id}
@@ -204,9 +204,9 @@ export function EmployerCard({
               {employer.team.length > 3 && (
                 <Badge
                   variant="outline"
-                  className="h-4 flex-shrink-0 px-1.5 text-[10px]"
+                  className="h-4 flex-shrink-0 px-1.5 text-[10px] font-semibold"
                 >
-                  +{employer.team.length - 3}
+                  +{employer.team.length - 3} more
                 </Badge>
               )}
             </div>
