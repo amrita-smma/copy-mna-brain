@@ -14,7 +14,7 @@ export const companiesSchema = [
   { name: "company_focus", type: "text" },
   { name: "website", type: "text" },
   { name: "watchlist_status", type: "text" },
-  { name: "pipeline_stage", type: "pipeline_stage (enum: market_screening, L0, L1, L2, L3, L4, L5)" },
+  { name: "pipeline_stage", type: "pipeline_stage (enum: market_screening, unreviewed, discovered, L0, L1, L2, L3, L4, L5)" },
   { name: "comments", type: "text" },
   { name: "ownership", type: "text" },
   { name: "geography", type: "text (headquarters country — EXACTLY ONE country name, e.g. \"United States\"; never a region, a city, or multiple countries)" },

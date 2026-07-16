@@ -16,12 +16,22 @@ import {
  * financials. All filters are optional and AND-combined, so the agent can
  * narrow the pipeline along any of the dimensions below in a single call.
  */
+
+
+/**
+ * Query companies with filters.
+ *
+ * Returns a compact markdown table of matching companies plus their latest
+ * financials. All filters are optional and AND-combined, so the agent can
+ * narrow the pipeline along any of the dimensions below in a single call.
+ */
 export const queryCompanies = tool(
   async ({
     segment,
     geography,
     watchlist_status,
     stage,
+    include_pre_pipeline,
     name,
     ownership,
     company_focus,
@@ -45,6 +55,7 @@ export const queryCompanies = tool(
     geography?: string;
     watchlist_status?: string;
     stage?: string;
+    include_pre_pipeline?: boolean;
     name?: string;
     ownership?: string;
     company_focus?: string;
@@ -65,7 +76,7 @@ export const queryCompanies = tool(
     limit?: number;
   }) => {
     logger.debug(
-      `🔧 TOOL CALLED: query_companies(segment='${segment}', geography='${geography}', stage='${stage}', name='${name}', ownership='${ownership}', source='${source}', status='${status}', deal_type='${deal_type}', has_ai_opinion='${has_ai_opinion}', ai_opinion_verdict='${ai_opinion_verdict}', search='${search_term}')`,
+      `🔧 TOOL CALLED: query_companies(segment='${segment}', stage='${stage}', include_pre_pipeline='${include_pre_pipeline}', name='${name}', search='${search_term}')`,
     );
 
     try {
@@ -100,11 +111,14 @@ export const queryCompanies = tool(
 
       // Unless the caller explicitly scopes a stage, default the cohort to the
       // L0–L5 committed origination funnel. Earlier triage buckets
-      // (market_screening, unreviewed) are excluded from the default listing so
-      // results reflect real deals, not raw intake. An explicit `stage` filter
-      // overrides this default entirely.
+      // (market_screening, unreviewed, discovered) are excluded from the default listing so
+      // results reflect real deals, not raw intake.
       if (!stage) {
-        filters.stageIn = ["L0", "L1", "L2", "L3", "L4", "L5"];
+        if (include_pre_pipeline) {
+          filters.stageIn = ["market_screening", "unreviewed", "discovered", "L0", "L1", "L2", "L3", "L4", "L5"];
+        } else {
+          filters.stageIn = ["L0", "L1", "L2", "L3", "L4", "L5"];
+        }
       }
 
       const companies = await companyRepo.searchForAgent(filters);
@@ -162,7 +176,8 @@ Available filters (every one maps to a real column):
     segment: Segment (partial match, e.g. "Technology", "Semiconductors")
     geography: Geography (partial match, e.g. "USA", "Japan", "APAC")
     watchlist_status: Watchlist status (partial match)
-    stage: Pipeline stage (exact, one of: "market_screening", "unreviewed", "L0", "L1", "L2", "L3", "L4", "L5"). If omitted, results default to the L0–L5 committed funnel only — earlier triage buckets ("market_screening", "unreviewed") are excluded. Pass an explicit stage to override and scope to any single stage.
+    stage: Pipeline stage (exact, one of: "market_screening", "unreviewed", "discovered", "L0", "L1", "L2", "L3", "L4", "L5"). If omitted, results default to the L0–L5 committed funnel only. Pass an explicit stage to override and scope to any single stage.
+    include_pre_pipeline: If true, and no specific stage is provided, the query will search ALL stages (both active L0-L5 and pre-pipeline intake stages). Defaults to false (active L0-L5 only).
     name: Company name (partial, case-insensitive against target OR project_name)
     ownership: Ownership (partial match, e.g. "family office", "PE", "public")
     company_focus: Company focus / what they do (partial match)
@@ -195,6 +210,7 @@ Returns:
         .enum([
           "market_screening",
           "unreviewed",
+          "discovered",
           "L0",
           "L1",
           "L2",
@@ -204,6 +220,12 @@ Returns:
         ])
         .optional()
         .describe("Filter by pipeline stage (exact match)"),
+      include_pre_pipeline: z
+        .boolean()
+        .optional()
+        .describe(
+          "If true and stage is omitted, searches all stages instead of defaulting to L0-L5",
+        ),
       name: z
         .string()
         .optional()
@@ -280,13 +302,9 @@ Returns:
         .string()
         .optional()
         .describe(
-          "Free-text search across target name, project name, segment, and geography",
+          "Free-text search across target name, project name, segment, and geography (works for non-English names, e.g. Mandarin — matches whichever of target/project_name holds the string)",
         ),
-      limit: z
-        .number()
-        .optional()
-        .default(20)
-        .describe("Max results to return"),
+      limit: z.number().optional().default(20).describe("Max results to return"),
     }),
   },
 );

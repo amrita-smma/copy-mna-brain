@@ -188,7 +188,7 @@ export function getToolDescriptions(): string {
     {
       name: "query_companies",
       description:
-        "Search and filter companies by segment, geography, stage, source, status, deal type, sponsor, banker, ownership, revenue/EBITDA, and AI Opinion (has_ai_opinion / verdict)",
+        "Search and filter companies by segment, geography, stage, source, status, deal type, sponsor, banker, ownership, revenue/EBITDA, and AI Opinion (use include_pre_pipeline=true to search all stages including intake/discovery)",
     },
     {
       name: "get_company_stats",
