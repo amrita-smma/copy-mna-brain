@@ -108,7 +108,7 @@ export class RoutinesRepository {
       const lockResult = await tx.execute<{ locked: boolean }>(
         sql`SELECT pg_try_advisory_xact_lock(${ROUTINE_DISPATCHER_LOCK_KEY}) AS locked`,
       );
-      const locked = (lockResult as unknown as Array<{ locked: boolean }>)[0]?.locked;
+      const locked = (lockResult as unknown as { rows: Array<{ locked: boolean }> }).rows[0]?.locked;
       if (!locked) return [];
 
       const nowIso = now.toISOString();
@@ -156,7 +156,7 @@ export class RoutinesRepository {
     const result = await this.db.execute<{ count: number }>(
       sql`SELECT COUNT(*)::int AS count FROM ai_workforce_queue WHERE origin_routine_id = ${routineId}`,
     );
-    return (result as unknown as Array<{ count: number }>)[0]?.count ?? 0;
+    return (result as unknown as { rows: Array<{ count: number }> }).rows[0]?.count ?? 0;
   }
 
   /**

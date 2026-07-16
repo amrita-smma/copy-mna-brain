@@ -141,7 +141,7 @@ export const proxy = auth((req) => {
   }
 
   const mode = classifyApiRoute(pathname);
-  if (mode === 'allow') return NextResponse.next();
+  if (mode === 'allow') return stripStaleCookiesIfNeeded(req, NextResponse.next());
 
   const expectedSecret = process.env.ADMIN_SECRET;
   const providedSecret = req.headers.get('x-api-secret');
@@ -149,7 +149,7 @@ export const proxy = auth((req) => {
     Boolean(expectedSecret) && providedSecret === expectedSecret;
 
   if (mode === 'secret') {
-    return hasValidSecret ? NextResponse.next() : unauthorized();
+    return hasValidSecret ? stripStaleCookiesIfNeeded(req, NextResponse.next()) : unauthorized();
   }
 
   // mode === 'session': a logged-in user, or an internal call carrying the
@@ -172,7 +172,7 @@ export const proxy = auth((req) => {
     if (refererSlug && isValidWorkspaceSlug(refererSlug, workspaces, req.auth.user.isSuperadmin)) {
       const requestHeaders = new Headers(req.headers);
       requestHeaders.set('X-Workspace-Slug', refererSlug);
-      return NextResponse.next({ request: { headers: requestHeaders } });
+      return stripStaleCookiesIfNeeded(req, NextResponse.next({ request: { headers: requestHeaders } }));
     }
     if (process.env.NODE_ENV !== 'production') {
       const referer = req.headers.get('referer') ?? '';
@@ -184,8 +184,29 @@ export const proxy = auth((req) => {
     }
   }
 
-  return NextResponse.next();
+  return stripStaleCookiesIfNeeded(req, NextResponse.next());
 });
+
+function stripStaleCookiesIfNeeded(req: any, res: NextResponse): NextResponse {
+  // If the request arrived with an auth cookie but NextAuth determined the user
+  // is NOT logged in (e.g. JWTSessionError due to a rotated AUTH_SECRET),
+  // aggressively delete the stale cookies on the way out so the browser doesn't
+  // keep sending them and crashing NextAuth's client fetch wrappers.
+  const hasAuthCookie =
+    req.cookies.has('authjs.session-token') ||
+    req.cookies.has('__Secure-authjs.session-token') ||
+    req.cookies.has('next-auth.session-token') ||
+    req.cookies.has('__Secure-next-auth.session-token');
+
+  if (!req.auth?.user && hasAuthCookie) {
+    res.cookies.delete('authjs.session-token');
+    res.cookies.delete('__Secure-authjs.session-token');
+    res.cookies.delete('next-auth.session-token');
+    res.cookies.delete('__Secure-next-auth.session-token');
+  }
+
+  return res;
+}
 
 // Gate every API route, plus workspace-scoped page routes (membership check +
 // header injection — see the `/w/` branch above). Other page routes are

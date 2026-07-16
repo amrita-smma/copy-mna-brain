@@ -68,7 +68,7 @@ export async function enqueueAgentRun(
   });
 
   if (created) {
-    scheduleDispatch();
+    await scheduleDispatch();
     scheduleTitleGeneration(row.id, input.input);
   }
 
@@ -96,24 +96,19 @@ function scheduleTitleGeneration(
 }
 
 /**
- * Fire-and-forget dispatcher trigger.
+ * Synchronous dispatcher trigger.
  *
- * Uses Next.js `after()` so it runs post-response without blocking the
- * caller. `after()` works in all request-scoped server contexts (route
- * handlers, server actions, middleware) — every Tier 1 caller is in one of
- * these. Future Tier 3 callers from inside a Vercel Workflow should `await`
- * the dispatcher directly instead, since the workflow won't be killed.
- *
- * We construct a fresh DbClient inside `after()` because the request's
- * connection may be released by the time the post-response phase runs.
+ * Previously used Next.js `after()`, but this caused UX issues where manual
+ * enqueues (e.g. from the UI) would see the new row as 'pending' because
+ * the response was sent before the dispatcher claimed it. Awaiting this
+ * directly adds minimal latency and guarantees the UI sees the
+ * workflow as 'running' immediately if the queue was empty.
  */
-function scheduleDispatch(): void {
-  after(async () => {
-    try {
-      const db = createDb();
-      await dispatcherTick(db);
-    } catch (err) {
-      console.error('[enqueueAgentRun] dispatcher trigger failed:', err);
-    }
-  });
+async function scheduleDispatch(): Promise<void> {
+  try {
+    const db = createDb();
+    await dispatcherTick(db);
+  } catch (err) {
+    console.error('[enqueueAgentRun] dispatcher trigger failed:', err);
+  }
 }

@@ -2,6 +2,7 @@ import { after } from 'next/server';
 import { JobRepository } from '@/lib/repositories';
 import type { DbClient, Tables, TablesInsert } from '@/lib/repositories';
 import { runJob } from './runner';
+import { withBackgroundDb } from '@/lib/server/db';
 
 export type JobType = Tables<'jobs'>['type'];
 
@@ -35,11 +36,12 @@ export async function dispatchJob<T>(opts: {
   const job = await jobRepo.create(insert);
 
   after(async () => {
-    const db = opts.createDb();
-    const runnerRepo = new JobRepository(db);
-    await runJob(runnerRepo, job.id, opts.timeoutSeconds * 1000, async (current) =>
-      opts.work({ job: current, db }),
-    );
+    await withBackgroundDb(async (db) => {
+      const runnerRepo = new JobRepository(db);
+      await runJob(runnerRepo, job.id, opts.timeoutSeconds * 1000, async (current) =>
+        opts.work({ job: current, db }),
+      );
+    });
   });
 
   // Skip recursive scheduler trigger: the sweep itself is dispatched via the
@@ -49,7 +51,9 @@ export async function dispatchJob<T>(opts: {
     after(async () => {
       try {
         const { runSchedulerIfDue } = await import('./scheduler');
-        await runSchedulerIfDue(opts.createDb());
+        await withBackgroundDb(async (db) => {
+          await runSchedulerIfDue(db);
+        });
       } catch (err) {
         console.error('[dispatch] scheduler trigger failed:', err);
       }

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse, after } from 'next/server';
 import { getActiveWorkspaceId } from '@/lib/workspace';
 import { auth } from '@/auth';
-import { createDb } from '@/lib/server/db';
+import { createDb, withBackgroundDb } from '@/lib/server/db';
 import {
   AiWorkforceQueueRepository,
   RoutinesRepository,
@@ -82,21 +82,22 @@ export async function POST(
     }
 
     after(async () => {
-      const freshDb = createDb();
-      try {
-        await dispatcherTick(freshDb);
-      } catch (err) {
-        console.error('[cancel] dispatcher kick failed:', err);
-      }
-      // Best-effort cancellation notification (MB-90). The service no-ops when
-      // the feature flag is off and swallows its own errors.
-      const notifier = new EmailNotificationService({
-        workforceRepo: new AiWorkforceQueueRepository(freshDb, workspaceId),
-        routinesRepo: new RoutinesRepository(freshDb, workspaceId),
-        userRepo: new UserRepository(freshDb),
-        workspaceRepo: new WorkspaceRepository(freshDb),
+      await withBackgroundDb(async (freshDb) => {
+        try {
+          await dispatcherTick(freshDb);
+        } catch (err) {
+          console.error('[cancel] dispatcher kick failed:', err);
+        }
+        // Best-effort cancellation notification (MB-90). The service no-ops when
+        // the feature flag is off and swallows its own errors.
+        const notifier = new EmailNotificationService({
+          workforceRepo: new AiWorkforceQueueRepository(freshDb, workspaceId),
+          routinesRepo: new RoutinesRepository(freshDb, workspaceId),
+          userRepo: new UserRepository(freshDb),
+          workspaceRepo: new WorkspaceRepository(freshDb),
+        });
+        await notifier.notifyTaskFailed(id, { cancelled: true, reason });
       });
-      await notifier.notifyTaskFailed(id, { cancelled: true, reason });
     });
 
     return NextResponse.json({ item: cancelled });

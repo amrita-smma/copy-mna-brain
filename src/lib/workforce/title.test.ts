@@ -23,7 +23,7 @@ vi.mock('@/lib/repositories', async (importOriginal) => {
   };
 });
 
-vi.mock('@/lib/server/db', () => ({ createDb }));
+vi.mock('@/lib/server/db', () => ({ createDb, withBackgroundDb: vi.fn(async (cb) => cb(createDb())) }));
 
 import { generateWorkforceTitle } from './title';
 

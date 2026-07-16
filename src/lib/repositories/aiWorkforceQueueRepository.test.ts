@@ -114,8 +114,8 @@ describe('AiWorkforceQueueRepository.getGlobalQueuePositions', () => {
       { id: 'r2', status: 'resume_ready', priority: 0, created_at: 't2', workspace_id: 'workspace-1' },
     ]);
     db.execute
-      .mockResolvedValueOnce([{ ahead_count: '0', ahead_count_other: '0' }])
-      .mockResolvedValueOnce([{ ahead_count: '3', ahead_count_other: '2' }]);
+      .mockResolvedValueOnce({ rows: [{ ahead_count: '0', ahead_count_other: '0' }] })
+      .mockResolvedValueOnce({ rows: [{ ahead_count: '3', ahead_count_other: '2' }] });
 
     const repo = new AiWorkforceQueueRepository(db as never, 'workspace-1');
     const result = await repo.getGlobalQueuePositions(['r1', 'r2']);
@@ -138,7 +138,7 @@ describe('AiWorkforceQueueRepository.getGlobalQueuePositions', () => {
     selectChain.where.mockResolvedValueOnce([
       { id: 'r1', status: 'pending', priority: 0, created_at: 't1', workspace_id: 'workspace-2' },
     ]);
-    db.execute.mockResolvedValueOnce([{ ahead_count: '5', ahead_count_other: '4' }]);
+    db.execute.mockResolvedValueOnce({ rows: [{ ahead_count: '5', ahead_count_other: '4' }] });
 
     const repo = new AiWorkforceQueueRepository(db as never, 'workspace-1');
     await repo.getGlobalQueuePositions(['r1']);
@@ -158,7 +158,7 @@ describe('AiWorkforceQueueRepository.claimNextRunnable', () => {
     const tx = {
       execute: vi.fn().mockImplementation(() => {
         const result = execResults[i++] ?? [];
-        return Promise.resolve(result);
+        return Promise.resolve({ rows: result });
       }),
     };
     return tx;

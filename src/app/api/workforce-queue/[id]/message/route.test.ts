@@ -19,7 +19,7 @@ const {
 }));
 
 vi.mock('@/auth', () => ({ auth: authMock }));
-vi.mock('@/lib/server/db', () => ({ createDb: createDbMock }));
+vi.mock('@/lib/server/db', () => ({ createDb: createDbMock, withBackgroundDb: vi.fn(async (cb) => cb(createDbMock())) }));
 vi.mock('@/lib/services', () => ({ createContainer: createContainerMock }));
 vi.mock('@/lib/workforce', () => ({ dispatcherTick: dispatcherTickMock }));
 vi.mock('next/server', async () => {

@@ -493,7 +493,7 @@ async function runCrmDemo(db: DbClient, keep: boolean) {
     console.log('\n▶ [5/5] Results\n');
 
     console.log('── Employers + topics (shared identity — same for every workspace) ──');
-    const topicRows = await db.execute(sql`
+    const { rows: topicRows } = await db.execute(sql`
       SELECT
         e.name             AS employer,
         t.name             AS topic,
@@ -523,7 +523,7 @@ async function runCrmDemo(db: DbClient, keep: boolean) {
     }
 
     console.log('\n── Correspondent VISIBILITY per workspace (the fan-out this feature adds) ──');
-    const visibilityRows = await db.execute(sql`
+    const { rows: visibilityRows } = await db.execute(sql`
       SELECT w.name AS workspace, e.name AS employer, c.name AS correspondent, c.email
       FROM workspace_correspondents wc
       JOIN correspondents c ON c.id = wc.correspondent_id
@@ -547,7 +547,7 @@ async function runCrmDemo(db: DbClient, keep: boolean) {
     console.log('   Alice Gold appears only under Alpha, Zoe Platinum only under Beta.)');
 
     console.log('\n── employer_related_companies (workspace-scoped links) ──');
-    const relatedRows = await db.execute(sql`
+    const { rows: relatedRows } = await db.execute(sql`
       SELECT w.name AS workspace, e.name AS employer, erc.company_name, erc.source, erc.confidence
       FROM employer_related_companies erc
       JOIN employers e  ON e.id = erc.employer_id
@@ -564,7 +564,7 @@ async function runCrmDemo(db: DbClient, keep: boolean) {
     }
 
     console.log('\n── mart_crm: Goldensacks KPIs, side by side per workspace ──');
-    const martRows = await db.execute(sql`
+    const { rows: martRows } = await db.execute(sql`
       SELECT w.name AS workspace, mc.email_count, mc.last_contact_at
       FROM analytics.mart_crm mc
       JOIN employers e  ON e.id = mc.employer_id

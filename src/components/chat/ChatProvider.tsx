@@ -321,6 +321,8 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   // assistant reply (whether from a still-running agent or another client)
   // shows up automatically.
   useEffect(() => {
+    if (authLoading || !user) return;
+
     // Any chat switch (including back to "new chat") drops a pending cached
     // preview — it only ever applies to the brand-new chat it was raised for.
     setCacheHit(null);
@@ -397,7 +399,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       cancelled = true;
       if (pollTimer) clearTimeout(pollTimer);
     };
-  }, [chatId, setMessages, refreshChats]);
+  }, [chatId, setMessages, refreshChats, authLoading, user]);
 
   const setChatId = useCallback(
     (id: string | null) => {

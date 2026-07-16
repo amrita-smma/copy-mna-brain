@@ -62,11 +62,11 @@ describe('DashboardInsightsRepository.getStageEntryCounts', () => {
   });
 
   it('runs a single UNION query and coerces the per-stage counts to numbers', async () => {
-    mockDb.execute.mockResolvedValueOnce([
+    mockDb.execute.mockResolvedValueOnce({ rows: [
       { stage: 'L0', count: '45' },
       { stage: 'L1', count: 12 },
       { stage: 'L3', count: '2' },
-    ]);
+    ] });
 
     const result = await repo.getStageEntryCounts(WINDOW_FROM, WINDOW_TO);
 
@@ -81,7 +81,7 @@ describe('DashboardInsightsRepository.getStageEntryCounts', () => {
   });
 
   it('returns [] when no companies entered any stage in the window', async () => {
-    mockDb.execute.mockResolvedValueOnce([]);
+    mockDb.execute.mockResolvedValueOnce({ rows: [] });
     await expect(repo.getStageEntryCounts(WINDOW_FROM, WINDOW_TO)).resolves.toEqual([]);
   });
 });
@@ -95,10 +95,10 @@ describe('DashboardInsightsRepository breakdowns', () => {
   });
 
   it('runs a single UNION query (created + moved-in) and coerces null keys / counts', async () => {
-    mockDb.execute.mockResolvedValueOnce([
+    mockDb.execute.mockResolvedValueOnce({ rows: [
       { key: 'CMP', stage: 'L0', count: '42' },
       { key: null, stage: 'L1', count: 3 },
-    ]);
+    ] });
 
     const result = await repo.getSegmentBreakdown(WINDOW_FROM, WINDOW_TO);
 
@@ -113,7 +113,7 @@ describe('DashboardInsightsRepository breakdowns', () => {
   });
 
   it('exposes country and banker breakdowns via the same shape', async () => {
-    mockDb.execute.mockResolvedValue([{ key: 'Japan', stage: 'L0', count: 41 }]);
+    mockDb.execute.mockResolvedValue({ rows: [{ key: 'Japan', stage: 'L0', count: 41 }] });
 
     await expect(repo.getCountryBreakdown(WINDOW_FROM, WINDOW_TO)).resolves.toEqual([
       { key: 'Japan', stage: 'L0', count: 41 },
@@ -133,10 +133,10 @@ describe('DashboardInsightsRepository.getBankerResponseProfiles', () => {
   });
 
   it('maps per-firm rows, coercing p50/pair_count and the gap array to numbers', async () => {
-    mockDb.execute.mockResolvedValueOnce([
+    mockDb.execute.mockResolvedValueOnce({ rows: [
       { name: 'Golden Sacks', p50_seconds: '21600', pair_count: '9', gaps: ['6480', 21600, '51840'] },
       { name: 'JP Organ', p50_seconds: 108000, pair_count: 9, gaps: [108000] },
-    ]);
+    ] });
 
     const result = await repo.getBankerResponseProfiles();
 
@@ -150,9 +150,9 @@ describe('DashboardInsightsRepository.getBankerResponseProfiles', () => {
   it('parses a Postgres array-literal string for gaps (driver returns "{...}")', async () => {
     // Some drivers return array_agg as the raw Postgres array literal rather
     // than a JS array; it must be parsed instead of crashing on `.map`.
-    mockDb.execute.mockResolvedValueOnce([
+    mockDb.execute.mockResolvedValueOnce({ rows: [
       { name: 'Golden Sacks', p50_seconds: '21600', pair_count: '3', gaps: '{6480,21600,51840}' },
-    ]);
+    ] });
 
     await expect(repo.getBankerResponseProfiles()).resolves.toEqual([
       { name: 'Golden Sacks', p50Seconds: 21600, pairCount: 3, gaps: [6480, 21600, 51840] },
@@ -160,9 +160,9 @@ describe('DashboardInsightsRepository.getBankerResponseProfiles', () => {
   });
 
   it('parses an empty Postgres array literal ("{}") to []', async () => {
-    mockDb.execute.mockResolvedValueOnce([
+    mockDb.execute.mockResolvedValueOnce({ rows: [
       { name: 'JP Organ', p50_seconds: '100', pair_count: '0', gaps: '{}' },
-    ]);
+    ] });
 
     await expect(repo.getBankerResponseProfiles()).resolves.toEqual([
       { name: 'JP Organ', p50Seconds: 100, pairCount: 0, gaps: [] },
@@ -170,9 +170,9 @@ describe('DashboardInsightsRepository.getBankerResponseProfiles', () => {
   });
 
   it('tolerates a null gaps array', async () => {
-    mockDb.execute.mockResolvedValueOnce([
+    mockDb.execute.mockResolvedValueOnce({ rows: [
       { name: 'Organ Stanley', p50_seconds: '50400', pair_count: '1', gaps: null },
-    ]);
+    ] });
     await expect(repo.getBankerResponseProfiles()).resolves.toEqual([
       { name: 'Organ Stanley', p50Seconds: 50400, pairCount: 1, gaps: [] },
     ]);
@@ -239,7 +239,7 @@ describe('DashboardInsightsRepository count helpers', () => {
   const TO = new Date('2026-06-22T00:00:00.000Z');
 
   it('countNewDeals returns the numeric count from the row', async () => {
-    mockDb.execute.mockResolvedValueOnce([{ count: '45' }]);
+    mockDb.execute.mockResolvedValueOnce({ rows: [{ count: '45' }] });
     await expect(repo.countNewDeals(FROM, TO)).resolves.toBe(45);
   });
 

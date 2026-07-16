@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse, after } from 'next/server';
 import { auth } from '@/auth';
-import { createDb } from '@/lib/server/db';
+import { createDb, withBackgroundDb } from '@/lib/server/db';
 import { getActiveWorkspaceId } from '@/lib/workspace';
 import { createContainer } from '@/lib/services';
 import { dispatcherTick } from '@/lib/workforce';
@@ -44,7 +44,9 @@ export async function POST(request: NextRequest) {
     // Free the dispatcher slot promptly instead of waiting for the cron tick.
     after(async () => {
       try {
-        await dispatcherTick(createDb());
+        await withBackgroundDb(async (bgDb) => {
+          await dispatcherTick(bgDb);
+        });
       } catch (err) {
         console.error('[company-analysis cancel] dispatcher kick failed:', err);
       }

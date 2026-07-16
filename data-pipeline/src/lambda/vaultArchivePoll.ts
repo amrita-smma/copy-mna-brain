@@ -50,14 +50,14 @@ async function claimForProcessing(
   db: Awaited<ReturnType<typeof createLambdaDb>>['db'],
   id: string,
 ): Promise<boolean> {
-  const rows = await db.execute(
-    sql`UPDATE analytics.vault_exports
-        SET status = 'processing', updated_at = now()
-        WHERE id = ${id}
-          AND status = 'exporting'
-        RETURNING id`,
-  );
-  return rows.length > 0;
+    const { rows } = await db.execute(
+      sql`UPDATE analytics.vault_exports
+          SET status = 'processing', updated_at = now()
+          WHERE id = ${id}
+            AND status = 'exporting'
+          RETURNING id`,
+    );
+    return rows.length > 0;
 }
 
 function byteCounter(onBytes: (bytes: number) => void): Transform {
@@ -170,7 +170,7 @@ export const handler = async (
 
   try {
     // 1. Pick ONE row to process (oldest first).
-    const [row] = await db.execute<VaultExportsRow>(
+    const { rows: [row] } = await db.execute<VaultExportsRow>(
       sql`SELECT id, matter_id, export_id, window_start, window_end, mode, custodian_emails
           FROM analytics.vault_exports
           WHERE status = 'exporting'

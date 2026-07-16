@@ -40,7 +40,7 @@ vi.mock('./dispatcher', () => ({ dispatcherTick }));
 
 vi.mock('./title', () => ({ generateWorkforceTitle }));
 
-vi.mock('@/lib/server/db', () => ({ createDb }));
+vi.mock('@/lib/server/db', () => ({ createDb, withBackgroundDb: vi.fn(async (cb) => cb(createDb())) }));
 
 import { enqueueAgentRun } from './enqueue';
 
@@ -79,7 +79,8 @@ describe('enqueueAgentRun', () => {
         trigger_meta: {},
       }),
     );
-    expect(afterCalls).toHaveLength(1);
+    expect(dispatcherTick).toHaveBeenCalledTimes(1);
+    expect(afterCalls).toHaveLength(0); // No title gen because no prompt
   });
 
   // Regression guard: createOrGetByIdempotencyKey is deliberately unscoped
@@ -118,6 +119,7 @@ describe('enqueueAgentRun', () => {
     });
 
     expect(result).toEqual({ runId: 'r-existing', created: false });
+    expect(dispatcherTick).not.toHaveBeenCalled();
     expect(afterCalls).toHaveLength(0);
   });
 
@@ -146,7 +148,7 @@ describe('enqueueAgentRun', () => {
     );
   });
 
-  it('the scheduled dispatcher callback uses a fresh DbClient (not the request one)', async () => {
+  it('the synchronous dispatcher uses a fresh DbClient (not the request one)', async () => {
     createOrGetByIdempotencyKey.mockResolvedValueOnce({
       row: { id: 'r-3' },
       created: true,
@@ -158,9 +160,6 @@ describe('enqueueAgentRun', () => {
       triggerSource: 'api',
       input: {},
     });
-
-    // Now manually invoke the after() callback (the test runtime doesn't).
-    await afterCalls[0]();
 
     expect(createDb).toHaveBeenCalledTimes(1);
     expect(dispatcherTick).toHaveBeenCalledTimes(1);
@@ -249,10 +248,10 @@ describe('enqueueAgentRun', () => {
       input: { prompt: 'Refresh project Oriole' },
     });
 
-    // Two after() callbacks: one for dispatch, one for title generation.
-    expect(afterCalls).toHaveLength(2);
+    // One after() callback: for title generation.
+    expect(afterCalls).toHaveLength(1);
 
-    await afterCalls[1]();
+    await afterCalls[0]();
     expect(generateWorkforceTitle).toHaveBeenCalledWith(
       'r-t',
       'Refresh project Oriole',
@@ -271,8 +270,9 @@ describe('enqueueAgentRun', () => {
       input: { topic: 'X' }, // no prompt field
     });
 
-    // Only the dispatcher schedule, no title gen.
-    expect(afterCalls).toHaveLength(1);
+    // Only the synchronous dispatcher, no title gen.
+    expect(afterCalls).toHaveLength(0);
+    expect(dispatcherTick).toHaveBeenCalledTimes(1);
     expect(generateWorkforceTitle).not.toHaveBeenCalled();
   });
 
@@ -288,7 +288,8 @@ describe('enqueueAgentRun', () => {
       input: { prompt: { nested: 'object' } },
     });
 
-    expect(afterCalls).toHaveLength(1);
+    expect(afterCalls).toHaveLength(0);
+    expect(dispatcherTick).toHaveBeenCalledTimes(1);
     expect(generateWorkforceTitle).not.toHaveBeenCalled();
   });
 
@@ -322,7 +323,6 @@ describe('enqueueAgentRun', () => {
       input: {},
     });
 
-    await expect(afterCalls[0]()).resolves.toBeUndefined();
     expect(errSpy).toHaveBeenCalled();
     errSpy.mockRestore();
   });

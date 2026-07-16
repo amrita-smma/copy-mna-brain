@@ -1,4 +1,7 @@
 import { Signer } from '@aws-sdk/rds-signer';
+import { drizzle as drizzlePg } from 'drizzle-orm/node-postgres';
+import { Pool } from 'pg';
+import { attachDatabasePool } from '@vercel/functions/db-connections';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import postgres from 'postgres';
 import * as schema from '@/lib/db/schema';
@@ -48,6 +51,7 @@ export function isLocalPostgresHost(host: string): boolean {
   return /^(127\.0\.0\.1|localhost|postgres)$/i.test(host) || !host.includes('.');
 }
 
+// Retained for scripts that depend on tagged template literals or postgres.js internals
 export function createPostgresClientFromEnv(
   extra: PostgresClientFromEnvOptions = {},
 ): ReturnType<typeof postgres> {
@@ -68,8 +72,6 @@ export function createPostgresClientFromEnv(
     connect_timeout: 15,
   } as const;
 
-  // PgBouncer transaction mode (typically port 6543) cannot safely reuse
-  // prepared statement names across pooled server connections.
   const isPooler = explicitDb.port === 6543;
   const poolCommon = {
     ...common,
@@ -104,38 +106,68 @@ export function createPostgresClientFromEnv(
   });
 }
 
-type PgClient = ReturnType<typeof postgres>;
+// App uses pg for connection pooling on Vercel
+export function createPgPoolFromEnv(): Pool {
+  const explicitDb = parseExplicitDbFromEnv();
+  const useIam = rdsIamDbAuthFromEnv();
+
+  const isPooler = explicitDb.port === 6543;
+  const max = isPooler ? 1 : 10;
+  
+  const poolCommon = {
+    max,
+    idleTimeoutMillis: 20000,
+    connectionTimeoutMillis: 10000, // Matching the 10 seconds default connect_timeout
+  };
+
+  let pool: Pool;
+  if (useIam) {
+    pool = new Pool({
+      host: explicitDb.host,
+      port: explicitDb.port,
+      database: explicitDb.database,
+      user: explicitDb.user,
+      password: () => rdsIamAuthToken(explicitDb.host, explicitDb.port, explicitDb.user),
+      ssl: { rejectUnauthorized: false },
+      ...poolCommon,
+    });
+  } else {
+    const useSsl = isLocalPostgresHost(explicitDb.host) ? false : { rejectUnauthorized: false };
+    pool = new Pool({
+      host: explicitDb.host,
+      port: explicitDb.port,
+      database: explicitDb.database,
+      user: explicitDb.user,
+      password: explicitDb.password!,
+      ssl: useSsl ? useSsl : undefined,
+      ...poolCommon,
+    });
+  }
+
+  // Prevents idle connections from keeping the Vercel function suspended and leaking connections
+  attachDatabasePool(pool);
+  
+  return pool;
+}
+
+type AppPgClient = Pool;
 const globalForDb = globalThis as unknown as {
-  __pg?: PgClient;
+  __pg?: AppPgClient;
   __db?: ReturnType<typeof makeDb>;
 };
 
-function makeDb(client: PgClient) {
-  return drizzle(client, { schema });
+function makeDb(client: AppPgClient) {
+  return drizzlePg(client, { schema });
 }
-
-// Note on timestamp shape: Drizzle's `timestamp({ mode: 'string' })` returns the
-// raw Postgres textual form (e.g. "2026-04-22 12:40:36.427054+00") rather than
-// the ISO 8601 form Supabase PostgREST used to produce. Both parse identically
-// via `new Date(...)`, and a repo-wide grep confirms no caller does string-
-// sensitive format checks (`.split('T')`, substring slicing, prefix comparison).
-// If future code needs strict ISO, add `.$type<string>()` + a custom
-// `mapFromDriverValue` on the relevant timestamp columns in `schema.ts`.
 
 export type DbClient = ReturnType<typeof makeDb>;
 
 export function createDb(): DbClient {
   if (globalForDb.__db) return globalForDb.__db;
 
-  const client: PgClient = globalForDb.__pg ?? createPostgresClientFromEnv();
+  const client: AppPgClient = globalForDb.__pg ?? createPgPoolFromEnv();
   const db = makeDb(client);
 
-  // Cache the pool on the module global unconditionally. Each
-  // `createPostgresClientFromEnv()` opens its own pool (`max` connections), so
-  // creating a fresh client per request leaks connections until Postgres hits
-  // `max_connections` ("sorry, too many clients already"). A single shared
-  // pool is correct for both a long-lived `next start` server and serverless
-  // (where the global persists per warm invocation and reuses connections).
   globalForDb.__pg = client;
   globalForDb.__db = db;
 
@@ -147,3 +179,55 @@ export const db = new Proxy({} as DbClient, {
     return Reflect.get(createDb() as object, prop, receiver);
   },
 }) as DbClient;
+
+/**
+ * Creates a short-lived, unmanaged database connection specifically for use
+ * inside Next.js `after()` blocks or background jobs.
+ * 
+ * Unlike `createDb()`, this does NOT use `attachDatabasePool()`, so it will
+ * not be prematurely killed by Vercel when the HTTP response is sent.
+ * It opens a single connection, runs your function, and explicitly closes it
+ * to prevent zombie connections when the serverless function suspends.
+ */
+export async function withBackgroundDb<T>(fn: (db: DbClient) => Promise<T>): Promise<T> {
+  const explicitDb = parseExplicitDbFromEnv();
+  const useIam = rdsIamDbAuthFromEnv();
+
+  const poolCommon = {
+    max: 1, // Only need 1 connection for this background task
+    idleTimeoutMillis: 1000,
+    connectionTimeoutMillis: 10000,
+  };
+
+  let pool: Pool;
+  if (useIam) {
+    pool = new Pool({
+      host: explicitDb.host,
+      port: explicitDb.port,
+      database: explicitDb.database,
+      user: explicitDb.user,
+      password: () => rdsIamAuthToken(explicitDb.host, explicitDb.port, explicitDb.user),
+      ssl: { rejectUnauthorized: false },
+      ...poolCommon,
+    });
+  } else {
+    const useSsl = isLocalPostgresHost(explicitDb.host) ? false : { rejectUnauthorized: false };
+    pool = new Pool({
+      host: explicitDb.host,
+      port: explicitDb.port,
+      database: explicitDb.database,
+      user: explicitDb.user,
+      password: explicitDb.password!,
+      ssl: useSsl ? useSsl : undefined,
+      ...poolCommon,
+    });
+  }
+
+  const bgDb = makeDb(pool);
+
+  try {
+    return await fn(bgDb);
+  } finally {
+    await pool.end();
+  }
+}

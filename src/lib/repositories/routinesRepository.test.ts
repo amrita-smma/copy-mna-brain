@@ -168,7 +168,7 @@ describe('RoutinesRepository', () => {
   it('claimDue returns [] when advisory lock is contended', async () => {
     mockDb.transaction.mockImplementationOnce(async (fn: (tx: MockDb) => Promise<unknown>) => {
       const tx = makeMockDb();
-      tx.execute.mockResolvedValueOnce([{ locked: false }]);
+      tx.execute.mockResolvedValueOnce({ rows: [{ locked: false }] });
       return fn(tx);
     });
 
@@ -181,7 +181,7 @@ describe('RoutinesRepository', () => {
     const due = [{ id: 'rt-1' }, { id: 'rt-2' }];
     mockDb.transaction.mockImplementationOnce(async (fn: (tx: MockDb) => Promise<unknown>) => {
       const tx = makeMockDb();
-      tx.execute.mockResolvedValueOnce([{ locked: true }]);
+      tx.execute.mockResolvedValueOnce({ rows: [{ locked: true }] });
       tx.limit.mockResolvedValueOnce(due);
       return fn(tx);
     });
@@ -192,13 +192,13 @@ describe('RoutinesRepository', () => {
   });
 
   it('countRuns returns the count for the routine', async () => {
-    mockDb.execute.mockResolvedValueOnce([{ count: 7 }]);
+    mockDb.execute.mockResolvedValueOnce({ rows: [{ count: 7 }] });
 
     expect(await repo.countRuns('rt-1')).toBe(7);
   });
 
   it('countRuns returns 0 when execute returns empty', async () => {
-    mockDb.execute.mockResolvedValueOnce([]);
+    mockDb.execute.mockResolvedValueOnce({ rows: [] });
 
     expect(await repo.countRuns('rt-1')).toBe(0);
   });

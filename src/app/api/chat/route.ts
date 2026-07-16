@@ -1,12 +1,7 @@
 import { after, NextRequest, NextResponse } from 'next/server';
-import {
-  getAgentGraph,
-  AIMessage,
-  extractFirstTurn,
-  type EffortChoice,
-} from '@/lib/agents/analysis';
+import { getAgentGraph, AIMessage, extractFirstTurn, type EffortChoice } from '@/lib/agents/analysis';
 import { ChatAnthropic } from '@langchain/anthropic';
-import { createDb } from '@/lib/server/db';
+import { createDb, withBackgroundDb } from '@/lib/server/db';
 import { getActiveWorkspaceId } from '@/lib/workspace';
 import { createContainer } from '@/lib/services';
 import { isCacheableResponse } from '@/lib/services/copilotChatsService';
@@ -252,7 +247,10 @@ export async function POST(req: NextRequest) {
           const finalMessages = await agent.getMessages(chat.id);
           const { assistantText } = extractFirstTurn(finalMessages);
           if (isCacheableResponse(assistantText)) {
-            await copilotChatsService.recordFirstMessage(chat.id, firstUserText);
+            await withBackgroundDb(async (bgDb) => {
+              const { copilotChatsService: bgChatsService } = createContainer(bgDb, workspaceId);
+              await bgChatsService.recordFirstMessage(chat.id, firstUserText);
+            });
           }
         } catch (err) {
           console.error('[chat] failed to record cache entry:', err);

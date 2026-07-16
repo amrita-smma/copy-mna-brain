@@ -59,7 +59,7 @@ export const handler = async (
     }
 
     // 1. Count in-flight exports.
-    const [{ count: inFlight }] = await db.execute<{ count: number }>(
+    const { rows: [{ count: inFlight }] } = await db.execute<{ count: number }>(
       sql`SELECT COUNT(*) AS count FROM analytics.vault_exports WHERE status = 'exporting'`,
     );
     const slots = MAX_IN_FLIGHT - Number(inFlight);
@@ -89,7 +89,7 @@ export const handler = async (
     const floorIso = dayWindow(floorDay.year, floorDay.month, floorDay.day).start.toISOString();
     const ceilingIso = dayWindow(ceiling.year, ceiling.month, ceiling.day).end.toISOString();
     const MAX_RETRIES = 3;
-    const coveredRows = await db.execute<{ window_start: string; status: string }>(
+    const { rows: coveredRows } = await db.execute<{ window_start: string; status: string }>(
       sql`SELECT window_start::text, status FROM analytics.vault_exports
           WHERE window_start >= ${floorIso}::timestamptz
             AND window_start <  ${ceilingIso}::timestamptz`,

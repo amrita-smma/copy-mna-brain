@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse, after } from 'next/server';
 import { auth } from '@/auth';
-import { createDb } from '@/lib/server/db';
+import { createDb, withBackgroundDb } from '@/lib/server/db';
 import { getActiveWorkspaceId } from '@/lib/workspace';
 import { createContainer } from '@/lib/services';
 import {
@@ -73,7 +73,7 @@ export async function POST(
 
     after(async () => {
       try {
-        await dispatcherTick(createDb());
+        await withBackgroundDb(db => dispatcherTick(db));
       } catch (err) {
         console.error('[message] dispatcher kick failed:', err);
       }

@@ -818,7 +818,7 @@ export class CompanyRepository {
     const result = await this.db.execute<{ run_l1_filters: unknown }>(
       sql`SELECT run_l1_filters(deal_id_param => ${id}) AS run_l1_filters`,
     );
-    return result[0]?.run_l1_filters ?? null;
+    return (result as unknown as { rows: Array<{ run_l1_filters: unknown }> }).rows[0]?.run_l1_filters ?? null;
   }
 
   async findDetails(id: string): Promise<CompanyDetails> {

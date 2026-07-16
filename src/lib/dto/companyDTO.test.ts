@@ -10,6 +10,7 @@ function makeCompany(overrides: Partial<Tables<'companies'>> = {}): Tables<'comp
     watchlist_id: null,
     segment: null,
     target: 'Test Co',
+    aliases: null,
     project_name: null,
     segment_related_offerings: null,
     company_focus: null,

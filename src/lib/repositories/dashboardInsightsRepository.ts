@@ -170,7 +170,7 @@ export class DashboardInsightsRepository {
     const toIso = to.toISOString();
     const stages = [...PIPELINE_FUNNEL_STAGES];
 
-    const rows = await this.db.execute<{ stage: string; count: string }>(sql`
+    const { rows } = await this.db.execute<{ stage: string; count: string }>(sql`
       SELECT stage, COUNT(DISTINCT id) AS count FROM (
         SELECT ${companies.id} AS id, ${companies.pipeline_stage}::text AS stage
         FROM ${companies}
@@ -215,7 +215,7 @@ export class DashboardInsightsRepository {
     const toIso = to.toISOString();
     const stages = [...PIPELINE_FUNNEL_STAGES];
 
-    const rows = await this.db.execute<{ key: string | null; stage: string; count: string }>(sql`
+    const { rows } = await this.db.execute<{ key: string | null; stage: string; count: string }>(sql`
       SELECT key, stage, COUNT(DISTINCT id) AS count FROM (
         SELECT ${companies.id} AS id,
                ${key} AS key,
@@ -262,7 +262,7 @@ export class DashboardInsightsRepository {
     to: Date,
   ): Promise<DimensionStageCount[]> {
     const stages = [...PIPELINE_FUNNEL_STAGES];
-    const rows = await this.db.execute<{ key: string | null; stage: string; count: string }>(sql`
+    const { rows } = await this.db.execute<{ key: string | null; stage: string; count: string }>(sql`
       SELECT ${key} AS key,
              ${companies.pipeline_stage}::text AS stage,
              COUNT(*) AS count
@@ -319,7 +319,7 @@ export class DashboardInsightsRepository {
     { name: string; p50Seconds: number; pairCount: number; gaps: number[] }[]
   > {
     try {
-      const rows = await this.db.execute<{
+      const { rows } = await this.db.execute<{
         name: string;
         p50_seconds: string | number;
         pair_count: string | number;
@@ -419,7 +419,7 @@ export class DashboardInsightsRepository {
     const fromIso = from.toISOString();
     const toIso = to.toISOString();
 
-    const [row] = await this.db.execute<{ count: string }>(sql`
+    const { rows: [row] } = await this.db.execute<{ count: string }>(sql`
       SELECT COUNT(DISTINCT id) AS count FROM (
         SELECT ${companies.id} AS id
         FROM ${companies}

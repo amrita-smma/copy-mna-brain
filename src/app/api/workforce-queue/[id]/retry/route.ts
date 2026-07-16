@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse, after } from 'next/server';
 import { getActiveWorkspaceId } from '@/lib/workspace';
 import { auth } from '@/auth';
-import { createDb } from '@/lib/server/db';
+import { createDb, withBackgroundDb } from '@/lib/server/db';
 import { AiWorkforceQueueRepository } from '@/lib/repositories';
 import { dispatcherTick } from '@/lib/workforce';
 
@@ -63,7 +63,7 @@ export async function POST(
 
     after(async () => {
       try {
-        await dispatcherTick(createDb());
+        await withBackgroundDb(db => dispatcherTick(db));
       } catch (err) {
         console.error('[retry] dispatcher kick failed:', err);
       }

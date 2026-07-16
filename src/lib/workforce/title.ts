@@ -1,7 +1,7 @@
 import { ChatAnthropic } from '@langchain/anthropic';
 import { getActiveWorkspaceId } from '@/lib/workspace';
 import { AiWorkforceQueueRepository } from '@/lib/repositories';
-import { createDb } from '@/lib/server/db';
+import { withBackgroundDb } from '@/lib/server/db';
 
 const TITLE_MODEL = 'claude-haiku-4-5-20251001';
 const TITLE_MAX_TOKENS = 60;
@@ -48,9 +48,10 @@ export async function generateWorkforceTitle(
     const title = String(res.content).trim().slice(0, TITLE_MAX_CHARS);
     if (!title) return null;
 
-    const db = createDb();
-    const repo = new AiWorkforceQueueRepository(db, await getActiveWorkspaceId());
-    await repo.setTitle(runId, title);
+    await withBackgroundDb(async (db) => {
+      const repo = new AiWorkforceQueueRepository(db, await getActiveWorkspaceId());
+      await repo.setTitle(runId, title);
+    });
     return title;
   } catch (err) {
     console.error('[workforce] title generation failed:', err);

@@ -74,3 +74,4 @@ data-pipeline/sam-env.docker.json
 data-pipeline/template.local.yaml
 
 todo.md
+/.swc

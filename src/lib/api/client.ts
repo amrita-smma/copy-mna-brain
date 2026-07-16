@@ -1,3 +1,5 @@
+import { signOut } from "next-auth/react";
+
 async function parseJsonSafe(res: Response) {
   const text = await res.text();
   if (!text) return null;
@@ -74,9 +76,16 @@ export async function apiRequest<T>(
 
   const payload = await parseJsonSafe(res);
   if (!res.ok) {
+    if (res.status === 401 && typeof window !== "undefined") {
+      // Gracefully kick the user out of the session and redirect to login,
+      // which properly invalidates the session on the backend.
+      void signOut({ callbackUrl: "/login" });
+    }
+
     const message =
       payload?.error || payload?.message || `Request failed (${res.status})`;
-    const err = new Error(message) as Error & { missingFields?: string[] };
+    const err = new Error(message) as Error & { missingFields?: string[], status?: number };
+    err.status = res.status;
     if (Array.isArray(payload?.missingFields)) err.missingFields = payload.missingFields;
     throw err;
   }

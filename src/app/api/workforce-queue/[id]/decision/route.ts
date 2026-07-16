@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse, after } from 'next/server';
 import { auth } from '@/auth';
-import { createDb } from '@/lib/server/db';
+import { createDb, withBackgroundDb } from '@/lib/server/db';
 import { getActiveWorkspaceId } from '@/lib/workspace';
 import { createContainer } from '@/lib/services';
 import { AiWorkforceQueueRepository } from '@/lib/repositories';
@@ -122,7 +122,7 @@ export async function POST(
     // immediately when free. The cron tick remains the liveness fallback.
     after(async () => {
       try {
-        await dispatcherTick(createDb());
+        await withBackgroundDb(db => dispatcherTick(db));
       } catch (err) {
         console.error('[decision] dispatcher kick failed:', err);
       }

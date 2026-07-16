@@ -233,16 +233,17 @@ export class AiWorkforceQueueRepository {
       const lockResult = await tx.execute<{ locked: boolean }>(
         sql`SELECT pg_try_advisory_xact_lock(${DISPATCHER_LOCK_KEY}) AS locked`,
       );
-      const locked = (lockResult as unknown as Array<{ locked: boolean }>)[0]
-        ?.locked;
+      const locked = (
+        lockResult as unknown as { rows: Array<{ locked: boolean }> }
+      ).rows[0]?.locked;
       if (!locked) return null;
 
       const existsResult = await tx.execute<{ has_running: boolean }>(
         sql`SELECT EXISTS(SELECT 1 FROM ai_workforce_queue WHERE status = 'running') AS has_running`,
       );
       const hasRunning = (
-        existsResult as unknown as Array<{ has_running: boolean }>
-      )[0]?.has_running;
+        existsResult as unknown as { rows: Array<{ has_running: boolean }> }
+      ).rows[0]?.has_running;
       if (hasRunning) return null;
 
       const claimResult = await tx.execute<Row>(sql`
@@ -262,7 +263,7 @@ export class AiWorkforceQueueRepository {
         )
         RETURNING *
       `);
-      const claimed = (claimResult as unknown as Row[])[0];
+      const claimed = (claimResult as unknown as { rows: Row[] }).rows[0];
       return claimed ?? null;
     });
   }
@@ -272,7 +273,7 @@ export class AiWorkforceQueueRepository {
       sql`SELECT EXISTS(SELECT 1 FROM ai_workforce_queue WHERE status = 'running') AS has_running`,
     );
     return (
-      (result as unknown as Array<{ has_running: boolean }>)[0]?.has_running ??
+      (result as unknown as { rows: Array<{ has_running: boolean }> }).rows[0]?.has_running ??
       false
     );
   }
@@ -352,8 +353,8 @@ export class AiWorkforceQueueRepository {
           )
       `);
       const row = (
-        countResult as unknown as Array<{ ahead_count: string; ahead_count_other: string }>
-      )[0];
+        countResult as unknown as { rows: Array<{ ahead_count: string; ahead_count_other: string }> }
+      ).rows[0];
       result.set(target.id, {
         aheadGlobally: Number(row?.ahead_count ?? '0'),
         aheadOtherWorkspaces: Number(row?.ahead_count_other ?? '0'),

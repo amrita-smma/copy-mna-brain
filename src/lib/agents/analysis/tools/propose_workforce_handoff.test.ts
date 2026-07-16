@@ -5,7 +5,7 @@ const { findByNameFuzzy, createDb } = vi.hoisted(() => ({
   createDb: vi.fn(),
 }));
 
-vi.mock('@/lib/server/db', () => ({ createDb }));
+vi.mock('@/lib/server/db', () => ({ createDb, withBackgroundDb: vi.fn(async (cb) => cb(createDb())) }));
 
 vi.mock('@/lib/repositories', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/repositories')>();
