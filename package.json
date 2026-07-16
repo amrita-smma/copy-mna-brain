@@ -29,7 +29,8 @@
     "test:e2e:staging": "cross-env TEST_ENV=staging playwright test",
     "test:e2e:staging:ui": "cross-env TEST_ENV=staging playwright test --ui",
     "test:e2e:production": "cross-env TEST_ENV=production playwright test",
-    "test:e2e:production:ui": "cross-env TEST_ENV=production playwright test --ui"
+    "test:e2e:production:ui": "cross-env TEST_ENV=production playwright test --ui",
+    "prepare": "husky"
   },
   "dependencies": {
     "@ai-sdk/langchain": "^2.0.72",
@@ -153,6 +154,7 @@
     "drizzle-kit": "^0.31.10",
     "eslint": "^9.32.0",
     "eslint-config-next": "^16.2.10",
+    "husky": "^9.1.7",
     "postcss": "^8.5.6",
     "tailwindcss": "^3.4.17",
     "tsx": "^4.22.0",
