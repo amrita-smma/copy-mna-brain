@@ -123,7 +123,7 @@ function makeDb() {
   // call. We pass mock repos directly and only need a stub for the raw
   // SQL execute + the final update.
   const tx: Record<string, unknown> = {
-    execute: vi.fn().mockResolvedValue([]),
+    execute: vi.fn().mockResolvedValue({ rows: [] }),
     update: vi.fn().mockReturnThis(),
     set: vi.fn().mockReturnThis(),
     where: vi.fn().mockResolvedValue([]),

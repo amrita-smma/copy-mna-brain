@@ -9,6 +9,7 @@
     "lint": "eslint .",
     "db:ping": "tsx scripts/db-ping.ts",
     "docker-refresh": "bash scripts/refresh-docker-compose.sh",
+    "pipeline-demo": "pnpm --filter data-pipeline pipeline-demo",
     "db:reset": "tsx scripts/db-reset.ts",
     "db:journal": "tsx scripts/build-drizzle-journal.ts && tsx scripts/build-drizzle-journal.ts data-pipeline/migrations",
     "db:migrate": "tsx scripts/build-drizzle-journal.ts && tsx scripts/build-drizzle-journal.ts data-pipeline/migrations && tsx scripts/migrate.ts",

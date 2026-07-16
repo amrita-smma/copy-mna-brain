@@ -705,7 +705,7 @@ export async function runCrmIngest(
 
     // [7/7] employer_topics — derived aggregation.
     log('[7/7] employer_topics');
-    const employerTopicRows = (await tx.execute(sql`
+    const { rows: employerTopicRows } = await tx.execute(sql`
       INSERT INTO employer_topics (employer_id, topic_id, source)
       SELECT DISTINCT e.employer_id, et.topic_id, 'auto'
       FROM analytics.emails e
@@ -713,10 +713,8 @@ export async function runCrmIngest(
       WHERE e.employer_id IS NOT NULL
       ON CONFLICT (employer_id, topic_id) DO NOTHING
       RETURNING id
-    `)) as unknown as Array<{ id: string }>;
-    result.employer_topics_inserted = Array.isArray(employerTopicRows)
-      ? employerTopicRows.length
-      : 0;
+    `) as unknown as { rows: Array<{ id: string }> };
+    result.employer_topics_inserted = employerTopicRows.length;
 
     // A user covers the external counterparty when that user is a To/CC
     // recipient or the Vault mailbox custodian. For inbound mail the
