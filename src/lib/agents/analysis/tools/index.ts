@@ -16,6 +16,7 @@ import { proposeWorkforceHandoff } from "./propose_workforce_handoff";
 import { proposeBulkDropCompanies } from "./propose_bulk_drop_companies";
 import { proposeBulkPromoteCompanies } from "./propose_bulk_promote_companies";
 import { promoteToL1 } from "./promote_to_l1";
+import { promoteToL0 } from "./promote_to_l0";
 import { dropCompany } from "./drop_company";
 import { addCompany } from "./add_company";
 import { updateCompanyRelationship } from "./update_company_relationship";
@@ -52,6 +53,7 @@ export {
   proposeBulkDropCompanies,
   proposeBulkPromoteCompanies,
   promoteToL1,
+  promoteToL0,
   addCompany,
   updateCompanyRelationship,
   generateRelationshipGraph,
@@ -134,6 +136,7 @@ export const chatOnlyTools = [
  * step. Same chat-exclusion rationale as narrate_step.
  */
 export const workforceOnlyTools = [
+  promoteToL0,
   promoteToL1,
   addCompany,
   updateCompanyRelationship,

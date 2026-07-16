@@ -49,6 +49,7 @@ export type DoneTask = {
 
 export type TraceStepStatus =
   | 'done'
+  | 'failed'
   | 'active'
   | 'pending'
   | 'skipped'

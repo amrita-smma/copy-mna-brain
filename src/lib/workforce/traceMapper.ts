@@ -550,6 +550,13 @@ export function buildTrace(input: BuildTraceInput): TraceData[] {
     const description =
       (narration?.overview?.trim() || desc) || "(no content)";
 
+    // If the step is ostensibly 'done' but the agent's narration (or fallback parser)
+    // explicitly marked it as a failure, flag the step itself as failed so the UI
+    // renders a red X instead of a green checkmark.
+    if (status === "done" && /^[✗✘]/.test(title)) {
+      status = "failed";
+    }
+
     steps.push({
       id: ai.id ?? `step-${aiIndex}`,
       status,

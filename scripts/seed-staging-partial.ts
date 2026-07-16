@@ -455,7 +455,7 @@ async function main() {
       slug: workspaceSlug,
       created_at: now,
       updated_at: now,
-    });
+    }).onConflictDoNothing();
     console.log(`  ✓ workspace "${workspaceName}" (${workspaceSlug})`);
 
     // Attach the existing users as editors of the new workspace.
@@ -552,6 +552,7 @@ async function main() {
               created_at: now,
               updated_at: now,
             })
+        .onConflictDoNothing()
             .returning({ id: correspondents.id });
         }
         if (row) correspondentIds.push(row.id);
@@ -603,7 +604,7 @@ async function main() {
           content: note,
           created_at: now,
           updated_at: now,
-        });
+        }).onConflictDoNothing();
         noteRows++;
       }
     }
@@ -639,6 +640,7 @@ async function main() {
           created_at: now,
           updated_at: now,
         })
+        .onConflictDoNothing()
         .returning({ id: companies.id });
       if (!inserted) continue;
       insertedCompanies.push({ id: inserted.id, target: c.target });
@@ -653,7 +655,7 @@ async function main() {
             created_at: now,
             updated_at: now,
           })),
-        );
+        ).onConflictDoNothing();
       }
     }
     const droppedCount = COMPANIES.filter((c) => c.status === 'dropped').length;
@@ -677,7 +679,7 @@ async function main() {
           created_at: now,
           updated_at: now,
         })),
-      );
+      ).onConflictDoNothing();
     }
     console.log(`  ✓ ${insertedCompanies.length} company analyses (completed)`);
 
@@ -710,7 +712,7 @@ async function main() {
         };
       }),
     );
-    await db.insert(files).values(fileRows);
+    await db.insert(files).values(fileRows).onConflictDoNothing();
     console.log(`  ✓ ${fileRows.length} AI File Dump files (2 × ${FILE_TYPES.length} types)`);
 
     console.log(`\n✅ done — workspace "${workspaceName}" (${workspaceId})`);

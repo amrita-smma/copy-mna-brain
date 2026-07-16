@@ -405,7 +405,7 @@ type SeedCompany = {
   website: string;
   geography: string;
   ownership: string;
-  pipeline_stage: 'market_screening' | 'unreviewed' | 'L0' | 'L1' | 'L2' | 'L3' | 'L4' | 'L5';
+  pipeline_stage: 'discovered' | 'market_screening' | 'unreviewed' | 'L0' | 'L1' | 'L2' | 'L3' | 'L4' | 'L5';
   status: 'active' | 'dropped';
   source?: 'inbound' | 'outbound';
 
@@ -1445,6 +1445,36 @@ const seedCompanies: SeedCompany[] = [
     ],
   },
 
+  // ── GRAPH DISCOVERED (Master Data) ─────────────────────────────────────────
+  {
+    entry_id: 9901,
+    target: 'PT Sukses Makmur Abadi',
+    segment: 'Industrial Manufacturing',
+    company_focus: 'Precision machining for heavy industries',
+    website: 'https://suksesmakmur.example',
+    geography: 'Indonesia',
+    ownership: 'Private',
+    pipeline_stage: 'discovered',
+    status: 'active',
+    source: 'outbound',
+    watchlist_status: 'New',
+    financials: [],
+  },
+  {
+    entry_id: 9902,
+    target: 'The PAN Group',
+    segment: 'Agriculture / Food',
+    company_focus: 'Integrated agriculture and food processing',
+    website: 'https://thepangroup.example',
+    geography: 'Vietnam',
+    ownership: 'Listed',
+    pipeline_stage: 'discovered',
+    status: 'active',
+    source: 'outbound',
+    watchlist_status: 'New',
+    financials: [],
+  },
+
   // ── ADDITIONAL UNREVIEWED (inbound) ───────────────────────────────────────
   {
     entry_id: 9048,
@@ -2301,6 +2331,7 @@ async function insertCompaniesForWorkspace(
         watchlist_status: c.watchlist_status,
         workspace_id: workspaceId,
       })
+        .onConflictDoNothing()
       .returning({ id: companies.id });
     if (!row) continue;
     inserted.push({ entry_id: c.entry_id, id: row.id });
@@ -2313,7 +2344,7 @@ async function insertCompaniesForWorkspace(
         ebitda_usd_mn: f.ebitda_usd_mn ?? null,
         ev_usd_mn: f.ev_usd_mn ?? null,
       })),
-    );
+    ).onConflictDoNothing();
   }
   return inserted;
 }
@@ -2349,11 +2380,11 @@ async function seedFundManagement(db: DbClient, workspaceId: string) {
       name: i.name,
       entity_type: i.type,
     })),
-  );
+  ).onConflictDoNothing();
   await db.delete(fundingSources).where(inArray(fundingSources.id, SEED_FUND_SOURCES.map((s) => s.id)));
   await db.insert(fundingSources).values(
     SEED_FUND_SOURCES.map((s) => ({ id: s.id, workspace_id: workspaceId, name: s.name })),
-  );
+  ).onConflictDoNothing();
 
   await db.insert(funds).values([
     {
@@ -2386,7 +2417,7 @@ async function seedFundManagement(db: DbClient, workspaceId: string) {
       status: 'harvesting',
       base_currency: 'USD',
     },
-  ]);
+  ]).onConflictDoNothing();
 
   // LP stakes (funds + holding entities now exist; the delete(funds) above already
   // cascade-removed any prior stakes for these funds).
@@ -2400,7 +2431,7 @@ async function seedFundManagement(db: DbClient, workspaceId: string) {
       invested_amount: s.invested_amount,
       invested_amount_currency: 'USD',
     })),
-  );
+  ).onConflictDoNothing();
 
   await db.insert(fundAssets).values([
     // ---- Fund 1: Direct Investments ----
@@ -2594,7 +2625,7 @@ async function seedFundManagement(db: DbClient, workspaceId: string) {
 
     // Cash Reserve — single deposit (cash).
     { fund_asset_id: SEED_ASSET_9_ID, fund_id: SEED_FUND_3_ID, holding_entity_id: INVESTOR_STARTECH_3, funding_source_id: SEED_FUND_SOURCES[0].id, txn_date: '2018-01-01', txn_type: 'contribution', value_amount: 640_000, txn_currency: 'USD', fx_rate: 1, notes: 'Initial cash allocation' },
-  ]);
+  ]).onConflictDoNothing();
 
   await db.insert(fundAssetValuations).values([
     // Acme Robotics — quarterly comp marks.
@@ -2801,6 +2832,7 @@ async function main() {
           key_rationale: c.key_rationale ?? null,
           workspace_id: MNA_WORKSPACE_ID,
         })
+        .onConflictDoNothing()
         .returning({ id: companies.id });
       if (!inserted) continue;
       insertedCompanies.push({ entry_id: c.entry_id, id: inserted.id });
@@ -2817,7 +2849,7 @@ async function main() {
             ev_ebitda: null,
             revenue_cagr_vs_prior: null,
           })),
-        );
+        ).onConflictDoNothing();
       }
     }
 
@@ -2907,6 +2939,7 @@ async function main() {
     const [insertedThesis] = await db
       .insert(investmentThesis)
       .values({ ...seedThesis, workspace_id: MNA_WORKSPACE_ID })
+        .onConflictDoNothing()
       .returning({ id: investmentThesis.id });
     console.log(`  ✓ investment_thesis "${seedThesis.title}"`);
 
@@ -2921,7 +2954,7 @@ async function main() {
         investment_thesis_id: insertedThesis.id,
         workspace_id: MNA_WORKSPACE_ID,
       })),
-    );
+    ).onConflictDoNothing();
     console.log(`  ✓ ${seedCriterias.length} criterias`);
 
     // CRM seed — one employer per unique company name + one correspondent per
@@ -2968,6 +3001,7 @@ async function main() {
     const insertedCorrespondents = await db
       .insert(correspondents)
       .values(correspondentRows)
+        .onConflictDoNothing()
       .returning({ id: correspondents.id });
 
     // Every seeded correspondent must be visible to MNA — the migration
@@ -3089,7 +3123,7 @@ async function main() {
           workspace_id: MNA_WORKSPACE_ID,
           content: note,
           author_user_id: teamUserIdByEmail.get('alvin.wobblebottom@sparklecapital.example') ?? null,
-        });
+        }).onConflictDoNothing();
         noteRows++;
       }
     }
@@ -3130,6 +3164,7 @@ async function main() {
         normalized_name: AV_NORM,
         industry: 'Automotive',
       })
+        .onConflictDoNothing()
       .returning({ id: employers.id });
     if (!avEmployer) throw new Error('failed to insert AUTO VEHICLE employer');
 
@@ -3163,6 +3198,7 @@ async function main() {
           source: 'mbox',
         })),
       )
+        .onConflictDoNothing()
       .returning({ id: correspondents.id, email: correspondents.email });
     const avCorrIdByEmail = new Map(
       insertedAvCorrespondents.map((r) => [r.email!.toLowerCase(), r.id]),
@@ -3271,6 +3307,7 @@ async function main() {
         parsed_at: new Date().toISOString(),
         raw_email_count: avMails.length,
       })
+        .onConflictDoNothing()
       .returning({ id: mboxFiles.id });
     if (!avMboxFile) throw new Error('failed to insert AUTO VEHICLE mbox_files fixture');
 
@@ -3312,7 +3349,7 @@ async function main() {
       llm_status: 'enriched',
       llm_enriched_at: new Date().toISOString(),
     }));
-    await db.insert(rawEmails).values(avRawEmailRows);
+    await db.insert(rawEmails).values(avRawEmailRows).onConflictDoNothing();
 
     const avEmailRows = avMails.map((m) => ({
       message_id: `${AV_MID_PREFIX}${m.idx}${AV_MID_SUFFIX}`,
@@ -3329,6 +3366,7 @@ async function main() {
     const insertedAvEmails = await db
       .insert(emails)
       .values(avEmailRows)
+        .onConflictDoNothing()
       .returning({ id: emails.id, message_id: emails.message_id });
     const avEmailIdByMid = new Map(
       insertedAvEmails.map((r) => [r.message_id!, r.id]),
@@ -3366,7 +3404,7 @@ async function main() {
       }
     }
     if (avParticipantRows.length > 0) {
-      await db.insert(emailParticipants).values(avParticipantRows);
+      await db.insert(emailParticipants).values(avParticipantRows).onConflictDoNothing();
     }
     console.log(
       `  ✓ AUTO VEHICLE: 1 employer + ${insertedAvCorrespondents.length} mbox correspondents + ${insertedAvEmails.length} emails + ${avParticipantRows.length} participants + ${avRawEmailRows.length} raw_emails (custodian: ${INTERNAL.email}, synced to MNA)`,
@@ -3428,6 +3466,7 @@ async function main() {
           source: 'manual',
           origin: 'manual',
         })
+        .onConflictDoNothing()
         .returning({ id: correspondents.id });
       if (priya) {
         await db
@@ -3442,7 +3481,7 @@ async function main() {
         workspace_id: TEST_WORKSPACE_2_ID,
         content:
           'Starhouse-only: Priya flagged Golden Sacks for a potential co-investment on Project Comet. Do not share outside Starhouse yet.',
-      });
+      }).onConflictDoNothing();
 
       // Private topic + tag — must not appear in MNA's topic list (global or
       // per-employer) for Golden Sacks.
@@ -3487,7 +3526,7 @@ async function main() {
           reason_summary: 'Added manually',
           confidence: 'high',
           evidence_count: 0,
-        });
+        }).onConflictDoNothing();
       }
 
       // Separate mailbox history: test2 (Starhouse's own user) is the synced
@@ -3544,6 +3583,7 @@ async function main() {
             parsed_at: new Date().toISOString(),
             raw_email_count: shMails.length,
           })
+        .onConflictDoNothing()
           .returning({ id: mboxFiles.id });
 
         if (shMboxFile) {
@@ -3564,7 +3604,7 @@ async function main() {
               llm_status: 'enriched',
               llm_enriched_at: new Date().toISOString(),
             })),
-          );
+          ).onConflictDoNothing();
 
           const shEmailRows = shMails.map((m) => ({
             message_id: `${STARHOUSE_MID_PREFIX}${m.idx}${STARHOUSE_MID_SUFFIX}`,
@@ -3581,6 +3621,7 @@ async function main() {
           const insertedShEmails = await db
             .insert(emails)
             .values(shEmailRows)
+        .onConflictDoNothing()
             .returning({ id: emails.id, message_id: emails.message_id });
           const shEmailIdByMid = new Map(insertedShEmails.map((r) => [r.message_id!, r.id]));
 
@@ -3605,7 +3646,7 @@ async function main() {
             });
           }
           if (shParticipantRows.length > 0) {
-            await db.insert(emailParticipants).values(shParticipantRows);
+            await db.insert(emailParticipants).values(shParticipantRows).onConflictDoNothing();
           }
           console.log(
             `  ✓ Starhouse isolation fixture: 1 private contact + 1 private note + 1 private topic + 1 private related-company + ${insertedShEmails.length} emails (custodian: test2@sqe.co.id, synced to Starhouse Prime VCC)`,
@@ -3666,6 +3707,7 @@ async function main() {
           source: 'manual',
           origin: 'manual',
         })
+        .onConflictDoNothing()
         .returning({ id: correspondents.id });
       if (deniz) {
         await db
@@ -3679,7 +3721,7 @@ async function main() {
         workspace_id: TEST_WORKSPACE_3_ID,
         content:
           'Togan-only: Deniz flagged JP Organ for a co-investment lead on Project Bosphorus. Do not share outside Togan yet.',
-      });
+      }).onConflictDoNothing();
 
       const [toganTopic] = await db
         .insert(topics)
@@ -3720,7 +3762,7 @@ async function main() {
           reason_summary: 'Added manually',
           confidence: 'high',
           evidence_count: 0,
-        });
+        }).onConflictDoNothing();
       }
 
       if (test3UserId && deniz) {
@@ -3774,6 +3816,7 @@ async function main() {
             parsed_at: new Date().toISOString(),
             raw_email_count: tgMails.length,
           })
+        .onConflictDoNothing()
           .returning({ id: mboxFiles.id });
 
         if (tgMboxFile) {
@@ -3794,7 +3837,7 @@ async function main() {
               llm_status: 'enriched',
               llm_enriched_at: new Date().toISOString(),
             })),
-          );
+          ).onConflictDoNothing();
 
           const tgEmailRows = tgMails.map((m) => ({
             message_id: `${TOGAN_MID_PREFIX}${m.idx}${TOGAN_MID_SUFFIX}`,
@@ -3811,6 +3854,7 @@ async function main() {
           const insertedTgEmails = await db
             .insert(emails)
             .values(tgEmailRows)
+        .onConflictDoNothing()
             .returning({ id: emails.id, message_id: emails.message_id });
           const tgEmailIdByMid = new Map(insertedTgEmails.map((r) => [r.message_id!, r.id]));
 
@@ -3835,7 +3879,7 @@ async function main() {
             });
           }
           if (tgParticipantRows.length > 0) {
-            await db.insert(emailParticipants).values(tgParticipantRows);
+            await db.insert(emailParticipants).values(tgParticipantRows).onConflictDoNothing();
           }
           console.log(
             `  ✓ Togan isolation fixture: 1 private contact + 1 private note + 1 private topic + 1 private related-company + ${insertedTgEmails.length} emails (custodian: test3@sqe.co.id, synced to Togan VCC)`,
@@ -3894,6 +3938,7 @@ async function main() {
           source: 'manual',
           origin: 'manual',
         })
+        .onConflictDoNothing()
         .returning({ id: correspondents.id });
       if (elena) {
         await db
@@ -3907,7 +3952,7 @@ async function main() {
         workspace_id: TEST_WORKSPACE_4_ID,
         content:
           'Aeliana-only: Elena connected us to a private credit desk at Credit Sweets for Project Meridian financing. Keep within Aeliana team.',
-      });
+      }).onConflictDoNothing();
 
       const [aelianaTopic] = await db
         .insert(topics)
@@ -3948,7 +3993,7 @@ async function main() {
           reason_summary: 'Added manually',
           confidence: 'high',
           evidence_count: 0,
-        });
+        }).onConflictDoNothing();
       }
 
       if (test4UserId && elena) {
@@ -4002,6 +4047,7 @@ async function main() {
             parsed_at: new Date().toISOString(),
             raw_email_count: aeMails.length,
           })
+        .onConflictDoNothing()
           .returning({ id: mboxFiles.id });
 
         if (aeMboxFile) {
@@ -4022,7 +4068,7 @@ async function main() {
               llm_status: 'enriched',
               llm_enriched_at: new Date().toISOString(),
             })),
-          );
+          ).onConflictDoNothing();
 
           const aeEmailRows = aeMails.map((m) => ({
             message_id: `${AELIANA_MID_PREFIX}${m.idx}${AELIANA_MID_SUFFIX}`,
@@ -4039,6 +4085,7 @@ async function main() {
           const insertedAeEmails = await db
             .insert(emails)
             .values(aeEmailRows)
+        .onConflictDoNothing()
             .returning({ id: emails.id, message_id: emails.message_id });
           const aeEmailIdByMid = new Map(insertedAeEmails.map((r) => [r.message_id!, r.id]));
 
@@ -4063,7 +4110,7 @@ async function main() {
             });
           }
           if (aeParticipantRows.length > 0) {
-            await db.insert(emailParticipants).values(aeParticipantRows);
+            await db.insert(emailParticipants).values(aeParticipantRows).onConflictDoNothing();
           }
           console.log(
             `  ✓ Aeliana isolation fixture: 1 private contact + 1 private note + 1 private topic + 1 private related-company + ${insertedAeEmails.length} emails (custodian: test4@sqe.co.id, synced to Aeliana VCC)`,
@@ -4162,6 +4209,7 @@ async function main() {
           parsed_at: nowIso,
           raw_email_count: RT_FIRMS.length * RT_MULTIPLIERS.length,
         })
+        .onConflictDoNothing()
         .returning({ id: mboxFiles.id });
       if (!rtMbox) throw new Error('failed to insert response-time mbox_files fixture');
 
@@ -4277,12 +4325,13 @@ async function main() {
         }
       }
 
-      if (rtRawRows.length > 0) await db.insert(rawEmails).values(rtRawRows);
+      if (rtRawRows.length > 0) await db.insert(rawEmails).values(rtRawRows).onConflictDoNothing();
       const rtInsertedEmails =
         rtEmailRows.length > 0
           ? await db
               .insert(emails)
               .values(rtEmailRows)
+        .onConflictDoNothing()
               .returning({ id: emails.id, message_id: emails.message_id })
           : [];
 
@@ -4310,7 +4359,7 @@ async function main() {
         );
       }
       if (rtParticipantRows.length > 0) {
-        await db.insert(emailParticipants).values(rtParticipantRows);
+        await db.insert(emailParticipants).values(rtParticipantRows).onConflictDoNothing();
       }
 
       console.log(

@@ -153,6 +153,10 @@ type InvokeStepResult =
       // approval notification can render a structured proposal card.
       toolName?: string;
       toolArgs?: Record<string, unknown>;
+    }
+  | {
+      kind: 'failed';
+      reason: string;
     };
 
 // Build the interrupted step-result from a HITL actionRequest, capturing the
@@ -249,6 +253,33 @@ async function invokeAgent(
   const messages = finalResult.messages ?? [];
   const lastMessage = messages[messages.length - 1];
   const finalMessage = extractMessageText(lastMessage);
+
+  let isFailure = finalMessage.trim().startsWith('✗ Could not complete');
+  let failureReason = finalMessage;
+
+  if (!isFailure && lastMessage) {
+    const toolCalls = (lastMessage as unknown as { tool_calls?: unknown[] }).tool_calls;
+    if (Array.isArray(toolCalls)) {
+      const narrate = (toolCalls as any[]).find((tc) => tc?.name === 'narrate_step');
+      if (narrate && narrate.args && typeof narrate.args === 'object') {
+        const title = narrate.args.title;
+        if (typeof title === 'string' && /^[✗✘]/.test(title.trim())) {
+          isFailure = true;
+          // Use the overview if available to provide more context in the error, 
+          // otherwise fallback to the title.
+          const overview = narrate.args.overview;
+          failureReason = typeof overview === 'string' ? `${title}\n\n${overview}` : title;
+        }
+      }
+    }
+  }
+
+  if (isFailure) {
+    return {
+      kind: 'failed',
+      reason: failureReason,
+    };
+  }
 
   // tool_calls is an AIMessage-only field; BaseMessage typings don't include
   // it, so we widen the type via unknown before reading.
@@ -400,6 +431,17 @@ export async function runAgent({ runId }: { runId: string }): Promise<void> {
         workspaceId,
         result.toolName,
         result.toolArgs,
+      );
+      return;
+    }
+    if (result.kind === 'failed') {
+      await markFailedStep(
+        runId,
+        {
+          code: 'agent_execution_failed',
+          message: result.reason,
+        },
+        workspaceId,
       );
       return;
     }

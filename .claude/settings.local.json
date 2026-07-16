@@ -45,7 +45,9 @@
       "Bash(docker compose exec postgres psql -U postgres -d mna -c ' *)",
       "Bash(docker compose *)",
       "Bash(rtk ls *)",
-      "Bash(rtk npx *)"
+      "Bash(rtk npx *)",
+      "Bash(git rebase *)",
+      "Bash(PGPASSWORD='npg_WFMP0isg3TyX' rtk psql *)"
     ]
   }
 }

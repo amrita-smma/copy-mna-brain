@@ -74,6 +74,9 @@ function connectorClass(status: TraceStepStatus): string {
   if (status === 'done' || status === 'intervention-resolved') {
     return 'bg-emerald-400';
   }
+  if (status === 'failed') {
+    return 'bg-rose-400';
+  }
   if (status === 'active' || status === 'intervention-waiting') {
     return 'bg-gradient-to-b from-emerald-400 to-amber-400';
   }
@@ -143,7 +146,7 @@ export function TraceLine({
               <p
                 className={cn(
                   'text-[13.5px] font-bold leading-snug',
-                  isPlaceholder ? 'text-muted-foreground' : 'text-foreground',
+                  isPlaceholder ? 'text-muted-foreground' : step.status === 'failed' ? 'text-rose-700' : 'text-foreground',
                   // Skipped steps were on the plan but never ran — strike
                   // them through so the "wouldn't happen" intent reads at a
                   // glance, not just from the badge.
@@ -288,6 +291,18 @@ function TraceNode({ step }: { step: TraceData }) {
       </span>
     );
   }
+  if (step.status === 'failed') {
+    return (
+      <span
+        className={cn(
+          ringBase,
+          'bg-rose-50 border-2 border-rose-400 text-rose-700',
+        )}
+      >
+        <span className="font-bold text-[14px] leading-none mb-[1px]">✗</span>
+      </span>
+    );
+  }
   if (step.status === 'active') {
     return (
       <span
@@ -342,6 +357,7 @@ function TraceNode({ step }: { step: TraceData }) {
 function StatusBadge({ status }: { status: TraceStepStatus }) {
   const config: Record<TraceStepStatus, { label: string; className: string }> = {
     done: { label: 'Done', className: 'bg-emerald-50 text-emerald-700' },
+    failed: { label: 'Failed', className: 'bg-rose-50 text-rose-700' },
     'intervention-resolved': {
       label: 'Done',
       className: 'bg-emerald-50 text-emerald-700',
@@ -636,6 +652,7 @@ export function TraceProgressBar({
         {steps.map((s, i) => {
           const isDone =
             s.status === 'done' || s.status === 'intervention-resolved';
+          const isFailed = s.status === 'failed';
           const isActive =
             s.status === 'active' || s.status === 'intervention-waiting';
           return (
@@ -644,8 +661,9 @@ export function TraceProgressBar({
               className={cn(
                 'h-1 w-7 rounded-full transition-colors',
                 isDone && 'bg-emerald-400',
+                isFailed && 'bg-rose-400',
                 isActive && 'bg-amber-500',
-                !isDone && !isActive && 'bg-border',
+                !isDone && !isFailed && !isActive && 'bg-border',
               )}
               aria-label={`Step ${i + 1}: ${s.status}`}
             />
