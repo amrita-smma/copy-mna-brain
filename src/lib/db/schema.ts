@@ -3362,6 +3362,11 @@ export type DirectInvestmentDetails = {
   investingEntity?: string;
   reportDate?: string;
   prefReturnRatePct?: number;
+  // Cross-references into the source workbook's master tabs (Structure /
+  // Appendix), populated by the portfolio seed: `sourceRef` is the Appendix
+  // "Invt ID" (e.g. "S017"); `vintageYear` its vintage year.
+  sourceRef?: string;
+  vintageYear?: number;
 };
 export type CashDetails = { type?: string; institution?: string; yieldPct?: number };
 export type FundOfFundsDetails = {
@@ -3371,6 +3376,9 @@ export type FundOfFundsDetails = {
   holdYrs?: number;
   investingEntity?: string;
   reportDate?: string;
+  dealType?: string;
+  sourceRef?: string;
+  vintageYear?: number;
 };
 export type AssetTypeDetails =
   | DirectInvestmentDetails
