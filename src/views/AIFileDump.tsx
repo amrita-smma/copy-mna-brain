@@ -534,7 +534,7 @@ function FileTable({
             <div className="flex items-center justify-end px-2 py-1.5">
               <ColumnConfigGear />
             </div>
-            <div className="overflow-x-auto">
+            <div className="max-h-[500px] overflow-auto">
               <Table>
                 <ManagedTableHeader
                   leading={
