@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Sparkles, Maximize2, Minimize2, Send, Square, PenLine, History } from 'lucide-react';
+import posthog from 'posthog-js';
 import { toast } from 'sonner';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { Button } from '@/components/ui/button';
@@ -157,7 +158,7 @@ function ChatInput({ isExpanded }: { isExpanded: boolean }) {
   // Ask the agent to rewrite the current draft into a clearer prompt, then
   // replace the whole input with the result. Triggered by clicking "… Enhance"
   // or pressing Shift+Tab.
-  const handleEnhance = useCallback(async () => {
+  const handleEnhance = useCallback(async (trigger: 'click' | 'shortcut') => {
     const current = input.trim();
     if (!current || isEnhancing || isBusy) return;
     clearIdleTimer();
@@ -176,13 +177,21 @@ function ChatInput({ isExpanded }: { isExpanded: boolean }) {
       setInput(improved);
       // Defer the focus until the textarea re-enables (see the effect below).
       refocusAfterEnhanceRef.current = true;
+      // Track enhancement usage. `changed` is false when the prompt was already
+      // clear and the model kept it as-is, so we can tell useful rewrites apart.
+      posthog.capture('copilot_prompt_enhanced', {
+        trigger,
+        original_length: current.length,
+        improved_length: improved.length,
+        changed: improved !== current,
+      });
     } catch (err) {
       console.error('[copilot] prompt enhancement failed:', err);
       toast.error('Could not enhance the prompt — please try again.');
     } finally {
       setIsEnhancing(false);
     }
-  }, [input, isEnhancing, isBusy, clearIdleTimer, chatInputRef]);
+  }, [input, isEnhancing, isBusy, clearIdleTimer]);
 
   // Opening the mobile keyboard triggers layout shifts (visual-viewport resize,
   // bottom-nav hide) that can momentarily drop focus from the input. Re-assert
@@ -236,7 +245,7 @@ function ChatInput({ isExpanded }: { isExpanded: boolean }) {
                   // Shift+Tab enhances the draft instead of moving focus.
                   if (e.key === 'Tab' && e.shiftKey && input.trim() && !isEnhancing && !isBusy) {
                     e.preventDefault();
-                    handleEnhance();
+                    handleEnhance('shortcut');
                   }
                 }}
                 placeholder="Ask anything..."
@@ -259,7 +268,7 @@ function ChatInput({ isExpanded }: { isExpanded: boolean }) {
                     {' '}
                     <button
                       type="button"
-                      onClick={handleEnhance}
+                      onClick={() => handleEnhance('click')}
                       disabled={isEnhancing}
                       title="Improve this prompt (Shift+Tab)"
                       className="pointer-events-auto cursor-pointer text-xs font-normal text-blue-500 underline-offset-2 hover:underline disabled:cursor-default disabled:no-underline disabled:opacity-70 dark:text-blue-400"
