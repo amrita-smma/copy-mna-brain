@@ -158,8 +158,11 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
         <div className="relative z-10 flex min-h-screen w-full">
           <Sidebar collapsible="icon" className="border-r border-sidebar-border bg-white/70 dark:bg-[hsl(240,14%,4%)]/70 backdrop-blur-xl">
             <SidebarHeader className="border-b border-sidebar-border p-2 group-data-[state=expanded]:p-4">
-              <div className="flex w-full items-stretch gap-3 group-data-[state=collapsed]:flex-col group-data-[state=collapsed]:items-center group-data-[state=collapsed]:gap-2">
-                  <div className="flex flex-col items-center gap-1">
+              {/* Brand logo on top; the workspace name + nav trigger stack
+                  directly beneath it (expanded). Collapsed keeps the compact
+                  mark + trigger centered. */}
+              <div className="flex w-full flex-col gap-3 group-data-[state=collapsed]:items-center group-data-[state=collapsed]:gap-2">
+                  <div className="flex items-start gap-1 group-data-[state=collapsed]:flex-col group-data-[state=collapsed]:items-center">
                     <WorkspaceLink href="/dashboard" aria-label="Go to dashboard" className="group shrink-0 group-data-[state=expanded]:hidden">
                       <div className="relative flex h-10 w-10 items-center justify-center transition-transform duration-300 group-hover:scale-105">
                         <BrandMark className="h-9 w-9" />
@@ -168,12 +171,12 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
                     <WorkspaceLink href="/dashboard" aria-label="Go to dashboard" className="group group-data-[state=collapsed]:hidden">
                       <BrandWordmark className="h-6 w-auto transition-transform duration-300 group-hover:scale-[1.02]" />
                     </WorkspaceLink>
+                    <SidebarTrigger className="hidden absolute right-3 h-6 w-6 shrink-0 text-muted-foreground hover:bg-muted hover:text-muted-foreground [&_svg]:size-3.5 group-data-[state=expanded]:flex" />
+                    <SidebarTrigger className="h-8 w-8 shrink-0 group-data-[state=expanded]:hidden" />
                   </div>
-                  <div className="relative flex min-w-0 flex-1 group-data-[state=collapsed]:hidden">
+                  <div className="relative flex w-full min-w-0 group-data-[state=collapsed]:hidden">
                     <WorkspaceSwitcher />
-                    <SidebarTrigger className="absolute bottom-0 right-0 h-6 w-6 shrink-0 text-muted-foreground hover:bg-muted hover:text-muted-foreground [&_svg]:size-3.5" />
                   </div>
-                  <SidebarTrigger className="h-8 w-8 shrink-0 group-data-[state=expanded]:hidden" />
                 </div>
             </SidebarHeader>
 
@@ -184,11 +187,6 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
                     {filteredNavigation.map((item) => {
                       const isActive = logicalPath === item.href ||
                         (item.href !== '/dashboard' && item.href !== '#' && logicalPath.startsWith(item.href));
-                      const isColored = item.color !== 'default';
-                      const isTeal = item.color === 'teal';
-                      const isIndigo = item.color === 'indigo';
-                      const isOrange = item.color === 'orange';
-                      const isCyan = item.color === 'cyan';
                       const isDisabled = 'disabled' in item && item.disabled;
 
                       return (
@@ -197,39 +195,22 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
                             asChild={!isDisabled}
                             isActive={isActive}
                             className={cn(
-                              'transition-colors',
-                              isDisabled && 'opacity-50 cursor-not-allowed',
-                              isTeal && !isDisabled && 'text-teal-400 hover:text-teal-300 hover:bg-teal-500/10',
-                              isIndigo && !isDisabled && 'text-blue-400 hover:text-blue-300 hover:bg-blue-500/10',
-                              isOrange && !isDisabled && 'text-orange-400 hover:text-orange-300 hover:bg-orange-500/10',
-                              isCyan && !isDisabled && 'text-cyan-400 hover:text-cyan-300 hover:bg-cyan-500/10',
-                              isActive && !isColored && 'bg-sidebar-accent text-sidebar-accent-foreground',
-                              isActive && isTeal && 'bg-teal-500/20 text-teal-300',
-                              isActive && isIndigo && 'bg-blue-500/20 text-blue-300',
-                              isActive && isOrange && 'bg-orange-500/20 text-orange-300',
-                              isActive && isCyan && 'bg-cyan-500/20 text-cyan-300'
+                              // Black by default; text + icon turn blue on hover
+                              // or when active. The icon inherits via text-current.
+                              'text-black transition-colors dark:text-white',
+                              'hover:bg-blue-500/10 hover:text-blue-600 dark:hover:text-blue-400',
+                              'data-[active=true]:bg-blue-500/10 data-[active=true]:text-blue-600 dark:data-[active=true]:text-blue-400',
+                              isDisabled && 'cursor-not-allowed opacity-50'
                             )}
                           >
                             {isDisabled ? (
                               <div className="flex items-center gap-2">
-                                <item.icon className={cn(
-                                  'h-4 w-4',
-                                  isTeal && 'text-teal-400',
-                                  isIndigo && 'text-blue-400',
-                                  isOrange && 'text-orange-400',
-                                  isCyan && 'text-cyan-400'
-                                )} />
+                                <item.icon className="h-4 w-4 text-current" />
                                 <span>{item.name}</span>
                               </div>
                             ) : (
                               <WorkspaceLink href={item.href} onClick={() => setIsCopilotExpanded(false)}>
-                                <item.icon className={cn(
-                                  'h-4 w-4',
-                                  isTeal && 'text-teal-400',
-                                  isIndigo && 'text-blue-400',
-                                  isOrange && 'text-orange-400',
-                                  isCyan && 'text-cyan-400'
-                                )} />
+                                <item.icon className="h-4 w-4 text-current" />
                                 <span>{item.name}</span>
                               </WorkspaceLink>
                             )}

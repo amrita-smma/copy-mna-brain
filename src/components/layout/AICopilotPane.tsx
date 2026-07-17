@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Sparkles, Maximize2, Minimize2, Send, Square, PenLine, History } from 'lucide-react';
+import { toast } from 'sonner';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { Button } from '@/components/ui/button';
 import {
@@ -76,11 +77,71 @@ function ScrollContent({ children }: { children: React.ReactNode }) {
   );
 }
 
+// How long the user must be idle (no typing) before the "… Enhance"
+// affordance appears next to the composer.
+const ENHANCE_IDLE_MS = 1250;
+
 function ChatInput({ isExpanded }: { isExpanded: boolean }) {
   const [input, setInput] = useState('');
+  const [showEnhance, setShowEnhance] = useState(false);
+  const [isEnhancing, setIsEnhancing] = useState(false);
+  const idleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Set when an enhancement succeeds so we can re-focus the textarea only
+  // after it re-enables (focusing while still disabled is a no-op).
+  const refocusAfterEnhanceRef = useRef(false);
   const { sendWithCacheCheck, status, stop, chatInputRef, attachments } = useChatContext();
   const isBusy = status === 'streaming' || status === 'submitted';
   const hasReadyAttachment = attachments.some((a) => a.status === 'ready');
+
+  const clearIdleTimer = useCallback(() => {
+    if (idleTimerRef.current) {
+      clearTimeout(idleTimerRef.current);
+      idleTimerRef.current = null;
+    }
+  }, []);
+
+  // Restart the idle countdown on every keystroke: hide the affordance now, and
+  // re-show it only after ENHANCE_IDLE_MS of no typing — provided there's text
+  // to improve and the agent isn't mid-response.
+  const scheduleIdleCheck = useCallback(
+    (text: string) => {
+      clearIdleTimer();
+      setShowEnhance(false);
+      if (!text.trim() || isBusy) return;
+      idleTimerRef.current = setTimeout(() => setShowEnhance(true), ENHANCE_IDLE_MS);
+    },
+    [clearIdleTimer, isBusy],
+  );
+
+  // While the agent is responding there's nothing to enhance — cancel any
+  // pending countdown and hide the affordance.
+  useEffect(() => {
+    if (isBusy) {
+      clearIdleTimer();
+      setShowEnhance(false);
+    }
+  }, [isBusy, clearIdleTimer]);
+
+  useEffect(() => () => clearIdleTimer(), [clearIdleTimer]);
+
+  // After an enhancement completes the textarea re-enables; return focus to it
+  // and move the caret to the end of the (now replaced) text so the user can
+  // keep typing straight away.
+  useEffect(() => {
+    if (isEnhancing || !refocusAfterEnhanceRef.current) return;
+    refocusAfterEnhanceRef.current = false;
+    const el = chatInputRef.current;
+    if (!el) return;
+    el.focus();
+    const end = el.value.length;
+    el.setSelectionRange(end, end);
+  }, [isEnhancing, chatInputRef]);
+
+  const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const next = e.target.value;
+    setInput(next);
+    scheduleIdleCheck(next);
+  };
 
   const handleSubmit = () => {
     if (isBusy) return;
@@ -89,7 +150,39 @@ function ChatInput({ isExpanded }: { isExpanded: boolean }) {
     // default prompt so the model has an instruction to act on.
     sendWithCacheCheck(input.trim() ? input : 'Please review the attached file(s).');
     setInput('');
+    clearIdleTimer();
+    setShowEnhance(false);
   };
+
+  // Ask the agent to rewrite the current draft into a clearer prompt, then
+  // replace the whole input with the result. Triggered by clicking "… Enhance"
+  // or pressing Shift+Tab.
+  const handleEnhance = useCallback(async () => {
+    const current = input.trim();
+    if (!current || isEnhancing || isBusy) return;
+    clearIdleTimer();
+    setShowEnhance(false);
+    setIsEnhancing(true);
+    try {
+      const res = await fetch('/api/chat/improve-prompt', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt: current }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const { data } = await res.json();
+      const improved: string | undefined = data?.improved;
+      if (!improved) throw new Error('No improved prompt returned');
+      setInput(improved);
+      // Defer the focus until the textarea re-enables (see the effect below).
+      refocusAfterEnhanceRef.current = true;
+    } catch (err) {
+      console.error('[copilot] prompt enhancement failed:', err);
+      toast.error('Could not enhance the prompt — please try again.');
+    } finally {
+      setIsEnhancing(false);
+    }
+  }, [input, isEnhancing, isBusy, clearIdleTimer, chatInputRef]);
 
   // Opening the mobile keyboard triggers layout shifts (visual-viewport resize,
   // bottom-nav hide) that can momentarily drop focus from the input. Re-assert
@@ -125,20 +218,58 @@ function ChatInput({ isExpanded }: { isExpanded: boolean }) {
           <div className="relative flex items-end gap-2 p-2 bg-background rounded-2xl border">
 
             <AttachButton disabled={isBusy} className="self-end" />
-            <ChatTextarea
-              ref={chatInputRef}
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onSubmit={handleSubmit}
-              onFocus={handleFocus}
-              placeholder="Ask anything..."
-              autoComplete="off"
-              autoCorrect="off"
-              spellCheck={false}
-              enterKeyHint="send"
-              className="flex-1 text-sm border-0 bg-transparent focus-visible:ring-0 focus-visible:ring-offset-0"
-              disabled={isBusy}
-            />
+            {/* The textarea is absolutely positioned over an invisible in-flow
+                "mirror" that carries the same text, box, padding and typography
+                — plus the visible "... enhance" affordance. Because the mirror
+                drives the wrapper's height, the box GROWS and the hint wraps
+                onto its own line when the pane is narrow, instead of the hint
+                being clipped. The mirror ignores pointer events except on the
+                Enhance button, so typing/clicking still reaches the textarea. */}
+            <div className="relative flex-1">
+              <ChatTextarea
+                ref={chatInputRef}
+                value={input}
+                onChange={handleChange}
+                onSubmit={handleSubmit}
+                onFocus={handleFocus}
+                onKeyDown={(e) => {
+                  // Shift+Tab enhances the draft instead of moving focus.
+                  if (e.key === 'Tab' && e.shiftKey && input.trim() && !isEnhancing && !isBusy) {
+                    e.preventDefault();
+                    handleEnhance();
+                  }
+                }}
+                placeholder="Ask anything..."
+                autoComplete="off"
+                autoCorrect="off"
+                spellCheck={false}
+                enterKeyHint="send"
+                className="absolute inset-x-0 top-0 w-full text-sm border-0 bg-transparent focus-visible:ring-0 focus-visible:ring-offset-0"
+                disabled={isBusy || isEnhancing}
+              />
+              <div
+                aria-hidden={!showEnhance}
+                className="pointer-events-none relative z-10 max-h-[7.25rem] overflow-hidden whitespace-pre-wrap break-words px-3 py-2 text-sm leading-5 sm:max-h-[13.5rem]"
+              >
+                {/* Zero-width space keeps the box at one line tall when empty so
+                    it matches the textarea's minimum height. */}
+                <span className="invisible">{input}{'\u200b'}</span>
+                {(showEnhance || isEnhancing) && (
+                  <>
+                    {' '}
+                    <button
+                      type="button"
+                      onClick={handleEnhance}
+                      disabled={isEnhancing}
+                      title="Improve this prompt (Shift+Tab)"
+                      className="pointer-events-auto cursor-pointer text-xs font-normal text-blue-500 underline-offset-2 hover:underline disabled:cursor-default disabled:no-underline disabled:opacity-70 dark:text-blue-400"
+                    >
+                      {isEnhancing ? 'enhancing…' : '... enhance'}
+                    </button>
+                  </>
+                )}
+              </div>
+            </div>
             {isBusy ? (
               <Button
                 type="button"
@@ -289,7 +420,7 @@ export function AICopilotPane({
   return (
     <motion.div
       className={cn(
-        'relative flex flex-col bg-background border-l h-full sticky top-0 overflow-hidden',
+        'relative flex flex-col bg-background border-l h-full top-0 overflow-hidden',
         className
       )}
       initial={false}

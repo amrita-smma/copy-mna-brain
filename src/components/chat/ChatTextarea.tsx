@@ -31,9 +31,9 @@ const ChatTextarea = React.forwardRef<HTMLTextAreaElement, ChatTextareaProps>(
       [forwardedRef],
     );
 
-    // Recompute the height on every value change so the box tracks the content,
-    // clamped to the CSS max-height (which is responsive via Tailwind classes).
-    React.useLayoutEffect(() => {
+    // Recompute the height so the box tracks the content, clamped to the CSS
+    // max-height (which is responsive via Tailwind classes).
+    const resize = React.useCallback(() => {
       const el = innerRef.current;
       if (!el) return;
       el.style.height = "auto";
@@ -43,7 +43,30 @@ const ChatTextarea = React.forwardRef<HTMLTextAreaElement, ChatTextareaProps>(
         : el.scrollHeight;
       el.style.height = `${next}px`;
       el.style.overflowY = el.scrollHeight > next ? "auto" : "hidden";
-    }, [value]);
+    }, []);
+
+    // Re-run on every value change...
+    React.useLayoutEffect(() => {
+      resize();
+    }, [value, resize]);
+
+    // ...and whenever the textarea's own width changes (e.g. the surrounding
+    // pane is resized). Without this, a narrower box would rewrap the text to
+    // more lines while the height stayed stale, clipping the last line. Guard
+    // on width so our own height writes don't feed back into an infinite loop.
+    React.useEffect(() => {
+      const el = innerRef.current;
+      if (!el || typeof ResizeObserver === "undefined") return;
+      let lastWidth = el.clientWidth;
+      const ro = new ResizeObserver((entries) => {
+        const width = entries[0]?.contentRect.width ?? 0;
+        if (Math.abs(width - lastWidth) < 0.5) return;
+        lastWidth = width;
+        resize();
+      });
+      ro.observe(el);
+      return () => ro.disconnect();
+    }, [resize]);
 
     return (
       <textarea
