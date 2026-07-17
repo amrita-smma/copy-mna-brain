@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useWorkspaceHref } from '@/hooks/useWorkspaceHref';
 import DashboardLayout from '@/components/layout/DashboardLayout';
 import CompanyDetailDialog, { type CompanyData } from '@/components/pipeline/CompanyDetailDialog';
+import PromoteDialog from '@/components/pipeline/PromoteDialog';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
@@ -22,7 +23,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { deleteCompanyById, getCompanies, updateCompany } from '@/lib/api/pipeline';
+import { deleteCompanyById, getCompanies } from '@/lib/api/pipeline';
 import {
   Database,
   Search,
@@ -193,7 +194,7 @@ export default function MasterData({
   const [currentPage, setCurrentPage] = useState(1);
   const [discoveredPage, setDiscoveredPage] = useState(1);
   const [deletingId, setDeletingId] = useState<string | null>(null);
-  const [addingToL0Id, setAddingToL0Id] = useState<string | null>(null);
+  const [companyToPromote, setCompanyToPromote] = useState<CompanyWithDeal | null>(null);
   const [selectedCompany, setSelectedCompany] = useState<CompanyData | null>(null);
   const [loadingDialog, setLoadingDialog] = useState(false);
   const { toast } = useToast();
@@ -216,6 +217,7 @@ export default function MasterData({
   // Mobile shows companies as cards, paginated 5 at a time; desktop keeps the
   // dense table at 10 per page.
   const itemsPerPage = isMobile ? 5 : 10;
+  const discoveredItemsPerPage = isMobile ? 6 : 12;
 
   const openCompanyDialog = async (companyId: string) => {
     setLoadingDialog(true);
@@ -300,31 +302,7 @@ export default function MasterData({
     }
   };
 
-  // Move a relationship-graph "discovered" company into the L0 deal pipeline.
-  // Removes it from the discovered list and refetches so it appears in the
-  // main pipeline table.
-  const addDiscoveredToL0 = async (companyId: string, companyName: string) => {
-    setAddingToL0Id(companyId);
-    try {
-      await updateCompany(companyId, { pipeline_stage: 'L0' });
 
-      setDiscoveredCompanies((prev) => prev.filter((c) => c.id !== companyId));
-      toast({
-        title: 'Added to L0',
-        description: `"${companyName}" is now in the L0 pipeline (Sourcing).`,
-      });
-      fetchCompanies({ silent: true });
-    } catch (error: any) {
-      console.error('Error adding discovered company to L0:', error);
-      toast({
-        title: 'Could not add to L0',
-        description: error.message || 'Please try again.',
-        variant: 'destructive',
-      });
-    } finally {
-      setAddingToL0Id(null);
-    }
-  };
 
   const getDisplayStage = (company: CompanyWithDeal): DealStage | 'Acquired' | null => {
     if (!company.current_stage) return null;
@@ -393,11 +371,11 @@ export default function MasterData({
   });
   const discoveredTotalPages = Math.max(
     1,
-    Math.ceil(filteredDiscovered.length / itemsPerPage),
+    Math.ceil(filteredDiscovered.length / discoveredItemsPerPage),
   );
   const paginatedDiscovered = filteredDiscovered.slice(
-    (discoveredPage - 1) * itemsPerPage,
-    discoveredPage * itemsPerPage,
+    (discoveredPage - 1) * discoveredItemsPerPage,
+    discoveredPage * discoveredItemsPerPage,
   );
 
   // Managed (reorderable / hideable / groupable) data columns. The identity
@@ -1018,14 +996,10 @@ export default function MasterData({
                             variant="outline"
                             size="sm"
                             className="w-full"
-                            onClick={() => displayName && addDiscoveredToL0(company.id, displayName)}
-                            disabled={!displayName || addingToL0Id === company.id}
+                            onClick={() => displayName && setCompanyToPromote(company)}
+                            disabled={!displayName}
                           >
-                            {addingToL0Id === company.id ? (
-                              <Loader2 className="h-4 w-4 animate-spin" />
-                            ) : (
-                              <ArrowRight className="h-4 w-4" />
-                            )}
+                            <ArrowRight className="h-4 w-4" />
                             Add to L0
                           </Button>
                         </div>
@@ -1069,6 +1043,24 @@ export default function MasterData({
             open={!!selectedCompany}
             onOpenChange={(open) => !open && setSelectedCompany(null)}
             onUpdate={() => {
+              fetchCompanies({ silent: true });
+            }}
+          />
+        )}
+
+        {companyToPromote && (
+          <PromoteDialog
+            open={!!companyToPromote}
+            onOpenChange={(open) => {
+              if (!open) setCompanyToPromote(null);
+            }}
+            dealId={companyToPromote.id}
+            companyName={companyToPromote.name}
+            currentStage={(companyToPromote.current_stage || 'discovered') as DealStage}
+            nextStage="L0"
+            onSuccess={() => {
+              setCompanyToPromote(null);
+              setDiscoveredCompanies((prev) => prev.filter((c) => c.id !== companyToPromote.id));
               fetchCompanies({ silent: true });
             }}
           />

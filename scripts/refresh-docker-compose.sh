@@ -3,6 +3,7 @@
 DOWN=true
 BUILD=false
 EXCLUDES=()
+ONLY=()
 
 function show_help {
     echo "=================================="
@@ -20,6 +21,8 @@ function show_help {
     echo "  --build <true|false>     Whether to build images before starting (default: false)"
     echo "  --exclude <services>     List of services to exclude, separated by comma or space."
     echo "                           Can be specified multiple times."
+    echo "  --only <services>        List of services to explicitly target, separated by comma or space."
+    echo "                           Overrides --exclude if both are provided."
     echo ""
     echo "Examples:"
     echo "  $0 --exclude \"neo4j,postgres\""
@@ -39,6 +42,11 @@ while [[ "$#" -gt 0 ]]; do
             EXCLUDES+=("${arr[@]}")
             shift
             ;;
+        --only)
+            IFS=', ' read -r -a arr <<< "$2"
+            ONLY+=("${arr[@]}")
+            shift
+            ;;
         *)
             echo "Unknown parameter passed: $1"
             show_help
@@ -49,7 +57,9 @@ while [[ "$#" -gt 0 ]]; do
 done
 
 TARGET_SERVICES=()
-if [ ${#EXCLUDES[@]} -gt 0 ]; then
+if [ ${#ONLY[@]} -gt 0 ]; then
+    TARGET_SERVICES=("${ONLY[@]}")
+elif [ ${#EXCLUDES[@]} -gt 0 ]; then
     ALL_SERVICES=$(docker compose -f docker-compose.yml config --services)
     for svc in $ALL_SERVICES; do
         EXCLUDED=false
@@ -67,7 +77,7 @@ fi
 
 if [ "$DOWN" = "true" ] || [ "$DOWN" = true ]; then
     echo "Stopping docker compose"
-    docker compose -f docker-compose.yml down -v --remove-orphans "${TARGET_SERVICES[@]}"
+    docker compose -f docker-compose.yml down -v --remove-orphans
     
     echo "Rotating AUTH_SECRET to invalidate old sessions..."
     # Generate a new 32-byte hex secret

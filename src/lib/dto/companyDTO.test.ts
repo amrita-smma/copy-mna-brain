@@ -55,7 +55,6 @@ function makeCompany(overrides: Partial<Tables<'companies'>> = {}): Tables<'comp
     ai_opinion_summary: null,
     ai_opinion_status: null,
     ai_opinion_updated_at: null,
-    aliases: null,
     ...overrides,
   };
 }

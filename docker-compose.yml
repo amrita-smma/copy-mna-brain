@@ -66,6 +66,7 @@ services:
         condition: service_healthy
       neo4j:
         condition: service_healthy
+        required: false
     env_file:
       - .env.local
     environment:
