@@ -20,6 +20,7 @@ import {
   AttachButton,
   AttachmentChips,
   useAttachmentDrop,
+  useAttachmentPaste,
 } from '@/components/chat/ChatComposerAttachments';
 import { ChatSidebar } from '@/components/chat/ChatSidebar';
 import { ChatMessageBubble, LoadingBubble } from '@/components/chat/ChatMessageBubble';
@@ -91,6 +92,7 @@ function ChatInput({ isExpanded }: { isExpanded: boolean }) {
   // after it re-enables (focusing while still disabled is a no-op).
   const refocusAfterEnhanceRef = useRef(false);
   const { sendWithCacheCheck, status, stop, chatInputRef, attachments } = useChatContext();
+  const { onPaste } = useAttachmentPaste();
   const isBusy = status === 'streaming' || status === 'submitted';
   const hasReadyAttachment = attachments.some((a) => a.status === 'ready');
 
@@ -222,6 +224,7 @@ function ChatInput({ isExpanded }: { isExpanded: boolean }) {
             e.preventDefault();
             handleSubmit();
           }}
+          onPaste={onPaste}
         >
           <AttachmentChips className="mb-2" />
           <div className="relative flex items-end gap-2 p-2 bg-background rounded-2xl border">

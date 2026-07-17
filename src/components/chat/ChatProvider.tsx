@@ -32,8 +32,41 @@ import {
 
 const CHAT_API = "/api/chat";
 
-/** Max size for a single chat attachment. Any file type is accepted. */
+/** Max size for a single chat attachment. Supports documents, images, and text. */
 export const MAX_ATTACHMENT_BYTES = 100 * 1024 * 1024; // 100 MB
+
+const ALLOWED_MIME_TYPES = new Set([
+  'application/pdf',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document', // docx
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation', // pptx
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', // xlsx
+  'application/json',
+  'text/csv',
+  'image/png',
+  'image/jpeg',
+  'image/gif',
+  'image/webp',
+]);
+
+function isAllowedFileType(file: File): boolean {
+  if (file.type && file.type.startsWith('text/')) return true;
+  if (file.type && ALLOWED_MIME_TYPES.has(file.type)) return true;
+  
+  const lowerName = file.name.toLowerCase();
+  if (lowerName.endsWith('.pdf')) return true;
+  if (lowerName.endsWith('.docx')) return true;
+  if (lowerName.endsWith('.pptx')) return true;
+  if (lowerName.endsWith('.xlsx')) return true;
+  if (lowerName.endsWith('.json')) return true;
+  if (lowerName.endsWith('.csv')) return true;
+  if (lowerName.endsWith('.png')) return true;
+  if (lowerName.endsWith('.jpg') || lowerName.endsWith('.jpeg')) return true;
+  if (lowerName.endsWith('.gif')) return true;
+  if (lowerName.endsWith('.webp')) return true;
+  if (lowerName.endsWith('.txt') || lowerName.endsWith('.md')) return true;
+  
+  return false;
+}
 
 function parseChatError(err: Error): { title: string; description: string } {
   // The AI SDK forwards Anthropic API errors as a JSON-stringified payload in
@@ -110,6 +143,7 @@ export interface ChatAttachment {
   contentType: string;
   size: number;
   status: 'uploading' | 'ready' | 'error';
+  previewUrl?: string;
 }
 
 /**
@@ -164,6 +198,8 @@ interface ChatContextValue extends ReturnType<typeof useChat> {
   /** Which effort tier the chat will use. 'auto' defers to the server default (Medium). */
   effortChoice: ChatEffortChoice;
   setEffortChoice: (m: ChatEffortChoice) => void;
+  /** Holds attachments for optimistically rendered user messages before server reload. */
+  optimisticAttachments: Record<string, ChatAttachment[]>;
 }
 
 const ChatContext = createContext<ChatContextValue | null>(null);
@@ -206,19 +242,33 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   const [attachments, setAttachments] = useState<ChatAttachment[]>([]);
   const attachmentsRef = useRef<ChatAttachment[]>([]);
   attachmentsRef.current = attachments;
+  
+  // Captures attachments synchronously when the user hits send, holding them
+  // for the few milliseconds it takes Vercel AI SDK to build and dispatch
+  // the asynchronous network request.
+  const pendingAttachmentsRef = useRef<ChatAttachment[]>([]);
 
   const [effortChoice, setEffortChoice] = useState<ChatEffortChoice>('auto');
   const effortChoiceRef = useRef<ChatEffortChoice>('auto');
   effortChoiceRef.current = effortChoice;
+
+  // Holds attachments associated with message IDs to render them optimistically
+  // in the chat bubble before the server reloads the history.
+  const [optimisticAttachments, setOptimisticAttachments] = useState<Record<string, ChatAttachment[]>>({});
 
   const transport = useMemo(
     () =>
       new DefaultChatTransport({
         api: CHAT_API,
         body: () => {
-          const ready = attachmentsRef.current
-            .filter((a) => a.status === 'ready' && a.key)
-            .map((a) => ({ key: a.key!, fileName: a.fileName, contentType: a.contentType }));
+          const ready = pendingAttachmentsRef.current.map((a) => ({
+            key: a.key!,
+            fileName: a.fileName,
+            contentType: a.contentType,
+          }));
+          // Consume them so they aren't sent again on the next turn.
+          pendingAttachmentsRef.current = [];
+          
           const mc = effortChoiceRef.current;
           return {
             ...(chatIdRef.current ? { chat_id: chatIdRef.current } : {}),
@@ -426,8 +476,15 @@ export function ChatProvider({ children }: { children: ReactNode }) {
           });
           continue;
         }
+        if (!isAllowedFileType(file)) {
+          toast.error('Unsupported file type', {
+            description: `${file.name} is not a supported document or image format.`,
+          });
+          continue;
+        }
         const localId = crypto.randomUUID();
         const contentType = file.type || 'application/octet-stream';
+        const previewUrl = contentType.startsWith('image/') ? URL.createObjectURL(file) : undefined;
         setAttachments((prev) => [
           ...prev,
           {
@@ -437,6 +494,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
             contentType,
             size: file.size,
             status: 'uploading',
+            previewUrl,
           },
         ]);
         void (async () => {
@@ -475,17 +533,50 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       setAttachments((prev) => {
         const target = prev.find((a) => a.localId === localId);
         if (target?.key) deleteAttachmentObject(target.key);
+        if (target?.previewUrl) URL.revokeObjectURL(target.previewUrl);
         return prev.filter((a) => a.localId !== localId);
       });
     },
     [deleteAttachmentObject],
   );
 
+  // Clears the composer UI state (e.g. after sending a message) without
+  // deleting the underlying S3 objects, which the server still needs to read.
+  const resetComposerAttachments = useCallback(() => {
+    setAttachments([]);
+  }, []);
+
+  const sendWithAttachments = useCallback((text: string) => {
+    const readyAttachments = attachmentsRef.current.filter((a) => a.status === 'ready' && a.key);
+    let payloadText = text;
+    
+    if (readyAttachments.length > 0) {
+      const attachmentStr = readyAttachments.map(a => `\n📎 Attached: ${a.fileName}`).join("");
+      payloadText = text ? `${text}\n${attachmentStr}` : attachmentStr.trim();
+    }
+    
+    const messageId = crypto.randomUUID();
+    
+    if (readyAttachments.length > 0) {
+      // Inject a hidden tracking ID so UserMessageBubble can find the optimistic attachments
+      // even if Vercel AI SDK rewrites the actual message.id.
+      payloadText = `${payloadText}\n<!-- attach_id: ${messageId} -->`.trim();
+      setOptimisticAttachments(prev => ({ ...prev, [messageId]: readyAttachments }));
+      pendingAttachmentsRef.current = readyAttachments;
+    }
+    
+    chatStateRef.current.sendMessage({ id: messageId, text: payloadText });
+    resetComposerAttachments();
+  }, [resetComposerAttachments]);
+
   // Drop every attachment and delete its S3 object. Called when starting a
   // brand-new chat so the composer starts clean.
   const clearAttachments = useCallback(() => {
     setAttachments((prev) => {
-      for (const a of prev) if (a.key) deleteAttachmentObject(a.key);
+      for (const a of prev) {
+        if (a.key) deleteAttachmentObject(a.key);
+        if (a.previewUrl) URL.revokeObjectURL(a.previewUrl);
+      }
       return [];
     });
   }, [deleteAttachmentObject]);
@@ -506,7 +597,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   const sendWithCacheCheck = useCallback(async (text: string) => {
     const trimmed = text.trim();
     if (chatIdRef.current || !trimmed) {
-      chatStateRef.current.sendMessage({ text });
+      sendWithAttachments(text);
       return;
     }
     try {
@@ -533,8 +624,8 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     } catch (err) {
       console.error('[chat] cache-check failed:', err);
     }
-    chatStateRef.current.sendMessage({ text });
-  }, []);
+    sendWithAttachments(text);
+  }, [sendWithAttachments]);
 
   // "Continue from chat" — fork the cached turn-1 into a new chat owned by the
   // current user, switch to it (the chat-load effect renders the seeded
@@ -570,8 +661,8 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     const hit = cacheHit;
     setCacheHit(null);
     if (!hit) return;
-    chatStateRef.current.sendMessage({ text: hit.pendingText });
-  }, [cacheHit]);
+    sendWithAttachments(hit.pendingText);
+  }, [cacheHit, sendWithAttachments]);
 
   // A prompt that's queued behind a still-streaming response. Non-null while
   // the "stop & replace" confirmation dialog is open.
@@ -653,6 +744,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       removeAttachment,
       effortChoice,
       setEffortChoice,
+      optimisticAttachments,
     }),
     [
       chat,
@@ -671,6 +763,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       addFiles,
       removeAttachment,
       effortChoice,
+      optimisticAttachments,
     ],
   );
 

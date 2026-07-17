@@ -92,22 +92,21 @@ describe('ChatAttachmentService.prepareForMessage', () => {
     expect(mocks.filesUpload).not.toHaveBeenCalled();
   });
 
-  it('uploads PDFs and images to the Files API as file blocks', async () => {
+  it('uploads PDFs to the Files API as file blocks and base64 encodes images', async () => {
     mocks.filesUpload
-      .mockResolvedValueOnce({ id: 'file_1' })
-      .mockResolvedValueOnce({ id: 'file_2' });
+      .mockResolvedValueOnce({ id: 'file_1' });
     const out = await makeService().prepareForMessage([
       { key: `${PREFIX}a.pdf`, fileName: 'a.pdf', contentType: 'application/pdf' },
       { key: `${PREFIX}b.png`, fileName: 'b.png', contentType: 'image/png' },
     ]);
-    expect(mocks.filesUpload).toHaveBeenCalledTimes(2);
+    expect(mocks.filesUpload).toHaveBeenCalledTimes(1);
     expect(mocks.extractTextFromFile).not.toHaveBeenCalled();
     expect(out).toEqual({
       blocks: [
         { type: 'file', fileId: 'file_1' },
-        { type: 'file', fileId: 'file_2' },
+        { type: 'image_url', image_url: { url: 'data:image/png;base64,cGRmLWJ5dGVz' } },
       ],
-      fileIds: ['file_1', 'file_2'],
+      fileIds: ['file_1'],
     });
   });
 

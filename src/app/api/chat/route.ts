@@ -262,9 +262,15 @@ export async function POST(req: NextRequest) {
     const apiKey = process.env.ANTHROPIC_API_KEY;
     let titlePromise: Promise<string | null> | null = null;
     if (shouldGenerateTitle && apiKey) {
+      let titlePromptText = firstUserText
+        .replace(/\n*📎 Attached: (.*)$/gm, '')
+        .replace(/\n*<!-- attach_id: (.*?) -->/g, '')
+        .trim();
+      if (!titlePromptText) titlePromptText = "Attached file(s)";
+      
       titlePromise = generateAndSaveTitle({
         chatId: chat.id,
-        firstUserMessage: firstUserText,
+        firstUserMessage: titlePromptText,
         apiKey,
       });
       after(() => titlePromise);

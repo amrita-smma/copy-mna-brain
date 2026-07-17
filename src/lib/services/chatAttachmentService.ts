@@ -29,7 +29,8 @@ export interface ChatAttachmentUploadTarget {
 /** A content block ready to drop into a HumanMessage `content` array. */
 export type AttachmentContentBlock =
   | { type: 'file'; fileId: string }
-  | { type: 'text'; text: string };
+  | { type: 'text'; text: string }
+  | { type: 'image_url'; image_url: { url: string } };
 
 export interface PreparedAttachments {
   /** Content blocks to append after the user's text. */
@@ -144,13 +145,19 @@ export class ChatAttachmentService {
         this.assertOwned(att.key);
         const buffer = await downloadFile(att.key);
         const native = nativeMediaType(att.contentType, att.fileName);
-        if (native) {
+        if (native === 'application/pdf') {
           const file = await anthropic.beta.files.upload({
             file: await toFile(buffer, att.fileName, { type: native }),
             betas: [FILES_API_BETA],
           });
           fileIds.push(file.id);
           blocks.push({ type: 'file', fileId: file.id });
+        } else if (native && native.startsWith('image/')) {
+          const base64 = buffer.toString('base64');
+          blocks.push({
+            type: 'image_url',
+            image_url: { url: `data:${native};base64,${base64}` },
+          });
         } else {
           let text: string;
           try {

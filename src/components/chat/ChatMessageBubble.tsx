@@ -91,23 +91,98 @@ function ChatMessageBubbleImpl(props: ChatMessageBubbleProps) {
 
 function UserMessageBubble({ message }: { message: UIMessage }) {
   const parts = message?.parts || [];
-  const textContent = parts
+  let textContent = parts
     .filter((part) => part.type === "text")
     .map((part) => (part as any).text)
     .join("");
+
+  const fileAttachments: string[] = [];
+  
+  // Extract the injected attachment markers from the UI text
+  textContent = textContent.replace(/\n*📎 Attached: (.*)$/gm, (match, fileName) => {
+    if (fileName) fileAttachments.push(fileName.trim());
+    return '';
+  });
+  
+  // Extract the hidden tracking ID for optimistic lookups
+  let trackingId: string | null = null;
+  textContent = textContent.replace(/\n*<!-- attach_id: (.*?) -->/g, (match, id) => {
+    trackingId = id;
+    return '';
+  }).trim();
+
+  const { optimisticAttachments } = useChatContext();
+  
+  // Combine optimistic attachments (active session) with server-loaded attachments (history)
+  const activeAttachments = optimisticAttachments?.[trackingId || message.id] || [];
+  const historyImageAttachments = (message as any).experimental_attachments || [];
+  
+  const hasImages = activeAttachments.some(a => a.previewUrl) || historyImageAttachments.length > 0;
+  // Deduplicate file names just in case active and history overlap (which they shouldn't since active clears on reload)
+  const uniqueFilePills = Array.from(new Set([
+    ...fileAttachments,
+    ...activeAttachments.filter(a => !a.previewUrl).map(a => a.fileName)
+  ])).filter(fileName => {
+    const ext = fileName.split('.').pop()?.toLowerCase();
+    return !['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(ext || '');
+  });
+  
+  const hasAttachments = hasImages || uniqueFilePills.length > 0;
 
   return (
     <div className="flex gap-4 mb-6 flex-row-reverse min-w-0">
       <div className="flex-shrink-0 h-10 w-10 rounded-xl flex items-center justify-center bg-primary">
         <User className="h-5 w-5 text-primary-foreground" />
       </div>
-      <div className="flex-1 min-w-0 max-w-full md:max-w-[80%] flex flex-col items-end">
-        <div className="rounded-2xl px-5 py-4 w-full min-w-0 overflow-auto break-words bg-primary text-primary-foreground">
-          <MarkdownRenderer
-            content={textContent}
-            className="prose-invert [&_*]:text-primary-foreground"
-          />
-        </div>
+      <div className="flex-1 min-w-0 max-w-full md:max-w-[80%] flex flex-col items-end gap-2">
+        {hasAttachments && (
+          <div className="flex flex-wrap justify-end gap-2 mb-1">
+            {/* Document Pills */}
+            {uniqueFilePills.map((fileName, i) => (
+              <div 
+                key={`file-${i}`} 
+                className="flex items-center gap-2 px-3 py-2 h-10 rounded-lg border bg-muted/60 text-sm text-foreground shadow-sm"
+                // TODO: Implement redownload file to local system when clicked
+              >
+                <FileText className="h-4 w-4 text-muted-foreground" />
+                <span className="truncate max-w-[150px] font-medium">{fileName}</span>
+              </div>
+            ))}
+            
+            {/* Image Thumbnails */}
+            {activeAttachments.map((a) => (
+              a.previewUrl && (
+                <div 
+                  key={a.localId} 
+                  className="h-24 w-24 sm:h-32 sm:w-32 rounded-lg border shadow-sm overflow-hidden bg-muted"
+                  // TODO: Implement redownload file to local system when clicked
+                >
+                  <img src={a.previewUrl} alt={a.fileName} className="h-full w-full object-cover" />
+                </div>
+              )
+            ))}
+            {historyImageAttachments.map((a, i) => (
+              a.url && (
+                <div 
+                  key={`hist-${i}`} 
+                  className="h-24 w-24 sm:h-32 sm:w-32 rounded-lg border shadow-sm overflow-hidden bg-muted"
+                  // TODO: Implement redownload file to local system when clicked
+                >
+                  <img src={a.url} alt="Attached image" className="h-full w-full object-cover" />
+                </div>
+              )
+            ))}
+          </div>
+        )}
+        
+        {textContent && (
+          <div className="rounded-2xl px-5 py-4 w-full min-w-0 overflow-auto break-words bg-primary text-primary-foreground">
+            <MarkdownRenderer
+              content={textContent}
+              className="prose-invert [&_*]:text-primary-foreground"
+            />
+          </div>
+        )}
       </div>
     </div>
   );

@@ -25,6 +25,7 @@ interface UIMessageOut {
   id: string;
   role: 'user' | 'assistant';
   parts: UIPart[];
+  experimental_attachments?: { url: string; contentType?: string }[];
 }
 
 function extractText(content: unknown): string {
@@ -35,7 +36,12 @@ function extractText(content: unknown): string {
     .map((block) => {
       if (typeof block === 'string') return block;
       if (block && typeof block === 'object' && (block as { type?: string }).type === 'text') {
-        return (block as { text?: string }).text ?? '';
+        const txt = (block as { text?: string }).text ?? '';
+        // Hide backend file extractions from the UI
+        if (txt.startsWith('Attached file "') && txt.includes('":\n\n')) {
+          return '';
+        }
+        return txt;
       }
       return '';
     })
@@ -74,8 +80,28 @@ function toUIMessages(messages: BaseMessage[]): UIMessageOut[] {
       toolPartByCallId.clear();
 
       const text = extractText(m.content);
-      if (!text) continue;
-      out.push({ id, role: 'user', parts: [{ type: 'text', text }] });
+      const experimental_attachments: { url: string; contentType?: string }[] = [];
+      
+      if (Array.isArray(m.content)) {
+        for (const block of m.content) {
+          if (block && typeof block === 'object' && (block as { type?: string }).type === 'image_url') {
+            const imgUrl = (block as { image_url?: { url?: string } }).image_url?.url;
+            if (imgUrl) {
+              // Extract content type from data URI (data:image/png;base64,...)
+              const contentType = imgUrl.split(';')[0]?.split(':')[1] || 'image/png';
+              experimental_attachments.push({ url: imgUrl, contentType });
+            }
+          }
+        }
+      }
+
+      if (!text && experimental_attachments.length === 0) continue;
+      out.push({ 
+        id, 
+        role: 'user', 
+        parts: text ? [{ type: 'text', text }] : [],
+        experimental_attachments: experimental_attachments.length > 0 ? experimental_attachments : undefined
+      });
       continue;
     }
 

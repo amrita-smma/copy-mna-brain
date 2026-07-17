@@ -12,7 +12,7 @@ import { cn } from "@/lib/utils";
 import { ChatTextarea } from "./ChatTextarea";
 import { ChatMessageBubble, LoadingBubble } from "./ChatMessageBubble";
 import { useChatContext } from "./ChatProvider";
-import { AttachButton, AttachmentChips, useAttachmentDrop } from "./ChatComposerAttachments";
+import { AttachButton, AttachmentChips, useAttachmentDrop, useAttachmentPaste } from "./ChatComposerAttachments";
 import { CachedChatPreview } from "./CachedChatPreview";
 import { ChatSuggestions } from "./ChatSuggestions";
 import { EffortPill } from "./EffortSelector";
@@ -132,6 +132,7 @@ export function ChatInput(props: {
   const chips = props.suggestionChips ?? SUGGESTION_CHIPS;
   const { attachments, effortChoice, setEffortChoice } = useChatContext();
   const { isDragging, dropHandlers } = useAttachmentDrop();
+  const { onPaste } = useAttachmentPaste();
   const hasReadyAttachment = attachments.some((a) => a.status === "ready");
   return (
     <form
@@ -140,6 +141,7 @@ export function ChatInput(props: {
         props.onSubmit();
       }}
       className={cn("w-full space-y-3", props.className)}
+      onPaste={onPaste}
       {...dropHandlers}
     >
       <AttachmentChips />
