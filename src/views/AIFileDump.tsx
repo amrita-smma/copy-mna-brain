@@ -170,8 +170,10 @@ interface FileTableProps {
   title: string;
   icon: React.ReactNode;
   iconColor: string;
+  /** The current page of rows already filtered/sorted/paginated server-side. */
   files: FileRecord[];
-  filteredFiles: FileRecord[];
+  /** Total rows matching the current search, across all pages. */
+  total: number;
   searchQuery: string;
   onSearchChange: (query: string) => void;
   sortField: keyof FileRecord;
@@ -204,7 +206,7 @@ function FileTable({
   icon,
   iconColor,
   files,
-  filteredFiles,
+  total,
   searchQuery,
   onSearchChange,
   sortField,
@@ -230,14 +232,10 @@ function FileTable({
   itemsPerPage = 10,
   hideTitle = false,
 }: FileTableProps) {
-  const totalPages = Math.max(
-    1,
-    Math.ceil(filteredFiles.length / itemsPerPage),
-  );
-  const paginatedFiles = filteredFiles.slice(
-    (currentPage - 1) * itemsPerPage,
-    currentPage * itemsPerPage,
-  );
+  const totalPages = Math.max(1, Math.ceil(total / itemsPerPage));
+  // `files` is already the server-resolved page; render it as-is.
+  const paginatedFiles = files;
+  const hasSearch = searchQuery.trim().length > 0;
   const SortIcon = ({ field }: { field: keyof FileRecord }) => {
     if (sortField !== field)
       return <ChevronsUpDown className="h-3 w-3 ml-1 opacity-50" />;
@@ -495,7 +493,7 @@ function FileTable({
           {!hideTitle && (
             <CardTitle className="flex items-center gap-2">
               <span className={iconColor}>{icon}</span>
-              {title} ({filteredFiles.length})
+              {title} ({total})
             </CardTitle>
           )}
           <div className="relative w-full md:w-64">
@@ -510,7 +508,7 @@ function FileTable({
         </div>
       </CardHeader>
       <CardContent>
-        {files.length === 0 ? (
+        {total === 0 && !hasSearch ? (
           <div className="text-center py-12 text-muted-foreground">
             <div
               className={cn(
@@ -523,7 +521,7 @@ function FileTable({
             <p>{emptyMessage}</p>
             <p className="text-sm">{emptySubMessage}</p>
           </div>
-        ) : filteredFiles.length === 0 ? (
+        ) : total === 0 ? (
           <div className="text-center py-12 text-muted-foreground">
             <Search className="mx-auto h-12 w-12 mb-4 opacity-50" />
             <p>No results found for &quot;{searchQuery}&quot;</p>
@@ -759,8 +757,7 @@ function FileTable({
             {totalPages > 1 && (
               <div className="flex items-center justify-between mt-4 pt-4 border-t">
                 <p className="text-sm text-muted-foreground">
-                  Page {currentPage} of {totalPages} ({filteredFiles.length}{" "}
-                  files)
+                  Page {currentPage} of {totalPages} ({total} files)
                 </p>
                 <div className="flex items-center gap-2">
                   <Button
@@ -792,6 +789,122 @@ function FileTable({
   );
 }
 
+const PAGE_SIZE = 10;
+
+interface FileBucket {
+  /** Current page of rows for this category. */
+  files: FileRecord[];
+  /** Total rows matching the current search across all pages. */
+  total: number;
+  /** True until the first fetch resolves; used to gate the initial page spinner. */
+  initialLoading: boolean;
+  search: string;
+  setSearch: (query: string) => void;
+  sortField: keyof FileRecord;
+  sortDirection: "asc" | "desc";
+  onSort: (field: keyof FileRecord) => void;
+  page: number;
+  setPage: (page: number) => void;
+  refetch: () => void;
+}
+
+/**
+ * Owns the server-driven search / sort / pagination state for a single AI File
+ * Dump category and fetches only the current page from
+ * `GET /api/ai-file-dump`. The view used to pull every row per category and
+ * filter/sort/paginate in the browser (slow and memory-heavy for large
+ * workspaces); this keeps at most PAGE_SIZE rows in memory per category.
+ *
+ * Search input is debounced (300ms) and any search or sort change returns to
+ * page 1. `fileType` is the API bucket key — the MoM bucket maps to the empty
+ * `file_type` sentinel the route expects.
+ */
+function useFileBucket(fileType: string): FileBucket {
+  const [files, setFiles] = useState<FileRecord[]>([]);
+  const [total, setTotal] = useState(0);
+  const [initialLoading, setInitialLoading] = useState(true);
+  const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [sortField, setSortField] = useState<keyof FileRecord>("file_date");
+  const [sortDirection, setSortDirection] = useState<"asc" | "desc">("desc");
+  const [page, setPage] = useState(1);
+
+  // Debounce the search box; committing a new query always returns to page 1.
+  useEffect(() => {
+    const handle = setTimeout(() => {
+      setDebouncedSearch(search);
+      setPage(1);
+    }, 300);
+    return () => clearTimeout(handle);
+  }, [search]);
+
+  const fetchFiles = useCallback(async () => {
+    try {
+      const params = new URLSearchParams();
+      // The route treats an empty `file_type` as the MoM bucket sentinel.
+      params.set("file_type", fileType === "mom" ? "" : fileType);
+      const term = debouncedSearch.trim();
+      if (term) params.set("search", term);
+      params.set("page", String(page));
+      params.set("pageSize", String(PAGE_SIZE));
+      params.set("sortField", String(sortField));
+      params.set("sortDirection", sortDirection);
+
+      const response = await fetch(`/api/ai-file-dump?${params.toString()}`);
+      const result = await response.json();
+      if (result.success) {
+        setFiles(result.data);
+        setTotal(result.total ?? 0);
+      } else {
+        toast.error("Failed to load files");
+      }
+    } catch (error) {
+      console.error("Error fetching files:", error);
+      toast.error("Failed to load files");
+    } finally {
+      setInitialLoading(false);
+    }
+  }, [fileType, debouncedSearch, page, sortField, sortDirection]);
+
+  useEffect(() => {
+    fetchFiles();
+  }, [fetchFiles]);
+
+  // If a refetch shrank the result set past the current page (e.g. after a
+  // delete on the last page), step back so we never sit on an empty page.
+  useEffect(() => {
+    const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+    if (page > totalPages) setPage(totalPages);
+  }, [total, page]);
+
+  const onSort = useCallback(
+    (field: keyof FileRecord) => {
+      if (field === sortField) {
+        setSortDirection((prev) => (prev === "asc" ? "desc" : "asc"));
+      } else {
+        setSortField(field);
+        setSortDirection("asc");
+      }
+      setPage(1);
+    },
+    [sortField],
+  );
+
+  return {
+    files,
+    total,
+    initialLoading,
+    search,
+    setSearch,
+    sortField,
+    sortDirection,
+    onSort,
+    page,
+    setPage,
+    refetch: fetchFiles,
+  };
+}
+
 interface AIFileDumpProps {
   showCompanyGraph?: boolean;
   showFundManagement?: boolean;
@@ -802,12 +915,26 @@ export default function AIFileDump({
   showFundManagement = false,
 }: AIFileDumpProps) {
   const { analyzeWithAI } = useChatContext();
-  const [meetingNotes, setMeetingNotes] = useState<MeetingNote[]>([]);
-  const [prospectus, setProspectus] = useState<Prospectus[]>([]);
-  const [shoppingLists, setShoppingLists] = useState<FileRecord[]>([]);
-  const [bankerComms, setBankerComms] = useState<FileRecord[]>([]);
-  const [otherFiles, setOtherFiles] = useState<OtherFile[]>([]);
-  const [loading, setLoading] = useState(true);
+
+  // Each category owns its server-driven search / sort / pagination and only
+  // ever holds the current page of rows.
+  const mom = useFileBucket("mom");
+  const prospectusBucket = useFileBucket("prospectus");
+  const shoppingListBucket = useFileBucket("shopping_list");
+  const bankerCommsBucket = useFileBucket("banker_communications");
+  const otherBucket = useFileBucket("other");
+
+  const refetchAll = useCallback(() => {
+    mom.refetch();
+    prospectusBucket.refetch();
+    shoppingListBucket.refetch();
+    bankerCommsBucket.refetch();
+    otherBucket.refetch();
+  }, [mom, prospectusBucket, shoppingListBucket, bankerCommsBucket, otherBucket]);
+
+  // Gate the first-paint spinner on the default (MoM) tab; the other buckets
+  // load in the background and fill in their tables as they arrive.
+  const loading = mom.initialLoading;
   const [uploading, setUploading] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
@@ -852,42 +979,6 @@ export default function AIFileDump({
     total: number;
   } | null>(null);
 
-  // Sorting and Filtering state - separate for each table
-  const [momSearchQuery, setMomSearchQuery] = useState("");
-  const [momSortField, setMomSortField] =
-    useState<keyof MeetingNote>("file_date");
-  const [momSortDirection, setMomSortDirection] = useState<"asc" | "desc">(
-    "desc",
-  );
-
-  const [prospectusSearchQuery, setProspectusSearchQuery] = useState("");
-  const [prospectusSortField, setProspectusSortField] =
-    useState<keyof MeetingNote>("file_date");
-  const [prospectusSortDirection, setProspectusSortDirection] = useState<
-    "asc" | "desc"
-  >("desc");
-
-  const [shoppingListSearchQuery, setShoppingListSearchQuery] = useState("");
-  const [shoppingListSortField, setShoppingListSortField] =
-    useState<keyof MeetingNote>("file_date");
-  const [shoppingListSortDirection, setShoppingListSortDirection] = useState<
-    "asc" | "desc"
-  >("desc");
-
-  const [bankerCommsSearchQuery, setBankerCommsSearchQuery] = useState("");
-  const [bankerCommsSortField, setBankerCommsSortField] =
-    useState<keyof MeetingNote>("file_date");
-  const [bankerCommsSortDirection, setBankerCommsSortDirection] = useState<
-    "asc" | "desc"
-  >("desc");
-
-  const [otherFilesSearchQuery, setOtherFilesSearchQuery] = useState("");
-  const [otherFilesSortField, setOtherFilesSortField] =
-    useState<keyof MeetingNote>("file_date");
-  const [otherFilesSortDirection, setOtherFilesSortDirection] = useState<
-    "asc" | "desc"
-  >("desc");
-
   const [expandedTags, setExpandedTags] = useState<Record<string, boolean>>({});
   const [expandedCompanies, setExpandedCompanies] = useState<
     Record<string, boolean>
@@ -895,105 +986,6 @@ export default function AIFileDump({
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
   const [reprocessingId, setReprocessingId] = useState<string | null>(null);
   const [reviewFileId, setReviewFileId] = useState<string | null>(null);
-
-  // Pagination state for each table
-  const [momPage, setMomPage] = useState(1);
-  const [prospectusPage, setProspectusPage] = useState(1);
-  const [shoppingListPage, setShoppingListPage] = useState(1);
-  const [bankerCommsPage, setBankerCommsPage] = useState(1);
-  const [otherFilesPage, setOtherFilesPage] = useState(1);
-
-  const fetchMeetingNotes = useCallback(async () => {
-    try {
-      const response = await fetch("/api/ai-file-dump?file_type");
-      const result = await response.json();
-
-      if (result.success) {
-        setMeetingNotes(result.data);
-      } else {
-        toast.error("Failed to load MoM");
-      }
-    } catch (error) {
-      console.error("Error fetching MoM:", error);
-      toast.error("Failed to load MoM");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  const fetchProspectus = useCallback(async () => {
-    try {
-      const response = await fetch("/api/ai-file-dump?file_type=prospectus");
-      const result = await response.json();
-
-      if (result.success) {
-        setProspectus(result.data);
-      } else {
-        toast.error("Failed to load prospectus");
-      }
-    } catch (error) {
-      console.error("Error fetching prospectus:", error);
-      toast.error("Failed to load prospectus");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  const fetchShoppingLists = useCallback(async () => {
-    try {
-      const response = await fetch("/api/ai-file-dump?file_type=shopping_list");
-      const result = await response.json();
-
-      if (result.success) {
-        setShoppingLists(result.data);
-      } else {
-        toast.error("Failed to load shopping lists");
-      }
-    } catch (error) {
-      console.error("Error fetching shopping lists:", error);
-      toast.error("Failed to load shopping lists");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  const fetchBankerComms = useCallback(async () => {
-    try {
-      const response = await fetch(
-        "/api/ai-file-dump?file_type=banker_communications",
-      );
-      const result = await response.json();
-
-      if (result.success) {
-        setBankerComms(result.data);
-      } else {
-        toast.error("Failed to load banker communications");
-      }
-    } catch (error) {
-      console.error("Error fetching banker communications:", error);
-      toast.error("Failed to load banker communications");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  const fetchOtherFiles = useCallback(async () => {
-    try {
-      const response = await fetch("/api/ai-file-dump?file_type=other");
-      const result = await response.json();
-
-      if (result.success) {
-        setOtherFiles(result.data);
-      } else {
-        toast.error("Failed to load other files");
-      }
-    } catch (error) {
-      console.error("Error fetching other files:", error);
-      toast.error("Failed to load other files");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
 
   // Load the full company DTO and open the detail dialog. The matched-company
   // chips only carry id + name, but CompanyDetailDialog reads (and can edit)
@@ -1013,14 +1005,6 @@ export default function AIFileDump({
       toast.error("Could not load company");
     }
   }, []);
-
-  useEffect(() => {
-    fetchMeetingNotes();
-    fetchProspectus();
-    fetchShoppingLists();
-    fetchBankerComms();
-    fetchOtherFiles();
-  }, [fetchMeetingNotes, fetchProspectus, fetchShoppingLists, fetchBankerComms, fetchOtherFiles]);
 
   // Companies for the Matched Company / Project Name dropdowns + the
   // filename auto-matcher. Each row in `companies` carries both `target`
@@ -1125,13 +1109,16 @@ export default function AIFileDump({
       return;
     }
 
-    // Check for duplicates across all file types (meeting notes, prospectus, banker comms, other files)
+    // Best-effort duplicate check against the file names currently loaded in
+    // each category's page. Since listing is now paginated the browser no
+    // longer holds every name, so this only catches duplicates visible on the
+    // current pages; the server remains the source of truth.
     const existingFileNames = new Set([
-      ...meetingNotes.map((n) => n.file_name),
-      ...prospectus.map((n) => n.file_name),
-      ...shoppingLists.map((n) => n.file_name),
-      ...bankerComms.map((n) => n.file_name),
-      ...otherFiles.map((n) => n.file_name),
+      ...mom.files.map((n) => n.file_name),
+      ...prospectusBucket.files.map((n) => n.file_name),
+      ...shoppingListBucket.files.map((n) => n.file_name),
+      ...bankerCommsBucket.files.map((n) => n.file_name),
+      ...otherBucket.files.map((n) => n.file_name),
     ]);
     const duplicates = selectedFiles.filter((file) =>
       existingFileNames.has(file.name),
@@ -1264,11 +1251,7 @@ export default function AIFileDump({
       setFileTypeOverrides({});
       setFileMatchedCompanies({});
       setFileMatchedProjects({});
-      fetchMeetingNotes();
-      fetchProspectus();
-      fetchShoppingLists();
-      fetchBankerComms();
-      fetchOtherFiles();
+      refetchAll();
     } else {
       if (duplicates.length > 0) {
         toast.warning(
@@ -1301,10 +1284,7 @@ export default function AIFileDump({
         });
 
         toast.success("File deleted successfully");
-        fetchMeetingNotes();
-        fetchProspectus();
-        fetchBankerComms();
-        fetchOtherFiles();
+        refetchAll();
       } else {
         toast.error(result.error || "Failed to delete file");
       }
@@ -1332,10 +1312,7 @@ export default function AIFileDump({
         });
 
         toast.success("File reprocessed successfully");
-        fetchMeetingNotes();
-        fetchProspectus();
-        fetchBankerComms();
-        fetchOtherFiles();
+        refetchAll();
       } else {
         toast.error(result.error || "Failed to reprocess file");
       }
@@ -1358,91 +1335,6 @@ export default function AIFileDump({
     setFileTypeOverrides({});
     setFileMatchedCompanies({});
     setFileMatchedProjects({});
-  };
-
-  // Sort handlers for each table
-  const handleMomSort = (field: keyof MeetingNote) => {
-    if (momSortField === field) {
-      setMomSortDirection(momSortDirection === "asc" ? "desc" : "asc");
-    } else {
-      setMomSortField(field);
-      setMomSortDirection("asc");
-    }
-    setMomPage(1);
-  };
-
-  const handleProspectusSort = (field: keyof MeetingNote) => {
-    if (prospectusSortField === field) {
-      setProspectusSortDirection(
-        prospectusSortDirection === "asc" ? "desc" : "asc",
-      );
-    } else {
-      setProspectusSortField(field);
-      setProspectusSortDirection("asc");
-    }
-    setProspectusPage(1);
-  };
-
-  const handleShoppingListSort = (field: keyof MeetingNote) => {
-    if (shoppingListSortField === field) {
-      setShoppingListSortDirection(
-        shoppingListSortDirection === "asc" ? "desc" : "asc",
-      );
-    } else {
-      setShoppingListSortField(field);
-      setShoppingListSortDirection("asc");
-    }
-    setShoppingListPage(1);
-  };
-
-  const handleBankerCommsSort = (field: keyof MeetingNote) => {
-    if (bankerCommsSortField === field) {
-      setBankerCommsSortDirection(
-        bankerCommsSortDirection === "asc" ? "desc" : "asc",
-      );
-    } else {
-      setBankerCommsSortField(field);
-      setBankerCommsSortDirection("asc");
-    }
-    setBankerCommsPage(1);
-  };
-
-  const handleOtherFilesSort = (field: keyof MeetingNote) => {
-    if (otherFilesSortField === field) {
-      setOtherFilesSortDirection(
-        otherFilesSortDirection === "asc" ? "desc" : "asc",
-      );
-    } else {
-      setOtherFilesSortField(field);
-      setOtherFilesSortDirection("asc");
-    }
-    setOtherFilesPage(1);
-  };
-
-  // Search handlers for each table
-  const handleMomSearchChange = (query: string) => {
-    setMomSearchQuery(query);
-    setMomPage(1);
-  };
-
-  const handleProspectusSearchChange = (query: string) => {
-    setProspectusSearchQuery(query);
-    setProspectusPage(1);
-  };
-
-  const handleShoppingListSearchChange = (query: string) => {
-    setShoppingListSearchQuery(query);
-    setShoppingListPage(1);
-  };
-
-  const handleBankerCommsSearchChange = (query: string) => {
-    setBankerCommsSearchQuery(query);
-    setBankerCommsPage(1);
-  };
-
-  const handleOtherFilesSearchChange = (query: string) => {
-    setOtherFilesSearchQuery(query);
-    setOtherFilesPage(1);
   };
 
   const toggleTags = (id: string) => {
@@ -1470,13 +1362,9 @@ export default function AIFileDump({
 
       if (!response.ok) throw new Error("Failed to update date");
 
-      setMeetingNotes((prev) =>
-        prev.map((note) =>
-          note.id === id
-            ? { ...note, file_date: format(date, "yyyy-MM-dd") }
-            : note,
-        ),
-      );
+      // file_date drives the default sort order, so refetch rather than patch
+      // in place — the row may move pages.
+      refetchAll();
 
       toast.success("Meeting date updated successfully");
     } catch (error) {
@@ -1508,88 +1396,6 @@ export default function AIFileDump({
       setDownloadingId(null);
     }
   };
-
-  // Reusable filter and sort function
-  const filterAndSortFiles = useCallback(
-    (
-      files: FileRecord[],
-      searchQuery: string,
-      sortField: keyof FileRecord,
-      sortDirection: "asc" | "desc",
-    ) => {
-      return files
-        .filter((note) => {
-          const searchLower = searchQuery.toLowerCase();
-          const fileNameMatch = note.file_name
-            .toLowerCase()
-            .includes(searchLower);
-          const tagsMatch = note.tags?.some((tag) =>
-            tag.toLowerCase().includes(searchLower),
-          );
-          const companiesMatch = note.matched_companies?.some(
-            (company: { name?: string }) =>
-              company.name?.toLowerCase().includes(searchLower),
-          );
-          return fileNameMatch || tagsMatch || companiesMatch;
-        })
-        .sort((a, b) => {
-          // Always surface files awaiting review at the top of the table.
-          const aAwaiting = a.processing_status === "awaiting_review";
-          const bAwaiting = b.processing_status === "awaiting_review";
-          if (aAwaiting !== bAwaiting) return aAwaiting ? -1 : 1;
-
-          const aValue = a[sortField];
-          const bValue = b[sortField];
-
-          if (aValue === bValue) return 0;
-          if (aValue === null || aValue === undefined) return 1;
-          if (bValue === null || bValue === undefined) return -1;
-
-          let comparison = 0;
-          if (typeof aValue === "string" && typeof bValue === "string") {
-            comparison = aValue.localeCompare(bValue);
-          } else if (Array.isArray(aValue) && Array.isArray(bValue)) {
-            comparison = aValue.length - bValue.length;
-          } else {
-            comparison = aValue < bValue ? -1 : 1;
-          }
-
-          return sortDirection === "asc" ? comparison : -comparison;
-        });
-    },
-    [],
-  );
-
-  const filteredAndSortedNotes = filterAndSortFiles(
-    meetingNotes,
-    momSearchQuery,
-    momSortField,
-    momSortDirection,
-  );
-  const filteredAndSortedProspectus = filterAndSortFiles(
-    prospectus,
-    prospectusSearchQuery,
-    prospectusSortField,
-    prospectusSortDirection,
-  );
-  const filteredAndSortedShoppingLists = filterAndSortFiles(
-    shoppingLists,
-    shoppingListSearchQuery,
-    shoppingListSortField,
-    shoppingListSortDirection,
-  );
-  const filteredAndSortedBankerComms = filterAndSortFiles(
-    bankerComms,
-    bankerCommsSearchQuery,
-    bankerCommsSortField,
-    bankerCommsSortDirection,
-  );
-  const filteredAndSortedOtherFiles = filterAndSortFiles(
-    otherFiles,
-    otherFilesSearchQuery,
-    otherFilesSortField,
-    otherFilesSortDirection,
-  );
 
   if (loading) {
     return (
@@ -1747,10 +1553,10 @@ export default function AIFileDump({
                       {selectedFiles.map((file, index) => {
                         const fileKey = `${file.name}-${index}`;
                         const existingFileNames = new Set([
-                          ...meetingNotes.map((n) => n.file_name),
-                          ...prospectus.map((n) => n.file_name),
-                          ...bankerComms.map((n) => n.file_name),
-                          ...otherFiles.map((n) => n.file_name),
+                          ...mom.files.map((n) => n.file_name),
+                          ...prospectusBucket.files.map((n) => n.file_name),
+                          ...bankerCommsBucket.files.map((n) => n.file_name),
+                          ...otherBucket.files.map((n) => n.file_name),
                         ]);
                         const isDuplicate = existingFileNames.has(file.name);
                         const notesExpanded = expandedFileNotes[fileKey];
@@ -2009,27 +1815,27 @@ export default function AIFileDump({
                 {
                   value: "mom",
                   label: "MoM",
-                  count: filteredAndSortedNotes.length,
+                  count: mom.total,
                 },
                 {
                   value: "prospectus",
                   label: "Prospectus",
-                  count: filteredAndSortedProspectus.length,
+                  count: prospectusBucket.total,
                 },
                 {
                   value: "shopping_list",
                   label: "Shopping Lists",
-                  count: filteredAndSortedShoppingLists.length,
+                  count: shoppingListBucket.total,
                 },
                 {
                   value: "banker_communications",
                   label: "Banker Communications",
-                  count: filteredAndSortedBankerComms.length,
+                  count: bankerCommsBucket.total,
                 },
                 {
                   value: "other",
                   label: "Other",
-                  count: filteredAndSortedOtherFiles.length,
+                  count: otherBucket.total,
                 },
               ] as const
             ).map((tab) => (
@@ -2054,13 +1860,13 @@ export default function AIFileDump({
               title="MoM"
               icon={<FileText className="h-5 w-5" />}
               iconColor="text-blue-500"
-              files={meetingNotes}
-              filteredFiles={filteredAndSortedNotes}
-              searchQuery={momSearchQuery}
-              onSearchChange={handleMomSearchChange}
-              sortField={momSortField}
-              sortDirection={momSortDirection}
-              onSort={handleMomSort}
+              files={mom.files}
+              total={mom.total}
+              searchQuery={mom.search}
+              onSearchChange={mom.setSearch}
+              sortField={mom.sortField}
+              sortDirection={mom.sortDirection}
+              onSort={mom.onSort}
               expandedTags={expandedTags}
               toggleTags={toggleTags}
               expandedCompanies={expandedCompanies}
@@ -2076,8 +1882,8 @@ export default function AIFileDump({
               reprocessingId={reprocessingId}
               emptyMessage="No MoM uploaded yet."
               emptySubMessage="Upload your first MoM using the form above."
-              currentPage={momPage}
-              onPageChange={setMomPage}
+              currentPage={mom.page}
+              onPageChange={mom.setPage}
               hideTitle
             />
           </TabsContent>
@@ -2087,13 +1893,13 @@ export default function AIFileDump({
               title="Prospectus"
               icon={<FileSpreadsheet className="h-5 w-5" />}
               iconColor="text-blue-500"
-              files={prospectus}
-              filteredFiles={filteredAndSortedProspectus}
-              searchQuery={prospectusSearchQuery}
-              onSearchChange={handleProspectusSearchChange}
-              sortField={prospectusSortField}
-              sortDirection={prospectusSortDirection}
-              onSort={handleProspectusSort}
+              files={prospectusBucket.files}
+              total={prospectusBucket.total}
+              searchQuery={prospectusBucket.search}
+              onSearchChange={prospectusBucket.setSearch}
+              sortField={prospectusBucket.sortField}
+              sortDirection={prospectusBucket.sortDirection}
+              onSort={prospectusBucket.onSort}
               expandedTags={expandedTags}
               toggleTags={toggleTags}
               expandedCompanies={expandedCompanies}
@@ -2109,8 +1915,8 @@ export default function AIFileDump({
               reprocessingId={reprocessingId}
               emptyMessage="No prospectus uploaded yet."
               emptySubMessage="Upload your first prospectus using the form above."
-              currentPage={prospectusPage}
-              onPageChange={setProspectusPage}
+              currentPage={prospectusBucket.page}
+              onPageChange={prospectusBucket.setPage}
               hideTitle
             />
           </TabsContent>
@@ -2120,13 +1926,13 @@ export default function AIFileDump({
               title="Shopping Lists"
               icon={<FileSpreadsheet className="h-5 w-5" />}
               iconColor="text-blue-500"
-              files={shoppingLists}
-              filteredFiles={filteredAndSortedShoppingLists}
-              searchQuery={shoppingListSearchQuery}
-              onSearchChange={handleShoppingListSearchChange}
-              sortField={shoppingListSortField}
-              sortDirection={shoppingListSortDirection}
-              onSort={handleShoppingListSort}
+              files={shoppingListBucket.files}
+              total={shoppingListBucket.total}
+              searchQuery={shoppingListBucket.search}
+              onSearchChange={shoppingListBucket.setSearch}
+              sortField={shoppingListBucket.sortField}
+              sortDirection={shoppingListBucket.sortDirection}
+              onSort={shoppingListBucket.onSort}
               expandedTags={expandedTags}
               toggleTags={toggleTags}
               expandedCompanies={expandedCompanies}
@@ -2142,8 +1948,8 @@ export default function AIFileDump({
               reprocessingId={reprocessingId}
               emptyMessage="No shopping lists uploaded yet."
               emptySubMessage="Upload a target list using the form above."
-              currentPage={shoppingListPage}
-              onPageChange={setShoppingListPage}
+              currentPage={shoppingListBucket.page}
+              onPageChange={shoppingListBucket.setPage}
               hideTitle
             />
           </TabsContent>
@@ -2153,13 +1959,13 @@ export default function AIFileDump({
               title="Banker Communications"
               icon={<FileSpreadsheet className="h-5 w-5" />}
               iconColor="text-blue-500"
-              files={bankerComms}
-              filteredFiles={filteredAndSortedBankerComms}
-              searchQuery={bankerCommsSearchQuery}
-              onSearchChange={handleBankerCommsSearchChange}
-              sortField={bankerCommsSortField}
-              sortDirection={bankerCommsSortDirection}
-              onSort={handleBankerCommsSort}
+              files={bankerCommsBucket.files}
+              total={bankerCommsBucket.total}
+              searchQuery={bankerCommsBucket.search}
+              onSearchChange={bankerCommsBucket.setSearch}
+              sortField={bankerCommsBucket.sortField}
+              sortDirection={bankerCommsBucket.sortDirection}
+              onSort={bankerCommsBucket.onSort}
               expandedTags={expandedTags}
               toggleTags={toggleTags}
               expandedCompanies={expandedCompanies}
@@ -2175,8 +1981,8 @@ export default function AIFileDump({
               reprocessingId={reprocessingId}
               emptyMessage="No banker communications uploaded yet."
               emptySubMessage="Upload CSV or MBOX files from Google Vault exports."
-              currentPage={bankerCommsPage}
-              onPageChange={setBankerCommsPage}
+              currentPage={bankerCommsBucket.page}
+              onPageChange={bankerCommsBucket.setPage}
               hideTitle
             />
           </TabsContent>
@@ -2186,13 +1992,13 @@ export default function AIFileDump({
               title="Other"
               icon={<File className="h-5 w-5" />}
               iconColor="text-blue-500"
-              files={otherFiles}
-              filteredFiles={filteredAndSortedOtherFiles}
-              searchQuery={otherFilesSearchQuery}
-              onSearchChange={handleOtherFilesSearchChange}
-              sortField={otherFilesSortField}
-              sortDirection={otherFilesSortDirection}
-              onSort={handleOtherFilesSort}
+              files={otherBucket.files}
+              total={otherBucket.total}
+              searchQuery={otherBucket.search}
+              onSearchChange={otherBucket.setSearch}
+              sortField={otherBucket.sortField}
+              sortDirection={otherBucket.sortDirection}
+              onSort={otherBucket.onSort}
               expandedTags={expandedTags}
               toggleTags={toggleTags}
               expandedCompanies={expandedCompanies}
@@ -2208,8 +2014,8 @@ export default function AIFileDump({
               reprocessingId={reprocessingId}
               emptyMessage="No other files uploaded yet."
               emptySubMessage="Upload your files using the form above."
-              currentPage={otherFilesPage}
-              onPageChange={setOtherFilesPage}
+              currentPage={otherBucket.page}
+              onPageChange={otherBucket.setPage}
               hideTitle
             />
           </TabsContent>
@@ -2224,11 +2030,7 @@ export default function AIFileDump({
           onClose={() => setReviewFileId(null)}
           onApproved={() => {
             setReviewFileId(null);
-            fetchMeetingNotes();
-            fetchProspectus();
-            fetchShoppingLists();
-            fetchBankerComms();
-            fetchOtherFiles();
+            refetchAll();
           }}
         />
       )}
@@ -2239,11 +2041,7 @@ export default function AIFileDump({
           open={!!selectedCompany}
           onOpenChange={(open) => !open && setSelectedCompany(null)}
           onUpdate={() => {
-            fetchMeetingNotes();
-            fetchProspectus();
-            fetchShoppingLists();
-            fetchBankerComms();
-            fetchOtherFiles();
+            refetchAll();
           }}
         />
       )}

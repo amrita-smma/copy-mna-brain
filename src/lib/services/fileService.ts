@@ -18,6 +18,7 @@ import {
   DealLinkRepository,
   FileRepository,
   type DbClient,
+  type FileListOptions,
   type CriteriaRepository,
   type ScreeningRepository,
   type Tables,
@@ -195,6 +196,21 @@ export class FileService {
 
   async findAll(fileType?: string) {
     const files = await this.fileRepo.findAll(fileType);
+    return this.attachSignedUrls(files);
+  }
+
+  /**
+   * Paginated listing for the AI File Dump view. Delegates the search / sort /
+   * pagination to the repository and only signs URLs for the returned page, so
+   * a large workspace no longer signs and ships every file on each load.
+   */
+  async list(opts: FileListOptions) {
+    const { rows, total } = await this.fileRepo.listPaginated(opts);
+    const data = await this.attachSignedUrls(rows);
+    return { data, total };
+  }
+
+  private attachSignedUrls(files: Tables<'files'>[]) {
     return Promise.all(
       files.map(async (file) => {
         try {

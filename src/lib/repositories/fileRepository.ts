@@ -1,4 +1,4 @@
-import { and, desc, eq, ilike, or, sql, type SQL } from 'drizzle-orm';
+import { and, asc, desc, eq, ilike, or, sql, type AnyColumn, type SQL } from 'drizzle-orm';
 import { files } from '@/lib/db/schema';
 import type { DbClient, Tables, TablesInsert, TablesUpdate } from './types';
 
@@ -8,6 +8,33 @@ export interface FileAgentSearchOptions {
   searchTerm?: string;
   limit?: number;
 }
+
+/** Columns the AI File Dump list view is allowed to sort by. */
+export type FileSortField = 'file_name' | 'file_date' | 'processing_status' | 'created_at';
+
+export interface FileListOptions {
+  /** Restrict to a single `file_type` bucket; omit for all types. */
+  fileType?: string;
+  /** Free-text query matched against file_name, tags and matched company names. */
+  search?: string;
+  sortField?: FileSortField;
+  sortDirection?: 'asc' | 'desc';
+  limit: number;
+  offset: number;
+}
+
+export interface FileListResult {
+  rows: Tables<'files'>[];
+  /** Total rows matching the filter/search, ignoring limit/offset. */
+  total: number;
+}
+
+const FILE_SORT_COLUMNS: Record<FileSortField, AnyColumn> = {
+  file_name: files.file_name,
+  file_date: files.file_date,
+  processing_status: files.processing_status,
+  created_at: files.created_at,
+};
 
 export class FileRepository {
   constructor(
@@ -55,6 +82,54 @@ export class FileRepository {
       .from(files)
       .where(fileType ? and(eq(files.file_type, fileType), workspaceCond) : workspaceCond)
       .orderBy(desc(files.created_at));
+  }
+
+  /**
+   * Paginated + searchable + sortable listing backing the AI File Dump view.
+   * The view used to load every row and filter/sort/paginate in the browser;
+   * this pushes all three server-side so only one page is ever fetched.
+   *
+   * Search matches file_name, any tag, or any matched company name (the same
+   * three fields the old client-side filter compared). Files awaiting review
+   * are always pinned to the top, then the caller's sort is applied with NULLS
+   * LAST so unset dates sort to the bottom in either direction. Returns the
+   * page rows alongside the unpaginated total so the caller can render page
+   * counts.
+   */
+  async listPaginated(opts: FileListOptions): Promise<FileListResult> {
+    const { fileType, search, sortField = 'file_date', sortDirection = 'desc', limit, offset } = opts;
+
+    const conditions: (SQL | undefined)[] = [eq(files.workspace_id, this.workspaceId)];
+    if (fileType) conditions.push(eq(files.file_type, fileType));
+
+    const term = search?.trim();
+    if (term) {
+      const like = `%${term}%`;
+      conditions.push(
+        or(
+          ilike(files.file_name, like),
+          sql`EXISTS (SELECT 1 FROM unnest(${files.tags}) AS tag WHERE tag ILIKE ${like})`,
+          sql`EXISTS (SELECT 1 FROM jsonb_array_elements(${files.matched_companies}) AS mc WHERE mc->>'name' ILIKE ${like})`,
+        ),
+      );
+    }
+
+    const where = and(...conditions);
+    const sortColumn = FILE_SORT_COLUMNS[sortField] ?? files.file_date;
+    const directionSql = sortDirection === 'asc' ? asc(sortColumn) : desc(sortColumn);
+
+    const [rows, [{ total }]] = await Promise.all([
+      this.db
+        .select()
+        .from(files)
+        .where(where)
+        .orderBy(sql`(${files.processing_status} = 'awaiting_review') DESC`, sql`${directionSql} NULLS LAST`)
+        .limit(limit)
+        .offset(offset),
+      this.db.select({ total: sql<number>`count(*)::int` }).from(files).where(where),
+    ]);
+
+    return { rows, total };
   }
 
   /**

@@ -108,6 +108,7 @@ function makeFileRepoStub(): FileRepository {
     findById: vi.fn(),
     findLinkAndNameById: vi.fn(),
     findAll: vi.fn(),
+    listPaginated: vi.fn(),
     findFirstByName: vi.fn().mockResolvedValue(null),
     insert: vi.fn(),
     update: vi.fn(),
@@ -1675,6 +1676,61 @@ describe('FileService.findAll', () => {
     const result = await service.findAll();
 
     expect(result[0]).toMatchObject({ id: 'file-1', signed_url: null });
+  });
+});
+
+describe('FileService.list', () => {
+  it('returns the page rows with signed URLs alongside the total', async () => {
+    const fileRepo = makeFileRepoStub();
+    vi.mocked(fileRepo.listPaginated).mockResolvedValue({
+      rows: [makeFile({ id: 'file-1' })],
+      total: 7,
+    });
+    vi.mocked(getSignedUrl).mockResolvedValue('https://signed-url');
+    const service = makeService({ fileRepo });
+
+    const result = await service.list({ limit: 10, offset: 0 });
+
+    expect(result.total).toBe(7);
+    expect(result.data[0]).toMatchObject({ id: 'file-1', signed_url: 'https://signed-url' });
+  });
+
+  it('sets signed_url to null for a page row when signing fails', async () => {
+    const fileRepo = makeFileRepoStub();
+    vi.mocked(fileRepo.listPaginated).mockResolvedValue({
+      rows: [makeFile({ id: 'file-1' })],
+      total: 1,
+    });
+    vi.mocked(getSignedUrl).mockRejectedValue(new Error('S3 error'));
+    const service = makeService({ fileRepo });
+
+    const result = await service.list({ limit: 10, offset: 0 });
+
+    expect(result.data[0]).toMatchObject({ id: 'file-1', signed_url: null });
+  });
+
+  it('forwards the search, sort and pagination options to the repository', async () => {
+    const fileRepo = makeFileRepoStub();
+    vi.mocked(fileRepo.listPaginated).mockResolvedValue({ rows: [], total: 0 });
+    const service = makeService({ fileRepo });
+
+    await service.list({
+      fileType: 'prospectus',
+      search: 'acme',
+      sortField: 'file_name',
+      sortDirection: 'asc',
+      limit: 20,
+      offset: 40,
+    });
+
+    expect(fileRepo.listPaginated).toHaveBeenCalledWith({
+      fileType: 'prospectus',
+      search: 'acme',
+      sortField: 'file_name',
+      sortDirection: 'asc',
+      limit: 20,
+      offset: 40,
+    });
   });
 });
 
