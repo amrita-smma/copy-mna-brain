@@ -1415,7 +1415,7 @@ export default function AIFileDump({
       showCompanyGraph={showCompanyGraph}
       showFundManagement={showFundManagement}
     >
-      <div className="flex flex-col h-full p-6 space-y-6 animate-fade-in">
+      <div className="flex flex-col min-h-full p-6 space-y-6 animate-fade-in">
         {/* Header */}
         <div className="relative flex-shrink-0">
           <div className="absolute -inset-2 rounded-2xl opacity-20 blur-xl transition-colors duration-500 bg-gradient-to-r from-blue-500 via-sky-500 to-indigo-500" />
