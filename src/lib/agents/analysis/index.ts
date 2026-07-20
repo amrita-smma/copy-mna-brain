@@ -17,6 +17,7 @@ import type { CheckpointPendingWrite } from "@langchain/langgraph-checkpoint";
 const FILES_API_BETA = "files-api-2025-04-14" as const;
 
 import { rewriteStaleFileBlocks } from "./rewriteFileReferences";
+import { getLangfuseCallbacks } from "@/lib/langfuse";
 
 // HITL middleware for the workforce agent: gates write tools that require
 // human approval before execution.
@@ -622,7 +623,12 @@ export class AgentGraph {
       if (inputs.additionalSystemContext) {
         logger.debug("📎 Additional system context provided");
       }
-      const result = await agent.invoke({ messages: inputs.messages }, config);
+      
+      const mergedConfig = {
+        ...config,
+        callbacks: [...((config as any)?.callbacks || []), ...getLangfuseCallbacks()]
+      };
+      const result = await agent.invoke({ messages: inputs.messages }, mergedConfig);
       return this.shapeInvokeResult(result);
     } catch (error) {
       logger.error(`✗ AGENT INVOCATION FAILED: ${(error as Error).message}`);
@@ -651,9 +657,13 @@ export class AgentGraph {
       const agent = this.defaultAgent;
       // Lazy import to avoid pulling Command type at module load.
       const { Command } = await import("@langchain/langgraph");
+      const mergedConfig = { 
+        configurable: { thread_id: threadId }, 
+        callbacks: getLangfuseCallbacks() 
+      } as never;
       const result = await agent.invoke(
         new Command({ resume: resumePayload }) as never,
-        { configurable: { thread_id: threadId } } as never,
+        mergedConfig,
       );
       return this.shapeInvokeResult(result);
     } catch (error) {
@@ -705,7 +715,11 @@ export class AgentGraph {
    */
   async streamEvents(inputs: InvokeOptions, config?: any) {
     const agent = this.getAgent(inputs.additionalSystemContext);
-    return agent.streamEvents({ messages: inputs.messages }, config);
+    const mergedConfig = {
+      ...config,
+      callbacks: [...(config?.callbacks || []), ...getLangfuseCallbacks()]
+    };
+    return agent.streamEvents({ messages: inputs.messages }, mergedConfig);
   }
 
   /**

@@ -13,6 +13,7 @@ import { ChatAnthropic } from "@langchain/anthropic";
 import { BaseMessage, HumanMessage } from "@langchain/core/messages";
 import { createAgent } from "langchain";
 import { logger } from "../logger";
+import { getLangfuseCallbacks } from "@/lib/langfuse";
 
 /**
  * Beta flag required for the Files API. Both the upload/delete calls and any
@@ -381,7 +382,7 @@ async function streamAgentMessages(
   let finalMessages: BaseMessage[] = [];
   const stream = await agent.stream(
     { messages } as any,
-    { streamMode: "values" } as any,
+    { streamMode: "values", callbacks: getLangfuseCallbacks() } as any,
   );
   for await (const chunk of stream as AsyncIterable<{ messages?: BaseMessage[] }>) {
     if (chunk?.messages) {

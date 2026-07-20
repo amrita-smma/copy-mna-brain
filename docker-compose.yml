@@ -52,7 +52,8 @@ services:
       mc alias set local http://minio:9000 minioadmin minioadmin;
       mc mb --ignore-existing local/mna-files;
       mc mb --ignore-existing local/mbox-archive;
-      echo 'buckets mna-files and mbox-archive ready';
+      mc mb --ignore-existing local/langfuse;
+      echo 'buckets mna-files, mbox-archive, and langfuse ready';
       "
 
   app:
@@ -90,6 +91,10 @@ services:
       # neo4j-driver defaults to bolt://localhost:7687 when unset, which
       # inside this container resolves to the app's own network namespace,
       NEO4J_URI: bolt://neo4j:7687
+      # Hardcoded Langfuse internal docker URL
+      LANGFUSE_BASE_URL: http://langfuse-web:3000
+      LANGFUSE_PUBLIC_KEY: pk-lf-1234567890
+      LANGFUSE_SECRET_KEY: sk-lf-1234567890
     command: sh -c "CI=true pnpm install && pnpm dev --hostname 0.0.0.0"
     ports:
       - "3000:3000"
@@ -119,6 +124,112 @@ services:
       retries: 20
       start_period: 30s
 
+  langfuse-redis:
+    image: redis:7
+    container_name: mna-langfuse-redis
+    restart: unless-stopped
+    command: >
+      --requirepass myredissecret
+      --maxmemory-policy noeviction
+    ports:
+      - "6379:6379"
+    volumes:
+      - langfuse-redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 10s
+      retries: 10
+
+  langfuse-clickhouse:
+    image: clickhouse/clickhouse-server
+    container_name: mna-langfuse-clickhouse
+    restart: unless-stopped
+    environment:
+      CLICKHOUSE_DB: default
+      CLICKHOUSE_USER: clickhouse
+      CLICKHOUSE_PASSWORD: clickhouse
+    volumes:
+      - langfuse-clickhouse-data:/var/lib/clickhouse
+      - langfuse-clickhouse-logs:/var/log/clickhouse-server
+    ports:
+      - "8123:8123"
+      - "9005:9000"
+    healthcheck:
+      test: wget --no-verbose --tries=1 --spider http://localhost:8123/ping || exit 1
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 1s
+
+  langfuse-worker:
+    image: langfuse/langfuse-worker:3
+    container_name: mna-langfuse-worker
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      langfuse-redis:
+        condition: service_healthy
+      langfuse-clickhouse:
+        condition: service_healthy
+    environment: &langfuse-env
+      NEXTAUTH_URL: http://localhost:3030
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/langfuse
+      SALT: mysalt
+      ENCRYPTION_KEY: "73c5d69669a51b815d86a5617c82ad4cab197e5e898e72c2298bf7653645d5ef"
+      TELEMETRY_ENABLED: "false"
+      CLICKHOUSE_MIGRATION_URL: clickhouse://langfuse-clickhouse:9000
+      CLICKHOUSE_URL: http://langfuse-clickhouse:8123
+      CLICKHOUSE_USER: clickhouse
+      CLICKHOUSE_PASSWORD: clickhouse
+      CLICKHOUSE_CLUSTER_ENABLED: "false"
+      LANGFUSE_S3_EVENT_UPLOAD_BUCKET: langfuse
+      LANGFUSE_S3_EVENT_UPLOAD_REGION: us-east-1
+      LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID: minioadmin
+      LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY: minioadmin
+      LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT: http://minio:9000
+      LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE: "true"
+      LANGFUSE_S3_MEDIA_UPLOAD_BUCKET: langfuse
+      LANGFUSE_S3_MEDIA_UPLOAD_REGION: us-east-1
+      LANGFUSE_S3_MEDIA_UPLOAD_ACCESS_KEY_ID: minioadmin
+      LANGFUSE_S3_MEDIA_UPLOAD_SECRET_ACCESS_KEY: minioadmin
+      LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT: http://minio:9000
+      LANGFUSE_S3_MEDIA_UPLOAD_FORCE_PATH_STYLE: "true"
+      REDIS_HOST: langfuse-redis
+      REDIS_PORT: 6379
+      REDIS_AUTH: myredissecret
+      NEXTAUTH_SECRET: mysecret
+      LANGFUSE_INIT_ORG_ID: "mna-org"
+      LANGFUSE_INIT_ORG_NAME: "MNA"
+      LANGFUSE_INIT_PROJECT_ID: "mna-project"
+      LANGFUSE_INIT_PROJECT_NAME: "MNA Dev"
+      LANGFUSE_INIT_PROJECT_PUBLIC_KEY: "pk-lf-1234567890"
+      LANGFUSE_INIT_PROJECT_SECRET_KEY: "sk-lf-1234567890"
+      LANGFUSE_INIT_USER_EMAIL: "test@sqe.co.id"
+      LANGFUSE_INIT_USER_NAME: "Test"
+      LANGFUSE_INIT_USER_PASSWORD: "password"
+
+  langfuse-web:
+    image: langfuse/langfuse:3
+    container_name: mna-langfuse-web
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      langfuse-redis:
+        condition: service_healthy
+      langfuse-clickhouse:
+        condition: service_healthy
+    ports:
+      - "3030:3000"
+    environment:
+      <<: *langfuse-env
+
 volumes:
   postgres-data:
   minio-data:
@@ -126,3 +237,6 @@ volumes:
   app-node-modules:
   data-pipeline-node-modules:
   app-next-cache:
+  langfuse-redis-data:
+  langfuse-clickhouse-data:
+  langfuse-clickhouse-logs:

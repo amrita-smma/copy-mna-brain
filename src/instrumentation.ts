@@ -8,8 +8,12 @@
  * the first request. If the serverless platform terminates the process
  * before the sweep finishes, the next cold start retries.
  */
+
+
 export async function register(): Promise<void> {
   if (process.env.NEXT_RUNTIME !== 'nodejs') return;
+
+
 
   const [{ runSchedulerIfDue }, { createDb }] = await Promise.all([
     import('@/lib/jobs/scheduler'),

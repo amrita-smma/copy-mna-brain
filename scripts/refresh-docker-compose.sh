@@ -121,4 +121,11 @@ if ! pnpm db:seed; then
     exit 1
 fi
 
+echo "Running Langfuse model pricing seed..."
+if ! pnpm db:seed:langfuse; then
+    echo "Error: Langfuse seed failed."
+    exit 1
+fi
+
 echo "Refresh complete!"
+
