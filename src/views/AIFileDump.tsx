@@ -569,7 +569,7 @@ function FileTable({
         ) : (
           <>
 
-            <div className="overflow-x-auto">
+            <div className="max-h-[500px] overflow-auto">
               <Table>
                 <ManagedTableHeader
                   leading={
