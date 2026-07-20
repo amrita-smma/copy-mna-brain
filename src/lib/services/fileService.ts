@@ -3,6 +3,10 @@ import { deleteFile } from '@/lib/s3';
 import { sql } from 'drizzle-orm';
 import { extractTextFromFile } from '@/lib/fileExtractor';
 import { processFileContent, type FileTypeOverride } from '@/lib/agents/file_processing';
+import { processFundUpdateContent } from '@/lib/agents/fund_update_processing';
+import { tryDeterministicFundUpdateParse } from '@/lib/fund_updates';
+import type { FundUpdateStructuredResult, ParsedAsset } from '@/lib/fund_updates';
+import type { FundUpdateAssetSelection } from '@/lib/services/fundUpdateApplyService';
 import { isGenericDocumentPhrase } from '@/lib/agents/file_processing/genericNameDenylist';
 import type { CompanyDTOInput } from '@/lib/dto/companyDTO';
 import { createNeo4jDriver } from '@/lib/neo4j';
@@ -31,6 +35,7 @@ import type { AIScreeningService } from './aiScreeningService';
 import type { CRMService } from './crmService';
 import { CompanyL0RequirementsError, CompanyService, IN_PIPELINE_STAGES } from './companyService';
 import type { TrackMatchingService } from './trackMatchingService';
+import type { FundUpdateApplyService } from './fundUpdateApplyService';
 
 /**
  * File types that describe deal targets (companies/projects genuinely offered
@@ -76,6 +81,94 @@ function guessContentType(fileName: string): string {
   return CONTENT_TYPE_BY_EXTENSION[ext] ?? 'application/octet-stream';
 }
 
+function isExcelUpload(fileName: string, contentType: string): boolean {
+  const lower = fileName.toLowerCase();
+  return (
+    lower.endsWith('.xlsx') ||
+    lower.endsWith('.xlsm') ||
+    contentType === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
+    contentType === 'application/vnd.ms-excel.sheet.macroenabled.12'
+  );
+}
+
+type IngestStructuredResult =
+  | NonNullable<Awaited<ReturnType<typeof processFileContent>>>
+  | FundUpdateStructuredResult;
+
+/**
+ * Resolve extraction for an upload/reprocess:
+ * 1. Known Excel master sheets → deterministic fund-update parse (no LLM)
+ * 2. Explicit fund_updates override → fund-update agent (deterministic first, else placeholder)
+ * 3. Otherwise → general file-processing agent (classifies + extracts in one pass)
+ *
+ * TODO: Add a lightweight file-type classifier (e.g. Haiku) to auto-route non-Excel
+ * fund-update uploads into the fund-update path without requiring a manual override.
+ * Out of scope for the fingerprint/master-sheet MVP — do not reintroduce
+ * `src/lib/agents/file_classifier` until that work is scoped.
+ */
+async function resolveFileIngestion(opts: {
+  rawText: string;
+  buffer: Buffer;
+  contentType: string;
+  fileName: string;
+  rawNotes: string;
+  fileTypeOverride?: FileTypeOverride;
+}): Promise<{
+  structuredResult: IngestStructuredResult | null;
+  effectiveFileType: string;
+  fundUpdateNeedsReview: boolean;
+}> {
+  const { rawText, buffer, contentType, fileName, rawNotes, fileTypeOverride } = opts;
+
+  // Fast path: STARTECH (and future) master sheets bypass the general agent.
+  if (isExcelUpload(fileName, contentType) && (!fileTypeOverride || fileTypeOverride === 'fund_updates')) {
+    const deterministic = await tryDeterministicFundUpdateParse(buffer, contentType, fileName);
+    if (deterministic) {
+      return {
+        structuredResult: deterministic,
+        effectiveFileType: 'fund_updates',
+        fundUpdateNeedsReview: true,
+      };
+    }
+  }
+
+  if (fileTypeOverride === 'fund_updates') {
+    // TODO: When fingerprint misses, this still returns a pending_llm placeholder
+    // (no LLM call). Wire real LLM/OCR fund-update extraction here later — until
+    // then, prefer leaving override as auto and relying on the general agent.
+    const structuredResult = await processFundUpdateContent(
+      rawText,
+      buffer,
+      contentType,
+      rawNotes,
+      fileName,
+    );
+    return {
+      structuredResult,
+      effectiveFileType: 'fund_updates',
+      fundUpdateNeedsReview: true,
+    };
+  }
+
+  // TODO: After a dedicated fund-update classifier exists, route classified
+  // fund_updates here instead of relying only on fileTypeOverride / general agent.
+  const structuredResult = await processFileContent(
+    rawText,
+    buffer,
+    contentType,
+    rawNotes,
+    fileTypeOverride,
+    fileName,
+  );
+  const effectiveFileType =
+    fileTypeOverride ?? structuredResult?.file_type ?? 'other';
+  return {
+    structuredResult,
+    effectiveFileType,
+    fundUpdateNeedsReview: effectiveFileType === 'fund_updates',
+  };
+}
+
 /** File types that are valid `FileTypeOverride`s the agent accepts as a hint. */
 const FILE_TYPE_OVERRIDE_VALUES = new Set<FileTypeOverride>([
   'mom',
@@ -83,6 +176,7 @@ const FILE_TYPE_OVERRIDE_VALUES = new Set<FileTypeOverride>([
   'other',
   'shopping_list',
   'market_study',
+  'fund_updates',
 ]);
 
 /**
@@ -116,6 +210,16 @@ export interface ApproveFileInput {
   entered_by?: string | null;
   deal_type?: 'majority' | 'minority' | null;
   banker?: string | null;
+  /**
+   * Fund Updates HITL: sheet codes (e.g. "GOTO") to apply. Only used when
+   * `file_type` is `fund_updates`. Empty/omitted applies nothing (review-only).
+   */
+  fund_update_asset_codes?: string[];
+  /**
+   * Optional per-asset txn/valuation subset and edited rows from review UI.
+   * When set, takes precedence over applying all missing/proposed rows.
+   */
+  fund_update_selections?: FundUpdateAssetSelection[];
 }
 
 type ProspectusSummary = {
@@ -169,6 +273,7 @@ type FinancialStatementSummary = {
 
 export class FileService {
   private crmService?: CRMService;
+  private fundUpdateApplyService?: FundUpdateApplyService;
 
   constructor(
     private readonly db: DbClient,
@@ -192,6 +297,10 @@ export class FileService {
 
   setCRMService(crmService: CRMService) {
     this.crmService = crmService;
+  }
+
+  setFundUpdateApplyService(service: FundUpdateApplyService) {
+    this.fundUpdateApplyService = service;
   }
 
   async findAll(fileType?: string) {
@@ -321,7 +430,7 @@ export class FileService {
     );
 
     let rawText = '';
-    let structuredResult: Awaited<ReturnType<typeof processFileContent>> = null;
+    let structuredResult: IngestStructuredResult | null = null;
     let tags: string[] = [];
     let matched_companies: unknown[] = [];
 
@@ -331,14 +440,23 @@ export class FileService {
         rawText = await extractTextFromFile(buffer, fileType, fileName);
       }
 
-      structuredResult = await processFileContent(rawText, buffer, fileType, rawNotes ?? '', fileTypeOverride, fileName);
+      const resolved = await resolveFileIngestion({
+        rawText,
+        buffer,
+        contentType: fileType,
+        fileName,
+        rawNotes: rawNotes ?? '',
+        fileTypeOverride,
+      });
+      structuredResult = resolved.structuredResult;
+      const effectiveFileType = resolved.effectiveFileType;
 
       if (structuredResult) {
         tags = structuredResult.tags || [];
         matched_companies = structuredResult.matched_companies || [];
       }
 
-      const effectiveFileType = fileTypeOverride ?? structuredResult?.file_type ?? 'other';
+      const finalFileType = fileTypeOverride ?? structuredResult?.file_type ?? effectiveFileType;
 
       // Multi-company auto-ingest: deal-target files (prospectus,
       // shopping_list) process one company per extracted target for BOTH
@@ -355,7 +473,10 @@ export class FileService {
       // warning logged above).
       let createdCompanies: Tables<'companies'>[] = [];
       let enrichedCompanies: Tables<'companies'>[] = [];
-      let needsHitlReview = false;
+      let needsHitlReview = resolved.fundUpdateNeedsReview;
+      if (needsHitlReview && effectiveFileType === 'fund_updates') {
+        needsHitlReview = await this.fundUpdateProposalNeedsReview(structuredResult);
+      }
       const isPrimaryWorkspace = primaryWorkspaceId === this.workspaceId;
       if (isPrimaryWorkspace && structuredResult && MULTI_COMPANY_FILE_TYPES.has(effectiveFileType)) {
         try {
@@ -374,7 +495,7 @@ export class FileService {
           matched_companies = result.matchedCompanies;
           createdCompanies = result.createdCompanies;
           enrichedCompanies = result.enrichedCompanies;
-          needsHitlReview = result.needsReview;
+          needsHitlReview = needsHitlReview || result.needsReview;
         } catch (err) {
           console.error('[fileService] Failed to auto-create companies from file:', err);
         }
@@ -382,7 +503,7 @@ export class FileService {
 
       // MB-300: financial statements update company_financials for matched existing
       // deal targets but never create new company rows.
-      if (isPrimaryWorkspace && originEmail && structuredResult && effectiveFileType === 'financial_statement') {
+      if (isPrimaryWorkspace && originEmail && structuredResult && finalFileType === 'financial_statement') {
         try {
           const fss = (structuredResult as Record<string, unknown>).financial_statement_summary as FinancialStatementSummary | undefined;
           await this.mergeFinancialStatementCompanyFinancials({
@@ -402,9 +523,8 @@ export class FileService {
         tags,
         matched_companies: matched_companies as Tables<'files'>['matched_companies'],
         file_date: structuredResult?.file_date || null,
-        // HITL only when an extracted target matches a company actively in
-        // the L0–L5 pipeline — the user must approve those changes via the
-        // review dialog. Everything else is auto-accepted.
+        // HITL when fund-update proposals need review, or when an extracted
+        // target matches a company actively in the L0–L5 pipeline.
         processing_status: needsHitlReview ? 'awaiting_review' : 'completed',
       });
       // Secondary fan-out rows share the same extracted content — no
@@ -509,7 +629,7 @@ export class FileService {
     const override = asFileTypeOverride(existingFileType);
 
     let rawText = '';
-    let structuredResult: Awaited<ReturnType<typeof processFileContent>> = null;
+    let structuredResult: IngestStructuredResult | null = null;
     let tags: string[] = [];
     let matched_companies: unknown[] = [];
 
@@ -519,7 +639,20 @@ export class FileService {
         rawText = await extractTextFromFile(buffer, contentType, fileName);
       }
 
-      structuredResult = await processFileContent(rawText, buffer, contentType, '', override, fileName);
+      // Prefer the stored type for routing so fund_updates stay on the specialist
+      // path. Override is only set when the stored type is a user-facing hint.
+      const routingOverride: FileTypeOverride | undefined =
+        existingFileType === 'fund_updates' ? 'fund_updates' : override;
+
+      const resolved = await resolveFileIngestion({
+        rawText,
+        buffer,
+        contentType,
+        fileName,
+        rawNotes: '',
+        fileTypeOverride: routingOverride,
+      });
+      structuredResult = resolved.structuredResult;
 
       if (structuredResult) {
         tags = structuredResult.tags || [];
@@ -527,13 +660,20 @@ export class FileService {
       }
 
       // file_type is intentionally left untouched so the file stays in its tab.
+      // Fund updates only need HITL when there is something to apply (new /
+      // add-missing assets). All-unchanged proposals complete immediately —
+      // parsed data remains visible via the eye / structured-notes view.
+      let fundUpdateNeedsReview = resolved.fundUpdateNeedsReview;
+      if (fundUpdateNeedsReview) {
+        fundUpdateNeedsReview = await this.fundUpdateProposalNeedsReview(structuredResult);
+      }
       await this.fileRepo.updatePartial(fileId, {
         raw_notes: rawText,
         structured_notes: structuredResult ? JSON.stringify(structuredResult, null, 2) : null,
         tags,
         matched_companies: matched_companies as Tables<'files'>['matched_companies'],
         file_date: structuredResult?.file_date || null,
-        processing_status: 'completed',
+        processing_status: fundUpdateNeedsReview ? 'awaiting_review' : 'completed',
       });
     } catch (processError) {
       console.error('Error during file reprocessing:', processError);
@@ -561,6 +701,11 @@ export class FileService {
   async getReviewData(fileId: string, companyIdOverride?: string | null) {
     const file = await this.fileRepo.findById(fileId);
     const parsedNotes = this.parseStructuredNotes(file.structured_notes);
+
+    if (file.file_type === 'fund_updates' || parsedNotes?.file_type === 'fund_updates') {
+      return this.getFundUpdateReviewData(file, parsedNotes);
+    }
+
     const extractedEntries = this.parseExtractedCompanies(parsedNotes);
 
     const proposedCompanyId =
@@ -592,6 +737,7 @@ export class FileService {
     const conflicts: Tables<'files'>[] = [];
 
     return {
+      kind: 'company' as const,
       file,
       ai: {
         file_type: (parsedNotes?.file_type as string | null) ?? null,
@@ -623,7 +769,36 @@ export class FileService {
     };
   }
 
+  private async getFundUpdateReviewData(
+    file: Tables<'files'>,
+    parsedNotes: Record<string, unknown> | null,
+  ) {
+    if (!this.fundUpdateApplyService) {
+      throw new Error('Fund update apply service is not configured');
+    }
+    const proposal = (parsedNotes as unknown as FundUpdateStructuredResult | null)?.fund_update_proposal;
+    const assets = (proposal?.assets ?? []) as ParsedAsset[];
+    const reviews = await this.fundUpdateApplyService.buildReview(assets);
+    return {
+      kind: 'fund_updates' as const,
+      file: {
+        id: file.id,
+        file_name: file.file_name,
+        file_type: file.file_type,
+        processing_status: file.processing_status,
+      },
+      template_id: proposal?.template_id ?? null,
+      stats: proposal?.stats ?? null,
+      summary: (parsedNotes as unknown as FundUpdateStructuredResult | null)?.summary ?? null,
+      assets: reviews,
+    };
+  }
+
   async approve(fileId: string, input: ApproveFileInput, enteredBy?: string | null) {
+    if (input.file_type === 'fund_updates') {
+      return this.approveFundUpdate(fileId, input);
+    }
+
     const file = await this.fileRepo.findById(fileId);
     const parsedNotes = this.parseStructuredNotes(file.structured_notes);
     const extractedEntries = this.parseExtractedCompanies(parsedNotes);
@@ -748,6 +923,48 @@ export class FileService {
 
     const updated = await this.fileRepo.findById(fileId);
     return { file: updated, company_id: companyId };
+  }
+
+  private async approveFundUpdate(fileId: string, input: ApproveFileInput) {
+    if (!this.fundUpdateApplyService) {
+      throw new Error('Fund update apply service is not configured');
+    }
+    const file = await this.fileRepo.findById(fileId);
+    const parsedNotes = this.parseStructuredNotes(file.structured_notes);
+    const proposal = (parsedNotes as unknown as FundUpdateStructuredResult | null)?.fund_update_proposal;
+    const assets = (proposal?.assets ?? []) as ParsedAsset[];
+    const selections = input.fund_update_selections;
+    const codes =
+      selections?.map((s) => s.asset_code) ?? input.fund_update_asset_codes ?? [];
+    const applyResult = await this.fundUpdateApplyService.applySelected(
+      assets,
+      codes,
+      selections,
+    );
+
+    await this.fileRepo.updatePartial(fileId, {
+      file_type: 'fund_updates',
+      processing_status: 'completed',
+    });
+
+    const updated = await this.fileRepo.findById(fileId);
+    return { file: updated, company_id: null, fund_update: applyResult };
+  }
+
+  /**
+   * Fund-update HITL is only needed when at least one proposed asset is new
+   * or has missing ledger rows. If everything already matches the DB, complete
+   * the file so the table shows the eye (parsed notes) without a Review pen.
+   */
+  private async fundUpdateProposalNeedsReview(
+    structuredResult: IngestStructuredResult | null,
+  ): Promise<boolean> {
+    if (!structuredResult || !this.fundUpdateApplyService) return false;
+    const proposal = (structuredResult as FundUpdateStructuredResult).fund_update_proposal;
+    const assets = (proposal?.assets ?? []) as ParsedAsset[];
+    if (assets.length === 0) return false;
+    const reviews = await this.fundUpdateApplyService.buildReview(assets);
+    return reviews.some((a) => a.status === 'new' || a.status === 'add_missing');
   }
 
   private async dispatchScreeningJobs(companyId: string, company: Tables<'companies'>) {

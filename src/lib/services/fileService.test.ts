@@ -1580,6 +1580,8 @@ describe('FileService.getReviewData', () => {
 
     const result = await service.getReviewData('file-1');
 
+    expect(result.kind).toBe('company');
+    if (result.kind !== 'company') throw new Error('expected company review');
     expect(result.current.company?.id).toBe('company-1');
   });
 
@@ -1590,6 +1592,8 @@ describe('FileService.getReviewData', () => {
     const service = makeService({ fileRepo });
     const result = await service.getReviewData('file-1');
 
+    expect(result.kind).toBe('company');
+    if (result.kind !== 'company') throw new Error('expected company review');
     expect(result.current.company).toBeNull();
   });
 
@@ -1618,6 +1622,8 @@ describe('FileService.getReviewData', () => {
     const result = await service.getReviewData('file-1');
 
     // The AI side shows Beta's entry — not the file's first entry (Acme).
+    expect(result.kind).toBe('company');
+    if (result.kind !== 'company') throw new Error('expected company review');
     expect(result.ai.suggested_company).toMatchObject({
       target: 'Beta Ltd',
       segment: 'Healthcare',

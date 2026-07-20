@@ -81,6 +81,15 @@ export class FundAssetRepository {
     return row;
   }
 
+  /** Every asset in this workspace (for fund-update matching). */
+  async findAll(): Promise<Tables<'fund_assets'>[]> {
+    return this.db
+      .select()
+      .from(fundAssets)
+      .where(eq(fundAssets.workspace_id, this.workspaceId))
+      .orderBy(fundAssets.asset_name, fundAssets.id);
+  }
+
   async insert(
     data: Omit<TablesInsert<'fund_assets'>, 'workspace_id'>,
   ): Promise<Tables<'fund_assets'>> {

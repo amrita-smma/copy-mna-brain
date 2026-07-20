@@ -33,7 +33,13 @@ import {
   type RawFxRow,
 } from "./fxBackfill";
 
-export type FileTypeOverride = 'mom' | 'prospectus' | 'other' | 'shopping_list' | 'market_study';
+export type FileTypeOverride =
+  | 'mom'
+  | 'prospectus'
+  | 'other'
+  | 'shopping_list'
+  | 'market_study'
+  | 'fund_updates';
 
 /**
  * File types whose documents describe deal targets and therefore emit the
@@ -117,7 +123,7 @@ ${userRawNotes}
    - **Project-in-Company**: A codename explicitly associated with a known company in the document (e.g. "Project Tulia (PT Sinar Mas)"). Set both 'company_name' and 'project_name'.
    Actively scan for project codenames even if they don't match the Known Companies list — treat them as valid detected entities.
    **IMPORTANT — Do NOT classify document section headings as company or project names.** Common false positives to reject: "Project Overview", "Project Summary", "Project Background", "Company Overview", "Company Profile", "Business Overview", "Executive Summary", "Transaction Overview", "Transaction Summary", "Deal Overview", "Investment Highlights", "Financial Summary", "Management Overview", "Market Overview", "Opportunity Overview", "Sector Overview". A real project codename is a unique proper name chosen to identify a deal (e.g. "Project Tulia", "Project Phoenix", "Project Atlas") — not a generic document structure phrase. If the only candidate is a generic heading, leave 'project_name' null.
-4. **Categorize File Type**: Choose ONE of "prospectus", "financial_statement", "legal_document", "mom", "banker_communications", "shopping_list", "market_study", or "other".
+4. **Categorize File Type**: Choose ONE of "prospectus", "financial_statement", "legal_document", "mom", "banker_communications", "shopping_list", "market_study", "fund_updates", or "other".
    - **prospectus**: ONLY for a document that OFFERS A COMPANY OR BUSINESS FOR SALE to prospective buyers — a teaser, information memorandum (IM), confidential information memorandum (CIM), sale prospectus, or pitch deck marketing a target. The defining test: *is this document presenting a company/asset that is up for acquisition?* If you are not sure a company is being offered for sale, it is NOT a prospectus.
    - **financial_statement**: audited or management financial statements, annual reports, AFS, balance sheets, P&L, or cash-flow statements presented on their own. These describe a company's finances but do NOT offer it for sale.
    - **legal_document**: SPAs, share/stock purchase agreements, term sheets, credit agreements, commitment papers, NDAs, and other transaction legal documents.
@@ -125,6 +131,7 @@ ${userRawNotes}
    - **banker_communications**: an email export (CSV or MBOX) containing email threads, especially from bankers or investment professionals.
    - **shopping_list**: a target list or deal pipeline of companies being considered for acquisition.
    - **market_study**: a market landscape, sector overview, or industry analysis.
+   - **fund_updates**: fund / portfolio update packs (quarterly reporting workbooks, capital account statements, NAV packs). Prefer this when the document updates fund holdings rather than pitching a deal target.
    - **other**: anything that does not fit above — INCLUDING documents about a BUYER, ACQUIRER, SPONSOR, LENDER, INVESTMENT BANK, or LAW FIRM (e.g. a sponsor/buyer overview deck, a lender presentation, an advisor profile). These parties are NOT companies being sold.
    **CRITICAL — a document containing financial figures is NOT automatically a prospectus.** Financial statements, SPAs, and buyer/sponsor decks all contain revenue/EBITDA/balance-sheet figures but are NOT sale offerings. Only "prospectus" describes a deal target; misclassifying these other documents as "prospectus" wrongly registers a buyer, lender, or advisor as a company on sale. Classify as "prospectus" ONLY when a company is genuinely being offered for sale.
 5. Final Output must be a valid JSON block containing:

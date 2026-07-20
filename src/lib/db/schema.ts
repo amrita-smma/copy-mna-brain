@@ -3367,6 +3367,8 @@ export type DirectInvestmentDetails = {
   // "Invt ID" (e.g. "S017"); `vintageYear` its vintage year.
   sourceRef?: string;
   vintageYear?: number;
+  /** STARTECH (etc.) workbook sheet/tab code, e.g. "GOTO" — used to re-match uploads. */
+  sheetCode?: string;
 };
 export type CashDetails = { type?: string; institution?: string; yieldPct?: number };
 export type FundOfFundsDetails = {
@@ -3379,6 +3381,8 @@ export type FundOfFundsDetails = {
   dealType?: string;
   sourceRef?: string;
   vintageYear?: number;
+  /** STARTECH (etc.) workbook sheet/tab code, e.g. "GOTO" — used to re-match uploads. */
+  sheetCode?: string;
 };
 export type AssetTypeDetails =
   | DirectInvestmentDetails

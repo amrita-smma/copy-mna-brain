@@ -92,6 +92,7 @@ import { HoldingEntityService } from './holdingEntityService';
 import { FundSourceService } from './fundSourceService';
 import { FundHoldingEntityStakeService } from './fundHoldingEntityStakeService';
 import { FundAssetLedgerService } from './fundAssetLedgerService';
+import { FundUpdateApplyService } from './fundUpdateApplyService';
 import { FundPortfolioService } from './fundPortfolioService';
 import { FundMetricsService } from './fundMetricsService';
 import { StalledDealService } from './stalledDealService';
@@ -137,6 +138,7 @@ export interface Container {
   fundSourceService: FundSourceService;
   fundHoldingEntityStakeService: FundHoldingEntityStakeService;
   fundAssetLedgerService: FundAssetLedgerService;
+  fundUpdateApplyService: FundUpdateApplyService;
   fundPortfolioService: FundPortfolioService;
   fundMetricsService: FundMetricsService;
   stalledDealService: StalledDealService;
@@ -324,6 +326,16 @@ export function createContainer(db: DbClient, workspaceId: string): Container {
     fundAssetValuationRepo,
     fundMetricsService,
   );
+  const fundUpdateApplyService = new FundUpdateApplyService(
+    fundRepo,
+    fundAssetRepo,
+    fundAssetTransactionRepo,
+    fundAssetValuationRepo,
+    holdingEntityRepo,
+    fundSourceRepo,
+    fundMetricsService,
+  );
+  fileService.setFundUpdateApplyService(fundUpdateApplyService);
   const fundPortfolioService = new FundPortfolioService(
     fundRepo,
     fundAssetRepo,
@@ -377,6 +389,7 @@ export function createContainer(db: DbClient, workspaceId: string): Container {
     fundSourceService,
     fundHoldingEntityStakeService,
     fundAssetLedgerService,
+    fundUpdateApplyService,
     fundPortfolioService,
     fundMetricsService,
     stalledDealService,

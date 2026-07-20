@@ -5,7 +5,7 @@ import { createContainer } from '@/lib/services';
 import { auth } from '@/auth';
 import type { FileSortField } from '@/lib/repositories';
 
-const FILE_TYPE_OVERRIDES = ['mom', 'prospectus', 'other', 'shopping_list', 'market_study'] as const;
+const FILE_TYPE_OVERRIDES = ['mom', 'prospectus', 'other', 'shopping_list', 'market_study', 'fund_updates'] as const;
 type FileTypeOverrideValue = (typeof FILE_TYPE_OVERRIDES)[number];
 
 function parseFileTypeOverride(value: unknown): FileTypeOverrideValue | undefined {

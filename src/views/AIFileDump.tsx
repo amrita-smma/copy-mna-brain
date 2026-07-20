@@ -93,6 +93,7 @@ import { MatchedCompanyCombobox, AUTO as COMBOBOX_AUTO, type CompanyOption as Co
 import { useChatContext } from "@/components/chat/ChatProvider";
 import { AskAIButton } from "@/components/chat/AskAIButton";
 import { HitlReviewDialog } from "@/components/Files/HitlReviewDialog";
+import { FundUpdateReviewDialog } from "@/components/Files/FundUpdateReviewDialog";
 import CompanyDetailDialog, {
   type CompanyData,
 } from "@/components/pipeline/CompanyDetailDialog";
@@ -149,6 +150,7 @@ interface FileRecord {
   id: string;
   file_name: string;
   file_link: string;
+  file_type: string | null;
   raw_notes: string | null;
   structured_notes: string | null;
   processing_status: "pending" | "processing" | "awaiting_review" | "completed" | "failed";
@@ -187,7 +189,8 @@ interface FileTableProps {
   onUpdateDate: (id: string, date: Date | undefined) => void;
   onDownload: (id: string, fileName: string) => Promise<void>;
   onDelete: (id: string) => void;
-  onReview: (id: string) => void;
+  onReview: (id: string, fileType: string | null) => void;
+  onViewFundUpdateParsed?: (id: string) => void;
   onReprocess: (id: string) => void;
   downloadingId: string | null;
   deletingId: string | null;
@@ -221,6 +224,7 @@ function FileTable({
   onDownload,
   onDelete,
   onReview,
+  onViewFundUpdateParsed,
   onReprocess,
   downloadingId,
   deletingId,
@@ -406,12 +410,42 @@ function FileTable({
 
     try {
       const structured = JSON.parse(note.structured_notes);
+      const proposal = structured.fund_update_proposal;
+      const isFundUpdate =
+        structured.file_type === "fund_updates" || note.file_type === "fund_updates";
+
       return (
         <>
           <div>
             <h4 className="font-medium text-primary mb-1">Summary</h4>
             <p>{structured.summary}</p>
           </div>
+          {isFundUpdate && proposal?.stats ? (
+            <div className="rounded-md border bg-background p-3 text-xs space-y-2">
+              <div className="font-medium text-foreground">Parsed workbook</div>
+              <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-muted-foreground">
+                <span>Format</span>
+                <span className="text-foreground">{proposal.template_id ?? "—"}</span>
+                <span>Assets</span>
+                <span className="text-foreground">{proposal.stats.asset_count}</span>
+                <span>Transactions</span>
+                <span className="text-foreground">{proposal.stats.transaction_count}</span>
+                <span>Valuations</span>
+                <span className="text-foreground">{proposal.stats.valuation_count}</span>
+              </div>
+              {onViewFundUpdateParsed ? (
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  className="mt-2 w-full"
+                  onClick={() => onViewFundUpdateParsed(note.id)}
+                >
+                  Browse parsed assets
+                </Button>
+              ) : null}
+            </div>
+          ) : null}
           <div>
             <h4 className="font-medium text-primary mb-1">Key Points</h4>
             <ul className="list-disc pl-4 space-y-1">
@@ -483,7 +517,7 @@ function FileTable({
   return (
     <ColumnManagerProvider value={mgr}>
     <Card className={cn(hideTitle && "border-0 shadow-none rounded-none bg-transparent")}>
-      <CardHeader className={cn(hideTitle && "pb-2")}>
+      <CardHeader className={cn(hideTitle && "hidden")}>
         <div
           className={cn(
             "flex flex-col md:flex-row md:items-center gap-4",
@@ -496,14 +530,17 @@ function FileTable({
               {title} ({total})
             </CardTitle>
           )}
-          <div className="relative w-full md:w-64">
-            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-            <Input
-              placeholder="Search notes, tags, companies..."
-              className="pl-9"
-              value={searchQuery}
-              onChange={(e) => onSearchChange(e.target.value)}
-            />
+          <div className="flex items-center gap-2 w-full md:w-auto">
+            <div className="relative w-full md:w-64">
+              <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Search notes, tags, companies..."
+                className="pl-9"
+                value={searchQuery}
+                onChange={(e) => onSearchChange(e.target.value)}
+              />
+            </div>
+            <ColumnConfigGear portalTargetId={hideTitle ? "ai-file-dump-toolbar" : undefined} />
           </div>
         </div>
       </CardHeader>
@@ -531,9 +568,7 @@ function FileTable({
           </div>
         ) : (
           <>
-            <div className="flex items-center justify-end px-2 py-1.5">
-              <ColumnConfigGear />
-            </div>
+
             <div className="max-h-[500px] overflow-auto">
               <Table>
                 <ManagedTableHeader
@@ -685,7 +720,7 @@ function FileTable({
                               <Button
                                 variant="ghost"
                                 size="icon"
-                                onClick={() => onReview(note.id)}
+                                onClick={() => onReview(note.id, note.file_type)}
                                 title="Review & approve"
                                 className="h-8 w-8 text-amber-600 hover:text-amber-700"
                               >
@@ -915,6 +950,7 @@ export default function AIFileDump({
   showFundManagement = false,
 }: AIFileDumpProps) {
   const { analyzeWithAI } = useChatContext();
+  const [activeTab, setActiveTab] = useState("mom");
 
   // Each category owns its server-driven search / sort / pagination and only
   // ever holds the current page of rows.
@@ -922,15 +958,30 @@ export default function AIFileDump({
   const prospectusBucket = useFileBucket("prospectus");
   const shoppingListBucket = useFileBucket("shopping_list");
   const bankerCommsBucket = useFileBucket("banker_communications");
+  const fundUpdatesBucket = useFileBucket("fund_updates");
   const otherBucket = useFileBucket("other");
+
+  const getActiveBucket = () => {
+    switch (activeTab) {
+      case "mom": return mom;
+      case "prospectus": return prospectusBucket;
+      case "shopping_list": return shoppingListBucket;
+      case "banker_communications": return bankerCommsBucket;
+      case "fund_updates": return fundUpdatesBucket;
+      case "other": return otherBucket;
+      default: return mom;
+    }
+  };
+  const activeBucket = getActiveBucket();
 
   const refetchAll = useCallback(() => {
     mom.refetch();
     prospectusBucket.refetch();
     shoppingListBucket.refetch();
     bankerCommsBucket.refetch();
+    fundUpdatesBucket.refetch();
     otherBucket.refetch();
-  }, [mom, prospectusBucket, shoppingListBucket, bankerCommsBucket, otherBucket]);
+  }, [mom, prospectusBucket, shoppingListBucket, bankerCommsBucket, fundUpdatesBucket, otherBucket]);
 
   // Gate the first-paint spinner on the default (MoM) tab; the other buckets
   // load in the background and fill in their tables as they arrive.
@@ -954,7 +1005,7 @@ export default function AIFileDump({
    * classification.
    */
   const [fileTypeOverrides, setFileTypeOverrides] = useState<
-    Record<string, "auto" | "mom" | "prospectus" | "shopping_list" | "other">
+    Record<string, "auto" | "mom" | "prospectus" | "shopping_list" | "fund_updates" | "other">
   >({});
   /**
    * Per-file pre-upload picks for "Matched Company" and "Project Name".
@@ -985,7 +1036,11 @@ export default function AIFileDump({
   >({});
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
   const [reprocessingId, setReprocessingId] = useState<string | null>(null);
-  const [reviewFileId, setReviewFileId] = useState<string | null>(null);
+  const [reviewFile, setReviewFile] = useState<{
+    id: string;
+    file_type: string | null;
+  } | null>(null);
+  const [viewFundUpdateFileId, setViewFundUpdateFileId] = useState<string | null>(null);
 
   // Load the full company DTO and open the detail dialog. The matched-company
   // chips only carry id + name, but CompanyDetailDialog reads (and can edit)
@@ -1118,6 +1173,7 @@ export default function AIFileDump({
       ...prospectusBucket.files.map((n) => n.file_name),
       ...shoppingListBucket.files.map((n) => n.file_name),
       ...bankerCommsBucket.files.map((n) => n.file_name),
+      ...fundUpdatesBucket.files.map((n) => n.file_name),
       ...otherBucket.files.map((n) => n.file_name),
     ]);
     const duplicates = selectedFiles.filter((file) =>
@@ -1556,6 +1612,7 @@ export default function AIFileDump({
                           ...mom.files.map((n) => n.file_name),
                           ...prospectusBucket.files.map((n) => n.file_name),
                           ...bankerCommsBucket.files.map((n) => n.file_name),
+                          ...fundUpdatesBucket.files.map((n) => n.file_name),
                           ...otherBucket.files.map((n) => n.file_name),
                         ]);
                         const isDuplicate = existingFileNames.has(file.name);
@@ -1666,6 +1723,7 @@ export default function AIFileDump({
                                         | "mom"
                                         | "prospectus"
                                         | "shopping_list"
+                                        | "fund_updates"
                                         | "other",
                                     }))
                                   }
@@ -1687,6 +1745,9 @@ export default function AIFileDump({
                                     </SelectItem>
                                     <SelectItem value="shopping_list">
                                       Shopping List
+                                    </SelectItem>
+                                    <SelectItem value="fund_updates">
+                                      Fund Updates
                                     </SelectItem>
                                     <SelectItem value="other">Other</SelectItem>
                                   </SelectContent>
@@ -1808,9 +1869,10 @@ export default function AIFileDump({
         </Card>
 
         <Card className="overflow-hidden">
-        <Tabs defaultValue="mom" className="w-full">
-          <TabsList className="h-auto w-full justify-start gap-0 overflow-x-auto rounded-none border-b bg-transparent px-2 pt-1">
-            {(
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+          <div className="flex flex-col md:flex-row md:items-center justify-between border-b px-2 pt-1">
+            <TabsList className="h-auto w-full justify-start gap-0 overflow-x-auto rounded-none border-0 bg-transparent px-0 pt-0">
+              {(
               [
                 {
                   value: "mom",
@@ -1833,6 +1895,11 @@ export default function AIFileDump({
                   count: bankerCommsBucket.total,
                 },
                 {
+                  value: "fund_updates",
+                  label: "Fund Updates",
+                  count: fundUpdatesBucket.total,
+                },
+                {
                   value: "other",
                   label: "Other",
                   count: otherBucket.total,
@@ -1853,7 +1920,20 @@ export default function AIFileDump({
                 </Badge>
               </TabsTrigger>
             ))}
-          </TabsList>
+            </TabsList>
+            <div className="flex items-center gap-2 pb-1 pr-2 shrink-0">
+              <div className="relative w-full md:w-64">
+                <Search className="absolute left-2.5 top-2 h-4 w-4 text-muted-foreground" />
+                <Input
+                  placeholder="Search notes, tags, companies..."
+                  className="pl-9 h-8 text-xs"
+                  value={activeBucket.search}
+                  onChange={(e) => activeBucket.setSearch(e.target.value)}
+                />
+              </div>
+              <div id="ai-file-dump-toolbar"></div>
+            </div>
+          </div>
 
           <TabsContent value="mom" className="mt-0">
             <FileTable
@@ -1875,7 +1955,8 @@ export default function AIFileDump({
               onUpdateDate={handleUpdateDate}
               onDownload={handleDownload}
               onDelete={handleDelete}
-              onReview={setReviewFileId}
+              onReview={(id, fileType) => setReviewFile({ id, file_type: fileType })}
+              onViewFundUpdateParsed={setViewFundUpdateFileId}
               onReprocess={handleReprocess}
               downloadingId={downloadingId}
               deletingId={deletingId}
@@ -1908,7 +1989,8 @@ export default function AIFileDump({
               onUpdateDate={handleUpdateDate}
               onDownload={handleDownload}
               onDelete={handleDelete}
-              onReview={setReviewFileId}
+              onReview={(id, fileType) => setReviewFile({ id, file_type: fileType })}
+              onViewFundUpdateParsed={setViewFundUpdateFileId}
               onReprocess={handleReprocess}
               downloadingId={downloadingId}
               deletingId={deletingId}
@@ -1941,7 +2023,8 @@ export default function AIFileDump({
               onUpdateDate={handleUpdateDate}
               onDownload={handleDownload}
               onDelete={handleDelete}
-              onReview={setReviewFileId}
+              onReview={(id, fileType) => setReviewFile({ id, file_type: fileType })}
+              onViewFundUpdateParsed={setViewFundUpdateFileId}
               onReprocess={handleReprocess}
               downloadingId={downloadingId}
               deletingId={deletingId}
@@ -1974,7 +2057,8 @@ export default function AIFileDump({
               onUpdateDate={handleUpdateDate}
               onDownload={handleDownload}
               onDelete={handleDelete}
-              onReview={setReviewFileId}
+              onReview={(id, fileType) => setReviewFile({ id, file_type: fileType })}
+              onViewFundUpdateParsed={setViewFundUpdateFileId}
               onReprocess={handleReprocess}
               downloadingId={downloadingId}
               deletingId={deletingId}
@@ -1983,6 +2067,41 @@ export default function AIFileDump({
               emptySubMessage="Upload CSV or MBOX files from Google Vault exports."
               currentPage={bankerCommsBucket.page}
               onPageChange={bankerCommsBucket.setPage}
+              hideTitle
+            />
+          </TabsContent>
+
+          <TabsContent value="fund_updates" className="mt-0">
+            <FileTable
+              title="Fund Updates"
+              icon={<FileText className="h-5 w-5" />}
+              iconColor="text-emerald-500"
+              files={fundUpdatesBucket.files}
+              total={fundUpdatesBucket.total}
+              searchQuery={fundUpdatesBucket.search}
+              onSearchChange={fundUpdatesBucket.setSearch}
+              sortField={fundUpdatesBucket.sortField}
+              sortDirection={fundUpdatesBucket.sortDirection}
+              onSort={fundUpdatesBucket.onSort}
+              expandedTags={expandedTags}
+              toggleTags={toggleTags}
+              expandedCompanies={expandedCompanies}
+              toggleCompanies={toggleCompanies}
+              onOpenCompany={openCompany}
+              onUpdateDate={handleUpdateDate}
+              onDownload={handleDownload}
+              onDelete={handleDelete}
+              onReview={(id, fileType) => setReviewFile({ id, file_type: fileType })}
+              onViewFundUpdateParsed={setViewFundUpdateFileId}
+              onReprocess={handleReprocess}
+              downloadingId={downloadingId}
+              deletingId={deletingId}
+              reprocessingId={reprocessingId}
+              emptyMessage="No fund update documents found"
+              emptySubMessage="Documents uploaded and classified as 'Fund Updates' will appear here."
+              currentPage={fundUpdatesBucket.page}
+              onPageChange={fundUpdatesBucket.setPage}
+              itemsPerPage={PAGE_SIZE}
               hideTitle
             />
           </TabsContent>
@@ -2007,7 +2126,8 @@ export default function AIFileDump({
               onUpdateDate={handleUpdateDate}
               onDownload={handleDownload}
               onDelete={handleDelete}
-              onReview={setReviewFileId}
+              onReview={(id, fileType) => setReviewFile({ id, file_type: fileType })}
+              onViewFundUpdateParsed={setViewFundUpdateFileId}
               onReprocess={handleReprocess}
               downloadingId={downloadingId}
               deletingId={deletingId}
@@ -2023,13 +2143,35 @@ export default function AIFileDump({
         </Card>
       </div>
 
-      {reviewFileId && (
-        <HitlReviewDialog
-          fileId={reviewFileId}
-          open={!!reviewFileId}
-          onClose={() => setReviewFileId(null)}
+      {viewFundUpdateFileId && (
+        <FundUpdateReviewDialog
+          fileId={viewFundUpdateFileId}
+          open={!!viewFundUpdateFileId}
+          readOnly
+          onClose={() => setViewFundUpdateFileId(null)}
+          onApproved={() => setViewFundUpdateFileId(null)}
+        />
+      )}
+
+      {reviewFile && reviewFile.file_type === "fund_updates" && (
+        <FundUpdateReviewDialog
+          fileId={reviewFile.id}
+          open={!!reviewFile}
+          onClose={() => setReviewFile(null)}
           onApproved={() => {
-            setReviewFileId(null);
+            setReviewFile(null);
+            refetchAll();
+          }}
+        />
+      )}
+
+      {reviewFile && reviewFile.file_type !== "fund_updates" && (
+        <HitlReviewDialog
+          fileId={reviewFile.id}
+          open={!!reviewFile}
+          onClose={() => setReviewFile(null)}
+          onApproved={() => {
+            setReviewFile(null);
             refetchAll();
           }}
         />
