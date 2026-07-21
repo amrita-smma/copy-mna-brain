@@ -287,20 +287,25 @@ describe('DashboardInsightsService.getInsights', () => {
     expect(bankers[1]).toMatchObject({ total: 9, l1plus: 3, conversion: 33 }); // 3/9 ≈ 33%
   });
 
-  it('returns every segment/country row sorted descending by L0 (UI paginates)', async () => {
+  it('returns every segment/country row sorted descending by deal total (UI paginates)', async () => {
     // 8 segments — more than the old top-6 cap — to prove no slicing happens.
+    // Each spans two current stages so `total` (the displayed/sort metric)
+    // exceeds `l0`, proving the sort keys off the cohort total, not just L0.
     repo.getSegmentBreakdown.mockResolvedValue(
-      Array.from({ length: 8 }, (_, i) => dim(`Seg${i}`, 'L0', (i + 1) * 3)),
+      Array.from({ length: 8 }, (_, i) => [
+        dim(`Seg${i}`, 'L0', (i + 1) * 3),
+        dim(`Seg${i}`, 'L1', i + 1),
+      ]).flat(),
     );
 
     const { segments } = await service.getInsights(FROM, TO, NOW);
 
     expect(segments).toHaveLength(8);
-    // Sorted by L0 desc: Seg7 (24) … Seg0 (3).
+    // Sorted by total desc: Seg7 (24+8=32) … Seg0 (3+1=4).
     expect(segments.map((s) => s.key)).toEqual([
       'Seg7', 'Seg6', 'Seg5', 'Seg4', 'Seg3', 'Seg2', 'Seg1', 'Seg0',
     ]);
-    expect(segments[0]).toMatchObject({ key: 'Seg7', l0: 24 });
+    expect(segments[0]).toMatchObject({ key: 'Seg7', l0: 24, total: 32 });
   });
 
   it('keeps bankers capped at the fixed top-N by lead volume', async () => {

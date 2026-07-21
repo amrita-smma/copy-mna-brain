@@ -594,8 +594,8 @@ function InsightsContent({
               tableId="dashboard-insights-countries"
               rows={countries}
               firstHeader="Country"
-              leadHeader="L0"
-              leadValue={(r) => r.l0}
+              leadHeader="Deals"
+              leadValue={(r) => r.total}
               pageSize={6}
               renderKey={(r) => (
                 <span className="flex items-center gap-2 text-[13px]">
@@ -625,8 +625,8 @@ function InsightsContent({
               tableId="dashboard-insights-segments"
               rows={segments}
               firstHeader="Segment"
-              leadHeader="L0"
-              leadValue={(r) => r.l0}
+              leadHeader="Deals"
+              leadValue={(r) => r.total}
               pageSize={6}
               renderKey={(r) => <span className="text-[13px]">{r.key}</span>}
               emptyLabel="No segmented deals."

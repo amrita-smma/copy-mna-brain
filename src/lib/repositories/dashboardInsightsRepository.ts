@@ -195,66 +195,18 @@ export class DashboardInsightsRepository {
   }
 
   /**
-   * Companies *added to* each funnel stage within the window, grouped by an
-   * arbitrary text key (a column or SQL expression) and stage. Shares the
-   * "added to a stage" definition with {@link getStageEntryCounts}: a company
-   * counts toward a `(key, stage)` cell when it was created directly at that
-   * stage in the window, or moved into it via a stage-change log (`…_TO_L<n>`)
-   * whose timestamp falls in the window.
-   *
-   * Unlike the snapshot aggregates this deliberately ignores `status`, so the
-   * segment / country / banker breakdowns cover **every** company that passed
-   * through a stage in the period — dropped and resurfaced deals included, not
-   * just the ones still active. Counts are `COUNT(DISTINCT id)` and the two
-   * branches are `UNION`-ed (not `UNION ALL`), so a company that was both
-   * created at a stage and logged into it — or logged into it more than once —
-   * is counted a single time per stage.
-   */
-  private async breakdownByKey(key: SQL, from: Date, to: Date): Promise<DimensionStageCount[]> {
-    const fromIso = from.toISOString();
-    const toIso = to.toISOString();
-    const stages = [...PIPELINE_FUNNEL_STAGES];
-
-    const { rows } = await this.db.execute<{ key: string | null; stage: string; count: string }>(sql`
-      SELECT key, stage, COUNT(DISTINCT id) AS count FROM (
-        SELECT ${companies.id} AS id,
-               ${key} AS key,
-               ${companies.pipeline_stage}::text AS stage
-        FROM ${companies}
-        WHERE ${eq(companies.workspace_id, this.workspaceId)}
-          AND ${inArray(companies.pipeline_stage, stages)}
-          AND ${gte(companies.created_at, fromIso)}
-          AND ${lte(companies.created_at, toIso)}
-        UNION
-        SELECT ${companyLogs.company_id} AS id,
-               ${key} AS key,
-               substring(${companyLogs.action} from '_TO_(L[0-5])$') AS stage
-        FROM ${companyLogs}
-        INNER JOIN ${companies} ON ${eq(companies.id, companyLogs.company_id)}
-        WHERE ${eq(companies.workspace_id, this.workspaceId)}
-          AND ${like(companyLogs.action, '%_TO_L%')}
-          AND ${gte(companyLogs.created_at, fromIso)}
-          AND ${lte(companyLogs.created_at, toIso)}
-      ) sub
-      WHERE ${inArray(sql`stage`, stages)}
-      GROUP BY key, stage
-    `);
-    return rows.map((r) => ({
-      key: r.key == null ? null : String(r.key),
-      stage: String(r.stage),
-      count: Number(r.count),
-    }));
-  }
-
-  /**
    * Cohort breakdown keyed on `key`: companies **created in the window** that are
    * currently a pipeline deal (L0–L5), grouped by the key and their **current**
    * stage. This is the deal-funnel basis — a snapshot of where each company sits
    * *today* (active and dropped alike, each counted once), matching
-   * `DashboardActivityService.getAddedCohort`. It deliberately differs from the
-   * stage-entry model in {@link breakdownByKey}: rolling these per-stage counts
-   * up cumulatively (a company at L1 today also passed through L0) is done in the
-   * service, so the segment/country conversion reconciles with the funnel.
+   * `DashboardActivityService.getAddedCohort` (the "New Deals" tally). Because it
+   * shares that method's exact `[from, to]` created-at window and L0–L5 filter,
+   * summing these per-key/per-stage counts reconciles with the New Deals figure.
+   * It deliberately differs from the stage-entry model in
+   * {@link getStageEntryCounts}, which counts *entries* into each stage (via
+   * `…_TO_L<n>` logs, so a resurfaced or promoted company created before the
+   * window still counts); rolling these per-stage counts up cumulatively (a
+   * company at L1 today also passed through L0) is done in the service.
    */
   private async cohortBreakdownByKey(
     key: SQL,
@@ -280,21 +232,24 @@ export class DashboardInsightsRepository {
     }));
   }
 
-  /** Segment breakdown on the deal-funnel (cohort-by-current-stage) basis. */
+  /** Segment breakdown on the deal-funnel (cohort-by-current-stage) basis, so it
+   * tallies with the "New Deals" cohort. */
   getSegmentBreakdown(from: Date, to: Date): Promise<DimensionStageCount[]> {
-    return this.breakdownByKey(sql`${companies.segment}`, from, to);
+    return this.cohortBreakdownByKey(sql`${companies.segment}`, from, to);
   }
 
-  /** Country breakdown on the deal-funnel (cohort-by-current-stage) basis. */
+  /** Country breakdown on the deal-funnel (cohort-by-current-stage) basis, so it
+   * tallies with the "New Deals" cohort. */
   getCountryBreakdown(from: Date, to: Date): Promise<DimensionStageCount[]> {
-    return this.breakdownByKey(sql`${companies.geography}`, from, to);
+    return this.cohortBreakdownByKey(sql`${companies.geography}`, from, to);
   }
 
-  /** Banker breakdown keyed on the company's `banker` field. Rows with an empty
-   * `banker` are dropped downstream (`buildBreakdown` skips blank keys), so only
-   * companies with a named banker contribute to the card. */
+  /** Banker breakdown keyed on the company's `banker` field, on the deal-funnel
+   * (cohort-by-current-stage) basis so it tallies with the "New Deals" cohort.
+   * Rows with an empty `banker` are dropped downstream (`buildBreakdown` skips
+   * blank keys), so only companies with a named banker contribute to the card. */
   getBankerBreakdown(from: Date, to: Date): Promise<DimensionStageCount[]> {
-    return this.breakdownByKey(
+    return this.cohortBreakdownByKey(
       sql`coalesce(nullif(${companies.banker}, ''), ${companies.banker_source})`,
       from,
       to,

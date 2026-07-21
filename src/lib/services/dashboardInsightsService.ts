@@ -329,13 +329,14 @@ export class DashboardInsightsService {
       funnel,
       staleThresholdLabel: formatStaleThresholdLabel(settings.staleThresholds),
       staleDeals: staleDeals.slice(0, MAX_STALE_ROWS),
-      // Segments & countries convert off their L0 base; bankers off total leads.
-      // All three now count companies *added to* each stage in the window (the
-      // funnel basis: dropped included, deduped per stage), not just the active
-      // snapshot. Segments/countries return every row (the UI paginates);
+      // All three count the same cohort as the "New Deals" tally: companies
+      // created in the window that are currently a pipeline deal (L0–L5), dropped
+      // included, each counted once by its current stage — so the per-key totals
+      // sum back to New Deals (blank keys aside). Every row sorts and displays by
+      // that total. Segments/countries return every row (the UI paginates);
       // bankers stay capped at a fixed top-N and carry our response-time profile.
-      segments: buildBreakdown(segmentBreakdown, 'l0'),
-      countries: buildBreakdown(countryBreakdown, 'l0'),
+      segments: buildBreakdown(segmentBreakdown, 'total'),
+      countries: buildBreakdown(countryBreakdown, 'total'),
       bankers: attachResponseProfiles(
         buildBreakdown(bankerBreakdown, 'total', MAX_BREAKDOWN_ROWS),
         bankerResponseProfiles,

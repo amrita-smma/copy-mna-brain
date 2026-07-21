@@ -94,7 +94,7 @@ describe('DashboardInsightsRepository breakdowns', () => {
     repo = new DashboardInsightsRepository(mockDb as never, 'workspace-1');
   });
 
-  it('runs a single UNION query (created + moved-in) and coerces null keys / counts', async () => {
+  it('runs a single cohort query (created-in-window, by current stage) and coerces null keys / counts', async () => {
     mockDb.execute.mockResolvedValueOnce({ rows: [
       { key: 'CMP', stage: 'L0', count: '42' },
       { key: null, stage: 'L1', count: 3 },
@@ -102,8 +102,8 @@ describe('DashboardInsightsRepository breakdowns', () => {
 
     const result = await repo.getSegmentBreakdown(WINDOW_FROM, WINDOW_TO);
 
-    // Raw-SQL UNION (created-at-stage UNION stage-change logs), not a grouped
-    // select — covers dropped companies and companies promoted into a stage.
+    // Raw-SQL cohort query (companies created in the window grouped by current
+    // stage) — the same basis as the "New Deals" tally, so the counts reconcile.
     expect(mockDb.execute).toHaveBeenCalledTimes(1);
     expect(mockDb.groupBy).not.toHaveBeenCalled();
     expect(result).toEqual([
