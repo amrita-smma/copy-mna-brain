@@ -54,6 +54,31 @@ const INVESTMENT_WELCOME_MESSAGE = `# Hello! I'm your Investment Assistant. I ca
 • "Compare this fund's returns to market benchmarks"
 • "What is the current liquidity position across our holdings?"`;
 
+const COMBINED_WELCOME_MESSAGE = `# Hello! I'm your M&A + Investment assistant. I can help you with
+
+---
+
+🔍 **Company Discovery** - Find acquisition targets by sector
+📊 **Pipeline Insights** - Deal performance, stalled deals, bottlenecks
+💼 **Fund & Asset Analysis** - Fund and holding performance (TVPI, MOIC, IRR)
+👥 **Investor Analysis** - LP profiles and capital sources
+🌍 **Market Context** - Web benchmarks across both domains
+
+---
+
+💡 **Try asking:**
+• "Give me a summary of all active deals in the pipeline"
+• "Which fund has the best TVPI, and how does it compare to market?"
+• "Show me the top assets by value"
+• "Find semiconductor companies and compare them to our fund holdings"
+• "Which deals have been stalled the longest?"`;
+
+function welcomeText(agentType: ReturnType<typeof useCopilotAgent>): string {
+  if (agentType === "investment") return INVESTMENT_WELCOME_MESSAGE;
+  if (agentType === "combined") return COMBINED_WELCOME_MESSAGE;
+  return MNA_WELCOME_MESSAGE;
+}
+
 function WelcomeMessage() {
   const agentType = useCopilotAgent();
   const message: UIMessage = {
@@ -62,7 +87,7 @@ function WelcomeMessage() {
     parts: [
       {
         type: "text",
-        text: agentType === "investment" ? INVESTMENT_WELCOME_MESSAGE : MNA_WELCOME_MESSAGE,
+        text: welcomeText(agentType),
       },
     ],
   };

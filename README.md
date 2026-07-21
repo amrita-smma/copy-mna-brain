@@ -347,9 +347,9 @@ Layering follows the project's handler → service → repository convention:
 > **Not yet included:** per-key rate limiting. Add Vercel WAF rate rules or an
 > Upstash-backed limiter before exposing this to untrusted clients.
 
-## Copilot flavors (M&A vs Investment)
+## Copilot flavors (M&A, Investment, Combined)
 
-The in-app Copilot ships in two selectable flavors, chosen per workspace:
+The in-app Copilot ships in three selectable flavors, chosen per workspace:
 
 - **`mna`** (default) — the M&A / acquisitions assistant: company/CRM tools,
   pipeline analysis, and Workforce handoffs (`CHAT_SYSTEM_PROMPT` +
@@ -360,6 +360,12 @@ The in-app Copilot ships in two selectable flavors, chosen per workspace:
   backed by the fund tools in `src/lib/agents/analysis/tools/`:
   `get_fund_data_schema`, `query_funds`, `query_fund_assets`, `query_investors`,
   `query_fund_sources`).
+- **`combined`** — a single assistant with access to BOTH tool sets, for
+  workspaces that want one Copilot spanning the deal pipeline and the fund
+  portfolio (`COMBINED_SYSTEM_PROMPT` + `COMBINED_TOOL_LIST`). `combinedTools` is
+  the deduplicated union of `DEFAULT_TOOL_LIST` and `investmentTools` — the
+  shared read tools (`web_search`, `query_files`, `lookup_crm`, `crm_insights`,
+  `lookup_user`, `send_email`, `propose_workforce_handoff`) appear once.
 
 How it's wired:
 

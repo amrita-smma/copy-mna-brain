@@ -314,8 +314,9 @@ export const workspaces = pgTable(
     name: text().notNull(),
     slug: text().notNull(),
     // Which AI Copilot flavor this workspace uses: "mna" (M&A / acquisitions —
-    // the default) or "investment" (funds & investing). Read by the chat route
-    // to pick the agent graph; set from the workspace configuration dropdown.
+    // the default), "investment" (funds & investing), or "combined" (both tool
+    // sets in one assistant). Read by the chat route to pick the agent graph;
+    // set from the workspace configuration dropdown.
     copilot_agent: text().default("mna").notNull(),
     created_at: timestamp({ withTimezone: true, mode: "string" }).defaultNow().notNull(),
     updated_at: timestamp({ withTimezone: true, mode: "string" }).defaultNow().notNull(),

@@ -12,11 +12,17 @@ import type { CopilotAgentType } from '@/lib/agents/analysis';
 
 /** The AI Copilot flavors a workspace can be set to. Source of truth for
  *  validating the `copilot_agent` column and the PATCH payload. */
-export const COPILOT_AGENTS: readonly CopilotAgentType[] = ['mna', 'investment'] as const;
+export const COPILOT_AGENTS: readonly CopilotAgentType[] = [
+  'mna',
+  'investment',
+  'combined',
+] as const;
 
 /** Narrow an arbitrary string to a valid CopilotAgentType, defaulting to 'mna'. */
 export function normalizeCopilotAgent(value: string | null | undefined): CopilotAgentType {
-  return value === 'investment' ? 'investment' : 'mna';
+  if (value === 'investment') return 'investment';
+  if (value === 'combined') return 'combined';
+  return 'mna';
 }
 
 /** Raised when a role name passed to addMember/setMemberRole isn't a seeded role. */

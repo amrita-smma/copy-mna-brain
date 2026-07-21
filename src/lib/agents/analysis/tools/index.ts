@@ -175,6 +175,27 @@ export const investmentTools = [
 ];
 
 /**
+ * Combined tools — the "combined" Copilot flavor sees BOTH the M&A/acquisitions
+ * tool set (base + chat-only: companies, CRM, deal analysis, bulk actions,
+ * email) AND the read-only fund/investing tools (funds, assets, investors, fund
+ * sources). It is the union of DEFAULT_TOOL_LIST (`tools` + `chatOnlyTools`) and
+ * `investmentTools`, deduplicated: the fund tools listed below are the only
+ * entries `investmentTools` adds that the M&A lists don't already contain
+ * (web_search, query_files, lookup_crm, crm_insights, lookup_user, send_email,
+ * propose_workforce_handoff are shared and must not be duplicated — passing the
+ * same tool twice to createAgent would register a duplicate name).
+ */
+export const combinedTools = [
+  ...tools,
+  ...chatOnlyTools,
+  getFundDataSchema,
+  queryFunds,
+  queryFundAssets,
+  queryInvestors,
+  queryFundSources,
+];
+
+/**
  * Get a formatted list of tool names and descriptions for prompt injection.
  * Returns a markdown-formatted list of available tools.
  */

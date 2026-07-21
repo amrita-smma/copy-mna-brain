@@ -41,6 +41,7 @@ vi.mock('@/lib/agents/analysis/tools', () => ({
   chatOnlyTools: [],
   workforceOnlyTools: [],
   investmentTools: [],
+  combinedTools: [],
 }));
 
 // db.ts constructs a Postgres client at module load and throws without DB env
@@ -187,6 +188,20 @@ describe('getAgentGraph flavor selection', () => {
 
     expect(mnaPrompt).not.toBe(investmentPrompt);
     expect(investmentPrompt).toContain('Investment & Funds Analysis Assistant');
+  });
+
+  it('builds the combined flavor as its own memoized singleton with a distinct prompt', async () => {
+    const mna = await getAgentGraph('mna');
+    const combined = await getAgentGraph('combined');
+    expect(combined).not.toBe(mna);
+    expect(mocks.createAgent).toHaveBeenCalledTimes(2);
+
+    // Memoized separately from the other flavors.
+    expect(await getAgentGraph('combined')).toBe(combined);
+    expect(mocks.createAgent).toHaveBeenCalledTimes(2);
+
+    const combinedPrompt = mocks.createAgent.mock.calls[1][0].systemPrompt as string;
+    expect(combinedPrompt).toContain('M&A + Investment Analysis Assistant');
   });
 });
 

@@ -35,6 +35,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { useCopilotAgent } from '@/components/chat/CopilotAgentContext';
+import type { CopilotAgentType } from '@/lib/agents/analysis';
 import { StickToBottom, useStickToBottomContext } from 'use-stick-to-bottom';
 import { motion, AnimatePresence } from 'framer-motion';
 import type { UIMessage } from '@ai-sdk/react';
@@ -51,14 +52,26 @@ const INVESTMENT_WELCOME_MESSAGE = `# Hello! I'm your Investment Assistant.
 📊 **Asset Statistics** - Performance and allocation metrics
 👥 **Investor Analysis** - LP profiles and investor insights`;
 
-function makeWelcomeMessage(agentType: 'mna' | 'investment'): UIMessage {
+const COMBINED_WELCOME_MESSAGE = `# Hello! I'm your M&A + Investment assistant.
+
+🔍 **Company Discovery** - Find acquisition targets
+📊 **Pipeline Insights** - Deal performance metrics
+💼 **Fund & Asset Analysis** - Fund and holding performance`;
+
+function makeWelcomeMessage(agentType: CopilotAgentType): UIMessage {
+  const text =
+    agentType === 'investment'
+      ? INVESTMENT_WELCOME_MESSAGE
+      : agentType === 'combined'
+        ? COMBINED_WELCOME_MESSAGE
+        : MNA_WELCOME_MESSAGE;
   return {
     id: 'welcome-pane',
     role: 'assistant',
     parts: [
       {
         type: 'text',
-        text: agentType === 'investment' ? INVESTMENT_WELCOME_MESSAGE : MNA_WELCOME_MESSAGE,
+        text,
       },
     ],
   };

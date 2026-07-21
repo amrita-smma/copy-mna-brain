@@ -291,6 +291,10 @@ describe('normalizeCopilotAgent', () => {
     expect(normalizeCopilotAgent('investment')).toBe('investment');
   });
 
+  it('accepts the combined flavor', () => {
+    expect(normalizeCopilotAgent('combined')).toBe('combined');
+  });
+
   it('defaults to mna for null, undefined, or unrecognized values', () => {
     expect(normalizeCopilotAgent(null)).toBe('mna');
     expect(normalizeCopilotAgent(undefined)).toBe('mna');
@@ -298,8 +302,8 @@ describe('normalizeCopilotAgent', () => {
     expect(normalizeCopilotAgent('bogus')).toBe('mna');
   });
 
-  it('exposes exactly the two supported flavors', () => {
-    expect([...COPILOT_AGENTS]).toEqual(['mna', 'investment']);
+  it('exposes exactly the three supported flavors', () => {
+    expect([...COPILOT_AGENTS]).toEqual(['mna', 'investment', 'combined']);
   });
 });
 

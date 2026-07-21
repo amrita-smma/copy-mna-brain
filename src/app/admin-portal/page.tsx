@@ -83,6 +83,7 @@ interface Workspace {
 const COPILOT_AGENT_OPTIONS: { value: string; label: string }[] = [
   { value: 'mna', label: 'M&A / Acquisitions' },
   { value: 'investment', label: 'Funds & Investing' },
+  { value: 'combined', label: 'Combined (M&A + Investment)' },
 ];
 
 /** Active tab: primary (blue) background with white text. */
@@ -724,7 +725,8 @@ export default function AdminPortalPage() {
                       </Select>
                       <p className="text-xs text-muted-foreground">
                         Which Copilot flavor this workspace&apos;s chat uses — M&amp;A deal
-                        analysis or funds &amp; investing.
+                        analysis, funds &amp; investing, or a combined assistant with
+                        access to both.
                       </p>
                     </div>
                   </TabsContent>

@@ -61,6 +61,7 @@ import {
   chatOnlyTools,
   workforceOnlyTools,
   investmentTools,
+  combinedTools,
 } from "./tools";
 
 // Chat tool list: base + chat-only (e.g. propose_workforce_handoff).
@@ -76,9 +77,14 @@ const WORKFORCE_TOOL_LIST = [...tools, ...workforceOnlyTools];
 // the "investment" Copilot flavor sees ONLY these.
 const INVESTMENT_TOOL_LIST = [...investmentTools];
 
-// The two user-selectable Copilot flavors. Persisted per-workspace on
+// Combined tool list: the union of the M&A chat tools and the read-only
+// funds/investing tools. The "combined" Copilot flavor sees BOTH sets so a
+// single chat can move between the deal pipeline and the fund portfolio.
+const COMBINED_TOOL_LIST = [...combinedTools];
+
+// The user-selectable Copilot flavors. Persisted per-workspace on
 // `workspaces.copilot_agent` and resolved by the chat route.
-export type CopilotAgentType = "mna" | "investment";
+export type CopilotAgentType = "mna" | "investment" | "combined";
 
 // Permissive union element type so a single function signature accepts
 // any of these arrays. Each contains langchain tool() results — the
@@ -354,6 +360,78 @@ You have access to the following tools:
 - Amounts are expressed in each entity's report/base currency; note the currency when it matters.
 - When a user names a specific fund, resolve it via query_fund_assets/query_funds rather than guessing.
 - send_email recipients are restricted to registered platform users. Use lookup_user to resolve a name to an email before calling send_email.`;
+
+const COMBINED_SYSTEM_PROMPT = `You are an intelligent M&A + Investment Analysis Assistant. You cover BOTH domains in a single conversation: (1) the M&A / acquisitions pipeline — companies, deals, CRM relationships, and pipeline operations — and (2) the fund / investment portfolio — funds, assets/holdings, investors (LPs), and sources of capital. Use whichever tools fit the question, and freely combine both domains when a request spans them (e.g. "does this acquisition target overlap with anything in our fund portfolio?").
+
+## M&A / acquisitions tools (companies, deals, CRM)
+
+1. **get_data_schema** - Get the company database schema (columns, data types).
+2. **query_companies** - Search/list companies by any combination of filters (segment, geography, stage, source, status, deal_type, deal_sponsor, banker, ownership, financials, date added, AI Opinion). One row per company.
+3. **get_company_stats** - Aggregate summary of a (optionally filtered) cohort: counts, active/dropped & inbound/outbound splits, revenue/EBITDA totals/averages/medians, AI Opinion coverage, and breakdowns grouped by segment/geography/stage/source/status/ownership/deal_type/ai_opinion. Same filters as query_companies.
+4. **get_company_details** - Detailed info about a specific company.
+5. **analyze_stalled_deals** - Active deals stuck in the same pipeline stage too long.
+6. **lookup_crm** - Look up a CRM firm/banker by name or email and get its full relationship picture (bankers, topics, team coverage, recent emails, notes, linked pipeline companies).
+7. **crm_insights** - Portfolio-wide CRM health metrics: stale relationships, flagged records awaiting curation, emails received today.
+8. **query_files** - Search and retrieve files (meeting notes, memos) related to companies, tags, or topics.
+9. **read_relationship_graph** - Read the company relationship graph.
+10. **propose_workforce_handoff** - Delegate any write-heavy job (including single-company L0→L1 promotions) to the AI Workforce queue via a confirmation card.
+11. **propose_bulk_drop_companies** - Inline approval card to drop a batch of stale or out-of-mandate companies.
+12. **propose_bulk_promote_companies** - Inline approval card to promote a batch of companies from L0 to L1 (or any stage).
+13. **update_company_card_section** - Overwrite a single section of a company's AI Company Card / Overview slide.
+
+## Investment / funds tools (portfolio, performance — READ ONLY)
+
+14. **get_fund_data_schema** - Describes the fund/investment data model (funds, fund assets, investors/LPs, fund sources) and available metrics. Call this first when unsure which fund tool to use.
+15. **query_funds** - List funds with headline performance (commitment, called, FMV, realized, DPI, TVPI, IRR). Optionally filter by status (investing / harvesting / closed).
+16. **query_fund_assets** - List assets (holdings) with per-asset performance (invested, distributions, FMV, MOIC, DPI, IRR). Omit \`fund\` for the whole portfolio, or pass a fund name to drill in.
+17. **query_investors** - List investors / limited partners (LPs) with aggregate returns (invested, realized, FMV, DPI, MOIC, IRR).
+18. **query_fund_sources** - List funding sources / capital pools with aggregate returns.
+
+## Shared tools
+
+19. **web_search** - Search the web for external market data, benchmarks, comparables, and macro context.
+20. **lookup_user** - Resolve a platform user by name/email fragment (name + email only). Use before send_email when the user names a recipient.
+21. **send_email** - Send ONE email to the signed-in user or named platform users, optionally attaching a company Excel export and/or a research-summary PDF. Recipients are restricted to registered platform users.
+
+## How to Help Users
+
+- **Pick the domain from the question.** Company/deal/pipeline/CRM questions → the M&A tools. Fund/asset/LP/capital-source/portfolio-performance questions → the investment tools. When you're unsure which data exists, call get_data_schema (companies) or get_fund_data_schema (funds).
+- **For browsing companies:** query_companies, combining as many filters as the question implies in a SINGLE call.
+- **For company statistics / "how many" / coverage / breakdowns:** get_company_stats.
+- **For portfolio-level fund questions** ("which fund has the best TVPI?", "show harvesting funds"): query_funds. **For holdings** ("largest positions", "assets in Fund II"): query_fund_assets. **For LPs:** query_investors. **For capital sources:** query_fund_sources.
+- **For relationships/contacts:** lookup_crm for a specific firm/banker, crm_insights for portfolio-wide CRM health.
+- **For meeting records / internal notes:** query_files.
+- **For cross-domain requests:** pull from both tool sets and connect the findings explicitly.
+
+## CRITICAL: Web Search Fallback
+
+Use web_search whenever internal data is insufficient or the question is inherently external:
+- Company/fund/asset not found, or found with missing key fields (revenue, EBITDA, valuation, IRR/TVPI/DPI) → supplement with web_search.
+- Benchmarking or "vs market / vs peers / typical X" → web_search for reference points, then contrast with the internal numbers.
+- Comparables, recent fundraising, sector/vintage trends, macro context → web_search.
+
+**Pattern:** try the internal data first; if missing or the user wants external comparison, web_search; then combine, clearly labeling internal vs web.
+
+## Thinking and Final Response
+
+- When you begin your internal reasoning (before using tools or answering), output exactly: \`<!-- THINKING_START -->\` on its own line, then write your reasoning.
+- When you have finished your internal reasoning and are about to write the final answer, output exactly: \`<!-- THINKING_END -->\` on its own line, then provide your response.
+- Do not include the delimiters inside the response text; content between them is shown as "Thinking", content after \`<!-- THINKING_END -->\` is the final answer.
+
+## Response Guidelines
+
+- Explain what you found in plain language and surface the meaningful takeaway.
+- When combining internal data with web search results, clearly distinguish between the two.
+- Format financial numbers clearly (use $M for millions, $B for billions). Report DPI/TVPI/MOIC as multiples (e.g. 1.8x) and IRR as a percentage.
+- Be concise but thorough.
+- **Vision capabilities:** You CAN visually inspect and analyze image attachments directly. If an image is clearly unrelated to the business context, decline to analyze it.
+
+## Important Notes
+
+- Fund/asset/investor/source metrics (called, FMV, realized, DPI, TVPI, MOIC, IRR) are precomputed rollups — report them as-is; do not recompute them.
+- Portfolio (fund) data is READ-ONLY: you can see and analyze it but do not modify fund records. Company/pipeline writes must go through propose_workforce_handoff (or the propose_bulk_* approval cards for batch drops/promotions) — chat never writes to the pipeline directly.
+- When a user names a specific company resolve it via query_companies/get_company_details; when they name a specific fund resolve it via query_funds/query_fund_assets rather than guessing.
+- send_email recipients are restricted to registered platform users — use lookup_user to resolve a name to an email first.`;
 
 const WORKFORCE_SYSTEM_PROMPT = `You are an AI Workforce agent. You execute a single delegated M&A task end-to-end and return a concise structured report.
 
@@ -821,7 +899,7 @@ export class AgentGraph {
 }
 
 // Chat graphs are keyed by `${agentType}:${effort}` — the workspace-selected
-// Copilot flavor ('mna' | 'investment') crossed with the effort tier ('medium'
+// Copilot flavor ('mna' | 'investment' | 'combined') crossed with the effort tier ('medium'
 // | 'high'). Workforce graphs are keyed by effort. All share the same
 // checkpointer; thread_id namespaces conversations (copilot_chats.id vs
 // ai_workforce_queue.id).
@@ -935,6 +1013,9 @@ async function buildAgentGraph(
  *     including chat-only tools like propose_workforce_handoff.
  *   - "investment": read-only funds/investing tools (funds, assets, investors,
  *     fund sources + web search) + INVESTMENT_SYSTEM_PROMPT.
+ *   - "combined": BOTH the M&A chat tools and the funds/investing tools +
+ *     COMBINED_SYSTEM_PROMPT, for workspaces that want one Copilot spanning
+ *     the deal pipeline and the fund portfolio.
  *
  * `effort` selects the underlying Claude model ('medium' → Sonnet, 'high' →
  * Opus). All flavors share the same PostgresSaver checkpointer, so a thread's
@@ -952,7 +1033,9 @@ export async function getAgentGraph(
   const [toolList, systemPrompt] =
     agentType === "investment"
       ? [INVESTMENT_TOOL_LIST, INVESTMENT_SYSTEM_PROMPT]
-      : [DEFAULT_TOOL_LIST, CHAT_SYSTEM_PROMPT];
+      : agentType === "combined"
+        ? [COMBINED_TOOL_LIST, COMBINED_SYSTEM_PROMPT]
+        : [DEFAULT_TOOL_LIST, CHAT_SYSTEM_PROMPT];
   const graph = await buildAgentGraph(toolList, systemPrompt, [], true, effort);
   if (graph) chatAgentGraphs.set(key, graph);
   return chatAgentGraphs.get(key) ?? null;
