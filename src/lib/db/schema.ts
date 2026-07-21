@@ -318,6 +318,11 @@ export const workspaces = pgTable(
     // sets in one assistant). Read by the chat route to pick the agent graph;
     // set from the workspace configuration dropdown.
     copilot_agent: text().default("mna").notNull(),
+    // Workspace-wide display currency ("USD" | "IDR" | "CNY"). Relabels money
+    // formatting across Fund Management and the Revenue/EBITDA/EV columns; it
+    // does NOT convert stored values. Read into the client via
+    // WorkspaceCurrencyProvider in the /w/[slug] layout.
+    default_currency: text().default("USD").notNull(),
     created_at: timestamp({ withTimezone: true, mode: "string" }).defaultNow().notNull(),
     updated_at: timestamp({ withTimezone: true, mode: "string" }).defaultNow().notNull(),
   },

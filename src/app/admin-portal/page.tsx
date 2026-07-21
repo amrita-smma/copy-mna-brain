@@ -77,6 +77,8 @@ interface Workspace {
   slug: string;
   /** Which AI Copilot flavor the workspace's chat uses. */
   copilot_agent?: string;
+  /** Workspace-wide display currency (USD | IDR | CNY). */
+  default_currency?: string;
 }
 
 /** The AI Copilot flavors, mirrored from the server's COPILOT_AGENTS. */
@@ -84,6 +86,13 @@ const COPILOT_AGENT_OPTIONS: { value: string; label: string }[] = [
   { value: 'mna', label: 'M&A / Acquisitions' },
   { value: 'investment', label: 'Funds & Investing' },
   { value: 'combined', label: 'Combined (M&A + Investment)' },
+];
+
+/** The display currencies, mirrored from the server's WORKSPACE_CURRENCIES. */
+const CURRENCY_OPTIONS: { value: string; label: string }[] = [
+  { value: 'USD', label: 'USD ($)' },
+  { value: 'IDR', label: 'IDR (Rp)' },
+  { value: 'CNY', label: 'CNY (¥)' },
 ];
 
 /** Active tab: primary (blue) background with white text. */
@@ -420,6 +429,29 @@ export default function AdminPortalPage() {
     }
   };
 
+  const saveDefaultCurrency = async (currency: string) => {
+    if (!selected || currency === (selected.default_currency ?? 'USD')) return;
+    const previous = workspaces;
+    setWorkspaces((prev) =>
+      prev.map((w) => (w.id === selected.id ? { ...w, default_currency: currency } : w)),
+    );
+    const currencyLabel = CURRENCY_OPTIONS.find((o) => o.value === currency)?.label ?? currency;
+    try {
+      const res = await fetch(`/api/workspaces/${selected.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ default_currency: currency }),
+      });
+      if (!res.ok) throw new Error((await res.json())?.error ?? 'Failed to update currency');
+      toast.success(`Display currency set to ${currencyLabel} for ${selected.name}`);
+    } catch (err) {
+      setWorkspaces(previous);
+      toast.error(
+        err instanceof Error ? err.message : `Could not update currency for ${selected.name}`,
+      );
+    }
+  };
+
   const assignedUserIds = useMemo(() => new Set(members.map((m) => m.userId)), [members]);
   const hasEmptyDraft = draftRows.length > 0;
   const allAssigned = dbUsers.length > 0 && assignedUserIds.size >= dbUsers.length;
@@ -727,6 +759,33 @@ export default function AdminPortalPage() {
                         Which Copilot flavor this workspace&apos;s chat uses — M&amp;A deal
                         analysis, funds &amp; investing, or a combined assistant with
                         access to both.
+                      </p>
+                    </div>
+                    <div className="mt-6 flex h-9 shrink-0 items-center">
+                      <h3 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+                        Display Currency
+                      </h3>
+                    </div>
+                    <div className="mt-3 space-y-1.5">
+                      <Select
+                        value={selected.default_currency ?? 'USD'}
+                        onValueChange={saveDefaultCurrency}
+                      >
+                        <SelectTrigger className="w-64 max-w-full">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {CURRENCY_OPTIONS.map((opt) => (
+                            <SelectItem key={opt.value} value={opt.value}>
+                              {opt.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <p className="text-xs text-muted-foreground">
+                        The currency all money is displayed in across this workspace — Fund
+                        Management and the Revenue/EBITDA/EV columns. Relabels only; stored
+                        values are not converted.
                       </p>
                     </div>
                   </TabsContent>

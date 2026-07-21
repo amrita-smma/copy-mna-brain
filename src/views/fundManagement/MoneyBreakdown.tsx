@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { cn } from '@/lib/utils';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import type { Fund, HoldingType } from './types';
-import { money } from './calc';
+import { useFundMoney } from './useFundMoney';
 import { GlossaryTerm } from './parts';
 
 interface Segment {
@@ -34,6 +34,7 @@ const TYPE_LABEL: Record<HoldingType, string> = {
 
 /** Section (b): the stacked "Money breakdown" bar, by fund or by holding type. */
 export function MoneyBreakdown({ funds }: { funds: Fund[] }) {
+  const { money } = useFundMoney();
   const [tab, setTab] = useState<'fund' | 'type'>('fund');
 
   const totalC = funds.reduce((s, f) => s + f.size, 0) || 1;

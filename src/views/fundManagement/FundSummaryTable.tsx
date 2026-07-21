@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { cn } from '@/lib/utils';
 import type { Fund } from './types';
-import { money } from './calc';
+import { useFundMoney } from './useFundMoney';
 import { DeleteRowMenu, GlossaryTerm, Pill } from './parts';
 import { TablePager } from './TablePager';
 import { useFundData } from './context';
@@ -31,6 +31,7 @@ export function FundSummaryTable({
   onEditFund?: (fund: Fund) => void;
 }) {
   const { deleteFund } = useFundData();
+  const { money } = useFundMoney();
   const [page, setPage] = useState(1);
 
   // Holdings are already scoped to each fund's transaction-level share (see

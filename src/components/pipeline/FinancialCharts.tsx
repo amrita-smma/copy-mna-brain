@@ -15,6 +15,8 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, ReferenceLine } from 'recha
 import { toast } from 'sonner';
 import type { Tables } from '@/lib/repositories';
 import { updateCompanyFinancials, type FinancialEditRow } from '@/lib/api/pipeline';
+import { useWorkspaceCurrency } from '@/components/layout/WorkspaceCurrencyContext';
+import { formatMoneyMn } from '@/lib/currency';
 
 type FinancialRow = Pick<Tables<'company_financials'>, 'fiscal_year' | 'revenue_usd_mn' | 'ebitda_usd_mn'>;
 
@@ -32,14 +34,6 @@ interface DraftRow {
   value: string;
   markedForDelete: boolean;
 }
-
-const formatCurrency = (value: number | null) => {
-  if (value === null || value === undefined) return '-';
-  if (Math.abs(value) >= 1000) {
-    return `$${(value / 1000).toFixed(2)}B`;
-  }
-  return `$${value.toFixed(2)}M`;
-};
 
 const colClass = (n: number) => {
   if (n <= 1) return 'grid-cols-1';
@@ -71,6 +65,8 @@ export function FinancialCharts({
   companyId,
   onUpdate,
 }: FinancialChartsProps) {
+  const currency = useWorkspaceCurrency();
+  const formatCurrency = (value: number | null) => formatMoneyMn(value, currency);
   const [mode, setMode] = useState<EditField>('none');
   const [draft, setDraft] = useState<DraftRow[]>([]);
   const [saving, setSaving] = useState(false);

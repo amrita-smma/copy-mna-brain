@@ -76,12 +76,15 @@ export function parseCurrencyInput(raw: string): number | null {
 // Domain money values are in MILLIONS (see adapters.ts `toM`/`fromM`). All
 // amount formatters render compactly from the underlying dollars so large
 // figures read as `$20B`, not `$20000.3M`, and stay consistent across tabs.
-export const money = (v: number) => '$' + formatCompact((v || 0) * 1e6);
-export const money2 = (v: number) => '$' + v.toFixed(2);
+// The `sym` prefix defaults to '$' so any caller/test that doesn't pass a
+// currency is unaffected. Fund components pass the workspace currency symbol
+// via the `useFundMoney()` hook so all displays follow the workspace setting.
+export const money = (v: number, sym = '$') => sym + formatCompact((v || 0) * 1e6);
+export const money2 = (v: number, sym = '$') => sym + v.toFixed(2);
 // Fund-of-funds amounts are also stored in millions — same compact treatment
 // (previously multiplied by 1000, which mis-scaled the display by 1000×).
-export const moneyK = (v: number) => '$' + formatCompact((v || 0) * 1e6);
-export const moneyFee = (vM: number) => '$' + formatCompact(Math.abs((vM || 0) * 1e6));
+export const moneyK = (v: number, sym = '$') => sym + formatCompact((v || 0) * 1e6);
+export const moneyFee = (vM: number, sym = '$') => sym + formatCompact(Math.abs((vM || 0) * 1e6));
 
 // ---- investment-type helpers ----
 export function normalizeInvestType(v?: string) {

@@ -9,6 +9,8 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
+import { useWorkspaceCurrency } from "@/components/layout/WorkspaceCurrencyContext";
+import { formatMoneyMn, type Currency } from "@/lib/currency";
 import { isDealLive } from "@/lib/dealStatus";
 import { Button } from "@/components/ui/button";
 import {
@@ -128,12 +130,6 @@ const DEAL_TYPE_LABEL: Record<string, string> = {
   minority: "Minority",
 };
 
-const formatCurrency = (value: number | null | undefined) => {
-  if (value === null || value === undefined) return "-";
-  if (Math.abs(value) >= 1000) return `$${(value / 1000).toFixed(2)}B`;
-  return `$${value.toFixed(2)}M`;
-};
-
 /**
  * Current-year value for `key`, falling back to the nearest previous year when
  * the current year is missing. Forward (future) fiscal years are never shown.
@@ -157,14 +153,15 @@ const latestFinValue = (
 /** Compose the Financial Info roll-up (Rev · EBITDA · EV) from company_financials. */
 const composeFinancialInfo = (
   rows: Tables<"company_financials">[] | undefined,
+  currency: Currency,
 ): string => {
   const rev = latestFinValue(rows, "revenue_usd_mn");
   const ebitda = latestFinValue(rows, "ebitda_usd_mn");
   const ev = latestFinValue(rows, "ev_usd_mn");
   const parts: string[] = [];
-  if (rev != null) parts.push(`Rev ${formatCurrency(rev)}`);
-  if (ebitda != null) parts.push(`EBITDA ${formatCurrency(ebitda)}`);
-  if (ev != null) parts.push(`EV ${formatCurrency(ev)}`);
+  if (rev != null) parts.push(`Rev ${formatMoneyMn(rev, currency)}`);
+  if (ebitda != null) parts.push(`EBITDA ${formatMoneyMn(ebitda, currency)}`);
+  if (ev != null) parts.push(`EV ${formatMoneyMn(ev, currency)}`);
   return parts.join(" · ");
 };
 
@@ -236,6 +233,7 @@ export default function OutboundCompaniesTable({
   analyzingAiOpinionIds,
 }: OutboundCompaniesTableProps) {
   const isDropped = viewMode === "dropped";
+  const currency = useWorkspaceCurrency();
   const { analyzeWithAI } = useChatContext();
   const { focusCopilot } = useLayoutControl();
   const { nearEdge, edgeHandlers } = useNearRightEdge();
@@ -345,7 +343,7 @@ export default function OutboundCompaniesTable({
         headerClassName: "min-w-[180px]",
         cellClassName: "min-w-[180px]",
         cell: (c) => {
-          const finInfo = composeFinancialInfo(c.financials_raw);
+          const finInfo = composeFinancialInfo(c.financials_raw, currency);
           return finInfo ? (
             <span className="text-xs font-mono text-muted-foreground">
               {finInfo}

@@ -3,6 +3,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useWorkspaceHref } from '@/hooks/useWorkspaceHref';
+import { useWorkspaceCurrency } from '@/components/layout/WorkspaceCurrencyContext';
+import { formatMoneyMn } from '@/lib/currency';
 import DashboardLayout from '@/components/layout/DashboardLayout';
 import CompanyDetailDialog, { type CompanyData } from '@/components/pipeline/CompanyDetailDialog';
 import PromoteDialog from '@/components/pipeline/PromoteDialog';
@@ -124,16 +126,6 @@ const stageColors: Record<DealStage | 'Acquired', string> = {
   Acquired: 'bg-green-600',
 };
 
-const formatCurrency = (value: number | null): string => {
-  if (value === null || value === undefined) return '-';
-  // Values are stored in millions
-  if (Math.abs(value) >= 1000) {
-    const billions = value / 1000;
-    return `$${billions.toFixed(2)}B`;
-  }
-  return `$${value.toFixed(2)}M`;
-};
-
 // Normalize a raw company API row into the flat shape this view renders.
 // Shared by the main pipeline fetch and the "discovered" section fetch.
 const toCompanyWithDeal = (company: any): CompanyWithDeal => ({
@@ -198,6 +190,8 @@ export default function MasterData({
   const [selectedCompany, setSelectedCompany] = useState<CompanyData | null>(null);
   const [loadingDialog, setLoadingDialog] = useState(false);
   const { toast } = useToast();
+  const currency = useWorkspaceCurrency();
+  const formatCurrency = (value: number | null): string => formatMoneyMn(value, currency);
   const { analyzeWithAI } = useChatContext();
   const router = useRouter();
   const isMobile = useIsMobile();

@@ -27,14 +27,13 @@ import {
   getAssetInvestType,
   INVEST_TYPES,
   isFoF,
-  money,
-  moneyFee,
-  moneyK,
   parseCurrencyInput,
   setAssetInvestType,
   txnTypeLabel,
   txnValue,
 } from './calc';
+import { useFundMoney } from './useFundMoney';
+import { useWorkspaceCurrency } from '@/components/layout/WorkspaceCurrencyContext';
 import { useFundData } from './context';
 import { Combobox } from './Combobox';
 import * as fundsApi from '@/lib/api/funds';
@@ -207,6 +206,7 @@ function safe<T>(v: T | null | undefined, fmt: (v: T) => ReactNode): ReactNode {
 // ================= Equity =================
 function EquityDetail({ fund, holding }: { fund: Fund; holding: Holding }) {
   const { commitHolding, investorOptions, sourceOptions } = useFundData();
+  const { money, moneyFee } = useFundMoney();
   const save = () => commitHolding(fund, holding);
   const inv = holding.inv!;
   const d = (holding.d = holding.d || {});
@@ -516,6 +516,7 @@ function FeeRow({
   value: number;
   onCommit: (raw: string) => void;
 }) {
+  const { moneyFee } = useFundMoney();
   return (
     <tr>
       <td className="px-2.5 py-1 text-xs text-muted-foreground">
@@ -532,6 +533,7 @@ function FeeRow({
 // ================= Fund of funds =================
 function FoFDetail({ fund, holding }: { fund: Fund; holding: Holding }) {
   const { commitHolding, refreshHolding, investorOptions, sourceOptions } = useFundData();
+  const { moneyK, currency: dispCcy } = useFundMoney();
   const { toast } = useToast();
   const save = () => commitHolding(fund, holding);
   const inv = holding.inv!;
@@ -636,7 +638,7 @@ function FoFDetail({ fund, holding }: { fund: Fund; holding: Holding }) {
         value={
           <MoneyInlineEdit
             amount={toRaw(c.marketValue)}
-            currency={ccy}
+            currency={dispCcy}
             onCommit={(amt) => setMarketValue(rawToMillions(amt))}
           />
         }
@@ -738,7 +740,7 @@ function FoFDetail({ fund, holding }: { fund: Fund; holding: Holding }) {
           <div className="text-[13px] text-foreground">
             <MoneyInlineEdit
               amount={toRaw(c.marketValue)}
-              currency={ccy}
+              currency={dispCcy}
               onCommit={(amt) => setMarketValue(rawToMillions(amt))}
             />
           </div>
@@ -784,6 +786,7 @@ function CashDetail({ fund, holding }: { fund: Fund; holding: Holding }) {
   // fund-of-funds position.
   const c = computeFoF(holding)!;
   const ccy = normalizeCurrency(inv.ccy);
+  const dispCcy = useWorkspaceCurrency();
 
   const setInv = (k: keyof typeof inv, raw: string, numeric = false) => {
     (inv as unknown as Record<string, unknown>)[k as string] = numeric ? num(raw) : txt(raw);
@@ -812,7 +815,7 @@ function CashDetail({ fund, holding }: { fund: Fund; holding: Holding }) {
           value={
             <MoneyInlineEdit
               amount={toRaw(balance)}
-              currency={ccy}
+              currency={dispCcy}
               onCommit={(amt) => {
                 inv._investedCapitalAmount = amt ?? undefined;
                 save();
@@ -826,7 +829,7 @@ function CashDetail({ fund, holding }: { fund: Fund; holding: Holding }) {
           value={
             <MoneyInlineEdit
               amount={toRaw(currentValue)}
-              currency={ccy}
+              currency={dispCcy}
               onCommit={(amt) => {
                 inv._fmvAmount = amt ?? undefined;
                 save();
@@ -840,7 +843,7 @@ function CashDetail({ fund, holding }: { fund: Fund; holding: Holding }) {
           value={
             <MoneyInlineEdit
               amount={toRaw(netDist)}
-              currency={ccy}
+              currency={dispCcy}
               onCommit={(amt) => {
                 inv._netDistributionAmount = amt ?? undefined;
                 save();
@@ -894,6 +897,7 @@ function TxnTable({ fund, holding, fof }: { fund: Fund; holding: Holding; fof?: 
   const [dialog, setDialog] = useState<{ mode: 'add' | 'edit'; idx: number } | null>(null);
   const txns = holding.inv?.txns || [];
   const ccy = normalizeCurrency(holding.inv?.ccy);
+  const dispCcy = useWorkspaceCurrency();
   const typeOptions: TxnType[] = fof ? ['Buy', 'Distribution', 'Other'] : ['Buy', 'Sell', 'Distribution', 'Other'];
 
   const onFailure = (message: string) => (err: unknown) => {
@@ -984,7 +988,7 @@ function TxnTable({ fund, holding, fof }: { fund: Fund; holding: Holding; fof?: 
                 <MoneyInlineEdit
                   align="right"
                   amount={toRaw(txnValue(t))}
-                  currency={ccy}
+                  currency={dispCcy}
                   onCommit={(amt) => editTxn(i, 'value', rawToMillions(amt), true)}
                 />
               </td>
@@ -1051,6 +1055,7 @@ function TxnDialog({
   onClose: () => void;
 }) {
   const { funds, investorOptions, sourceOptions, entityNameById, sourceNameById } = useFundData();
+  const wsCurrency = useWorkspaceCurrency();
   const [f, setF] = useState<{ [k: string]: string }>(() =>
     initial
       ? {
@@ -1158,13 +1163,14 @@ function TxnDialog({
           <FormField label="Price per share">
             <div className="flex gap-1">
               <select
-                value={g('ppsCurrency')}
+                value={g('ppsCurrency') || wsCurrency}
                 onChange={(e) => set('ppsCurrency', e.target.value)}
                 className="rounded-md border bg-background px-2 py-1.5 text-[13px] text-foreground outline-none focus:border-accent"
               >
-                <option value="">—</option>
                 {CURRENCIES.map((c) => (
-                  <option key={c} value={c}>{c}</option>
+                  <option key={c} value={c} disabled={c !== wsCurrency}>
+                    {c === wsCurrency ? c : `${c} (currency not selected in the workspace)`}
+                  </option>
                 ))}
               </select>
               <FormInput type="number" value={g('pps')} onChange={(v) => set('pps', v)} />
@@ -1178,9 +1184,12 @@ function TxnDialog({
       <FormRow>
         <FormField label={fof ? 'Value' : 'Value (overrides PPS × shares)'}>
           <CurrencyInput
-            currency={currency}
+            currency={g('ppsCurrency') ? normalizeCurrency(g('ppsCurrency')) : currency}
             amount={g('value') ? parseFloat(g('value')) * 1_000_000 : null}
-            onCommit={(amt) => set('value', amt == null ? '' : String(amt / 1_000_000))}
+            onCommit={(amt, cur) => {
+              set('value', amt == null ? '' : String(amt / 1_000_000));
+              set('ppsCurrency', cur);
+            }}
           />
         </FormField>
         <FormField label="FX rate">
@@ -1208,6 +1217,7 @@ function QuarterTable({ fund, holding, equity }: { fund: Fund; holding: Holding;
   const [dialog, setDialog] = useState<{ mode: 'add' | 'edit'; idx: number } | null>(null);
   const q: Quarter[] = holding.inv?.quarterly || [];
   const ccy = normalizeCurrency(holding.inv?.ccy);
+  const dispCcy = useWorkspaceCurrency();
 
   const onFailure = (message: string) => (err: unknown) => {
     console.error(message, err);
@@ -1275,7 +1285,7 @@ function QuarterTable({ fund, holding, equity }: { fund: Fund; holding: Holding;
                     <InlineEdit value={x.q} onCommit={(r) => editQ(i, 'q', r, false)} />
                   </td>
                   <td className="px-2 py-1 text-right text-xs font-medium">
-                    <MoneyInlineEdit align="right" amount={toRaw(x.mv)} currency={ccy} onCommit={(amt) => editQ(i, 'mv', rawToMillions(amt))} />
+                    <MoneyInlineEdit align="right" amount={toRaw(x.mv)} currency={dispCcy} onCommit={(amt) => editQ(i, 'mv', rawToMillions(amt))} />
                   </td>
                   {equity && (
                     <td className="px-2 py-1 text-right text-xs">
@@ -1306,7 +1316,7 @@ function QuarterTable({ fund, holding, equity }: { fund: Fund; holding: Holding;
                     <InlineEdit align="right" kind="num" value={x.shPct} display={safe(x.shPct, (v) => `${v}%`)} onCommit={(r) => editQ(i, 'shPct', r)} />
                   </td>
                   <td className="px-2 py-1 text-right text-xs">
-                    <MoneyInlineEdit align="right" amount={toRaw(x.cost)} currency={ccy} onCommit={(amt) => editQ(i, 'cost', rawToMillions(amt))} />
+                    <MoneyInlineEdit align="right" amount={toRaw(x.cost)} currency={dispCcy} onCommit={(amt) => editQ(i, 'cost', rawToMillions(amt))} />
                   </td>
                   <td className="px-2 py-1 text-right text-xs font-medium">
                     <InlineEdit align="right" kind="num" value={x.moic} display={safe(x.moic, (v) => `${v.toFixed(2)}×`)} onCommit={(r) => editQ(i, 'moic', r)} />
@@ -1448,9 +1458,12 @@ function QuarterDialog({
       <FormRow>
         <FormField label="Market Value">
           <CurrencyInput
-            currency={currency}
+            currency={g('ppsCurrency') ? normalizeCurrency(g('ppsCurrency')) : currency}
             amount={g('mv') ? parseFloat(g('mv')) * 1_000_000 : null}
-            onCommit={(amt) => set('mv', amt == null ? '' : String(amt / 1_000_000))}
+            onCommit={(amt, cur) => {
+              set('mv', amt == null ? '' : String(amt / 1_000_000));
+              set('ppsCurrency', cur);
+            }}
           />
         </FormField>
       </FormRow>
@@ -1477,9 +1490,12 @@ function QuarterDialog({
       <FormRow>
         <FormField label="Invested Capital">
           <CurrencyInput
-            currency={currency}
+            currency={g('ppsCurrency') ? normalizeCurrency(g('ppsCurrency')) : currency}
             amount={g('cost') ? parseFloat(g('cost')) * 1_000_000 : null}
-            onCommit={(amt) => set('cost', amt == null ? '' : String(amt / 1_000_000))}
+            onCommit={(amt, cur) => {
+              set('cost', amt == null ? '' : String(amt / 1_000_000));
+              set('ppsCurrency', cur);
+            }}
           />
         </FormField>
         <FormField label="MOIC">
@@ -1687,6 +1703,7 @@ type GenericField = {
 function genericFields(
   h: Holding,
   setD: (k: keyof HoldingFacts, raw: string, numeric?: boolean) => void,
+  money: (v: number) => string,
 ): GenericField[] {
   const d = h.d || {};
   if (h.tp === 'Obligation')
@@ -1754,6 +1771,7 @@ function genericFields(
  * public shares). Fields are click-to-edit, mirroring the Equity Legal tab. */
 function GenericDetail({ fund, holding, typeName }: { fund: Fund; holding: Holding; typeName: string }) {
   const { commitHolding } = useFundData();
+  const { money } = useFundMoney();
   const d = (holding.d = holding.d || {});
   const save = () => commitHolding(fund, holding);
   const setD = (k: keyof HoldingFacts, raw: string, numeric = false) => {
@@ -1789,7 +1807,7 @@ function GenericDetail({ fund, holding, typeName }: { fund: Fund; holding: Holdi
       },
     );
   }
-  fields.push(...genericFields(holding, setD));
+  fields.push(...genericFields(holding, setD, money));
 
   return (
     <div className="border-l-2 border-accent/40 pl-3.5">

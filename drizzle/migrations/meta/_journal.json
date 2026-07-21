@@ -785,6 +785,13 @@
       "when": 1784505600000,
       "tag": "20260720000000_add_daily_pulse",
       "breakpoints": true
+    },
+    {
+      "idx": 112,
+      "version": "7",
+      "when": 1784592000000,
+      "tag": "20260721000000_add_workspace_default_currency",
+      "breakpoints": true
     }
   ]
 }

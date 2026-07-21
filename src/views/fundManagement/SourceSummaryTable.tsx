@@ -2,7 +2,8 @@
 
 import { cn } from '@/lib/utils';
 import type { Fund } from './types';
-import { aggregateByTxn, getAssetFundingSources, money } from './calc';
+import { aggregateByTxn, getAssetFundingSources } from './calc';
+import { useFundMoney } from './useFundMoney';
 import { DeleteRowMenu, GlossaryTerm, Pill } from './parts';
 import { useFundData } from './context';
 
@@ -32,6 +33,7 @@ export function SourceSummaryTable({
   onEditSource?: (sourceId: string, currentName: string) => void;
 }) {
   const { sourceNameById } = useFundData();
+  const { money } = useFundMoney();
   // Roll each source up from the transaction ledger: every transaction is
   // attributed to its own funding source (`txn.fundingSourceId`), falling back
   // to the asset's source when it names none, so a single asset can split across

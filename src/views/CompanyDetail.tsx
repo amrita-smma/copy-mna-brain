@@ -3,6 +3,8 @@
 import { useState, useEffect, useRef } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useWorkspaceHref } from '@/hooks/useWorkspaceHref';
+import { useWorkspaceCurrency } from '@/components/layout/WorkspaceCurrencyContext';
+import { formatMoneyMn } from '@/lib/currency';
 import DashboardLayout from '@/components/layout/DashboardLayout';
 import { MarkdownRenderer } from '@/components/chat/MarkdownRenderer';
 import { useChatContext } from '@/components/chat/ChatProvider';
@@ -322,15 +324,6 @@ interface AnalysisSource {
   title?: string;
 }
 
-const formatCurrency = (value: number | null) => {
-  if (value === null || value === undefined) return '-';
-  // Values are stored in millions
-  if (Math.abs(value) >= 1000) {
-    const billions = value / 1000;
-    return `$${billions.toFixed(2)}B`;
-  }
-  return `$${value.toFixed(2)}M`;
-};
 
 interface CompanyDetailProps {
   showCompanyGraph?: boolean;
@@ -344,6 +337,8 @@ export default function CompanyDetail({
   const params = useParams();
   const router = useRouter();
   const { analyzeWithAI } = useChatContext();
+  const currency = useWorkspaceCurrency();
+  const formatCurrency = (value: number | null) => formatMoneyMn(value, currency);
   const { focusCopilot } = useLayoutControl();
   const searchParams = useSearchParams();
   const isMobile = useIsMobile();

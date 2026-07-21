@@ -5,6 +5,8 @@ import { WorkspaceLink } from "@/components/WorkspaceLink";
 import { useWorkspaceHref } from "@/hooks/useWorkspaceHref";
 import { useRouter } from "next/navigation";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { useWorkspaceCurrency } from "@/components/layout/WorkspaceCurrencyContext";
+import type { Currency } from "@/lib/currency";
 import DashboardLayout from "@/components/layout/DashboardLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -255,11 +257,13 @@ interface FeedEvent {
   financial_year?: number | null;
 }
 
-/** Format a USD-millions figure as `USD 4.9B` / `USD 312M`, or null when absent. */
-function formatUsdMn(value: number | null | undefined): string | null {
+/** Format a millions figure as `IDR 4.9B` / `USD 312M`, or null when absent.
+ * The code prefix follows the workspace display currency (relabel only — the
+ * underlying value is not converted). */
+function formatUsdMn(value: number | null | undefined, currency: Currency): string | null {
   if (value === null || value === undefined) return null;
-  if (Math.abs(value) >= 1000) return `USD ${(value / 1000).toFixed(1)}B`;
-  return `USD ${Math.round(value)}M`;
+  if (Math.abs(value) >= 1000) return `${currency} ${(value / 1000).toFixed(1)}B`;
+  return `${currency} ${Math.round(value)}M`;
 }
 
 function buildFeedEvents(activity: DashboardActivity): FeedEvent[] {
@@ -2203,10 +2207,11 @@ function FinancialSummary({
   ev?: number | null;
   year?: number | null;
 }) {
+  const currency = useWorkspaceCurrency();
   const metrics: { label: string; value: string | null }[] = [
-    { label: "Rev", value: formatUsdMn(revenue) },
-    { label: "EBITDA", value: formatUsdMn(ebitda) },
-    { label: "EV", value: formatUsdMn(ev) },
+    { label: "Rev", value: formatUsdMn(revenue, currency) },
+    { label: "EBITDA", value: formatUsdMn(ebitda, currency) },
+    { label: "EV", value: formatUsdMn(ev, currency) },
   ];
 
   // Hide the row entirely when no figures are available for this company.

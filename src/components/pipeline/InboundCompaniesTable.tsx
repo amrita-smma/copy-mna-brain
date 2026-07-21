@@ -9,6 +9,8 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
+import { useWorkspaceCurrency } from "@/components/layout/WorkspaceCurrencyContext";
+import { formatMoneyMn } from "@/lib/currency";
 import { isDealLive } from "@/lib/dealStatus";
 import { Button } from "@/components/ui/button";
 import {
@@ -132,12 +134,6 @@ const DEAL_TYPE_LABEL: Record<string, string> = {
   minority: "Minority",
 };
 
-const formatCurrency = (value: number | null | undefined) => {
-  if (value === null || value === undefined) return "-";
-  if (Math.abs(value) >= 1000) return `$${(value / 1000).toFixed(2)}B`;
-  return `$${value.toFixed(2)}M`;
-};
-
 const formatDate = (iso: string | null | undefined) => {
   if (!iso) return "-";
   const d = new Date(iso);
@@ -234,6 +230,8 @@ export default function InboundCompaniesTable({
   analyzingAiOpinionIds,
 }: InboundCompaniesTableProps) {
   const isDropped = viewMode === "dropped";
+  const currency = useWorkspaceCurrency();
+  const formatCurrency = (value: number | null | undefined) => formatMoneyMn(value, currency);
   const { analyzeWithAI } = useChatContext();
   const { focusCopilot } = useLayoutControl();
   const { nearEdge, edgeHandlers } = useNearRightEdge();

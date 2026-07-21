@@ -6,6 +6,7 @@ import { createContainer } from '@/lib/services';
 import { MNA_WORKSPACE_ID } from '@/lib/constants';
 import { CopilotAgentProvider } from '@/components/chat/CopilotAgentContext';
 import { FeatureFlagsProvider } from '@/components/layout/FeatureFlagsContext';
+import { WorkspaceCurrencyProvider } from '@/components/layout/WorkspaceCurrencyContext';
 import { resolveWorkspaceFeatureFlags } from '@/lib/features/overrides';
 
 /**
@@ -41,14 +42,17 @@ export default async function WorkspaceLayout({
   const workspaceId = membership?.workspaceId ?? MNA_WORKSPACE_ID;
   const db = createDb();
   const { workspaceService } = createContainer(db, workspaceId);
-  const [copilotAgent, featureFlags] = await Promise.all([
+  const [copilotAgent, defaultCurrency, featureFlags] = await Promise.all([
     workspaceService.getCopilotAgent(workspaceId),
+    workspaceService.getDefaultCurrency(workspaceId),
     resolveWorkspaceFeatureFlags(workspaceId),
   ]);
 
   return (
     <CopilotAgentProvider agentType={copilotAgent}>
-      <FeatureFlagsProvider flags={featureFlags}>{children}</FeatureFlagsProvider>
+      <WorkspaceCurrencyProvider currency={defaultCurrency}>
+        <FeatureFlagsProvider flags={featureFlags}>{children}</FeatureFlagsProvider>
+      </WorkspaceCurrencyProvider>
     </CopilotAgentProvider>
   );
 }

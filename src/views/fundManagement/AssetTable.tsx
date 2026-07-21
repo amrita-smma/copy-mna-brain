@@ -7,10 +7,10 @@ import {
   getAssetEntity,
   getAssetFundingSources,
   getAssetInvestType,
-  money,
   sliceHoldingsByTxn,
   type HoldingSlice,
 } from './calc';
+import { useFundMoney } from './useFundMoney';
 import { Chevron, DeleteRowMenu, GlossaryTerm, Pill } from './parts';
 import { HoldingDetail } from './HoldingDetail';
 import { TablePager } from './TablePager';
@@ -72,6 +72,7 @@ export function AssetTable({
   funds: Fund[];
 }) {
   const { deleteAsset, entityNameById, sourceNameById } = useFundData();
+  const { money } = useFundMoney();
   const [groupBy, setGroupBy] = useState<GroupBy>('none');
   const [openGroups, setOpenGroups] = useState<Set<string>>(new Set());
   const [openAssets, setOpenAssets] = useState<Set<string>>(new Set());

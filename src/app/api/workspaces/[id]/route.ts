@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/auth';
 import { createDb } from '@/lib/server/db';
 import { createContainer } from '@/lib/services';
-import { COPILOT_AGENTS } from '@/lib/services/workspaceService';
+import { COPILOT_AGENTS, WORKSPACE_CURRENCIES } from '@/lib/services/workspaceService';
 import { MNA_WORKSPACE_ID } from '@/lib/constants';
 
 const SLUG_PATTERN = /^[a-z0-9]+(-[a-z0-9]+)*$/;
@@ -19,9 +19,17 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
     const { id } = await params;
-    const { name, slug, copilot_agent } = await req.json();
-    if (name === undefined && slug === undefined && copilot_agent === undefined) {
-      return NextResponse.json({ error: 'name, slug, or copilot_agent is required' }, { status: 400 });
+    const { name, slug, copilot_agent, default_currency } = await req.json();
+    if (
+      name === undefined &&
+      slug === undefined &&
+      copilot_agent === undefined &&
+      default_currency === undefined
+    ) {
+      return NextResponse.json(
+        { error: 'name, slug, copilot_agent, or default_currency is required' },
+        { status: 400 },
+      );
     }
 
     let data;
@@ -55,6 +63,15 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
         );
       }
       data = await workspaceService.updateCopilotAgent(id, copilot_agent);
+    }
+    if (default_currency !== undefined) {
+      if (!WORKSPACE_CURRENCIES.includes(default_currency)) {
+        return NextResponse.json(
+          { error: `default_currency must be one of: ${WORKSPACE_CURRENCIES.join(', ')}` },
+          { status: 400 },
+        );
+      }
+      data = await workspaceService.updateDefaultCurrency(id, default_currency);
     }
 
     return NextResponse.json({ data });

@@ -57,11 +57,11 @@ import {
   getAssetEntity,
   getAssetFundingSources,
   investorInvestedInFund,
-  money,
   recomputeFund,
   scopeHoldingToFund,
   sourceAgg,
 } from './fundManagement/calc';
+import { useFundMoney } from './fundManagement/useFundMoney';
 import type { Fund, HoldingType, Investor } from './fundManagement/types';
 
 type InvestorRow = Awaited<ReturnType<typeof holdingEntitiesApi.listHoldingEntities>>[number];
@@ -1158,6 +1158,7 @@ function StakeEditDialog({
   // /api/funds) — it isn't a real fund row, so a stake can't be attached to it
   // and saving one would fail the funds.id lookup on the server.
   const funds = useMemo(() => allFunds.filter((f) => f.id !== 'unassigned'), [allFunds]);
+  const { money } = useFundMoney();
   const [rows, setRows] = useState<Record<string, Row>>({});
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);

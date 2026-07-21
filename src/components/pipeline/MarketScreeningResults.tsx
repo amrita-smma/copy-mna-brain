@@ -2,6 +2,8 @@ import { useState, useEffect, useMemo } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { useWorkspaceCurrency } from '@/components/layout/WorkspaceCurrencyContext';
+import { formatMoneyMn } from '@/lib/currency';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -113,12 +115,6 @@ interface MarketScreeningResultsProps {
   tracks?: TrackLike[];
 }
 
-const formatCurrency = (value: number | null | undefined) => {
-  if (value === null || value === undefined) return '-';
-  if (Math.abs(value) >= 1000) return `$${(value / 1000).toFixed(2)}B`;
-  return `$${value.toFixed(2)}M`;
-};
-
 const latestFin = (
   rows: import('@/lib/repositories').Tables<'company_financials'>[] | undefined,
   key: 'revenue_usd_mn' | 'ebitda_usd_mn',
@@ -137,6 +133,8 @@ const ITEMS_PER_PAGE = 10;
 
 export default function MarketScreeningResults({ refreshTrigger, onAddedToPipeline, collapsed = false, onToggleCollapse }: MarketScreeningResultsProps) {
   const { analyzeWithAI } = useChatContext();
+  const currency = useWorkspaceCurrency();
+  const formatCurrency = (value: number | null | undefined) => formatMoneyMn(value, currency);
   const [results, setResults] = useState<MarketScreeningResult[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedResult, setSelectedResult] = useState<MarketScreeningResult | null>(null);

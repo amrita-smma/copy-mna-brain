@@ -10,20 +10,18 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { formatCompact, formatGrouped, parseCurrencyInput } from './calc';
+import { CURRENCIES, CURRENCY_SYMBOL, normalizeCurrency, type Currency } from '@/lib/currency';
+import { useWorkspaceCurrency } from '@/components/layout/WorkspaceCurrencyContext';
 
 // Currency handling for Fund Management money fields. The component is
 // unit-agnostic: it takes/returns a raw numeric `amount` (whatever unit the
 // caller stores in) plus a `currency`, and callers that keep values in
 // millions (adapters.ts `M`/`toM`/`fromM`) convert at the boundary.
-
-export type Currency = 'USD' | 'IDR';
-export const CURRENCIES: Currency[] = ['USD', 'IDR'];
-export const CURRENCY_SYMBOL: Record<Currency, string> = { USD: '$', IDR: 'Rp' };
-
-/** Normalizes a free-text currency string to one of the supported codes. */
-export function normalizeCurrency(v: string | null | undefined): Currency {
-  return v && v.toUpperCase() === 'IDR' ? 'IDR' : 'USD';
-}
+//
+// The currency primitives now live in `@/lib/currency` (shared with the server
+// and the company/pipeline views); re-export them here so the many existing
+// `import { ... } from './CurrencyInput'` call sites keep working.
+export { CURRENCIES, CURRENCY_SYMBOL, normalizeCurrency, type Currency };
 
 /** Compact display with currency symbol, e.g. `$2M` / `Rp2.5M`. */
 export function formatMoneyDisplay(amount: number | null | undefined, currency: Currency): string {
@@ -32,7 +30,7 @@ export function formatMoneyDisplay(amount: number | null | undefined, currency: 
 }
 
 /**
- * A currency amount editor: a USD/IDR prefix dropdown plus a text field that
+ * A currency amount editor: a currency prefix dropdown plus a text field that
  * shows grouped commas while focused and compacts to `$2M` on blur/Enter.
  * `onCommit(amount, currency)` fires once, on commit.
  */
@@ -63,6 +61,9 @@ export function CurrencyInput({
   const [focused, setFocused] = useState(false);
   const [draft, setDraft] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
+  // Currency selection is locked to the workspace display currency: the
+  // dropdown defaults to it and the other codes are shown disabled with a note.
+  const wsCurrency = useWorkspaceCurrency();
 
   useLayoutEffect(() => {
     if (autoFocus && inputRef.current) {
@@ -88,21 +89,21 @@ export function CurrencyInput({
     <div className={cn('flex items-stretch', className)}>
       {showCurrency &&
         (currencyEditable ? (
-          <Select value={currency} onValueChange={(v) => onCommit(amount ?? null, v as Currency)}>
+          <Select value={wsCurrency} onValueChange={(v) => onCommit(amount ?? null, v as Currency)}>
             <SelectTrigger className="h-9 w-[68px] shrink-0 rounded-r-none border-r-0 text-xs">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
               {CURRENCIES.map((c) => (
-                <SelectItem key={c} value={c}>
-                  {c}
+                <SelectItem key={c} value={c} disabled={c !== wsCurrency}>
+                  {c === wsCurrency ? c : `${c} (currency not selected in the workspace)`}
                 </SelectItem>
               ))}
             </SelectContent>
           </Select>
         ) : (
           <span className="inline-flex h-9 shrink-0 items-center rounded-l-md border border-r-0 bg-muted/50 px-2 text-xs text-muted-foreground">
-            {currency}
+            {wsCurrency}
           </span>
         ))}
       <input

@@ -9,6 +9,7 @@ import type {
 } from '@/lib/repositories';
 import { MNA_WORKSPACE_ID } from '@/lib/constants';
 import type { CopilotAgentType } from '@/lib/agents/analysis';
+import { CURRENCIES, normalizeCurrency, type Currency } from '@/lib/currency';
 
 /** The AI Copilot flavors a workspace can be set to. Source of truth for
  *  validating the `copilot_agent` column and the PATCH payload. */
@@ -17,6 +18,10 @@ export const COPILOT_AGENTS: readonly CopilotAgentType[] = [
   'investment',
   'combined',
 ] as const;
+
+/** The display currencies a workspace can be set to. Source of truth for
+ *  validating the `default_currency` column and the PATCH payload. */
+export const WORKSPACE_CURRENCIES: readonly Currency[] = CURRENCIES;
 
 /** Narrow an arbitrary string to a valid CopilotAgentType, defaulting to 'mna'. */
 export function normalizeCopilotAgent(value: string | null | undefined): CopilotAgentType {
@@ -143,6 +148,22 @@ export class WorkspaceService {
     agent: CopilotAgentType,
   ): Promise<Tables<'workspaces'> | undefined> {
     return this.workspaceRepo.update(id, { copilot_agent: agent });
+  }
+
+  /**
+   * The workspace-wide display currency. Defaults to 'USD' when unset or
+   * holding an unexpected value, so callers can rely on a valid Currency.
+   */
+  async getDefaultCurrency(id: string): Promise<Currency> {
+    const ws = await this.workspaceRepo.findById(id);
+    return normalizeCurrency(ws?.default_currency);
+  }
+
+  updateDefaultCurrency(
+    id: string,
+    currency: Currency,
+  ): Promise<Tables<'workspaces'> | undefined> {
+    return this.workspaceRepo.update(id, { default_currency: currency });
   }
 
   listRoles(): Promise<Tables<'roles'>[]> {

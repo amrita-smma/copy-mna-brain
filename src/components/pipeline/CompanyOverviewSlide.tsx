@@ -14,6 +14,8 @@ import {
   X,
 } from "lucide-react";
 import { MarkdownRenderer } from "@/components/chat/MarkdownRenderer";
+import { useWorkspaceCurrency } from "@/components/layout/WorkspaceCurrencyContext";
+import { CURRENCY_SYMBOL } from "@/lib/currency";
 import { getTrackVariables, type TrackVariable } from "@/lib/api/pipeline";
 import { companyDisplayTitle } from "@/lib/companyDisplay";
 import { isDealLive } from "@/lib/dealStatus";
@@ -107,12 +109,6 @@ export interface EditSectionRequest {
 }
 
 const STAGES = ["L0", "L1", "L2", "L3", "L4", "L5"] as const;
-
-const fmtMoney = (value: number | null | undefined): string => {
-  if (value === null || value === undefined) return "—";
-  if (Math.abs(value) >= 1000) return `$${(value / 1000).toFixed(2)}B`;
-  return `$${value.toFixed(1)}M`;
-};
 
 /** Format a date-only value ("YYYY-MM-DD") as "MMM d, yyyy" without TZ shifts. */
 const fmtDate = (value: string | null | undefined): string => {
@@ -361,6 +357,13 @@ export default function CompanyOverviewSlide({
   /** The section currently being rewritten by the copilot (shows a busy overlay). */
   editingSectionKey?: AnalysisSectionKey | null;
 }) {
+  const currency = useWorkspaceCurrency();
+  const fmtMoney = (value: number | null | undefined): string => {
+    if (value === null || value === undefined) return "—";
+    const sym = CURRENCY_SYMBOL[currency];
+    if (Math.abs(value) >= 1000) return `${sym}${(value / 1000).toFixed(2)}B`;
+    return `${sym}${value.toFixed(1)}M`;
+  };
   const title = companyDisplayTitle(company, "Company");
   const sector = company.segment || "—";
   const currentStage = (company.pipeline_stage || "L0").toUpperCase();
@@ -568,13 +571,13 @@ export default function CompanyOverviewSlide({
           </section>
 
           <section>
-            <SectionHeading icon={FileBarChart} index={4} title="Indicative Financials (USD m)" />
+            <SectionHeading icon={FileBarChart} index={4} title={`Indicative Financials (${currency} m)`} />
             {financials.length > 0 ? (
               <table className="w-full border-collapse text-[11px]">
                 <thead>
                   <tr>
                     <th className="border border-border bg-blue-50 px-2 py-1 text-left font-semibold text-blue-900">
-                      USD m
+                      {currency} m
                     </th>
                     {financials.map((f) => (
                       <th

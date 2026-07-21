@@ -12,7 +12,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
+import { Command, CommandEmpty, CommandGroup, CommandItem, CommandList } from "@/components/ui/command";
 import { AlertCircle, Check, ChevronDown, Loader2 } from "lucide-react";
 import {
   Select,
@@ -23,6 +23,8 @@ import {
 } from "@/components/ui/select";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { CURRENCIES } from "@/lib/currency";
+import { useWorkspaceCurrency } from "@/components/layout/WorkspaceCurrencyContext";
 import {
   fundUpdateTxnKey,
   fundUpdateValKey,
@@ -148,21 +150,6 @@ function valMethodLabel(method: string | null | undefined): string {
   return VALUATION_METHOD_OPTIONS.find((o) => o.value === method)?.label ?? method;
 }
 
-const CURRENCY_OPTIONS = [
-  "USD",
-  "SGD",
-  "IDR",
-  "EUR",
-  "GBP",
-  "AUD",
-  "JPY",
-  "CNY",
-  "MYR",
-  "THB",
-  "VND",
-  "PHP",
-  "HKD",
-];
 
 const TXN_NUMERIC_FIELDS = new Set(["valueAmount", "shareCount", "pricePerShare"]);
 const VAL_NUMERIC_FIELDS = new Set(["marketValue", "pricePerShare", "shareholdingPct"]);
@@ -237,13 +224,9 @@ function ReviewCurrencySelect({
   edited?: boolean;
 }) {
   const [open, setOpen] = useState(false);
-  const [search, setSearch] = useState("");
-  const options = useMemo(() => {
-    const list = [...CURRENCY_OPTIONS];
-    if (value && !list.includes(value)) list.unshift(value);
-    return list;
-  }, [value]);
-  const showCustom = search.trim().length > 0 && !options.some((o) => o.toLowerCase() === search.trim().toLowerCase());
+  // Currency selection is locked to the workspace display currency: the picker
+  // defaults to it and the other codes are shown disabled with a note.
+  const wsCurrency = useWorkspaceCurrency();
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
@@ -257,61 +240,44 @@ function ReviewCurrencySelect({
             edited && "border-amber-400 bg-amber-500/10 text-amber-900"
           )}
         >
-          {value || "Ccy"}
+          {value || wsCurrency}
           <ChevronDown className="ml-1 h-3 w-3 shrink-0 opacity-50" />
         </Button>
       </PopoverTrigger>
-      <PopoverContent 
-        className="w-[120px] p-0" 
+      <PopoverContent
+        className="w-[280px] p-0"
         align="start"
         onWheel={(e) => e.stopPropagation()}
         onTouchMove={(e) => e.stopPropagation()}
       >
         <Command>
-          <CommandInput 
-            placeholder="Search..." 
-            className="h-8 py-1 text-xs" 
-            value={search}
-            onValueChange={setSearch}
-          />
           <CommandList className="max-h-[200px] overflow-y-auto overscroll-contain">
             <CommandEmpty>No currency found.</CommandEmpty>
             <CommandGroup>
-              {options.map((ccy) => (
-                <CommandItem
-                  key={ccy}
-                  value={ccy}
-                  onSelect={() => {
-                    onChange(ccy);
-                    setOpen(false);
-                    setSearch("");
-                  }}
-                  className="text-xs py-1"
-                >
-                  <Check
-                    className={cn(
-                      "mr-2 h-3 w-3",
-                      value === ccy ? "opacity-100" : "opacity-0"
-                    )}
-                  />
-                  {ccy}
-                </CommandItem>
-              ))}
-              {showCustom && (
-                <CommandItem
-                  value={search}
-                  onSelect={() => {
-                    const upper = search.trim().toUpperCase();
-                    onChange(upper);
-                    setOpen(false);
-                    setSearch("");
-                  }}
-                  className="text-xs italic text-muted-foreground py-1"
-                >
-                  <Check className="mr-2 h-3 w-3 opacity-0" />
-                  Use &quot;{search.trim().toUpperCase()}&quot;
-                </CommandItem>
-              )}
+              {CURRENCIES.map((ccy) => {
+                const locked = ccy !== wsCurrency;
+                return (
+                  <CommandItem
+                    key={ccy}
+                    value={ccy}
+                    disabled={locked}
+                    onSelect={() => {
+                      if (locked) return;
+                      onChange(ccy);
+                      setOpen(false);
+                    }}
+                    className="text-xs py-1"
+                  >
+                    <Check
+                      className={cn(
+                        "mr-2 h-3 w-3",
+                        value === ccy ? "opacity-100" : "opacity-0"
+                      )}
+                    />
+                    {locked ? `${ccy} (currency not selected in the workspace)` : ccy}
+                  </CommandItem>
+                );
+              })}
             </CommandGroup>
           </CommandList>
         </Command>

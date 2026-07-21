@@ -11,6 +11,7 @@ import {
   WorkspaceService,
   normalizeCopilotAgent,
   COPILOT_AGENTS,
+  WORKSPACE_CURRENCIES,
 } from './workspaceService';
 
 function makeRepoStubs() {
@@ -340,6 +341,48 @@ describe('WorkspaceService.updateCopilotAgent', () => {
 
     expect(result).toEqual(row);
     expect(repos.workspaceRepo.update).toHaveBeenCalledWith('w1', { copilot_agent: 'investment' });
+  });
+});
+
+describe('WORKSPACE_CURRENCIES', () => {
+  it('exposes exactly the three supported currencies', () => {
+    expect([...WORKSPACE_CURRENCIES]).toEqual(['USD', 'IDR', 'CNY']);
+  });
+});
+
+describe('WorkspaceService.getDefaultCurrency', () => {
+  it('returns the stored currency when it is IDR', async () => {
+    const repos = makeRepoStubs();
+    (repos.workspaceRepo.findById as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      id: 'w1',
+      default_currency: 'IDR',
+    });
+    const service = new WorkspaceService(repos.workspaceRepo, repos.userWorkspaceRepo, repos.roleRepo, repos.userRepo);
+
+    expect(await service.getDefaultCurrency('w1')).toBe('IDR');
+    expect(repos.workspaceRepo.findById).toHaveBeenCalledWith('w1');
+  });
+
+  it('defaults to USD when the workspace is missing or the value is unset', async () => {
+    const repos = makeRepoStubs();
+    (repos.workspaceRepo.findById as ReturnType<typeof vi.fn>).mockResolvedValueOnce(undefined);
+    const service = new WorkspaceService(repos.workspaceRepo, repos.userWorkspaceRepo, repos.roleRepo, repos.userRepo);
+
+    expect(await service.getDefaultCurrency('missing')).toBe('USD');
+  });
+});
+
+describe('WorkspaceService.updateDefaultCurrency', () => {
+  it('delegates to the repository update with the default_currency column', async () => {
+    const repos = makeRepoStubs();
+    const row = { id: 'w1', name: 'MnA', slug: 'mna', default_currency: 'CNY' };
+    (repos.workspaceRepo.update as ReturnType<typeof vi.fn>).mockResolvedValueOnce(row);
+    const service = new WorkspaceService(repos.workspaceRepo, repos.userWorkspaceRepo, repos.roleRepo, repos.userRepo);
+
+    const result = await service.updateDefaultCurrency('w1', 'CNY');
+
+    expect(result).toEqual(row);
+    expect(repos.workspaceRepo.update).toHaveBeenCalledWith('w1', { default_currency: 'CNY' });
   });
 });
 

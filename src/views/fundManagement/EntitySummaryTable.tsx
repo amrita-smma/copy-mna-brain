@@ -2,7 +2,8 @@
 
 import { cn } from '@/lib/utils';
 import type { Fund, Investor } from './types';
-import { aggregateByTxn, getAssetEntity, investorAgg, money, OTHERS_ENTITY } from './calc';
+import { aggregateByTxn, getAssetEntity, investorAgg, OTHERS_ENTITY } from './calc';
+import { useFundMoney } from './useFundMoney';
 import { DeleteRowMenu, GlossaryTerm, Pill } from './parts';
 
 const COLS: { label: string; term?: string; align: 'left' | 'right' }[] = [
@@ -26,6 +27,7 @@ export function EntitySummaryTable({
   onEditStakes?: (investorId: string) => void;
   onDeleteInvestor?: (investorId: string) => Promise<void>;
 }) {
+  const { money } = useFundMoney();
   // Roll each entity's performance (Invested / Unrealized MV / Net Gain / MOIC)
   // up from the transaction ledger: every transaction is attributed to its own
   // holding entity (`txn.holdingEntityId`), falling back to the asset's entity

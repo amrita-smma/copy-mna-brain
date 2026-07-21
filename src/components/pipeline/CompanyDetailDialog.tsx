@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { useWorkspaceHref } from "@/hooks/useWorkspaceHref";
+import { useWorkspaceCurrency } from "@/components/layout/WorkspaceCurrencyContext";
+import { formatMoneyMn } from "@/lib/currency";
 import { useEventStream } from "@/hooks/useEventStream";
 import {
   Dialog,
@@ -403,16 +405,6 @@ interface CompanyDetailDialogProps {
   initialEditing?: boolean;
 }
 
-const formatCurrency = (value: number | null | undefined) => {
-  if (value === null || value === undefined) return "-";
-  // Values are stored in millions
-  if (Math.abs(value) >= 1000) {
-    const billions = value / 1000;
-    return `$${billions.toFixed(2)}B`;
-  }
-  return `$${value.toFixed(2)}M`;
-};
-
 const formatDuration = (seconds: number | null) => {
   if (seconds === null) return "Ongoing";
   const days = Math.floor(seconds / 86400);
@@ -431,6 +423,8 @@ export default function CompanyDetailDialog({
 }: CompanyDetailDialogProps) {
   const router = useRouter();
   const pipelineHref = useWorkspaceHref("/pipeline");
+  const currency = useWorkspaceCurrency();
+  const formatCurrency = (value: number | null | undefined) => formatMoneyMn(value, currency);
   const aiFileDumpHref = useWorkspaceHref("/ai-file-dump");
   const { analyzeWithAI } = useChatContext();
   const { focusCopilot } = useLayoutControl();
