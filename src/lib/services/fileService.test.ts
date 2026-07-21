@@ -1211,6 +1211,70 @@ describe('FileService.approve', () => {
     expect(companyService.createFromDTO).not.toHaveBeenCalled();
   });
 
+  it('prefers user-supplied source, geography and segment over the AI values', async () => {
+    vi.mocked(fileRepo.findById).mockResolvedValue(
+      makeFile({ id: 'file-1', structured_notes: prospectusNotes }),
+    );
+    vi.mocked(companyService.createFromDTO).mockResolvedValue({ id: 'company-new' } as never);
+    vi.mocked(companyService.findById).mockResolvedValue(makeCompany({ id: 'company-new' }));
+
+    const input: ApproveFileInput = {
+      file_type: 'prospectus',
+      matched_company_id: null,
+      create_company_from_ai: true,
+      entered_by: 'user-uuid',
+      deal_type: 'majority',
+      source: 'outbound',
+      geography: 'Vietnam',
+      segment: 'Logistics',
+      // No banker — allowed because source is outbound.
+    };
+    await service.approve('file-1', input);
+
+    expect(companyService.createFromDTO).toHaveBeenCalledWith(
+      expect.objectContaining({
+        source: 'outbound',
+        geography: 'Vietnam',
+        segment: 'Logistics',
+      }),
+      'created_from_file:file-1',
+    );
+  });
+
+  it('accepts reviewer-supplied geography/segment when the AI extracted neither', async () => {
+    const notesWithoutGeoOrSegment = JSON.stringify({
+      file_type: 'prospectus',
+      prospectus_summary: {
+        company_name: 'Acme Corp',
+        project_name: 'Project Owl',
+        financials: [],
+        fx_adjustments: [],
+      },
+    });
+    vi.mocked(fileRepo.findById).mockResolvedValue(
+      makeFile({ id: 'file-1', structured_notes: notesWithoutGeoOrSegment }),
+    );
+    vi.mocked(companyService.createFromDTO).mockResolvedValue({ id: 'company-new' } as never);
+    vi.mocked(companyService.findById).mockResolvedValue(makeCompany({ id: 'company-new' }));
+
+    const input: ApproveFileInput = {
+      file_type: 'prospectus',
+      matched_company_id: null,
+      create_company_from_ai: true,
+      entered_by: 'user-uuid',
+      deal_type: 'majority',
+      banker: 'Goldman Sachs',
+      geography: 'Malaysia',
+      segment: 'Healthcare',
+    };
+    await service.approve('file-1', input);
+
+    expect(companyService.createFromDTO).toHaveBeenCalledWith(
+      expect.objectContaining({ geography: 'Malaysia', segment: 'Healthcare' }),
+      'created_from_file:file-1',
+    );
+  });
+
   it('creates at L0 with matched_track_ids from structured_notes', async () => {
     const notesWithTracks = JSON.stringify({
       file_type: 'prospectus',

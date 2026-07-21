@@ -23,6 +23,7 @@ import {
 import type { TrackMatchingService } from './trackMatchingService';
 import type { UserRepository } from '@/lib/repositories';
 import { bestFuzzyMatch } from '@/lib/fuzzySearch';
+import { getMissingL0Fields, type L0CompanyInput } from '@/lib/companies/l0Requirements';
 
 const L0_STAGE: DealStage = 'L0';
 // Stages above L0. A move into L0 from one of these is a *demotion*, not a fresh
@@ -360,28 +361,14 @@ export class CompanyService {
     }
   }
 
-  /** Returns the list of missing required fields for L0 entry. Empty = all clear. */
-  static checkL0Requirements(company: {
-    target?: string | null;
-    project_name?: string | null;
-    entered_by?: string | null;
-    source?: string | null;
-    deal_type?: string | null;
-    geography?: string | null;
-    segment?: string | null;
-    banker?: string | null;
-    banker_source?: string | null;
-  }): string[] {
-    const missing: string[] = [];
-    const filled = (v: string | null | undefined) => typeof v === 'string' && v.trim().length > 0;
-    if (!filled(company.target) && !filled(company.project_name)) missing.push('Company Name / Project Name');
-    if (!filled(company.entered_by)) missing.push('Entered By');
-    if (!filled(company.source)) missing.push('Deal Type: Inbound/Outbound');
-    if (!filled(company.deal_type)) missing.push('Deal Type: Majority/Minority');
-    if (!filled(company.geography)) missing.push('Geo');
-    if (!filled(company.segment)) missing.push('Sector');
-    if (company.source !== 'outbound' && !filled(company.banker) && !filled(company.banker_source)) missing.push('Banker');
-    return missing;
+  /**
+   * Returns the list of missing required fields for L0 entry. Empty = all
+   * clear. Delegates to the shared `L0_REQUIRED_FIELDS` definition so the
+   * service, the file-dump approval path, and the review UIs all enforce the
+   * same rules — see `@/lib/companies/l0Requirements`.
+   */
+  static checkL0Requirements(company: L0CompanyInput): string[] {
+    return getMissingL0Fields(company);
   }
 
   private assertL0Requirements(company: Tables<'companies'>): void {

@@ -133,6 +133,9 @@ export function HitlReviewDialog({ fileId, open, onClose, onApproved }: Props) {
   const [l0EnteredBy, setL0EnteredBy] = useState("");
   const [l0DealType, setL0DealType] = useState<"majority" | "minority" | "">("");
   const [l0Banker, setL0Banker] = useState("");
+  const [l0Source, setL0Source] = useState<"inbound" | "outbound">("inbound");
+  const [l0Geography, setL0Geography] = useState("");
+  const [l0Segment, setL0Segment] = useState("");
   const [missingFields, setMissingFields] = useState<string[]>([]);
   // Users for the editable "Entered By" picker (entered_by is a uuid FK).
   const [users, setUsers] = useState<UserSummary[]>([]);
@@ -144,6 +147,9 @@ export function HitlReviewDialog({ fileId, open, onClose, onApproved }: Props) {
     setL0EnteredBy(user?.id ?? "");
     setL0DealType("");
     setL0Banker("");
+    setL0Source("inbound");
+    setL0Geography("");
+    setL0Segment("");
     setMissingFields([]);
     if (users.length === 0) {
       getUsers()
@@ -165,8 +171,16 @@ export function HitlReviewDialog({ fileId, open, onClose, onApproved }: Props) {
         setMatchedCompanyId(firstWithId?.id ?? AUTO);
         const willCreateFromAi = !firstWithId && !!data.ai.suggested_company;
         setCreateFromAi(willCreateFromAi);
-        if (willCreateFromAi && data.ai.suggested_banker) {
-          setL0Banker(data.ai.suggested_banker);
+        if (willCreateFromAi) {
+          if (data.ai.suggested_banker) setL0Banker(data.ai.suggested_banker);
+          // Pre-fill the required Geo / Sector inputs from what the AI extracted
+          // so the reviewer only has to fill what's genuinely missing.
+          if (data.ai.suggested_company?.geography) {
+            setL0Geography(data.ai.suggested_company.geography);
+          }
+          if (data.ai.suggested_company?.segment) {
+            setL0Segment(data.ai.suggested_company.segment);
+          }
         }
 
         applyDefaultChecks(data);
@@ -280,6 +294,9 @@ export function HitlReviewDialog({ fileId, open, onClose, onApproved }: Props) {
           entered_by: l0EnteredBy.trim() || null,
           deal_type: (l0DealType || null) as ApproveFileInput["deal_type"],
           banker: l0Banker.trim() || null,
+          source: l0Source,
+          geography: l0Geography.trim() || null,
+          segment: l0Segment.trim() || null,
         }),
       };
 
@@ -391,6 +408,12 @@ export function HitlReviewDialog({ fileId, open, onClose, onApproved }: Props) {
                         if (reviewData?.ai.suggested_banker && !l0Banker) {
                           setL0Banker(reviewData.ai.suggested_banker);
                         }
+                        if (reviewData?.ai.suggested_company?.geography && !l0Geography) {
+                          setL0Geography(reviewData.ai.suggested_company.geography);
+                        }
+                        if (reviewData?.ai.suggested_company?.segment && !l0Segment) {
+                          setL0Segment(reviewData.ai.suggested_company.segment);
+                        }
                       }
                     }}
                   />
@@ -426,6 +449,21 @@ export function HitlReviewDialog({ fileId, open, onClose, onApproved }: Props) {
                         />
                       </div>
                       <div className="space-y-1">
+                        <Label className="text-xs">Inbound / Outbound</Label>
+                        <Select
+                          value={l0Source}
+                          onValueChange={(v) => { setL0Source(v as "inbound" | "outbound"); setMissingFields([]); }}
+                        >
+                          <SelectTrigger className="h-7 text-xs">
+                            <SelectValue placeholder="Select…" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="inbound">Inbound</SelectItem>
+                            <SelectItem value="outbound">Outbound</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="space-y-1">
                         <Label className="text-xs">Deal Type</Label>
                         <Select
                           value={l0DealType || "__none__"}
@@ -441,20 +479,50 @@ export function HitlReviewDialog({ fileId, open, onClose, onApproved }: Props) {
                           </SelectContent>
                         </Select>
                       </div>
-                      <div className="col-span-2 space-y-1">
+                      <div className="space-y-1">
                         <div className="flex items-center gap-1.5">
-                          <Label className="text-xs">Banker / Source</Label>
-                          {l0Banker && reviewData?.ai.suggested_banker && l0Banker === reviewData.ai.suggested_banker && (
+                          <Label className="text-xs">Sector</Label>
+                          {l0Segment && reviewData?.ai.suggested_company?.segment && l0Segment === reviewData.ai.suggested_company.segment && (
                             <span className="text-[10px] text-muted-foreground">· AI suggested</span>
                           )}
                         </div>
                         <Input
                           className="h-7 text-xs"
-                          placeholder="e.g. Goldman Sachs"
-                          value={l0Banker}
-                          onChange={(e) => { setL0Banker(e.target.value); setMissingFields([]); }}
+                          placeholder="e.g. Technology"
+                          value={l0Segment}
+                          onChange={(e) => { setL0Segment(e.target.value); setMissingFields([]); }}
                         />
                       </div>
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-1.5">
+                          <Label className="text-xs">Geo</Label>
+                          {l0Geography && reviewData?.ai.suggested_company?.geography && l0Geography === reviewData.ai.suggested_company.geography && (
+                            <span className="text-[10px] text-muted-foreground">· AI suggested</span>
+                          )}
+                        </div>
+                        <Input
+                          className="h-7 text-xs"
+                          placeholder="e.g. Indonesia"
+                          value={l0Geography}
+                          onChange={(e) => { setL0Geography(e.target.value); setMissingFields([]); }}
+                        />
+                      </div>
+                      {l0Source !== "outbound" && (
+                        <div className="space-y-1">
+                          <div className="flex items-center gap-1.5">
+                            <Label className="text-xs">Banker / Source</Label>
+                            {l0Banker && reviewData?.ai.suggested_banker && l0Banker === reviewData.ai.suggested_banker && (
+                              <span className="text-[10px] text-muted-foreground">· AI suggested</span>
+                            )}
+                          </div>
+                          <Input
+                            className="h-7 text-xs"
+                            placeholder="e.g. Goldman Sachs"
+                            value={l0Banker}
+                            onChange={(e) => { setL0Banker(e.target.value); setMissingFields([]); }}
+                          />
+                        </div>
+                      )}
                     </div>
                   </div>
                 )}
@@ -522,7 +590,15 @@ export function HitlReviewDialog({ fileId, open, onClose, onApproved }: Props) {
               {/* Preview — when "Create new from AI" is checked, show what
                   the new company row will contain. Pure read-only summary. */}
               {createFromAi && reviewData.ai.suggested_company && (() => {
-                const allFields = [...IDENTITY_FIELDS, ...ENRICHABLE_FIELDS];
+                // Segment + geography are captured (and editable) in the
+                // "Required to add to L0" box above, so leave them out here to
+                // avoid showing a stale AI value the user may have just changed.
+                const allFields = [
+                  ...IDENTITY_FIELDS,
+                  ...ENRICHABLE_FIELDS.filter(
+                    ({ key }) => key !== "segment" && key !== "geography",
+                  ),
+                ];
                 const filledFields = allFields.filter(({ key }) => {
                   const v = reviewData.ai.suggested_company![key as keyof SuggestedCompany];
                   return v != null && v !== "";

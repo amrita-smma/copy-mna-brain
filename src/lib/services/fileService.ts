@@ -210,6 +210,9 @@ export interface ApproveFileInput {
   entered_by?: string | null;
   deal_type?: 'majority' | 'minority' | null;
   banker?: string | null;
+  source?: 'inbound' | 'outbound' | null;
+  geography?: string | null;
+  segment?: string | null;
   /**
    * Fund Updates HITL: sheet codes (e.g. "GOTO") to apply. Only used when
    * `file_type` is `fund_updates`. Empty/omitted applies nothing (review-only).
@@ -813,16 +816,23 @@ export class FileService {
       const safeProjectName = summary.project_name && !isGenericDocumentPhrase(summary.project_name)
         ? summary.project_name : null;
       if (safeTarget || safeProjectName) {
+        // Required L0 fields the reviewer supplies in the dialog take precedence
+        // over whatever the AI extracted; fall back to the AI value (and finally
+        // to 'inbound' for source) when the reviewer left them blank.
+        const l0Source = input.source ?? 'inbound';
+        const l0Geography = input.geography ?? summary.geography ?? null;
+        const l0Segment = input.segment ?? summary.segment ?? null;
+
         // Run L0 requirements check via the shared static method — same rules
         // as the triage promote flow. Throws if any required fields are missing.
         const missing = CompanyService.checkL0Requirements({
           target: safeTarget,
           project_name: safeProjectName,
           entered_by: input.entered_by,
-          source: 'inbound',
+          source: l0Source,
           deal_type: input.deal_type,
-          geography: summary.geography,
-          segment: summary.segment,
+          geography: l0Geography,
+          segment: l0Segment,
           banker: input.banker,
         });
         if (missing.length > 0) throw new CompanyL0RequirementsError(missing);
@@ -832,16 +842,16 @@ export class FileService {
           target: safeTarget,
           project_name: safeProjectName,
           thesis_content: null,
-          segment: summary.segment ?? null,
+          segment: l0Segment,
           segment_related_offerings: summary.segment_related_offerings ?? null,
           company_focus: summary.company_focus ?? null,
           website: summary.website ?? null,
           watchlist_status: summary.watchlist_status ?? null,
           comments: summary.comments ?? null,
           ownership: summary.ownership ?? null,
-          geography: summary.geography ?? null,
+          geography: l0Geography,
           remarks: summary.remarks ?? null,
-          source: 'inbound',
+          source: l0Source,
           entered_by: input.entered_by ?? null,
           deal_type: input.deal_type ?? null,
           banker: input.banker ?? null,
