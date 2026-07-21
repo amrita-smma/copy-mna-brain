@@ -34,6 +34,7 @@ import {
   DashboardActivityRepository,
   DashboardInsightsRepository,
   AppSettingsRepository,
+  DailyPulseRepository,
   FeatureFlagRepository,
   ApiKeyRepository,
   ApiChatConversationRepository,
@@ -81,6 +82,7 @@ import { AiWorkforceService } from './aiWorkforceService';
 import { CopilotChatsService } from './copilotChatsService';
 import { DashboardActivityService } from './dashboardActivityService';
 import { DashboardInsightsService } from './dashboardInsightsService';
+import { DailyPulseService } from './dailyPulseService';
 import { ApiKeyService } from './apiKeyService';
 import { ApiChatConversationService } from './apiChatConversationService';
 import { NotificationService } from './notificationService';
@@ -127,6 +129,7 @@ export interface Container {
   copilotChatsService: CopilotChatsService;
   dashboardActivityService: DashboardActivityService;
   dashboardInsightsService: DashboardInsightsService;
+  dailyPulseService: DailyPulseService;
   apiKeyService: ApiKeyService;
   apiChatConversationService: ApiChatConversationService;
   notificationService: NotificationService;
@@ -346,6 +349,9 @@ export function createContainer(db: DbClient, workspaceId: string): Container {
 
   const stalledDealService = new StalledDealService(companyRepo, companyLogRepo);
 
+  const dailyPulseRepo = new DailyPulseRepository(db, workspaceId);
+  const dailyPulseService = new DailyPulseService(workspaceId, dailyPulseRepo);
+
   const featureFlagRepo = new FeatureFlagRepository(db);
   const featureFlagsService = new FeatureFlagsService(featureFlagRepo);
 
@@ -378,6 +384,7 @@ export function createContainer(db: DbClient, workspaceId: string): Container {
     copilotChatsService,
     dashboardActivityService,
     dashboardInsightsService,
+    dailyPulseService,
     apiKeyService,
     apiChatConversationService,
     notificationService,

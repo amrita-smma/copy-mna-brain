@@ -11,6 +11,7 @@ import type {
   InsightsSettings,
   InsightsSettingsWithMeta,
 } from '@/lib/services/dashboardInsightsService';
+import type { DailyPulse } from '@/lib/services/dailyPulseService';
 
 export async function getDashboardActivity(params: {
   from: Date;
@@ -39,6 +40,16 @@ export async function getDashboardOverview(params: {
   return apiRequest<DashboardOverview>(
     `/api/dashboard/overview?${search.toString()}`,
   );
+}
+
+/**
+ * Fetch the "Today's Recap" daily pipeline pulse (deterministic scoreboard +
+ * LLM narration). Generated once per UTC day by the `daily-pulse` cron and
+ * stored in `daily_pulse`; this read serves that stored payload (computing it
+ * on the fly only if the cron hasn't run yet that day).
+ */
+export async function getDailyPulse(): Promise<DailyPulse> {
+  return apiRequest<DailyPulse>('/api/dashboard/pulse');
 }
 
 /** Fetch one page of the merged activity feed (newest first) for infinite scroll. */

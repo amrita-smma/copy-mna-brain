@@ -150,20 +150,7 @@ const FEED_EVENTS: FeedEvent[] = Array.from({ length: 20 }, (_, i) => ({
   ...(i === 0 ? { dropped_stage: 'L2', dropped_reason: 'Out of thesis' } : {}),
 }));
 
-// ─── Stat-card helpers ────────────────────────────────────────────────────────
-
-const STAT_CARD_TESTIDS: Record<string, string> = {
-  'Total Deals': 'dashboard-total-deals-card',
-  Inbound: 'dashboard-inbound-deals-card',
-  Outbound: 'dashboard-outbound-deals-card',
-};
-
-/** Reads the big number in a stat card via its data-testid. */
-const statValue = (page: Page, label: string) =>
-  page.getByTestId(STAT_CARD_TESTIDS[label]).locator('p.text-3xl');
-
-const statNumber = async (page: Page, label: string): Promise<number> =>
-  parseInt((await statValue(page, label).textContent()) ?? '0', 10);
+// ─── Feed helpers ─────────────────────────────────────────────────────────────
 
 /** Activity-feed company button, keyed by the (possibly server-assigned) id. */
 const feedButton = (page: Page, id: string) =>
@@ -233,48 +220,27 @@ test.describe('Dashboard page', () => {
       await expect(page.getByRole('link', { name })).toBeVisible();
     }
 
-    // Primary content sections (section titles are <h3> headings; use the role
-    // so "Overview" doesn't also match the "Real-time overview…" subtitle).
-    for (const section of ['Overview', 'Pipeline Stages', 'Activity Feed']) {
+    // Primary content sections (section titles are <h3> headings).
+    for (const section of ['Pipeline Stages', 'Activity Feed']) {
       await expect(main.getByRole('heading', { name: section })).toBeVisible();
     }
+    // Today's Recap card (replaces the old Overview card).
+    await expect(page.getByTestId('dashboard-todays-recap-card')).toBeVisible();
     await expect(page.getByTestId('recap-title')).toBeVisible();
   });
 
   // ─── REG-DASH-03 ──────────────────────────────────────────────────────────
 
-  test('Overview stat cards display deal metrics', async ({ page }) => {
-    // REG-DASH-03: Total 4 (2 new L0 + 2 stage moves); Inbound 2 (50%), Outbound 2 (50%).
+  test("Today's Recap card renders the Analyst markdown", async ({ page }) => {
+    // REG-DASH-03: the daily pulse card (pulse endpoint is mocked with
+    // DEFAULT_PULSE in both data modes) renders the agent's markdown as-is.
     await openDashboard(page);
-    const main = page.locator('main');
+    const card = page.getByTestId('dashboard-todays-recap-card');
 
-    if (isReal) {
-      // The stat cards aggregate the whole window and can't be scoped to the
-      // seeded rows, so assert our contribution is at least present.
-      expect(await statNumber(page, 'Total Deals')).toBeGreaterThanOrEqual(4);
-      expect(await statNumber(page, 'Inbound')).toBeGreaterThanOrEqual(2);
-      expect(await statNumber(page, 'Outbound')).toBeGreaterThanOrEqual(2);
-      await expect(main.getByText('Added in period')).toBeVisible();
-    } else {
-      await expect(statValue(page, 'Total Deals')).toHaveText('4');
-      await expect(statValue(page, 'Inbound')).toHaveText('2');
-      await expect(statValue(page, 'Outbound')).toHaveText('2');
-      await expect(main.getByText('Added in period')).toBeVisible();
-      await expect(main.getByText('50% of total').first()).toBeVisible();
-    }
-  });
-
-  // ─── REG-DASH-04 ──────────────────────────────────────────────────────────
-
-  test('Inbound + Outbound reconcile to Total Deals', async ({ page }) => {
-    // REG-DASH-04 — a reconciliation that holds regardless of the absolute counts.
-    await openDashboard(page);
-
-    const total = await statNumber(page, 'Total Deals');
-    const inbound = await statNumber(page, 'Inbound');
-    const outbound = await statNumber(page, 'Outbound');
-
-    expect(inbound + outbound).toBe(total);
+    await expect(card).toBeVisible();
+    await expect(card.getByText('Jun 18, 2026')).toBeVisible();
+    await expect(card.getByText('Today: 4 adds', { exact: false })).toBeVisible();
+    await expect(card.getByText('No exceptions today.')).toBeVisible();
   });
 
   // ─── REG-DASH-05 ──────────────────────────────────────────────────────────
@@ -759,6 +725,5 @@ test.describe('Dashboard page', () => {
     const main = page.locator('main');
     await expect(main.getByText('No pipeline activity in this period.')).toBeVisible();
     await expect(main.getByText('No activity in this period')).toBeVisible();
-    await expect(statValue(page, 'Total Deals')).toHaveText('0');
   });
 });

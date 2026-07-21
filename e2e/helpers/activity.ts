@@ -45,6 +45,15 @@ export type FeedEvent = {
   dropped_reason?: string | null;
 };
 
+/** The `/api/dashboard/pulse` payload — the daily pipeline pulse as the Analyst
+ * agent's markdown, shown in the card as-is. */
+export type PulseFixture = {
+  date: string;
+  dateLabel: string;
+  content: string;
+  generatedAt: string;
+};
+
 /** Promote the company at `index` (in the provisioned array) from `from`→`to`. */
 export type StageMoveOp = { index: number; from?: string; to: string };
 /** Drop the company at `index`, recording the stage it was dropped at. */
@@ -62,7 +71,35 @@ export interface MockActivityFixtures {
   activity: ActivityPayload;
   /** Optional paginated feed fixture (mobile infinite-scroll path). */
   feed?: FeedEvent[];
+  /** Optional "Today's Recap" pulse fixture; defaults to {@link DEFAULT_PULSE}. */
+  pulse?: PulseFixture;
 }
+
+/** Deterministic "Today's Recap" fixture. The pulse involves an LLM call and a
+ * daily cache server-side, so it is always mocked in e2e (both data modes) to
+ * keep the card render deterministic and offline. */
+export const DEFAULT_PULSE: PulseFixture = {
+  date: '2026-06-18',
+  dateLabel: 'Jun 18, 2026',
+  content: [
+    '**Today: 4 adds (+1 vs yesterday), 75% pass, outbound holding at 50%.**',
+    '',
+    '**Scoreboard**',
+    '- Deals added: 4 vs 3 (↑)',
+    '- Pass rate: 75% vs 70% (↑)',
+    '- Outbound share: 50% vs 40% (↑)',
+    '',
+    '**Commentary**',
+    'Steady day, nothing slipping.',
+    '',
+    '**Flags**',
+    'No exceptions today.',
+    '',
+    '**Open actions**',
+    'None.',
+  ].join('\n'),
+  generatedAt: '2026-06-18T00:00:00.000Z',
+};
 
 // ─── Mock-mode route interceptors ────────────────────────────────────────────
 
@@ -73,6 +110,16 @@ export const mockActivity = (page: Page, activity: ActivityPayload) =>
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify({ data: activity }),
+    });
+  });
+
+export const mockPulse = (page: Page, pulse: PulseFixture) =>
+  page.route('**/api/dashboard/pulse**', (route) => {
+    if (route.request().method() !== 'GET') return route.fallback();
+    return route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ data: pulse }),
     });
   });
 
@@ -154,6 +201,11 @@ export const provisionActivity = async (
   ops: ActivityOps,
   fixtures: MockActivityFixtures,
 ): Promise<void> => {
+  // The "Today's Recap" pulse is LLM-backed and cached server-side, so it is
+  // always mocked (both modes) to keep the card deterministic and avoid a real
+  // model call during e2e.
+  await mockPulse(page, fixtures.pulse ?? DEFAULT_PULSE);
+
   if (getDataMode() === 'real') {
     for (const m of ops.moves ?? []) {
       await promoteCompany(page, companies[m.index].id, m.from, m.to);

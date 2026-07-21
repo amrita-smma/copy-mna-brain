@@ -3181,6 +3181,43 @@ export const featureFlags = pgTable(
   },
 );
 
+// "Today's Recap" daily pipeline pulse cache. One row per workspace per UTC day
+// stores the assembled pulse (deterministic scoreboard + LLM narration): the
+// first request of the day computes + narrates and upserts it, later requests
+// read it back. Regenerated on an explicit refresh (upsert on the same day).
+// Read/written via DailyPulseRepository.
+export const dailyPulse = pgTable(
+  "daily_pulse",
+  {
+    workspace_id: uuid().notNull(),
+    pulse_date: date().notNull(),
+    payload: jsonb().$type<unknown>().notNull(),
+    created_at: timestamp({ withTimezone: true, mode: "string" })
+      .defaultNow()
+      .notNull(),
+    updated_at: timestamp({ withTimezone: true, mode: "string" })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => {
+    return {
+      idxDailyPulseWorkspaceId: index("idx_daily_pulse_workspace_id").using(
+        "btree",
+        table.workspace_id.asc().nullsLast().op("uuid_ops"),
+      ),
+      dailyPulseWorkspaceIdFkey: foreignKey({
+        columns: [table.workspace_id],
+        foreignColumns: [workspaces.id],
+        name: "daily_pulse_workspace_id_fkey",
+      }).onDelete("cascade"),
+      dailyPulsePkey: primaryKey({
+        columns: [table.workspace_id, table.pulse_date],
+        name: "daily_pulse_pkey",
+      }),
+    };
+  },
+);
+
 // --- Fund Management (Confluence 2641362965) ---------------------------
 // Funds the firm manages, the assets each fund holds, their transaction
 // ledgers and valuation history, and fund-level performance rollups.

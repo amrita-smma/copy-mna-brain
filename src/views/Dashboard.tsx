@@ -29,6 +29,7 @@ import { Calendar } from "@/components/ui/calendar";
 import { getCompanies } from "@/lib/api/pipeline";
 import {
   getCompanyTimeline,
+  getDailyPulse,
   getDashboardActivity,
   getDashboardFeed,
   getDashboardOverview,
@@ -38,6 +39,8 @@ import type {
   DashboardOverview,
   FeedFilter,
 } from "@/lib/services/dashboardActivityService";
+import type { DailyPulse } from "@/lib/services/dailyPulseService";
+import { MarkdownRenderer } from "@/components/chat/MarkdownRenderer";
 import CompanyDetailDialog, {
   type CompanyData,
 } from "@/components/pipeline/CompanyDetailDialog";
@@ -45,7 +48,6 @@ import InsightsModule from "@/components/dashboard/InsightsModule";
 import {
   Building2,
   TrendingUp,
-  ArrowUpRight,
   Loader2,
   Layers,
   Activity,
@@ -57,9 +59,8 @@ import {
   FileText,
   CalendarIcon,
   Clock,
-  LayoutGrid,
-  Globe,
   ArrowLeftRight,
+  Sparkles,
 } from "lucide-react";
 import {
   Carousel,
@@ -180,6 +181,12 @@ function formatDate(d: Date): string {
     year: "numeric",
   });
 }
+
+// ── Today's Recap (daily pulse) rendering helpers ─────────────────────────────
+
+/** Collapsed height (px) of the recap prose before a "Read more" toggle appears.
+ * Matches the `max-h-40` clamp (10rem) applied to the collapsed body. */
+const PULSE_COLLAPSED_MAX_PX = 160;
 
 function parsePipelineMoveAction(action: string | null): {
   from: string | null;
@@ -676,6 +683,19 @@ export default function Dashboard({
   // Feed
   const [feedFilter, setFeedFilter] = useState<FeedFilterKey>("all");
 
+  // Today's Recap — the daily pipeline pulse. Independent of the date range
+  // filter (always a trailing-7d-vs-prior-7d view ending today), cached
+  // server-side once per day.
+  const [pulse, setPulse] = useState<DailyPulse | null>(null);
+  const [pulseLoading, setPulseLoading] = useState(true);
+  const [pulseError, setPulseError] = useState(false);
+  // "Read more / See less" for the recap prose: expand state + whether the body
+  // actually overflows the collapsed clamp (measured, so the toggle only shows
+  // when there's more to read).
+  const [pulseExpanded, setPulseExpanded] = useState(false);
+  const [pulseOverflowing, setPulseOverflowing] = useState(false);
+  const pulseBodyRef = useRef<HTMLDivElement>(null);
+
   const fetchPipelineData = useCallback(async () => {
     try {
       const companiesData = await getCompanies({
@@ -763,6 +783,20 @@ export default function Dashboard({
     [],
   );
 
+  const fetchPulse = useCallback(async () => {
+    setPulseLoading(true);
+    setPulseError(false);
+    try {
+      const data = await getDailyPulse();
+      setPulse(data);
+    } catch (error) {
+      console.error("Error fetching daily pulse:", error);
+      setPulseError(true);
+    } finally {
+      setPulseLoading(false);
+    }
+  }, []);
+
   const handleCompanyClick = useCallback(
     async (id: string) => {
       // On mobile, open the full-screen company profile instead of the dialog.
@@ -796,6 +830,33 @@ export default function Dashboard({
   useEffect(() => {
     fetchPipelineData();
   }, [fetchPipelineData]);
+
+  useEffect(() => {
+    fetchPulse();
+  }, [fetchPulse]);
+
+  // Whether the recap prose overflows the collapsed clamp, so "Read more" only
+  // shows when there's more to read. A ResizeObserver re-measures after the
+  // markdown lays out (fixes the toggle missing on a fresh page load / hard
+  // refresh, where a one-shot measurement runs before layout settles).
+  // `scrollHeight` reports the full content height even while clamped.
+  useEffect(() => {
+    setPulseExpanded(false);
+  }, [pulse]);
+
+  useEffect(() => {
+    const el = pulseBodyRef.current;
+    if (!el) {
+      setPulseOverflowing(false);
+      return;
+    }
+    const measure = () =>
+      setPulseOverflowing(el.scrollHeight > PULSE_COLLAPSED_MAX_PX + 8);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [pulse]);
 
   const isFirstLoad = activity === null;
   useEffect(() => {
@@ -1028,12 +1089,6 @@ export default function Dashboard({
   }, [overview]);
 
   const displayTotal = overview?.totalAdded ?? 0;
-  // Inbound / Outbound span the whole cohort (active + dropped) by source, so
-  // the two tiles sum to the Total Companies Added.
-  const displayInbound = (overview?.addedCompanies ?? []).filter(
-    (c) => c.source?.toLowerCase() === "inbound",
-  ).length;
-  const displayOutbound = displayTotal - displayInbound;
   // L0 rolls in every later stage, so its cumulative counts equal the whole
   // cohort by source — the top of the funnel.
   const displayL0 = cumulativeStageCounts[0]?.count || 0;
@@ -1254,91 +1309,71 @@ export default function Dashboard({
           </div>
         </div>
 
-        {/* Overview section card — hidden on mobile (Activity Feed only) */}
-        <Card data-testid="dashboard-overview-card" className="hidden md:block border bg-gradient-to-br from-muted/40 to-muted/10">
+        {/* Today's Recap — the daily pipeline pulse. Hidden on mobile (Activity
+            Feed only). The Analyst agent's markdown, cached once per day and
+            shown as-is. */}
+        <Card
+          data-testid="dashboard-todays-recap-card"
+          className="hidden md:block border bg-gradient-to-br from-muted/40 to-muted/10"
+        >
           <CardHeader className="pb-4">
             <div className="flex items-center gap-2">
-              <LayoutGrid className="h-5 w-5 text-foreground" />
-              <CardTitle className="text-lg font-semibold">Overview</CardTitle>
-              <span className="text-sm text-muted-foreground">
-                {formatDate(dateRange.from)} – {formatDate(dateRange.to)}
+              <Sparkles className="h-5 w-5 text-foreground" />
+              <CardTitle className="text-lg font-semibold">Today&apos;s Recap</CardTitle>
+              <span className="text-xs text-muted-foreground">
+                {pulse?.dateLabel ?? formatDate(new Date())}
               </span>
             </div>
           </CardHeader>
           <CardContent>
-            <div className="grid grid-cols-[repeat(auto-fit,minmax(180px,1fr))] gap-4">
-              {/* Total Deals */}
-              <div data-testid="dashboard-total-deals-card" className="rounded-xl border bg-card p-5">
-                <div className="flex items-center justify-between gap-3 mb-3">
-                  <div className="flex items-center gap-3">
-                    <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-blue-500/10">
-                      <Globe className="h-4 w-4 text-blue-500" />
-                    </div>
-                    <p className="text-sm font-medium text-muted-foreground">
-                      Total Companies Added
-                    </p>
-                  </div>
-                  <AskAIButton
-                    label="Analyze total companies added with AI"
-                    onClick={() => askCopilot("total companies added")}
-                  />
-                </div>
-                <p className="text-3xl font-semibold">{displayTotal}</p>
-                <p className="text-xs text-muted-foreground mt-1">
-                  Added in period
-                </p>
+            {pulseLoading ? (
+              <div className="flex items-center justify-center py-10">
+                <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
               </div>
-
-              {/* Inbound */}
-              <div data-testid="dashboard-inbound-deals-card" className="rounded-xl border bg-card p-5">
-                <div className="flex items-center justify-between gap-3 mb-3">
-                  <div className="flex items-center gap-3">
-                    <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-500/10">
-                      <ArrowUpRight className="h-4 w-4 text-emerald-500" />
-                    </div>
-                    <p className="text-sm font-medium text-muted-foreground">
-                      Inbound
-                    </p>
-                  </div>
-                  <AskAIButton
-                    label="Analyze inbound deals with AI"
-                    onClick={() => askCopilot("inbound deals")}
-                  />
-                </div>
-                <p className="text-3xl font-semibold">{displayInbound}</p>
-                <p className="text-xs text-muted-foreground mt-1">
-                  {displayTotal > 0
-                    ? Math.round((displayInbound / displayTotal) * 100)
-                    : 0}
-                  % of total
+            ) : pulseError || !pulse ? (
+              <div className="flex flex-col items-center gap-2 py-8 text-center">
+                <p className="text-sm text-muted-foreground">
+                  Couldn&apos;t load today&apos;s recap.
                 </p>
+                <Button variant="outline" size="sm" onClick={() => fetchPulse()}>
+                  Try again
+                </Button>
               </div>
-
-              {/* Outbound */}
-              <div data-testid="dashboard-outbound-deals-card" className="rounded-xl border bg-card p-5">
-                <div className="flex items-center justify-between gap-3 mb-3">
-                  <div className="flex items-center gap-3">
-                    <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-rose-500/10">
-                      <Activity className="h-4 w-4 text-rose-500" />
-                    </div>
-                    <p className="text-sm font-medium text-muted-foreground">
-                      Outbound
-                    </p>
+            ) : (
+              <div>
+                <div
+                  className={`relative overflow-hidden ${
+                    pulseExpanded ? "" : "max-h-40"
+                  }`}
+                >
+                  <div ref={pulseBodyRef}>
+                    <MarkdownRenderer
+                      variant="card"
+                      content={pulse.content}
+                      className="text-sm"
+                    />
                   </div>
-                  <AskAIButton
-                    label="Analyze outbound deals with AI"
-                    onClick={() => askCopilot("outbound deals")}
-                  />
+                  {!pulseExpanded && pulseOverflowing && (
+                    <div className="pointer-events-none absolute inset-x-0 bottom-0 h-10 bg-gradient-to-t from-background to-transparent" />
+                  )}
                 </div>
-                <p className="text-3xl font-semibold">{displayOutbound}</p>
-                <p className="text-xs text-muted-foreground mt-1">
-                  {displayTotal > 0
-                    ? Math.round((displayOutbound / displayTotal) * 100)
-                    : 0}
-                  % of total
-                </p>
+                {pulseOverflowing && (
+                  <button
+                    type="button"
+                    onClick={() => setPulseExpanded((v) => !v)}
+                    className="mt-2 flex items-center gap-1 text-sm font-medium text-primary hover:underline"
+                    data-testid="dashboard-recap-toggle"
+                  >
+                    {pulseExpanded ? "See less" : "Read more"}
+                    <ChevronDown
+                      className={`h-4 w-4 transition-transform ${
+                        pulseExpanded ? "rotate-180" : ""
+                      }`}
+                    />
+                  </button>
+                )}
               </div>
-            </div>
+            )}
           </CardContent>
         </Card>
 

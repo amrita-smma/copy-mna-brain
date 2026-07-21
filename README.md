@@ -214,6 +214,32 @@ Set `GOOGLE_CLIENT_ID` (server) so the token's `aud` claim is enforced against
 this app, and `NEXT_PUBLIC_GOOGLE_CLIENT_ID` (browser) for the login button.
 Signature, issuer, expiry and `email_verified` are always checked.
 
+### Today's Recap — daily pipeline pulse (`/api/dashboard/pulse`)
+
+The dashboard's "Today's Recap" card is a daily pipeline pulse produced by the
+existing **Analyst agent**:
+
+- `src/lib/dashboard/dailyPulseNarrator.ts` builds a Managing-Partner prompt
+  (today vs the prior day, with the exception triggers) and sends it to the
+  stateless Analyst agent (`getStatelessAgentGraph()` in
+  `src/lib/agents/analysis`). The agent gathers the numbers itself via its data
+  tools (`query_companies` with `created_after`/`created_before`,
+  `get_company_stats`, `analyze_stalled_deals`), computes the deltas, and returns
+  the finished recap as markdown. It runs under the workspace's context
+  (`runWithWorkforceWorkspaceId`) so its tools scope correctly, including from
+  the session-less cron.
+- `DailyPulseService` (`src/lib/services/dailyPulseService.ts`) is a thin
+  wrapper: it returns the day's cached markdown or, on a miss, asks the agent and
+  persists the result. The pulse is stored once per UTC day per workspace in the
+  `daily_pulse` table (via `DailyPulseRepository`), and the card renders the
+  markdown as-is.
+- The `daily-pulse` Vercel cron (`/api/cron/daily-pulse`, `0 0 * * *`)
+  precomputes each day's recap at 00:00 UTC, so dashboard loads read the stored
+  payload instead of paying the LLM cost. The read endpoint
+  (`GET /api/dashboard/pulse`) still generates and upserts on the fly if the cron
+  hasn't run yet that day, and `?refresh=1` forces a regenerate (used by the cron
+  / ops).
+
 ## External Chat API (`/api/v1/chat`)
 
 Authorized external applications can talk to the same analysis agent that powers

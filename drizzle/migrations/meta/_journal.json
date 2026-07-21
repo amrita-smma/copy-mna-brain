@@ -778,6 +778,13 @@
       "when": 1783987201000,
       "tag": "20260714000001_add_feature_flags",
       "breakpoints": true
+    },
+    {
+      "idx": 111,
+      "version": "7",
+      "when": 1784505600000,
+      "tag": "20260720000000_add_daily_pulse",
+      "breakpoints": true
     }
   ]
 }
