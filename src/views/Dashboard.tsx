@@ -30,6 +30,7 @@ import { getCompanies } from "@/lib/api/pipeline";
 import {
   getCompanyTimeline,
   getDailyPulse,
+  refreshDailyPulse,
   getDashboardActivity,
   getDashboardFeed,
   getDashboardOverview,
@@ -689,12 +690,41 @@ export default function Dashboard({
   const [pulse, setPulse] = useState<DailyPulse | null>(null);
   const [pulseLoading, setPulseLoading] = useState(true);
   const [pulseError, setPulseError] = useState(false);
+  // The recap is generated once a day by the cron; a plain read returns null
+  // until then. `pulseGenerating` covers the on-demand "Generate now" run, which
+  // triggers the (slow) inline agent generation.
+  const [pulseGenerating, setPulseGenerating] = useState(false);
   // "Read more / See less" for the recap prose: expand state + whether the body
   // actually overflows the collapsed clamp (measured, so the toggle only shows
   // when there's more to read).
   const [pulseExpanded, setPulseExpanded] = useState(false);
   const [pulseOverflowing, setPulseOverflowing] = useState(false);
-  const pulseBodyRef = useRef<HTMLDivElement>(null);
+  const pulseObserverRef = useRef<ResizeObserver | null>(null);
+
+  // Measure whether the recap prose overflows the collapsed clamp, so "Read
+  // more" only shows when there's more to read. This is a CALLBACK ref, not an
+  // effect keyed on `pulse`: the view early-returns a page spinner while the
+  // companies fetch is in flight, so the fast (cached) pulse often resolves
+  // before the recap card is mounted — a `[pulse]`-keyed effect then measures
+  // a null ref, and with `pulse` never changing again it would never re-run.
+  // The callback ref fires exactly when the body div actually mounts (and on
+  // unmount with null), so the measurement can't miss it. The ResizeObserver
+  // re-measures on any later size change (font swap, content update);
+  // `scrollHeight` reports full content height even while the parent is clamped.
+  const pulseBodyRef = useCallback((node: HTMLDivElement | null) => {
+    pulseObserverRef.current?.disconnect();
+    pulseObserverRef.current = null;
+    if (!node) {
+      setPulseOverflowing(false);
+      return;
+    }
+    const measure = () =>
+      setPulseOverflowing(node.scrollHeight > PULSE_COLLAPSED_MAX_PX + 8);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(node);
+    pulseObserverRef.current = observer;
+  }, []);
 
   const fetchPipelineData = useCallback(async () => {
     try {
@@ -797,6 +827,22 @@ export default function Dashboard({
     }
   }, []);
 
+  // On-demand generation for the "Generate now" action (miss) and error retry.
+  // Runs the inline agent, so it can take tens of seconds — hence its own state.
+  const generatePulse = useCallback(async () => {
+    setPulseGenerating(true);
+    setPulseError(false);
+    try {
+      const data = await refreshDailyPulse();
+      setPulse(data);
+    } catch (error) {
+      console.error("Error generating daily pulse:", error);
+      setPulseError(true);
+    } finally {
+      setPulseGenerating(false);
+    }
+  }, []);
+
   const handleCompanyClick = useCallback(
     async (id: string) => {
       // On mobile, open the full-screen company profile instead of the dialog.
@@ -835,27 +881,10 @@ export default function Dashboard({
     fetchPulse();
   }, [fetchPulse]);
 
-  // Whether the recap prose overflows the collapsed clamp, so "Read more" only
-  // shows when there's more to read. A ResizeObserver re-measures after the
-  // markdown lays out (fixes the toggle missing on a fresh page load / hard
-  // refresh, where a one-shot measurement runs before layout settles).
-  // `scrollHeight` reports the full content height even while clamped.
+  // Collapse the recap whenever its content changes, so a newly loaded pulse
+  // always starts clamped with the "Read more" affordance.
   useEffect(() => {
     setPulseExpanded(false);
-  }, [pulse]);
-
-  useEffect(() => {
-    const el = pulseBodyRef.current;
-    if (!el) {
-      setPulseOverflowing(false);
-      return;
-    }
-    const measure = () =>
-      setPulseOverflowing(el.scrollHeight > PULSE_COLLAPSED_MAX_PX + 8);
-    measure();
-    const observer = new ResizeObserver(measure);
-    observer.observe(el);
-    return () => observer.disconnect();
   }, [pulse]);
 
   const isFirstLoad = activity === null;
@@ -1326,20 +1355,7 @@ export default function Dashboard({
             </div>
           </CardHeader>
           <CardContent>
-            {pulseLoading ? (
-              <div className="flex items-center justify-center py-10">
-                <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-              </div>
-            ) : pulseError || !pulse ? (
-              <div className="flex flex-col items-center gap-2 py-8 text-center">
-                <p className="text-sm text-muted-foreground">
-                  Couldn&apos;t load today&apos;s recap.
-                </p>
-                <Button variant="outline" size="sm" onClick={() => fetchPulse()}>
-                  Try again
-                </Button>
-              </div>
-            ) : (
+            {pulse ? (
               <div>
                 <div
                   className={`relative overflow-hidden ${
@@ -1372,6 +1388,38 @@ export default function Dashboard({
                     />
                   </button>
                 )}
+              </div>
+            ) : (
+              // No recap yet: the "Generate now" surface. The button stays
+              // disabled while the cache read is in flight (and during
+              // generation), and becomes actionable once the read settles with
+              // no content or fails.
+              <div className="flex flex-col items-center gap-2 py-8 text-center">
+                <p className="text-sm text-muted-foreground">
+                  {pulseGenerating
+                    ? "Generating today's recap… this can take a moment."
+                    : pulseError
+                      ? "Couldn't load today's recap."
+                      : pulseLoading
+                        ? "Checking for today's recap…"
+                        : "Today's recap isn't ready yet."}
+                </p>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => generatePulse()}
+                  disabled={pulseLoading || pulseGenerating}
+                  data-testid="dashboard-recap-generate"
+                >
+                  {pulseGenerating ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Generating…
+                    </>
+                  ) : (
+                    "Generate now"
+                  )}
+                </Button>
               </div>
             )}
           </CardContent>

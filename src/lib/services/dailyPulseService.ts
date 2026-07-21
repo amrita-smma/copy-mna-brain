@@ -34,8 +34,6 @@ export interface DailyPulse {
 export interface GetPulseOptions {
   /** Reference "today". Defaults to now. Injectable for deterministic tests. */
   now?: Date;
-  /** Skip the daily cache and regenerate (the cron / ops force-refresh). */
-  forceRefresh?: boolean;
 }
 
 /**
@@ -43,8 +41,13 @@ export interface GetPulseOptions {
  * existing Analyst agent for it (the agent gathers the numbers via its own data
  * tools and returns the finished markdown). The result is persisted once per UTC
  * day per workspace in the `daily_pulse` table (via {@link DailyPulseRepository}),
- * so only the first request of the day — or an explicit refresh — pays the LLM
- * cost.
+ * so generation happens exactly once per day.
+ *
+ * Generation is expensive (agent tool calls + an LLM turn), so it NEVER runs on
+ * a plain dashboard read: {@link getPulse} only serves the cached row and returns
+ * `null` on a miss. Generation happens solely via {@link generatePulse}, driven
+ * by the daily cron or an explicit user "Generate now" (`?refresh=1`). This keeps
+ * page loads a cheap cache read and off the request's critical path.
  */
 export class DailyPulseService {
   constructor(
@@ -53,14 +56,24 @@ export class DailyPulseService {
     private readonly generate: DailyPulseGenerator = generateDailyPulse,
   ) {}
 
-  async getPulse(opts: GetPulseOptions = {}): Promise<DailyPulse> {
+  /**
+   * Read-only: return today's cached pulse, or `null` when it hasn't been
+   * generated yet. Never triggers generation — the dashboard read path.
+   */
+  async getPulse(opts: GetPulseOptions = {}): Promise<DailyPulse | null> {
     const now = opts.now ?? new Date();
     const today = utcDay(now);
+    return this.pulseRepo.findByDate<DailyPulse>(today);
+  }
 
-    if (!opts.forceRefresh) {
-      const cached = await this.pulseRepo.findByDate<DailyPulse>(today);
-      if (cached) return cached;
-    }
+  /**
+   * Generate today's pulse (agent + LLM) and cache it, returning the fresh
+   * pulse. Idempotent — upserts the day's row, so a re-run just refreshes it.
+   * The daily cron and the user-triggered `?refresh=1` both call this.
+   */
+  async generatePulse(opts: GetPulseOptions = {}): Promise<DailyPulse> {
+    const now = opts.now ?? new Date();
+    const today = utcDay(now);
 
     const content = await this.generate(now, this.workspaceId);
     const pulse: DailyPulse = {

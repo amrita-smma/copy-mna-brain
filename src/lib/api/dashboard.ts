@@ -43,13 +43,23 @@ export async function getDashboardOverview(params: {
 }
 
 /**
- * Fetch the "Today's Recap" daily pipeline pulse (deterministic scoreboard +
- * LLM narration). Generated once per UTC day by the `daily-pulse` cron and
- * stored in `daily_pulse`; this read serves that stored payload (computing it
- * on the fly only if the cron hasn't run yet that day).
+ * Fetch the "Today's Recap" daily pipeline pulse. Generated once per UTC day by
+ * the `daily-pulse` cron and stored in `daily_pulse`; this is a cheap cache read
+ * that returns `null` when the pulse hasn't been generated yet (it never
+ * triggers the expensive on-the-fly generation — call {@link refreshDailyPulse}
+ * for that).
  */
-export async function getDailyPulse(): Promise<DailyPulse> {
-  return apiRequest<DailyPulse>('/api/dashboard/pulse');
+export async function getDailyPulse(): Promise<DailyPulse | null> {
+  return apiRequest<DailyPulse | null>('/api/dashboard/pulse');
+}
+
+/**
+ * Generate (or regenerate) today's pulse on demand — the "Generate now" action.
+ * Runs the Analyst agent inline, so this can take tens of seconds; the caller
+ * should show progress. Returns the freshly generated pulse.
+ */
+export async function refreshDailyPulse(): Promise<DailyPulse> {
+  return apiRequest<DailyPulse>('/api/dashboard/pulse?refresh=1');
 }
 
 /** Fetch one page of the merged activity feed (newest first) for infinite scroll. */

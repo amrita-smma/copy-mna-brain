@@ -111,4 +111,36 @@ describe('apiRequest', () => {
     const [, init] = (global.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
     expect(init.headers['Content-Type']).toBe('application/json');
   });
+
+  it('unwraps the { data } envelope', async () => {
+    (global.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(
+      new Response(JSON.stringify({ data: { ok: true } }), { status: 200 }),
+    );
+
+    await expect(apiRequest('/api/x')).resolves.toEqual({ ok: true });
+  });
+
+  it('resolves to null when data is explicitly null (not the envelope)', async () => {
+    (global.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(
+      new Response(JSON.stringify({ data: null }), { status: 200 }),
+    );
+
+    await expect(apiRequest('/api/x')).resolves.toBeNull();
+  });
+
+  it('passes a raw response (no data key) through unchanged', async () => {
+    (global.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(
+      new Response(JSON.stringify({ ok: true, count: 2 }), { status: 200 }),
+    );
+
+    await expect(apiRequest('/api/x')).resolves.toEqual({ ok: true, count: 2 });
+  });
+
+  it('passes a raw array response through unchanged', async () => {
+    (global.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(
+      new Response(JSON.stringify([1, 2, 3]), { status: 200 }),
+    );
+
+    await expect(apiRequest('/api/x')).resolves.toEqual([1, 2, 3]);
+  });
 });

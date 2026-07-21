@@ -90,5 +90,17 @@ export async function apiRequest<T>(
     throw err;
   }
 
-  return (payload?.data ?? payload) as T;
+  // Unwrap the `{ data }` envelope when present — keyed on the property, not on
+  // truthiness, so an explicit `data: null` (e.g. a "not found yet" response)
+  // resolves to `null` rather than falling back to the whole envelope object.
+  // Raw responses (no `data` key, arrays, primitives) pass through unchanged.
+  if (
+    payload &&
+    typeof payload === "object" &&
+    !Array.isArray(payload) &&
+    "data" in payload
+  ) {
+    return payload.data as T;
+  }
+  return payload as T;
 }

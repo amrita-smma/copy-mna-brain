@@ -55,11 +55,50 @@ export function buildDailyPulsePrompt(now: Date): string {
 }
 
 /**
+ * Per-call system-context override for the pulse generation. The shared chat
+ * system prompt the stateless agent runs on tells it to wrap reasoning in
+ * `<!-- THINKING_START -->` … `<!-- THINKING_END -->` delimiters for the chat
+ * UI — but the pulse card renders the answer verbatim and has no thinking UI.
+ * That conflict makes the agent narrate its process (sometimes without the
+ * delimiters, which then leaks straight into the card). This override cancels
+ * the delimiter protocol and bans any preamble for this one call; the appended
+ * position (after the base prompt) lets it win. {@link stripThinking} stays as a
+ * safety net for the delimited case.
+ */
+const PULSE_SYSTEM_CONTEXT = [
+  '## Daily Pulse output contract (overrides any conflicting instruction above)',
+  '- This response is generated once and rendered verbatim in a dashboard card. There is NO chat UI and NO collapsible "Thinking" section.',
+  '- Do NOT emit `<!-- THINKING_START -->` or `<!-- THINKING_END -->` delimiters, and do NOT include any internal reasoning, planning, or narration about what you are about to do or check.',
+  '- Do NOT write any preamble. Your entire response MUST begin directly with the bold one-line headline and contain nothing but the recap markdown requested.',
+].join('\n');
+
+/**
+ * Strip the Analyst agent's internal-reasoning block from its answer. The shared
+ * chat system prompt tells the agent to wrap its reasoning in
+ * `<!-- THINKING_START -->` … `<!-- THINKING_END -->` so the chat UI can show it
+ * as a collapsible "Thinking" section; the pulse card renders the markdown
+ * verbatim and has no such UI, so those blocks (and any stray delimiter) must be
+ * removed, leaving only the final answer. Mirrors the chat bubble's own
+ * delimiter handling.
+ */
+export function stripThinking(text: string): string {
+  return text
+    // Remove complete THINKING_START…THINKING_END blocks (non-greedy, across lines).
+    .replace(/<!--\s*THINKING_START\s*-->[\s\S]*?<!--\s*THINKING_END\s*-->/g, '')
+    // Drop any leftover stray delimiter (unbalanced pair, e.g. truncated output).
+    .replace(/<!--\s*THINKING_(?:START|END)\s*-->/g, '')
+    .trim();
+}
+
+/**
  * Generate the daily pulse by sending {@link buildDailyPulsePrompt} to the
- * existing Analyst (stateless chat) agent and returning its markdown answer
- * verbatim. The agent runs under the given workspace's context so its data tools
- * scope correctly (including from the session-less cron). Throws when the agent
- * is unavailable or returns nothing; the service caches nothing on throw.
+ * existing Analyst (stateless chat) agent and returning its markdown answer.
+ * The agent runs under the given workspace's context so its data tools scope
+ * correctly (including from the session-less cron). A per-call system-context
+ * override ({@link PULSE_SYSTEM_CONTEXT}) suppresses the chat prompt's thinking
+ * delimiters and preamble, and {@link stripThinking} strips any delimited block
+ * that slips through, so only the final recap reaches the card. Throws when the
+ * agent is unavailable or returns nothing; the service caches nothing on throw.
  */
 export const generateDailyPulse: DailyPulseGenerator = async (now, workspaceId) => {
   // Dynamic import: a static one would close a require cycle, since the Analyst
@@ -75,11 +114,14 @@ export const generateDailyPulse: DailyPulseGenerator = async (now, workspaceId) 
   }
 
   const result = await runWithWorkforceWorkspaceId(workspaceId, () =>
-    graph.invoke({ messages: [new HumanMessage(buildDailyPulsePrompt(now))] }),
+    graph.invoke({
+      messages: [new HumanMessage(buildDailyPulsePrompt(now))],
+      additionalSystemContext: PULSE_SYSTEM_CONTEXT,
+    }),
   );
 
   const { assistantText } = extractFirstTurn(result.messages);
-  const text = assistantText.trim();
+  const text = stripThinking(assistantText);
   if (!text) {
     throw new Error('Daily pulse generation returned an empty result');
   }

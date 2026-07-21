@@ -34,7 +34,7 @@ describe('DailyPulseService.getPulse', () => {
 
   afterEach(() => vi.clearAllMocks());
 
-  it("returns today's stored pulse without regenerating", async () => {
+  it("returns today's stored pulse without generating", async () => {
     const cachedPulse = { date: '2026-07-20', content: 'cached' };
     const { service, generate, cacheSet, cacheGet } = makeService({
       cacheGet: vi.fn().mockResolvedValue(cachedPulse),
@@ -48,12 +48,32 @@ describe('DailyPulseService.getPulse', () => {
     expect(cacheSet).not.toHaveBeenCalled();
   });
 
-  it('generates via the Analyst agent and upserts when nothing is stored', async () => {
-    const generate = vi.fn().mockResolvedValue('# Today\nQuiet day.');
-    const { service, cacheSet } = makeService({ generate });
+  it('returns null on a miss and never triggers generation', async () => {
+    const { service, generate, cacheSet } = makeService({
+      cacheGet: vi.fn().mockResolvedValue(null),
+    });
 
     const result = await service.getPulse({ now });
 
+    expect(result).toBeNull();
+    expect(generate).not.toHaveBeenCalled();
+    expect(cacheSet).not.toHaveBeenCalled();
+  });
+});
+
+describe('DailyPulseService.generatePulse', () => {
+  const now = new Date('2026-07-20T12:00:00Z');
+
+  afterEach(() => vi.clearAllMocks());
+
+  it('generates via the Analyst agent and upserts, ignoring any cached row', async () => {
+    const generate = vi.fn().mockResolvedValue('# Today\nQuiet day.');
+    const cacheGet = vi.fn().mockResolvedValue({ date: '2026-07-20', content: 'cached' });
+    const { service, cacheSet } = makeService({ generate, cacheGet });
+
+    const result = await service.generatePulse({ now });
+
+    expect(cacheGet).not.toHaveBeenCalled();
     expect(generate).toHaveBeenCalledWith(now, 'ws-1');
     expect(result).toEqual({
       date: '2026-07-20',
@@ -64,21 +84,11 @@ describe('DailyPulseService.getPulse', () => {
     expect(cacheSet).toHaveBeenCalledWith('2026-07-20', result);
   });
 
-  it('bypasses the cache on forceRefresh', async () => {
-    const cacheGet = vi.fn().mockResolvedValue({ date: '2026-07-20', content: 'cached' });
-    const { service, generate } = makeService({ cacheGet });
-
-    await service.getPulse({ now, forceRefresh: true });
-
-    expect(cacheGet).not.toHaveBeenCalled();
-    expect(generate).toHaveBeenCalledTimes(1);
-  });
-
   it('propagates a generation failure and caches nothing', async () => {
     const generate = vi.fn().mockRejectedValue(new Error('agent down'));
     const { service, cacheSet } = makeService({ generate });
 
-    await expect(service.getPulse({ now })).rejects.toThrow('agent down');
+    await expect(service.generatePulse({ now })).rejects.toThrow('agent down');
     expect(cacheSet).not.toHaveBeenCalled();
   });
 });

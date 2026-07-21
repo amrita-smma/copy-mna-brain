@@ -15,8 +15,8 @@ export const maxDuration = 60;
  *   day boundary the pulse is keyed on, so the fresh day's recap is precomputed
  *   and every dashboard load that day reads it from the `daily_pulse` table
  *   instead of paying the compute + LLM cost.
- * - `forceRefresh` regenerates unconditionally (idempotent — it upserts the
- *   day's row), so a re-run just refreshes the same day.
+ * - `generatePulse` runs unconditionally and is idempotent — it upserts the
+ *   day's row, so a re-run just refreshes the same day.
  *
  * Protected by CRON_SECRET; Vercel Cron sends `Authorization: Bearer
  * $CRON_SECRET`. When unset, the route is open (local dev only).
@@ -33,7 +33,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   try {
     const db = createDb();
     const { dailyPulseService } = createContainer(db, await getActiveWorkspaceId());
-    const pulse = await dailyPulseService.getPulse({ forceRefresh: true });
+    const pulse = await dailyPulseService.generatePulse();
     return NextResponse.json({ ok: true, date: pulse.date });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'daily-pulse generation failed';
