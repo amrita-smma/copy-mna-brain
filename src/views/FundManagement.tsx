@@ -51,6 +51,7 @@ import { EntitySummaryTable } from './fundManagement/EntitySummaryTable';
 import { SourceSummaryTable } from './fundManagement/SourceSummaryTable';
 import { GlossaryTerm } from './fundManagement/parts';
 import { FundDataContext } from './fundManagement/context';
+import { useFeatureEnabled } from '@/components/layout/FeatureFlagsContext';
 import {
   applyHoldingMetrics,
   collectHoldingsByEntity,
@@ -534,7 +535,7 @@ function AddAssetDialog({
       // Persist the currency chosen on the money fields' prefix dropdown.
       input.investmentCurrency = assetCurrency;
       input.reportCurrency = assetCurrency;
-      
+
       let assetId = progressRef.current.assetId;
       if (!assetId) {
         const asset = await fundsApi.addAsset(fundId, input);
@@ -670,6 +671,15 @@ export default function FundManagement({
   const [stakeRows, setStakeRows] = useState<StakeRow[]>([]);
   const [fundSourceRows, setFundSourceRows] = useState<FundSourceRow[]>([]);
   const [tab, setTab] = useState<PortfolioTab>('asset');
+  // Source-of-funds tracking is a per-workspace setting (admin Funds tab). When
+  // off, drop the "Source of Fund" portfolio tab and never let it be the active
+  // one — including if a prior render left `tab` on 'source'.
+  const sourceOfFundsEnabled = useFeatureEnabled('SOURCE_OF_FUNDS_ENABLED');
+  const portfolioTabs = useMemo(
+    () => PORTFOLIO_TABS.filter((t) => sourceOfFundsEnabled || t.k !== 'source'),
+    [sourceOfFundsEnabled],
+  );
+  const activeTab: PortfolioTab = !sourceOfFundsEnabled && tab === 'source' ? 'asset' : tab;
   const [addFundOpen, setAddFundOpen] = useState(false);
   const [addAssetOpen, setAddAssetOpen] = useState(false);
   const [addAssetFundId, setAddAssetFundId] = useState<string | null>(null);
@@ -931,8 +941,19 @@ export default function FundManagement({
       sourceOptions,
       entityNameById,
       sourceNameById,
+      sourceOfFundsEnabled,
     }),
-    [reloadOne, reloadAll, toast, funds, comboboxEntityOptions, sourceOptions, entityNameById, sourceNameById],
+    [
+      reloadOne,
+      reloadAll,
+      toast,
+      funds,
+      comboboxEntityOptions,
+      sourceOptions,
+      entityNameById,
+      sourceNameById,
+      sourceOfFundsEnabled,
+    ],
   );
 
   // LP pro-rata model for the By Investment Entity tab: fractional ownership of
@@ -992,7 +1013,7 @@ export default function FundManagement({
                           + Add fund
                         </Button>
                       )}
-                      {tab === 'asset' && funds && funds.length > 0 && (
+                      {activeTab === 'asset' && funds && funds.length > 0 && (
                         <Button
                           size="sm"
                           variant="outline"
@@ -1004,25 +1025,25 @@ export default function FundManagement({
                           + Add asset
                         </Button>
                       )}
-                      {tab === 'investor' && (
+                      {activeTab === 'investor' && (
                         <Button size="sm" variant="outline" onClick={() => setAddEntityOpen(true)}>
                           + Add Investment Entity
                         </Button>
                       )}
-                      {tab === 'source' && (
+                      {activeTab === 'source' && (
                         <Button size="sm" variant="outline" onClick={() => setAddSourceOpen(true)}>
                           + Add Source of Fund
                         </Button>
                       )}
                       <div className="inline-flex overflow-hidden rounded-full border bg-background">
-                        {PORTFOLIO_TABS.map(({ k, label }) => (
+                        {portfolioTabs.map(({ k, label }) => (
                           <button
                             key={k}
                             type="button"
                             onClick={() => setTab(k)}
                             className={cn(
                               'px-3.5 py-1 text-xs',
-                              tab === k
+                              activeTab === k
                                 ? 'bg-accent text-accent-foreground'
                                 : 'text-muted-foreground hover:text-foreground',
                             )}
@@ -1035,11 +1056,11 @@ export default function FundManagement({
                   </div>
 
                   <div className="p-3">
-                    {tab === 'asset' ? (
+                    {activeTab === 'asset' ? (
                       <AssetTable funds={funds ?? []} />
-                    ) : tab === 'fund' ? (
+                    ) : activeTab === 'fund' ? (
                       <FundSummaryTable funds={funds ?? []} onEditFund={(fund) => setEditFund(fund)} />
-                    ) : tab === 'investor' ? (
+                    ) : activeTab === 'investor' ? (
                       <EntitySummaryTable
                         funds={funds ?? []}
                         investors={tabInvestors}

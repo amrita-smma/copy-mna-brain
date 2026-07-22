@@ -1026,16 +1026,24 @@ async function buildAgentGraph(
 export async function getAgentGraph(
   agentType: CopilotAgentType = "mna",
   effort: EffortChoice = "medium",
+  sourceOfFundsEnabled = true,
 ): Promise<AgentGraph | null> {
-  const key = `${agentType}:${effort}`;
+  // Source-of-funds tracking is a per-workspace setting (admin Funds tab). When
+  // off, the workspace's Copilot must not be able to query the funding_sources
+  // table, so strip `query_fund_sources` from the tool set. Keyed into the
+  // cache so a flag flip yields a distinct graph rather than a stale one.
+  const key = `${agentType}:${effort}:sof=${sourceOfFundsEnabled}`;
   const cached = chatAgentGraphs.get(key);
   if (cached) return cached;
-  const [toolList, systemPrompt] =
+  const [baseToolList, systemPrompt] =
     agentType === "investment"
       ? [INVESTMENT_TOOL_LIST, INVESTMENT_SYSTEM_PROMPT]
       : agentType === "combined"
         ? [COMBINED_TOOL_LIST, COMBINED_SYSTEM_PROMPT]
         : [DEFAULT_TOOL_LIST, CHAT_SYSTEM_PROMPT];
+  const toolList = sourceOfFundsEnabled
+    ? baseToolList
+    : (baseToolList as ToolList).filter((t) => t.name !== "query_fund_sources");
   const graph = await buildAgentGraph(toolList, systemPrompt, [], true, effort);
   if (graph) chatAgentGraphs.set(key, graph);
   return chatAgentGraphs.get(key) ?? null;

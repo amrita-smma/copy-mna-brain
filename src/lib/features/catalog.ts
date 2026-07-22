@@ -38,6 +38,12 @@ export interface FeatureDefinition {
    * Navigation vs. Other sub-tabs in the admin Features tab.
    */
   navItem: boolean;
+  /**
+   * Which admin-portal settings tab surfaces this feature's toggle. Defaults to
+   * `'general'` (the Features tab). `'funds'` moves the toggle to the dedicated
+   * Funds tab and keeps it out of the generic Features list.
+   */
+  category?: 'general' | 'funds';
 }
 
 /**
@@ -137,6 +143,16 @@ export const FEATURE_CATALOG: FeatureDefinition[] = [
     description: 'Cache and reuse Copilot chat responses to speed up repeat queries.',
     defaultEnabled: false,
     navItem: false,
+  },
+  // ── Funds settings (surfaced on the admin Funds tab, not Features) ──────────
+  {
+    key: 'SOURCE_OF_FUNDS_ENABLED',
+    label: 'Source of Funds',
+    description:
+      'Track the capital pool behind each holding — the Source of Fund tab and grouping, the transaction funding-source field, and the Copilot funding-sources query. Turn off to hide it everywhere.',
+    defaultEnabled: true,
+    navItem: false,
+    category: 'funds',
   },
 ];
 

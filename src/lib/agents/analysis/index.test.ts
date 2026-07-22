@@ -40,8 +40,10 @@ vi.mock('@/lib/agents/analysis/tools', () => ({
   tools: [],
   chatOnlyTools: [],
   workforceOnlyTools: [],
-  investmentTools: [],
-  combinedTools: [],
+  // Include a `query_fund_sources` entry so the source-of-funds gating in
+  // getAgentGraph has something to strip.
+  investmentTools: [{ name: 'query_funds' }, { name: 'query_fund_sources' }],
+  combinedTools: [{ name: 'add_company' }, { name: 'query_fund_sources' }],
 }));
 
 // db.ts constructs a Postgres client at module load and throws without DB env
@@ -202,6 +204,52 @@ describe('getAgentGraph flavor selection', () => {
 
     const combinedPrompt = mocks.createAgent.mock.calls[1][0].systemPrompt as string;
     expect(combinedPrompt).toContain('M&A + Investment Analysis Assistant');
+  });
+});
+
+describe('getAgentGraph source-of-funds gating', () => {
+  beforeEach(() => {
+    resetAgent();
+    mocks.createAgent.mockClear();
+    process.env.ANTHROPIC_API_KEY = 'test-key';
+  });
+
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  const toolNames = (callIdx: number) =>
+    (mocks.createAgent.mock.calls[callIdx][0].tools as Array<{ name: string }>).map(
+      (t) => t.name,
+    );
+
+  it('includes query_fund_sources for the investment flavor when enabled (the default)', async () => {
+    await getAgentGraph('investment', 'medium', true);
+    expect(toolNames(0)).toContain('query_fund_sources');
+  });
+
+  it('strips query_fund_sources from the investment flavor when disabled', async () => {
+    await getAgentGraph('investment', 'medium', false);
+    expect(toolNames(0)).not.toContain('query_fund_sources');
+    // Other investment tools survive.
+    expect(toolNames(0)).toContain('query_funds');
+  });
+
+  it('strips query_fund_sources from the combined flavor when disabled', async () => {
+    await getAgentGraph('combined', 'medium', false);
+    expect(toolNames(0)).not.toContain('query_fund_sources');
+    expect(toolNames(0)).toContain('add_company');
+  });
+
+  it('memoizes enabled and disabled graphs as distinct singletons', async () => {
+    const enabled = await getAgentGraph('investment', 'medium', true);
+    const disabled = await getAgentGraph('investment', 'medium', false);
+    expect(disabled).not.toBe(enabled);
+    expect(mocks.createAgent).toHaveBeenCalledTimes(2);
+    // Re-requesting each returns its own cached instance.
+    expect(await getAgentGraph('investment', 'medium', true)).toBe(enabled);
+    expect(await getAgentGraph('investment', 'medium', false)).toBe(disabled);
+    expect(mocks.createAgent).toHaveBeenCalledTimes(2);
   });
 });
 

@@ -85,7 +85,7 @@ describe('FeatureFlagsService', () => {
     it('returns one entry per catalog feature', async () => {
       repo.findByWorkspace.mockResolvedValue(emptyOverrides());
       const { features } = await service.listFeatures(WS);
-      expect(features).toHaveLength(13);
+      expect(features).toHaveLength(14);
     });
 
     it('marks sidebar sections as navItem and non-navbar features as not', async () => {
@@ -93,6 +93,18 @@ describe('FeatureFlagsService', () => {
       const { features } = await service.listFeatures(WS);
       expect(features.find((f) => f.key === 'PIPELINE_ENABLED')?.navItem).toBe(true);
       expect(features.find((f) => f.key === 'CHAT_CACHE_ENABLED')?.navItem).toBe(false);
+    });
+
+    it('tags each feature with its settings-tab category (funds vs general)', async () => {
+      repo.findByWorkspace.mockResolvedValue(emptyOverrides());
+      const { features } = await service.listFeatures(WS);
+      // Source of Funds is a Funds-tab setting, on by default.
+      expect(features.find((f) => f.key === 'SOURCE_OF_FUNDS_ENABLED')).toMatchObject({
+        category: 'funds',
+        enabled: true,
+      });
+      // Everything else falls under the general (Features) tab.
+      expect(features.find((f) => f.key === 'PIPELINE_ENABLED')?.category).toBe('general');
     });
   });
 

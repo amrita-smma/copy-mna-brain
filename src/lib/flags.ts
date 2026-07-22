@@ -38,3 +38,5 @@ export const insightsDashboardEnabled = booleanFlag("INSIGHTS_DASHBOARD_ENABLED"
 export const chatCacheEnabled = booleanFlag("CHAT_CACHE_ENABLED");
 
 export const fundManagementEnabled = booleanFlag("FUND_MANAGEMENT_ENABLED");
+
+export const sourceOfFundsEnabled = booleanFlag("SOURCE_OF_FUNDS_ENABLED");

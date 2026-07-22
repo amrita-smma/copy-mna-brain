@@ -15,6 +15,7 @@ import { Chevron, DeleteRowMenu, GlossaryTerm, Pill } from './parts';
 import { HoldingDetail } from './HoldingDetail';
 import { TablePager } from './TablePager';
 import { useFundData } from './context';
+import { useFeatureEnabled } from '@/components/layout/FeatureFlagsContext';
 
 const PAGE_SIZE = 25;
 
@@ -74,6 +75,16 @@ export function AssetTable({
   const { deleteAsset, entityNameById, sourceNameById } = useFundData();
   const { money } = useFundMoney();
   const [groupBy, setGroupBy] = useState<GroupBy>('none');
+  // Source-of-funds tracking is a per-workspace setting; when off, drop the
+  // "by Source of Fund" grouping and coerce an already-selected 'source' mode
+  // back to ungrouped.
+  const sourceOfFundsEnabled = useFeatureEnabled('SOURCE_OF_FUNDS_ENABLED');
+  const groupOptions = sourceOfFundsEnabled
+    ? GROUP_OPTIONS
+    : GROUP_OPTIONS.filter((o) => o.k !== 'source');
+  useEffect(() => {
+    if (!sourceOfFundsEnabled && groupBy === 'source') setGroupBy('none');
+  }, [sourceOfFundsEnabled, groupBy]);
   const [openGroups, setOpenGroups] = useState<Set<string>>(new Set());
   const [openAssets, setOpenAssets] = useState<Set<string>>(new Set());
   const [page, setPage] = useState(1);
@@ -250,7 +261,7 @@ export function AssetTable({
     <>
       <div className="mb-3 flex flex-wrap items-center gap-1.5">
         <span className="text-xs text-muted-foreground">Group:</span>
-        {GROUP_OPTIONS.map(({ k, label }) => (
+        {groupOptions.map(({ k, label }) => (
           <button
             key={k}
             type="button"

@@ -127,6 +127,8 @@ interface FeatureFlagState {
   isOverridden: boolean;
   /** True when the feature is a sidebar section; false when it's not on the navbar. */
   navItem: boolean;
+  /** Which settings tab surfaces this toggle — 'general' (Features) or 'funds'. */
+  category: 'general' | 'funds';
 }
 
 function slugify(name: string) {
@@ -317,10 +319,22 @@ export default function AdminPortalPage() {
   const selected = workspaces.find((w) => w.id === selectedId) ?? null;
   const defaultRoleName = roles.find((r) => r.name === 'editor')?.name ?? roles[0]?.name;
 
-  // Split features for the Features sub-tabs: sidebar sections vs. everything
-  // that isn't on the navbar (in-page flags, background/sub-features).
-  const navFeatures = useMemo(() => features.filter((f) => f.navItem), [features]);
-  const nonNavFeatures = useMemo(() => features.filter((f) => !f.navItem), [features]);
+  // Split features across the settings tabs. The Funds tab owns its own
+  // category; the Features tab shows everything else, sub-split into sidebar
+  // sections vs. everything that isn't on the navbar (in-page/background flags).
+  const generalFeatures = useMemo(
+    () => features.filter((f) => f.category !== 'funds'),
+    [features],
+  );
+  const navFeatures = useMemo(() => generalFeatures.filter((f) => f.navItem), [generalFeatures]);
+  const nonNavFeatures = useMemo(
+    () => generalFeatures.filter((f) => !f.navItem),
+    [generalFeatures],
+  );
+  const fundFeatures = useMemo(
+    () => features.filter((f) => f.category === 'funds'),
+    [features],
+  );
 
   const selectWorkspace = (id: string) => {
     setEditingName(false);
@@ -726,13 +740,16 @@ export default function AdminPortalPage() {
                 <Tabs defaultValue="copilot" className="flex min-h-0 flex-1 flex-col">
                   <TabsList className="w-fit">
                     <TabsTrigger value="copilot" className={ACTIVE_TAB_CLASS}>
-                      AI Copilot
+                      General
                     </TabsTrigger>
                     <TabsTrigger value="users" className={ACTIVE_TAB_CLASS}>
                       Users
                     </TabsTrigger>
                     <TabsTrigger value="features" className={ACTIVE_TAB_CLASS}>
                       Features
+                    </TabsTrigger>
+                    <TabsTrigger value="funds" className={ACTIVE_TAB_CLASS}>
+                      Funds
                     </TabsTrigger>
                   </TabsList>
 
@@ -971,6 +988,32 @@ export default function AdminPortalPage() {
                             />
                           </div>
                         )}
+                      </div>
+                    )}
+                  </TabsContent>
+
+                  <TabsContent value="funds" className="mt-0 flex min-h-0 flex-col">
+                    <div className="flex h-9 shrink-0 items-center">
+                      <h3 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+                        Funds
+                      </h3>
+                    </div>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Fund-management settings for{' '}
+                      <span className="font-medium text-foreground">{selected.name}</span>. Only
+                      affects this workspace.
+                    </p>
+                    {featuresLoading ? (
+                      <div className="mt-3 flex items-center justify-center py-8 text-muted-foreground">
+                        <Loader2 className="h-5 w-5 animate-spin" />
+                      </div>
+                    ) : (
+                      <div className="mt-3 min-h-0 flex-1 space-y-5 overflow-y-auto pr-1">
+                        <FeatureToggleList
+                          features={fundFeatures}
+                          onToggle={toggleFeature}
+                          emptyLabel="No fund settings available."
+                        />
                       </div>
                     )}
                   </TabsContent>

@@ -18,6 +18,8 @@ export interface FeatureFlagState {
   isOverridden: boolean;
   /** True when this feature is a sidebar section; false when it's not on the navbar. */
   navItem: boolean;
+  /** Which admin settings tab surfaces this toggle — 'general' (Features) or 'funds'. */
+  category: 'general' | 'funds';
 }
 
 /** Raised when a toggle targets a feature key that isn't in the catalog. */
@@ -53,6 +55,7 @@ export class FeatureFlagsService {
         enabled: hasOverride ? overrides[def.key] : featureEnvDefault(def.key),
         isOverridden: hasOverride,
         navItem: def.navItem,
+        category: def.category ?? 'general',
       };
     });
     return { features, meta: { updatedAt, updatedBy } };

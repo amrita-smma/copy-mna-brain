@@ -36,6 +36,9 @@ export interface FundDataCtx {
   entityNameById: Map<string, string>;
   /** Managed funding-source id → name — see `entityNameById`. */
   sourceNameById: Map<string, string>;
+  /** Whether source-of-funds tracking is enabled for the workspace (admin Funds
+   * tab). When false, edit forms hide their "Source of fund" fields. */
+  sourceOfFundsEnabled: boolean;
 }
 
 export const FundDataContext = createContext<FundDataCtx>({
@@ -49,6 +52,7 @@ export const FundDataContext = createContext<FundDataCtx>({
   sourceOptions: [],
   entityNameById: new Map(),
   sourceNameById: new Map(),
+  sourceOfFundsEnabled: true,
 });
 
 export const useFundData = () => useContext(FundDataContext);

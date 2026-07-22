@@ -205,7 +205,7 @@ function safe<T>(v: T | null | undefined, fmt: (v: T) => ReactNode): ReactNode {
 
 // ================= Equity =================
 function EquityDetail({ fund, holding }: { fund: Fund; holding: Holding }) {
-  const { commitHolding, investorOptions, sourceOptions } = useFundData();
+  const { commitHolding, investorOptions, sourceOptions, sourceOfFundsEnabled } = useFundData();
   const { money, moneyFee } = useFundMoney();
   const save = () => commitHolding(fund, holding);
   const inv = holding.inv!;
@@ -406,14 +406,16 @@ function EquityDetail({ fund, holding }: { fund: Fund; holding: Holding }) {
         }}
       />
       <EditKV label="Entry date" kind="date" value={holding.dt} onCommit={(r) => { holding.dt = r; save(); }} />
-      <SelectKV
-        label="Source of fund"
-        term="fundingsource"
-        value={inv.fundingSource}
-        options={sourceOptions}
-        placeholder="Select source…"
-        onCommit={(r) => setInv('fundingSource', r)}
-      />
+      {sourceOfFundsEnabled && (
+        <SelectKV
+          label="Source of fund"
+          term="fundingsource"
+          value={inv.fundingSource}
+          options={sourceOptions}
+          placeholder="Select source…"
+          onCommit={(r) => setInv('fundingSource', r)}
+        />
+      )}
       <EditKV label="Stake" value={inv.stakePct} display={inv.stakePct != null ? `${inv.stakePct}%` : undefined} kind="num" onCommit={(r) => setInv('stakePct', r, true)} />
       <EditKV label="Hold period" term="holdperiod" value={d.holdYrs} display={d.holdYrs != null ? `${d.holdYrs} yrs` : undefined} kind="num" onCommit={(r) => setD('holdYrs', r, true)} />
       <EditKV label="Reporting date" term="reportdate" kind="date" value={inv.reportDate} onCommit={(r) => setInv('reportDate', r)} />
@@ -532,7 +534,8 @@ function FeeRow({
 
 // ================= Fund of funds =================
 function FoFDetail({ fund, holding }: { fund: Fund; holding: Holding }) {
-  const { commitHolding, refreshHolding, investorOptions, sourceOptions } = useFundData();
+  const { commitHolding, refreshHolding, investorOptions, sourceOptions, sourceOfFundsEnabled } =
+    useFundData();
   const { moneyK, currency: dispCcy } = useFundMoney();
   const { toast } = useToast();
   const save = () => commitHolding(fund, holding);
@@ -693,14 +696,16 @@ function FoFDetail({ fund, holding }: { fund: Fund; holding: Holding }) {
       />
       <EditKV label="Country" value={d.geo} display={d.geo || inv.country || 'Indonesia'} onCommit={(r) => setD('geo', r)} />
       <EditKV label="Investment type" value={getAssetInvestType(holding)} kind="select" options={INVEST_TYPES} onCommit={(r) => { setAssetInvestType(holding, r); save(); }} />
-      <SelectKV
-        label="Source of fund"
-        term="fundingsource"
-        value={inv.fundingSource}
-        options={sourceOptions}
-        placeholder="Select source…"
-        onCommit={(r) => setInv('fundingSource', r)}
-      />
+      {sourceOfFundsEnabled && (
+        <SelectKV
+          label="Source of fund"
+          term="fundingsource"
+          value={inv.fundingSource}
+          options={sourceOptions}
+          placeholder="Select source…"
+          onCommit={(r) => setInv('fundingSource', r)}
+        />
+      )}
       <EditKV label="Stake" value={inv.stakePct} display={inv.stakePct != null ? `${inv.stakePct}%` : undefined} kind="num" onCommit={(r) => setInv('stakePct', r, true)} />
       <EditKV label="Entry date" kind="date" value={holding.dt} onCommit={(r) => { holding.dt = r; save(); }} />
       <EditKV label="Reporting date" term="reportdate" kind="date" value={inv.reportDate} onCommit={(r) => setInv('reportDate', r)} />
@@ -778,7 +783,7 @@ function FoFDetail({ fund, holding }: { fund: Fund; holding: Holding }) {
 
 // ================= Cash =================
 function CashDetail({ fund, holding }: { fund: Fund; holding: Holding }) {
-  const { commitHolding, sourceOptions } = useFundData();
+  const { commitHolding, sourceOptions, sourceOfFundsEnabled } = useFundData();
   const save = () => commitHolding(fund, holding);
   const inv = holding.inv!;
   const d = (holding.d = holding.d || {});
@@ -866,14 +871,16 @@ function CashDetail({ fund, holding }: { fund: Fund; holding: Holding }) {
           onCommit={(r) => setD('yieldPct', r, true)}
         />
         <EditKV label="Type" value={d.type} onCommit={(r) => setD('type', r)} />
-        <SelectKV
-          label="Source of fund"
-          term="fundingsource"
-          value={inv.fundingSource}
-          options={sourceOptions}
-          placeholder="Select source…"
-          onCommit={(r) => setInv('fundingSource', r)}
-        />
+        {sourceOfFundsEnabled && (
+          <SelectKV
+            label="Source of fund"
+            term="fundingsource"
+            value={inv.fundingSource}
+            options={sourceOptions}
+            placeholder="Select source…"
+            onCommit={(r) => setInv('fundingSource', r)}
+          />
+        )}
         <EditKV label="Entry date" kind="date" value={holding.dt} onCommit={(r) => { holding.dt = r; save(); }} />
         <EditKV label="Currency" term="reportccy" value={inv.ccy} onCommit={(r) => setInv('ccy', r)} />
       </div>
@@ -1065,7 +1072,8 @@ function TxnDialog({
   onSubmit: (t: Txn) => void;
   onClose: () => void;
 }) {
-  const { funds, investorOptions, sourceOptions, entityNameById, sourceNameById } = useFundData();
+  const { funds, investorOptions, sourceOptions, entityNameById, sourceNameById, sourceOfFundsEnabled } =
+    useFundData();
   const wsCurrency = useWorkspaceCurrency();
   const [f, setF] = useState<{ [k: string]: string }>(() =>
     initial
@@ -1152,14 +1160,16 @@ function TxnDialog({
             placeholder="Select entity…"
           />
         </FormField>
-        <FormField label="Funding Source">
-          <Combobox
-            value={g('fundingSourceId')}
-            options={sourceOptions}
-            onChange={(v) => set('fundingSourceId', v)}
-            placeholder="Select source…"
-          />
-        </FormField>
+        {sourceOfFundsEnabled && (
+          <FormField label="Funding Source">
+            <Combobox
+              value={g('fundingSourceId')}
+              options={sourceOptions}
+              onChange={(v) => set('fundingSourceId', v)}
+              placeholder="Select source…"
+            />
+          </FormField>
+        )}
       </FormRow>
       <FormRow>
         <FormField label="Type" required>

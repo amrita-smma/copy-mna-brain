@@ -17,7 +17,7 @@ import {
   ChatAttachmentForbiddenError,
   type ChatAttachmentRef,
 } from '@/lib/services/chatAttachmentService';
-import { chatCacheEnabled } from '@/lib/flags';
+import { chatCacheEnabled, sourceOfFundsEnabled } from '@/lib/flags';
 
 const convertLangChainMessageToVercelMessage = (message: BaseMessage) => {
   if (message._getType() === 'human') {
@@ -205,7 +205,10 @@ export async function POST(req: NextRequest) {
     // 'investment' — funds & investing). Resolve it and select the matching
     // agent graph for the requested effort tier; defaults to 'mna' when unset.
     const copilotAgent = await workspaceService.getCopilotAgent(workspaceId);
-    const agent = await getAgentGraph(copilotAgent, effort);
+    // Source-of-funds tracking is a per-workspace setting; when off, the agent
+    // is built without the `query_fund_sources` tool (see getAgentGraph).
+    const sofEnabled = await sourceOfFundsEnabled();
+    const agent = await getAgentGraph(copilotAgent, effort, sofEnabled);
     if (!agent) {
       return NextResponse.json(
         {
