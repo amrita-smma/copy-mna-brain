@@ -41,6 +41,12 @@ describe('buildDailyPulsePrompt', () => {
     expect(prompt).toContain('query_companies');
     expect(prompt).toContain('analyze_stalled_deals');
   });
+
+  it('excludes "discovered"-stage companies from the pulse scope', () => {
+    const prompt = buildDailyPulsePrompt(NOW);
+    expect(prompt).toContain('EXCLUDE companies in the "discovered" stage');
+    expect(prompt).toMatch(/drop rows whose Stage is "discovered"/);
+  });
 });
 
 describe('stripThinking', () => {

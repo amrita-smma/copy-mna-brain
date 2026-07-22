@@ -440,7 +440,7 @@ function EditFundDialog({
               </div>
             </div>
             <p className="mt-2 text-xs text-muted-foreground">
-              These are normally derived from each holding's transaction ledger. Values you set
+              These are normally derived from each holding&apos;s transaction ledger. Values you set
               here are manual overrides — the next metrics recompute (on any asset/transaction
               change) will overwrite them.
             </p>
@@ -896,6 +896,7 @@ export default function FundManagement({
       refreshHolding: (fund: Fund) => {
         reloadOne(fund.id);
       },
+      refreshAll: reloadAll,
       deleteFund: async (fund: Fund) => {
         try {
           await fundsApi.deleteFund(fund.id);
@@ -931,7 +932,7 @@ export default function FundManagement({
       entityNameById,
       sourceNameById,
     }),
-    [reloadOne, toast, funds, comboboxEntityOptions, sourceOptions, entityNameById, sourceNameById],
+    [reloadOne, reloadAll, toast, funds, comboboxEntityOptions, sourceOptions, entityNameById, sourceNameById],
   );
 
   // LP pro-rata model for the By Investment Entity tab: fractional ownership of
@@ -1070,9 +1071,10 @@ export default function FundManagement({
         initialFundId={addAssetFundId}
         open={addAssetOpen}
         onOpenChange={setAddAssetOpen}
-        // Reload every fund (not just the target) so the newly added asset —
-        // which binds to its fund through its initial transaction — reliably
-        // shows up in the list once the drawer closes.
+        // Reload every fund (not just the target): a brand-new asset has no
+        // transactions yet, and fund membership is transaction-driven, so it
+        // surfaces under the synthetic "Unassigned Assets" fund until its
+        // first transaction assigns it a real fund.
         onCreated={async () => {
           await reloadAll();
         }}
@@ -1246,9 +1248,9 @@ function StakeEditDialog({
         </DialogHeader>
         <div className="max-h-[60vh] space-y-4 overflow-y-auto pr-1">
           <p className="text-xs text-muted-foreground">
-            Set this entity's committed capital in each fund. Ownership % is committed ÷ the fund's
-            commitment size. Invested is computed from this entity's own transactions; Unrealized MV,
-            Net Gain and MOIC are computed from that share of each fund's performance.
+            Set this entity&apos;s committed capital in each fund. Ownership % is committed ÷ the fund&apos;s
+            commitment size. Invested is computed from this entity&apos;s own transactions; Unrealized MV,
+            Net Gain and MOIC are computed from that share of each fund&apos;s performance.
           </p>
           {funds.length === 0 && (
             <p className="text-sm text-muted-foreground">No funds yet.</p>

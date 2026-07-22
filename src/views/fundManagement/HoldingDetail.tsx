@@ -892,7 +892,7 @@ function CashDetail({ fund, holding }: { fund: Fund; holding: Holding }) {
 
 // ================= Transactions (editable) =================
 function TxnTable({ fund, holding, fof }: { fund: Fund; holding: Holding; fof?: boolean }) {
-  const { refreshHolding } = useFundData();
+  const { refreshHolding, refreshAll } = useFundData();
   const { toast } = useToast();
   const [dialog, setDialog] = useState<{ mode: 'add' | 'edit'; idx: number } | null>(null);
   const txns = holding.inv?.txns || [];
@@ -919,7 +919,18 @@ function TxnTable({ fund, holding, fof }: { fund: Fund; holding: Holding; fof?: 
     const request = t.id
       ? fundsApi.updateTransaction(fund.id, holding.id, t.id, payload)
       : fundsApi.addTransaction(fund.id, holding.id, payload);
-    request.then(() => refreshHolding(fund, holding)).catch(onFailure('Failed to save transaction'));
+    request
+      .then(() => {
+        // Fund membership is transaction-driven, so a transaction naming a
+        // different fund moves the asset there (e.g. an unassigned asset's
+        // first transaction assigns it to a real fund). Refreshing only the
+        // fund this panel is open under would drop the asset from view — the
+        // asset just left it and the destination fund is never reloaded — so
+        // refresh the whole portfolio instead.
+        const txnFundId = t.fundId ?? 'unassigned';
+        return txnFundId !== fund.id ? refreshAll() : refreshHolding(fund, holding);
+      })
+      .catch(onFailure('Failed to save transaction'));
   };
   const editTxn = (i: number, k: keyof Txn, raw: string, numeric = false) => {
     const next = { ...txns[i], [k]: numeric ? num(raw) : txt(raw) };

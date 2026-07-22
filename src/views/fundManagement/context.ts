@@ -16,6 +16,11 @@ import type { Fund, Holding } from './types';
 export interface FundDataCtx {
   commitHolding: (fund: Fund, holding: Holding) => void;
   refreshHolding: (fund: Fund, holding: Holding) => void;
+  /** Re-fetches the whole portfolio in one batched request. Use instead of
+   * `refreshHolding` when a ledger change can move an asset between funds
+   * (fund membership is transaction-driven), since refreshing only the fund
+   * the panel is open under would drop the asset from view entirely. */
+  refreshAll: () => Promise<void>;
   /** Deletes the fund and every holding/transaction/valuation beneath it
    * (cascades at the DB level). Rejects on failure so the caller can stop
    * a spinner; a toast is already shown by the provider. */
@@ -36,6 +41,7 @@ export interface FundDataCtx {
 export const FundDataContext = createContext<FundDataCtx>({
   commitHolding: () => {},
   refreshHolding: () => {},
+  refreshAll: () => Promise.resolve(),
   deleteFund: () => Promise.resolve(),
   deleteAsset: () => Promise.resolve(),
   funds: [],

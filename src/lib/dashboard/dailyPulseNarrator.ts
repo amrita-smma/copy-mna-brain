@@ -28,6 +28,8 @@ export function buildDailyPulsePrompt(now: Date): string {
     '- Use `analyze_stalled_deals` for days-in-stage and stalled/frozen deals.',
     'Compute the deltas yourself. Use medians (never averages) for revenue/EBITDA.',
     '',
+    'Scope — origination pipeline only: EXCLUDE companies in the "discovered" stage (auto-created relationship-graph records, not deals) from every count, metric, list, and flag. If you call `query_companies` with `include_pre_pipeline=true`, drop rows whose Stage is "discovered" from the results before computing anything; never name or count a discovered-stage company anywhere in the pulse.',
+    '',
     'Core rules (non-negotiable):',
     '- Deltas over totals: express every metric as "today vs. yesterday" with direction (↑/↓/flat). A raw total with no comparison is noise.',
     '- Respect low daily volume: on a single day counts are small, so a rate can swing hard or read 0% purely because there were few or no adds. When that is the cause, say so — never present a low-volume artifact as a real trend.',
