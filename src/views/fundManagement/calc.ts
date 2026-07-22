@@ -6,6 +6,7 @@ import type {
   FoFMetrics,
   Fund,
   Holding,
+  Inv,
   Investor,
   Quarter,
   Txn,
@@ -722,6 +723,97 @@ export function scopeHoldingToFund(h: Holding, fundId: string): Holding {
       _shareCount: scale(inv._shareCount, fmvFrac),
     },
   };
+}
+
+/** One ungrouped Asset-tab row: the whole asset rebuilt from its per-fund
+ * scoped copies, plus every fund holding it (largest invested share first). */
+export interface WholeAssetRow {
+  /** Stable row key — the fund_assets id when present (shared copies collapse
+   * onto it), else the copy's fund-scoped position key. */
+  key: string;
+  h: Holding;
+  funds: Fund[];
+}
+
+/** Inverse of `scopeHoldingToFund` for one asset's scoped copies: re-sums the
+ * split invested / realized / market values (and the scaled stored override
+ * fields) and re-concatenates the per-fund ledgers, so the merged holding
+ * carries the whole-asset numbers again. `copies[0]` supplies every unscoped
+ * field. */
+function mergeScopedCopies(copies: Holding[]): Holding {
+  const base = copies[0];
+  let cost = 0;
+  let fmv = 0;
+  let real = 0;
+  copies.forEach((c) => {
+    cost += c.cost;
+    fmv += c.fmv;
+    real += c.real;
+  });
+  const sumField = (pick: (i: Inv) => number | null | undefined): number | undefined => {
+    let any = false;
+    let s = 0;
+    copies.forEach((c) => {
+      const v = c.inv ? pick(c.inv) : null;
+      if (v != null) {
+        any = true;
+        s += v;
+      }
+    });
+    return any ? s : undefined;
+  };
+  return {
+    ...base,
+    cost,
+    fmv,
+    real,
+    moic: cost > 0 ? (fmv + real) / cost : 0,
+    inv: base.inv
+      ? {
+          ...base.inv,
+          txns: copies
+            .flatMap((c) => c.inv?.txns ?? [])
+            .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0)),
+          _investedCapitalAmount: sumField((i) => i._investedCapitalAmount),
+          _netDistributionAmount: sumField((i) => i._netDistributionAmount),
+          _fmvAmount: sumField((i) => i._fmvAmount),
+          _shareCount: sumField((i) => i._shareCount),
+        }
+      : base.inv,
+  };
+}
+
+/**
+ * Whole-asset rows for the Asset tab's ungrouped view. Fund membership is
+ * transaction-driven, so a co-invested asset arrives once per fund — each copy
+ * scoped to that fund's share (see `scopeHoldingToFund`); left unmerged, the
+ * same asset lists once per fund. Copies sharing a fund_assets id are summed
+ * back into a single whole-asset holding. Holdings without a server id can't
+ * be shared across funds and pass through untouched.
+ */
+export function mergeHoldingsAcrossFunds(funds: Fund[]): WholeAssetRow[] {
+  const order: string[] = [];
+  const groups = new Map<string, { h: Holding; f: Fund }[]>();
+  funds.forEach((f) => {
+    f.h.forEach((h, hi) => {
+      const key = h.id ?? `${f.id}_${hi}`;
+      if (!groups.has(key)) {
+        groups.set(key, []);
+        order.push(key);
+      }
+      groups.get(key)!.push({ h, f });
+    });
+  });
+  return order.map((key) => {
+    const copies = groups.get(key)!;
+    if (copies.length === 1) return { key, h: copies[0].h, funds: [copies[0].f] };
+    const sorted = [...copies].sort((a, b) => b.h.cost - a.h.cost);
+    return {
+      key,
+      h: mergeScopedCopies(sorted.map((c) => c.h)),
+      funds: sorted.map((c) => c.f),
+    };
+  });
 }
 
 /** Roll a set of transaction-level slices up into a single aggregate row. */

@@ -1,8 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { scopeHoldingToFund, holdingsPortfolioTotals } from './calc';
+import { mergeHoldingsAcrossFunds, scopeHoldingToFund, holdingsPortfolioTotals } from './calc';
 import type { Fund, Holding, Inv } from './types';
 
 function makeHolding(overrides: {
+  id?: string;
   cost?: number;
   fmv?: number;
   real?: number;
@@ -11,6 +12,7 @@ function makeHolding(overrides: {
 } = {}): Holding {
   const txns: Inv['txns'] = overrides.txns ?? [];
   return {
+    id: overrides.id,
     n: 'Test Asset',
     tp: 'Equity',
     dt: '2024-01-01',
@@ -142,6 +144,81 @@ describe('scopeHoldingToFund', () => {
     const scoped = scopeHoldingToFund(h, 'unassigned');
     expect(scoped).toBe(h); // all txns match unassigned → unchanged
     expect(scoped.inv!._investedCapitalAmount).toBe(100_000_000);
+  });
+});
+
+describe('mergeHoldingsAcrossFunds', () => {
+  it('passes a single-fund holding through untouched (same reference)', () => {
+    const h = makeHolding({ id: 'a1', cost: 50 });
+    const rows = mergeHoldingsAcrossFunds([makeFund('f1', [h])]);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].h).toBe(h);
+    expect(rows[0].key).toBe('a1');
+    expect(rows[0].funds.map((f) => f.id)).toEqual(['f1']);
+  });
+
+  it('merges a co-invested asset back into one whole-asset row', () => {
+    // One fund_assets row whose ledger names two funds: each fund's copy is
+    // scoped to its share, and the Asset tab must show one row with the totals.
+    const whole = makeHolding({
+      id: 'a1',
+      cost: 80,
+      fmv: 100,
+      real: 20,
+      txns: [
+        { date: '2024-01-01', type: 'Buy', value: 50, fundId: 'f1' },
+        { date: '2024-02-01', type: 'Buy', value: 30, fundId: 'f2' },
+        { date: '2024-03-01', type: 'Distribution', value: 20, fundId: 'f1' },
+      ],
+    });
+    const copyF1 = scopeHoldingToFund(whole, 'f1');
+    const copyF2 = scopeHoldingToFund(whole, 'f2');
+
+    const rows = mergeHoldingsAcrossFunds([makeFund('f1', [copyF1]), makeFund('f2', [copyF2])]);
+    expect(rows).toHaveLength(1);
+    const [row] = rows;
+    expect(row.key).toBe('a1');
+    expect(row.h.cost).toBeCloseTo(80);
+    expect(row.h.fmv).toBeCloseTo(100);
+    expect(row.h.real).toBeCloseTo(20);
+    expect(row.h.moic).toBeCloseTo(1.5); // (100 + 20) / 80
+    // Full ledger restored, in date order.
+    expect(row.h.inv!.txns.map((t) => t.fundId)).toEqual(['f1', 'f2', 'f1']);
+    // Primary fund (largest invested share) listed first.
+    expect(row.funds.map((f) => f.id)).toEqual(['f1', 'f2']);
+  });
+
+  it('re-sums the scaled stored override amounts across copies', () => {
+    const whole = makeHolding({
+      id: 'a1',
+      cost: 100,
+      txns: [
+        { date: '2024-01-01', type: 'Buy', value: 60, fundId: 'f1' },
+        { date: '2024-02-01', type: 'Buy', value: 40, fundId: 'f2' },
+      ],
+    });
+    whole.inv!._investedCapitalAmount = 100_000_000;
+    const copyF1 = scopeHoldingToFund(whole, 'f1');
+    const copyF2 = scopeHoldingToFund(whole, 'f2');
+
+    const rows = mergeHoldingsAcrossFunds([makeFund('f1', [copyF1]), makeFund('f2', [copyF2])]);
+    expect(rows[0].h.inv!._investedCapitalAmount).toBeCloseTo(100_000_000);
+  });
+
+  it('keeps distinct assets separate even when their names match', () => {
+    const h1 = makeHolding({ id: 'a1', cost: 10 });
+    const h2 = makeHolding({ id: 'a2', cost: 20 });
+    const rows = mergeHoldingsAcrossFunds([makeFund('f1', [h1]), makeFund('f2', [h2])]);
+    expect(rows).toHaveLength(2);
+  });
+
+  it('never merges holdings without a server id', () => {
+    const h1 = makeHolding({ cost: 10 });
+    const h2 = makeHolding({ cost: 20 });
+    const rows = mergeHoldingsAcrossFunds([makeFund('f1', [h1, h2])]);
+    expect(rows).toHaveLength(2);
+    expect(rows[0].h).toBe(h1);
+    expect(rows[1].h).toBe(h2);
   });
 });
 

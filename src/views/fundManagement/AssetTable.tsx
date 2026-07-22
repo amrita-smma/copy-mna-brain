@@ -7,10 +7,12 @@ import {
   getAssetEntity,
   getAssetFundingSources,
   getAssetInvestType,
+  mergeHoldingsAcrossFunds,
   sliceHoldingsByTxn,
   type HoldingSlice,
 } from './calc';
 import { useFundMoney } from './useFundMoney';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { Chevron, DeleteRowMenu, GlossaryTerm, Pill } from './parts';
 import { HoldingDetail } from './HoldingDetail';
 import { TablePager } from './TablePager';
@@ -60,6 +62,38 @@ const ASSET_COLS: { label: string; term?: string }[] = [
 
 const dpi = (cost: number, real: number) => (cost > 0 ? real / cost : 0);
 
+/** A table row: a holding slice, plus — for a merged co-invested asset — the
+ * names of every fund holding it (the slice's `f` is the primary fund). */
+type AssetRow = HoldingSlice & { fundNames?: string[] };
+
+/** The row's fund label. A co-invested asset shows its primary fund plus a
+ * "+N" count; hovering reveals the full fund list in a read-only tooltip. */
+function FundsLabel({ names }: { names: string[] }) {
+  if (names.length <= 1) {
+    return <span className="text-[11px] text-muted-foreground">{names[0]}</span>;
+  }
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span className="cursor-default whitespace-nowrap text-[11px] text-muted-foreground">
+          {names[0]}{' '}
+          <span className="ml-0.5 inline-block rounded border bg-muted px-1 font-medium">
+            +{names.length - 1}
+          </span>
+        </span>
+      </TooltipTrigger>
+      <TooltipContent className="max-w-[280px]">
+        <div className="text-xs font-semibold text-foreground">Funds</div>
+        <ul className="mt-1 space-y-0.5 text-xs text-muted-foreground">
+          {names.map((n, i) => (
+            <li key={i}>{n}</li>
+          ))}
+        </ul>
+      </TooltipContent>
+    </Tooltip>
+  );
+}
+
 /**
  * The "Asset" tab: every holding across all funds, optionally grouped by fund
  * type / investor / source of fund. Ungrouped, each asset row expands to its
@@ -72,7 +106,7 @@ export function AssetTable({
 }: {
   funds: Fund[];
 }) {
-  const { deleteAsset, entityNameById, sourceNameById } = useFundData();
+  const { deleteAsset, refreshAll, entityNameById, sourceNameById } = useFundData();
   const { money } = useFundMoney();
   const [groupBy, setGroupBy] = useState<GroupBy>('none');
   // Source-of-funds tracking is a per-workspace setting; when off, drop the
@@ -112,7 +146,19 @@ export function AssetTable({
     moic: h.moic,
   });
 
-  const flat: HoldingSlice[] = funds.flatMap((f) => f.h.map((h, hi) => wholeSlice(h, f, hi)));
+  // Ungrouped rows are whole assets: a co-invested asset's per-fund scoped
+  // copies are merged back into one row carrying the asset totals and every
+  // holding fund's name (largest share first).
+  const flat: AssetRow[] = mergeHoldingsAcrossFunds(funds).map(({ key, h, funds: held }) => ({
+    h,
+    f: held[0],
+    hkey: key,
+    cost: h.cost,
+    fmv: h.fmv,
+    real: h.real,
+    moic: h.moic,
+    fundNames: held.length > 1 ? held.map((x) => x.n) : undefined,
+  }));
 
   const aggSlices = (items: HoldingSlice[]) => {
     let cost = 0;
@@ -179,11 +225,11 @@ export function AssetTable({
 
   // A single asset row + (if open) its detail panel. `rowKey` scopes the
   // open-state so the same holding under two source groups toggles independently.
-  const assetRows = (items: HoldingSlice[], nested: boolean, scope: string): ReactNode[] => {
+  const assetRows = (items: AssetRow[], nested: boolean, scope: string): ReactNode[] => {
     const out: ReactNode[] = [];
     [...items]
       .sort((x, y) => y.fmv - x.fmv)
-      .forEach(({ h, f, hkey, cost, fmv, real, moic }) => {
+      .forEach(({ h, f, hkey, cost, fmv, real, moic, fundNames }) => {
         const rowKey = `${scope}::${hkey}`;
         const hopen = openAssets.has(rowKey);
         out.push(
@@ -211,7 +257,7 @@ export function AssetTable({
                         </GlossaryTerm>
                       </Pill>
                       <Pill>{getAssetInvestType(h)}</Pill>
-                      <span className="text-[11px] text-muted-foreground">{f.n}</span>
+                      <FundsLabel names={fundNames ?? [f.n]} />
                       {h.dt && <span className="text-[11px] text-muted-foreground">· {h.dt}</span>}
                     </div>
                   </div>
@@ -221,7 +267,13 @@ export function AssetTable({
                     label="Delete holding"
                     title={`Delete "${h.n}"?`}
                     description="This will permanently delete this holding and its full transaction and valuation history. This action cannot be undone."
-                    onConfirm={() => deleteAsset(f, h)}
+                    onConfirm={async () => {
+                      await deleteAsset(f, h);
+                      // A merged co-invested row exists under several funds;
+                      // deleteAsset only reloads the primary fund, so refresh
+                      // the rest or their stale copies keep the row visible.
+                      if (fundNames) await refreshAll();
+                    }}
                   />
                 )}
               </div>
