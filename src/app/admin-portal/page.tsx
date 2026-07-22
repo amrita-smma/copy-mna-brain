@@ -92,7 +92,7 @@ const COPILOT_AGENT_OPTIONS: { value: string; label: string }[] = [
 const CURRENCY_OPTIONS: { value: string; label: string }[] = [
   { value: 'USD', label: 'USD ($)' },
   { value: 'IDR', label: 'IDR (Rp)' },
-  { value: 'CNY', label: 'CNY (¥)' },
+  { value: 'CNY', label: 'CNY (RMB)' },
 ];
 
 /** Active tab: primary (blue) background with white text. */

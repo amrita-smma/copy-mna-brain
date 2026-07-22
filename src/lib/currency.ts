@@ -5,7 +5,9 @@
 
 export type Currency = 'USD' | 'IDR' | 'CNY';
 export const CURRENCIES: Currency[] = ['USD', 'IDR', 'CNY'];
-export const CURRENCY_SYMBOL: Record<Currency, string> = { USD: '$', IDR: 'Rp', CNY: '¥' };
+// CNY deliberately displays as "RMB " (with a space), not "¥" — the yen sign
+// is too easily read as Japanese Yen. e.g. `RMB 13.5M`.
+export const CURRENCY_SYMBOL: Record<Currency, string> = { USD: '$', IDR: 'Rp', CNY: 'RMB ' };
 export const DEFAULT_CURRENCY: Currency = 'USD';
 
 /** Normalizes a free-text currency string to one of the supported codes. */

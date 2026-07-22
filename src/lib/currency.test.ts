@@ -10,7 +10,7 @@ import {
 describe('currency constants', () => {
   it('exposes the three supported currencies with symbols', () => {
     expect(CURRENCIES).toEqual(['USD', 'IDR', 'CNY']);
-    expect(CURRENCY_SYMBOL).toEqual({ USD: '$', IDR: 'Rp', CNY: '¥' });
+    expect(CURRENCY_SYMBOL).toEqual({ USD: '$', IDR: 'Rp', CNY: 'RMB ' });
     expect(DEFAULT_CURRENCY).toBe('USD');
   });
 });
@@ -39,7 +39,7 @@ describe('formatMoneyMn', () => {
   it('formats millions with 2 decimals and the currency symbol', () => {
     expect(formatMoneyMn(312.5, 'USD')).toBe('$312.50M');
     expect(formatMoneyMn(312.5, 'IDR')).toBe('Rp312.50M');
-    expect(formatMoneyMn(312.5, 'CNY')).toBe('¥312.50M');
+    expect(formatMoneyMn(312.5, 'CNY')).toBe('RMB 312.50M');
   });
 
   it('switches to billions at the 1000-million threshold', () => {

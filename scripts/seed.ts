@@ -64,8 +64,8 @@ const TEST_WORKSPACE_3_ID = '00000000-0000-0000-0000-000000000003'; // Togan VCC
 const TEST_WORKSPACE_4_ID = '00000000-0000-0000-0000-000000000004'; // Aeliana VCC
 
 // Fund Management (Confluence 2641362965) — fixed ids so a reseed deletes and
-// reinserts the same rows (fund_assets/transactions/valuations cascade off
-// the fund delete).
+// reinserts the same rows (funds and fund_assets are each deleted by id;
+// transactions/valuations cascade off the asset delete).
 const SEED_FUND_1_ID = '00000000-0000-0000-0000-0000000f0001'; // Direct Investments
 const SEED_FUND_2_ID = '00000000-0000-0000-0000-0000000f0002'; // Growth Fund II
 const SEED_FUND_3_ID = '00000000-0000-0000-0000-0000000f0003'; // Legacy Fund I
@@ -2642,6 +2642,11 @@ async function seedFundManagement(db: DbClient, workspaceId: string) {
       invested_amount_currency: 'USD',
     })),
   ).onConflictDoNothing();
+
+  // Assets no longer hang off funds via a fund_id FK, so the delete(funds)
+  // above doesn't cascade here — delete by fixed id (transactions/valuations
+  // cascade off the asset delete) so a reseed stays idempotent.
+  await db.delete(fundAssets).where(inArray(fundAssets.id, SEED_ASSET_IDS));
 
   await db.insert(fundAssets).values([
     // ---- Fund 1: Direct Investments ----
