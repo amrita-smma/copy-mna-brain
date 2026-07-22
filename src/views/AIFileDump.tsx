@@ -854,11 +854,13 @@ interface FileBucket {
  * page 1. `fileType` is the API bucket key — the MoM bucket maps to the empty
  * `file_type` sentinel the route expects.
  */
-function useFileBucket(fileType: string): FileBucket {
+function useFileBucket(fileType: string, externalSearch?: string): FileBucket {
   const [files, setFiles] = useState<FileRecord[]>([]);
   const [total, setTotal] = useState(0);
   const [initialLoading, setInitialLoading] = useState(true);
-  const [search, setSearch] = useState("");
+  const [internalSearch, setInternalSearch] = useState("");
+  const search = externalSearch !== undefined ? externalSearch : internalSearch;
+  const setSearch = externalSearch !== undefined ? () => {} : setInternalSearch;
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [sortField, setSortField] = useState<keyof FileRecord>("file_date");
   const [sortDirection, setSortDirection] = useState<"asc" | "desc">("desc");
@@ -951,15 +953,17 @@ export default function AIFileDump({
 }: AIFileDumpProps) {
   const { analyzeWithAI } = useChatContext();
   const [activeTab, setActiveTab] = useState("mom");
+  const [globalSearch, setGlobalSearch] = useState("");
 
-  // Each category owns its server-driven search / sort / pagination and only
-  // ever holds the current page of rows.
-  const mom = useFileBucket("mom");
-  const prospectusBucket = useFileBucket("prospectus");
-  const shoppingListBucket = useFileBucket("shopping_list");
-  const bankerCommsBucket = useFileBucket("banker_communications");
-  const fundUpdatesBucket = useFileBucket("fund_updates");
-  const otherBucket = useFileBucket("other");
+  // Each category owns its server-driven sort / pagination state but shares
+  // the global search term so the search bar persists across tab changes.
+  const mom = useFileBucket("mom", globalSearch);
+  const prospectusBucket = useFileBucket("prospectus", globalSearch);
+  const shoppingListBucket = useFileBucket("shopping_list", globalSearch);
+  const bankerCommsBucket = useFileBucket("banker_communications", globalSearch);
+  const fundUpdatesBucket = useFileBucket("fund_updates", globalSearch);
+  const marketStudyBucket = useFileBucket("market_study", globalSearch);
+  const otherBucket = useFileBucket("other", globalSearch);
 
   const getActiveBucket = () => {
     switch (activeTab) {
@@ -968,6 +972,7 @@ export default function AIFileDump({
       case "shopping_list": return shoppingListBucket;
       case "banker_communications": return bankerCommsBucket;
       case "fund_updates": return fundUpdatesBucket;
+      case "market_study": return marketStudyBucket;
       case "other": return otherBucket;
       default: return mom;
     }
@@ -980,8 +985,9 @@ export default function AIFileDump({
     shoppingListBucket.refetch();
     bankerCommsBucket.refetch();
     fundUpdatesBucket.refetch();
+    marketStudyBucket.refetch();
     otherBucket.refetch();
-  }, [mom, prospectusBucket, shoppingListBucket, bankerCommsBucket, fundUpdatesBucket, otherBucket]);
+  }, [mom, prospectusBucket, shoppingListBucket, bankerCommsBucket, fundUpdatesBucket, marketStudyBucket, otherBucket]);
 
   // Gate the first-paint spinner on the default (MoM) tab; the other buckets
   // load in the background and fill in their tables as they arrive.
@@ -1005,7 +1011,7 @@ export default function AIFileDump({
    * classification.
    */
   const [fileTypeOverrides, setFileTypeOverrides] = useState<
-    Record<string, "auto" | "mom" | "prospectus" | "shopping_list" | "fund_updates" | "other">
+    Record<string, "auto" | "mom" | "prospectus" | "shopping_list" | "fund_updates" | "market_study" | "other">
   >({});
   /**
    * Per-file pre-upload picks for "Matched Company" and "Project Name".
@@ -1174,6 +1180,7 @@ export default function AIFileDump({
       ...shoppingListBucket.files.map((n) => n.file_name),
       ...bankerCommsBucket.files.map((n) => n.file_name),
       ...fundUpdatesBucket.files.map((n) => n.file_name),
+      ...marketStudyBucket.files.map((n) => n.file_name),
       ...otherBucket.files.map((n) => n.file_name),
     ]);
     const duplicates = selectedFiles.filter((file) =>
@@ -1724,6 +1731,7 @@ export default function AIFileDump({
                                         | "prospectus"
                                         | "shopping_list"
                                         | "fund_updates"
+                                        | "market_study"
                                         | "other",
                                     }))
                                   }
@@ -1748,6 +1756,9 @@ export default function AIFileDump({
                                     </SelectItem>
                                     <SelectItem value="fund_updates">
                                       Fund Updates
+                                    </SelectItem>
+                                    <SelectItem value="market_study">
+                                      Market Study
                                     </SelectItem>
                                     <SelectItem value="other">Other</SelectItem>
                                   </SelectContent>
@@ -1868,9 +1879,22 @@ export default function AIFileDump({
           </CardContent>
         </Card>
 
+        <div className="flex items-center gap-2">
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
+            <Input
+              placeholder="Search across all file types..."
+              className="pl-9 h-10 text-sm"
+              value={globalSearch}
+              onChange={(e) => setGlobalSearch(e.target.value)}
+            />
+          </div>
+          <div id="ai-file-dump-toolbar"></div>
+        </div>
+
         <Card className="overflow-hidden">
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-          <div className="flex flex-col md:flex-row md:items-center justify-between border-b px-2 pt-1">
+          <div className="border-b px-2 pt-1">
             <TabsList className="h-auto w-full justify-start gap-0 overflow-x-auto rounded-none border-0 bg-transparent px-0 pt-0">
               {(
               [
@@ -1900,6 +1924,11 @@ export default function AIFileDump({
                   count: fundUpdatesBucket.total,
                 },
                 {
+                  value: "market_study",
+                  label: "Market Study",
+                  count: marketStudyBucket.total,
+                },
+                {
                   value: "other",
                   label: "Other",
                   count: otherBucket.total,
@@ -1921,18 +1950,6 @@ export default function AIFileDump({
               </TabsTrigger>
             ))}
             </TabsList>
-            <div className="flex items-center gap-2 pb-1 pr-2 shrink-0">
-              <div className="relative w-full md:w-64">
-                <Search className="absolute left-2.5 top-2 h-4 w-4 text-muted-foreground" />
-                <Input
-                  placeholder="Search notes, tags, companies..."
-                  className="pl-9 h-8 text-xs"
-                  value={activeBucket.search}
-                  onChange={(e) => activeBucket.setSearch(e.target.value)}
-                />
-              </div>
-              <div id="ai-file-dump-toolbar"></div>
-            </div>
           </div>
 
           <TabsContent value="mom" className="mt-0">
@@ -2102,6 +2119,40 @@ export default function AIFileDump({
               currentPage={fundUpdatesBucket.page}
               onPageChange={fundUpdatesBucket.setPage}
               itemsPerPage={PAGE_SIZE}
+              hideTitle
+            />
+          </TabsContent>
+
+          <TabsContent value="market_study" className="mt-0">
+            <FileTable
+              title="Market Study"
+              icon={<FileSpreadsheet className="h-5 w-5" />}
+              iconColor="text-blue-500"
+              files={marketStudyBucket.files}
+              total={marketStudyBucket.total}
+              searchQuery={marketStudyBucket.search}
+              onSearchChange={marketStudyBucket.setSearch}
+              sortField={marketStudyBucket.sortField}
+              sortDirection={marketStudyBucket.sortDirection}
+              onSort={marketStudyBucket.onSort}
+              expandedTags={expandedTags}
+              toggleTags={toggleTags}
+              expandedCompanies={expandedCompanies}
+              toggleCompanies={toggleCompanies}
+              onOpenCompany={openCompany}
+              onUpdateDate={handleUpdateDate}
+              onDownload={handleDownload}
+              onDelete={handleDelete}
+              onReview={(id, fileType) => setReviewFile({ id, file_type: fileType })}
+              onViewFundUpdateParsed={setViewFundUpdateFileId}
+              onReprocess={handleReprocess}
+              downloadingId={downloadingId}
+              deletingId={deletingId}
+              reprocessingId={reprocessingId}
+              emptyMessage="No market studies uploaded yet."
+              emptySubMessage="Upload your first market study using the form above."
+              currentPage={marketStudyBucket.page}
+              onPageChange={marketStudyBucket.setPage}
               hideTitle
             />
           </TabsContent>
