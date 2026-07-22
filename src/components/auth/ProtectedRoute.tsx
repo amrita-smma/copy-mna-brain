@@ -3,6 +3,7 @@
 import { ReactNode, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useAuth } from '@/hooks/useAuth';
+import { isEmbedded, postToLauncher } from '@/lib/iframe';
 import { Loader2 } from 'lucide-react';
 
 interface ProtectedRouteProps {
@@ -24,7 +25,14 @@ export function ProtectedRoute({ children }: ProtectedRouteProps) {
   useEffect(() => {
     if (loading) return;
     if (!user) {
-      router.replace('/login');
+      // Inside the launcher iframe, redirecting to /login renders an unusable
+      // login page in the frame. Ask the launcher to re-launch us with a fresh
+      // `?token` instead; standalone keeps the normal /login redirect.
+      if (isEmbedded()) {
+        postToLauncher({ type: 'auth-expired' });
+      } else {
+        router.replace('/login');
+      }
       return;
     }
     // A superadmin may legitimately have zero workspace memberships (they

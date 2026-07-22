@@ -131,6 +131,10 @@
   html,
   body {
     overscroll-behavior-x: none;
+    /* The Brain Launcher gives the iframe a fixed, full-height pane (it does
+       not shrink the frame to content), so fill 100% of that height rather
+       than relying on content to stretch it. Harmless when standalone. */
+    height: 100%;
   }
 }
 

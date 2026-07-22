@@ -8,6 +8,7 @@ import { TooltipProvider } from '@/components/ui/tooltip';
 import { AuthProvider } from '@/hooks/useAuth';
 import { ChatProvider } from '@/components/chat/ChatProvider';
 import { PresentationViewerProvider } from '@/components/presentation/PresentationViewerContext';
+import { IframeBridge } from '@/components/iframe/IframeBridge';
 import { ThemeProvider } from 'next-themes';
 
 const queryClient = new QueryClient();
@@ -20,6 +21,9 @@ export function Providers({ children }: ProvidersProps) {
   return (
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
+        {/* Launcher↔brain postMessage bridge; no-op unless embedded. Mounted
+            inside AuthProvider so it can drive sign-out on a launcher logout. */}
+        <IframeBridge />
         <ThemeProvider attribute="class" defaultTheme="light" enableSystem={false}>
           {/* Google-SSO `?token=` deeplinks are consumed server-side in
               `proxy.ts` → `/api/auth/sso` before any page renders, so the

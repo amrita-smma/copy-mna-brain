@@ -202,17 +202,27 @@ Google hands the page an ID token (the GIS credential), and the login page:
 The button is hidden when `NEXT_PUBLIC_GOOGLE_CLIENT_ID` is unset, leaving only
 email/password sign-in.
 
-### Dashboard token exchange (`/dashboard?token=eyJ...`)
+### Launcher token exchange (`/?from=launcher&token=eyJ...`)
 
-The dashboard can also be opened with a Google ID token in the URL.
-`GoogleSsoTokenGate` (`src/components/auth/GoogleSsoTokenGate.tsx`) wraps the
-dashboard page: if a `token` query param is present it blocks rendering, calls
-`useAuth().signInWithGoogleToken(token)` (same `google-sso` provider), then
-strips `token` from the URL and renders the dashboard.
+The Brain Launcher embeds this app in an iframe and hands over the signed-in
+user's identity as a **launcher-signed RS256 JWT** via `?token=` on the URL.
+`proxy.ts` intercepts any request carrying `?token=` and routes it to
+`GET /api/auth/sso`, which:
 
-Set `GOOGLE_CLIENT_ID` (server) so the token's `aud` claim is enforced against
-this app, and `NEXT_PUBLIC_GOOGLE_CLIENT_ID` (browser) for the login button.
-Signature, issuer, expiry and `email_verified` are always checked.
+1. Verifies the JWT against the launcher's JWKS endpoint
+   (`LAUNCHER_ORIGIN/.well-known/jwks.json`) via `jose` — signature, expiry,
+   `iss` (must equal `LAUNCHER_ORIGIN`) and `aud` (must equal
+   `NEXT_PUBLIC_APP_URL`) are all enforced.
+2. Extracts the verified `email` claim and looks the user up in `users`.
+   Unknown emails are rejected with `UserNotRegisteredError` — no account is
+   auto-provisioned.
+3. Establishes a standard NextAuth JWT session (`Set-Cookie`) and redirects to
+   the clean callback URL with `token` stripped from the URL.
+
+Set `LAUNCHER_ORIGIN` to the launcher's origin
+(`https://brain.starcapital.co.id`, `https://brain-stg.starcapital.co.id`, or
+`http://localhost:3000`) and `NEXT_PUBLIC_APP_URL` to this app's own origin so
+the `aud` claim is enforced correctly. See `.env.example` for details.
 
 ### Today's Recap — daily pipeline pulse (`/api/dashboard/pulse`)
 
@@ -239,6 +249,69 @@ existing **Analyst agent**:
   (`GET /api/dashboard/pulse`) still generates and upserts on the fly if the cron
   hasn't run yet that day, and `?refresh=1` forces a regenerate (used by the cron
   / ops).
+
+## Iframe embedding (Brain Launcher)
+
+This app can run standalone (`mna.sqe.co.id`) **or** be embedded as an `<iframe>`
+inside the Brain Launcher (`https://brain.starcapital.co.id`, its staging peer,
+and `http://localhost:3000`). Embedding is entirely env-gated so the standalone
+deployment keeps its safe defaults.
+
+**Config** (see `.env.example`, `src/lib/iframe.ts`):
+
+- `IFRAME_EMBED_ENABLED` — master switch. When `true`, the CSP `frame-ancestors`
+  header lists the launcher origins and NextAuth cookies become
+  `SameSite=None; Secure; Partitioned` (CHIPS). When unset/`false`, framing is
+  locked to `'self'` and cookies stay `SameSite=Lax`.
+- `NEXT_PUBLIC_IFRAME_ALLOWED_ANCESTORS` — whitespace/comma-separated origin
+  allowlist, shared by the server CSP header (`next.config.ts`) and the
+  client-side `postMessage` origin checks. Defaults to the launcher origins.
+
+**Why these are needed** (all browser-enforced, brain-side):
+
+1. **Framing.** A cross-origin frame is refused unless the framed app sends
+   `Content-Security-Policy: frame-ancestors <launcher origins>` (and does *not*
+   send `X-Frame-Options: DENY|SAMEORIGIN` — we never do; `frame-ancestors`
+   supersedes it). Set in `next.config.ts`'s `headers()`.
+2. **Cross-site cookies.** The session cookie is written from inside a
+   cross-site frame, so it must be `SameSite=None; Secure; Partitioned` to be
+   stored/sent under third-party-cookie partitioning. Set in `src/auth.config.ts`
+   (secure cookie names preserved so `proxy.ts` still recognises them).
+3. **Token staleness.** The `?token=<launcherJwt>` deeplink carried at `src`
+   time (consumed once by `proxy.ts` → `/api/auth/sso`) expires (~5 minutes)
+   while the frame stays mounted. Re-auth is handled by the launcher reloading
+   the frame `src` with a fresh `?token`, triggered by the postMessage channel
+   below.
+
+**postMessage protocol** (`src/lib/iframe.ts`, `src/components/iframe/IframeBridge.tsx`).
+Every message carries the single neutral `source: 'brain-portal'` tag — the
+launcher is generic across all brains, so a brand-specific tag would be dropped.
+Both sides validate `event.origin` against the allowlist and check the `source`
+field; the brain never posts with `targetOrigin: '*'`. Tokens are **never** sent
+over postMessage — re-auth happens via the launcher reloading the frame `src`.
+
+- **Brain → Launcher** (`source: 'brain-portal'`):
+  - `{ type: 'ready' }` — the embedded app has mounted.
+  - `{ type: 'auth-expired' }` — a request 401'd or the session is gone; the
+    launcher should reload the frame `src` with a fresh `?token`.
+  - `{ type: 'signed-out' }` — user signed out inside the brain (ack after a
+    launcher-initiated `logout`).
+- **Launcher → Brain** (`source: 'brain-portal'`):
+  - `{ type: 'logout' }` — propagate logout; the brain signs out and replies
+    `signed-out`.
+  - `{ type: 'navigate', path }` — same-origin, relative-path navigation.
+  - The launcher does not drive these yet, so the brain's listeners are
+    harmless no-ops until it does.
+
+The launcher gives the iframe a **fixed, full-height pane** (it does not shrink
+the frame to content), so the app renders to fill 100% height and there is no
+content-resize message.
+
+> The launcher must implement the matching side: embed us with a fresh
+> `?token`, listen for `brain-portal` messages, and reload the frame `src` on
+> `auth-expired`. Nothing the brain does can bypass the browser's framing or
+> third-party-cookie policies — the launcher origins must be correct and served
+> over HTTPS in production.
 
 ## External Chat API (`/api/v1/chat`)
 

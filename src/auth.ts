@@ -126,10 +126,8 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       },
     }),
     Credentials({
-      // Google SSO: the dashboard is reachable via `?token=<google id token>`.
-      // We validate that token against Google, resolve the local user by the
-      // verified email, and from here the JWT session is identical to a
-      // password sign-in — the rest of the auth flow is unchanged.
+      // Google SSO: login-page "Sign in with Google" button. Kept for the
+      // standalone login flow; the launcher deeplink uses launcher-sso below.
       id: "google-sso",
       name: "Google SSO",
       credentials: {
@@ -160,6 +158,47 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           };
         } catch (err) {
           console.error("[auth] google-sso authorize failed:", err);
+          return null;
+        }
+      },
+    }),
+    Credentials({
+      // Launcher SSO: the Brain Launcher embeds this app in an iframe and
+      // hands over the signed-in user's identity as an RS256-signed JWT via
+      // `?from=launcher&token=<JWT>` on the URL. `proxy.ts` intercepts any
+      // `?token=` and routes it to `/api/auth/sso`, which calls this provider.
+      // After a successful verify + user lookup the session is identical to a
+      // password sign-in — the rest of the auth flow is unchanged.
+      id: "launcher-sso",
+      name: "Launcher SSO",
+      credentials: {
+        token: {},
+      },
+      async authorize(credentials) {
+        const token = credentials?.token as string | undefined;
+        if (!token) return null;
+        try {
+          const db = createDb();
+          const { authService, workspaceService } = createContainer(
+            db,
+            MNA_WORKSPACE_ID,
+          );
+          const user = await authService.signInWithLauncherToken(token);
+          const [workspaceId, isSuperadmin, workspaces] = await Promise.all([
+            workspaceService.resolveDefaultWorkspaceId(user.id),
+            workspaceService.isSuperadmin(user.id),
+            getWorkspaceClaims(workspaceService, user.id),
+          ]);
+          return {
+            id: user.id,
+            email: user.email ?? undefined,
+            name: user.name,
+            workspaceId,
+            isSuperadmin,
+            workspaces,
+          };
+        } catch (err) {
+          console.error("[auth] launcher-sso authorize failed:", err);
           return null;
         }
       },

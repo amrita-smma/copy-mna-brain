@@ -107,6 +107,7 @@
     "framer-motion": "^12.34.0",
     "google-auth-library": "^10.7.0",
     "input-otp": "^1.4.2",
+    "jose": "^6.2.4",
     "jspdf": "^4.1.0",
     "jszip": "^3.10.1",
     "langchain": "^1.2.15",

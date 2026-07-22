@@ -1,4 +1,17 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
+
+const { signOutMock, isEmbeddedMock, postToLauncherMock } = vi.hoisted(() => ({
+  signOutMock: vi.fn(),
+  isEmbeddedMock: vi.fn(() => false),
+  postToLauncherMock: vi.fn(),
+}));
+
+vi.mock('next-auth/react', () => ({ signOut: signOutMock }));
+vi.mock('@/lib/iframe', () => ({
+  isEmbedded: isEmbeddedMock,
+  postToLauncher: postToLauncherMock,
+}));
+
 import { apiRequest, buildWorkspaceHeaders, getWorkspaceSlugFromUrl } from './client';
 
 function stubLocation(pathname: string, origin = 'http://localhost:3000') {
@@ -142,5 +155,44 @@ describe('apiRequest', () => {
     );
 
     await expect(apiRequest('/api/x')).resolves.toEqual([1, 2, 3]);
+  });
+});
+
+describe('apiRequest 401 handling', () => {
+  const originalFetch = global.fetch;
+
+  beforeEach(() => {
+    global.fetch = vi.fn();
+    signOutMock.mockReset();
+    postToLauncherMock.mockReset();
+    isEmbeddedMock.mockReset();
+    (global.fetch as ReturnType<typeof vi.fn>).mockResolvedValue(
+      new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401 }),
+    );
+  });
+
+  afterEach(() => {
+    global.fetch = originalFetch;
+    vi.unstubAllGlobals();
+  });
+
+  it('signs out to /login on 401 when running standalone (not embedded)', async () => {
+    stubLocation('/w/aeliana-vcc/master-data');
+    isEmbeddedMock.mockReturnValue(false);
+
+    await expect(apiRequest('/api/companies')).rejects.toThrow('Unauthorized');
+
+    expect(signOutMock).toHaveBeenCalledWith({ callbackUrl: '/login' });
+    expect(postToLauncherMock).not.toHaveBeenCalled();
+  });
+
+  it('notifies the launcher (auth-expired) on 401 when embedded, without signing out', async () => {
+    stubLocation('/w/aeliana-vcc/master-data');
+    isEmbeddedMock.mockReturnValue(true);
+
+    await expect(apiRequest('/api/companies')).rejects.toThrow('Unauthorized');
+
+    expect(postToLauncherMock).toHaveBeenCalledWith({ type: 'auth-expired' });
+    expect(signOutMock).not.toHaveBeenCalled();
   });
 });

@@ -1,4 +1,5 @@
 import { signOut } from "next-auth/react";
+import { isEmbedded, postToLauncher } from "@/lib/iframe";
 
 async function parseJsonSafe(res: Response) {
   const text = await res.text();
@@ -77,9 +78,17 @@ export async function apiRequest<T>(
   const payload = await parseJsonSafe(res);
   if (!res.ok) {
     if (res.status === 401 && typeof window !== "undefined") {
-      // Gracefully kick the user out of the session and redirect to login,
-      // which properly invalidates the session on the backend.
-      void signOut({ callbackUrl: "/login" });
+      if (isEmbedded()) {
+        // Inside the launcher iframe, a redirect to /login would render an
+        // unusable login page in the frame. Instead signal the launcher to
+        // re-launch us with a fresh `?token`, which re-establishes the session
+        // via the `/api/auth/sso` deeplink without a navigation here.
+        postToLauncher({ type: "auth-expired" });
+      } else {
+        // Standalone: gracefully kick the user out of the session and redirect
+        // to login, which properly invalidates the session on the backend.
+        void signOut({ callbackUrl: "/login" });
+      }
     }
 
     const message =

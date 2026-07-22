@@ -2,6 +2,7 @@ import { randomBytes } from 'crypto';
 import type { ResetPasswordTokenRepository, UserRepository } from '@/lib/repositories';
 import { hashPassword, verifyPassword } from './password';
 import { verifyGoogleIdToken } from './googleToken';
+import { verifyLauncherToken } from './launcherToken';
 import { enqueueSendEmail } from '@/lib/queue';
 import type { SendEmailPayload } from '@/lib/jobs/handlers/sendEmail';
 
@@ -47,6 +48,20 @@ export class AuthService {
    */
   async signInWithGoogleToken(token: string) {
     const email = await verifyGoogleIdToken(token);
+    const user = await this.userRepo.findByEmail(email);
+    if (!user) throw new UserNotRegisteredError();
+    return user;
+  }
+
+  /**
+   * Sign in via a launcher-signed RS256 JWT (the `?token=` value handed to the
+   * dashboard by the Brain Launcher). The token is verified against the
+   * launcher's JWKS endpoint; the verified email is extracted and the matching
+   * local user is returned. No account is auto-provisioned — an unregistered
+   * email is rejected with `UserNotRegisteredError`.
+   */
+  async signInWithLauncherToken(token: string) {
+    const { email } = await verifyLauncherToken(token);
     const user = await this.userRepo.findByEmail(email);
     if (!user) throw new UserNotRegisteredError();
     return user;
