@@ -1,19 +1,94 @@
 import { tryDeterministicFundUpdateParse } from '@/lib/fund_updates';
 import type { FundUpdateStructuredResult } from '@/lib/fund_updates';
 import { logger } from '../logger';
+import { extractFundUpdateProposal } from './llmExtractor';
+import type { ParsedAsset } from '@/lib/fund_updates';
+
+/**
+ * Shared helper to build a FundUpdateStructuredResult from LLM extracted assets.
+ * Can merge with an existing LLM result (e.g. from general file_processing) 
+ * or synthesize a basic summary if none is provided.
+ */
+export function buildLlmFundUpdateResult(
+  assets: ParsedAsset[] | null,
+  baseResult?: Partial<FundUpdateStructuredResult> | null,
+): FundUpdateStructuredResult {
+  const base = baseResult ?? {
+    file_type: 'fund_updates',
+    summary: 'Extracted via LLM fallback.',
+    key_points: [],
+    action_items: [],
+    tags: ['Fund Update'],
+    companies_detected: [],
+    company_notes: [],
+    file_date: null,
+    suggested_track_ids: [],
+    matched_companies: [],
+  };
+
+  if (!assets || assets.length === 0) {
+    return {
+      ...base,
+      file_type: 'fund_updates',
+      parser: 'llm_fallback',
+    } as FundUpdateStructuredResult;
+  }
+
+  let directCount = 0;
+  let fundOfFundsCount = 0;
+  let txnCnt = 0;
+  let valCnt = 0;
+  
+  for (const a of assets) {
+    if (a.assetType === 'fund_of_funds') {
+      fundOfFundsCount++;
+    } else {
+      directCount++;
+    }
+    txnCnt += a.txns.length;
+    valCnt += a.valuations.length;
+  }
+
+  const stats = {
+    asset_count: assets.length,
+    direct_count: directCount,
+    fund_of_funds_count: fundOfFundsCount,
+    transaction_count: txnCnt,
+    valuation_count: valCnt,
+  };
+
+  const funds = [...new Set(assets.map((a) => a.fund).filter(Boolean))].sort();
+  const assetNames = assets.map((a) => a.name);
+
+  // Synthesize summary if missing
+  const summary = baseResult?.summary || 
+    `Extracted ${assets.length} assets (${txnCnt} txns, ${valCnt} valuations) via LLM.`;
+
+  return {
+    ...base,
+    file_type: 'fund_updates',
+    parser: 'llm_fallback',
+    summary,
+    tags: baseResult?.tags || ['Fund Update', ...funds.slice(0, 8)],
+    companies_detected: baseResult?.companies_detected || assetNames,
+    fund_update_proposal: {
+      template_id: 'llm_generic_v1',
+      stats,
+      assets,
+    }
+  } as FundUpdateStructuredResult;
+}
 
 /**
  * Fund-update ingestion agent.
  *
  * Known Excel master sheets (e.g. STARTECH quarterly) are parsed deterministically.
- * Other formats fall through to a placeholder until the LLM/OCR path lands
- * (pending mockup / sample files).
+ * Other formats fall through to the dedicated LLM fund update extractor.
  */
 export async function processFundUpdateContent(
   rawText: string,
   buffer: Buffer,
   contentType: string,
-  _userRawNotes: string,
   fileName?: string,
 ): Promise<FundUpdateStructuredResult> {
   logger.info('📂 Processing Fund Update file');
@@ -27,30 +102,15 @@ export async function processFundUpdateContent(
     return deterministic;
   }
 
-  // TODO: When the caller forced fund_updates but no fingerprint matched, this
-  // returns pending_llm only — no LLM is invoked. Implement real extraction
-  // (or fall through to processFileContent) so the Fund Updates override is useful.
-  logger.info('⏳ No known Excel template matched; returning placeholder fund-update result');
-  const textHint = rawText.trim().slice(0, 200);
-  return {
-    file_type: 'fund_updates',
-    parser: 'pending_llm',
-    summary:
-      'Fund update document queued for review. Detailed extraction for this format is not wired yet ' +
-      '(awaiting mockup / LLM path). Known STARTECH master sheets are parsed automatically.',
-    key_points: [
-      'No matching deterministic Excel template',
-      textHint ? `Text preview: ${textHint}` : 'No extracted text preview available',
-    ],
-    action_items: [
-      // TODO: Replace once LLM fund-update extraction ships.
-      'Manual review required — automatic extraction for this format is not implemented yet.',
-    ],
-    tags: ['Fund Update'],
-    companies_detected: [],
-    company_notes: [],
-    file_date: null,
-    suggested_track_ids: [],
-    matched_companies: [],
-  };
+  logger.info('⏳ No known Excel template matched; falling back to fund update LLM extractor');
+  
+  const proposalResult = await extractFundUpdateProposal(
+    rawText,
+    buffer,
+    contentType,
+    fileName,
+  );
+
+  return buildLlmFundUpdateResult(proposalResult?.assets ?? null);
 }
+

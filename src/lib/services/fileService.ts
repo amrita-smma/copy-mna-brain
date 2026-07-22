@@ -3,7 +3,7 @@ import { deleteFile } from '@/lib/s3';
 import { sql } from 'drizzle-orm';
 import { extractTextFromFile } from '@/lib/fileExtractor';
 import { processFileContent, type FileTypeOverride } from '@/lib/agents/file_processing';
-import { processFundUpdateContent } from '@/lib/agents/fund_update_processing';
+import { processFundUpdateContent, buildLlmFundUpdateResult } from '@/lib/agents/fund_update_processing';
 import { tryDeterministicFundUpdateParse } from '@/lib/fund_updates';
 import type { FundUpdateStructuredResult, ParsedAsset } from '@/lib/fund_updates';
 import type { FundUpdateAssetSelection } from '@/lib/services/fundUpdateApplyService';
@@ -98,13 +98,9 @@ type IngestStructuredResult =
 /**
  * Resolve extraction for an upload/reprocess:
  * 1. Known Excel master sheets → deterministic fund-update parse (no LLM)
- * 2. Explicit fund_updates override → fund-update agent (deterministic first, else placeholder)
- * 3. Otherwise → general file-processing agent (classifies + extracts in one pass)
- *
- * TODO: Add a lightweight file-type classifier (e.g. Haiku) to auto-route non-Excel
- * fund-update uploads into the fund-update path without requiring a manual override.
- * Out of scope for the fingerprint/master-sheet MVP — do not reintroduce
- * `src/lib/agents/file_classifier` until that work is scoped.
+ * 2. Explicit fund_updates override → fund-update agent (deterministic first, else LLM fallback)
+ * 3. Otherwise → general file-processing agent (classifies + extracts in one pass).
+ *    If auto-classified as fund_updates, seamlessly routes to the LLM fallback.
  */
 async function resolveFileIngestion(opts: {
   rawText: string;
@@ -133,14 +129,10 @@ async function resolveFileIngestion(opts: {
   }
 
   if (fileTypeOverride === 'fund_updates') {
-    // TODO: When fingerprint misses, this still returns a pending_llm placeholder
-    // (no LLM call). Wire real LLM/OCR fund-update extraction here later — until
-    // then, prefer leaving override as auto and relying on the general agent.
     const structuredResult = await processFundUpdateContent(
       rawText,
       buffer,
       contentType,
-      rawNotes,
       fileName,
     );
     return {
@@ -150,8 +142,6 @@ async function resolveFileIngestion(opts: {
     };
   }
 
-  // TODO: After a dedicated fund-update classifier exists, route classified
-  // fund_updates here instead of relying only on fileTypeOverride / general agent.
   const structuredResult = await processFileContent(
     rawText,
     buffer,
@@ -162,8 +152,23 @@ async function resolveFileIngestion(opts: {
   );
   const effectiveFileType =
     fileTypeOverride ?? structuredResult?.file_type ?? 'other';
+
+  let finalStructuredResult = structuredResult;
+
+  if (effectiveFileType === 'fund_updates' && !structuredResult?.fund_update_proposal) {
+    const { extractFundUpdateProposal } = await import('@/lib/agents/fund_update_processing/llmExtractor');
+    const proposalResult = await extractFundUpdateProposal(
+      rawText,
+      buffer,
+      contentType,
+      fileName,
+    );
+    
+    finalStructuredResult = buildLlmFundUpdateResult(proposalResult?.assets ?? null, structuredResult);
+  }
+
   return {
-    structuredResult,
+    structuredResult: finalStructuredResult,
     effectiveFileType,
     fundUpdateNeedsReview: effectiveFileType === 'fund_updates',
   };

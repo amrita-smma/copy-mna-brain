@@ -2,14 +2,11 @@ import type { ParsedAsset, StartechParseResult } from './parsers/startech_quarte
 
 /**
  * Structured notes shape for `file_type = fund_updates`.
- * Propose-only: reviewers will approve per-asset applies later (mockup pending).
- *
- * TODO: `parser: 'pending_llm'` path + auto file-type classification are deferred;
- * MVP only fills `fund_update_proposal` via fingerprint-matched Excel parsers.
+ * Propose-only: reviewers will approve per-asset applies later.
  */
 export interface FundUpdateStructuredResult {
   file_type: 'fund_updates';
-  /** Which parser produced the proposal (`pending_llm` until LLM extraction exists). */
+  /** Which parser produced the proposal (e.g. deterministic template_id or llm_fallback). */
   parser: string;
   summary: string;
   key_points: string[];
@@ -20,7 +17,7 @@ export interface FundUpdateStructuredResult {
   file_date: string | null;
   suggested_track_ids: string[];
   matched_companies: unknown[];
-  /** Deterministic / LLM proposal payload for HITL. Absent for placeholder results. */
+  /** Deterministic / LLM proposal payload for HITL. Absent if no assets were found. */
   fund_update_proposal?: {
     template_id: string;
     stats: StartechParseResult['stats'];

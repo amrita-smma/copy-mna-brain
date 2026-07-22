@@ -28,9 +28,22 @@ vi.mock('@/lib/agents/file_processing', () => ({
   processFileContent: vi.fn(),
 }));
 
+vi.mock('@/lib/agents/fund_update_processing', async () => {
+  const actual = await vi.importActual<any>('@/lib/agents/fund_update_processing');
+  return {
+    ...actual,
+    processFundUpdateContent: vi.fn(),
+  };
+});
+
+vi.mock('@/lib/agents/fund_update_processing/llmExtractor', () => ({
+  extractFundUpdateProposal: vi.fn(),
+}));
+
 import { downloadFile, getSignedUrl, deleteFile } from '@/lib/s3';
 import { extractTextFromFile } from '@/lib/fileExtractor';
 import { processFileContent } from '@/lib/agents/file_processing';
+import { processFundUpdateContent } from '@/lib/agents/fund_update_processing';
 
 afterEach(() => vi.clearAllMocks());
 
@@ -254,6 +267,7 @@ describe('FileService.processUpload', () => {
     vi.mocked(fileRepo.insert).mockResolvedValue(makeFile({ id: 'file-1', processing_status: 'processing' }));
     vi.mocked(fileRepo.findById).mockResolvedValue(makeFile({ id: 'file-1', processing_status: 'completed' }));
     vi.mocked(processFileContent).mockResolvedValue(null);
+    vi.mocked(processFundUpdateContent).mockResolvedValue(null as any);
     vi.mocked(criteriaRepo.findAll).mockResolvedValue([]);
   });
 
@@ -438,6 +452,29 @@ describe('FileService.processUpload', () => {
     expect(fileRepo.updatePartial).toHaveBeenCalledWith(
       'file-1',
       expect.objectContaining({ file_type: 'prospectus' }),
+    );
+  });
+
+  it('calls extractFundUpdateProposal when the general agent identifies the file as fund_updates', async () => {
+    vi.mocked(processFileContent).mockResolvedValue({
+      file_type: 'fund_updates',
+      summary: 'Some summary',
+    } as never);
+    
+    // Set the mock return for this test
+    const { extractFundUpdateProposal } = await import('@/lib/agents/fund_update_processing/llmExtractor');
+    vi.mocked(extractFundUpdateProposal).mockResolvedValue({
+      assets: [{ name: 'Extracted Asset', txns: [], valuations: [] }]
+    } as any);
+
+    await service.processUpload('uploads/fund_report.pdf', 'fund_report.pdf', 'application/pdf');
+
+    expect(fileRepo.updatePartial).toHaveBeenCalledWith(
+      'file-1',
+      expect.objectContaining({ 
+        file_type: 'fund_updates', 
+        processing_status: 'completed',
+      })
     );
   });
 
