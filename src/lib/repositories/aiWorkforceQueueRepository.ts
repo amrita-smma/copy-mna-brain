@@ -543,12 +543,22 @@ export class AiWorkforceQueueRepository {
   async appendPendingUserMessage(
     id: string,
     message: PendingUserMessage,
+    newStatus?: Status,
   ): Promise<{ row: Row; queue_position: number }> {
+    const updatePayload: Omit<Partial<typeof aiWorkforceQueue.$inferInsert>, 'pending_user_messages'> & { pending_user_messages?: any } = {
+      pending_user_messages: sql`${aiWorkforceQueue.pending_user_messages} || ${JSON.stringify([message])}::jsonb`,
+    };
+    if (newStatus) {
+      updatePayload.status = newStatus;
+      if (newStatus === 'pending') {
+        updatePayload.started_at = null;
+        updatePayload.ended_at = null;
+        updatePayload.error = null;
+      }
+    }
     const [row] = await this.db
       .update(aiWorkforceQueue)
-      .set({
-        pending_user_messages: sql`${aiWorkforceQueue.pending_user_messages} || ${JSON.stringify([message])}::jsonb`,
-      })
+      .set(updatePayload)
       .where(eq(aiWorkforceQueue.id, id))
       .returning();
     if (!row) throw new Error(`ai_workforce_queue row ${id} not found`);

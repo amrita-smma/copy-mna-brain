@@ -33,7 +33,7 @@ const log = (msg: string) => console.log(`[crm-domain-classify] ${msg}`);
 
 // Personal-mail providers we never bother classifying — these are individuals,
 // not employers.
-const PERSONAL_MAIL_DOMAINS = new Set<string>([
+export const PERSONAL_MAIL_DOMAINS = new Set<string>([
   'gmail.com',
   'googlemail.com',
   'outlook.com',

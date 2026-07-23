@@ -1000,6 +1000,11 @@ export function WorkforceTasks({ initialTaskId = null }: WorkforceTasksProps = {
             goToTask(newId);
             void fetchQueue();
           }}
+          onAttached={() => {
+            // Refetch so the attached row hops out of "Done today"
+            // and back into "Queued" / "In progress" on the sidebar immediately.
+            void fetchQueue();
+          }}
         />
       )}
 

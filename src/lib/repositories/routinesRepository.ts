@@ -154,7 +154,7 @@ export class RoutinesRepository {
    */
   async countRuns(routineId: string): Promise<number> {
     const result = await this.db.execute<{ count: number }>(
-      sql`SELECT COUNT(*)::int AS count FROM ai_workforce_queue WHERE origin_routine_id = ${routineId}`,
+      sql`SELECT COUNT(*)::int AS count FROM ai_workforce_queue WHERE origin_routine_id = ${routineId} AND workspace_id = ${this.workspaceId}`,
     );
     return (result as unknown as { rows: Array<{ count: number }> }).rows[0]?.count ?? 0;
   }
@@ -167,7 +167,12 @@ export class RoutinesRepository {
     return this.db
       .select()
       .from(aiWorkforceQueue)
-      .where(eq(aiWorkforceQueue.origin_routine_id, routineId))
+      .where(
+        and(
+          eq(aiWorkforceQueue.origin_routine_id, routineId),
+          eq(aiWorkforceQueue.workspace_id, this.workspaceId)
+        )
+      )
       .orderBy(desc(aiWorkforceQueue.created_at))
       .limit(limit);
   }

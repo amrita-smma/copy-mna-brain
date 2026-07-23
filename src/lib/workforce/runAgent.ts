@@ -211,19 +211,24 @@ async function invokeAgent(
   // silently falling back to MnA. Verified this survives through
   // LangChain's tool() wrapper and an async DB-call hop, not just a bare
   // promise chain.
-  const result = await runWithWorkforceWorkspaceId(workspaceId, () =>
-    resumePayloadJson
-      ? graph.resume(runId, JSON.parse(resumePayloadJson))
-      : graph.invoke(
-          {
-            messages: [
+  const result = await runWithWorkforceWorkspaceId(workspaceId, async () => {
+    if (resumePayloadJson) {
+      return graph.resume(runId, JSON.parse(resumePayloadJson));
+    }
+    const state = await graph.getState({ configurable: { thread_id: threadId } }) as { values?: { messages?: unknown[] } };
+    const isReopen = state.values?.messages && state.values.messages.length > 0;
+    return graph.invoke(
+      {
+        messages: isReopen
+          ? pendingMessages.map((t) => new HumanMessage(t))
+          : [
               new HumanMessage(prompt),
               ...pendingMessages.map((t) => new HumanMessage(t)),
             ],
-          },
-          { configurable: { thread_id: threadId }, recursionLimit: 50 },
-        ),
-  );
+      },
+      { configurable: { thread_id: threadId }, recursionLimit: 50 },
+    );
+  });
 
   // HITL interrupt fired — the agent has paused awaiting a human decision.
   // Hand off to the decision endpoint via status; don't finalize and don't

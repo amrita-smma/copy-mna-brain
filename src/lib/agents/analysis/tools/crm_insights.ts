@@ -1,5 +1,6 @@
 import { tool } from "@langchain/core/tools";
 import { z } from "zod";
+import type { RunnableConfig } from "@langchain/core/runnables";
 import { logger } from "../../logger";
 import { createDb } from "@/lib/server/db";
 import { EmailRepository, EmployerRepository } from "@/lib/repositories";
@@ -16,10 +17,15 @@ const DAY_MS = 24 * 60 * 60 * 1000;
  * the aggregate counterpart to lookup_crm (which is per-firm).
  */
 export const crmInsights = tool(
-  async () => {
+  async (_arg: any, config?: RunnableConfig) => {
     logger.debug("🔧 TOOL CALLED: crm_insights()");
 
     try {
+      const workspaceId = config?.configurable?.workspaceId;
+      if (!workspaceId) {
+        throw new Error("workspaceId is required in the runnable config");
+      }
+
       const db = createDb();
       const employerRepo = new EmployerRepository(db);
       const emailRepo = new EmailRepository(db);
@@ -30,9 +36,9 @@ export const crmInsights = tool(
       todayStart.setHours(0, 0, 0, 0);
 
       const [stale, flagged, emailsToday] = await Promise.all([
-        emailRepo.countStaleEmployers(staleThreshold),
-        employerRepo.countFlagged(),
-        emailRepo.countSince(todayStart.toISOString()),
+        emailRepo.countStaleEmployers(staleThreshold, workspaceId),
+        employerRepo.countFlagged(workspaceId),
+        emailRepo.countSince(todayStart.toISOString(), workspaceId),
       ]);
 
       logger.debug(

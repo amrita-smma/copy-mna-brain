@@ -141,7 +141,7 @@ describe('runAgent — happy path', () => {
 
   it('feeds input.prompt through to the agent with runId as thread_id', async () => {
     findById.mockResolvedValueOnce(makeRow());
-    getWorkforceAgentGraph.mockResolvedValueOnce({ invoke: invokeMock });
+    getWorkforceAgentGraph.mockResolvedValueOnce({ invoke: invokeMock, getState: vi.fn().mockResolvedValue({}) });
     invokeMock.mockResolvedValueOnce(makeAgentResult({ finalText: 'Done.' }));
 
     await runAgent({ runId: RUN_ID });
@@ -163,7 +163,7 @@ describe('runAgent — happy path', () => {
 
   it('persists final message + counts via markSucceeded', async () => {
     findById.mockResolvedValueOnce(makeRow());
-    getWorkforceAgentGraph.mockResolvedValueOnce({ invoke: invokeMock });
+    getWorkforceAgentGraph.mockResolvedValueOnce({ invoke: invokeMock, getState: vi.fn().mockResolvedValue({}) });
     invokeMock.mockResolvedValueOnce(
       makeAgentResult({
         messages: [
@@ -192,7 +192,7 @@ describe('runAgent — happy path', () => {
     // array of content blocks. The report must be the text, not a
     // JSON.stringify'd block wrapper.
     findById.mockResolvedValueOnce(makeRow());
-    getWorkforceAgentGraph.mockResolvedValueOnce({ invoke: invokeMock });
+    getWorkforceAgentGraph.mockResolvedValueOnce({ invoke: invokeMock, getState: vi.fn().mockResolvedValue({}) });
     invokeMock.mockResolvedValueOnce({
       messages: [
         {
@@ -271,7 +271,7 @@ describe('runAgent — guard rails', () => {
         },
       }),
     );
-    getWorkforceAgentGraph.mockResolvedValueOnce({ invoke: invokeMock });
+    getWorkforceAgentGraph.mockResolvedValueOnce({ invoke: invokeMock, getState: vi.fn().mockResolvedValue({}) });
     invokeMock.mockResolvedValueOnce(makeAgentResult({ finalText: 'Done.' }));
 
     await runAgent({ runId: RUN_ID });
@@ -293,7 +293,7 @@ describe('runAgent — guard rails', () => {
         },
       }),
     );
-    getWorkforceAgentGraph.mockResolvedValueOnce({ invoke: invokeMock });
+    getWorkforceAgentGraph.mockResolvedValueOnce({ invoke: invokeMock, getState: vi.fn().mockResolvedValue({}) });
     invokeMock.mockResolvedValueOnce(makeAgentResult());
 
     await runAgent({ runId: RUN_ID });
@@ -333,7 +333,7 @@ describe('runAgent — failure path', () => {
 
   it('calls markFailed with the error message and re-throws when invoke fails', async () => {
     findById.mockResolvedValueOnce(makeRow());
-    getWorkforceAgentGraph.mockResolvedValueOnce({ invoke: invokeMock });
+    getWorkforceAgentGraph.mockResolvedValueOnce({ invoke: invokeMock, getState: vi.fn().mockResolvedValue({}) });
     invokeMock.mockRejectedValueOnce(new Error('LLM unreachable'));
 
     await expect(runAgent({ runId: RUN_ID })).rejects.toThrow('LLM unreachable');
@@ -384,10 +384,7 @@ describe('runAgent — resume branch (rows carrying a resume_token)', () => {
     findById.mockResolvedValueOnce(
       makeRow({ resume_token: JSON.stringify(payload) }),
     );
-    getWorkforceAgentGraph.mockResolvedValueOnce({
-      invoke: invokeMock,
-      resume: resumeMock,
-    });
+    getWorkforceAgentGraph.mockResolvedValueOnce({ invoke: invokeMock, resume: resumeMock, getState: vi.fn().mockResolvedValue({}) });
     resumeMock.mockResolvedValueOnce(makeAgentResult({ finalText: 'Resumed.' }));
 
     await runAgent({ runId: RUN_ID });
@@ -400,10 +397,7 @@ describe('runAgent — resume branch (rows carrying a resume_token)', () => {
 
   it('uses graph.invoke (not resume) when resume_token is null', async () => {
     findById.mockResolvedValueOnce(makeRow({ resume_token: null }));
-    getWorkforceAgentGraph.mockResolvedValueOnce({
-      invoke: invokeMock,
-      resume: resumeMock,
-    });
+    getWorkforceAgentGraph.mockResolvedValueOnce({ invoke: invokeMock, resume: resumeMock, getState: vi.fn().mockResolvedValue({}) });
     invokeMock.mockResolvedValueOnce(makeAgentResult({ finalText: 'Done.' }));
 
     await runAgent({ runId: RUN_ID });
@@ -416,10 +410,7 @@ describe('runAgent — resume branch (rows carrying a resume_token)', () => {
     findById.mockResolvedValueOnce(
       makeRow({ resume_token: '{"decisions":[{"type":"approve"}]}' }),
     );
-    getWorkforceAgentGraph.mockResolvedValueOnce({
-      invoke: invokeMock,
-      resume: resumeMock,
-    });
+    getWorkforceAgentGraph.mockResolvedValueOnce({ invoke: invokeMock, resume: resumeMock, getState: vi.fn().mockResolvedValue({}) });
     resumeMock.mockResolvedValueOnce(makeAgentResult({ finalText: 'Done.' }));
 
     await runAgent({ runId: RUN_ID });
@@ -452,10 +443,7 @@ describe('runAgent — HITL interrupt path', () => {
 
   it('transitions to waiting_for_human_input when the agent returns an interrupt', async () => {
     findById.mockResolvedValueOnce(makeRow());
-    getWorkforceAgentGraph.mockResolvedValueOnce({
-      invoke: invokeMock,
-      resume: resumeMock,
-    });
+    getWorkforceAgentGraph.mockResolvedValueOnce({ invoke: invokeMock, resume: resumeMock, getState: vi.fn().mockResolvedValue({}) });
     invokeMock.mockResolvedValueOnce({
       messages: [{ content: 'paused mid-tool' }],
       interrupt: {
@@ -499,10 +487,7 @@ describe('runAgent — reactive dispatcher kick', () => {
 
   it('kicks the dispatcher after markSucceeded on the happy path', async () => {
     findById.mockResolvedValueOnce(makeRow());
-    getWorkforceAgentGraph.mockResolvedValueOnce({
-      invoke: invokeMock,
-      resume: resumeMock,
-    });
+    getWorkforceAgentGraph.mockResolvedValueOnce({ invoke: invokeMock, resume: resumeMock, getState: vi.fn().mockResolvedValue({}) });
     invokeMock.mockResolvedValueOnce(makeAgentResult({ finalText: 'Done.' }));
 
     await runAgent({ runId: RUN_ID });
@@ -515,10 +500,7 @@ describe('runAgent — reactive dispatcher kick', () => {
 
   it('kicks the dispatcher after markWaitingForHumanInput when the agent pauses', async () => {
     findById.mockResolvedValueOnce(makeRow());
-    getWorkforceAgentGraph.mockResolvedValueOnce({
-      invoke: invokeMock,
-      resume: resumeMock,
-    });
+    getWorkforceAgentGraph.mockResolvedValueOnce({ invoke: invokeMock, resume: resumeMock, getState: vi.fn().mockResolvedValue({}) });
     invokeMock.mockResolvedValueOnce({
       messages: [],
       interrupt: {
@@ -533,10 +515,7 @@ describe('runAgent — reactive dispatcher kick', () => {
 
   it('kicks the dispatcher after markFailed when the agent throws', async () => {
     findById.mockResolvedValueOnce(makeRow());
-    getWorkforceAgentGraph.mockResolvedValueOnce({
-      invoke: invokeMock,
-      resume: resumeMock,
-    });
+    getWorkforceAgentGraph.mockResolvedValueOnce({ invoke: invokeMock, resume: resumeMock, getState: vi.fn().mockResolvedValue({}) });
     invokeMock.mockRejectedValueOnce(new Error('LLM unreachable'));
 
     await expect(runAgent({ runId: RUN_ID })).rejects.toThrow('LLM unreachable');
@@ -546,10 +525,7 @@ describe('runAgent — reactive dispatcher kick', () => {
 
   it('does not let a dispatcher kick failure bubble out of runAgent', async () => {
     findById.mockResolvedValueOnce(makeRow());
-    getWorkforceAgentGraph.mockResolvedValueOnce({
-      invoke: invokeMock,
-      resume: resumeMock,
-    });
+    getWorkforceAgentGraph.mockResolvedValueOnce({ invoke: invokeMock, resume: resumeMock, getState: vi.fn().mockResolvedValue({}) });
     invokeMock.mockResolvedValueOnce(makeAgentResult({ finalText: 'Done.' }));
     dispatcherTick.mockRejectedValueOnce(new Error('dispatcher boom'));
 
@@ -594,7 +570,7 @@ describe('runAgent — pending user messages', () => {
         submitted_by_user_id: 'u1',
       },
     ]);
-    getWorkforceAgentGraph.mockResolvedValueOnce({ invoke: invokeMock });
+    getWorkforceAgentGraph.mockResolvedValueOnce({ invoke: invokeMock, getState: vi.fn().mockResolvedValue({}) });
     invokeMock.mockResolvedValueOnce(makeAgentResult({ finalText: 'Done.' }));
 
     await runAgent({ runId: RUN_ID });
@@ -618,7 +594,7 @@ describe('runAgent — pending user messages', () => {
         },
       }),
     );
-    getWorkforceAgentGraph.mockResolvedValueOnce({ invoke: invokeMock });
+    getWorkforceAgentGraph.mockResolvedValueOnce({ invoke: invokeMock, getState: vi.fn().mockResolvedValue({}) });
     invokeMock.mockResolvedValueOnce(makeAgentResult({ finalText: 'Done.' }));
 
     await runAgent({ runId: RUN_ID });
@@ -644,10 +620,7 @@ describe('runAgent — pending user messages', () => {
         submitted_by_user_id: 'u1',
       },
     ]);
-    getWorkforceAgentGraph.mockResolvedValueOnce({
-      invoke: invokeMock,
-      resume: resumeMock,
-    });
+    getWorkforceAgentGraph.mockResolvedValueOnce({ invoke: invokeMock, resume: resumeMock, getState: vi.fn().mockResolvedValue({}) });
     // First call: resume returns a non-interrupted result.
     resumeMock.mockResolvedValueOnce(
       makeAgentResult({ finalText: 'Resumed.' }),
@@ -681,10 +654,7 @@ describe('runAgent — pending user messages', () => {
       makeRow({ resume_token: JSON.stringify(payload) }),
     );
     consumePendingUserMessages.mockResolvedValueOnce([]);
-    getWorkforceAgentGraph.mockResolvedValueOnce({
-      invoke: invokeMock,
-      resume: resumeMock,
-    });
+    getWorkforceAgentGraph.mockResolvedValueOnce({ invoke: invokeMock, resume: resumeMock, getState: vi.fn().mockResolvedValue({}) });
     resumeMock.mockResolvedValueOnce(
       makeAgentResult({ finalText: 'Resumed.' }),
     );

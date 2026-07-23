@@ -687,6 +687,10 @@ export class AgentGraph {
     );
   }
 
+  async getState(config: import('@langchain/core/runnables').RunnableConfig) {
+    return this.defaultAgent.getState(config);
+  }
+
   async invoke(
     inputs: InvokeOptions,
     config?: InvokeConfig,

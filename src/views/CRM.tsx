@@ -106,10 +106,18 @@ export default function CRM({
       if (lastContact) params.set("lastContact", lastContact);
       if (lastContact === "custom" && customDate)
         params.set("customDate", customDate);
+      
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      params.set("clientTodayIso", today.toISOString());
+      
       topicFilter.forEach((id) => params.append("topicId", id));
       teamFilter.forEach((id) => params.append("teamUserId", id));
       params.set("limit", String(PAGE_SIZE));
       params.set("offset", String((page - 1) * PAGE_SIZE));
+      const localMidnight = new Date();
+      localMidnight.setHours(0, 0, 0, 0);
+      params.set("clientTodayIso", localMidnight.toISOString());
 
       const res = await fetch(`/api/crm?${params.toString()}`, {
         credentials: "same-origin",

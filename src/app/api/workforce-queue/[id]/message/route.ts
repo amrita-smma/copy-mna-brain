@@ -31,7 +31,7 @@ const MAX_TEXT_LEN = 4000;
  *     should prevent this; this is the server backstop.
  *
  * After a successful submit we fire-and-forget kick the dispatcher so any
- * row that just transitioned to resume_ready (or the freshly-forked
+ * row that just transitioned to resume_ready (or the freshly-reopened
  * pending row) claims a slot without waiting for the cron tick.
  */
 export async function POST(

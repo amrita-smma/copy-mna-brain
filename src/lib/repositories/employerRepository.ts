@@ -430,11 +430,26 @@ export class EmployerRepository {
       .orderBy(desc(employerEffective.updated_at));
   }
 
-  async countFlagged(): Promise<number> {
+  async countFlagged(workspaceId: string): Promise<number> {
     const rows = await this.db
       .select({ n: sql<number>`COUNT(*)` })
       .from(employers)
-      .where(eq(employers.curation_status, "flagged"));
+      .where(
+        and(
+          eq(employers.curation_status, "flagged"),
+          sql`EXISTS (
+            SELECT 1 FROM ${correspondents}
+            JOIN ${workspaceCorrespondents} ON ${workspaceCorrespondents.correspondent_id} = ${correspondents.id}
+            WHERE ${correspondents.employer_id} = ${employers.id}
+              AND ${workspaceCorrespondents.workspace_id} = ${workspaceId}
+              AND (${workspaceCorrespondents.source} != 'ingest' OR EXISTS (
+                SELECT 1 FROM ${userWorkspaces}
+                WHERE ${userWorkspaces.workspace_id} = ${workspaceId}
+                  AND ${userWorkspaces.is_email_synced} = true
+              ))
+          )`
+        )
+      );
     return Number(rows[0]?.n ?? 0);
   }
 

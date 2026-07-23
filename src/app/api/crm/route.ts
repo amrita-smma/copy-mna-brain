@@ -11,11 +11,16 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 function lastContactAfter(
   preset: string | null,
   custom: string | null,
+  clientTodayIso: string | null,
 ): string | undefined {
   if (!preset) return undefined;
   const now = Date.now();
-  const startOfDay = new Date(now);
+  let startOfDay = new Date(now);
   startOfDay.setHours(0, 0, 0, 0);
+  if (clientTodayIso && !isNaN(Date.parse(clientTodayIso))) {
+    startOfDay = new Date(clientTodayIso);
+  }
+
   switch (preset) {
     case 'today':
       return startOfDay.toISOString();
@@ -28,7 +33,8 @@ function lastContactAfter(
     case 'custom':
       if (!custom) return undefined;
       // Custom is YYYY-MM-DD — interpret as start-of-day local
-      return new Date(custom).toISOString();
+      const customMs = Date.parse(custom);
+      return !isNaN(customMs) ? new Date(customMs).toISOString() : undefined;
     default:
       return undefined;
   }
@@ -51,6 +57,7 @@ export async function GET(req: NextRequest) {
       lastContactAfter: lastContactAfter(
         sp.get('lastContact'),
         sp.get('customDate'),
+        sp.get('clientTodayIso'),
       ),
       lastContactBefore: lastContactBefore(sp.get('lastContact')),
       topicIds: sp.getAll('topicId').filter(Boolean),
@@ -71,10 +78,17 @@ export async function GET(req: NextRequest) {
     const vaultCustodianCount = await new UserWorkspaceRepository(db).countSyncedCustodians(
       workspaceId,
     );
+    const clientTodayIsoStr = sp.get('clientTodayIso');
+    const clientTodayIso =
+      clientTodayIsoStr && !isNaN(Date.parse(clientTodayIsoStr))
+        ? new Date(clientTodayIsoStr).toISOString()
+        : undefined;
+
     const insights = await crmService.insights({
       vaultCustodianCount,
       lastVaultSyncedAt: lastSyncJob?.completed_at ?? null,
       vaultSyncCadenceMs: VAULT_SYNC_CADENCE_MS,
+      clientTodayIso,
     });
     return NextResponse.json({ data, total, insights });
   } catch (err) {

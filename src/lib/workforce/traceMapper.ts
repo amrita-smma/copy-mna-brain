@@ -19,7 +19,7 @@
  * chain via `checkpointer.list()`.
  */
 import type { BaseMessage } from "@langchain/core/messages";
-import { AIMessage, ToolMessage } from "@langchain/core/messages";
+import { AIMessage, ToolMessage, HumanMessage } from "@langchain/core/messages";
 import type { CheckpointPendingWrite } from "@langchain/langgraph-checkpoint";
 import type { HumanDecision } from "@/lib/db/schema";
 import type {
@@ -396,9 +396,28 @@ export function buildTrace(input: BuildTraceInput): TraceData[] {
   // First pass: emit a step per AIMessage, fold ToolMessages into the
   // matching tool call's `output`.
   let aiIndex = 0;
+  let seenAi = false;
   for (let i = 0; i < messages.length; i++) {
     const msg = messages[i];
+    
+    if (HumanMessage.isInstance(msg)) {
+      if (seenAi) {
+        const content = coerceContent(msg.content ?? "");
+        steps.push({
+          id: msg.id ?? `human-${i}`,
+          status: 'done',
+          stepNumber: aiIndex + 1,
+          title: "Follow-up instruction",
+          description: content,
+          timestamp: baseTimestamp,
+        });
+        aiIndex++;
+      }
+      continue;
+    }
+
     if (!AIMessage.isInstance(msg)) continue;
+    seenAi = true;
     const ai = readAi(msg);
     const toolCalls = Array.isArray(ai.tool_calls) ? ai.tool_calls : [];
 

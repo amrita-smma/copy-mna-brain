@@ -65,14 +65,18 @@ const COMPOSER_ATTACH_STATUSES: WorkforceQueueStatus[] = [
   'pending',
   'waiting_for_human_input',
   'resume_ready',
+  'succeeded',
+  'failed',
+  'rejected',
+  'timed_out',
 ];
 
-type ComposerMode = 'disabled' | 'attach' | 'fork';
+type ComposerMode = 'disabled' | 'attach';
 
 function getComposerMode(status: WorkforceQueueStatus): ComposerMode {
   if (COMPOSER_THINKING_STATUSES.includes(status)) return 'disabled';
   if (COMPOSER_ATTACH_STATUSES.includes(status)) return 'attach';
-  return 'fork';
+  return 'disabled';
 }
 const TRACE_POLL_MS = 2000;
 
@@ -160,6 +164,9 @@ interface TaskCanvasProps {
   // fresh follow-up run. Same plumbing as onRetried: parent jumps selection
   // to the new row and refetches the sidebar.
   onForked?: (newId: string) => void;
+  // Called when a message is attached to a task, especially terminal ones that
+  // transition back to pending. Refetches the sidebar.
+  onAttached?: () => void;
 }
 
 export function TaskCanvas({
@@ -167,6 +174,7 @@ export function TaskCanvas({
   onRetried,
   onCancelled,
   onForked,
+  onAttached,
 }: TaskCanvasProps) {
   const [item, setItem] = useState<ApiQueueItem | null>(null);
   const [loading, setLoading] = useState(false);
@@ -330,9 +338,7 @@ export function TaskCanvas({
   const composerHint =
     composerMode === 'disabled'
       ? 'Replies are paused while the agent is working. They’ll re-open when it pauses or finishes.'
-      : composerMode === 'attach'
-        ? 'Your reply will be queued for this task and picked up on its next step.'
-        : 'This task has finished. Your reply will start a follow-up run.';
+      : 'Your reply will be queued for this task and picked up on its next step.';
 
   const handleCancel = async () => {
     if (!taskId || actionPending) return;
@@ -374,7 +380,7 @@ export function TaskCanvas({
         body: JSON.stringify({ text }),
       });
       const body = (await res.json().catch(() => null)) as
-        | { data?: { kind: 'attached'; queue_position: number } | { kind: 'forked'; new_run_id: string }; error?: string }
+        | { data?: { kind: 'attached'; queue_position: number; status: WorkforceQueueStatus } | { kind: 'forked'; new_run_id: string }; error?: string }
         | null;
       if (!res.ok) {
         throw new Error(body?.error ?? `Submit failed (HTTP ${res.status})`);
@@ -385,6 +391,12 @@ export function TaskCanvas({
         const ord =
           data.queue_position === 1 ? 'next up' : `position ${data.queue_position}`;
         setComposerToast(`Queued for this task (${ord}).`);
+        if (data.status) {
+          setItem((prev) =>
+            prev ? { ...prev, status: data.status as WorkforceQueueStatus } : null,
+          );
+        }
+        onAttached?.();
       } else if (data?.kind === 'forked') {
         onForked?.(data.new_run_id);
       }
@@ -628,11 +640,7 @@ export function TaskCanvas({
                 void handleComposerSubmit();
               }
             }}
-            placeholder={
-              composerMode === 'fork'
-                ? 'Send a follow-up instruction…'
-                : 'Reply to the Workforce or add a new instruction…'
-            }
+            placeholder="Reply to the Workforce or add a new instruction…"
             className="flex-1 resize-none bg-transparent py-2 text-sm outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed"
           />
           <button

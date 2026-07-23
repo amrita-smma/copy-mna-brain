@@ -3435,7 +3435,7 @@ async function main() {
     const PIC = avContacts[0]!;
     const SECONDARY = avContacts[1]!;
     const dayMs = 24 * 60 * 60 * 1000;
-    const avBase = new Date('2026-04-10T09:00:00Z').getTime();
+    const avBase = new Date(Date.now() - 12 * 24 * 60 * 60 * 1000).getTime();
 
     type AvMail = {
       idx: number;
@@ -3761,7 +3761,7 @@ async function main() {
             set: { is_email_synced: true },
           });
 
-        const shBase = new Date('2026-04-15T09:00:00Z').getTime();
+        const shBase = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).getTime();
         const shMails = [
           {
             idx: 1,
@@ -3994,7 +3994,7 @@ async function main() {
             set: { is_email_synced: true },
           });
 
-        const tgBase = new Date('2026-04-20T09:00:00Z').getTime();
+        const tgBase = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).getTime();
         const tgMails = [
           {
             idx: 1,
@@ -4225,7 +4225,7 @@ async function main() {
             set: { is_email_synced: true },
           });
 
-        const aeBase = new Date('2026-04-25T09:00:00Z').getTime();
+        const aeBase = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).getTime();
         const aeMails = [
           {
             idx: 1,
@@ -4406,7 +4406,7 @@ async function main() {
       }
 
       const rtDayMs = 24 * 60 * 60 * 1000;
-      const rtBase = new Date('2026-05-02T09:00:00Z').getTime();
+      const rtBase = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).getTime();
       const nowIso = new Date().toISOString();
 
       const [rtMbox] = await db

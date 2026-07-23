@@ -114,6 +114,8 @@ export interface InsightsContext {
   lastVaultSyncedAt?: string | null;
   /** Milliseconds between scheduled Vault syncs. */
   vaultSyncCadenceMs?: number;
+  /** Client's today timestamp in ISO format for time-relative insights. */
+  clientTodayIso?: string;
 }
 
 export interface CreateContactInput {
@@ -612,12 +614,15 @@ export class CRMService {
   async insights(ctx: InsightsContext = {}): Promise<CRMInsights> {
     const now = Date.now();
     const staleThreshold = new Date(now - STALE_DAYS * DAY_MS).toISOString();
-    const todayStart = new Date();
-    todayStart.setHours(0, 0, 0, 0);
+    let todayStartIso = new Date(new Date().setHours(0, 0, 0, 0)).toISOString();
+    if (ctx.clientTodayIso) {
+      todayStartIso = ctx.clientTodayIso;
+    }
+    
     const [stale, flagged, todayCount] = await Promise.all([
-      this.emailRepo.countStaleEmployers(staleThreshold),
-      this.employerRepo.countFlagged(),
-      this.emailRepo.countSince(todayStart.toISOString()),
+      this.emailRepo.countStaleEmployers(staleThreshold, this.workspaceId),
+      this.employerRepo.countFlagged(this.workspaceId),
+      this.emailRepo.countSince(todayStartIso, this.workspaceId),
     ]);
     const lastSyncedAt = ctx.lastVaultSyncedAt ?? null;
     const nextSyncAt =

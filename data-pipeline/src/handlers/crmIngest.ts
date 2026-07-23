@@ -32,7 +32,7 @@ import type { CompanyRow } from '../helpers/matchRelatedCompany';
 import type { DbClient, Tables } from '@/lib/repositories';
 import { getActiveWorkspaceId } from '@/lib/workspace';
 import type { EnrichedPerson } from '../mboxParser';
-import { INTERNAL_MAIL_DOMAINS } from './crmDomainClassify';
+import { INTERNAL_MAIL_DOMAINS, PERSONAL_MAIL_DOMAINS } from './crmDomainClassify';
 
 export const VAULT_CRM_INGEST_TIMEOUT_SECONDS = 1800; // 30 minutes
 export const DEFAULT_LIMIT = 5000;
@@ -292,8 +292,10 @@ export async function runCrmIngest(
   const persistedDomainToEmployerId = await employerDomainRepo.loadMap();
 
   // 3. Exclusion filter.
-  const isExcluded = (email: string | undefined | null) =>
-    excludedDomains.has(domainOf(email ?? ''));
+  const isExcluded = (email: string | undefined | null) => {
+    const domain = domainOf(email ?? '');
+    return excludedDomains.has(domain) || INTERNAL_MAIL_DOMAINS.has(domain) || PERSONAL_MAIL_DOMAINS.has(domain);
+  };
   const rowsToIngest = targets.filter((r) => !isExcluded(r.from_address));
   result.rows_excluded = targets.length - rowsToIngest.length;
 

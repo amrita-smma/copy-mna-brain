@@ -171,7 +171,7 @@ export class AiWorkforceService {
    *   - paused / queued (pending, waiting_for_human_input, resume_ready) →
    *     append to the row's pending_user_messages buffer. runAgent's load
    *     step consumes the buffer atomically on the next invoke/resume.
-   *   - terminal (succeeded, failed, rejected, timed_out) → fork a fresh
+   *   - terminal (succeeded, failed, rejected, timed_out) → flip to pending and reopen
    *     workforce row that re-enters the same LangGraph thread (the agent
    *     sees the prior conversation's checkpoint) with the user's text as
    *     the next HumanMessage.
@@ -196,15 +196,23 @@ export class AiWorkforceService {
       throw new TaskBusyError(row.status);
     }
 
-    if (ATTACH_STATUSES.includes(row.status)) {
+    const TERMINAL_STATUSES: readonly WorkforceStatus[] = [
+      'succeeded',
+      'failed',
+      'rejected',
+      'timed_out',
+    ] as const;
+
+    if (ATTACH_STATUSES.includes(row.status) || TERMINAL_STATUSES.includes(row.status)) {
       const message: PendingUserMessage = {
         id: randomUUID(),
         text: trimmed,
         submitted_at: new Date().toISOString(),
         submitted_by_user_id: input.userId,
       };
+      const isTerminal = TERMINAL_STATUSES.includes(row.status);
       const { row: updated, queue_position } =
-        await this.queueRepo.appendPendingUserMessage(input.runId, message);
+        await this.queueRepo.appendPendingUserMessage(input.runId, message, isTerminal ? 'pending' : undefined);
       return {
         kind: 'attached',
         message_id: message.id,
@@ -213,7 +221,7 @@ export class AiWorkforceService {
       };
     }
 
-    // Terminal — fork a follow-up run that resumes the original
+    // Terminal — reopen by flipping the row to pending to resume the original
     // LangGraph thread (input.follow_up_thread_id signals runAgent to use
     // the original runId as the checkpoint thread_id).
     const followUpTitle =

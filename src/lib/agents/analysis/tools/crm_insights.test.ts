@@ -30,7 +30,7 @@ describe("crmInsights", () => {
     countFlaggedMock.mockResolvedValue(2);
     countSinceMock.mockResolvedValue(15);
 
-    const result = (await crmInsights.invoke({})) as string;
+    const result = (await crmInsights.invoke({}, { configurable: { workspaceId: "ws-123" } })) as string;
 
     expect(result).toContain("## CRM Insights");
     expect(result).toContain("**Stale relationships:** 7");
@@ -43,7 +43,7 @@ describe("crmInsights", () => {
     countFlaggedMock.mockResolvedValue(0);
     countSinceMock.mockResolvedValue(0);
 
-    await crmInsights.invoke({});
+    await crmInsights.invoke({}, { configurable: { workspaceId: "ws-123" } });
 
     expect(countStaleEmployersMock).toHaveBeenCalledTimes(1);
     const thresholdArg = countStaleEmployersMock.mock.calls[0][0] as string;
@@ -59,7 +59,7 @@ describe("crmInsights", () => {
     countFlaggedMock.mockResolvedValue(0);
     countSinceMock.mockResolvedValue(0);
 
-    const result = (await crmInsights.invoke({})) as string;
+    const result = (await crmInsights.invoke({}, { configurable: { workspaceId: "ws-123" } })) as string;
     expect(result).toContain("**Error:** db down");
   });
 });

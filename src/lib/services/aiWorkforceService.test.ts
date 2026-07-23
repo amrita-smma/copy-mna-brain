@@ -189,7 +189,7 @@ describe('AiWorkforceService.submitUserMessage', () => {
   it('throws TaskNotFoundError when the row is missing', async () => {
     const service = makeServiceWith({
       findById: vi.fn().mockResolvedValueOnce(null),
-      appendPendingUserMessage: vi.fn(),
+      appendPendingUserMessage: vi.fn().mockResolvedValue({ row: { status: 'pending' }, queue_position: 1 }),
     });
     await expect(
       service.submitUserMessage({
@@ -207,7 +207,7 @@ describe('AiWorkforceService.submitUserMessage', () => {
         triggered_by_user_id: 'someone-else',
         status: 'pending',
       }),
-      appendPendingUserMessage: vi.fn(),
+      appendPendingUserMessage: vi.fn().mockResolvedValue({ row: { status: 'pending' }, queue_position: 1 }),
     });
     await expect(
       service.submitUserMessage({
@@ -225,7 +225,7 @@ describe('AiWorkforceService.submitUserMessage', () => {
         triggered_by_user_id: 'u1',
         status: 'running',
       }),
-      appendPendingUserMessage: vi.fn(),
+      appendPendingUserMessage: vi.fn().mockResolvedValue({ row: { status: 'pending' }, queue_position: 1 }),
     });
     await expect(
       service.submitUserMessage({ runId: 'r1', userId: 'u1', text: 'hi' }),
@@ -239,7 +239,7 @@ describe('AiWorkforceService.submitUserMessage', () => {
         triggered_by_user_id: 'u1',
         status: 'waiting_for_subagent',
       }),
-      appendPendingUserMessage: vi.fn(),
+      appendPendingUserMessage: vi.fn().mockResolvedValue({ row: { status: 'pending' }, queue_position: 1 }),
     });
     await expect(
       service.submitUserMessage({ runId: 'r1', userId: 'u1', text: 'hi' }),
@@ -249,7 +249,7 @@ describe('AiWorkforceService.submitUserMessage', () => {
   it('throws when text is empty after trim', async () => {
     const service = makeServiceWith({
       findById: vi.fn(),
-      appendPendingUserMessage: vi.fn(),
+      appendPendingUserMessage: vi.fn().mockResolvedValue({ row: { status: 'pending' }, queue_position: 1 }),
     });
     await expect(
       service.submitUserMessage({
@@ -302,11 +302,11 @@ describe('AiWorkforceService.submitUserMessage', () => {
   }
 
   it.each(['succeeded', 'failed', 'rejected', 'timed_out'] as const)(
-    'forks via enqueueAgentRun when status is %s (terminal)',
+    'attaches message and sets status to pending when status is %s (terminal)',
     async (status) => {
-      enqueueAgentRun.mockResolvedValueOnce({
-        runId: 'new-run',
-        created: true,
+      const appendPendingUserMessage = vi.fn().mockResolvedValueOnce({
+        row: { status: 'pending' },
+        queue_position: 1,
       });
       const service = makeServiceWith({
         findById: vi.fn().mockResolvedValueOnce({
@@ -318,7 +318,7 @@ describe('AiWorkforceService.submitUserMessage', () => {
           title: 'Original task',
           priority: 7,
         }),
-        appendPendingUserMessage: vi.fn(),
+        appendPendingUserMessage,
       });
 
       const result = await service.submitUserMessage({
@@ -328,30 +328,20 @@ describe('AiWorkforceService.submitUserMessage', () => {
       });
 
       expect(result).toEqual({
-        kind: 'forked',
-        new_run_id: 'new-run',
+        kind: 'attached',
+        message_id: expect.any(String),
+        queue_position: 1,
         status: 'pending',
       });
-      expect(enqueueAgentRun).toHaveBeenCalledWith(
-        expect.anything(),
+      expect(appendPendingUserMessage).toHaveBeenCalledWith(
+        'orig',
         expect.objectContaining({
-          agentName: 'analysis',
-          triggerSource: 'chat',
-          parentRunId: 'orig',
-          priority: 7,
-          triggeredByUserId: 'u1',
-          input: expect.objectContaining({
-            title: 'Original task',
-            prompt: 'follow up on Acme',
-            instruction: 'follow up on Acme',
-            follow_up_thread_id: 'orig',
-          }),
-          triggerMeta: expect.objectContaining({
-            follow_up_from_run_id: 'orig',
-            submitted_by_user_id: 'u1',
-          }),
+          text: 'follow up on Acme',
+          submitted_by_user_id: 'u1',
         }),
+        'pending'
       );
+      expect(enqueueAgentRun).not.toHaveBeenCalled();
     },
   );
 });

@@ -1,10 +1,12 @@
-import { and, desc, eq, gte, inArray, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, or, sql } from "drizzle-orm";
 import {
   correspondents,
   emailParticipants,
   emails,
   emailTopics,
   employers,
+  userWorkspaces,
+  workspaceCorrespondents,
 } from "@/lib/db/schema";
 import type { DbClient } from "./types";
 
@@ -67,11 +69,30 @@ export class EmailRepository {
     return rows[0];
   }
 
-  async countSince(isoDate: string): Promise<number> {
+  async countSince(isoDate: string, workspaceId: string): Promise<number> {
     const rows = await this.db
-      .select({ n: sql<number>`COUNT(*)` })
+      .select({ n: sql<number>`COUNT(DISTINCT ${emails.id})` })
       .from(emails)
-      .where(gte(emails.sent_at, isoDate));
+      .innerJoin(emailParticipants, eq(emailParticipants.email_id, emails.id))
+      .innerJoin(correspondents, eq(correspondents.id, emailParticipants.correspondent_id))
+      .innerJoin(
+        workspaceCorrespondents,
+        eq(workspaceCorrespondents.correspondent_id, correspondents.id)
+      )
+      .where(
+        and(
+          gte(emails.sent_at, isoDate),
+          eq(workspaceCorrespondents.workspace_id, workspaceId),
+          or(
+            sql`${workspaceCorrespondents.source} != 'ingest'`,
+            sql`EXISTS (
+              SELECT 1 FROM ${userWorkspaces}
+              WHERE ${userWorkspaces.workspace_id} = ${workspaceId}
+                AND ${userWorkspaces.is_email_synced} = true
+            )`
+          )
+        )
+      );
     return Number(rows[0]?.n ?? 0);
   }
 
@@ -168,24 +189,40 @@ export class EmailRepository {
     return out;
   }
 
-  async countStaleEmployers(thresholdIso: string): Promise<number> {
+  async countStaleEmployers(thresholdIso: string, workspaceId: string): Promise<number> {
     const rows = await this.db
       .select({ n: sql<number>`COUNT(*)` })
       .from(employers)
       .where(
         and(
           eq(employers.curation_status, "published"),
-          // Match the CRM card: "last contact" = any email this employer's
-          // correspondents participated in (not just emails they sent).
+          sql`EXISTS (
+            SELECT 1 FROM ${correspondents}
+            JOIN ${workspaceCorrespondents} ON ${workspaceCorrespondents.correspondent_id} = ${correspondents.id}
+            WHERE ${correspondents.employer_id} = ${employers.id}
+              AND ${workspaceCorrespondents.workspace_id} = ${workspaceId}
+              AND (${workspaceCorrespondents.source} != 'ingest' OR EXISTS (
+                SELECT 1 FROM ${userWorkspaces}
+                WHERE ${userWorkspaces.workspace_id} = ${workspaceId}
+                  AND ${userWorkspaces.is_email_synced} = true
+              ))
+          )`,
           sql`COALESCE(
             (SELECT MAX(${emails.sent_at})
              FROM ${emailParticipants}
              JOIN ${correspondents} ON ${correspondents.id} = ${emailParticipants.correspondent_id}
              JOIN ${emails}         ON ${emails.id}         = ${emailParticipants.email_id}
-             WHERE ${correspondents.employer_id} = ${employers.id}),
+             JOIN ${workspaceCorrespondents} ON ${workspaceCorrespondents.correspondent_id} = ${correspondents.id}
+             WHERE ${correspondents.employer_id} = ${employers.id}
+               AND ${workspaceCorrespondents.workspace_id} = ${workspaceId}
+               AND (${workspaceCorrespondents.source} != 'ingest' OR EXISTS (
+                 SELECT 1 FROM ${userWorkspaces}
+                 WHERE ${userWorkspaces.workspace_id} = ${workspaceId}
+                   AND ${userWorkspaces.is_email_synced} = true
+               ))),
             ${employers.created_at}
-          ) < ${thresholdIso}`,
-        ),
+          ) < ${thresholdIso}`
+        )
       );
     return Number(rows[0]?.n ?? 0);
   }
