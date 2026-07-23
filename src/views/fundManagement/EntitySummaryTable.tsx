@@ -1,10 +1,11 @@
 'use client';
 
+import { useState, type ReactNode } from 'react';
 import { cn } from '@/lib/utils';
 import type { Fund, Investor } from './types';
-import { aggregateByTxn, getAssetEntity, investorAgg, OTHERS_ENTITY } from './calc';
+import { investorInvestedInFund } from './calc';
 import { useFundMoney } from './useFundMoney';
-import { DeleteRowMenu, GlossaryTerm, Pill } from './parts';
+import { DeleteRowMenu, GlossaryTerm, Pill, Chevron } from './parts';
 
 const COLS: { label: string; term?: string; align: 'left' | 'right' }[] = [
   { label: 'Investment Entity', align: 'left' },
@@ -15,7 +16,7 @@ const COLS: { label: string; term?: string; align: 'left' | 'right' }[] = [
   { label: 'MOIC', term: 'returnmult', align: 'right' },
 ];
 
-/** The "Investment Entity" tab: a read-only aggregate row per entity (no expand). */
+/** The "Investment Entity" tab: an aggregate row per entity (expands to show per-fund breakdown). */
 export function EntitySummaryTable({
   funds,
   investors,
@@ -28,34 +29,46 @@ export function EntitySummaryTable({
   onDeleteInvestor?: (investorId: string) => Promise<void>;
 }) {
   const { money } = useFundMoney();
-  // Roll each entity's performance (Invested / Unrealized MV / Net Gain / MOIC)
-  // up from the transaction ledger: every transaction is attributed to its own
-  // holding entity (`txn.holdingEntityId`), falling back to the asset's entity
-  // when it names none, so a single asset can split across investors. Commitment
-  // stays stake-based — a pledge isn't derivable from transactions.
-  const idByName = new Map(investors.map((inv) => [inv.n.trim(), inv.id]));
-  const knownIds = new Set(investors.map((inv) => inv.id));
-  const assetEntityKey = (h: Parameters<typeof getAssetEntity>[0]) => {
-    const name = getAssetEntity(h);
-    return name && idByName.has(name) ? idByName.get(name)! : OTHERS_ENTITY;
+  const [openInvestors, setOpenInvestors] = useState<Set<string>>(new Set());
+
+  const toggle = (id: string) => {
+    const next = new Set(openInvestors);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    setOpenInvestors(next);
   };
-  const byEntity = aggregateByTxn(
-    funds,
-    (t, h) =>
-      t.holdingEntityId
-        ? knownIds.has(t.holdingEntityId)
-          ? t.holdingEntityId
-          : OTHERS_ENTITY
-        : assetEntityKey(h),
-    (h) => [assetEntityKey(h)],
-  );
-  const zero = { cost: 0, fmv: 0, real: 0, gain: 0, moic: 0, count: 0 };
   const rows = investors
-    .map((inv) => ({
-      inv,
-      commit: investorAgg(inv, funds).commit,
-      a: byEntity.get(inv.id) ?? zero,
-    }))
+    .map((inv) => {
+      let cost = 0;
+      let fmv = 0;
+      let real = 0;
+      let commit = 0;
+      
+      funds.forEach((f) => {
+        const committed = inv.stakes[f.id] || 0;
+        commit += committed;
+        const s = f.size > 0 ? committed / f.size : 0;
+        const fundInvested = f.h.reduce((acc, h) => acc + h.cost, 0);
+        const rawInvested = investorInvestedInFund(inv.id, f);
+        const invested = rawInvested > 0 ? rawInvested : fundInvested * s;
+        
+        if (committed > 0 || invested > 0) {
+          const share = s > 0 ? s : (fundInvested > 0 ? invested / fundInvested : 0);
+          cost += invested;
+          fmv += f.fmv * share;
+          real += f.real * share;
+        }
+      });
+      
+      const gain = fmv + real - cost;
+      const moic = cost > 0 ? (fmv + real) / cost : 0;
+      
+      return {
+        inv,
+        commit,
+        a: { cost, fmv, real, gain, moic, count: 0 },
+      };
+    })
     .sort((x, y) => y.a.fmv - x.a.fmv);
 
   return (
@@ -85,48 +98,147 @@ export function EntitySummaryTable({
                 </td>
               </tr>
             )}
-            {rows.map(({ inv, commit, a }) => (
-              <tr key={inv.id} className="border-b [&>td]:bg-card hover:[&>td]:bg-muted/40">
-                <td className="px-3 py-2.5 align-middle">
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="flex items-center gap-2">
-                      <span className="text-[13px] font-medium text-foreground">{inv.n}</span>
-                      {onEditStakes && (
-                        <button
-                          type="button"
-                          onClick={() => onEditStakes(inv.id)}
-                          className="text-[11px] text-muted-foreground hover:text-foreground hover:underline"
-                        >
-                          ✎ Edit
-                        </button>
-                      )}
-                      {inv.type && <Pill>{inv.type}</Pill>}
-                    </div>
-                    {onDeleteInvestor && (
-                      <DeleteRowMenu
-                        label="Delete entity"
-                        title={`Delete "${inv.n}"?`}
-                        description="This removes the investment entity and its per-fund commitment/invested pledges. No assets or transactions are deleted — any holdings that named this entity will move to “Others”. This action cannot be undone."
-                        onConfirm={() => onDeleteInvestor(inv.id)}
-                      />
-                    )}
-                  </div>
-                </td>
-                <td className="px-3 py-2.5 text-right align-middle text-[13px] font-medium text-foreground">{money(commit)}</td>
-                <td className="px-3 py-2.5 text-right align-middle text-[13px] text-foreground">{money(a.cost)}</td>
-                <td className="px-3 py-2.5 text-right align-middle text-[13px] font-medium text-foreground">{money(a.fmv)}</td>
-                <td
+            {rows.map(({ inv, commit, a }) => {
+              const isOpen = openInvestors.has(inv.id);
+              const tableRows: ReactNode[] = [];
+              
+              tableRows.push(
+                <tr 
+                  key={inv.id} 
+                  onClick={() => toggle(inv.id)}
                   className={cn(
-                    'px-3 py-2.5 text-right align-middle text-[13px] font-medium',
-                    a.gain >= 0 ? 'text-success' : 'text-destructive',
+                    'cursor-pointer border-b [&>td]:bg-card hover:[&>td]:bg-muted/40',
+                    isOpen && '[&>td]:!bg-accent/10'
                   )}
                 >
-                  {a.gain >= 0 ? '+' : '−'}
-                  {money(Math.abs(a.gain))}
-                </td>
-                <td className="px-3 py-2.5 text-right align-middle text-[13px] font-medium text-foreground">{a.moic.toFixed(2)}×</td>
-              </tr>
-            ))}
+                  <td className="px-3 py-2.5 align-middle">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          aria-expanded={isOpen}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            toggle(inv.id);
+                          }}
+                          className="flex h-6 w-6 items-center justify-center rounded-sm hover:bg-muted focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                        >
+                          <Chevron open={isOpen} />
+                        </button>
+                        <span className="text-[13px] font-medium text-foreground">{inv.n}</span>
+                        {onEditStakes && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onEditStakes(inv.id);
+                            }}
+                            className="text-[11px] text-muted-foreground hover:text-foreground hover:underline"
+                          >
+                            ✎ Edit
+                          </button>
+                        )}
+                        {inv.type && <Pill>{inv.type}</Pill>}
+                      </div>
+                      {onDeleteInvestor && (
+                        <div onClick={(e) => e.stopPropagation()}>
+                          <DeleteRowMenu
+                            label="Delete entity"
+                            title={`Delete "${inv.n}"?`}
+                            description="This removes the investment entity and its per-fund commitment/invested pledges. No assets or transactions are deleted — any holdings that named this entity will move to “Others”. This action cannot be undone."
+                            onConfirm={() => onDeleteInvestor(inv.id)}
+                          />
+                        </div>
+                      )}
+                    </div>
+                  </td>
+                  <td className="px-3 py-2.5 text-right align-middle text-[13px] font-medium text-foreground">{money(commit)}</td>
+                  <td className="px-3 py-2.5 text-right align-middle text-[13px] text-foreground">{money(a.cost)}</td>
+                  <td className="px-3 py-2.5 text-right align-middle text-[13px] font-medium text-foreground">{money(a.fmv)}</td>
+                  <td
+                    className={cn(
+                      'px-3 py-2.5 text-right align-middle text-[13px] font-medium',
+                      a.gain >= 0 ? 'text-success' : 'text-destructive',
+                    )}
+                  >
+                    {a.gain >= 0 ? '+' : '−'}
+                    {money(Math.abs(a.gain))}
+                  </td>
+                  <td className="px-3 py-2.5 text-right align-middle text-[13px] font-medium text-foreground">{a.moic.toFixed(2)}×</td>
+                </tr>
+              );
+
+              if (isOpen) {
+                // Determine funds this investor is part of
+                const relevantFunds = funds.map((f) => {
+                  const committed = inv.stakes[f.id] || 0;
+                  const s = f.size > 0 ? committed / f.size : 0;
+                  const fundInvested = f.h.reduce((acc, h) => acc + h.cost, 0);
+                  const rawInvested = investorInvestedInFund(inv.id, f);
+                  const invested = rawInvested > 0 ? rawInvested : fundInvested * s;
+                  const share = s > 0 ? s : (fundInvested > 0 ? invested / fundInvested : 0);
+                  const fmv = f.fmv * share;
+                  const real = f.real * share;
+                  const gain = fmv + real - invested;
+                  const moic = invested > 0 ? (fmv + real) / invested : 0;
+                  
+                  return {
+                    f,
+                    committed,
+                    invested,
+                    fmv,
+                    real,
+                    gain,
+                    moic
+                  };
+                }).filter(r => r.committed > 0 || r.invested > 0);
+
+                if (relevantFunds.length === 0) {
+                  tableRows.push(
+                    <tr key={`${inv.id}-empty`} className="border-b">
+                      <td colSpan={COLS.length} className="px-3 py-3 pl-10 text-[13px] text-muted-foreground bg-muted/10">
+                        No funds committed.
+                      </td>
+                    </tr>
+                  );
+                } else {
+                  relevantFunds.forEach((r) => {
+                    tableRows.push(
+                      <tr key={`${inv.id}-${r.f.id}`} className="border-b [&>td]:bg-muted/10 hover:[&>td]:bg-background">
+                        <td className="py-2 pl-3 pr-3 align-middle">
+                          <div className="flex items-center">
+                            <span className="w-5 shrink-0" />
+                            <div className="border-l-2 border-border pl-2.5">
+                              <div className="text-[13px] font-medium text-foreground">{r.f.n}</div>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="px-3 py-2 text-right align-middle text-[13px] text-foreground">{money(r.committed)}</td>
+                        <td className="px-3 py-2 text-right align-middle text-[13px] text-foreground">{money(r.invested)}</td>
+                        <td className="px-3 py-2 text-right align-middle text-[13px] text-foreground">
+                          {money(r.fmv)}
+                        </td>
+                        <td
+                          className={cn(
+                            'px-3 py-2 text-right align-middle text-[13px]',
+                            r.gain >= 0
+                              ? 'text-success'
+                              : 'text-destructive',
+                          )}
+                        >
+                          {`${r.gain >= 0 ? '+' : '−'}${money(Math.abs(r.gain))}`}
+                        </td>
+                        <td className="px-3 py-2 text-right align-middle text-[13px] text-foreground">
+                          {`${r.moic.toFixed(2)}×`}
+                        </td>
+                      </tr>
+                    );
+                  });
+                }
+              }
+
+              return tableRows;
+            })}
           </tbody>
         </table>
       </div>

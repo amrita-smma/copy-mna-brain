@@ -61,7 +61,7 @@ export function fundForEntity(entity: string | null): string {
   if (e.includes('meranti')) {
     return /^meranti global investment ltd\.?$/.test(e) ? 'Meranti 1' : 'Meranti 2';
   }
-  if (e.includes('startech growth')) return 'Startech Growth Fund 1';
+  if (e.includes('startech')) return 'Startech Growth Fund 1';
   return OTHERS_FUND;
 }
 

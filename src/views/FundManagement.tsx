@@ -54,13 +54,11 @@ import { FundDataContext } from './fundManagement/context';
 import { useFeatureEnabled } from '@/components/layout/FeatureFlagsContext';
 import {
   applyHoldingMetrics,
-  collectHoldingsByEntity,
   getAssetEntity,
   getAssetFundingSources,
   investorInvestedInFund,
   recomputeFund,
   scopeHoldingToFund,
-  sourceAgg,
 } from './fundManagement/calc';
 import { useFundMoney } from './fundManagement/useFundMoney';
 import type { Fund, HoldingType, Investor } from './fundManagement/types';
@@ -665,10 +663,23 @@ export default function FundManagement({
   showCompanyGraph = false,
   showFundManagement = false,
 }: FundManagementProps) {
-  const [funds, setFunds] = useState<Fund[] | null>(null);
+  const [_funds, setFunds] = useState<Fund[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [investorRows, setInvestorRows] = useState<InvestorRow[]>([]);
   const [stakeRows, setStakeRows] = useState<StakeRow[]>([]);
+
+  const funds = useMemo(() => {
+    if (!_funds) return null;
+    return _funds.map((f) => {
+      let totalStakesM = 0;
+      stakeRows.forEach((s) => {
+        if (s.fund_id === f.id && s.commitment_amount) {
+          totalStakesM += s.commitment_amount / 1_000_000;
+        }
+      });
+      return { ...f, size: Math.max(f.size, totalStakesM) };
+    });
+  }, [_funds, stakeRows]);
   const [fundSourceRows, setFundSourceRows] = useState<FundSourceRow[]>([]);
   const [tab, setTab] = useState<PortfolioTab>('asset');
   // Source-of-funds tracking is a per-workspace setting (admin Funds tab). When
@@ -964,9 +975,8 @@ export default function FundManagement({
     return investorRows.map((row) => {
       const stakes: Record<string, number> = {};
       Object.values(stakeDetail[row.id] ?? {}).forEach((s) => {
-        const sizeM = fundSizeById.get(s.fund_id) ?? 0; // fund.size is in millions
         const committedM = (s.commitment_amount ?? 0) / 1_000_000;
-        if (sizeM > 0 && committedM > 0) stakes[s.fund_id] = committedM / sizeM;
+        if (committedM > 0) stakes[s.fund_id] = committedM;
       });
       return { id: row.id, n: row.name, type: row.entity_type ?? '', stakes };
     });
@@ -1059,7 +1069,7 @@ export default function FundManagement({
                     {activeTab === 'asset' ? (
                       <AssetTable funds={funds ?? []} />
                     ) : activeTab === 'fund' ? (
-                      <FundSummaryTable funds={funds ?? []} onEditFund={(fund) => setEditFund(fund)} />
+                      <FundSummaryTable funds={funds ?? []} investors={tabInvestors} onEditFund={(fund) => setEditFund(fund)} />
                     ) : activeTab === 'investor' ? (
                       <EntitySummaryTable
                         funds={funds ?? []}
@@ -1237,29 +1247,36 @@ function StakeEditDialog({
     }
   };
 
-  // Ownership % per fund = committed ÷ fund size, driven live by the Commitment
-  // input. This is only a pledge indicator now — the entity's actual
-  // performance comes from the assets/transactions attributed to it (below),
-  // matching the Investor tab.
   const perFund = funds.map((f) => {
     const r = rows[f.id];
     const committedM = (r?.commitment ?? 0) / 1_000_000;
     const share = f.size > 0 && committedM > 0 ? committedM / f.size : 0;
-    // Invested = this entity's own contribution transactions in the fund.
-    const invested = investorId ? investorInvestedInFund(investorId, f) : 0;
+    
+    const fundInvested = f.h.reduce((acc, h) => acc + h.cost, 0);
+    const rawInvested = investorId ? investorInvestedInFund(investorId, f) : 0;
+    const invested = rawInvested > 0 ? rawInvested : fundInvested * share;
+    
     const value = f.fmv * share;
     const real = f.real * share;
     return { f, share, invested, value, real, gain: value + real - invested, moic: invested > 0 ? (value + real) / invested : 0 };
   });
+  
   const totalCommit = perFund.reduce(
     (s, p) => s + (rows[p.f.id]?.commitment ?? 0) / 1_000_000,
     0,
   );
-  // Invested / Unrealized MV / Net Gain / MOIC roll up from the assets whose
-  // investing entity is this one — i.e. straight from their transaction ledger.
-  const assetAgg = sourceAgg(
-    investorName ? (collectHoldingsByEntity(funds, [investorName]).get(investorName) ?? []) : [],
-  );
+  
+  const totalInvested = perFund.reduce((s, p) => s + p.invested, 0);
+  const totalValue = perFund.reduce((s, p) => s + p.value, 0);
+  const totalReal = perFund.reduce((s, p) => s + p.real, 0);
+  const totalGain = perFund.reduce((s, p) => s + p.gain, 0);
+  
+  const assetAgg = {
+    cost: totalInvested,
+    fmv: totalValue,
+    gain: totalGain,
+    moic: totalInvested > 0 ? (totalValue + totalReal) / totalInvested : 0
+  };
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -1283,9 +1300,6 @@ function StakeEditDialog({
               <div key={f.id} className="rounded-md border p-3">
                 <div className="mb-2 flex items-center justify-between">
                   <span className="text-[13px] font-medium text-foreground">{f.n}</span>
-                  <span className="text-[11px] text-muted-foreground">
-                    {(share * 100).toFixed(0)}% ownership
-                  </span>
                 </div>
                 <div className="space-y-1.5">
                   <Label>Commitment</Label>

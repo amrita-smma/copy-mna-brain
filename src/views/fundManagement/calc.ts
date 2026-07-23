@@ -396,14 +396,7 @@ export function portfolioTotals(funds: Fund[]): PortfolioTotals {
   };
 }
 
-export interface InvestorAgg {
-  commit: number;
-  called: number;
-  value: number;
-  real: number;
-  gain: number;
-  moic: number;
-}
+
 /**
  * Capital this investment entity has actually invested, in millions —
  * the sum of its own contribution (Buy) transactions across every holding,
@@ -422,24 +415,7 @@ export function investorInvestedInFund(entityId: string, fund: Fund): number {
   return invested;
 }
 
-export function investorInvestedFromTxns(entityId: string, funds: Fund[]): number {
-  return funds.reduce((sum, f) => sum + investorInvestedInFund(entityId, f), 0);
-}
 
-export function investorAgg(inv: Investor, funds: Fund[]): InvestorAgg {
-  let commit = 0;
-  let value = 0;
-  let real = 0;
-  funds.forEach((f) => {
-    const s = inv.stakes[f.id] || 0;
-    commit += f.size * s;
-    value += f.fmv * s;
-    real += f.real * s;
-  });
-  // Invested comes from this entity's own transactions, not a pro-rata slice.
-  const called = investorInvestedFromTxns(inv.id, funds);
-  return { commit, called, value, real, gain: value + real - called, moic: called > 0 ? (value + real) / called : 0 };
-}
 
 // ---- source-of-fund aggregates ----
 /** The capital pool(s) that funded a holding, split from the free-text field. */
@@ -458,20 +434,7 @@ export interface SourceHolding {
   f: Fund;
   hkey: string;
 }
-/** Group every holding by its source(s) of fund; a holding can appear in several. */
-export function collectHoldingsBySource(funds: Fund[]): Map<string, SourceHolding[]> {
-  const map = new Map<string, SourceHolding[]>();
-  funds.forEach((f) => {
-    f.h.forEach((h, hi) => {
-      const item: SourceHolding = { h, f, hkey: `${f.id}_${hi}` };
-      getAssetFundingSources(h).forEach((src) => {
-        if (!map.has(src)) map.set(src, []);
-        map.get(src)!.push(item);
-      });
-    });
-  });
-  return map;
-}
+
 
 // ---- investment-entity aggregates ----
 /** The investing entity a holding belongs to (type_details.investingEntity). */
@@ -480,52 +443,7 @@ export function getAssetEntity(h: Holding): string | null {
   return raw || null;
 }
 
-/**
- * Group every holding by its investing entity. Entities in `knownEntities`
- * always get a bucket (even if empty); any holding whose entity is blank or
- * not in that list falls into "Others". Mirrors collectHoldingsBySource.
- */
-export function collectHoldingsByEntity(
-  funds: Fund[],
-  knownEntities: string[],
-): Map<string, SourceHolding[]> {
-  const OTHERS = 'Others';
-  const known = new Set(knownEntities);
-  const map = new Map<string, SourceHolding[]>();
-  knownEntities.forEach((e) => map.set(e, []));
-  map.set(OTHERS, []);
-  funds.forEach((f) => {
-    f.h.forEach((h, hi) => {
-      const entity = getAssetEntity(h);
-      const key = entity && known.has(entity) ? entity : OTHERS;
-      map.get(key)!.push({ h, f, hkey: `${f.id}_${hi}` });
-    });
-  });
-  return map;
-}
 
-/**
- * Generic holding grouper for the Asset tab. `keyFn` returns the bucket key(s)
- * a holding belongs to — one key for fund/entity grouping, several for source
- * of fund (a holding can be funded from more than one pool). Buckets preserve
- * first-seen insertion order; the caller sorts.
- */
-export function groupHoldings(
-  funds: Fund[],
-  keyFn: (h: Holding, f: Fund) => string[],
-): Map<string, SourceHolding[]> {
-  const map = new Map<string, SourceHolding[]>();
-  funds.forEach((f) => {
-    f.h.forEach((h, hi) => {
-      const item: SourceHolding = { h, f, hkey: `${f.id}_${hi}` };
-      keyFn(h, f).forEach((key) => {
-        if (!map.has(key)) map.set(key, []);
-        map.get(key)!.push(item);
-      });
-    });
-  });
-  return map;
-}
 
 export interface SourceAgg {
   cost: number;
@@ -535,18 +453,7 @@ export interface SourceAgg {
   moic: number;
   count: number;
 }
-export function sourceAgg(items: SourceHolding[]): SourceAgg {
-  let cost = 0;
-  let fmv = 0;
-  let real = 0;
-  items.forEach(({ h }) => {
-    cost += h.cost;
-    fmv += h.fmv;
-    real += h.real;
-  });
-  const gain = fmv + real - cost;
-  return { cost, fmv, real, gain, moic: cost > 0 ? (fmv + real) / cost : 0, count: items.length };
-}
+
 
 // ============================================================================
 // Transaction-level attribution
