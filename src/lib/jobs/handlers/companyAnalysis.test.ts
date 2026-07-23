@@ -14,7 +14,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock('@/lib/posthog-server', () => ({
-  getPostHogClient: () => ({ capture: mocks.capture }),
+  captureWorkspaceEvent: mocks.capture,
 }));
 
 vi.mock('@/lib/agents/analysis', () => ({

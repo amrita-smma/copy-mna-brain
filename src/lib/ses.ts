@@ -1,5 +1,6 @@
 import { SESv2Client, SendEmailCommand } from '@aws-sdk/client-sesv2';
-import { getPostHogClient } from '@/lib/posthog-server';
+import { captureWorkspaceEvent } from '@/lib/posthog-server';
+import { getActiveWorkspaceId } from '@/lib/workspace';
 
 // SES Configuration
 //
@@ -130,7 +131,8 @@ export async function sendEmail(input: SendEmailInput): Promise<SendEmailResult>
 
   const response = await client.send(command);
 
-  getPostHogClient()?.capture({
+  captureWorkspaceEvent({
+    workspaceId: await getActiveWorkspaceId(),
     distinctId: 'server',
     event: 'email_sent',
     properties: {
@@ -250,7 +252,8 @@ export async function sendEmailWithAttachment(
 
   const response = await client.send(command);
 
-  getPostHogClient()?.capture({
+  captureWorkspaceEvent({
+    workspaceId: await getActiveWorkspaceId(),
     distinctId: 'server',
     event: 'email_sent',
     properties: {

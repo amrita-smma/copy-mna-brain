@@ -8,7 +8,7 @@ const { enqueueAgentRun, captureMock } = vi.hoisted(() => ({
 vi.mock('@/lib/workforce', () => ({ enqueueAgentRun }));
 
 vi.mock('@/lib/posthog-server', () => ({
-  getPostHogClient: () => ({ capture: captureMock }),
+  captureWorkspaceEvent: captureMock,
 }));
 
 import {
@@ -52,7 +52,11 @@ describe('AiWorkforceService.enqueueFromChat', () => {
   it('captures a workforce_task_assigned PostHog event attributed to the user', async () => {
     enqueueAgentRun.mockResolvedValueOnce({ runId: 'run-1', created: true });
     const service = makeService(
-      vi.fn().mockResolvedValueOnce({ id: 'run-1', status: 'pending' }),
+      vi.fn().mockResolvedValueOnce({
+        id: 'run-1',
+        status: 'pending',
+        workspace_id: 'ws-1',
+      }),
     );
 
     await service.enqueueFromChat({
@@ -66,6 +70,7 @@ describe('AiWorkforceService.enqueueFromChat', () => {
 
     expect(captureMock).toHaveBeenCalledWith(
       expect.objectContaining({
+        workspaceId: 'ws-1',
         distinctId: 'user-1',
         event: 'workforce_task_assigned',
         properties: expect.objectContaining({

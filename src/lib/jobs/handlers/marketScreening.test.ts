@@ -49,7 +49,7 @@ vi.mock('@/lib/repositories', () => {
   };
 });
 
-vi.mock('@/lib/posthog-server', () => ({ getPostHogClient: () => null }));
+vi.mock('@/lib/posthog-server', () => ({ captureWorkspaceEvent: vi.fn() }));
 
 import { runMarketScreening } from './marketScreening';
 

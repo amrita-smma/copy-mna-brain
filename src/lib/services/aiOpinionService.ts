@@ -1,7 +1,7 @@
 import type { CompanyRepository } from '@/lib/repositories';
 import type { DbClient } from '@/lib/repositories';
 import { AiWorkforceQueueRepository } from '@/lib/repositories';
-import { getPostHogClient } from '@/lib/posthog-server';
+import { captureWorkspaceEvent } from '@/lib/posthog-server';
 import { enqueueAgentRun } from '@/lib/workforce';
 
 /** agent_name recorded on the AI Workforce queue row for AI Opinion runs. */
@@ -110,7 +110,8 @@ export class AiOpinionService {
       triggeredByUserId: triggeredByUserId ?? null,
     });
 
-    getPostHogClient()?.capture({
+    captureWorkspaceEvent({
+      workspaceId: this.workspaceId,
       distinctId: triggeredByUserId ?? 'server',
       event: 'ai_opinion_requested',
       properties: {

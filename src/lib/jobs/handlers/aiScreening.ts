@@ -13,7 +13,7 @@ import {
 import type { DbClient, Tables } from '@/lib/repositories';
 import { getActiveWorkspaceId } from '@/lib/workspace';
 import { z } from 'zod';
-import { getPostHogClient } from '@/lib/posthog-server';
+import { captureWorkspaceEvent } from '@/lib/posthog-server';
 
 export const AI_SCREENING_TIMEOUT_SECONDS = 480; // 8 minutes
 
@@ -289,7 +289,8 @@ export async function runAIScreening(
     await writeScreeningResult(screeningRepo, screeningId, deps.job.id, screeningResult);
     resultWritten = true;
 
-    getPostHogClient()?.capture({
+    captureWorkspaceEvent({
+      workspaceId,
       distinctId: 'server',
       event: 'ai_screening_completed',
       properties: {

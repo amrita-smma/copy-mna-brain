@@ -22,7 +22,11 @@ vi.mock('@aws-sdk/client-sesv2', () => ({
 }));
 
 vi.mock('@/lib/posthog-server', () => ({
-  getPostHogClient: () => ({ capture: captureMock }),
+  captureWorkspaceEvent: captureMock,
+}));
+
+vi.mock('@/lib/workspace', () => ({
+  getActiveWorkspaceId: vi.fn().mockResolvedValue('ws-1'),
 }));
 
 import {
@@ -63,6 +67,7 @@ describe('sendEmail (CC handling)', () => {
 
     expect(captureMock).toHaveBeenCalledWith(
       expect.objectContaining({
+        workspaceId: 'ws-1',
         distinctId: 'server',
         event: 'email_sent',
         properties: expect.objectContaining({

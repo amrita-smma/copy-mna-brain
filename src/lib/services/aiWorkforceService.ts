@@ -6,7 +6,7 @@ import type {
   WorkforceStatus,
 } from '@/lib/repositories';
 import { enqueueAgentRun } from '@/lib/workforce';
-import { getPostHogClient } from '@/lib/posthog-server';
+import { captureWorkspaceEvent } from '@/lib/posthog-server';
 import type { PendingUserMessage } from '@/lib/db/schema';
 
 export interface ChatHandoffInput {
@@ -147,7 +147,8 @@ export class AiWorkforceService {
       );
     }
 
-    getPostHogClient()?.capture({
+    captureWorkspaceEvent({
+      workspaceId: row.workspace_id,
       distinctId: data.user_id ?? 'server',
       event: 'workforce_task_assigned',
       properties: {

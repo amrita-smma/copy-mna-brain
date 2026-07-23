@@ -6,7 +6,7 @@ import {
 import { companiesSchema } from '@/lib/agents/analysis/tools';
 import { CompanyFinancialRepository, CompanyRepository, InvestmentThesisRepository } from '@/lib/repositories';
 import type { DbClient } from '@/lib/repositories';
-import { getPostHogClient } from '@/lib/posthog-server';
+import { captureWorkspaceEvent } from '@/lib/posthog-server';
 import { getActiveWorkspaceId } from '@/lib/workspace';
 
 export const MARKET_SCREENING_TIMEOUT_SECONDS = 480; // 8 minutes
@@ -265,7 +265,8 @@ Find ${sourcesCount} companies. Return ONLY the JSON object, no other text. Use 
 
   await markScanCompleted(thesisRepo, thesisIds);
 
-  getPostHogClient()?.capture({
+  captureWorkspaceEvent({
+    workspaceId,
     distinctId: 'server',
     event: 'market_screening_completed',
     properties: {

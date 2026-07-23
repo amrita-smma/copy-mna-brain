@@ -7,6 +7,7 @@ import { MNA_WORKSPACE_ID } from '@/lib/constants';
 import { CopilotAgentProvider } from '@/components/chat/CopilotAgentContext';
 import { FeatureFlagsProvider } from '@/components/layout/FeatureFlagsContext';
 import { WorkspaceCurrencyProvider } from '@/components/layout/WorkspaceCurrencyContext';
+import PostHogWorkspaceTracker from '@/components/layout/PostHogWorkspaceTracker';
 import { resolveWorkspaceFeatureFlags } from '@/lib/features/overrides';
 
 /**
@@ -51,7 +52,10 @@ export default async function WorkspaceLayout({
   return (
     <CopilotAgentProvider agentType={copilotAgent}>
       <WorkspaceCurrencyProvider currency={defaultCurrency}>
-        <FeatureFlagsProvider flags={featureFlags}>{children}</FeatureFlagsProvider>
+        <FeatureFlagsProvider flags={featureFlags}>
+          <PostHogWorkspaceTracker workspaceId={workspaceId} workspaceSlug={workspaceSlug} />
+          {children}
+        </FeatureFlagsProvider>
       </WorkspaceCurrencyProvider>
     </CopilotAgentProvider>
   );

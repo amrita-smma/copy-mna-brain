@@ -11,7 +11,7 @@ const { enqueueAgentRun, findActiveByCompanyId, captureMock } = vi.hoisted(
 vi.mock('@/lib/workforce', () => ({ enqueueAgentRun }));
 
 vi.mock('@/lib/posthog-server', () => ({
-  getPostHogClient: () => ({ capture: captureMock }),
+  captureWorkspaceEvent: captureMock,
 }));
 
 vi.mock('@/lib/repositories', () => ({
@@ -75,6 +75,7 @@ describe('AiOpinionService.dispatch', () => {
 
     expect(captureMock).toHaveBeenCalledWith(
       expect.objectContaining({
+        workspaceId: 'workspace-1',
         distinctId: 'user-1',
         event: 'ai_opinion_requested',
         properties: expect.objectContaining({

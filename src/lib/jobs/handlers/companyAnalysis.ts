@@ -15,7 +15,7 @@ import {
   RELATION_TYPES,
   type RelationType,
 } from "@/lib/repositories/companyRelationRepository";
-import { getPostHogClient } from "@/lib/posthog-server";
+import { captureWorkspaceEvent } from "@/lib/posthog-server";
 import { z } from "zod";
 import { getActiveWorkspaceId } from "@/lib/workspace";
 
@@ -372,7 +372,8 @@ export async function generateCompanyCard(
     error_message: null,
   });
 
-  getPostHogClient()?.capture({
+  captureWorkspaceEvent({
+    workspaceId,
     distinctId: "server",
     event: "company_card_generated",
     properties: {
