@@ -66,7 +66,11 @@ vi.mock('../handlers/emailProcess', () => ({
   SOFT_STOP_MS: 480_000,
 }));
 
-import { handler, inferCustodianFromMbox } from './vaultArchivePoll';
+import {
+  handler,
+  inferCustodianFromMbox,
+  MAX_VAULT_POLL_FAIL_COUNT,
+} from './vaultArchivePoll';
 
 function makeZipWithEntries(entries: Array<{ name: string; body: string }>): Buffer {
   const zip = new AdmZip();
@@ -134,7 +138,7 @@ describe('inferCustodianFromMbox', () => {
   });
 });
 
-function exportRow() {
+function exportRow(overrides: { fail_count?: number } = {}) {
   return {
     id: 've-1',
     matter_id: 'matter-1',
@@ -143,6 +147,7 @@ function exportRow() {
     window_end: '2026-01-02T00:00:00Z',
     mode: 'daily',
     custodian_emails: ['analyst@starcapital.co.id'],
+    fail_count: overrides.fail_count ?? 0,
   };
 }
 
@@ -179,14 +184,26 @@ describe('vaultArchivePoll no-S3 cutover', () => {
     mocks.isSourceTerminal.mockReturnValue(false);
     mocks.inferCustodianFromEntry.mockReturnValue('analyst@starcapital.co.id');
 
-    // Default: SELECT export row, then claim RETURNING id, then SET status updates.
+    // Default: atomic claim of an exporting row, fail_count bump/reset, status updates.
+    let connectionFailCount = 0;
     mocks.dbExecute.mockImplementation(async (q: unknown) => {
       const flat = sqlText(q);
-      if (flat.includes('ORDER BY created_at') && flat.includes('LIMIT 1')) {
-        return { rows: [exportRow()] };
+      if (
+        flat.includes("status = 'processing'") &&
+        flat.includes('FOR UPDATE') &&
+        flat.includes('RETURNING')
+      ) {
+        return { rows: [exportRow({ fail_count: connectionFailCount })] };
       }
-      if (flat.includes("status = 'processing'") && flat.includes('RETURNING')) {
-        return { rows: [{ id: 've-1' }] };
+      if (flat.includes('fail_count = fail_count + 1') && flat.includes('RETURNING')) {
+        connectionFailCount += 1;
+        const status =
+          connectionFailCount >= MAX_VAULT_POLL_FAIL_COUNT ? 'failed' : 'exporting';
+        return { rows: [{ fail_count: connectionFailCount, status }] };
+      }
+      if (flat.includes('fail_count = 0')) {
+        connectionFailCount = 0;
+        return { rows: [] };
       }
       return { rows: [] };
     });
@@ -432,6 +449,155 @@ describe('vaultArchivePoll no-S3 cutover', () => {
     expect(result.action).toBe('resuming');
     expect(mocks.processMboxSource).toHaveBeenCalledTimes(2);
     expect(mocks.closeVaultMatter).not.toHaveBeenCalled();
+  });
+
+  it('poll connection error under budget returns poll_error and bumps fail_count', async () => {
+    mocks.pollVaultExport.mockRejectedValueOnce(new Error('fetch failed'));
+
+    const result = await handler({}, { getRemainingTimeInMillis: () => 600_000 });
+
+    expect(result).toEqual({ ok: true, action: 'poll_error' });
+    expect(mocks.closeVaultMatter).not.toHaveBeenCalled();
+    expect(mocks.processMboxSource).not.toHaveBeenCalled();
+    expect(
+      mocks.dbExecute.mock.calls.some(([query]) =>
+        sqlText(query).includes('fail_count = fail_count + 1'),
+      ),
+    ).toBe(true);
+    expect(
+      mocks.dbExecute.mock.calls.some(([query]) =>
+        sqlText(query).includes('fail_count = 0'),
+      ),
+    ).toBe(false);
+  });
+
+  it('poll connection error at budget marks failed and closes matter', async () => {
+    let failCount = MAX_VAULT_POLL_FAIL_COUNT - 1;
+    mocks.dbExecute.mockImplementation(async (q: unknown) => {
+      const flat = sqlText(q);
+      if (
+        flat.includes("status = 'processing'") &&
+        flat.includes('FOR UPDATE') &&
+        flat.includes('RETURNING')
+      ) {
+        return { rows: [exportRow({ fail_count: failCount })] };
+      }
+      if (flat.includes('fail_count = fail_count + 1') && flat.includes('RETURNING')) {
+        failCount += 1;
+        return { rows: [{ fail_count: failCount, status: 'failed' }] };
+      }
+      return { rows: [] };
+    });
+    mocks.pollVaultExport.mockRejectedValueOnce(new Error('vault unavailable'));
+
+    const result = await handler({}, { getRemainingTimeInMillis: () => 600_000 });
+
+    expect(result).toEqual({ ok: true, action: 'failed' });
+    expect(mocks.closeVaultMatter).toHaveBeenCalledWith('token', 'matter-1');
+  });
+
+  it('still marks failed when closeVaultMatter throws on budget exhaustion', async () => {
+    let failCount = MAX_VAULT_POLL_FAIL_COUNT - 1;
+    mocks.dbExecute.mockImplementation(async (q: unknown) => {
+      const flat = sqlText(q);
+      if (
+        flat.includes("status = 'processing'") &&
+        flat.includes('FOR UPDATE') &&
+        flat.includes('RETURNING')
+      ) {
+        return { rows: [exportRow({ fail_count: failCount })] };
+      }
+      if (flat.includes('fail_count = fail_count + 1') && flat.includes('RETURNING')) {
+        failCount += 1;
+        return { rows: [{ fail_count: failCount, status: 'failed' }] };
+      }
+      return { rows: [] };
+    });
+    mocks.pollVaultExport.mockRejectedValueOnce(new Error('vault unavailable'));
+    mocks.closeVaultMatter.mockRejectedValueOnce(new Error('close also failed'));
+
+    const result = await handler({}, { getRemainingTimeInMillis: () => 600_000 });
+
+    expect(result).toEqual({ ok: true, action: 'failed' });
+    expect(mocks.closeVaultMatter).toHaveBeenCalled();
+  });
+
+  it('ZIP download failure bumps fail_count without resetting on sticky COMPLETED', async () => {
+    let failCount = 2;
+    mocks.dbExecute.mockImplementation(async (q: unknown) => {
+      const flat = sqlText(q);
+      if (
+        flat.includes("status = 'processing'") &&
+        flat.includes('FOR UPDATE') &&
+        flat.includes('RETURNING')
+      ) {
+        return { rows: [exportRow({ fail_count: failCount })] };
+      }
+      if (flat.includes('fail_count = fail_count + 1') && flat.includes('RETURNING')) {
+        failCount += 1;
+        return {
+          rows: [
+            {
+              fail_count: failCount,
+              status: failCount >= MAX_VAULT_POLL_FAIL_COUNT ? 'failed' : 'exporting',
+            },
+          ],
+        };
+      }
+      if (flat.includes('fail_count = 0')) {
+        throw new Error('must not reset fail_count before download body succeeds');
+      }
+      return { rows: [] };
+    });
+    mocks.pollVaultExport.mockResolvedValue({
+      status: 'COMPLETED',
+      files: [{ objectName: 'export.zip', size: 1, bucketName: 'b', md5Hash: 'x' }],
+    });
+    mocks.downloadExportFileStream.mockRejectedValueOnce(new Error('download 503'));
+
+    const result = await handler({}, { getRemainingTimeInMillis: () => 600_000 });
+
+    expect(result).toEqual({ ok: true, action: 'poll_error' });
+    expect(failCount).toBe(3);
+    expect(mocks.closeVaultMatter).not.toHaveBeenCalled();
+    expect(mocks.processMboxSource).not.toHaveBeenCalled();
+  });
+
+  it('successful ZIP download resets fail_count', async () => {
+    const zipBuf = makeZipWithEntries([
+      { name: 'analyst@starcapital.co.id.mbox', body: 'From x\n\nhello\n' },
+    ]);
+    let failCount = 3;
+    mocks.dbExecute.mockImplementation(async (q: unknown) => {
+      const flat = sqlText(q);
+      if (
+        flat.includes("status = 'processing'") &&
+        flat.includes('FOR UPDATE') &&
+        flat.includes('RETURNING')
+      ) {
+        return { rows: [exportRow({ fail_count: failCount })] };
+      }
+      if (flat.includes('fail_count = 0')) {
+        failCount = 0;
+        return { rows: [] };
+      }
+      return { rows: [] };
+    });
+    mocks.pollVaultExport.mockResolvedValue({
+      status: 'COMPLETED',
+      files: [{ objectName: 'export.zip', size: zipBuf.length, bucketName: 'b', md5Hash: 'x' }],
+    });
+    mocks.downloadExportFileStream.mockResolvedValue(Readable.from([zipBuf]));
+
+    const result = await handler({}, { getRemainingTimeInMillis: () => 600_000 });
+
+    expect(result.action).toBe('archived');
+    expect(failCount).toBe(0);
+    expect(
+      mocks.dbExecute.mock.calls.some(([query]) =>
+        sqlText(query).includes('fail_count = 0'),
+      ),
+    ).toBe(true);
   });
 });
 

@@ -13,6 +13,12 @@
  * completed/abandoned entries, and resumes the in-flight one from its cursor.
  * The matter is closed only once every entry is completed or terminally
  * abandoned.
+ *
+ * Connection/infra failures (Vault auth, poll API, ZIP download) bump
+ * vault_exports.fail_count. At MAX_VAULT_POLL_FAIL_COUNT the export is marked
+ * failed and the matter is closed so start can create a replacement within its
+ * window retry budget. fail_count resets only after a ZIP download succeeds —
+ * not on sticky COMPLETED alone.
  */
 
 import { loadSecretsFromSsm } from '../secrets';
@@ -52,6 +58,8 @@ const TEARDOWN_RESERVE_MS = 90_000;
 const MIN_ENTRY_REMAINING_MS = 150_000;
 /** Safely exceeds the 10-minute Lambda timeout plus teardown reserve. */
 const STALE_PROCESSING_INTERVAL = '15 minutes';
+/** Vault auth / poll / ZIP download failures before the export is abandoned. */
+export const MAX_VAULT_POLL_FAIL_COUNT = 5;
 
 interface VaultExportsRow extends Record<string, unknown> {
   id: string;
@@ -63,6 +71,7 @@ interface VaultExportsRow extends Record<string, unknown> {
   // Snapshot of the custodian list resolved by vault-archive-start at creation
   // time — matched against exactly what was requested for this export.
   custodian_emails: string[];
+  fail_count?: number;
 }
 
 interface ExportProcessOutcome {
@@ -70,7 +79,14 @@ interface ExportProcessOutcome {
   abandoned: number;
   /** At least one entry still needs work (soft-stop / retry / out of time). */
   unfinished: boolean;
+  /** ZIP download succeeded and fail_count was cleared. */
+  downloadOk: boolean;
   failures: string[];
+}
+
+function queryRows<T>(res: unknown): T[] {
+  if (Array.isArray(res)) return res as T[];
+  return ((res as { rows?: T[] } | null)?.rows ?? []) as T[];
 }
 
 async function setStatus(
@@ -85,18 +101,61 @@ async function setStatus(
   );
 }
 
-async function claimForProcessing(db: DbClient, id: string): Promise<boolean> {
-  const res = await db.execute(
+async function resetPollFailCount(db: DbClient, id: string): Promise<void> {
+  await db.execute(
     sql`UPDATE analytics.vault_exports
-        SET status = 'processing', updated_at = now()
-        WHERE id = ${id}
-          AND status = 'exporting'
-        RETURNING id`,
+        SET fail_count = 0, updated_at = now()
+        WHERE id = ${id}`,
   );
-  const rows = Array.isArray(res)
-    ? res
-    : ((res as { rows?: unknown[] }).rows ?? []);
-  return rows.length > 0;
+}
+
+/**
+ * Bump connection/infra fail budget. Under budget → back to exporting for
+ * retry. At MAX → failed + best-effort matter close.
+ */
+async function recordConnectionFailure(
+  db: DbClient,
+  row: { id: string; matter_id: string },
+  token: string | null,
+  reason: string,
+): Promise<'failed' | 'poll_error'> {
+  const bumped = queryRows<{ fail_count: number; status: string }>(
+    await db.execute(
+      sql`UPDATE analytics.vault_exports
+          SET fail_count = fail_count + 1,
+              status = CASE
+                WHEN fail_count + 1 >= ${MAX_VAULT_POLL_FAIL_COUNT} THEN 'failed'
+                ELSE 'exporting'
+              END,
+              updated_at = now()
+          WHERE id = ${row.id}
+          RETURNING fail_count, status`,
+    ),
+  );
+  const next = bumped[0]?.fail_count ?? MAX_VAULT_POLL_FAIL_COUNT;
+  const status = bumped[0]?.status ?? 'exporting';
+
+  if (status === 'failed' || next >= MAX_VAULT_POLL_FAIL_COUNT) {
+    if (token) {
+      try {
+        await closeVaultMatter(token, row.matter_id);
+      } catch (err) {
+        console.error(
+          `[vault-archive-poll] failed to close matter ${row.matter_id} after connection budget:`,
+          err,
+        );
+      }
+    }
+    log(
+      `connection budget exhausted (fail_count=${next}): ${reason} — status=failed`,
+    );
+    return 'failed';
+  }
+
+  log(
+    `connection error (fail_count=${next}/${MAX_VAULT_POLL_FAIL_COUNT}): ${reason} — will retry`,
+  );
+  return 'poll_error';
 }
 
 async function reclaimStaleProcessing(db: DbClient): Promise<void> {
@@ -159,7 +218,8 @@ export async function inferCustodianFromMbox(
 /**
  * Stream a single Vault ZIP, spooling each `.mbox` entry to /tmp and running
  * the processor against it. Returns per-entry outcome for the caller to decide
- * matter close vs resume.
+ * matter close vs resume. ZIP download failures propagate to the caller so
+ * they can hit the connection fail budget.
  */
 async function processExportZip(opts: {
   token: string;
@@ -174,13 +234,19 @@ async function processExportZip(opts: {
     completed: 0,
     abandoned: 0,
     unfinished: false,
+    downloadOk: false,
     failures: [],
   };
 
+  // Only download/stream-open failures should propagate as connection errors.
+  // Reset fail_count only after the ZIP is fully consumed (see below) so a
+  // sticky COMPLETED + mid-body drop cannot wipe the budget every attempt.
   const zipStream = (await downloadExportFileStream(
     token,
     file,
   )) as unknown as Readable;
+  outcome.downloadOk = true;
+
   const parser = zipStream.pipe(unzipper.Parse({ forceStream: true }));
 
   try {
@@ -267,6 +333,9 @@ async function processExportZip(opts: {
     zipStream.destroy();
   }
 
+  // Body streamed without connection abort — clear prior auth/poll/download bumps.
+  await resetPollFailCount(db, row.id);
+
   log(
     `${file.objectName}: completed=${outcome.completed} abandoned=${outcome.abandoned} unfinished=${outcome.unfinished}`,
   );
@@ -295,13 +364,23 @@ export const handler = async (
     // claims older than the maximum invocation window before selecting work.
     await reclaimStaleProcessing(db);
 
-    // 1. Pick ONE row to process (oldest first).
+    // 1. Atomically claim ONE exporting row (oldest first). A single UPDATE
+    // with FOR UPDATE SKIP LOCKED holds the lock for the claim, so concurrent
+    // invokes cannot double-bump fail_count on the same export.
     const { rows } = await db.execute<VaultExportsRow>(
-      sql`SELECT id, matter_id, export_id, window_start, window_end, mode, custodian_emails
-          FROM analytics.vault_exports
-          WHERE status = 'exporting'
-          ORDER BY created_at
-          LIMIT 1`,
+      sql`UPDATE analytics.vault_exports AS ve
+          SET status = 'processing', updated_at = now()
+          FROM (
+            SELECT id
+            FROM analytics.vault_exports
+            WHERE status = 'exporting'
+            ORDER BY created_at
+            LIMIT 1
+            FOR UPDATE SKIP LOCKED
+          ) AS pick
+          WHERE ve.id = pick.id
+          RETURNING ve.id, ve.matter_id, ve.export_id, ve.window_start,
+                    ve.window_end, ve.mode, ve.custodian_emails, ve.fail_count`,
     );
     const row = rows[0];
 
@@ -312,10 +391,17 @@ export const handler = async (
 
     log(`processing export ${row.export_id} matter ${row.matter_id}`);
 
-    const creds = loadVaultCredentials();
-    const subject =
-      process.env.GOOGLE_VAULT_IMPERSONATE ?? 'crm.vault@starcapital.co.id';
-    const token = await getVaultAccessToken(creds, subject);
+    let token: string;
+    try {
+      const creds = loadVaultCredentials();
+      const subject =
+        process.env.GOOGLE_VAULT_IMPERSONATE ?? 'crm.vault@starcapital.co.id';
+      token = await getVaultAccessToken(creds, subject);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      const action = await recordConnectionFailure(db, row, null, msg);
+      return { ok: true, action };
+    }
 
     // 2. Poll the export status exactly once.
     let status: Awaited<ReturnType<typeof pollVaultExport>>;
@@ -329,11 +415,14 @@ export const handler = async (
         log(`matter already closed, cannot poll — status=failed`);
         return { ok: true, action: 'failed' };
       }
-      throw err;
+      const action = await recordConnectionFailure(db, row, token, msg);
+      return { ok: true, action };
     }
     log(`poll result: ${status.status}`);
 
     if (status.status === 'IN_PROGRESS') {
+      // Release claim so the next poll can pick this export again.
+      await setStatus(db, row.id, 'exporting');
       return { ok: true, action: 'waiting' };
     }
 
@@ -351,13 +440,7 @@ export const handler = async (
       return { ok: true, action: 'failed' };
     }
 
-    // status.status === 'COMPLETED'
-    const claimed = await claimForProcessing(db, row.id);
-    if (!claimed) {
-      log(`export ${row.export_id} was already claimed by another invocation`);
-      return { ok: true, action: 'claimed_elsewhere' };
-    }
-
+    // status.status === 'COMPLETED' — already claimed as processing above.
     let completed = 0;
     let abandoned = 0;
     let unfinished = false;
@@ -387,14 +470,15 @@ export const handler = async (
         }
         if (zipOutcome.unfinished) break;
       } catch (err) {
-        unfinished = true;
+        // ZIP download / stream setup — connection budget, not soft-stop.
         const msg = err instanceof Error ? err.message : String(err);
         failures.push(`${file.objectName}: ${msg}`);
         console.error(
-          `[vault-archive-poll] zip failed (will retry): ${file.objectName}`,
+          `[vault-archive-poll] zip download failed: ${file.objectName}`,
           err,
         );
-        break;
+        const action = await recordConnectionFailure(db, row, token, msg);
+        return { ok: true, action };
       }
     }
 

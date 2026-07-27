@@ -106,6 +106,13 @@
       "when": 1784898240000,
       "tag": "20260724130400_email_process_afd_uploaded_digests",
       "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "7",
+      "when": 1785164400000,
+      "tag": "20260727150000_vault_exports_fail_count",
+      "breakpoints": true
     }
   ]
 }
