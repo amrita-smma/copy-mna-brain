@@ -5,7 +5,7 @@ locals {
   lambda_configs = {
     vault-archive-start = {
       handler      = "vaultArchiveStart.handler"
-      schedule     = "cron(5 * * * ? *)"
+      schedule     = "cron(10 0 * * ? *)"
       description  = "Walk daily Vault windows; create matter+export, insert vault_exports rows"
       memory_heavy = false
       input        = jsonencode({})
