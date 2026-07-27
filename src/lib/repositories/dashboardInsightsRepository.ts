@@ -244,16 +244,30 @@ export class DashboardInsightsRepository {
     return this.cohortBreakdownByKey(sql`${companies.geography}`, from, to);
   }
 
-  /** Banker breakdown keyed on the company's `banker` field, on the deal-funnel
-   * (cohort-by-current-stage) basis so it tallies with the "New Deals" cohort.
-   * Rows with an empty `banker` are dropped downstream (`buildBreakdown` skips
-   * blank keys), so only companies with a named banker contribute to the card. */
-  getBankerBreakdown(from: Date, to: Date): Promise<DimensionStageCount[]> {
-    return this.cohortBreakdownByKey(
-      sql`coalesce(nullif(${companies.banker}, ''), ${companies.banker_source})`,
-      from,
-      to,
-    );
+  /** Banker breakdown for **inbound** companies created in the window, keyed on
+   * the company's `banker` / `banker_source` field. Only inbound deals are
+   * counted so "Leads from Bankers" matches the Recap panel's inbound cohort.
+   * Rows with no banker name are dropped downstream (`buildBreakdown` skips blank
+   * keys). */
+  async getBankerBreakdown(from: Date, to: Date): Promise<DimensionStageCount[]> {
+    const stages = [...PIPELINE_FUNNEL_STAGES];
+    const { rows } = await this.db.execute<{ key: string | null; stage: string; count: string }>(sql`
+      SELECT coalesce(nullif(${companies.banker}, ''), ${companies.banker_source}) AS key,
+             ${companies.pipeline_stage}::text AS stage,
+             COUNT(*) AS count
+      FROM ${companies}
+      WHERE ${eq(companies.workspace_id, this.workspaceId)}
+        AND ${inArray(companies.pipeline_stage, stages)}
+        AND ${gte(companies.created_at, from.toISOString())}
+        AND ${lte(companies.created_at, to.toISOString())}
+        AND ${eq(companies.source, 'inbound')}
+      GROUP BY key, ${companies.pipeline_stage}
+    `);
+    return rows.map((r) => ({
+      key: r.key == null ? null : String(r.key),
+      stage: String(r.stage),
+      count: Number(r.count),
+    }));
   }
 
   /**

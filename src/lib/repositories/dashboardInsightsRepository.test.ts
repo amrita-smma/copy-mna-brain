@@ -112,14 +112,31 @@ describe('DashboardInsightsRepository breakdowns', () => {
     ]);
   });
 
-  it('exposes country and banker breakdowns via the same shape', async () => {
+  it('exposes country breakdown via the same DimensionStageCount shape', async () => {
     mockDb.execute.mockResolvedValue({ rows: [{ key: 'Japan', stage: 'L0', count: 41 }] });
 
     await expect(repo.getCountryBreakdown(WINDOW_FROM, WINDOW_TO)).resolves.toEqual([
       { key: 'Japan', stage: 'L0', count: 41 },
     ]);
-    await expect(repo.getBankerBreakdown(WINDOW_FROM, WINDOW_TO)).resolves.toEqual([
-      { key: 'Japan', stage: 'L0', count: 41 },
+  });
+
+  it('returns banker breakdown with inbound-only companies, coercing counts', async () => {
+    // getBankerBreakdown filters source = 'inbound' so it matches the Recap
+    // panel's inbound cohort. The mock returns whatever the DB would return after
+    // that filter — we verify the shape/coercion is correct.
+    mockDb.execute.mockResolvedValueOnce({ rows: [
+      { key: 'Goldman Sachs', stage: 'L0', count: '6' },
+      { key: 'Goldman Sachs', stage: 'L1', count: 2 },
+      { key: null, stage: 'L0', count: '3' }, // no banker → null key
+    ] });
+
+    const result = await repo.getBankerBreakdown(WINDOW_FROM, WINDOW_TO);
+
+    expect(mockDb.execute).toHaveBeenCalledTimes(1);
+    expect(result).toEqual([
+      { key: 'Goldman Sachs', stage: 'L0', count: 6 },
+      { key: 'Goldman Sachs', stage: 'L1', count: 2 },
+      { key: null, stage: 'L0', count: 3 },
     ]);
   });
 });
