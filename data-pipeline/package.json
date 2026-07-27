@@ -3,16 +3,8 @@
   "private": true,
   "version": "0.0.0",
   "exports": {
-    "./handlers/crmDomainClassify": "./src/handlers/crmDomainClassify.ts",
-    "./handlers/crmIngest": "./src/handlers/crmIngest.ts",
-    "./handlers/crmLlmFetch": "./src/handlers/crmLlmFetch.ts",
-    "./handlers/crmLlmSubmit": "./src/handlers/crmLlmSubmit.ts",
-    "./handlers/vaultArchive": "./src/handlers/vaultArchive.ts",
-    "./handlers/vaultParse": "./src/handlers/vaultParse.ts",
-    "./handlers/attachmentGate": "./src/handlers/attachmentGate.ts",
-    "./handlers/attachmentFetch": "./src/handlers/attachmentFetch.ts",
-    "./handlers/attachmentTriage": "./src/handlers/attachmentTriage.ts",
-    "./handlers/attachmentUpload": "./src/handlers/attachmentUpload.ts"
+    "./handlers/emailProcess": "./src/handlers/emailProcess.ts",
+    "./handlers/vaultArchive": "./src/handlers/vaultArchive.ts"
   },
   "dependencies": {
     "adm-zip": "*",
@@ -22,6 +14,10 @@
     "@aws-sdk/client-ssm": "*",
     "@aws-sdk/lib-storage": "*",
     "@aws-sdk/rds-signer": "*",
+    "exceljs": "*",
+    "jszip": "*",
+    "mammoth": "*",
+    "pdf-parse": "*",
     "unzipper": "*"
   },
   "devDependencies": {
@@ -38,10 +34,8 @@
     "test": "vitest run",
     "tsc": "tsc --noEmit",
     "invoke": "tsx scripts/invoke-local.ts",
-    "upload-mbox": "tsx scripts/upload-mbox.ts",
+    "process-mbox": "tsx scripts/process-mbox.ts",
     "build": "tsx scripts/build.ts",
-    "sam": "bash scripts/sam-invoke.sh",
-    "pipeline-demo": "tsx scripts/pipeline-demo.ts",
-    "reprocess-related-companies": "tsx scripts/reprocess-related-companies.ts"
+    "sam": "bash scripts/sam-invoke.sh"
   }
 }

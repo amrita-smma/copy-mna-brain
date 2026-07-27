@@ -52,18 +52,6 @@ export const jobType = pgEnum("job_type", [
   "ai_screening",
   "company_analysis",
   "stuck_cleanup",
-  "vault_export",
-  "vault_archive",
-  "vault_parse",
-  "crm_llm_submit",
-  "crm_llm_fetch",
-  "crm_domain_classify",
-  "crm_ingest",
-  "attachment_gate",
-  "attachment_fetch",
-  "attachment_triage",
-  "attachment_extract",
-  "attachment_upload",
   "graph_sync",
   "track_matching",
 ]);
@@ -1366,6 +1354,7 @@ export const files = pgTable(
     file_date: date(),
     file_type: varchar().default("mom").notNull(),
     origin_email: boolean().default(false).notNull(),
+    drop_reason: text(),
     workspace_id: uuid()
       .notNull()
       .references(() => workspaces.id, { onDelete: "cascade" }),
@@ -1420,276 +1409,6 @@ export const files = pgTable(
       }),
     };
   },
-);
-
-export const mboxFiles = analytics.table(
-  "mbox_files",
-  {
-    id: uuid().defaultRandom().primaryKey().notNull(),
-    source: text().notNull(),
-    s3_bucket: text().notNull(),
-    s3_key: text().notNull(),
-    size_bytes: bigint({ mode: "number" }).notNull(),
-    uncompressed_size_bytes: bigint({ mode: "number" }),
-    custodian_email: text().notNull(),
-    window_start: timestamp({ withTimezone: true, mode: "string" }).notNull(),
-    window_end: timestamp({ withTimezone: true, mode: "string" }).notNull(),
-    vault_matter_id: text(),
-    vault_export_id: text(),
-    mode: text().notNull(),
-    job_id: uuid(),
-    parse_status: text().default("pending").notNull(),
-    parsed_at: timestamp({ withTimezone: true, mode: "string" }),
-    parse_error: text(),
-    raw_email_count: integer(),
-    created_at: timestamp({ withTimezone: true, mode: "string" })
-      .defaultNow()
-      .notNull(),
-    updated_at: timestamp({ withTimezone: true, mode: "string" })
-      .defaultNow()
-      .notNull(),
-  },
-  (table) => {
-    return {
-      idxMboxFilesSourceWindowStart: index(
-        "idx_mbox_files_source_window_start",
-      ).using(
-        "btree",
-        table.source.asc().nullsLast().op("text_ops"),
-        table.window_start.asc().nullsLast().op("timestamptz_ops"),
-      ),
-      idxMboxFilesParseStatus: index("idx_mbox_files_parse_status").using(
-        "btree",
-        table.parse_status.asc().nullsLast().op("text_ops"),
-      ),
-      idxMboxFilesJobId: index("idx_mbox_files_job_id").using(
-        "btree",
-        table.job_id.asc().nullsLast().op("uuid_ops"),
-      ),
-      mboxFilesS3KeyUnique: unique("mbox_files_s3_key_unique").on(
-        table.s3_key,
-      ),
-      mboxFilesJobIdFkey: foreignKey({
-        columns: [table.job_id],
-        foreignColumns: [jobs.id],
-        name: "mbox_files_job_id_fkey",
-      }).onDelete("cascade"),
-    };
-  },
-);
-
-export const rawEmails = analytics.table(
-  "raw_emails",
-  {
-    id: uuid().defaultRandom().primaryKey().notNull(),
-    file_id: uuid().notNull(),
-    custodian_email: text().notNull(),
-    message_id: text().notNull(),
-    from_address: text(),
-    from_display_name: text(),
-    to_addresses: jsonb().$type<string[]>(),
-    cc_addresses: jsonb().$type<string[]>(),
-    subject: text(),
-    body_text: text().default("").notNull(),
-    sent_at: timestamp({ withTimezone: true, mode: "string" }),
-    has_attachments: boolean().default(false).notNull(),
-    in_reply_to: text(),
-    references: text(),
-    gmail_thread_id: text(),
-    raw_headers: jsonb().$type<Record<string, string>>(),
-    // PR #3 — CRM pipeline state
-    llm_status: text().default("pending").notNull(),
-    ingest_status: text().default("pending").notNull(),
-    llm_enriched_at: timestamp({ withTimezone: true, mode: "string" }),
-    ingested_at: timestamp({ withTimezone: true, mode: "string" }),
-    created_at: timestamp({ withTimezone: true, mode: "string" })
-      .defaultNow()
-      .notNull(),
-  },
-  (table) => ({
-    uqRawEmailsMessageId: uniqueIndex("uq_raw_emails_message_id").on(
-      table.message_id,
-    ),
-    idxRawEmailsFileId: index("idx_raw_emails_file_id").using(
-      "btree",
-      table.file_id.asc().nullsLast().op("uuid_ops"),
-    ),
-    idxRawEmailsSentAt: index("idx_raw_emails_sent_at").using(
-      "btree",
-      table.sent_at.asc().nullsLast().op("timestamptz_ops"),
-    ),
-    idxRawEmailsCustodianEmail: index("idx_raw_emails_custodian_email").using(
-      "btree",
-      table.custodian_email.asc().nullsLast().op("text_ops"),
-    ),
-    idxRawEmailsLlmStatus: index("idx_raw_emails_llm_status").using(
-      "btree",
-      table.llm_status.asc().nullsLast().op("text_ops"),
-    ),
-    idxRawEmailsIngestStatus: index("idx_raw_emails_ingest_status").using(
-      "btree",
-      table.ingest_status.asc().nullsLast().op("text_ops"),
-    ),
-    rawEmailsFileIdFkey: foreignKey({
-      columns: [table.file_id],
-      foreignColumns: [mboxFiles.id],
-      name: "raw_emails_file_id_fkey",
-    }).onDelete("cascade"),
-  }),
-);
-
-export const llmBatches = analytics.table(
-  "llm_batches",
-  {
-    id: uuid().defaultRandom().primaryKey().notNull(),
-    anthropic_batch_id: text().notNull(),
-    status: text().notNull(),
-    model: text().notNull(),
-    request_count: integer().notNull(),
-    custom_id_map: jsonb().$type<Record<string, string>>().notNull(),
-    submit_job_id: uuid(),
-    fetch_job_id: uuid(),
-    submitted_at: timestamp({ withTimezone: true, mode: "string" })
-      .defaultNow()
-      .notNull(),
-    ended_at: timestamp({ withTimezone: true, mode: "string" }),
-    fetched_at: timestamp({ withTimezone: true, mode: "string" }),
-    error: text(),
-  },
-  (table) => ({
-    uqLlmBatchesAnthropicBatchId: uniqueIndex(
-      "uq_llm_batches_anthropic_batch_id",
-    ).on(table.anthropic_batch_id),
-    idxLlmBatchesStatus: index("idx_llm_batches_status").using(
-      "btree",
-      table.status.asc().nullsLast().op("text_ops"),
-    ),
-    llmBatchesSubmitJobIdFkey: foreignKey({
-      columns: [table.submit_job_id],
-      foreignColumns: [jobs.id],
-      name: "llm_batches_submit_job_id_fkey",
-    }).onDelete("set null"),
-    llmBatchesFetchJobIdFkey: foreignKey({
-      columns: [table.fetch_job_id],
-      foreignColumns: [jobs.id],
-      name: "llm_batches_fetch_job_id_fkey",
-    }).onDelete("set null"),
-  }),
-);
-
-export const rawEmailEnrichments = analytics.table(
-  "raw_email_enrichments",
-  {
-    id: uuid().defaultRandom().primaryKey().notNull(),
-    raw_email_id: uuid().notNull(),
-    candidates: jsonb(),
-    domain_tag: text(),
-    needs_llm: boolean().notNull(),
-    body_snippet: text(),
-    extracted_at: timestamp({ withTimezone: true, mode: "string" })
-      .defaultNow()
-      .notNull(),
-    topics: jsonb().$type<string[]>(),
-    people: jsonb(),
-    related_companies: jsonb(),
-    llm_model: text(),
-    llm_batch_id: uuid(),
-    created_at: timestamp({ withTimezone: true, mode: "string" })
-      .defaultNow()
-      .notNull(),
-    updated_at: timestamp({ withTimezone: true, mode: "string" })
-      .defaultNow()
-      .notNull(),
-  },
-  (table) => ({
-    uqRawEmailEnrichmentsRawEmailId: uniqueIndex(
-      "uq_raw_email_enrichments_raw_email_id",
-    ).on(table.raw_email_id),
-    idxRawEmailEnrichmentsNeedsLlm: index(
-      "idx_raw_email_enrichments_needs_llm",
-    ).using("btree", table.needs_llm.asc().nullsLast()),
-    idxRawEmailEnrichmentsLlmBatchId: index(
-      "idx_raw_email_enrichments_llm_batch_id",
-    ).using("btree", table.llm_batch_id.asc().nullsLast().op("uuid_ops")),
-    rawEmailEnrichmentsRawEmailIdFkey: foreignKey({
-      columns: [table.raw_email_id],
-      foreignColumns: [rawEmails.id],
-      name: "raw_email_enrichments_raw_email_id_fkey",
-    }).onDelete("cascade"),
-    rawEmailEnrichmentsLlmBatchIdFkey: foreignKey({
-      columns: [table.llm_batch_id],
-      foreignColumns: [llmBatches.id],
-      name: "raw_email_enrichments_llm_batch_id_fkey",
-    }).onDelete("set null"),
-  }),
-);
-
-export const domainClassifications = analytics.table(
-  "domain_classifications",
-  {
-    domain: text().primaryKey().notNull(),
-    name: text(),
-    industry: text(),
-    confidence: text().notNull(),
-    source: text().notNull(),
-    classified_at: timestamp({ withTimezone: true, mode: "string" })
-      .defaultNow()
-      .notNull(),
-  },
-);
-
-export const emailAttachments = analytics.table(
-  "email_attachments",
-  {
-    id: uuid().defaultRandom().primaryKey().notNull(),
-    file_id: uuid().notNull(),
-    message_id: text().notNull(),
-    part_index: integer().notNull(),
-    filename: text(),
-    mime_type: text(),
-    size_bytes: integer(),
-    content_hash: text().notNull(),
-    encoding: text(),
-    state: text().default("metadata_only").notNull(),
-    gate_reason: text(),
-    s3_bucket: text(),
-    s3_key: text(),
-    doc_type: text(),
-    triage_confidence: text(),
-    extracted: jsonb(),
-    error: text(),
-    created_at: timestamp({ withTimezone: true, mode: "string" })
-      .defaultNow()
-      .notNull(),
-    updated_at: timestamp({ withTimezone: true, mode: "string" })
-      .defaultNow()
-      .notNull(),
-    fetched_at: timestamp({ withTimezone: true, mode: "string" }),
-    triaged_at: timestamp({ withTimezone: true, mode: "string" }),
-    extracted_at: timestamp({ withTimezone: true, mode: "string" }),
-  },
-  (table) => ({
-    uqEmailAttachmentsMsgHash: uniqueIndex("uq_email_attachments_msg_hash").on(
-      table.message_id,
-      table.content_hash,
-    ),
-    idxEmailAttachmentsState: index("idx_email_attachments_state").using(
-      "btree",
-      table.state.asc().nullsLast().op("text_ops"),
-    ),
-    idxEmailAttachmentsFileId: index("idx_email_attachments_file_id").using(
-      "btree",
-      table.file_id.asc().nullsLast().op("uuid_ops"),
-    ),
-    idxEmailAttachmentsContentHash: index(
-      "idx_email_attachments_content_hash",
-    ).using("btree", table.content_hash.asc().nullsLast().op("text_ops")),
-    emailAttachmentsFileIdFkey: foreignKey({
-      columns: [table.file_id],
-      foreignColumns: [mboxFiles.id],
-      name: "email_attachments_file_id_fkey",
-    }).onDelete("cascade"),
-  }),
 );
 
 export const companyFinancials = pgTable(
@@ -2284,14 +2003,15 @@ export const employerRelatedCompanies = pgTable(
 );
 
 // Evidence table for explainability. Lives in analytics because it FKs to
-// analytics.emails and analytics.raw_emails — analytics→public is allowed.
+// analytics.emails — analytics→public is allowed. raw_email_id removed in
+// ephemeral Phase 0 (rekeyed to email_id only).
 export const employerRelatedCompanyEvidence = analytics.table(
   "employer_related_company_evidence",
   {
     id: uuid().defaultRandom().primaryKey().notNull(),
     related_company_id: uuid().notNull(),
     email_id: uuid(),
-    raw_email_id: uuid(),
+    // Retained nullable for schema compat; writers must leave null (no body quotes).
     matched_text: text(),
     reason: text().notNull(),
     reason_summary: text(),
@@ -2302,10 +2022,9 @@ export const employerRelatedCompanyEvidence = analytics.table(
       .notNull(),
   },
   (table) => ({
-    uqErce: unique("uq_erce_company_email_text").on(
+    uqErce: unique("uq_erce_company_email").on(
       table.related_company_id,
-      table.raw_email_id,
-      table.matched_text,
+      table.email_id,
     ),
     idxErceRelatedCompanyId: index("idx_erce_related_company_id").using(
       "btree",
@@ -2324,11 +2043,6 @@ export const employerRelatedCompanyEvidence = analytics.table(
       columns: [table.email_id],
       foreignColumns: [emails.id],
       name: "erce_email_id_fkey",
-    }).onDelete("cascade"),
-    erceRawEmailFkey: foreignKey({
-      columns: [table.raw_email_id],
-      foreignColumns: [rawEmails.id],
-      name: "erce_raw_email_id_fkey",
     }).onDelete("cascade"),
   }),
 );
@@ -2572,6 +2286,7 @@ export const emails = analytics.table(
     from_address: text().notNull(),
     from_display_name: text(),
     subject: text(),
+    // Nullable; ephemeral pipeline stops writing body content.
     body_text: text(),
     sent_at: timestamp({ withTimezone: true, mode: "string" }).notNull(),
     direction: text().notNull(),
@@ -2583,6 +2298,8 @@ export const emails = analytics.table(
       .notNull(),
     message_id: text(),
     in_reply_to: text(),
+    // Workspace bridge (replaces emails ⋈ raw_emails.custodian_email).
+    custodian_email: text(),
   },
   (table) => ({
     uqEmailsMessageId: uniqueIndex("uq_emails_message_id")
@@ -2600,6 +2317,10 @@ export const emails = analytics.table(
     idxEmailSentAt: index("idx_email_sent_at").using(
       "btree",
       table.sent_at.asc().nullsLast().op("timestamptz_ops"),
+    ),
+    idxEmailsCustodianEmail: index("idx_emails_custodian_email").using(
+      "btree",
+      table.custodian_email.asc().nullsLast().op("text_ops"),
     ),
     emailsEmployerFkey: foreignKey({
       columns: [table.employer_id],

@@ -60,7 +60,9 @@ export const handler = async (
 
     // 1. Count in-flight exports.
     const { rows: [{ count: inFlight }] } = await db.execute<{ count: number }>(
-      sql`SELECT COUNT(*) AS count FROM analytics.vault_exports WHERE status = 'exporting'`,
+      sql`SELECT COUNT(*) AS count
+          FROM analytics.vault_exports
+          WHERE status IN ('exporting', 'processing')`,
     );
     const slots = MAX_IN_FLIGHT - Number(inFlight);
     if (slots <= 0) {

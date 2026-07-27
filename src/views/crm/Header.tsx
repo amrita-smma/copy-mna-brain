@@ -12,44 +12,24 @@ import { formatDistanceToNow, formatDistanceToNowStrict } from "date-fns";
 import {
   AlertTriangle,
   LayoutGrid,
-  Loader2,
-  Mail,
   Plus,
   Sparkles,
   Users,
+  Mail,
 } from "lucide-react";
-import { useState } from "react";
-import { toast } from "sonner";
 import type { Insights } from "./types";
 
 export function PageHeader({
   insights,
-  showVaultSync,
   onOpenAddContact,
   onShowStale,
   onOpenCuration,
 }: {
   insights: Insights | null;
-  showVaultSync: boolean;
   onOpenAddContact: () => void;
   onShowStale: () => void;
   onOpenCuration: () => void;
 }) {
-  const [syncing, setSyncing] = useState(false);
-  const handleSync = async () => {
-    setSyncing(true);
-    try {
-      const res = await fetch("/api/crm/vault-export", { method: "POST" });
-      if (res.ok) toast.success("Vault sync started");
-      else {
-        const j = await res.json().catch(() => ({}));
-        toast.error(j.error || "Failed to start vault sync");
-      }
-    } finally {
-      setSyncing(false);
-    }
-  };
-
   return (
     <header className="border-b bg-transparent px-7 py-5">
       <Card className="relative mb-5 overflow-hidden border bg-gradient-to-br from-muted/40 to-muted/10">
@@ -83,21 +63,6 @@ export function PageHeader({
             </p>
           </div>
           <div className="ml-auto flex shrink-0 items-center gap-2">
-            {showVaultSync && (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleSync}
-                disabled={syncing}
-              >
-                {syncing ? (
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                ) : (
-                  <Mail className="mr-2 h-4 w-4" />
-                )}
-                Sync Vault (1d)
-              </Button>
-            )}
             <Button size="sm" onClick={onOpenAddContact}>
               <Plus className="mr-2 h-4 w-4" />
               Add Contact
@@ -166,7 +131,7 @@ function InsightItem({
   title: string;
   description: string;
   cta?: { label: string; onClick: () => void };
-  /** Optional fourth line when there is no CTA, e.g. Vault sync state. */
+  /** Optional fourth line when there is no CTA. */
   subline?: React.ReactNode;
 }) {
   const toneClasses = {

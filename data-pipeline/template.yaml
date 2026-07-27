@@ -1,15 +1,8 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Transform: AWS::Serverless-2016-10-31
 Description: >
-  Local SAM template for the CRM/Vault pipeline Lambdas. For `sam local invoke`
-  only — real deploys go through data-pipeline/terraform/pipeline-compute. CodeUri points at
-  the esbuild output (run `pnpm --filter data-pipeline build` first).
-
-  Non-secret env defaults use host.docker.internal to reach the existing
-  mna-postgres (:5440) and mna-minio (:9000) containers on the host.
-  On Linux, pass `--add-host host.docker.internal:host-gateway` to sam local invoke.
-  Secrets (DB_PASSWORD, ANTHROPIC_API_KEY, GOOGLE_VAULT_SERVICE_ACCOUNT)
-  must be supplied via `--env-vars sam-env.docker.json`.
+  Local SAM template for the two ephemeral Vault email Lambdas. Production
+  deployment is managed by Terraform.
 
 Globals:
   Function:
@@ -19,56 +12,14 @@ Globals:
     Environment:
       Variables:
         DB_HOST: host.docker.internal
-        DB_PORT: "5440"
+        DB_PORT: '5440'
         DB_NAME: mna
         DB_USER: postgres
-        RDS_IAM_DB_AUTH: "false"
-        DB_SSL: "false"
-        DB_PASSWORD: postgres
-        AWS_ACCESS_KEY_ID: minioadmin
-        AWS_SECRET_ACCESS_KEY: minioadmin
-        AWS_REGION: us-east-1
-        AWS_S3_ENDPOINT: http://host.docker.internal:9000
-        AWS_S3_FORCE_PATH_STYLE: "true"
-        AWS_S3_BUCKET: mna-files
+        RDS_IAM_DB_AUTH: 'false'
+        DB_SSL: 'false'
+        INTERNAL_API_URL: http://host.docker.internal:3000
 
 Resources:
-  CrmIngest:
-    Type: AWS::Serverless::Function
-    Properties:
-      FunctionName: crm-ingest
-      CodeUri: dist/crm-ingest/
-      Handler: index.handler
-
-  CrmLlmSubmit:
-    Type: AWS::Serverless::Function
-    Properties:
-      FunctionName: crm-llm-submit
-      CodeUri: dist/crm-llm-submit/
-      Handler: index.handler
-
-  CrmLlmFetch:
-    Type: AWS::Serverless::Function
-    Properties:
-      FunctionName: crm-llm-fetch
-      CodeUri: dist/crm-llm-fetch/
-      Handler: index.handler
-
-  CrmDomainClassify:
-    Type: AWS::Serverless::Function
-    Properties:
-      FunctionName: crm-domain-classify
-      CodeUri: dist/crm-domain-classify/
-      Handler: index.handler
-
-  VaultParse:
-    Type: AWS::Serverless::Function
-    Properties:
-      FunctionName: vault-parse
-      CodeUri: dist/vault-parse/
-      Handler: index.handler
-      MemorySize: 3008
-
   VaultArchiveStart:
     Type: AWS::Serverless::Function
     Properties:
@@ -83,3 +34,5 @@ Resources:
       CodeUri: dist/vault-archive-poll/
       Handler: index.handler
       MemorySize: 3008
+      EphemeralStorage:
+        Size: 4096

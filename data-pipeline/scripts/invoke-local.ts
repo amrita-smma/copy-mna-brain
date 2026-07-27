@@ -1,18 +1,20 @@
 /**
  * Local Lambda invoker — run a pipeline Lambda entrypoint on your machine
- * exactly as EventBridge would, against your local Postgres + MinIO (per
- * .env.local). No AWS, no SAM, no Docker-for-Lambda needed.
+ * exactly as EventBridge would, against your local Postgres. No AWS, no SAM,
+ * or Docker-for-Lambda needed.
  *
  * Usage:
  *   pnpm --filter data-pipeline invoke <name> [jsonPayload]
  *
  * Examples:
- *   pnpm --filter data-pipeline invoke crmIngest '{"limit":50}'
- *   pnpm --filter data-pipeline invoke vaultParse '{"limit":2}'
- *   pnpm --filter data-pipeline invoke crmLlmSubmit '{"limit":3,"mode":"sync"}'
+ *   pnpm --filter data-pipeline process-mbox \
+ *     --file fixtures/ephemeral-email-demo.mbox \
+ *     --custodian analyst@starcapital.co.id
+ *   pnpm --filter data-pipeline invoke vaultArchiveStart '{"count":1}'
+ *   pnpm --filter data-pipeline invoke vaultArchivePoll '{}'
  *
  * Loads .env.local (then .env) the same way scripts/migrate.ts does, so it
- * picks up DB_*, AWS_S3_ENDPOINT, ANTHROPIC_API_KEY, GOOGLE_VAULT_SERVICE_ACCOUNT.
+ * picks up DB_*, ANTHROPIC_API_KEY, and GOOGLE_VAULT_SERVICE_ACCOUNT.
  */
 import { config } from 'dotenv';
 import { resolve, dirname } from 'node:path';
@@ -25,18 +27,8 @@ config({ path: resolve(repoRoot, '.env.local') });
 config({ path: resolve(repoRoot, '.env') });
 
 const HANDLERS = [
-  'crmIngest',
-  'crmLlmSubmit',
-  'crmLlmFetch',
-  'crmDomainClassify',
-  'vaultParse',
   'vaultArchiveStart',
   'vaultArchivePoll',
-  'attachmentGate',
-  'attachmentFetch',
-  'attachmentTriage',
-  'attachmentExtract',
-  'attachmentUpload',
 ] as const;
 
 type HandlerName = (typeof HANDLERS)[number];

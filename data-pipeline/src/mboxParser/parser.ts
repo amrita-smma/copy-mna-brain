@@ -363,12 +363,12 @@ export interface RawAttachmentPart {
   encoding: string;
   content_hash: string;
   body: string;
+  filename: string | null;
 }
 
 /**
- * Walk MIME parts and return raw attachment bodies (for P2 decode+upload).
- * No MIME/size filtering — returns ALL attachment parts so attachmentFetch
- * can match by content_hash regardless of the P1 allowlist.
+ * Walk MIME parts and return raw attachment bodies for single-pass gating and
+ * AFD delivery. No MIME/size filtering happens at this parsing layer.
  */
 export function extractRawAttachmentParts(headers: Headers, rawBody: string): RawAttachmentPart[] {
   const parts = walkMime(headers, rawBody);
@@ -381,6 +381,7 @@ export function extractRawAttachmentParts(headers: Headers, rawBody: string): Ra
       encoding: part.encoding,
       content_hash: crypto.createHash('sha256').update(part.body).digest('hex'),
       body: part.body,
+      filename: parseFilename(part.disposition, part.contentTypeRaw),
     });
   }
   return result;

@@ -35,8 +35,6 @@ import {
   funds,
   investmentThesis,
   holdingEntities,
-  mboxFiles,
-  rawEmails,
   roles,
   topics,
   users,
@@ -3363,15 +3361,6 @@ async function main() {
       .delete(emails)
       .where(like(emails.message_id, `${AV_MID_PREFIX}%${AV_MID_SUFFIX}`));
     await db.delete(employers).where(eq(employers.normalized_name, AV_NORM));
-    // Wipe the matching raw_emails fixture (the ingest "source of truth" these
-    // analytics.emails rows claim to have come from) and its mbox_files parent.
-    await db
-      .delete(rawEmails)
-      .where(like(rawEmails.message_id, `${AV_MID_PREFIX}%${AV_MID_SUFFIX}`));
-    await db
-      .delete(mboxFiles)
-      .where(eq(mboxFiles.s3_key, 'seed/auto-vehicle.mbox'));
-
     const [avEmployer] = await db
       .insert(employers)
       .values({
@@ -3498,34 +3487,6 @@ async function main() {
       },
     ];
 
-    // Backing raw_emails/mbox_files fixture — MB-337 CRM follow-up: the
-    // per-workspace marts (mart_crm/mart_mom/mart_topics) attribute an email
-    // to a workspace via analytics.emails.message_id -> raw_emails.message_id
-    // -> raw_emails.custodian_email -> a synced user_workspaces row (see
-    // data-pipeline/migrations/20260705000004_workspace_scoped_marts.sql).
-    // Without a matching raw_emails row, these seeded emails are invisible to
-    // that bridge and every per-workspace KPI shows 0 for AUTO VEHICLE.
-    // Wendy Wobble (the internal party on this thread) is the custodian
-    // whose mailbox "received" these emails.
-    const [avMboxFile] = await db
-      .insert(mboxFiles)
-      .values({
-        source: 'seed',
-        s3_bucket: 'seed-fixtures',
-        s3_key: 'seed/auto-vehicle.mbox',
-        size_bytes: 0,
-        custodian_email: INTERNAL.email,
-        window_start: new Date(avBase).toISOString(),
-        window_end: new Date(avBase + 30 * dayMs).toISOString(),
-        mode: 'incremental',
-        parse_status: 'parsed',
-        parsed_at: new Date().toISOString(),
-        raw_email_count: avMails.length,
-      })
-        .onConflictDoNothing()
-      .returning({ id: mboxFiles.id });
-    if (!avMboxFile) throw new Error('failed to insert AUTO VEHICLE mbox_files fixture');
-
     const [wendyUser] = await db
       .insert(users)
       .values({ name: INTERNAL.name, email: INTERNAL.email, password: passwordHash })
@@ -3548,31 +3509,13 @@ async function main() {
         set: { is_email_synced: true },
       });
 
-    const avRawEmailRows = avMails.map((m) => ({
-      file_id: avMboxFile.id,
-      custodian_email: INTERNAL.email,
-      message_id: `${AV_MID_PREFIX}${m.idx}${AV_MID_SUFFIX}`,
-      from_address: m.from.email.toLowerCase(),
-      from_display_name: m.from.name,
-      to_addresses: m.to.map((r) => r.email.toLowerCase()),
-      cc_addresses: (m.cc ?? []).map((r) => r.email.toLowerCase()),
-      subject: m.subject,
-      body_text: m.body,
-      sent_at: new Date(avBase + m.daysOffset * dayMs).toISOString(),
-      ingest_status: 'ingested',
-      ingested_at: new Date().toISOString(),
-      llm_status: 'enriched',
-      llm_enriched_at: new Date().toISOString(),
-    }));
-    await db.insert(rawEmails).values(avRawEmailRows).onConflictDoNothing();
-
     const avEmailRows = avMails.map((m) => ({
       message_id: `${AV_MID_PREFIX}${m.idx}${AV_MID_SUFFIX}`,
+      custodian_email: INTERNAL.email,
       employer_id: avEmployer.id,
       from_address: m.from.email.toLowerCase(),
       from_display_name: m.from.name,
       subject: m.subject,
-      body_text: m.body,
       sent_at: new Date(avBase + m.daysOffset * dayMs).toISOString(),
       direction: m.direction,
       filter_status: 'processed',
@@ -3622,7 +3565,7 @@ async function main() {
       await db.insert(emailParticipants).values(avParticipantRows).onConflictDoNothing();
     }
     console.log(
-      `  ✓ AUTO VEHICLE: 1 employer + ${insertedAvCorrespondents.length} mbox correspondents + ${insertedAvEmails.length} emails + ${avParticipantRows.length} participants + ${avRawEmailRows.length} raw_emails (custodian: ${INTERNAL.email}, synced to MNA)`,
+      `  ✓ AUTO VEHICLE: 1 employer + ${insertedAvCorrespondents.length} mbox correspondents + ${insertedAvEmails.length} emails + ${avParticipantRows.length} participants (custodian: ${INTERNAL.email}, synced to MNA)`,
     );
 
     // ── Starhouse Prime VCC — CRM workspace-isolation fixture ─────────────────
@@ -3643,12 +3586,6 @@ async function main() {
       await db
         .delete(emails)
         .where(like(emails.message_id, `${STARHOUSE_MID_PREFIX}%${STARHOUSE_MID_SUFFIX}`));
-      await db
-        .delete(rawEmails)
-        .where(like(rawEmails.message_id, `${STARHOUSE_MID_PREFIX}%${STARHOUSE_MID_SUFFIX}`));
-      await db
-        .delete(mboxFiles)
-        .where(eq(mboxFiles.s3_key, 'seed/starhouse-golden-sacks.mbox'));
       await db
         .delete(employerNotes)
         .where(
@@ -3783,51 +3720,13 @@ async function main() {
           },
         ];
 
-        const [shMboxFile] = await db
-          .insert(mboxFiles)
-          .values({
-            source: 'seed',
-            s3_bucket: 'seed-fixtures',
-            s3_key: 'seed/starhouse-golden-sacks.mbox',
-            size_bytes: 0,
-            custodian_email: 'test2@sqe.co.id',
-            window_start: new Date(shBase).toISOString(),
-            window_end: new Date(shBase + 7 * dayMs).toISOString(),
-            mode: 'incremental',
-            parse_status: 'parsed',
-            parsed_at: new Date().toISOString(),
-            raw_email_count: shMails.length,
-          })
-        .onConflictDoNothing()
-          .returning({ id: mboxFiles.id });
-
-        if (shMboxFile) {
-          await db.insert(rawEmails).values(
-            shMails.map((m) => ({
-              file_id: shMboxFile.id,
-              custodian_email: 'test2@sqe.co.id',
-              message_id: `${STARHOUSE_MID_PREFIX}${m.idx}${STARHOUSE_MID_SUFFIX}`,
-              from_address: m.from.email.toLowerCase(),
-              from_display_name: m.from.name,
-              to_addresses: [m.to.email.toLowerCase()],
-              cc_addresses: [],
-              subject: m.subject,
-              body_text: m.body,
-              sent_at: new Date(shBase + m.daysOffset * dayMs).toISOString(),
-              ingest_status: 'ingested',
-              ingested_at: new Date().toISOString(),
-              llm_status: 'enriched',
-              llm_enriched_at: new Date().toISOString(),
-            })),
-          ).onConflictDoNothing();
-
           const shEmailRows = shMails.map((m) => ({
             message_id: `${STARHOUSE_MID_PREFIX}${m.idx}${STARHOUSE_MID_SUFFIX}`,
+            custodian_email: 'test2@sqe.co.id',
             employer_id: isolationEmployerId,
             from_address: m.from.email.toLowerCase(),
             from_display_name: m.from.name,
             subject: m.subject,
-            body_text: m.body,
             sent_at: new Date(shBase + m.daysOffset * dayMs).toISOString(),
             direction: m.direction,
             filter_status: 'processed',
@@ -3866,7 +3765,6 @@ async function main() {
           console.log(
             `  ✓ Starhouse isolation fixture: 1 private contact + 1 private note + 1 private topic + 1 private related-company + ${insertedShEmails.length} emails (custodian: test2@sqe.co.id, synced to Starhouse Prime VCC)`,
           );
-        }
       }
     }
 
@@ -3886,12 +3784,6 @@ async function main() {
       await db
         .delete(emails)
         .where(like(emails.message_id, `${TOGAN_MID_PREFIX}%${TOGAN_MID_SUFFIX}`));
-      await db
-        .delete(rawEmails)
-        .where(like(rawEmails.message_id, `${TOGAN_MID_PREFIX}%${TOGAN_MID_SUFFIX}`));
-      await db
-        .delete(mboxFiles)
-        .where(eq(mboxFiles.s3_key, 'seed/togan-jp-organ.mbox'));
       await db
         .delete(employerNotes)
         .where(
@@ -4016,51 +3908,13 @@ async function main() {
           },
         ];
 
-        const [tgMboxFile] = await db
-          .insert(mboxFiles)
-          .values({
-            source: 'seed',
-            s3_bucket: 'seed-fixtures',
-            s3_key: 'seed/togan-jp-organ.mbox',
-            size_bytes: 0,
-            custodian_email: 'test3@sqe.co.id',
-            window_start: new Date(tgBase).toISOString(),
-            window_end: new Date(tgBase + 7 * dayMs).toISOString(),
-            mode: 'incremental',
-            parse_status: 'parsed',
-            parsed_at: new Date().toISOString(),
-            raw_email_count: tgMails.length,
-          })
-        .onConflictDoNothing()
-          .returning({ id: mboxFiles.id });
-
-        if (tgMboxFile) {
-          await db.insert(rawEmails).values(
-            tgMails.map((m) => ({
-              file_id: tgMboxFile.id,
-              custodian_email: 'test3@sqe.co.id',
-              message_id: `${TOGAN_MID_PREFIX}${m.idx}${TOGAN_MID_SUFFIX}`,
-              from_address: m.from.email.toLowerCase(),
-              from_display_name: m.from.name,
-              to_addresses: [m.to.email.toLowerCase()],
-              cc_addresses: [],
-              subject: m.subject,
-              body_text: m.body,
-              sent_at: new Date(tgBase + m.daysOffset * dayMs).toISOString(),
-              ingest_status: 'ingested',
-              ingested_at: new Date().toISOString(),
-              llm_status: 'enriched',
-              llm_enriched_at: new Date().toISOString(),
-            })),
-          ).onConflictDoNothing();
-
           const tgEmailRows = tgMails.map((m) => ({
             message_id: `${TOGAN_MID_PREFIX}${m.idx}${TOGAN_MID_SUFFIX}`,
+            custodian_email: 'test3@sqe.co.id',
             employer_id: toganIsolationEmployerId,
             from_address: m.from.email.toLowerCase(),
             from_display_name: m.from.name,
             subject: m.subject,
-            body_text: m.body,
             sent_at: new Date(tgBase + m.daysOffset * dayMs).toISOString(),
             direction: m.direction,
             filter_status: 'processed',
@@ -4099,7 +3953,6 @@ async function main() {
           console.log(
             `  ✓ Togan isolation fixture: 1 private contact + 1 private note + 1 private topic + 1 private related-company + ${insertedTgEmails.length} emails (custodian: test3@sqe.co.id, synced to Togan VCC)`,
           );
-        }
       }
     }
 
@@ -4117,12 +3970,6 @@ async function main() {
       await db
         .delete(emails)
         .where(like(emails.message_id, `${AELIANA_MID_PREFIX}%${AELIANA_MID_SUFFIX}`));
-      await db
-        .delete(rawEmails)
-        .where(like(rawEmails.message_id, `${AELIANA_MID_PREFIX}%${AELIANA_MID_SUFFIX}`));
-      await db
-        .delete(mboxFiles)
-        .where(eq(mboxFiles.s3_key, 'seed/aeliana-credit-sweets.mbox'));
       await db
         .delete(employerNotes)
         .where(
@@ -4247,51 +4094,13 @@ async function main() {
           },
         ];
 
-        const [aeMboxFile] = await db
-          .insert(mboxFiles)
-          .values({
-            source: 'seed',
-            s3_bucket: 'seed-fixtures',
-            s3_key: 'seed/aeliana-credit-sweets.mbox',
-            size_bytes: 0,
-            custodian_email: 'test4@sqe.co.id',
-            window_start: new Date(aeBase).toISOString(),
-            window_end: new Date(aeBase + 7 * dayMs).toISOString(),
-            mode: 'incremental',
-            parse_status: 'parsed',
-            parsed_at: new Date().toISOString(),
-            raw_email_count: aeMails.length,
-          })
-        .onConflictDoNothing()
-          .returning({ id: mboxFiles.id });
-
-        if (aeMboxFile) {
-          await db.insert(rawEmails).values(
-            aeMails.map((m) => ({
-              file_id: aeMboxFile.id,
-              custodian_email: 'test4@sqe.co.id',
-              message_id: `${AELIANA_MID_PREFIX}${m.idx}${AELIANA_MID_SUFFIX}`,
-              from_address: m.from.email.toLowerCase(),
-              from_display_name: m.from.name,
-              to_addresses: [m.to.email.toLowerCase()],
-              cc_addresses: [],
-              subject: m.subject,
-              body_text: m.body,
-              sent_at: new Date(aeBase + m.daysOffset * dayMs).toISOString(),
-              ingest_status: 'ingested',
-              ingested_at: new Date().toISOString(),
-              llm_status: 'enriched',
-              llm_enriched_at: new Date().toISOString(),
-            })),
-          ).onConflictDoNothing();
-
           const aeEmailRows = aeMails.map((m) => ({
             message_id: `${AELIANA_MID_PREFIX}${m.idx}${AELIANA_MID_SUFFIX}`,
+            custodian_email: 'test4@sqe.co.id',
             employer_id: aelianaIsolationEmployerId,
             from_address: m.from.email.toLowerCase(),
             from_display_name: m.from.name,
             subject: m.subject,
-            body_text: m.body,
             sent_at: new Date(aeBase + m.daysOffset * dayMs).toISOString(),
             direction: m.direction,
             filter_status: 'processed',
@@ -4330,7 +4139,6 @@ async function main() {
           console.log(
             `  ✓ Aeliana isolation fixture: 1 private contact + 1 private note + 1 private topic + 1 private related-company + ${insertedAeEmails.length} emails (custodian: test4@sqe.co.id, synced to Aeliana VCC)`,
           );
-        }
       }
     }
 
@@ -4349,7 +4157,6 @@ async function main() {
     {
       const RT_MID_PREFIX = 'seed-rt-dist-';
       const RT_MID_SUFFIX = '@seed.local';
-      const RT_MBOX_KEY = 'seed/response-times.mbox';
       const RT_CUSTODIAN = {
         name: 'Wendy Wobble',
         email: 'wendy.wobble@sparklecapital.example',
@@ -4377,11 +4184,9 @@ async function main() {
       const rtSlug = (name: string) =>
         name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 
-      // Wipe prior fixture emails/raw_emails/mbox (idempotent). Employers are
-      // upserted (never deleted) so we don't drop a real CRM firm.
+      // Wipe prior fixture emails. Employers are upserted (never deleted) so
+      // we don't drop a real CRM firm.
       await db.delete(emails).where(like(emails.message_id, `${RT_MID_PREFIX}%${RT_MID_SUFFIX}`));
-      await db.delete(rawEmails).where(like(rawEmails.message_id, `${RT_MID_PREFIX}%${RT_MID_SUFFIX}`));
-      await db.delete(mboxFiles).where(eq(mboxFiles.s3_key, RT_MBOX_KEY));
 
       // Custodian mailbox synced to MNA — the workspace bridge for every inbound
       // email below (idempotent; AUTO VEHICLE also sets this up).
@@ -4409,26 +4214,6 @@ async function main() {
       const rtBase = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).getTime();
       const nowIso = new Date().toISOString();
 
-      const [rtMbox] = await db
-        .insert(mboxFiles)
-        .values({
-          source: 'seed',
-          s3_bucket: 'seed-fixtures',
-          s3_key: RT_MBOX_KEY,
-          size_bytes: 0,
-          custodian_email: RT_CUSTODIAN.email,
-          window_start: new Date(rtBase).toISOString(),
-          window_end: new Date(rtBase + 90 * rtDayMs).toISOString(),
-          mode: 'incremental',
-          parse_status: 'parsed',
-          parsed_at: nowIso,
-          raw_email_count: RT_FIRMS.length * RT_MULTIPLIERS.length,
-        })
-        .onConflictDoNothing()
-        .returning({ id: mboxFiles.id });
-      if (!rtMbox) throw new Error('failed to insert response-time mbox_files fixture');
-
-      const rtRawRows: (typeof rawEmails.$inferInsert)[] = [];
       const rtEmailRows: (typeof emails.$inferInsert)[] = [];
       // inbound message_id → firm correspondent, for participants after insert.
       const rtCorrByInMid = new Map<string, { corrId: string; email: string; name: string }>();
@@ -4494,11 +4279,11 @@ async function main() {
 
           rtEmailRows.push({
             message_id: inMid,
+            custodian_email: RT_CUSTODIAN.email,
             employer_id: rtEmployer.id,
             from_address: contactEmail,
             from_display_name: contactName,
             subject: `Deal intro — ${firm.banker}`,
-            body_text: `Sharing an opportunity from ${firm.banker}. Keen to discuss.`,
             sent_at: inSentAt,
             direction: 'inbound',
             filter_status: 'processed',
@@ -4506,12 +4291,12 @@ async function main() {
           });
           rtEmailRows.push({
             message_id: outMid,
+            custodian_email: RT_CUSTODIAN.email,
             in_reply_to: inMid,
             employer_id: rtEmployer.id,
             from_address: RT_CUSTODIAN.email,
             from_display_name: RT_CUSTODIAN.name,
             subject: `RE: Deal intro — ${firm.banker}`,
-            body_text: `Thanks — let us set up a call to review the materials.`,
             sent_at: outSentAt,
             direction: 'outbound',
             filter_status: 'processed',
@@ -4519,28 +4304,9 @@ async function main() {
           });
           rtCorrByInMid.set(inMid, { corrId, email: contactEmail, name: contactName });
 
-          // Only the inbound parent needs the raw_emails → workspace bridge (the
-          // response p50 is attributed to the inbound email's workspace).
-          rtRawRows.push({
-            file_id: rtMbox.id,
-            custodian_email: RT_CUSTODIAN.email,
-            message_id: inMid,
-            from_address: contactEmail.toLowerCase(),
-            from_display_name: contactName,
-            to_addresses: [RT_CUSTODIAN.email.toLowerCase()],
-            cc_addresses: [],
-            subject: `Deal intro — ${firm.banker}`,
-            body_text: '',
-            sent_at: inSentAt,
-            ingest_status: 'ingested',
-            ingested_at: nowIso,
-            llm_status: 'enriched',
-            llm_enriched_at: nowIso,
-          });
         }
       }
 
-      if (rtRawRows.length > 0) await db.insert(rawEmails).values(rtRawRows).onConflictDoNothing();
       const rtInsertedEmails =
         rtEmailRows.length > 0
           ? await db

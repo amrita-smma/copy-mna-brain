@@ -1,42 +1,12 @@
 {
-  "CrmIngest": {
-    "DB_PASSWORD": "FILL_IN",
-    "AWS_ACCESS_KEY_ID": "minioadmin",
-    "AWS_SECRET_ACCESS_KEY": "minioadmin"
-  },
-  "CrmLlmSubmit": {
-    "DB_PASSWORD": "FILL_IN",
-    "ANTHROPIC_API_KEY": "FILL_IN",
-    "AWS_ACCESS_KEY_ID": "minioadmin",
-    "AWS_SECRET_ACCESS_KEY": "minioadmin"
-  },
-  "CrmLlmFetch": {
-    "DB_PASSWORD": "FILL_IN",
-    "ANTHROPIC_API_KEY": "FILL_IN",
-    "AWS_ACCESS_KEY_ID": "minioadmin",
-    "AWS_SECRET_ACCESS_KEY": "minioadmin"
-  },
-  "CrmDomainClassify": {
-    "DB_PASSWORD": "FILL_IN",
-    "ANTHROPIC_API_KEY": "FILL_IN",
-    "AWS_ACCESS_KEY_ID": "minioadmin",
-    "AWS_SECRET_ACCESS_KEY": "minioadmin"
-  },
-  "VaultParse": {
-    "DB_PASSWORD": "FILL_IN",
-    "AWS_ACCESS_KEY_ID": "minioadmin",
-    "AWS_SECRET_ACCESS_KEY": "minioadmin"
-  },
   "VaultArchiveStart": {
     "DB_PASSWORD": "FILL_IN",
-    "GOOGLE_VAULT_SERVICE_ACCOUNT": "FILL_IN",
-    "AWS_ACCESS_KEY_ID": "minioadmin",
-    "AWS_SECRET_ACCESS_KEY": "minioadmin"
+    "GOOGLE_VAULT_SERVICE_ACCOUNT": "FILL_IN"
   },
   "VaultArchivePoll": {
     "DB_PASSWORD": "FILL_IN",
     "GOOGLE_VAULT_SERVICE_ACCOUNT": "FILL_IN",
-    "AWS_ACCESS_KEY_ID": "minioadmin",
-    "AWS_SECRET_ACCESS_KEY": "minioadmin"
+    "ANTHROPIC_API_KEY": "FILL_IN",
+    "ADMIN_SECRET": "FILL_IN"
   }
 }

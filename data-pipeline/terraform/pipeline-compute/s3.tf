@@ -58,35 +58,3 @@ resource "aws_s3_bucket_lifecycle_configuration" "data_lake_attachment_archive" 
   }
 }
 
-resource "aws_iam_policy" "data_lake_rw" {
-  name        = "${local.prefix}-data-lake-rw"
-  description = "Pipeline Lambda read/write to data-lake S3 bucket"
-
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Sid    = "ListBucket"
-        Effect = "Allow"
-        Action = [
-          "s3:ListBucket",
-          "s3:GetBucketLocation"
-        ]
-        Resource = aws_s3_bucket.data_lake.arn
-      },
-      {
-        Sid    = "ObjectRW"
-        Effect = "Allow"
-        Action = [
-          "s3:GetObject",
-          "s3:PutObject",
-          "s3:DeleteObject",
-          "s3:GetObjectVersion"
-        ]
-        Resource = "${aws_s3_bucket.data_lake.arn}/*"
-      }
-    ]
-  })
-
-  tags = local.common_tags
-}

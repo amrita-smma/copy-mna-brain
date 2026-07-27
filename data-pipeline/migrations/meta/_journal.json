@@ -71,6 +71,41 @@
       "when": 1783209604000,
       "tag": "20260705000004_workspace_scoped_marts",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1784898000000,
+      "tag": "20260724130000_ephemeral_email_phase0",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1784898060000,
+      "tag": "20260724130100_ephemeral_email_phase1",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1784898120000,
+      "tag": "20260724130200_drop_legacy_email_pipeline",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1784898180000,
+      "tag": "20260724130300_harden_email_process_source_key",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1784898240000,
+      "tag": "20260724130400_email_process_afd_uploaded_digests",
+      "breakpoints": true
     }
   ]
 }

@@ -333,6 +333,46 @@ describe('FileService.processUpload', () => {
     );
   });
 
+  it('stores fixed drop_reason code for origin_email other (no classifier summary)', async () => {
+    vi.mocked(processFileContent).mockResolvedValue({
+      file_type: 'other',
+      summary: 'Private personal tax return for John Doe SSN 123-45-6789',
+    } as never);
+    vi.mocked(deleteFile).mockResolvedValue(undefined as never);
+    vi.mocked(fileRepo.findById).mockResolvedValue(
+      makeFile({ id: 'file-1', processing_status: 'dropped', drop_reason: 'afd_classified_other' }),
+    );
+
+    const result = await service.processUpload(
+      'uploads/personal.pdf',
+      'personal.pdf',
+      'application/pdf',
+      undefined,
+      undefined,
+      true, // origin_email
+    );
+
+    expect(fileRepo.updatePartial).toHaveBeenCalledWith(
+      'file-1',
+      expect.objectContaining({
+        processing_status: 'dropped',
+        file_type: 'other',
+        drop_reason: 'afd_classified_other',
+      }),
+    );
+    const dropCall = vi
+      .mocked(fileRepo.updatePartial)
+      .mock.calls.find((c) => (c[1] as { drop_reason?: string }).drop_reason);
+    expect(String((dropCall?.[1] as { drop_reason?: string }).drop_reason)).toBe(
+      'afd_classified_other',
+    );
+    expect(String((dropCall?.[1] as { drop_reason?: string }).drop_reason)).not.toContain(
+      'Private personal',
+    );
+    expect(deleteFile).toHaveBeenCalledWith('uploads/personal.pdf');
+    expect(result).toMatchObject({ dropped: true });
+  });
+
   it('completes prospectus files without a review gate', async () => {
     vi.mocked(processFileContent).mockResolvedValue({ file_type: 'prospectus' } as never);
 

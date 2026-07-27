@@ -5,6 +5,7 @@ import {
   buildUserPrompt,
   mergePeopleWithCandidates,
   safeCustomId,
+  EMAIL_EXTRACTION_SCHEMA,
   type LlmPerson,
   type QueueEntry,
 } from './llmEnrich';
@@ -166,5 +167,13 @@ describe('safeCustomId', () => {
     expect(out).toMatch(/^[a-f0-9]{32}$/);
     // Must be deterministic across calls so we can map back to a message_id.
     expect(safeCustomId('')).toBe(out);
+  });
+});
+
+describe('EMAIL_EXTRACTION_SCHEMA privacy', () => {
+  it('does not require matched_text on related_companies', () => {
+    const related = EMAIL_EXTRACTION_SCHEMA.properties.related_companies.items;
+    expect(related.required).not.toContain('matched_text');
+    expect(related.properties).not.toHaveProperty('matched_text');
   });
 });

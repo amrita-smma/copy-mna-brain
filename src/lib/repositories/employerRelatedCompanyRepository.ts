@@ -44,9 +44,7 @@ export interface UpsertRelatedCompanyInput {
 export interface InsertEvidenceInput {
   related_company_id: string;
   email_id: string | null;
-  raw_email_id: string | null;
-  matched_text: string | null;
-  reason: string;
+                                                                                                        reason: string;
   reason_summary: string | null;
   keywords: string[];
   confidence: string;
@@ -168,8 +166,7 @@ export class EmployerRelatedCompanyRepository {
       .values({
         related_company_id: input.related_company_id,
         email_id: input.email_id,
-        raw_email_id: input.raw_email_id,
-        matched_text: input.matched_text,
+        matched_text: null,
         reason: input.reason,
         reason_summary: input.reason_summary,
         keywords: input.keywords,

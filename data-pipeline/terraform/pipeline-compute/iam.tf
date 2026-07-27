@@ -44,12 +44,6 @@ resource "aws_iam_role_policy_attachment" "rds_iam_connect" {
   policy_arn = aws_iam_policy.rds_iam_connect.arn
 }
 
-# S3 RW on the data-lake bucket (mbox archives)
-resource "aws_iam_role_policy_attachment" "data_lake_rw" {
-  role       = aws_iam_role.pipeline_lambda.name
-  policy_arn = aws_iam_policy.data_lake_rw.arn
-}
-
 # SSM Parameter Store — read pipeline secrets
 resource "aws_iam_policy" "ssm_read" {
   name        = "${local.prefix}-ssm-read"

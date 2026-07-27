@@ -1,11 +1,12 @@
 variable "lambda_configs" {
   description = "Pipeline Lambda definitions keyed by deploy name."
   type = map(object({
-    handler      = string
-    schedule     = string
-    description  = string
-    memory_heavy = bool
-    input        = string
+    handler              = string
+    schedule             = string
+    description          = string
+    memory_heavy         = bool
+    input                = string
+    ephemeral_storage_mb = optional(number, 512)
   }))
 }
 

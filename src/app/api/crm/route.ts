@@ -3,10 +3,11 @@ import { createDb } from '@/lib/server/db';
 import { getActiveWorkspaceId } from '@/lib/workspace';
 import { createContainer } from '@/lib/services';
 import { DuplicateEmployerError } from '@/lib/services/crmService';
-import { JobRepository, UserWorkspaceRepository, type EmployerListFilters } from '@/lib/repositories';
-import { VAULT_SYNC_CADENCE_MS } from '@/lib/jobs/handlers/vaultExport';
+import { UserWorkspaceRepository, type EmployerListFilters } from '@/lib/repositories';
+import { sql } from 'drizzle-orm';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+const VAULT_SYNC_CADENCE_MS = DAY_MS;
 
 function lastContactAfter(
   preset: string | null,
@@ -69,11 +70,14 @@ export async function GET(req: NextRequest) {
     const db = createDb();
     const workspaceId = await getActiveWorkspaceId();
     const { crmService } = createContainer(db, workspaceId);
-    const jobRepo = new JobRepository(db);
-    const lastSyncJob = await jobRepo.findLatestByTypeAndStatus(
-      'vault_export',
-      'completed',
+    const { rows: lastSyncRows } = await db.execute<{ synced_at: string | null }>(
+      sql`SELECT updated_at::text AS synced_at
+          FROM analytics.vault_exports
+          WHERE status IN ('archived', 'archived_partial')
+          ORDER BY updated_at DESC
+          LIMIT 1`,
     );
+    const lastVaultSyncedAt = lastSyncRows[0]?.synced_at ?? null;
     const { data, total } = await crmService.listEmployers(filters);
     const vaultCustodianCount = await new UserWorkspaceRepository(db).countSyncedCustodians(
       workspaceId,
@@ -86,7 +90,7 @@ export async function GET(req: NextRequest) {
 
     const insights = await crmService.insights({
       vaultCustodianCount,
-      lastVaultSyncedAt: lastSyncJob?.completed_at ?? null,
+      lastVaultSyncedAt,
       vaultSyncCadenceMs: VAULT_SYNC_CADENCE_MS,
       clientTodayIso,
     });

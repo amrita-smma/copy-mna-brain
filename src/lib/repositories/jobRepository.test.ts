@@ -28,15 +28,15 @@ describe('JobRepository.findLatestByTypeAndStatus', () => {
 
   it('returns the most recent matching job', async () => {
     db.limit.mockResolvedValueOnce([
-      { id: 'j1', type: 'vault_export', status: 'completed' },
+      { id: 'j1', type: 'slide_generation', status: 'completed' },
     ]);
-    const out = await repo.findLatestByTypeAndStatus('vault_export', 'completed');
+    const out = await repo.findLatestByTypeAndStatus('slide_generation', 'completed');
     expect(out).toMatchObject({ id: 'j1' });
   });
 
   it('returns null when none match', async () => {
     db.limit.mockResolvedValueOnce([]);
-    const out = await repo.findLatestByTypeAndStatus('vault_export', 'completed');
+    const out = await repo.findLatestByTypeAndStatus('slide_generation', 'completed');
     expect(out).toBeNull();
   });
 });
@@ -52,11 +52,11 @@ describe('JobRepository.findByTypeAndPayload', () => {
 
   it('returns every matching row regardless of status', async () => {
     const rows = [
-      { id: 'j1', type: 'vault_archive', status: 'completed' },
-      { id: 'j2', type: 'vault_archive', status: 'failed' },
+      { id: 'j1', type: 'market_screening', status: 'completed' },
+      { id: 'j2', type: 'market_screening', status: 'failed' },
     ];
     db.orderBy.mockResolvedValueOnce(rows);
-    const out = await repo.findByTypeAndPayload('vault_archive', {
+    const out = await repo.findByTypeAndPayload('market_screening', {
       year: 2026,
       month: 3,
       mode: 'monthly',
@@ -66,7 +66,7 @@ describe('JobRepository.findByTypeAndPayload', () => {
 
   it('returns [] when nothing matches', async () => {
     db.orderBy.mockResolvedValueOnce([]);
-    const out = await repo.findByTypeAndPayload('vault_archive', {
+    const out = await repo.findByTypeAndPayload('market_screening', {
       year: 2026,
       month: 4,
       mode: 'monthly',
@@ -76,7 +76,7 @@ describe('JobRepository.findByTypeAndPayload', () => {
 
   it('stringifies numeric values for the JSONB text comparison', async () => {
     db.orderBy.mockResolvedValueOnce([]);
-    await repo.findByTypeAndPayload('vault_archive', { year: 2026, month: 1 });
+    await repo.findByTypeAndPayload('market_screening', { year: 2026, month: 1 });
     // Drizzle's sql template captures the value verbatim via parameterised
     // queries; we only assert that the query ran (the SQL shape is exercised
     // by integration tests, not unit tests).

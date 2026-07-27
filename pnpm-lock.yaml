@@ -432,6 +432,18 @@ importers:
       drizzle-orm:
         specifier: '*'
         version: 0.45.2(@opentelemetry/api@1.9.1)(@types/pg@8.20.0)(better-sqlite3@11.10.0)(pg@8.20.0)(postgres@3.4.9)
+      exceljs:
+        specifier: '*'
+        version: 4.4.0
+      jszip:
+        specifier: '*'
+        version: 3.10.1
+      mammoth:
+        specifier: '*'
+        version: 1.12.0
+      pdf-parse:
+        specifier: '*'
+        version: 1.1.4
       unzipper:
         specifier: '*'
         version: 0.10.14
@@ -6535,6 +6547,7 @@ packages:
 
   lodash.isequal@4.5.0:
     resolution: {integrity: sha512-pDo3lu8Jhfjqls6GkMgpahsF9kCyayhgykjyLMNFTKWrpVdAQtYyB4muAMWozBB4ig/dtWAmsMxLEI8wuz+DYQ==}
+    deprecated: This package is deprecated. Use require('node:util').isDeepStrictEqual instead.
 
   lodash.isfunction@3.0.9:
     resolution: {integrity: sha512-AirXNj15uRIMMPihnkInB4i3NHeb4iBtNg9WRWuK2o31S+ePwwNmDPaTL3o7dTJ+VXNZim7rFs4rxN4YU1oUJw==}

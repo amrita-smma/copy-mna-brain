@@ -3,7 +3,10 @@ import { createDb } from '@/lib/server/db';
 import { getActiveWorkspaceId } from '@/lib/workspace';
 import { createContainer } from '@/lib/services';
 import { auth } from '@/auth';
-import type { FileSortField } from '@/lib/repositories';
+import {
+  UserWorkspaceRepository,
+  type FileSortField,
+} from '@/lib/repositories';
 
 const FILE_TYPE_OVERRIDES = ['mom', 'prospectus', 'other', 'shopping_list', 'market_study', 'fund_updates'] as const;
 type FileTypeOverrideValue = (typeof FILE_TYPE_OVERRIDES)[number];
@@ -44,6 +47,7 @@ export async function POST(request: NextRequest) {
       banker_source: rawBankerSource,
       // For MBOX pipeline: custodian email address to resolve to a user UUID.
       entered_by: rawEnteredByEmail,
+      workspace_id: rawWorkspaceId,
     } = await request.json();
 
     if (!key || !fileName) {
@@ -61,13 +65,38 @@ export async function POST(request: NextRequest) {
     const enteredByEmail = typeof rawEnteredByEmail === 'string' && rawEnteredByEmail.trim()
       ? rawEnteredByEmail.trim()
       : undefined;
+    const requestedWorkspaceId =
+      typeof rawWorkspaceId === 'string' && rawWorkspaceId.trim()
+        ? rawWorkspaceId.trim()
+        : undefined;
 
     // For session-authenticated (manual) uploads: use the logged-in user as the enterer.
     const session = await auth();
     const uploaderUserId = session?.user?.id ?? null;
 
     const db = createDb();
-    const { fileService } = createContainer(db, await getActiveWorkspaceId());
+    // Internal pipeline calls have no session and authenticate via ADMIN_SECRET;
+    // preserve the custodian's workspace instead of falling back to MNA.
+    let workspaceId = await getActiveWorkspaceId();
+    if (!session && requestedWorkspaceId) {
+      if (!enteredByEmail) {
+        return NextResponse.json(
+          { error: 'entered_by is required with workspace_id' },
+          { status: 403 },
+        );
+      }
+      const allowedWorkspaceIds = await new UserWorkspaceRepository(
+        db,
+      ).findWorkspaceIdsBySyncedEmail(enteredByEmail);
+      if (!allowedWorkspaceIds.includes(requestedWorkspaceId)) {
+        return NextResponse.json(
+          { error: 'Custodian is not synced to the requested workspace' },
+          { status: 403 },
+        );
+      }
+      workspaceId = requestedWorkspaceId;
+    }
+    const { fileService } = createContainer(db, workspaceId);
     const data = await fileService.processUpload(
       key,
       fileName,

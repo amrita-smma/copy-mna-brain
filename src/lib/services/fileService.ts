@@ -485,6 +485,43 @@ export class FileService {
       if (needsHitlReview && effectiveFileType === 'fund_updates') {
         needsHitlReview = await this.fundUpdateProposalNeedsReview(structuredResult);
       }
+
+      // Ephemeral pipeline: email-origin files classified as `other` are
+      // dropped after classify — delete S3 bytes, keep the files row as audit.
+      // Manual uploads (origin_email=false) are never auto-wiped.
+      // Never persist classifier summary prose in drop_reason (privacy).
+      if (originEmail && !needsHitlReview && finalFileType === 'other') {
+        const dropReason = 'afd_classified_other';
+        // Mark dropped in DB first so a failed S3 delete still leaves an audit
+        // row; never delete bytes while the row still looks processable.
+        await primaryFileRepo.updatePartial(initialData.id, {
+          raw_notes: null,
+          structured_notes: null,
+          file_type: finalFileType,
+          processing_status: 'dropped',
+          drop_reason: dropReason,
+          tags: [],
+          matched_companies: [],
+        });
+        await Promise.all(
+          secondaryFileRepos.map((repo, i) =>
+            repo.updatePartial(secondaryInitialRows[i].id, {
+              raw_notes: null,
+              structured_notes: null,
+              file_type: finalFileType,
+              processing_status: 'dropped',
+              drop_reason: dropReason,
+              tags: [],
+            }),
+          ),
+        );
+        await deleteFile(key).catch((err) =>
+          console.error('[fileService] Failed to delete dropped origin_email S3 object:', err),
+        );
+        const dropped = await primaryFileRepo.findById(initialData.id);
+        return { ...dropped, signed_url: null, dropped: true };
+      }
+
       const isPrimaryWorkspace = primaryWorkspaceId === this.workspaceId;
       if (isPrimaryWorkspace && structuredResult && MULTI_COMPANY_FILE_TYPES.has(effectiveFileType)) {
         try {

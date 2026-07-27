@@ -1,7 +1,7 @@
 // Shared logic for the LLM enrichment step. Mirrors mna-mbox-parser/llm_extract.py.
 // Pure functions (prompt builder, merge step, schema, system prompt). Anything
-// I/O — local Ollama HTTP, Anthropic SDK batch calls — lives in
-// crmLlmSubmit / crmLlmFetch job handlers so this module stays testable without network.
+// Network I/O lives in the single-pass email processor so this module remains
+// testable without network access.
 
 import { createReadStream } from 'node:fs';
 import { createInterface } from 'node:readline';
@@ -34,7 +34,8 @@ export interface LlmPerson {
 
 export interface LlmRelatedCompany {
   company_name: string;
-  matched_text: string;
+  /** @deprecated Ephemeral pipeline does not retain body excerpts. */
+  matched_text?: string | null;
   reason: 'explicit_pitch' | 'company_mention' | 'deal_keyword_context' | 'process_reference' | 'other';
   reason_summary: string;
   keywords: string[];
@@ -145,7 +146,6 @@ export const EMAIL_EXTRACTION_SCHEMA = {
         type: 'object',
         properties: {
           company_name: { type: 'string', description: 'Short company name, no email addresses.' },
-          matched_text: { type: 'string', description: 'Brief excerpt from subject/body (≤300 chars).' },
           reason: {
             type: 'string',
             enum: ['explicit_pitch', 'company_mention', 'deal_keyword_context', 'process_reference', 'other'],
@@ -154,7 +154,9 @@ export const EMAIL_EXTRACTION_SCHEMA = {
           keywords: { type: 'array', items: { type: 'string' }, description: '0-8 deal keywords found near the mention.' },
           confidence: { type: 'string', enum: ['high', 'medium', 'low'] },
         },
-        required: ['company_name', 'matched_text', 'reason', 'reason_summary', 'keywords', 'confidence'],
+        // Intentionally omit matched_text — ephemeral cutover does not retain
+        // verbatim subject/body excerpts in model output or CRM evidence.
+        required: ['company_name', 'reason', 'reason_summary', 'keywords', 'confidence'],
       },
     },
   },

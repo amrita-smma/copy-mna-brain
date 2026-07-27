@@ -746,7 +746,7 @@ export class CRMService {
         from_address: row.from_email,
         from_display_name: row.from_name,
         subject: row.subject,
-        body_text: row.body,
+        body_text: null,
         sent_at: row.sent_at ?? new Date().toISOString(),
         direction: row.direction,
         filter_status: "processed",

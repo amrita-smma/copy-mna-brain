@@ -121,8 +121,6 @@ describe('EmployerRelatedCompanyRepository.insertEvidence', () => {
     await repo.insertEvidence({
       related_company_id: 'rc-1',
       email_id: 'em-1',
-      raw_email_id: 'raw-1',
-      matched_text: 'We represent TechSlurry',
       reason: 'explicit_pitch',
       reason_summary: 'Banker represents this company',
       keywords: ['sell-side'],

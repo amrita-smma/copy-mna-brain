@@ -3,8 +3,8 @@
 
 import type { CompanyRepository } from '@/lib/repositories';
 
-// Canonical normalizer lives in the app so the CRM service can share it; we
-// re-export here so existing callers (crmIngest) keep importing it from the helper.
+// Canonical normalizer lives in the app; re-export it for the ephemeral CRM
+// batch writer.
 export { normalizeCompanyName } from '@/lib/crm/normalizeCompanyName';
 import { normalizeCompanyName } from '@/lib/crm/normalizeCompanyName';
 

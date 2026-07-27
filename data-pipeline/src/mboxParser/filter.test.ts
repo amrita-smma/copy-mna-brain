@@ -8,6 +8,7 @@ import {
   isPersonalOrOneOnOne,
 } from './filter';
 import { parseHeaders } from './parser';
+import { INTERNAL_MAIL_DOMAINS } from '../lib/mailDomains';
 
 describe('isAutoReply', () => {
   it('detects Auto-Submitted header', () => {
@@ -97,6 +98,14 @@ describe('isInternalOnly', () => {
   it('returns false when at least one party is external', () => {
     const headers = parseHeaders('From: a@starcapital.co.id\nTo: external@other.com');
     expect(isInternalOnly(headers, ourDomains)).toBe(false);
+  });
+
+  it('does not treat public outlook.com as an internal domain', () => {
+    const headers = parseHeaders(
+      'From: a@starcapital.co.id\nTo: banker@outlook.com\nSubject: Project Alpha LOI',
+    );
+    expect(INTERNAL_MAIL_DOMAINS.has('outlook.com')).toBe(false);
+    expect(isInternalOnly(headers, INTERNAL_MAIL_DOMAINS)).toBe(false);
   });
 
   it('returns false when sender domain is missing', () => {

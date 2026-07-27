@@ -16,7 +16,7 @@ variable "lambda_memory_mb" {
 }
 
 variable "lambda_memory_mb_heavy" {
-  description = "Memory for transfer-heavy functions (vaultArchivePoll, vaultParse)"
+  description = "Memory for transfer-heavy functions (vaultArchivePoll)"
   type        = number
   default     = 3008
 }

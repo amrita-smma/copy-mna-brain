@@ -24,18 +24,10 @@ const srcAlias = resolve(repoRoot, 'src');
 const distDir = resolve(pkgRoot, 'dist');
 
 // entrypoint file (camelCase) → terraform key (kebab-case)
+// The no-S3 architecture has exactly two scheduled email Lambdas.
 const ENTRIES: Record<string, string> = {
-  crmIngest: 'crm-ingest',
-  crmLlmSubmit: 'crm-llm-submit',
-  crmLlmFetch: 'crm-llm-fetch',
-  crmDomainClassify: 'crm-domain-classify',
-  vaultParse: 'vault-parse',
   vaultArchiveStart: 'vault-archive-start',
   vaultArchivePoll: 'vault-archive-poll',
-  attachmentGate: 'attachment-gate',
-  attachmentFetch: 'attachment-fetch',
-  attachmentTriage: 'attachment-triage',
-  attachmentUpload: 'attachment-upload',
 };
 
 async function main() {

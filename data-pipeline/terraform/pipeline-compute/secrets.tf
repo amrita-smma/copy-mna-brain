@@ -70,10 +70,3 @@ resource "aws_ssm_parameter" "db_user" {
   tags        = local.common_tags
 }
 
-resource "aws_ssm_parameter" "s3_mbox_bucket" {
-  name        = "/mna/${local.environment}/pipeline/S3_MBOX_BUCKET"
-  description = "S3 bucket name for mbox storage (data-lake)"
-  type        = "String"
-  value       = aws_s3_bucket.data_lake.id
-  tags        = local.common_tags
-}

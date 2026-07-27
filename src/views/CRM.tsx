@@ -31,13 +31,11 @@ import { LAST_CONTACT_LABELS, PAGE_SIZE, TOPIC_SUGGESTIONS } from "./crm/utils";
 interface CRMProps {
   showCompanyGraph?: boolean;
   showFundManagement?: boolean;
-  showVaultSync?: boolean;
 }
 
 export default function CRM({
   showCompanyGraph = false,
   showFundManagement = false,
-  showVaultSync = false,
 }: CRMProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -280,7 +278,6 @@ export default function CRM({
       <div className="flex flex-col h-full">
         <PageHeader
           insights={insights}
-          showVaultSync={showVaultSync}
           onOpenAddContact={() => {
             setAddContactEmployerId(null);
             setAddContactOpen(true);

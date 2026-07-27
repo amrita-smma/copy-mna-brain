@@ -41,6 +41,23 @@ export {
   isPersonalOrOneOnOne,
 } from './filter';
 export {
+  runPrivacyFilter,
+  isDomainBlacklisted,
+  isSensitiveContent,
+  isSensitiveAttachmentFilename,
+  shouldBypassPdfTriage,
+  shouldBypassOfficeTriage,
+  clipOfficeTriageText,
+  hasEnoughOfficeExtractText,
+  isOfficeAttachment,
+  OFFICE_DIRECT_UPLOAD_MIMES,
+  PDF_TRIAGE_SOFT_MAX_BYTES,
+  OFFICE_TRIAGE_MAX_CHARS,
+  OFFICE_TRIAGE_MIN_CHARS,
+  type PrivacyFilterResult,
+  type PrivacySkipReason,
+} from './privacyFilter';
+export {
   domainTag,
   findBodyCandidates,
   processEmail,

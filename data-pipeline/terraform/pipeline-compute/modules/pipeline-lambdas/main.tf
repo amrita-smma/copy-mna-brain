@@ -26,6 +26,12 @@ resource "aws_lambda_function" "pipeline" {
   timeout     = var.lambda_timeout_seconds
   memory_size = each.value.memory_heavy ? var.lambda_memory_mb_heavy : var.lambda_memory_mb
 
+  # Poll spools one MBOX entry at a time to /tmp; size for the largest single
+  # decompressed entry, not the whole Vault ZIP.
+  ephemeral_storage {
+    size = each.value.ephemeral_storage_mb
+  }
+
   vpc_config {
     subnet_ids         = var.private_subnet_ids
     security_group_ids = [var.lambda_security_group_id]

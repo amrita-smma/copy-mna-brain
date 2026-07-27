@@ -19,11 +19,6 @@ type TableMap = {
   deal_links: typeof schema.dealLinks;
   deal_notes: typeof schema.dealNotes;
   files: typeof schema.files;
-  mbox_files: typeof schema.mboxFiles;
-  raw_emails: typeof schema.rawEmails;
-  raw_email_enrichments: typeof schema.rawEmailEnrichments;
-  llm_batches: typeof schema.llmBatches;
-  domain_classifications: typeof schema.domainClassifications;
   investment_thesis: typeof schema.investmentThesis;
   track_variables: typeof schema.trackVariables;
   inven_cache: typeof schema.invenCache;
@@ -54,7 +49,6 @@ type TableMap = {
   employer_team_members: typeof schema.employerTeamMembers;
   employer_related_companies: typeof schema.employerRelatedCompanies;
   employer_related_company_evidence: typeof schema.employerRelatedCompanyEvidence;
-  email_attachments: typeof schema.emailAttachments;
   workspaces: typeof schema.workspaces;
   roles: typeof schema.roles;
   user_workspaces: typeof schema.userWorkspaces;

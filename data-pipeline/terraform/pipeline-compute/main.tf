@@ -1,42 +1,8 @@
 locals {
-  # All Lambda functions: handler path in the bundle, cron schedule, memory override
-  # handler = "src/lambda/<file>.handler" (esbuild bundles each to dist/<name>/index.js)
+  # No-S3 email cutover — exactly two schedules. vault-archive-poll now does the
+  # full single-pass process (privacy→LLM→CRM→AFD) inline from Lambda /tmp; no
+  # MBOX bytes ever touch S3 and there is no separate email-process handoff.
   lambda_configs = {
-    crm-llm-submit = {
-      handler      = "crmLlmSubmit.handler"
-      schedule     = "cron(30 * * * ? *)"
-      description  = "Submit raw_emails to Anthropic Batch API for LLM enrichment"
-      memory_heavy = false
-      input        = jsonencode({ limit = 300 })
-    }
-    crm-llm-fetch = {
-      handler      = "crmLlmFetch.handler"
-      schedule     = "cron(*/5 * * * ? *)"
-      description  = "Poll Anthropic Batch API and write enrichment results"
-      memory_heavy = false
-      input        = jsonencode({})
-    }
-    crm-domain-classify = {
-      handler      = "crmDomainClassify.handler"
-      schedule     = "cron(45 * * * ? *)"
-      description  = "Classify email sender domains via LLM"
-      memory_heavy = false
-      input        = jsonencode({ limit = 200 })
-    }
-    crm-ingest = {
-      handler      = "crmIngest.handler"
-      schedule     = "cron(50 * * * ? *)"
-      description  = "Ingest enriched emails into CRM employers/correspondents/emails"
-      memory_heavy = false
-      input        = jsonencode({ limit = 2000 })
-    }
-    vault-parse = {
-      handler      = "vaultParse.handler"
-      schedule     = "cron(15 * * * ? *)"
-      description  = "Parse mbox files from S3 into raw_emails (streaming)"
-      memory_heavy = true
-      input        = jsonencode({ limit = 10 })
-    }
     vault-archive-start = {
       handler      = "vaultArchiveStart.handler"
       schedule     = "cron(5 * * * ? *)"
@@ -45,54 +11,25 @@ locals {
       input        = jsonencode({})
     }
     vault-archive-poll = {
-      handler      = "vaultArchivePoll.handler"
-      schedule     = "cron(*/3 * * * ? *)"
-      description  = "Poll vault_exports; on COMPLETED stream-download → S3 → mbox_files"
-      memory_heavy = true
-      input        = jsonencode({})
-    }
-    attachment-gate = {
-      handler      = "attachmentGate.handler"
-      schedule     = "cron(55 * * * ? *)"
-      description  = "Promote email attachment metadata rows that pass deal-originator gates"
-      memory_heavy = false
-      input        = jsonencode({ limit = 5000 })
-    }
-    attachment-fetch = {
-      handler      = "attachmentFetch.handler"
-      schedule     = "cron(0 * * * ? *)"
-      description  = "Fetch and upload gated email attachment bytes from archived mbox files"
-      memory_heavy = true
-      input        = jsonencode({ limit = 1000 })
-    }
-    attachment-triage = {
-      handler      = "attachmentTriage.handler"
-      schedule     = "cron(5 * * * ? *)"
-      description  = "Classify fetched email attachments before AFD upload"
-      memory_heavy = false
-      input        = jsonencode({ limit = 500 })
-    }
-    attachment-upload = {
-      handler      = "attachmentUpload.handler"
-      schedule     = "cron(10 * * * ? *)"
-      description  = "Upload deal-relevant email attachments into AI File Dump"
-      memory_heavy = false
-      input        = jsonencode({ limit = 200 })
+      handler              = "vaultArchivePoll.handler"
+      schedule             = "cron(*/3 * * * ? *)"
+      description          = "Poll vault_exports; on COMPLETED stream each MBOX via /tmp → privacy→LLM→CRM→AFD (no S3), resume on soft-stop"
+      memory_heavy         = true
+      ephemeral_storage_mb = 4096
+      input                = jsonencode({})
     }
   }
 
   # Shared environment variables injected into every Lambda
   lambda_env = {
     # AWS_REGION is a Lambda reserved key — Lambda injects it automatically; omit here
-    RDS_IAM_DB_AUTH    = "true"
-    DB_HOST            = data.terraform_remote_state.rds.outputs.db_endpoint
-    DB_PORT            = tostring(data.terraform_remote_state.rds.outputs.db_port)
-    DB_NAME            = "mna"
-    DB_USER            = var.rds_db_username
-    AWS_S3_MBOX_BUCKET = aws_s3_bucket.data_lake.id
-    # Secrets are loaded at runtime via SSM — keys below tell the handler where to look
-    SSM_PREFIX = "/mna/${local.environment}/pipeline"
-    NODE_ENV   = local.environment
+    RDS_IAM_DB_AUTH = "true"
+    DB_HOST         = data.terraform_remote_state.rds.outputs.db_endpoint
+    DB_PORT         = tostring(data.terraform_remote_state.rds.outputs.db_port)
+    DB_NAME         = "mna"
+    DB_USER         = var.rds_db_username
+    SSM_PREFIX      = "/mna/${local.environment}/pipeline"
+    NODE_ENV        = local.environment
   }
 }
 
