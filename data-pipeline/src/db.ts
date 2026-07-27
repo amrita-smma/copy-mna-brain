@@ -21,7 +21,12 @@ export async function createLambdaDb(): Promise<{
   const useIam = rdsIamDbAuthFromEnv();
 
   const sslEnv = process.env.DB_SSL?.trim().toLowerCase();
-  const useSsl = sslEnv === 'false' || isLocalPostgresHost(host) ? false : true;
+  // Match app DB clients: encrypt to RDS, but skip CA verification (Lambda
+  // Node trust store does not always include the RDS intermediate chain).
+  const useSsl =
+    sslEnv === 'false' || isLocalPostgresHost(host)
+      ? false
+      : { rejectUnauthorized: false };
 
   const resolvedPassword = useIam ? await rdsIamAuthToken(host, port, user) : password;
 
@@ -31,7 +36,7 @@ export async function createLambdaDb(): Promise<{
     database,
     user,
     password: resolvedPassword,
-    ssl: useSsl,
+    ssl: useSsl || undefined,
     connectionTimeoutMillis: 20000,
     max: 1, // Lambdas should only use one connection each
   });
