@@ -39,4 +39,9 @@ export const INTERNAL_MAIL_DOMAINS = new Set<string>([
   'aldiracita.com',
   'adivira.com',
   'lifewithsun.com',
+  'samantha.id',
+  'beraucoal.co.id',
+  'essensrenewable.com',
+  'sinarmasland.com',
+  'banksinarmas.com',
 ]);
