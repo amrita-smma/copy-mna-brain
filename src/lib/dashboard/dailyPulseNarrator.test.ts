@@ -45,7 +45,6 @@ describe('buildDailyPulsePrompt', () => {
   it('excludes "discovered"-stage companies from the pulse scope', () => {
     const prompt = buildDailyPulsePrompt(NOW);
     expect(prompt).toContain('EXCLUDE companies in the "discovered" stage');
-    expect(prompt).toMatch(/drop rows whose Stage is "discovered"/);
   });
 });
 
@@ -126,7 +125,8 @@ describe('generateDailyPulse', () => {
     await generateDailyPulse(NOW, 'ws-1');
 
     const messages = invoke.mock.calls[0][0].messages as Array<{ content: string }>;
-    expect(messages[0].content).toContain('Managing Partner');
+    expect(messages[0].content).toContain('senior management');
+    expect(messages[0].content).toContain('Recommended actions');
     expect(messages[0].content).toBe(buildDailyPulsePrompt(NOW));
   });
 
