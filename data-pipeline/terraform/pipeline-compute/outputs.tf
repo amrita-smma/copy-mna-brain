@@ -38,16 +38,6 @@ output "ssm_prefix" {
   value       = "/mna/${local.environment}/pipeline"
 }
 
-output "data_lake_bucket_id" {
-  description = "Name of the data-lake S3 bucket (mbox archive storage)"
-  value       = aws_s3_bucket.data_lake.id
-}
-
-output "data_lake_bucket_arn" {
-  description = "ARN of the data-lake S3 bucket"
-  value       = aws_s3_bucket.data_lake.arn
-}
-
 output "github_actions_lambda_deploy_role_arn" {
   description = "GitHub Actions OIDC role ARN for code-only pipeline Lambda deploys"
   value       = aws_iam_role.github_actions_lambda_deploy.arn

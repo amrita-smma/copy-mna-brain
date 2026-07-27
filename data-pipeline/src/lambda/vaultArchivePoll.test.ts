@@ -451,13 +451,15 @@ describe('terraform cutover surface (static)', () => {
     expect(main).not.toMatch(/crm-llm-submit\s*=/);
   });
 
-  it('removes ephemeral MBOX S3 lifecycle', async () => {
-    const { readFileSync } = await import('node:fs');
+  it('removes the pipeline data-lake S3 bucket (no MBOX on S3)', async () => {
+    const { existsSync, readFileSync } = await import('node:fs');
     const { resolve } = await import('node:path');
-    const s3 = readFileSync(
-      resolve(__dirname, '../../terraform/pipeline-compute/s3.tf'),
-      'utf8',
-    );
+    const s3Path = resolve(__dirname, '../../terraform/pipeline-compute/s3.tf');
+    // Cutover deleted s3.tf; if reintroduced it must not recreate mbox storage.
+    if (!existsSync(s3Path)) return;
+    const s3 = readFileSync(s3Path, 'utf8');
+    expect(s3).not.toMatch(/aws_s3_bucket"\s+"data_lake"/);
+    expect(s3).not.toMatch(/mna-data-lake-/);
     expect(s3).not.toMatch(/ephemeral-mbox-ttl/);
     expect(s3).not.toMatch(/prefix\s*=\s*"ephemeral\//);
   });
