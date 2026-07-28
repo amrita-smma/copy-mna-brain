@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, ilike, or, sql, type AnyColumn, type SQL } from 'drizzle-orm';
+import { and, asc, desc, eq, ilike, isNull, notInArray, or, sql, type AnyColumn, type SQL } from 'drizzle-orm';
 import { files } from '@/lib/db/schema';
 import type { DbClient, Tables, TablesInsert, TablesUpdate } from './types';
 
@@ -28,6 +28,16 @@ export interface FileListResult {
   /** Total rows matching the filter/search, ignoring limit/offset. */
   total: number;
 }
+
+/** File types that have their own dedicated tab in the AI File Dump view. */
+const DEDICATED_FILE_TYPES = [
+  'mom',
+  'prospectus',
+  'shopping_list',
+  'banker_communications',
+  'fund_updates',
+  'market_study',
+] as const;
 
 const FILE_SORT_COLUMNS: Record<FileSortField, AnyColumn> = {
   file_name: files.file_name,
@@ -100,7 +110,15 @@ export class FileRepository {
     const { fileType, search, sortField = 'file_date', sortDirection = 'desc', limit, offset } = opts;
 
     const conditions: (SQL | undefined)[] = [eq(files.workspace_id, this.workspaceId)];
-    if (fileType) conditions.push(eq(files.file_type, fileType));
+    if (fileType === 'other') {
+      // Capture every type that doesn't have its own dedicated tab, including
+      // financial_statement and any future classifier outputs.
+      conditions.push(
+        or(isNull(files.file_type), notInArray(files.file_type, [...DEDICATED_FILE_TYPES])),
+      );
+    } else if (fileType) {
+      conditions.push(eq(files.file_type, fileType));
+    }
 
     const term = search?.trim();
     if (term) {

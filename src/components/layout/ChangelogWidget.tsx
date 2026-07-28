@@ -14,6 +14,8 @@ import {
   type ChangeCategory,
 } from '@/lib/changelog';
 
+const PAGE_SIZE = 7;
+
 const CATEGORY_LABEL: Record<ChangeCategory, string> = {
   feature: 'New',
   improvement: 'Improved',
@@ -39,6 +41,7 @@ const CATEGORY_CLASS: Record<ChangeCategory, string> = {
 export function ChangelogWidget() {
   const [open, setOpen] = useState(false);
   const [lastSeen, setLastSeen] = useLocalStorage<string>('changelog:last-seen', '');
+  const [visibleDays, setVisibleDays] = useState(PAGE_SIZE);
 
   const days = useMemo(() => groupChangelogByDay(CHANGELOG), []);
   const latest = useMemo(() => latestChangelogDate(CHANGELOG), []);
@@ -47,7 +50,11 @@ export function ChangelogWidget() {
   const handleOpenChange = (next: boolean) => {
     setOpen(next);
     if (next && latest) setLastSeen(latest);
+    if (!next) setVisibleDays(PAGE_SIZE);
   };
+
+  const visibleDaySlice = days.slice(0, visibleDays);
+  const hasMore = visibleDays < days.length;
 
   if (days.length === 0) return null;
 
@@ -89,7 +96,7 @@ export function ChangelogWidget() {
         </div>
         <div className="max-h-96 overflow-y-auto">
           <ol className="divide-y">
-            {days.map((day) => (
+            {visibleDaySlice.map((day) => (
               <li key={day.date} className="px-4 py-3">
                 <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
                   {formatChangelogDate(day.date)}
@@ -112,6 +119,17 @@ export function ChangelogWidget() {
               </li>
             ))}
           </ol>
+          {hasMore && (
+            <div className="border-t px-4 py-2">
+              <button
+                type="button"
+                onClick={() => setVisibleDays((v) => v + PAGE_SIZE)}
+                className="w-full rounded py-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+              >
+                Load more
+              </button>
+            </div>
+          )}
         </div>
       </PopoverContent>
     </Popover>

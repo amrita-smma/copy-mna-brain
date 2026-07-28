@@ -80,7 +80,7 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   {
     "hash": "b4afaf58f72ea354e5857b796584791bc94cbe37",
     "date": "2026-07-21",
-    "subject": "Story panel now displays deal timeline and key milestones in improved layout",
+    "subject": "Story panel now displays deal milestones and timeline events in chronological order",
     "category": "improvement"
   },
   {
@@ -585,6 +585,780 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "hash": "6e7f0bca203bd87b593d1b371c381841a0a6b3c8",
     "date": "2026-06-29",
     "subject": "Pipeline table no longer displays PIC and Originator columns",
+    "category": "improvement"
+  },
+  {
+    "hash": "48c5db9a92d08e385b4c9555d34dd272f937ceee",
+    "date": "2026-06-29",
+    "subject": "Removed create user functionality from search bar",
+    "category": "fix"
+  },
+  {
+    "hash": "b76fde8f07ef6c75bcd573cf2cb6b45a365b66bf",
+    "date": "2026-06-29",
+    "subject": "Dropped On column is now sortable in the pipeline dropped deals view",
+    "category": "feature"
+  },
+  {
+    "hash": "b4c39c8333d05c0098da973663c9ad12ba0e7cf2",
+    "date": "2026-06-29",
+    "subject": "Pipeline now correctly displays stage and source counts, and includes pre-L0 deals in the feed",
+    "category": "fix"
+  },
+  {
+    "hash": "8a9c3a16c74f5f481c901d69c3a2c4ea76fda6a2",
+    "date": "2026-06-29",
+    "subject": "Fixed deal attribution to show correct user in entered_by field and separated Deal Sponsor and Captain roles",
+    "category": "fix"
+  },
+  {
+    "hash": "3f7810b0e7c6a29fd15ee0c65d59ab0abcdcb224",
+    "date": "2026-06-29",
+    "subject": "Edit matched tracks directly from company details pages",
+    "category": "feature"
+  },
+  {
+    "hash": "0217c98768d95364b9f15f20d1e64bb44d0d18d0",
+    "date": "2026-06-29",
+    "subject": "Deal sponsors now display on the dashboard for quick reference",
+    "category": "feature"
+  },
+  {
+    "hash": "5e2c68a5cff5e0b359e3887300cb7b5153ed5e62",
+    "date": "2026-06-29",
+    "subject": "Filter Deal Sponsor and Captain columns in headers",
+    "category": "improvement"
+  },
+  {
+    "hash": "54e3f4e887e033a55dc16e0b52296ab98b54a4ef",
+    "date": "2026-06-29",
+    "subject": "Added filtering by criteria on deal tracks",
+    "category": "improvement"
+  },
+  {
+    "hash": "02d6e981014f9c32112e952c6b5c675b7376bcf1",
+    "date": "2026-06-26",
+    "subject": "Deal sponsor field is now read-only in table view",
+    "category": "improvement"
+  },
+  {
+    "hash": "ab75bfcc2e7b7d8e913de0e7d4a7af1a9f09a3c0",
+    "date": "2026-06-26",
+    "subject": "Added Entered By and Deal Captain fields to deal records",
+    "category": "improvement"
+  },
+  {
+    "hash": "d44267d2a1cc12d4fbed89b8bdd0789dfc42e45b",
+    "date": "2026-06-26",
+    "subject": "Users can now cancel company card generation requests in progress",
+    "category": "feature"
+  },
+  {
+    "hash": "020f4264a0035a4fcaae8194f85112008a523bdb",
+    "date": "2026-06-26",
+    "subject": "Unreviewed deals now display in a separate tab for easier organization",
+    "category": "improvement"
+  },
+  {
+    "hash": "07312f6f50616f8f49ce151a9b9f2f09bb88a3bb",
+    "date": "2026-06-25",
+    "subject": "Dashboard activity feed items now link to deal details when clicked",
+    "category": "improvement"
+  },
+  {
+    "hash": "c2cd9f8911eca322bcdd05dde9cc416cb52c8cbc",
+    "date": "2026-06-25",
+    "subject": "Remarks now display on dashboard feed items for quick deal insights",
+    "category": "feature"
+  },
+  {
+    "hash": "415aedb34c4ec6c3bdaf0a9ece3271f403659312",
+    "date": "2026-06-25",
+    "subject": "Added company tracking and one-pager generation for deal targets",
+    "category": "improvement"
+  },
+  {
+    "hash": "9db332c9df861e93d154cf61d16dbd68de35790b",
+    "date": "2026-06-24",
+    "subject": "Preview deal presentations before sharing with stakeholders",
+    "category": "improvement"
+  },
+  {
+    "hash": "3c1999668c63aad02661aa3c956bceedae90c9e8",
+    "date": "2026-06-23",
+    "subject": "Added Insights Dashboard to visualize key M&A metrics and trends",
+    "category": "improvement"
+  },
+  {
+    "hash": "d5c2b531be94f5d8bfa7e50d27824d1c17a360e8",
+    "date": "2026-06-23",
+    "subject": "Prevented users from adding companies to L0 workspace level",
+    "category": "improvement"
+  },
+  {
+    "hash": "e7ae1b44bcfaa8d919ffa7b022bd41af52086a5a",
+    "date": "2026-06-23",
+    "subject": "Fixed attachment pipeline handling when company or project names are empty",
+    "category": "fix"
+  },
+  {
+    "hash": "bac60d4511cd312fdb5b028be688fd6956f6d34d",
+    "date": "2026-06-22",
+    "subject": "Deal search now matches regardless of letter case",
+    "category": "improvement"
+  },
+  {
+    "hash": "951e0451bbf2dfd95537fe5a261051b133fa7179",
+    "date": "2026-06-22",
+    "subject": "Company name now displays project name when company data is unavailable",
+    "category": "fix"
+  },
+  {
+    "hash": "1eefb129cc3a249258ec2496f21dc06e776cecbd",
+    "date": "2026-06-20",
+    "subject": "Added pagination to discovered companies and search results",
+    "category": "improvement"
+  },
+  {
+    "hash": "57eab0e3deef87c22f594d59fdc123408df045ed",
+    "date": "2026-06-20",
+    "subject": "AI-discovered companies now appear in your activity feed",
+    "category": "feature"
+  },
+  {
+    "hash": "a629412bcdce4957ad6e21659dd9aac7aea9c34b",
+    "date": "2026-06-20",
+    "subject": "Display evidence details in a popup when clicking relationships on the graph",
+    "category": "feature"
+  },
+  {
+    "hash": "b17a7b6e427d27f07c367e637a89ef3c8fa46305",
+    "date": "2026-06-20",
+    "subject": "Slide generation now runs in the background without blocking your work",
+    "category": "improvement"
+  },
+  {
+    "hash": "60c08fc231bc4c6d642d2a8e02161c0343c459bc",
+    "date": "2026-06-19",
+    "subject": "Added 3D visualization for deal structure diagrams",
+    "category": "improvement"
+  },
+  {
+    "hash": "a3cb7657a1baecb7591b1e26f97ceb5d1221031b",
+    "date": "2026-06-19",
+    "subject": "Deal search suggestions are now clickable for faster navigation",
+    "category": "feature"
+  },
+  {
+    "hash": "ee7e258af095c4e095d50e35d50818e9f3252a68",
+    "date": "2026-06-18",
+    "subject": "Dashboard activity feed now supports infinite scroll on mobile devices",
+    "category": "fix"
+  },
+  {
+    "hash": "8792a2d990ee3daf8ae3a703595b251d042355b0",
+    "date": "2026-06-18",
+    "subject": "Activity feed now displays truncated cards with a show more option",
+    "category": "feature"
+  },
+  {
+    "hash": "e1b1d34d1d3bb9e1b91b31c7b796ff00d11a18f2",
+    "date": "2026-06-18",
+    "subject": "Dashboard now displays additional deal metrics on initial load",
+    "category": "improvement"
+  },
+  {
+    "hash": "f623e3fcdd1399dae7f613b93125b4522c6eab76",
+    "date": "2026-06-18",
+    "subject": "Free text field converted to dropdown selection for improved data consistency",
+    "category": "fix"
+  },
+  {
+    "hash": "b91bc44af3ea1b5815121701478b280f2a61f73b",
+    "date": "2026-06-18",
+    "subject": "Archive functionality now supports large mbox files without errors",
+    "category": "fix"
+  },
+  {
+    "hash": "ca6206cb71675c119bd390e1195a833b65088cb2",
+    "date": "2026-06-18",
+    "subject": "E2E tests now use real data with actual login credentials and master data",
+    "category": "fix"
+  },
+  {
+    "hash": "4789697cfb5e7f282c2a9b30a0e5e0910af7d447",
+    "date": "2026-06-17",
+    "subject": "Mobile interface now loads faster with improved performance",
+    "category": "improvement"
+  },
+  {
+    "hash": "48863159b0b8648b971d95085efed19281a3ac12",
+    "date": "2026-06-17",
+    "subject": "Mobile chat list now displays fully and opens to Chat tab by default",
+    "category": "fix"
+  },
+  {
+    "hash": "f6021a05afe39a20156b56d62e9b77f6eafceac5",
+    "date": "2026-06-17",
+    "subject": "Favorite button now triggers AI analysis of deal metrics",
+    "category": "improvement"
+  },
+  {
+    "hash": "64c6ee3c63bb7925153cefe013f905cd6e5b036e",
+    "date": "2026-06-17",
+    "subject": "Added mobile PWA view with chatbot, bottom navigation, and chat history",
+    "category": "improvement"
+  },
+  {
+    "hash": "712de6dc9626094edccf7b4acc0712cf770363b8",
+    "date": "2026-06-17",
+    "subject": "Progressive Web App support enables offline access and desktop installation",
+    "category": "feature"
+  },
+  {
+    "hash": "1541e3315ed0e49790001973e9149aca058b996a",
+    "date": "2026-06-16",
+    "subject": "Copilot modal now opens when clicking the AI Copilot button",
+    "category": "improvement"
+  },
+  {
+    "hash": "5d0faaf69e104f4f55031fa21a89e64db1083835",
+    "date": "2026-06-16",
+    "subject": "Enlarged full-screen AI interface for improved visibility",
+    "category": "improvement"
+  },
+  {
+    "hash": "0621c897d68b4304487cfc35a57c8469893c530b",
+    "date": "2026-06-15",
+    "subject": "Related companies now appear in CRM pipeline views",
+    "category": "feature"
+  },
+  {
+    "hash": "30a0989f4732cc46e4cf63c85340e49b5b5b2dae",
+    "date": "2026-06-15",
+    "subject": "API requests now require authentication on all endpoints",
+    "category": "improvement"
+  },
+  {
+    "hash": "533cc157232328b36aaae2b0d23886f4ee4e0e22",
+    "date": "2026-06-11",
+    "subject": "Activity Feed now displays deal timeline and team actions in real-time",
+    "category": "improvement"
+  },
+  {
+    "hash": "0be3d200deef1c20220cc6c3b732fa734b6ec4dc",
+    "date": "2026-06-10",
+    "subject": "Enable email notifications for deal updates and team activity",
+    "category": "improvement"
+  },
+  {
+    "hash": "d07d075308e5de48cf0ad1389d17f66177d96f75",
+    "date": "2026-06-09",
+    "subject": "Added forgot-password flow tests to improve automation reliability",
+    "category": "fix"
+  },
+  {
+    "hash": "2bbdaf50664eead13bdc8b5c5576b986c1332c91",
+    "date": "2026-06-09",
+    "subject": "Users now receive notifications when approaching deal tracking limits",
+    "category": "improvement"
+  },
+  {
+    "hash": "0b816cfc194400dc511702e000d2e7778e5c0269",
+    "date": "2026-06-09",
+    "subject": "Company filter now supports partial name matching for faster deal sourcing",
+    "category": "feature"
+  },
+  {
+    "hash": "785b9da29bddfdf7881c02168e70cc0dac901595",
+    "date": "2026-06-09",
+    "subject": "Added ability to view task progress status in real-time",
+    "category": "feature"
+  },
+  {
+    "hash": "c847a4e4581be23774ae9735fa4603a1b811a070",
+    "date": "2026-06-09",
+    "subject": "Added PDF export feature to generate deal research summaries",
+    "category": "improvement"
+  },
+  {
+    "hash": "bb2b1717dfe143fd97e0fd9f42c5f54aecf7ff23",
+    "date": "2026-06-08",
+    "subject": "Enable editing of deal remarks after creation",
+    "category": "improvement"
+  },
+  {
+    "hash": "c8609faa60531c2f2501ea6443bc7ce80bc339e0",
+    "date": "2026-06-08",
+    "subject": "Enable users to edit remarks on deal records",
+    "category": "improvement"
+  },
+  {
+    "hash": "dd5c392085e4223bb685c9ee90da87d1ec638e0c",
+    "date": "2026-06-08",
+    "subject": "Added ability to edit dropped companies, rearrange columns, and manage remarks",
+    "category": "improvement"
+  },
+  {
+    "hash": "6914728ad42cc50f96ed85376d19d215dd803109",
+    "date": "2026-06-08",
+    "subject": "Prospectus documents now upload reliably without errors",
+    "category": "fix"
+  },
+  {
+    "hash": "28a41d2d3cb48dee0a4350c9df6a40b44563113e",
+    "date": "2026-06-06",
+    "subject": "Chat feature now available via API with secure key authentication",
+    "category": "feature"
+  },
+  {
+    "hash": "2f5191dc3ccfca26900e2d962ae18648e5d8285a",
+    "date": "2026-06-06",
+    "subject": "Company profiles now display additional financial metrics and contact information",
+    "category": "improvement"
+  },
+  {
+    "hash": "e3fe1ddf1e95855bc36292ec4baf99eed013284f",
+    "date": "2026-06-06",
+    "subject": "Recent Activity widget now displays deal updates with better organization and faster load times",
+    "category": "improvement"
+  },
+  {
+    "hash": "02be51100a6fc93e120d99082d2cb9d3a286e4fc",
+    "date": "2026-06-06",
+    "subject": "Users can now log in with their Google account",
+    "category": "feature"
+  },
+  {
+    "hash": "fa87d307417b5ab184bb52426669539835ea4cac",
+    "date": "2026-06-05",
+    "subject": "Collapsible sections now remember their open/closed state between sessions",
+    "category": "improvement"
+  },
+  {
+    "hash": "b1955843953b3cd94c683397f0891e309de4a53e",
+    "date": "2026-06-05",
+    "subject": "Enhanced Company Card layout and usability for faster deal information access",
+    "category": "improvement"
+  },
+  {
+    "hash": "d9d4291c9fa347efe2f15c1819f815f65c9e6dc9",
+    "date": "2026-06-05",
+    "subject": "AI Copilot now appears in a collapsible right-side panel for easier access",
+    "category": "improvement"
+  },
+  {
+    "hash": "c1edf4d04d63a5cc89b975118e344c1bb4b1bb48",
+    "date": "2026-06-05",
+    "subject": "Enable bulk company actions with drag-and-drop reordering and promotion within deal pipelines",
+    "category": "improvement"
+  },
+  {
+    "hash": "72f952b29b99681652c934772a08f20cafd6f943",
+    "date": "2026-06-03",
+    "subject": "Added ability to create custom columns in deal tracking views",
+    "category": "feature"
+  },
+  {
+    "hash": "de022f2cb33128f078971458b4d41f016bb11ac4",
+    "date": "2026-06-03",
+    "subject": "Fixed 30-day deal filter not displaying correct results",
+    "category": "fix"
+  },
+  {
+    "hash": "dd2c3ee24db5ed9e016b776c193d22f04e82b265",
+    "date": "2026-06-02",
+    "subject": "Fixed issues with agent tools for querying companies and promoting deals",
+    "category": "fix"
+  },
+  {
+    "hash": "c3048240bbbfcb68a1df42d2680272c588d1d4f4",
+    "date": "2026-05-29",
+    "subject": "Auto button styling corrected in CRM interface",
+    "category": "fix"
+  },
+  {
+    "hash": "2d72884403400e2ab193ce7f9f4e3d8e385719c4",
+    "date": "2026-05-21",
+    "subject": "Search workforce tasklist completions by date with enhanced tooltips",
+    "category": "feature"
+  },
+  {
+    "hash": "06324178e8d2878e6dfaccf0c6874c1aebb49181",
+    "date": "2026-05-21",
+    "subject": "Synced deal documents now automatically import from Google Vault",
+    "category": "feature"
+  },
+  {
+    "hash": "26d75351d801ad39dab6252187d769fe7a3316cc",
+    "date": "2026-05-20",
+    "subject": "Added password recovery functionality to account login",
+    "category": "improvement"
+  },
+  {
+    "hash": "7e3f53eaf9e36eae675a9c46d66bc2569da52581",
+    "date": "2026-05-20",
+    "subject": "Retry and cancel options now available for stuck workforce tasks",
+    "category": "feature"
+  },
+  {
+    "hash": "a538bf1b0d3a1e4494dd0e1cdf288c23f43571ad",
+    "date": "2026-05-19",
+    "subject": "Redesigned reasoning trace display with step cards, plan-driven pending steps, and progress tracking bar",
+    "category": "improvement"
+  },
+  {
+    "hash": "4fca8748fb259331ac484c50f90dea2df991a71e",
+    "date": "2026-05-19",
+    "subject": "Reorder task queue items by priority to organize your workflow",
+    "category": "feature"
+  },
+  {
+    "hash": "a2fa4ad425398a6bf5396d2a33874f4dc467a9c5",
+    "date": "2026-05-18",
+    "subject": "Workforce agents now display execution traces in the UI for better visibility into deal analysis workflows",
+    "category": "feature"
+  },
+  {
+    "hash": "80ae7f5e83a005664603df33a58b64f3450f188c",
+    "date": "2026-05-06",
+    "subject": "Drop reasons now display on company cards for easy reference",
+    "category": "feature"
+  },
+  {
+    "hash": "bbde5c61e1c837955de83ce56854281c0f510d96",
+    "date": "2026-05-05",
+    "subject": "Fixed company editing and scroll behavior issues",
+    "category": "fix"
+  },
+  {
+    "hash": "9f9602a7960ea74b789d1fcf9aa87c7e7bc3a2d3",
+    "date": "2026-05-05",
+    "subject": "Fixed layout issue where AI screening configuration panel would overflow on smaller screens",
+    "category": "fix"
+  },
+  {
+    "hash": "4ecce05b30b539532336581b748c3a93fb0da088",
+    "date": "2026-05-05",
+    "subject": "Improved reliability of job processing to prevent stuck or hanging operations",
+    "category": "feature"
+  },
+  {
+    "hash": "e899cce1dd8f8db949dc749673f328834d9be889",
+    "date": "2026-05-05",
+    "subject": "Added human review and approval step before data is saved to company records",
+    "category": "feature"
+  },
+  {
+    "hash": "36d620b918a24dc1649e694aba1006ffbcc0a263",
+    "date": "2026-05-04",
+    "subject": "Eliminated hardcoded overrides for PIC assignments and company financial data",
+    "category": "improvement"
+  },
+  {
+    "hash": "e4769ee216ef44c81fda2531ef75cfac0d87ea15",
+    "date": "2026-05-04",
+    "subject": "Fixed issue preventing deals from being deleted",
+    "category": "fix"
+  },
+  {
+    "hash": "47cd7f7dfbc9cd3409562d94716e684742fd024c",
+    "date": "2026-05-04",
+    "subject": "Allow editing company and project names in deal records",
+    "category": "feature"
+  },
+  {
+    "hash": "7b064a86712d005061822cb773ba39f83be91ad1",
+    "date": "2026-05-04",
+    "subject": "Export deal slides to PDF with customizable formatting options",
+    "category": "feature"
+  },
+  {
+    "hash": "bcfafa7e183be26c8830ba5888d9a4ddbded2adf",
+    "date": "2026-05-04",
+    "subject": "Companies table now displays project names for easier deal tracking",
+    "category": "feature"
+  },
+  {
+    "hash": "0455b3c69acc57eb3fed186f7b35fc3ef2a8e80d",
+    "date": "2026-05-04",
+    "subject": "Enable manual matching of documents and companies in deal tracking",
+    "category": "feature"
+  },
+  {
+    "hash": "16401af048ea12228261db59219e9f7e9a079a72",
+    "date": "2026-04-30",
+    "subject": "Files with foreign characters can now be downloaded successfully",
+    "category": "fix"
+  },
+  {
+    "hash": "3fdda760e82f8495a42d0d3d821f870c85826056",
+    "date": "2026-04-30",
+    "subject": "Master data revenue column headers now display correctly",
+    "category": "fix"
+  },
+  {
+    "hash": "9eeea89893532fa4e20943edb82d71bedb00ec46",
+    "date": "2026-04-30",
+    "subject": "AI Workforce section now accessible from main navigation menu",
+    "category": "feature"
+  },
+  {
+    "hash": "0699adb2223a8bbafe3eeb0e22b7df5c71c05460",
+    "date": "2026-04-29",
+    "subject": "Manage contacts and track banker communications in new CRM page",
+    "category": "feature"
+  },
+  {
+    "hash": "9cbd19154c9a2288785184b09cf7c327e1c6bb46",
+    "date": "2026-04-29",
+    "subject": "Fixed revenue calculations to properly account for foreign exchange adjustments",
+    "category": "fix"
+  },
+  {
+    "hash": "8130a54b78e420951788b49aaff2fb75542d57b0",
+    "date": "2026-04-29",
+    "subject": "Allow manual editing of company information in deal records",
+    "category": "improvement"
+  },
+  {
+    "hash": "73ded70b3ef5c31b09eb1a9452a342b32a8c63aa",
+    "date": "2026-04-28",
+    "subject": "Users can now edit company revenue and EBITDA fields directly in deal records",
+    "category": "feature"
+  },
+  {
+    "hash": "6c77afa682b7fd88dd853e1d8ec6b39f69fcf094",
+    "date": "2026-04-28",
+    "subject": "Promote, demote, and assign deal PIC directly from deal view",
+    "category": "improvement"
+  },
+  {
+    "hash": "b31afc46231616db7a5cb9fc58fdfae0242d7ad3",
+    "date": "2026-04-27",
+    "subject": "Allow users to override deal field values for custom tracking needs",
+    "category": "improvement"
+  },
+  {
+    "hash": "ef0956604955dde5a4c10b32cd99e429e5196749",
+    "date": "2026-04-27",
+    "subject": "Company geography now displays in pipeline table views",
+    "category": "improvement"
+  },
+  {
+    "hash": "b39c090efac8fc89f0a2fd68c57ea6ffaad24e2b",
+    "date": "2026-04-24",
+    "subject": "Added user account registration and password reset functionality",
+    "category": "improvement"
+  },
+  {
+    "hash": "b547f8f88c34eb078f01038a406d5f368200f5fb",
+    "date": "2026-04-24",
+    "subject": "Stuck background jobs now complete successfully",
+    "category": "fix"
+  },
+  {
+    "hash": "47762ecaaf59ba69fa052baa66ee70092e42a15b",
+    "date": "2026-04-23",
+    "subject": "Light theme now applies by default on app launch",
+    "category": "feature"
+  },
+  {
+    "hash": "06badd85aca96ca2a5ba617182efb9d5573dc97e",
+    "date": "2026-04-07",
+    "subject": "Enable users to cite deals in reports and documents",
+    "category": "feature"
+  },
+  {
+    "hash": "f3ee8c5b0cba80ef60c1f91e024020f1640064ae",
+    "date": "2026-03-10",
+    "subject": "Added ability to favorite deals for quick access",
+    "category": "feature"
+  },
+  {
+    "hash": "b0a4e7a2b39f87c7616f8a196155881f451f1f8a",
+    "date": "2026-02-18",
+    "subject": "Chat history now persists across sessions",
+    "category": "improvement"
+  },
+  {
+    "hash": "40e12aed42ee9d550b6a85bd953feaeb81ba7347",
+    "date": "2026-02-18",
+    "subject": "Email addresses now match regardless of letter case",
+    "category": "improvement"
+  },
+  {
+    "hash": "7c5d6dce2dc221a83446c51ea12e3fcdb7651f2e",
+    "date": "2026-02-12",
+    "subject": "AI-powered company screening now available in deal analysis workflow",
+    "category": "feature"
+  },
+  {
+    "hash": "e94cbf89a0811402873a3bc825c88b09db02a02e",
+    "date": "2026-02-12",
+    "subject": "Deal document enlarged view now displays correctly",
+    "category": "fix"
+  },
+  {
+    "hash": "48b8863280b0214d0a25af5bb8eb3b2f8d5f0b59",
+    "date": "2026-02-12",
+    "subject": "Stage history now displays correctly with improved chart visualization",
+    "category": "fix"
+  },
+  {
+    "hash": "8d1146abf203e67069c25b7e4c170f8f1fc7df79",
+    "date": "2026-02-12",
+    "subject": "Updated L1 Screening Filter label for clarity",
+    "category": "improvement"
+  },
+  {
+    "hash": "1898820ccec822bb870d7991b891c476d18c2096",
+    "date": "2026-02-11",
+    "subject": "AI-generated file summaries now display with improved styling and pagination",
+    "category": "feature"
+  },
+  {
+    "hash": "fcb882ab73e281c43e5aa92664e58118d1014a14",
+    "date": "2026-02-11",
+    "subject": "Companies now display their current status in deal tracking",
+    "category": "feature"
+  },
+  {
+    "hash": "7f48647a0ab418ee2aaddfe97ab6a87db4d3dec0",
+    "date": "2026-02-11",
+    "subject": "Added AI Copilot styling to improve user interface appearance",
+    "category": "feature"
+  },
+  {
+    "hash": "a5a7dd0a61dc9ced40623b8f26b24f18d9df21df",
+    "date": "2026-02-11",
+    "subject": "Allow users to upload custom deal tracking templates",
+    "category": "feature"
+  },
+  {
+    "hash": "658c38433b9b4a8c951baaacff23e9899e5df270",
+    "date": "2026-02-11",
+    "subject": "Added automatic prospectus document processing for M&A transactions",
+    "category": "feature"
+  },
+  {
+    "hash": "d63aa54bee9cab323af5948a014756ed1a289129",
+    "date": "2026-02-11",
+    "subject": "Download and preview documents directly from deal attachments",
+    "category": "feature"
+  },
+  {
+    "hash": "349e12c0049685f124d983290fd7f76e14cad0e5",
+    "date": "2026-02-11",
+    "subject": "Removed companies from AI screening after promotion to Level 1",
+    "category": "fix"
+  },
+  {
+    "hash": "6908e491972079ab991987311479ca95fd53c23a",
+    "date": "2026-02-11",
+    "subject": "Added Attachment tab to company detail views for file management",
+    "category": "feature"
+  },
+  {
+    "hash": "904ffb1f008bebff2f97f6325477d5f7ecaa8fe1",
+    "date": "2026-02-10",
+    "subject": "Dark mode now available in user settings",
+    "category": "feature"
+  },
+  {
+    "hash": "66c8e4973deb8e4840ec378696aa2ef453b101f6",
+    "date": "2026-02-10",
+    "subject": "Deal stage labels and website URLs now normalize consistently across the platform",
+    "category": "fix"
+  },
+  {
+    "hash": "d083a75b797853f38ec2393ed55dc71aaf68d8d4",
+    "date": "2026-02-10",
+    "subject": "AI CoPilot assists with deal analysis and document summarization",
+    "category": "feature"
+  },
+  {
+    "hash": "bf93d2585dae9ec58d49f7678a7396220dd0d7b4",
+    "date": "2026-02-10",
+    "subject": "Added acquisition history search when assessing deal likelihood",
+    "category": "improvement"
+  },
+  {
+    "hash": "98f4cc883764e6d24cbeb463d6aa856c7ff6e2d8",
+    "date": "2026-02-09",
+    "subject": "Companies list now supports pagination for easier navigation",
+    "category": "feature"
+  },
+  {
+    "hash": "e7b4c8c14faad4d84b80a95ba1bc32c3aba696d7",
+    "date": "2026-02-09",
+    "subject": "Enable AI-powered analysis and export of deal documents",
+    "category": "feature"
+  },
+  {
+    "hash": "26319e5a68521fe14cfc4601a13b0eb0861e2b2c",
+    "date": "2026-02-09",
+    "subject": "Enable investment thesis remarks to capture additional context and rationale",
+    "category": "feature"
+  },
+  {
+    "hash": "1c9d51a96cc70aa7edb5e49730e0b99e759ebad7",
+    "date": "2026-01-30",
+    "subject": "Duplicate meeting notes detector identifies repeated entries in deal records",
+    "category": "feature"
+  },
+  {
+    "hash": "021b209478a59cd99edef8fe9b1f908c00e42596",
+    "date": "2026-01-30",
+    "subject": "Display meeting date and actions together in a single column",
+    "category": "improvement"
+  },
+  {
+    "hash": "a51be0de6c8b147d8822a1d81c3119a6758d34ca",
+    "date": "2026-01-30",
+    "subject": "Meeting notes tool now available for deal tracking",
+    "category": "feature"
+  },
+  {
+    "hash": "33f941c1d9599715576bc8819cbbf74b652555b5",
+    "date": "2026-01-30",
+    "subject": "Enable multiple file uploads in a single action",
+    "category": "feature"
+  },
+  {
+    "hash": "e24e18688941df171f696bffd044f65fb11d1b2d",
+    "date": "2026-01-30",
+    "subject": "Batch upload documents and data files to accelerate deal tracking setup",
+    "category": "improvement"
+  },
+  {
+    "hash": "3493548eed62ea25f417fa821dfc0762715629f5",
+    "date": "2026-01-29",
+    "subject": "Enable quick promotion of deals to L1 status with new button",
+    "category": "feature"
+  },
+  {
+    "hash": "9b109c1f05c6c780695f196adce99a05ab79e1df",
+    "date": "2026-01-28",
+    "subject": "Sidebar can now be collapsed to maximize deal information display",
+    "category": "improvement"
+  },
+  {
+    "hash": "f6721a35ce7eea7cb79aa727068f32b0172ecd69",
+    "date": "2026-01-28",
+    "subject": "Enable users to manually trigger deal scans on demand",
+    "category": "feature"
+  },
+  {
+    "hash": "50050814c645a63c341f678e8cdaaf5b79f733c5",
+    "date": "2026-01-28",
+    "subject": "Collapse and expand deal tables to focus on key information",
+    "category": "improvement"
+  },
+  {
+    "hash": "0c3a6ade43601fc0fe451715e2ad83d9569d7b40",
+    "date": "2026-01-28",
+    "subject": "Dark mode toggle now available in settings",
     "category": "improvement"
   }
 ];

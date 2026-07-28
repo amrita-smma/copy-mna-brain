@@ -168,7 +168,8 @@ async function main(): Promise<void> {
   const rawCommitByHash = new Map(rawCommits.map((c) => [c.hash, c]));
 
   // Noise-filtered, categorised entries (reverts, hotfixes, merges, etc. already excluded).
-  const entries = commitsToEntries(rawCommits);
+  // No cap — keep the full history; the UI lazy-loads in pages.
+  const entries = commitsToEntries(rawCommits, Infinity);
 
   const newEntries = entries.filter((e) => !existingSubjects.has(e.hash));
 
