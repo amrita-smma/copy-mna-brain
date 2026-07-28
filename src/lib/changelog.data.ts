@@ -288,6 +288,12 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "category": "improvement"
   },
   {
+    "hash": "4627ade0a0d790b3c09a359fad8284fd8baf2bec",
+    "date": "2026-07-09",
+    "subject": "Removed discovered stage from deal pipeline",
+    "category": "improvement"
+  },
+  {
     "hash": "2de997a5c438dc9593832aa4cfa3309d1109699f",
     "date": "2026-07-09",
     "subject": "Prevent internal domains from creating duplicate employer records in CRM",
@@ -340,6 +346,12 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "date": "2026-07-07",
     "subject": "Users can now attach files to Copilot chat messages for analysis",
     "category": "feature"
+  },
+  {
+    "hash": "4f498b9258e46f6c269d6f18dfc0e063c8a430a9",
+    "date": "2026-07-07",
+    "subject": "Workspace switcher added to navigation bar for easier account access",
+    "category": "improvement"
   },
   {
     "hash": "851985e2c3ca4f296215cb848ff8063069251cea",
@@ -556,6 +568,12 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "date": "2026-06-29",
     "subject": "Pipeline table no longer displays PIC and Originator columns",
     "category": "improvement"
+  },
+  {
+    "hash": "48c5db9a92d08e385b4c9555d34dd272f937ceee",
+    "date": "2026-06-29",
+    "subject": "Removed create user functionality from search bar",
+    "category": "fix"
   },
   {
     "hash": "b76fde8f07ef6c75bcd573cf2cb6b45a365b66bf",
