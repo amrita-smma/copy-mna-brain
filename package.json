@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
+    "changelog:generate": "tsx scripts/generate-changelog.ts",
     "start": "next start",
     "lint": "eslint .",
     "db:ping": "tsx scripts/db-ping.ts",

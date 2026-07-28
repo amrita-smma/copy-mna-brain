@@ -56,6 +56,7 @@ import { BrandMark, BrandWordmark } from '@/components/BrandMark';
 import { AICopilotPane, COPILOT_DEFAULT_WIDTH } from './AICopilotPane';
 import { LayoutControlProvider } from './LayoutControlContext';
 import { MobileBottomNav } from './MobileBottomNav';
+import { ChangelogWidget } from './ChangelogWidget';
 import { useFeatureFlags } from './FeatureFlagsContext';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useLocalStorage } from '@/hooks/useLocalStorage';
@@ -227,6 +228,8 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
 
             <SidebarFooter className="border-t border-sidebar-border p-2 group-data-[state=expanded]:p-4">
               <div className="flex flex-col gap-4">
+                {/* "What's new" changelog — recent releases grouped by day. */}
+                <ChangelogWidget />
                 {/* Admin Portal is intentionally NOT linked from inside a
                     workspace. It is only reachable from the /workspace picker
                     (the root level), so superadmins enter it before selecting a

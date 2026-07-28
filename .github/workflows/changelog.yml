@@ -1,0 +1,64 @@
+name: Update changelog
+
+# Keeps src/lib/changelog.data.ts in sync with the git history on `main`, which
+# drives the in-app "What's new" widget. On every push to main it regenerates
+# the data file from `git log` and commits it back.
+#
+# No infinite loop: the commit-back is pushed with the built-in GITHUB_TOKEN,
+# and pushes made by GITHUB_TOKEN do NOT trigger new workflow runs. (So we also
+# deliberately do NOT add [skip ci] — that would make Vercel skip the deploy.)
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Allow the built-in GITHUB_TOKEN to push the regenerated data file back to main.
+permissions:
+  contents: write
+
+concurrency:
+  group: update-changelog
+  cancel-in-progress: false
+
+jobs:
+  update-changelog:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout main (full history)
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          # The generator reads `git log` across all history, so a shallow
+          # clone would truncate the changelog.
+          fetch-depth: 0
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Regenerate changelog data from git history
+        run: pnpm changelog:generate
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          # gh uses GITHUB_TOKEN automatically; explicit for clarity
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Commit the regenerated changelog if it changed
+        run: |
+          if git diff --quiet -- src/lib/changelog.data.ts; then
+            echo "changelog.data.ts is already up to date - nothing to commit."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/lib/changelog.data.ts
+          git commit -m "chore: update changelog"
+          git push origin HEAD:main

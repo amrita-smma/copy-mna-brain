@@ -18,6 +18,8 @@ const eslintConfig = [
       "next-env.d.ts",
       "drizzle/**",
       "data-pipeline/**",
+      // Generated at build time from GitHub Releases (scripts/generate-changelog.ts).
+      "src/lib/changelog.data.ts",
     ],
   },
   ...nextCoreWebVitals,
