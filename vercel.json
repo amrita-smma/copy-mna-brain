@@ -4,6 +4,7 @@
       "main": true
     }
   },
+  "ignoreCommand": "bash scripts/skip-deploy.sh",
   "functions": {
     "src/app/api/queues/send-email/route.ts": {
       "experimentalTriggers": [

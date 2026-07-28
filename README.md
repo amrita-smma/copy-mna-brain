@@ -25,6 +25,18 @@ Re-run `vercel env pull .env.vercel` whenever environment variables change in th
 vercel dev
 ```
 
+## Skipping deployments
+
+Vercel runs `scripts/skip-deploy.sh` as its [Ignored Build Step](https://vercel.com/docs/projects/overview#ignored-build-step) command for every branch (production and preview). The build is skipped when any of the following match the commit message:
+
+| Pattern | Example |
+|---|---|
+| `[skip deploy]` anywhere in the message | `fix typo [skip deploy]` |
+| `[skip ci]` anywhere in the message | `update docs [skip ci]` |
+| Message begins with `chore:` | `chore: bump deps` |
+
+To skip a build manually, include one of those strings in your commit message.
+
 ## End-to-end tests
 
 E2E tests live in `./e2e` and run with [Playwright](https://playwright.dev) against a Next.js dev server. `playwright.config.ts` launches `vercel dev` automatically and reuses an existing server if one is already running on `http://localhost:3000`.

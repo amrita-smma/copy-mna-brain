@@ -22,7 +22,7 @@ concurrency:
 
 jobs:
   update-changelog:
-    runs-on: ubuntu-latest
+    runs-on: codebuild-mna-brain-runner-${{ github.run_id }}-${{ github.run_attempt }}
     steps:
       - name: Checkout main (full history)
         uses: actions/checkout@v4
