@@ -138,9 +138,87 @@ const PDF_TRIAGE_SCHEMA = {
   required: ['doc_type', 'confidence'],
 } as const;
 
-const PDF_TRIAGE_SYSTEM = `You classify M&A deal documents.
-Categories: prospectus, im, teaser, mom, financial_model, financial_statement, shopping_list, market_study, other.
-Return only the JSON tool call.`;
+const PDF_TRIAGE_SYSTEM = `You classify M&A deal documents for an investment bank deal-sourcing workflow.
+Pick ONE doc_type and a confidence (high|medium|low). Return only the JSON tool call.
+
+Positive categories (deal-related):
+- prospectus: document that OFFERS a company/business for sale (CIM/sale prospectus/pitch deck marketing a target).
+- im: information memorandum / confidential information memorandum for a live sell-side or buy-side process.
+- teaser: short anonymous or named deal teaser for a live process.
+- mom: meeting minutes / MoM from a deal meeting (management presentation, buyer update, IC notes).
+- financial_model: deal LBO/DCF/3-statement model or valuation workbook tied to a transaction.
+- financial_statement: audited or management financials / AFS / P&L / balance sheet for a deal target or process.
+- shopping_list: list of multiple deal targets / opportunities being shopped.
+- market_study: sector/market landscape prepared for a live mandate or process (not generic news).
+
+Use other for NON-deal material, including:
+- invoices, expense/hotel receipts, payroll, HR, CVs, offer letters, passports, personal tax returns
+- employee/vendor boilerplate NDAs (employment or supplier confidentiality) — NOT target-process NDAs
+- marketing brochures, newsletters, thought-leadership decks with no live process
+- buyer/sponsor capability decks that do NOT offer a company for sale
+- admin paperwork unrelated to a transaction
+
+Standalone M&A process docs for an active acquisition target (process NDA, teaser, IM, model) stay in the matching deal category — do not mark those as other.`;
+
+/** Operational nouns that make "Project …" a non-deal subject. */
+const PROJECT_SUBJECT_NOISE =
+  'status|update|sync|meeting|kickoff|review|timeline|plan|management|budget|migration|deployment|setup|admin|tracker';
+
+/**
+ * Subject-line heuristic for deal mail (independent of LLM enrich).
+ * Avoids `\bim\b` (matches "I'm") and operational "Project update" subjects.
+ */
+export function subjectLooksDealRelated(
+  subject: string | null | undefined,
+): boolean {
+  if (!subject) return false;
+  const s = subject.trim();
+  if (!s) return false;
+
+  if (
+    /teaser|\bcim\b|\bloi\b|\bnda\b|information\s+memorandum|confidential\s+information\s+memorandum|mandate|process\s+letter/i.test(
+      s,
+    )
+  ) {
+    return true;
+  }
+
+  // Delimiter-safe "im" — apostrophe (ASCII or typographic) is NOT a left
+  // delimiter (blocks "I'm" / "I’m").
+  if (/(?:^|[^a-z0-9'’])im(?:$|[^a-z0-9'’])/i.test(s)) {
+    return true;
+  }
+
+  // Allow Project Titan / Project-Titan / Project_42; reject Project update etc.
+  const projectRe = new RegExp(
+    `\\bproject[\\s:_.-]+(?!(?:${PROJECT_SUBJECT_NOISE})\\b)[A-Za-z0-9]`,
+    'i',
+  );
+  return projectRe.test(s);
+}
+
+/**
+ * Whether email enrichment + subject justify AFD attachment triage.
+ * Subject signal is independent of llm null (AGY: do not lock out CIM subjects
+ * when enrich returns no tool_use). Transient LLM errors never reach here —
+ * flushBatch retries those before CRM/attach.
+ */
+export function hasDealSignal(
+  llm: LlmExtraction | null | undefined,
+  subject: string | null | undefined,
+): boolean {
+  if (subjectLooksDealRelated(subject)) return true;
+  if (!llm) return false;
+  if ((llm.topics ?? []).some((t) => t.is_deal_related === true)) return true;
+  if (
+    (llm.related_companies ?? []).some((rc) =>
+      Boolean((rc?.company_name ?? '').trim()),
+    )
+  ) {
+    return true;
+  }
+  return false;
+}
 
 /**
  * Stable identity of a single MBOX unit of work. For Vault this is derived
@@ -916,7 +994,8 @@ export async function processMboxSource(
       // Commit in stream order up to (but not including) the first LLM failure so
       // transient errors are retried on resume instead of permanently skipped.
       const crmMessages: EphemeralCrmMessage[] = [];
-      const attachQueue: PreparedMessage[] = [];
+      type AttachQueueEntry = { item: PreparedMessage; allowAfd: boolean };
+      const attachQueue: AttachQueueEntry[] = [];
       let llmRetryFrom: PreparedMessage | null = null;
       let lastCommittedOffset = offsetBeforeBatch;
 
@@ -955,7 +1034,10 @@ export async function processMboxSource(
           candidates: item.candidates,
           llm,
         });
-        attachQueue.push(item);
+        attachQueue.push({
+          item,
+          allowAfd: hasDealSignal(llm, item.parsed.subject),
+        });
         lastCommittedOffset = item.offset;
       }
 
@@ -963,13 +1045,63 @@ export async function processMboxSource(
       // AFD): still retry attachments. Do not treat "in analytics.emails" as
       // fully done — that is what created the ghost / missed-AFD failure mode.
       // Never advance past an llm_retry cursor via a later existing row.
+      const dupCandidates: PreparedMessage[] = [];
       for (const item of batch) {
         if (!existingSet.has(item.messageId)) continue;
         if (llmRetryFrom && item.offset >= llmRetryFrom.offset) continue;
-        if (attachQueue.some((a) => a.messageId === item.messageId)) continue;
-        attachQueue.push(item);
+        if (attachQueue.some((a) => a.item.messageId === item.messageId)) continue;
+        dupCandidates.push(item);
         if (item.offset > lastCommittedOffset) {
           lastCommittedOffset = item.offset;
+        }
+      }
+
+      // Resume path: same predicate as fresh — subject heuristic on re-parsed
+      // mbox + DB deal-topic / related-company evidence (no LLM re-run).
+      const dbDealSignalByMid = new Map<string, boolean>();
+      if (dupCandidates.length > 0) {
+        const needDb = dupCandidates.filter(
+          (d) => !subjectLooksDealRelated(d.parsed.subject),
+        );
+        if (needDb.length > 0) {
+          const mids = needDb.map((d) => d.messageId);
+          const rows = queryRows<{
+            message_id: string;
+            has_deal_topic: boolean;
+            has_related_evidence: boolean;
+          }>(
+            await deps.db.execute(sql`
+              SELECT e.message_id,
+                EXISTS (
+                  SELECT 1
+                  FROM analytics.email_topics et
+                  JOIN public.topics t ON t.id = et.topic_id
+                  WHERE et.email_id = e.id AND t.is_deal_related = true
+                ) AS has_deal_topic,
+                EXISTS (
+                  SELECT 1
+                  FROM analytics.employer_related_company_evidence ev
+                  WHERE ev.email_id = e.id
+                ) AS has_related_evidence
+              FROM analytics.emails e
+              WHERE e.message_id IN (${sql.join(
+                mids.map((id) => sql`${id}`),
+                sql`, `,
+              )})
+            `),
+          );
+          for (const r of rows) {
+            dbDealSignalByMid.set(
+              r.message_id,
+              !!r.has_deal_topic || !!r.has_related_evidence,
+            );
+          }
+        }
+        for (const item of dupCandidates) {
+          const allowAfd =
+            subjectLooksDealRelated(item.parsed.subject) ||
+            dbDealSignalByMid.get(item.messageId) === true;
+          attachQueue.push({ item, allowAfd });
         }
       }
 
@@ -985,8 +1117,18 @@ export async function processMboxSource(
       }
 
       let afdRetryFromOffset: number | null = null;
-      for (const item of attachQueue) {
+      for (const entry of attachQueue) {
         if (afdRetryFromOffset !== null) break;
+        const item = entry.item;
+
+        if (!entry.allowAfd) {
+          pipelineLog(SCOPE, 'afd_deal_signal_skip', {
+            run_id: run.id,
+            custodian_hash: custodianHash(custodianEmail),
+            reason: 'no_deal_signal',
+          });
+          continue;
+        }
 
         // Two-phase per message: finish ALL PDF/Office triage before any AFD
         // upload. Otherwise a later triage failure rewinds the message and
@@ -1194,7 +1336,10 @@ export async function processMboxSource(
         });
       }
 
-      const enriched = processEmail({ ...parsed, message_id: messageId }, {});
+      const enriched = processEmail(
+        { ...parsed, message_id: messageId },
+        { wantRelatedCompanies: true },
+      );
       pendingBatch.push({
         offset,
         raw,

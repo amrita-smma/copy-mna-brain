@@ -55,12 +55,28 @@ const SENSITIVE_FILENAME_PATTERNS = [
   /employee[\s_.-]*contract/i,
   /hr[\s_.-]*performance/i,
   /performance[\s_.-]*review/i,
+  /performance[\s_.-]*improvement/i,
   /(?:^|[^a-z0-9])cv(?:[^a-z0-9]|$)/i,
   /(?:^|[^a-z0-9])resume(?:[^a-z0-9]|$)/i,
+  /curriculum[\s_.-]*vitae/i,
   /cover[\s_.-]*letter/i,
   /candidate[\s_.-]*(?:cv|resume|cover)/i,
   /hr[\s_.-]*confidential/i,
   /benefits[\s_.-]*enrollment/i,
+  // Non-deal admin / personal docs (MB-465). Omit bare receipt/tax/statement
+  // and sow — those false-positive on closing docs and DD vendor contracts.
+  /invoice/i,
+  /offer[\s_.-]*letter/i,
+  /passport/i,
+  /tax[\s_.-]*return/i,
+  /(?:^|[^a-z0-9])form[\s_.-]*w-?2(?:[^a-z0-9]|$)/i,
+  /(?:^|[^a-z0-9])w-?2(?:[^a-z0-9]|$)/i,
+  /bank[\s_.-]*statement/i,
+  /expense[\s_.-]*receipt/i,
+  /hotel[\s_.-]*receipt/i,
+  /uber[\s_.-]*receipt/i,
+  /store[\s_.-]*receipt/i,
+  /tax[\s_.-]*receipt/i,
 ];
 
 export const OFFICE_DIRECT_UPLOAD_MIMES = new Set([

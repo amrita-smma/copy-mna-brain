@@ -101,6 +101,52 @@ describe('privacyFilter', () => {
     expect(isSensitiveAttachmentFilename('Q3 Financial Model.xlsx')).toBe(false);
   });
 
+  it('blocks non-deal admin/personal filenames (MB-465)', () => {
+    expect(isSensitiveAttachmentFilename('vendor_invoice_march.pdf')).toBe(true);
+    expect(isSensitiveAttachmentFilename('Invoice_Q1.xlsx')).toBe(true);
+    expect(isSensitiveAttachmentFilename('offer_letter.pdf')).toBe(true);
+    expect(isSensitiveAttachmentFilename('Offer Letter.docx')).toBe(true);
+    expect(isSensitiveAttachmentFilename('offer-letter.pdf')).toBe(true);
+    expect(isSensitiveAttachmentFilename('offer__letter.pdf')).toBe(true);
+    expect(isSensitiveAttachmentFilename('passport_scan.pdf')).toBe(true);
+    expect(isSensitiveAttachmentFilename('tax_return_2025.pdf')).toBe(true);
+    expect(isSensitiveAttachmentFilename('Tax Return.pdf')).toBe(true);
+    expect(isSensitiveAttachmentFilename('form_w2.pdf')).toBe(true);
+    expect(isSensitiveAttachmentFilename('form__w-2.pdf')).toBe(true);
+    expect(isSensitiveAttachmentFilename('W-2_2025.pdf')).toBe(true);
+    expect(isSensitiveAttachmentFilename('w2.pdf')).toBe(true);
+    expect(isSensitiveAttachmentFilename('bank_statement_jan.pdf')).toBe(true);
+    expect(isSensitiveAttachmentFilename('Bank Statement.pdf')).toBe(true);
+    expect(isSensitiveAttachmentFilename('bank__statement.pdf')).toBe(true);
+    expect(isSensitiveAttachmentFilename('expense_receipt.pdf')).toBe(true);
+    expect(isSensitiveAttachmentFilename('hotel_receipt.pdf')).toBe(true);
+    expect(isSensitiveAttachmentFilename('uber_receipt.pdf')).toBe(true);
+    expect(isSensitiveAttachmentFilename('store_receipt.pdf')).toBe(true);
+    expect(isSensitiveAttachmentFilename('tax_receipt.pdf')).toBe(true);
+
+    // Must NOT false-positive on closing / deal / DD docs.
+    expect(isSensitiveAttachmentFilename('wire_transfer_receipt.pdf')).toBe(false);
+    expect(isSensitiveAttachmentFilename('escrow_receipt.pdf')).toBe(false);
+    expect(isSensitiveAttachmentFilename('Project_SOW_v2.pdf')).toBe(false);
+    expect(isSensitiveAttachmentFilename('statement_of_work.pdf')).toBe(false);
+    expect(isSensitiveAttachmentFilename('tax_structuring_memo.pdf')).toBe(false);
+    expect(isSensitiveAttachmentFilename('financial_statement_FY24.pdf')).toBe(
+      false,
+    );
+    expect(isSensitiveAttachmentFilename('Project_Alpha_IM.pdf')).toBe(false);
+  });
+
+  it('blocks performance-improvement and curriculum-vitae filenames', () => {
+    expect(isSensitiveAttachmentFilename('Performance Improvement Plan.pdf')).toBe(
+      true,
+    );
+    expect(isSensitiveAttachmentFilename('performance_improvement.docx')).toBe(
+      true,
+    );
+    expect(isSensitiveAttachmentFilename('Curriculum Vitae.pdf')).toBe(true);
+    expect(isSensitiveAttachmentFilename('curriculum_vitae.docx')).toBe(true);
+  });
+
   it('falls through to shouldSkip for newsletters', () => {
     const headers = parseHeaders(
       'From: news@corp.com\nList-Unsubscribe: <mailto:x>\nSubject: Weekly\n\n',

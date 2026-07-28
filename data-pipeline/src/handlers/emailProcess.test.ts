@@ -12,6 +12,8 @@ import {
   triageAttachmentForAfd,
   triageDealDocumentText,
   attachmentContentDigest,
+  subjectLooksDealRelated,
+  hasDealSignal,
   type EmailProcessResult,
 } from './emailProcess';
 import {
@@ -20,6 +22,7 @@ import {
   PDF_TRIAGE_SOFT_MAX_BYTES,
   OFFICE_TRIAGE_MAX_CHARS,
   clipOfficeTriageText,
+  processEmail,
 } from '../mboxParser';
 import {
   PERSONAL_MAIL_DOMAINS,
@@ -299,6 +302,183 @@ describe('triageAttachmentForAfd', () => {
     const sentText = prompt.slice(start, end);
     expect(sentText.length).toBe(OFFICE_TRIAGE_MAX_CHARS);
     expect(sentText).toBe(clipOfficeTriageText(huge));
+  });
+
+  it('uses the expanded deal-only triage system prompt (MB-465)', async () => {
+    const create = vi.fn().mockResolvedValue({
+      content: [
+        { type: 'tool_use', input: { doc_type: 'other', confidence: 'high' } },
+      ],
+    });
+    await triageDealDocumentText(
+      { messages: { create } } as never,
+      'claude-haiku-4-5-20251001',
+      { fileName: 'notes.docx', text: 'x'.repeat(80) },
+    );
+    const system = create.mock.calls[0]![0].system as string;
+    expect(system).toMatch(/NON-deal/i);
+    expect(system).toMatch(/prospectus/i);
+    expect(system).toMatch(/boilerplate NDAs/i);
+  });
+});
+
+describe('subjectLooksDealRelated / hasDealSignal (MB-465)', () => {
+  it('matches deal subjects and rejects I\'m / operational project subjects', () => {
+    expect(subjectLooksDealRelated('CIM - Project Titan')).toBe(true);
+    expect(subjectLooksDealRelated('Project Alpha Teaser')).toBe(true);
+    expect(subjectLooksDealRelated('Project-Titan CIM')).toBe(true);
+    expect(subjectLooksDealRelated('Project_42 update from banker')).toBe(true);
+    expect(subjectLooksDealRelated('LOI Draft')).toBe(true);
+    expect(subjectLooksDealRelated('NDA for process')).toBe(true);
+    expect(subjectLooksDealRelated('Information Memorandum')).toBe(true);
+    expect(subjectLooksDealRelated('Re: IM for Acme')).toBe(true);
+    expect(subjectLooksDealRelated('Mandate update')).toBe(true);
+    expect(subjectLooksDealRelated('Process letter attached')).toBe(true);
+    expect(subjectLooksDealRelated('Cinema night')).toBe(false);
+
+    // `\bim\b` must NOT match contractions (ASCII or typographic apostrophe).
+    expect(subjectLooksDealRelated("I'm following up on lunch")).toBe(false);
+    expect(subjectLooksDealRelated('I’m following up on lunch')).toBe(false);
+    expect(subjectLooksDealRelated("Here's what I'm seeing")).toBe(false);
+
+    // Operational project subjects (noise words require full-word match).
+    expect(subjectLooksDealRelated('Project update')).toBe(false);
+    expect(subjectLooksDealRelated('Project status')).toBe(false);
+    expect(subjectLooksDealRelated('Project meeting tomorrow')).toBe(false);
+    expect(subjectLooksDealRelated('IT Project sync')).toBe(false);
+    expect(subjectLooksDealRelated('Project management')).toBe(false);
+    expect(subjectLooksDealRelated('Project budget')).toBe(false);
+    // Prefix of a noise word must NOT block a real project codename.
+    expect(subjectLooksDealRelated('Project Synchronicity')).toBe(true);
+    expect(subjectLooksDealRelated('Project StatusQuo')).toBe(true);
+
+    expect(subjectLooksDealRelated('Weekly team notes')).toBe(false);
+    expect(subjectLooksDealRelated('')).toBe(false);
+    expect(subjectLooksDealRelated(null)).toBe(false);
+  });
+
+  it('allows AFD on deal topic, related companies, or deal subject', () => {
+    expect(
+      hasDealSignal(
+        {
+          topics: [{ name: 'acquisition', is_deal_related: true }],
+          people: [],
+          related_companies: [],
+        },
+        'Weekly notes',
+      ),
+    ).toBe(true);
+
+    expect(
+      hasDealSignal(
+        {
+          topics: [{ name: 'semiconductors', is_deal_related: false }],
+          people: [],
+          related_companies: [
+            {
+              company_name: 'Acme',
+              reason: 'explicit_pitch',
+              reason_summary: 'sell-side',
+              keywords: [],
+              confidence: 'high',
+            },
+          ],
+        },
+        'Weekly notes',
+      ),
+    ).toBe(true);
+
+    expect(
+      hasDealSignal(
+        {
+          topics: [],
+          people: [],
+          related_companies: [],
+        },
+        'CIM - Project Titan',
+      ),
+    ).toBe(true);
+
+    // Subject still wins when llm is null.
+    expect(hasDealSignal(null, 'CIM - Project Titan')).toBe(true);
+  });
+
+  it('denies AFD when no deal topic, no related cos, and bland subject', () => {
+    expect(
+      hasDealSignal(
+        {
+          topics: [{ name: 'semiconductors', is_deal_related: false }],
+          people: [],
+          related_companies: [],
+        },
+        'Weekly notes',
+      ),
+    ).toBe(false);
+
+    expect(
+      hasDealSignal(
+        { topics: [], people: [], related_companies: [] },
+        'Please see attached',
+      ),
+    ).toBe(false);
+
+    expect(hasDealSignal(null, 'Please see attached')).toBe(false);
+
+    // Empty related_company names do not count as a deal signal.
+    expect(
+      hasDealSignal(
+        {
+          topics: [],
+          people: [],
+          related_companies: [
+            {
+              company_name: '  ',
+              reason: 'other',
+              reason_summary: '',
+              keywords: [],
+              confidence: 'low',
+            },
+          ],
+        },
+        'Please see attached',
+      ),
+    ).toBe(false);
+
+    // Null-safe when topics / related_companies missing on partial LLM payloads.
+    expect(
+      hasDealSignal({ people: [] } as never, 'Please see attached'),
+    ).toBe(false);
+
+    // Null entries in related_companies must not throw.
+    expect(
+      hasDealSignal(
+        {
+          topics: [],
+          people: [],
+          related_companies: [null as never, { company_name: 'Acme' } as never],
+        } as never,
+        'Please see attached',
+      ),
+    ).toBe(true);
+  });
+});
+
+describe('live processEmail related-companies flag (MB-465)', () => {
+  it('requests related companies when wantRelatedCompanies is true', () => {
+    const out = processEmail(
+      {
+        message_id: '<m1@x>',
+        date: '2026-01-01',
+        subject: 'Deal mail',
+        sender: { email: 'banker@goldman.com', name: 'Banker' },
+        recipients: [{ email: 'a@external.com', name: 'A' }],
+        cc: [],
+        body: 'We represent Acme Corp in a sell-side process.',
+        signature: '',
+      },
+      { wantRelatedCompanies: true },
+    );
+    expect(out.llm_payload?.want_related_companies).toBe(true);
   });
 });
 
