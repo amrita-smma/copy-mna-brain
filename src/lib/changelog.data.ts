@@ -138,9 +138,21 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "category": "fix"
   },
   {
+    "hash": "2c6cc7fa8b44b2eb7639a3db343d61461f65c890",
+    "date": "2026-07-16",
+    "subject": "Portfolio can now be seeded from STARTECH quarterly workbook data",
+    "category": "feature"
+  },
+  {
     "hash": "68d373d246579c040709dabf2f9b7de96f3eaf86",
     "date": "2026-07-15",
     "subject": "Added tabbed interface to file viewer for better organization of multiple documents",
+    "category": "improvement"
+  },
+  {
+    "hash": "df1abf6ac00a4b8a58d28b31c6a2b616b2f30c2e",
+    "date": "2026-07-15",
+    "subject": "Updated deal dashboard color scheme for improved visibility",
     "category": "improvement"
   },
   {
@@ -192,6 +204,12 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "category": "fix"
   },
   {
+    "hash": "a5080aa73c7fd9f0f6f38198d7923bc36955f1df",
+    "date": "2026-07-13",
+    "subject": "Display MOIC instead of IRR in deal performance panel",
+    "category": "improvement"
+  },
+  {
     "hash": "9372b9316f4ddc12fb18591b2d2bdfe401987685",
     "date": "2026-07-13",
     "subject": "Portfolio tables now load and display faster with optimized batch processing",
@@ -202,6 +220,12 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "date": "2026-07-13",
     "subject": "Fund and investor source attribution now tracked at transaction level",
     "category": "improvement"
+  },
+  {
+    "hash": "9886b3d6c1977ad242b1a7f54874e6432163aaea",
+    "date": "2026-07-13",
+    "subject": "Display unreviewed deals in yellow for better visibility",
+    "category": "feature"
   },
   {
     "hash": "ed5b2206f428085de92a9a2b4bfb44529b61a7b5",
@@ -256,6 +280,12 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "date": "2026-07-10",
     "subject": "Enable automated detection and analysis of stalled deals in your pipeline",
     "category": "feature"
+  },
+  {
+    "hash": "563c108c1c103d4edd300c46aaaadeff3b9e5c56",
+    "date": "2026-07-10",
+    "subject": "Disabled chat message caching to ensure real-time conversations",
+    "category": "improvement"
   },
   {
     "hash": "2de997a5c438dc9593832aa4cfa3309d1109699f",
@@ -414,6 +444,12 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "category": "improvement"
   },
   {
+    "hash": "4193bc74016bf8435c6384a3992cf48eb7a20fe1",
+    "date": "2026-07-03",
+    "subject": "Updated company card display to reflect latest deal table data",
+    "category": "improvement"
+  },
+  {
     "hash": "3a46dd2935a8ed9ad496a1394cf2f04509f1fe34",
     "date": "2026-07-03",
     "subject": "Last Scan Completed timestamp now displays accurately and AI Market Scanning layout improved",
@@ -429,6 +465,12 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "hash": "230d1f4f8a8acca1064ad88f613dbc59c8c52024",
     "date": "2026-07-03",
     "subject": "Enable bulk uploading of multiple deal documents in a single action",
+    "category": "feature"
+  },
+  {
+    "hash": "acd08a5c1c5a6bfbd1e36b14fd70f21ee9dea974",
+    "date": "2026-07-03",
+    "subject": "Restored ability to view previously matched companies in deal tracking",
     "category": "feature"
   },
   {
@@ -466,6 +508,12 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "date": "2026-07-01",
     "subject": "AI company screening now retains all matched identifiers during mapping",
     "category": "fix"
+  },
+  {
+    "hash": "83cc8396d9b114818729a5b6c97774ed45bd48ec",
+    "date": "2026-07-01",
+    "subject": "Archived attachments automatically move to cheaper storage after 30 days",
+    "category": "improvement"
   },
   {
     "hash": "f68986fb0cbc4716792c74178b83f162f5cbdc2a",
@@ -508,5 +556,11 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "date": "2026-06-29",
     "subject": "Pipeline table no longer displays PIC and Originator columns",
     "category": "improvement"
+  },
+  {
+    "hash": "b76fde8f07ef6c75bcd573cf2cb6b45a365b66bf",
+    "date": "2026-06-29",
+    "subject": "Dropped On column now sortable in pipeline dropped view",
+    "category": "feature"
   }
 ];
