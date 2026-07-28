@@ -574,11 +574,5 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "date": "2026-06-29",
     "subject": "Removed create user functionality from search bar",
     "category": "fix"
-  },
-  {
-    "hash": "b76fde8f07ef6c75bcd573cf2cb6b45a365b66bf",
-    "date": "2026-06-29",
-    "subject": "Dropped On column now sortable in pipeline dropped view",
-    "category": "feature"
   }
 ];
