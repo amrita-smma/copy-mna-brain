@@ -145,7 +145,7 @@ ${userRawNotes}
    - companies: Array of deal-target objects — one per company/project being offered or listed. Only present when the file type is "prospectus" or "shopping_list". Each entry has the exact same structure as prospectus_summary (see the example output below). A prospectus usually yields exactly ONE entry; only emit multiple when the document genuinely offers several distinct targets. A shopping_list yields one entry per listed target. Honor the user's inclusion/exclusion instructions from "Additional Notes".
    - prospectus_summary: Detailed variables of the primary deal target — identical to companies[0]. Only exists if the file type is "prospectus" or "shopping_list". Kept alongside "companies" for backward compatibility.
    - financial_statement_summary: Extracted financial data from the document. Only present when file_type is "financial_statement". Contains the company name and financials/fx_adjustments arrays in the same structure as prospectus_summary.
-   - communications: Array of email communications extracted from banker communications files. Only exists if the file type is "banker_communications". Each communication should have: from_email, from_name, to_email, to_name, subject, body, sent_at (in ISO 8601 format if available), company (if the sender/recipient is associated with a company).
+   - communications: Array of email communications extracted from banker communications files. Only exists if the file type is "banker_communications". Each communication should have: from_email, from_name, to_email, to_name, sent_at (in ISO 8601 format if available), company (if the sender/recipient is associated with a company). Do not extract subject or body.
 
 ## Output Format:
 Your response should end with a JSON block in this format:
@@ -168,8 +168,6 @@ Your response should end with a JSON block in this format:
       "from_name": "John Banker",
       "to_email": "team@starcapital.com",
       "to_name": "Star Capital Team",
-      "subject": "Re: Project Phoenix Update",
-      "body": "Email content here...",
       "sent_at": "2024-01-15T10:30:00Z",
       "company": "Example Bank"
     }

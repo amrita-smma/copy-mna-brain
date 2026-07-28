@@ -116,9 +116,8 @@ export const lookupCrm = tool(
                   .map((e) => {
                     const dir = e.direction === "outbound" ? "↗ sent" : "↘ received";
                     const day = toDay(e.sent_at);
-                    const subject = e.subject?.trim() || "(no subject)";
                     const who = e.from_display_name || e.from_address;
-                    return `- ${day ? `${day} ` : ""}${dir} — ${subject}${
+                    return `- ${day ? `${day} ` : ""}${dir}${
                       who ? ` (from ${who})` : ""
                     }`;
                   })
@@ -203,7 +202,7 @@ then returns each matching firm with:
   - its bankers (name, title, email, phone, primary flag)
   - deal/engagement topics
   - the internal team members covering the relationship
-  - the most recent emails (direction, date, subject, sender)
+  - the most recent emails (direction, date, sender)
   - the most recent relationship notes
   - linked pipeline companies (useful for "which deals is this banker on")
 

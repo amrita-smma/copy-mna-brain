@@ -140,14 +140,12 @@ describe("lookupCrm", () => {
     ]);
     emailFindByEmployerIdMock.mockResolvedValue([
       {
-        subject: "Intro call follow-up",
         sent_at: "2026-06-01T09:00:00.000Z",
         direction: "inbound",
         from_display_name: "Jane Doe",
         from_address: "jane@evercore.com",
       },
       {
-        subject: null,
         sent_at: "2026-05-28T09:00:00.000Z",
         direction: "outbound",
         from_display_name: null,
@@ -166,10 +164,10 @@ describe("lookupCrm", () => {
     // Team coverage.
     expect(result).toContain("- Alice Banker (alice@firm.com)");
     expect(result).toContain("- Bob Analyst");
-    // Recent emails — direction, date, subject, sender.
+    // Recent emails — direction, date, sender.
     expect(result).toContain("### Recent emails");
-    expect(result).toContain("2026-06-01 ↘ received — Intro call follow-up (from Jane Doe)");
-    expect(result).toContain("2026-05-28 ↗ sent — (no subject)");
+    expect(result).toContain("2026-06-01 ↘ received (from Jane Doe)");
+    expect(result).toContain("2026-05-28 ↗ sent (from us@ourfirm.com)");
     // Notes.
     expect(result).toContain("### Notes");
     expect(result).toContain("2026-05-30: Discussed potential CMP slurry deal.");

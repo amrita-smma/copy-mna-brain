@@ -34,5 +34,5 @@ Expected behavior:
 - only `vault-archive-start` and `vault-archive-poll` are built;
 - MBOX files exist only under Lambda `/tmp` while an entry is processed;
 - `analytics.email_process_runs` advances its cursor on committed batches;
-- `analytics.emails.body_text` and evidence `matched_text` remain null;
+- evidence `matched_text` remains null;
 - completed or terminally abandoned exports close their Vault matter.

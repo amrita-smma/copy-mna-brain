@@ -602,8 +602,6 @@ describe('CRMService.ingestEmails', () => {
     const out = await makeService().ingestEmails([
       {
         from_email: 'james@goldman.com',
-        subject: 'Hi',
-        body: 'Body',
         direction: 'inbound',
         company: 'Goldman',
       },
@@ -640,7 +638,6 @@ describe('CRMService.ingestEmails', () => {
     const out = await makeService().ingestEmails([
       {
         from_email: 'x@morgan.com',
-        body: 'Hello',
         direction: 'inbound',
         company: 'Morgan Stanley',
       },

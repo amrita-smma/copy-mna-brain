@@ -621,8 +621,6 @@ export class FileService {
         from_name?: string;
         to_email?: string;
         to_name?: string;
-        subject?: string;
-        body: string;
         sent_at?: string;
         company?: string;
       }>;
@@ -634,8 +632,6 @@ export class FileService {
             from_name: comm.from_name,
             to_email: comm.to_email,
             to_name: comm.to_name,
-            subject: comm.subject,
-            body: comm.body,
             sent_at: comm.sent_at,
             direction: 'inbound' as const,
             company: comm.company,

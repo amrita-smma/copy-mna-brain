@@ -708,8 +708,6 @@ export class CRMService {
       from_name?: string;
       to_email?: string;
       to_name?: string;
-      subject?: string;
-      body: string;
       sent_at?: string;
       direction: "inbound" | "outbound";
       /** Free-text company / firm name extracted from the email. */
@@ -745,8 +743,6 @@ export class CRMService {
         employer_id: employer.id,
         from_address: row.from_email,
         from_display_name: row.from_name,
-        subject: row.subject,
-        body_text: null,
         sent_at: row.sent_at ?? new Date().toISOString(),
         direction: row.direction,
         filter_status: "processed",

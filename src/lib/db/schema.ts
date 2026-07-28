@@ -2285,9 +2285,6 @@ export const emails = analytics.table(
     employer_id: uuid(),
     from_address: text().notNull(),
     from_display_name: text(),
-    subject: text(),
-    // Nullable; ephemeral pipeline stops writing body content.
-    body_text: text(),
     sent_at: timestamp({ withTimezone: true, mode: "string" }).notNull(),
     direction: text().notNull(),
     filter_status: text().default("processed").notNull(),

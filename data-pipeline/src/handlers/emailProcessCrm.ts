@@ -268,8 +268,6 @@ export async function upsertEphemeralCrmBatch(
         employer_id: domainToEmployerId.get(senderDomain) ?? null,
         from_address: m.from_address,
         from_display_name: m.from_display_name,
-        subject: m.subject,
-        body_text: null as string | null,
         sent_at: m.sent_at,
         direction: m.direction,
         filter_status: 'processed',

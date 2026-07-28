@@ -113,6 +113,13 @@
       "when": 1785164400000,
       "tag": "20260727150000_vault_exports_fail_count",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1785229200000,
+      "tag": "20260728090000_drop_emails_subject_body_text",
+      "breakpoints": true
     }
   ]
 }
