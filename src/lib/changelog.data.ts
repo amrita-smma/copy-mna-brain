@@ -78,6 +78,12 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "category": "feature"
   },
   {
+    "hash": "b4afaf58f72ea354e5857b796584791bc94cbe37",
+    "date": "2026-07-21",
+    "subject": "Story panel now displays deal timeline and key milestones in improved layout",
+    "category": "improvement"
+  },
+  {
     "hash": "3d1913b4768dd6806e44fe634f56d95a46b77716",
     "date": "2026-07-21",
     "subject": "New Deals now properly included in Tally Insight dashboard breakdowns",
@@ -291,6 +297,18 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "hash": "4627ade0a0d790b3c09a359fad8284fd8baf2bec",
     "date": "2026-07-09",
     "subject": "Removed discovered stage from deal pipeline",
+    "category": "improvement"
+  },
+  {
+    "hash": "df31f4c9dd51faa9f4bfdc6076d62bab6e5d51c0",
+    "date": "2026-07-09",
+    "subject": "Dashboard now displays deal conversion metrics accurately",
+    "category": "fix"
+  },
+  {
+    "hash": "e67a6af9efcdceb271add6e93ccd8005b87e3fac",
+    "date": "2026-07-09",
+    "subject": "Streamlined insight dashboard for faster data visualization and easier navigation",
     "category": "improvement"
   },
   {
@@ -568,11 +586,5 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "date": "2026-06-29",
     "subject": "Pipeline table no longer displays PIC and Originator columns",
     "category": "improvement"
-  },
-  {
-    "hash": "48c5db9a92d08e385b4c9555d34dd272f937ceee",
-    "date": "2026-06-29",
-    "subject": "Removed create user functionality from search bar",
-    "category": "fix"
   }
 ];
