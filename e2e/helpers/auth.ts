@@ -1,6 +1,6 @@
 import type { Page } from '@playwright/test';
 import { encode } from 'next-auth/jwt';
-import { getTestCredentials } from './credentials';
+import { getBaseUrl, getTestCredentials } from './credentials';
 
 // UUID-shaped so routes not intercepted by a mock-mode spec's page.route()
 // calls (e.g. ChatProvider's /api/copilot/chats) still get a well-formed id
@@ -28,7 +28,11 @@ export type MockSessionUser = {
   workspaces?: { workspaceId: string; slug: string }[];
 };
 
-const SESSION_COOKIE_NAME = 'authjs.session-token';
+/** Auth.js prefixes cookie names with `__Secure-` when the URL is HTTPS. */
+const sessionCookieName = (baseURL: string): string =>
+  baseURL.startsWith('https://')
+    ? '__Secure-authjs.session-token'
+    : 'authjs.session-token';
 
 /**
  * Forges a real, decryptable NextAuth session cookie (JWE, same format
@@ -46,12 +50,9 @@ const SESSION_COOKIE_NAME = 'authjs.session-token';
  * decoding this cookie) and every server-side check in one shot — and keeps
  * them from ever disagreeing.
  *
- * Requires `AUTH_SECRET` in `.env.local` to match what the server under test
- * uses to decrypt cookies — true for the local docker/dev stack this suite
- * targets, per `playwright.config.ts`'s `TEST_ENV=local` default. Not
- * expected to work against staging/production (different, CI-only secrets),
- * which is also true of every other assumption `mockAuthSession`-based specs
- * make (mocked API routes replacing real data).
+ * Requires `AUTH_SECRET` to match what the server under test uses to decrypt
+ * cookies (local `.env.local`, or the Vercel Preview `AUTH_SECRET` when
+ * `TEST_ENV=preview`).
  *
  * Returns a `setUser` function so a single call site can flip between
  * unauthenticated and authenticated state mid-test (e.g. before vs. after a
@@ -61,10 +62,14 @@ export const mockAuthSession = async (
   page: Page,
   initialUser: MockSessionUser | null = MOCK_USER,
 ) => {
+  const baseURL = getBaseUrl();
+  const cookieName = sessionCookieName(baseURL);
+  const secure = baseURL.startsWith('https://');
+
   const setUser = async (user: MockSessionUser | null): Promise<void> => {
     const context = page.context();
     if (!user) {
-      await context.clearCookies({ name: SESSION_COOKIE_NAME });
+      await context.clearCookies({ name: cookieName });
       return;
     }
     const secret = process.env.AUTH_SECRET;
@@ -85,16 +90,17 @@ export const mockAuthSession = async (
         workspaces: user.workspaces ?? [],
       },
       secret,
-      salt: SESSION_COOKIE_NAME,
+      salt: cookieName,
       maxAge: 30 * 24 * 60 * 60,
     });
     await context.addCookies([
       {
-        name: SESSION_COOKIE_NAME,
+        name: cookieName,
         value: token,
-        url: process.env.LOCAL_BASE_URL ?? 'http://localhost:3000',
+        url: baseURL,
         httpOnly: true,
         sameSite: 'Lax',
+        secure,
       },
     ]);
   };

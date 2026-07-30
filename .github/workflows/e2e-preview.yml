@@ -1,0 +1,273 @@
+name: E2E Preview
+
+# Opens a throwaway PR from latest main so Preview DB & Deploy
+# (.github/workflows/preview-db.yml) provisions a Neon branch + Vercel preview,
+# runs Playwright against that URL, then closes the PR (teardown).
+#
+# Required secrets / setup:
+#   E2E_APP_ID           — GitHub App ID (org App; see workflow comments below)
+#   E2E_APP_PRIVATE_KEY  — GitHub App private key (PEM)
+#   VERCEL_TOKEN / VERCEL_ORG_ID / VERCEL_PROJECT_ID — resolve the preview URL
+#   AUTH_SECRET — must match the Vercel Preview environment AUTH_SECRET so
+#                 mockAuthSession() can forge cookies against the deployment.
+#
+# Why a GitHub App (not GITHUB_TOKEN / PAT):
+#   GITHUB_TOKEN cannot open PRs that trigger other workflows. Org policy often
+#   blocks PATs. An org GitHub App installation token can push a branch, open a
+#   PR (which triggers preview-db.yml), and close it afterwards.
+#
+# Preview DBs are seeded by preview-db.yml (`pnpm db:seed`), so credentials
+# match scripts/seed.ts (test@sqe.co.id / password).
+
+on:
+  schedule:
+    # 02:00 UTC daily — off-peak for the SEA team.
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+    inputs:
+      data_mode:
+        description: 'E2E data mode'
+        required: false
+        default: seed
+        type: choice
+        options:
+          - seed
+          - mock
+
+concurrency:
+  group: e2e-preview
+  # Don't cancel mid-run — that can leave an orphan e2e PR + Neon branch.
+  cancel-in-progress: false
+
+jobs:
+  e2e:
+    name: Playwright E2E (Vercel preview)
+    runs-on: codebuild-mna-brain-runner-${{ github.run_id }}-${{ github.run_attempt }}
+    timeout-minutes: 90
+    permissions:
+      contents: write
+      pull-requests: write
+      actions: read
+
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      TEST_ENV: preview
+      E2E_DATA_MODE: ${{ inputs.data_mode || 'seed' }}
+      # Seed user from scripts/seed.ts — preview-db runs `pnpm db:seed`.
+      PREVIEW_TEST_EMAIL: test@sqe.co.id
+      PREVIEW_TEST_PASSWORD: password
+      # Must match Vercel Preview AUTH_SECRET. Falls back to the old staging
+      # secret name if AUTH_SECRET is not configured yet.
+      AUTH_SECRET: ${{ secrets.AUTH_SECRET || secrets.STAGING_AUTH_SECRET }}
+      BRANCH: e2e/preview-run-${{ github.run_id }}
+
+    steps:
+      - name: Require GitHub App secrets
+        run: |
+          if [ -z "${{ secrets.E2E_APP_ID }}" ] || [ -z "${{ secrets.E2E_APP_PRIVATE_KEY }}" ]; then
+            echo "::error::Secrets E2E_APP_ID and E2E_APP_PRIVATE_KEY are required (org GitHub App). GITHUB_TOKEN cannot open PRs that trigger Preview DB & Deploy."
+            exit 1
+          fi
+
+      - name: Create GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.E2E_APP_ID }}
+          private-key: ${{ secrets.E2E_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: write
+          permission-pull-requests: write
+          permission-actions: read
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          # App token so the empty commit + push can trigger preview-db.yml.
+          token: ${{ steps.app-token.outputs.token }}
+          fetch-depth: 0
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Vercel CLI
+        run: pnpm add -g vercel@latest
+
+      - name: Ensure GitHub CLI
+        run: |
+          if command -v gh >/dev/null 2>&1; then
+            gh --version
+            exit 0
+          fi
+          # Portable install — CodeBuild runners may not have the apt gh package.
+          GH_VERSION=2.74.2
+          ARCH=$(uname -m)
+          case "$ARCH" in
+            x86_64|amd64) GH_ARCH=amd64 ;;
+            aarch64|arm64) GH_ARCH=arm64 ;;
+            *) echo "::error::Unsupported arch $ARCH for gh install"; exit 1 ;;
+          esac
+          curl -fsSL "https://github.com/cli/cli/releases/download/v${GH_VERSION}/gh_${GH_VERSION}_linux_${GH_ARCH}.tar.gz" \
+            | tar -xz
+          sudo mv "gh_${GH_VERSION}_linux_${GH_ARCH}/bin/gh" /usr/local/bin/gh
+          gh --version
+
+      - name: Open ephemeral PR from latest main
+        id: pr
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          set -euo pipefail
+          APP_SLUG="${{ steps.app-token.outputs.app-slug }}"
+          git config user.name "${APP_SLUG}[bot]"
+          git config user.email "${APP_SLUG}[bot]@users.noreply.github.com"
+
+          # Keep the workflow commit for running Playwright; only the ephemeral
+          # branch (latest main + empty commit) is what Vercel / preview-db deploy.
+          ORIGINAL_SHA=$(git rev-parse HEAD)
+
+          git fetch origin main
+          git checkout -B "$BRANCH" origin/main
+          git commit --allow-empty -m "chore(e2e): preview run ${{ github.run_id }}"
+          git push -u origin "$BRANCH"
+
+          PR_URL=$(gh pr create \
+            --base main \
+            --head "$BRANCH" \
+            --title "chore(e2e): automated preview run ${{ github.run_id }}" \
+            --body "$(cat <<'EOF'
+## Automated E2E preview run
+
+Opened by the **E2E Preview** workflow.
+
+- Provisions a Neon preview DB via `preview-db.yml`
+- Runs Playwright against the Vercel preview URL
+- Closed automatically when the suite finishes
+EOF
+)")
+
+          PR_NUMBER="${PR_URL##*/}"
+          echo "pr_number=$PR_NUMBER" >> "$GITHUB_OUTPUT"
+          echo "pr_url=$PR_URL" >> "$GITHUB_OUTPUT"
+          echo "Opened $PR_URL"
+
+          git checkout "$ORIGINAL_SHA"
+
+      - name: Wait for Preview DB & Deploy
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          PR_NUMBER: ${{ steps.pr.outputs.pr_number }}
+        run: |
+          set -euo pipefail
+          # preview-db.yml runs the `setup` job on PR opened (Neon branch,
+          # migrate, seed, Vercel env, redeploy). Poll until that workflow run
+          # for our branch completes successfully.
+          for i in $(seq 1 90); do
+            RUN_JSON=$(gh run list \
+              --workflow "Preview DB & Deploy" \
+              --branch "$BRANCH" \
+              --limit 1 \
+              --json databaseId,status,conclusion,displayTitle \
+              2>/dev/null || echo '[]')
+
+            RUN_ID=$(echo "$RUN_JSON" | jq -r '.[0].databaseId // empty')
+            STATUS=$(echo "$RUN_JSON" | jq -r '.[0].status // empty')
+            CONCLUSION=$(echo "$RUN_JSON" | jq -r '.[0].conclusion // empty')
+
+            if [ -z "$RUN_ID" ]; then
+              echo "Attempt $i: Preview DB & Deploy not started yet for $BRANCH (PR #$PR_NUMBER)"
+            elif [ "$STATUS" != "completed" ]; then
+              echo "Attempt $i: run $RUN_ID status=$STATUS"
+            elif [ "$CONCLUSION" = "success" ]; then
+              echo "Preview DB & Deploy succeeded (run $RUN_ID)"
+              exit 0
+            else
+              echo "::error::Preview DB & Deploy finished with conclusion=$CONCLUSION (run $RUN_ID)"
+              gh run view "$RUN_ID" --log-failed || true
+              exit 1
+            fi
+
+            sleep 20
+          done
+
+          echo "::error::Timed out waiting for Preview DB & Deploy on $BRANCH"
+          exit 1
+
+      - name: Wait for Vercel preview READY
+        id: vercel
+        env:
+          PR_NUMBER: ${{ steps.pr.outputs.pr_number }}
+        run: |
+          set -euo pipefail
+          # preview-db redeploys once DB_* env vars are attached; wait for the
+          # latest deployment for this PR/branch to reach READY.
+          for i in $(seq 1 60); do
+            RESP=$(vercel list \
+              --meta "githubCommitRef=$BRANCH" \
+              --meta "githubPrId=$PR_NUMBER" \
+              -F json --token="$VERCEL_TOKEN" --scope "$VERCEL_ORG_ID")
+            URL=$(echo "$RESP" | jq -r '.deployments[0].url // empty')
+            STATE=$(echo "$RESP" | jq -r '.deployments[0].state // empty')
+
+            if [ -z "$URL" ]; then
+              echo "Attempt $i: no Vercel deployment for $BRANCH (PR #$PR_NUMBER) yet"
+            else
+              echo "Attempt $i: https://$URL is $STATE"
+              case "$STATE" in
+                READY)
+                  echo "PREVIEW_BASE_URL=https://$URL" >> "$GITHUB_ENV"
+                  echo "preview_url=https://$URL" >> "$GITHUB_OUTPUT"
+                  exit 0
+                  ;;
+                ERROR|CANCELED)
+                  echo "::error::Vercel deployment ended in state $STATE"
+                  exit 1
+                  ;;
+              esac
+            fi
+
+            sleep 15
+          done
+
+          echo "::error::Vercel preview for $BRANCH did not reach READY within 15 minutes"
+          exit 1
+
+      - name: Install Playwright browsers
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Run E2E tests against preview
+        run: |
+          echo "Running e2e against $PREVIEW_BASE_URL (E2E_DATA_MODE=$E2E_DATA_MODE)"
+          pnpm test:e2e:preview
+
+      - name: Upload Playwright report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-${{ github.run_id }}
+          path: playwright-report/
+          retention-days: 14
+
+      - name: Close ephemeral PR
+        if: always() && steps.pr.outputs.pr_number != ''
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          PR_NUMBER: ${{ steps.pr.outputs.pr_number }}
+        run: |
+          set -euo pipefail
+          # Closing the PR triggers preview-db teardown (Neon branch + Vercel env).
+          gh pr close "$PR_NUMBER" --comment "Closed by E2E Preview workflow (run ${{ github.run_id }})." --delete-branch || true

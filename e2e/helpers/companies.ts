@@ -56,14 +56,35 @@ export const baseCompany = (overrides: Partial<Company>): Company => ({
  * `mock` — intercept `/api/companies` and serve the fixtures verbatim (offline,
  * deterministic). `real` — POST the fixtures to the real API so they actually
  * exist in the target DB, then read them back through the live endpoint.
+ * `seed` — look up pre-seeded companies by their known names (from
+ * scripts/seed.ts) and intercept `/api/companies` with those real rows; no
+ * creation or cleanup. Use this for the daily staging pipeline.
  *
  * Selected by `E2E_DATA_MODE` (defaults to `mock`). Kept independent of
- * `TEST_ENV` so a real-data run can target local just as easily as staging.
+ * `TEST_ENV` so any mode can target any environment.
  */
-export type DataMode = 'mock' | 'real';
+export type DataMode = 'mock' | 'real' | 'seed';
 
-export const getDataMode = (): DataMode =>
-  process.env.E2E_DATA_MODE === 'real' ? 'real' : 'mock';
+export const getDataMode = (): DataMode => {
+  switch (process.env.E2E_DATA_MODE) {
+    case 'real':
+      return 'real';
+    case 'seed':
+      return 'seed';
+    default:
+      return 'mock';
+  }
+};
+
+/**
+ * Stable seed company names from scripts/seed.ts, grouped by source. These
+ * rows are always present after `pnpm db:seed` and are never mutated by e2e
+ * tests (seed mode is read-only).
+ */
+export const SEED_FIXTURE_NAMES = {
+  inbound: ['Reviewed Teaser Co', 'Reviewed Shopping List Co'],
+  outbound: ['Cinder Foods', 'Halcyon Media'],
+} as const;
 
 export interface ProvisionedCompanies {
   /**
@@ -235,6 +256,47 @@ const seedCompaniesViaApi = async (
 };
 
 /**
+ * Fetch pre-seeded companies from the real API by their known names (see
+ * `SEED_FIXTURE_NAMES`) and set up the same `/api/companies` interceptor that
+ * mock mode uses — only the 4 seed rows are returned, keeping tests
+ * deterministic regardless of what else lives in the shared target DB.
+ *
+ * Throws if any expected seed company is missing (run `pnpm db:seed` first).
+ * No cleanup is registered because seed rows are never touched by e2e tests.
+ */
+const lookupSeedCompanies = async (page: Page): Promise<ProvisionedCompanies> => {
+  const res = await page.request.get('/api/companies?limit=100');
+  if (!res.ok()) {
+    throw new Error(
+      `Seed company lookup failed (${res.status()}). Is the target environment reachable and the DB seeded?`,
+    );
+  }
+  const { data } = (await res.json()) as { data: Company[] };
+
+  const byName = (name: string): Company => {
+    const row = data.find((c) => c.target === name);
+    if (!row) {
+      throw new Error(
+        `Seed company "${name}" not found in /api/companies response. ` +
+          `Run \`pnpm db:seed\` against the target environment then retry.`,
+      );
+    }
+    return row;
+  };
+
+  const companies: Company[] = [
+    ...SEED_FIXTURE_NAMES.inbound.map(byName),
+    ...SEED_FIXTURE_NAMES.outbound.map(byName),
+  ];
+
+  // Intercept so only these 4 rows are visible — prevents noise from other
+  // seed rows leaking into count assertions or search results.
+  await interceptCompanies(page, companies);
+
+  return { companies, marker: '', cleanup: async () => {} };
+};
+
+/**
  * Make `companies` available to the Master Data page, in whichever way the
  * current `E2E_DATA_MODE` dictates. Always call this *after* a real `signIn`
  * (real mode needs the session cookie to POST) and *before* navigating.
@@ -248,9 +310,9 @@ export const provisionCompanies = async (
   companies: Company[],
   registerCleanup?: (cleanup: () => Promise<void>) => void,
 ): Promise<ProvisionedCompanies> => {
-  if (getDataMode() === 'real') {
-    return seedCompaniesViaApi(page, companies, registerCleanup);
-  }
+  const mode = getDataMode();
+  if (mode === 'real') return seedCompaniesViaApi(page, companies, registerCleanup);
+  if (mode === 'seed') return lookupSeedCompanies(page);
   await interceptCompanies(page, companies);
   return { companies, marker: '', cleanup: async () => {} };
 };

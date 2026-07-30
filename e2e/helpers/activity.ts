@@ -1,6 +1,66 @@
 import type { Page } from '@playwright/test';
 import { getDataMode, type Company } from './companies';
 
+// ─── Seed-mode activity builder ───────────────────────────────────────────────
+
+/**
+ * Derive a deterministic activity payload from a set of provisioned companies.
+ * Used in seed mode so the dashboard gets a synthetic-but-plausible activity
+ * fixture built from the real seed company IDs — the first two (inbound) appear
+ * as new L0 deals; the last two (outbound) as L0→L1 moves with the first of
+ * them also appearing as a drop.
+ */
+export const buildActivityFromProvisioned = (companies: Company[]): ActivityPayload => {
+  const inbound = companies.filter((c) => c.source === 'inbound');
+  const outbound = companies.filter((c) => c.source === 'outbound');
+
+  return {
+    newL0Companies: inbound.map((c, i) => ({
+      id: c.id,
+      target: c.target,
+      project_name: null,
+      source: c.source,
+      segment: c.segment,
+      geography: null,
+      remarks: null,
+      thesis_content: null,
+      event_at: new Date(Date.UTC(2026, 5, 12, 10 - i, 0, 0)).toISOString(),
+      reason: 'created' as const,
+    })),
+    aiSourcedCompanies: [],
+    discoveredCompanies: [],
+    pipelineMoves: outbound.map((c, i) => ({
+      id: `log-seed-${i + 1}`,
+      company_id: c.id,
+      action: 'PROMOTED_TO_L1',
+      created_at: new Date(Date.UTC(2026, 5, 16, 10 + i, 0, 0)).toISOString(),
+      target: c.target,
+      project_name: null,
+      segment: c.segment,
+      geography: null,
+      source: c.source,
+      remarks: null,
+      thesis_content: null,
+    })),
+    slidesGenerated: [],
+    droppedDeals: outbound.slice(0, 1).map((c) => ({
+      id: c.id,
+      target: c.target,
+      project_name: null,
+      pipeline_stage: 'L1',
+      dropped_at: new Date(Date.UTC(2026, 5, 16, 12, 0, 0)).toISOString(),
+      dropped_reason: null,
+      segment: c.segment,
+      geography: null,
+      source: c.source,
+      thesis_content: null,
+    })),
+    workforceJobs: [],
+    newContacts: [],
+    notesUpdated: [],
+  };
+};
+
 /**
  * Dashboard activity + feed provisioning, mirroring `provisionCompanies`.
  *
@@ -202,11 +262,13 @@ export const provisionActivity = async (
   fixtures: MockActivityFixtures,
 ): Promise<void> => {
   // The "Today's Recap" pulse is LLM-backed and cached server-side, so it is
-  // always mocked (both modes) to keep the card deterministic and avoid a real
+  // always mocked (all modes) to keep the card deterministic and avoid a real
   // model call during e2e.
   await mockPulse(page, fixtures.pulse ?? DEFAULT_PULSE);
 
-  if (getDataMode() === 'real') {
+  const mode = getDataMode();
+
+  if (mode === 'real') {
     for (const m of ops.moves ?? []) {
       await promoteCompany(page, companies[m.index].id, m.from, m.to);
     }
@@ -216,6 +278,17 @@ export const provisionActivity = async (
     for (const n of ops.notes ?? []) {
       await addNote(page, companies[n.index].id, n.content, n.stage);
     }
+    return;
+  }
+
+  if (mode === 'seed') {
+    // Build a synthetic activity payload from the provisioned seed companies so
+    // the feed event company-button test-ids reference real seed UUIDs. No DB
+    // mutations — seed data is read-only. Feed pagination and the mobile
+    // infinite-scroll test (which relies on deterministic synthetic IDs) are
+    // skipped in seed mode via the `test.skip(isReal, ...)` guards already in
+    // the dashboard spec.
+    await mockActivity(page, buildActivityFromProvisioned(companies));
     return;
   }
 

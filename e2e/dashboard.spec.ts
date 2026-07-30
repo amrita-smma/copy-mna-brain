@@ -156,7 +156,10 @@ const FEED_EVENTS: FeedEvent[] = Array.from({ length: 20 }, (_, i) => ({
 const feedButton = (page: Page, id: string) =>
   page.getByTestId(`feed-event-company-button-${id}`);
 
-const isReal = getDataMode() === 'real';
+const dataMode = getDataMode();
+const isReal = dataMode === 'real';
+// Seed mode: real UUIDs but no synthetic feed pagination data.
+const isMockOnly = dataMode === 'mock';
 
 // ─── Suite ────────────────────────────────────────────────────────────────────
 
@@ -690,7 +693,7 @@ test.describe('Dashboard page', () => {
 
   test('Mobile activity feed scrolls infinitely with no date selector', async ({ page }) => {
     // Synthetic 20-event feed with fixed ids/ordering — mock-mode only.
-    test.skip(isReal, 'Feed pagination relies on deterministic ids/order not guaranteed in a shared real environment');
+    test.skip(!isMockOnly, 'Feed pagination relies on deterministic synthetic ids/ordering; not available in real or seed modes');
 
     await page.setViewportSize({ width: 390, height: 844 });
     await openDashboard(page, MOCK_COMPANIES, DEFAULT_OPS, { activity: MOCK_ACTIVITY, feed: FEED_EVENTS });
@@ -717,8 +720,8 @@ test.describe('Dashboard page', () => {
   });
 
   test('Dashboard loads with no activity in the period', async ({ page }) => {
-    // An empty window can't be guaranteed against a shared real environment.
-    test.skip(isReal, 'Cannot guarantee an empty activity window in a shared real environment');
+    // An empty window can't be guaranteed against a shared real or seed environment.
+    test.skip(!isMockOnly, 'Cannot guarantee an empty activity window in a shared real or seed environment');
 
     await openDashboard(page, [], {}, { activity: EMPTY_ACTIVITY });
 

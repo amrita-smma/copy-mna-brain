@@ -9,6 +9,7 @@ dotenv.config({ path: '.env.local' });
 //   unset | 'local' -> build & boot a local server, hit localhost:3000
 //   'staging'       -> hit the deployed staging site, no local server
 //   'production'    -> hit the deployed production site, no local server
+//   'preview'       -> hit a Vercel preview URL (PREVIEW_BASE_URL), no local server
 const TEST_ENV = process.env.TEST_ENV ?? 'local';
 
 // Base URLs come from the environment (see `.env.local` / `.env.example`) so the
@@ -17,6 +18,7 @@ const BASE_URLS: Record<string, string> = {
   local: process.env.LOCAL_BASE_URL ?? 'http://localhost:3000',
   staging: process.env.STAGING_BASE_URL ?? 'http://localhost:3000',
   production: process.env.PRODUCTION_BASE_URL ?? 'http://localhost:3000',
+  preview: process.env.PREVIEW_BASE_URL ?? 'http://localhost:3000',
 };
 
 const baseURL = BASE_URLS[TEST_ENV] ?? BASE_URLS.local;
@@ -48,8 +50,8 @@ export default defineConfig({
       use: { ...devices['Desktop Chrome'] },
     },
   ],
-  // Only build & boot a local server when debugging locally. Staging/production
-  // runs target the already-deployed site, so there is nothing to start.
+  // Only build & boot a local server when debugging locally. Deployed targets
+  // (staging / production / preview) already have a URL, so there is nothing to start.
   webServer: isLocal
     ? {
         command: 'pnpm build && pnpm start',
