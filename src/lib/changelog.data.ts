@@ -6,6 +6,18 @@ import type { ChangelogEntry } from './changelog';
 
 export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   {
+    "hash": "732503210096c621ac676e64e63b4b36af6f70cb",
+    "date": "2026-07-30",
+    "subject": "Filter company queries by deal captain and entered by user",
+    "category": "feature"
+  },
+  {
+    "hash": "bb5db08c2dee5a613fee5d4e3e166fc296240375",
+    "date": "2026-07-28",
+    "subject": "Changelog now displays in pages with improved AI File Dump categorization",
+    "category": "improvement"
+  },
+  {
     "hash": "1329055963c9207c69a7e25923e08c60e7900aee",
     "date": "2026-07-27",
     "subject": "Leads from Bankers now filter to show only inbound company prospects",
@@ -340,6 +352,12 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "date": "2026-07-08",
     "subject": "Dashboard breakdowns now include all companies added during the period without duplicates",
     "category": "feature"
+  },
+  {
+    "hash": "a586d57236bac3f6e69715f087c5f4b6f51275ab",
+    "date": "2026-07-08",
+    "subject": "Related company records now update automatically when deal data changes",
+    "category": "improvement"
   },
   {
     "hash": "ee9e1342ada85aed054551d4fcf86b6f18da14c7",
@@ -690,6 +708,12 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "category": "improvement"
   },
   {
+    "hash": "ebeb857df50e82644cb68e93f9881151dfaaa225",
+    "date": "2026-06-23",
+    "subject": "Fixed missing PIC display in Master Data section",
+    "category": "improvement"
+  },
+  {
     "hash": "d5c2b531be94f5d8bfa7e50d27824d1c17a360e8",
     "date": "2026-06-23",
     "subject": "Prevented users from adding companies to L0 workspace level",
@@ -792,6 +816,12 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "category": "improvement"
   },
   {
+    "hash": "c9bea33ea081dffa13fe167314069b95fdfc3175",
+    "date": "2026-06-17",
+    "subject": "Integrated CRM tool for managing deal contacts and communications",
+    "category": "feature"
+  },
+  {
     "hash": "48863159b0b8648b971d95085efed19281a3ac12",
     "date": "2026-06-17",
     "subject": "Mobile chat list now displays fully and opens to Chat tab by default",
@@ -843,6 +873,12 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "hash": "533cc157232328b36aaae2b0d23886f4ee4e0e22",
     "date": "2026-06-11",
     "subject": "Activity Feed now displays deal timeline and team actions in real-time",
+    "category": "improvement"
+  },
+  {
+    "hash": "ead611aa628f91e8e29d4d7dfa82af5eeb458479",
+    "date": "2026-06-11",
+    "subject": "Added recap section to deal summaries for quick reference",
     "category": "improvement"
   },
   {
@@ -948,6 +984,12 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "category": "improvement"
   },
   {
+    "hash": "f71de5aeedf38595d77665013b4aa27dcf946022",
+    "date": "2026-06-05",
+    "subject": "Enable manual intervention workflows for deal tracking approvals",
+    "category": "feature"
+  },
+  {
     "hash": "c1edf4d04d63a5cc89b975118e344c1bb4b1bb48",
     "date": "2026-06-05",
     "subject": "Enable bulk company actions with drag-and-drop reordering and promotion within deal pipelines",
@@ -1018,6 +1060,18 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "date": "2026-05-18",
     "subject": "Workforce agents now display execution traces in the UI for better visibility into deal analysis workflows",
     "category": "feature"
+  },
+  {
+    "hash": "d1e062361483d4337e1d8d3289cc1094808335d2",
+    "date": "2026-05-12",
+    "subject": "Copilot chat history now persists across sessions for easier reference",
+    "category": "feature"
+  },
+  {
+    "hash": "301c56e3e409301d951ba5aeeb65ccab0f64f4b3",
+    "date": "2026-05-11",
+    "subject": "Added AI Workforce page with routine job scheduling capabilities",
+    "category": "improvement"
   },
   {
     "hash": "80ae7f5e83a005664603df33a58b64f3450f188c",
@@ -1302,6 +1356,12 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "category": "feature"
   },
   {
+    "hash": "f401b0821a164ab97e06f8a7da8663560aa2e682",
+    "date": "2026-02-02",
+    "subject": "Allow users to attach meeting notes URLs to deal records",
+    "category": "feature"
+  },
+  {
     "hash": "1c9d51a96cc70aa7edb5e49730e0b99e759ebad7",
     "date": "2026-01-30",
     "subject": "Duplicate meeting notes detector identifies repeated entries in deal records",
@@ -1330,6 +1390,12 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "date": "2026-01-30",
     "subject": "Batch upload documents and data files to accelerate deal tracking setup",
     "category": "improvement"
+  },
+  {
+    "hash": "602339eea776fce85ec249ebe76e065e837ffa31",
+    "date": "2026-01-30",
+    "subject": "Enable date selection via calendar widget for deal tracking fields",
+    "category": "feature"
   },
   {
     "hash": "3493548eed62ea25f417fa821dfc0762715629f5",
