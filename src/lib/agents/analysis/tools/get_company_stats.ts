@@ -122,6 +122,8 @@ export const getCompanyStats = tool(
     status,
     deal_type,
     deal_sponsor,
+    deal_captain,
+    entered_by,
     banker,
     has_ai_opinion,
     ai_opinion_verdict,
@@ -145,6 +147,8 @@ export const getCompanyStats = tool(
     status?: "active" | "dropped";
     deal_type?: "majority" | "minority";
     deal_sponsor?: string;
+    deal_captain?: string;
+    entered_by?: string;
     banker?: string;
     has_ai_opinion?: boolean;
     ai_opinion_verdict?: "pass" | "fail" | "tentative";
@@ -179,6 +183,8 @@ export const getCompanyStats = tool(
         status,
         dealType: deal_type,
         dealSponsor: deal_sponsor,
+        dealCaptain: deal_captain,
+        enteredBy: entered_by,
         banker,
         hasAiOpinion: has_ai_opinion,
         aiOpinionVerdict: ai_opinion_verdict,
@@ -305,7 +311,7 @@ The summary always reports: total companies, active vs dropped, inbound vs outbo
 Scope the cohort with the SAME filters as query_companies (all optional, AND-combined):
     segment, geography, watchlist_status, stage, name, ownership, company_focus,
     source ("inbound"|"outbound"), status ("active"|"dropped"),
-    deal_type ("majority"|"minority"), deal_sponsor, banker,
+    deal_type ("majority"|"minority"), deal_sponsor, deal_captain, entered_by, banker,
     has_ai_opinion (true → only companies WITH an AI Opinion; false → only those WITHOUT),
     ai_opinion_verdict ("pass"|"fail"|"tentative"),
     min_revenue / max_revenue / min_ebitda / max_ebitda (FY2024, USD M),
@@ -381,7 +387,15 @@ Returns:
       deal_sponsor: z
         .string()
         .optional()
-        .describe("Filter by deal sponsor / owner (partial)"),
+        .describe("Filter by deal sponsor / owner (partial, shown at L0–L2)"),
+      deal_captain: z
+        .string()
+        .optional()
+        .describe("Filter by deal captain name (partial, shown at L3+)"),
+      entered_by: z
+        .string()
+        .optional()
+        .describe("Filter by the name of the user who sourced/entered the company (partial)"),
       banker: z
         .string()
         .optional()

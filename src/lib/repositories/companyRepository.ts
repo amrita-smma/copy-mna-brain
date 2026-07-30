@@ -141,6 +141,10 @@ export interface CompanyAgentFilters {
   dealType?: "majority" | "minority";
   /** Deal sponsor user name (partial, case-insensitive; deal_sponsor is a uuid FK to users). */
   dealSponsor?: string;
+  /** Deal captain user name (partial, case-insensitive; deal_captain is a uuid FK to users). */
+  dealCaptain?: string;
+  /** Entered-by user name (partial, case-insensitive; entered_by is a uuid FK to users). */
+  enteredBy?: string;
   banker?: string;
   /** When set, keep only companies that have (true) / lack (false) an AI Opinion verdict. */
   hasAiOpinion?: boolean;
@@ -517,6 +521,26 @@ export class CompanyRepository {
             .select({ id: users.id })
             .from(users)
             .where(ilike(users.name, `%${filters.dealSponsor}%`)),
+        ),
+      );
+    if (filters.dealCaptain)
+      push(
+        inArray(
+          companies.deal_captain,
+          this.db
+            .select({ id: users.id })
+            .from(users)
+            .where(ilike(users.name, `%${filters.dealCaptain}%`)),
+        ),
+      );
+    if (filters.enteredBy)
+      push(
+        inArray(
+          companies.entered_by,
+          this.db
+            .select({ id: users.id })
+            .from(users)
+            .where(ilike(users.name, `%${filters.enteredBy}%`)),
         ),
       );
     if (filters.banker) push(ilike(companies.banker, `%${filters.banker}%`));

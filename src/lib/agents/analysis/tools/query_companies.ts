@@ -39,6 +39,8 @@ export const queryCompanies = tool(
     status,
     deal_type,
     deal_sponsor,
+    deal_captain,
+    entered_by,
     banker,
     has_ai_opinion,
     ai_opinion_verdict,
@@ -63,6 +65,8 @@ export const queryCompanies = tool(
     status?: "active" | "dropped";
     deal_type?: "majority" | "minority";
     deal_sponsor?: string;
+    deal_captain?: string;
+    entered_by?: string;
     banker?: string;
     has_ai_opinion?: boolean;
     ai_opinion_verdict?: "pass" | "fail" | "tentative";
@@ -96,6 +100,8 @@ export const queryCompanies = tool(
         status,
         dealType: deal_type,
         dealSponsor: deal_sponsor,
+        dealCaptain: deal_captain,
+        enteredBy: entered_by,
         banker,
         hasAiOpinion: has_ai_opinion,
         aiOpinionVerdict: ai_opinion_verdict,
@@ -184,7 +190,9 @@ Available filters (every one maps to a real column):
     source: Deal origin (exact, one of: "inbound", "outbound")
     status: Record status (exact, one of: "active", "dropped"). Omit for all.
     deal_type: Deal type (exact, one of: "majority", "minority")
-    deal_sponsor: Deal sponsor / owner name (partial match)
+    deal_sponsor: Deal sponsor / owner name (partial match, shown at L0–L2)
+    deal_captain: Deal captain name (partial match, shown at L3+)
+    entered_by: Name of the user who sourced/entered the company (partial match)
     banker: Banker / deal contact (partial match)
     has_ai_opinion: true → only companies that already have an AI Opinion verdict; false → only those without one
     ai_opinion_verdict: AI Opinion verdict (exact, one of: "pass", "fail", "tentative")
@@ -255,7 +263,15 @@ Returns:
       deal_sponsor: z
         .string()
         .optional()
-        .describe("Filter by deal sponsor / owner name (partial match)"),
+        .describe("Filter by deal sponsor / owner name (partial match, shown at L0–L2)"),
+      deal_captain: z
+        .string()
+        .optional()
+        .describe("Filter by deal captain name (partial match, shown at L3+)"),
+      entered_by: z
+        .string()
+        .optional()
+        .describe("Filter by the name of the user who sourced/entered the company (partial match)"),
       banker: z
         .string()
         .optional()
