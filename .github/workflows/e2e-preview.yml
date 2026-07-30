@@ -65,8 +65,11 @@ jobs:
 
     steps:
       - name: Require GitHub App secrets
+        env:
+          APP_ID: ${{ secrets.E2E_APP_ID }}
+          APP_PRIVATE_KEY: ${{ secrets.E2E_APP_PRIVATE_KEY }}
         run: |
-          if [ -z "${{ secrets.E2E_APP_ID }}" ] || [ -z "${{ secrets.E2E_APP_PRIVATE_KEY }}" ]; then
+          if [ -z "$APP_ID" ] || [ -z "$APP_PRIVATE_KEY" ]; then
             echo "::error::Secrets E2E_APP_ID and E2E_APP_PRIVATE_KEY are required (org GitHub App). GITHUB_TOKEN cannot open PRs that trigger Preview DB & Deploy."
             exit 1
           fi
@@ -77,8 +80,7 @@ jobs:
         with:
           app-id: ${{ secrets.E2E_APP_ID }}
           private-key: ${{ secrets.E2E_APP_PRIVATE_KEY }}
-          owner: ${{ github.repository_owner }}
-          repositories: ${{ github.event.repository.name }}
+          # No owner/repositories: the token is scoped to this repository.
           permission-contents: write
           permission-pull-requests: write
           permission-actions: read
@@ -145,20 +147,21 @@ jobs:
           git commit --allow-empty -m "chore(e2e): preview run ${{ github.run_id }}"
           git push -u origin "$BRANCH"
 
+          cat > "$RUNNER_TEMP/pr-body.md" <<'EOF'
+          ## Automated E2E preview run
+
+          Opened by the **E2E Preview** workflow.
+
+          - Provisions a Neon preview DB via `preview-db.yml`
+          - Runs Playwright against the Vercel preview URL
+          - Closed automatically when the suite finishes
+          EOF
+
           PR_URL=$(gh pr create \
             --base main \
             --head "$BRANCH" \
             --title "chore(e2e): automated preview run ${{ github.run_id }}" \
-            --body "$(cat <<'EOF'
-## Automated E2E preview run
-
-Opened by the **E2E Preview** workflow.
-
-- Provisions a Neon preview DB via `preview-db.yml`
-- Runs Playwright against the Vercel preview URL
-- Closed automatically when the suite finishes
-EOF
-)")
+            --body-file "$RUNNER_TEMP/pr-body.md")
 
           PR_NUMBER="${PR_URL##*/}"
           echo "pr_number=$PR_NUMBER" >> "$GITHUB_OUTPUT"
@@ -268,6 +271,42 @@ EOF
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           PR_NUMBER: ${{ steps.pr.outputs.pr_number }}
         run: |
-          set -euo pipefail
+          set -uo pipefail
+
+          latest_run() {
+            gh run list \
+              --workflow "Preview DB & Deploy" \
+              --branch "$BRANCH" \
+              --limit 1 \
+              --json databaseId,status \
+              --jq '"\(.[0].databaseId // "")|\(.[0].status // "")"' 2>/dev/null || echo '|'
+          }
+
+          BEFORE_CLOSE="$(latest_run)"
+
           # Closing the PR triggers preview-db teardown (Neon branch + Vercel env).
-          gh pr close "$PR_NUMBER" --comment "Closed by E2E Preview workflow (run ${{ github.run_id }})." --delete-branch || true
+          gh pr close "$PR_NUMBER" \
+            --comment "Closed by E2E Preview workflow (run ${{ github.run_id }})." || true
+
+          # preview-db.yml's teardown job checks out $BRANCH, so deleting the
+          # branch before it finishes makes it fail and leaks the Neon branch +
+          # Vercel env vars. Wait for the run the close above triggered.
+          for i in $(seq 1 90); do
+            CURRENT="$(latest_run)"
+            RUN_ID="${CURRENT%%|*}"
+            STATUS="${CURRENT##*|}"
+
+            if [ -n "$RUN_ID" ] && [ "$CURRENT" != "$BEFORE_CLOSE" ] && [ "$STATUS" = "completed" ]; then
+              echo "Teardown run $RUN_ID completed"
+              git push origin --delete "$BRANCH" \
+                || echo "::warning::Could not delete branch $BRANCH; delete it manually."
+              exit 0
+            fi
+
+            echo "Attempt $i: waiting for teardown (latest run=${RUN_ID:-none} status=${STATUS:-none})"
+            sleep 10
+          done
+
+          # Leave the branch in place: deleting it now could still break a
+          # late-starting teardown, and the stale branch is the visible signal.
+          echo "::warning::Teardown for $BRANCH did not complete within 15 minutes; branch and Neon preview DB may need manual cleanup."
