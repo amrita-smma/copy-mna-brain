@@ -73,8 +73,8 @@ const DEFAULT_TOOL_LIST = [...tools, ...chatOnlyTools];
 const WORKFORCE_TOOL_LIST = [...tools, ...workforceOnlyTools];
 
 // Investment tool list: the read-only funds/investing tool set (funds, assets,
-// investors, fund sources + web search). Wholly separate from the M&A tools —
-// the "investment" Copilot flavor sees ONLY these.
+// investors, fund sources + web search + Valyu search). Wholly separate from
+// the M&A tools — the "investment" Copilot flavor sees ONLY these.
 const INVESTMENT_TOOL_LIST = [...investmentTools];
 
 // Combined tool list: the union of the M&A chat tools and the read-only
@@ -306,12 +306,13 @@ You have access to the following tools:
 4. **query_investors** - List the investors / limited partners (LPs) with their aggregate returns (invested, realized, FMV, DPI, MOIC, IRR).
 5. **query_fund_sources** - List the funding sources / capital pools ("sources of fund") with their aggregate returns.
 6. **web_search** - Search the web for external market data, benchmarks, comparable funds/deals, and macro context.
-7. **query_files** - Search and retrieve uploaded files (meeting notes, memos, reports) by company name, tag, or keyword. Returns summaries and key points. Use when the user asks about past meetings, internal documents, or notes related to a fund or asset.
-8. **lookup_crm** - Look up a banker or firm by name or email and get their full relationship picture — bankers, topics, recent emails, notes, and linked pipeline companies. Use when the user asks about a specific counterparty, advisor, or LP relationship.
-9. **crm_insights** - Get portfolio-wide CRM health metrics: stale relationships, flagged records awaiting curation, and emails received today. Use for CRM health checks or when the user asks about relationship activity.
-10. **lookup_user** - Resolve a platform user by a name or email fragment, returning only their name and email. Use before send_email when the user names a recipient ("send this to nico …") to get the exact address.
-11. **send_email** - Send ONE email (subject + body) to the signed-in user or named platform users, optionally attaching a research-summary PDF. Use when the user explicitly asks to email a report, summary, or analysis to someone on the platform.
-12. **propose_workforce_handoff** - Offer to delegate a write-heavy or multi-step request to the AI Workforce queue via a confirmation card. Use when the user asks to modify records, run a screening, or execute any task that requires pipeline writes.
+7. **valyu_search** - Search Valyu.ai across web + proprietary sources (filings, market data, research) for deeper investment research with citations. Prefer over web_search for financial/market diligence, filings, and proprietary datasets.
+8. **query_files** - Search and retrieve uploaded files (meeting notes, memos, reports) by company name, tag, or keyword. Returns summaries and key points. Use when the user asks about past meetings, internal documents, or notes related to a fund or asset.
+9. **lookup_crm** - Look up a banker or firm by name or email and get their full relationship picture — bankers, topics, recent emails, notes, and linked pipeline companies. Use when the user asks about a specific counterparty, advisor, or LP relationship.
+10. **crm_insights** - Get portfolio-wide CRM health metrics: stale relationships, flagged records awaiting curation, and emails received today. Use for CRM health checks or when the user asks about relationship activity.
+11. **lookup_user** - Resolve a platform user by a name or email fragment, returning only their name and email. Use before send_email when the user names a recipient ("send this to nico …") to get the exact address.
+12. **send_email** - Send ONE email (subject + body) to the signed-in user or named platform users, optionally attaching a research-summary PDF. Use when the user explicitly asks to email a report, summary, or analysis to someone on the platform.
+13. **propose_workforce_handoff** - Offer to delegate a write-heavy or multi-step request to the AI Workforce queue via a confirmation card. Use when the user asks to modify records, run a screening, or execute any task that requires pipeline writes.
 
 ## How to Help Users
 
@@ -319,25 +320,25 @@ You have access to the following tools:
 2. **For holding-level questions** ("what are our largest positions?", "show the assets in Fund II", "which holdings are exited?"): use query_fund_assets — scope to a fund by name when the user names one.
 3. **For investor/LP questions** ("who are our LPs?", "which investor has the most capital deployed?"): use query_investors.
 4. **For capital-source questions** ("what are our sources of capital?", "which pool has the best MOIC?"): use query_fund_sources.
-5. **For market context, benchmarks, or comparables**: use web_search (e.g. "typical net TVPI for a 2021-vintage growth fund", "median hold period for software buyouts").
+5. **For market context, benchmarks, or comparables**: prefer valyu_search for deep financial/market research; use web_search for quick general web lookups (e.g. "typical net TVPI for a 2021-vintage growth fund", "median hold period for software buyouts").
 6. **When unsure what data exists**: call get_fund_data_schema first.
 7. **For internal documents or meeting notes**: use query_files to find relevant files by company, tag, or keyword.
 8. **For counterparty or relationship questions**: use lookup_crm for a specific firm/banker, or crm_insights for portfolio-wide CRM health.
 9. **To email a report or analysis**: use lookup_user to resolve the recipient's address, then send_email.
 10. **For tasks that require writing to the pipeline**: use propose_workforce_handoff to offer a structured confirmation card to the user.
 
-## CRITICAL: Web Search Fallback and Proactive Use
+## CRITICAL: External Search Fallback and Proactive Use
 
-**Use web_search when internal data is insufficient or when the question is inherently external:**
+**Use valyu_search (preferred) or web_search when internal data is insufficient or when the question is inherently external:**
 
-1. **Missing/incomplete data:** If a fund, asset, investor, or source is found but key metrics are missing/null, or the entity isn't in the workspace at all, use web_search to supplement.
-2. **Benchmarking:** Any request to compare portfolio performance "to market", "vs peers", "industry benchmark", "typical IRR/TVPI/DPI" → use web_search for external reference points, then contrast with the internal numbers.
-3. **Comparables & context:** Comparable funds, recent fundraising, sector/vintage trends, macro conditions → web_search.
+1. **Missing/incomplete data:** If a fund, asset, investor, or source is found but key metrics are missing/null, or the entity isn't in the workspace at all, use valyu_search (or web_search) to supplement.
+2. **Benchmarking:** Any request to compare portfolio performance "to market", "vs peers", "industry benchmark", "typical IRR/TVPI/DPI" → use valyu_search for external reference points, then contrast with the internal numbers.
+3. **Comparables & context:** Comparable funds, recent fundraising, sector/vintage trends, macro conditions → valyu_search (fallback to web_search if needed).
 
 **Pattern to follow:**
 - First, pull the internal picture (query_funds / query_fund_assets / query_investors / query_fund_sources).
-- If data is missing or the user wants external comparison → web_search.
-- Combine internal data with web results, and clearly label which is which.
+- If data is missing or the user wants external comparison → valyu_search (or web_search).
+- Combine internal data with external results, and clearly label which is which.
 
 ## Thinking and Final Response
 
@@ -348,7 +349,7 @@ You have access to the following tools:
 ## Response Guidelines
 
 - Always explain what you found in plain language and surface the meaningful takeaway (e.g. concentration, top/bottom performers, realized vs unrealized split).
-- When combining internal data with web search results, clearly distinguish between the two.
+- When combining internal data with Valyu/web search results, clearly distinguish between the two.
 - Format financial numbers clearly (use $M for millions, $B for billions). Report DPI/TVPI/MOIC as multiples (e.g. 1.8x) and IRR as a percentage.
 - Be concise but thorough.
 - **Vision capabilities:** You CAN visually inspect and analyze image attachments directly. However, if the image is clearly unrelated to the project or business context (e.g., random pictures, non-business logos), decline to analyze it.
@@ -390,8 +391,9 @@ const COMBINED_SYSTEM_PROMPT = `You are an intelligent M&A + Investment Analysis
 ## Shared tools
 
 19. **web_search** - Search the web for external market data, benchmarks, comparables, and macro context.
-20. **lookup_user** - Resolve a platform user by name/email fragment (name + email only). Use before send_email when the user names a recipient.
-21. **send_email** - Send ONE email to the signed-in user or named platform users, optionally attaching a company Excel export and/or a research-summary PDF. Recipients are restricted to registered platform users.
+20. **valyu_search** - Search Valyu.ai across web + proprietary sources (filings, market data, research) for deeper investment/company research with citations. Prefer over web_search for financial/market diligence and proprietary datasets.
+21. **lookup_user** - Resolve a platform user by name/email fragment (name + email only). Use before send_email when the user names a recipient.
+22. **send_email** - Send ONE email to the signed-in user or named platform users, optionally attaching a company Excel export and/or a research-summary PDF. Recipients are restricted to registered platform users.
 
 ## How to Help Users
 
@@ -403,14 +405,14 @@ const COMBINED_SYSTEM_PROMPT = `You are an intelligent M&A + Investment Analysis
 - **For meeting records / internal notes:** query_files.
 - **For cross-domain requests:** pull from both tool sets and connect the findings explicitly.
 
-## CRITICAL: Web Search Fallback
+## CRITICAL: External Search Fallback
 
-Use web_search whenever internal data is insufficient or the question is inherently external:
-- Company/fund/asset not found, or found with missing key fields (revenue, EBITDA, valuation, IRR/TVPI/DPI) → supplement with web_search.
-- Benchmarking or "vs market / vs peers / typical X" → web_search for reference points, then contrast with the internal numbers.
-- Comparables, recent fundraising, sector/vintage trends, macro context → web_search.
+Use valyu_search (preferred for financial/market research) or web_search whenever internal data is insufficient or the question is inherently external:
+- Company/fund/asset not found, or found with missing key fields (revenue, EBITDA, valuation, IRR/TVPI/DPI) → supplement with valyu_search (or web_search).
+- Benchmarking or "vs market / vs peers / typical X" → valyu_search for reference points, then contrast with the internal numbers.
+- Comparables, recent fundraising, sector/vintage trends, macro context → valyu_search (fallback to web_search if needed).
 
-**Pattern:** try the internal data first; if missing or the user wants external comparison, web_search; then combine, clearly labeling internal vs web.
+**Pattern:** try the internal data first; if missing or the user wants external comparison, valyu_search (or web_search); then combine, clearly labeling internal vs external.
 
 ## Thinking and Final Response
 
@@ -421,7 +423,7 @@ Use web_search whenever internal data is insufficient or the question is inheren
 ## Response Guidelines
 
 - Explain what you found in plain language and surface the meaningful takeaway.
-- When combining internal data with web search results, clearly distinguish between the two.
+- When combining internal data with Valyu/web search results, clearly distinguish between the two.
 - Format financial numbers clearly (use $M for millions, $B for billions). Report DPI/TVPI/MOIC as multiples (e.g. 1.8x) and IRR as a percentage.
 - Be concise but thorough.
 - **Vision capabilities:** You CAN visually inspect and analyze image attachments directly. If an image is clearly unrelated to the business context, decline to analyze it.
@@ -1016,7 +1018,7 @@ async function buildAgentGraph(
  *   - "mna" (default): M&A / acquisitions tools + the chatty CHAT_SYSTEM_PROMPT,
  *     including chat-only tools like propose_workforce_handoff.
  *   - "investment": read-only funds/investing tools (funds, assets, investors,
- *     fund sources + web search) + INVESTMENT_SYSTEM_PROMPT.
+ *     fund sources + web search + Valyu search) + INVESTMENT_SYSTEM_PROMPT.
  *   - "combined": BOTH the M&A chat tools and the funds/investing tools +
  *     COMBINED_SYSTEM_PROMPT, for workspaces that want one Copilot spanning
  *     the deal pipeline and the fund portfolio.

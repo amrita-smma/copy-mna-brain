@@ -11,6 +11,7 @@ import { analyzeStalledDeals } from "./analyze_stalled_deals";
 import { lookupCrm } from "./lookup_crm";
 import { crmInsights } from "./crm_insights";
 import { webSearch } from "./web_search";
+import { valyuSearch } from "./valyu_search";
 import { queryMeetingNotes } from "./query_files";
 import { proposeWorkforceHandoff } from "./propose_workforce_handoff";
 import { proposeBulkDropCompanies } from "./propose_bulk_drop_companies";
@@ -48,6 +49,7 @@ export {
   lookupCrm,
   crmInsights,
   webSearch,
+  valyuSearch,
   queryMeetingNotes,
   proposeWorkforceHandoff,
   proposeBulkDropCompanies,
@@ -156,8 +158,8 @@ export const workforceOnlyTools = [
  * Investment tools — the read-only fund/investing tool set for the
  * "investment" Copilot flavor. Lets the agent see and analyze the workspace's
  * funds, assets/holdings, investors (LPs), and fund sources, plus web search
- * for external market data. Distinct from the M&A tool set (companies/CRM);
- * the two flavors never share a tool list.
+ * and Valyu search for external market data. Distinct from the M&A tool set
+ * (companies/CRM); the two flavors never share a tool list.
  */
 export const investmentTools = [
   getFundDataSchema,
@@ -166,6 +168,7 @@ export const investmentTools = [
   queryInvestors,
   queryFundSources,
   webSearch,
+  valyuSearch,
   queryMeetingNotes,
   lookupCrm,
   crmInsights,
@@ -184,6 +187,7 @@ export const investmentTools = [
  * (web_search, query_files, lookup_crm, crm_insights, lookup_user, send_email,
  * propose_workforce_handoff are shared and must not be duplicated — passing the
  * same tool twice to createAgent would register a duplicate name).
+ * `valyu_search` is investment/combined-only, so it is listed explicitly here.
  */
 export const combinedTools = [
   ...tools,
@@ -193,6 +197,7 @@ export const combinedTools = [
   queryFundAssets,
   queryInvestors,
   queryFundSources,
+  valyuSearch,
 ];
 
 /**

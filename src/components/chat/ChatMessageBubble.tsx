@@ -331,7 +331,7 @@ function AssistantMessageBubble(props: ChatMessageBubbleProps) {
     }
   }, [hasResponseContent]);
 
-  // Extract citations from all web_search tool results
+  // Extract citations from web_search / valyu_search tool results
   const allCitations: { title: string; url: string }[] = [];
   // Extract files from query_files tool results - matches MeetingNote type
   interface MeetingNoteRef {
@@ -358,7 +358,7 @@ function AssistantMessageBubble(props: ChatMessageBubbleProps) {
       content = output;
     }
 
-    if (toolName === "web_search") {
+    if (toolName === "web_search" || toolName === "valyu_search") {
       const citationMatch = content.match(/<!-- CITATIONS_JSON:(.*?) -->/);
       if (citationMatch) {
         try {

@@ -47,8 +47,8 @@ multiples and IRR is a fraction (0.15 = 15%).
 - name
 - Rolled-up metrics: invested_amount, realized_amount, fmv_amount, dpi, moic, irr
 
-Use \`web_search\` for external market data, benchmarks, and comparables not held
-in these tables.`;
+Use \`valyu_search\` (preferred) or \`web_search\` for external market data,
+benchmarks, and comparables not held in these tables.`;
 
     logger.debug("✓ Fund schema retrieved");
     return result;
