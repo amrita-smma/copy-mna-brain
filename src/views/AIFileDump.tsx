@@ -61,7 +61,6 @@ import { format } from "date-fns";
 import {
   AlertCircle,
   Bot,
-  Building,
   CalendarIcon,
   CheckCircle2,
   ChevronDown,
@@ -85,11 +84,12 @@ import {
   Upload,
   X,
 } from "lucide-react";
-import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 import posthog from "posthog-js";
 import { getCompanies } from "@/lib/api/pipeline";
 import { MatchedCompanyCombobox, AUTO as COMBOBOX_AUTO, type CompanyOption as ComboboxOption } from "@/components/Files/MatchedCompanyCombobox";
+import { MatchedCompaniesCell } from "@/components/Files/MatchedCompaniesCell";
 import { useChatContext } from "@/components/chat/ChatProvider";
 import { AskAIButton } from "@/components/chat/AskAIButton";
 import { HitlReviewDialog } from "@/components/Files/HitlReviewDialog";
@@ -97,6 +97,11 @@ import { FundUpdateReviewDialog } from "@/components/Files/FundUpdateReviewDialo
 import CompanyDetailDialog, {
   type CompanyData,
 } from "@/components/pipeline/CompanyDetailDialog";
+import { useWorkspaceHref } from "@/hooks/useWorkspaceHref";
+import {
+  type AiFileDumpTab,
+  isAiFileDumpTab,
+} from "@/lib/aiFileDumpTabs";
 
 const AUTO = COMBOBOX_AUTO;
 
@@ -186,6 +191,7 @@ interface FileTableProps {
   expandedCompanies: Record<string, boolean>;
   toggleCompanies: (id: string) => void;
   onOpenCompany: (companyId: string) => void;
+  onMatchedCompaniesChanged: () => void;
   onUpdateDate: (id: string, date: Date | undefined) => void;
   onDownload: (id: string, fileName: string) => Promise<void>;
   onDelete: (id: string) => void;
@@ -220,6 +226,7 @@ function FileTable({
   expandedCompanies,
   toggleCompanies,
   onOpenCompany,
+  onMatchedCompaniesChanged,
   onUpdateDate,
   onDownload,
   onDelete,
@@ -340,62 +347,19 @@ function FileTable({
   );
 
   const renderCompanies = (note: FileRecord) => {
-    const raw = note.matched_companies || [];
-    const isPipelineCompany = (c: { type?: string }) => c.type === "company";
-    const list = [...raw].sort((a, b) => {
-      const aClick = isPipelineCompany(a as { type?: string }) ? 1 : 0;
-      const bClick = isPipelineCompany(b as { type?: string }) ? 1 : 0;
-      return bClick - aClick;
-    });
-    const chipClass =
-      "inline-flex items-center gap-1 text-xs text-muted-foreground rounded px-1.5 py-0.5 min-w-[5rem] max-w-[10rem] w-[10rem] overflow-hidden";
-    const visible = expandedCompanies[note.id] ? list : list.slice(0, 2);
+    const rematchDisabled =
+      note.processing_status === "pending" ||
+      note.processing_status === "processing";
     return (
-      <div className="flex flex-col gap-1">
-        {list.length > 0 ? (
-          <>
-            {visible.map(
-              (
-                company: { id?: string; name?: string; type?: string },
-                i: number,
-              ) =>
-                isPipelineCompany(company) && company.id ? (
-                  <button
-                    key={i}
-                    type="button"
-                    onClick={() => onOpenCompany(company.id!)}
-                    className={`${chipClass} text-left hover:text-primary hover:underline bg-sky-100 dark:bg-sky-900/30`}
-                    title={company.name}
-                  >
-                    <Building className="h-3 w-3 shrink-0" />
-                    <span className="truncate">{company.name}</span>
-                  </button>
-                ) : (
-                  <div
-                    key={i}
-                    className={`${chipClass} bg-orange-100 dark:bg-orange-900/30`}
-                    title={company.name}
-                  >
-                    <Building className="h-3 w-3 shrink-0" />
-                    <span className="truncate">{company.name}</span>
-                  </div>
-                ),
-            )}
-            {list.length > 2 && (
-              <button
-                className="text-[10px] text-primary hover:underline text-left"
-                onClick={() => toggleCompanies(note.id)}
-              >
-                {expandedCompanies[note.id]
-                  ? "Show less"
-                  : `+${list.length - 2} more`}
-              </button>
-            )}
-          </>
-        ) : (
-          <span className="text-muted-foreground text-xs">-</span>
-        )}
-      </div>
+      <MatchedCompaniesCell
+        fileId={note.id}
+        companies={note.matched_companies || []}
+        onOpenCompany={onOpenCompany}
+        onChanged={onMatchedCompaniesChanged}
+        disabled={rematchDisabled}
+        expanded={!!expandedCompanies[note.id]}
+        onToggleExpand={() => toggleCompanies(note.id)}
+      />
     );
   };
 
@@ -824,6 +788,24 @@ function FileTable({
   );
 }
 
+/** In-panel spinner for a lazy tab — keeps the page shell mounted across switches. */
+function TabBucketPanel({
+  loading,
+  children,
+}: {
+  loading: boolean;
+  children: ReactNode;
+}) {
+  if (loading) {
+    return (
+      <div className="flex justify-center py-16">
+        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+  return children;
+}
+
 const PAGE_SIZE = 10;
 
 interface FileBucket {
@@ -854,7 +836,7 @@ interface FileBucket {
  * page 1. `fileType` is the API bucket key — the MoM bucket maps to the empty
  * `file_type` sentinel the route expects.
  */
-function useFileBucket(fileType: string, externalSearch?: string): FileBucket {
+function useFileBucket(fileType: string, externalSearch?: string, enabled = true): FileBucket {
   const [files, setFiles] = useState<FileRecord[]>([]);
   const [total, setTotal] = useState(0);
   const [initialLoading, setInitialLoading] = useState(true);
@@ -896,6 +878,8 @@ function useFileBucket(fileType: string, externalSearch?: string): FileBucket {
         toast.error("Failed to load files");
       }
     } catch (error) {
+      // Aborted requests (Strict Mode remount / superseded fetch) aren't user-facing.
+      if (error instanceof DOMException && error.name === "AbortError") return;
       console.error("Error fetching files:", error);
       toast.error("Failed to load files");
     } finally {
@@ -903,9 +887,12 @@ function useFileBucket(fileType: string, externalSearch?: string): FileBucket {
     }
   }, [fileType, debouncedSearch, page, sortField, sortDirection]);
 
+  const hasLoadedRef = useRef(false);
   useEffect(() => {
+    if (!enabled && !hasLoadedRef.current) return;
+    hasLoadedRef.current = true;
     fetchFiles();
-  }, [fetchFiles]);
+  }, [fetchFiles, enabled]);
 
   // If a refetch shrank the result set past the current page (e.g. after a
   // delete on the last page), step back so we never sit on an empty page.
@@ -945,25 +932,75 @@ function useFileBucket(fileType: string, externalSearch?: string): FileBucket {
 interface AIFileDumpProps {
   showCompanyGraph?: boolean;
   showFundManagement?: boolean;
+  /** Deep-link tab from `/ai-file-dump/<tab>` — defaults to MoM. */
+  initialTab?: AiFileDumpTab;
 }
 
 export default function AIFileDump({
   showCompanyGraph = false,
   showFundManagement = false,
+  initialTab = "mom",
 }: AIFileDumpProps) {
   const { analyzeWithAI } = useChatContext();
-  const [activeTab, setActiveTab] = useState("mom");
+  const [activeTab, setActiveTab] = useState<AiFileDumpTab>(initialTab);
+  const [visitedTabs, setVisitedTabs] = useState<Set<string>>(
+    () => new Set([initialTab]),
+  );
   const [globalSearch, setGlobalSearch] = useState("");
+  const [tabCounts, setTabCounts] = useState<Record<string, number>>({});
 
+  // Keep the URL in sync with the active tab: `/ai-file-dump/mom`,
+  // `/ai-file-dump/prospectus`, etc.
+  //
+  // IMPORTANT: pass `window.history.state` (not `null`). Next.js patches
+  // `history.replaceState` and, when state lacks `__NA`, dispatches
+  // ACTION_RESTORE — a soft navigation that remounts this page, aborts
+  // in-flight fetches ("Failed to fetch"), and flashes the boot spinner.
+  // Reusing the existing Next history entry updates the URL bar only.
+  const tabUrlTarget = useWorkspaceHref(`/ai-file-dump/${activeTab}`);
+  useEffect(() => {
+    if (
+      typeof window !== "undefined" &&
+      window.location.pathname !== tabUrlTarget
+    ) {
+      window.history.replaceState(window.history.state, "", tabUrlTarget);
+    }
+  }, [tabUrlTarget]);
+
+  const fetchCounts = useCallback(async () => {
+    try {
+      const res = await fetch("/api/ai-file-dump/counts");
+      const json = await res.json();
+      if (json.success) setTabCounts(json.counts);
+    } catch {
+      // counts are non-critical — tabs still work without them
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchCounts();
+  }, [fetchCounts]);
+
+  const handleTabChange = useCallback((tab: string) => {
+    if (!isAiFileDumpTab(tab)) return;
+    setActiveTab(tab);
+    setVisitedTabs((prev) => {
+      if (prev.has(tab)) return prev;
+      const next = new Set(prev);
+      next.add(tab);
+      return next;
+    });
+  }, []);
   // Each category owns its server-driven sort / pagination state but shares
   // the global search term so the search bar persists across tab changes.
-  const mom = useFileBucket("mom", globalSearch);
-  const prospectusBucket = useFileBucket("prospectus", globalSearch);
-  const shoppingListBucket = useFileBucket("shopping_list", globalSearch);
-  const bankerCommsBucket = useFileBucket("banker_communications", globalSearch);
-  const fundUpdatesBucket = useFileBucket("fund_updates", globalSearch);
-  const marketStudyBucket = useFileBucket("market_study", globalSearch);
-  const otherBucket = useFileBucket("other", globalSearch);
+  // Tabs are lazy-loaded: data is only fetched once the tab has been visited.
+  const mom = useFileBucket("mom", globalSearch, visitedTabs.has("mom"));
+  const prospectusBucket = useFileBucket("prospectus", globalSearch, visitedTabs.has("prospectus"));
+  const shoppingListBucket = useFileBucket("shopping_list", globalSearch, visitedTabs.has("shopping_list"));
+  const bankerCommsBucket = useFileBucket("banker_communications", globalSearch, visitedTabs.has("banker_communications"));
+  const fundUpdatesBucket = useFileBucket("fund_updates", globalSearch, visitedTabs.has("fund_updates"));
+  const marketStudyBucket = useFileBucket("market_study", globalSearch, visitedTabs.has("market_study"));
+  const otherBucket = useFileBucket("other", globalSearch, visitedTabs.has("other"));
 
   const getActiveBucket = () => {
     switch (activeTab) {
@@ -979,19 +1016,31 @@ export default function AIFileDump({
   };
   const activeBucket = getActiveBucket();
 
-  const refetchAll = useCallback(() => {
-    mom.refetch();
-    prospectusBucket.refetch();
-    shoppingListBucket.refetch();
-    bankerCommsBucket.refetch();
-    fundUpdatesBucket.refetch();
-    marketStudyBucket.refetch();
-    otherBucket.refetch();
-  }, [mom, prospectusBucket, shoppingListBucket, bankerCommsBucket, fundUpdatesBucket, marketStudyBucket, otherBucket]);
+  const bucketByTab = useMemo<Record<string, FileBucket>>(
+    () => ({ mom, prospectus: prospectusBucket, shopping_list: shoppingListBucket, banker_communications: bankerCommsBucket, fund_updates: fundUpdatesBucket, market_study: marketStudyBucket, other: otherBucket }),
+    [mom, prospectusBucket, shoppingListBucket, bankerCommsBucket, fundUpdatesBucket, marketStudyBucket, otherBucket],
+  );
 
-  // Gate the first-paint spinner on the default (MoM) tab; the other buckets
-  // load in the background and fill in their tables as they arrive.
-  const loading = mom.initialLoading;
+  /** Refetch only visited (already-loaded) tabs — use after upload, delete, reprocess. */
+  const refetchVisited = useCallback(() => {
+    for (const tab of visitedTabs) {
+      bucketByTab[tab]?.refetch();
+    }
+    fetchCounts();
+  }, [visitedTabs, bucketByTab, fetchCounts]);
+
+  /** Refetch only the active tab — use for same-tab mutations like matched company changes. */
+  const refetchAll = useCallback(() => {
+    activeBucket.refetch();
+  }, [activeBucket]);
+
+  // Full-page spinner only for the very first paint (deep-linked tab). Tab
+  // switches use an in-panel spinner so the shell doesn't unmount/blink.
+  const [booting, setBooting] = useState(true);
+  useEffect(() => {
+    if (!activeBucket.initialLoading) setBooting(false);
+  }, [activeBucket.initialLoading]);
+  const loading = booting;
   const [uploading, setUploading] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
@@ -1314,7 +1363,7 @@ export default function AIFileDump({
       setFileTypeOverrides({});
       setFileMatchedCompanies({});
       setFileMatchedProjects({});
-      refetchAll();
+      refetchVisited();
     } else {
       if (duplicates.length > 0) {
         toast.warning(
@@ -1347,7 +1396,7 @@ export default function AIFileDump({
         });
 
         toast.success("File deleted successfully");
-        refetchAll();
+        refetchVisited();
       } else {
         toast.error(result.error || "Failed to delete file");
       }
@@ -1375,7 +1424,7 @@ export default function AIFileDump({
         });
 
         toast.success("File reprocessed successfully");
-        refetchAll();
+        refetchVisited();
       } else {
         toast.error(result.error || "Failed to reprocess file");
       }
@@ -1893,47 +1942,22 @@ export default function AIFileDump({
         </div>
 
         <Card className="overflow-hidden">
-        <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+        <Tabs value={activeTab} onValueChange={handleTabChange} className="w-full">
           <div className="border-b px-2 pt-1">
             <TabsList className="h-auto w-full justify-start gap-0 overflow-x-auto rounded-none border-0 bg-transparent px-0 pt-0">
               {(
               [
-                {
-                  value: "mom",
-                  label: "MoM",
-                  count: mom.total,
-                },
-                {
-                  value: "prospectus",
-                  label: "Prospectus",
-                  count: prospectusBucket.total,
-                },
-                {
-                  value: "shopping_list",
-                  label: "Shopping Lists",
-                  count: shoppingListBucket.total,
-                },
-                {
-                  value: "banker_communications",
-                  label: "Banker Communications",
-                  count: bankerCommsBucket.total,
-                },
-                {
-                  value: "fund_updates",
-                  label: "Fund Updates",
-                  count: fundUpdatesBucket.total,
-                },
-                {
-                  value: "market_study",
-                  label: "Market Study",
-                  count: marketStudyBucket.total,
-                },
-                {
-                  value: "other",
-                  label: "Other",
-                  count: otherBucket.total,
-                },
-              ] as const
+                { value: "mom", label: "MoM", bucket: mom },
+                { value: "prospectus", label: "Prospectus", bucket: prospectusBucket },
+                { value: "shopping_list", label: "Shopping Lists", bucket: shoppingListBucket },
+                { value: "banker_communications", label: "Banker Communications", bucket: bankerCommsBucket },
+                { value: "fund_updates", label: "Fund Updates", bucket: fundUpdatesBucket },
+                { value: "market_study", label: "Market Study", bucket: marketStudyBucket },
+                { value: "other", label: "Other", bucket: otherBucket },
+              ].map((t) => ({
+                ...t,
+                count: visitedTabs.has(t.value) ? t.bucket.total : (tabCounts[t.value] ?? 0),
+              }))
             ).map((tab) => (
               <TabsTrigger
                 key={tab.value}
@@ -1953,6 +1977,7 @@ export default function AIFileDump({
           </div>
 
           <TabsContent value="mom" className="mt-0">
+            <TabBucketPanel loading={mom.initialLoading}>
             <FileTable
               title="MoM"
               icon={<FileText className="h-5 w-5" />}
@@ -1969,6 +1994,7 @@ export default function AIFileDump({
               expandedCompanies={expandedCompanies}
               toggleCompanies={toggleCompanies}
               onOpenCompany={openCompany}
+              onMatchedCompaniesChanged={refetchAll}
               onUpdateDate={handleUpdateDate}
               onDownload={handleDownload}
               onDelete={handleDelete}
@@ -1984,9 +2010,11 @@ export default function AIFileDump({
               onPageChange={mom.setPage}
               hideTitle
             />
+            </TabBucketPanel>
           </TabsContent>
 
           <TabsContent value="prospectus" className="mt-0">
+            <TabBucketPanel loading={prospectusBucket.initialLoading}>
             <FileTable
               title="Prospectus"
               icon={<FileSpreadsheet className="h-5 w-5" />}
@@ -2003,6 +2031,7 @@ export default function AIFileDump({
               expandedCompanies={expandedCompanies}
               toggleCompanies={toggleCompanies}
               onOpenCompany={openCompany}
+              onMatchedCompaniesChanged={refetchAll}
               onUpdateDate={handleUpdateDate}
               onDownload={handleDownload}
               onDelete={handleDelete}
@@ -2018,9 +2047,11 @@ export default function AIFileDump({
               onPageChange={prospectusBucket.setPage}
               hideTitle
             />
+            </TabBucketPanel>
           </TabsContent>
 
           <TabsContent value="shopping_list" className="mt-0">
+            <TabBucketPanel loading={shoppingListBucket.initialLoading}>
             <FileTable
               title="Shopping Lists"
               icon={<FileSpreadsheet className="h-5 w-5" />}
@@ -2037,6 +2068,7 @@ export default function AIFileDump({
               expandedCompanies={expandedCompanies}
               toggleCompanies={toggleCompanies}
               onOpenCompany={openCompany}
+              onMatchedCompaniesChanged={refetchAll}
               onUpdateDate={handleUpdateDate}
               onDownload={handleDownload}
               onDelete={handleDelete}
@@ -2052,9 +2084,11 @@ export default function AIFileDump({
               onPageChange={shoppingListBucket.setPage}
               hideTitle
             />
+            </TabBucketPanel>
           </TabsContent>
 
           <TabsContent value="banker_communications" className="mt-0">
+            <TabBucketPanel loading={bankerCommsBucket.initialLoading}>
             <FileTable
               title="Banker Communications"
               icon={<FileSpreadsheet className="h-5 w-5" />}
@@ -2071,6 +2105,7 @@ export default function AIFileDump({
               expandedCompanies={expandedCompanies}
               toggleCompanies={toggleCompanies}
               onOpenCompany={openCompany}
+              onMatchedCompaniesChanged={refetchAll}
               onUpdateDate={handleUpdateDate}
               onDownload={handleDownload}
               onDelete={handleDelete}
@@ -2086,9 +2121,11 @@ export default function AIFileDump({
               onPageChange={bankerCommsBucket.setPage}
               hideTitle
             />
+            </TabBucketPanel>
           </TabsContent>
 
           <TabsContent value="fund_updates" className="mt-0">
+            <TabBucketPanel loading={fundUpdatesBucket.initialLoading}>
             <FileTable
               title="Fund Updates"
               icon={<FileText className="h-5 w-5" />}
@@ -2105,6 +2142,7 @@ export default function AIFileDump({
               expandedCompanies={expandedCompanies}
               toggleCompanies={toggleCompanies}
               onOpenCompany={openCompany}
+              onMatchedCompaniesChanged={refetchAll}
               onUpdateDate={handleUpdateDate}
               onDownload={handleDownload}
               onDelete={handleDelete}
@@ -2121,9 +2159,11 @@ export default function AIFileDump({
               itemsPerPage={PAGE_SIZE}
               hideTitle
             />
+            </TabBucketPanel>
           </TabsContent>
 
           <TabsContent value="market_study" className="mt-0">
+            <TabBucketPanel loading={marketStudyBucket.initialLoading}>
             <FileTable
               title="Market Study"
               icon={<FileSpreadsheet className="h-5 w-5" />}
@@ -2140,6 +2180,7 @@ export default function AIFileDump({
               expandedCompanies={expandedCompanies}
               toggleCompanies={toggleCompanies}
               onOpenCompany={openCompany}
+              onMatchedCompaniesChanged={refetchAll}
               onUpdateDate={handleUpdateDate}
               onDownload={handleDownload}
               onDelete={handleDelete}
@@ -2155,9 +2196,11 @@ export default function AIFileDump({
               onPageChange={marketStudyBucket.setPage}
               hideTitle
             />
+            </TabBucketPanel>
           </TabsContent>
 
           <TabsContent value="other" className="mt-0">
+            <TabBucketPanel loading={otherBucket.initialLoading}>
             <FileTable
               title="Other"
               icon={<File className="h-5 w-5" />}
@@ -2174,6 +2217,7 @@ export default function AIFileDump({
               expandedCompanies={expandedCompanies}
               toggleCompanies={toggleCompanies}
               onOpenCompany={openCompany}
+              onMatchedCompaniesChanged={refetchAll}
               onUpdateDate={handleUpdateDate}
               onDownload={handleDownload}
               onDelete={handleDelete}
@@ -2189,6 +2233,7 @@ export default function AIFileDump({
               onPageChange={otherBucket.setPage}
               hideTitle
             />
+            </TabBucketPanel>
           </TabsContent>
         </Tabs>
         </Card>
@@ -2211,7 +2256,7 @@ export default function AIFileDump({
           onClose={() => setReviewFile(null)}
           onApproved={() => {
             setReviewFile(null);
-            refetchAll();
+            refetchVisited();
           }}
         />
       )}
@@ -2223,7 +2268,7 @@ export default function AIFileDump({
           onClose={() => setReviewFile(null)}
           onApproved={() => {
             setReviewFile(null);
-            refetchAll();
+            refetchVisited();
           }}
         />
       )}
@@ -2234,7 +2279,7 @@ export default function AIFileDump({
           open={!!selectedCompany}
           onOpenChange={(open) => !open && setSelectedCompany(null)}
           onUpdate={() => {
-            refetchAll();
+            refetchVisited();
           }}
         />
       )}

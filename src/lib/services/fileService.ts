@@ -218,6 +218,9 @@ export interface ApproveFileInput {
   source?: 'inbound' | 'outbound' | null;
   geography?: string | null;
   segment?: string | null;
+  /** Editable overrides for the new company's identity fields. */
+  target?: string | null;
+  project_name?: string | null;
   /**
    * Fund Updates HITL: sheet codes (e.g. "GOTO") to apply. Only used when
    * `file_type` is `fund_updates`. Empty/omitted applies nothing (review-only).
@@ -325,6 +328,10 @@ export class FileService {
     const { rows, total } = await this.fileRepo.listPaginated(opts);
     const data = await this.attachSignedUrls(rows);
     return { data, total };
+  }
+
+  async countsByType(): Promise<Record<string, number>> {
+    return this.fileRepo.countsByType();
   }
 
   private attachSignedUrls(files: Tables<'files'>[]) {
@@ -849,10 +856,10 @@ export class FileService {
     let companyRecord: Tables<'companies'> | null = null;
 
     if (!companyId && input.create_company_from_ai && summary) {
-      const safeTarget = summary.company_name && !isGenericDocumentPhrase(summary.company_name)
-        ? summary.company_name : null;
-      const safeProjectName = summary.project_name && !isGenericDocumentPhrase(summary.project_name)
-        ? summary.project_name : null;
+      const safeTarget = input.target?.trim()
+        || (summary.company_name && !isGenericDocumentPhrase(summary.company_name) ? summary.company_name : null);
+      const safeProjectName = input.project_name?.trim()
+        || (summary.project_name && !isGenericDocumentPhrase(summary.project_name) ? summary.project_name : null);
       if (safeTarget || safeProjectName) {
         // Required L0 fields the reviewer supplies in the dialog take precedence
         // over whatever the AI extracted; fall back to the AI value (and finally
@@ -875,20 +882,28 @@ export class FileService {
         });
         if (missing.length > 0) throw new CompanyL0RequirementsError(missing);
 
+        const overrides = input.company_field_updates ?? {};
+        const pick = <K extends keyof typeof overrides>(
+          key: K,
+          fallback: string | null | undefined,
+        ): string | null =>
+          Object.prototype.hasOwnProperty.call(overrides, key)
+            ? (overrides[key] ?? null)
+            : (fallback ?? null);
         const insertData: Omit<TablesInsert<'companies'>, 'workspace_id'> = {
           pipeline_stage: 'L0',
           target: safeTarget,
           project_name: safeProjectName,
           thesis_content: null,
           segment: l0Segment,
-          segment_related_offerings: summary.segment_related_offerings ?? null,
-          company_focus: summary.company_focus ?? null,
-          website: summary.website ?? null,
-          watchlist_status: summary.watchlist_status ?? null,
-          comments: summary.comments ?? null,
-          ownership: summary.ownership ?? null,
+          segment_related_offerings: pick('segment_related_offerings', summary.segment_related_offerings),
+          company_focus: pick('company_focus', summary.company_focus),
+          website: pick('website', summary.website),
+          watchlist_status: pick('watchlist_status', summary.watchlist_status),
+          comments: pick('comments', summary.comments),
+          ownership: pick('ownership', summary.ownership),
           geography: l0Geography,
-          remarks: summary.remarks ?? null,
+          remarks: pick('remarks', summary.remarks),
           source: l0Source,
           entered_by: input.entered_by ?? null,
           deal_type: input.deal_type ?? null,
@@ -1581,6 +1596,89 @@ export class FileService {
 
   update(id: string, updates: Parameters<FileRepository['updatePartial']>[1]) {
     return this.fileRepo.update(id, updates);
+  }
+
+  /**
+   * Front-table rematch: append an existing pipeline company to the file's
+   * `matched_companies` array. Idempotent when the company is already linked.
+   * Does not change processing_status (works for awaiting_review and completed).
+   */
+  async addMatchedCompany(fileId: string, companyId: string): Promise<Tables<'files'>> {
+    const file = await this.fileRepo.findById(fileId);
+    const company = await this.companyService.findById(companyId);
+    if (!company) throw new Error(`Company ${companyId} not found`);
+
+    const current = this.normalizeMatchedCompanies(file.matched_companies);
+    if (current.some((m) => m.id === companyId)) {
+      return file;
+    }
+
+    const displayName = company.target?.trim() || company.project_name?.trim() || 'Unnamed';
+    current.unshift({
+      id: company.id,
+      target: company.target ?? undefined,
+      name: displayName,
+      type: 'company',
+      similarity: 1,
+    });
+
+    return this.fileRepo.update(fileId, {
+      matched_companies: current as Tables<'files'>['matched_companies'],
+    });
+  }
+
+  /**
+   * Front-table rematch: remove a linked company (by id) or an unmatched AI
+   * suggestion chip (null/missing id + display name).
+   */
+  async removeMatchedCompanyEntry(
+    fileId: string,
+    opts: { companyId?: string; unmatchedName?: string },
+  ): Promise<Tables<'files'>> {
+    if (!opts.companyId && !opts.unmatchedName) {
+      throw new Error('companyId or unmatchedName is required');
+    }
+
+    const file = await this.fileRepo.findById(fileId);
+    const current = this.normalizeMatchedCompanies(file.matched_companies);
+    const unmatchedNeedle = opts.unmatchedName?.trim().toLowerCase();
+    const next = current.filter((m) => {
+      if (opts.companyId) return m.id !== opts.companyId;
+      const hasId = typeof m.id === 'string' && m.id.length > 0;
+      if (hasId) return true;
+      // Match MatchedCompaniesCell.chipLabel: name?.trim() || target?.trim() || Unnamed
+      const name = (
+        String(m.name ?? '').trim() ||
+        String(m.target ?? '').trim() ||
+        'Unnamed'
+      ).toLowerCase();
+      return name !== unmatchedNeedle;
+    });
+
+    return this.fileRepo.update(fileId, {
+      matched_companies: next as Tables<'files'>['matched_companies'],
+    });
+  }
+
+  private normalizeMatchedCompanies(
+    raw: Tables<'files'>['matched_companies'],
+  ): Array<{
+    id?: string | null;
+    name?: string;
+    target?: string;
+    type?: string;
+    similarity?: number;
+    [key: string]: unknown;
+  }> {
+    if (!Array.isArray(raw)) return [];
+    return raw.filter((m) => !!m && typeof m === 'object') as Array<{
+      id?: string | null;
+      name?: string;
+      target?: string;
+      type?: string;
+      similarity?: number;
+      [key: string]: unknown;
+    }>;
   }
 
   async getSignedDownloadUrl(id: string) {

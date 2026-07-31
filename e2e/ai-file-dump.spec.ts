@@ -47,6 +47,13 @@ const OTHER_FILES: FileRecord[] = [
   baseFile({ id: 'oth-1', file_name: 'Misc Notes.pdf', processing_status: 'pending' }),
 ];
 
+const fulfillList = (route: { fulfill: (r: object) => Promise<void> }, data: FileRecord[]) =>
+  route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({ success: true, data, total: data.length }),
+  });
+
 /**
  * /api/ai-file-dump is dispatched by the `file_type` query param:
  *   ?file_type                      → MoM (empty value ⇒ default list)
@@ -68,6 +75,26 @@ const mockFileDump = (
     const url = new URL(req.url());
     const method = req.method();
 
+    // Counts endpoint for tab badges
+    if (method === 'GET' && url.pathname === '/api/ai-file-dump/counts') {
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          success: true,
+          counts: {
+            mom: mom.length,
+            prospectus: prospectus.length,
+            shopping_list: 0,
+            banker_communications: banker.length,
+            fund_updates: 0,
+            market_study: 0,
+            other: other.length,
+          },
+        }),
+      });
+    }
+
     // Delete endpoint: /api/ai-file-dump/<id>
     if (method === 'DELETE' && /\/api\/ai-file-dump\/[^/]+$/.test(url.pathname)) {
       return route.fulfill({
@@ -79,33 +106,24 @@ const mockFileDump = (
 
     if (method === 'GET' && url.pathname === '/api/ai-file-dump') {
       const fileType = url.searchParams.get('file_type');
-      if (fileType === 'prospectus') {
-        return route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify({ success: true, data: prospectus }),
-        });
-      }
-      if (fileType === 'banker_communications') {
-        return route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify({ success: true, data: banker }),
-        });
-      }
-      if (fileType === 'other') {
-        return route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify({ success: true, data: other }),
-        });
+      const search = (url.searchParams.get('search') ?? '').toLowerCase();
+      const filter = (rows: FileRecord[]) =>
+        search
+          ? rows.filter(
+              (r) =>
+                r.file_name.toLowerCase().includes(search) ||
+                r.tags.some((t) => t.toLowerCase().includes(search)),
+            )
+          : rows;
+
+      if (fileType === 'prospectus') return fulfillList(route, filter(prospectus));
+      if (fileType === 'banker_communications') return fulfillList(route, filter(banker));
+      if (fileType === 'other') return fulfillList(route, filter(other));
+      if (fileType === 'shopping_list' || fileType === 'fund_updates' || fileType === 'market_study') {
+        return fulfillList(route, []);
       }
       // Default (MoM) – the empty-value `?file_type` sentinel.
-      return route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ success: true, data: mom }),
-      });
+      return fulfillList(route, filter(mom));
     }
 
     return route.fallback();
@@ -126,10 +144,16 @@ test.describe('AI File Dump page', () => {
     await mockFileDump(page);
 
     await Promise.all([
-      page.waitForResponse((res) => res.url().includes('/api/ai-file-dump') && res.status() === 200),
+      page.waitForResponse(
+        (res) =>
+          res.url().includes('/api/ai-file-dump') &&
+          !res.url().includes('/counts') &&
+          res.status() === 200,
+      ),
       page.goto('/ai-file-dump'),
     ]);
 
+    await expect(page).toHaveURL(/\/ai-file-dump\/mom/);
     await expect(page.getByRole('heading', { name: 'AI File Dump', level: 1 })).toBeVisible();
     await expect(page.getByText('Drop your files and let AI automatically organize and categorize them')).toBeVisible();
 
@@ -138,32 +162,68 @@ test.describe('AI File Dump page', () => {
     await expect(page.getByRole('heading', { name: 'Drag and drop files' })).toBeVisible();
     await expect(page.getByText(/Drag and drop files here/)).toBeVisible();
 
-    // Tables titled with counts
-    await expect(page.getByText(`MoM (${MOM_FILES.length})`)).toBeVisible();
-    await expect(page.getByText(`Prospectus (${PROSPECTUS_FILES.length})`)).toBeVisible();
-    await expect(page.getByText(`Banker Communications (${BANKER_FILES.length})`)).toBeVisible();
-    await expect(page.getByText(`Other (${OTHER_FILES.length})`)).toBeVisible();
+    // Category tabs (lazy — only the active MoM table's rows are mounted)
+    await expect(page.getByRole('tab', { name: /MoM/ })).toBeVisible();
+    await expect(page.getByRole('tab', { name: /Prospectus/ })).toBeVisible();
+    await expect(page.getByRole('tab', { name: /Banker Communications/ })).toBeVisible();
+    await expect(page.getByRole('tab', { name: /Other/ })).toBeVisible();
 
-    // Rows from each table
     await expect(page.getByText('Board Meeting March.pdf')).toBeVisible();
-    await expect(page.getByText('Acme Prospectus.pdf')).toBeVisible();
-    await expect(page.getByText('Goldman Engagement Letter.pdf')).toBeVisible();
-    await expect(page.getByText('Misc Notes.pdf')).toBeVisible();
   });
 
-  test('All three file tables are empty', async ({ page }) => {
+  test('Deep link opens Prospectus tab', async ({ page }) => {
+    await mockAuthSession(page);
+    await mockFileDump(page);
+
+    await Promise.all([
+      page.waitForResponse(
+        (res) =>
+          res.url().includes('/api/ai-file-dump') &&
+          res.url().includes('file_type=prospectus') &&
+          res.status() === 200,
+      ),
+      page.goto('/ai-file-dump/prospectus'),
+    ]);
+
+    await expect(page).toHaveURL(/\/ai-file-dump\/prospectus/);
+    await expect(page.getByRole('tab', { name: /Prospectus/ })).toHaveAttribute('data-state', 'active');
+    await expect(page.getByText('Acme Prospectus.pdf')).toBeVisible();
+  });
+
+  test('Switching tabs updates the path', async ({ page }) => {
+    await mockAuthSession(page);
+    await mockFileDump(page);
+
+    await Promise.all([
+      page.waitForResponse(
+        (res) =>
+          res.url().includes('/api/ai-file-dump') &&
+          !res.url().includes('/counts') &&
+          res.status() === 200,
+      ),
+      page.goto('/ai-file-dump/mom'),
+    ]);
+
+    await page.getByRole('tab', { name: /Prospectus/ }).click();
+    await expect(page).toHaveURL(/\/ai-file-dump\/prospectus/);
+    await expect(page.getByText('Acme Prospectus.pdf')).toBeVisible();
+  });
+
+  test('Empty MoM tab shows empty state', async ({ page }) => {
     await mockAuthSession(page);
     await mockFileDump(page, { mom: [], prospectus: [], banker: [], other: [] });
 
     await Promise.all([
-      page.waitForResponse((res) => res.url().includes('/api/ai-file-dump') && res.status() === 200),
+      page.waitForResponse(
+        (res) =>
+          res.url().includes('/api/ai-file-dump') &&
+          !res.url().includes('/counts') &&
+          res.status() === 200,
+      ),
       page.goto('/ai-file-dump'),
     ]);
 
     await expect(page.getByText('No MoM uploaded yet.')).toBeVisible();
-    await expect(page.getByText('No prospectus uploaded yet.')).toBeVisible();
-    await expect(page.getByText('No banker communications uploaded yet.')).toBeVisible();
-    await expect(page.getByText('No other files uploaded yet.')).toBeVisible();
   });
 
   test('File-dump fetches are still pending', async ({ page }) => {
@@ -174,11 +234,19 @@ test.describe('AI File Dump page', () => {
     });
 
     await page.route('**/api/ai-file-dump**', async (route) => {
+      const url = new URL(route.request().url());
+      if (url.pathname === '/api/ai-file-dump/counts') {
+        return route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ success: true, counts: {} }),
+        });
+      }
       await gate;
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({ success: true, data: [] }),
+        body: JSON.stringify({ success: true, data: [], total: 0 }),
       });
     });
 
@@ -196,7 +264,12 @@ test.describe('AI File Dump page', () => {
     await mockFileDump(page);
 
     await Promise.all([
-      page.waitForResponse((res) => res.url().includes('/api/ai-file-dump') && res.status() === 200),
+      page.waitForResponse(
+        (res) =>
+          res.url().includes('/api/ai-file-dump') &&
+          !res.url().includes('/counts') &&
+          res.status() === 200,
+      ),
       page.goto('/ai-file-dump'),
     ]);
 
@@ -216,7 +289,12 @@ test.describe('AI File Dump page', () => {
     await mockFileDump(page);
 
     await Promise.all([
-      page.waitForResponse((res) => res.url().includes('/api/ai-file-dump') && res.status() === 200),
+      page.waitForResponse(
+        (res) =>
+          res.url().includes('/api/ai-file-dump') &&
+          !res.url().includes('/counts') &&
+          res.status() === 200,
+      ),
       page.goto('/ai-file-dump'),
     ]);
 
@@ -235,7 +313,12 @@ test.describe('AI File Dump page', () => {
     await mockFileDump(page);
 
     await Promise.all([
-      page.waitForResponse((res) => res.url().includes('/api/ai-file-dump') && res.status() === 200),
+      page.waitForResponse(
+        (res) =>
+          res.url().includes('/api/ai-file-dump') &&
+          !res.url().includes('/counts') &&
+          res.status() === 200,
+      ),
       page.goto('/ai-file-dump'),
     ]);
 
@@ -255,15 +338,25 @@ test.describe('AI File Dump page', () => {
     await mockFileDump(page);
 
     await Promise.all([
-      page.waitForResponse((res) => res.url().includes('/api/ai-file-dump') && res.status() === 200),
+      page.waitForResponse(
+        (res) =>
+          res.url().includes('/api/ai-file-dump') &&
+          !res.url().includes('/counts') &&
+          res.status() === 200,
+      ),
       page.goto('/ai-file-dump'),
     ]);
 
-    // Four tables render with identical search placeholders (MoM, Prospectus,
-    // Banker Communications, Other). MoM renders first, so target the first one.
-    await page.getByPlaceholder('Search notes, tags, companies...').first().fill('Board');
+    await Promise.all([
+      page.waitForResponse(
+        (res) =>
+          res.url().includes('/api/ai-file-dump') &&
+          res.url().includes('search=Board') &&
+          res.status() === 200,
+      ),
+      page.getByPlaceholder('Search across all file types...').fill('Board'),
+    ]);
 
-    await expect(page.getByText(`MoM (1)`)).toBeVisible();
     await expect(page.getByText('Board Meeting March.pdf')).toBeVisible();
     await expect(page.getByText('Investor Call Q1.pdf')).not.toBeVisible();
   });
@@ -273,7 +366,12 @@ test.describe('AI File Dump page', () => {
     await mockFileDump(page);
 
     await Promise.all([
-      page.waitForResponse((res) => res.url().includes('/api/ai-file-dump') && res.status() === 200),
+      page.waitForResponse(
+        (res) =>
+          res.url().includes('/api/ai-file-dump') &&
+          !res.url().includes('/counts') &&
+          res.status() === 200,
+      ),
       page.goto('/ai-file-dump'),
     ]);
 

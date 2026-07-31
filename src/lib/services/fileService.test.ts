@@ -2233,3 +2233,171 @@ describe('FileService.processUpload — company_assigned emails', () => {
     );
   });
 });
+
+describe('FileService.addMatchedCompany / removeMatchedCompanyEntry', () => {
+  let fileRepo: FileRepository;
+  let companyService: CompanyService;
+  let service: FileService;
+
+  beforeEach(() => {
+    fileRepo = makeFileRepoStub();
+    companyService = makeCompanyServiceStub();
+    service = makeService({ fileRepo, companyService });
+  });
+
+  it('prepends a pipeline company to matched_companies', async () => {
+    vi.mocked(fileRepo.findById).mockResolvedValue(
+      makeFile({
+        id: 'file-1',
+        matched_companies: [],
+        processing_status: 'completed',
+      }),
+    );
+    vi.mocked(companyService.findById).mockResolvedValue(
+      makeCompany({ id: 'company-2', target: 'Blue Harbor', project_name: 'Project Blue' }),
+    );
+    const updated = makeFile({
+      id: 'file-1',
+      matched_companies: [
+        {
+          id: 'company-2',
+          target: 'Blue Harbor',
+          name: 'Blue Harbor',
+          type: 'company',
+          similarity: 1,
+        },
+      ],
+    });
+    vi.mocked(fileRepo.update).mockResolvedValue(updated);
+
+    const result = await service.addMatchedCompany('file-1', 'company-2');
+
+    expect(fileRepo.update).toHaveBeenCalledWith(
+      'file-1',
+      expect.objectContaining({
+        matched_companies: [
+          expect.objectContaining({
+            id: 'company-2',
+            name: 'Blue Harbor',
+            type: 'company',
+          }),
+        ],
+      }),
+    );
+    expect(result).toBe(updated);
+  });
+
+  it('is idempotent when the company is already matched', async () => {
+    const existing = makeFile({
+      id: 'file-1',
+      matched_companies: [
+        { id: 'company-1', name: 'Acme Corp', type: 'company', similarity: 1 },
+      ],
+    });
+    vi.mocked(fileRepo.findById).mockResolvedValue(existing);
+    vi.mocked(companyService.findById).mockResolvedValue(makeCompany({ id: 'company-1' }));
+
+    const result = await service.addMatchedCompany('file-1', 'company-1');
+
+    expect(fileRepo.update).not.toHaveBeenCalled();
+    expect(result).toBe(existing);
+  });
+
+  it('removes a linked company by id', async () => {
+    vi.mocked(fileRepo.findById).mockResolvedValue(
+      makeFile({
+        matched_companies: [
+          { id: 'company-1', name: 'Acme', type: 'company' },
+          { id: 'company-2', name: 'Beta', type: 'company' },
+        ],
+      }),
+    );
+    const updated = makeFile({
+      matched_companies: [{ id: 'company-2', name: 'Beta', type: 'company' }],
+    });
+    vi.mocked(fileRepo.update).mockResolvedValue(updated);
+
+    await service.removeMatchedCompanyEntry('file-1', { companyId: 'company-1' });
+
+    expect(fileRepo.update).toHaveBeenCalledWith(
+      'file-1',
+      expect.objectContaining({
+        matched_companies: [
+          expect.objectContaining({ id: 'company-2' }),
+        ],
+      }),
+    );
+  });
+
+  it('removes an unmatched AI suggestion by name', async () => {
+    vi.mocked(fileRepo.findById).mockResolvedValue(
+      makeFile({
+        matched_companies: [
+          { id: null, name: 'Phantom Null Co', type: 'company' },
+          { id: 'company-1', name: 'Acme', type: 'company' },
+        ],
+      }),
+    );
+    vi.mocked(fileRepo.update).mockResolvedValue(
+      makeFile({
+        matched_companies: [{ id: 'company-1', name: 'Acme', type: 'company' }],
+      }),
+    );
+
+    await service.removeMatchedCompanyEntry('file-1', {
+      unmatchedName: 'Phantom Null Co',
+    });
+
+    expect(fileRepo.update).toHaveBeenCalledWith(
+      'file-1',
+      expect.objectContaining({
+        matched_companies: [
+          expect.objectContaining({ id: 'company-1' }),
+        ],
+      }),
+    );
+  });
+
+  it('removes unmatched chips when name is whitespace but target is set', async () => {
+    vi.mocked(fileRepo.findById).mockResolvedValue(
+      makeFile({
+        matched_companies: [
+          { id: null, name: '   ', target: 'Acme From Target', type: 'company' },
+        ],
+      }),
+    );
+    vi.mocked(fileRepo.update).mockResolvedValue(makeFile({ matched_companies: [] }));
+
+    await service.removeMatchedCompanyEntry('file-1', {
+      unmatchedName: 'Acme From Target',
+    });
+
+    expect(fileRepo.update).toHaveBeenCalledWith(
+      'file-1',
+      expect.objectContaining({ matched_companies: [] }),
+    );
+  });
+
+  it('removes unmatched chips when name/target are whitespace-only', async () => {
+    vi.mocked(fileRepo.findById).mockResolvedValue(
+      makeFile({
+        matched_companies: [{ id: null, name: '  ', target: '   ', type: 'company' }],
+      }),
+    );
+    vi.mocked(fileRepo.update).mockResolvedValue(makeFile({ matched_companies: [] }));
+
+    await service.removeMatchedCompanyEntry('file-1', { unmatchedName: 'Unnamed' });
+
+    expect(fileRepo.update).toHaveBeenCalledWith(
+      'file-1',
+      expect.objectContaining({ matched_companies: [] }),
+    );
+  });
+
+  it('throws when company_id is missing for remove', async () => {
+    await expect(
+      service.removeMatchedCompanyEntry('file-1', {}),
+    ).rejects.toThrow(/companyId or unmatchedName/);
+  });
+
+});

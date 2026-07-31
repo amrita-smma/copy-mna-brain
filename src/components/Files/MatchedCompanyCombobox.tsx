@@ -17,7 +17,7 @@ import {
 import { cn } from "@/lib/utils";
 import { getCompaniesLite } from "@/lib/api/pipeline";
 import { companyDisplayName } from "@/lib/companyDisplay";
-import { Check, ChevronsUpDown } from "lucide-react";
+import { Building, Check, ChevronsUpDown } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 
 export const AUTO = "__auto__";
@@ -29,10 +29,18 @@ export interface CompanyOption {
   projectName: string | null;
 }
 
+export interface PinnedMatch {
+  id: string;
+  name: string;
+  projectName?: string | null;
+}
+
 interface Props {
   value: string;
   onChange: (next: string) => void;
   fallbackOptions?: CompanyOption[];
+  /** Companies from the file's matched_companies array (non-null id only). Shown at the top. */
+  pinnedMatches?: PinnedMatch[];
   disabled?: boolean;
   placeholder?: string;
 }
@@ -41,6 +49,7 @@ export function MatchedCompanyCombobox({
   value,
   onChange,
   fallbackOptions = [],
+  pinnedMatches = [],
   disabled,
   placeholder = "Auto (AI Decides)",
 }: Props) {
@@ -94,14 +103,16 @@ export function MatchedCompanyCombobox({
     if (el.scrollHeight - el.scrollTop - el.clientHeight < 80) void loadMore();
   }, [loadMore]);
 
+  const pinnedIds = new Set(pinnedMatches.map((p) => p.id));
   const picked = value === AUTO ? null : results.find((r) => r.id === value);
+  const pinnedPicked = value === AUTO ? null : pinnedMatches.find((p) => p.id === value);
   const fallbackPicked = value === AUTO ? null : fallbackOptions.find((c) => c.id === value);
   const label =
     value === AUTO
       ? placeholder
       : (() => {
-          const target = picked?.target?.trim() || fallbackPicked?.name?.trim() || "";
-          const project = picked?.project_name?.trim() || fallbackPicked?.projectName?.trim() || "";
+          const target = picked?.target?.trim() || pinnedPicked?.name?.trim() || fallbackPicked?.name?.trim() || "";
+          const project = picked?.project_name?.trim() || pinnedPicked?.projectName?.trim() || fallbackPicked?.projectName?.trim() || "";
           if (target && project) return `${target} (${project})`;
           return target || project || placeholder;
         })();
@@ -139,7 +150,25 @@ export function MatchedCompanyCombobox({
                 <Check className={cn("mr-2 h-4 w-4", value === AUTO ? "opacity-100" : "opacity-0")} />
                 {placeholder}
               </CommandItem>
-              {results.map((c) => {
+            </CommandGroup>
+            {pinnedMatches.length > 0 && (
+              <CommandGroup heading="Matched from this file">
+                {pinnedMatches.map((p) => (
+                  <CommandItem key={p.id} value={p.id} onSelect={() => { onChange(p.id); setOpen(false); }}>
+                    <Check className={cn("mr-2 h-4 w-4 shrink-0", value === p.id ? "opacity-100" : "opacity-0")} />
+                    <Building className="mr-1.5 h-3.5 w-3.5 shrink-0 text-sky-600" />
+                    <div className="flex flex-col min-w-0 flex-1">
+                      <span className="truncate font-medium">{p.name || "Unnamed"}</span>
+                      {p.projectName && (
+                        <span className="truncate text-xs text-muted-foreground">{p.projectName}</span>
+                      )}
+                    </div>
+                  </CommandItem>
+                ))}
+              </CommandGroup>
+            )}
+            <CommandGroup heading={pinnedMatches.length > 0 ? "Select existing company..." : undefined}>
+              {results.filter((c) => !pinnedIds.has(c.id)).map((c) => {
                 // Pick the primary label: target if it exists, otherwise
                 // project_name. The secondary line shows whichever is left
                 // (or nothing if only one exists).

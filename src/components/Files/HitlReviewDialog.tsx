@@ -28,7 +28,7 @@ import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { AlertCircle, Loader2, Sparkles } from "lucide-react";
 import { toast } from "sonner";
-import { MatchedCompanyCombobox, AUTO, type CompanyOption } from "./MatchedCompanyCombobox";
+import { MatchedCompanyCombobox, AUTO, type CompanyOption, type PinnedMatch } from "./MatchedCompanyCombobox";
 import type { ApproveFileInput } from "@/lib/services/fileService";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -126,6 +126,7 @@ export function HitlReviewDialog({ fileId, open, onClose, onApproved }: Props) {
 
   const [fileType, setFileType] = useState<string>("other");
   const [matchedCompanyId, setMatchedCompanyId] = useState<string>(AUTO);
+  const [pinnedMatches, setPinnedMatches] = useState<PinnedMatch[]>([]);
   const [createFromAi, setCreateFromAi] = useState(false);
   const [checkedFields, setCheckedFields] = useState<Record<string, boolean>>({});
   const [checkedYears, setCheckedYears] = useState<Record<number, boolean>>({});
@@ -136,6 +137,9 @@ export function HitlReviewDialog({ fileId, open, onClose, onApproved }: Props) {
   const [l0Source, setL0Source] = useState<"inbound" | "outbound">("inbound");
   const [l0Geography, setL0Geography] = useState("");
   const [l0Segment, setL0Segment] = useState("");
+  const [l0Target, setL0Target] = useState("");
+  const [l0ProjectName, setL0ProjectName] = useState("");
+  const [l0Website, setL0Website] = useState("");
   const [missingFields, setMissingFields] = useState<string[]>([]);
   // Users for the editable "Entered By" picker (entered_by is a uuid FK).
   const [users, setUsers] = useState<UserSummary[]>([]);
@@ -150,6 +154,9 @@ export function HitlReviewDialog({ fileId, open, onClose, onApproved }: Props) {
     setL0Source("inbound");
     setL0Geography("");
     setL0Segment("");
+    setL0Target("");
+    setL0ProjectName("");
+    setL0Website("");
     setMissingFields([]);
     if (users.length === 0) {
       getUsers()
@@ -165,8 +172,13 @@ export function HitlReviewDialog({ fileId, open, onClose, onApproved }: Props) {
         setReviewData(data);
         setFileType(data.ai.file_type ?? "other");
 
-        const matched = (data.file as unknown as { matched_companies?: Array<{ id?: string | null }> })
+        const matched = (data.file as unknown as { matched_companies?: Array<{ id?: string | null; name?: string | null; target?: string | null }> })
           .matched_companies ?? [];
+        setPinnedMatches(
+          matched
+            .filter((m): m is typeof m & { id: string } => typeof m?.id === "string" && !!m.id)
+            .map((m) => ({ id: m.id, name: m.target?.trim() || m.name?.trim() || "" })),
+        );
         const firstWithId = matched.find((m) => typeof m?.id === "string" && m.id);
         setMatchedCompanyId(firstWithId?.id ?? AUTO);
         const willCreateFromAi = !firstWithId && !!data.ai.suggested_company;
@@ -181,6 +193,9 @@ export function HitlReviewDialog({ fileId, open, onClose, onApproved }: Props) {
           if (data.ai.suggested_company?.segment) {
             setL0Segment(data.ai.suggested_company.segment);
           }
+          setL0Target(data.ai.suggested_company?.target?.trim() ?? "");
+          setL0ProjectName(data.ai.suggested_company?.project_name?.trim() ?? "");
+          setL0Website(data.ai.suggested_company?.website?.trim() ?? "");
         }
 
         applyDefaultChecks(data);
@@ -240,7 +255,9 @@ export function HitlReviewDialog({ fileId, open, onClose, onApproved }: Props) {
         const current = data.current.company
           ? (data.current.company as Record<string, unknown>)[key]
           : null;
+        const isIdentity = IDENTITY_FIELDS.some((f) => f.key === key);
         defaults[key] =
+          !isIdentity &&
           proposed != null &&
           proposed !== "" &&
           (current == null || current === "");
@@ -277,6 +294,9 @@ export function HitlReviewDialog({ fileId, open, onClose, onApproved }: Props) {
           }
         }
       }
+      if (createFromAi) {
+        company_field_updates.website = l0Website.trim() || null;
+      }
 
       const financial_years_to_apply = Object.entries(checkedYears)
         .filter(([, checked]) => checked)
@@ -297,6 +317,8 @@ export function HitlReviewDialog({ fileId, open, onClose, onApproved }: Props) {
           source: l0Source,
           geography: l0Geography.trim() || null,
           segment: l0Segment.trim() || null,
+          target: l0Target.trim() || null,
+          project_name: l0ProjectName.trim() || null,
         }),
       };
 
@@ -383,6 +405,7 @@ export function HitlReviewDialog({ fileId, open, onClose, onApproved }: Props) {
                 <MatchedCompanyCombobox
                   value={matchedCompanyId}
                   onChange={handleCompanyChange}
+                  pinnedMatches={pinnedMatches}
                   fallbackOptions={
                     reviewData.current.company
                       ? ([
@@ -414,6 +437,9 @@ export function HitlReviewDialog({ fileId, open, onClose, onApproved }: Props) {
                         if (reviewData?.ai.suggested_company?.segment && !l0Segment) {
                           setL0Segment(reviewData.ai.suggested_company.segment);
                         }
+                        if (!l0Target) setL0Target(reviewData?.ai.suggested_company?.target?.trim() ?? "");
+                        if (!l0ProjectName) setL0ProjectName(reviewData?.ai.suggested_company?.project_name?.trim() ?? "");
+                        if (!l0Website) setL0Website(reviewData?.ai.suggested_company?.website?.trim() ?? "");
                       }
                     }}
                   />
@@ -587,24 +613,9 @@ export function HitlReviewDialog({ fileId, open, onClose, onApproved }: Props) {
                 })()}
               </div>
 
-              {/* Preview — when "Create new from AI" is checked, show what
-                  the new company row will contain. Pure read-only summary. */}
-              {createFromAi && reviewData.ai.suggested_company && (() => {
-                // Segment + geography are captured (and editable) in the
-                // "Required to add to L0" box above, so leave them out here to
-                // avoid showing a stale AI value the user may have just changed.
-                const allFields = [
-                  ...IDENTITY_FIELDS,
-                  ...ENRICHABLE_FIELDS.filter(
-                    ({ key }) => key !== "segment" && key !== "geography",
-                  ),
-                ];
-                const filledFields = allFields.filter(({ key }) => {
-                  const v = reviewData.ai.suggested_company![key as keyof SuggestedCompany];
-                  return v != null && v !== "";
-                });
-                if (filledFields.length === 0) return null;
-                return (
+              {/* Preview — editable company name, project name, and website.
+                  Other AI-extracted fields are applied as-is on create. */}
+              {createFromAi && reviewData.ai.suggested_company && (
                   <div className="rounded-md border border-emerald-200 bg-emerald-50/40 dark:border-emerald-900/50 dark:bg-emerald-900/10 p-3 space-y-2">
                     <div className="flex items-center gap-2">
                       <Sparkles className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
@@ -616,20 +627,37 @@ export function HitlReviewDialog({ fileId, open, onClose, onApproved }: Props) {
                     <p className="text-xs text-muted-foreground">
                       A new company row will be inserted with the values below. Pipeline stage starts at <code className="text-[11px] bg-muted px-1 rounded">L0</code>.
                     </p>
-                    <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1.5 text-xs">
-                      {filledFields.map(({ key, label }) => {
-                        const value = reviewData.ai.suggested_company![key as keyof SuggestedCompany];
-                        return (
-                          <div key={key} className="flex flex-col min-w-0">
-                            <dt className="text-[11px] uppercase tracking-wide text-muted-foreground">{label}</dt>
-                            <dd className="text-sm font-medium break-words">{String(value)}</dd>
-                          </div>
-                        );
-                      })}
-                    </dl>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2">
+                      <div className="space-y-1">
+                        <Label className="text-xs">Company name</Label>
+                        <Input
+                          className="h-7 text-xs"
+                          placeholder="e.g. Acme Corp"
+                          value={l0Target}
+                          onChange={(e) => setL0Target(e.target.value)}
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-xs">Project name</Label>
+                        <Input
+                          className="h-7 text-xs"
+                          placeholder="e.g. Project Alpha"
+                          value={l0ProjectName}
+                          onChange={(e) => setL0ProjectName(e.target.value)}
+                        />
+                      </div>
+                      <div className="space-y-1 sm:col-span-2">
+                        <Label className="text-xs">Website</Label>
+                        <Input
+                          className="h-7 text-xs"
+                          placeholder="e.g. https://example.com"
+                          value={l0Website}
+                          onChange={(e) => setL0Website(e.target.value)}
+                        />
+                      </div>
+                    </div>
                   </div>
-                );
-              })()}
+              )}
 
               {/* Company metadata diff — only for existing company match */}
               {isExistingCompany && reviewData.ai.suggested_company && (() => {

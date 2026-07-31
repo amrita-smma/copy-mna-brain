@@ -2171,6 +2171,8 @@ type SeedAfdFile = {
   file_date: string;
   file_type: 'mom' | 'prospectus' | 'banker_communications' | 'other';
   matched_entry_ids: number[];
+  /** Name-only matches (id: null) — AI detected a name with no DB company. */
+  null_id_matches?: Array<{ name: string }>;
 };
 
 const seedAfdFiles: SeedAfdFile[] = [
@@ -2290,6 +2292,34 @@ const seedAfdFiles: SeedAfdFile[] = [
     file_date: '2026-06-20',
     file_type: 'prospectus',
     matched_entry_ids: [],
+  },
+  {
+    file_name: 'Seed AFD - Null Id Match Teaser.pdf',
+    file_link: 'seed/afd/null-id-match-teaser.pdf',
+    raw_notes:
+      'Teaser for Phantom Null Co — detected by AI but not matched to any existing company (id is null).',
+    structured_notes: {
+      file_type: 'prospectus',
+      summary:
+        'Seed awaiting-review prospectus with a null-id matched_companies entry for HITL create-from-AI testing.',
+      prospectus_summary: {
+        company_name: 'Phantom Null Co',
+        project_name: 'Project Phantom Null',
+        segment: 'Industrial Services',
+        geography: 'Indonesia',
+        company_focus: 'Seed fixture for null-id matched company review',
+        website: 'https://phantom-null.example',
+      },
+      tags: ['seed', 'prospectus', 'null-id-match'],
+      matched_companies: [],
+      file_date: '2026-06-22',
+    },
+    tags: ['seed', 'prospectus', 'null-id-match'],
+    processing_status: 'awaiting_review',
+    file_date: '2026-06-22',
+    file_type: 'prospectus',
+    matched_entry_ids: [],
+    null_id_matches: [{ name: 'Phantom Null Co' }],
   },
 ];
 
@@ -3111,19 +3141,27 @@ async function main() {
     await db.delete(files).where(inArray(files.file_name, seedAfdFileNames));
     await db.insert(files).values(
       seedAfdFiles.map((file) => {
-        const matchedCompanies = file.matched_entry_ids.flatMap((entryId) => {
-          const id = companyIdByEntryId.get(entryId);
-          const company = seedCompanies.find((c) => c.entry_id === entryId);
-          if (!id || !company) return [];
-          const name = company.target?.trim() || company.project_name?.trim() || `entry_id ${entryId}`;
-          return [{
-            id,
-            target: company.target || undefined,
-            name,
+        const matchedCompanies = [
+          ...file.matched_entry_ids.flatMap((entryId) => {
+            const id = companyIdByEntryId.get(entryId);
+            const company = seedCompanies.find((c) => c.entry_id === entryId);
+            if (!id || !company) return [];
+            const name = company.target?.trim() || company.project_name?.trim() || `entry_id ${entryId}`;
+            return [{
+              id,
+              target: company.target || undefined,
+              name,
+              type: 'company',
+              similarity: 1,
+            }];
+          }),
+          ...(file.null_id_matches ?? []).map((m) => ({
+            id: null,
+            name: m.name,
             type: 'company',
             similarity: 1,
-          }];
-        });
+          })),
+        ];
         const structuredNotes = {
           ...file.structured_notes,
           matched_companies: matchedCompanies,

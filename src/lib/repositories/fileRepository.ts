@@ -151,6 +151,43 @@ export class FileRepository {
   }
 
   /**
+   * Returns file counts for every tab bucket in a single query.
+   * "other" captures all types not in DEDICATED_FILE_TYPES (including NULL).
+   */
+  async countsByType(): Promise<Record<string, number>> {
+    const rows = await this.db
+      .select({
+        file_type: files.file_type,
+        count: sql<number>`count(*)::int`,
+      })
+      .from(files)
+      .where(eq(files.workspace_id, this.workspaceId))
+      .groupBy(files.file_type);
+
+    const dedicated = new Set<string>(DEDICATED_FILE_TYPES);
+    const counts: Record<string, number> = {
+      mom: 0,
+      prospectus: 0,
+      shopping_list: 0,
+      banker_communications: 0,
+      fund_updates: 0,
+      market_study: 0,
+      other: 0,
+    };
+
+    for (const row of rows) {
+      const ft = row.file_type;
+      if (ft && dedicated.has(ft)) {
+        counts[ft] = (counts[ft] ?? 0) + row.count;
+      } else {
+        counts.other += row.count;
+      }
+    }
+
+    return counts;
+  }
+
+  /**
    * Fan-out insert: the attachment pipeline resolves the target workspace(s)
    * for a custodian mailbox and calls this once per workspace, so callers
    * must supply `workspace_id` explicitly rather than it being bound at
