@@ -75,7 +75,7 @@ export const mockAuthSession = async (
     const secret = process.env.AUTH_SECRET;
     if (!secret) {
       throw new Error(
-        'AUTH_SECRET must be set (see .env.local) for mockAuthSession() to forge a ' +
+        'AUTH_SECRET must be set (see .env.e2e.local / .env.local) for mockAuthSession() to forge a ' +
           'valid session cookie — workspace-scoped routes now require a real ' +
           'server-side session, not just a mocked /api/auth/session response.',
       );

@@ -10,6 +10,10 @@ name: E2E Preview
 #   VERCEL_TOKEN / VERCEL_ORG_ID / VERCEL_PROJECT_ID — resolve the preview URL
 #   AUTH_SECRET — must match the Vercel Preview environment AUTH_SECRET so
 #                 mockAuthSession() can forge cookies against the deployment.
+#                 Written into `.env.e2e.local` for Playwright. Optional vars:
+#   PREVIEW_TEST_EMAIL / PREVIEW_TEST_PASSWORD — repository Variables; default
+#                 to the seed user from scripts/seed.ts
+#   FLAGS_SECRET — optional secret if specs need flag-override cookies
 #
 # Why a GitHub App (not GITHUB_TOKEN / PAT):
 #   GITHUB_TOKEN cannot open PRs that trigger other workflows. Org policy often
@@ -56,8 +60,9 @@ jobs:
       TEST_ENV: preview
       E2E_DATA_MODE: ${{ inputs.data_mode || 'seed' }}
       # Seed user from scripts/seed.ts — preview-db runs `pnpm db:seed`.
-      PREVIEW_TEST_EMAIL: test@sqe.co.id
-      PREVIEW_TEST_PASSWORD: password
+      # Overridable via repository Variables; also written to `.env.e2e.local`.
+      PREVIEW_TEST_EMAIL: ${{ vars.PREVIEW_TEST_EMAIL || 'test@sqe.co.id' }}
+      PREVIEW_TEST_PASSWORD: ${{ vars.PREVIEW_TEST_PASSWORD || 'password' }}
       # Must match Vercel Preview AUTH_SECRET. Falls back to the old staging
       # secret name if AUTH_SECRET is not configured yet.
       AUTH_SECRET: ${{ secrets.AUTH_SECRET || secrets.STAGING_AUTH_SECRET }}
@@ -251,6 +256,36 @@ jobs:
 
       - name: Install Playwright browsers
         run: pnpm exec playwright install --with-deps chromium
+
+      - name: Write .env.e2e.local
+        env:
+          AUTH_SECRET: ${{ secrets.AUTH_SECRET || secrets.STAGING_AUTH_SECRET }}
+          FLAGS_SECRET: ${{ secrets.FLAGS_SECRET }}
+          PREVIEW_TEST_EMAIL: ${{ vars.PREVIEW_TEST_EMAIL || 'test@sqe.co.id' }}
+          PREVIEW_TEST_PASSWORD: ${{ vars.PREVIEW_TEST_PASSWORD || 'password' }}
+        run: |
+          set -euo pipefail
+          if [ -z "${AUTH_SECRET:-}" ]; then
+            echo "::error::AUTH_SECRET (or STAGING_AUTH_SECRET) must be set so Playwright can forge session cookies against the preview."
+            exit 1
+          fi
+          if [ -z "${PREVIEW_BASE_URL:-}" ]; then
+            echo "::error::PREVIEW_BASE_URL is empty — Vercel preview step did not set it."
+            exit 1
+          fi
+          # Values from GitHub secrets/vars + PREVIEW_BASE_URL (GITHUB_ENV).
+          # printf keeps $, `, and spaces in secrets intact for dotenv.
+          umask 077
+          {
+            printf 'TEST_ENV=%s\n' 'preview'
+            printf 'E2E_DATA_MODE=%s\n' "$E2E_DATA_MODE"
+            printf 'AUTH_SECRET=%s\n' "$AUTH_SECRET"
+            printf 'PREVIEW_TEST_EMAIL=%s\n' "$PREVIEW_TEST_EMAIL"
+            printf 'PREVIEW_TEST_PASSWORD=%s\n' "$PREVIEW_TEST_PASSWORD"
+            printf 'PREVIEW_BASE_URL=%s\n' "$PREVIEW_BASE_URL"
+            printf 'FLAGS_SECRET=%s\n' "${FLAGS_SECRET:-}"
+          } > .env.e2e.local
+          echo "Wrote .env.e2e.local for Playwright (PREVIEW_BASE_URL=$PREVIEW_BASE_URL)"
 
       - name: Run E2E tests against preview
         run: |

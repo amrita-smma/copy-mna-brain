@@ -1,9 +1,11 @@
 import { defineConfig, devices } from '@playwright/test';
 import dotenv from 'dotenv';
 
-// Load `.env.local` into the test runner process so specs can read test
-// credentials (STAGING_/PRODUCTION_TEST_EMAIL, etc.) from `process.env`.
+// Load e2e env into the test runner so specs can read credentials / AUTH_SECRET
+// from `process.env`. `.env.local` is the everyday local fallback; when
+// `.env.e2e.local` exists (written by e2e-preview CI) it wins for overlapping keys.
 dotenv.config({ path: '.env.local' });
+dotenv.config({ path: '.env.e2e.local', override: true });
 
 // Pick where the suite runs from `TEST_ENV` (matches e2e/helpers/credentials.ts):
 //   unset | 'local' -> build & boot a local server, hit localhost:3000
