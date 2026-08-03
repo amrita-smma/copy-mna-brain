@@ -1,6 +1,5 @@
 import { after, NextRequest, NextResponse } from 'next/server';
 import { getAgentGraph, AIMessage, extractFirstTurn, type EffortChoice } from '@/lib/agents/analysis';
-import { ChatAnthropic } from '@langchain/anthropic';
 import { createDb, withBackgroundDb } from '@/lib/server/db';
 import { getActiveWorkspaceId } from '@/lib/workspace';
 import { createContainer } from '@/lib/services';
@@ -18,6 +17,11 @@ import {
   type ChatAttachmentRef,
 } from '@/lib/services/chatAttachmentService';
 import { chatCacheEnabled, sourceOfFundsEnabled } from '@/lib/flags';
+import { flushLangfuse } from '@/lib/langfuse';
+import { generateChatTitle } from '@/lib/chat/title';
+
+/** Allow long Anthropic pptx-skill runs inside send_email (up to ~10 min). */
+export const maxDuration = 600;
 
 const convertLangChainMessageToVercelMessage = (message: BaseMessage) => {
   if (message._getType() === 'human') {
@@ -39,22 +43,7 @@ async function generateAndSaveTitle(opts: {
   apiKey: string;
 }): Promise<string | null> {
   try {
-    const llm = new ChatAnthropic({
-      model: 'claude-haiku-4-5-20251001',
-      anthropicApiKey: opts.apiKey,
-      temperature: 0,
-      maxTokens: 60,
-    });
-    const res = await llm.invoke([
-      {
-        role: 'system',
-        content:
-          'Produce a concise 2-5 word title for the following user message. ' +
-          'Return only the title, no quotes, no trailing punctuation.',
-      },
-      { role: 'user', content: opts.firstUserMessage },
-    ]);
-    const title = String(res.content).trim().slice(0, 80);
+    const title = await generateChatTitle(opts.firstUserMessage, opts.apiKey);
     if (!title) return null;
 
     const db = createDb();
@@ -227,8 +216,13 @@ export async function POST(req: NextRequest) {
     // already deleted, so replaying the thread would 404. Repoint them at this
     // turn's fresh uploads (or neutralize them when nothing is attached) before
     // the agent runs. Only existing threads have history to fix.
+    //
+    // Also close orphaned tool_calls left when a prior run aborted mid-tool
+    // (e.g. user switched chats during PPTX generation) — without a matching
+    // ToolMessage Anthropic rejects the next turn.
     if (requestedChatId) {
       await agent.rewriteFileReferences(chat.id, uploadedFileIds);
+      await agent.repairOrphanedToolCalls(chat.id);
     }
 
     // Title generation runs in parallel with the agent stream (see below) so
@@ -287,7 +281,7 @@ export async function POST(req: NextRequest) {
         {
           version: 'v2',
           recursionLimit: 50,
-          configurable: { thread_id: chat.id, userEmail },
+          configurable: { thread_id: chat.id, userEmail, agentRole: 'chat' },
           // Propagate client disconnects (the UI's stop()/aborted fetch) down
           // into LangGraph so the underlying Anthropic request is cancelled and
           // the graph stops executing — not just the SSE stream to the client.
@@ -333,6 +327,9 @@ export async function POST(req: NextRequest) {
       // Delete the per-turn Anthropic uploads once the streamed response has
       // fully drained (the abort listener covers the stopped/disconnected case).
       after(cleanupAttachments);
+      // LangChain callbacks are non-blocking; flush after the turn so Copilot
+      // traces aren't dropped when the request ends.
+      after(() => flushLangfuse());
 
       return createUIMessageStreamResponse({ stream, headers });
     } else {
@@ -341,7 +338,7 @@ export async function POST(req: NextRequest) {
           { messages, additionalSystemContext: contextData || undefined },
           {
             recursionLimit: 50,
-            configurable: { thread_id: chat.id, userEmail },
+            configurable: { thread_id: chat.id, userEmail, agentRole: 'chat' },
             signal: req.signal,
           },
         );
@@ -361,6 +358,7 @@ export async function POST(req: NextRequest) {
         // Non-streaming path fully resolves here, so a finally reliably tears
         // down the per-turn Anthropic uploads on success, error, or abort.
         await cleanupAttachments();
+        await flushLangfuse();
       }
     }
   } catch (e: unknown) {

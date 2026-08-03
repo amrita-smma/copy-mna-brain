@@ -39,6 +39,16 @@ services:
       timeout: 5s
       retries: 10
 
+  # Local SMTP catcher. UI: http://localhost:8025  SMTP: mailhog:1025
+  # App sends via SMTP when SMTP_HOST is set (see `src/lib/ses.ts`).
+  mailhog:
+    image: mailhog/mailhog:v1.0.1
+    container_name: mna-mailhog
+    restart: unless-stopped
+    ports:
+      - "1025:1025"   # SMTP
+      - "8025:8025"   # web UI
+
   # One-shot init: create the mna-files bucket and set a public read policy
   # so presigned URLs work the same way as AWS S3.
   minio-init:
@@ -65,6 +75,10 @@ services:
         condition: service_healthy
       minio:
         condition: service_healthy
+        required: false
+      mailhog:
+        condition: service_started
+        required: false
       neo4j:
         condition: service_healthy
         required: false
@@ -87,6 +101,10 @@ services:
       # `minio` — expose the host-mapped port instead.
       AWS_S3_PUBLIC_ENDPOINT: http://localhost:9000
       AWS_S3_FORCE_PATH_STYLE: "true"
+      # Route transactional email to MailHog instead of AWS SES.
+      SMTP_HOST: mailhog
+      SMTP_PORT: "1025"
+      SES_FROM_EMAIL: "Investment Brain <noreply@localhost>"
       # neo4j-driver defaults to bolt://localhost:7687 when unset, which
       # inside this container resolves to the app's own network namespace,
       NEO4J_URI: bolt://neo4j:7687

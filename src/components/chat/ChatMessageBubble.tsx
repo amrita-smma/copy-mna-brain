@@ -63,6 +63,37 @@ function ThinkingIndicator() {
   );
 }
 
+/** Shown while send_email is building a PPTX — generation commonly takes several minutes. */
+function PptxGeneratingNotice() {
+  return (
+    <div
+      role="status"
+      data-testid="pptx-generating-notice"
+      className="flex items-start gap-3 w-full rounded-xl border border-border bg-muted/40 px-4 py-3 text-muted-foreground"
+    >
+      <Loader2 className="h-4 w-4 flex-shrink-0 mt-0.5 animate-spin" />
+      <div className="min-w-0 flex-1 text-sm leading-relaxed">
+        <span className="font-medium text-foreground">Generating PowerPoint… </span>
+        This can take several minutes. Keep this chat open — switching chats
+        cancels generation. The deck will be emailed when ready.
+      </div>
+    </div>
+  );
+}
+
+function isRunningPptxSendEmail(part: {
+  type?: string;
+  toolName?: string;
+  state?: string;
+  input?: unknown;
+  args?: unknown;
+}): boolean {
+  if (part.toolName !== "send_email") return false;
+  if (part.state === "output-available") return false;
+  const input = (part.input ?? part.args) as { presentation?: unknown } | undefined;
+  return Boolean(input && typeof input === "object" && input.presentation);
+}
+
 export function LoadingBubble() {
   return (
     <div className="flex mb-6">
@@ -226,6 +257,10 @@ function AssistantMessageBubble(props: ChatMessageBubbleProps) {
     (part) => part.type === "dynamic-tool" || part.type === "tool-invocation"
   );
   const textParts = parts.filter((part) => part.type === "text");
+
+  // Deterministic ETA notice while send_email builds a presentation (do not rely on the model).
+  const isGeneratingPptx =
+    (props.isActive ?? false) && toolParts.some((part) => isRunningPptxSendEmail(part as never));
 
   // Delimiters: thinking is between THINKING_START and THINKING_END; response is after THINKING_END.
   const THINKING_START_DELIMITER = "<!-- THINKING_START -->";
@@ -608,8 +643,12 @@ function AssistantMessageBubble(props: ChatMessageBubbleProps) {
           );
         })()}
 
-        {/* Thinking Indicator - Shows when agent is still processing */}
-        {showThinking && <ThinkingIndicator />}
+        {/* PPTX generation can take several minutes — prefer this over the generic spinner. */}
+        {isGeneratingPptx ? (
+          <PptxGeneratingNotice />
+        ) : (
+          showThinking && <ThinkingIndicator />
+        )}
 
         {/* Warning banner(s) — agent surfaces concerns (e.g. weak EBITDA on an
             L0→L1 promotion preview) between WARNING_START/WARNING_END. */}

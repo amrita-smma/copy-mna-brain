@@ -100,6 +100,8 @@ function makeRow(overrides: Record<string, unknown> = {}) {
     id: RUN_ID,
     status: 'running',
     input: { prompt: PROMPT },
+    workspace_id: 'ws-1',
+    triggered_by_user_id: null,
     ...overrides,
   };
 }
@@ -156,8 +158,14 @@ describe('runAgent — happy path', () => {
       PROMPT,
     );
     // Thread id wired from runId so subsequent resumes see the same checkpoint.
+    // agentRole lets send_email allow presentation attachments.
     expect(configArg).toEqual(
-      expect.objectContaining({ configurable: { thread_id: RUN_ID } }),
+      expect.objectContaining({
+        configurable: expect.objectContaining({
+          thread_id: RUN_ID,
+          agentRole: 'workforce',
+        }),
+      }),
     );
   });
 
@@ -390,7 +398,17 @@ describe('runAgent — resume branch (rows carrying a resume_token)', () => {
     await runAgent({ runId: RUN_ID });
 
     expect(resumeMock).toHaveBeenCalledTimes(1);
-    expect(resumeMock).toHaveBeenCalledWith(RUN_ID, payload);
+    expect(resumeMock).toHaveBeenCalledWith(
+      RUN_ID,
+      payload,
+      expect.objectContaining({
+        configurable: expect.objectContaining({
+          thread_id: RUN_ID,
+          agentRole: 'workforce',
+        }),
+        recursionLimit: 50,
+      }),
+    );
     expect(invokeMock).not.toHaveBeenCalled();
     expect(markSucceeded).toHaveBeenCalledTimes(1);
   });
@@ -602,7 +620,10 @@ describe('runAgent — pending user messages', () => {
     const [, configArg] = invokeMock.mock.calls[0];
     expect(configArg).toEqual(
       expect.objectContaining({
-        configurable: { thread_id: 'original-run-99' },
+        configurable: expect.objectContaining({
+          thread_id: 'original-run-99',
+          agentRole: 'workforce',
+        }),
       }),
     );
   });
@@ -640,7 +661,12 @@ describe('runAgent — pending user messages', () => {
     expect(msgs).toHaveLength(1);
     expect(msgs[0].content).toBe('one more thing');
     expect(configArg).toEqual(
-      expect.objectContaining({ configurable: { thread_id: RUN_ID } }),
+      expect.objectContaining({
+        configurable: expect.objectContaining({
+          thread_id: RUN_ID,
+          agentRole: 'workforce',
+        }),
+      }),
     );
     expect(markSucceeded).toHaveBeenCalledWith(
       RUN_ID,

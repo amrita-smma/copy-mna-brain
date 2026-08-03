@@ -17,6 +17,7 @@ import type { CheckpointPendingWrite } from "@langchain/langgraph-checkpoint";
 const FILES_API_BETA = "files-api-2025-04-14" as const;
 
 import { rewriteStaleFileBlocks } from "./rewriteFileReferences";
+import { buildOrphanedToolRepairMessages } from "./repairOrphanedToolCalls";
 import { getLangfuseCallbacks } from "@/lib/langfuse";
 
 // HITL middleware for the workforce agent: gates write tools that require
@@ -120,7 +121,7 @@ You have access to the following tools:
 9. **propose_workforce_handoff** - Offer to delegate any write-heavy job (including single-company L0→L1 promotions) to the AI Workforce queue via a confirmation card
 10. **propose_bulk_drop_companies** - Render an inline approval card to drop a batch of stale or out-of-mandate companies from the pipeline (chat writes directly on user confirm — no Workforce roundtrip)
 11. **propose_bulk_promote_companies** - Render an inline approval card to promote a batch of companies from L0 to L1 (or any stage) with checkboxes, tags, and per-row signals (chat writes directly on user confirm — no Workforce roundtrip)
-12. **send_email** - Send ONE email to the signed-in user (or named platform users), optionally attaching a company Excel export and/or a formatted research-summary PDF in the same message (self-service convenience; allowed inline)
+12. **send_email** - Send ONE email to the signed-in user (or named platform users), optionally attaching a company Excel export, research-summary PDF, and/or PowerPoint (\`presentation\`) in the same message (self-service; PPTX may take several minutes)
 13. **update_company_card_section** - Overwrite a single section of a company's AI Company Card / Overview slide with rewritten markdown (self-service inline edit; allowed inline — see "Editing a Company Card Section" below)
 
 ## How to Help Users
@@ -160,12 +161,13 @@ You have access to the following tools:
 
 ## Emailing the User (one email, whatever they asked for)
 
-When the user asks you to email anything, use \`send_email\` — it always sends exactly ONE message and can carry a body plus attachments together, so never fire it more than once for a single request. Omit \`to\` to reach the signed-in user (the runtime resolves the address — you do NOT pass one); pass \`to\` only to reach named platform users.
+When the user asks you to email anything (note, spreadsheet, research PDF, or PowerPoint), use \`send_email\` — it always sends exactly ONE message and can carry a body plus attachments together, so never fire it more than once for a single request. Omit \`to\` to reach the signed-in user (the runtime resolves the address — you do NOT pass one); pass \`to\` only to reach named platform users.
 
 - **A note / prose message** → just \`subject\` + \`body\`.
 - **A formatted write-up** (summary, sector view, SWOT, daily update, briefing, etc.) → add \`research_summary\` with a \`title\` + \`sections\` array; pick visual blocks (\`kpi_cards\`, \`bar_chart\`, \`scorecard\`, \`quadrants\`, \`priority_list\`) whenever the data suits them, and fall back to \`paragraph\` / \`bullets\` otherwise.
 - **A spreadsheet of companies** → add \`company_excel\` with query_companies-style filters (omit filters for the whole pipeline).
-- **Several of these at once** ("email me a summary and the L1 companies as a spreadsheet") → set \`body\` + \`research_summary\` + \`company_excel\` in the SAME call so they arrive as one email. Do NOT call the tool separately per attachment.
+- **A PowerPoint / PPT / presentation / deck** → add \`presentation\` with \`title\` + free-form \`brief\` (flexible slide count — NOT the fixed Pipeline 7-slide template) and optional \`company_names\`. Generation often takes several minutes. BEFORE calling \`send_email\`, write ONE short response sentence (outside thinking) telling the user you are generating the deck and emailing it, and that it can take several minutes — then call the tool.
+- **Several of these at once** ("email me a summary, the L1 companies as a spreadsheet, and a deck") → set \`body\` + the relevant attachment fields in the SAME call. Do NOT call the tool separately per attachment.
 
 The tool description has the full attachment block catalog. After it returns, write ONE short sentence confirming (or surface its **Error:** verbatim).
 
@@ -186,7 +188,7 @@ Only use this tool when the user is editing a specific company-card section. Gen
 
 ## Delegating Write Actions to the Workforce
 
-**You have NO direct write tools.** Every request that modifies pipeline data — adding companies, promoting them between stages (including L0→L1), writing notes, sending outbound emails to third parties — flows through the AI Workforce queue via \`propose_workforce_handoff\`. The Copilot reads and analyzes; the Workforce writes. (Self-service requests are the exceptions — "email me a summary/spreadsheet" via \`send_email\` and editing a company-card section via \`update_company_card_section\` — both above.)
+**You have NO direct write tools.** Every request that modifies pipeline data — adding companies, promoting them between stages (including L0→L1), writing notes, sending outbound emails to third parties — flows through the AI Workforce queue via \`propose_workforce_handoff\`. The Copilot reads and analyzes; the Workforce writes. (Self-service requests are the exceptions — "email me a summary/spreadsheet/PowerPoint" via \`send_email\` and editing a company-card section via \`update_company_card_section\` — both above.)
 
 Examples of requests that MUST go through the handoff:
 - "Promote Acme to L1" (single named company). See the "Promoting Companies from L0 to L1" section below — there's an EBITDA-assessment dance you owe the user before the handoff.
@@ -311,7 +313,7 @@ You have access to the following tools:
 9. **lookup_crm** - Look up a banker or firm by name or email and get their full relationship picture — bankers, topics, recent emails, notes, and linked pipeline companies. Use when the user asks about a specific counterparty, advisor, or LP relationship.
 10. **crm_insights** - Get portfolio-wide CRM health metrics: stale relationships, flagged records awaiting curation, and emails received today. Use for CRM health checks or when the user asks about relationship activity.
 11. **lookup_user** - Resolve a platform user by a name or email fragment, returning only their name and email. Use before send_email when the user names a recipient ("send this to nico …") to get the exact address.
-12. **send_email** - Send ONE email (subject + body) to the signed-in user or named platform users, optionally attaching a research-summary PDF. Use when the user explicitly asks to email a report, summary, or analysis to someone on the platform.
+12. **send_email** - Send ONE email (subject + body) to the signed-in user or named platform users, optionally attaching a research-summary PDF, company Excel, and/or PowerPoint (\`presentation\`). Use when the user asks to email a report, spreadsheet, or deck.
 13. **propose_workforce_handoff** - Offer to delegate a write-heavy or multi-step request to the AI Workforce queue via a confirmation card. Use when the user asks to modify records, run a screening, or execute any task that requires pipeline writes.
 
 ## How to Help Users
@@ -393,7 +395,7 @@ const COMBINED_SYSTEM_PROMPT = `You are an intelligent M&A + Investment Analysis
 19. **web_search** - Search the web for external market data, benchmarks, comparables, and macro context.
 20. **valyu_search** - Search Valyu.ai across web + proprietary sources (filings, market data, research) for deeper investment/company research with citations. Prefer over web_search for financial/market diligence and proprietary datasets.
 21. **lookup_user** - Resolve a platform user by name/email fragment (name + email only). Use before send_email when the user names a recipient.
-22. **send_email** - Send ONE email to the signed-in user or named platform users, optionally attaching a company Excel export and/or a research-summary PDF. Recipients are restricted to registered platform users.
+22. **send_email** - Send ONE email to the signed-in user or named platform users, optionally attaching a company Excel export, research-summary PDF, and/or PowerPoint (\`presentation\`). Recipients are restricted to registered platform users.
 
 ## How to Help Users
 
@@ -454,6 +456,7 @@ Write tools (use to actually mutate state — the whole point of this run):
 - **update_company_relationship** — record a SINGLE directed relationship between two companies in the relationship graph (\`source_company\` --[\`relation_type\`]--> \`target_company\`). Allowed relation_type values: INVESTED_IN, PARTNER, SELLS_TO (preferred for any commercial supply/customer relationship — it is directional, so source SELLS_TO target; use it for both supplier and customer perspectives). SUPPLIER is also accepted for backwards-compatibility. Auto-executes (no human approval). Each side is matched by name; any company not on record is auto-created at the special \`discovered\` stage (outside the L0–L5 pipeline).
 - **generate_relationship_graph** — write a BATCH of directed edges to the relationship graph in one call (the bulk counterpart to \`update_company_relationship\`). Auto-executes (no human approval). Pass an \`edges\` array (max 100 per call); each edge: \`source_company\`, \`target_company\`, \`relation_type\` (INVESTED_IN / PARTNER / SELLS_TO — prefer SELLS_TO for commercial relationships), plus optional \`notes\`, \`evidence\`, \`date\`. Same name-matching and \`discovered\` auto-creation rules. Edges are processed independently — a bad edge is skipped and reported, not fatal. When an instruction specifies more than 100 edges, split into multiple calls. The instruction will tell you the exact source_company, target_company, and relation_type to use for each edge.
 - **save_ai_opinion** — record a company's AI Opinion: a FIRM verdict (\`pass\` / \`fail\`, or \`tentative\` only as a near-forbidden last resort) plus a ≤50-word rationale. Auto-executes (no human approval). This is the final step of an "Analyze AI Opinion" / "Re-evaluate" task: research the company, commit to a decisive view, then call it exactly once with the \`company_id\` from the instruction. See "Forming an AI Opinion" below.
+- **send_email** — send ONE email to the requesting user (omit \`to\`) or named platform users. Attachments: \`company_excel\`, \`research_summary\` PDF, and/or \`presentation\` (flexible PowerPoint via the pptx skill — \`title\` + free-form \`brief\` + optional \`company_names\`). Use \`presentation\` when the instruction asks for a PowerPoint / PPT / deck; slide structure is flexible (NOT a fixed 7-slide template). Do not invent numbers — put only known facts in \`brief\` / company context.
 
 Trace tools (call on EVERY model turn, in parallel with real tools):
 - **narrate_step** — record a structured trace card with \`title\` and \`overview\` for this turn. The user sees these in the Reasoning trace panel. Always include narrate_step in your tool_calls. Calling narrate_step alone (no other tools) is fine when you're pausing to think; calling it alongside real tools is the common case.
@@ -735,15 +738,27 @@ export class AgentGraph {
   async resume(
     threadId: string,
     resumePayload: unknown,
+    config?: InvokeConfig,
   ): Promise<InvokeResult> {
     logger.debug(`🔁 Resuming agent thread ${threadId}`);
     try {
       const agent = this.defaultAgent;
       // Lazy import to avoid pulling Command type at module load.
       const { Command } = await import("@langchain/langgraph");
-      const mergedConfig = { 
-        configurable: { thread_id: threadId }, 
-        callbacks: getLangfuseCallbacks() 
+      const incomingCallbacks = (config as { callbacks?: unknown } | undefined)
+        ?.callbacks;
+      const configCallbacks = Array.isArray(incomingCallbacks)
+        ? incomingCallbacks
+        : incomingCallbacks
+          ? [incomingCallbacks]
+          : [];
+      const mergedConfig = {
+        ...config,
+        configurable: {
+          thread_id: threadId,
+          ...((config?.configurable as Record<string, unknown> | undefined) ?? {}),
+        },
+        callbacks: [...configCallbacks, ...getLangfuseCallbacks()],
       } as never;
       const result = await agent.invoke(
         new Command({ resume: resumePayload }) as never,
@@ -835,6 +850,35 @@ export class AgentGraph {
       { configurable: { thread_id: threadId } },
       { messages: replacements },
     );
+  }
+
+  /**
+   * Close orphaned tool_calls left when a run aborted mid-tool (chat switch /
+   * Stop during long work like PPTX). Without matching ToolMessages, Anthropic
+   * rejects the next turn. Skips threads paused on a HITL interrupt — those
+   * open tool_calls are waiting for approval, not cancelled.
+   */
+  async repairOrphanedToolCalls(threadId: string): Promise<number> {
+    const { messages, pendingWrites } = await this.getTrace(threadId);
+    const hasInterrupt = pendingWrites.some(
+      (write) => Array.isArray(write) && write[1] === "__interrupt__",
+    );
+    if (hasInterrupt) return 0;
+
+    const repairs = buildOrphanedToolRepairMessages(messages);
+    if (repairs.length === 0) return 0;
+
+    const agent = this.defaultAgent as unknown as {
+      updateState: (
+        config: { configurable: { thread_id: string } },
+        values: { messages: BaseMessage[] },
+      ) => Promise<unknown>;
+    };
+    await agent.updateState(
+      { configurable: { thread_id: threadId } },
+      { messages: repairs },
+    );
+    return repairs.length;
   }
 
   async getMessages(threadId: string): Promise<BaseMessage[]> {

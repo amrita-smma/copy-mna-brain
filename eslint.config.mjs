@@ -18,6 +18,8 @@ const eslintConfig = [
       "next-env.d.ts",
       "drizzle/**",
       "data-pipeline/**",
+      // Local Claude Code agent worktrees (gitignored); outdated copies still trip rules-of-hooks.
+      ".claude/worktrees/**",
       // Generated at build time from GitHub Releases (scripts/generate-changelog.ts).
       "src/lib/changelog.data.ts",
     ],

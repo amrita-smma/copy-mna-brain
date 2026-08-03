@@ -75,6 +75,22 @@ elif [ ${#EXCLUDES[@]} -gt 0 ]; then
     done
 fi
 
+# Full stack (no --only / --exclude) starts every service, including Langfuse.
+# Otherwise seed only when a langfuse-* service is in the target set.
+needs_langfuse_seed=false
+if [ ${#ONLY[@]} -eq 0 ] && [ ${#EXCLUDES[@]} -eq 0 ]; then
+    needs_langfuse_seed=true
+else
+    for svc in "${TARGET_SERVICES[@]}"; do
+        case "$svc" in
+            langfuse-*)
+                needs_langfuse_seed=true
+                break
+                ;;
+        esac
+    done
+fi
+
 if [ "$DOWN" = "true" ] || [ "$DOWN" = true ]; then
     echo "Stopping docker compose"
     docker compose -f docker-compose.yml down -v --remove-orphans
@@ -121,11 +137,30 @@ if ! pnpm db:seed; then
     exit 1
 fi
 
-echo "Running Langfuse model pricing seed..."
-if ! pnpm db:seed:langfuse; then
-    echo "Error: Langfuse seed failed."
-    exit 1
+if [ "$needs_langfuse_seed" = true ]; then
+    echo "Running Langfuse model pricing seed..."
+    if ! pnpm db:seed:langfuse; then
+        echo "Error: Langfuse seed failed."
+        exit 1
+    fi
+else
+    echo "Skipping Langfuse seed (Langfuse services not in target set)."
+    echo "Start later with: pnpm docker:run-langfuse"
+fi
+
+# Remind when MinIO was not part of the target set (lite refresh).
+needs_minio_hint=false
+if [ ${#ONLY[@]} -gt 0 ] || [ ${#EXCLUDES[@]} -gt 0 ]; then
+    needs_minio_hint=true
+    for svc in "${TARGET_SERVICES[@]}"; do
+        if [ "$svc" = "minio" ] || [ "$svc" = "minio-init" ]; then
+            needs_minio_hint=false
+            break
+        fi
+    done
+fi
+if [ "$needs_minio_hint" = true ]; then
+    echo "MinIO not in target set — S3 uploads need: pnpm docker:run-minio"
 fi
 
 echo "Refresh complete!"
-

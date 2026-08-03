@@ -9,8 +9,10 @@ import type { EmailAttachment } from '@/lib/ses';
 import {
   companyExcelSpecSchema,
   researchSummarySpecSchema,
+  presentationSpecSchema,
   buildCompanyExcelAttachment,
   buildResearchSummaryAttachment,
+  buildPresentationAttachment,
 } from './emailArtifacts';
 
 /**
@@ -19,7 +21,8 @@ import {
  * The email always carries a free-form subject + body, and may additionally
  * carry, in the SAME message:
  *   - a comprehensive company Excel workbook (`company_excel`), and/or
- *   - a formatted research-summary PDF (`research_summary`).
+ *   - a formatted research-summary PDF (`research_summary`), and/or
+ *   - a flexible PowerPoint deck (`presentation`) — Workforce only.
  *
  * This is the single send path for everything the agent assembles: instead of
  * firing a separate email for the spreadsheet, another for the PDF, and a third
@@ -31,7 +34,8 @@ import {
  * addresses are silently skipped and reported, so this tool cannot be coerced
  * into mailing arbitrary third parties (exfiltration / spam guardrail).
  *
- * Available to both the copilot chat and the workforce agent.
+ * Available to both the copilot chat and the workforce agent. PowerPoint
+ * (`presentation`) uses the same inline path as Excel/PDF.
  */
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -60,6 +64,11 @@ const argsSchema = z.object({
     .describe(
       'Optional: attach a formatted research-summary PDF built from these sections. Omit if no PDF is wanted.',
     ),
+  presentation: presentationSpecSchema
+    .optional()
+    .describe(
+      'Optional: attach a flexible PowerPoint (.pptx) built from title + brief (+ optional company_names). Same self-service path as Excel/PDF — may take several minutes.',
+    ),
 });
 
 type Args = z.infer<typeof argsSchema>;
@@ -74,7 +83,7 @@ export const sendEmailTool = tool(
     logger.debug(
       `🔧 TOOL CALLED: send_email(to=[${(args.to ?? []).join(', ')}], subject='${args.subject ?? ''}', excel=${Boolean(
         args.company_excel,
-      )}, pdf=${Boolean(args.research_summary)})`,
+      )}, pdf=${Boolean(args.research_summary)}, pptx=${Boolean(args.presentation)})`,
     );
 
     const subject = args.subject?.trim();
@@ -129,9 +138,14 @@ export const sendEmailTool = tool(
       }
 
       // ── Build attachments (shared by every recipient). ──
+      // SES raw messages are ~10MB; keep total attachment bytes under ~5.5MB
+      // so base64 (~4/3) + MIME headers still fit.
+      const SES_SAFE_ATTACHMENT_BYTES = 5_500_000;
       const attachments: EmailAttachment[] = [];
       const attachmentLabels: string[] = [];
       const notes: string[] = [];
+      const attachmentBytes = () =>
+        attachments.reduce((sum, a) => sum + a.content.length, 0);
 
       if (args.research_summary) {
         const artifact = await buildResearchSummaryAttachment(
@@ -154,6 +168,24 @@ export const sendEmailTool = tool(
             'No companies matched the Excel filter, so the spreadsheet was not attached.',
           );
         }
+      }
+
+      if (args.presentation) {
+        const remaining = SES_SAFE_ATTACHMENT_BYTES - attachmentBytes();
+        if (remaining < 100_000) {
+          return `**Error:** Existing attachments already use most of the email size budget; cannot add a PowerPoint. Send the deck in a separate email or drop the Excel/PDF.`;
+        }
+        const artifact = await buildPresentationAttachment(args.presentation, {
+          maxBytes: remaining,
+          signal: runtime?.signal,
+        });
+        attachments.push(artifact.attachment);
+        attachmentLabels.push(`presentation (PPTX: ${artifact.title})`);
+        notes.push(...artifact.notes);
+      }
+
+      if (attachmentBytes() > SES_SAFE_ATTACHMENT_BYTES) {
+        return `**Error:** Combined attachments exceed the email size limit (~5.5MB raw). Remove an attachment or shrink the deck and try again.`;
       }
 
       // ── Send ONE composed email per recipient. ──
@@ -212,7 +244,7 @@ IMPORTANT — recipients are restricted to a whitelist: only addresses that belo
 
 VOICE — always write and sign on behalf of the app, "Investment Brain", NOT the human user. Do NOT sign off with an individual person's name. If you include a signature, sign as "Investment Brain".
 
-## Attachments (both optional — include only what the user asked for)
+## Attachments (optional — include only what the user asked for)
 
 - \`company_excel\` — attach a comprehensive multi-sheet Excel (.xlsx) export of filtered companies (profile + resolved sponsor/captain/enterer names + latest-year financials + AI Opinion, plus "Financials by Year", "Screening", and "FX Adjustments" sheets). Pass any combination of query_companies-style filters (segment, geography, watchlist_status, stage, name, ownership, company_focus, source, status, deal_type, deal_sponsor, banker, has_ai_opinion, ai_opinion_verdict, min_revenue, max_revenue, min_ebitda, max_ebitda, created_after, created_before, search_term) plus an optional \`title\`. Omit all filters to export the entire pipeline. If the filter matches no companies, the spreadsheet is skipped (the email still sends).
 
@@ -228,11 +260,15 @@ VOICE — always write and sign on behalf of the app, "Investment Brain", NOT th
   - \`priority_list\` { items: [{ priority: { label, tone: "high" | "medium" | "low" }, description, meta? }] }
   Pick the visual block whenever the data suits one; fall back to \`paragraph\` / \`bullets\` for narrative. Also pass a \`title\` (used for the PDF + filename) and optional \`references\`. Rules: keep one unit per bar_chart series; no markdown inside block strings; keep KPI \`value\` to one short line.
 
+- \`presentation\` — Attach a flexible PowerPoint (.pptx) via the Anthropic pptx skill. Pass \`title\`, free-form \`brief\` (outline/facts — slide count is flexible, NOT a fixed 7-slide template), and optional \`company_names\` to pull pipeline context. May take several minutes.
+
 ## Usage
 
 - Plain note to a colleague → just \`to\` + \`subject\` + \`body\`.
 - "Email me the pipeline as a spreadsheet" → \`body\` + \`company_excel\` (omit \`to\`).
 - "Email me a summary and the L1 companies" → \`body\` + \`research_summary\` + \`company_excel\` — ONE email, both attached.
+- "Email me a PowerPoint about X" → \`body\` + \`presentation\` (omit \`to\`).
+- Mix attachments in ONE call when asked (excel + pdf + pptx).
 
 After the tool returns, write ONE short sentence confirming, or surface its **Error:** verbatim.
 
@@ -242,6 +278,7 @@ Args:
     body: Required. Plain-text body (Markdown is NOT rendered). Sign off as "Investment Brain".
     company_excel: Optional. Filters (+ title) for an attached Excel workbook.
     research_summary: Optional. Title + sections (+ references) for an attached PDF.
+    presentation: Optional. Title + brief (+ company_names) for an attached PowerPoint.
 
 Returns:
     A confirmation string listing recipients, what was attached, and any skipped addresses, or an error string starting with **Error:**.`,

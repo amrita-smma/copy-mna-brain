@@ -6,11 +6,13 @@ const {
   sendComposedEmail,
   buildCompanyExcelAttachment,
   buildResearchSummaryAttachment,
+  buildPresentationAttachment,
 } = vi.hoisted(() => ({
   findAll: vi.fn(),
   sendComposedEmail: vi.fn(),
   buildCompanyExcelAttachment: vi.fn(),
   buildResearchSummaryAttachment: vi.fn(),
+  buildPresentationAttachment: vi.fn(),
 }));
 
 vi.mock('@/lib/server/db', () => ({ createDb: vi.fn(() => ({})) }));
@@ -36,8 +38,12 @@ vi.mock('./emailArtifacts', async () => {
     researchSummarySpecSchema: z
       .object({ title: z.string(), sections: z.array(z.any()).min(1) })
       .passthrough(),
+    presentationSpecSchema: z
+      .object({ title: z.string(), brief: z.string() })
+      .passthrough(),
     buildCompanyExcelAttachment,
     buildResearchSummaryAttachment,
+    buildPresentationAttachment,
   };
 });
 

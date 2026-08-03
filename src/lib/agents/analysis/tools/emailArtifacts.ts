@@ -2,10 +2,10 @@
  * Shared email-artifact builders for the composite `send_email` tool.
  *
  * These functions build the *contents* of an email (an Excel workbook, a
- * research-summary PDF) as ready-to-attach buffers, but never send anything.
- * `send_email` composes whichever artifacts the agent asked for and delivers
- * them in a SINGLE email — so a body + spreadsheet + PDF arrive together
- * instead of as three disjointed messages.
+ * research-summary PDF, or a flexible PowerPoint) as ready-to-attach buffers,
+ * but never send anything. `send_email` composes whichever artifacts the agent
+ * asked for and delivers them in a SINGLE email — so a body + spreadsheet + PDF
+ * (+ PPTX for Workforce) arrive together instead of as disjointed messages.
  *
  * Zod sub-schemas for each artifact spec live here too, so the tool file just
  * nests them under its top-level schema.
@@ -18,6 +18,7 @@ import {
   CompanyFinancialRepository,
   CompanyScreeningDerivedRepository,
   CompanyFxAdjustmentRepository,
+  CompanyAnalysisRepository,
   UserRepository,
   type CompanyAgentFilters,
   type Tables,
@@ -40,9 +41,15 @@ import {
   type PillInput,
 } from '@/lib/pdfSummary';
 import type { EmailAttachment } from '@/lib/ses';
+import { generatePptxBuffer } from '@/lib/pptx/generatePptxBuffer';
+import { buildAgentPresentationPrompt } from '@/lib/pptx/presentationPrompt';
+import { buildPresentationCompanyContext } from '@/lib/pptx/companyContext';
 
 const XLSX_CONTENT_TYPE =
   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+
+const PPTX_CONTENT_TYPE =
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation';
 
 /** Slugify a title for use as an attachment filename. */
 export function slugifyTitle(title: string, fallback: string): string {
@@ -647,5 +654,106 @@ export async function buildResearchSummaryAttachment(
       contentType: 'application/pdf',
     },
     title: spec.title,
+  };
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+// Flexible PowerPoint (pptx skill) artifact — Workforce only via send_email
+// ───────────────────────────────────────────────────────────────────────────
+
+/** Spec the Workforce agent passes to attach a flexible .pptx deck. */
+export const presentationSpecSchema = z.object({
+  title: z
+    .string()
+    .min(1)
+    .max(200)
+    .describe('Deck title (also used for the attachment filename).'),
+  brief: z
+    .string()
+    .min(1)
+    .max(12_000)
+    .describe(
+      'Free-form brief: topic, outline, tone, must-include facts. Slide count and structure are flexible — do NOT force a fixed 7-slide template.',
+    ),
+  company_names: z
+    .array(z.string())
+    .optional()
+    .describe(
+      'Optional pipeline company names to fuzzy-resolve and append as structured context for the deck.',
+    ),
+});
+
+export type PresentationSpec = z.infer<typeof presentationSpecSchema>;
+
+export interface PresentationArtifact {
+  attachment: EmailAttachment;
+  title: string;
+  /** Human-readable notes (e.g. unresolved company_names). */
+  notes: string[];
+}
+
+/**
+ * Build a .pptx via the Anthropic pptx skill and return a ready-to-attach buffer.
+ * Throws on generation failure or oversize (caller should surface as tool error).
+ */
+export async function buildPresentationAttachment(
+  spec: PresentationSpec,
+  opts?: {
+    onHeartbeat?: () => void | Promise<void>;
+    workspaceId?: string;
+    /** Remaining attachment budget in bytes (defaults to PPTX_MAX_EMAIL_BYTES). */
+    maxBytes?: number;
+    signal?: AbortSignal;
+  },
+): Promise<PresentationArtifact> {
+  const db = createDb();
+  const workspaceId = opts?.workspaceId ?? (await getActiveWorkspaceId());
+  const companyRepo = new CompanyRepository(db, workspaceId);
+  const analysisRepo = new CompanyAnalysisRepository(db, workspaceId);
+
+  const companyContexts: string[] = [];
+  const unresolvedNames: string[] = [];
+  for (const raw of spec.company_names ?? []) {
+    const name = raw.trim();
+    if (!name) continue;
+    const company = await companyRepo.findByNameFuzzy(name);
+    if (!company) {
+      unresolvedNames.push(name);
+      continue;
+    }
+    const analysis = await analysisRepo.findByCompanyId(company.id);
+    companyContexts.push(
+      buildPresentationCompanyContext(company, analysis),
+    );
+  }
+
+  const prompt = buildAgentPresentationPrompt({
+    title: spec.title.trim(),
+    brief: spec.brief.trim(),
+    companyContexts,
+  });
+
+  const { buffer } = await generatePptxBuffer(prompt, {
+    traceMeta: { workspaceId, title: spec.title.trim() },
+    onHeartbeat: opts?.onHeartbeat,
+    maxBytes: opts?.maxBytes,
+    signal: opts?.signal,
+  });
+
+  const notes: string[] = [];
+  if (unresolvedNames.length > 0) {
+    notes.push(
+      `Could not resolve compan${unresolvedNames.length === 1 ? 'y' : 'ies'} for the deck: ${unresolvedNames.join(', ')}.`,
+    );
+  }
+
+  return {
+    attachment: {
+      filename: `${slugifyTitle(spec.title, 'presentation')}.pptx`,
+      content: buffer,
+      contentType: PPTX_CONTENT_TYPE,
+    },
+    title: spec.title.trim(),
+    notes,
   };
 }

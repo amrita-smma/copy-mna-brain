@@ -1,3 +1,4 @@
+import net from 'node:net';
 import { SESv2Client, SendEmailCommand } from '@aws-sdk/client-sesv2';
 import { captureWorkspaceEvent } from '@/lib/posthog-server';
 import { getActiveWorkspaceId } from '@/lib/workspace';
@@ -14,6 +15,9 @@ import { getActiveWorkspaceId } from '@/lib/workspace';
 // defaults so the codepath compiles in environments where SES isn't yet
 // provisioned — but those defaults will fail at send time, which is what we
 // want (loud failure rather than silently dropping mail).
+//
+// Local docker-compose sets `SMTP_HOST=mailhog` so all outbound mail is
+// captured by MailHog (UI on :8025) instead of hitting AWS SES.
 const AWS_REGION = process.env.AWS_REGION || 'ap-southeast-3';
 const SES_REGION = process.env.SES_REGION || AWS_REGION;
 const AWS_ACCESS_KEY_ID = process.env.AWS_ACCESS_KEY_ID;
@@ -49,6 +53,32 @@ function resolveCcAddresses(
     result.push(addr);
   }
   return result;
+}
+
+function smtpConfig(): { host: string; port: number } | null {
+  const host = process.env.SMTP_HOST?.trim();
+  if (!host) return null;
+  // Unauthenticated SMTP is for local catchers (MailHog). Refuse in production
+  // unless explicitly opted in — a leaked SMTP_HOST must not silently divert mail.
+  if (
+    process.env.NODE_ENV === 'production' &&
+    process.env.SMTP_ALLOW_INSECURE !== '1'
+  ) {
+    throw new Error(
+      'SMTP_HOST is set but insecure SMTP is not allowed in production. Unset SMTP_HOST or set SMTP_ALLOW_INSECURE=1 for an intentional override.',
+    );
+  }
+  const port = Number(process.env.SMTP_PORT || '1025');
+  if (!Number.isFinite(port) || port <= 0) {
+    throw new Error(`Invalid SMTP_PORT: ${process.env.SMTP_PORT}`);
+  }
+  return { host, port };
+}
+
+/** Extract bare address from `Name <addr@x>` or plain `addr@x`. */
+function bareEmail(address: string): string {
+  const match = address.match(/<([^>]+)>/);
+  return (match ? match[1] : address).trim();
 }
 
 let cachedClient: SESv2Client | null = null;
@@ -88,65 +118,6 @@ export interface SendEmailResult {
   messageId: string;
 }
 
-/**
- * Send a transactional email via AWS SES (v2 API).
- *
- * Both `html` and `text` are required: SES rejects messages with neither, and
- * a text fallback is good etiquette for spam filters and accessibility.
- *
- * Returns the SES MessageId on success. Throws on credential/config errors or
- * any non-2xx response from SES — callers (the `send-email` queue handler) are
- * expected to let those propagate so Vercel Queues retries with backoff.
- */
-export async function sendEmail(input: SendEmailInput): Promise<SendEmailResult> {
-  const client = getSesClient();
-
-  const fromAddress = input.from || DEFAULT_FROM_EMAIL;
-  const toAddresses = Array.isArray(input.to) ? input.to : [input.to];
-  const replyTo = input.replyTo || DEFAULT_REPLY_TO;
-
-  if (toAddresses.length === 0) {
-    throw new Error('sendEmail: at least one recipient is required');
-  }
-
-  const ccAddresses = resolveCcAddresses(input.cc, toAddresses);
-
-  const command = new SendEmailCommand({
-    FromEmailAddress: fromAddress,
-    Destination: {
-      ToAddresses: toAddresses,
-      CcAddresses: ccAddresses.length > 0 ? ccAddresses : undefined,
-    },
-    ReplyToAddresses: replyTo ? [replyTo] : undefined,
-    Content: {
-      Simple: {
-        Subject: { Data: input.subject, Charset: 'UTF-8' },
-        Body: {
-          Html: { Data: input.html, Charset: 'UTF-8' },
-          Text: { Data: input.text, Charset: 'UTF-8' },
-        },
-      },
-    },
-  });
-
-  const response = await client.send(command);
-
-  captureWorkspaceEvent({
-    workspaceId: await getActiveWorkspaceId(),
-    distinctId: 'server',
-    event: 'email_sent',
-    properties: {
-      recipient_count: toAddresses.length,
-      cc_count: ccAddresses.length,
-      subject: input.subject,
-      from_address: fromAddress,
-      has_attachments: false,
-    },
-  });
-
-  return { messageId: response.MessageId ?? '' };
-}
-
 export interface EmailAttachment {
   filename: string;
   content: Buffer;
@@ -157,13 +128,16 @@ export interface SendEmailWithAttachmentInput extends SendEmailInput {
   attachments: EmailAttachment[];
 }
 
-function buildRawMimeMessage(input: SendEmailWithAttachmentInput): Buffer {
+function buildRawMimeMessage(
+  input: SendEmailInput & { attachments?: EmailAttachment[] },
+): Buffer {
   const boundary = `=_MNABrain_${Date.now()}_${Math.random().toString(36).slice(2)}`;
   const fromAddress = input.from || DEFAULT_FROM_EMAIL;
   const toList = Array.isArray(input.to) ? input.to : [input.to];
   const toAddresses = toList.join(', ');
   const ccAddresses = resolveCcAddresses(input.cc, toList);
   const replyTo = input.replyTo || DEFAULT_REPLY_TO;
+  const attachments = input.attachments ?? [];
 
   const headers: string[] = [
     `From: ${fromAddress}`,
@@ -200,7 +174,7 @@ function buildRawMimeMessage(input: SendEmailWithAttachmentInput): Buffer {
     '',
   ];
 
-  for (const attachment of input.attachments) {
+  for (const attachment of attachments) {
     const base64 = attachment.content.toString('base64');
     const wrapped = base64.match(/.{1,76}/g)?.join('\r\n') ?? base64;
     parts.push(
@@ -220,14 +194,241 @@ function buildRawMimeMessage(input: SendEmailWithAttachmentInput): Buffer {
 }
 
 /**
+ * Deliver a raw RFC822 message over unauthenticated SMTP (MailHog / Mailpit).
+ * No TLS/AUTH — intended for local catchers only.
+ */
+async function sendViaSmtp(opts: {
+  host: string;
+  port: number;
+  from: string;
+  recipients: string[];
+  raw: Buffer;
+}): Promise<string> {
+  const messageId = `smtp-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+  const fromAddr = bareEmail(opts.from);
+  const rcpts = opts.recipients.map(bareEmail).filter(Boolean);
+
+  if (rcpts.length === 0) {
+    throw new Error('SMTP send: at least one recipient is required');
+  }
+
+  await new Promise<void>((resolve, reject) => {
+    const socket = net.createConnection({ host: opts.host, port: opts.port });
+    let buffer = '';
+    let settled = false;
+    let rcptIndex = 0;
+    let phase:
+      | 'greet'
+      | 'ehlo'
+      | 'mail'
+      | 'rcpt'
+      | 'data'
+      | 'body'
+      | 'quit'
+      | 'done' = 'greet';
+
+    const fail = (err: Error) => {
+      if (settled) return;
+      settled = true;
+      socket.destroy();
+      reject(err);
+    };
+
+    const succeed = () => {
+      if (settled) return;
+      settled = true;
+      socket.end();
+      resolve();
+    };
+
+    const write = (line: string) => {
+      socket.write(`${line}\r\n`);
+    };
+
+    // SMTP allows multiline replies (250-... / 250 ...); only advance on the
+    // final line of each response (space after the status code).
+    const onLine = (line: string) => {
+      if (!/^\d{3}[ -]/.test(line)) return;
+      const code = Number(line.slice(0, 3));
+      const isFinal = line[3] === ' ';
+      if (!isFinal) return;
+
+      if (code >= 400) {
+        fail(new Error(`SMTP error (${phase}): ${line}`));
+        return;
+      }
+
+      switch (phase) {
+        case 'greet':
+          write('EHLO localhost');
+          phase = 'ehlo';
+          break;
+        case 'ehlo':
+          write(`MAIL FROM:<${fromAddr}>`);
+          phase = 'mail';
+          break;
+        case 'mail':
+          write(`RCPT TO:<${rcpts[rcptIndex]}>`);
+          phase = 'rcpt';
+          break;
+        case 'rcpt':
+          rcptIndex += 1;
+          if (rcptIndex < rcpts.length) {
+            write(`RCPT TO:<${rcpts[rcptIndex]}>`);
+          } else {
+            write('DATA');
+            phase = 'data';
+          }
+          break;
+        case 'data': {
+          const payload = opts.raw.toString('utf-8').replace(/\r?\n/g, '\r\n');
+          const normalized = payload.endsWith('\r\n') ? payload : `${payload}\r\n`;
+          // Dot-stuff lines that start with "."
+          const stuffed = normalized
+            .split('\r\n')
+            .map((l) => (l.startsWith('.') ? `.${l}` : l))
+            .join('\r\n');
+          socket.write(`${stuffed}.\r\n`);
+          phase = 'body';
+          break;
+        }
+        case 'body':
+          write('QUIT');
+          phase = 'quit';
+          break;
+        case 'quit':
+          phase = 'done';
+          succeed();
+          break;
+        default:
+          break;
+      }
+    };
+
+    socket.setEncoding('utf8');
+    socket.on('data', (chunk: string) => {
+      buffer += chunk;
+      const lines = buffer.split(/\r?\n/);
+      buffer = lines.pop() ?? '';
+      for (const line of lines) onLine(line);
+    });
+    socket.on('error', (err) => fail(err));
+    socket.on('timeout', () => fail(new Error('SMTP connection timed out')));
+    socket.setTimeout(30_000);
+  });
+
+  return messageId;
+}
+
+async function captureSent(opts: {
+  toAddresses: string[];
+  ccAddresses: string[];
+  subject: string;
+  fromAddress: string;
+  hasAttachments: boolean;
+  attachmentCount?: number;
+}): Promise<void> {
+  captureWorkspaceEvent({
+    workspaceId: await getActiveWorkspaceId(),
+    distinctId: 'server',
+    event: 'email_sent',
+    properties: {
+      recipient_count: opts.toAddresses.length,
+      cc_count: opts.ccAddresses.length,
+      subject: opts.subject,
+      from_address: opts.fromAddress,
+      has_attachments: opts.hasAttachments,
+      ...(opts.attachmentCount !== undefined
+        ? { attachment_count: opts.attachmentCount }
+        : {}),
+    },
+  });
+}
+
+/**
+ * Send a transactional email via AWS SES (v2 API), or via SMTP when
+ * `SMTP_HOST` is set (local MailHog).
+ *
+ * Both `html` and `text` are required: SES rejects messages with neither, and
+ * a text fallback is good etiquette for spam filters and accessibility.
+ *
+ * Returns the SES MessageId on success (or a synthetic id for SMTP). Throws on
+ * credential/config errors or any non-2xx response from SES — callers (the
+ * `send-email` queue handler) are expected to let those propagate so Vercel
+ * Queues retries with backoff.
+ */
+export async function sendEmail(input: SendEmailInput): Promise<SendEmailResult> {
+  const fromAddress = input.from || DEFAULT_FROM_EMAIL;
+  const toAddresses = Array.isArray(input.to) ? input.to : [input.to];
+  const replyTo = input.replyTo || DEFAULT_REPLY_TO;
+
+  if (toAddresses.length === 0) {
+    throw new Error('sendEmail: at least one recipient is required');
+  }
+
+  const ccAddresses = resolveCcAddresses(input.cc, toAddresses);
+  const smtp = smtpConfig();
+
+  if (smtp) {
+    const raw = buildRawMimeMessage({ ...input, from: fromAddress, replyTo });
+    const messageId = await sendViaSmtp({
+      host: smtp.host,
+      port: smtp.port,
+      from: fromAddress,
+      recipients: [...toAddresses, ...ccAddresses],
+      raw,
+    });
+    await captureSent({
+      toAddresses,
+      ccAddresses,
+      subject: input.subject,
+      fromAddress,
+      hasAttachments: false,
+    });
+    return { messageId };
+  }
+
+  const client = getSesClient();
+
+  const command = new SendEmailCommand({
+    FromEmailAddress: fromAddress,
+    Destination: {
+      ToAddresses: toAddresses,
+      CcAddresses: ccAddresses.length > 0 ? ccAddresses : undefined,
+    },
+    ReplyToAddresses: replyTo ? [replyTo] : undefined,
+    Content: {
+      Simple: {
+        Subject: { Data: input.subject, Charset: 'UTF-8' },
+        Body: {
+          Html: { Data: input.html, Charset: 'UTF-8' },
+          Text: { Data: input.text, Charset: 'UTF-8' },
+        },
+      },
+    },
+  });
+
+  const response = await client.send(command);
+
+  await captureSent({
+    toAddresses,
+    ccAddresses,
+    subject: input.subject,
+    fromAddress,
+    hasAttachments: false,
+  });
+
+  return { messageId: response.MessageId ?? '' };
+}
+
+/**
  * Send a transactional email via AWS SES with one or more file attachments.
  * Uses the SES Raw email API since `Content.Simple` cannot carry attachments.
+ * When `SMTP_HOST` is set, delivers the same raw MIME over SMTP (MailHog).
  */
 export async function sendEmailWithAttachment(
   input: SendEmailWithAttachmentInput,
 ): Promise<SendEmailResult> {
-  const client = getSesClient();
-
   const fromAddress = input.from || DEFAULT_FROM_EMAIL;
   const toAddresses = Array.isArray(input.to) ? input.to : [input.to];
 
@@ -240,6 +441,28 @@ export async function sendEmailWithAttachment(
 
   const ccAddresses = resolveCcAddresses(input.cc, toAddresses);
   const raw = buildRawMimeMessage(input);
+  const smtp = smtpConfig();
+
+  if (smtp) {
+    const messageId = await sendViaSmtp({
+      host: smtp.host,
+      port: smtp.port,
+      from: fromAddress,
+      recipients: [...toAddresses, ...ccAddresses],
+      raw,
+    });
+    await captureSent({
+      toAddresses,
+      ccAddresses,
+      subject: input.subject,
+      fromAddress,
+      hasAttachments: true,
+      attachmentCount: input.attachments.length,
+    });
+    return { messageId };
+  }
+
+  const client = getSesClient();
 
   const command = new SendEmailCommand({
     FromEmailAddress: fromAddress,
@@ -252,18 +475,13 @@ export async function sendEmailWithAttachment(
 
   const response = await client.send(command);
 
-  captureWorkspaceEvent({
-    workspaceId: await getActiveWorkspaceId(),
-    distinctId: 'server',
-    event: 'email_sent',
-    properties: {
-      recipient_count: toAddresses.length,
-      cc_count: ccAddresses.length,
-      subject: input.subject,
-      from_address: fromAddress,
-      has_attachments: true,
-      attachment_count: input.attachments.length,
-    },
+  await captureSent({
+    toAddresses,
+    ccAddresses,
+    subject: input.subject,
+    fromAddress,
+    hasAttachments: true,
+    attachmentCount: input.attachments.length,
   });
 
   return { messageId: response.MessageId ?? '' };

@@ -79,6 +79,8 @@ interface LoadResult {
   // getActiveWorkspaceId(), which would silently resolve to MnA.
   workspaceId: string;
   effort: EffortChoice;
+  /** Email of triggered_by_user_id, when resolvable — for omit-to send_email. */
+  userEmail: string | null;
 }
 
 async function loadAndHeartbeat(runId: string): Promise<LoadResult> {
@@ -129,6 +131,18 @@ async function loadAndHeartbeat(runId: string): Promise<LoadResult> {
   const pending = await repo.consumePendingUserMessages(runId);
 
   await repo.heartbeat(runId);
+
+  let userEmail: string | null = null;
+  if (row.triggered_by_user_id) {
+    try {
+      const user = await new UserRepository(db).findById(row.triggered_by_user_id);
+      const email = user?.email?.trim();
+      if (email) userEmail = email;
+    } catch (err) {
+      console.warn('[runAgent] failed to resolve triggered_by user email', err);
+    }
+  }
+
   return {
     prompt: candidate,
     resumePayloadJson: row.resume_token ?? null,
@@ -136,6 +150,7 @@ async function loadAndHeartbeat(runId: string): Promise<LoadResult> {
     pendingMessages: pending.map((m) => m.text),
     workspaceId: row.workspace_id,
     effort,
+    userEmail,
   };
 }
 
@@ -190,6 +205,7 @@ async function invokeAgent(
   pendingMessages: string[],
   workspaceId: string,
   effort: EffortChoice,
+  userEmail: string | null,
 ): Promise<InvokeStepResult> {
   'use step';
   if (!process.env.ANTHROPIC_API_KEY) {
@@ -204,6 +220,25 @@ async function invokeAgent(
     throw new RetryableError('workforce agent graph unavailable');
   }
 
+  const toolConfig = {
+    thread_id: threadId,
+    agentRole: 'workforce' as const,
+    ...(userEmail ? { userEmail } : {}),
+  };
+
+  // Keep the queue heartbeat alive during long tool calls (e.g. pptx skill).
+  const heartbeatTimer = setInterval(() => {
+    void (async () => {
+      try {
+        const db = createDb();
+        const repo = new AiWorkforceQueueRepository(db, workspaceId);
+        await repo.heartbeat(runId);
+      } catch (err) {
+        console.warn('[runAgent] mid-invoke heartbeat failed', err);
+      }
+    })();
+  }, 60_000);
+
   // Agent tools call getActiveWorkspaceId() the same way request-handling
   // code does, but there's no session here to resolve it from. Wrapping the
   // whole invoke (and any tool calls LangGraph makes inside it) in this
@@ -211,94 +246,103 @@ async function invokeAgent(
   // silently falling back to MnA. Verified this survives through
   // LangChain's tool() wrapper and an async DB-call hop, not just a bare
   // promise chain.
-  const result = await runWithWorkforceWorkspaceId(workspaceId, async () => {
-    if (resumePayloadJson) {
-      return graph.resume(runId, JSON.parse(resumePayloadJson));
+  try {
+    const result = await runWithWorkforceWorkspaceId(workspaceId, async () => {
+      if (resumePayloadJson) {
+        return graph.resume(runId, JSON.parse(resumePayloadJson), {
+          configurable: toolConfig,
+          recursionLimit: 50,
+        });
+      }
+      const state = (await graph.getState({
+        configurable: { thread_id: threadId },
+      })) as { values?: { messages?: unknown[] } };
+      const isReopen = state.values?.messages && state.values.messages.length > 0;
+      return graph.invoke(
+        {
+          messages: isReopen
+            ? pendingMessages.map((t) => new HumanMessage(t))
+            : [
+                new HumanMessage(prompt),
+                ...pendingMessages.map((t) => new HumanMessage(t)),
+              ],
+        },
+        { configurable: toolConfig, recursionLimit: 50 },
+      );
+    });
+
+    // HITL interrupt fired — the agent has paused awaiting a human decision.
+    // Hand off to the decision endpoint via status; don't finalize and don't
+    // throw (we'd rather not call markFailed for a healthy pause).
+    if (result.interrupt?.actionRequests?.length) {
+      return interruptedFrom(result.interrupt.actionRequests[0]);
     }
-    const state = await graph.getState({ configurable: { thread_id: threadId } }) as { values?: { messages?: unknown[] } };
-    const isReopen = state.values?.messages && state.values.messages.length > 0;
-    return graph.invoke(
-      {
-        messages: isReopen
-          ? pendingMessages.map((t) => new HumanMessage(t))
-          : [
-              new HumanMessage(prompt),
-              ...pendingMessages.map((t) => new HumanMessage(t)),
-            ],
-      },
-      { configurable: { thread_id: threadId }, recursionLimit: 50 },
-    );
-  });
 
-  // HITL interrupt fired — the agent has paused awaiting a human decision.
-  // Hand off to the decision endpoint via status; don't finalize and don't
-  // throw (we'd rather not call markFailed for a healthy pause).
-  if (result.interrupt?.actionRequests?.length) {
-    return interruptedFrom(result.interrupt.actionRequests[0]);
-  }
-
-  // Resume branch only: drain any user updates that landed while the row
-  // was paused. We do this via a fresh invoke on the same thread so the
-  // agent sees the updates as new HumanMessages in the existing
-  // conversation. If this follow-up itself interrupts or errors, it's
-  // handled by the same WDK retry envelope as the main invoke.
-  let finalResult = result;
-  if (resumePayloadJson && pendingMessages.length > 0) {
-    finalResult = await runWithWorkforceWorkspaceId(workspaceId, () =>
-      graph.invoke(
-        { messages: pendingMessages.map((t) => new HumanMessage(t)) },
-        { configurable: { thread_id: threadId }, recursionLimit: 50 },
-      ),
-    );
-    if (finalResult.interrupt?.actionRequests?.length) {
-      return interruptedFrom(finalResult.interrupt.actionRequests[0]);
+    // Resume branch only: drain any user updates that landed while the row
+    // was paused. We do this via a fresh invoke on the same thread so the
+    // agent sees the updates as new HumanMessages in the existing
+    // conversation. If this follow-up itself interrupts or errors, it's
+    // handled by the same WDK retry envelope as the main invoke.
+    let finalResult = result;
+    if (resumePayloadJson && pendingMessages.length > 0) {
+      finalResult = await runWithWorkforceWorkspaceId(workspaceId, () =>
+        graph.invoke(
+          { messages: pendingMessages.map((t) => new HumanMessage(t)) },
+          { configurable: toolConfig, recursionLimit: 50 },
+        ),
+      );
+      if (finalResult.interrupt?.actionRequests?.length) {
+        return interruptedFrom(finalResult.interrupt.actionRequests[0]);
+      }
     }
-  }
 
-  const messages = finalResult.messages ?? [];
-  const lastMessage = messages[messages.length - 1];
-  const finalMessage = extractMessageText(lastMessage);
+    const messages = finalResult.messages ?? [];
+    const lastMessage = messages[messages.length - 1];
+    const finalMessage = extractMessageText(lastMessage);
 
-  let isFailure = finalMessage.trim().startsWith('✗ Could not complete');
-  let failureReason = finalMessage;
+    let isFailure = finalMessage.trim().startsWith('✗ Could not complete');
+    let failureReason = finalMessage;
 
-  if (!isFailure && lastMessage) {
-    const toolCalls = (lastMessage as unknown as { tool_calls?: unknown[] }).tool_calls;
-    if (Array.isArray(toolCalls)) {
-      const narrate = (toolCalls as any[]).find((tc) => tc?.name === 'narrate_step');
-      if (narrate && narrate.args && typeof narrate.args === 'object') {
-        const title = narrate.args.title;
-        if (typeof title === 'string' && /^[✗✘]/.test(title.trim())) {
-          isFailure = true;
-          // Use the overview if available to provide more context in the error, 
-          // otherwise fallback to the title.
-          const overview = narrate.args.overview;
-          failureReason = typeof overview === 'string' ? `${title}\n\n${overview}` : title;
+    if (!isFailure && lastMessage) {
+      const toolCalls = (lastMessage as unknown as { tool_calls?: unknown[] }).tool_calls;
+      if (Array.isArray(toolCalls)) {
+        const narrate = (toolCalls as any[]).find((tc) => tc?.name === 'narrate_step');
+        if (narrate && narrate.args && typeof narrate.args === 'object') {
+          const title = narrate.args.title;
+          if (typeof title === 'string' && /^[✗✘]/.test(title.trim())) {
+            isFailure = true;
+            // Use the overview if available to provide more context in the error,
+            // otherwise fallback to the title.
+            const overview = narrate.args.overview;
+            failureReason = typeof overview === 'string' ? `${title}\n\n${overview}` : title;
+          }
         }
       }
     }
-  }
 
-  if (isFailure) {
+    if (isFailure) {
+      return {
+        kind: 'failed',
+        reason: failureReason,
+      };
+    }
+
+    // tool_calls is an AIMessage-only field; BaseMessage typings don't include
+    // it, so we widen the type via unknown before reading.
+    const toolCallCount = messages.filter((m) => {
+      const calls = (m as unknown as { tool_calls?: unknown[] }).tool_calls;
+      return Array.isArray(calls) && calls.length > 0;
+    }).length;
+
     return {
-      kind: 'failed',
-      reason: failureReason,
+      kind: 'completed',
+      finalMessage,
+      messageCount: messages.length,
+      toolCallCount,
     };
+  } finally {
+    clearInterval(heartbeatTimer);
   }
-
-  // tool_calls is an AIMessage-only field; BaseMessage typings don't include
-  // it, so we widen the type via unknown before reading.
-  const toolCallCount = messages.filter((m) => {
-    const calls = (m as unknown as { tool_calls?: unknown[] }).tool_calls;
-    return Array.isArray(calls) && calls.length > 0;
-  }).length;
-
-  return {
-    kind: 'completed',
-    finalMessage,
-    messageCount: messages.length,
-    toolCallCount,
-  };
 }
 
 async function finalize(
@@ -409,14 +453,11 @@ async function kickDispatcher(
 
 export async function runAgent({ runId }: { runId: string }): Promise<void> {
   'use workflow';
-  const { prompt, resumePayloadJson, threadId, pendingMessages, workspaceId, effort } =
+  const { prompt, resumePayloadJson, threadId, pendingMessages, workspaceId, effort, userEmail } =
     await loadAndHeartbeat(runId);
 
-  // TODO(Tier 3+): heartbeat periodically inside long invokeAgent runs so
-  // legitimate slow LLM/tool work doesn't trip the reaper's 5min staleness
-  // window. The single heartbeat in loadAndHeartbeat covers the no-op-fast
-  // case; agents that run > ~4 min need a sidecar heartbeat loop or the
-  // step itself needs to break into smaller turns.
+  // Mid-invoke heartbeats run inside invokeAgent (60s ticker) so long tool
+  // calls such as pptx generation do not trip the 30m reaper.
   try {
     const result = await invokeAgent(
       runId,
@@ -426,6 +467,7 @@ export async function runAgent({ runId }: { runId: string }): Promise<void> {
       pendingMessages,
       workspaceId,
       effort,
+      userEmail,
     );
     if (result.kind === 'interrupted') {
       // Healthy pause: HITL middleware caught a gated tool call. The decision

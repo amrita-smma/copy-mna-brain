@@ -3,7 +3,7 @@ import { CallbackHandler } from "langfuse-langchain";
 /**
  * Returns a Langfuse CallbackHandler array if the environment is development
  * and the Langfuse secret key is provided. Otherwise, returns an empty array.
- * 
+ *
  * This should be passed to the `callbacks` array in LangChain/LangGraph invocations.
  */
 let langfuseHandler: CallbackHandler | null = null;
@@ -21,4 +21,14 @@ export function getLangfuseCallbacks() {
     return [langfuseHandler];
   }
   return [];
+}
+
+/** Drain the Langfuse queue — call after streamed chat turns so events aren't dropped. */
+export async function flushLangfuse(): Promise<void> {
+  if (!langfuseHandler) return;
+  try {
+    await langfuseHandler.flushAsync();
+  } catch (err) {
+    console.warn("[langfuse] flush failed", err);
+  }
 }

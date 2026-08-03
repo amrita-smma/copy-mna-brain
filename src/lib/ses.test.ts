@@ -5,6 +5,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 const { sendMock, captureMock } = vi.hoisted(() => {
   process.env.AWS_ACCESS_KEY_ID = 'test-key';
   process.env.AWS_SECRET_ACCESS_KEY = 'test-secret';
+  delete process.env.SMTP_HOST;
+  delete process.env.SMTP_PORT;
   return { sendMock: vi.fn(), captureMock: vi.fn() };
 });
 
@@ -50,6 +52,8 @@ function lastCommandInput(): CapturedCommand['input'] {
 
 describe('sendEmail (CC handling)', () => {
   beforeEach(() => {
+    delete process.env.SMTP_HOST;
+    delete process.env.SMTP_PORT;
     sendMock.mockReset().mockResolvedValue({ MessageId: 'msg-1' });
     captureMock.mockReset();
     _resetSesClientForTests();
@@ -127,6 +131,8 @@ describe('sendEmail (CC handling)', () => {
 
 describe('sendEmailWithAttachment (CC handling)', () => {
   beforeEach(() => {
+    delete process.env.SMTP_HOST;
+    delete process.env.SMTP_PORT;
     sendMock.mockReset().mockResolvedValue({ MessageId: 'msg-2' });
     captureMock.mockReset();
     process.env.AWS_ACCESS_KEY_ID = 'test-key';
