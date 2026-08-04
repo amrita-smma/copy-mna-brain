@@ -38,6 +38,30 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "skipReason": "noise"
   },
   {
+    "hash": "2697916276d82a3dc1fbb5168bc3db4acc5d6a19",
+    "date": "2026-08-04",
+    "subject": "fix GitHub OIDC subject trust",
+    "category": "fix",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "79cab280f966793fa6493ede75eb70d42ed0c67a",
+    "date": "2026-08-04",
+    "subject": "debug lambda workflow",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "23729db247006c0885f65533dee1f96a6b0380e3",
+    "date": "2026-08-04",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "ee9a4b88f05744cfe265a9c4e8ee00e339671715",
     "date": "2026-08-03",
     "subject": "MB-444: Copilot PPTX via email + local MailHog / opt-in docker services",
