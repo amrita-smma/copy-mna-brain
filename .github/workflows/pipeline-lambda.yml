@@ -120,11 +120,19 @@ jobs:
       - name: Build Lambda zips
         run: pnpm --filter data-pipeline build
 
-      - name: Configure AWS credentials
+      - name: Configure AWS credentials (staging)
+        if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.environment == 'staging')
         uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-region: ${{ env.AWS_REGION }}
-          role-to-assume: ${{ github.event_name == 'workflow_dispatch' && inputs.environment == 'production' && secrets.PROD_AWS_PIPELINE_LAMBDA_DEPLOY_ROLE_ARN || secrets.STG_AWS_PIPELINE_LAMBDA_DEPLOY_ROLE_ARN }}
+          role-to-assume: ${{ secrets.STG_AWS_PIPELINE_LAMBDA_DEPLOY_ROLE_ARN }}
+
+      - name: Configure AWS credentials (production)
+        if: github.event_name == 'workflow_dispatch' && inputs.environment == 'production'
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: ${{ env.AWS_REGION }}
+          role-to-assume: ${{ secrets.PROD_AWS_PIPELINE_LAMBDA_DEPLOY_ROLE_ARN }}
 
       - name: Upload Lambda code
         shell: bash
