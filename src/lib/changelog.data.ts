@@ -6,6 +6,14 @@ import type { ChangelogEntry } from './changelog';
 
 export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   {
+    "hash": "201a60cb37ef93482f82dfaf85c2ea71f7bc9704",
+    "date": "2026-08-04",
+    "subject": "Fix changelog",
+    "category": "fix",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
     "hash": "ee9a4b88f05744cfe265a9c4e8ee00e339671715",
     "date": "2026-08-03",
     "subject": "MB-444: Copilot PPTX via email + local MailHog / opt-in docker services",
