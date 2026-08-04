@@ -14,6 +14,14 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "skipReason": "vague"
   },
   {
+    "hash": "8cf2f5c9fbe19049677da15858ef7a0931db15e4",
+    "date": "2026-08-04",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "ee9a4b88f05744cfe265a9c4e8ee00e339671715",
     "date": "2026-08-03",
     "subject": "MB-444: Copilot PPTX via email + local MailHog / opt-in docker services",
