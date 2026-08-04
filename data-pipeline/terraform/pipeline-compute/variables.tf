@@ -55,6 +55,12 @@ variable "github_repository" {
   default     = "sqeai/mna-brain"
 }
 
+variable "github_oidc_repository_subject" {
+  description = "ID-qualified GitHub OIDC repository subject. GitHub may use this form after a repository rename."
+  type        = string
+  default     = "sqeai@201060396/mna-brain@1138955955"
+}
+
 variable "github_oidc_provider_arn" {
   description = "Existing GitHub Actions OIDC provider ARN. Leave null to create one in this state."
   type        = string

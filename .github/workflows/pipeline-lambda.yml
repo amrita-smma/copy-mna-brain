@@ -120,26 +120,6 @@ jobs:
       - name: Build Lambda zips
         run: pnpm --filter data-pipeline build
 
-      - name: Debug GitHub OIDC claims
-        shell: bash
-        run: |
-          set -euo pipefail
-          token="$(curl -fsSL \
-            -H "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
-            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=sts.amazonaws.com" | \
-            node -e 'let s=""; process.stdin.on("data", d => s += d); process.stdin.on("end", () => process.stdout.write(JSON.parse(s).value));')"
-          OIDC_TOKEN="$token" node <<'NODE'
-          const token = process.env.OIDC_TOKEN;
-          const claims = JSON.parse(Buffer.from(token.split('.')[1], 'base64url').toString('utf8'));
-          console.log(JSON.stringify({
-            iss: claims.iss,
-            aud: claims.aud,
-            sub: claims.sub,
-            repository: claims.repository,
-            ref: claims.ref,
-          }, null, 2));
-          NODE
-
       - name: Configure AWS credentials (staging)
         if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.environment == 'staging')
         uses: aws-actions/configure-aws-credentials@v4
