@@ -6,17 +6,23 @@
  * on every push to `main`; the workflow commits the regenerated file back to
  * `main`. Can also be run locally (`pnpm changelog:generate`) to preview.
  *
- * For new commits, this script submits all unseen entries as a single Anthropic
- * Message Batch (parallel, 50 % cheaper than individual calls). Each request
- * asks claude-haiku to rewrite the raw commit subject into a user-facing sentence,
- * optionally enriched with the associated PR title + summary fetched in parallel
- * via `gh api`.
+ * Accounting model: `changelog.data.ts` records EVERY commit read from git,
+ * each flagged `skipped` or not. The first step is a cross-check — read the full
+ * git history, then keep only commits whose hash is not already present in the
+ * data file ("unaccounted"). Everything already in the file (shown or skipped)
+ * is left untouched and never re-examined, so noise and too-vague commits are
+ * checked exactly once, ever.
  *
- * Caching: already-processed commits (present in changelog.data.ts by hash) are
- * reused as-is — only genuinely new commits incur an API call.
+ * For unaccounted commits, this script submits the non-noise ones as a single
+ * Anthropic Message Batch (parallel, 50 % cheaper than individual calls). Each
+ * request asks claude-haiku to rewrite the raw commit subject into a user-facing
+ * sentence, optionally enriched with the associated PR title + summary fetched
+ * in parallel via `gh api`. Commits the model judges too vague are recorded with
+ * `skipped: true` (reason `vague`) so they are not re-checked next run.
  *
  * Noise filter (in src/lib/changelog.ts): merge commits, reverts, hotfixes,
- * [skip-ci], and github-actions/bot authors are excluded entirely.
+ * [skip-ci], github-actions/bot authors, and undateable commits are recorded
+ * with `skipped: true` (reason `noise`) — never sent to the API.
  *
  * Falls back to regex-cleaned subjects when ANTHROPIC_API_KEY is not set.
  *
@@ -30,7 +36,13 @@ const exec = promisify(execCallback);
 import { writeFileSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { config as dotenvConfig } from 'dotenv';
-import { commitsToEntries, cleanSubject, type RawCommit, type ChangelogEntry } from '../src/lib/changelog';
+import {
+  classifyCommit,
+  sortChangelogEntries,
+  cleanSubject,
+  type RawCommit,
+  type ChangelogEntry,
+} from '../src/lib/changelog';
 
 // Load .env.local first (Next.js convention), then .env, then fall back to
 // whatever is already in the environment (CI injects ANTHROPIC_API_KEY as a secret).
@@ -58,18 +70,18 @@ function readCommits(): RawCommit[] {
 }
 
 /**
- * Parse the existing output file and return a map of commit hash → already
- * reformatted subject. These are reused as-is so only new commits need an API call.
+ * Parse the existing output file and return every stored entry (shown and
+ * skipped alike). These are the already-accounted-for commits: they are kept
+ * verbatim and never re-examined.
  */
-function readExistingSubjects(): Map<string, string> {
+function readExistingEntries(): ChangelogEntry[] {
   try {
     const content = readFileSync(OUT_FILE, 'utf8');
     const match = /export const GENERATED_CHANGELOG[^=]+=\s*(\[[\s\S]*?\]);/.exec(content);
-    if (!match) return new Map();
-    const entries = JSON.parse(match[1]) as ChangelogEntry[];
-    return new Map(entries.map((e) => [e.hash, e.subject]));
+    if (!match) return [];
+    return JSON.parse(match[1]) as ChangelogEntry[];
   } catch {
-    return new Map();
+    return [];
   }
 }
 
@@ -164,35 +176,51 @@ async function main(): Promise<void> {
     return;
   }
 
-  const existingSubjects = readExistingSubjects();
+  const existingEntries = readExistingEntries();
+  const accounted = new Set(existingEntries.map((e) => e.hash));
   const rawCommitByHash = new Map(rawCommits.map((c) => [c.hash, c]));
 
-  // Noise-filtered, categorised entries (reverts, hotfixes, merges, etc. already excluded).
-  // No cap — keep the full history; the UI lazy-loads in pages.
-  const entries = commitsToEntries(rawCommits, Infinity);
+  // Step 1 — cross-check: keep only commits not already recorded in the data
+  // file. Everything else (shown or skipped) is already accounted for.
+  const unaccounted = rawCommits.filter((c) => !accounted.has(c.hash));
 
-  const newEntries = entries.filter((e) => !existingSubjects.has(e.hash));
-
-  if (newEntries.length === 0) {
-    // Nothing new — rebuild the file preserving all cached subjects.
-    const finalEntries = entries.map((e) => ({ ...e, subject: existingSubjects.get(e.hash) ?? e.subject }));
-    writeFileSync(OUT_FILE, renderFile(finalEntries), 'utf8');
-    console.log(`[changelog] All ${entries.length} entr${entries.length === 1 ? 'y' : 'ies'} already cached — nothing to reformat.`);
+  if (unaccounted.length === 0) {
+    console.log(
+      `[changelog] All ${rawCommits.length} commit(s) already accounted for — nothing to do.`,
+    );
     return;
   }
 
-  console.log(`[changelog] ${newEntries.length} new commit(s) to reformat, ${entries.length - newEntries.length} cached.`);
+  // Classify every unaccounted commit. Noise/undateable come back flagged
+  // `skipped` (reason `noise`) and never hit the API; the rest are candidates
+  // for the model to reformat.
+  const classified = unaccounted.map(classifyCommit);
+  const candidates = classified.filter((e) => !e.skipped);
+  const noiseCount = classified.length - candidates.length;
 
-  // Fetch PR info for all new entries in parallel.
-  const prs = await Promise.all(newEntries.map((e) => fetchPr(e.hash)));
+  console.log(
+    `[changelog] ${unaccounted.length} unaccounted commit(s): ` +
+      `${candidates.length} to reformat, ${noiseCount} filtered as noise.`,
+  );
 
-  // Map of hash → Haiku-reformatted subject for new entries only.
+  if (candidates.length === 0) {
+    // Only noise — record it so it is never re-checked, then finish.
+    const finalEntries = sortChangelogEntries([...existingEntries, ...classified]);
+    writeFileSync(OUT_FILE, renderFile(finalEntries), 'utf8');
+    console.log(`[changelog] Recorded ${noiseCount} noise commit(s); no reformatting needed.`);
+    return;
+  }
+
+  // Fetch PR info for all candidates in parallel.
+  const prs = await Promise.all(candidates.map((e) => fetchPr(e.hash)));
+
+  // Map of hash → Haiku-reformatted subject for candidates only.
   const reformattedSubjects = new Map<string, string>();
   const skippedHashes = new Set<string>();
 
   if (!process.env.ANTHROPIC_API_KEY) {
     console.warn('[changelog] ANTHROPIC_API_KEY not set — using regex-cleaned subjects as fallback.');
-    for (const entry of newEntries) {
+    for (const entry of candidates) {
       const raw = rawCommitByHash.get(entry.hash);
       reformattedSubjects.set(entry.hash, cleanSubject(raw?.subject ?? entry.subject));
     }
@@ -201,7 +229,7 @@ async function main(): Promise<void> {
     // Cheaper (50% discount) but asynchronous — takes ~1 min to complete.
     const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
-    const batchRequests = newEntries.map((entry, i) => {
+    const batchRequests = candidates.map((entry, i) => {
       const raw = rawCommitByHash.get(entry.hash);
       const prompt = buildPrompt(raw?.subject ?? entry.subject, prs[i] ?? null);
       return {
@@ -245,9 +273,9 @@ async function main(): Promise<void> {
     // standard API pricing.
     const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
-    console.log(`[changelog] Sending ${newEntries.length} request(s) in parallel…`);
+    console.log(`[changelog] Sending ${candidates.length} request(s) in parallel…`);
     const results = await Promise.all(
-      newEntries.map(async (entry, i) => {
+      candidates.map(async (entry, i) => {
         const raw = rawCommitByHash.get(entry.hash);
         const prompt = buildPrompt(raw?.subject ?? entry.subject, prs[i] ?? null);
         try {
@@ -278,22 +306,33 @@ async function main(): Promise<void> {
     }
   }
 
-  // Merge cached + newly reformatted subjects; drop entries Haiku flagged as too vague.
-  const finalEntries = entries
-    .filter((e) => !skippedHashes.has(e.hash))
-    .map((entry) => ({
-      ...entry,
-      subject: existingSubjects.get(entry.hash) ?? reformattedSubjects.get(entry.hash) ?? entry.subject,
-    }));
+  // Apply the model's verdict to each candidate: adopt the reformatted subject,
+  // or flag it skipped (reason `vague`) so it is recorded but hidden and never
+  // re-checked.
+  for (const entry of candidates) {
+    if (skippedHashes.has(entry.hash)) {
+      entry.skipped = true;
+      entry.skipReason = 'vague';
+      continue;
+    }
+    const subject = reformattedSubjects.get(entry.hash);
+    if (subject) entry.subject = subject;
+  }
+
+  // Merge the already-accounted entries (untouched) with the freshly classified
+  // ones, then sort newest-first. Skipped entries are persisted too.
+  const finalEntries = sortChangelogEntries([...existingEntries, ...classified]);
 
   const mode = !process.env.ANTHROPIC_API_KEY ? 'fallback' : USE_BATCH ? 'batch' : 'parallel';
   writeFileSync(OUT_FILE, renderFile(finalEntries), 'utf8');
+  const shown = finalEntries.filter((e) => !e.skipped).length;
   console.log(
     `[changelog] Wrote ${finalEntries.length} entr${finalEntries.length === 1 ? 'y' : 'ies'} ` +
-      `(${reformattedSubjects.size} reformatted via Haiku [${mode}], ` +
-      `${finalEntries.length - reformattedSubjects.size} cached` +
+      `(${shown} shown, ${finalEntries.length - shown} skipped) — this run: ` +
+      `${reformattedSubjects.size} reformatted via Haiku [${mode}], ` +
+      `${noiseCount} noise` +
       (skippedHashes.size > 0 ? `, ${skippedHashes.size} skipped as too vague` : '') +
-      `).`,
+      `.`,
   );
 }
 

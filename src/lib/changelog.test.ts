@@ -2,7 +2,8 @@ import { describe, it, expect } from 'vitest';
 import {
   categorizeCommit,
   cleanSubject,
-  commitsToEntries,
+  classifyCommit,
+  sortChangelogEntries,
   groupChangelogByDay,
   latestChangelogDate,
   hasUnseenChanges,
@@ -68,44 +69,52 @@ describe('cleanSubject', () => {
   });
 });
 
-describe('commitsToEntries', () => {
-  it('maps a commit to an entry with cleaned subject, category, and day', () => {
-    const [entry] = commitsToEntries([commit({ subject: 'feat: yen to RMB (#483)' })]);
+describe('classifyCommit', () => {
+  it('maps a shown commit to an entry with cleaned subject, category, and day', () => {
+    const entry = classifyCommit(commit({ subject: 'feat: yen to RMB (#483)' }));
     expect(entry).toEqual({
       hash: 'abc123',
       date: '2026-07-24',
       subject: 'yen to RMB',
       category: 'feature',
     });
+    expect(entry.skipped).toBeUndefined();
   });
 
-  it('drops merge commits, the Action\'s own commits, and empty subjects', () => {
-    const entries = commitsToEntries([
+  it('flags merge commits, the Action\'s own commits, and empty subjects as noise', () => {
+    const entries = [
       commit({ hash: 'm', subject: 'Merge pull request #1 from x' }),
       commit({ hash: 'bot', author: 'github-actions[bot]', subject: 'chore: update changelog' }),
       commit({ hash: 'skip', subject: 'something [skip ci]' }),
       commit({ hash: 'blank', subject: '   ' }),
       commit({ hash: 'good', subject: 'Real change' }),
-    ]);
-    expect(entries.map((e) => e.hash)).toEqual(['good']);
+    ].map(classifyCommit);
+
+    const shown = entries.filter((e) => !e.skipped);
+    expect(shown.map((e) => e.hash)).toEqual(['good']);
+    for (const e of entries.filter((e) => e.hash !== 'good')) {
+      expect(e).toMatchObject({ skipped: true, skipReason: 'noise' });
+    }
   });
 
-  it('drops commits whose date cannot be parsed', () => {
-    const entries = commitsToEntries([
-      commit({ hash: 'bad', date: 'not-a-date' }),
-      commit({ hash: 'good' }),
-    ]);
-    expect(entries.map((e) => e.hash)).toEqual(['good']);
+  it('flags commits whose date cannot be parsed as noise', () => {
+    const entry = classifyCommit(commit({ hash: 'bad', date: 'not-a-date' }));
+    expect(entry).toMatchObject({ skipped: true, skipReason: 'noise' });
   });
+});
 
-  it('sorts newest-first and caps to maxEntries', () => {
+describe('sortChangelogEntries', () => {
+  it('sorts newest-first without mutating the input', () => {
     const raw = [
       commit({ hash: 'a', date: '2026-07-20T00:00:00Z' }),
       commit({ hash: 'b', date: '2026-07-24T00:00:00Z' }),
       commit({ hash: 'c', date: '2026-07-22T00:00:00Z' }),
-    ];
-    expect(commitsToEntries(raw).map((e) => e.hash)).toEqual(['b', 'c', 'a']);
-    expect(commitsToEntries(raw, 2).map((e) => e.hash)).toEqual(['b', 'c']);
+    ].map(classifyCommit);
+
+    const sorted = sortChangelogEntries(raw);
+    expect(sorted.map((e) => e.hash)).toEqual(['b', 'c', 'a']);
+    // input order preserved (no mutation)
+    expect(raw.map((e) => e.hash)).toEqual(['a', 'b', 'c']);
   });
 });
 

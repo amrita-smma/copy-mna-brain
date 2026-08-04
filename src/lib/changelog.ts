@@ -17,6 +17,13 @@ import { GENERATED_CHANGELOG } from './changelog.data';
 
 export type ChangeCategory = 'feature' | 'improvement' | 'fix';
 
+/**
+ * Why a stored commit is hidden from the UI:
+ * - `noise`: filtered by `isNoise` (merge/revert/hotfix/bot/undateable) — never hits the API.
+ * - `vague`: the model judged it too internal to yield a user-facing entry (returned SKIP).
+ */
+export type SkipReason = 'noise' | 'vague';
+
 /** A raw commit as read from `git log` by the generator. */
 export interface RawCommit {
   hash: string;
@@ -27,7 +34,14 @@ export interface RawCommit {
   subject: string;
 }
 
-/** A commit normalised for the changelog UI. */
+/**
+ * A commit normalised for the changelog UI.
+ *
+ * The generated data file (`changelog.data.ts`) records **every** commit read
+ * from git history, whether it is shown or not. Entries with `skipped: true`
+ * are persisted purely so the generator knows they have already been accounted
+ * for and never re-checks them; the UI filters them out (see `CHANGELOG`).
+ */
 export interface ChangelogEntry {
   /** Full commit SHA — stable key, also links to the commit on GitHub. */
   hash: string;
@@ -36,6 +50,10 @@ export interface ChangelogEntry {
   /** Cleaned, human-readable summary. */
   subject: string;
   category: ChangeCategory;
+  /** True when the commit is recorded but hidden from the UI. Omitted when shown. */
+  skipped?: boolean;
+  /** Present only when `skipped` — why it was filtered. */
+  skipReason?: SkipReason;
 }
 
 /** A day's worth of changelog entries. */
@@ -45,15 +63,12 @@ export interface ChangelogDay {
 }
 
 /**
- * Cap on how many entries the generator keeps, newest first. A "What's new"
- * widget only needs recent history; without a cap the committed data file (and
- * the initial backfill of the entire repo history) would grow unbounded. Raise
- * this if you want a longer visible history.
+ * The generated, push-refreshed list of changelog entries (newest first),
+ * with skipped commits (noise + too-vague) filtered out. The data file keeps
+ * those skipped entries so the generator can account for them; the UI never
+ * shows them.
  */
-export const MAX_CHANGELOG_ENTRIES = 200;
-
-/** The generated, push-refreshed list of changelog entries (newest first). */
-export const CHANGELOG: ChangelogEntry[] = GENERATED_CHANGELOG;
+export const CHANGELOG: ChangelogEntry[] = GENERATED_CHANGELOG.filter((e) => !e.skipped);
 
 /** First 10 chars of an ISO timestamp (`YYYY-MM-DD`), or '' if not parseable. */
 function isoDay(timestamp: string | null | undefined): string {
@@ -94,7 +109,7 @@ const NOISE = [
   /^chore: update changelog\b/i,
 ];
 
-function isNoise(commit: RawCommit): boolean {
+export function isNoise(commit: RawCommit): boolean {
   if (!commit.subject.trim()) return true;
   if (commit.author.toLowerCase().includes('github-actions')) return true;
   if (commit.author.toLowerCase().includes('github-bot')) return true;
@@ -103,28 +118,34 @@ function isNoise(commit: RawCommit): boolean {
 }
 
 /**
- * Normalise raw commits into changelog entries: drop merge commits, the Action's
- * own changelog commits, and anything undateable; clean + categorise the rest;
- * sort newest-first; cap to `maxEntries`. Pure — the generator does the `git`
- * reading and passes the commits here, so this stays unit-testable.
+ * Normalise a single raw commit into a stored changelog entry. Every commit is
+ * turned into an entry so it can be recorded and never re-processed — merge
+ * commits, the Action's own changelog commits, and undateable commits come back
+ * flagged `skipped` (reason `noise`) rather than dropped. The generator hands
+ * non-skipped entries to the model, which may further mark them `skipped`
+ * (reason `vague`). Pure, so it stays unit-testable.
  */
-export function commitsToEntries(
-  commits: RawCommit[],
-  maxEntries: number = MAX_CHANGELOG_ENTRIES,
-): ChangelogEntry[] {
-  return commits
-    .filter((c) => !isNoise(c))
-    .map((c) => ({
-      hash: c.hash,
-      date: isoDay(c.date),
-      subject: cleanSubject(c.subject),
-      category: categorizeCommit(c.subject),
-    }))
-    .filter((e) => e.date !== '' && e.hash !== '')
-    // Stable sort newest-first; git log already yields newest-first, so equal
-    // dates keep their commit order.
-    .sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0))
-    .slice(0, maxEntries);
+export function classifyCommit(commit: RawCommit): ChangelogEntry {
+  const entry: ChangelogEntry = {
+    hash: commit.hash,
+    date: isoDay(commit.date),
+    subject: cleanSubject(commit.subject),
+    category: categorizeCommit(commit.subject),
+  };
+  if (isNoise(commit) || entry.date === '' || entry.hash === '') {
+    entry.skipped = true;
+    entry.skipReason = 'noise';
+  }
+  return entry;
+}
+
+/**
+ * Sort entries newest-first, stably. Git log already yields newest-first, so
+ * equal dates keep their commit order. Undateable entries (`date === ''`) sort
+ * last. Does not mutate the input.
+ */
+export function sortChangelogEntries(entries: ChangelogEntry[]): ChangelogEntry[] {
+  return [...entries].sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
 }
 
 /**

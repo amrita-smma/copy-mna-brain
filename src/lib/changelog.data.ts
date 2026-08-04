@@ -6,16 +6,140 @@ import type { ChangelogEntry } from './changelog';
 
 export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   {
+    "hash": "ee9a4b88f05744cfe265a9c4e8ee00e339671715",
+    "date": "2026-08-03",
+    "subject": "MB-444: Copilot PPTX via email + local MailHog / opt-in docker services",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "4d79f21cd03c2be775012a21a6ca952028dabe36",
+    "date": "2026-07-31",
+    "subject": "write .env.e2e.local in preview CI for Playwright",
+    "category": "fix",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "0f7c1113e69a356d2eb786e54b1817f3228f6e56",
+    "date": "2026-07-31",
+    "subject": "Enable full-text search across deal valuations and financial metrics",
+    "category": "feature"
+  },
+  {
+    "hash": "683e2c5a55def20cc6bb2e3c78929e200f7c2283",
+    "date": "2026-07-31",
+    "subject": "Edit matched companies inline with drag-and-drop reordering and faster tab loading",
+    "category": "feature"
+  },
+  {
     "hash": "732503210096c621ac676e64e63b4b36af6f70cb",
     "date": "2026-07-30",
     "subject": "Filter company queries by deal captain and entered by user",
     "category": "feature"
   },
   {
+    "hash": "5f60a425d557f630730b171acc8541df51a7355c",
+    "date": "2026-07-30",
+    "subject": "Fix github yml syntax",
+    "category": "fix",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "a371fda9129021c32bf491dbc7ad4b569b70878d",
+    "date": "2026-07-30",
+    "subject": "seed data mode + daily staging pipeline",
+    "category": "feature",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "410df4f6e886b9338a7c1a47c17f5ff17934a080",
+    "date": "2026-07-30",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "bb5db08c2dee5a613fee5d4e3e166fc296240375",
     "date": "2026-07-28",
     "subject": "Changelog now displays in pages with improved AI File Dump categorization",
     "category": "improvement"
+  },
+  {
+    "hash": "3a06acc1c1dee806e324daa7d4120ddab4de3ba9",
+    "date": "2026-07-28",
+    "subject": "tighten AFD to deal-only attachments (MB-465)",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "e399ae40636cd6789957a5651b37e02f68f4f333",
+    "date": "2026-07-28",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
+    "hash": "01eb89874776edede5da20fbbf5f634979deca17",
+    "date": "2026-07-28",
+    "subject": "drop analytics.emails subject and body_text (MB-473)",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "33d974b124df606e1dfb22d8c935cfc283c2b054",
+    "date": "2026-07-28",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
+    "hash": "b82864e1bfa71fc59b183d5e813216de64076080",
+    "date": "2026-07-28",
+    "subject": "Skip Deploy",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "2c7513572b4f066c6f570c22ccb78e6dde09d618",
+    "date": "2026-07-28",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
+    "hash": "8e185248128bed213f2da196f50816cad42493e2",
+    "date": "2026-07-28",
+    "subject": "Add skip deploy to changelog stuff",
+    "category": "feature",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "4e1dca23e4d1e5ea9826e79b544546c6acb65bcc",
+    "date": "2026-07-28",
+    "subject": "update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
+    "hash": "217066a9526a4ba1bd4be42e3318859b48ab8d9d",
+    "date": "2026-07-28",
+    "subject": "[MB-451] UI changelog and Github Actions yaml",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
   },
   {
     "hash": "1329055963c9207c69a7e25923e08c60e7900aee",
@@ -28,6 +152,54 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "date": "2026-07-27",
     "subject": "Daily pulse now delivers management recap in a more concise format",
     "category": "feature"
+  },
+  {
+    "hash": "afbe86934bdcfbc5bc5cec8be9f31c12eb774ef5",
+    "date": "2026-07-27",
+    "subject": "add samantha.id and beraucoal.co.id to internal mail domains",
+    "category": "feature",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "ab75ce1b8d90adf8a9e7226453be7e596f01f4c7",
+    "date": "2026-07-27",
+    "subject": "run vault-archive-start once daily at 00:10 UTC",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "7f94b034ab3483e11fc21113da1a06cada173609",
+    "date": "2026-07-27",
+    "subject": "add vault-archive-poll connection fail budget",
+    "category": "fix",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "2d2b275e33335b575a4627c886d1b8e1b7680cbe",
+    "date": "2026-07-27",
+    "subject": "use rejectUnauthorized:false for RDS SSL to match app",
+    "category": "fix",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "9f372b4bc100773b379f10aacd1c1488f3147f8a",
+    "date": "2026-07-27",
+    "subject": "remove unused data-lake S3 bucket from terraform",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "45c96849b55e057f678c42fb6f6a43cab3c80174",
+    "date": "2026-07-27",
+    "subject": "irreversible no-S3 ephemeral email cutover",
+    "category": "feature",
+    "skipped": true,
+    "skipReason": "vague"
   },
   {
     "hash": "9f207e623c8ddcc532381eb071e2ddfe364cc5cc",
@@ -78,6 +250,22 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "category": "fix"
   },
   {
+    "hash": "2c1b84bfc410a23ec642c4745c3e5ab1efa7307a",
+    "date": "2026-07-22",
+    "subject": "[MB-457] Asset bug fix",
+    "category": "fix",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "8a01f4b7d53924458d5713d1fa8eedf4351ef582",
+    "date": "2026-07-22",
+    "subject": "finalize fund update LLM extraction and add dummy test files",
+    "category": "feature",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
     "hash": "53b747b00a7a918eebe42b010376b664d97beef5",
     "date": "2026-07-21",
     "subject": "Added Chinese Yuan (CNY) currency option with workspace-level default display setting",
@@ -108,10 +296,50 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "category": "feature"
   },
   {
+    "hash": "024e0e4100be06a53404e446c85401439bbd5121",
+    "date": "2026-07-21",
+    "subject": "[MB-432] Add story panel with the following prompt",
+    "category": "feature",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
     "hash": "32afd8bd4a412128bc37ead8cf53245629414ce8",
     "date": "2026-07-20",
     "subject": "Fixed scrolling and pagination display issues in AI File Dump table",
     "category": "fix"
+  },
+  {
+    "hash": "1ec45c1e6def82e7192307e3bfb161dfd50adfa3",
+    "date": "2026-07-20",
+    "subject": "Revert \"fix: AI File Dump table scroll height & hidden pagination (#472)\"",
+    "category": "fix",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
+    "hash": "b7d5889f7f8737bf3791b2a89ff0d7e8c2dbb4ff",
+    "date": "2026-07-20",
+    "subject": "Add fund-update parser, apply service, and review dialog foundations.",
+    "category": "feature",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "31d0092a6f5cf1f4bbea4194696c7b616a8ae68a",
+    "date": "2026-07-20",
+    "subject": "pagination",
+    "category": "fix",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "8062989b5a090d6ebb4416ada4d40c1dfcd0b2e2",
+    "date": "2026-07-20",
+    "subject": "integrate langfuse observability for ai agents",
+    "category": "feature",
+    "skipped": true,
+    "skipReason": "vague"
   },
   {
     "hash": "068745c13be0eded51d53d68ac8eaaac4f4d3bcc",
@@ -138,6 +366,30 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "category": "feature"
   },
   {
+    "hash": "af114d7e3666667306c0233d218623b60b9e38a6",
+    "date": "2026-07-17",
+    "subject": "[FEAT] Send Copilot prompt enhancement to posthog",
+    "category": "feature",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "bd9f5f0a7bc2718c122b7223658ffae8e91e0f2d",
+    "date": "2026-07-17",
+    "subject": "[MB-309] AI File Dump",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "d0855c2032b2913864fd9d0a6439430889d1e676",
+    "date": "2026-07-17",
+    "subject": "exceljs error",
+    "category": "fix",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
     "hash": "dffea935f262c726ae84367a85f398c483625a2f",
     "date": "2026-07-16",
     "subject": "Discovered stage companies now appear in search results when explicitly queried",
@@ -160,6 +412,30 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "date": "2026-07-16",
     "subject": "Portfolio can now be seeded from STARTECH quarterly workbook data",
     "category": "feature"
+  },
+  {
+    "hash": "34a2a5339d330a40713c3df10d1daddbcaf451f0",
+    "date": "2026-07-16",
+    "subject": "16072026 chore/run test pre commit",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "fb946844379d3cc37d5b6405b2157ce2bee92aab",
+    "date": "2026-07-16",
+    "subject": "resolve node-postgres QueryResult bug in data-pipeline",
+    "category": "fix",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "165757280095964f830fd07e14aed7d586508425",
+    "date": "2026-07-16",
+    "subject": "Add failure detection for tool narrations and patch missing tools in system prompt",
+    "category": "fix",
+    "skipped": true,
+    "skipReason": "vague"
   },
   {
     "hash": "68d373d246579c040709dabf2f9b7de96f3eaf86",
@@ -192,6 +468,30 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "category": "fix"
   },
   {
+    "hash": "a8b500311de66f90849e5252db2263b53d1451cd",
+    "date": "2026-07-15",
+    "subject": "Fix too many rerenders",
+    "category": "fix",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "a1a612d0f9109dec28ea77617c1fc0dffa807f84",
+    "date": "2026-07-15",
+    "subject": "Hardcode token",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "9a5f2075269650279edc9359c1663ff640cfeb37",
+    "date": "2026-07-15",
+    "subject": "Refactor DashboardLayout component",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
     "hash": "ae94dd0da34cc587696241929b37d017d632f7ab",
     "date": "2026-07-14",
     "subject": "AI Opinion firm selection now uses updated effort-based model selector",
@@ -202,6 +502,30 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "date": "2026-07-14",
     "subject": "Filter companies by sector and multiple selections with collapsible settings panel",
     "category": "feature"
+  },
+  {
+    "hash": "bafe294c467a6383e9977f0f65e08b8f0e2f27e1",
+    "date": "2026-07-14",
+    "subject": "Add Rusy as MnA maintainer",
+    "category": "feature",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "f47890a741b49c59741fa50e5aff1e07910c3e85",
+    "date": "2026-07-14",
+    "subject": "Add tools to investment agent",
+    "category": "feature",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "8900f337c2072ea0581e75f4a4426f1847f6a4fa",
+    "date": "2026-07-14",
+    "subject": "Fix presentation mode",
+    "category": "fix",
+    "skipped": true,
+    "skipReason": "vague"
   },
   {
     "hash": "2b5ce45ec662553354b6dfeee83ed707f5c0cd56",
@@ -282,6 +606,46 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "category": "fix"
   },
   {
+    "hash": "fd6575742eee94876ce15baf93321df379e4f17d",
+    "date": "2026-07-13",
+    "subject": "Fix company and combine",
+    "category": "fix",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "bf3834d48d6e9e80c608e83ff8950bc551b38b5a",
+    "date": "2026-07-13",
+    "subject": "Do not add filename to workforce",
+    "category": "feature",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "f6b35da9eb3bc62bbde1f33830f88c5aa7249b3d",
+    "date": "2026-07-13",
+    "subject": "Add read_relationship_graph agent tool",
+    "category": "feature",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "e556b26a631ca44fa49ec1f417a4e0aca35692d5",
+    "date": "2026-07-13",
+    "subject": "Add streaming: true",
+    "category": "feature",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "1f2b0ade9982b236f2b787232f3054050d6b9138",
+    "date": "2026-07-13",
+    "subject": "Remove format workforce instruction",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
     "hash": "89ff419684cdd3c618ec3e388dcc3fbcdf24833d",
     "date": "2026-07-12",
     "subject": "Enhanced deal relationship visualization for better pipeline clarity",
@@ -294,6 +658,14 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "category": "feature"
   },
   {
+    "hash": "421df82e6e23db32866111a076852a12388431c3",
+    "date": "2026-07-12",
+    "subject": "Do not send to unauthenticated paths",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
     "hash": "ae38ae5b0e093cec858ea3f049b5f90411f43dfd",
     "date": "2026-07-10",
     "subject": "Enable automated detection and analysis of stalled deals in your pipeline",
@@ -304,6 +676,14 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "date": "2026-07-10",
     "subject": "Disabled chat message caching to ensure real-time conversations",
     "category": "improvement"
+  },
+  {
+    "hash": "09716bf27080de6441ef843b7318b2da32642230",
+    "date": "2026-07-10",
+    "subject": "Change sam's email",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
   },
   {
     "hash": "4627ade0a0d790b3c09a359fad8284fd8baf2bec",
@@ -328,6 +708,54 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "date": "2026-07-09",
     "subject": "Prevent internal domains from creating duplicate employer records in CRM",
     "category": "improvement"
+  },
+  {
+    "hash": "bfe3e7cb2775a8d7bfdfaed28977bc99392d1799",
+    "date": "2026-07-09",
+    "subject": "User/nicoalimin/query company tool 3",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "aea9716dacc3ca7754d26f94389a5c8a168c2376",
+    "date": "2026-07-09",
+    "subject": "remove discovered from the mix",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "e0d6ff827a0fbc097587c31e3e59d321f62b2ccb",
+    "date": "2026-07-09",
+    "subject": "Run preview DB workflow on all pull requests",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "262d3140e5e2f5465a28539019b943292ed37b67",
+    "date": "2026-07-09",
+    "subject": "Remove conversion section",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "f2164403f6cd447d6783fcda32034aa7e360887d",
+    "date": "2026-07-09",
+    "subject": "Fix insight dashboard 3",
+    "category": "fix",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "8084576fdce196dc1cbe7d11eab95f166107729a",
+    "date": "2026-07-09",
+    "subject": "Change pipeline stage component",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
   },
   {
     "hash": "ffecbee0f260565733d59d4b7d7956c6260b18fb",
@@ -372,6 +800,62 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "category": "feature"
   },
   {
+    "hash": "95de09a5bad288e14408146e68a41d4f90d0f60a",
+    "date": "2026-07-08",
+    "subject": "Fix piipeline number",
+    "category": "fix",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "995384610e4e66bc5093e7f15cfdd6b83187f868",
+    "date": "2026-07-08",
+    "subject": "User/nicoalimin/adjust pipeline",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "45d9fc1a30faf85dff9420da9d6a8bc8f7124794",
+    "date": "2026-07-08",
+    "subject": "on delete cascade",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "8a08b359a5816f56f5b9d5df349e32cc4fdeeb7e",
+    "date": "2026-07-08",
+    "subject": "User/nicoalimin/staging seeder",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "2346eb3338223b03f763dae9f78ce92eeef72423",
+    "date": "2026-07-08",
+    "subject": "Add legend",
+    "category": "feature",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "57b9f14a70f758db2661580eea00b894911b7553",
+    "date": "2026-07-08",
+    "subject": "do not need to resolve github branch",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "14f574d7c20c8506bc525b96c14d8419b57edc92",
+    "date": "2026-07-08",
+    "subject": "Simplify reset db",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
     "hash": "b09514ef97c33ecbd00be64509503e39bcde78db",
     "date": "2026-07-07",
     "subject": "Company overview slide now displays information in a compact 3-column layout",
@@ -414,6 +898,22 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "category": "improvement"
   },
   {
+    "hash": "baa7bbf098b2f2e1c6c1cc40e8d2b665f54f750a",
+    "date": "2026-07-07",
+    "subject": "Feature branch/multitenancy",
+    "category": "feature",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "4ba5ed442983a7c3f060974e4f0409170965810a",
+    "date": "2026-07-07",
+    "subject": "Track additional PostHog telemetry events",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
     "hash": "fcfe43e9a8d36e2948255fe7d48e111d96b357fe",
     "date": "2026-07-06",
     "subject": "Master data Actions column now displays options on hover for cleaner interface",
@@ -448,6 +948,78 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "date": "2026-07-06",
     "subject": "Added Sponsor and Company information cards to the Deal Stage view",
     "category": "improvement"
+  },
+  {
+    "hash": "718f868cdcb161c8819435e325364e2792c9943b",
+    "date": "2026-07-06",
+    "subject": "Always CC nico.alimin@smma.id on outbound emails",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "8721a35288ad079a8a6c9687b8781b5740728c60",
+    "date": "2026-07-06",
+    "subject": "trigger vercel",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "e9f45386488e8cf5e66bb9de7737893f96685e63",
+    "date": "2026-07-06",
+    "subject": "Connect Levenshtein matcher to ingest dedup gate",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "a9d3ee398a8f711c3a3352d20ef1b8b925d28214",
+    "date": "2026-07-06",
+    "subject": "Add unreviewed and market_screening to master data",
+    "category": "feature",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "08e59b64aed1d09ca2bb7d04ba7d6f1eea32d82a",
+    "date": "2026-07-06",
+    "subject": "update date picker",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "fe2f3215899e8c9142af9af431833c9b3ab534d7",
+    "date": "2026-07-06",
+    "subject": "Fix track variables 2",
+    "category": "fix",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "042fcfd8ad5a3f114abcbb2c40cc4b2c7fc10cf8",
+    "date": "2026-07-06",
+    "subject": "add 'Jien List' on EXCLUDED_BANKER_SOURCES",
+    "category": "feature",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "ff99ee6fe9907785dca6b6c0a5b26c74982b87db",
+    "date": "2026-07-06",
+    "subject": "Fix pipeline",
+    "category": "fix",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "2c3e6506109a293eb248f9864f7339a85b64694d",
+    "date": "2026-07-06",
+    "subject": "Improve agent",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
   },
   {
     "hash": "2302b80bc8fade2a7714287b4632ffa20230a55b",
@@ -546,10 +1118,146 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "category": "improvement"
   },
   {
+    "hash": "0fd285c54fdaafb7b90520a64b4caf0a70d39473",
+    "date": "2026-07-03",
+    "subject": "When pr is reopened, do setup again",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "7416ba7b5ae89885ec8caf26caa3d07b1d94f252",
+    "date": "2026-07-03",
+    "subject": "Add domain classify",
+    "category": "feature",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "cc7641e74dc9ad8190b8692618c307be53a118dd",
+    "date": "2026-07-03",
+    "subject": "Revert \"change reset db to be inside the preview db (#337)\"",
+    "category": "fix",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
+    "hash": "06e695d32fa1fed5483b551da81a1045aec72528",
+    "date": "2026-07-03",
+    "subject": "Change wait timer to be 60",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "09a0e6099d9cc5729c135c0b71872f30f876442c",
+    "date": "2026-07-03",
+    "subject": "change reset db to be inside the preview db",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "b3b9af7a1860035e066f8bee8d04762de67e2e19",
+    "date": "2026-07-03",
+    "subject": "Change deal_sponsor and deal_captain to UUID FKs referencing users",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "a326a2cb57c972ca834545b146bd46e7620656e0",
+    "date": "2026-07-03",
+    "subject": "Fix duplicate discovered",
+    "category": "fix",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "4a7b2c5fc38da0ce806df12e883a77a63588d2b1",
+    "date": "2026-07-03",
+    "subject": "Add manually-dispatched workflow to reset Neon DB and rerun migrations",
+    "category": "feature",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "7efc3f173bb285f738cb3517e72a5ddded3995c8",
+    "date": "2026-07-03",
+    "subject": "Update details in Company Card",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "e8c957fcb9d31ec36726be085b4986071963017d",
+    "date": "2026-07-03",
+    "subject": "Add max token length",
+    "category": "feature",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "5e36f02cd3a231cfd24b13b7bca7329f21817ff3",
+    "date": "2026-07-03",
+    "subject": "Improve deal processing agent",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "e6543ce1c6fcc6dcda9645e2d97cb5e625cfba41",
+    "date": "2026-07-03",
+    "subject": "Add migration rebase skill",
+    "category": "feature",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "9b984b75eabe8bdfb16de7c1f00d5a958dbd1245",
+    "date": "2026-07-03",
+    "subject": "Reprocess files",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "efdd68058362fc0afcb4126cd83fcfb05b6189d6",
+    "date": "2026-07-03",
+    "subject": "Update File Processing Agent to not process HR stuff",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
     "hash": "e5c1ab3f2f884eb1001b03215c5be65907ded491",
     "date": "2026-07-02",
     "subject": "Mobile deals now display in an optimized card layout for easier browsing",
     "category": "feature"
+  },
+  {
+    "hash": "59dbbfa4deec3a360ae7104f20229f8a7c2f8c35",
+    "date": "2026-07-02",
+    "subject": "Change size of card on mobile",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "033bd22cb75a44fe9047d0a614a8372ab544b6c3",
+    "date": "2026-07-02",
+    "subject": "Use SSE and eliminate polling",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "08105b88bdc4a3301c6b61576695a93e7847b1c3",
+    "date": "2026-07-02",
+    "subject": "Hotfix company matching tracks",
+    "category": "fix",
+    "skipped": true,
+    "skipReason": "noise"
   },
   {
     "hash": "a14950e5576a9a8ed39eb4301ec285b3d706bee8",
@@ -570,10 +1278,130 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "category": "improvement"
   },
   {
+    "hash": "c823f6c9bf6d9fc70462e91ca191ffe630bf876c",
+    "date": "2026-07-01",
+    "subject": "Add neo4j backup",
+    "category": "feature",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "9f24b2a8a0ea536d9aa7f73514002e1898e672ee",
+    "date": "2026-07-01",
+    "subject": "Change token gate to be everywhere",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "e73f6cd7672ab480e928008dcc160c9d9d80b302",
+    "date": "2026-07-01",
+    "subject": "Change instance size",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "4ec8f97ce3897c658c8cb1b0a5be07346999edb4",
+    "date": "2026-07-01",
+    "subject": "Add rds proxy",
+    "category": "feature",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "b8f8e879ac99f6e9f7bbbff2f250ddac10127124",
+    "date": "2026-07-01",
+    "subject": "[MB-336] Drop unused tables",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "53c6bee91d4a7ada44dc3649c0581a68b7073ee9",
+    "date": "2026-07-01",
+    "subject": "Update Claude model from Sonnet 4-6 to Sonnet 5",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
     "hash": "261afea85e7180da754b9e4ecd5784304247e2b0",
     "date": "2026-06-30",
     "subject": "Added advisor column to deal tracking table",
     "category": "improvement"
+  },
+  {
+    "hash": "562f682280a9dd4f36a85d92d6ddf9adbb2af232",
+    "date": "2026-06-30",
+    "subject": "Remove auto-generation of company card when opening",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "8df311520aa7f47447071036147d8caa08334d5c",
+    "date": "2026-06-30",
+    "subject": "remove banker config",
+    "category": "fix",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "d92e0e41b593fa1fa848f21fb8d0d12c73f327d6",
+    "date": "2026-06-30",
+    "subject": "Use persisted track IDs instead of resolved Track IDs",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "6a659dc4f043c295267a65c9116f900e0d9a34a3",
+    "date": "2026-06-30",
+    "subject": "Check in scripts",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "c03cbe80f7deb9d1e4a145daa86a2397b7186062",
+    "date": "2026-06-30",
+    "subject": "Remove dupliate companies and update graph and check in script",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "89086bf0d608b03b112a995102a491b0aa5751c9",
+    "date": "2026-06-30",
+    "subject": "Show only current year",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "feede33780e87f87461892feb469e10ed49d2a68",
+    "date": "2026-06-30",
+    "subject": "[MB-350] Insights Dashboard Refinement",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "834e5ad2177a224ee7419adb3db38bb2d37349ce",
+    "date": "2026-06-30",
+    "subject": "[MB-247] E2E tests for AI Workforce",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "65af74c6beaf89fb17721947c9be2cababafc595",
+    "date": "2026-06-30",
+    "subject": "Add release notes",
+    "category": "feature",
+    "skipped": true,
+    "skipReason": "vague"
   },
   {
     "hash": "9d2cf2d9b4a827af7b75a9549dfae106d289ce28",
@@ -654,6 +1482,166 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "category": "improvement"
   },
   {
+    "hash": "734eb94bb3dad9d27901702711078878811e049e",
+    "date": "2026-06-29",
+    "subject": "Add track variables",
+    "category": "feature",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "e1418a2e151f448bfacc8bc2cbfa23c658e88d52",
+    "date": "2026-06-29",
+    "subject": "Enhance AI powers",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "cfbcb8055ab932552f7ea082fda599a8a0f5fc98",
+    "date": "2026-06-29",
+    "subject": "Remove reviewed header",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "f3b7fedbb1f972bc987e2a08657e9e3dcc1af6d0",
+    "date": "2026-06-29",
+    "subject": "Add Dive Deeper",
+    "category": "feature",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "7a2ffb573116a643c9b32c426e3038d1790b8d29",
+    "date": "2026-06-29",
+    "subject": "AI opinion cell centered",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "6ec8bd1b8bcedb17f1cbd8bb8fbdc1ec3654fd42",
+    "date": "2026-06-29",
+    "subject": "Matched tracks and default sorting",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "664f06405e172447e19bcf5d0e19603b14a00217",
+    "date": "2026-06-29",
+    "subject": "Change meta journal",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "a09bc0ee0a0827e43262ea0d88d8fbd5eccc1cfc",
+    "date": "2026-06-29",
+    "subject": "Add company company overview l4",
+    "category": "feature",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "249f4f82da00e1e864136afc1f31fe53e0a529c5",
+    "date": "2026-06-29",
+    "subject": "Make table wider",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "54a48f91d5a2f3de5efef0d89dff9e883e7ba63b",
+    "date": "2026-06-29",
+    "subject": "Add AI Opinion",
+    "category": "feature",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "3c472c6f80cee8432f6409bdb12f3176d974c534",
+    "date": "2026-06-29",
+    "subject": "Make company card generation more succint",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "67c5f0ee57cbfc99641c7cdec0d3b320f90a08ef",
+    "date": "2026-06-29",
+    "subject": "Update company slide",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "0cba1936f2bb1fe9f15a1d4213751df8dacebd4c",
+    "date": "2026-06-29",
+    "subject": "build failed",
+    "category": "fix",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "62f195d007700d7afe88762c0c4059a2f5592552",
+    "date": "2026-06-29",
+    "subject": "entered by editable",
+    "category": "fix",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "74d09e4ed199301968ca70ec6cc852e8ad364ee8",
+    "date": "2026-06-29",
+    "subject": "[FIX] Add button and matching tracks func",
+    "category": "fix",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "3fc23e770e17db85e688f087b71ede931061a0b6",
+    "date": "2026-06-29",
+    "subject": "Fix migration",
+    "category": "fix",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "e3af35b774f26ca17de9cd6b6a20483c6ebadf36",
+    "date": "2026-06-29",
+    "subject": "Change meta timestamp",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "027eed64a3f68821677e8e9182ca9d62706e357a",
+    "date": "2026-06-29",
+    "subject": "Fix yellow highlight",
+    "category": "fix",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "05c2477d2c5edd11ca2d8c3719f4424ae382de79",
+    "date": "2026-06-29",
+    "subject": "[MB-xx] gate Insights Dashboard behind feature flag",
+    "category": "feature",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "ffd0ca74fa044ecc3469e20a356a2e446963b4b9",
+    "date": "2026-06-29",
+    "subject": "[MB-320] L0 required fields 2",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
     "hash": "02d6e981014f9c32112e952c6b5c675b7376bcf1",
     "date": "2026-06-26",
     "subject": "Deal sponsor field is now read-only in table view",
@@ -678,6 +1666,110 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "category": "improvement"
   },
   {
+    "hash": "4a4b5661cc50a0b085ee0f91fe98ba2ad663498c",
+    "date": "2026-06-26",
+    "subject": "remove claude code",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "35ea6e4249a4b7f5dc9aeb9799b4e60accfe88bb",
+    "date": "2026-06-26",
+    "subject": "Update email signature",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "dada98eb93d63b7ab16d0115bee60428e83d6034",
+    "date": "2026-06-26",
+    "subject": "Remove people",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "4de44eb1916c983f912a07623ce5c1436b0a566b",
+    "date": "2026-06-26",
+    "subject": "Add send email capability",
+    "category": "feature",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "c31be564db1ec89a3fb93c98d5b799b57caa1058",
+    "date": "2026-06-26",
+    "subject": "Remove",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "4bd2d6290e9887683ff6a59e5157adc521a34be6",
+    "date": "2026-06-26",
+    "subject": "Add filter",
+    "category": "feature",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "1e8e0813e03c75b64145cad954206bde032e2de2",
+    "date": "2026-06-26",
+    "subject": "Update card when editable",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "f237840f32ff8eafa475eb5fb437d05c91d5f718",
+    "date": "2026-06-26",
+    "subject": "If unreviewed, cannot update to L1",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "2925a082195ca6631cddc42cbf266d85c400b14a",
+    "date": "2026-06-26",
+    "subject": "Make entered by editable",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "9316b5eae508c80f29a510075e287dfce7452837",
+    "date": "2026-06-26",
+    "subject": "Change in L0 to L1 submission project name as well",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "a03d66c528689f3a8460be2286b0d61d2484d93a",
+    "date": "2026-06-26",
+    "subject": "Reformat company and project name",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "3356e924198bb94b0f1f66692d26174ce61f3fad",
+    "date": "2026-06-26",
+    "subject": "Change active vs dropped toggle",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "5be4c497855a55efb9f6091cdab2a76a7370fcae",
+    "date": "2026-06-26",
+    "subject": "UI updates",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
     "hash": "07312f6f50616f8f49ce151a9b9f2f09bb88a3bb",
     "date": "2026-06-25",
     "subject": "Dashboard activity feed items now link to deal details when clicked",
@@ -696,10 +1788,50 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "category": "improvement"
   },
   {
+    "hash": "8f8ce64818a4394c3bf5bf02af10edca3678cc60",
+    "date": "2026-06-25",
+    "subject": "fix test",
+    "category": "fix",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "e8e132042cc00f40e07346be60262720f83dfe97",
+    "date": "2026-06-25",
+    "subject": "remove except last step",
+    "category": "feature",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
     "hash": "9db332c9df861e93d154cf61d16dbd68de35790b",
     "date": "2026-06-24",
     "subject": "Preview deal presentations before sharing with stakeholders",
     "category": "improvement"
+  },
+  {
+    "hash": "c5044ecacb21e85bd0b5c55c23c26fa4e2a26272",
+    "date": "2026-06-24",
+    "subject": "Fix 20260624/attachment pipeline and afd company name",
+    "category": "fix",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "ee2263496b2f8f0c9b9f27b443841f6023745056",
+    "date": "2026-06-24",
+    "subject": "Remove hongtao from email",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "2df6ab943c54b70708cd5a0ee652a20f0a966c30",
+    "date": "2026-06-24",
+    "subject": "[MB-254] CRM to Chatbot",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
   },
   {
     "hash": "3c1999668c63aad02661aa3c956bceedae90c9e8",
@@ -726,6 +1858,30 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "category": "fix"
   },
   {
+    "hash": "4da3dfeceeb4e3ebeb9248304e84de4d9056e88e",
+    "date": "2026-06-23",
+    "subject": "setup codebuild",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "ca569e04d0fa3f138584c8c393f7407613bd1cd5",
+    "date": "2026-06-23",
+    "subject": "[MB-239] Awaiting Review AI File Dump",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "2ba05f6289437b5348512a3d1d7355906c09efca",
+    "date": "2026-06-23",
+    "subject": "[MB-251] Update e2e tests for new dashboard + skills & data-testids",
+    "category": "feature",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
     "hash": "bac60d4511cd312fdb5b028be688fd6956f6d34d",
     "date": "2026-06-22",
     "subject": "Deal search now matches regardless of letter case",
@@ -736,6 +1892,38 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "date": "2026-06-22",
     "subject": "Company name now displays project name when company data is unavailable",
     "category": "fix"
+  },
+  {
+    "hash": "d4ffa88eeffbeac2cb1dff87e3ed644a2ede9065",
+    "date": "2026-06-22",
+    "subject": "hotfix change color",
+    "category": "fix",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
+    "hash": "82827afe9f4d458e6234a7178db3b20068f0c31e",
+    "date": "2026-06-22",
+    "subject": "Fix 20260622/attachment banker or source name",
+    "category": "fix",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "65107b8170dd5ab6a8ba30db3d3cd097155505c7",
+    "date": "2026-06-22",
+    "subject": "fix attachment lambda function aws key access",
+    "category": "fix",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "80768755a28eed509753ec1718420fd8c1c9f7ea",
+    "date": "2026-06-22",
+    "subject": "Agent improvements",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
   },
   {
     "hash": "1eefb129cc3a249258ec2496f21dc06e776cecbd",
@@ -762,6 +1950,86 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "category": "improvement"
   },
   {
+    "hash": "9a3d386c01ab710c5f53c43e9cf7262b225a375b",
+    "date": "2026-06-20",
+    "subject": "Change discovered to AI screening",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "5da03d77d5d368238c2f66e7d8d123753d9a1489",
+    "date": "2026-06-20",
+    "subject": "AI Workforce report improvements",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "6741e1f66f5c1aab0837e2c81ac8106dd336d74b",
+    "date": "2026-06-20",
+    "subject": "Make sure companies are companies, not people",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "b872b2557398063568a027a369ee6a43c5dcb860",
+    "date": "2026-06-20",
+    "subject": "fix username",
+    "category": "fix",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "d2d09c7a15a5b47441dbc426523070b8d072caae",
+    "date": "2026-06-20",
+    "subject": "change password",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "446f5da0ec0c2b3c2dc16c00bea19529d1340d95",
+    "date": "2026-06-20",
+    "subject": "fix special chars 2",
+    "category": "fix",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "41f4b8c1b011ba8ca3de6b0296676bd7298ccfbb",
+    "date": "2026-06-20",
+    "subject": "fix special chars",
+    "category": "fix",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "50a55a6e98497b900c4c92f505c84f5ab92eae0a",
+    "date": "2026-06-20",
+    "subject": "Fix neo4j url",
+    "category": "fix",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "005f7b4f449726094b1b64f22907ddd4ff469d6b",
+    "date": "2026-06-20",
+    "subject": "Change username default",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "da49c1ba242c74a0278cbbc9ad96f856b8bc4345",
+    "date": "2026-06-20",
+    "subject": "Change username default",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
     "hash": "60c08fc231bc4c6d642d2a8e02161c0343c459bc",
     "date": "2026-06-19",
     "subject": "Added 3D visualization for deal structure diagrams",
@@ -772,6 +2040,22 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "date": "2026-06-19",
     "subject": "Deal search suggestions are now clickable for faster navigation",
     "category": "feature"
+  },
+  {
+    "hash": "1861bf7e1ab97c3eb7dd3ed574929ed6466e6a5a",
+    "date": "2026-06-19",
+    "subject": "[MB-234] Overflow",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "ab8b837f883ddfb0fc7516ec8e7cfbc57e87fc7a",
+    "date": "2026-06-19",
+    "subject": "Feat/mb 214 attachment pipeline",
+    "category": "feature",
+    "skipped": true,
+    "skipReason": "vague"
   },
   {
     "hash": "ee7e258af095c4e095d50e35d50818e9f3252a68",
@@ -810,6 +2094,62 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "category": "fix"
   },
   {
+    "hash": "6e9f9cb7eec14ec34cd7701b7a1286aa9d7d3a14",
+    "date": "2026-06-18",
+    "subject": "Hotfix blank page",
+    "category": "fix",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
+    "hash": "22cb1de74e440231ad75ca84462e880d718c8a8c",
+    "date": "2026-06-18",
+    "subject": "Fix size of chips",
+    "category": "fix",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "8fe375d9d5aa33a34bc831fe8c595085db7afb77",
+    "date": "2026-06-18",
+    "subject": "switch dropped versus new deals",
+    "category": "feature",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "a75f70ab83af316e3e52ae4dd2201ef341e438fa",
+    "date": "2026-06-18",
+    "subject": "Do typecheck with localstorage items",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "220eb2825d510befc65b6db5ba40ab63961515e2",
+    "date": "2026-06-18",
+    "subject": "Fix overflowing chip",
+    "category": "fix",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "42bf1f3d542258032485b75b2bc9e6dcc70fbadc",
+    "date": "2026-06-18",
+    "subject": "update l1-l5 table",
+    "category": "feature",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "7b110e7811ffc46e4f1d0eb4fa6b09c2799f89ea",
+    "date": "2026-06-18",
+    "subject": "Mobile chatbar 4",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
     "hash": "4789697cfb5e7f282c2a9b30a0e5e0910af7d447",
     "date": "2026-06-17",
     "subject": "Mobile interface now loads faster with improved performance",
@@ -846,6 +2186,60 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "category": "feature"
   },
   {
+    "hash": "31cc40429c022d0084a781bd4064c0fee07670d2",
+    "date": "2026-06-17",
+    "subject": "Change drizzle meta journal",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "d4a703f778e4dcc315ed5cabe2bc4522ea20779e",
+    "date": "2026-06-17",
+    "subject": "Change default timeout",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "5852edc5db84a0a9502d4ca360606e252aebf37c",
+    "date": "2026-06-17",
+    "subject": "[MB-xx] link AI market scanning to workforce cron as a permanent routine",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "dab0ec2a01b466aefa28622f1757673673d8d5da",
+    "date": "2026-06-17",
+    "subject": "fix viewport",
+    "category": "fix",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "8d62e650c7ff81a8b600ea77f269e2b9421b3ba1",
+    "date": "2026-06-17",
+    "subject": "User/nicoalimin/fix UI",
+    "category": "fix",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "a0cccf5b7008c1e00a8c820db6c82e33f094d18e",
+    "date": "2026-06-17",
+    "subject": "Improved mobile and tablet layout responsiveness across the platform",
+    "category": "fix"
+  },
+  {
+    "hash": "3a8041314ab1a3f4bd11b44dd7f14548b0272c62",
+    "date": "2026-06-17",
+    "subject": "User/nicoalimin/add sso",
+    "category": "feature",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
     "hash": "1541e3315ed0e49790001973e9149aca058b996a",
     "date": "2026-06-16",
     "subject": "Copilot modal now opens when clicking the AI Copilot button",
@@ -856,6 +2250,46 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "date": "2026-06-16",
     "subject": "Enlarged full-screen AI interface for improved visibility",
     "category": "improvement"
+  },
+  {
+    "hash": "dd46228622b9c257793ab7987856aaeb5283bf21",
+    "date": "2026-06-16",
+    "subject": "Add prompt caching",
+    "category": "feature",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "6a874b2fa24b84d826502a7dba4c3de26a4f158e",
+    "date": "2026-06-16",
+    "subject": "hotfix promoted number 2",
+    "category": "fix",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
+    "hash": "6bc127b96f1daf6d4ebd28b25e0ba6c82f8c305d",
+    "date": "2026-06-16",
+    "subject": "hotfix promoted number",
+    "category": "fix",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
+    "hash": "3f996f2235112ff55b33aee782c2be8a2ca00a93",
+    "date": "2026-06-16",
+    "subject": "User/nicoalimin/fix UI bugs 2",
+    "category": "fix",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "e1ede2f4c56a1cb6144ffea0a88bb8f3bc52bcd4",
+    "date": "2026-06-16",
+    "subject": "Fix UI Bugs",
+    "category": "fix",
+    "skipped": true,
+    "skipReason": "vague"
   },
   {
     "hash": "0621c897d68b4304487cfc35a57c8469893c530b",
@@ -870,6 +2304,14 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "category": "improvement"
   },
   {
+    "hash": "be03884ce96e3c87ba4cd05d2770638868aa0fe2",
+    "date": "2026-06-15",
+    "subject": "[MB-221] [MB-222] Inbound Outbound",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
     "hash": "533cc157232328b36aaae2b0d23886f4ee4e0e22",
     "date": "2026-06-11",
     "subject": "Activity Feed now displays deal timeline and team actions in real-time",
@@ -882,10 +2324,42 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "category": "improvement"
   },
   {
+    "hash": "797d15df4e9cfcd37e9fab31903f71c6ff598d93",
+    "date": "2026-06-11",
+    "subject": "soft light on date picker",
+    "category": "feature",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "c481c13c18786b02675706d2a02eb82f33092cbd",
+    "date": "2026-06-11",
+    "subject": "removed tabs",
+    "category": "feature",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "80aacfca5e472550ae56e550d960170a04654434",
+    "date": "2026-06-11",
+    "subject": "[MB-248] Support local/staging/production targets for Playwright e2e",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
     "hash": "0be3d200deef1c20220cc6c3b732fa734b6ec4dc",
     "date": "2026-06-10",
     "subject": "Enable email notifications for deal updates and team activity",
     "category": "improvement"
+  },
+  {
+    "hash": "e050e77fc096f6c2f485ed749580402b8ca9a045",
+    "date": "2026-06-10",
+    "subject": "card improvement and refinement",
+    "category": "feature",
+    "skipped": true,
+    "skipReason": "vague"
   },
   {
     "hash": "d07d075308e5de48cf0ad1389d17f66177d96f75",
@@ -918,6 +2392,38 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "category": "improvement"
   },
   {
+    "hash": "bc1ebceb1491ccc30787a4ac1195dacbedb9b32f",
+    "date": "2026-06-09",
+    "subject": "fix github workflow repo path in terraform",
+    "category": "fix",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "412c5b002acae57923807fe5ee2fb7900089b100",
+    "date": "2026-06-09",
+    "subject": "fix anthing lambda functions",
+    "category": "fix",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "8df8f24adb78314012640061cfc9571004684ef9",
+    "date": "2026-06-09",
+    "subject": "fix vercel flags fallback",
+    "category": "fix",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "e23f4ec8846b669b4dc8358408afab29461a6299",
+    "date": "2026-06-09",
+    "subject": "[MB-173] squash 19 branch migrations into clean app/pipeline sets, add data-pipeline/ folder",
+    "category": "feature",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
     "hash": "bb2b1717dfe143fd97e0fd9f42c5f54aecf7ff23",
     "date": "2026-06-08",
     "subject": "Enable editing of deal remarks after creation",
@@ -942,6 +2448,30 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "category": "fix"
   },
   {
+    "hash": "3a0d7a1d48ee6f8fc74caa48aa47b2b3d967ed25",
+    "date": "2026-06-08",
+    "subject": "Add inbound and outbound chip",
+    "category": "feature",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "fb7bdc38567efbe570f932787b6c35fc49a1472e",
+    "date": "2026-06-08",
+    "subject": "Add kensen.huang as devops",
+    "category": "feature",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "dde7591dfafb79f579b4dd08f445b7dc803340f3",
+    "date": "2026-06-08",
+    "subject": "Hotfix company card not detected",
+    "category": "fix",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "28a41d2d3cb48dee0a4350c9df6a40b44563113e",
     "date": "2026-06-06",
     "subject": "Chat feature now available via API with secure key authentication",
@@ -964,6 +2494,14 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "date": "2026-06-06",
     "subject": "Users can now log in with their Google account",
     "category": "feature"
+  },
+  {
+    "hash": "9b17256333583dbaaa0759e7a596672b8d136877",
+    "date": "2026-06-06",
+    "subject": "Add healthcheck",
+    "category": "feature",
+    "skipped": true,
+    "skipReason": "vague"
   },
   {
     "hash": "fa87d307417b5ab184bb52426669539835ea4cac",
@@ -996,6 +2534,30 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "category": "improvement"
   },
   {
+    "hash": "0cc7f8e60e3363b6340227100a0afc832098230c",
+    "date": "2026-06-05",
+    "subject": "Fix side chatbar",
+    "category": "fix",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "3e0e4589165ae229ccd4a0ac0b171830ab0aabeb",
+    "date": "2026-06-05",
+    "subject": "Fixed playwright UI automation",
+    "category": "fix",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "1a1d9c1f91dca7ec9edc40be79487a44bacc41b1",
+    "date": "2026-06-05",
+    "subject": "[MB-141] Promoted reason",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
     "hash": "72f952b29b99681652c934772a08f20cafd6f943",
     "date": "2026-06-03",
     "subject": "Added ability to create custom columns in deal tracking views",
@@ -1008,16 +2570,132 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "category": "fix"
   },
   {
+    "hash": "034f84c747eecee867e28753a53c870a235d6ece",
+    "date": "2026-06-03",
+    "subject": "setup mlflow",
+    "category": "feature",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "3053209ac2715c3145f25bc0b7430d23609e784f",
+    "date": "2026-06-03",
+    "subject": "[FEAT] [MB-161] [MB-142] Descriptive HITL L0 to L1 And Button White Text Hover",
+    "category": "feature",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
     "hash": "dd2c3ee24db5ed9e016b776c193d22f04e82b265",
     "date": "2026-06-02",
     "subject": "Fixed issues with agent tools for querying companies and promoting deals",
     "category": "fix"
   },
   {
+    "hash": "af762a2b28705d3b4717e8689013a377ea1ba127",
+    "date": "2026-06-02",
+    "subject": "fix, split stateless and persistence agent",
+    "category": "fix",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "c6ec0c4a5809134ab20db01893391a97e5e12b31",
+    "date": "2026-06-02",
+    "subject": "not null",
+    "category": "fix",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
     "hash": "c3048240bbbfcb68a1df42d2680272c588d1d4f4",
     "date": "2026-05-29",
     "subject": "Auto button styling corrected in CRM interface",
     "category": "fix"
+  },
+  {
+    "hash": "786ff3eb24aff70ab729370c505f7c20e5fa560c",
+    "date": "2026-05-29",
+    "subject": "[MB-172] Team Member seeder",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "d268d3aba4b26c91f65c107401b95b8d97425660",
+    "date": "2026-05-26",
+    "subject": "[MB-97] [ADDITIONAL] Monthly and Weekly",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "8dbbda4233bb2cc5520f6a074e48ed719808fdf8",
+    "date": "2026-05-25",
+    "subject": "[MB-165] Bugs fix",
+    "category": "fix",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "e1dddd5f0ad23589f5fa2c85815fd84fa4745577",
+    "date": "2026-05-25",
+    "subject": "Fixed employer correspondent sources and corrected email count calculations",
+    "category": "fix"
+  },
+  {
+    "hash": "0f285ba79133f2f6880a8f5e25966c4d2f9c5ccd",
+    "date": "2026-05-25",
+    "subject": "add revert crm populate script",
+    "category": "fix",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "7460937166f9364fcfebbd7ab08e0c43c76a3c8e",
+    "date": "2026-05-25",
+    "subject": "[MB-105] [FIX] Revert Industry Category",
+    "category": "fix",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "9719474d02ebce04776de82356e0f83af89238b7",
+    "date": "2026-05-25",
+    "subject": "add populate data from mbox scripts",
+    "category": "feature",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "bb266e1f6355a8aa3e0b7859e84c32b1678332d9",
+    "date": "2026-05-25",
+    "subject": "[MB-105] CRM Page",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "01d6e672eaa23e2f0b6bbb6a7fdae2387be2e168",
+    "date": "2026-05-23",
+    "subject": "Import and filter email messages from mbox files for deal communications",
+    "category": "feature"
+  },
+  {
+    "hash": "4ce4270f1a0299e8562d904f6bfd68dfd62b2570",
+    "date": "2026-05-22",
+    "subject": "Fix google vault CRM Pipeline",
+    "category": "fix",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "478be90f57251ff7eb65f9c047e52d4a584a3840",
+    "date": "2026-05-22",
+    "subject": "add zeya & evelyn iam user",
+    "category": "feature",
+    "skipped": true,
+    "skipReason": "vague"
   },
   {
     "hash": "2d72884403400e2ab193ce7f9f4e3d8e385719c4",
@@ -1032,6 +2710,22 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "category": "feature"
   },
   {
+    "hash": "6959de074cc0bdd65daffbd8e046f141de35921a",
+    "date": "2026-05-21",
+    "subject": "prompt",
+    "category": "fix",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "887e8fb6d882ebce9b7823e18d38a4516a50e82a",
+    "date": "2026-05-21",
+    "subject": "url app",
+    "category": "fix",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
     "hash": "26d75351d801ad39dab6252187d769fe7a3316cc",
     "date": "2026-05-20",
     "subject": "Added password recovery functionality to account login",
@@ -1042,6 +2736,30 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "date": "2026-05-20",
     "subject": "Retry and cancel options now available for stuck workforce tasks",
     "category": "feature"
+  },
+  {
+    "hash": "a26409c5cb5477086aa3cf21dd049906e0aeed75",
+    "date": "2026-05-20",
+    "subject": "Improve .claude by adding glob-specific rules",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "25166662d4f3f00fd0b4cd7a99144452992205cc",
+    "date": "2026-05-20",
+    "subject": "Checkout PR head to do teardown properly",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "843cb872cc163a0b18da2bb66a85b40ca29b6300",
+    "date": "2026-05-20",
+    "subject": "add report_progress tool and Live · partial output trace block",
+    "category": "feature",
+    "skipped": true,
+    "skipReason": "vague"
   },
   {
     "hash": "a538bf1b0d3a1e4494dd0e1cdf288c23f43571ad",
@@ -1056,10 +2774,80 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "category": "feature"
   },
   {
+    "hash": "435055c5ef22538bb92781121b912aed853ae580",
+    "date": "2026-05-19",
+    "subject": "[MB-97] Task Routine",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "e2fa743cbb5454999cca427bcfe2d79d401ac4d2",
+    "date": "2026-05-19",
+    "subject": "Task history now correctly displays creator names and action status",
+    "category": "fix"
+  },
+  {
     "hash": "a2fa4ad425398a6bf5396d2a33874f4dc467a9c5",
     "date": "2026-05-18",
     "subject": "Workforce agents now display execution traces in the UI for better visibility into deal analysis workflows",
     "category": "feature"
+  },
+  {
+    "hash": "f2984f1ab3e0666089d7923c095dd1450d59df0a",
+    "date": "2026-05-18",
+    "subject": "dropped message unavailability",
+    "category": "fix",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "c82dd9afb886db0d88834c734710931d931e56bb",
+    "date": "2026-05-15",
+    "subject": "Feat/mb 147 workforce queue",
+    "category": "feature",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "f9c87bcc5cf14289b452825859608236f992870d",
+    "date": "2026-05-13",
+    "subject": "Fix preview-db pipeline",
+    "category": "fix",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "f5724a1e1a299da729ab8565a23a87ca6ad89acd",
+    "date": "2026-05-13",
+    "subject": "Check in yaak variables",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "8094023c08c918d0f504a00af13ae460aa14bc6d",
+    "date": "2026-05-13",
+    "subject": "not use version in pnpm anymore",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "6ff2f75340ed49a1dbd71ec48e8c292cdeda337d",
+    "date": "2026-05-13",
+    "subject": "Change back to pnpm",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "b460d38bb60b543ec444b91c60f0cbd781f6d259",
+    "date": "2026-05-13",
+    "subject": "[MB-151] L0 to L1",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
   },
   {
     "hash": "d1e062361483d4337e1d8d3289cc1094808335d2",
@@ -1068,10 +2856,74 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "category": "feature"
   },
   {
+    "hash": "17036e3969c60a5a5c032b046b4a9b8885d38d47",
+    "date": "2026-05-12",
+    "subject": "Add RDS_IAM_DB_AUTH false in preview branches",
+    "category": "feature",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "c9a877990117644caf16c8a8b616a338284a47d4",
+    "date": "2026-05-12",
+    "subject": "vulnerabilities",
+    "category": "fix",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
     "hash": "301c56e3e409301d951ba5aeeb65ccab0f64f4b3",
     "date": "2026-05-11",
     "subject": "Added AI Workforce page with routine job scheduling capabilities",
     "category": "improvement"
+  },
+  {
+    "hash": "1d74d526e4ee6c1e0df4eb85e28346cc05c44455",
+    "date": "2026-05-11",
+    "subject": "Fix drizzle migrate script",
+    "category": "fix",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "91b85c71b3b3f77ea0f210833b699f2a553240c7",
+    "date": "2026-05-11",
+    "subject": "teardown branch properly",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "c2e6e0110a4ad335fd301a0e967aff10d0561fed",
+    "date": "2026-05-11",
+    "subject": "implement iam auth",
+    "category": "feature",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "69ab60f7d3cf915688ade0791c14a61ed1a4a52b",
+    "date": "2026-05-11",
+    "subject": "Add ability for engineers to send emails",
+    "category": "feature",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "a0899c81ab178808ef3d319d0b57bff8475cc484",
+    "date": "2026-05-08",
+    "subject": "add ai workforce, and copilot chat history tables",
+    "category": "feature",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "96d22bd2aa85fff8afac4be42511c2697db8025c",
+    "date": "2026-05-07",
+    "subject": "[MB-145] Implement AI Copilot on AI Workforce",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
   },
   {
     "hash": "80ae7f5e83a005664603df33a58b64f3450f188c",
@@ -1140,6 +2992,14 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "category": "feature"
   },
   {
+    "hash": "f639805a6d7a2465b88c0ab6661c34c8bb564ea1",
+    "date": "2026-05-03",
+    "subject": "add pnpm package manager documentation to CLAUDE.md",
+    "category": "feature",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
     "hash": "16401af048ea12228261db59219e9f7e9a079a72",
     "date": "2026-04-30",
     "subject": "Files with foreign characters can now be downloaded successfully",
@@ -1156,6 +3016,46 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "date": "2026-04-30",
     "subject": "AI Workforce section now accessible from main navigation menu",
     "category": "feature"
+  },
+  {
+    "hash": "edd3abdd790472bc461ee83bea3991268d63fd1c",
+    "date": "2026-04-30",
+    "subject": "Add AWS SES terraform configuration for email sending",
+    "category": "feature",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "1b31ec92a924a9f83ea7735bc0b0b40c44eba109",
+    "date": "2026-04-30",
+    "subject": "Add back npm and lint",
+    "category": "feature",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "2a2201851b84c3f2b8109e5508136995b8b427b4",
+    "date": "2026-04-30",
+    "subject": "Fix teardown",
+    "category": "fix",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "bb0d1e92e9abf85e7484b6125b120c7a21d16f8f",
+    "date": "2026-04-30",
+    "subject": "Remove inven.ai",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "bb5b4dc27e292235af1f8eef30d7b587cdb38695",
+    "date": "2026-04-30",
+    "subject": "Drizzle meta migration left behind, readme improvements, claude.md improvements",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
   },
   {
     "hash": "0699adb2223a8bbafe3eeb0e22b7df5c71c05460",
@@ -1176,6 +3076,46 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "category": "improvement"
   },
   {
+    "hash": "964ee6686b7c2e7e915943564f2dd2e213f73328",
+    "date": "2026-04-29",
+    "subject": "Add display-pr-deployment and slack-initiated-conversation skills",
+    "category": "feature",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "d4034d22d96fbd099c8afb5e4e7b846d96707212",
+    "date": "2026-04-29",
+    "subject": "Remove accidental migration",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "64a0079451da121d4fcc2907e66a0ce67bb7abb5",
+    "date": "2026-04-29",
+    "subject": "Add migration to PR branches",
+    "category": "feature",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "742e6afa40dba97bfed600084db055b938557238",
+    "date": "2026-04-29",
+    "subject": "Add terraform",
+    "category": "feature",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "12078b2ad27fdaaecc90bf8958002b236cce139f",
+    "date": "2026-04-29",
+    "subject": "Refactor agent structure",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
     "hash": "73ded70b3ef5c31b09eb1a9452a342b32a8c63aa",
     "date": "2026-04-28",
     "subject": "Users can now edit company revenue and EBITDA fields directly in deal records",
@@ -1186,6 +3126,38 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "date": "2026-04-28",
     "subject": "Promote, demote, and assign deal PIC directly from deal view",
     "category": "improvement"
+  },
+  {
+    "hash": "137264512550120d236031943caeec9be859aac2",
+    "date": "2026-04-28",
+    "subject": "Fix trigger deploy",
+    "category": "fix",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "ae3f883e65bbb2dd3b74fcf0edd085e218817341",
+    "date": "2026-04-28",
+    "subject": "Add dedicated database per branch",
+    "category": "feature",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "01b3ea9e86b3f06113b7468c3955b1474e98db00",
+    "date": "2026-04-28",
+    "subject": "Fix yaak vars and forget-password route",
+    "category": "fix",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "c9e5fd1ab3bee8637afe8df01aa1eaa342e31031",
+    "date": "2026-04-28",
+    "subject": "update agent, and companies view to adapt new schema changes",
+    "category": "feature",
+    "skipped": true,
+    "skipReason": "vague"
   },
   {
     "hash": "b31afc46231616db7a5cb9fc58fdfae0242d7ad3",
@@ -1200,6 +3172,54 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "category": "improvement"
   },
   {
+    "hash": "b71684525a18d117f7d3a4042fdd5bda5eb8202e",
+    "date": "2026-04-27",
+    "subject": "Add CI on PRs",
+    "category": "feature",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "dc85319974dbeca2cefb9f447253cc105fe4516c",
+    "date": "2026-04-27",
+    "subject": "User/kensenh/mb 17 add unit test",
+    "category": "feature",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "2b3b8cddc1b0493f555fc830535d1ebb0292edd8",
+    "date": "2026-04-27",
+    "subject": "User/kensenh/mb 15 implement company erd changes",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "8958bc280bbd4cd07fcb3a5b2bbc14f0b1ea4fd8",
+    "date": "2026-04-27",
+    "subject": "playwright",
+    "category": "fix",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "d6e04c5aa1c4524f4661c56f5268f56e9eb3a68a",
+    "date": "2026-04-25",
+    "subject": "Fix env var naming",
+    "category": "fix",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "ec65834fd7a2355e482c9741e9beffe609f48a5f",
+    "date": "2026-04-25",
+    "subject": "fix db connection issue",
+    "category": "fix",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
     "hash": "b39c090efac8fc89f0a2fd68c57ea6ffaad24e2b",
     "date": "2026-04-24",
     "subject": "Added user account registration and password reset functionality",
@@ -1212,10 +3232,144 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "category": "fix"
   },
   {
+    "hash": "60710dd89d032d0dca481b156d7d9f70be3b3426",
+    "date": "2026-04-24",
+    "subject": "remove supabase leftover, and add minio to docker compose",
+    "category": "feature",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "a796246ac10c931ac553bda195e8ee9acbef43ef",
+    "date": "2026-04-24",
+    "subject": "Env salt name",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "6b783d44aff6d594b1f37d90cd38830d742b70ba",
+    "date": "2026-04-24",
+    "subject": "Add Claude Code GitHub Workflow",
+    "category": "feature",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
     "hash": "47762ecaaf59ba69fa052baa66ee70092e42a15b",
     "date": "2026-04-23",
     "subject": "Light theme now applies by default on app launch",
     "category": "feature"
+  },
+  {
+    "hash": "dfc7cbf04b71d4e96158b9ecbf7a43c106e68fe3",
+    "date": "2026-04-23",
+    "subject": "Update skills to use Playwright best practices",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "e1dce835adf158031755eb147a7ae0a3e2665386",
+    "date": "2026-04-23",
+    "subject": "Add skills",
+    "category": "feature",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "19b124f4d67811d6b6739a6253321aefbddbf4d4",
+    "date": "2026-04-23",
+    "subject": "Update readme",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "00b013470b94c7cfa4fcb859e0c4eb53673ca7ca",
+    "date": "2026-04-23",
+    "subject": "Add .claude",
+    "category": "feature",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "fefee2e95e79e06e933fedc73d963711e63d6861",
+    "date": "2026-04-23",
+    "subject": "Add docker compose local, seeder, and remove supabase stuff",
+    "category": "feature",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "49d319a5085a84d86209f7912e7796463023f006",
+    "date": "2026-04-23",
+    "subject": "refactor db repository layer to use drizzle orm",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "8dfe3824bba1090d98882278b52adc494eca3d08",
+    "date": "2026-04-23",
+    "subject": "[MB-19] AI misclassify some files",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "943ce51603231da86a24b9606cbb3d6549eacc24",
+    "date": "2026-04-23",
+    "subject": "refactor handler, move data orchestration and domain logic to service layer",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "898b5c0a6f808f3c1cbe4a8c77261ee9da8f5d7f",
+    "date": "2026-04-22",
+    "subject": "Removed animated background effect from dashboard",
+    "category": "improvement"
+  },
+  {
+    "hash": "3c3dd7d2b1d8cc5dc6a11b18ce54e4de4903721a",
+    "date": "2026-04-22",
+    "subject": "Refactor into jobs table",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "97eb14dbcbe499e46cc28ce63837965a306241d3",
+    "date": "2026-04-22",
+    "subject": "[MB-9] Create Playwright e2e test",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "cea10c988b590fa32d48c5040a1ebaf6fda420e6",
+    "date": "2026-04-22",
+    "subject": "refactor handler, move db query calls to repository layer",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "017033d3c01211f78f17f187e6e01f43c7b891ce",
+    "date": "2026-04-08",
+    "subject": "Add add supabase commands to package.json",
+    "category": "feature",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "a479ac3ee52eab33f18d9dfea5770002fb5d955e",
+    "date": "2026-04-08",
+    "subject": "readme modification",
+    "category": "fix",
+    "skipped": true,
+    "skipReason": "vague"
   },
   {
     "hash": "06badd85aca96ca2a5ba617182efb9d5573dc97e",
@@ -1230,6 +3384,78 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "category": "feature"
   },
   {
+    "hash": "364026c7938d596f6e62f0c21f6943578c615817",
+    "date": "2026-03-10",
+    "subject": "Add favorite",
+    "category": "feature",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "8ec86fd6b65b2216f17d5ea9ec180ae5a10b87bd",
+    "date": "2026-03-10",
+    "subject": "Fix querying",
+    "category": "fix",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "9699a2934bfeaf7bb3ae8deb005eca1a3d9372b7",
+    "date": "2026-03-10",
+    "subject": "Change model to Sonnet 4.6gs",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "4f900fec42777e540148b0dcf40e958c4ba23a90",
+    "date": "2026-03-09",
+    "subject": "Add demote capability",
+    "category": "feature",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "108b0d2dd562a8b21ec6ea2e1d37c57277038e05",
+    "date": "2026-03-09",
+    "subject": "Add citations",
+    "category": "feature",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "1a7acf2b9af9ec64fa81cb81f8e529e9a20171d5",
+    "date": "2026-03-09",
+    "subject": "Improvements",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "faf37f470999224629cdbe1d9096dd644993432c",
+    "date": "2026-03-09",
+    "subject": "slight improvements",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "b0716f8368d1598768c95edc2a182e0fbc5477bd",
+    "date": "2026-03-06",
+    "subject": "Add generate slides capability",
+    "category": "feature",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "4f2e376056d69d0eebd7b32a76ee921e0134fb69",
+    "date": "2026-02-26",
+    "subject": "Refactor db access to be behind routes",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
     "hash": "b0a4e7a2b39f87c7616f8a196155881f451f1f8a",
     "date": "2026-02-18",
     "subject": "Chat history now persists across sessions",
@@ -1240,6 +3466,14 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "date": "2026-02-18",
     "subject": "Email addresses now match regardless of letter case",
     "category": "improvement"
+  },
+  {
+    "hash": "71871b2dfb0a0bb8e0c442edbab8db36bfb7ed56",
+    "date": "2026-02-13",
+    "subject": "make the button clickable",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
   },
   {
     "hash": "7c5d6dce2dc221a83446c51ea12e3fcdb7651f2e",
@@ -1264,6 +3498,158 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "date": "2026-02-12",
     "subject": "Updated L1 Screening Filter label for clarity",
     "category": "improvement"
+  },
+  {
+    "hash": "8c056b4f2868e3916ba98ff6c83111f43787dab5",
+    "date": "2026-02-12",
+    "subject": "Fix posthog",
+    "category": "fix",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "11858e4a130c4f80096d16453133d741ff87a5b9",
+    "date": "2026-02-12",
+    "subject": "Fix next-env",
+    "category": "fix",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "bf23812b1d10350649b9bc7f289331ecc93001a9",
+    "date": "2026-02-12",
+    "subject": "Add posthog",
+    "category": "feature",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "7dae92c5d2f9b7e9a2a557524603095b94b7eb45",
+    "date": "2026-02-12",
+    "subject": "Add posthog",
+    "category": "feature",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "2f23f7067b8c1e12c02a753bf0dc27d4d604320e",
+    "date": "2026-02-12",
+    "subject": "Add comapnydialog to master data",
+    "category": "feature",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "5c6e4369151a98d14f1e64fe40eb39f6793f1e29",
+    "date": "2026-02-12",
+    "subject": "Remove bad multiplication",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "9738e2275645b6552ccc2486d516b5772d2282e5",
+    "date": "2026-02-12",
+    "subject": "fix(MNA) Mark Unknown Companus as New Company too",
+    "category": "fix",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "57edf6c3e9a3416440b260139497ae7d1b03c2c2",
+    "date": "2026-02-12",
+    "subject": "Update s3",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "3d464d5189c8534b360b9de6c9ceb46c127d3f9b",
+    "date": "2026-02-12",
+    "subject": "Add suggestion chips",
+    "category": "feature",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "3a82208d1e6d7ee3eb97e62602cd4e1cf636b5ed",
+    "date": "2026-02-12",
+    "subject": "delete companies master data",
+    "category": "feature",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "18875b75984253324b8cacb1d5bd5218e198f645",
+    "date": "2026-02-12",
+    "subject": "convert million to billion",
+    "category": "fix",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "8c77aa48b68485627324a9a9394bc22c86d28fca",
+    "date": "2026-02-12",
+    "subject": "million to billion",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "e63f0be2696a3d4f9706c1bad6d1070c359b5195",
+    "date": "2026-02-12",
+    "subject": "overall status",
+    "category": "fix",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "3fe3aa0ec102a4e5075def68f83f56296e7acd46",
+    "date": "2026-02-12",
+    "subject": "Make chips clikable",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "8d1829bb65cc59449dc3c51251166fda77e07066",
+    "date": "2026-02-12",
+    "subject": "Fix next-env.d.ts",
+    "category": "fix",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "90f9428196d92f57b0c01328afd3e0c8a3d69fac",
+    "date": "2026-02-12",
+    "subject": "Remove filter when searching for mom",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "5b62c007d60fbbeb35f646000ebb88dbc5b5c9b8",
+    "date": "2026-02-12",
+    "subject": "Remove filter when searching for momgs",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "22be1cb037eeede7a758a1f216e02186f29c2a5e",
+    "date": "2026-02-12",
+    "subject": "Make L1 poll for latest screening state",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "58bfd12a0a3d837f313b69b03b21b54c1e633e65",
+    "date": "2026-02-12",
+    "subject": "Fix L1 screening expanded view",
+    "category": "fix",
+    "skipped": true,
+    "skipReason": "vague"
   },
   {
     "hash": "1898820ccec822bb870d7991b891c476d18c2096",
@@ -1314,6 +3700,238 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "category": "feature"
   },
   {
+    "hash": "cd9bfe590d69faa7f8e2e9cefcdbdd8d700e4825",
+    "date": "2026-02-11",
+    "subject": "Fix migrations",
+    "category": "fix",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "74450989866bb2a99ab441341834d01705b8559c",
+    "date": "2026-02-11",
+    "subject": "Fix prospectus being in the right place",
+    "category": "fix",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "4600289bd8ca6f324d95680f3e618a3b4ac2cb60",
+    "date": "2026-02-11",
+    "subject": "Fix build",
+    "category": "fix",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "50aea750fcc7499c30d47ebf3fd9408c9ef18924",
+    "date": "2026-02-11",
+    "subject": "Generate types",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "a0160ac13368a1e79e824019da4a38467b9e703d",
+    "date": "2026-02-11",
+    "subject": "Add the similar company IDs",
+    "category": "feature",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "9ce4f552df26bbf5c8ebaea25df79bc6bfe496d9",
+    "date": "2026-02-11",
+    "subject": "Remove remark on inboud dea",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "9b02b7535968d075e45f8e4236f197baee3fce25",
+    "date": "2026-02-11",
+    "subject": "fix ratio on inbound vs outbound",
+    "category": "fix",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "2b37e7b00ca1aabed2c187ce88419d7ec206e374",
+    "date": "2026-02-11",
+    "subject": "Separate inbound and outbound",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "8abb50b4bc4ee278ef6861b800add557dd0be3e4",
+    "date": "2026-02-11",
+    "subject": "company card feedback",
+    "category": "fix",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "17c4e19d0d6fac894a87118fad600bb111cea8d1",
+    "date": "2026-02-11",
+    "subject": "Fix add to L0 on new prospectus",
+    "category": "fix",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "9479010285d0e7c9f28470efde6cb55253b1cae5",
+    "date": "2026-02-11",
+    "subject": "Fix favicon",
+    "category": "fix",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "a7c8448e97a53f1dd455ef39c3503c9386affbb7",
+    "date": "2026-02-11",
+    "subject": "Change favicon icon",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "e78b66a4268403bd323a63c3eb5b80ae59974bfe",
+    "date": "2026-02-11",
+    "subject": "Add favicon",
+    "category": "feature",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "6ca728921d7bfaaa1fc59d7cd750c3fd342bf548",
+    "date": "2026-02-11",
+    "subject": "master data styling",
+    "category": "fix",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "9084d2f6cf8a0c6a8c49001953e20e3a7a2b2c11",
+    "date": "2026-02-11",
+    "subject": "styling dashboard",
+    "category": "feature",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "2730951ede4e6e2fb4e1b61a708d3615b7c33e25",
+    "date": "2026-02-11",
+    "subject": "Remove bulk company",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "0c65ce4e9eac370d079e6131e0167986d77b8069",
+    "date": "2026-02-11",
+    "subject": "Add back background",
+    "category": "feature",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "3773298d717364247ea97b471286b682c71da334",
+    "date": "2026-02-11",
+    "subject": "pipeline styling",
+    "category": "fix",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "ce6cecb60bde5bd3055e858a197ef751669cfbbc",
+    "date": "2026-02-11",
+    "subject": "sidebar styling",
+    "category": "feature",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "9606000a4d7ca4deb083baa7fe85c01c334acaa8",
+    "date": "2026-02-11",
+    "subject": "don't use dark logo",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "97a2868c891c334c80c7ecfd7bc58fcc70e9868c",
+    "date": "2026-02-11",
+    "subject": "Change font and background",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "4d646f39b0c3f40b0065cf6d6eb5dc1df2aecbf6",
+    "date": "2026-02-11",
+    "subject": "Change light background",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "e42943fa170885679b25cb9c1d7c7b220fefcb71",
+    "date": "2026-02-11",
+    "subject": "Add logo",
+    "category": "feature",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "988b6bcbf7a289be3e1da2ae3b47c0f1fb4165f2",
+    "date": "2026-02-11",
+    "subject": "Change ppurple color",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "74d18c14892be6451355c2ba0f021879b528a5af",
+    "date": "2026-02-11",
+    "subject": "Add variant grid",
+    "category": "feature",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "c7cfd66dbe90904088cd587d98abfb83fbc783ef",
+    "date": "2026-02-11",
+    "subject": "Login page changes",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "3668b795aebb03babd001ff72d437cb2cefb1bdc",
+    "date": "2026-02-11",
+    "subject": "promote deals store",
+    "category": "fix",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "e8f17fc70cb7c3c74600ed06bbd46f8eeb5467a6",
+    "date": "2026-02-11",
+    "subject": "move back ai screening progress section to L0",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "163e4f3cbec534a4d0e6f4c2f593f13dd8d6299f",
+    "date": "2026-02-11",
+    "subject": "company detail dialog",
+    "category": "fix",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
     "hash": "904ffb1f008bebff2f97f6325477d5f7ecaa8fe1",
     "date": "2026-02-10",
     "subject": "Dark mode now available in user settings",
@@ -1338,6 +3956,190 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "category": "improvement"
   },
   {
+    "hash": "8fe1f14e16102243abe6b9fe0d3fb64434f464c7",
+    "date": "2026-02-10",
+    "subject": "Update background with starcapital",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "2b4005f2f2af11a0c75aca2b6672b1c0381cd36c",
+    "date": "2026-02-10",
+    "subject": "Add different styles",
+    "category": "feature",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "2854fec69d0e928646504a647f698cd02128179a",
+    "date": "2026-02-10",
+    "subject": "Add starcap background",
+    "category": "feature",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "c01ce2da0eed6dc2d539a8b5b082cd3632c06496",
+    "date": "2026-02-10",
+    "subject": "Add this at every background",
+    "category": "feature",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "bcbaf4cbd86a96693f82b03628034dc3563f9ac2",
+    "date": "2026-02-10",
+    "subject": "Remove traces",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "03b1139b03d29881f60c8df221e230e34b8c1c6b",
+    "date": "2026-02-10",
+    "subject": "Two glowing chips",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "8345e5bba559e594d6f535071ff534dbb9c01154",
+    "date": "2026-02-10",
+    "subject": "Add traveling zaps",
+    "category": "feature",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "e7cdba578cda07886e80418e05cd8d679878942a",
+    "date": "2026-02-10",
+    "subject": "Add blue glow",
+    "category": "feature",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "457c86c996b2d0a5d811b937c87e660903e3ec35",
+    "date": "2026-02-10",
+    "subject": "Add glow",
+    "category": "feature",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "f791bb9c4dc751efa2da13f3e8e0df58c5efed67",
+    "date": "2026-02-10",
+    "subject": "Symmetrical grids",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "99fc1c0d17349cbf4d6f12161be78a2e69c4d17f",
+    "date": "2026-02-10",
+    "subject": "Make the rectangles chips instead",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "036af34ee1d6823efba93b47b3bbf62214e77933",
+    "date": "2026-02-10",
+    "subject": "Use grey",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "25cbaa089c89f7e62d9be4244536afc316b0d976",
+    "date": "2026-02-10",
+    "subject": "Use motion as background",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "4fd18605bb5e07e8055d0f275036933afd43dc7d",
+    "date": "2026-02-10",
+    "subject": "Add user raw notes in payload",
+    "category": "feature",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "c8c29e402aea3ef928e406a00cce4259db379011",
+    "date": "2026-02-10",
+    "subject": "Add meeting note per file",
+    "category": "feature",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "baa493ef694ab23dbdc42af98c4b22c70d24f7b6",
+    "date": "2026-02-10",
+    "subject": "Align better",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "a86ce6993104b5eb719ae609d89d4b825531927a",
+    "date": "2026-02-10",
+    "subject": "Change add to l0 button",
+    "category": "feature",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "6a551a2696914872779322ce21d4ec2b3eaebc62",
+    "date": "2026-02-10",
+    "subject": "Add rule on how to use past acquisition",
+    "category": "feature",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "bf92711e512982ca12309291372c3e8e9a48f349",
+    "date": "2026-02-10",
+    "subject": "fix thinking component",
+    "category": "fix",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "815a60a7cb26eeee1248bba9513ffea7463047e0",
+    "date": "2026-02-10",
+    "subject": "Add thinking component and <-v THINKING_END --> delimiter",
+    "category": "feature",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "b7fac340cf03b1e66c71b6153f26645f7dc83021",
+    "date": "2026-02-10",
+    "subject": "Deleted RDS tfstate",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "88e5823e4e39651b35c9ca10ba09b1385fc8a586",
+    "date": "2026-02-10",
+    "subject": "Reorder remark to top page",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "2918ad6bc0c6e83a171f125588c0bbc9be725ef4",
+    "date": "2026-02-10",
+    "subject": "Remove client-side pagination state",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
     "hash": "98f4cc883764e6d24cbeb463d6aa856c7ff6e2d8",
     "date": "2026-02-09",
     "subject": "Companies list now supports pagination for easier navigation",
@@ -1356,10 +4158,386 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "category": "feature"
   },
   {
+    "hash": "370f223c05443aa0023835a913e705f7823c5163",
+    "date": "2026-02-09",
+    "subject": "duplicate L1 pagination",
+    "category": "fix",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "8f98738044b2f4475b6a333f12feb29e90760305",
+    "date": "2026-02-09",
+    "subject": "Changed Screened back to Marke Scanning",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "266b9f32035a82da5a9cb708cba84a2efbeea373",
+    "date": "2026-02-09",
+    "subject": "Reset marketingscreeningpage",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "82d9fbbfdb47b2236e3cf4541ba5ed73ab7ea1c8",
+    "date": "2026-02-09",
+    "subject": "fix stuff",
+    "category": "fix",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "c20f1d66e13b23de65b3ddd3d086ed9cf7f527ff",
+    "date": "2026-02-09",
+    "subject": "Fix next env",
+    "category": "fix",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "32b269e4cc4831e116074ffe33ada87f70b84df4",
+    "date": "2026-02-09",
+    "subject": "update next env",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "570bb3fe9061abed96c35649b898656cef3d9ee4",
+    "date": "2026-02-09",
+    "subject": "master data improvements",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "7f70d9fc062d6c481f24ccdee91e0db51e0b4ee7",
+    "date": "2026-02-09",
+    "subject": "revert select *",
+    "category": "fix",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
+    "hash": "63a363d86548859437ebf3623db9a7bb3aff43ba",
+    "date": "2026-02-09",
+    "subject": "revert concurrency implementation",
+    "category": "fix",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
+    "hash": "bb354ab2707ec9e3afd2c8e6db9466adae85501e",
+    "date": "2026-02-09",
+    "subject": "ai screening process",
+    "category": "fix",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "5b868bdcf36d9fce3aa6ba6ff13c861a5af97a12",
+    "date": "2026-02-09",
+    "subject": "Add remarks and fix build",
+    "category": "fix",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "a448b28285498184cc4c5dffd637349f7c3d0d0b",
+    "date": "2026-02-09",
+    "subject": "Remove marketscreeningdetaildialog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "b78c3d22ccc6a45f73f280dfcc0ef298e5d859f8",
+    "date": "2026-02-09",
+    "subject": "Change iam",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "f4435517236da4e9a8baa7d024242973929e5d5f",
+    "date": "2026-02-09",
+    "subject": "use company card",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "f8eb9fffdba02a63ea8ed5103777b42f95028166",
+    "date": "2026-02-09",
+    "subject": "AI Company Card",
+    "category": "feature",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "afc5239d48af296525ff5a6fc2afd7242fdbf4e6",
+    "date": "2026-02-09",
+    "subject": "Fix remark type",
+    "category": "fix",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "4e17cf675a39d2c105b40c5ed7a3db7198321db5",
+    "date": "2026-02-09",
+    "subject": "Fix types",
+    "category": "fix",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "52d70840d3128750bca048da938b40815ebedb57",
+    "date": "2026-02-09",
+    "subject": "Make remaks optional",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "e79ba188832d6c29d709cab0c6368268bb0809f6",
+    "date": "2026-02-09",
+    "subject": "Rebase migration",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "09646b1eeb04f56cfa08337d4f3678263479ad7b",
+    "date": "2026-02-09",
+    "subject": "Fix yaak",
+    "category": "fix",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "16ed5e79159c4a953cd76f31e3f809bfda38e49c",
+    "date": "2026-02-09",
+    "subject": "feat(MNA) AI File Dump Init",
+    "category": "feature",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "b9427d571464c85a1e7bc58291ecc44ffc182867",
+    "date": "2026-02-06",
+    "subject": "Add company analysis section",
+    "category": "feature",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "c58483d05546c8c9a5bc4ed2f7e5a91ee89562ec",
+    "date": "2026-02-06",
+    "subject": "Add langsmith",
+    "category": "feature",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "f28aff01b8ac5460aa7eed34f1f5dc40ef13ce2c",
+    "date": "2026-02-06",
+    "subject": "amend mna brain",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "9842b888d4799b4290ed36788b665043d05bdd21",
+    "date": "2026-02-06",
+    "subject": "add sqemnabrain to .gitignore",
+    "category": "feature",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "35aa1138a6828cc9786af21c2a90474acf236a5a",
+    "date": "2026-02-06",
+    "subject": "Add rds",
+    "category": "feature",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "30fd82d08aabffd905583ace5b8e73b71f63695a",
+    "date": "2026-02-05",
+    "subject": "Update env",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "3e387511d3cf22b5524eef68413b95480c534a18",
+    "date": "2026-02-05",
+    "subject": "Fix terraform",
+    "category": "fix",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "47f97b738b024adb7f5e9e481d406d0992cfc127",
+    "date": "2026-02-03",
+    "subject": "Remove hidden XML on tool use",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "a8ee342b3f73d2d235ca9df2755b12c05489a800",
+    "date": "2026-02-03",
+    "subject": "Remove references to internal project when doing web search",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "3754e8412b4bf4085fc96244b26537dc570d0158",
+    "date": "2026-02-03",
+    "subject": "Change clear history button",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
     "hash": "f401b0821a164ab97e06f8a7da8663560aa2e682",
     "date": "2026-02-02",
     "subject": "Allow users to attach meeting notes URLs to deal records",
     "category": "feature"
+  },
+  {
+    "hash": "3d09fcb17edc6bef44cfe6e322298d769ef0d233",
+    "date": "2026-02-02",
+    "subject": "Remove full stop",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "3e8525aa367826b5a05eb4d3fdad8b8168ff8302",
+    "date": "2026-02-02",
+    "subject": "Update initial prommpt",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "8eaa0f10c176d35a4cb31f2c9d3466ff5599764c",
+    "date": "2026-02-02",
+    "subject": "Add sources",
+    "category": "feature",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "2b8b50603bd8d086618c98394f90e04eb297eced",
+    "date": "2026-02-02",
+    "subject": "update styling",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "43b84959f476dc0a12a57044076398e88dcf9e54",
+    "date": "2026-02-02",
+    "subject": "Remove unused import",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "c7b47f1b2529cc6f95ba673275cdff7cec921cfd",
+    "date": "2026-02-02",
+    "subject": "Add localstorage support and recursion limit",
+    "category": "feature",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "a52dc50df69aeabe6183058748646289399d15be",
+    "date": "2026-02-02",
+    "subject": "Add tool use",
+    "category": "feature",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "12d74fb1d5f2ef8260cdbd58d4bfa93602652282",
+    "date": "2026-02-02",
+    "subject": "Show tool use",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "9a42fb51eb1148c31d55b60261586e2cf9639448",
+    "date": "2026-02-02",
+    "subject": "Add streaming properly",
+    "category": "feature",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "04daab5049dfde010267b38c5b97d59614451f67",
+    "date": "2026-02-02",
+    "subject": "Fix streaming",
+    "category": "fix",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "5ebbf3134198566aa176fac4eec922f416ffd581",
+    "date": "2026-02-02",
+    "subject": "Remove unnecessary chatbot",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "da640970a1130002d2e3e9913d5f8da9dcd08062",
+    "date": "2026-02-02",
+    "subject": "remove console log",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "f34566f2dae07d80663f6f3e9b2034d781822fc7",
+    "date": "2026-02-02",
+    "subject": "fix history",
+    "category": "fix",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "e2628f4ba9f834aaae9927a4a77ce9b9375432ec",
+    "date": "2026-02-02",
+    "subject": "Add system prompt",
+    "category": "feature",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "aab8e9d4599be34413c0fcc8cdd1995b347e9999",
+    "date": "2026-02-02",
+    "subject": "fix sending chats",
+    "category": "fix",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "bb0ead1f86d1d84f13a6aab4b310d476aea4b465",
+    "date": "2026-01-31",
+    "subject": "error handlnig",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
   },
   {
     "hash": "1c9d51a96cc70aa7edb5e49730e0b99e759ebad7",
@@ -1398,10 +4576,178 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "category": "feature"
   },
   {
+    "hash": "46618ad76b89dad01843d545b03b82a97f2c83d8",
+    "date": "2026-01-30",
+    "subject": "fix temporarily",
+    "category": "fix",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "b933191c244a03226a50726676323a3fecee0ce5",
+    "date": "2026-01-30",
+    "subject": "Add types properly",
+    "category": "feature",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "4adcbd65cd6532ee3edd6bb5cbf1e5eb0d29c042",
+    "date": "2026-01-30",
+    "subject": "Upgrade to new graph state",
+    "category": "feature",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "13f295f588e269701121910bf8665f172538a965",
+    "date": "2026-01-30",
+    "subject": "Upgrade langgraph to new version",
+    "category": "feature",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "fea67170de6b9ad91f0a39524f83b7cbe1d758fa",
+    "date": "2026-01-30",
+    "subject": "Change prompt to use meeting notes tool more sensitively",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "7c780b850123f14ac97db5c1e55b5825691b8560",
+    "date": "2026-01-30",
+    "subject": "Fix build",
+    "category": "fix",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "b659b53b59436eb46ffbaec3a911b70a4d13ef95",
+    "date": "2026-01-30",
+    "subject": "Use presigned s3 urls",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "f1d42f8f3713f57c3f38b9e63c7f52c65ab28019",
+    "date": "2026-01-30",
+    "subject": "Add file preview",
+    "category": "feature",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "fa8c4b8caaee4a359efc6d1cdc44b944d0a759c9",
+    "date": "2026-01-30",
+    "subject": "Add file_date",
+    "category": "feature",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "33317216647241249c8cb1b2ae3efc3d7d1d7aac",
+    "date": "2026-01-30",
+    "subject": "Fix meeting notes support",
+    "category": "fix",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "e025a208e58b70f1c9d617b8959162fc8d350524",
+    "date": "2026-01-30",
+    "subject": "Further improve prompt",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "606b69df5237ad8977e0cd7ed5019a0ec67041fa",
+    "date": "2026-01-30",
+    "subject": "Add matched companies",
+    "category": "feature",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "5a691d5d3b57822ada8b540d15f7b887945f0892",
+    "date": "2026-01-30",
+    "subject": "Update prompt to cross reference known companies",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
     "hash": "3493548eed62ea25f417fa821dfc0762715629f5",
     "date": "2026-01-29",
     "subject": "Enable quick promotion of deals to L1 status with new button",
     "category": "feature"
+  },
+  {
+    "hash": "c007294de7a195a07b8f6e30ffe872ebc0a662ee",
+    "date": "2026-01-29",
+    "subject": "Fix terraform stat",
+    "category": "fix",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "ecc3f156bbc915bea43ab8fa1724f467c20ac3e7",
+    "date": "2026-01-29",
+    "subject": "Add meeting notes agent",
+    "category": "feature",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "622b4a64887f144f41d685b1f259739904d16d15",
+    "date": "2026-01-29",
+    "subject": "Use thesis",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "1cb709db81bf6fe4eb45e671ca9003497025faed",
+    "date": "2026-01-29",
+    "subject": "update inven tool",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "54599844f144c7c39aa36b9856e5e9a0d8d5821e",
+    "date": "2026-01-29",
+    "subject": "Remove disabled navs",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "49f92728a0c27743a804c68b6026d7185cab2f4a",
+    "date": "2026-01-29",
+    "subject": "Remove disabled navs",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "fe0f3efc93ffdf51b1309b2eaa13cc8c25715e17",
+    "date": "2026-01-29",
+    "subject": "Add inven",
+    "category": "feature",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "843aa7e4d699ef6848ca40e894efeae38d0e9a60",
+    "date": "2026-01-29",
+    "subject": "Add inven cache migration",
+    "category": "feature",
+    "skipped": true,
+    "skipReason": "vague"
   },
   {
     "hash": "9b109c1f05c6c780695f196adce99a05ab79e1df",
@@ -1426,5 +4772,317 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "date": "2026-01-28",
     "subject": "Dark mode toggle now available in settings",
     "category": "improvement"
+  },
+  {
+    "hash": "2c727499b4b64854b12e46d5d58ffb8f1e3947f7",
+    "date": "2026-01-28",
+    "subject": "Add swagger and yaak",
+    "category": "feature",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "31833f20afb5d5212209f71f2ca949e5cdf826f0",
+    "date": "2026-01-28",
+    "subject": "Fix migration",
+    "category": "fix",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "327636353aa6eb43900d240cf6a4bc6b63d61719",
+    "date": "2026-01-28",
+    "subject": "Improve more details on market screening",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "343fce922a1b11248aea4ee786714d6d7d1d55e2",
+    "date": "2026-01-28",
+    "subject": "Add better tool use for screening",
+    "category": "feature",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "7ae4d8581f41c9529ffb00755ad65b18cb88d3df",
+    "date": "2026-01-28",
+    "subject": "Add more navigation panes",
+    "category": "feature",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "dddffadce87875ef91ba81423770575d135bfcb5",
+    "date": "2026-01-28",
+    "subject": "Add market scanning capability",
+    "category": "feature",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "9086cc7f8e8e48d581d8b5e37ce92083448e3351",
+    "date": "2026-01-28",
+    "subject": "fix web search",
+    "category": "fix",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "9b1920ea7ec791113c609d1f68067f1fc369b2cf",
+    "date": "2026-01-28",
+    "subject": "Reorder screening progress",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "8aa7355d2fea939e056eb9b3564c9e9fad030abb",
+    "date": "2026-01-28",
+    "subject": "Fix overflow",
+    "category": "fix",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "351e60a6a5aed943b909a9b4a299ff21f22332cb",
+    "date": "2026-01-28",
+    "subject": "Ignore hydration error",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "d0740220cd18d54e2d67e9c990a3b68db410c6ad",
+    "date": "2026-01-28",
+    "subject": "Fix dark mode",
+    "category": "fix",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "55c0bb9e6c5df931e46d3777c352bc34e06da342",
+    "date": "2026-01-28",
+    "subject": "Change L0 background color",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "0676c4166600fb6ced2ccc1daef41da978202c90",
+    "date": "2026-01-28",
+    "subject": "Remove signup functionality",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "6fb49c7f0811ef75966101af825f05d1fa550d4d",
+    "date": "2026-01-28",
+    "subject": "Update the screening capability",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "1106c95ad2e40e856f694e0b95cb0aec3bb72448",
+    "date": "2026-01-28",
+    "subject": "Add name to screening",
+    "category": "feature",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "ed8668c631d8606b3e55bf222110fd34dc12732d",
+    "date": "2026-01-28",
+    "subject": "Fix pipeline view",
+    "category": "fix",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "d215e6f384f9d27a346563441bbabf747b134c3d",
+    "date": "2026-01-27",
+    "subject": "Fix modal company details",
+    "category": "fix",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "72ae5ff03d24856e0cbabce2127bb9df100fe0af",
+    "date": "2026-01-27",
+    "subject": "Add migrations and fix scripts",
+    "category": "fix",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "6e1439da160a110616064a19757e4f8460556774",
+    "date": "2026-01-27",
+    "subject": "Add company details",
+    "category": "feature",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "a21e008af9decb000d53e236e692badacf044b16",
+    "date": "2026-01-27",
+    "subject": "Add screening criteria",
+    "category": "feature",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "a540fdea12989121d4021ec46316433742fde0e3",
+    "date": "2026-01-26",
+    "subject": "fix history",
+    "category": "fix",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "493b7190eb986efef723ad34e13f982344906067",
+    "date": "2026-01-26",
+    "subject": "Add admin page",
+    "category": "feature",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "7115110d1917ce40c46af5202f6c7759160718a3",
+    "date": "2026-01-23",
+    "subject": "Change pipeline stage view",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "f08e7c0328117c3e70f007deabbb40fadc7d4f16",
+    "date": "2026-01-23",
+    "subject": "Add supabase db push and fix build",
+    "category": "fix",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "283c4c26b87c72adf830029dfae1c8f9866de1db",
+    "date": "2026-01-23",
+    "subject": "Add AI agent",
+    "category": "feature",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "b100be00d7ffec791608965f4c598e836eb64159",
+    "date": "2026-01-23",
+    "subject": "Fix migration and views",
+    "category": "fix",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "b219be19ae89f7d16223354062fb36875d187be4",
+    "date": "2026-01-23",
+    "subject": "fix next_public_ env",
+    "category": "fix",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "09cd8a35bc2830888893803e11ae5456c7d3375f",
+    "date": "2026-01-23",
+    "subject": "Change views",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "a96423a04476ff273195b1a97c269a451984754c",
+    "date": "2026-01-23",
+    "subject": "amend data types",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "77c37891b187fa3b06b873a8645048ca288f8b9d",
+    "date": "2026-01-23",
+    "subject": "Change to next",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "acd88a12b79ec9562e8b23e9b4519351f91dbda7",
+    "date": "2026-01-23",
+    "subject": "add the initial files",
+    "category": "feature",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "aa10600479999ff7225abc33312a076136653a30",
+    "date": "2026-01-23",
+    "subject": "Make initial work",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "9787d60b6e9046a147c85c3ff9eecd018d6a0c57",
+    "date": "2026-01-23",
+    "subject": "fix chevron",
+    "category": "fix",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "c9dba68a7b94933d99108c2fcaf33a30c9e2d118",
+    "date": "2026-01-23",
+    "subject": "Fix version",
+    "category": "fix",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "deb06a826105afa5a991dab633b4a37fc6cae81d",
+    "date": "2026-01-23",
+    "subject": "Assimilate lovable",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "733f5cda8862e776648f02c2962292fc6fb31d77",
+    "date": "2026-01-23",
+    "subject": "Merge initial lovable commit",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
+    "hash": "ac1e3876103169b704a94272b5a8c71799035c24",
+    "date": "2026-01-23",
+    "subject": "Change supabase URL",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "ad5ee82b29f94f91288486b57ef1b3c40f7abc28",
+    "date": "2026-01-23",
+    "subject": "Add supabase adapter",
+    "category": "feature",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "2c028ea9219b325228aa71848d5f022265fb4f59",
+    "date": "2026-01-23",
+    "subject": "Initial commit",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
   }
 ];
