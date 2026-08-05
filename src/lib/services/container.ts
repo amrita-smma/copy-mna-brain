@@ -69,6 +69,7 @@ import { DealNoteService } from './dealNoteService';
 import { DealLinkService } from './dealLinkService';
 import { CompanyAnalysisService } from './companyAnalysisService';
 import { AiOpinionService } from './aiOpinionService';
+import { FundAiOpinionService } from './fundAiOpinionService';
 import { AIScreeningService } from './aiScreeningService';
 import { MarketScreeningService } from './marketScreeningService';
 import { TrackMatchingService } from './trackMatchingService';
@@ -146,6 +147,7 @@ export interface Container {
   fundUpdateApplyService: FundUpdateApplyService;
   fundPortfolioService: FundPortfolioService;
   fundMetricsService: FundMetricsService;
+  fundAiOpinionService: FundAiOpinionService;
   stalledDealService: StalledDealService;
   featureFlagsService: FeatureFlagsService;
   feedbackService: FeedbackService;
@@ -349,6 +351,12 @@ export function createContainer(db: DbClient, workspaceId: string): Container {
     fundAssetValuationRepo,
     workspaceId,
   );
+  const fundAiOpinionService = new FundAiOpinionService(
+    fundAssetRepo,
+    fundAssetValuationRepo,
+    db,
+    workspaceId,
+  );
 
   const stalledDealService = new StalledDealService(companyRepo, companyLogRepo);
 
@@ -405,6 +413,7 @@ export function createContainer(db: DbClient, workspaceId: string): Container {
     fundUpdateApplyService,
     fundPortfolioService,
     fundMetricsService,
+    fundAiOpinionService,
     stalledDealService,
     featureFlagsService,
     feedbackService,

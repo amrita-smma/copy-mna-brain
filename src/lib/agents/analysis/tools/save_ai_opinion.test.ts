@@ -1,27 +1,62 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { createDb, update, CompanyRepository } = vi.hoisted(() => {
-  const update = vi.fn();
+const {
+  createDb,
+  completeAiOpinionIfProcessing,
+  findById,
+  findQueueById,
+  CompanyRepository,
+  AiWorkforceQueueRepository,
+} = vi.hoisted(() => {
+  const completeAiOpinionIfProcessing = vi.fn();
+  const findById = vi.fn();
+  const findQueueById = vi.fn();
   class CompanyRepository {
-    update = update;
+    completeAiOpinionIfProcessing = completeAiOpinionIfProcessing;
+    findById = findById;
   }
-  return { createDb: vi.fn(), update, CompanyRepository };
+  class AiWorkforceQueueRepository {
+    findById = findQueueById;
+    static isTerminal(status: string) {
+      return ["succeeded", "failed", "rejected", "timed_out"].includes(status);
+    }
+  }
+  return {
+    createDb: vi.fn(),
+    completeAiOpinionIfProcessing,
+    findById,
+    findQueueById,
+    CompanyRepository,
+    AiWorkforceQueueRepository,
+  };
 });
 
 vi.mock("@/lib/server/db", () => ({ createDb }));
 
-vi.mock("@/lib/repositories", () => ({ CompanyRepository }));
+vi.mock("@/lib/workspace", () => ({
+  getActiveWorkspaceId: vi.fn(async () => "ws-1"),
+}));
+
+vi.mock("@/lib/repositories", () => ({
+  CompanyRepository,
+  AiWorkforceQueueRepository,
+}));
 
 import { saveAiOpinion } from "./save_ai_opinion";
 
-function call(args: { company_id: string; verdict: string; summary: string }) {
-  return saveAiOpinion.invoke(args as never);
+function call(
+  args: { company_id: string; verdict: string; summary: string },
+  config?: { configurable?: { thread_id?: string } },
+) {
+  return saveAiOpinion.invoke(args as never, config as never);
 }
 
 describe("save_ai_opinion", () => {
   beforeEach(() => {
     createDb.mockReset().mockReturnValue({});
-    update.mockReset().mockResolvedValue([{ id: "co-1" }]);
+    completeAiOpinionIfProcessing.mockReset().mockResolvedValue({ id: "co-1" });
+    findById.mockReset().mockResolvedValue({ id: "co-1" });
+    findQueueById.mockReset().mockResolvedValue({ id: "run-1", status: "running" });
   });
 
   afterEach(() => vi.restoreAllMocks());
@@ -29,7 +64,7 @@ describe("save_ai_opinion", () => {
   it("rejects a blank company_id without touching the repository", async () => {
     const result = await call({ company_id: " ", verdict: "pass", summary: "x" });
     expect(String(result)).toMatch(/company_id is required/);
-    expect(update).not.toHaveBeenCalled();
+    expect(completeAiOpinionIfProcessing).not.toHaveBeenCalled();
   });
 
   it("rejects a blank summary without touching the repository", async () => {
@@ -39,7 +74,7 @@ describe("save_ai_opinion", () => {
       summary: "   ",
     });
     expect(String(result)).toMatch(/summary is required/);
-    expect(update).not.toHaveBeenCalled();
+    expect(completeAiOpinionIfProcessing).not.toHaveBeenCalled();
   });
 
   it("writes the verdict, summary, and completed status onto the company row", async () => {
@@ -49,8 +84,8 @@ describe("save_ai_opinion", () => {
       summary: "Strong fundamentals and margin trajectory.",
     });
 
-    expect(update).toHaveBeenCalledTimes(1);
-    const [id, updates] = update.mock.calls[0];
+    expect(completeAiOpinionIfProcessing).toHaveBeenCalledTimes(1);
+    const [id, updates] = completeAiOpinionIfProcessing.mock.calls[0];
     expect(id).toBe("co-1");
     expect(updates).toMatchObject({
       ai_opinion_verdict: "pass",
@@ -64,14 +99,15 @@ describe("save_ai_opinion", () => {
     const summary = Array.from({ length: 60 }, (_, i) => `w${i}`).join(" ");
     await call({ company_id: "co-1", verdict: "tentative", summary });
 
-    const [, updates] = update.mock.calls[0];
+    const [, updates] = completeAiOpinionIfProcessing.mock.calls[0];
     const words = String(updates.ai_opinion_summary).split(/\s+/);
     expect(words).toHaveLength(50);
     expect(String(updates.ai_opinion_summary)).toMatch(/…$/);
   });
 
   it("errors when no company matches the id", async () => {
-    update.mockResolvedValueOnce([]);
+    completeAiOpinionIfProcessing.mockResolvedValueOnce(undefined);
+    findById.mockResolvedValueOnce(undefined);
     const result = await call({
       company_id: "missing",
       verdict: "fail",
@@ -80,8 +116,28 @@ describe("save_ai_opinion", () => {
     expect(String(result)).toMatch(/No company found for company_id "missing"/);
   });
 
+  it("skips the write when the company is no longer processing", async () => {
+    completeAiOpinionIfProcessing.mockResolvedValueOnce(undefined);
+    const result = await call({
+      company_id: "co-1",
+      verdict: "pass",
+      summary: "x",
+    });
+    expect(String(result)).toMatch(/no longer processing/);
+  });
+
+  it("skips the write when the owning workforce run is already terminal", async () => {
+    findQueueById.mockResolvedValueOnce({ id: "run-1", status: "failed" });
+    const result = await call(
+      { company_id: "co-1", verdict: "pass", summary: "x" },
+      { configurable: { thread_id: "run-1" } },
+    );
+    expect(String(result)).toMatch(/no longer active/);
+    expect(completeAiOpinionIfProcessing).not.toHaveBeenCalled();
+  });
+
   it("returns an error string when the update throws", async () => {
-    update.mockRejectedValueOnce(new Error("db down"));
+    completeAiOpinionIfProcessing.mockRejectedValueOnce(new Error("db down"));
     const result = await call({
       company_id: "co-1",
       verdict: "pass",

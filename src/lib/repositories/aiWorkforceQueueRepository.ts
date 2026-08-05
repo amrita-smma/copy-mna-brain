@@ -150,6 +150,29 @@ export class AiWorkforceQueueRepository {
     return row ?? null;
   }
 
+  /** Same idempotency check as {@link findActiveByCompanyId}, keyed on a
+   * `fund_asset_id` instead — used by FundAiOpinionService to avoid
+   * stacking duplicate in-flight Fund AI Opinion runs for a holding. */
+  async findActiveByFundAssetId(
+    agentName: string,
+    fundAssetId: string,
+  ): Promise<Row | null> {
+    const [row] = await this.db
+      .select()
+      .from(aiWorkforceQueue)
+      .where(
+        and(
+          eq(aiWorkforceQueue.agent_name, agentName),
+          sql`${aiWorkforceQueue.trigger_meta}->>'fund_asset_id' = ${fundAssetId}`,
+          sql`${aiWorkforceQueue.status} NOT IN ('succeeded', 'failed', 'rejected', 'timed_out')`,
+          eq(aiWorkforceQueue.workspace_id, this.workspaceId),
+        ),
+      )
+      .orderBy(desc(aiWorkforceQueue.created_at))
+      .limit(1);
+    return row ?? null;
+  }
+
   // ─────────────────────────────────────────────────────────────────────
   // MB-147 surface — queue mechanics: idempotency, atomic claim, reaper.
   // Deliberately NOT workspace-scoped — see the constructor doc comment.

@@ -1,12 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { hasRunning, claimNextRunnable, findStuckRunning, markFailed, triggerWorkflowForRun } =
+const { hasRunning, claimNextRunnable, findStuckRunning, markFailed, triggerWorkflowForRun, failAiOpinionIfStillProcessing } =
   vi.hoisted(() => ({
     hasRunning: vi.fn(),
     claimNextRunnable: vi.fn(),
     findStuckRunning: vi.fn(),
     markFailed: vi.fn(),
     triggerWorkflowForRun: vi.fn(),
+    failAiOpinionIfStillProcessing: vi.fn(),
   }));
 
 vi.mock('@/lib/repositories', async (importOriginal) => {
@@ -24,6 +25,10 @@ vi.mock('@/lib/repositories', async (importOriginal) => {
 });
 
 vi.mock('./workflowTrigger', () => ({ triggerWorkflowForRun }));
+
+vi.mock('./clearAiOpinionOnFailure', () => ({
+  failAiOpinionIfStillProcessing: failAiOpinionIfStillProcessing,
+}));
 
 import { dispatcherTick, reapStuckRuns } from './dispatcher';
 
@@ -73,6 +78,7 @@ describe('reapStuckRuns', () => {
     findStuckRunning.mockReset();
     markFailed.mockReset();
     markFailed.mockResolvedValue({});
+    failAiOpinionIfStillProcessing.mockReset().mockResolvedValue(undefined);
   });
 
   afterEach(() => vi.useRealTimers());
@@ -88,8 +94,20 @@ describe('reapStuckRuns', () => {
 
   it('marks each stuck row as failed with a stuck_no_heartbeat code', async () => {
     findStuckRunning.mockResolvedValueOnce([
-      { id: 'r-1', last_heartbeat_at: '2026-05-12T00:00:00Z' },
-      { id: 'r-2', last_heartbeat_at: '2026-05-12T00:00:00Z' },
+      {
+        id: 'r-1',
+        last_heartbeat_at: '2026-05-12T00:00:00Z',
+        workspace_id: 'ws-1',
+        agent_name: 'fund_ai_opinion',
+        trigger_meta: { fund_asset_id: 'a-1' },
+      },
+      {
+        id: 'r-2',
+        last_heartbeat_at: '2026-05-12T00:00:00Z',
+        workspace_id: 'ws-2',
+        agent_name: 'company_card',
+        trigger_meta: {},
+      },
     ]);
 
     const result = await reapStuckRuns(fakeDb, {
@@ -102,6 +120,18 @@ describe('reapStuckRuns', () => {
     expect(markFailed).toHaveBeenCalledWith(
       'r-1',
       expect.objectContaining({ code: 'stuck_no_heartbeat' }),
+    );
+    expect(failAiOpinionIfStillProcessing).toHaveBeenCalledWith(
+      fakeDb,
+      'ws-1',
+      { fund_asset_id: 'a-1' },
+      'fund_ai_opinion',
+    );
+    expect(failAiOpinionIfStillProcessing).toHaveBeenCalledWith(
+      fakeDb,
+      'ws-2',
+      {},
+      'company_card',
     );
   });
 

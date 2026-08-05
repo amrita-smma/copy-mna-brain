@@ -3224,6 +3224,18 @@ export const fundAssets = pgTable("fund_assets", {
   fmv_amount: numeric({ mode: "number" }),
   is_manually_overridden: boolean().default(false).notNull(),
   metrics_computed_at: timestamp({ withTimezone: true, mode: "string" }),
+  // AI Opinion: a firm BUY/HOLD/SELL verdict + ≤50-word rationale produced
+  // by an AI Workforce run, surfaced as the right-most Asset table column.
+  // `ai_opinion_status` tracks the in-flight run lifecycle
+  // ('processing' | 'completed' | 'failed').
+  // `ai_opinion_confidence` is high|medium|low (clamped by server-side
+  // data sufficiency); `ai_opinion_data_gaps` lists sparse-data reasons.
+  ai_opinion_verdict: text(),
+  ai_opinion_summary: text(),
+  ai_opinion_status: text(),
+  ai_opinion_updated_at: timestamp({ withTimezone: true, mode: "string" }),
+  ai_opinion_confidence: text(),
+  ai_opinion_data_gaps: text(),
   created_by: uuid(),
   updated_by: uuid(),
   created_at: timestamp({ withTimezone: true, mode: "string" })

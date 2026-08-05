@@ -63,6 +63,29 @@ describe('FundAssetRepository', () => {
     expect(result).toEqual(row);
   });
 
+  it('markAiOpinionFailedIfProcessing issues a conditional update scoped to processing rows', async () => {
+    db.where.mockResolvedValueOnce(undefined);
+    await repo.markAiOpinionFailedIfProcessing('a1');
+    expect(db.update).toHaveBeenCalled();
+    expect(db.set).toHaveBeenCalledWith({ ai_opinion_status: 'failed' });
+    expect(db.where).toHaveBeenCalledTimes(1);
+  });
+
+  it('completeAiOpinionIfProcessing issues a conditional update scoped to processing rows', async () => {
+    const row = { id: 'a1', ai_opinion_status: 'completed' };
+    db.returning.mockResolvedValueOnce([row]);
+    const result = await repo.completeAiOpinionIfProcessing('a1', {
+      ai_opinion_verdict: 'buy',
+      ai_opinion_status: 'completed',
+    });
+    expect(result).toEqual(row);
+    expect(db.update).toHaveBeenCalled();
+    expect(db.set).toHaveBeenCalledWith({
+      ai_opinion_verdict: 'buy',
+      ai_opinion_status: 'completed',
+    });
+  });
+
   it('delete removes the asset by id', async () => {
     db.where.mockResolvedValueOnce(undefined);
     await repo.delete('a1');

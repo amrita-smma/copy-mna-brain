@@ -93,22 +93,30 @@ export class AiOpinionService {
       `should carry little weight in the verdict. ` +
       `After the tool returns, briefly report the verdict you recorded.`;
 
-    const { runId } = await enqueueAgentRun(this.db, {
-      agentName: AI_OPINION_AGENT_NAME,
-      triggerSource: 'api',
-      triggerMeta: { company_id: id },
-      input: {
-        title: `AI Opinion: ${companyName}`,
-        instruction,
-        prompt: instruction,
-        company_id: id,
-        // Form the opinion at HIGH effort (Opus, the strongest model) so the
-        // verdict is as firm and well-reasoned as possible. runAgent reads
-        // input.effort ('medium' | 'high') to pick the workforce agent's model.
-        effort: 'high',
-      },
-      triggeredByUserId: triggeredByUserId ?? null,
-    });
+    let runId: string;
+    try {
+      ({ runId } = await enqueueAgentRun(this.db, {
+        agentName: AI_OPINION_AGENT_NAME,
+        triggerSource: 'api',
+        triggerMeta: { company_id: id },
+        input: {
+          title: `AI Opinion: ${companyName}`,
+          instruction,
+          prompt: instruction,
+          company_id: id,
+          // Form the opinion at HIGH effort (Opus, the strongest model) so the
+          // verdict is as firm and well-reasoned as possible. runAgent reads
+          // input.effort ('medium' | 'high') to pick the workforce agent's model.
+          effort: 'high',
+        },
+        triggeredByUserId: triggeredByUserId ?? null,
+      }));
+    } catch (err) {
+      // Don't leave the company stuck on 'processing' if enqueue fails after
+      // the optimistic status flip above.
+      await this.companyRepo.update(id, { ai_opinion_status: 'failed' });
+      throw err;
+    }
 
     captureWorkspaceEvent({
       workspaceId: this.workspaceId,

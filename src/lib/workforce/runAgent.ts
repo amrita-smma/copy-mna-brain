@@ -18,6 +18,7 @@ import { EmailNotificationService } from '@/lib/services/emailNotificationServic
 import { NotificationService } from '@/lib/services/notificationService';
 import type { NotificationKind } from '@/lib/notifications/types';
 import { createDb } from '@/lib/server/db';
+import { failAiOpinionIfStillProcessing } from './clearAiOpinionOnFailure';
 import { dispatcherTick } from './dispatcher';
 
 function isRateLimitError(err: unknown): boolean {
@@ -81,6 +82,10 @@ interface LoadResult {
   effort: EffortChoice;
   /** Email of triggered_by_user_id, when resolvable — for omit-to send_email. */
   userEmail: string | null;
+  /** Queue row agent_name — used to gate AI Opinion spinner clearing. */
+  agentName: string;
+  /** Queue row trigger_meta — entity ids for AI Opinion spinner clearing. */
+  triggerMeta: unknown;
 }
 
 async function loadAndHeartbeat(runId: string): Promise<LoadResult> {
@@ -151,6 +156,8 @@ async function loadAndHeartbeat(runId: string): Promise<LoadResult> {
     workspaceId: row.workspace_id,
     effort,
     userEmail,
+    agentName: row.agent_name,
+    triggerMeta: row.trigger_meta,
   };
 }
 
@@ -349,6 +356,8 @@ async function finalize(
   runId: string,
   result: Extract<InvokeStepResult, { kind: 'completed' }>,
   workspaceId: string,
+  agentName: string,
+  triggerMeta: unknown,
 ): Promise<void> {
   'use step';
   const db = createDb();
@@ -359,6 +368,10 @@ async function finalize(
     message_count: result.messageCount,
     tool_call_count: result.toolCallCount,
   });
+  // AI Opinion runs that finish without calling save_*_ai_opinion would
+  // otherwise leave the entity spinner stuck on 'processing' forever.
+  // agentName/triggerMeta come from loadAndHeartbeat — no extra findById.
+  await failAiOpinionIfStillProcessing(db, workspaceId, triggerMeta, agentName);
   await kickDispatcher(db);
   // Best-effort completion notification (MB-90). Skips cron runs internally —
   // those roll up into the routine digest instead.
@@ -391,12 +404,15 @@ async function markFailedStep(
   runId: string,
   errorPayload: Record<string, unknown>,
   workspaceId: string,
+  agentName: string,
+  triggerMeta: unknown,
 ): Promise<void> {
   'use step';
   const db = createDb();
   const repo = new AiWorkforceQueueRepository(db, workspaceId);
   await repo.clearResumeToken(runId);
   await repo.markFailed(runId, errorPayload);
+  await failAiOpinionIfStillProcessing(db, workspaceId, triggerMeta, agentName);
   await kickDispatcher(db);
   const reason =
     typeof errorPayload.message === 'string' ? errorPayload.message : undefined;
@@ -453,8 +469,17 @@ async function kickDispatcher(
 
 export async function runAgent({ runId }: { runId: string }): Promise<void> {
   'use workflow';
-  const { prompt, resumePayloadJson, threadId, pendingMessages, workspaceId, effort, userEmail } =
-    await loadAndHeartbeat(runId);
+  const {
+    prompt,
+    resumePayloadJson,
+    threadId,
+    pendingMessages,
+    workspaceId,
+    effort,
+    userEmail,
+    agentName,
+    triggerMeta,
+  } = await loadAndHeartbeat(runId);
 
   // Mid-invoke heartbeats run inside invokeAgent (60s ticker) so long tool
   // calls such as pptx generation do not trip the 30m reaper.
@@ -489,10 +514,12 @@ export async function runAgent({ runId }: { runId: string }): Promise<void> {
           message: result.reason,
         },
         workspaceId,
+        agentName,
+        triggerMeta,
       );
       return;
     }
-    await finalize(runId, result, workspaceId);
+    await finalize(runId, result, workspaceId, agentName, triggerMeta);
   } catch (err) {
     // WDK has already exhausted step retries by the time we get here.
     // Persist a terminal failure so the reaper doesn't have to.
@@ -503,6 +530,8 @@ export async function runAgent({ runId }: { runId: string }): Promise<void> {
         message: err instanceof Error ? err.message : String(err),
       },
       workspaceId,
+      agentName,
+      triggerMeta,
     );
     // Surface a critical notification so TaskCanvas shows actionable copy
     // alongside the failure pill. addNotification merges into error.notifications,

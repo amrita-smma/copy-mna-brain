@@ -1021,7 +1021,12 @@ export default function Pipeline({
       );
       // Pull in the optimistic ai_opinion_status='processing' the dispatch set,
       // then let the poll below swap in the verdict once the run completes.
-      await fetchCompanies({ silent: true });
+      // Refresh is best-effort — a fetch failure must not look like analyze failed.
+      try {
+        await fetchCompanies({ silent: true });
+      } catch (refreshErr) {
+        console.error("Failed to refresh companies after AI Opinion dispatch:", refreshErr);
+      }
     } catch (error: any) {
       console.error("AI Opinion error:", error);
       toast.error(error.message || "Failed to start AI Opinion analysis");

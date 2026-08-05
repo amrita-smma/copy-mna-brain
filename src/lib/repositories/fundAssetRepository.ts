@@ -117,4 +117,46 @@ export class FundAssetRepository {
       .delete(fundAssets)
       .where(and(eq(fundAssets.id, id), eq(fundAssets.workspace_id, this.workspaceId)));
   }
+
+  /**
+   * Atomically flips `ai_opinion_status` to 'failed' only if it is still
+   * 'processing'. A single conditional UPDATE avoids the read-then-write gap
+   * a `findById` + `update` pair would have against a concurrent tool write.
+   */
+  async markAiOpinionFailedIfProcessing(id: string): Promise<void> {
+    await this.db
+      .update(fundAssets)
+      .set({ ai_opinion_status: 'failed' })
+      .where(
+        and(
+          eq(fundAssets.id, id),
+          eq(fundAssets.workspace_id, this.workspaceId),
+          eq(fundAssets.ai_opinion_status, 'processing'),
+        ),
+      );
+  }
+
+  /**
+   * Persist a completed AI Opinion only while the holding is still
+   * `processing`. Prevents a cancelled/superseded workforce run from
+   * resurrecting a verdict after `markAiOpinionFailedIfProcessing` (or a
+   * newer dispatch) has already moved the row on.
+   */
+  async completeAiOpinionIfProcessing(
+    id: string,
+    updates: TablesUpdate<'fund_assets'>,
+  ): Promise<Tables<'fund_assets'> | undefined> {
+    const [row] = await this.db
+      .update(fundAssets)
+      .set(updates)
+      .where(
+        and(
+          eq(fundAssets.id, id),
+          eq(fundAssets.workspace_id, this.workspaceId),
+          eq(fundAssets.ai_opinion_status, 'processing'),
+        ),
+      )
+      .returning();
+    return row;
+  }
 }

@@ -900,6 +900,19 @@ transactions, current share price, fee rates, quarterly snapshots, and
 fund/holding financials, with live recomputation of MOIC / IRR / DPI and all
 downstream metrics.
 
+The Asset tab's right-most **AI Opinion** column (MB-470) mirrors the
+pipeline's AI Opinion feature: clicking "Analyze AI Opinion" (or
+"Re-evaluate") POSTs `fundAssetId` to `/api/funds/ai-opinion`
+(`FundAiOpinionService.dispatch`), which enqueues a HIGH-effort (Opus) AI
+Workforce run via the same `enqueueAgentRun` queue the pipeline uses. The run
+reviews the holding's metrics (inlined into the instruction) plus `web_search`
+context, then calls the `save_fund_ai_opinion` tool to write a firm
+**buy / hold / sell** verdict + ≤50-word rationale onto `fund_assets`
+(`ai_opinion_verdict` / `ai_opinion_summary` / `ai_opinion_status` /
+`ai_opinion_updated_at`). There is no SSE stream for funds — while any holding
+is `ai_opinion_status='processing'`, `FundManagement.tsx` polls
+`getPortfolio()` every 4s and stops once no holding is left processing.
+
 Funds, holdings, and their ledgers are backed by the Fund Management API
 (`/api/funds/*` → `FundService` / `FundAssetLedgerService` /
 `FundMetricsService`). **Investment Entities** and **Sources of Fund** are

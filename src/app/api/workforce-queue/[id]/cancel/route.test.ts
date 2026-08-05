@@ -7,6 +7,7 @@ const {
   cancelByIdMock,
   dispatcherTickMock,
   afterMock,
+  failAiOpinionIfStillProcessingMock,
 } = vi.hoisted(() => ({
   authMock: vi.fn(),
   createDbMock: vi.fn(),
@@ -16,11 +17,15 @@ const {
   afterMock: vi.fn((cb: () => Promise<void>) => {
     void cb();
   }),
+  failAiOpinionIfStillProcessingMock: vi.fn(),
 }));
 
 vi.mock('@/auth', () => ({ auth: authMock }));
 vi.mock('@/lib/server/db', () => ({ createDb: createDbMock, withBackgroundDb: vi.fn(async (cb) => cb(createDbMock())) }));
 vi.mock('@/lib/workforce', () => ({ dispatcherTick: dispatcherTickMock }));
+vi.mock('@/lib/workforce/clearAiOpinionOnFailure', () => ({
+  failAiOpinionIfStillProcessing: failAiOpinionIfStillProcessingMock,
+}));
 vi.mock('@/lib/repositories', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/repositories')>();
   class MockAiWorkforceQueueRepository {
@@ -58,8 +63,11 @@ function makeParams(id: string): { params: Promise<{ id: string }> } {
 function makeRow(overrides: Record<string, unknown> = {}) {
   return {
     id: ROW_ID,
+    workspace_id: 'ws-row',
     triggered_by_user_id: USER_ID,
     status: 'running',
+    agent_name: 'fund_ai_opinion',
+    trigger_meta: { fund_asset_id: 'asset-1' },
     ...overrides,
   };
 }
@@ -71,6 +79,7 @@ describe('POST /api/workforce-queue/[id]/cancel', () => {
     findByIdMock.mockReset();
     cancelByIdMock.mockReset();
     dispatcherTickMock.mockReset().mockResolvedValue({ outcome: 'empty' });
+    failAiOpinionIfStillProcessingMock.mockReset().mockResolvedValue(undefined);
     afterMock.mockClear();
   });
 
@@ -128,6 +137,12 @@ describe('POST /api/workforce-queue/[id]/cancel', () => {
       userId: USER_ID,
       reason: 'changed my mind',
     });
+    expect(failAiOpinionIfStillProcessingMock).toHaveBeenCalledWith(
+      expect.anything(),
+      'ws-row',
+      { fund_asset_id: 'asset-1' },
+      'fund_ai_opinion',
+    );
     expect(afterMock).toHaveBeenCalledTimes(1);
     expect(dispatcherTickMock).toHaveBeenCalledTimes(1);
   });

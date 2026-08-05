@@ -61,7 +61,7 @@ import {
   scopeHoldingToFund,
 } from './fundManagement/calc';
 import { useFundMoney } from './fundManagement/useFundMoney';
-import type { Fund, HoldingType, Investor } from './fundManagement/types';
+import type { Fund, Holding, HoldingType, Investor } from './fundManagement/types';
 
 type InvestorRow = Awaited<ReturnType<typeof holdingEntitiesApi.listHoldingEntities>>[number];
 type StakeRow = Awaited<ReturnType<typeof holdingEntityStakesApi.listHoldingEntityStakes>>[number];
@@ -702,6 +702,9 @@ export default function FundManagement({
   // Bump to force a re-render after an in-place optimistic edit to a holding/fund.
   const [, setRev] = useState(0);
   const { toast } = useToast();
+  // MB-470: fund_assets.id set of holdings with an AI Opinion run in flight
+  // (optimistic, client-tracked — mirrors Pipeline.tsx's analyzingAiOpinionIds).
+  const [analyzingAiOpinionIds, setAnalyzingAiOpinionIds] = useState<Set<string>>(new Set());
 
   const reloadAll = useCallback(async () => {
     try {
@@ -798,6 +801,22 @@ export default function FundManagement({
     reloadStakes();
     reloadSources();
   }, [reloadAll, reloadInvestors, reloadStakes, reloadSources]);
+
+  // MB-470: while any holding has an AI Opinion run processing, poll the
+  // portfolio so the spinner swaps for the verdict once the workforce run
+  // completes (no SSE endpoint for funds — polling is simpler and sufficient
+  // here). Stops automatically once no holding is left in 'processing'.
+  const anyAiOpinionProcessing = useMemo(
+    () => (funds ?? []).some((f) => f.h.some((h) => h.aiOpinionStatus === 'processing')),
+    [funds],
+  );
+  useEffect(() => {
+    if (!anyAiOpinionProcessing) return;
+    const id = setInterval(() => {
+      reloadAll();
+    }, 4000);
+    return () => clearInterval(id);
+  }, [anyAiOpinionProcessing, reloadAll]);
 
   const reloadOne = useCallback(
     async (fundId: string) => {
@@ -953,6 +972,37 @@ export default function FundManagement({
       entityNameById,
       sourceNameById,
       sourceOfFundsEnabled,
+      analyzeAiOpinion: (holding: Holding) => {
+        if (!holding.id) return;
+        const id = holding.id;
+        setAnalyzingAiOpinionIds((prev) => new Set(prev).add(id));
+        fundsApi
+          .analyzeFundAiOpinion(id)
+          .then(() => {
+            toast({ title: 'Analyzing AI Opinion', description: `Reviewing "${holding.n}"…` });
+            // Portfolio refresh is best-effort — a transient fetch failure must
+            // not look like the analyze request itself failed (the run is live).
+            return reloadAll().catch((err) => {
+              console.error('Failed to refresh portfolio after AI Opinion dispatch', err);
+            });
+          })
+          .catch((err) => {
+            console.error('Failed to analyze AI Opinion', err);
+            toast({
+              title: 'Failed to analyze AI Opinion',
+              description: err instanceof Error ? err.message : 'The request could not be started.',
+              variant: 'destructive',
+            });
+          })
+          .finally(() => {
+            setAnalyzingAiOpinionIds((prev) => {
+              const next = new Set(prev);
+              next.delete(id);
+              return next;
+            });
+          });
+      },
+      analyzingAiOpinionIds,
     }),
     [
       reloadOne,
@@ -964,6 +1014,7 @@ export default function FundManagement({
       entityNameById,
       sourceNameById,
       sourceOfFundsEnabled,
+      analyzingAiOpinionIds,
     ],
   );
 

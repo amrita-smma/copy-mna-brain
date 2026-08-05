@@ -685,6 +685,51 @@ export class CompanyRepository {
     return rows;
   }
 
+  /**
+   * Atomically flips `ai_opinion_status` to 'failed' only if it is still
+   * 'processing'. A single conditional UPDATE avoids the read-then-write gap
+   * a `findById` + `update` pair would have against a concurrent tool write.
+   */
+  async markAiOpinionFailedIfProcessing(id: string): Promise<void> {
+    const rows = await this.db
+      .update(companies)
+      .set({ ai_opinion_status: "failed" })
+      .where(
+        and(
+          eq(companies.id, id),
+          eq(companies.workspace_id, this.workspaceId),
+          eq(companies.ai_opinion_status, "processing"),
+        ),
+      )
+      .returning();
+    await this.mirrorUpsert(rows);
+  }
+
+  /**
+   * Persist a completed AI Opinion only while the company is still
+   * `processing`. Prevents a cancelled/superseded workforce run from
+   * resurrecting a verdict after `markAiOpinionFailedIfProcessing` (or a
+   * newer dispatch) has already moved the row on.
+   */
+  async completeAiOpinionIfProcessing(
+    id: string,
+    updates: TablesUpdate<"companies">,
+  ): Promise<Tables<"companies"> | undefined> {
+    const rows = await this.db
+      .update(companies)
+      .set(updates)
+      .where(
+        and(
+          eq(companies.id, id),
+          eq(companies.workspace_id, this.workspaceId),
+          eq(companies.ai_opinion_status, "processing"),
+        ),
+      )
+      .returning();
+    await this.mirrorUpsert(rows);
+    return rows[0];
+  }
+
   async updateMany(
     ids: string[],
     updates: TablesUpdate<"companies">,

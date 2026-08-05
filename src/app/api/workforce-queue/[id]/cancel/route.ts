@@ -10,6 +10,7 @@ import {
 } from '@/lib/repositories';
 import { EmailNotificationService } from '@/lib/services/emailNotificationService';
 import { dispatcherTick } from '@/lib/workforce';
+import { failAiOpinionIfStillProcessing } from '@/lib/workforce/clearAiOpinionOnFailure';
 
 interface CancelBody {
   reason?: unknown;
@@ -81,6 +82,19 @@ export async function POST(
       );
     }
 
+    // Scope spinner clear + notify to the *row's* workspace. The actor's
+    // active workspace can differ (cross-workspace queue browse); using it
+    // would miss the entity or write against the wrong tenant.
+    const entityWorkspaceId = item.workspace_id ?? workspaceId;
+
+    // Release any AI Opinion spinner left on the target entity.
+    await failAiOpinionIfStillProcessing(
+      db,
+      entityWorkspaceId,
+      item.trigger_meta,
+      item.agent_name,
+    );
+
     after(async () => {
       await withBackgroundDb(async (freshDb) => {
         try {
@@ -91,8 +105,8 @@ export async function POST(
         // Best-effort cancellation notification (MB-90). The service no-ops when
         // the feature flag is off and swallows its own errors.
         const notifier = new EmailNotificationService({
-          workforceRepo: new AiWorkforceQueueRepository(freshDb, workspaceId),
-          routinesRepo: new RoutinesRepository(freshDb, workspaceId),
+          workforceRepo: new AiWorkforceQueueRepository(freshDb, entityWorkspaceId),
+          routinesRepo: new RoutinesRepository(freshDb, entityWorkspaceId),
           userRepo: new UserRepository(freshDb),
           workspaceRepo: new WorkspaceRepository(freshDb),
         });

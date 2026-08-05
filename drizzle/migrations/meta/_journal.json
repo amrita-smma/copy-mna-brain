@@ -806,6 +806,20 @@
       "when": 1785715201000,
       "tag": "20260803000001_add_feedback_title",
       "breakpoints": true
+    },
+    {
+      "idx": 115,
+      "version": "7",
+      "when": 1785888001000,
+      "tag": "20260805000001_add_fund_asset_ai_opinion",
+      "breakpoints": true
+    },
+    {
+      "idx": 116,
+      "version": "7",
+      "when": 1785888002000,
+      "tag": "20260805000002_add_fund_asset_ai_opinion_confidence",
+      "breakpoints": true
     }
   ]
 }

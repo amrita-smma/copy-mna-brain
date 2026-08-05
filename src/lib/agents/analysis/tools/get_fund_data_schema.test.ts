@@ -29,6 +29,7 @@ describe('getFundDataSchema', () => {
     expect(result).toContain('tracks **2** fund(s)');
     expect(result).toContain('query_funds');
     expect(result).toContain('query_fund_assets');
+    expect(result).toContain('get_fund_asset_details');
     expect(result).toContain('query_investors');
     expect(result).toContain('query_fund_sources');
   });

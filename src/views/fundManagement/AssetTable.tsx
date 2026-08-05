@@ -18,6 +18,9 @@ import { HoldingDetail } from './HoldingDetail';
 import { TablePager } from './TablePager';
 import { useFundData } from './context';
 import { useFeatureEnabled } from '@/components/layout/FeatureFlagsContext';
+import { useChatContext } from '@/components/chat/ChatProvider';
+import { useLayoutControl } from '@/components/layout/LayoutControlContext';
+import { FundAiOpinionCell } from './FundAiOpinionCell';
 
 const PAGE_SIZE = 25;
 
@@ -106,8 +109,17 @@ export function AssetTable({
 }: {
   funds: Fund[];
 }) {
-  const { deleteAsset, refreshAll, entityNameById, sourceNameById } = useFundData();
+  const {
+    deleteAsset,
+    refreshAll,
+    entityNameById,
+    sourceNameById,
+    analyzeAiOpinion,
+    analyzingAiOpinionIds,
+  } = useFundData();
   const { money } = useFundMoney();
+  const { analyzeWithAI } = useChatContext();
+  const { focusCopilot } = useLayoutControl();
   const [groupBy, setGroupBy] = useState<GroupBy>('none');
   // Source-of-funds tracking is a per-workspace setting; when off, drop the
   // "by Source of Fund" grouping and coerce an already-selected 'source' mode
@@ -119,6 +131,20 @@ export function AssetTable({
   useEffect(() => {
     if (!sourceOfFundsEnabled && groupBy === 'source') setGroupBy('none');
   }, [sourceOfFundsEnabled, groupBy]);
+
+  // "Dive deeper" hands the existing AI Opinion verdict to the copilot and
+  // reveals the pane so the discussion is immediately visible.
+  const handleDiveDeeper = (h: Holding) => {
+    const name = h.n || 'this holding';
+    const verdict = h.aiOpinionVerdict ?? 'unknown';
+    const summary = h.aiOpinionSummary ?? 'no summary available';
+    const idHint = h.id ? ` (fund_asset_id: ${h.id})` : '';
+    analyzeWithAI(
+      `Dive deeper into the AI Opinion for ${name}${idHint}. The current verdict is "${verdict}" with the rationale: "${summary}". ` +
+        `Start with get_fund_asset_details${h.id ? ` using fund_asset_id "${h.id}"` : ' for this holding by name'} to pull the recorded metrics and valuation history, then explain the reasoning in more detail, surface the key risks and opportunities, and tell me what additional diligence would strengthen this assessment.`,
+    );
+    focusCopilot();
+  };
   const [openGroups, setOpenGroups] = useState<Set<string>>(new Set());
   const [openAssets, setOpenAssets] = useState<Set<string>>(new Set());
   const [page, setPage] = useState(1);
@@ -294,12 +320,20 @@ export function AssetTable({
             <td className="px-3 py-2 align-middle">
               <Pill>{h.st}</Pill>
             </td>
+            <td className="min-w-[300px] max-w-[390px] px-3 py-2 align-middle" onClick={(e) => e.stopPropagation()}>
+              <FundAiOpinionCell
+                holding={h}
+                analyzing={h.id ? analyzingAiOpinionIds.has(h.id) : false}
+                onAnalyze={analyzeAiOpinion}
+                onDiveDeeper={handleDiveDeeper}
+              />
+            </td>
           </tr>,
         );
         if (hopen) {
           out.push(
             <tr key={`d${rowKey}`} className="border-b">
-              <td colSpan={7} className="bg-background px-3 pb-3.5 pt-2">
+              <td colSpan={8} className="bg-background px-3 pb-3.5 pt-2">
                 <HoldingDetail fund={f} holding={h} />
               </td>
             </tr>,
@@ -331,7 +365,7 @@ export function AssetTable({
       </div>
 
       <div className="overflow-x-auto rounded-lg border bg-card">
-        <table className="w-full min-w-[820px] border-collapse">
+        <table className="w-full min-w-[1120px] border-collapse">
           <thead>
             <tr>
               <th className="whitespace-nowrap border-b bg-muted/50 px-3 py-2 text-left text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
@@ -348,6 +382,21 @@ export function AssetTable({
               <th className="whitespace-nowrap border-b bg-muted/50 px-3 py-2 text-left text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
                 Status
               </th>
+              <th className="min-w-[300px] max-w-[390px] whitespace-nowrap border-b bg-muted/50 px-3 py-2 text-left text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span className="cursor-help border-b border-dotted border-muted-foreground/50">
+                      AI Opinion
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipContent className="max-w-[280px]">
+                    <p className="text-xs">
+                      AI-generated analysis, not investment advice. Confidence
+                      reflects how complete the holding&apos;s recorded data is.
+                    </p>
+                  </TooltipContent>
+                </Tooltip>
+              </th>
             </tr>
           </thead>
           <tbody>
@@ -355,7 +404,7 @@ export function AssetTable({
               ? flat.length === 0
                 ? [
                     <tr key="empty">
-                      <td colSpan={7} className="px-3 py-10 text-center text-sm text-muted-foreground">
+                      <td colSpan={8} className="px-3 py-10 text-center text-sm text-muted-foreground">
                         No assets yet.
                       </td>
                     </tr>,
@@ -401,6 +450,7 @@ export function AssetTable({
                       <td className="px-3 py-2.5 text-right align-middle text-[13px] font-medium text-foreground">
                         {dpi(a.cost, a.real).toFixed(2)}×
                       </td>
+                      <td className="px-3 py-2.5 align-middle text-[13px] text-muted-foreground">—</td>
                       <td className="px-3 py-2.5 align-middle text-[13px] text-muted-foreground">—</td>
                     </tr>,
                   );

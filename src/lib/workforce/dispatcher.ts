@@ -1,6 +1,7 @@
 import { AiWorkforceQueueRepository } from '@/lib/repositories';
 import { NO_ACTIVE_WORKSPACE_ID } from '@/lib/constants';
 import type { DbClient } from '@/lib/repositories';
+import { failAiOpinionIfStillProcessing } from './clearAiOpinionOnFailure';
 import { triggerWorkflowForRun } from './workflowTrigger';
 
 export type DispatchResult =
@@ -86,6 +87,12 @@ export async function reapStuckRuns(
         message: `last_heartbeat_at older than ${stalenessSeconds}s`,
         last_heartbeat_at: row.last_heartbeat_at,
       });
+      await failAiOpinionIfStillProcessing(
+        db,
+        row.workspace_id,
+        row.trigger_meta,
+        row.agent_name,
+      );
       reaped.push(row.id);
     } catch (err) {
       console.error(`[reaper] failed to mark ${row.id} as failed:`, err);

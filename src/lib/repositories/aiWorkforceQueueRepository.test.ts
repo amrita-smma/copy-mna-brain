@@ -873,3 +873,42 @@ describe('AiWorkforceQueueRepository.listFiltered', () => {
     expect(chain.where.mock.calls[0][0]).toBeDefined();
   });
 });
+
+describe('AiWorkforceQueueRepository.findActiveByFundAssetId', () => {
+  function makeFindDb() {
+    const chain = {
+      from: vi.fn().mockReturnThis(),
+      where: vi.fn().mockReturnThis(),
+      orderBy: vi.fn().mockReturnThis(),
+      limit: vi.fn(),
+    };
+    const db = {
+      select: vi.fn().mockReturnValue(chain),
+    };
+    return { db, chain };
+  }
+
+  it('returns the active row scoped to agent name, fund_asset_id, and workspace', async () => {
+    const { db, chain } = makeFindDb();
+    const row = { id: 'run-active' };
+    chain.limit.mockResolvedValueOnce([row]);
+
+    const repo = new AiWorkforceQueueRepository(db as never, 'workspace-1');
+    const result = await repo.findActiveByFundAssetId('fund_ai_opinion', 'asset-1');
+
+    expect(result).toBe(row);
+    expect(chain.where).toHaveBeenCalledTimes(1);
+    expect(chain.where.mock.calls[0][0]).toBeDefined();
+    expect(chain.limit).toHaveBeenCalledWith(1);
+  });
+
+  it('returns null when no active run exists', async () => {
+    const { db, chain } = makeFindDb();
+    chain.limit.mockResolvedValueOnce([]);
+
+    const repo = new AiWorkforceQueueRepository(db as never, 'workspace-1');
+    const result = await repo.findActiveByFundAssetId('fund_ai_opinion', 'asset-1');
+
+    expect(result).toBeNull();
+  });
+});

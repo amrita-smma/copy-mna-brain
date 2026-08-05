@@ -19,6 +19,7 @@ const {
   getWorkforceAgentGraph,
   dispatcherTick,
   HumanMessage,
+  failAiOpinionIfStillProcessingMock,
 } = vi.hoisted(() => ({
   findById: vi.fn(),
   heartbeat: vi.fn(),
@@ -32,6 +33,7 @@ const {
   resumeMock: vi.fn(),
   getWorkforceAgentGraph: vi.fn(),
   dispatcherTick: vi.fn(),
+  failAiOpinionIfStillProcessingMock: vi.fn(),
   // Identity carrier so tests can assert the argument structure without
   // pulling LangChain types into the test environment.
   HumanMessage: class {
@@ -90,6 +92,10 @@ vi.mock('@/lib/agents/analysis', () => ({
 
 vi.mock('./dispatcher', () => ({ dispatcherTick }));
 
+vi.mock('./clearAiOpinionOnFailure', () => ({
+  failAiOpinionIfStillProcessing: failAiOpinionIfStillProcessingMock,
+}));
+
 import { runAgent } from './runAgent';
 
 const RUN_ID = 'run-1';
@@ -102,6 +108,8 @@ function makeRow(overrides: Record<string, unknown> = {}) {
     input: { prompt: PROMPT },
     workspace_id: 'ws-1',
     triggered_by_user_id: null,
+    agent_name: 'workforce',
+    trigger_meta: {},
     ...overrides,
   };
 }
@@ -133,6 +141,7 @@ describe('runAgent — happy path', () => {
     resumeMock.mockReset();
     getWorkforceAgentGraph.mockReset();
     dispatcherTick.mockReset().mockResolvedValue({ outcome: 'empty' });
+    failAiOpinionIfStillProcessingMock.mockReset().mockResolvedValue(undefined);
     process.env.ANTHROPIC_API_KEY = 'test-key';
   });
 
@@ -193,6 +202,38 @@ describe('runAgent — happy path', () => {
       tool_call_count: 1,
     });
     expect(markFailed).not.toHaveBeenCalled();
+    // Spinner clear uses agent_name/trigger_meta from loadAndHeartbeat —
+    // no second findById after markSucceeded.
+    expect(findById).toHaveBeenCalledTimes(1);
+    expect(failAiOpinionIfStillProcessingMock).toHaveBeenCalledWith(
+      expect.anything(),
+      'ws-1',
+      {},
+      'workforce',
+    );
+  });
+
+  it('passes fund AI Opinion agent_name + trigger_meta through to spinner clear', async () => {
+    findById.mockResolvedValueOnce(
+      makeRow({
+        agent_name: 'fund_ai_opinion',
+        trigger_meta: { fund_asset_id: 'asset-1' },
+      }),
+    );
+    getWorkforceAgentGraph.mockResolvedValueOnce({
+      invoke: invokeMock,
+      getState: vi.fn().mockResolvedValue({}),
+    });
+    invokeMock.mockResolvedValueOnce(makeAgentResult({ finalText: 'Done.' }));
+
+    await runAgent({ runId: RUN_ID });
+
+    expect(failAiOpinionIfStillProcessingMock).toHaveBeenCalledWith(
+      expect.anything(),
+      'ws-1',
+      { fund_asset_id: 'asset-1' },
+      'fund_ai_opinion',
+    );
   });
 
   it('extracts text from array content-block final content', async () => {
@@ -233,6 +274,7 @@ describe('runAgent — guard rails', () => {
     resumeMock.mockReset();
     createDb.mockReset().mockReturnValue({});
     dispatcherTick.mockReset().mockResolvedValue({ outcome: 'empty' });
+    failAiOpinionIfStillProcessingMock.mockReset().mockResolvedValue(undefined);
     process.env.ANTHROPIC_API_KEY = 'test-key';
   });
 
@@ -336,6 +378,7 @@ describe('runAgent — failure path', () => {
     resumeMock.mockReset();
     createDb.mockReset().mockReturnValue({});
     dispatcherTick.mockReset().mockResolvedValue({ outcome: 'empty' });
+    failAiOpinionIfStillProcessingMock.mockReset().mockResolvedValue(undefined);
     process.env.ANTHROPIC_API_KEY = 'test-key';
   });
 
@@ -384,6 +427,7 @@ describe('runAgent — resume branch (rows carrying a resume_token)', () => {
     resumeMock.mockReset();
     createDb.mockReset().mockReturnValue({});
     dispatcherTick.mockReset().mockResolvedValue({ outcome: 'empty' });
+    failAiOpinionIfStillProcessingMock.mockReset().mockResolvedValue(undefined);
     process.env.ANTHROPIC_API_KEY = 'test-key';
   });
 
@@ -456,6 +500,7 @@ describe('runAgent — HITL interrupt path', () => {
     resumeMock.mockReset();
     createDb.mockReset().mockReturnValue({});
     dispatcherTick.mockReset().mockResolvedValue({ outcome: 'empty' });
+    failAiOpinionIfStillProcessingMock.mockReset().mockResolvedValue(undefined);
     process.env.ANTHROPIC_API_KEY = 'test-key';
   });
 
@@ -500,6 +545,7 @@ describe('runAgent — reactive dispatcher kick', () => {
     resumeMock.mockReset();
     createDb.mockReset().mockReturnValue({});
     dispatcherTick.mockReset().mockResolvedValue({ outcome: 'empty' });
+    failAiOpinionIfStillProcessingMock.mockReset().mockResolvedValue(undefined);
     process.env.ANTHROPIC_API_KEY = 'test-key';
   });
 
@@ -569,6 +615,7 @@ describe('runAgent — pending user messages', () => {
     resumeMock.mockReset();
     createDb.mockReset().mockReturnValue({});
     dispatcherTick.mockReset().mockResolvedValue({ outcome: 'empty' });
+    failAiOpinionIfStillProcessingMock.mockReset().mockResolvedValue(undefined);
     process.env.ANTHROPIC_API_KEY = 'test-key';
   });
 

@@ -26,6 +26,7 @@ import { readRelationshipGraph } from "./read_relationship_graph";
 import { generateCompanyCard } from "./generate_company_card";
 import { updateCompanyCardSection } from "./update_company_card_section";
 import { saveAiOpinion } from "./save_ai_opinion";
+import { saveFundAiOpinion } from "./save_fund_ai_opinion";
 import { narrateStep } from "./narrate_step";
 import { reportProgress } from "./report_progress";
 import { notifyProgress } from "./notify_progress";
@@ -37,6 +38,7 @@ import { runMarketScreeningTool } from "./run_market_screening";
 import { getFundDataSchema } from "./get_fund_data_schema";
 import { queryFunds } from "./query_funds";
 import { queryFundAssets } from "./query_fund_assets";
+import { getFundAssetDetails } from "./get_fund_asset_details";
 import { queryInvestors } from "./query_investors";
 import { queryFundSources } from "./query_fund_sources";
 
@@ -63,6 +65,7 @@ export {
   generateCompanyCard,
   updateCompanyCardSection,
   saveAiOpinion,
+  saveFundAiOpinion,
   narrateStep,
   reportProgress,
   notifyProgress,
@@ -74,6 +77,7 @@ export {
   getFundDataSchema,
   queryFunds,
   queryFundAssets,
+  getFundAssetDetails,
   queryInvestors,
   queryFundSources,
 };
@@ -145,6 +149,7 @@ export const workforceOnlyTools = [
   generateRelationshipGraph,
   generateCompanyCard,
   saveAiOpinion,
+  saveFundAiOpinion,
   runMarketScreeningTool,
   narrateStep,
   reportProgress,
@@ -165,6 +170,7 @@ export const investmentTools = [
   getFundDataSchema,
   queryFunds,
   queryFundAssets,
+  getFundAssetDetails,
   queryInvestors,
   queryFundSources,
   webSearch,
@@ -195,6 +201,7 @@ export const combinedTools = [
   getFundDataSchema,
   queryFunds,
   queryFundAssets,
+  getFundAssetDetails,
   queryInvestors,
   queryFundSources,
   valyuSearch,

@@ -32,12 +32,14 @@ multiples and IRR is a fraction (0.15 = 15%).
 - commitment_size_amount, base_currency
 - Rolled-up metrics: called_amount, fmv_amount, realized_amount, dpi, tvpi, irr
 
-### fund_assets — the holdings inside a fund (query with \`query_fund_assets\`)
+### fund_assets — the holdings inside a fund (query with \`query_fund_assets\`; drill into one with \`get_fund_asset_details\`)
 - asset_name, legal_name, asset_type (direct_investment / cash / fund_of_funds)
 - sector, sub_sector, country, status (active / exited / pending)
 - entry_date, stake_pct, investment_currency, report_currency
 - Rolled-up metrics: invested_capital_amount, net_distribution_amount,
   fmv_amount, gross_moic, gross_irr, dpi, share_count, current_price_per_share
+- Use \`get_fund_asset_details\` (by fund_asset_id or name) for description,
+  key rights, valuation history, and any stored AI Opinion
 
 ### holding_entities — the investors / LPs (query with \`query_investors\`)
 - name, entity_type

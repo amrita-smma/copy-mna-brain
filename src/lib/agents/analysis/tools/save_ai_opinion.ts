@@ -1,10 +1,20 @@
 import { tool } from "@langchain/core/tools";
+import type { RunnableConfig } from "@langchain/core/runnables";
 import { getActiveWorkspaceId } from '@/lib/workspace';
 import { z } from "zod";
 import { logger } from "../../logger";
 import { createDb } from "@/lib/server/db";
-import { CompanyRepository } from "@/lib/repositories";
+import {
+  AiWorkforceQueueRepository,
+  CompanyRepository,
+} from "@/lib/repositories";
 import type { TablesUpdate } from "@/lib/repositories";
+
+/** LangGraph `thread_id` === `ai_workforce_queue.id` for the owning run. */
+function extractRunId(config: RunnableConfig | undefined): string | null {
+  const value = config?.configurable?.thread_id;
+  return typeof value === "string" && value.trim().length > 0 ? value : null;
+}
 
 /**
  * Workforce-only tool: persist a company's AI Opinion — a firm
@@ -31,15 +41,18 @@ function clampWords(text: string, maxWords: number): string {
 }
 
 export const saveAiOpinion = tool(
-  async ({
-    company_id,
-    verdict,
-    summary,
-  }: {
-    company_id: string;
-    verdict: Verdict;
-    summary: string;
-  }) => {
+  async (
+    {
+      company_id,
+      verdict,
+      summary,
+    }: {
+      company_id: string;
+      verdict: Verdict;
+      summary: string;
+    },
+    runtime?: RunnableConfig,
+  ) => {
     logger.debug(
       `🔧 TOOL CALLED: save_ai_opinion(company_id='${company_id}', verdict='${verdict}')`,
     );
@@ -54,7 +67,22 @@ export const saveAiOpinion = tool(
 
     try {
       const db = createDb();
-      const repo = new CompanyRepository(db, await getActiveWorkspaceId());
+      const workspaceId = await getActiveWorkspaceId();
+      const repo = new CompanyRepository(db, workspaceId);
+
+      // Refuse writes from a cancelled/terminal run even if a newer dispatch
+      // has flipped the company back to `processing`.
+      const runId = extractRunId(runtime);
+      if (runId) {
+        const queueRepo = new AiWorkforceQueueRepository(db, workspaceId);
+        const run = await queueRepo.findById(runId);
+        if (!run || AiWorkforceQueueRepository.isTerminal(run.status)) {
+          return (
+            `**Error:** workforce run is no longer active` +
+            `${run ? ` (status '${run.status}')` : ""}; verdict was not saved.`
+          );
+        }
+      }
 
       const clamped = clampWords(text, 50);
       const updates: TablesUpdate<"companies"> = {
@@ -64,9 +92,17 @@ export const saveAiOpinion = tool(
         ai_opinion_updated_at: new Date().toISOString(),
       };
 
-      const [updated] = await repo.update(id, updates);
+      // Conditional on still-processing so cancel → failed wins the race.
+      const updated = await repo.completeAiOpinionIfProcessing(id, updates);
       if (!updated) {
-        return `**Error:** No company found for company_id "${id}".`;
+        const existing = await repo.findById(id);
+        if (!existing) {
+          return `**Error:** No company found for company_id "${id}".`;
+        }
+        return (
+          `**Error:** AI Opinion for company_id "${id}" is no longer processing ` +
+          `(cancelled or superseded); verdict was not saved.`
+        );
       }
 
       logger.info(`✓ AI Opinion saved for company ${id}: ${verdict}`);

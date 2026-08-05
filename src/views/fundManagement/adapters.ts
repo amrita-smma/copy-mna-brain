@@ -16,6 +16,10 @@ import type {
   UpdateAssetInput,
   UpsertValuationInput,
 } from '@/lib/api/funds';
+import {
+  assessFundAiOpinionDataSufficiency,
+  parseFundAiOpinionConfidence,
+} from '@/lib/services/fundAiOpinionDataSufficiency';
 import type { Fund, FundHist, Holding, HoldingFacts, HoldingType, Inv, Quarter, Txn, TxnType } from './types';
 
 type FundRow = Tables<'funds'>;
@@ -301,6 +305,8 @@ export function assetRowToHolding(
   const hasInv = tp === 'Equity' || tp === 'Fund of funds' || tp === 'Cash';
   const latestValuation = valuations[0]; // repo orders desc by as_of_date
 
+  const sufficiency = assessFundAiOpinionDataSufficiency(asset, valuations.length);
+
   const holding: Holding = {
     id: asset.id,
     n: asset.asset_name ?? asset.legal_name ?? '(unnamed)',
@@ -317,6 +323,14 @@ export function assetRowToHolding(
       geo: asset.country ?? undefined,
       maturity: asset.maturity_date ?? undefined,
     },
+    aiOpinionVerdict: asset.ai_opinion_verdict as Holding['aiOpinionVerdict'],
+    aiOpinionSummary: asset.ai_opinion_summary,
+    aiOpinionStatus: asset.ai_opinion_status,
+    aiOpinionConfidence: parseFundAiOpinionConfidence(asset.ai_opinion_confidence),
+    aiOpinionDataGaps: asset.ai_opinion_data_gaps,
+    aiOpinionUpdatedAt: asset.ai_opinion_updated_at,
+    latestValuationAsOf: latestValuation?.as_of_date ?? null,
+    aiOpinionIsSparse: sufficiency.isSparse,
   };
 
   if (hasInv) {

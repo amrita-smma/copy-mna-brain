@@ -2872,7 +2872,8 @@ async function seedFundManagement(db: DbClient, workspaceId: string) {
 
   await db.insert(fundAssetValuations).values([
     // Acme Robotics — quarterly comp marks.
-    { fund_asset_id: SEED_ASSET_1_ID, as_of_date: '2025-09-30', period_label: 'Q3 2025', valuation_method: 'comparables', currency: 'USD', market_value_amount: 560_000, price_per_share: 11.2, shares_outstanding: 50_000, shareholding_pct: 14, notes: 'Comp-based mark using peer EV/EBITDA.' },
+    // Follow-on (12k shares) closed 2025-03-01, so Q3 2025+ marks use 62k shares.
+    { fund_asset_id: SEED_ASSET_1_ID, as_of_date: '2025-09-30', period_label: 'Q3 2025', valuation_method: 'comparables', currency: 'USD', market_value_amount: 694_400, price_per_share: 11.2, shares_outstanding: 62_000, shareholding_pct: 14, notes: 'Comp-based mark using peer EV/EBITDA.' },
     { fund_asset_id: SEED_ASSET_1_ID, as_of_date: '2025-12-31', period_label: 'Q4 2025', valuation_method: 'comparables', currency: 'USD', market_value_amount: 690_000, price_per_share: 11.1, shares_outstanding: 62_000, shareholding_pct: 14, notes: 'Comp-based mark using peer EV/EBITDA.' },
     { fund_asset_id: SEED_ASSET_1_ID, as_of_date: '2026-03-31', period_label: 'Q1 2026', valuation_method: 'comparables', currency: 'USD', market_value_amount: 719_200, price_per_share: 11.6, shares_outstanding: 62_000, shareholding_pct: 14, notes: 'Comp-based mark using peer EV/EBITDA.' },
     { fund_asset_id: SEED_ASSET_1_ID, as_of_date: '2026-06-30', period_label: 'Q2 2026', valuation_method: 'comparables', currency: 'USD', market_value_amount: 775_000, price_per_share: 12.5, shares_outstanding: 62_000, shareholding_pct: 14, notes: 'Comp-based mark using peer EV/EBITDA.' },
@@ -2901,10 +2902,15 @@ async function seedFundManagement(db: DbClient, workspaceId: string) {
     { fund_asset_id: SEED_ASSET_5_ID, as_of_date: '2026-03-31', period_label: 'Q1 2026', valuation_method: 'stock_market_price', currency: 'USD', market_value_amount: 248_000, price_per_share: 31, shares_outstanding: 8_000, notes: 'NASDAQ closing price, post sell-down.' },
     { fund_asset_id: SEED_ASSET_5_ID, as_of_date: '2026-06-30', period_label: 'Q2 2026', valuation_method: 'stock_market_price', currency: 'USD', market_value_amount: 264_000, price_per_share: 33, shares_outstanding: 8_000, notes: 'NASDAQ closing price, post sell-down.' },
 
-    // Kairos Semiconductor — fully exited Nov 2025; no valuation needed after
-    // that (share_count is 0, so unrealized value is correctly $0 with no
-    // stale mark to fall back on).
+    // Kairos Semiconductor — full exit Nov 2025. Keep the pre-exit Q3 mark for
+    // history, then write $0 marks afterward. FundMetricsService falls back to
+    // the latest valuation when share_count is 0 (no current_price_per_share),
+    // so leaving only the $3.5M Q3 mark would incorrectly keep unrealized MV
+    // alive after the exit and inflate MOIC (realized + stale mark).
     { fund_asset_id: SEED_ASSET_6_ID, as_of_date: '2025-09-30', period_label: 'Q3 2025', valuation_method: 'comparables', currency: 'USD', market_value_amount: 3_500_000, price_per_share: 17.5, shares_outstanding: 200_000, notes: 'Last mark before the Nov 2025 exit.' },
+    { fund_asset_id: SEED_ASSET_6_ID, as_of_date: '2025-12-31', period_label: 'Q4 2025', valuation_method: 'comparables', currency: 'USD', market_value_amount: 0, shares_outstanding: 0, notes: 'Post full exit — no remaining shares.' },
+    { fund_asset_id: SEED_ASSET_6_ID, as_of_date: '2026-03-31', period_label: 'Q1 2026', valuation_method: 'comparables', currency: 'USD', market_value_amount: 0, shares_outstanding: 0, notes: 'Post full exit — no remaining shares.' },
+    { fund_asset_id: SEED_ASSET_6_ID, as_of_date: '2026-06-30', period_label: 'Q2 2026', valuation_method: 'comparables', currency: 'USD', market_value_amount: 0, shares_outstanding: 0, notes: 'Post full exit — no remaining shares.' },
 
     // NovaSilica Materials — winding down; share count drops after the Jan 2026 partial sale.
     { fund_asset_id: SEED_ASSET_7_ID, as_of_date: '2025-09-30', period_label: 'Q3 2025', valuation_method: 'comparables', currency: 'USD', market_value_amount: 2_250_000, price_per_share: 15, shares_outstanding: 150_000, notes: 'Comp-based mark ahead of the wind-down.' },

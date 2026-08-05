@@ -175,4 +175,15 @@ describe('AiOpinionService.dispatch', () => {
     expect(input.instruction).toContain('company_id: co-1');
     expect(input.title).toBe('AI Opinion: Acme Corp');
   });
+
+  it('marks the company failed when enqueue throws after flipping to processing', async () => {
+    enqueueAgentRun.mockRejectedValueOnce(new Error('queue unavailable'));
+    const companyRepo = makeCompanyRepo();
+    const service = makeService(companyRepo);
+
+    await expect(service.dispatch('co-1')).rejects.toThrow('queue unavailable');
+    expect(companyRepo.update).toHaveBeenCalledWith('co-1', {
+      ai_opinion_status: 'failed',
+    });
+  });
 });

@@ -244,3 +244,17 @@ export function deleteValuation(
     { method: 'DELETE' },
   );
 }
+
+/**
+ * Enqueue a Fund AI Opinion workforce run for a holding (MB-470). Powers the
+ * "Analyze AI Opinion" / "Re-evaluate" button in the Fund Management Asset
+ * table. Returns immediately with the queue run id; the verdict lands on the
+ * `fund_assets` row asynchronously and is picked up by re-fetching the
+ * portfolio.
+ */
+export function analyzeFundAiOpinion(fundAssetId: string): Promise<{ runId: string }> {
+  return apiRequest<{ runId: string }>('/api/funds/ai-opinion', {
+    method: 'POST',
+    body: JSON.stringify({ fundAssetId }),
+  });
+}

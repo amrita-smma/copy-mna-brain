@@ -30,12 +30,13 @@ export async function POST(request: NextRequest) {
     const { aiOpinionService } = createContainer(db, await getActiveWorkspaceId());
     const result = await aiOpinionService.dispatch(body.companyId, session.user.id);
 
-    return NextResponse.json({ runId: result.runId }, { status: 202 });
+    return NextResponse.json({ data: { runId: result.runId } }, { status: 202 });
   } catch (error) {
     console.error('POST ai-opinion error:', error);
-    return NextResponse.json(
-      { error: (error as Error).message || 'Internal server error' },
-      { status: 500 },
-    );
+    const message = error instanceof Error ? error.message : '';
+    if (/No company found/i.test(message) || /company not found/i.test(message)) {
+      return NextResponse.json({ error: message }, { status: 404 });
+    }
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }

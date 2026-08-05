@@ -184,6 +184,16 @@ describe('CompanyRepository graph mirror', () => {
     errSpy.mockRestore();
   });
 
+  it('markAiOpinionFailedIfProcessing mirrors the returned row when one is updated', async () => {
+    const { db } = makeWriteDb([row({ ai_opinion_status: 'failed' } as never)]);
+    const mirror = makeMirror();
+    const repo = new CompanyRepository(db, 'workspace-1', mirror);
+
+    await repo.markAiOpinionFailedIfProcessing('c1');
+
+    expect(mirror.upsertCompany).toHaveBeenCalledTimes(1);
+  });
+
   it('skips the empty-list insertMany without mirroring', async () => {
     const { db } = makeWriteDb([]);
     const mirror = makeMirror();

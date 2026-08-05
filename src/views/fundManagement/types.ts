@@ -2,6 +2,10 @@
 // the free-form ledger the mockup was built against; most numeric fields are
 // optional/nullable because the source spreadsheet leaves them blank.
 
+import type { FundAiOpinionConfidence } from '@/lib/services/fundAiOpinionDataSufficiency';
+
+export type { FundAiOpinionConfidence };
+
 export type TxnType = 'Buy' | 'Sell' | 'Distribution' | 'Other';
 
 export interface Txn {
@@ -137,6 +141,8 @@ export type HoldingType =
   | 'Shares'
   | 'Cash';
 
+export type FundAiOpinionVerdict = 'buy' | 'hold' | 'sell';
+
 export interface Holding {
   /** Server-assigned id (fund_assets.id). Always present on real (API-backed)
    * holdings; absent only on the static mock data used by the Investor tab
@@ -153,6 +159,19 @@ export interface Holding {
   investType?: string;
   d?: HoldingFacts;
   inv?: Inv;
+  /** MB-470 AI Opinion — a firm buy/hold/sell verdict + rationale produced by
+   * an AI Workforce run, written onto fund_assets.ai_opinion_*. */
+  aiOpinionVerdict?: FundAiOpinionVerdict | null;
+  aiOpinionSummary?: string | null;
+  aiOpinionStatus?: string | null;
+  aiOpinionConfidence?: FundAiOpinionConfidence | null;
+  /** Server-computed sparse-data reasons (semicolon-separated), when any. */
+  aiOpinionDataGaps?: string | null;
+  aiOpinionUpdatedAt?: string | null;
+  /** Latest valuation mark date — used to flag a stale opinion. */
+  latestValuationAsOf?: string | null;
+  /** Live sufficiency flag for the empty-state "limited data" hint. */
+  aiOpinionIsSparse?: boolean;
 }
 
 export interface FundHist {
