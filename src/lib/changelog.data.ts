@@ -6,6 +6,12 @@ import type { ChangelogEntry } from './changelog';
 
 export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   {
+    "hash": "1c53fbc49bb1e74e76d40f4385f4b704d2887b8b",
+    "date": "2026-08-05",
+    "subject": "Send feedback directly in-app with automatic ticket creation and notifications",
+    "category": "feature"
+  },
+  {
     "hash": "201a60cb37ef93482f82dfaf85c2ea71f7bc9704",
     "date": "2026-08-04",
     "subject": "Fix changelog",
@@ -55,6 +61,14 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   },
   {
     "hash": "23729db247006c0885f65533dee1f96a6b0380e3",
+    "date": "2026-08-04",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
+    "hash": "dcbe359dcb1e4e6d26ee9fec81d630561e90ff49",
     "date": "2026-08-04",
     "subject": "[skip deploy] chore: update changelog",
     "category": "improvement",
