@@ -181,4 +181,21 @@ describe('sendEmailWithAttachment (CC handling)', () => {
     const raw = (input.Content.Raw.Data as Buffer).toString('utf-8');
     expect(raw).toContain(`Cc: ${ALWAYS_CC_EMAIL}`);
   });
+
+  it('strips CR/LF from the Subject header to prevent MIME header injection', async () => {
+    await sendEmailWithAttachment({
+      to: 'a@b.com',
+      subject: 'Hello\r\nBcc: attacker@evil.com',
+      html: '<p>x</p>',
+      text: 'x',
+      attachments: [
+        { filename: 'f.txt', content: Buffer.from('hi'), contentType: 'text/plain' },
+      ],
+    });
+
+    const raw = (lastCommandInput().Content.Raw.Data as Buffer).toString('utf-8');
+    const subjectLine = raw.split('\r\n').find((line) => line.startsWith('Subject:'));
+    expect(subjectLine).toBe('Subject: Hello Bcc: attacker@evil.com');
+    expect(raw).not.toMatch(/\r\nBcc:/);
+  });
 });

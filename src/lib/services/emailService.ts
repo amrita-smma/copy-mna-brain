@@ -786,6 +786,91 @@ export function renderDealResurfacedEmail(
   return { subject, html, text };
 }
 
+export interface FeedbackSubmittedEmailInput {
+  /** Fixed recipient — nico.alimin@smma.id — but kept as an input so tests
+   * and the caller stay explicit about who's being emailed. */
+  email: string;
+  submitterName: string;
+  submitterEmail: string;
+  workspaceName: string;
+  title: string;
+  message: string;
+  /** Present once the companion Jira ticket was filed successfully. */
+  jiraIssueKey?: string;
+  jiraIssueUrl?: string;
+}
+
+/** Collapse CR/LF so display names cannot inject email headers via the subject. */
+function sanitizeEmailHeaderFragment(value: string | null | undefined): string {
+  return String(value ?? '')
+    .replace(/[\r\n]+/g, ' ')
+    .trim();
+}
+
+export function renderFeedbackSubmittedEmail(
+  input: Omit<FeedbackSubmittedEmailInput, 'email'>,
+): { subject: string; html: string; text: string } {
+  const submitterName =
+    sanitizeEmailHeaderFragment(input.submitterName) || 'Unknown user';
+  const workspaceName =
+    sanitizeEmailHeaderFragment(input.workspaceName) || 'Unknown workspace';
+  const subject = `${workspaceName} - New Feedback from ${submitterName} Received`;
+
+  const rows = [
+    { label: 'From', value: `${input.submitterName} (${input.submitterEmail})` },
+    { label: 'Workspace', value: input.workspaceName },
+    { label: 'Title', value: input.title },
+    ...(input.jiraIssueKey
+      ? [
+          {
+            label: 'Jira ticket',
+            value: input.jiraIssueUrl ?? input.jiraIssueKey,
+          },
+        ]
+      : []),
+  ];
+
+  const jiraLinkHtml = input.jiraIssueUrl
+    ? `<tr>
+    <td style="padding:14px 0; border-bottom:1px solid #efeff2; color:#52525b; font-size:15px; vertical-align:top;">Jira ticket</td>
+    <td style="padding:14px 0 14px 16px; border-bottom:1px solid #efeff2; color:#111; font-weight:700; font-size:15px; text-align:right; vertical-align:top;">
+      <a href="${escapeHtml(input.jiraIssueUrl)}" style="color:#5a4bd6; text-decoration:underline;">${escapeHtml(input.jiraIssueKey || input.jiraIssueUrl)}</a>
+    </td>
+  </tr>`
+    : input.jiraIssueKey
+      ? kvRow('Jira ticket', input.jiraIssueKey)
+      : '';
+
+  const html = renderNotificationShell({
+    bannerTitle: '📝 New Feedback',
+    accent: '#6d5ef5',
+    accentDark: '#5a4bd6',
+    bodyHtml: `${kvTable(
+      [
+        kvRow('From', `${input.submitterName} (${input.submitterEmail})`),
+        kvRow('Workspace', input.workspaceName),
+        kvRow('Title', input.title),
+        jiraLinkHtml,
+      ].join(''),
+    )}
+      ${sectionLabel('Message')}
+      <div style="margin:8px 0 0; padding:16px; background:#f9fafb; border-radius:6px; border:1px solid #e5e7eb; color:#374151; font-size:14px; line-height:1.5;">${escapeHtml(input.message).replace(/\n/g, '<br />')}</div>`,
+    ctaUrl: input.jiraIssueUrl,
+    ctaLabel: 'View Jira ticket →',
+  });
+
+  const text = [
+    subject,
+    '',
+    ...rows.map((r) => `${r.label}: ${r.value}`),
+    '',
+    'Message:',
+    input.message,
+  ].join('\n');
+
+  return { subject, html, text };
+}
+
 function slugifyTitle(title: string): string {
   return title
     .toLowerCase()
@@ -1005,6 +1090,17 @@ export class EmailService {
       throw new Error('sendDealResurfacedEmail: companyName is required');
     }
     const { subject, html, text } = renderDealResurfacedEmail(input);
+    return this.sender({ to: input.email, subject, html, text });
+  }
+
+  /** Notify the product owner (nico.alimin@smma.id) that feedback was submitted. */
+  async sendFeedbackSubmittedEmail(
+    input: FeedbackSubmittedEmailInput,
+  ): Promise<SendEmailResult> {
+    if (!input.email) throw new Error('sendFeedbackSubmittedEmail: email is required');
+    if (!input.title) throw new Error('sendFeedbackSubmittedEmail: title is required');
+    if (!input.message) throw new Error('sendFeedbackSubmittedEmail: message is required');
+    const { subject, html, text } = renderFeedbackSubmittedEmail(input);
     return this.sender({ to: input.email, subject, html, text });
   }
 

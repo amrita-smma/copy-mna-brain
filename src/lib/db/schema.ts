@@ -2905,6 +2905,38 @@ export const featureFlags = pgTable(
   },
 );
 
+// In-app feedback submissions (MB-480). Each row is one titled message a user
+// sent from the feedback form; on write the app also emails nico.alimin@smma.id
+// and files a Jira ticket, stamping `jira_issue_key` back once that ticket exists.
+// Read/written via FeedbackRepository.
+export const feedback = pgTable(
+  "feedback",
+  {
+    id: uuid().defaultRandom().primaryKey().notNull(),
+    workspace_id: uuid()
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    user_id: uuid(),
+    title: text().notNull(),
+    message: text().notNull(),
+    jira_issue_key: text(),
+    created_at: timestamp({ withTimezone: true, mode: "string" })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    feedbackUserIdFkey: foreignKey({
+      columns: [table.user_id],
+      foreignColumns: [users.id],
+      name: "feedback_user_id_fkey",
+    }).onDelete("set null"),
+    idxFeedbackWorkspaceId: index("idx_feedback_workspace_id").using(
+      "btree",
+      table.workspace_id.asc().nullsLast().op("uuid_ops"),
+    ),
+  }),
+);
+
 // "Today's Recap" daily pipeline pulse cache. One row per workspace per UTC day
 // stores the assembled pulse (deterministic scoreboard + LLM narration): the
 // first request of the day computes + narrates and upserts it, later requests

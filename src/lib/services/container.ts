@@ -50,6 +50,7 @@ import {
   FundAssetRepository,
   FundAssetTransactionRepository,
   FundAssetValuationRepository,
+  FeedbackRepository,
 } from '@/lib/repositories';
 import { JobDispatcher } from './jobDispatcher';
 import { CompanyService } from './companyService';
@@ -99,6 +100,7 @@ import { FundPortfolioService } from './fundPortfolioService';
 import { FundMetricsService } from './fundMetricsService';
 import { StalledDealService } from './stalledDealService';
 import { FeatureFlagsService } from './featureFlagsService';
+import { FeedbackService } from './feedbackService';
 
 export interface Container {
   companyService: CompanyService;
@@ -146,6 +148,7 @@ export interface Container {
   fundMetricsService: FundMetricsService;
   stalledDealService: StalledDealService;
   featureFlagsService: FeatureFlagsService;
+  feedbackService: FeedbackService;
 }
 
 export function createContainer(db: DbClient, workspaceId: string): Container {
@@ -355,6 +358,9 @@ export function createContainer(db: DbClient, workspaceId: string): Container {
   const featureFlagRepo = new FeatureFlagRepository(db);
   const featureFlagsService = new FeatureFlagsService(featureFlagRepo);
 
+  const feedbackRepo = new FeedbackRepository(db, workspaceId);
+  const feedbackService = new FeedbackService(feedbackRepo, userRepo, workspaceRepo, workspaceId);
+
   return {
     companyService,
     companyGraphService,
@@ -401,5 +407,6 @@ export function createContainer(db: DbClient, workspaceId: string): Container {
     fundMetricsService,
     stalledDealService,
     featureFlagsService,
+    feedbackService,
   };
 }

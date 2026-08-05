@@ -34,6 +34,7 @@ type TableMap = {
   api_keys: typeof schema.apiKeys;
   api_chat_conversations: typeof schema.apiChatConversations;
   app_settings: typeof schema.appSettings;
+  feedback: typeof schema.feedback;
   employers: typeof schema.employers;
   employer_domains: typeof schema.employerDomains;
   employer_overrides: typeof schema.employerOverrides;

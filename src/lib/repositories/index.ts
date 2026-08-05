@@ -39,6 +39,7 @@ export * from './dashboardInsightsRepository';
 export * from './appSettingsRepository';
 export * from './dailyPulseRepository';
 export * from './featureFlagRepository';
+export * from './feedbackRepository';
 export * from './employerRelatedCompanyRepository';
 export * from './workspaceRepository';
 export * from './roleRepository';

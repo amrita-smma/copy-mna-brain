@@ -71,7 +71,7 @@ The primary local dev seeder is `scripts/seed.ts` (run via `pnpm db:seed`). It s
 
 ## Database Migrations
 
-When adding a new Drizzle migration file under `drizzle/migrations/`, you must also register it in `drizzle/migrations/meta/_journal.json`. Add an entry to the `entries` array with the correct `idx`, `when` (Unix ms timestamp), `tag` (matching the migration filename without `.sql`), and `breakpoints: true`. Failing to update the journal will cause Drizzle to ignore the migration.
+Generate every new Drizzle migration with `pnpm db:migration:new <name>` (add `data-pipeline/migrations` as a second arg for pipeline migrations) — never hand-craft the filename or edit `meta/_journal.json` yourself. Filenames are `YYYYMMDDXXXXXX_<slug>.sql`, where `XXXXXX` is a per-day zero-padded counter (not a timestamp): the first migration on a UTC date is `000000`, the next is `000001`, and so on. The journal is fully derived from filenames by `scripts/build-drizzle-journal.ts` (`pnpm db:journal`), which the generator runs for you automatically. Full detail: `.claude/rules/drizzle-migrations.md`.
 
 ## Agent Design Pattern (`src/lib/agents`)
 

@@ -128,16 +128,22 @@ export interface SendEmailWithAttachmentInput extends SendEmailInput {
   attachments: EmailAttachment[];
 }
 
+/** Strip CR/LF so user-controlled values cannot inject raw MIME headers. */
+function sanitizeMimeHeaderValue(value: string): string {
+  return value.replace(/[\r\n]+/g, ' ').trim();
+}
+
 function buildRawMimeMessage(
   input: SendEmailInput & { attachments?: EmailAttachment[] },
 ): Buffer {
   const boundary = `=_MNABrain_${Date.now()}_${Math.random().toString(36).slice(2)}`;
-  const fromAddress = input.from || DEFAULT_FROM_EMAIL;
+  const fromAddress = sanitizeMimeHeaderValue(input.from || DEFAULT_FROM_EMAIL);
   const toList = Array.isArray(input.to) ? input.to : [input.to];
-  const toAddresses = toList.join(', ');
-  const ccAddresses = resolveCcAddresses(input.cc, toList);
+  const toAddresses = sanitizeMimeHeaderValue(toList.join(', '));
+  const ccAddresses = resolveCcAddresses(input.cc, toList).map(sanitizeMimeHeaderValue);
   const replyTo = input.replyTo || DEFAULT_REPLY_TO;
   const attachments = input.attachments ?? [];
+  const subject = sanitizeMimeHeaderValue(input.subject);
 
   const headers: string[] = [
     `From: ${fromAddress}`,
@@ -145,11 +151,11 @@ function buildRawMimeMessage(
   ];
   if (ccAddresses.length > 0) headers.push(`Cc: ${ccAddresses.join(', ')}`);
   headers.push(
-    `Subject: ${input.subject}`,
+    `Subject: ${subject}`,
     'MIME-Version: 1.0',
     `Content-Type: multipart/mixed; boundary="${boundary}"`,
   );
-  if (replyTo) headers.push(`Reply-To: ${replyTo}`);
+  if (replyTo) headers.push(`Reply-To: ${sanitizeMimeHeaderValue(replyTo)}`);
 
   const altBoundary = `${boundary}_alt`;
   const parts: string[] = [

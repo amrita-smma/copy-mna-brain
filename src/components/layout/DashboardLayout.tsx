@@ -57,6 +57,7 @@ import { AICopilotPane, COPILOT_DEFAULT_WIDTH } from './AICopilotPane';
 import { LayoutControlProvider } from './LayoutControlContext';
 import { MobileBottomNav } from './MobileBottomNav';
 import { ChangelogWidget } from './ChangelogWidget';
+import { FeedbackDialog } from './FeedbackDialog';
 import { useFeatureFlags } from './FeatureFlagsContext';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useLocalStorage } from '@/hooks/useLocalStorage';
@@ -248,7 +249,8 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
                   )}
                   <ThemeToggle />
                 </div>
-                {/* Sign out button */}
+                {/* Feedback + Sign out */}
+                <FeedbackDialog />
                 <Button
                   variant="ghost"
                   size="sm"

@@ -792,6 +792,20 @@
       "when": 1784592000000,
       "tag": "20260721000000_add_workspace_default_currency",
       "breakpoints": true
+    },
+    {
+      "idx": 113,
+      "version": "7",
+      "when": 1785715200000,
+      "tag": "20260803000000_add_feedback",
+      "breakpoints": true
+    },
+    {
+      "idx": 114,
+      "version": "7",
+      "when": 1785715201000,
+      "tag": "20260803000001_add_feedback_title",
+      "breakpoints": true
     }
   ]
 }

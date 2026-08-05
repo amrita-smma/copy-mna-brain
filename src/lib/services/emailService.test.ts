@@ -11,6 +11,7 @@ import {
   renderTaskInsightEmail,
   renderCompanyAssignedEmail,
   renderDealResurfacedEmail,
+  renderFeedbackSubmittedEmail,
 } from './emailService';
 import type { AttachmentSender, EmailSender } from './emailService';
 
@@ -698,5 +699,120 @@ describe('EmailService.sendDealResurfacedEmail', () => {
     await expect(
       svc.sendDealResurfacedEmail({ email: 'u@e.com', companyName: '' }),
     ).rejects.toThrow(/companyName is required/);
+  });
+});
+
+describe('renderFeedbackSubmittedEmail', () => {
+  it('builds subject, html, and text with submitter, workspace, title, and message', () => {
+    const out = renderFeedbackSubmittedEmail({
+      submitterName: 'Jane Doe',
+      submitterEmail: 'jane@sqe.co.id',
+      workspaceName: 'SQE Capital',
+      title: 'Dark mode',
+      message: 'Please add dark mode',
+    });
+    expect(out.subject).toBe('SQE Capital - New Feedback from Jane Doe Received');
+    expect(out.html).toContain('Jane Doe');
+    expect(out.html).toContain('jane@sqe.co.id');
+    expect(out.html).toContain('SQE Capital');
+    expect(out.html).toContain('Dark mode');
+    expect(out.html).toContain('Please add dark mode');
+    expect(out.text).toContain('Please add dark mode');
+  });
+
+  it('includes a clickable Jira ticket link and CTA when present, without duplicating in text', () => {
+    const out = renderFeedbackSubmittedEmail({
+      submitterName: 'Jane Doe',
+      submitterEmail: 'jane@sqe.co.id',
+      workspaceName: 'SQE Capital',
+      title: 'Dark mode',
+      message: 'Please add dark mode',
+      jiraIssueKey: 'MB-999',
+      jiraIssueUrl: 'https://smma-sqe.atlassian.net/browse/MB-999',
+    });
+    expect(out.subject).toBe('SQE Capital - New Feedback from Jane Doe Received');
+    expect(out.html).toContain('MB-999');
+    expect(out.html).toContain('href="https://smma-sqe.atlassian.net/browse/MB-999"');
+    expect(out.text).toContain('Jira ticket: https://smma-sqe.atlassian.net/browse/MB-999');
+    expect(out.text.match(/Jira ticket:/g)).toHaveLength(1);
+  });
+
+  it('strips CR/LF from the submitter name in the subject to prevent header injection', () => {
+    const out = renderFeedbackSubmittedEmail({
+      submitterName: 'Evil\r\nBcc: attacker@evil.com',
+      submitterEmail: 'jane@sqe.co.id',
+      workspaceName: 'SQE Capital',
+      title: 'Dark mode',
+      message: 'Please add dark mode',
+    });
+    expect(out.subject).toBe('SQE Capital - New Feedback from Evil Bcc: attacker@evil.com Received');
+    expect(out.subject).not.toMatch(/[\r\n]/);
+  });
+
+  it('escapes HTML in the title and message', () => {
+    const out = renderFeedbackSubmittedEmail({
+      submitterName: 'Jane Doe',
+      submitterEmail: 'jane@sqe.co.id',
+      workspaceName: 'SQE Capital',
+      title: '<img src=x>',
+      message: '<script>alert(1)</script>',
+    });
+    expect(out.html).not.toContain('<script>alert(1)</script>');
+    expect(out.html).not.toContain('<img src=x>');
+    expect(out.html).toContain('&lt;script&gt;');
+  });
+});
+
+describe('EmailService.sendFeedbackSubmittedEmail', () => {
+  it('delegates to the sender with the rendered email', async () => {
+    const sender = vi.fn().mockResolvedValue({ messageId: 'm' });
+    const svc = new EmailService(sender as EmailSender);
+    await svc.sendFeedbackSubmittedEmail({
+      email: 'nico.alimin@smma.id',
+      submitterName: 'Jane Doe',
+      submitterEmail: 'jane@sqe.co.id',
+      workspaceName: 'SQE Capital',
+      title: 'Dark mode',
+      message: 'Please add dark mode',
+    });
+    expect(sender).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(sender).mock.calls[0][0]).toMatchObject({
+      to: 'nico.alimin@smma.id',
+      subject: 'SQE Capital - New Feedback from Jane Doe Received',
+    });
+  });
+
+  it('throws without an email, title, or message', async () => {
+    const svc = new EmailService(vi.fn() as EmailSender);
+    await expect(
+      svc.sendFeedbackSubmittedEmail({
+        email: '',
+        submitterName: 'Jane Doe',
+        submitterEmail: 'jane@sqe.co.id',
+        workspaceName: 'SQE Capital',
+        title: 'Dark mode',
+        message: 'x',
+      }),
+    ).rejects.toThrow(/email is required/);
+    await expect(
+      svc.sendFeedbackSubmittedEmail({
+        email: 'nico.alimin@smma.id',
+        submitterName: 'Jane Doe',
+        submitterEmail: 'jane@sqe.co.id',
+        workspaceName: 'SQE Capital',
+        title: '',
+        message: 'x',
+      }),
+    ).rejects.toThrow(/title is required/);
+    await expect(
+      svc.sendFeedbackSubmittedEmail({
+        email: 'nico.alimin@smma.id',
+        submitterName: 'Jane Doe',
+        submitterEmail: 'jane@sqe.co.id',
+        workspaceName: 'SQE Capital',
+        title: 'Dark mode',
+        message: '',
+      }),
+    ).rejects.toThrow(/message is required/);
   });
 });
