@@ -12,6 +12,20 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "category": "feature"
   },
   {
+    "hash": "24fc6d9ef19c2b65d2cdac91a8df8515d3f2f992",
+    "date": "2026-08-05",
+    "subject": "AI-generated investment opinions now appear on holdings for quick decision support",
+    "category": "feature"
+  },
+  {
+    "hash": "a33ffaf17b849a95e11cbf297297fcc177df4e2a",
+    "date": "2026-08-05",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "201a60cb37ef93482f82dfaf85c2ea71f7bc9704",
     "date": "2026-08-04",
     "subject": "Fix changelog",
