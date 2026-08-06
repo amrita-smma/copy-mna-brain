@@ -12,6 +12,22 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "category": "feature"
   },
   {
+    "hash": "b2429fad074a3751053d7e05f1387d403f293eb8",
+    "date": "2026-08-06",
+    "subject": "resolve Dependabot security vulnerabilities",
+    "category": "fix",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "84fe28303c680233614516b03ac23bc2f56ce02f",
+    "date": "2026-08-06",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "1c53fbc49bb1e74e76d40f4385f4b704d2887b8b",
     "date": "2026-08-05",
     "subject": "Send feedback directly in-app with automatic ticket creation and notifications",
