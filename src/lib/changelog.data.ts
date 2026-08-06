@@ -6,6 +6,12 @@ import type { ChangelogEntry } from './changelog';
 
 export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   {
+    "hash": "0c9af070df4f307c49ca9e395fd2441edc34b562",
+    "date": "2026-08-06",
+    "subject": "Investment Copilot now answers performance questions across assets, funds, investors, and data sources",
+    "category": "feature"
+  },
+  {
     "hash": "1c53fbc49bb1e74e76d40f4385f4b704d2887b8b",
     "date": "2026-08-05",
     "subject": "Send feedback directly in-app with automatic ticket creation and notifications",
@@ -19,6 +25,14 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   },
   {
     "hash": "a33ffaf17b849a95e11cbf297297fcc177df4e2a",
+    "date": "2026-08-05",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
+    "hash": "bec8ca6bd46d6842aa5069d1bf172a470b1f1c75",
     "date": "2026-08-05",
     "subject": "[skip deploy] chore: update changelog",
     "category": "improvement",
