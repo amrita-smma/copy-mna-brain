@@ -27,10 +27,16 @@ const nextConfig: NextConfig = {
       },
     ];
   },
-  // `next start` cannot serve a standalone build, so disable standalone output
-  // for the Playwright e2e build (set via the webServer env in playwright.config.ts).
-  // Real deployments leave this unset and keep the standalone output.
-  output: process.env.NEXT_DISABLE_STANDALONE ? undefined : "standalone",
+  // `output: "standalone"` is for self-host / Docker-style deploys.
+  // Disable it when:
+  // - Playwright e2e sets NEXT_DISABLE_STANDALONE (next start can't serve standalone)
+  // - Vercel (VERCEL=1): Next 16.3+ Turbopack skips next-server.js.nft.json when
+  //   build adapters run (e.g. withWorkflow), so writeStandaloneDirectory fails
+  //   with ENOENT. Vercel ignores the standalone folder anyway.
+  output:
+    process.env.NEXT_DISABLE_STANDALONE || process.env.VERCEL
+      ? undefined
+      : "standalone",
   reactStrictMode: true,
   images: {
     unoptimized: true,

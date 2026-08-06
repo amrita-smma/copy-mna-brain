@@ -1348,8 +1348,19 @@ export const files = pgTable(
     updated_at: timestamp({ withTimezone: true, mode: "string" }).defaultNow(),
     tags: text().array().default([]),
     processing_status: text().default("pending"),
+    // Runtime chips include AI suggestions (null id + name) and pipeline
+    // links (id + name/target/type/similarity). Keep this in sync with
+    // MatchedCompaniesCell.MatchedCompanyChip and FileService writes.
     matched_companies: jsonb()
-      .$type<{ id: string; target?: string }[]>()
+      .$type<
+        {
+          id?: string | null;
+          name?: string;
+          target?: string;
+          type?: string;
+          similarity?: number;
+        }[]
+      >()
       .default([]),
     file_date: date(),
     file_type: varchar().default("mom").notNull(),

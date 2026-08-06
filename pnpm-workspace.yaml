@@ -1,2 +1,29 @@
 packages:
   - 'data-pipeline'
+
+# pnpm 11+ reads these from workspace.yaml (not package.json#pnpm).
+overrides:
+  exceljs>uuid: ^11.1.1
+  adm-zip: '>=0.6.0'
+  undici: ^7.29.0
+  'brace-expansion@1': 1.1.18
+  'brace-expansion@2': 2.1.4
+  'brace-expansion@5': 5.0.9
+  js-yaml: ^4.3.0
+  protobufjs: ^7.6.5
+  dompurify: ^3.4.12
+  # got@9 (via aframe → react-force-graph) has no patched 9.x; pin to patched 11.x
+  'got@9': 11.8.6
+  '@esbuild-kit/core-utils>esbuild': ^0.25.0
+
+onlyBuiltDependencies:
+  - '@nestjs/core'
+  - '@swc/core'
+  - better-sqlite3
+  - canvas
+  - cbor-extract
+  - core-js
+  - esbuild
+  - protobufjs
+  - sharp
+  - unrs-resolver
