@@ -192,6 +192,18 @@ describe('getAgentGraph flavor selection', () => {
     expect(investmentPrompt).toContain('Investment & Funds Analysis Assistant');
   });
 
+  it('tells the investment flavor to resolve a named entity with search_investments first', async () => {
+    await getAgentGraph('investment');
+
+    const investmentPrompt = mocks.createAgent.mock.calls[0][0].systemPrompt as string;
+
+    // "How is X doing?" must go through the cross-entity fuzzy lookup rather
+    // than a guess at whether X is a holding, fund, LP, or capital source.
+    expect(investmentPrompt).toContain('search_investments');
+    expect(investmentPrompt).toContain('How is X doing?');
+    expect(investmentPrompt).toMatch(/holding[\s\S]*fund[\s\S]*investor[\s\S]*capital/i);
+  });
+
   it('builds the combined flavor as its own memoized singleton with a distinct prompt', async () => {
     const mna = await getAgentGraph('mna');
     const combined = await getAgentGraph('combined');

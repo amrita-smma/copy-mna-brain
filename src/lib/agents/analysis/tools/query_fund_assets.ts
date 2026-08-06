@@ -4,6 +4,7 @@ import { z } from "zod";
 import { createDb } from "@/lib/server/db";
 import { createContainer } from "@/lib/services";
 import { logger } from "../../logger";
+import { fuzzySearch } from "./fuzzySearch";
 
 const fmtAmount = (n: number | null | undefined) =>
   n != null ? n.toLocaleString("en-US", { maximumFractionDigits: 0 }) : "-";
@@ -23,22 +24,26 @@ export const queryFundAssets = tool(
       const { fundService } = createContainer(createDb(), await getActiveWorkspaceId());
       const funds = await fundService.listFunds();
 
-      // Resolve which funds to pull assets from.
+      // Resolve which funds to pull assets from. Fuzzy so "growth 2",
+      // "Growth Fund II, L.P." and a typo all land on the same fund.
       let targetFunds = funds;
       if (fund) {
-        const needle = fund.trim().toLowerCase();
-        targetFunds = funds.filter((f) => f.name.toLowerCase().includes(needle));
+        targetFunds = fuzzySearch(fund, funds, (f) => [f.name]).map((m) => m.item);
         if (targetFunds.length === 0) {
-          return `No fund found matching "${fund}". Use query_funds to see available funds.`;
+          return (
+            `No fund found matching "${fund}". Use query_funds to see available funds, ` +
+            `or search_investments to check whether "${fund}" is a holding, investor, or capital source instead.`
+          );
         }
       }
 
       const fundNameById = new Map(funds.map((f) => [f.id, f.name]));
-      const rows: Array<{ fundName: string; asset: Awaited<ReturnType<typeof fundService.listAssets>>[number] }> = [];
-      for (const f of targetFunds) {
-        const assets = await fundService.listAssets(f.id);
-        for (const a of assets) rows.push({ fundName: fundNameById.get(f.id) ?? "-", asset: a });
-      }
+      // ONE batched query for every target fund — never listAssets per fund
+      // (that fan-out is an N+1 that exhausts the connection pool).
+      const pairs = await fundService.listAssetsForFunds(targetFunds.map((f) => f.id));
+      const rows: Array<{ fundName: string; asset: (typeof pairs)[number]['asset'] }> = pairs.map(
+        ({ fundId, asset }) => ({ fundName: fundNameById.get(fundId) ?? "-", asset }),
+      );
 
       // Only fold in unassigned assets on an unfiltered, portfolio-wide listing.
       if (!fund) {
@@ -81,10 +86,10 @@ export const queryFundAssets = tool(
     name: "query_fund_assets",
     description: `List the assets (holdings) held across funds, with per-asset performance (invested capital, distributions, FMV, MOIC, DPI, IRR).
 
-Use this for holding-level questions ("what are our largest positions?", "show the assets in Fund II", "which holdings are exited?"). Omit \`fund\` to list every asset across all funds (including any unassigned assets); pass \`fund\` to drill into one fund.
+Use this for holding-level questions ("what are our largest positions?", "show the assets in Fund II", "which holdings are exited?"). Omit \`fund\` to list every asset across all funds (including any unassigned assets); pass \`fund\` to drill into one fund. To look up ONE holding by name, use search_investments (which also tells you if the name is really a fund/investor/source) or get_fund_asset_details.
 
 Args:
-    fund: Optional fund name (partial, case-insensitive) to scope to one fund's holdings.
+    fund: Optional fund name to scope to one fund's holdings. Matched fuzzily — case, punctuation, legal suffixes, partial words, and small typos are all tolerated.
     status: Optional asset status filter (e.g. "active", "exited", "pending").
 
 Returns:
@@ -93,7 +98,9 @@ Returns:
       fund: z
         .string()
         .optional()
-        .describe("Optional fund name (partial match) to scope to a single fund's holdings"),
+        .describe(
+          "Optional fund name (fuzzy match) to scope to a single fund's holdings",
+        ),
       status: z
         .string()
         .optional()

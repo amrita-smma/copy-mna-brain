@@ -166,11 +166,55 @@ describe('getFundAssetDetails', () => {
     expect(findValuationsMock).not.toHaveBeenCalled();
   });
 
-  it('returns not-found when the name matches nothing', async () => {
+  it('resolves a name that only matches once legal suffixes are ignored', async () => {
+    findAllMock.mockResolvedValueOnce([
+      asset({ asset_name: 'Acme Holdco Pte Ltd', legal_name: 'Acme Holdco Private Limited' }),
+    ]);
+    findValuationsMock.mockResolvedValueOnce([]);
+    findTxnsMock.mockResolvedValueOnce([]);
+    findFundsMock.mockResolvedValueOnce([]);
+
+    const result = (await getFundAssetDetails.invoke({ asset_name: 'Acme Holdco' })) as string;
+
+    expect(result).toContain('Acme Holdco Pte Ltd');
+  });
+
+  it('resolves a misspelled name', async () => {
+    findAllMock.mockResolvedValueOnce([asset()]);
+    findValuationsMock.mockResolvedValueOnce([]);
+    findTxnsMock.mockResolvedValueOnce([]);
+    findFundsMock.mockResolvedValueOnce([]);
+
+    const result = (await getFundAssetDetails.invoke({ asset_name: 'Acne Holdco' })) as string;
+
+    expect(result).toContain('Acme Holdco');
+  });
+
+  it('picks the decisive winner instead of asking to disambiguate a far weaker match', async () => {
+    findAllMock.mockResolvedValueOnce([
+      asset({ asset_name: 'Acme Holdco', legal_name: null }),
+      asset({
+        id: '44444444-4444-4444-4444-444444444444',
+        asset_name: 'Acme Holdings',
+        legal_name: null,
+      }),
+    ]);
+    findValuationsMock.mockResolvedValueOnce([]);
+    findTxnsMock.mockResolvedValueOnce([]);
+    findFundsMock.mockResolvedValueOnce([]);
+
+    const result = (await getFundAssetDetails.invoke({ asset_name: 'Acme Holdco' })) as string;
+
+    expect(result).not.toContain('Multiple holdings match');
+    expect(result).toContain(`Fund Asset ID (UUID):** ${ASSET_ID}`);
+  });
+
+  it('returns not-found when the name matches nothing, pointing at search_investments', async () => {
     findAllMock.mockResolvedValueOnce([asset()]);
 
     const result = (await getFundAssetDetails.invoke({ asset_name: 'zzzz' })) as string;
 
     expect(result).toContain('No fund asset found matching "zzzz"');
+    expect(result).toContain('search_investments');
   });
 });

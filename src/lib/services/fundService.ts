@@ -52,6 +52,18 @@ export class FundService {
     return this.fundAssetRepo.findByFundId(fundId);
   }
 
+  /**
+   * Batched counterpart to listAssets: every (fundId, asset) pair for the given
+   * funds in ONE query. Callers listing assets across several funds must use
+   * this instead of looping listAssets — that loop is an N+1 that opens a DB
+   * connection per fund.
+   */
+  listAssetsForFunds(
+    fundIds: string[],
+  ): Promise<Array<{ fundId: string; asset: Tables<'fund_assets'> }>> {
+    return this.fundAssetRepo.findByFundIds(fundIds);
+  }
+
   listUnassignedAssets(): Promise<Tables<'fund_assets'>[]> {
     return this.fundAssetRepo.findUnassignedAssets();
   }

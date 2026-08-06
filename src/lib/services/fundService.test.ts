@@ -5,13 +5,13 @@ import type { FundMetricsService } from './fundMetricsService';
 
 describe('FundService', () => {
   let fundRepo: { findAll: ReturnType<typeof vi.fn>; findById: ReturnType<typeof vi.fn>; insert: ReturnType<typeof vi.fn>; update: ReturnType<typeof vi.fn>; delete: ReturnType<typeof vi.fn> };
-  let fundAssetRepo: { findByFundId: ReturnType<typeof vi.fn>; findById: ReturnType<typeof vi.fn>; insert: ReturnType<typeof vi.fn>; update: ReturnType<typeof vi.fn>; delete: ReturnType<typeof vi.fn> };
+  let fundAssetRepo: { findByFundId: ReturnType<typeof vi.fn>; findByFundIds: ReturnType<typeof vi.fn>; findById: ReturnType<typeof vi.fn>; insert: ReturnType<typeof vi.fn>; update: ReturnType<typeof vi.fn>; delete: ReturnType<typeof vi.fn> };
   let fundMetricsService: { recomputeAsset: ReturnType<typeof vi.fn> };
   let service: FundService;
 
   beforeEach(() => {
     fundRepo = { findAll: vi.fn(), findById: vi.fn(), insert: vi.fn(), update: vi.fn(), delete: vi.fn() };
-    fundAssetRepo = { findByFundId: vi.fn(), findById: vi.fn(), insert: vi.fn(), update: vi.fn(), delete: vi.fn() };
+    fundAssetRepo = { findByFundId: vi.fn(), findByFundIds: vi.fn(), findById: vi.fn(), insert: vi.fn(), update: vi.fn(), delete: vi.fn() };
     fundMetricsService = { recomputeAsset: vi.fn() };
     service = new FundService(
       fundRepo as unknown as FundRepository,
@@ -46,6 +46,19 @@ describe('FundService', () => {
     await expect(service.updateFund('missing', { name: 'x' })).rejects.toBeInstanceOf(
       FundNotFoundError,
     );
+  });
+
+  it('listAssetsForFunds fetches every fund in one batched repo call', async () => {
+    const pairs = [
+      { fundId: 'f1', asset: { id: 'a1' } },
+      { fundId: 'f2', asset: { id: 'a2' } },
+    ];
+    fundAssetRepo.findByFundIds.mockResolvedValueOnce(pairs);
+
+    expect(await service.listAssetsForFunds(['f1', 'f2'])).toEqual(pairs);
+    expect(fundAssetRepo.findByFundIds).toHaveBeenCalledTimes(1);
+    expect(fundAssetRepo.findByFundIds).toHaveBeenCalledWith(['f1', 'f2']);
+    expect(fundAssetRepo.findByFundId).not.toHaveBeenCalled();
   });
 
   it('getAsset throws FundAssetNotFoundError when missing', async () => {

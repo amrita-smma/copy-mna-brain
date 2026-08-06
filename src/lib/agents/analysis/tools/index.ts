@@ -41,6 +41,7 @@ import { queryFundAssets } from "./query_fund_assets";
 import { getFundAssetDetails } from "./get_fund_asset_details";
 import { queryInvestors } from "./query_investors";
 import { queryFundSources } from "./query_fund_sources";
+import { searchInvestments } from "./search_investments";
 
 export {
   getDataSchema,
@@ -80,6 +81,7 @@ export {
   getFundAssetDetails,
   queryInvestors,
   queryFundSources,
+  searchInvestments,
 };
 
 export {
@@ -168,6 +170,7 @@ export const workforceOnlyTools = [
  */
 export const investmentTools = [
   getFundDataSchema,
+  searchInvestments,
   queryFunds,
   queryFundAssets,
   getFundAssetDetails,
@@ -199,6 +202,7 @@ export const combinedTools = [
   ...tools,
   ...chatOnlyTools,
   getFundDataSchema,
+  searchInvestments,
   queryFunds,
   queryFundAssets,
   getFundAssetDetails,

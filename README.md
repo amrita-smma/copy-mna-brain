@@ -443,14 +443,26 @@ The in-app Copilot ships in three selectable flavors, chosen per workspace:
   analyze the workspace's funds, assets/holdings, investors (LPs), and fund
   sources, plus web search (`INVESTMENT_SYSTEM_PROMPT` + `INVESTMENT_TOOL_LIST`,
   backed by the fund tools in `src/lib/agents/analysis/tools/`:
-  `get_fund_data_schema`, `query_funds`, `query_fund_assets`, `query_investors`,
-  `query_fund_sources`).
+  `get_fund_data_schema`, `search_investments`, `query_funds`, `query_fund_assets`,
+  `get_fund_asset_details`, `query_investors`, `query_fund_sources`).
 - **`combined`** — a single assistant with access to BOTH tool sets, for
   workspaces that want one Copilot spanning the deal pipeline and the fund
   portfolio (`COMBINED_SYSTEM_PROMPT` + `COMBINED_TOOL_LIST`). `combinedTools` is
   the deduplicated union of `DEFAULT_TOOL_LIST` and `investmentTools` — the
   shared read tools (`web_search`, `query_files`, `lookup_crm`, `crm_insights`,
   `lookup_user`, `send_email`, `propose_workforce_handoff`) appear once.
+
+**Name resolution ("how is X doing?").** On the fund side a name the user types
+can be a holding, a fund, an investor/LP, or a source of capital, and the user
+is not expected to say which. `search_investments` fuzzy-matches the name across
+all four entity types in one call (returning type, match strength, headline
+metrics, and the `fund_asset_id` for holdings), and both the investment and
+combined prompts require it before any single-type lookup. The matching itself
+lives in `src/lib/agents/analysis/tools/fuzzySearch.ts` — a dependency-free
+scoring ladder (exact → prefix → substring → token overlap → acronym →
+Dice/Levenshtein typo fallback) that ignores case, punctuation, and legal
+suffixes ("acme" resolves "Acme Holdings Pte Ltd"). `get_fund_asset_details`
+(`asset_name`) and `query_fund_assets` (`fund`) use the same matcher.
 
 How it's wired:
 

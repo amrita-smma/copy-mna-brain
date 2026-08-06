@@ -9,6 +9,7 @@ import {
   FundAssetValuationRepository,
   FundRepository,
 } from '@/lib/repositories';
+import { fuzzySearch, matchLabel } from './fuzzySearch';
 
 const fmtAmount = (n: number | null | undefined) =>
   n != null ? n.toLocaleString('en-US', { maximumFractionDigits: 0 }) : 'N/A';
@@ -68,28 +69,36 @@ export const getFundAssetDetails = tool(
       let asset = id ? await fundAssetRepo.findById(id) : undefined;
 
       if (!asset && name) {
-        const needle = name.toLowerCase();
-        const matches = (await fundAssetRepo.findAll()).filter((a) => {
-          const an = (a.asset_name ?? '').toLowerCase();
-          const ln = (a.legal_name ?? '').toLowerCase();
-          return an.includes(needle) || ln.includes(needle);
-        });
+        // Fuzzy, not substring: users type "acme" for "Acme Holdings Pte Ltd",
+        // and occasionally misspell it. See ./fuzzySearch for the ladder.
+        const matches = fuzzySearch(name, await fundAssetRepo.findAll(), (a) => [
+          a.asset_name,
+          a.legal_name,
+        ]);
 
         if (matches.length === 0) {
           return (
             `No fund asset found matching "${name}". ` +
-            'Try a different search term or use query_fund_assets to browse available holdings.'
+            'Try search_investments to check whether the name is a fund, investor, or capital source instead, ' +
+            'or query_fund_assets to browse available holdings.'
           );
         }
 
-        if (matches.length > 1) {
+        // A clear winner (much better than the runner-up) is the intended
+        // holding — don't make the agent take another turn to confirm it.
+        const decisive =
+          matches.length === 1 || matches[0].score - matches[1].score >= 0.15;
+
+        if (!decisive) {
           let out =
             `Multiple holdings match "${name}" (${matches.length}). ` +
             'Call again with fund_asset_id to pick one:\n\n';
-          out += `| Fund Asset ID | Asset | Legal Name | Status |\n`;
-          out += `| --- | --- | --- | --- |\n`;
+          out += `| Match | Fund Asset ID | Asset | Legal Name | Status |\n`;
+          out += `| --- | --- | --- | --- | --- |\n`;
           for (const m of matches.slice(0, 15)) {
-            out += `| ${m.id} | ${m.asset_name ?? '-'} | ${m.legal_name ?? '-'} | ${m.status ?? '-'} |\n`;
+            out += `| ${matchLabel(m.score)} | ${m.item.id} | ${m.item.asset_name ?? '-'} | ${
+              m.item.legal_name ?? '-'
+            } | ${m.item.status ?? '-'} |\n`;
           }
           if (matches.length > 15) {
             out += `\n…and ${matches.length - 15} more. Narrow the name or pick an ID from query_fund_assets.`;
@@ -97,7 +106,7 @@ export const getFundAssetDetails = tool(
           return out;
         }
 
-        asset = matches[0];
+        asset = matches[0].item;
       }
 
       if (!asset) {
@@ -213,9 +222,9 @@ ${opinionSection}`;
     name: 'get_fund_asset_details',
     description: `Get detailed information about a specific fund holding (fund_assets row) by UUID or name.
 
-Use this when the user asks about a specific holding's metrics, description, rights, valuation marks, or AI Opinion — or when diving deeper into an existing Fund AI Opinion. Prefer \`fund_asset_id\` when known (e.g. supplied in a Dive deeper prompt); fall back to \`asset_name\` for a case-insensitive partial match on asset_name / legal_name.
+Use this when the user asks about a specific holding's metrics, description, rights, valuation marks, or AI Opinion — or when diving deeper into an existing Fund AI Opinion. Prefer \`fund_asset_id\` when known (e.g. supplied in a Dive deeper prompt); fall back to \`asset_name\`, which is matched fuzzily (case/punctuation-insensitive, legal-suffix-tolerant — "acme" finds "Acme Holdings Pte Ltd" — and typo-tolerant) against asset_name and legal_name.
 
-For browsing many holdings, use query_fund_assets instead.
+For browsing many holdings, use query_fund_assets instead. If you are not sure the name is a holding at all (it could be a fund, an investor, or a capital source), use search_investments first.
 
 Args:
     fund_asset_id: Optional UUID of the fund_assets row (preferred when known)
