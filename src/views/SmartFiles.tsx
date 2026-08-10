@@ -99,9 +99,9 @@ import CompanyDetailDialog, {
 } from "@/components/pipeline/CompanyDetailDialog";
 import { useWorkspaceHref } from "@/hooks/useWorkspaceHref";
 import {
-  type AiFileDumpTab,
-  isAiFileDumpTab,
-} from "@/lib/aiFileDumpTabs";
+  type SmartFilesTab,
+  isSmartFilesTab,
+} from "@/lib/smartFilesTabs";
 
 const AUTO = COMBOBOX_AUTO;
 
@@ -476,7 +476,7 @@ function FileTable({
     [sortField, sortDirection, expandedTags, expandedCompanies],
   );
 
-  const mgr = useColumnLayout("ai-file-dump", columns);
+  const mgr = useColumnLayout("smart-files", columns);
 
   return (
     <ColumnManagerProvider value={mgr}>
@@ -504,7 +504,7 @@ function FileTable({
                 onChange={(e) => onSearchChange(e.target.value)}
               />
             </div>
-            <ColumnConfigGear portalTargetId={hideTitle ? "ai-file-dump-toolbar" : undefined} />
+            <ColumnConfigGear portalTargetId={hideTitle ? "smart-files-toolbar" : undefined} />
           </div>
         </div>
       </CardHeader>
@@ -826,9 +826,9 @@ interface FileBucket {
 }
 
 /**
- * Owns the server-driven search / sort / pagination state for a single AI File
- * Dump category and fetches only the current page from
- * `GET /api/ai-file-dump`. The view used to pull every row per category and
+ * Owns the server-driven search / sort / pagination state for a single Smart
+ * Files category and fetches only the current page from
+ * `GET /api/smart-files`. The view used to pull every row per category and
  * filter/sort/paginate in the browser (slow and memory-heavy for large
  * workspaces); this keeps at most PAGE_SIZE rows in memory per category.
  *
@@ -869,7 +869,7 @@ function useFileBucket(fileType: string, externalSearch?: string, enabled = true
       params.set("sortField", String(sortField));
       params.set("sortDirection", sortDirection);
 
-      const response = await fetch(`/api/ai-file-dump?${params.toString()}`);
+      const response = await fetch(`/api/smart-files?${params.toString()}`);
       const result = await response.json();
       if (result.success) {
         setFiles(result.data);
@@ -929,35 +929,35 @@ function useFileBucket(fileType: string, externalSearch?: string, enabled = true
   };
 }
 
-interface AIFileDumpProps {
+interface SmartFilesProps {
   showCompanyGraph?: boolean;
   showFundManagement?: boolean;
-  /** Deep-link tab from `/ai-file-dump/<tab>` — defaults to MoM. */
-  initialTab?: AiFileDumpTab;
+  /** Deep-link tab from `/smart-files/<tab>` — defaults to MoM. */
+  initialTab?: SmartFilesTab;
 }
 
-export default function AIFileDump({
+export default function SmartFiles({
   showCompanyGraph = false,
   showFundManagement = false,
   initialTab = "mom",
-}: AIFileDumpProps) {
+}: SmartFilesProps) {
   const { analyzeWithAI } = useChatContext();
-  const [activeTab, setActiveTab] = useState<AiFileDumpTab>(initialTab);
+  const [activeTab, setActiveTab] = useState<SmartFilesTab>(initialTab);
   const [visitedTabs, setVisitedTabs] = useState<Set<string>>(
     () => new Set([initialTab]),
   );
   const [globalSearch, setGlobalSearch] = useState("");
   const [tabCounts, setTabCounts] = useState<Record<string, number>>({});
 
-  // Keep the URL in sync with the active tab: `/ai-file-dump/mom`,
-  // `/ai-file-dump/prospectus`, etc.
+  // Keep the URL in sync with the active tab: `/smart-files/mom`,
+  // `/smart-files/prospectus`, etc.
   //
   // IMPORTANT: pass `window.history.state` (not `null`). Next.js patches
   // `history.replaceState` and, when state lacks `__NA`, dispatches
   // ACTION_RESTORE — a soft navigation that remounts this page, aborts
   // in-flight fetches ("Failed to fetch"), and flashes the boot spinner.
   // Reusing the existing Next history entry updates the URL bar only.
-  const tabUrlTarget = useWorkspaceHref(`/ai-file-dump/${activeTab}`);
+  const tabUrlTarget = useWorkspaceHref(`/smart-files/${activeTab}`);
   useEffect(() => {
     if (
       typeof window !== "undefined" &&
@@ -969,7 +969,7 @@ export default function AIFileDump({
 
   const fetchCounts = useCallback(async () => {
     try {
-      const res = await fetch("/api/ai-file-dump/counts");
+      const res = await fetch("/api/smart-files/counts");
       const json = await res.json();
       if (json.success) setTabCounts(json.counts);
     } catch {
@@ -982,7 +982,7 @@ export default function AIFileDump({
   }, [fetchCounts]);
 
   const handleTabChange = useCallback((tab: string) => {
-    if (!isAiFileDumpTab(tab)) return;
+    if (!isSmartFilesTab(tab)) return;
     setActiveTab(tab);
     setVisitedTabs((prev) => {
       if (prev.has(tab)) return prev;
@@ -1272,7 +1272,7 @@ export default function AIFileDump({
         });
 
         const presignedResponse = await fetch(
-          `/api/ai-file-dump/upload-url?${urlParams.toString()}`,
+          `/api/smart-files/upload-url?${urlParams.toString()}`,
         );
         const presignedResult = await presignedResponse.json();
 
@@ -1309,7 +1309,7 @@ export default function AIFileDump({
           body.file_type_override = fileTypeOverride;
         }
 
-        const notifyResponse = await fetch("/api/ai-file-dump", {
+        const notifyResponse = await fetch("/api/smart-files", {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -1383,7 +1383,7 @@ export default function AIFileDump({
     setDeletingId(id);
 
     try {
-      const response = await fetch(`/api/ai-file-dump/${id}`, {
+      const response = await fetch(`/api/smart-files/${id}`, {
         method: "DELETE",
       });
 
@@ -1412,7 +1412,7 @@ export default function AIFileDump({
     setReprocessingId(id);
 
     try {
-      const response = await fetch(`/api/ai-file-dump/${id}/reprocess`, {
+      const response = await fetch(`/api/smart-files/${id}/reprocess`, {
         method: "POST",
       });
 
@@ -1461,7 +1461,7 @@ export default function AIFileDump({
     if (!date) return;
 
     try {
-      const response = await fetch("/api/ai-file-dump", {
+      const response = await fetch("/api/smart-files", {
         method: "PATCH",
         headers: {
           "Content-Type": "application/json",
@@ -1488,7 +1488,7 @@ export default function AIFileDump({
   const handleDownload = async (noteId: string, fileName: string) => {
     setDownloadingId(noteId);
     try {
-      const response = await fetch(`/api/ai-file-dump/${noteId}/download`);
+      const response = await fetch(`/api/smart-files/${noteId}/download`);
       if (!response.ok) throw new Error("Failed to generate download URL");
 
       const { download_url } = await response.json();
@@ -1545,14 +1545,14 @@ export default function AIFileDump({
             <div className="flex-1">
               <div className="flex items-center gap-3 mb-1">
                 <h1 className="text-2xl font-bold tracking-tight bg-gradient-to-r from-foreground to-foreground/70 bg-clip-text">
-                  AI File Dump
+                  Smart Files
                 </h1>
                 <AskAIButton
                   variant="button"
                   label="Analyze"
                   onClick={() =>
                     analyzeWithAI(
-                      "Analyze the files in the AI File Dump and summarize the key takeaways across them.",
+                      "Analyze the files in Smart Files and summarize the key takeaways across them.",
                     )
                   }
                 />
@@ -1938,7 +1938,7 @@ export default function AIFileDump({
               onChange={(e) => setGlobalSearch(e.target.value)}
             />
           </div>
-          <div id="ai-file-dump-toolbar"></div>
+          <div id="smart-files-toolbar"></div>
         </div>
 
         <Card className="overflow-hidden">

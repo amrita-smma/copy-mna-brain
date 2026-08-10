@@ -166,7 +166,7 @@ export function MatchedCompaniesCell({
   ) => {
     setPendingAction({ type: actionType, key: actionKey });
     try {
-      const res = await fetch(`/api/ai-file-dump/${fileId}/matched-companies`, {
+      const res = await fetch(`/api/smart-files/${fileId}/matched-companies`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),

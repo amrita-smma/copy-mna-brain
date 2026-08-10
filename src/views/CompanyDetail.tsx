@@ -277,7 +277,7 @@ interface DealDocument {
   created_at: string | null;
 }
 
-/** File from the "files" table (AI file dump) where matched_companies contains this company */
+/** File from the "files" table (Smart Files) where matched_companies contains this company */
 interface MatchedFile {
   id: string;
   file_name: string;
@@ -345,7 +345,7 @@ export default function CompanyDetail({
   const companyId = params.dealId as string;
   const pipelineHref = useWorkspaceHref('/pipeline');
   const chatHref = useWorkspaceHref('/chat');
-  const aiFileDumpHref = useWorkspaceHref('/ai-file-dump');
+  const smartFilesHref = useWorkspaceHref('/smart-files');
   const returnTo = searchParams.get('from') || pipelineHref;
 
   const [company, setCompany] = useState<CompanyData | null>(null);
@@ -1003,7 +1003,7 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
 
   const downloadMatchedFile = async (file: MatchedFile) => {
     try {
-      const res = await fetch(`/api/ai-file-dump/${encodeURIComponent(file.id)}/download-url`);
+      const res = await fetch(`/api/smart-files/${encodeURIComponent(file.id)}/download-url`);
       const data = await res.json();
       if (!res.ok || !data.success) {
         throw new Error(data.error || 'Failed to get download URL');
@@ -1025,7 +1025,7 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
     setLoadingPreview(true);
     setPreviewUrl(null);
     try {
-      const res = await fetch(`/api/ai-file-dump/${encodeURIComponent(file.id)}/download-url`);
+      const res = await fetch(`/api/smart-files/${encodeURIComponent(file.id)}/download-url`);
       const data = await res.json();
       if (!res.ok || !data.success) {
         throw new Error(data.error || 'Failed to get preview URL');
@@ -1770,18 +1770,18 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
 
           <TabsContent value="attachments" className="mt-6">
             <div className="grid grid-cols-1 gap-6">
-              {/* Files mentioning this company (from AI file dump) */}
+              {/* Files mentioning this company (from Smart Files) */}
               <Card>
                 <CardHeader className="pb-3">
                   <CardTitle className="text-base flex items-center gap-2">
                     <FileText className="h-4 w-4" />
                     Files mentioning this company
                   </CardTitle>
-                  <CardDescription>From AI file dump</CardDescription>
+                  <CardDescription>From Smart Files</CardDescription>
                 </CardHeader>
                 <CardContent>
                   {matchedFiles.length === 0 ? (
-                    <p className="text-muted-foreground text-xs">No files from the AI file dump mention this company yet.</p>
+                    <p className="text-muted-foreground text-xs">No Smart Files mention this company yet.</p>
                   ) : (
                     <div className="space-y-2 max-h-[200px] overflow-y-auto">
                       {matchedFiles.map((file) => (
@@ -1812,8 +1812,8 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
                             <Button
                               variant="ghost"
                               size="icon"
-                              onClick={() => router.push(`${aiFileDumpHref}?highlight=${encodeURIComponent(file.id)}`)}
-                              title="Open in AI File Dump"
+                              onClick={() => router.push(`${smartFilesHref}?highlight=${encodeURIComponent(file.id)}`)}
+                              title="Open in Smart Files"
                             >
                               <ExternalLink className="h-4 w-4" />
                             </Button>

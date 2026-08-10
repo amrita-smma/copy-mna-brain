@@ -7,9 +7,9 @@ import {
   LLM_CONCURRENCY,
   PROCESS_BATCH_SIZE,
   MAX_PROCESS_FAIL_COUNT,
-  afdOverrideForDocType,
-  stickyAfdOverrideForTriage,
-  triageAttachmentForAfd,
+  smartFileOverrideForDocType,
+  stickySmartFileOverrideForTriage,
+  triageAttachmentForSmartFiles,
   triageDealDocumentText,
   attachmentContentDigest,
   subjectLooksDealRelated,
@@ -48,38 +48,38 @@ describe('knobs', () => {
     expect(MAX_PROCESS_FAIL_COUNT).toBeGreaterThanOrEqual(3);
   });
 
-  it('exports isSensitiveAttachmentFilename for AFD per-file gating', () => {
+  it('exports isSensitiveAttachmentFilename for Smart Files per-file gating', () => {
     expect(isSensitiveAttachmentFilename('July_2026_payslip.pdf')).toBe(true);
     expect(isSensitiveAttachmentFilename('IM_ProjectAlpha.pdf')).toBe(false);
     expect(isSensitiveAttachmentFilename('Candidate_CV.docx')).toBe(true);
   });
 
-  it('pins trusted pipeline triage types as sticky AFD overrides', () => {
-    expect(afdOverrideForDocType('mom')).toBe('mom');
-    expect(afdOverrideForDocType('shopping_list')).toBe('shopping_list');
-    expect(afdOverrideForDocType('market_study')).toBe('market_study');
-    expect(afdOverrideForDocType('prospectus')).toBe('prospectus');
-    // Closest sticky deal-target type AFD accepts.
-    expect(afdOverrideForDocType('im')).toBe('prospectus');
-    expect(afdOverrideForDocType('teaser')).toBe('prospectus');
-    expect(afdOverrideForDocType('financial_statement')).toBeUndefined();
-    expect(afdOverrideForDocType('other')).toBeUndefined();
+  it('pins trusted pipeline triage types as sticky Smart Files overrides', () => {
+    expect(smartFileOverrideForDocType('mom')).toBe('mom');
+    expect(smartFileOverrideForDocType('shopping_list')).toBe('shopping_list');
+    expect(smartFileOverrideForDocType('market_study')).toBe('market_study');
+    expect(smartFileOverrideForDocType('prospectus')).toBe('prospectus');
+    // Closest sticky deal-target type Smart Files accepts.
+    expect(smartFileOverrideForDocType('im')).toBe('prospectus');
+    expect(smartFileOverrideForDocType('teaser')).toBe('prospectus');
+    expect(smartFileOverrideForDocType('financial_statement')).toBeUndefined();
+    expect(smartFileOverrideForDocType('other')).toBeUndefined();
   });
 
-  it('applies sticky AFD override only on high-confidence triage', () => {
-    expect(stickyAfdOverrideForTriage('im', 'high')).toBe('prospectus');
-    expect(stickyAfdOverrideForTriage('mom', 'high')).toBe('mom');
-    expect(stickyAfdOverrideForTriage('im', 'medium')).toBeUndefined();
-    expect(stickyAfdOverrideForTriage('im', 'low')).toBeUndefined();
-    expect(stickyAfdOverrideForTriage('other', 'high')).toBeUndefined();
+  it('applies sticky Smart Files override only on high-confidence triage', () => {
+    expect(stickySmartFileOverrideForTriage('im', 'high')).toBe('prospectus');
+    expect(stickySmartFileOverrideForTriage('mom', 'high')).toBe('mom');
+    expect(stickySmartFileOverrideForTriage('im', 'medium')).toBeUndefined();
+    expect(stickySmartFileOverrideForTriage('im', 'low')).toBeUndefined();
+    expect(stickySmartFileOverrideForTriage('other', 'high')).toBeUndefined();
   });
 
-  it('treats oversized PDFs as fail-closed AFD skips (not upload bypass)', () => {
-    // processMboxSource skips upload when this is true — never fail-open to AFD.
+  it('treats oversized PDFs as fail-closed Smart Files skips (not upload bypass)', () => {
+    // processMboxSource skips upload when this is true — never fail-open to Smart Files.
     expect(shouldBypassPdfTriage(PDF_TRIAGE_SOFT_MAX_BYTES + 1)).toBe(true);
   });
 
-  it('fingerprints attachment bytes for AFD upload idempotency', () => {
+  it('fingerprints attachment bytes for Smart Files upload idempotency', () => {
     const a = attachmentContentDigest(Buffer.from('deal-pdf-a'));
     const b = attachmentContentDigest(Buffer.from('deal-pdf-b'));
     expect(a).toMatch(/^[a-f0-9]{64}$/);
@@ -88,7 +88,7 @@ describe('knobs', () => {
   });
 });
 
-describe('triageAttachmentForAfd', () => {
+describe('triageAttachmentForSmartFiles', () => {
   const officeMime =
     'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
 
@@ -106,7 +106,7 @@ describe('triageAttachmentForAfd', () => {
     const extractText = vi.fn().mockResolvedValue(
       'Confidential Information Memorandum for Project Alpha. '.repeat(5),
     );
-    const outcome = await triageAttachmentForAfd({
+    const outcome = await triageAttachmentForSmartFiles({
       mime: officeMime,
       fileName: 'Project_Alpha_IM.docx',
       bytes: Buffer.from('fake-docx'),
@@ -125,7 +125,7 @@ describe('triageAttachmentForAfd', () => {
     const extractText = vi.fn().mockResolvedValue(
       'Teaser for Project Nova target company overview. '.repeat(5),
     );
-    const outcome = await triageAttachmentForAfd({
+    const outcome = await triageAttachmentForSmartFiles({
       mime: officeMime,
       fileName: 'Project_Nova_Teaser.docx',
       bytes: Buffer.from('fake-docx'),
@@ -136,11 +136,11 @@ describe('triageAttachmentForAfd', () => {
     expect(outcome).toEqual({ kind: 'upload', fileTypeOverride: undefined });
   });
 
-  it('skips non-deal Office files without AFD upload', async () => {
+  it('skips non-deal Office files without Smart Files upload', async () => {
     const extractText = vi.fn().mockResolvedValue(
       'Weekly grocery shopping list apples bananas milk. '.repeat(5),
     );
-    const outcome = await triageAttachmentForAfd({
+    const outcome = await triageAttachmentForSmartFiles({
       mime: officeMime,
       fileName: 'shopping.docx',
       bytes: Buffer.from('fake-docx'),
@@ -156,7 +156,7 @@ describe('triageAttachmentForAfd', () => {
     const extractText = vi.fn().mockResolvedValue(
       'Confidential Information Memorandum for Project Alpha. '.repeat(5),
     );
-    const outcome = await triageAttachmentForAfd({
+    const outcome = await triageAttachmentForSmartFiles({
       mime: 'application/octet-stream',
       fileName: 'Project_Alpha_IM.docx',
       bytes: Buffer.from('fake-docx'),
@@ -170,7 +170,7 @@ describe('triageAttachmentForAfd', () => {
 
   it('still ignores non-Office, non-PDF attachments', async () => {
     const extractText = vi.fn();
-    const outcome = await triageAttachmentForAfd({
+    const outcome = await triageAttachmentForSmartFiles({
       mime: 'image/png',
       fileName: 'logo.png',
       bytes: Buffer.from('fake-png'),
@@ -185,7 +185,7 @@ describe('triageAttachmentForAfd', () => {
   it('skips (does not rewind) when PDF validation fails deterministically', async () => {
     const extractText = vi.fn().mockRejectedValue(new Error('encrypted PDF'));
     const create = vi.fn();
-    const outcome = await triageAttachmentForAfd({
+    const outcome = await triageAttachmentForSmartFiles({
       mime: 'application/pdf',
       fileName: 'encrypted.pdf',
       bytes: Buffer.from('fake-pdf'),
@@ -205,7 +205,7 @@ describe('triageAttachmentForAfd', () => {
   it('retries PDF when local validation succeeds but Anthropic fails', async () => {
     const extractText = vi.fn().mockResolvedValue('');
     const create = vi.fn().mockRejectedValue(new Error('anthropic down'));
-    const outcome = await triageAttachmentForAfd({
+    const outcome = await triageAttachmentForSmartFiles({
       mime: 'application/pdf',
       fileName: 'scan.pdf',
       bytes: Buffer.from('fake-pdf'),
@@ -219,7 +219,7 @@ describe('triageAttachmentForAfd', () => {
 
   it('skips oversized Office before extract', async () => {
     const extractText = vi.fn();
-    const outcome = await triageAttachmentForAfd({
+    const outcome = await triageAttachmentForSmartFiles({
       mime: officeMime,
       fileName: 'huge.docx',
       bytes: Buffer.alloc(PDF_TRIAGE_SOFT_MAX_BYTES + 1),
@@ -236,7 +236,7 @@ describe('triageAttachmentForAfd', () => {
     const create = vi.fn().mockResolvedValue({
       content: [{ type: 'tool_use', input: { doc_type: 'im', confidence: 'high' } }],
     });
-    const outcome = await triageAttachmentForAfd({
+    const outcome = await triageAttachmentForSmartFiles({
       mime: officeMime,
       fileName: 'empty.docx',
       bytes: Buffer.from('fake-docx'),
@@ -253,7 +253,7 @@ describe('triageAttachmentForAfd', () => {
   it('skips (does not rewind) when Office extraction fails deterministically', async () => {
     const extractText = vi.fn().mockRejectedValue(new Error('mammoth boom'));
     const create = vi.fn();
-    const outcome = await triageAttachmentForAfd({
+    const outcome = await triageAttachmentForSmartFiles({
       mime: officeMime,
       fileName: 'broken.docx',
       bytes: Buffer.from('fake-docx'),
@@ -274,7 +274,7 @@ describe('triageAttachmentForAfd', () => {
         create: vi.fn().mockRejectedValue(new Error('anthropic down')),
       },
     } as never;
-    const outcome = await triageAttachmentForAfd({
+    const outcome = await triageAttachmentForSmartFiles({
       mime: officeMime,
       fileName: 'Project_Alpha_IM.docx',
       bytes: Buffer.from('fake-docx'),
@@ -357,7 +357,7 @@ describe('subjectLooksDealRelated / hasDealSignal (MB-465)', () => {
     expect(subjectLooksDealRelated(null)).toBe(false);
   });
 
-  it('allows AFD on deal topic, related companies, or deal subject', () => {
+  it('allows Smart Files on deal topic, related companies, or deal subject', () => {
     expect(
       hasDealSignal(
         {
@@ -403,7 +403,7 @@ describe('subjectLooksDealRelated / hasDealSignal (MB-465)', () => {
     expect(hasDealSignal(null, 'CIM - Project Titan')).toBe(true);
   });
 
-  it('denies AFD when no deal topic, no related cos, and bland subject', () => {
+  it('denies Smart Files when no deal topic, no related cos, and bland subject', () => {
     expect(
       hasDealSignal(
         {

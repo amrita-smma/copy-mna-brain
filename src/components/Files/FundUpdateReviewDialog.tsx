@@ -461,7 +461,7 @@ export function FundUpdateReviewDialog({
       setLoading(true);
       setError(null);
       try {
-        const res = await fetch(`/api/ai-file-dump/${fileId}/review`);
+        const res = await fetch(`/api/smart-files/${fileId}/review`);
         const json = await res.json();
         if (!res.ok) throw new Error(json.error || "Failed to load review");
         if (cancelled) return;
@@ -675,7 +675,7 @@ export function FundUpdateReviewDialog({
     setApproving(true);
     try {
       const selections = buildSelections();
-      const res = await fetch(`/api/ai-file-dump/${fileId}/approve`, {
+      const res = await fetch(`/api/smart-files/${fileId}/approve`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

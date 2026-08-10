@@ -9,7 +9,7 @@ export interface FileAgentSearchOptions {
   limit?: number;
 }
 
-/** Columns the AI File Dump list view is allowed to sort by. */
+/** Columns the Smart Files list view is allowed to sort by. */
 export type FileSortField = 'file_name' | 'file_date' | 'processing_status' | 'created_at';
 
 export interface FileListOptions {
@@ -29,7 +29,7 @@ export interface FileListResult {
   total: number;
 }
 
-/** File types that have their own dedicated tab in the AI File Dump view. */
+/** File types that have their own dedicated tab in the Smart Files view. */
 const DEDICATED_FILE_TYPES = [
   'mom',
   'prospectus',
@@ -95,7 +95,7 @@ export class FileRepository {
   }
 
   /**
-   * Paginated + searchable + sortable listing backing the AI File Dump view.
+   * Paginated + searchable + sortable listing backing the Smart Files view.
    * The view used to load every row and filter/sort/paginate in the browser;
    * this pushes all three server-side so only one page is ever fetched.
    *

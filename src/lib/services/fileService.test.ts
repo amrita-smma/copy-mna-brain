@@ -926,7 +926,7 @@ describe('FileService.processUpload', () => {
 
   it('does not auto-create a company from a market_study email attachment', async () => {
     // A market study describes a sector/landscape, not a company on sale —
-    // it must not mint a deal target even if the AFD names a company. (MB-300)
+    // it must not mint a deal target even if the Smart File names a company. (MB-300)
     vi.mocked(processFileContent).mockResolvedValue({
       file_type: 'market_study',
       prospectus_summary: { company_name: 'Acme Market' },

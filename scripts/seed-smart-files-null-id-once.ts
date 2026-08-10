@@ -1,8 +1,8 @@
 /**
- * One-shot local insert for an awaiting_review AFD file whose matched_companies
+ * One-shot local insert for an awaiting_review Smart Files row whose matched_companies
  * entry has id: null (name-only). For testing HITL create-from-AI.
  *
- * Usage: pnpm exec tsx scripts/seed-afd-null-id-once.ts
+ * Usage: pnpm exec tsx scripts/seed-smart-files-null-id-once.ts
  */
 import { config } from 'dotenv';
 config({ path: '.env.local' });
@@ -18,7 +18,7 @@ async function main() {
   const client = createPostgresClientFromEnv({ prepare: false });
   const db = drizzle(client);
 
-  const fileName = 'Seed AFD - Null Id Match Teaser.pdf';
+  const fileName = 'Seed Smart Files - Null Id Match Teaser.pdf';
   const matchedCompanies = [
     { id: null, name: 'Phantom Null Co', type: 'company', similarity: 1 },
   ];
@@ -44,7 +44,7 @@ async function main() {
     .insert(files)
     .values({
       file_name: fileName,
-      file_link: 'seed/afd/null-id-match-teaser.pdf',
+      file_link: 'seed/smart-files/null-id-match-teaser.pdf',
       raw_notes:
         'Teaser for Phantom Null Co — detected by AI but not matched to any existing company (id is null).',
       structured_notes: JSON.stringify(structuredNotes, null, 2),

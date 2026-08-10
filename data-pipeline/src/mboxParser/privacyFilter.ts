@@ -102,7 +102,7 @@ export function isOfficeAttachment(
 
 /**
  * Soft cap for in-pipeline Haiku PDF / Office triage (~8 MB). Larger files
- * cannot be classified here, so callers must skip AFD upload (fail closed)
+ * cannot be classified here, so callers must skip Smart Files upload (fail closed)
  * rather than uploading an untriaged file.
  */
 export const PDF_TRIAGE_SOFT_MAX_BYTES = 8_000_000;
@@ -110,7 +110,7 @@ export const PDF_TRIAGE_SOFT_MAX_BYTES = 8_000_000;
 /** Max extracted Office text sent to Haiku (JS string length / UTF-16 units). */
 export const OFFICE_TRIAGE_MAX_CHARS = 12_000;
 
-/** Below this non-whitespace extract length, skip AFD (fail closed). */
+/** Below this non-whitespace extract length, skip Smart Files (fail closed). */
 export const OFFICE_TRIAGE_MIN_CHARS = 40;
 
 /**
@@ -144,7 +144,7 @@ export function isSensitiveAttachmentFilename(filename: string | null | undefine
 /**
  * Progressive privacy filter for the ephemeral email processor.
  * Steps 1–2 are header-first; sensitive attachment filenames are filtered
- * per-file at AFD upload time (not as a whole-email drop); step 4 is
+ * per-file at Smart Files upload time (not as a whole-email drop); step 4 is
  * existing shouldSkip (newsletter/OOO/calendar/personal/internal).
  */
 export function runPrivacyFilter(
@@ -180,7 +180,7 @@ export function runPrivacyFilter(
   return { skip: false, reason: '', step: 0 };
 }
 
-/** True when the PDF/Office bytes are too large to triage — skip AFD upload. */
+/** True when the PDF/Office bytes are too large to triage — skip Smart Files upload. */
 export function shouldBypassPdfTriage(sizeBytes: number): boolean {
   return sizeBytes > PDF_TRIAGE_SOFT_MAX_BYTES;
 }

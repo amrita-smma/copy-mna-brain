@@ -119,7 +119,7 @@ parts.push(
   }),
 );
 
-// ── 02 KEEP — deal + PDF (CIM) → AFD ────────────────────────────────────────
+// ── 02 KEEP — deal + PDF (CIM) → Smart Files ────────────────────────────────────────
 parts.push(
   multipart({
     envelopeFrom: 'bob.lee@morganstanley.example.com',
@@ -144,7 +144,7 @@ parts.push(
   }),
 );
 
-// ── 03 KEEP — deal + XLSX (Office bypass Haiku → AFD) ────────────────────────
+// ── 03 KEEP — deal + XLSX (Office bypass Haiku → Smart Files) ────────────────────────
 parts.push(
   multipart({
     envelopeFrom: 'models@jpmm.example.com',
@@ -381,7 +381,7 @@ parts.push(
   }),
 );
 
-// ── 16 KEEP — DOCX attachment (Office direct → AFD) ─────────────────────────
+// ── 16 KEEP — DOCX attachment (Office direct → Smart Files) ─────────────────────────
 parts.push(
   multipart({
     envelopeFrom: 'counsel@kirkland.example.com',

@@ -2161,7 +2161,7 @@ const seedCompanies: SeedCompany[] = [
   },
 ];
 
-type SeedAfdFile = {
+type SeedSmartFile = {
   file_name: string;
   file_link: string;
   raw_notes: string;
@@ -2175,10 +2175,10 @@ type SeedAfdFile = {
   null_id_matches?: Array<{ name: string }>;
 };
 
-const seedAfdFiles: SeedAfdFile[] = [
+const seedSmartFiles: SeedSmartFile[] = [
   {
-    file_name: 'Seed AFD - Project Nameless Teaser.pdf',
-    file_link: 'seed/afd/project-nameless-teaser.pdf',
+    file_name: 'Seed Smart Files - Project Nameless Teaser.pdf',
+    file_link: 'seed/smart-files/project-nameless-teaser.pdf',
     raw_notes:
       'Teaser for Project Nameless Teaser. Target name is intentionally omitted by the banker.',
     structured_notes: {
@@ -2202,8 +2202,8 @@ const seedAfdFiles: SeedAfdFile[] = [
     matched_entry_ids: [9033],
   },
   {
-    file_name: 'Seed AFD - Blue Harbor IC Notes.docx',
-    file_link: 'seed/afd/blue-harbor-ic-notes.docx',
+    file_name: 'Seed Smart Files - Blue Harbor IC Notes.docx',
+    file_link: 'seed/smart-files/blue-harbor-ic-notes.docx',
     raw_notes:
       'Investment committee notes for Blue Harbor Logistics, including diligence actions and banker follow-ups.',
     structured_notes: {
@@ -2228,8 +2228,8 @@ const seedAfdFiles: SeedAfdFile[] = [
     matched_entry_ids: [9002],
   },
   {
-    file_name: 'Seed AFD - Project Bold Banker Email.eml',
-    file_link: 'seed/afd/project-bold-banker-email.eml',
+    file_name: 'Seed Smart Files - Project Bold Banker Email.eml',
+    file_link: 'seed/smart-files/project-bold-banker-email.eml',
     raw_notes:
       'Banker email from JP Organ on Project Bold valuation expectations and process timing.',
     structured_notes: {
@@ -2246,10 +2246,10 @@ const seedAfdFiles: SeedAfdFile[] = [
     matched_entry_ids: [9032],
   },
   // Extra prospectus rows with a mix of statuses so the "awaiting review
-  // pinned to top" sort is visible in the AI File Dump table.
+  // pinned to top" sort is visible in the Smart Files table.
   {
-    file_name: 'Seed AFD - Aaa Completed Teaser.pdf',
-    file_link: 'seed/afd/aaa-completed-teaser.pdf',
+    file_name: 'Seed Smart Files - Aaa Completed Teaser.pdf',
+    file_link: 'seed/smart-files/aaa-completed-teaser.pdf',
     raw_notes: 'Completed prospectus whose name sorts first alphabetically.',
     structured_notes: {
       file_type: 'prospectus',
@@ -2271,8 +2271,8 @@ const seedAfdFiles: SeedAfdFile[] = [
     matched_entry_ids: [],
   },
   {
-    file_name: 'Seed AFD - Zzz Awaiting Teaser.pdf',
-    file_link: 'seed/afd/zzz-awaiting-teaser.pdf',
+    file_name: 'Seed Smart Files - Zzz Awaiting Teaser.pdf',
+    file_link: 'seed/smart-files/zzz-awaiting-teaser.pdf',
     raw_notes: 'Awaiting-review prospectus whose name sorts last alphabetically.',
     structured_notes: {
       file_type: 'prospectus',
@@ -2294,8 +2294,8 @@ const seedAfdFiles: SeedAfdFile[] = [
     matched_entry_ids: [],
   },
   {
-    file_name: 'Seed AFD - Null Id Match Teaser.pdf',
-    file_link: 'seed/afd/null-id-match-teaser.pdf',
+    file_name: 'Seed Smart Files - Null Id Match Teaser.pdf',
+    file_link: 'seed/smart-files/null-id-match-teaser.pdf',
     raw_notes:
       'Teaser for Phantom Null Co — detected by AI but not matched to any existing company (id is null).',
     structured_notes: {
@@ -3141,12 +3141,15 @@ async function main() {
       `  ✓ ${starhouseCompanies.length} companies in Starhouse Prime VCC, ${toganCompanies.length} in Togan VCC, ${aelianaCompanies.length} in Aeliana VCC`,
     );
 
-    // AI File Dump — seed a few processed files, including one matched to a
+    // Smart Files — seed a few processed files, including one matched to a
     // project-name-only company. Identified by distinctive file names.
-    const seedAfdFileNames = seedAfdFiles.map((file) => file.file_name);
-    await db.delete(files).where(inArray(files.file_name, seedAfdFileNames));
+    const seedSmartFileNames = seedSmartFiles.map((file) => file.file_name);
+    await db.delete(files).where(inArray(files.file_name, seedSmartFileNames));
+    // Legacy prefix from before the "AI File Dump" → "Smart Files" rename, so
+    // re-seeding an older DB doesn't leave the previous fixture rows behind.
+    await db.delete(files).where(like(files.file_name, 'Seed AFD - %'));
     await db.insert(files).values(
-      seedAfdFiles.map((file) => {
+      seedSmartFiles.map((file) => {
         const matchedCompanies = [
           ...file.matched_entry_ids.flatMap((entryId) => {
             const id = companyIdByEntryId.get(entryId);
@@ -3187,7 +3190,7 @@ async function main() {
         };
       }),
     );
-    console.log(`  ✓ ${seedAfdFiles.length} AI File Dump files`);
+    console.log(`  ✓ ${seedSmartFiles.length} Smart Files rows`);
 
     // Investment thesis — single seed thesis, identified by title.
     await db

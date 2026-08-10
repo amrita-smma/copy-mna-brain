@@ -500,7 +500,7 @@ function AssistantMessageBubble(props: ChatMessageBubbleProps) {
     setLoadingPreview(true);
     try {
       // Use the meeting-notes API to get a signed URL
-      const res = await fetch(`/api/ai-file-dump/${note.id}/download-url`);
+      const res = await fetch(`/api/smart-files/${note.id}/download-url`);
       if (res.ok) {
         const data = await res.json();
         setPreviewUrl(data.url);

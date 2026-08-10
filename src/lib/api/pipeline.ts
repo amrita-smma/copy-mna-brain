@@ -31,7 +31,7 @@ export async function getCompanies(params: {
 
 /**
  * Lightweight paginated company lookup — returns `{ id, target, project_name }[]`.
- * Used by the AI File Dump "Matched Company" / "Project Name" pickers. Skips
+ * Used by the Smart Files "Matched Company" / "Project Name" pickers. Skips
  * DTO joins entirely, so each call is cheap and `q` (ILIKE matching either
  * `target` OR `project_name`) can be debounced as the user types.
  */

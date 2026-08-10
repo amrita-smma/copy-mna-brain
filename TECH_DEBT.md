@@ -9,7 +9,7 @@ trigger to revisit, and the intended fix.
 ## In-memory Levenshtein for ingest company dedup
 
 **Area:** `src/lib/fuzzySearch.ts`, `CompanyService.findBestFuzzyMatch`
-(`src/lib/services/companyService.ts`), wired into the AI File Dump ingest
+(`src/lib/services/companyService.ts`), wired into the Smart Files ingest
 dedup gate in `src/lib/services/fileService.ts`.
 
 **What it is:**

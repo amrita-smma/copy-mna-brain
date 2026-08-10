@@ -368,7 +368,7 @@ export interface RawAttachmentPart {
 
 /**
  * Walk MIME parts and return raw attachment bodies for single-pass gating and
- * AFD delivery. No MIME/size filtering happens at this parsing layer.
+ * Smart Files delivery. No MIME/size filtering happens at this parsing layer.
  */
 export function extractRawAttachmentParts(headers: Headers, rawBody: string): RawAttachmentPart[] {
   const parts = walkMime(headers, rawBody);

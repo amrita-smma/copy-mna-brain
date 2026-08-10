@@ -3,7 +3,7 @@
  * enter L0 (the first active pipeline stage).
  *
  * These requirements were previously duplicated in several places — the
- * service-layer validator, the file-dump approval path, and the review/entry
+ * service-layer validator, the Smart Files approval path, and the review/entry
  * UIs. Everything now derives from `L0_REQUIRED_FIELDS` here so the rules stay
  * in lockstep. This module is intentionally dependency-free (no DB, no Next.js
  * imports) so it can be imported from both server code and client components.

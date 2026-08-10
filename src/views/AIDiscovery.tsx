@@ -23,10 +23,12 @@ export default function AIDiscovery({
   const router = useRouter();
   const searchParams = useSearchParams();
 
-  // Redirect to AI File Dump if someone lands here with ?tab=filedump
+  // Redirect to Smart Files if someone lands here with ?tab=filedump.
+  // `filedump` is a legacy inbound link value from when Smart Files was a tab
+  // on this page — keep it verbatim so old bookmarks keep resolving.
   useEffect(() => {
     if (searchParams.get('tab') === 'filedump') {
-      router.replace('/ai-file-dump', { scroll: false });
+      router.replace('/smart-files', { scroll: false });
     }
   }, [searchParams, router]);
 
@@ -70,7 +72,7 @@ export default function AIDiscovery({
           </div>
         </div>
 
-        {/* AI CoPilot / AI File Dump buttons - same styling as sqemnabrain tabs */}
+        {/* AI CoPilot / Smart Files buttons - same styling as sqemnabrain tabs */}
         <div className="inline-flex w-fit mb-4 bg-muted/50 p-1 rounded-lg">
           <Link
             href="/ai-discovery"
@@ -83,14 +85,14 @@ export default function AIDiscovery({
             AI CoPilot
           </Link>
           <Link
-            href="/ai-file-dump"
+            href="/smart-files"
             className={cn(
               "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md px-3 py-1.5 text-sm font-medium ring-offset-background transition-all",
               "text-teal-400/70 hover:bg-teal-500/15 hover:text-teal-600 hover:shadow-sm"
             )}
           >
             <FileStack className="h-4 w-4" />
-            AI File Dump
+            Smart Files
           </Link>
         </div>
 

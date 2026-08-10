@@ -1363,7 +1363,7 @@ export default function Pipeline({
                                 </Button>
                               )}
                               {showL0Pipeline && (
-                                <WorkspaceLink href="/ai-file-dump">
+                                <WorkspaceLink href="/smart-files">
                                   <Button data-testid="pipeline-add-company-button">
                                     <Plus className="mr-2 h-4 w-4" />
                                     Add Company

@@ -85,7 +85,7 @@ const baseNavigation = [
   { name: 'Fund Management', href: '/fund-management', icon: Landmark, color: 'default' as const, flag: 'FUND_MANAGEMENT_ENABLED' },
   { name: 'Master Data', href: '/master-data', icon: Database, color: 'default' as const, flag: 'MASTER_DATA_ENABLED' },
   { name: 'CRM', href: '/crm', icon: Users, color: 'indigo' as const, flag: 'CRM_ENABLED' },
-  { name: 'AI File Dump', href: '/ai-file-dump', icon: FileStack, color: 'teal' as const, flag: 'AI_FILE_DUMP_ENABLED' },
+  { name: 'Smart Files', href: '/smart-files', icon: FileStack, color: 'teal' as const, flag: 'SMART_FILES_ENABLED' },
   { name: 'Presentation', href: '/presentation', icon: Presentation, color: 'default' as const, flag: 'PRESENTATION_ENABLED' },
   { name: 'AI Workspace', href: '/ai-workforce', icon: Sparkles, color: 'orange' as const, flag: 'AI_WORKFORCE_ENABLED' },
   { name: 'Company Graph', href: '/graph', icon: Network, color: 'cyan' as const, flag: 'COMPANY_GRAPH_ENABLED' },

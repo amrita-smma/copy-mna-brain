@@ -2,9 +2,9 @@ import { redirectToWorkspaceScoped } from '@/lib/legacyWorkspaceRedirect';
 
 /**
  * Pre-migration deeplink bridge — see `redirectToWorkspaceScoped`.
- * Preserves tab path segments so `/ai-file-dump/prospectus` still resolves.
+ * Preserves tab path segments so `/smart-files/prospectus` still resolves.
  */
-export default async function LegacyAiFileDumpRedirect({
+export default async function LegacySmartFilesRedirect({
   params,
   searchParams,
 }: {
@@ -13,5 +13,5 @@ export default async function LegacyAiFileDumpRedirect({
 }) {
   const { tab } = await params;
   const suffix = tab && tab.length > 0 ? `/${tab.join('/')}` : '';
-  await redirectToWorkspaceScoped(`/ai-file-dump${suffix}`, await searchParams);
+  await redirectToWorkspaceScoped(`/smart-files${suffix}`, await searchParams);
 }

@@ -14,7 +14,7 @@
  * Env (loaded from .env.local then .env):
  *   DB_HOST, DB_PORT, DB_NAME, DB_USER, DB_PASSWORD
  *   ANTHROPIC_API_KEY
- *   INTERNAL_API_URL + ADMIN_SECRET (for AFD attachment upload)
+ *   INTERNAL_API_URL + ADMIN_SECRET (for Smart Files attachment upload)
  */
 import { config } from 'dotenv';
 import { resolve, dirname, basename, isAbsolute } from 'node:path';

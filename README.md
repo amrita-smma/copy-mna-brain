@@ -87,7 +87,7 @@ pnpm test          # run once
 pnpm test:watch    # watch mode
 ```
 
-## AI File Dump
+## Smart Files
 
 Uploaded files are processed by the File Processing Agent (`src/lib/agents/file_processing`), which classifies each document (prospectus, shopping_list, mom, banker_communications, financial_statement, legal_document, market_study, other) and extracts structured data.
 
@@ -116,11 +116,11 @@ The CRM module manages contacts and their communication history.
 
 - Contact management (create, update, delete, search)
 - Communication history per contact
-- Integration with AI File Dump for banker communications
+- Integration with Smart Files for banker communications
 
 ### Banker Communications
 
-The AI File Dump supports a "banker_communications" file type for CSV and MBOX exports (e.g., from Google Vault). When uploaded:
+Smart Files supports a "banker_communications" file type for CSV and MBOX exports (e.g., from Google Vault). When uploaded:
 
 1. The File Processing Agent detects email communications
 2. Contacts are automatically created or matched by email
@@ -140,7 +140,7 @@ The AI File Dump supports a "banker_communications" file type for CSV and MBOX e
 
 A distraction-free, full-screen file viewer for PDF and PPTX files — the file only, no AI summaries. PDFs render in an `<iframe>`; PPTX renders via the Microsoft Office Online embed (`view.officeapps.live.com`), which fetches the file's signed URL.
 
-- **Entry point:** the full-screen button on any `FilePreview` popup (chat files, company attachments, AI File Dump) navigates here with the file's S3 key. Direct visits with no file selected show the user's recently-opened files, paginated by 10 (most recent first).
+- **Entry point:** the full-screen button on any `FilePreview` popup (chat files, company attachments, Smart Files) navigates here with the file's S3 key. Direct visits with no file selected show the user's recently-opened files, paginated by 10 (most recent first).
 - **Recently-opened files** are stored per-user in the `recent_files` table (one row per `(user_id, file_key)`; re-opening bumps `opened_at`). Signed URLs are regenerated server-side from the stored S3 key, so entries stay openable after the original signed URL expires.
 - Layers: `RecentFileRepository` → `RecentFileService` (wired in `container.ts`).
 
@@ -501,7 +501,7 @@ Each workspace has a **display currency** that relabels all money shown in the U
   the value and provides it via `WorkspaceCurrencyProvider`; client views read it
   with `useWorkspaceCurrency()` (Fund Management binds it through `useFundMoney()`).
 - Every currency **picker** in the app (the Fund Management `CurrencyInput`
-  dropdown, the transaction Price-per-share select, and the AI File Dump review
+  dropdown, the transaction Price-per-share select, and the Smart Files review
   currency picker) is locked to the workspace currency: it defaults to that
   currency and the other codes are shown disabled with
   `(currency not selected in the workspace)`. The `/admin-portal` Display
@@ -514,7 +514,7 @@ Features can be turned on/off **per workspace** at runtime by a superadmin from
 the **Features** tab of the workspace configuration panel (`/admin-portal`).
 This covers both code-consumed flags (Company Graph, Insights Dashboard, Fund
 Management, Task Notifications, CRM Google Vault Sync, Chat Cache) and the main
-sidebar sections (Dashboard, Pipeline, Master Data, CRM, AI File Dump,
+sidebar sections (Dashboard, Pipeline, Master Data, CRM, Smart Files,
 Presentation, AI Workforce). Each workspace has its own set of toggles.
 
 How it's wired:
@@ -591,7 +591,7 @@ the agent layer (`src/lib/agents/analysis`).
 Files can be dropped **anywhere on the Copilot pane** (or picked via the
 paperclip) and referenced by the agent. **Any file type** is accepted, up to
 **100 MB** per file (`MAX_ATTACHMENT_BYTES`; larger files are rejected client-side
-with a toast). These are **plain S3 objects** — deliberately NOT the AI File Dump
+with a toast). These are **plain S3 objects** — deliberately NOT the Smart Files
 `files` table, and they never run through the extraction / company-matching
 pipeline.
 

@@ -292,7 +292,7 @@ interface DealDocument {
   created_at: string;
 }
 
-/** File from the "files" table (AI file dump) where matched_companies contains this company */
+/** File from the "files" table (Smart Files) where matched_companies contains this company */
 interface MatchedFile {
   id: string;
   file_name: string;
@@ -425,7 +425,7 @@ export default function CompanyDetailDialog({
   const pipelineHref = useWorkspaceHref("/pipeline");
   const currency = useWorkspaceCurrency();
   const formatCurrency = (value: number | null | undefined) => formatMoneyMn(value, currency);
-  const aiFileDumpHref = useWorkspaceHref("/ai-file-dump");
+  const smartFilesHref = useWorkspaceHref("/smart-files");
   const { analyzeWithAI } = useChatContext();
   const { focusCopilot } = useLayoutControl();
   const [company, setCompany] = useState<CompanyData>(companyProp);
@@ -1126,7 +1126,7 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
   const downloadMatchedFile = async (file: MatchedFile) => {
     try {
       const data = await apiRequest<{ url: string }>(
-        `/api/ai-file-dump/${encodeURIComponent(file.id)}/download-url`,
+        `/api/smart-files/${encodeURIComponent(file.id)}/download-url`,
       );
       const a = document.createElement("a");
       a.href = data.url;
@@ -1146,7 +1146,7 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
     setPreviewUrl(null);
     try {
       const data = await apiRequest<{ url: string }>(
-        `/api/ai-file-dump/${encodeURIComponent(file.id)}/download-url`,
+        `/api/smart-files/${encodeURIComponent(file.id)}/download-url`,
       );
       setPreviewUrl(data.url);
     } catch (error) {
@@ -2269,19 +2269,19 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
 
             <TabsContent value="attachments" className="space-y-4 pb-4">
               <div className="grid grid-cols-1 gap-4">
-                {/* Files mentioning this company (from AI file dump) */}
+                {/* Files mentioning this company (from Smart Files) */}
                 <Card>
                   <CardHeader className="pb-3">
                     <CardTitle className="text-base flex items-center gap-2">
                       <FileText className="h-4 w-4" />
                       Files mentioning this company
                     </CardTitle>
-                    <CardDescription>From AI file dump</CardDescription>
+                    <CardDescription>From Smart Files</CardDescription>
                   </CardHeader>
                   <CardContent>
                     {matchedFiles.length === 0 ? (
                       <p className="text-muted-foreground text-xs">
-                        No files from the AI file dump mention this company yet.
+                        No Smart Files mention this company yet.
                       </p>
                     ) : (
                       <div className="space-y-2 max-h-[200px] overflow-y-auto">
@@ -2323,10 +2323,10 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
                                 size="icon"
                                 onClick={() =>
                                   router.push(
-                                    `${aiFileDumpHref}?highlight=${encodeURIComponent(file.id)}`,
+                                    `${smartFilesHref}?highlight=${encodeURIComponent(file.id)}`,
                                   )
                                 }
-                                title="Open in AI File Dump"
+                                title="Open in Smart Files"
                               >
                                 <ExternalLink className="h-4 w-4" />
                               </Button>

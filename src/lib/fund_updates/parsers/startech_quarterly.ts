@@ -2,7 +2,7 @@
  * STARTECH Quarterly Reporting workbook parser.
  *
  * Pure Excel → structured asset extraction. Shared by the CLI portfolio seed
- * and AI File Dump fund-update ingestion (propose-only; no DB writes here).
+ * and Smart Files fund-update ingestion (propose-only; no DB writes here).
  */
 import ExcelJS from 'exceljs';
 
@@ -813,7 +813,7 @@ export interface StartechParseResult {
   };
 }
 
-/** Parse + summarize for AI File Dump structured_notes (no DB writes). */
+/** Parse + summarize for Smart Files structured_notes (no DB writes). */
 export async function parseStartechQuarterlyForIngestion(buffer: Buffer): Promise<StartechParseResult | null> {
   if (!(await fingerprintStartechQuarterly(buffer))) return null;
   const assets = await parseStartechQuarterlyBuffer(buffer);

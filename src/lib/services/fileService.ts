@@ -298,7 +298,7 @@ export class FileService {
     private readonly companyService: CompanyService,
     private readonly companyFxAdjustmentRepo: CompanyFxAdjustmentRepository,
     private readonly userWorkspaceRepo: UserWorkspaceRepository,
-    // Passed to transaction-scoped CompanyService instances so AI File Dump
+    // Passed to transaction-scoped CompanyService instances so Smart Files
     // inbound companies entering L0 also trigger agent-driven track matching.
     private readonly trackMatchingService?: TrackMatchingService,
     private readonly userRepo?: import('@/lib/repositories').UserRepository,
@@ -320,7 +320,7 @@ export class FileService {
   }
 
   /**
-   * Paginated listing for the AI File Dump view. Delegates the search / sort /
+   * Paginated listing for the Smart Files view. Delegates the search / sort /
    * pagination to the repository and only signs URLs for the returned page, so
    * a large workspace no longer signs and ships every file on each load.
    */
@@ -377,7 +377,7 @@ export class FileService {
     /** For the MBOX email pipeline: the custodian's email address. Resolved
      *  to a user UUID via UserRepository.findByEmail. */
     enteredByEmail?: string,
-    /** For manual AFD uploads: the authenticated session user's UUID. */
+    /** For manual Smart Files uploads: the authenticated session user's UUID. */
     uploaderUserId?: string | null,
   ) {
     // Dedup gate: a file with this name was already uploaded — return the

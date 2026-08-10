@@ -62,7 +62,7 @@ describe('privacyFilter', () => {
     const r = runPrivacyFilter(headers, 'Please find the LOI attached.', {
       attachmentFilenames: ['payslip_october_2025.pdf'],
     });
-    // Envelope still passes; emailProcess AFD path calls
+    // Envelope still passes; emailProcess Smart Files path calls
     // isSensitiveAttachmentFilename per-file before upload.
     expect(r.skip).toBe(false);
   });
@@ -164,7 +164,7 @@ describe('privacyFilter', () => {
     expect(runPrivacyFilter(headers, 'Please find the LOI attached.').skip).toBe(false);
   });
 
-  it('flags PDFs above the soft cap as too large to triage (skip AFD)', () => {
+  it('flags PDFs above the soft cap as too large to triage (skip Smart Files)', () => {
     expect(shouldBypassPdfTriage(PDF_TRIAGE_SOFT_MAX_BYTES + 1)).toBe(true);
     expect(shouldBypassPdfTriage(PDF_TRIAGE_SOFT_MAX_BYTES)).toBe(false);
     expect(shouldBypassPdfTriage(1000)).toBe(false);

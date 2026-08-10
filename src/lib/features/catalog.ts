@@ -81,8 +81,8 @@ export const FEATURE_CATALOG: FeatureDefinition[] = [
     navItem: true,
   },
   {
-    key: 'AI_FILE_DUMP_ENABLED',
-    label: 'AI File Dump',
+    key: 'SMART_FILES_ENABLED',
+    label: 'Smart Files',
     description: 'Bulk file ingestion for AI extraction and enrichment.',
     defaultEnabled: true,
     navItem: true,

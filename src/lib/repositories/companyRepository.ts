@@ -114,7 +114,7 @@ export interface CompanyFilters {
    * either, so companies named in one language and code-named in another
    * (e.g. a Mandarin target with an English project name) are findable by
    * both. Used by the lightweight lookup endpoint that powers the
-   * "Matched Company" combobox in the AI File Dump upload form.
+   * "Matched Company" combobox in the Smart Files upload form.
    */
   targetSearch?: string;
 }
@@ -323,7 +323,7 @@ export class CompanyRepository {
 
   /**
    * Lightweight paginated lookup returning `id` + `target` + `project_name`.
-   * Used by the AI File Dump "Matched Company" / "Project Name" pickers —
+   * Used by the Smart Files "Matched Company" / "Project Name" pickers —
    * server-side ILIKE search via `targetSearch` matches against either
    * `target` OR `project_name`, so users can find a row by either name.
    * Project-only companies (target null but project_name set) are included

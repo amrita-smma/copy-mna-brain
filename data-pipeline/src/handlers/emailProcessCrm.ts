@@ -4,7 +4,7 @@
  *
  * All durable writes run in a single transaction so a mid-batch failure cannot
  * leave analytics.emails rows that flushBatch would then treat as "done"
- * (skipping participants / topics / AFD forever).
+ * (skipping participants / topics / Smart Files forever).
  */
 
 import { sql } from 'drizzle-orm';

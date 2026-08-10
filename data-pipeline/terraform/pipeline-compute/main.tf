@@ -1,6 +1,6 @@
 locals {
   # No-S3 email cutover — exactly two schedules. vault-archive-poll now does the
-  # full single-pass process (privacy→LLM→CRM→AFD) inline from Lambda /tmp; no
+  # full single-pass process (privacy→LLM→CRM→Smart Files) inline from Lambda /tmp; no
   # MBOX bytes ever touch S3 and there is no separate email-process handoff.
   lambda_configs = {
     vault-archive-start = {
@@ -13,7 +13,7 @@ locals {
     vault-archive-poll = {
       handler              = "vaultArchivePoll.handler"
       schedule             = "cron(*/3 * * * ? *)"
-      description          = "Poll vault_exports; on COMPLETED stream each MBOX via /tmp → privacy→LLM→CRM→AFD (no S3), resume on soft-stop"
+      description          = "Poll vault_exports; on COMPLETED stream each MBOX via /tmp → privacy→LLM→CRM→Smart Files (no S3), resume on soft-stop"
       memory_heavy         = true
       ephemeral_storage_mb = 4096
       input                = jsonencode({})

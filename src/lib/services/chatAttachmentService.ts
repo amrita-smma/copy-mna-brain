@@ -72,7 +72,7 @@ export class ChatAttachmentForbiddenError extends Error {
  * Manages the lifecycle of copilot chat attachments.
  *
  * These files are stored plainly in S3 under `chat-attachments/{workspaceId}/`
- * — they are deliberately NOT part of the AI File Dump `files` table and never
+ * — they are deliberately NOT part of the Smart Files `files` table and never
  * run through the extraction pipeline. The S3 object is the durable store: it
  * persists so the file can be re-referenced on every turn of the chat. On each
  * send, the file is uploaded to Anthropic's Files API for that one request and

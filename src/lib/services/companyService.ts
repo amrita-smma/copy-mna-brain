@@ -151,7 +151,7 @@ export class CompanyService {
 
   /**
    * Lightweight paginated lookup returning only `id` + `target` for the AI
-   * File Dump "Matched Company" combobox. Supports server-side ILIKE search
+   * Smart Files "Matched Company" combobox. Supports server-side ILIKE search
    * via `targetSearch` and offset/limit pagination — see
    * `CompanyRepository.findIdAndTargetPage`.
    */
@@ -364,7 +364,7 @@ export class CompanyService {
   /**
    * Returns the list of missing required fields for L0 entry. Empty = all
    * clear. Delegates to the shared `L0_REQUIRED_FIELDS` definition so the
-   * service, the file-dump approval path, and the review UIs all enforce the
+   * service, the Smart Files approval path, and the review UIs all enforce the
    * same rules — see `@/lib/companies/l0Requirements`.
    */
   static checkL0Requirements(company: L0CompanyInput): string[] {

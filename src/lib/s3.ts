@@ -212,7 +212,7 @@ export function chatAttachmentPrefix(workspaceId: string): string {
  * Generate a unique S3 key for a copilot chat attachment. Scoped by workspace
  * so a request can only ever reference (or delete) keys under its own tenant's
  * prefix. These files are transient composer attachments — they are NOT the
- * AI File Dump `files` table and never enter the extraction pipeline.
+ * Smart Files `files` table and never enter the extraction pipeline.
  * @param workspaceId - The active workspace id
  * @param fileName - The original file name
  * @returns A unique S3 key under chat-attachments/{workspaceId}/...

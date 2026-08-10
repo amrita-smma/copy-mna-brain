@@ -13,8 +13,8 @@ pnpm --filter data-pipeline exec tsx scripts/generate-ephemeral-demo-mbox.ts
 | # | Expect | Gate | Scenario |
 |---|--------|------|----------|
 | 01 | **keep** | — | Inbound term sheet (Goldman → custodian) |
-| 02 | **keep** + PDF→AFD | — | CIM PDF attachment |
-| 03 | **keep** + XLSX→AFD | — | LBO model (Office bypass) |
+| 02 | **keep** + PDF→Smart Files | — | CIM PDF attachment |
+| 03 | **keep** + XLSX→Smart Files | — | LBO model (Office bypass) |
 | 04 | skip | 01 domain | Personal `gmail.com` |
 | 05 | skip | 02 content | Subject contains “salary review” |
 | 06 | skip | 03 attachment | `July_2026_payslip.pdf` |
@@ -27,7 +27,7 @@ pnpm --filter data-pipeline exec tsx scripts/generate-ephemeral-demo-mbox.ts
 | 13 | skip | 04 noise | Calendar invite |
 | 14 | **keep** | — | Explicit company pitch (related-company signal) |
 | 15 | skip | 04 noise | `noreply@` local-part |
-| 16 | **keep** + DOCX→AFD | — | SPA markup Word doc |
+| 16 | **keep** + DOCX→Smart Files | — | SPA markup Word doc |
 | 17 | skip | 02 content | HR / PIP subject |
 | 18 | **keep** | — | “Lunch” + deal keywords (must not personal-skip) |
 
@@ -42,7 +42,7 @@ entry (spool to `/tmp` → `processMboxSource`).
 ```bash
 # Postgres migrated; ANTHROPIC_API_KEY in .env.local
 # Optional: ensure analyst@starcapital.co.id exists with is_email_synced=true
-# For attachment (AFD) uploads: INTERNAL_API_URL + ADMIN_SECRET + app server up
+# For attachment (Smart Files) uploads: INTERNAL_API_URL + ADMIN_SECRET + app server up
 
 # IMPORTANT: pnpm --filter runs with cwd=data-pipeline/, so use fixtures/...
 # (not data-pipeline/fixtures/...). Or use an absolute path.

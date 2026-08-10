@@ -12,7 +12,7 @@ type RematchBody =
   | { action: 'remove'; company_id?: string; unmatched_name?: string };
 
 /**
- * Front-table rematch for AI File Dump — add/remove matched companies without
+ * Front-table rematch for Smart Files — add/remove matched companies without
  * entering HITL review. Available for every file type and status.
  */
 export async function PATCH(request: NextRequest, context: RouteContext) {

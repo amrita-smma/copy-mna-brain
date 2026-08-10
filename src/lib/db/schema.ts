@@ -371,7 +371,7 @@ export const companies = pgTable(
     deal_type: dealType().default("majority"),
     // UUID of the user who sourced this company (references users.id).
     // Set to the mailbox owner for email-pipeline auto-creates, or the
-    // uploading user for manual AFD entries.
+    // uploading user for manual Smart Files entries.
     entered_by: uuid().references(() => users.id, { onDelete: 'set null' }),
     originator: text(),
     // Deal Sponsor (shown at L0–L2) and Deal Captain (shown at L3+) — UUIDs of

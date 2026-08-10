@@ -351,7 +351,7 @@ const ANALYSIS_TEMPLATE = {
   ] as unknown[],
 };
 
-// ── AI File Dump fixtures ─────────────────────────────────────────────────────
+// ── Smart Files fixtures ─────────────────────────────────────────────────────
 // 2 files per file_type. file_type is free varchar validated at the app layer;
 // these are the types the file-processing agent recognizes.
 const FILE_TYPES = [
@@ -683,7 +683,7 @@ async function main() {
     }
     console.log(`  ✓ ${insertedCompanies.length} company analyses (completed)`);
 
-    // ── AI File Dump — 2 files per file_type ─────────────────────────────────
+    // ── Smart Files — 2 files per file_type ─────────────────────────────────
     const fileDate = now.slice(0, 10); // YYYY-MM-DD
     const fileRows = FILE_TYPES.flatMap((type, ti) =>
       [1, 2].map((n) => {
@@ -713,7 +713,7 @@ async function main() {
       }),
     );
     await db.insert(files).values(fileRows).onConflictDoNothing();
-    console.log(`  ✓ ${fileRows.length} AI File Dump files (2 × ${FILE_TYPES.length} types)`);
+    console.log(`  ✓ ${fileRows.length} Smart Files rows (2 × ${FILE_TYPES.length} types)`);
 
     console.log(`\n✅ done — workspace "${workspaceName}" (${workspaceId})`);
     console.log(`   open it as ${owner.email ?? owner.id}`);

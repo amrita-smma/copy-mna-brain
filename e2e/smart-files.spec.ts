@@ -55,13 +55,13 @@ const fulfillList = (route: { fulfill: (r: object) => Promise<void> }, data: Fil
   });
 
 /**
- * /api/ai-file-dump is dispatched by the `file_type` query param:
+ * /api/smart-files is dispatched by the `file_type` query param:
  *   ?file_type                      → MoM (empty value ⇒ default list)
  *   ?file_type=prospectus           → Prospectus
  *   ?file_type=banker_communications → Banker Communications
  *   ?file_type=other                → Other
  */
-const mockFileDump = (
+const mockSmartFiles = (
   page: Page,
   opts?: { mom?: FileRecord[]; prospectus?: FileRecord[]; banker?: FileRecord[]; other?: FileRecord[] },
 ) => {
@@ -70,13 +70,13 @@ const mockFileDump = (
   const banker = opts?.banker ?? BANKER_FILES;
   const other = opts?.other ?? OTHER_FILES;
 
-  return page.route('**/api/ai-file-dump**', (route) => {
+  return page.route('**/api/smart-files**', (route) => {
     const req = route.request();
     const url = new URL(req.url());
     const method = req.method();
 
     // Counts endpoint for tab badges
-    if (method === 'GET' && url.pathname === '/api/ai-file-dump/counts') {
+    if (method === 'GET' && url.pathname === '/api/smart-files/counts') {
       return route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -95,8 +95,8 @@ const mockFileDump = (
       });
     }
 
-    // Delete endpoint: /api/ai-file-dump/<id>
-    if (method === 'DELETE' && /\/api\/ai-file-dump\/[^/]+$/.test(url.pathname)) {
+    // Delete endpoint: /api/smart-files/<id>
+    if (method === 'DELETE' && /\/api\/smart-files\/[^/]+$/.test(url.pathname)) {
       return route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -104,7 +104,7 @@ const mockFileDump = (
       });
     }
 
-    if (method === 'GET' && url.pathname === '/api/ai-file-dump') {
+    if (method === 'GET' && url.pathname === '/api/smart-files') {
       const fileType = url.searchParams.get('file_type');
       const search = (url.searchParams.get('search') ?? '').toLowerCase();
       const filter = (rows: FileRecord[]) =>
@@ -130,31 +130,31 @@ const mockFileDump = (
   });
 };
 
-test.describe('AI File Dump page', () => {
-  test('Unauthenticated user opens AI File Dump', async ({ page }) => {
+test.describe('Smart Files page', () => {
+  test('Unauthenticated user opens Smart Files', async ({ page }) => {
     await mockAuthSession(page, null);
 
-    await page.goto('/ai-file-dump');
+    await page.goto('/smart-files');
     await page.waitForURL('**/login');
     await expect(page).toHaveURL(/\/login/);
   });
 
-  test('Authenticated user views AI File Dump', async ({ page }) => {
+  test('Authenticated user views Smart Files', async ({ page }) => {
     await mockAuthSession(page);
-    await mockFileDump(page);
+    await mockSmartFiles(page);
 
     await Promise.all([
       page.waitForResponse(
         (res) =>
-          res.url().includes('/api/ai-file-dump') &&
+          res.url().includes('/api/smart-files') &&
           !res.url().includes('/counts') &&
           res.status() === 200,
       ),
-      page.goto('/ai-file-dump'),
+      page.goto('/smart-files'),
     ]);
 
-    await expect(page).toHaveURL(/\/ai-file-dump\/mom/);
-    await expect(page.getByRole('heading', { name: 'AI File Dump', level: 1 })).toBeVisible();
+    await expect(page).toHaveURL(/\/smart-files\/mom/);
+    await expect(page.getByRole('heading', { name: 'Smart Files', level: 1 })).toBeVisible();
     await expect(page.getByText('Drop your files and let AI automatically organize and categorize them')).toBeVisible();
 
     // Upload zone — the CardTitle uses h3, the inner hint is a <p>. Use a heading
@@ -173,69 +173,69 @@ test.describe('AI File Dump page', () => {
 
   test('Deep link opens Prospectus tab', async ({ page }) => {
     await mockAuthSession(page);
-    await mockFileDump(page);
+    await mockSmartFiles(page);
 
     await Promise.all([
       page.waitForResponse(
         (res) =>
-          res.url().includes('/api/ai-file-dump') &&
+          res.url().includes('/api/smart-files') &&
           res.url().includes('file_type=prospectus') &&
           res.status() === 200,
       ),
-      page.goto('/ai-file-dump/prospectus'),
+      page.goto('/smart-files/prospectus'),
     ]);
 
-    await expect(page).toHaveURL(/\/ai-file-dump\/prospectus/);
+    await expect(page).toHaveURL(/\/smart-files\/prospectus/);
     await expect(page.getByRole('tab', { name: /Prospectus/ })).toHaveAttribute('data-state', 'active');
     await expect(page.getByText('Acme Prospectus.pdf')).toBeVisible();
   });
 
   test('Switching tabs updates the path', async ({ page }) => {
     await mockAuthSession(page);
-    await mockFileDump(page);
+    await mockSmartFiles(page);
 
     await Promise.all([
       page.waitForResponse(
         (res) =>
-          res.url().includes('/api/ai-file-dump') &&
+          res.url().includes('/api/smart-files') &&
           !res.url().includes('/counts') &&
           res.status() === 200,
       ),
-      page.goto('/ai-file-dump/mom'),
+      page.goto('/smart-files/mom'),
     ]);
 
     await page.getByRole('tab', { name: /Prospectus/ }).click();
-    await expect(page).toHaveURL(/\/ai-file-dump\/prospectus/);
+    await expect(page).toHaveURL(/\/smart-files\/prospectus/);
     await expect(page.getByText('Acme Prospectus.pdf')).toBeVisible();
   });
 
   test('Empty MoM tab shows empty state', async ({ page }) => {
     await mockAuthSession(page);
-    await mockFileDump(page, { mom: [], prospectus: [], banker: [], other: [] });
+    await mockSmartFiles(page, { mom: [], prospectus: [], banker: [], other: [] });
 
     await Promise.all([
       page.waitForResponse(
         (res) =>
-          res.url().includes('/api/ai-file-dump') &&
+          res.url().includes('/api/smart-files') &&
           !res.url().includes('/counts') &&
           res.status() === 200,
       ),
-      page.goto('/ai-file-dump'),
+      page.goto('/smart-files'),
     ]);
 
     await expect(page.getByText('No MoM uploaded yet.')).toBeVisible();
   });
 
-  test('File-dump fetches are still pending', async ({ page }) => {
+  test('Smart Files fetches are still pending', async ({ page }) => {
     await mockAuthSession(page);
     let release!: () => void;
     const gate = new Promise<void>((r) => {
       release = r;
     });
 
-    await page.route('**/api/ai-file-dump**', async (route) => {
+    await page.route('**/api/smart-files**', async (route) => {
       const url = new URL(route.request().url());
-      if (url.pathname === '/api/ai-file-dump/counts') {
+      if (url.pathname === '/api/smart-files/counts') {
         return route.fulfill({
           status: 200,
           contentType: 'application/json',
@@ -250,27 +250,27 @@ test.describe('AI File Dump page', () => {
       });
     });
 
-    await page.goto('/ai-file-dump');
+    await page.goto('/smart-files');
 
     // While fetches are gated the main header hasn't rendered yet.
-    await expect(page.getByRole('heading', { name: 'AI File Dump', level: 1 })).not.toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Smart Files', level: 1 })).not.toBeVisible();
 
     release();
-    await expect(page.getByRole('heading', { name: 'AI File Dump', level: 1 })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Smart Files', level: 1 })).toBeVisible();
   });
 
   test('User selects a file via the browse input', async ({ page }) => {
     await mockAuthSession(page);
-    await mockFileDump(page);
+    await mockSmartFiles(page);
 
     await Promise.all([
       page.waitForResponse(
         (res) =>
-          res.url().includes('/api/ai-file-dump') &&
+          res.url().includes('/api/smart-files') &&
           !res.url().includes('/counts') &&
           res.status() === 200,
       ),
-      page.goto('/ai-file-dump'),
+      page.goto('/smart-files'),
     ]);
 
     await page.locator('input[type="file"]').setInputFiles({
@@ -286,16 +286,16 @@ test.describe('AI File Dump page', () => {
 
   test('User selects a file matching an existing name', async ({ page }) => {
     await mockAuthSession(page);
-    await mockFileDump(page);
+    await mockSmartFiles(page);
 
     await Promise.all([
       page.waitForResponse(
         (res) =>
-          res.url().includes('/api/ai-file-dump') &&
+          res.url().includes('/api/smart-files') &&
           !res.url().includes('/counts') &&
           res.status() === 200,
       ),
-      page.goto('/ai-file-dump'),
+      page.goto('/smart-files'),
     ]);
 
     // Upload a file whose name matches an existing MoM entry.
@@ -310,16 +310,16 @@ test.describe('AI File Dump page', () => {
 
   test('User clears the selection', async ({ page }) => {
     await mockAuthSession(page);
-    await mockFileDump(page);
+    await mockSmartFiles(page);
 
     await Promise.all([
       page.waitForResponse(
         (res) =>
-          res.url().includes('/api/ai-file-dump') &&
+          res.url().includes('/api/smart-files') &&
           !res.url().includes('/counts') &&
           res.status() === 200,
       ),
-      page.goto('/ai-file-dump'),
+      page.goto('/smart-files'),
     ]);
 
     await page.locator('input[type="file"]').setInputFiles({
@@ -335,22 +335,22 @@ test.describe('AI File Dump page', () => {
 
   test('User searches the MoM table', async ({ page }) => {
     await mockAuthSession(page);
-    await mockFileDump(page);
+    await mockSmartFiles(page);
 
     await Promise.all([
       page.waitForResponse(
         (res) =>
-          res.url().includes('/api/ai-file-dump') &&
+          res.url().includes('/api/smart-files') &&
           !res.url().includes('/counts') &&
           res.status() === 200,
       ),
-      page.goto('/ai-file-dump'),
+      page.goto('/smart-files'),
     ]);
 
     await Promise.all([
       page.waitForResponse(
         (res) =>
-          res.url().includes('/api/ai-file-dump') &&
+          res.url().includes('/api/smart-files') &&
           res.url().includes('search=Board') &&
           res.status() === 200,
       ),
@@ -363,16 +363,16 @@ test.describe('AI File Dump page', () => {
 
   test('User deletes a file', async ({ page }) => {
     await mockAuthSession(page);
-    await mockFileDump(page);
+    await mockSmartFiles(page);
 
     await Promise.all([
       page.waitForResponse(
         (res) =>
-          res.url().includes('/api/ai-file-dump') &&
+          res.url().includes('/api/smart-files') &&
           !res.url().includes('/counts') &&
           res.status() === 200,
       ),
-      page.goto('/ai-file-dump'),
+      page.goto('/smart-files'),
     ]);
 
     const row = page.getByRole('row').filter({ hasText: 'Board Meeting March.pdf' });
@@ -384,9 +384,9 @@ test.describe('AI File Dump page', () => {
     await expect(confirm.getByText('Board Meeting March.pdf')).toBeVisible();
 
     const [deleteReq] = await Promise.all([
-      page.waitForRequest((r) => r.method() === 'DELETE' && r.url().includes('/api/ai-file-dump/')),
+      page.waitForRequest((r) => r.method() === 'DELETE' && r.url().includes('/api/smart-files/')),
       confirm.getByRole('button', { name: 'Delete', exact: true }).click(),
     ]);
-    expect(deleteReq.url()).toContain('/api/ai-file-dump/mom-1');
+    expect(deleteReq.url()).toContain('/api/smart-files/mom-1');
   });
 });

@@ -37,7 +37,7 @@ resource "aws_ssm_parameter" "admin_secret" {
 
 resource "aws_ssm_parameter" "internal_api_url" {
   name        = "/mna/${local.environment}/pipeline/INTERNAL_API_URL"
-  description = "Base URL for the deployed app, used by attachment-upload to call AI File Dump"
+  description = "Base URL for the deployed app, used by attachment-upload to call Smart Files"
   type        = "String"
   value       = "PLACEHOLDER — set to the deployed app URL before first attachment-upload run"
   lifecycle {

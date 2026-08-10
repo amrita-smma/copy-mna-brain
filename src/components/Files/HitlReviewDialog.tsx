@@ -164,7 +164,7 @@ export function HitlReviewDialog({ fileId, open, onClose, onApproved }: Props) {
         .catch((err) => console.error("Failed to load users:", err));
     }
     setLoading(true);
-    fetch(`/api/ai-file-dump/${fileId}/review`)
+    fetch(`/api/smart-files/${fileId}/review`)
       .then((r) => r.json())
       .then((res) => {
         if (!res.success) throw new Error(res.error);
@@ -226,7 +226,7 @@ export function HitlReviewDialog({ fileId, open, onClose, onApproved }: Props) {
     let cancelled = false;
     setRefreshing(true);
     const qs = targetCompanyId ? `?company_id=${encodeURIComponent(targetCompanyId)}` : "?company_id=";
-    fetch(`/api/ai-file-dump/${fileId}/review${qs}`)
+    fetch(`/api/smart-files/${fileId}/review${qs}`)
       .then((r) => r.json())
       .then((res) => {
         if (cancelled) return;
@@ -322,7 +322,7 @@ export function HitlReviewDialog({ fileId, open, onClose, onApproved }: Props) {
         }),
       };
 
-      const res = await fetch(`/api/ai-file-dump/${fileId}/approve`, {
+      const res = await fetch(`/api/smart-files/${fileId}/approve`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),

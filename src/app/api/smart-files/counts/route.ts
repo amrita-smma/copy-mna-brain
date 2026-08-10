@@ -5,7 +5,7 @@ import { createContainer } from '@/lib/services';
 
 /**
  * Lightweight endpoint returning file counts per tab bucket in a single query.
- * Used by the AI File Dump view to populate tab badges without loading row data.
+ * Used by the Smart Files view to populate tab badges without loading row data.
  */
 export async function GET() {
   try {

@@ -4,11 +4,11 @@
  * Source-agnostic core: given a raw (already-decompressed) MBOX byte stream
  * plus a stable source identity, it streams messages in batches:
  * privacy filter → bounded sync LLM → CRM upsert (no raw_emails / no
- * body_text) → attachment triage/AFD, persisting only a resumable cursor +
+ * body_text) → attachment triage/Smart Files, persisting only a resumable cursor +
  * counters in analytics.email_process_runs.
  *
  * No MBOX bytes are ever read from or written to S3. The Vault poll spools one
- * entry at a time to Lambda /tmp and feeds it here; AFD may still store
+ * entry at a time to Lambda /tmp and feeds it here; Smart Files may still store
  * approved deal attachments.
  *
  * Resume: same source_key, in_progress/failed run with fail_count < MAX.
@@ -76,20 +76,20 @@ const DEAL_DOC_TYPES = new Set([
   'market_study',
 ]);
 
-/** Sticky AFD types — must match `/api/ai-file-dump` FILE_TYPE_OVERRIDES. */
-type AfdFileTypeOverride =
+/** Sticky Smart Files types — must match `/api/smart-files` FILE_TYPE_OVERRIDES. */
+type SmartFileTypeOverride =
   | 'mom'
   | 'prospectus'
   | 'shopping_list'
   | 'market_study';
 
 /**
- * Map pipeline PDF triage → sticky AFD `file_type_override`.
- * Without this, AFD's second classifier can mark a real deal PDF as `other`
+ * Map pipeline PDF triage → sticky Smart Files `file_type_override`.
+ * Without this, the Smart Files second classifier can mark a real deal PDF as `other`
  * and hard-delete it. `im`/`teaser` pin to `prospectus` (closest sticky
- * deal-target type AFD accepts). Financial types have no sticky override.
+ * deal-target type Smart Files accepts). Financial types have no sticky override.
  */
-const AFD_FILE_TYPE_OVERRIDES: Partial<Record<string, AfdFileTypeOverride>> = {
+const SMART_FILE_TYPE_OVERRIDES: Partial<Record<string, SmartFileTypeOverride>> = {
   mom: 'mom',
   shopping_list: 'shopping_list',
   market_study: 'market_study',
@@ -98,22 +98,22 @@ const AFD_FILE_TYPE_OVERRIDES: Partial<Record<string, AfdFileTypeOverride>> = {
   teaser: 'prospectus',
 };
 
-export function afdOverrideForDocType(
+export function smartFileOverrideForDocType(
   docType: string,
-): AfdFileTypeOverride | undefined {
-  return AFD_FILE_TYPE_OVERRIDES[docType];
+): SmartFileTypeOverride | undefined {
+  return SMART_FILE_TYPE_OVERRIDES[docType];
 }
 
 /**
- * Sticky AFD override only when triage confidence is high. Medium/low still
- * upload deal types (without override) so AFD can re-classify / drop as other.
+ * Sticky Smart Files override only when triage confidence is high. Medium/low still
+ * upload deal types (without override) so Smart Files can re-classify / drop as other.
  */
-export function stickyAfdOverrideForTriage(
+export function stickySmartFileOverrideForTriage(
   docType: string,
   confidence: string,
-): AfdFileTypeOverride | undefined {
+): SmartFileTypeOverride | undefined {
   if (confidence !== 'high') return undefined;
-  return afdOverrideForDocType(docType);
+  return smartFileOverrideForDocType(docType);
 }
 
 const PDF_TRIAGE_SCHEMA = {
@@ -198,7 +198,7 @@ export function subjectLooksDealRelated(
 }
 
 /**
- * Whether email enrichment + subject justify AFD attachment triage.
+ * Whether email enrichment + subject justify Smart Files attachment triage.
  * Subject signal is independent of llm null (AGY: do not lock out CIM subjects
  * when enrich returns no tool_use). Transient LLM errors never reach here —
  * flushBatch retries those before CRM/attach.
@@ -312,7 +312,7 @@ interface RunRow {
   afd_uploaded_digests: string[];
 }
 
-/** Stable content fingerprint for AFD upload idempotency across retries. */
+/** Stable content fingerprint for Smart Files upload idempotency across retries. */
 export function attachmentContentDigest(bytes: Buffer): string {
   return crypto.createHash('sha256').update(bytes).digest('hex');
 }
@@ -476,7 +476,7 @@ async function updateRun(
 }
 
 /**
- * Soft LLM/AFD retries must consume the same fail budget as hard errors, or a
+ * Soft LLM/Smart Files retries must consume the same fail budget as hard errors, or a
  * persistent outage retries forever. Returns the new fail_count.
  */
 async function bumpSoftFailCount(
@@ -526,13 +526,13 @@ export async function persistHardFailure(opts: {
   return nextFailCount;
 }
 
-async function uploadBytesToAfd(opts: {
+async function uploadBytesToSmartFiles(opts: {
   bytes: Buffer;
   fileName: string;
   contentType: string;
   enteredBy: string;
   workspaceId: string;
-  fileTypeOverride?: AfdFileTypeOverride;
+  fileTypeOverride?: SmartFileTypeOverride;
 }): Promise<{ dropped: boolean }> {
   const base = process.env.INTERNAL_API_URL ?? 'http://localhost:3000';
   const secret = process.env.ADMIN_SECRET ?? '';
@@ -540,7 +540,7 @@ async function uploadBytesToAfd(opts: {
     fileName: opts.fileName,
     contentType: opts.contentType,
   });
-  const urlRes = await fetch(`${base}/api/ai-file-dump/upload-url?${params}`, {
+  const urlRes = await fetch(`${base}/api/smart-files/upload-url?${params}`, {
     headers: { 'x-api-secret': secret },
   });
   if (!urlRes.ok) throw new Error(`upload-url ${urlRes.status}`);
@@ -553,7 +553,7 @@ async function uploadBytesToAfd(opts: {
     headers: { 'Content-Type': opts.contentType },
   });
   if (!put.ok) throw new Error(`S3 PUT ${put.status}`);
-  const notify = await fetch(`${base}/api/ai-file-dump`, {
+  const notify = await fetch(`${base}/api/smart-files`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -571,17 +571,17 @@ async function uploadBytesToAfd(opts: {
         : {}),
     }),
   });
-  if (!notify.ok) throw new Error(`AFD notify ${notify.status}`);
+  if (!notify.ok) throw new Error(`Smart Files notify ${notify.status}`);
   const body = (await notify.json().catch(() => null)) as {
     data?: { dropped?: boolean };
   } | null;
   const dropped = body?.data?.dropped === true;
-  // Sticky override should prevent `other` hard-drops. If AFD still drops,
+  // Sticky override should prevent `other` hard-drops. If Smart Files still drops,
   // treat as a hard failure so the cursor retries instead of silently losing
   // a pipeline-approved deal PDF.
   if (dropped && opts.fileTypeOverride) {
     throw new Error(
-      `AFD dropped origin_email file despite file_type_override=${opts.fileTypeOverride}`,
+      `Smart Files dropped origin_email file despite file_type_override=${opts.fileTypeOverride}`,
     );
   }
   return { dropped };
@@ -679,14 +679,14 @@ export async function triageDealDocumentText(
 
 export type AttachmentTriageOutcome =
   | { kind: 'skip' }
-  | { kind: 'upload'; fileTypeOverride?: AfdFileTypeOverride }
+  | { kind: 'upload'; fileTypeOverride?: SmartFileTypeOverride }
   | { kind: 'retry'; err: unknown };
 
 /**
- * Classify a PDF or Office attachment for AFD. Fail closed on extract/triage
+ * Classify a PDF or Office attachment for Smart Files. Fail closed on extract/triage
  * errors (retry). Skip non-deal, oversized, empty-extract, and non-deal types.
  */
-export async function triageAttachmentForAfd(opts: {
+export async function triageAttachmentForSmartFiles(opts: {
   mime: string;
   fileName: string;
   bytes: Buffer;
@@ -723,7 +723,7 @@ export async function triageAttachmentForAfd(opts: {
       if (!DEAL_DOC_TYPES.has(triage.doc_type)) return { kind: 'skip' };
       return {
         kind: 'upload',
-        fileTypeOverride: stickyAfdOverrideForTriage(
+        fileTypeOverride: stickySmartFileOverrideForTriage(
           triage.doc_type,
           triage.confidence,
         ),
@@ -755,7 +755,7 @@ export async function triageAttachmentForAfd(opts: {
     if (!DEAL_DOC_TYPES.has(triage.doc_type)) return { kind: 'skip' };
     return {
       kind: 'upload',
-      fileTypeOverride: stickyAfdOverrideForTriage(
+      fileTypeOverride: stickySmartFileOverrideForTriage(
         triage.doc_type,
         triage.confidence,
       ),
@@ -836,7 +836,7 @@ export async function processMboxSource(
     ).findWorkspaceIdsBySyncedEmail(custodianEmail);
     if (workspaceIds.length === 0) {
       throw new Error(
-        'MBOX custodian is no longer synced to a workspace; refusing CRM and AFD writes',
+        'MBOX custodian is no longer synced to a workspace; refusing CRM and Smart Files writes',
       );
     }
     const primaryWorkspaceId = workspaceIds[0]!;
@@ -994,7 +994,7 @@ export async function processMboxSource(
       // Commit in stream order up to (but not including) the first LLM failure so
       // transient errors are retried on resume instead of permanently skipped.
       const crmMessages: EphemeralCrmMessage[] = [];
-      type AttachQueueEntry = { item: PreparedMessage; allowAfd: boolean };
+      type AttachQueueEntry = { item: PreparedMessage; allowSmartFiles: boolean };
       const attachQueue: AttachQueueEntry[] = [];
       let llmRetryFrom: PreparedMessage | null = null;
       let lastCommittedOffset = offsetBeforeBatch;
@@ -1036,14 +1036,14 @@ export async function processMboxSource(
         });
         attachQueue.push({
           item,
-          allowAfd: hasDealSignal(llm, item.parsed.subject),
+          allowSmartFiles: hasDealSignal(llm, item.parsed.subject),
         });
         lastCommittedOffset = item.offset;
       }
 
       // Already-ingested envelopes (CRM committed, then crash before offset /
-      // AFD): still retry attachments. Do not treat "in analytics.emails" as
-      // fully done — that is what created the ghost / missed-AFD failure mode.
+      // Smart Files): still retry attachments. Do not treat "in analytics.emails" as
+      // fully done — that is what created the ghost / missed-Smart Files failure mode.
       // Never advance past an llm_retry cursor via a later existing row.
       const dupCandidates: PreparedMessage[] = [];
       for (const item of batch) {
@@ -1098,10 +1098,10 @@ export async function processMboxSource(
           }
         }
         for (const item of dupCandidates) {
-          const allowAfd =
+          const allowSmartFiles =
             subjectLooksDealRelated(item.parsed.subject) ||
             dbDealSignalByMid.get(item.messageId) === true;
-          attachQueue.push({ item, allowAfd });
+          attachQueue.push({ item, allowSmartFiles });
         }
       }
 
@@ -1121,7 +1121,7 @@ export async function processMboxSource(
         if (afdRetryFromOffset !== null) break;
         const item = entry.item;
 
-        if (!entry.allowAfd) {
+        if (!entry.allowSmartFiles) {
           pipelineLog(SCOPE, 'afd_deal_signal_skip', {
             run_id: run.id,
             custodian_hash: custodianHash(custodianEmail),
@@ -1130,7 +1130,7 @@ export async function processMboxSource(
           continue;
         }
 
-        // Two-phase per message: finish ALL PDF/Office triage before any AFD
+        // Two-phase per message: finish ALL PDF/Office triage before any Smart Files
         // upload. Otherwise a later triage failure rewinds the message and
         // re-uploads earlier attachments under new S3 keys (duplicate rows).
         type PendingUpload = {
@@ -1138,7 +1138,7 @@ export async function processMboxSource(
           fileName: string;
           contentType: string;
           digest: string;
-          fileTypeOverride?: AfdFileTypeOverride;
+          fileTypeOverride?: SmartFileTypeOverride;
         };
         const pending: PendingUpload[] = [];
         let triageFailed = false;
@@ -1172,7 +1172,7 @@ export async function processMboxSource(
           // and block later attachments that still need upload.
           if (uploadedDigests.has(digest)) continue;
 
-          const outcome = await triageAttachmentForAfd({
+          const outcome = await triageAttachmentForSmartFiles({
             mime,
             fileName: fname,
             bytes: decoded,
@@ -1204,7 +1204,7 @@ export async function processMboxSource(
 
         for (const upload of pending) {
           try {
-            const uploaded = await uploadBytesToAfd({
+            const uploaded = await uploadBytesToSmartFiles({
               bytes: upload.bytes,
               fileName: upload.fileName,
               contentType: upload.contentType,
@@ -1219,7 +1219,7 @@ export async function processMboxSource(
               afd_uploaded_digests: [...uploadedDigests],
             });
             // Non-sticky types (e.g. financial_*) may still be privacy-dropped
-            // by AFD as `other` — do not count those as successful uploads.
+            // by Smart Files as `other` — do not count those as successful uploads.
             if (!uploaded.dropped) result.attachments_uploaded++;
           } catch (err) {
             pipelineError(SCOPE, 'afd_upload_failed', err, { run_id: run.id });
@@ -1265,7 +1265,7 @@ export async function processMboxSource(
       }
 
       // Successful batch progress clears soft-retry budget so intermittent
-      // AFD/LLM blips across a large mbox do not accumulate to abandon.
+      // Smart Files/LLM blips across a large mbox do not accumulate to abandon.
       if (failCount > 0) {
         failCount = 0;
         result.fail_count = 0;

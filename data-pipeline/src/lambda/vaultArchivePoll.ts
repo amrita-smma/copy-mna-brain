@@ -3,7 +3,7 @@
  *
  * Polls in-flight Vault exports. On COMPLETED it streams each ZIP, spools ONE
  * `.mbox` entry at a time to Lambda /tmp, and runs the single-pass processor
- * (privacy → LLM → CRM → AFD) directly against that file. No MBOX bytes are
+ * (privacy → LLM → CRM → Smart Files) directly against that file. No MBOX bytes are
  * ever written to S3. Each spooled file is unlinked in a finally.
  *
  * Resume: each entry is keyed by a stable source_key (export_id + zip object

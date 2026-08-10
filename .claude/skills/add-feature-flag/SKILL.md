@@ -127,7 +127,7 @@ Current pages that need updating (as of writing):
 - `src/app/pipeline/[dealId]/page.tsx`
 - `src/app/pipeline/[dealId]/slides/page.tsx`
 - `src/app/chat/page.tsx`
-- `src/app/ai-file-dump/page.tsx`
+- `src/app/smart-files/[[...tab]]/page.tsx`
 - `src/app/master-data/page.tsx`
 - `src/app/crm/page.tsx`
 - `src/app/ai-workforce/[[...slug]]/page.tsx`

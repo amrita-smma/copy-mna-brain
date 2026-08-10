@@ -70,7 +70,7 @@ src/
     api/                    # API routes — see §2, NOT UI
   views/                    # 'use client' feature containers (test target)
     Dashboard.tsx  Pipeline.tsx  Chat.tsx  CRM.tsx  MasterData.tsx
-    AIFileDump.tsx  CompanyDetail.tsx  CompanySlides.tsx
+    SmartFiles.tsx  CompanyDetail.tsx  CompanySlides.tsx
     AIWorkforce/            # multi-tab feature (index.tsx + panels)
     crm/                    # CRM sub-components (dialogs, filters, types)
   components/
@@ -107,7 +107,7 @@ new `{feature}.spec.ts` only for a genuinely new page/feature.
 | Pipeline | `/pipeline` (`[dealId]`, `/slides`) | `src/views/Pipeline.tsx`, `CompanyDetail.tsx`, `CompanySlides.tsx` | `Inbound/OutboundCompaniesTable`, `CompanyDetailDialog`, screening dialogs | `e2e/pipeline.spec.ts` |
 | AI discovery | `/ai-discovery` (→ dashboard) | `src/views/AIDiscovery.tsx` | — | `e2e/ai-discovery.spec.ts` |
 | AI workforce | `/ai-workforce/[[...slug]]` | `src/views/AIWorkforce/index.tsx` | `CoPilotPanel`, `WorkforceTasks`, `RoutineCanvas` | `e2e/ai-workforce.spec.ts` |
-| AI file dump | `/ai-file-dump` | `src/views/AIFileDump.tsx` | `HitlReviewDialog`, `FilePreview`, `MatchedCompanyCombobox` | `e2e/ai-file-dump.spec.ts` |
+| Smart Files | `/smart-files` | `src/views/SmartFiles.tsx` | `HitlReviewDialog`, `FilePreview`, `MatchedCompanyCombobox` | `e2e/smart-files.spec.ts` |
 | CRM | `/crm` (flag-gated) | `src/views/CRM.tsx` + `src/views/crm/*` | `EmployerCard`, `AddContactDialog`, filters | _(no spec yet — add one)_ |
 | Chat | `/chat` | `src/views/Chat.tsx` | `ChatWindow`, `ChatSidebar`, `ChatProvider` | _(no spec yet — add one)_ |
 
@@ -214,7 +214,8 @@ Dynamic segments use `[id]` → `params.id`.
 | `/api/workforce-queue/*` | AI workforce queue: decision, retry, cancel, message |
 | `/api/screenings/*` | Investment screening workflows |
 | `/api/routines/*` | Scheduled automation routines |
-| `/api/ai-*` | AI features: file dump, screening, discovery |
+| `/api/ai-*` | AI features: screening, discovery |
+| `/api/smart-files/*` | Smart Files ingest: list, counts, upload-url, review, approve, reprocess, download |
 | `/api/chat/*`, `/api/v1/chat/*` | Chat + cache management (versioned) |
 
 ### 2.3 What to assert in an API test

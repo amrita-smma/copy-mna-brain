@@ -219,7 +219,7 @@ test.describe('Dashboard page', () => {
     await expect(page.getByText('Real-time overview of your M&A deal pipeline')).toBeVisible();
 
     // Sidebar navigation links
-    for (const name of ['Pipeline', 'Master Data', 'CRM', 'AI File Dump', 'AI Workforce']) {
+    for (const name of ['Pipeline', 'Master Data', 'CRM', 'Smart Files', 'AI Workforce']) {
       await expect(page.getByRole('link', { name })).toBeVisible();
     }
 
@@ -611,7 +611,7 @@ test.describe('Dashboard page', () => {
       ['Pipeline', '/pipeline'],
       ['Master Data', '/master-data'],
       ['CRM', '/crm'],
-      ['AI File Dump', '/ai-file-dump'],
+      ['Smart Files', '/smart-files'],
       ['AI Workforce', '/ai-workforce'],
     ];
 
