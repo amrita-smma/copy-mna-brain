@@ -6,6 +6,18 @@ import type { ChangelogEntry } from './changelog';
 
 export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   {
+    "hash": "b8a92d18c650c8a8661a0cd23a7b7d6542dad464",
+    "date": "2026-08-10",
+    "subject": "Smart Files feature now available in deal tracking workflows",
+    "category": "improvement"
+  },
+  {
+    "hash": "f83f57d6a75a3e12efe7eb816133fe4a5a45d56e",
+    "date": "2026-08-07",
+    "subject": "Multi-workspace users now see workspace picker after SSO login",
+    "category": "fix"
+  },
+  {
     "hash": "0c9af070df4f307c49ca9e395fd2441edc34b562",
     "date": "2026-08-06",
     "subject": "Investment Copilot now answers performance questions across assets, funds, investors, and data sources",
@@ -21,6 +33,14 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   },
   {
     "hash": "84fe28303c680233614516b03ac23bc2f56ce02f",
+    "date": "2026-08-06",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
+    "hash": "189de51b17ff47ddd4619c3053e2d17cf9db6d10",
     "date": "2026-08-06",
     "subject": "[skip deploy] chore: update changelog",
     "category": "improvement",
