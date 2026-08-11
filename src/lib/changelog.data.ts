@@ -12,6 +12,22 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "category": "feature"
   },
   {
+    "hash": "8ca9f00e73348405d2bca7e402a650240db71154",
+    "date": "2026-08-11",
+    "subject": "map each workspace to one AI Copilot flavor",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "c6e673f552bc66dc5f0c62431db3a2aef54c9c5f",
+    "date": "2026-08-11",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "b8a92d18c650c8a8661a0cd23a7b7d6542dad464",
     "date": "2026-08-10",
     "subject": "Smart Files feature now available in deal tracking workflows",
