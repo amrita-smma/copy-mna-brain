@@ -912,6 +912,19 @@ transactions, current share price, fee rates, quarterly snapshots, and
 fund/holding financials, with live recomputation of MOIC / IRR / DPI and all
 downstream metrics.
 
+**Multilingual asset names.** Original investments are often recorded under a
+non-English name, so an asset carries both its recorded name
+(`fund_assets.asset_name`) and an optional English rendering
+(`fund_assets.english_name`, migration
+`20260810000001_add_fund_asset_english_name`). Both are editable — from the
+**Company & legal** tab for a direct investment and **Fund & legal** for a
+fund-of-funds position — and the English name can also be entered upfront in the
+Add Asset dialog. Wherever an asset is listed, `getAssetDisplayName` (in
+`src/views/fundManagement/calc.ts`) renders the recorded name with the English
+name in brackets — `凱羅斯半導體 (Kairos Semiconductor)` — falling back to the
+plain name when no English name is set. `legal_name` remains separate: the full
+registered legal name.
+
 The Asset tab's right-most **AI Opinion** column (MB-470) mirrors the
 pipeline's AI Opinion feature: clicking "Analyze AI Opinion" (or
 "Re-evaluate") POSTs `fundAssetId` to `/api/funds/ai-opinion`

@@ -50,6 +50,14 @@ const rawToMillions = (raw: number | null): string => (raw == null ? '' : String
 const num = (raw: string): number | null => (raw === '' ? null : parseFloat(raw) || 0);
 const txt = (raw: string): string | null => raw || null;
 
+/** Commit handler for the English-name field. It's a `fund_assets` column that
+ * applies to every holding type, so it lives on the holding itself rather than
+ * on `inv` / `d` like the other Legal-tab fields. */
+const englishNameSetter = (h: Holding, save: () => void) => (raw: string) => {
+  h.englishName = txt(raw) ?? undefined;
+  save();
+};
+
 // ---- display helpers ----
 function KV({ label, term, value }: { label: string; term?: string; value?: ReactNode }) {
   const empty = value == null || value === '' || value === '#VALUE!';
@@ -220,6 +228,7 @@ function EquityDetail({ fund, holding }: { fund: Fund; holding: Holding }) {
     (d as Record<string, unknown>)[k] = numeric ? num(raw) : txt(raw);
     save();
   };
+  const setEnglishName = englishNameSetter(holding, save);
 
   // Convert raw-dollar DB overrides to millions for display/value (money()
   // expects millions; these fields load from the DB without toM conversion).
@@ -385,6 +394,8 @@ function EquityDetail({ fund, holding }: { fund: Fund; holding: Holding }) {
 
   const legal = (
     <div className="grid grid-cols-2 gap-x-5 gap-y-2.5 sm:grid-cols-4">
+      <EditKV label="Company name" term="assetname" value={holding.n} onCommit={(r) => { holding.n = r || holding.n; save(); }} />
+      <EditKV label="English name" term="englishname" value={holding.englishName} onCommit={setEnglishName} />
       <EditKV label="Legal name" term="legalname" value={inv.legalName} onCommit={(r) => setInv('legalName', r)} />
       <SelectKV
         label="Investing entity"
@@ -552,6 +563,7 @@ function FoFDetail({ fund, holding }: { fund: Fund; holding: Holding }) {
     (d as Record<string, unknown>)[k] = numeric ? num(raw) : txt(raw);
     save();
   };
+  const setEnglishName = englishNameSetter(holding, save);
   // The FoF "unrealized market value" isn't a stored asset column — it's the
   // latest valuation snapshot. Editing it upserts that valuation (same
   // endpoint/units as the Historical value tab: value in millions → raw $),
@@ -684,7 +696,8 @@ function FoFDetail({ fund, holding }: { fund: Fund; holding: Holding }) {
 
   const legal = (
     <div className="grid grid-cols-2 gap-x-5 gap-y-2.5 sm:grid-cols-4">
-      <EditKV label="Fund name" value={holding.n} onCommit={(r) => { holding.n = r || holding.n; save(); }} />
+      <EditKV label="Fund name" term="assetname" value={holding.n} onCommit={(r) => { holding.n = r || holding.n; save(); }} />
+      <EditKV label="English name" term="englishname" value={holding.englishName} onCommit={setEnglishName} />
       <EditKV label="Legal name" term="legalname" value={inv.legalName} onCommit={(r) => setInv('legalName', r)} />
       <SelectKV
         label="Investing entity"

@@ -26,6 +26,7 @@ const BASE_ASSET: AssetRow = {
   workspace_id: 'w1',
   asset_type: 'direct_investment',
   asset_name: 'Acme Robotics',
+  english_name: null,
   legal_name: 'Acme Robotics Pte Ltd',
   country: 'Singapore',
   funding_source: 'Series B',
@@ -205,6 +206,33 @@ describe('assetRowToHolding + holdingToAssetUpdateInput round trip', () => {
     // null must survive so the PATCH route's `!== undefined` check still fires.
     expect(payload.legalName).toBeNull();
     expect(payload.legalName).not.toBeUndefined();
+  });
+
+  it('round-trips the english name for an asset recorded under a non-English name', () => {
+    const holding = assetRowToHolding(
+      { ...BASE_ASSET, asset_name: '株式会社アクメ', english_name: 'Acme Robotics' },
+      [],
+      [],
+    );
+    expect(holding.n).toBe('株式会社アクメ');
+    expect(holding.englishName).toBe('Acme Robotics');
+
+    const payload = holdingToAssetUpdateInput(holding);
+    expect(payload.assetName).toBe('株式会社アクメ');
+    expect(payload.englishName).toBe('Acme Robotics');
+  });
+
+  it('leaves englishName undefined when no english name is stored', () => {
+    const holding = assetRowToHolding(BASE_ASSET, [], []);
+    expect(holding.englishName).toBeUndefined();
+  });
+
+  it('clearing the english name sends null (not undefined), so the PATCH route actually clears it', () => {
+    const holding = assetRowToHolding({ ...BASE_ASSET, english_name: 'Acme Robotics' }, [], []);
+    holding.englishName = undefined;
+    const payload = holdingToAssetUpdateInput(holding);
+    expect(payload.englishName).toBeNull();
+    expect(payload.englishName).not.toBeUndefined();
   });
 
   it('clearing the country field actually clears it, instead of falling back to the stale initial value', () => {
@@ -481,6 +509,29 @@ describe('buildAssetCreatePayload', () => {
     const payload = buildAssetCreatePayload('Equity', {});
     expect(payload.input.assetName).toBe('New holding');
     expect(payload.investedM).toBeNull();
+  });
+
+  it('collects the optional english name for a direct investment', () => {
+    const payload = buildAssetCreatePayload('Direct Investments', {
+      name: '株式会社アクメ',
+      englishName: 'Acme Robotics',
+    });
+    expect(payload.input.assetName).toBe('株式会社アクメ');
+    expect(payload.input.englishName).toBe('Acme Robotics');
+  });
+
+  it('leaves the english name null when it was not entered', () => {
+    expect(buildAssetCreatePayload('Direct Investments', { name: 'Acme' }).input.englishName).toBeNull();
+    expect(buildAssetCreatePayload('Fund of funds', { targetFund: 'Meridian III' }).input.englishName).toBeNull();
+  });
+
+  it('collects the optional english name for a fund-of-funds position', () => {
+    const payload = buildAssetCreatePayload('Fund of funds', {
+      targetFund: 'メリディアン・グロース III',
+      englishName: 'Meridian Growth Partners III',
+    });
+    expect(payload.input.assetName).toBe('メリディアン・グロース III');
+    expect(payload.input.englishName).toBe('Meridian Growth Partners III');
   });
 
   it('maps Obligation fields to legal_name-as-issuer and maturity_date', () => {

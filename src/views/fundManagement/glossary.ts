@@ -14,6 +14,8 @@ export const GLOSSARY: Record<string, GlossaryEntry> = {
   invccy: { t: 'Investment Currency', d: 'The currency the deal is denominated in.' },
   reportccy: { t: 'Base Currency', d: 'The currency you report this position in, if different from the investment currency.' },
   legalname: { t: 'Legal name', d: 'The full registered legal name of the investee company or fund entity.' },
+  assetname: { t: 'Name', d: 'The name this investment is recorded and reported under, in its original language. Editable — it is what appears in the asset list.' },
+  englishname: { t: 'English name', d: 'The English rendering of the name, for investments recorded under a non-English name. When set, it appears in brackets after the name in the asset list.' },
   reportdate: { t: 'Valuation Date', d: 'The as-of date this valuation reflects. Usually the last day of the most recent quarter.' },
   holdperiod: { t: 'Holding Period', d: 'Time elapsed since the earliest transaction, in years.' },
   txndate: { t: 'Transaction Date', d: 'The date capital moved, in or out.' },

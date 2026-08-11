@@ -3206,6 +3206,10 @@ export const fundAssets = pgTable("fund_assets", {
   asset_type: assetType().notNull(),
   asset_name: text(),
   legal_name: text(),
+  // Latin-alphabet rendering of `asset_name` for investments recorded under a
+  // non-English name (e.g. 株式会社ABC). Optional; when present the UI shows it
+  // in brackets after the asset name.
+  english_name: text(),
   country: text(),
   funding_source: text(),
   investment_type: text(),

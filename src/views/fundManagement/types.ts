@@ -149,6 +149,9 @@ export interface Holding {
    * (no per-holding CRUD happens there). */
   id?: string;
   n: string;
+  /** English rendering of `n` (fund_assets.english_name) — set when the asset is
+   * recorded under a non-English name. Displayed in brackets after `n`. */
+  englishName?: string;
   tp: HoldingType;
   dt: string;
   cost: number;

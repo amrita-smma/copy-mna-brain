@@ -87,6 +87,18 @@ export const money2 = (v: number, sym = '$') => sym + v.toFixed(2);
 export const moneyK = (v: number, sym = '$') => sym + formatCompact((v || 0) * 1e6);
 export const moneyFee = (vM: number, sym = '$') => sym + formatCompact(Math.abs((vM || 0) * 1e6));
 
+// ---- name helpers ----
+/** The label to show for an asset: its recorded (possibly non-English) name,
+ * with the English name in brackets when one is set — `株式会社ABC (ABC Corp)`.
+ * Falls back to the plain name when there's no English name, or when it just
+ * repeats the recorded one. */
+export function getAssetDisplayName(h: Holding): string {
+  const name = h.n ?? '';
+  const en = h.englishName?.trim();
+  if (!en || en === name.trim()) return name;
+  return `${name} (${en})`;
+}
+
 // ---- investment-type helpers ----
 export function normalizeInvestType(v?: string) {
   if (v === 'Fund of Funds') return v;

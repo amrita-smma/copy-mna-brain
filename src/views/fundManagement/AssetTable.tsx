@@ -4,6 +4,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { cn } from '@/lib/utils';
 import type { Fund, Holding } from './types';
 import {
+  getAssetDisplayName,
   getAssetEntity,
   getAssetFundingSources,
   getAssetInvestType,
@@ -135,7 +136,7 @@ export function AssetTable({
   // "Dive deeper" hands the existing AI Opinion verdict to the copilot and
   // reveals the pane so the discussion is immediately visible.
   const handleDiveDeeper = (h: Holding) => {
-    const name = h.n || 'this holding';
+    const name = getAssetDisplayName(h) || 'this holding';
     const verdict = h.aiOpinionVerdict ?? 'unknown';
     const summary = h.aiOpinionSummary ?? 'no summary available';
     const idHint = h.id ? ` (fund_asset_id: ${h.id})` : '';
@@ -275,7 +276,9 @@ export function AssetTable({
                     {hopen ? '▾' : '▸'}
                   </span>
                   <div className={cn(nested && 'border-l-2 border-border pl-2.5')}>
-                    <div className="text-[13px] font-medium text-foreground">{h.n}</div>
+                    <div className="text-[13px] font-medium text-foreground">
+                      {getAssetDisplayName(h)}
+                    </div>
                     <div className="mt-0.5 flex flex-wrap items-center gap-1.5">
                       <Pill>
                         <GlossaryTerm term={TYPE_TERM[h.tp] || 'equity'}>
@@ -291,7 +294,7 @@ export function AssetTable({
                 {h.id && (
                   <DeleteRowMenu
                     label="Delete holding"
-                    title={`Delete "${h.n}"?`}
+                    title={`Delete "${getAssetDisplayName(h)}"?`}
                     description="This will permanently delete this holding and its full transaction and valuation history. This action cannot be undone."
                     onConfirm={async () => {
                       await deleteAsset(f, h);

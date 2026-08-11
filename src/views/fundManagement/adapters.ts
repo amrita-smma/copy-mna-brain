@@ -310,6 +310,7 @@ export function assetRowToHolding(
   const holding: Holding = {
     id: asset.id,
     n: asset.asset_name ?? asset.legal_name ?? '(unnamed)',
+    englishName: asset.english_name ?? undefined,
     tp,
     dt: asset.entry_date ?? '',
     cost: toM(asset.invested_capital_amount) ?? 0,
@@ -385,6 +386,9 @@ export function holdingToAssetUpdateInput(holding: Holding): UpdateAssetInput {
   const d = holding.d;
   return {
     assetName: holding.n,
+    // `|| null` so clearing the field in the Legal tab actually clears the
+    // column (the PATCH route skips keys whose value is undefined).
+    englishName: holding.englishName || null,
     legalName: inv?.legalName,
     // `d.geo` (not `inv.country`) is the only field the Legal tab ever
     // writes — falling back to `inv.country` would re-send its stale
@@ -436,6 +440,9 @@ export interface AssetCreateField {
 /** Fields shared by 'Direct Investments' and legacy 'Equity'. */
 const DIRECT_INVESTMENT_FIELDS: AssetCreateField[] = [
   { key: 'name', label: 'Company name', kind: 'text', required: true },
+  // Optional — for companies recorded under a non-English name. Also editable
+  // afterwards from the Company & legal tab.
+  { key: 'englishName', label: 'English name', kind: 'text' },
 ];
 
 export const ASSET_CREATE_FIELDS: Record<HoldingType, AssetCreateField[]> = {
@@ -464,6 +471,7 @@ export const ASSET_CREATE_FIELDS: Record<HoldingType, AssetCreateField[]> = {
   ],
   'Fund of funds': [
     { key: 'targetFund', label: 'Target fund name', kind: 'text' },
+    { key: 'englishName', label: 'English name', kind: 'text' },
     { key: 'commit', label: 'Commitment', kind: 'money' },
   ],
 };
@@ -557,6 +565,7 @@ export function buildAssetCreatePayload(
         status,
         fundingSource,
         assetName: txt('targetFund') ?? 'New holding',
+        englishName: txt('englishName'),
         commitmentAmount: commitM != null ? fromM(commitM) : undefined,
         typeDetails: { targetFundName: txt('targetFund') ?? undefined, investingEntity },
       },
@@ -572,6 +581,7 @@ export function buildAssetCreatePayload(
         status,
         fundingSource,
         assetName: txt('name') ?? 'New holding',
+        englishName: txt('englishName'),
         sector: txt('sector'),
         country: txt('geo'),
         entryDate: txt('dt'),

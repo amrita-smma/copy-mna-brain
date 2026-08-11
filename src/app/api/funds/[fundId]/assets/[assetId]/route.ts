@@ -31,6 +31,7 @@ export async function PATCH(
     const { assetId } = await params;
     const {
       assetName,
+      englishName,
       legalName,
       country,
       fundingSource,
@@ -64,6 +65,7 @@ export async function PATCH(
     const { fundService } = createContainer(db, await getActiveWorkspaceId());
     const data = await fundService.updateAsset(assetId, {
       ...(assetName !== undefined ? { asset_name: assetName } : {}),
+      ...(englishName !== undefined ? { english_name: englishName } : {}),
       ...(legalName !== undefined ? { legal_name: legalName } : {}),
       ...(country !== undefined ? { country } : {}),
       ...(fundingSource !== undefined ? { funding_source: fundingSource } : {}),

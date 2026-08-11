@@ -31,6 +31,7 @@ export type UpdateFundInput = Partial<CreateFundInput>;
 export interface CreateAssetInput {
   assetType: 'direct_investment' | 'cash' | 'fund_of_funds';
   assetName?: string | null;
+  englishName?: string | null;
   legalName?: string | null;
   country?: string | null;
   fundingSource?: string | null;

@@ -2764,7 +2764,10 @@ async function seedFundManagement(db: DbClient, workspaceId: string) {
       id: SEED_ASSET_6_ID,
       workspace_id: workspaceId,
       asset_type: 'direct_investment',
-      asset_name: 'Kairos Semiconductor',
+      // Recorded under its local-language name, with the English rendering in
+      // `english_name` — the fixture for the bracketed "名前 (English)" display.
+      asset_name: '凱羅斯半導體',
+      english_name: 'Kairos Semiconductor',
       legal_name: 'Kairos Semiconductor Inc.',
       country: 'Taiwan',
       investment_type: 'Direct Investment',

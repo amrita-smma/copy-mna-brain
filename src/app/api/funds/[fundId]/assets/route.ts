@@ -22,6 +22,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ fun
     const {
       assetType,
       assetName,
+      englishName,
       legalName,
       country,
       fundingSource,
@@ -52,6 +53,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ fun
     const data = await fundService.addAsset({
       asset_type: assetType,
       asset_name: assetName,
+      english_name: englishName,
       legal_name: legalName,
       country,
       funding_source: fundingSource,

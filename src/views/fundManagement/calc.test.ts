@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { mergeHoldingsAcrossFunds, scopeHoldingToFund, holdingsPortfolioTotals } from './calc';
+import {
+  getAssetDisplayName,
+  mergeHoldingsAcrossFunds,
+  scopeHoldingToFund,
+  holdingsPortfolioTotals,
+} from './calc';
 import type { Fund, Holding, Inv } from './types';
 
 function makeHolding(overrides: {
@@ -45,6 +50,31 @@ function makeFund(id: string, holdings: Holding[]): Fund {
     h: holdings,
   };
 }
+
+describe('getAssetDisplayName', () => {
+  it('appends the english name in brackets when the asset has one', () => {
+    const h = makeHolding();
+    h.n = '株式会社アクメ';
+    h.englishName = 'Acme Robotics';
+    expect(getAssetDisplayName(h)).toBe('株式会社アクメ (Acme Robotics)');
+  });
+
+  it('returns the name unchanged when there is no english name', () => {
+    expect(getAssetDisplayName(makeHolding())).toBe('Test Asset');
+  });
+
+  it('does not repeat the name when the english name is the same', () => {
+    const h = makeHolding();
+    h.englishName = ' Test Asset ';
+    expect(getAssetDisplayName(h)).toBe('Test Asset');
+  });
+
+  it('ignores a whitespace-only english name', () => {
+    const h = makeHolding();
+    h.englishName = '   ';
+    expect(getAssetDisplayName(h)).toBe('Test Asset');
+  });
+});
 
 describe('scopeHoldingToFund', () => {
   it('returns the holding unchanged when all transactions belong to the given fund', () => {
