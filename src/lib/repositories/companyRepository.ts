@@ -792,6 +792,22 @@ export class CompanyRepository {
     return rows.map((r) => r.id);
   }
 
+  /**
+   * The subset of `ids` that exist in this workspace. A single batched query —
+   * used to keep cross-store results (e.g. the Neo4j relationship graph, whose
+   * nodes carry no workspace_id) scoped to the caller's own companies.
+   */
+  async findExistingIds(ids: string[]): Promise<string[]> {
+    if (ids.length === 0) return [];
+    const rows = await this.db
+      .select({ id: companies.id })
+      .from(companies)
+      .where(
+        and(inArray(companies.id, ids), eq(companies.workspace_id, this.workspaceId)),
+      );
+    return rows.map((r) => r.id);
+  }
+
   async delete(id: string): Promise<void> {
     await this.db
       .delete(companies)

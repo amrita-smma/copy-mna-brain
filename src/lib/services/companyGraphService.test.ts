@@ -115,3 +115,112 @@ describe('CompanyGraphService.dispatchSync', () => {
     await expect(service.dispatchSync()).rejects.toThrow('requires a JobDispatcher');
   });
 });
+
+describe('CompanyGraphService.getCompanyNeighbourhood', () => {
+  function makeNeighbourhoodRepo(overrides: {
+    self?: unknown;
+    connected?: unknown[];
+    connections?: unknown[];
+  } = {}) {
+    return {
+      getCompanyNode: vi.fn().mockResolvedValue(
+        overrides.self === undefined ? { id: 'c1', name: 'TechCorp' } : overrides.self,
+      ),
+      getConnectedCompanies: vi.fn().mockResolvedValue(overrides.connected ?? []),
+      getConnectionsAmong: vi.fn().mockResolvedValue(overrides.connections ?? []),
+    } as unknown as CompanyRelationRepository & {
+      getCompanyNode: ReturnType<typeof vi.fn>;
+      getConnectedCompanies: ReturnType<typeof vi.fn>;
+      getConnectionsAmong: ReturnType<typeof vi.fn>;
+    };
+  }
+
+  it('returns the company plus its neighbours and the edges among them', async () => {
+    const repo = makeNeighbourhoodRepo({
+      connected: [
+        { company: { id: 'c2', name: 'LogistiKa' }, type: 'PARTNER', direction: 'outgoing' },
+        { company: { id: 'c3', name: 'Acme' }, type: 'SELLS_TO', direction: 'incoming' },
+      ],
+      connections: [
+        { sourceId: 'c1', targetId: 'c2', type: 'PARTNER', notes: 'MOU signed' },
+        { sourceId: 'c3', targetId: 'c1', type: 'SELLS_TO' },
+      ],
+    });
+    const service = new CompanyGraphService(repo);
+
+    const data = await service.getCompanyNeighbourhood('c1');
+
+    expect(data.nodes.map((n) => n.id)).toEqual(['c1', 'c2', 'c3']);
+    expect(repo.getConnectionsAmong).toHaveBeenCalledWith(['c1', 'c2', 'c3']);
+    expect(data.links).toEqual([
+      {
+        source: 'c1',
+        target: 'c2',
+        label: 'PARTNER',
+        notes: 'MOU signed',
+        evidence: undefined,
+        date: undefined,
+      },
+      {
+        source: 'c3',
+        target: 'c1',
+        label: 'SELLS_TO',
+        notes: undefined,
+        evidence: undefined,
+        date: undefined,
+      },
+    ]);
+  });
+
+  it('returns an empty graph when the company has no node in the graph DB', async () => {
+    const repo = makeNeighbourhoodRepo({ self: null });
+    const service = new CompanyGraphService(repo);
+
+    expect(await service.getCompanyNeighbourhood('c1')).toEqual({ nodes: [], links: [] });
+    expect(repo.getConnectionsAmong).not.toHaveBeenCalled();
+  });
+
+  it('lists a company linked by several edges only once', async () => {
+    const repo = makeNeighbourhoodRepo({
+      connected: [
+        { company: { id: 'c2', name: 'LogistiKa' }, type: 'PARTNER', direction: 'outgoing' },
+        { company: { id: 'c2', name: 'LogistiKa' }, type: 'SELLS_TO', direction: 'incoming' },
+      ],
+    });
+    const service = new CompanyGraphService(repo);
+
+    const data = await service.getCompanyNeighbourhood('c1');
+
+    expect(data.nodes.map((n) => n.id)).toEqual(['c1', 'c2']);
+  });
+
+  it('drops self-loops rather than duplicating the focal company', async () => {
+    const repo = makeNeighbourhoodRepo({
+      connected: [{ company: { id: 'c1', name: 'TechCorp' }, type: 'PARTNER', direction: 'outgoing' }],
+    });
+    const service = new CompanyGraphService(repo);
+
+    const data = await service.getCompanyNeighbourhood('c1');
+
+    expect(data.nodes.map((n) => n.id)).toEqual(['c1']);
+    expect(repo.getConnectionsAmong).toHaveBeenCalledWith(['c1']);
+  });
+
+  it('keeps only the neighbours the filter allows, in one batched call', async () => {
+    const repo = makeNeighbourhoodRepo({
+      connected: [
+        { company: { id: 'c2', name: 'LogistiKa' }, type: 'PARTNER', direction: 'outgoing' },
+        { company: { id: 'other-tenant' }, type: 'PARTNER', direction: 'outgoing' },
+      ],
+    });
+    const filterOwnedIds = vi.fn().mockResolvedValue(['c2']);
+    const service = new CompanyGraphService(repo);
+
+    const data = await service.getCompanyNeighbourhood('c1', filterOwnedIds);
+
+    expect(filterOwnedIds).toHaveBeenCalledTimes(1);
+    expect(filterOwnedIds).toHaveBeenCalledWith(['c2', 'other-tenant']);
+    expect(data.nodes.map((n) => n.id)).toEqual(['c1', 'c2']);
+    expect(repo.getConnectionsAmong).toHaveBeenCalledWith(['c1', 'c2']);
+  });
+});

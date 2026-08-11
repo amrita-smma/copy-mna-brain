@@ -787,7 +787,32 @@ it.**
   node** opens a context menu with *"Display only connected companies"*, which
   pins that node and restricts the graph to it plus its direct neighbours
   (companies sharing an edge in either direction); a chip in the filter sidebar
-  clears the pin.
+  clears the pin. The pin can also be set by deep link: `/graph?connectedTo=<companyId>`
+  (the page reads the search param server-side and passes it to `CompanyGraph`
+  as `initialConnectedCompanyId`, applied once the node resolves).
+- **Company detail snippet (`src/components/pipeline/CompanyRelationshipGraph.tsx`).**
+  Both the company detail page (`CompanyDetail.tsx`) and the company detail
+  dialog (`CompanyDetailDialog.tsx`, opened from Master Data, Dashboard
+  insights, market-screening results and the graph itself) embed a filter-free
+  miniature of the graph on their Details tab, showing just that company and the
+  companies directly connected to it, plus a **"Show in relationship graph"**
+  button that deep-links to
+  `/graph?connectedTo=<companyId>`. It is served by `GET /api/graph/connections?companyId=`
+  → `CompanyGraphService.getCompanyNeighbourhood`, which fetches the focal node,
+  its direct neighbours and every edge among that set in a fixed handful of
+  queries (no per-neighbour fan-out). Company nodes carry no `workspace_id`, so
+  the route scopes both the focal company and its neighbours through
+  `CompanyService.findExistingIds` (one batched Postgres lookup). The canvas is
+  read-only: node drag, panning and zooming are all disabled, it is sized from
+  its container via a `ResizeObserver` (rather than force-graph's 800×600
+  default, which would overflow the card), and it re-runs `zoomToFit` on every
+  simulation tick and on resize so the neighbourhood stays centred and fully in
+  frame. Nodes are drawn at `NODE_SCALE` (circle *and* label metrics scale
+  together) so a handful of companies fit without scrolling.
+- **Shared canvas styling (`src/lib/graph/nodeStyle.ts`).** Relation colours and
+  labels, stage-based node colour, EV-derived node sizing, label wrapping and the
+  node canvas painter live in one module used by both the full graph page and the
+  detail-page snippet, so the two canvases always read identically.
 
 Connection is configured via `NEO4J_URI` / `NEO4J_USER` / `NEO4J_PASSWORD`
 (see `src/lib/neo4j.ts`).

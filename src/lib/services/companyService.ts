@@ -113,6 +113,11 @@ export class CompanyService {
     return this.companyRepo.findByNameFuzzy(namePart);
   }
 
+  /** The subset of `ids` belonging to a company in this workspace. */
+  findExistingIds(ids: string[]) {
+    return this.companyRepo.findExistingIds(ids);
+  }
+
   /**
    * Levenshtein-based fuzzy dedup fallback for ingest. The cheap SQL substring
    * match (`findByNameFuzzy`) only catches names that literally contain one

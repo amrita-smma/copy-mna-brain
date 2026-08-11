@@ -2,6 +2,7 @@ import { describe, expect, it, vi, beforeEach } from 'vitest';
 import {
   CompanyRelationRepository,
   companyRowToGraphNode,
+  toGraphNode,
   type CompanyNode,
   type CompanyRelation,
 } from './companyRelationRepository';
@@ -488,5 +489,48 @@ describe('companyRowToGraphNode', () => {
         ownership: null,
       }).name,
     ).toBe('(unnamed)');
+  });
+});
+
+describe('CompanyRelationRepository.getCompanyNode', () => {
+  it('returns the matched company node properties', async () => {
+    const { driver, run, close } = makeDriver([
+      makeRecord({ c: { properties: { id: 'c1', name: 'TechCorp', pipelineStage: 'L2' } } }),
+    ]);
+    const repo = new CompanyRelationRepository(driver);
+
+    const node = await repo.getCompanyNode('c1');
+
+    expect(run).toHaveBeenCalledWith(expect.stringContaining('MATCH (c:Company {id: $id})'), {
+      id: 'c1',
+    });
+    expect(close).toHaveBeenCalledTimes(1);
+    expect(node).toEqual({ id: 'c1', name: 'TechCorp', pipelineStage: 'L2' });
+  });
+
+  it('returns null when the company has no node in the graph', async () => {
+    const { driver } = makeDriver([]);
+    const repo = new CompanyRelationRepository(driver);
+
+    expect(await repo.getCompanyNode('missing')).toBeNull();
+  });
+});
+
+describe('toGraphNode', () => {
+  it('normalizes optional properties and stamps a placeholder val', () => {
+    expect(
+      toGraphNode({ id: 'c1', name: 'TechCorp', segment: 'technology', ev: 4200 }),
+    ).toEqual({
+      id: 'c1',
+      name: 'TechCorp',
+      segment: 'technology',
+      geography: undefined,
+      ownership: undefined,
+      pipelineStage: undefined,
+      status: undefined,
+      ev: 4200,
+      graphSizeOverride: null,
+      val: 3,
+    });
   });
 });

@@ -40,22 +40,26 @@ import type {
   Ownership,
   RelationType,
 } from '@/lib/repositories/companyRelationRepository';
-
-const RELATION_COLORS: Record<RelationType, string> = {
-  INVESTED_IN: '#3b82f6',
-  PARTNER: '#22c55e',
-  SELLS_TO: '#f59e0b',
-  SUPPLIER: '#f59e0b', // legacy — same colour as SELLS_TO
-};
-
-const RELATION_LABELS: Record<RelationType, string> = {
-  INVESTED_IN: 'Invested in',
-  PARTNER: 'Partner',
-  SELLS_TO: 'Sells to',
-  SUPPLIER: 'Supplier', // legacy
-};
-
-const RELATION_TYPES = Object.keys(RELATION_COLORS) as RelationType[];
+import {
+  RELATION_COLORS,
+  RELATION_LABELS,
+  RELATION_TYPES,
+  STAGE_COLOR_BLUE,
+  STAGE_COLOR_GREY,
+  STAGE_COLOR_YELLOW,
+  drawGraphNode,
+  endpointId,
+  estimateNodeRadius,
+  evToDisplaySize,
+  getNodeRadius,
+  hexToRgbTriplet,
+  nodeColor,
+  nodeDisplaySize,
+  nodeSizeFactor,
+  paintNodePointerArea,
+  primaryRelationByNode,
+  relationColor,
+} from '@/lib/graph/nodeStyle';
 
 function NodeCombobox({
   nodes,
@@ -372,123 +376,6 @@ const OWNERSHIP_OPTIONS: { value: Ownership; label: string }[] = [
   { value: 'private', label: 'Private' },
 ];
 
-const STAGE_COLOR_GREY = '#94a3b8';   // discovered
-const STAGE_COLOR_YELLOW = '#eab308'; // market_screening / no stage
-const STAGE_COLOR_BLUE = '#3b82f6';   // L0–L5
-
-function nodeColor(node: GraphNode): string {
-  const stage = node.pipelineStage;
-  if (!stage || stage === 'market_screening' || stage === 'unreviewed') return STAGE_COLOR_YELLOW;
-  if (stage === 'discovered') return STAGE_COLOR_GREY;
-  if (/^L[0-5]$/.test(stage)) return STAGE_COLOR_BLUE;
-  return STAGE_COLOR_GREY;
-}
-
-// ─── EV-based node sizing ─────────────────────────────────────────────────────
-
-/**
- * Map enterprise value (USD millions) to a 1–5 display size using a log scale.
- * ≤ $1B → 1, ≥ $100B → 5, log-interpolated in between.
- */
-function evToDisplaySize(evMn: number): number {
-  if (evMn <= 1000) return 1;
-  if (evMn >= 100000) return 5;
-  // log10(1000) = 3, log10(100000) = 5 → scale 1–5 across that 2-decade range
-  return 1 + ((Math.log10(evMn) - 3) / 2) * 4;
-}
-
-/** Resolved 1–5 display size: override beats EV-computed, fallback is 3. */
-function nodeDisplaySize(node: GraphNode): number {
-  if (node.graphSizeOverride != null) return node.graphSizeOverride;
-  if (node.ev != null) return evToDisplaySize(node.ev);
-  return 3;
-}
-
-/**
- * Radius multiplier — size 1 is the baseline (1×) and each step is 1.3× the previous.
- * size 1 → 1.00×  size 2 → 1.30×  size 3 → 1.69×  size 4 → 2.20×  size 5 → 2.86×
- */
-function nodeSizeFactor(node: GraphNode): number {
-  return Math.pow(1.3, nodeDisplaySize(node) - 1);
-}
-
-const NODE_MIN_RADIUS_PX = 38;
-const NODE_NAME_FONT_PX = 13;
-const NODE_NAME_LINE_HEIGHT_PX = 14;
-const NODE_SUBLABEL_FONT_PX = 9.5;
-const NODE_SUBLABEL_GAP_PX = 7;
-const NODE_LABEL_MAX_CHARS = 12;
-const NODE_LABEL_MAX_LINES = 3;
-const NODE_LABEL_PADDING_PX = 13;
-
-function toUpperLabelLines(name: string): string[] {
-  const label = name.trim().toUpperCase();
-  if (!label) return ['UNKNOWN'];
-
-  const words = label.split(/\s+/);
-  const lines: string[] = [];
-  let current = '';
-
-  for (const word of words) {
-    const candidate = current ? `${current} ${word}` : word;
-    if (candidate.length <= NODE_LABEL_MAX_CHARS) {
-      current = candidate;
-      continue;
-    }
-
-    if (current) lines.push(current);
-    current = word;
-  }
-  if (current) lines.push(current);
-
-  if (lines.length <= NODE_LABEL_MAX_LINES) return lines;
-  const limited = lines.slice(0, NODE_LABEL_MAX_LINES);
-  const last = limited[NODE_LABEL_MAX_LINES - 1];
-  limited[NODE_LABEL_MAX_LINES - 1] =
-    last.length > NODE_LABEL_MAX_CHARS - 3
-      ? `${last.slice(0, NODE_LABEL_MAX_CHARS - 3)}...`
-      : `${last}...`;
-  return limited;
-}
-
-/** Node radius in canvas units — determined by size factor only; text fits within. */
-function getNodeRadius(globalScale: number, sizeFactor: number): number {
-  return (NODE_MIN_RADIUS_PX * sizeFactor) / globalScale;
-}
-
-/** Estimated radius in screen px — used by the force simulation. Matches getNodeRadius at globalScale = 1. */
-function estimateNodeRadius(sizeFactor: number): number {
-  return NODE_MIN_RADIUS_PX * sizeFactor;
-}
-
-/**
- * Truncate `text` so it fits within `maxWidth` canvas units, appending "…".
- * Returns an empty string when even the ellipsis alone doesn't fit.
- */
-function fitText(ctx: CanvasRenderingContext2D, text: string, maxWidth: number): string {
-  if (maxWidth <= 0 || !text) return '';
-  if (ctx.measureText(text).width <= maxWidth) return text;
-  let s = text;
-  while (s.length > 0 && ctx.measureText(s + '…').width > maxWidth) {
-    s = s.slice(0, -1);
-  }
-  return s.length > 0 ? s + '…' : '';
-}
-
-/** Convert a #rrggbb hex string to an `r, g, b` triplet for rgba() usage. */
-function hexToRgbTriplet(hex: string): string {
-  const m = hex.replace('#', '');
-  const r = parseInt(m.slice(0, 2), 16);
-  const g = parseInt(m.slice(2, 4), 16);
-  const b = parseInt(m.slice(4, 6), 16);
-  return `${r}, ${g}, ${b}`;
-}
-
-/** Resolve a link endpoint to its node id (force-graph mutates strings to node refs). */
-function endpointId(endpoint: string | GraphNode): string {
-  return typeof endpoint === 'object' ? endpoint.id : endpoint;
-}
-
 // ─── Connection pathfinding ───────────────────────────────────────────────────
 // Maximum path length when tracing connections between highlighted companies,
 // mirroring the Neo4j `MATCH path = (a)-[*1..5]-(b)` traversal.
@@ -606,12 +493,20 @@ interface CompanyGraphProps {
   showFundManagement?: boolean;
   /** When true, the edit-mode "Combine companies" section is available. */
   isWorkspaceAdmin?: boolean;
+  /**
+   * Company to pin the "display only connected companies" filter to on first
+   * load, from the `?connectedTo=` deep link used by the relationship snippet
+   * on the company detail page. Applied once, as soon as the graph resolves the
+   * id to a node; the user can clear it like any other filter afterwards.
+   */
+  initialConnectedCompanyId?: string;
 }
 
 export default function CompanyGraph({
   showCompanyGraph = false,
   showFundManagement = false,
   isWorkspaceAdmin = false,
+  initialConnectedCompanyId,
 }: CompanyGraphProps) {
   const [graphData, setGraphData] = useState<GraphData>({ nodes: [], links: [] });
   const [loading, setLoading] = useState(true);
@@ -745,6 +640,20 @@ export default function CompanyGraph({
       .catch((e) => setError(e instanceof Error ? e.message : 'Failed to load graph'))
       .finally(() => setLoading(false));
   }, [loadGraph]);
+
+  // Apply the `?connectedTo=` deep link once the node it names exists. The ref
+  // remembers which id was applied, so clearing the filter (or a graph reload)
+  // doesn't re-apply it, while arriving from the link again with a *different*
+  // company still pins that one.
+  const appliedInitialConnectedRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!initialConnectedCompanyId) return;
+    if (appliedInitialConnectedRef.current === initialConnectedCompanyId) return;
+    const node = graphData.nodes.find((n) => n.id === initialConnectedCompanyId);
+    if (!node) return;
+    appliedInitialConnectedRef.current = initialConnectedCompanyId;
+    setConnectedTo(node);
+  }, [initialConnectedCompanyId, graphData.nodes]);
 
   // Reconcile the graph DB from Postgres (the source of truth), then reload.
   // The sync runs as a background job; we poll it to completion before
@@ -998,35 +907,12 @@ export default function CompanyGraph({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [graphData, ownership, geography, sector, pipelineStage, status, connectedIds, enabledTypes, hasEvidenceOnly, dateFrom, dateTo, nodeCharacteristics, highlightedIds, highlightPaths]);
 
-  // Each node's dominant relationship type (most frequent incident edge label),
-  // used for the small sub-label rendered inside the circle. Tie-break follows
-  // the canonical RELATION_TYPES order.
-  const nodePrimaryRelation = useMemo(() => {
-    const counts = new Map<string, Map<RelationType, number>>();
-    for (const l of filteredData.links) {
-      const type = l.label as RelationType;
-      if (!RELATION_COLORS[type]) continue;
-      for (const id of [endpointId(l.source), endpointId(l.target)]) {
-        const m = counts.get(id) ?? new Map<RelationType, number>();
-        m.set(type, (m.get(type) ?? 0) + 1);
-        counts.set(id, m);
-      }
-    }
-    const primary = new Map<string, RelationType>();
-    for (const [id, m] of counts) {
-      let best: RelationType | null = null;
-      let bestCount = -1;
-      for (const type of RELATION_TYPES) {
-        const c = m.get(type) ?? 0;
-        if (c > bestCount) {
-          best = type;
-          bestCount = c;
-        }
-      }
-      if (best) primary.set(id, best);
-    }
-    return primary;
-  }, [filteredData]);
+  // Each node's dominant relationship type, rendered as the sub-label inside
+  // the circle.
+  const nodePrimaryRelation = useMemo(
+    () => primaryRelationByNode(filteredData.links),
+    [filteredData],
+  );
 
   const relationTypeCount = useMemo(
     () => new Set(filteredData.links.map((l) => l.label)).size,
@@ -2038,112 +1924,26 @@ export default function CompanyGraph({
                 }
                 nodeCanvasObject={(node: any, ctx: CanvasRenderingContext2D, globalScale: number) => {
                   const n = node as GraphNode & { x?: number; y?: number };
-                  const x = n.x ?? 0;
-                  const y = n.y ?? 0;
-                  const isHovered = n.id === hovered?.id;
-                  const color = nodeColor(n);
-                  const rgb = hexToRgbTriplet(color);
                   const primary = nodePrimaryRelation.get(n.id) ?? null;
-                  const subLabel = primary ? RELATION_LABELS[primary] : null;
-                  const lines = toUpperLabelLines(n.name);
-                  const sf = nodeSizeFactor(n);
-                  const r = getNodeRadius(globalScale, sf);
-
-                  // Soft drop shadow under a white base so the tint stays clean.
-                  ctx.save();
-                  ctx.beginPath();
-                  ctx.arc(x, y, r, 0, 2 * Math.PI);
-                  ctx.fillStyle = '#ffffff';
-                  ctx.shadowColor = `rgba(${rgb}, ${isHovered ? 0.5 : 0.32})`;
-                  ctx.shadowBlur = (isHovered ? 22 : 14) / globalScale;
-                  ctx.shadowOffsetY = 4 / globalScale;
-                  ctx.fill();
-                  ctx.restore();
-
-                  // Pastel tint fill.
-                  ctx.beginPath();
-                  ctx.arc(x, y, r, 0, 2 * Math.PI);
-                  ctx.fillStyle = `rgba(${rgb}, ${isHovered ? 0.28 : 0.18})`;
-                  ctx.fill();
-
-                  // Colored ring.
-                  ctx.beginPath();
-                  ctx.arc(x, y, r, 0, 2 * Math.PI);
-                  ctx.lineWidth = (isHovered ? 3 : 2) / globalScale;
-                  ctx.strokeStyle = color;
-                  ctx.stroke();
-
-                  // Text layout within the fixed-size circle.
-                  // Padding scales down proportionally for small nodes so there
-                  // is always usable interior space.
-                  const pad = Math.min(NODE_LABEL_PADDING_PX, r * globalScale * 0.4) / globalScale;
-                  const innerW = Math.max(0, 2 * (r - pad));
-                  const innerH = Math.max(0, 2 * (r - pad));
-
-                  const nameFont = NODE_NAME_FONT_PX / globalScale;
-                  const lineHeight = NODE_NAME_LINE_HEIGHT_PX / globalScale;
-                  const subFont = NODE_SUBLABEL_FONT_PX / globalScale;
-                  const subGap = NODE_SUBLABEL_GAP_PX / globalScale;
-
-                  // Truncate each line to fit the node width.
-                  ctx.font = `700 ${nameFont}px sans-serif`;
-                  const fittedLines = lines.map((l) => fitText(ctx, l, innerW));
-
-                  // Drop sublabel then lines until the text block fits vertically.
-                  let showSub = subLabel !== null;
-                  let nLines = fittedLines.length;
-                  while (nLines > 0) {
-                    const h = nLines * lineHeight + (showSub ? subGap + subFont : 0);
-                    if (h <= innerH) break;
-                    if (showSub) { showSub = false; } else { nLines--; }
-                  }
-                  const visibleLines = fittedLines.slice(0, nLines);
-
-                  const totalHeight = visibleLines.length * lineHeight + (showSub ? subGap + subFont : 0);
-                  let cursorY = y - totalHeight / 2 + lineHeight / 2;
-
-                  ctx.fillStyle = '#0f172a';
-                  ctx.textAlign = 'center';
-                  ctx.textBaseline = 'middle';
-                  for (const line of visibleLines) {
-                    ctx.fillText(line, x, cursorY);
-                    cursorY += lineHeight;
-                  }
-
-                  // Relationship sub-label (colored to match the node).
-                  if (showSub && subLabel) {
-                    cursorY = cursorY - lineHeight + lineHeight / 2 + subGap + subFont / 2;
-                    ctx.font = `600 ${subFont}px sans-serif`;
-                    ctx.fillStyle = color;
-                    ctx.fillText(fitText(ctx, subLabel, innerW), x, cursorY);
-                  }
+                  drawGraphNode(n, ctx, globalScale, {
+                    emphasized: n.id === hovered?.id,
+                    subLabel: primary ? RELATION_LABELS[primary] : null,
+                  });
                 }}
                 nodePointerAreaPaint={(
                   node: any,
                   color: string,
                   ctx: CanvasRenderingContext2D,
                   globalScale: number,
-                ) => {
-                  const n = node as GraphNode & { x?: number; y?: number };
-                  const r = getNodeRadius(globalScale, nodeSizeFactor(n));
-                  const x = n.x ?? 0;
-                  const y = n.y ?? 0;
-                  ctx.fillStyle = color;
-                  ctx.beginPath();
-                  ctx.arc(x, y, r, 0, 2 * Math.PI, false);
-                  ctx.fill();
-                }}
-                linkColor={(link: GraphLink) => {
-                  const base = RELATION_COLORS[link.label as RelationType] ?? '#64748b';
-                  return `rgba(${hexToRgbTriplet(base)}, 0.55)`;
-                }}
+                ) => paintNodePointerArea(node as GraphNode, color, ctx, globalScale)}
+                linkColor={(link: GraphLink) =>
+                  `rgba(${hexToRgbTriplet(relationColor(link.label))}, 0.55)`
+                }
                 linkWidth={1.5}
                 linkLineDash={[5, 4]}
                 linkDirectionalArrowLength={12}
                 linkDirectionalArrowRelPos={1}
-                linkDirectionalArrowColor={(link: GraphLink) =>
-                  RELATION_COLORS[link.label as RelationType] ?? '#64748b'
-                }
+                linkDirectionalArrowColor={(link: GraphLink) => relationColor(link.label)}
                 onLinkClick={(link: GraphLink) => handleLinkClick(link)}
                 onNodeHover={(node: GraphNode | null) => setHovered(node)}
                 cooldownTicks={100}

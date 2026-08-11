@@ -1,9 +1,11 @@
 import {
   companyRowToGraphNode,
+  toGraphNode,
   type CompanyRelationRepository,
   type ConnectedCompany,
   type GraphConnection,
   type GraphData,
+  type GraphNode,
   type RelationType,
 } from '@/lib/repositories/companyRelationRepository';
 import type { JobDispatcher } from './jobDispatcher';
@@ -45,6 +47,62 @@ export class CompanyGraphService {
   /** Direct neighbours of a company (both edge directions). See repo doc. */
   async getConnectedCompanies(id: string): Promise<ConnectedCompany[]> {
     return this.repo.getConnectedCompanies(id);
+  }
+
+  /**
+   * The graph neighbourhood of one company: the company itself plus every
+   * company sharing an edge with it, and every edge whose endpoints both fall
+   * inside that set (so neighbour-to-neighbour edges show too). This mirrors
+   * the graph page's "display only connected companies" filter, and backs the
+   * relationship snippet on the company detail page.
+   *
+   * `filterOwnedIds`, when given, narrows the neighbours to the ids it returns
+   * — the caller passes a workspace-scoped lookup so a user never sees another
+   * tenant's companies, since Company nodes carry no workspace_id of their own.
+   * It is called once with every neighbour id (never per neighbour). The focal
+   * company is assumed to be already authorized by the caller.
+   *
+   * Returns an empty graph when the company has no node in the graph DB.
+   * A fixed handful of queries regardless of neighbour count — no fan-out.
+   */
+  async getCompanyNeighbourhood(
+    id: string,
+    filterOwnedIds?: (ids: string[]) => Promise<string[]>,
+  ): Promise<GraphData> {
+    const [self, connected] = await Promise.all([
+      this.repo.getCompanyNode(id),
+      this.repo.getConnectedCompanies(id),
+    ]);
+    if (!self) return { nodes: [], links: [] };
+
+    // Self-loops aside, every neighbour is a candidate node; dedupe first so a
+    // company linked by several edges is only looked up (and drawn) once.
+    const candidateIds = [
+      ...new Set(connected.map((c) => c.company.id).filter((cid) => cid !== id)),
+    ];
+    const allowedIds = filterOwnedIds
+      ? new Set(await filterOwnedIds(candidateIds))
+      : new Set(candidateIds);
+
+    const nodes = new Map<string, GraphNode>([[self.id, toGraphNode(self)]]);
+    for (const { company } of connected) {
+      if (!allowedIds.has(company.id)) continue;
+      if (!nodes.has(company.id)) nodes.set(company.id, toGraphNode(company));
+    }
+
+    const links = await this.repo.getConnectionsAmong([...nodes.keys()]);
+
+    return {
+      nodes: [...nodes.values()],
+      links: links.map((l) => ({
+        source: l.sourceId,
+        target: l.targetId,
+        label: l.type,
+        evidence: l.evidence,
+        date: l.date,
+        notes: l.notes,
+      })),
+    };
   }
 
   /** All edges whose endpoints both fall within `ids`. See repo doc. */

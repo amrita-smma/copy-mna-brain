@@ -78,6 +78,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { CompanyAnalysisSection } from '@/components/pipeline/CompanyAnalysisSection';
+import CompanyRelationshipGraph from '@/components/pipeline/CompanyRelationshipGraph';
 import { AICompanyCardLoading } from '@/components/pipeline/AICompanyCardLoading';
 import CompanyOverviewSlide, {
   type AnalysisSectionKey,
@@ -1621,6 +1622,13 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
                 </div>
               )}
             </div>
+
+            {/* Relationship graph snippet — this company and the companies
+                directly connected to it. Filtering lives on the graph page. */}
+            <CompanyRelationshipGraph
+              companyId={company.id}
+              companyName={companyDisplayName(company, 'This company')}
+            />
 
             {/* AI Company Card Section */}
             {analysisGenerating ? (

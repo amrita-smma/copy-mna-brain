@@ -458,3 +458,33 @@ describe('CompanyRepository.findByNameFuzzy', () => {
     expect(clause.params).toContain('workspace-1');
   });
 });
+
+describe('CompanyRepository.findExistingIds', () => {
+  /** Build a db whose `select(...).from(...).where(...)` resolves to `rows`. */
+  function makeIdDb(rows: Array<{ id: string }>) {
+    const where = vi.fn().mockResolvedValue(rows);
+    const from = vi.fn().mockReturnValue({ where });
+    const select = vi.fn().mockReturnValue({ from });
+    return { db: { select } as never, select, where };
+  }
+
+  it('returns [] without hitting the DB when the id list is empty', async () => {
+    const { db, select } = makeIdDb([]);
+    const repo = new CompanyRepository(db, 'workspace-1');
+
+    expect(await repo.findExistingIds([])).toEqual([]);
+    expect(select).not.toHaveBeenCalled();
+  });
+
+  it('returns the matching ids in a single workspace-scoped query', async () => {
+    const { db, select, where } = makeIdDb([{ id: 'c1' }, { id: 'c3' }]);
+    const repo = new CompanyRepository(db, 'workspace-1');
+
+    expect(await repo.findExistingIds(['c1', 'c2', 'c3'])).toEqual(['c1', 'c3']);
+    expect(select).toHaveBeenCalledTimes(1);
+
+    const clause = new PgDialect().sqlToQuery(where.mock.calls[0][0] as SQL);
+    expect(clause.sql).toContain('in');
+    expect(clause.params).toEqual(expect.arrayContaining(['c1', 'c2', 'c3', 'workspace-1']));
+  });
+});

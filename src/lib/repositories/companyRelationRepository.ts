@@ -129,6 +129,25 @@ export interface GraphData {
 }
 
 /**
+ * Map a stored Company node to the graph shape the canvas consumes. `val` is a
+ * placeholder — the client recomputes it from `ev` / `graphSizeOverride`.
+ */
+export function toGraphNode(c: CompanyNode): GraphNode {
+  return {
+    id: c.id,
+    name: c.name,
+    segment: c.segment,
+    geography: c.geography ?? undefined,
+    ownership: c.ownership ?? undefined,
+    pipelineStage: c.pipelineStage ?? undefined,
+    status: c.status ?? undefined,
+    ev: c.ev ?? null,
+    graphSizeOverride: c.graphSizeOverride ?? null,
+    val: 3,
+  };
+}
+
+/**
  * A single directed edge touching a queried company, from that company's point
  * of view. `direction` is relative to the queried node: `outgoing` means the
  * queried company is the edge's source, `incoming` means it is the target.
@@ -340,23 +359,10 @@ export class CompanyRelationRepository {
       const nodesMap = new Map<string, GraphNode>();
       const links: GraphLink[] = [];
 
-      const toNode = (c: CompanyNode): GraphNode => ({
-        id: c.id,
-        name: c.name,
-        segment: c.segment,
-        geography: c.geography ?? undefined,
-        ownership: c.ownership ?? undefined,
-        pipelineStage: c.pipelineStage ?? undefined,
-        status: c.status ?? undefined,
-        ev: c.ev ?? null,
-        graphSizeOverride: c.graphSizeOverride ?? null,
-        val: 3, // recomputed client-side from ev / graphSizeOverride
-      });
-
       for (const record of result.records) {
         const a = record.get('a').properties as CompanyNode;
         if (!nodesMap.has(a.id)) {
-          nodesMap.set(a.id, toNode(a));
+          nodesMap.set(a.id, toGraphNode(a));
         }
 
         // No outgoing relationship for this row — `a` is (so far) isolated.
@@ -370,13 +376,26 @@ export class CompanyRelationRepository {
         const notes = (record.get('notes') as string | null) ?? undefined;
 
         if (!nodesMap.has(b.id)) {
-          nodesMap.set(b.id, toNode(b));
+          nodesMap.set(b.id, toGraphNode(b));
         }
 
         links.push({ source: a.id, target: b.id, label: relType, evidence, date, notes });
       }
 
       return { nodes: Array.from(nodesMap.values()), links };
+    } finally {
+      await session.close();
+    }
+  }
+
+  /** A single Company node by id, or null when it isn't in the graph. */
+  async getCompanyNode(id: string): Promise<CompanyNode | null> {
+    const session = this.driver.session();
+    try {
+      const result = await session.run('MATCH (c:Company {id: $id}) RETURN c', { id });
+      const record = result.records[0];
+      if (!record) return null;
+      return record.get('c').properties as CompanyNode;
     } finally {
       await session.close();
     }
