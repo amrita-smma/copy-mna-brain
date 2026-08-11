@@ -26,6 +26,7 @@ import {
   employerTeamMembers,
   employerTopics,
   employers,
+  featureFlags,
   files,
   fundAssets,
   fundAssetTransactions,
@@ -45,6 +46,9 @@ import {
 import { hashPassword } from '../src/lib/services/password';
 import { createContainer } from '../src/lib/services';
 import type { DbClient } from '../src/lib/server/db';
+// Type-only: keeps the (heavy, LangChain-pulling) agent module out of the
+// seed's runtime graph while still checking each workspace's flavor.
+import type { CopilotAgentType } from '../src/lib/agents/analysis';
 import { MNA_WORKSPACE_ID, ROLE_ADMIN_ID, ROLE_EDITOR_ID, ROLE_VIEWER_ID } from '../src/lib/constants';
 import { normalizeCompanyName } from '../src/lib/crm/normalizeCompanyName';
 
@@ -57,25 +61,32 @@ const SEED_ENTRY_ID_MAX = 9999;
 // Extra workspaces + users for exercising multi-tenant switching locally
 // (login → picker with 1 vs. several options → switcher). Hardcoded ids so
 // they're stable across reseeds, same convention as MNA_WORKSPACE_ID.
-const TEST_WORKSPACE_2_ID = '00000000-0000-0000-0000-000000000002'; // Starhouse Prime VCC
-const TEST_WORKSPACE_3_ID = '00000000-0000-0000-0000-000000000003'; // Togan VCC
-const TEST_WORKSPACE_4_ID = '00000000-0000-0000-0000-000000000004'; // Aeliana VCC
+//
+// There is exactly one workspace per AI Copilot flavor, named after that
+// flavor, so switching workspaces also switches Copilot and the feature set
+// that comes with it (see SEED_WORKSPACES).
+const TEST_WORKSPACE_2_ID = '00000000-0000-0000-0000-000000000002'; // M&A / Acquisitions
+const TEST_WORKSPACE_3_ID = '00000000-0000-0000-0000-000000000003'; // Funds & Investing
+// Seeded before the one-workspace-per-Copilot mapping ("Aeliana VCC"), which
+// left it without a flavor of its own. Deleted on every seed so a local DB
+// from an older seed converges instead of keeping a fourth, unmapped tenant.
+const RETIRED_WORKSPACE_4_ID = '00000000-0000-0000-0000-000000000004';
 
 // Fund Management (Confluence 2641362965) — fixed ids so a reseed deletes and
 // reinserts the same rows (funds and fund_assets are each deleted by id;
 // transactions/valuations cascade off the asset delete).
-const SEED_FUND_1_ID = '00000000-0000-0000-0000-0000000f0001'; // Direct Investments
-const SEED_FUND_2_ID = '00000000-0000-0000-0000-0000000f0002'; // Growth Fund II
-const SEED_FUND_3_ID = '00000000-0000-0000-0000-0000000f0003'; // Legacy Fund I
-const SEED_ASSET_1_ID = '00000000-0000-0000-0000-0000000f0011'; // Acme Robotics (fund 1, Equity)
-const SEED_ASSET_2_ID = '00000000-0000-0000-0000-0000000f0021'; // Meridian Growth Partners III (fund 2, FoF)
-const SEED_ASSET_3_ID = '00000000-0000-0000-0000-0000000f0012'; // Horizon Reserve (fund 1, Cash)
-const SEED_ASSET_4_ID = '00000000-0000-0000-0000-0000000f0013'; // Meridian Bridge Note (fund 1, Obligation)
-const SEED_ASSET_5_ID = '00000000-0000-0000-0000-0000000f0022'; // Helios Public Holdings (fund 2, Shares)
-const SEED_ASSET_6_ID = '00000000-0000-0000-0000-0000000f0031'; // Kairos Semiconductor (fund 3, Equity, exited)
-const SEED_ASSET_7_ID = '00000000-0000-0000-0000-0000000f0032'; // NovaSilica Materials (fund 3, Equity, exiting)
-const SEED_ASSET_8_ID = '00000000-0000-0000-0000-0000000f0033'; // Chem Partners Note (fund 3, Obligation)
-const SEED_ASSET_9_ID = '00000000-0000-0000-0000-0000000f0034'; // Cash Reserve (fund 3, Cash)
+//
+// Two workspaces seed the same portfolio shape with distinct UUID namespaces
+// in `...0000000f{N}...`: Combined uses N=0 (the original ids), Funds &
+// Investing uses N=1. Names stay identical across tenants so the UI looks the
+// same; only the ids differ so both can coexist in one DB.
+type FundSeedNs = '0' | '1';
+function fundSeedId(ns: FundSeedNs, rest: string): string {
+  // `rest` is the 4 hex digits after `f` in the original Combined ids
+  // (e.g. '0001', '030a'). The leading digit is the namespace; Combined keeps
+  // the original `0…` ids, Funds & Investing gets `1…`.
+  return `00000000-0000-0000-0000-0000000f${ns}${rest.slice(1)}`;
+}
 
 // Investment Entities (investors) + Sources of Fund (funding_sources) — the
 // managed picker lists behind the by-investment-entity / by-source-of-fund
@@ -85,55 +96,166 @@ const ENTITY_STARTECH_1 = 'Startech Growth Fund 1';
 const ENTITY_STARTECH_2 = 'Startech Growth Fund 2';
 const ENTITY_STARTECH_3 = 'Startech Growth Fund 3';
 const ENTITY_MERANTI = 'Meranti Global Investment Ltd';
-// The four canonical entities keep their own row in the by-investment-entity
-// tab; the trailing two (non-canonical) fold into the "Others" group so it has
-// data to render and break down by fund.
-const SEED_INVESTORS = [
-  { id: '00000000-0000-0000-0000-0000000f0101', name: ENTITY_STARTECH_1, type: 'Fund' },
-  { id: '00000000-0000-0000-0000-0000000f0102', name: ENTITY_STARTECH_2, type: 'Fund' },
-  { id: '00000000-0000-0000-0000-0000000f0103', name: ENTITY_STARTECH_3, type: 'Fund' },
-  { id: '00000000-0000-0000-0000-0000000f0104', name: ENTITY_MERANTI, type: 'Corporate' },
-  { id: '00000000-0000-0000-0000-0000000f0105', name: 'PT Sinar Mas Multiartha Tbk', type: 'Corporate' },
-  { id: '00000000-0000-0000-0000-0000000f0106', name: 'Co-invest Partners', type: 'Co-invest' },
-];
-const SEED_FUND_SOURCES = [
-  { id: '00000000-0000-0000-0000-0000000f0201', name: 'Series B' },
-  { id: '00000000-0000-0000-0000-0000000f0202', name: 'Commitment' },
-  { id: '00000000-0000-0000-0000-0000000f0203', name: 'Retained earnings' },
-  { id: '00000000-0000-0000-0000-0000000f0204', name: 'Bank facility' },
-];
-const INVESTOR_STARTECH_1 = SEED_INVESTORS[0].id;
-const INVESTOR_STARTECH_2 = SEED_INVESTORS[1].id;
-const INVESTOR_STARTECH_3 = SEED_INVESTORS[2].id;
-const INVESTOR_MERANTI = SEED_INVESTORS[3].id;
-const INVESTOR_SINARMAS = SEED_INVESTORS[4].id;
-const INVESTOR_COINVEST = SEED_INVESTORS[5].id;
-// LP / investment-entity commitment stakes in each fund — back the
-// by-investment-entity view. Each fund's stakes sum to its commitment size so
-// derived fractional ownership (commitment / fund size) lands on clean %s. The
-// two non-canonical entities (Sinar Mas, Co-invest) give the "Others" group
-// stakes across all three funds so its per-fund breakdown is populated.
-const SEED_INVESTOR_STAKES = [
-  // Fund 1 — Direct Investments ($5M commitment)
-  { id: '00000000-0000-0000-0000-0000000f0301', fund_id: SEED_FUND_1_ID, holding_entity_id: INVESTOR_STARTECH_1, commitment_amount: 1_500_000, invested_amount: 1_200_000 },
-  { id: '00000000-0000-0000-0000-0000000f0302', fund_id: SEED_FUND_1_ID, holding_entity_id: INVESTOR_MERANTI, commitment_amount: 1_000_000, invested_amount: 800_000 },
-  { id: '00000000-0000-0000-0000-0000000f0303', fund_id: SEED_FUND_1_ID, holding_entity_id: INVESTOR_STARTECH_2, commitment_amount: 1_000_000, invested_amount: 700_000 },
-  { id: '00000000-0000-0000-0000-0000000f0308', fund_id: SEED_FUND_1_ID, holding_entity_id: INVESTOR_SINARMAS, commitment_amount: 1_000_000, invested_amount: 800_000 },
-  { id: '00000000-0000-0000-0000-0000000f0309', fund_id: SEED_FUND_1_ID, holding_entity_id: INVESTOR_COINVEST, commitment_amount: 500_000, invested_amount: 300_000 },
-  // Fund 2 — Growth Fund II ($10M commitment)
-  { id: '00000000-0000-0000-0000-0000000f0304', fund_id: SEED_FUND_2_ID, holding_entity_id: INVESTOR_STARTECH_3, commitment_amount: 5_000_000, invested_amount: 3_500_000 },
-  { id: '00000000-0000-0000-0000-0000000f0305', fund_id: SEED_FUND_2_ID, holding_entity_id: INVESTOR_MERANTI, commitment_amount: 3_000_000, invested_amount: 2_200_000 },
-  { id: '00000000-0000-0000-0000-0000000f030a', fund_id: SEED_FUND_2_ID, holding_entity_id: INVESTOR_SINARMAS, commitment_amount: 2_000_000, invested_amount: 1_500_000 },
-  // Fund 3 — Legacy Fund I ($8M commitment)
-  { id: '00000000-0000-0000-0000-0000000f0306', fund_id: SEED_FUND_3_ID, holding_entity_id: INVESTOR_STARTECH_1, commitment_amount: 3_000_000, invested_amount: 3_000_000 },
-  { id: '00000000-0000-0000-0000-0000000f0307', fund_id: SEED_FUND_3_ID, holding_entity_id: INVESTOR_STARTECH_3, commitment_amount: 3_000_000, invested_amount: 2_500_000 },
-  { id: '00000000-0000-0000-0000-0000000f030b', fund_id: SEED_FUND_3_ID, holding_entity_id: INVESTOR_COINVEST, commitment_amount: 2_000_000, invested_amount: 1_500_000 },
-];
 
-const SEED_EXTRA_WORKSPACES = [
-  { id: TEST_WORKSPACE_2_ID, name: 'Starhouse Prime VCC', slug: 'starhouse-prime-vcc' },
-  { id: TEST_WORKSPACE_3_ID, name: 'Togan VCC', slug: 'togan-vcc' },
-  { id: TEST_WORKSPACE_4_ID, name: 'Aeliana VCC', slug: 'aeliana-vcc' },
+function buildFundSeedFixture(ns: FundSeedNs) {
+  const SEED_FUND_1_ID = fundSeedId(ns, '0001'); // Direct Investments
+  const SEED_FUND_2_ID = fundSeedId(ns, '0002'); // Growth Fund II
+  const SEED_FUND_3_ID = fundSeedId(ns, '0003'); // Legacy Fund I
+  const SEED_ASSET_1_ID = fundSeedId(ns, '0011'); // Acme Robotics (fund 1, Equity)
+  const SEED_ASSET_2_ID = fundSeedId(ns, '0021'); // Meridian Growth Partners III (fund 2, FoF)
+  const SEED_ASSET_3_ID = fundSeedId(ns, '0012'); // Horizon Reserve (fund 1, Cash)
+  const SEED_ASSET_4_ID = fundSeedId(ns, '0013'); // Meridian Bridge Note (fund 1, Obligation)
+  const SEED_ASSET_5_ID = fundSeedId(ns, '0022'); // Helios Public Holdings (fund 2, Shares)
+  const SEED_ASSET_6_ID = fundSeedId(ns, '0031'); // Kairos Semiconductor (fund 3, Equity, exited)
+  const SEED_ASSET_7_ID = fundSeedId(ns, '0032'); // NovaSilica Materials (fund 3, Equity, exiting)
+  const SEED_ASSET_8_ID = fundSeedId(ns, '0033'); // Chem Partners Note (fund 3, Obligation)
+  const SEED_ASSET_9_ID = fundSeedId(ns, '0034'); // Cash Reserve (fund 3, Cash)
+
+  // The four canonical entities keep their own row in the by-investment-entity
+  // tab; the trailing two (non-canonical) fold into the "Others" group so it has
+  // data to render and break down by fund.
+  const SEED_INVESTORS = [
+    { id: fundSeedId(ns, '0101'), name: ENTITY_STARTECH_1, type: 'Fund' },
+    { id: fundSeedId(ns, '0102'), name: ENTITY_STARTECH_2, type: 'Fund' },
+    { id: fundSeedId(ns, '0103'), name: ENTITY_STARTECH_3, type: 'Fund' },
+    { id: fundSeedId(ns, '0104'), name: ENTITY_MERANTI, type: 'Corporate' },
+    { id: fundSeedId(ns, '0105'), name: 'PT Sinar Mas Multiartha Tbk', type: 'Corporate' },
+    { id: fundSeedId(ns, '0106'), name: 'Co-invest Partners', type: 'Co-invest' },
+  ];
+  const SEED_FUND_SOURCES = [
+    { id: fundSeedId(ns, '0201'), name: 'Series B' },
+    { id: fundSeedId(ns, '0202'), name: 'Commitment' },
+    { id: fundSeedId(ns, '0203'), name: 'Retained earnings' },
+    { id: fundSeedId(ns, '0204'), name: 'Bank facility' },
+  ];
+  const INVESTOR_STARTECH_1 = SEED_INVESTORS[0].id;
+  const INVESTOR_STARTECH_2 = SEED_INVESTORS[1].id;
+  const INVESTOR_STARTECH_3 = SEED_INVESTORS[2].id;
+  const INVESTOR_MERANTI = SEED_INVESTORS[3].id;
+  const INVESTOR_SINARMAS = SEED_INVESTORS[4].id;
+  const INVESTOR_COINVEST = SEED_INVESTORS[5].id;
+  // LP / investment-entity commitment stakes in each fund — back the
+  // by-investment-entity view. Each fund's stakes sum to its commitment size so
+  // derived fractional ownership (commitment / fund size) lands on clean %s. The
+  // two non-canonical entities (Sinar Mas, Co-invest) give the "Others" group
+  // stakes across all three funds so its per-fund breakdown is populated.
+  const SEED_INVESTOR_STAKES = [
+    // Fund 1 — Direct Investments ($5M commitment)
+    { id: fundSeedId(ns, '0301'), fund_id: SEED_FUND_1_ID, holding_entity_id: INVESTOR_STARTECH_1, commitment_amount: 1_500_000, invested_amount: 1_200_000 },
+    { id: fundSeedId(ns, '0302'), fund_id: SEED_FUND_1_ID, holding_entity_id: INVESTOR_MERANTI, commitment_amount: 1_000_000, invested_amount: 800_000 },
+    { id: fundSeedId(ns, '0303'), fund_id: SEED_FUND_1_ID, holding_entity_id: INVESTOR_STARTECH_2, commitment_amount: 1_000_000, invested_amount: 700_000 },
+    { id: fundSeedId(ns, '0308'), fund_id: SEED_FUND_1_ID, holding_entity_id: INVESTOR_SINARMAS, commitment_amount: 1_000_000, invested_amount: 800_000 },
+    { id: fundSeedId(ns, '0309'), fund_id: SEED_FUND_1_ID, holding_entity_id: INVESTOR_COINVEST, commitment_amount: 500_000, invested_amount: 300_000 },
+    // Fund 2 — Growth Fund II ($10M commitment)
+    { id: fundSeedId(ns, '0304'), fund_id: SEED_FUND_2_ID, holding_entity_id: INVESTOR_STARTECH_3, commitment_amount: 5_000_000, invested_amount: 3_500_000 },
+    { id: fundSeedId(ns, '0305'), fund_id: SEED_FUND_2_ID, holding_entity_id: INVESTOR_MERANTI, commitment_amount: 3_000_000, invested_amount: 2_200_000 },
+    { id: fundSeedId(ns, '030a'), fund_id: SEED_FUND_2_ID, holding_entity_id: INVESTOR_SINARMAS, commitment_amount: 2_000_000, invested_amount: 1_500_000 },
+    // Fund 3 — Legacy Fund I ($8M commitment)
+    { id: fundSeedId(ns, '0306'), fund_id: SEED_FUND_3_ID, holding_entity_id: INVESTOR_STARTECH_1, commitment_amount: 3_000_000, invested_amount: 3_000_000 },
+    { id: fundSeedId(ns, '0307'), fund_id: SEED_FUND_3_ID, holding_entity_id: INVESTOR_STARTECH_3, commitment_amount: 3_000_000, invested_amount: 2_500_000 },
+    { id: fundSeedId(ns, '030b'), fund_id: SEED_FUND_3_ID, holding_entity_id: INVESTOR_COINVEST, commitment_amount: 2_000_000, invested_amount: 1_500_000 },
+  ];
+  const SEED_FUND_IDS = [SEED_FUND_1_ID, SEED_FUND_2_ID, SEED_FUND_3_ID];
+  const SEED_ASSET_IDS = [
+    SEED_ASSET_1_ID,
+    SEED_ASSET_2_ID,
+    SEED_ASSET_3_ID,
+    SEED_ASSET_4_ID,
+    SEED_ASSET_5_ID,
+    SEED_ASSET_6_ID,
+    SEED_ASSET_7_ID,
+    SEED_ASSET_8_ID,
+    SEED_ASSET_9_ID,
+  ];
+  return {
+    SEED_FUND_1_ID,
+    SEED_FUND_2_ID,
+    SEED_FUND_3_ID,
+    SEED_ASSET_1_ID,
+    SEED_ASSET_2_ID,
+    SEED_ASSET_3_ID,
+    SEED_ASSET_4_ID,
+    SEED_ASSET_5_ID,
+    SEED_ASSET_6_ID,
+    SEED_ASSET_7_ID,
+    SEED_ASSET_8_ID,
+    SEED_ASSET_9_ID,
+    SEED_INVESTORS,
+    SEED_FUND_SOURCES,
+    SEED_INVESTOR_STAKES,
+    SEED_FUND_IDS,
+    SEED_ASSET_IDS,
+    INVESTOR_STARTECH_1,
+    INVESTOR_STARTECH_2,
+    INVESTOR_STARTECH_3,
+    INVESTOR_MERANTI,
+  };
+}
+
+/**
+ * One workspace per AI Copilot flavor, so a single seeded DB covers all three
+ * without touching the admin portal.
+ *
+ * `name`/`slug` mirror the admin portal's AI Copilot labels
+ * (COPILOT_AGENT_OPTIONS) one-to-one — the workspace switcher then tells you
+ * which agent a workspace talks to. This deliberately renames the
+ * MNA_WORKSPACE_ID row away from the migration's prod backfill ('MnA'/'mna'):
+ * it's the 'combined' workspace here because it carries the full fixture set
+ * (deal pipeline *and* Fund Management). Funds & Investing gets the same
+ * Fund Management portfolio under a separate UUID namespace.
+ *
+ * `features` are written as real `feature_flags` override rows rather than
+ * left to the catalog/env defaults, so each flavor only exposes the surfaces
+ * it can actually use and a reseed always lands on the same state:
+ *  - M&A / Acquisitions has no Fund Management — it doesn't run funds.
+ *  - Funds & Investing has no Dashboard or Pipeline — both are deal-flow
+ *    surfaces with nothing to show for a fund manager.
+ *  - Combined gets Dashboard, Pipeline, and Fund Management.
+ *  - Company Graph is on for every workspace (catalog default is off).
+ */
+const SEED_WORKSPACES: Array<{
+  id: string;
+  name: string;
+  slug: string;
+  copilotAgent: CopilotAgentType;
+  features: Record<string, boolean>;
+}> = [
+  {
+    id: MNA_WORKSPACE_ID,
+    name: 'Combined (M&A + Investment)',
+    slug: 'combined',
+    copilotAgent: 'combined',
+    features: {
+      DASHBOARD_ENABLED: true,
+      PIPELINE_ENABLED: true,
+      FUND_MANAGEMENT_ENABLED: true,
+      COMPANY_GRAPH_ENABLED: true,
+    },
+  },
+  {
+    id: TEST_WORKSPACE_2_ID,
+    name: 'M&A / Acquisitions',
+    slug: 'mna-acquisitions',
+    copilotAgent: 'mna',
+    features: {
+      DASHBOARD_ENABLED: true,
+      PIPELINE_ENABLED: true,
+      FUND_MANAGEMENT_ENABLED: false,
+      COMPANY_GRAPH_ENABLED: true,
+    },
+  },
+  {
+    id: TEST_WORKSPACE_3_ID,
+    name: 'Funds & Investing',
+    slug: 'funds-investing',
+    copilotAgent: 'investment',
+    features: {
+      DASHBOARD_ENABLED: false,
+      PIPELINE_ENABLED: false,
+      FUND_MANAGEMENT_ENABLED: true,
+      COMPANY_GRAPH_ENABLED: true,
+    },
+  },
 ];
 
 const SEED_EXTRA_USERS = [
@@ -143,12 +265,13 @@ const SEED_EXTRA_USERS = [
 ];
 
 // test2 and test3 each belong to exactly one workspace (auto-skip path);
-// test4 belongs to two (picker + switcher path).
+// test4 belongs to two (picker + switcher path), which also puts a
+// single-flavor pair — M&A-only and Investment-only — behind one login.
 const SEED_EXTRA_MEMBERSHIPS: Array<{ email: string; workspaceId: string }> = [
   { email: 'test2@sqe.co.id', workspaceId: TEST_WORKSPACE_2_ID },
   { email: 'test3@sqe.co.id', workspaceId: TEST_WORKSPACE_3_ID },
+  { email: 'test4@sqe.co.id', workspaceId: TEST_WORKSPACE_2_ID },
   { email: 'test4@sqe.co.id', workspaceId: TEST_WORKSPACE_3_ID },
-  { email: 'test4@sqe.co.id', workspaceId: TEST_WORKSPACE_4_ID },
 ];
 
 const seedThesis = {
@@ -2325,7 +2448,7 @@ const seedSmartFiles: SeedSmartFile[] = [
 
 // Lightweight per-workspace company fixtures — enough to prove tenant
 // isolation when switching workspaces, not a full replica of `seedCompanies`.
-const starhouseCompanies: SeedCompany[] = [
+const acquisitionsWorkspaceCompanies: SeedCompany[] = [
   {
     entry_id: 9100,
     target: 'Nordfjord Robotics',
@@ -2398,7 +2521,9 @@ const starhouseCompanies: SeedCompany[] = [
   },
 ];
 
-const toganCompanies: SeedCompany[] = [
+// Reachable via Master Data / Copilot in this workspace — Dashboard and
+// Pipeline are off for the Funds & Investing flavor.
+const investingWorkspaceCompanies: SeedCompany[] = [
   {
     entry_id: 9110,
     target: 'Kestane Agri Processing',
@@ -2471,79 +2596,6 @@ const toganCompanies: SeedCompany[] = [
   },
 ];
 
-const aelianaCompanies: SeedCompany[] = [
-  {
-    entry_id: 9120,
-    target: 'Meridian Subsea Cables',
-    segment: 'Telecom Infrastructure',
-    company_focus: 'Subsea fiber cable maintenance and installation',
-    website: 'https://meridiansubsea.example',
-    geography: 'Greece',
-    ownership: 'PE-owned',
-    pipeline_stage: 'L1',
-    status: 'active',
-    source: 'inbound',
-    watchlist_status: 'Reviewing',
-    financials: [{ fiscal_year: 2024, revenue_usd_mn: 29.8, ebitda_usd_mn: 8.1 }],
-  },
-  {
-    entry_id: 9121,
-    target: 'Aegean Olive Exports',
-    segment: 'Agriculture',
-    company_focus: 'Premium olive oil producer and EU/US export house',
-    website: 'https://aegeanolive.example',
-    geography: 'Greece',
-    ownership: 'Family-owned',
-    pipeline_stage: 'unreviewed',
-    status: 'active',
-    source: 'inbound',
-    watchlist_status: 'New',
-    financials: [],
-  },
-  {
-    entry_id: 9122,
-    target: 'Delphi Shipping Analytics',
-    segment: 'Maritime Software',
-    company_focus: 'Fleet-routing and fuel-optimization SaaS for tanker operators',
-    website: 'https://delphishipping.example',
-    geography: 'Greece',
-    ownership: 'Private',
-    pipeline_stage: 'L0',
-    status: 'active',
-    source: 'inbound',
-    watchlist_status: 'New',
-    financials: [{ fiscal_year: 2024, revenue_usd_mn: 8.9, ebitda_usd_mn: 1.6 }],
-  },
-  {
-    entry_id: 9123,
-    target: 'Ionian Solar Partners',
-    segment: 'Renewable Energy',
-    company_focus: 'Utility-scale solar developer across the Ionian islands',
-    website: 'https://ioniansolar.example',
-    geography: 'Greece',
-    ownership: 'PE-owned',
-    pipeline_stage: 'L3',
-    status: 'active',
-    source: 'outbound',
-    watchlist_status: 'Reviewing',
-    financials: [{ fiscal_year: 2024, revenue_usd_mn: 52.0, ebitda_usd_mn: 19.4 }],
-  },
-  {
-    entry_id: 9124,
-    target: 'Santorini Craft Distillers',
-    segment: 'Consumer',
-    company_focus: 'Premium spirits producer with growing export volumes',
-    website: 'https://santorinidistillers.example',
-    geography: 'Greece',
-    ownership: 'Family-owned',
-    pipeline_stage: 'unreviewed',
-    status: 'active',
-    source: 'inbound',
-    watchlist_status: 'New',
-    financials: [{ fiscal_year: 2024, revenue_usd_mn: 6.2, ebitda_usd_mn: 1.1 }],
-  },
-];
-
 /** Insert a batch of lightweight companies (+ financials) into one workspace. */
 async function insertCompaniesForWorkspace(
   db: ReturnType<typeof drizzle>,
@@ -2593,20 +2645,35 @@ async function insertCompaniesForWorkspace(
 // render/edit against. Rollups (gross_moic/dpi/called_amount/irr/...) are
 // left for FundMetricsService to derive from the ledger after insert, same
 // as a real create-fund flow — not hand-computed here.
-const SEED_FUND_IDS = [SEED_FUND_1_ID, SEED_FUND_2_ID, SEED_FUND_3_ID];
-const SEED_ASSET_IDS = [
-  SEED_ASSET_1_ID,
-  SEED_ASSET_2_ID,
-  SEED_ASSET_3_ID,
-  SEED_ASSET_4_ID,
-  SEED_ASSET_5_ID,
-  SEED_ASSET_6_ID,
-  SEED_ASSET_7_ID,
-  SEED_ASSET_8_ID,
-  SEED_ASSET_9_ID,
-];
+//
+// `ns` picks the UUID namespace (Combined = '0', Funds & Investing = '1') so
+// both fund-capable workspaces can hold an identical portfolio shape without
+// colliding on primary keys.
+async function seedFundManagement(db: DbClient, workspaceId: string, ns: FundSeedNs) {
+  const {
+    SEED_FUND_1_ID,
+    SEED_FUND_2_ID,
+    SEED_FUND_3_ID,
+    SEED_ASSET_1_ID,
+    SEED_ASSET_2_ID,
+    SEED_ASSET_3_ID,
+    SEED_ASSET_4_ID,
+    SEED_ASSET_5_ID,
+    SEED_ASSET_6_ID,
+    SEED_ASSET_7_ID,
+    SEED_ASSET_8_ID,
+    SEED_ASSET_9_ID,
+    SEED_INVESTORS,
+    SEED_FUND_SOURCES,
+    SEED_INVESTOR_STAKES,
+    SEED_FUND_IDS,
+    SEED_ASSET_IDS,
+    INVESTOR_STARTECH_1,
+    INVESTOR_STARTECH_2,
+    INVESTOR_STARTECH_3,
+    INVESTOR_MERANTI,
+  } = buildFundSeedFixture(ns);
 
-async function seedFundManagement(db: DbClient, workspaceId: string) {
   await db.delete(funds).where(inArray(funds.id, SEED_FUND_IDS));
 
   // Investment Entities + Sources of Fund (idempotent by fixed id).
@@ -2944,7 +3011,7 @@ async function seedFundManagement(db: DbClient, workspaceId: string) {
   }
 
   console.log(
-    `  ✓ Fund Management: ${SEED_FUND_IDS.length} funds, ${SEED_ASSET_IDS.length} assets across all 5 holding types, multi-year ledgers + quarterly valuations (rollups derived via FundMetricsService)`,
+    `  ✓ Fund Management (${workspaceId === MNA_WORKSPACE_ID ? 'Combined' : 'Funds & Investing'}): ${SEED_FUND_IDS.length} funds, ${SEED_ASSET_IDS.length} assets across all 5 holding types, multi-year ledgers + quarterly valuations (rollups derived via FundMetricsService)`,
   );
 }
 
@@ -2981,12 +3048,29 @@ async function main() {
     if (!seedUser) throw new Error('failed to upsert seed user');
     console.log(`  ✓ user ${SEED_USER_EMAIL} (password: ${SEED_USER_PASSWORD}, role: ${SEED_USER_ROLE}, superadmin: true)`);
 
-    // Tenancy (MB-337) — hardcoded MNA workspace + the 3 roles, mirroring the
-    // migration's prod backfill so local dev matches staging/prod exactly.
+    // Deleting the retired workspace cascades everything scoped to it
+    // (memberships, companies, notes, topics, correspondent links); its CRM
+    // isolation fixture's correspondent and mailbox history are not
+    // workspace-scoped, so they go explicitly.
+    await db.delete(workspaces).where(eq(workspaces.id, RETIRED_WORKSPACE_4_ID));
+    await db.delete(emails).where(like(emails.message_id, 'seed-aeliana-cs-%@seed.local'));
     await db
-      .insert(workspaces)
-      .values({ id: MNA_WORKSPACE_ID, name: 'MnA', slug: 'mna' })
-      .onConflictDoNothing({ target: workspaces.id });
+      .delete(correspondents)
+      .where(eq(correspondents.email, 'elena.papadopoulos@aeliana-vcc.example'));
+
+    // Tenancy (MB-337) — the hardcoded workspace ids from the migration's prod
+    // backfill, plus the 3 roles. Name/slug/copilot_agent are upserted (rather
+    // than left alone on conflict) so a reseed renames a DB still carrying the
+    // pre-Copilot workspace names onto the current one-per-flavor mapping.
+    for (const ws of SEED_WORKSPACES) {
+      await db
+        .insert(workspaces)
+        .values({ id: ws.id, name: ws.name, slug: ws.slug, copilot_agent: ws.copilotAgent })
+        .onConflictDoUpdate({
+          target: workspaces.id,
+          set: { name: ws.name, slug: ws.slug, copilot_agent: ws.copilotAgent },
+        });
+    }
     await db
       .insert(roles)
       .values([
@@ -3002,16 +3086,30 @@ async function main() {
         target: [userWorkspaces.user_id, userWorkspaces.workspace_id],
         set: { is_email_synced: true },
       });
-    console.log('  ✓ MNA workspace + roles + seed user membership (is_email_synced=true — toggle it in admin portal to test)');
+    console.log('  ✓ Combined workspace + roles + seed user membership (is_email_synced=true — toggle it in admin portal to test)');
 
-    // Extra workspaces + test users (test2/test3/test4) — for exercising the
-    // workspace picker/switcher locally: test2 and test3 each have exactly
-    // one membership (auto-skip path), test4 has two (picker + switcher path).
-    await db
-      .insert(workspaces)
-      .values(SEED_EXTRA_WORKSPACES)
-      .onConflictDoNothing({ target: workspaces.id });
+    // Per-workspace feature overrides. Attributed to the seed superadmin so the
+    // admin portal's "last changed by" reads like a real toggle.
+    for (const ws of SEED_WORKSPACES) {
+      for (const [featureKey, enabled] of Object.entries(ws.features)) {
+        await db
+          .insert(featureFlags)
+          .values({ workspace_id: ws.id, feature_key: featureKey, enabled, updated_by: seedUser.id })
+          .onConflictDoUpdate({
+            target: [featureFlags.workspace_id, featureFlags.feature_key],
+            set: { enabled, updated_by: seedUser.id, updated_at: sql`now()` },
+          });
+      }
+      console.log(
+        `  ✓ ${ws.name} (/w/${ws.slug}) → Copilot '${ws.copilotAgent}', features: ${Object.entries(ws.features)
+          .map(([key, enabled]) => `${key}=${enabled}`)
+          .join(', ')}`,
+      );
+    }
 
+    // Test users (test2/test3/test4) — for exercising the workspace
+    // picker/switcher locally: test2 and test3 each have exactly one
+    // membership (auto-skip path), test4 has two (picker + switcher path).
     const extraUserIdByEmail = new Map<string, string>();
     for (const u of SEED_EXTRA_USERS) {
       const [row] = await db
@@ -3034,11 +3132,12 @@ async function main() {
         .onConflictDoNothing({ target: [userWorkspaces.user_id, userWorkspaces.workspace_id] });
     }
     console.log(
-      `  ✓ ${SEED_EXTRA_WORKSPACES.length} extra workspaces + ${SEED_EXTRA_USERS.length} test users (password: ${SEED_USER_PASSWORD})`,
+      `  ✓ ${SEED_WORKSPACES.length} workspaces (one per Copilot flavor) + ${SEED_EXTRA_USERS.length} test users (password: ${SEED_USER_PASSWORD})`,
     );
-    console.log('    test2@sqe.co.id -> Starhouse Prime VCC (1 workspace)');
-    console.log('    test3@sqe.co.id -> Togan VCC (1 workspace)');
-    console.log('    test4@sqe.co.id -> Togan VCC + Aeliana VCC (2 workspaces)');
+    console.log(`    ${SEED_USER_EMAIL} -> Combined (M&A + Investment) (1 workspace)`);
+    console.log('    test2@sqe.co.id -> M&A / Acquisitions (1 workspace)');
+    console.log('    test3@sqe.co.id -> Funds & Investing (1 workspace)');
+    console.log('    test4@sqe.co.id -> M&A / Acquisitions + Funds & Investing (2 workspaces)');
 
     // Companies — clear prior seed rows (identified by entry_id range), re-insert.
     // company_financials rows cascade on company delete.
@@ -3122,26 +3221,21 @@ async function main() {
     }
     console.log(`  ✓ ${seedCompanies.length} companies (+ financials)`);
 
-    // Populate each extra workspace with its own companies, so switching
-    // workspaces actually shows different data (tenant isolation, not just
-    // an empty screen).
-    const insertedStarhouseCompanies = await insertCompaniesForWorkspace(
+    // Populate each single-flavor workspace with its own companies, so
+    // switching workspaces actually shows different data (tenant isolation,
+    // not just an empty screen).
+    const insertedAcquisitionsCompanies = await insertCompaniesForWorkspace(
       db,
       TEST_WORKSPACE_2_ID,
-      starhouseCompanies,
+      acquisitionsWorkspaceCompanies,
     );
-    const insertedToganCompanies = await insertCompaniesForWorkspace(
+    const insertedInvestingCompanies = await insertCompaniesForWorkspace(
       db,
       TEST_WORKSPACE_3_ID,
-      toganCompanies,
-    );
-    const insertedAelianaCompanies = await insertCompaniesForWorkspace(
-      db,
-      TEST_WORKSPACE_4_ID,
-      aelianaCompanies,
+      investingWorkspaceCompanies,
     );
     console.log(
-      `  ✓ ${starhouseCompanies.length} companies in Starhouse Prime VCC, ${toganCompanies.length} in Togan VCC, ${aelianaCompanies.length} in Aeliana VCC`,
+      `  ✓ ${acquisitionsWorkspaceCompanies.length} companies in M&A / Acquisitions, ${investingWorkspaceCompanies.length} in Funds & Investing`,
     );
 
     // Smart Files — seed a few processed files, including one matched to a
@@ -3617,9 +3711,9 @@ async function main() {
       `  ✓ AUTO VEHICLE: 1 employer + ${insertedAvCorrespondents.length} mbox correspondents + ${insertedAvEmails.length} emails + ${avParticipantRows.length} participants (custodian: ${INTERNAL.email}, synced to MNA)`,
     );
 
-    // ── Starhouse Prime VCC — CRM workspace-isolation fixture ─────────────────
-    // MB-337 CRM follow-up. Layers Starhouse's own private CRM data onto the
-    // SAME shared "Golden Sacks" employer MNA already has correspondents/
+    // ── M&A / Acquisitions — CRM workspace-isolation fixture ──────────────────
+    // MB-337 CRM follow-up. Layers this workspace's own private CRM data onto
+    // the SAME shared "Golden Sacks" employer MNA already has correspondents/
     // notes/topics for — demonstrates that employer *identity* stays shared
     // while contacts/notes/topics/related-companies/KPIs are workspace-scoped.
     // Everything here is wiped and reinserted by stable identifiers, same
@@ -3653,8 +3747,9 @@ async function main() {
         );
       await db.delete(correspondents).where(eq(correspondents.email, STARHOUSE_CONTACT_EMAIL));
 
-      // Private contact: another banker at Golden Sacks that only Starhouse's
-      // deal team has a relationship with — MNA must never see her.
+      // Private contact: another banker at Golden Sacks that only the
+      // M&A workspace's deal team knows — the Combined workspace must never
+      // see her.
       const [priya] = await db
         .insert(correspondents)
         .values({
@@ -3681,7 +3776,7 @@ async function main() {
         employer_id: isolationEmployerId,
         workspace_id: TEST_WORKSPACE_2_ID,
         content:
-          'Starhouse-only: Priya flagged Golden Sacks for a potential co-investment on Project Comet. Do not share outside Starhouse yet.',
+          'M&A workspace only: Priya flagged Golden Sacks for a potential co-investment on Project Comet. Do not share outside this workspace yet.',
       }).onConflictDoNothing();
 
       // Private topic + tag — must not appear in MNA's topic list (global or
@@ -3712,9 +3807,9 @@ async function main() {
           .onConflictDoNothing();
       }
 
-      // Private related-company link to one of Starhouse's own companies —
+      // Private related-company link to one of this workspace's own companies —
       // must not appear in MNA's related-companies tab for Golden Sacks.
-      const nordfjord = insertedStarhouseCompanies.find((c) => c.entry_id === 9100);
+      const nordfjord = insertedAcquisitionsCompanies.find((c) => c.entry_id === 9100);
       if (nordfjord) {
         await db.insert(employerRelatedCompanies).values({
           employer_id: isolationEmployerId,
@@ -3730,9 +3825,10 @@ async function main() {
         }).onConflictDoNothing();
       }
 
-      // Separate mailbox history: test2 (Starhouse's own user) is the synced
-      // custodian, so mart_crm/mart_mom show Starhouse's OWN email KPIs for
-      // Golden Sacks — distinct from MNA's numbers for the same employer.
+      // Separate mailbox history: test2 (this workspace's own user) is the
+      // synced custodian, so mart_crm/mart_mom show the M&A workspace's OWN
+      // email KPIs for Golden Sacks — distinct from the Combined workspace's
+      // numbers for the same employer.
       if (test2UserId && priya) {
         await db
           .insert(userWorkspaces)
@@ -3811,17 +3907,17 @@ async function main() {
             await db.insert(emailParticipants).values(shParticipantRows).onConflictDoNothing();
           }
           console.log(
-            `  ✓ Starhouse isolation fixture: 1 private contact + 1 private note + 1 private topic + 1 private related-company + ${insertedShEmails.length} emails (custodian: test2@sqe.co.id, synced to Starhouse Prime VCC)`,
+            `  ✓ M&A / Acquisitions isolation fixture: 1 private contact + 1 private note + 1 private topic + 1 private related-company + ${insertedShEmails.length} emails (custodian: test2@sqe.co.id)`,
           );
       }
     }
 
-    // ── Togan VCC — CRM workspace-isolation fixture ───────────────────────────
-    // Same MB-337 demonstration as Starhouse above, layered onto the shared
-    // "JP Organ" employer instead of "Golden Sacks" so the two fixtures don't
-    // collide. test3 and test4 both belong to Togan VCC, so this also proves
-    // workspace-scoped (not user-scoped) CRM data: either user sees it while
-    // in the Togan workspace.
+    // ── Funds & Investing — CRM workspace-isolation fixture ───────────────────
+    // Same MB-337 demonstration as the M&A workspace above, layered onto the
+    // shared "JP Organ" employer instead of "Golden Sacks" so the two fixtures
+    // don't collide. test3 and test4 both belong to Funds & Investing, so this
+    // also proves workspace-scoped (not user-scoped) CRM data: either user sees
+    // it while in that workspace.
     const toganIsolationEmployerId = firmIdByName.get(normalize('JP Organ'));
     if (toganIsolationEmployerId) {
       const TOGAN_CONTACT_EMAIL = 'deniz.aydin@togan-vcc.example';
@@ -3875,7 +3971,7 @@ async function main() {
         employer_id: toganIsolationEmployerId,
         workspace_id: TEST_WORKSPACE_3_ID,
         content:
-          'Togan-only: Deniz flagged JP Organ for a co-investment lead on Project Bosphorus. Do not share outside Togan yet.',
+          'Funds & Investing only: Deniz flagged JP Organ for a co-investment lead on Project Bosphorus. Do not share outside this workspace yet.',
       }).onConflictDoNothing();
 
       const [toganTopic] = await db
@@ -3904,7 +4000,7 @@ async function main() {
           .onConflictDoNothing();
       }
 
-      const kestane = insertedToganCompanies.find((c) => c.entry_id === 9110);
+      const kestane = insertedInvestingCompanies.find((c) => c.entry_id === 9110);
       if (kestane) {
         await db.insert(employerRelatedCompanies).values({
           employer_id: toganIsolationEmployerId,
@@ -3998,192 +4094,7 @@ async function main() {
             await db.insert(emailParticipants).values(tgParticipantRows).onConflictDoNothing();
           }
           console.log(
-            `  ✓ Togan isolation fixture: 1 private contact + 1 private note + 1 private topic + 1 private related-company + ${insertedTgEmails.length} emails (custodian: test3@sqe.co.id, synced to Togan VCC)`,
-          );
-      }
-    }
-
-    // ── Aeliana VCC — CRM workspace-isolation fixture ─────────────────────────
-    // Same pattern again, layered onto the shared "Credit Sweets" employer.
-    // test4's second membership (alongside Togan VCC) — exercises the
-    // workspace switcher with genuinely different CRM data per workspace.
-    const aelianaIsolationEmployerId = firmIdByName.get(normalize('Credit Sweets'));
-    if (aelianaIsolationEmployerId) {
-      const AELIANA_CONTACT_EMAIL = 'elena.papadopoulos@aeliana-vcc.example';
-      const AELIANA_MID_PREFIX = 'seed-aeliana-cs-';
-      const AELIANA_MID_SUFFIX = '@seed.local';
-      const test4UserId = extraUserIdByEmail.get('test4@sqe.co.id');
-
-      await db
-        .delete(emails)
-        .where(like(emails.message_id, `${AELIANA_MID_PREFIX}%${AELIANA_MID_SUFFIX}`));
-      await db
-        .delete(employerNotes)
-        .where(
-          and(
-            eq(employerNotes.employer_id, aelianaIsolationEmployerId),
-            eq(employerNotes.workspace_id, TEST_WORKSPACE_4_ID),
-          ),
-        );
-      await db
-        .delete(employerRelatedCompanies)
-        .where(
-          and(
-            eq(employerRelatedCompanies.employer_id, aelianaIsolationEmployerId),
-            eq(employerRelatedCompanies.workspace_id, TEST_WORKSPACE_4_ID),
-          ),
-        );
-      await db.delete(correspondents).where(eq(correspondents.email, AELIANA_CONTACT_EMAIL));
-
-      const [elena] = await db
-        .insert(correspondents)
-        .values({
-          employer_id: aelianaIsolationEmployerId,
-          name: 'Elena Papadopoulos',
-          email: AELIANA_CONTACT_EMAIL,
-          title: 'Partner',
-          type: 'external',
-          is_primary: false,
-          source: 'manual',
-          origin: 'manual',
-        })
-        .onConflictDoNothing()
-        .returning({ id: correspondents.id });
-      if (elena) {
-        await db
-          .insert(workspaceCorrespondents)
-          .values({ workspace_id: TEST_WORKSPACE_4_ID, correspondent_id: elena.id, source: 'manual' })
-          .onConflictDoNothing();
-      }
-
-      await db.insert(employerNotes).values({
-        employer_id: aelianaIsolationEmployerId,
-        workspace_id: TEST_WORKSPACE_4_ID,
-        content:
-          'Aeliana-only: Elena connected us to a private credit desk at Credit Sweets for Project Meridian financing. Keep within Aeliana team.',
-      }).onConflictDoNothing();
-
-      const [aelianaTopic] = await db
-        .insert(topics)
-        .values({
-          name: 'Project Meridian',
-          slug: 'project-meridian',
-          workspace_id: TEST_WORKSPACE_4_ID,
-          is_deal_related: true,
-        })
-        .onConflictDoUpdate({
-          target: [topics.workspace_id, topics.name],
-          targetWhere: sql`workspace_id IS NOT NULL`,
-          set: { slug: 'project-meridian' },
-        })
-        .returning({ id: topics.id });
-      if (aelianaTopic) {
-        await db
-          .insert(employerTopics)
-          .values({
-            employer_id: aelianaIsolationEmployerId,
-            topic_id: aelianaTopic.id,
-            source: 'manual',
-            is_highlight: true,
-          })
-          .onConflictDoNothing();
-      }
-
-      const meridian = insertedAelianaCompanies.find((c) => c.entry_id === 9120);
-      if (meridian) {
-        await db.insert(employerRelatedCompanies).values({
-          employer_id: aelianaIsolationEmployerId,
-          workspace_id: TEST_WORKSPACE_4_ID,
-          company_id: meridian.id,
-          company_name: 'Meridian Subsea Cables',
-          normalized_company_name: normalizeCompanyName('Meridian Subsea Cables'),
-          source: 'manual',
-          reason: 'manual',
-          reason_summary: 'Added manually',
-          confidence: 'high',
-          evidence_count: 0,
-        }).onConflictDoNothing();
-      }
-
-      if (test4UserId && elena) {
-        await db
-          .insert(userWorkspaces)
-          .values({
-            user_id: test4UserId,
-            workspace_id: TEST_WORKSPACE_4_ID,
-            role_id: ROLE_EDITOR_ID,
-            is_email_synced: true,
-          })
-          .onConflictDoUpdate({
-            target: [userWorkspaces.user_id, userWorkspaces.workspace_id],
-            set: { is_email_synced: true },
-          });
-
-        const aeBase = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).getTime();
-        const aeMails = [
-          {
-            idx: 1,
-            subject: 'Credit Sweets — Introduction (Aeliana)',
-            body: 'Hi team, introducing myself as your Aeliana contact at Credit Sweets. Keen to discuss Project Meridian financing. — Elena',
-            from: { name: 'Elena Papadopoulos', email: AELIANA_CONTACT_EMAIL, correspondentId: elena.id },
-            to: { name: 'Test User 4', email: 'test4@sqe.co.id' },
-            direction: 'inbound' as const,
-            daysOffset: 0,
-          },
-          {
-            idx: 2,
-            subject: 'RE: Credit Sweets — Introduction (Aeliana)',
-            body: 'Hi Elena, thanks for reaching out — happy to set up a call this week. — Aeliana',
-            from: { name: 'Test User 4', email: 'test4@sqe.co.id', correspondentId: null },
-            to: { name: 'Elena Papadopoulos', email: AELIANA_CONTACT_EMAIL, correspondentId: elena.id },
-            direction: 'outbound' as const,
-            daysOffset: 2,
-          },
-        ];
-
-          const aeEmailRows = aeMails.map((m) => ({
-            message_id: `${AELIANA_MID_PREFIX}${m.idx}${AELIANA_MID_SUFFIX}`,
-            custodian_email: 'test4@sqe.co.id',
-            employer_id: aelianaIsolationEmployerId,
-            from_address: m.from.email.toLowerCase(),
-            from_display_name: m.from.name,
-            sent_at: new Date(aeBase + m.daysOffset * dayMs).toISOString(),
-            direction: m.direction,
-            filter_status: 'processed',
-            processed_at: new Date().toISOString(),
-          }));
-          const insertedAeEmails = await db
-            .insert(emails)
-            .values(aeEmailRows)
-        .onConflictDoNothing()
-            .returning({ id: emails.id, message_id: emails.message_id });
-          const aeEmailIdByMid = new Map(insertedAeEmails.map((r) => [r.message_id!, r.id]));
-
-          const aeParticipantRows: (typeof emailParticipants.$inferInsert)[] = [];
-          for (const m of aeMails) {
-            const mid = `${AELIANA_MID_PREFIX}${m.idx}${AELIANA_MID_SUFFIX}`;
-            const emailId = aeEmailIdByMid.get(mid);
-            if (!emailId) continue;
-            aeParticipantRows.push({
-              email_id: emailId,
-              correspondent_id: m.from.correspondentId,
-              address: m.from.email.toLowerCase(),
-              display_name: m.from.name,
-              role: 'from',
-            });
-            aeParticipantRows.push({
-              email_id: emailId,
-              correspondent_id: m.to.correspondentId,
-              address: m.to.email.toLowerCase(),
-              display_name: m.to.name,
-              role: 'to',
-            });
-          }
-          if (aeParticipantRows.length > 0) {
-            await db.insert(emailParticipants).values(aeParticipantRows).onConflictDoNothing();
-          }
-          console.log(
-            `  ✓ Aeliana isolation fixture: 1 private contact + 1 private note + 1 private topic + 1 private related-company + ${insertedAeEmails.length} emails (custodian: test4@sqe.co.id, synced to Aeliana VCC)`,
+            `  ✓ Funds & Investing isolation fixture: 1 private contact + 1 private note + 1 private topic + 1 private related-company + ${insertedTgEmails.length} emails (custodian: test3@sqe.co.id)`,
           );
       }
     }
@@ -4406,7 +4317,8 @@ async function main() {
       console.warn('  ⚠ skipped analytics.mart_crm refresh (marts unavailable):', err);
     }
 
-    await seedFundManagement(db as unknown as DbClient, MNA_WORKSPACE_ID);
+    await seedFundManagement(db as unknown as DbClient, MNA_WORKSPACE_ID, '0');
+    await seedFundManagement(db as unknown as DbClient, TEST_WORKSPACE_3_ID, '1');
 
     console.log('done.');
   } finally {
