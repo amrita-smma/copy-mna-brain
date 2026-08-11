@@ -42,6 +42,22 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "skipReason": "noise"
   },
   {
+    "hash": "9cb6232c93614b70e564e8104c7d0fec102fd62b",
+    "date": "2026-08-11",
+    "subject": "Add implement feature skill",
+    "category": "feature",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "6cea39b99d997350834b5514d9ae04e5b3cf4f53",
+    "date": "2026-08-11",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "b8a92d18c650c8a8661a0cd23a7b7d6542dad464",
     "date": "2026-08-10",
     "subject": "Smart Files feature now available in deal tracking workflows",
