@@ -58,6 +58,20 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "skipReason": "noise"
   },
   {
+    "hash": "834f36622fb5362d02e87a4d58c2269b513de0fe",
+    "date": "2026-08-11",
+    "subject": "Company detail tab selection now persists in URL and opens in new tabs",
+    "category": "feature"
+  },
+  {
+    "hash": "3c7aa6e2733180c42662697f713c636671bd0820",
+    "date": "2026-08-11",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "b8a92d18c650c8a8661a0cd23a7b7d6542dad464",
     "date": "2026-08-10",
     "subject": "Smart Files feature now available in deal tracking workflows",
