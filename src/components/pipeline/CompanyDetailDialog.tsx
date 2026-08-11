@@ -1190,7 +1190,7 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
                 </span>
               </div>
               {/* Name + badges + description */}
-              <div className="flex-1 min-w-0 pr-8">
+              <div className="flex-1 min-w-0 pr-16">
                 <div className="flex items-center gap-2 flex-wrap">
                   <DialogTitle className="text-xl font-bold leading-tight">
                     {displayTitle}
@@ -1283,7 +1283,23 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
                 </div>
               </div>
             </div>
-            {/* Expand + close buttons are handled by DialogContent default close */}
+            {/* Control cluster, laid out right-to-left: new tab, full page,
+                close (the close button is DialogContent's default). DOM order
+                matches visual order so keyboard focus reads left-to-right. */}
+            {/* Opens the full page in a new browser tab and leaves this dialog
+                open — unlike the Expand button, which navigates this tab away.
+                A plain anchor, so cmd/ctrl- and middle-click background the new
+                tab natively. */}
+            <a
+              href={`${pipelineHref}/${company.id}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="absolute right-16 top-4 rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+              title="Open in new tab"
+            >
+              <ExternalLink className="h-4 w-4" />
+              <span className="sr-only">Open in new tab</span>
+            </a>
             <button
               onClick={() => {
                 onOpenChange(false);

@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { useParams, useRouter, useSearchParams } from 'next/navigation';
+import { useParams, usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useWorkspaceHref } from '@/hooks/useWorkspaceHref';
 import { useWorkspaceCurrency } from '@/components/layout/WorkspaceCurrencyContext';
 import { formatMoneyMn } from '@/lib/currency';
@@ -325,6 +325,13 @@ interface AnalysisSource {
   title?: string;
 }
 
+/** Tab values, mirrored in the `?tab=` query param so back/forward restores one. */
+const TAB_VALUES = ['overview', 'company-card', 'filters', 'attachments'] as const;
+type CompanyTab = (typeof TAB_VALUES)[number];
+const DEFAULT_TAB: CompanyTab = 'overview';
+
+const isCompanyTab = (value: string | null): value is CompanyTab =>
+  value !== null && (TAB_VALUES as readonly string[]).includes(value);
 
 interface CompanyDetailProps {
   showCompanyGraph?: boolean;
@@ -342,12 +349,37 @@ export default function CompanyDetail({
   const formatCurrency = (value: number | null) => formatMoneyMn(value, currency);
   const { focusCopilot } = useLayoutControl();
   const searchParams = useSearchParams();
+  const pathname = usePathname();
   const isMobile = useIsMobile();
   const companyId = params.dealId as string;
   const pipelineHref = useWorkspaceHref('/pipeline');
   const chatHref = useWorkspaceHref('/chat');
   const smartFilesHref = useWorkspaceHref('/smart-files');
   const returnTo = searchParams.get('from') || pipelineHref;
+
+  // The active tab lives in the URL (`?tab=`) so each switch is a history entry
+  // and Back returns to the tab you came from. Local state mirrors it so the
+  // switch renders immediately instead of waiting on the navigation.
+  const tabParam = searchParams.get('tab');
+  const [activeTab, setActiveTab] = useState<CompanyTab>(
+    isCompanyTab(tabParam) ? tabParam : DEFAULT_TAB,
+  );
+
+  // Back/forward (and any external link) changes the param, not the state.
+  useEffect(() => {
+    setActiveTab(isCompanyTab(tabParam) ? tabParam : DEFAULT_TAB);
+  }, [tabParam]);
+
+  // router.push — not the history.replaceState trick used for URL-bar-only sync
+  // in SmartFiles/WorkforceTasks. That deliberately avoids a history entry;
+  // here the entry is the whole point, and this matches Pipeline's `?stage=`.
+  const handleTabChange = (value: string) => {
+    if (!isCompanyTab(value)) return;
+    setActiveTab(value);
+    const next = new URLSearchParams(searchParams.toString());
+    next.set('tab', value);
+    router.push(`${pathname}?${next.toString()}`, { scroll: false });
+  };
 
   const [company, setCompany] = useState<CompanyData | null>(null);
 
@@ -1241,7 +1273,7 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
         )}
 
         {/* Content */}
-        <Tabs defaultValue="overview" className="w-full">
+        <Tabs value={activeTab} onValueChange={handleTabChange} className="w-full">
           <TabsList className="grid grid-cols-4 max-w-2xl">
             <TabsTrigger value="overview">Overview</TabsTrigger>
             <TabsTrigger value="company-card">Details</TabsTrigger>
