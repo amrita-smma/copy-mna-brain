@@ -28,6 +28,20 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "skipReason": "noise"
   },
   {
+    "hash": "4ccee66d05a24b1a02037161155f5fda6cc14547",
+    "date": "2026-08-11",
+    "subject": "Display relationship graph on company detail pages",
+    "category": "feature"
+  },
+  {
+    "hash": "ad158d1f1b844249aa04a8daeb2c8623d21c9b05",
+    "date": "2026-08-11",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "b8a92d18c650c8a8661a0cd23a7b7d6542dad464",
     "date": "2026-08-10",
     "subject": "Smart Files feature now available in deal tracking workflows",
