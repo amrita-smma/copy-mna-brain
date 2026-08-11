@@ -6,10 +6,24 @@ import type { ChangelogEntry } from './changelog';
 
 export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   {
+    "hash": "cb28a777b560d0431698f6d4657487532c69bf9d",
+    "date": "2026-08-11",
+    "subject": "Assets now support custom names in multiple languages",
+    "category": "feature"
+  },
+  {
     "hash": "b8a92d18c650c8a8661a0cd23a7b7d6542dad464",
     "date": "2026-08-10",
     "subject": "Smart Files feature now available in deal tracking workflows",
     "category": "improvement"
+  },
+  {
+    "hash": "7ce2767e6d2669dab86a675827ff5cd2a772eb56",
+    "date": "2026-08-10",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
   },
   {
     "hash": "f83f57d6a75a3e12efe7eb816133fe4a5a45d56e",
