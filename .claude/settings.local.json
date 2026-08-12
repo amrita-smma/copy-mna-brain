@@ -47,7 +47,8 @@
       "Bash(rtk ls *)",
       "Bash(rtk npx *)",
       "Bash(git rebase *)",
-      "Bash(PGPASSWORD='npg_WFMP0isg3TyX' rtk psql *)"
+      "Bash(PGPASSWORD='npg_WFMP0isg3TyX' rtk psql *)",
+      "Bash(herdr agent *)"
     ]
   }
 }
