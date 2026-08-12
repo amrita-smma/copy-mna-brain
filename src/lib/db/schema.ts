@@ -2916,6 +2916,41 @@ export const featureFlags = pgTable(
   },
 );
 
+// Per-workspace column layouts for the managed data tables (pipeline inbound /
+// outbound, master data, smart files, market screening). One row = one table's
+// layout — column order, hidden columns, and collapsible column groups — shared
+// by every member of the workspace rather than saved per browser. `layout` holds
+// a ColumnLayoutState blob (see src/lib/table/columnLayout.ts). Read/written via
+// WorkspaceTableLayoutRepository.
+export const workspaceTableLayouts = pgTable(
+  "workspace_table_layouts",
+  {
+    workspace_id: uuid().notNull(),
+    // Stable table identifier passed to useColumnLayout (e.g.
+    // "pipeline-inbound:active", "master-data").
+    table_id: text().notNull(),
+    layout: jsonb().$type<unknown>().notNull(),
+    updated_at: timestamp({ withTimezone: true, mode: "string" })
+      .defaultNow()
+      .notNull(),
+    // User who last saved this layout (null when written by a system caller).
+    updated_by: uuid().references(() => users.id, { onDelete: "set null" }),
+  },
+  (table) => {
+    return {
+      workspaceTableLayoutsWorkspaceIdFkey: foreignKey({
+        columns: [table.workspace_id],
+        foreignColumns: [workspaces.id],
+        name: "workspace_table_layouts_workspace_id_fkey",
+      }).onDelete("cascade"),
+      workspaceTableLayoutsPkey: primaryKey({
+        columns: [table.workspace_id, table.table_id],
+        name: "workspace_table_layouts_pkey",
+      }),
+    };
+  },
+);
+
 // In-app feedback submissions (MB-480). Each row is one titled message a user
 // sent from the feedback form; on write the app also emails nico.alimin@smma.id
 // and files a Jira ticket, stamping `jira_issue_key` back once that ticket exists.

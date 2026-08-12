@@ -43,6 +43,7 @@ import {
   WorkspaceRepository,
   RoleRepository,
   WorkspaceCorrespondentRepository,
+  WorkspaceTableLayoutRepository,
   FundRepository,
   HoldingEntityRepository,
   FundSourceRepository,
@@ -101,6 +102,7 @@ import { FundPortfolioService } from './fundPortfolioService';
 import { FundMetricsService } from './fundMetricsService';
 import { StalledDealService } from './stalledDealService';
 import { FeatureFlagsService } from './featureFlagsService';
+import { TableLayoutService } from './tableLayoutService';
 import { FeedbackService } from './feedbackService';
 
 export interface Container {
@@ -151,6 +153,7 @@ export interface Container {
   stalledDealService: StalledDealService;
   featureFlagsService: FeatureFlagsService;
   feedbackService: FeedbackService;
+  tableLayoutService: TableLayoutService;
 }
 
 export function createContainer(db: DbClient, workspaceId: string): Container {
@@ -366,6 +369,9 @@ export function createContainer(db: DbClient, workspaceId: string): Container {
   const featureFlagRepo = new FeatureFlagRepository(db);
   const featureFlagsService = new FeatureFlagsService(featureFlagRepo);
 
+  const tableLayoutRepo = new WorkspaceTableLayoutRepository(db, workspaceId);
+  const tableLayoutService = new TableLayoutService(tableLayoutRepo);
+
   const feedbackRepo = new FeedbackRepository(db, workspaceId);
   const feedbackService = new FeedbackService(feedbackRepo, userRepo, workspaceRepo, workspaceId);
 
@@ -417,5 +423,6 @@ export function createContainer(db: DbClient, workspaceId: string): Container {
     stalledDealService,
     featureFlagsService,
     feedbackService,
+    tableLayoutService,
   };
 }

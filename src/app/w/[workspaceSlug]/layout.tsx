@@ -8,6 +8,7 @@ import { CopilotAgentProvider } from '@/components/chat/CopilotAgentContext';
 import { FeatureFlagsProvider } from '@/components/layout/FeatureFlagsContext';
 import { WorkspaceCurrencyProvider } from '@/components/layout/WorkspaceCurrencyContext';
 import PostHogWorkspaceTracker from '@/components/layout/PostHogWorkspaceTracker';
+import { TableLayoutProvider } from '@/components/table';
 import { resolveWorkspaceFeatureFlags } from '@/lib/features/overrides';
 
 /**
@@ -53,8 +54,15 @@ export default async function WorkspaceLayout({
     <CopilotAgentProvider agentType={copilotAgent}>
       <WorkspaceCurrencyProvider currency={defaultCurrency}>
         <FeatureFlagsProvider flags={featureFlags}>
-          <PostHogWorkspaceTracker workspaceId={workspaceId} workspaceSlug={workspaceSlug} />
-          {children}
+          {/* Table column layouts are workspace settings, shared by every
+              member — loaded once here rather than per table. Keyed by slug so
+              a soft navigation to another workspace remounts the provider and
+              refetches, instead of reusing (and then saving) the previous
+              workspace's layouts. */}
+          <TableLayoutProvider key={workspaceSlug}>
+            <PostHogWorkspaceTracker workspaceId={workspaceId} workspaceSlug={workspaceSlug} />
+            {children}
+          </TableLayoutProvider>
         </FeatureFlagsProvider>
       </WorkspaceCurrencyProvider>
     </CopilotAgentProvider>

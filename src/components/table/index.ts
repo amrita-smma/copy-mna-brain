@@ -6,6 +6,11 @@ export {
   type ColumnManager,
 } from "./useColumnLayout";
 export {
+  TableLayoutProvider,
+  useTableLayoutStore,
+  type TableLayoutStore,
+} from "./TableLayoutStore";
+export {
   ManagedTableHeader,
   ManagedRowCells,
 } from "./ManagedTable";

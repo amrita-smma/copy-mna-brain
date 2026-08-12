@@ -22,32 +22,8 @@ import {
   groupOf,
   type ColumnLayoutState,
 } from "@/lib/table/columnLayout";
+import { useTableLayoutStore } from "./TableLayoutStore";
 import type { ColumnDef } from "./types";
-
-const STORAGE_PREFIX = "mna:table-layout:v1:";
-
-function storageKey(tableId: string) {
-  return `${STORAGE_PREFIX}${tableId}`;
-}
-
-function loadStored(tableId: string): Partial<ColumnLayoutState> | null {
-  if (typeof window === "undefined") return null;
-  try {
-    const raw = window.localStorage.getItem(storageKey(tableId));
-    return raw ? (JSON.parse(raw) as Partial<ColumnLayoutState>) : null;
-  } catch {
-    return null;
-  }
-}
-
-function persist(tableId: string, state: ColumnLayoutState) {
-  if (typeof window === "undefined") return;
-  try {
-    window.localStorage.setItem(storageKey(tableId), JSON.stringify(state));
-  } catch {
-    // storage full / unavailable — layout simply won't persist
-  }
-}
 
 /**
  * A "layer-1" header segment covering a contiguous run of visible columns:
@@ -109,14 +85,19 @@ export interface ColumnManager<T> {
 }
 
 /**
- * React state + localStorage persistence for a table's column layout, built on
- * the pure logic in `@/lib/table/columnLayout`. Reconciles the stored layout
- * against the live column set on mount and whenever the column ids change.
+ * React state for a table's column layout, built on the pure logic in
+ * `@/lib/table/columnLayout` and persisted to *workspace settings* (see
+ * {@link useTableLayoutStore}) rather than to the browser — the arrangement is
+ * shared by every member of the workspace and follows them across devices.
+ * Reconciles the stored layout against the live column set once the workspace's
+ * layouts have loaded, and whenever the column ids change.
  */
 export function useColumnLayout<T>(
   tableId: string,
   columns: ColumnDef<T>[],
 ): ColumnManager<T> {
+  const store = useTableLayoutStore();
+  const { loaded, getLayout, saveLayout, resetLayout } = store;
   const byId = useMemo(() => {
     const m = new Map<string, ColumnDef<T>>();
     columns.forEach((c) => m.set(c.id, c));
@@ -126,26 +107,53 @@ export function useColumnLayout<T>(
   const allIds = useMemo(() => columns.map((c) => c.id), [columns]);
   const allIdsKey = allIds.join("|");
 
-  // Initialise from declared order first (stable for SSR), then hydrate from
-  // localStorage after mount to avoid a hydration mismatch.
+  // Initialise from declared order first (stable for SSR), then reconcile
+  // against the workspace's saved layout once it has loaded.
   const [state, setState] = useState<ColumnLayoutState>(() =>
     initLayout(allIds),
   );
 
-  const hydrated = useRef(false);
   useEffect(() => {
-    setState(initLayout(allIds, loadStored(tableId)));
-    hydrated.current = true;
+    setState(initLayout(allIds, loaded ? getLayout(tableId) : null));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tableId, allIdsKey]);
+  }, [tableId, allIdsKey, loaded, getLayout]);
 
   // Always-current state, for callbacks that must read it without re-creating.
   const stateRef = useRef(state);
   stateRef.current = state;
 
+  // Only user edits are written back. Hydration/reconciliation must not save,
+  // or merely opening a table would overwrite the workspace's stored layout
+  // (and, with several tables mounted, fire a burst of pointless writes).
+  //
+  // The pending save records *which* table it was made for: the pipeline tables
+  // swap tableId with the view mode (`pipeline-inbound:${viewMode}`), and a save
+  // must never be attributed to whichever table id happens to be current when
+  // the effect runs.
+  const pendingSaveFor = useRef<string | null>(null);
   useEffect(() => {
-    if (hydrated.current) persist(tableId, state);
-  }, [tableId, state]);
+    if (pendingSaveFor.current !== tableId) return;
+    pendingSaveFor.current = null;
+    saveLayout(tableId, state);
+  }, [tableId, state, saveLayout]);
+
+  const tableIdRef = useRef(tableId);
+  tableIdRef.current = tableId;
+
+  /** Apply a pure layout transition and persist the result to the workspace. */
+  const mutate = useCallback(
+    (fn: (s: ColumnLayoutState) => ColumnLayoutState) => {
+      setState((s) => {
+        const next = fn(s);
+        // The pure helpers return the same object for a no-op (e.g. grouping
+        // fewer than two columns). React bails out of the re-render then, so
+        // the marker must be cleared here or it would leak into the next render.
+        pendingSaveFor.current = next !== s ? tableIdRef.current : null;
+        return next;
+      });
+    },
+    [],
+  );
 
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const anchorId = useRef<string | null>(null);
@@ -197,26 +205,26 @@ export function useColumnLayout<T>(
 
   const moveColumn = useCallback(
     (fromId: string, toId: string | null) =>
-      setState((s) => moveColumnPure(s, fromId, toId)),
-    [],
+      mutate((s) => moveColumnPure(s, fromId, toId)),
+    [mutate],
   );
 
   const moveGroup = useCallback(
     (groupId: string, toId: string | null) =>
-      setState((s) => moveGroupPure(s, groupId, toId)),
-    [],
+      mutate((s) => moveGroupPure(s, groupId, toId)),
+    [mutate],
   );
 
   const setHidden = useCallback(
     (id: string, hidden: boolean) =>
-      setState((s) => setHiddenPure(s, id, hidden)),
-    [],
+      mutate((s) => setHiddenPure(s, id, hidden)),
+    [mutate],
   );
 
-  const showAll = useCallback(() => setState((s) => showAllPure(s)), []);
+  const showAll = useCallback(() => mutate((s) => showAllPure(s)), [mutate]);
 
   const groupSelected = useCallback(() => {
-    setState((s) => {
+    mutate((s) => {
       // Grow the selection to the contiguous run between the leftmost and
       // rightmost selected columns, so picking the ends (a … c) also groups
       // the columns in between (b).
@@ -230,24 +238,28 @@ export function useColumnLayout<T>(
       return createGroupPure(s, visible.slice(min, max + 1));
     });
     clearSelection();
-  }, [selectedIds, clearSelection]);
+  }, [mutate, selectedIds, clearSelection]);
 
   const ungroup = useCallback(
-    (groupId: string) => setState((s) => removeGroupPure(s, groupId)),
-    [],
+    (groupId: string) => mutate((s) => removeGroupPure(s, groupId)),
+    [mutate],
   );
 
   const toggleGroupCollapsed = useCallback(
     (groupId: string) =>
-      setState((s) => toggleGroupCollapsedPure(s, groupId)),
-    [],
+      mutate((s) => toggleGroupCollapsedPure(s, groupId)),
+    [mutate],
   );
 
+  // Reset clears the workspace's saved layout outright rather than saving the
+  // defaults back, so the table follows any future change to its declared
+  // column set instead of freezing today's order.
   const reset = useCallback(() => {
     setState(initLayout(allIds));
+    resetLayout(tableId);
     clearSelection();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [allIdsKey, clearSelection]);
+  }, [tableId, allIdsKey, resetLayout, clearSelection]);
 
   const visibleIds = visibleOrderedIds(state);
   const visibleColumns = useMemo(

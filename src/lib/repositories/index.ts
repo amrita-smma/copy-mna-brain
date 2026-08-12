@@ -45,6 +45,7 @@ export * from './workspaceRepository';
 export * from './roleRepository';
 export * from './userWorkspaceRepository';
 export * from './workspaceCorrespondentRepository';
+export * from './workspaceTableLayoutRepository';
 export * from './fundRepository';
 export * from './holdingEntityRepository';
 export * from './fundSourceRepository';
