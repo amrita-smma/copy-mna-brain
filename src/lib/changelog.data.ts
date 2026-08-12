@@ -6,6 +6,20 @@ import type { ChangelogEntry } from './changelog';
 
 export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   {
+    "hash": "6afc0a7a642a6f5e63899b0cf80bcb5dd30046a4",
+    "date": "2026-08-12",
+    "subject": "[skip-ci] Ability to call herdr agent",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
+    "hash": "94dd79998bb923da07814237e53a89aa152d437b",
+    "date": "2026-08-12",
+    "subject": "Column preferences now save automatically when you rearrange deal tables",
+    "category": "improvement"
+  },
+  {
     "hash": "cb28a777b560d0431698f6d4657487532c69bf9d",
     "date": "2026-08-11",
     "subject": "Assets now support custom names in multiple languages",
@@ -65,6 +79,14 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   },
   {
     "hash": "3c7aa6e2733180c42662697f713c636671bd0820",
+    "date": "2026-08-11",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
+    "hash": "ca9ab85030e1f1c5181b5ad6aa44f4e4dc6327a5",
     "date": "2026-08-11",
     "subject": "[skip deploy] chore: update changelog",
     "category": "improvement",
