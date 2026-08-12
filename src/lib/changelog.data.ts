@@ -20,6 +20,22 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "category": "improvement"
   },
   {
+    "hash": "fade438e8bfb4be253f528f7c557e4a300c65ec8",
+    "date": "2026-08-12",
+    "subject": "Add makefile to setup worktree",
+    "category": "feature",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "8691a907840dcb6ff9bd518074afb163acd8f6a3",
+    "date": "2026-08-12",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "cb28a777b560d0431698f6d4657487532c69bf9d",
     "date": "2026-08-11",
     "subject": "Assets now support custom names in multiple languages",
