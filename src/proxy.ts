@@ -1,6 +1,7 @@
 import NextAuth from 'next-auth';
 import { NextResponse } from 'next/server';
 import { authConfig } from '@/auth.config';
+import { loginUrlWithCallback } from '@/lib/callbackUrl';
 
 // Middleware-only NextAuth instance. It carries no providers (those live in
 // `src/auth.ts` and touch the DB) — here we only read and verify the JWT
@@ -119,9 +120,16 @@ export const proxy = auth((req) => {
 
   if (pathname.startsWith('/w/')) {
     if (!req.auth?.user?.id) {
-      // Not authenticated — send to login. Any `?token` deeplink was already
-      // consumed above, so there is nothing to preserve onto the login URL.
-      return NextResponse.redirect(new URL('/login', req.url));
+      // Not authenticated — send to login, carrying the URL they asked for so
+      // signing in lands them on it instead of the workspace picker. Any
+      // `?token` deeplink was already consumed above, and `loginUrlWithCallback`
+      // strips a replayed one defensively. The slug is NOT validated here (we
+      // have no membership list without a session) — after login the authed
+      // pass through this same branch validates it and bounces a non-member to
+      // `/workspace`, so an unauthorized slug can't be reached this way.
+      return NextResponse.redirect(
+        new URL(loginUrlWithCallback(pathname + req.nextUrl.search), req.url),
+      );
     }
 
     const slug = extractWorkspaceSlug(pathname);
@@ -137,6 +145,11 @@ export const proxy = auth((req) => {
     // also means a client can never spoof this header on a page request.
     const requestHeaders = new Headers(req.headers);
     requestHeaders.set('X-Workspace-Slug', slug);
+    // Server components have no way to read their own request path. The `/w/`
+    // layout needs it to build a login callback URL if its own (defense-in-depth)
+    // session check fails, so hand it down. Set, never forwarded, so a client
+    // can't spoof it — and the layout sanitizes it regardless.
+    requestHeaders.set('X-Pathname', pathname + req.nextUrl.search);
     return NextResponse.next({ request: { headers: requestHeaders } });
   }
 

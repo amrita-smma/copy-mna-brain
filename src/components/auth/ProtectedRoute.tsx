@@ -1,8 +1,9 @@
 'use client';
 
 import { ReactNode, useEffect } from 'react';
-import { useParams, useRouter } from 'next/navigation';
+import { useParams, usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useAuth } from '@/hooks/useAuth';
+import { loginUrlWithCallback } from '@/lib/callbackUrl';
 import { isEmbedded, postToLauncher } from '@/lib/iframe';
 import { Loader2 } from 'lucide-react';
 
@@ -21,6 +22,8 @@ export function ProtectedRoute({ children }: ProtectedRouteProps) {
   const { user, loading } = useAuth();
   const router = useRouter();
   const params = useParams<{ workspaceSlug?: string }>();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
 
   useEffect(() => {
     if (loading) return;
@@ -31,7 +34,10 @@ export function ProtectedRoute({ children }: ProtectedRouteProps) {
       if (isEmbedded()) {
         postToLauncher({ type: 'auth-expired' });
       } else {
-        router.replace('/login');
+        // Carry the page they were on, so a session that expired mid-visit
+        // returns them here after signing in rather than to the picker.
+        const search = searchParams.toString();
+        router.replace(loginUrlWithCallback(`${pathname}${search ? `?${search}` : ''}`));
       }
       return;
     }
@@ -43,7 +49,7 @@ export function ProtectedRoute({ children }: ProtectedRouteProps) {
     if (!isMember) {
       router.replace('/workspace');
     }
-  }, [user, loading, router, params.workspaceSlug]);
+  }, [user, loading, router, params.workspaceSlug, pathname, searchParams]);
 
   if (loading) {
     return (

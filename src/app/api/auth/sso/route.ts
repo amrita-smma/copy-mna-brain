@@ -3,6 +3,7 @@ import { signIn } from "@/auth";
 import { MNA_WORKSPACE_ID } from "@/lib/constants";
 import { createDb } from "@/lib/server/db";
 import { createContainer } from "@/lib/services";
+import { CALLBACK_URL_PARAM, sanitizeCallbackUrl } from "@/lib/callbackUrl";
 import { isWorkspaceScopedPath, resolveSsoLandingPath } from "@/lib/ssoLanding";
 
 /**
@@ -24,12 +25,6 @@ import { isWorkspaceScopedPath, resolveSsoLandingPath } from "@/lib/ssoLanding";
  * the login page — the launcher handles re-auth by reloading the frame `src`
  * with a fresh token, so we never hard-fail inside the frame.
  */
-
-/** Same-origin absolute paths only — never an open redirect to another host. */
-function safeCallback(raw: string | null): string {
-  if (raw && raw.startsWith("/") && !raw.startsWith("//")) return raw;
-  return "/";
-}
 
 /**
  * Redirect via a RELATIVE `Location`. The browser resolves it against its own
@@ -84,7 +79,10 @@ async function resolveLandingPath(
 
 export async function GET(req: NextRequest) {
   const token = req.nextUrl.searchParams.get("token");
-  const callbackUrl = safeCallback(req.nextUrl.searchParams.get("callbackUrl"));
+  // Shared with the logged-out `/login` bounce (`src/lib/callbackUrl.ts`) so
+  // both entry points reject open redirects by the same rules.
+  const callbackUrl =
+    sanitizeCallbackUrl(req.nextUrl.searchParams.get(CALLBACK_URL_PARAM)) ?? "/";
 
   if (!token) return redirectTo("/login?error=launcher-sso");
 

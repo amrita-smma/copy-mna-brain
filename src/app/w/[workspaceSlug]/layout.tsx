@@ -1,6 +1,8 @@
 import { ReactNode } from 'react';
 import { redirect } from 'next/navigation';
+import { headers } from 'next/headers';
 import { auth } from '@/auth';
+import { loginUrlWithCallback } from '@/lib/callbackUrl';
 import { createDb } from '@/lib/server/db';
 import { createContainer } from '@/lib/services';
 import { MNA_WORKSPACE_ID } from '@/lib/constants';
@@ -30,11 +32,15 @@ export default async function WorkspaceLayout({
   params: Promise<{ workspaceSlug: string }>;
 }) {
   const session = await auth();
+  const { workspaceSlug } = await params;
   if (!session?.user) {
-    redirect('/login');
+    // Preserve the deeplink, same as the `proxy.ts` gate that normally catches
+    // this first. `X-Pathname` is injected by that proxy branch; falling back
+    // to the workspace root keeps at least the workspace when it's absent.
+    const requestPath = (await headers()).get('X-Pathname');
+    redirect(loginUrlWithCallback(requestPath ?? `/w/${workspaceSlug}`));
   }
 
-  const { workspaceSlug } = await params;
   const membership = session.user.workspaces.find((w) => w.slug === workspaceSlug);
   const isMember = session.user.isSuperadmin || !!membership;
   if (!isMember) {

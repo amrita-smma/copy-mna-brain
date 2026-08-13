@@ -13,7 +13,70 @@ import {
   extractRefererWorkspaceSlug,
   extractWorkspaceSlug,
   isValidWorkspaceSlug,
+  proxy,
 } from './proxy';
+
+const ORIGIN = 'https://brain.test';
+
+/**
+ * Runs the middleware against a minimal stand-in for the authed NextRequest it
+ * normally receives. The `next-auth` mock above makes `proxy` the bare handler,
+ * so it can be driven directly with just the fields the `/w/` branch reads.
+ */
+function runProxy(path: string, auth: unknown = null): { headers: Headers } {
+  const url = new URL(path, ORIGIN);
+  const req = {
+    url: url.toString(),
+    nextUrl: url,
+    auth,
+    headers: new Headers(),
+    cookies: { has: () => false },
+  };
+  const handler = proxy as unknown as (r: unknown) => { headers: Headers };
+  return handler(req);
+}
+
+/** The `Location` of a redirect response, relative to the app origin. */
+function locationOf(res: { headers: Headers }): string {
+  return (res.headers.get('location') ?? '').replace(ORIGIN, '');
+}
+
+describe('proxy /w/ authentication gate', () => {
+  it('preserves the deeplinked path as a callbackUrl when redirecting to login', () => {
+    const res = runProxy('/w/togan-vcc/pipeline/deal-123');
+    expect(locationOf(res)).toBe('/login?callbackUrl=%2Fw%2Ftogan-vcc%2Fpipeline%2Fdeal-123');
+  });
+
+  it("preserves the deeplink's query string too", () => {
+    const res = runProxy('/w/togan-vcc/pipeline?stage=L0');
+    expect(locationOf(res)).toBe('/login?callbackUrl=%2Fw%2Ftogan-vcc%2Fpipeline%3Fstage%3DL0');
+  });
+
+  it('routes an SSO deeplink to the token handler rather than the login bounce', () => {
+    // The `?token=` branch runs before the auth gate, so a launcher deeplink
+    // establishes its session instead of being sent to /login.
+    const res = runProxy('/w/togan-vcc/chat?token=jwt123&tab=notes');
+    expect(locationOf(res)).toBe(
+      '/api/auth/sso?token=jwt123&callbackUrl=%2Fw%2Ftogan-vcc%2Fchat%3Ftab%3Dnotes',
+    );
+  });
+
+  it('still bounces an authenticated non-member to the picker, not the deeplink', () => {
+    const res = runProxy('/w/other-tenant/pipeline', {
+      user: { id: 'u1', isSuperadmin: false, workspaces: [{ slug: 'togan-vcc' }] },
+    });
+    expect(locationOf(res)).toBe('/workspace');
+  });
+
+  it('injects the request path for the layout to build its own callback URL', () => {
+    const res = runProxy('/w/togan-vcc/pipeline?stage=L0', {
+      user: { id: 'u1', isSuperadmin: false, workspaces: [{ slug: 'togan-vcc' }] },
+    });
+    // `NextResponse.next({ request: { headers } })` surfaces overrides here.
+    expect(res.headers.get('x-middleware-override-headers')).toContain('x-pathname');
+    expect(res.headers.get('x-middleware-request-x-pathname')).toBe('/w/togan-vcc/pipeline?stage=L0');
+  });
+});
 
 describe('classifyApiRoute', () => {
   it('gates the admin signup route on the shared secret', () => {

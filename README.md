@@ -209,10 +209,39 @@ Google hands the page an ID token (the GIS credential), and the login page:
    opaque `CredentialsSignin` code.
 2. On success calls `useAuth().signInWithGoogleToken(token)`, which triggers the
    `google-sso` Credentials provider in `src/auth.ts` to establish the session,
-   then redirects to `/chat`.
+   then redirects to the post-login destination (see **Deeplink preservation**
+   below — `/workspace` unless a deeplink was preserved).
 
 The button is hidden when `NEXT_PUBLIC_GOOGLE_CLIENT_ID` is unset, leaving only
 email/password sign-in.
+
+### Deeplink preservation across login
+
+A logged-out hit on a protected URL must come back to that URL after signing in,
+otherwise every emailed or bookmarked deeplink effectively lands on the wrong
+page. `src/lib/callbackUrl.ts` owns both halves of that round trip:
+
+- `loginUrlWithCallback(pathAndSearch)` builds the `/login?callbackUrl=...` URL.
+  Every gate that bounces to `/login` uses it: the `/w/` branch of `proxy.ts`
+  (the main one), `src/app/w/[workspaceSlug]/layout.tsx`,
+  `src/components/auth/ProtectedRoute.tsx` (session expiring mid-visit), and
+  `src/lib/legacyWorkspaceRedirect.ts` (pre-migration flat URLs, which re-enter
+  the bridge after login and forward on to their `/w/<slug>/...` equivalent).
+- `sanitizeCallbackUrl(raw)` reads it back on the login page and in
+  `/api/auth/sso`. The value comes from a user-controlled URL and ends up in a
+  redirect `Location`, so it is validated in both directions: same-origin
+  absolute paths only, rejecting protocol-relative `//host` and its `/\host`
+  variant, embedded control characters, `/login` itself, and `/api/*`. The SSO
+  `token` param is stripped so it can't be replayed.
+
+The param name matches the one NextAuth appends when redirecting to
+`pages.signIn`, so those bounces are preserved for free.
+
+A preserved `/w/<slug>/...` deeplink skips the `/workspace` picker entirely — the
+URL already names its workspace, and `/w/` routes resolve the workspace from the
+URL slug rather than session state (see the layout's note on never calling
+`switchWorkspace`). Membership is still enforced by `proxy.ts` and the layout, so
+a deeplink into a workspace the user can't enter falls back to `/workspace`.
 
 ### Launcher token exchange (`/?from=launcher&token=eyJ...`)
 

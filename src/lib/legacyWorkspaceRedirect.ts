@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation';
 import { headers } from 'next/headers';
 import { auth } from '@/auth';
+import { loginUrlWithCallback } from '@/lib/callbackUrl';
 
 /**
  * Best-effort bridge for pre-migration flat URLs (bookmarks, already-sent
@@ -32,17 +33,6 @@ export async function redirectToWorkspaceScoped(
     }
   }
 
-  const session = await auth();
-  if (!session?.user) {
-    // A Google-SSO `?token=` deeplink is consumed server-side in `proxy.ts`
-    // before it ever reaches this bridge, so there's nothing to preserve here.
-    redirect('/login');
-  }
-  const match = session.user.workspaces.find((w) => w.workspaceId === session.user.workspaceId);
-  if (!match) {
-    redirect('/workspace');
-  }
-
   const query = new URLSearchParams();
   for (const [key, value] of Object.entries(searchParams ?? {})) {
     // `token` is an SSO artifact consumed upstream — never carry it into the
@@ -55,5 +45,20 @@ export async function redirectToWorkspaceScoped(
     }
   }
   const qs = query.toString();
-  redirect(`/w/${match.slug}${path}${qs ? `?${qs}` : ''}`);
+  const flatUrl = `${path}${qs ? `?${qs}` : ''}`;
+
+  const session = await auth();
+  if (!session?.user) {
+    // Preserve the flat URL rather than dropping it: after signing in the user
+    // is sent back here, and this time the session resolves a slug and forwards
+    // them on to the workspace-scoped equivalent. A Google-SSO `?token=` is
+    // consumed server-side in `proxy.ts` and already excluded from `qs` above.
+    redirect(loginUrlWithCallback(flatUrl));
+  }
+  const match = session.user.workspaces.find((w) => w.workspaceId === session.user.workspaceId);
+  if (!match) {
+    redirect('/workspace');
+  }
+
+  redirect(`/w/${match.slug}${flatUrl}`);
 }

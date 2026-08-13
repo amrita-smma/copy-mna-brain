@@ -1,9 +1,9 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Suspense } from 'react';
 import { BrandWordmark } from '@/components/BrandMark';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useTheme } from 'next-themes';
 import { useAuth } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/button';
@@ -16,8 +16,33 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Loader2, AlertCircle } from 'lucide-react';
 import posthog from 'posthog-js';
 import { apiRequest } from '@/lib/api/client';
+import { CALLBACK_URL_PARAM, sanitizeCallbackUrl } from '@/lib/callbackUrl';
 
+/** Full-screen loader shared by the Suspense fallback and the session-loading state. */
+function LoginLoader() {
+  return (
+    <div className="relative flex min-h-screen items-center justify-center">
+      <LivingBackground variant="default" />
+      <div className="relative z-10">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      </div>
+    </div>
+  );
+}
+
+/**
+ * `useSearchParams` opts this subtree into client-side rendering, so it must
+ * sit inside a Suspense boundary — hence the split from the default export.
+ */
 export default function LoginPage() {
+  return (
+    <Suspense fallback={<LoginLoader />}>
+      <LoginForm />
+    </Suspense>
+  );
+}
+
+function LoginForm() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -25,12 +50,18 @@ export default function LoginPage() {
   const { signIn, signInWithGoogleToken, user, loading } = useAuth();
   const { resolvedTheme } = useTheme();
   const router = useRouter();
+  const searchParams = useSearchParams();
+
+  // Where a preserved deeplink wants us to land (see `src/lib/callbackUrl.ts`).
+  // `/workspace` stays the default: it resolves the user's memberships and
+  // forwards on, which is the right destination when no deeplink was involved.
+  const destination = sanitizeCallbackUrl(searchParams.get(CALLBACK_URL_PARAM)) ?? '/workspace';
 
   useEffect(() => {
     if (!loading && user) {
-      router.replace('/workspace');
+      router.replace(destination);
     }
-  }, [user, loading, router]);
+  }, [user, loading, router, destination]);
 
   const completeSignIn = (signedInEmail: string, method: 'password' | 'google') => {
     const normalizedEmail = signedInEmail.toLowerCase().trim();
@@ -41,7 +72,7 @@ export default function LoginPage() {
       email: normalizedEmail,
       method,
     });
-    router.push('/workspace');
+    router.push(destination);
   };
 
   const handleSignIn = async (e: React.FormEvent) => {
@@ -93,14 +124,7 @@ export default function LoginPage() {
 
 
   if (loading) {
-    return (
-      <div className="relative flex min-h-screen items-center justify-center">
-        <LivingBackground variant="default" />
-        <div className="relative z-10">
-          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-        </div>
-      </div>
-    );
+    return <LoginLoader />;
   }
 
   if (user) {
