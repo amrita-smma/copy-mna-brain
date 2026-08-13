@@ -5,17 +5,11 @@ import { createDb } from '@/lib/server/db';
 import { createContainer } from '@/lib/services';
 import { getActiveWorkspaceId } from '@/lib/workspace';
 
-export default async function GraphPage({
-  searchParams,
-}: {
-  searchParams: Promise<Record<string, string | string[] | undefined>>;
-}) {
-  // `?connectedTo=<companyId>` opens the graph already filtered to that company
-  // and its direct connections — the deep link behind "Show in relationship
-  // graph" on the company detail page.
-  const connectedTo = (await searchParams).connectedTo;
-  const initialConnectedCompanyId = typeof connectedTo === 'string' ? connectedTo : undefined;
-
+// The graph's filters (including the `?connectedTo=<companyId>` deep link behind
+// "Show in relationship graph" on the company detail page) are read client-side
+// from the query string by `CompanyGraph` itself — see
+// `@/lib/graph/graphFilterParams` — so this page doesn't touch `searchParams`.
+export default async function GraphPage() {
   const showCompanyGraph = await companyGraphEnabled().then(Boolean);
   const showFundManagement = await fundManagementEnabled().then(Boolean);
 
@@ -34,7 +28,6 @@ export default async function GraphPage({
       showCompanyGraph={showCompanyGraph}
       showFundManagement={showFundManagement}
       isWorkspaceAdmin={isWorkspaceAdmin}
-      initialConnectedCompanyId={initialConnectedCompanyId}
     />
   );
 }

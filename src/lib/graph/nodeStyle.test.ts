@@ -14,6 +14,7 @@ import {
   nodeColor,
   nodeDisplaySize,
   nodeSizeFactor,
+  neighborIds,
   primaryRelationByNode,
   relationColor,
   relationLabel,
@@ -131,6 +132,38 @@ describe('endpointId', () => {
   it('reads the id off a node object and passes strings through', () => {
     expect(endpointId('c1')).toBe('c1');
     expect(endpointId(node({ id: 'c2' }))).toBe('c2');
+  });
+});
+
+describe('neighborIds', () => {
+  const links = [
+    { source: 'a', target: 'b' },
+    { source: 'c', target: 'a' },
+    { source: 'b', target: 'd' },
+    { source: 'e', target: 'f' },
+  ];
+
+  it('returns the direct neighbours of the seed ids', () => {
+    expect([...neighborIds(links, new Set(['a']))].sort()).toEqual(['b', 'c']);
+  });
+
+  it('excludes the seed ids themselves, including when two seeds are adjacent', () => {
+    expect([...neighborIds(links, new Set(['a', 'b']))].sort()).toEqual(['c', 'd']);
+  });
+
+  it('returns an empty set without walking the links when no ids are given', () => {
+    expect(neighborIds(links, new Set()).size).toBe(0);
+  });
+
+  it('ignores seeds with no edges and does not traverse beyond one hop', () => {
+    // `d` is two hops from `a`, so it must not appear for seed `a`.
+    expect([...neighborIds(links, new Set(['x']))]).toEqual([]);
+    expect(neighborIds(links, new Set(['a'])).has('d')).toBe(false);
+  });
+
+  it('resolves node-object endpoints as well as string ids', () => {
+    const mutated = [{ source: node({ id: 'a' }), target: node({ id: 'z' }) }];
+    expect([...neighborIds(mutated, new Set(['a']))]).toEqual(['z']);
   });
 });
 

@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import DashboardLayout from '@/components/layout/DashboardLayout';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -56,10 +57,20 @@ import {
   nodeColor,
   nodeDisplaySize,
   nodeSizeFactor,
+  neighborIds,
   paintNodePointerArea,
   primaryRelationByNode,
   relationColor,
 } from '@/lib/graph/nodeStyle';
+import {
+  GRAPH_FILTER_PARAMS,
+  NO_RELATION,
+  NO_STAGE,
+  decodeGraphFilters,
+  encodeGraphFilters,
+  type RelationFilter,
+} from '@/lib/graph/graphFilterParams';
+import { useWorkspaceHref } from '@/hooks/useWorkspaceHref';
 
 function NodeCombobox({
   nodes,
@@ -336,16 +347,11 @@ function MultiSelectFilter({
   );
 }
 
-// Sentinel filter value for companies that have no relationships at all.
-const NO_RELATION = 'NONE' as const;
-type RelationFilter = RelationType | typeof NO_RELATION;
-
+// `NO_RELATION` (companies with no relationships) and `NO_STAGE` (companies with
+// no pipeline stage on the graph node) are the filter-panel sentinels, shared
+// with the URL codec in `@/lib/graph/graphFilterParams`.
 const NO_RELATION_COLOR = '#94a3b8';
 const NO_RELATION_LABEL = 'No relationship';
-
-// Sentinel filter value for companies with no pipeline stage recorded on the
-// graph node (e.g. seed/demo data synced before the field existed).
-const NO_STAGE = '__none__' as const;
 
 const PIPELINE_STAGE_LABELS: Record<string, string> = {
   market_screening: 'Market Screening',
@@ -404,6 +410,9 @@ interface PairPath {
 }
 
 type Adjacency = Map<string, Array<{ to: string; label: RelationType; key: string }>>;
+
+/** Stable empty id set, so memos that "match nothing" keep a referentially stable value. */
+const EMPTY_IDS: ReadonlySet<string> = new Set<string>();
 
 /** Canonical undirected key for an edge, including its relation label. */
 function linkEdgeKey(source: string | GraphNode, target: string | GraphNode, label: string): string {
@@ -493,21 +502,20 @@ interface CompanyGraphProps {
   showFundManagement?: boolean;
   /** When true, the edit-mode "Combine companies" section is available. */
   isWorkspaceAdmin?: boolean;
-  /**
-   * Company to pin the "display only connected companies" filter to on first
-   * load, from the `?connectedTo=` deep link used by the relationship snippet
-   * on the company detail page. Applied once, as soon as the graph resolves the
-   * id to a node; the user can clear it like any other filter afterwards.
-   */
-  initialConnectedCompanyId?: string;
 }
 
 export default function CompanyGraph({
   showCompanyGraph = false,
   showFundManagement = false,
   isWorkspaceAdmin = false,
-  initialConnectedCompanyId,
 }: CompanyGraphProps) {
+  // Every filter is mirrored into the URL so a filtered graph is shareable as a
+  // link. The query string is read exactly once, to seed the state below; from
+  // then on the filters are client state and this component writes the URL,
+  // never the other way round. See `@/lib/graph/graphFilterParams`.
+  const searchParams = useSearchParams();
+  const [initialFilters] = useState(() => decodeGraphFilters(searchParams));
+
   const [graphData, setGraphData] = useState<GraphData>({ nodes: [], links: [] });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -527,19 +535,30 @@ export default function CompanyGraph({
   // "Highlight" companies: when non-empty, the graph is pinned to exactly these
   // companies and the relationships between them (all other filters are
   // bypassed so the selection is shown verbatim).
-  const [highlightedIds, setHighlightedIds] = useState<Set<string>>(() => new Set());
-  // Company filters are multi-select: an empty Set means "no filter" (show all).
-  const [ownership, setOwnership] = useState<Set<Ownership>>(() => new Set());
-  const [geography, setGeography] = useState<Set<string>>(() => new Set());
-  const [sector, setSector] = useState<Set<string>>(() => new Set());
-  const [pipelineStage, setPipelineStage] = useState<Set<string>>(() => new Set());
-  const [status, setStatus] = useState<Set<string>>(() => new Set());
-  const [enabledTypes, setEnabledTypes] = useState<Set<RelationFilter>>(
-    () => new Set<RelationFilter>([...RELATION_TYPES, NO_RELATION]),
+  const [highlightedIds, setHighlightedIds] = useState<Set<string>>(
+    () => new Set(initialFilters.highlighted),
   );
-  const [hasEvidenceOnly, setHasEvidenceOnly] = useState(false);
-  const [dateFrom, setDateFrom] = useState('');
-  const [dateTo, setDateTo] = useState('');
+  // "Show connected companies": widens the highlight view to also include every
+  // company with a direct edge to a highlighted one.
+  const [showConnectedCompanies, setShowConnectedCompanies] = useState(
+    initialFilters.showConnectedCompanies,
+  );
+  // Company filters are multi-select: an empty Set means "no filter" (show all).
+  const [ownership, setOwnership] = useState<Set<Ownership>>(
+    () => new Set(initialFilters.ownership),
+  );
+  const [geography, setGeography] = useState<Set<string>>(() => new Set(initialFilters.geography));
+  const [sector, setSector] = useState<Set<string>>(() => new Set(initialFilters.sector));
+  const [pipelineStage, setPipelineStage] = useState<Set<string>>(
+    () => new Set(initialFilters.pipelineStage),
+  );
+  const [status, setStatus] = useState<Set<string>>(() => new Set(initialFilters.status));
+  const [enabledTypes, setEnabledTypes] = useState<Set<RelationFilter>>(
+    () => new Set<RelationFilter>(initialFilters.relationTypes),
+  );
+  const [hasEvidenceOnly, setHasEvidenceOnly] = useState(initialFilters.hasEvidenceOnly);
+  const [dateFrom, setDateFrom] = useState(initialFilters.dateFrom);
+  const [dateTo, setDateTo] = useState(initialFilters.dateTo);
 
   // Right-click "Display only connected companies": when set to a node, the
   // graph is restricted to that node plus its direct neighbours (companies with
@@ -641,19 +660,89 @@ export default function CompanyGraph({
       .finally(() => setLoading(false));
   }, [loadGraph]);
 
-  // Apply the `?connectedTo=` deep link once the node it names exists. The ref
-  // remembers which id was applied, so clearing the filter (or a graph reload)
-  // doesn't re-apply it, while arriving from the link again with a *different*
-  // company still pins that one.
-  const appliedInitialConnectedRef = useRef<string | null>(null);
+  // `?connectedTo=` is the one filter that can also arrive *after* mount: the
+  // company detail dialog this view renders embeds the relationship snippet,
+  // whose "Show in relationship graph" button links back to
+  // `/graph?connectedTo=<id>` — a soft navigation on the same route, which
+  // leaves this component mounted and only updates `searchParams`. So it's read
+  // live rather than from `initialFilters`.
+  const urlConnectedCompanyId = searchParams.get(GRAPH_FILTER_PARAMS.connectedTo)?.trim() || null;
+  // Which URL-supplied id has been consumed — either resolved to its node or
+  // found to be missing from the graph. State rather than a ref, so consuming an
+  // id re-renders and lets the URL sync below drop it. Until an id is consumed
+  // the sync keeps it in the URL, so a link can't be stripped before it applies.
+  //
+  // Consumed ids are never un-consumed, so clearing the pin and then following
+  // the *same* company's link again (without leaving the page) doesn't re-pin it
+  // — long-standing behaviour, and the tradeoff of syncing the URL with
+  // `history.replaceState`: it deliberately doesn't feed Next's router, so
+  // `searchParams` still reports the id we already consumed and re-applying from
+  // it would fight the user's clear. Routing the sync through `router.replace`
+  // instead would fix that at the cost of a server round trip per filter click.
+  const [consumedConnectedId, setConsumedConnectedId] = useState<string | null>(null);
   useEffect(() => {
-    if (!initialConnectedCompanyId) return;
-    if (appliedInitialConnectedRef.current === initialConnectedCompanyId) return;
-    const node = graphData.nodes.find((n) => n.id === initialConnectedCompanyId);
-    if (!node) return;
-    appliedInitialConnectedRef.current = initialConnectedCompanyId;
+    if (!urlConnectedCompanyId || consumedConnectedId === urlConnectedCompanyId) return;
+    const node = graphData.nodes.find((n) => n.id === urlConnectedCompanyId);
+    if (!node) {
+      // Once the graph has loaded without it, the id is a dead link — consume it
+      // so it stops pinning the URL. (While still loading, wait for the nodes.)
+      if (!loading) setConsumedConnectedId(urlConnectedCompanyId);
+      return;
+    }
+    setConsumedConnectedId(urlConnectedCompanyId);
     setConnectedTo(node);
-  }, [initialConnectedCompanyId, graphData.nodes]);
+  }, [urlConnectedCompanyId, consumedConnectedId, graphData.nodes, loading]);
+
+  // ─── URL sync ───────────────────────────────────────────────────────────────
+  // Mirror the filter panel into the query string so the current view can be
+  // shared as a link. `history.replaceState` (not router.replace) updates the
+  // URL bar without a Next.js soft navigation, so the server component doesn't
+  // re-run and the canvas doesn't remount mid-filtering.
+  const graphHref = useWorkspaceHref('/graph');
+  const filterQuery = useMemo(
+    () =>
+      encodeGraphFilters({
+        highlighted: [...highlightedIds],
+        // Only meaningful alongside a highlight selection — without one the
+        // checkbox is inert, so keep it out of shared links.
+        showConnectedCompanies: showConnectedCompanies && highlightedIds.size > 0,
+        connectedTo:
+          connectedTo?.id ??
+          (urlConnectedCompanyId !== consumedConnectedId ? urlConnectedCompanyId : null),
+        ownership: [...ownership],
+        geography: [...geography],
+        sector: [...sector],
+        pipelineStage: [...pipelineStage],
+        status: [...status],
+        relationTypes: [...enabledTypes],
+        hasEvidenceOnly,
+        dateFrom,
+        dateTo,
+      }),
+    [
+      highlightedIds,
+      showConnectedCompanies,
+      connectedTo,
+      urlConnectedCompanyId,
+      consumedConnectedId,
+      ownership,
+      geography,
+      sector,
+      pipelineStage,
+      status,
+      enabledTypes,
+      hasEvidenceOnly,
+      dateFrom,
+      dateTo,
+    ],
+  );
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const target = filterQuery ? `${graphHref}?${filterQuery}` : graphHref;
+    if (`${window.location.pathname}${window.location.search}` === target) return;
+    window.history.replaceState(null, '', target);
+  }, [filterQuery, graphHref]);
 
   // Reconcile the graph DB from Postgres (the source of truth), then reload.
   // The sync runs as a background job; we poll it to completion before
@@ -735,13 +824,8 @@ export default function CompanyGraph({
   // relation, independent of the active edge-type filters.
   const connectedIds = useMemo(() => {
     if (!connectedTo) return null;
-    const ids = new Set<string>([connectedTo.id]);
-    for (const l of graphData.links) {
-      const s = endpointId(l.source);
-      const t = endpointId(l.target);
-      if (s === connectedTo.id) ids.add(t);
-      if (t === connectedTo.id) ids.add(s);
-    }
+    const ids = neighborIds(graphData.links, new Set([connectedTo.id]));
+    ids.add(connectedTo.id);
     return ids;
   }, [connectedTo, graphData.links]);
 
@@ -829,6 +913,21 @@ export default function CompanyGraph({
     return { pairs, pathNodeIds, pathEdgeKeys };
   }, [highlightedIds, adjacency, nodeNameById]);
 
+  // Companies with a direct edge to a highlighted one, surfaced only while the
+  // "Show connected companies" checkbox is on (otherwise the empty set keeps the
+  // highlight view restricted to the selection and its connection paths).
+  const highlightNeighborIds = useMemo(() => {
+    if (!showConnectedCompanies || highlightedIds.size === 0) return EMPTY_IDS;
+    return neighborIds(graphData.links, highlightedIds);
+  }, [showConnectedCompanies, highlightedIds, graphData.links]);
+
+  // How many companies the checkbox actually adds to the canvas — neighbours
+  // already visible as a connection-path intermediary don't count.
+  const addedNeighborCount = useMemo(
+    () => [...highlightNeighborIds].filter((id) => !highlightPaths.pathNodeIds.has(id)).length,
+    [highlightNeighborIds, highlightPaths],
+  );
+
   // Apply node + edge filters. Rebuilds fresh node/link objects so force-graph's
   // in-place mutation never bleeds back into the raw data. Excludes `hovered`
   // from deps so hovering doesn't restart the simulation.
@@ -840,8 +939,11 @@ export default function CompanyGraph({
 
     const nodes = graphData.nodes.filter((n) => {
       // When highlighting, keep the selected companies plus every company that
-      // lies on a connection path between a highlighted pair.
-      if (highlighting) return highlightPaths.pathNodeIds.has(n.id);
+      // lies on a connection path between a highlighted pair — and, with "Show
+      // connected companies" on, their direct neighbours too.
+      if (highlighting) {
+        return highlightPaths.pathNodeIds.has(n.id) || highlightNeighborIds.has(n.id);
+      }
       // Multi-select filters: an empty Set means the filter is inactive.
       if (ownership.size > 0 && (!n.ownership || !ownership.has(n.ownership))) return false;
       if (geography.size > 0 && (!n.geography || !geography.has(n.geography))) return false;
@@ -875,7 +977,13 @@ export default function CompanyGraph({
       // regardless of the edge-type / evidence / date filters.
       if (highlighting) {
         if (highlightedIds.has(sid) && highlightedIds.has(tid)) return true;
-        return highlightPaths.pathEdgeKeys.has(linkEdgeKey(sid, tid, l.label));
+        if (highlightPaths.pathEdgeKeys.has(linkEdgeKey(sid, tid, l.label))) return true;
+        // With "Show connected companies" on, also draw the edge that attaches
+        // each neighbour to the highlighted company it hangs off.
+        return (
+          (highlightedIds.has(sid) && highlightNeighborIds.has(tid)) ||
+          (highlightedIds.has(tid) && highlightNeighborIds.has(sid))
+        );
       }
       if (!enabledTypes.has(l.label as RelationType)) return false;
       if (hasEvidenceOnly && !l.evidence) return false;
@@ -905,7 +1013,7 @@ export default function CompanyGraph({
       }),
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [graphData, ownership, geography, sector, pipelineStage, status, connectedIds, enabledTypes, hasEvidenceOnly, dateFrom, dateTo, nodeCharacteristics, highlightedIds, highlightPaths]);
+  }, [graphData, ownership, geography, sector, pipelineStage, status, connectedIds, enabledTypes, hasEvidenceOnly, dateFrom, dateTo, nodeCharacteristics, highlightedIds, highlightPaths, highlightNeighborIds]);
 
   // Each node's dominant relationship type, rendered as the sub-label inside
   // the circle.
@@ -1566,6 +1674,21 @@ export default function CompanyGraph({
               <p className="text-[11px] text-muted-foreground/80 mt-1.5">
                 Show only the selected companies and how they relate to one another.
               </p>
+              <div className="mt-2 flex items-center gap-2">
+                <Checkbox
+                  id="show-connected-companies"
+                  checked={showConnectedCompanies}
+                  onCheckedChange={(v) => setShowConnectedCompanies(v === true)}
+                  disabled={highlightedIds.size === 0}
+                />
+                <Label
+                  htmlFor="show-connected-companies"
+                  className="text-xs font-normal cursor-pointer text-muted-foreground"
+                >
+                  Show connected companies
+                  {addedNeighborCount > 0 && ` (+${addedNeighborCount})`}
+                </Label>
+              </div>
               {highlightedIds.size > 0 && (
                 <div className="mt-2.5 space-y-2">
                   <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">

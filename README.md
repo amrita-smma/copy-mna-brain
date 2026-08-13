@@ -862,9 +862,44 @@ it.**
   node** opens a context menu with *"Display only connected companies"*, which
   pins that node and restricts the graph to it plus its direct neighbours
   (companies sharing an edge in either direction); a chip in the filter sidebar
-  clears the pin. The pin can also be set by deep link: `/graph?connectedTo=<companyId>`
-  (the page reads the search param server-side and passes it to `CompanyGraph`
-  as `initialConnectedCompanyId`, applied once the node resolves).
+  clears the pin.
+
+  The sidebar also has a **Highlight** combobox: selecting companies pins the
+  graph to exactly that selection plus the companies on the connection paths
+  between each highlighted pair (up to 5 alternative paths per pair, ≤ 5 hops,
+  mirroring the Neo4j `MATCH path = (a)-[*1..5]-(b)` traversal), bypassing the
+  other filters. Beneath it, the **"Show connected companies"** checkbox widens
+  that view to also include every company with a direct edge to a highlighted one
+  (and the edges attaching them), so a highlight can be read in the context of its
+  immediate neighbourhood. The shared `neighborIds` helper in
+  `src/lib/graph/nodeStyle.ts` computes that neighbour set (also used by the
+  right-click pin) from the *unfiltered* edge set, so it stays an intrinsic
+  relation rather than a product of the active edge filters.
+
+- **Shareable filter URLs (`src/lib/graph/graphFilterParams.ts`).** Every graph
+  filter is mirrored into the query string, so a filtered view can be shared as a
+  plain link: `highlight` (repeated, company ids), `connected=1`
+  ("show connected companies"), `connectedTo` (the right-click pin), `ownership`,
+  `geography`, `sector`, `stage`, `status`, `rel` (enabled relationship types),
+  `evidence=1`, `from`, `to`. Multi-value filters use repeated params rather than a
+  delimiter so values containing commas survive a round trip, and defaults are
+  omitted so an unfiltered graph keeps a clean `/graph` URL. Unknown or malformed
+  values fall back to their default, so a hand-edited link can't wedge the view;
+  the one non-obvious encoding is a blank `rel=`, which carries "every
+  relationship type de-selected" (an omitted `rel` means the opposite, all
+  enabled). `CompanyGraph` decodes the query string once on mount to seed its
+  filter state and thereafter writes the URL itself via `history.replaceState`
+  (not `router.replace`, which would re-run the server component and remount the
+  canvas mid-filtering).
+
+  `connectedTo` is the exception to decode-once: the company detail dialog the
+  graph itself renders embeds the relationship snippet, whose "Show in
+  relationship graph" button links back to `/graph?connectedTo=<companyId>` — a
+  soft navigation on the *same* route, which leaves the view mounted and only
+  updates `useSearchParams()`. So that param is read live, and the URL sync keeps
+  it until the id has been consumed (resolved to its node, or found to be absent
+  once the graph has loaded), so a pending deep link is never stripped before it
+  applies.
 - **Company detail snippet (`src/components/pipeline/CompanyRelationshipGraph.tsx`).**
   Both the company detail page (`CompanyDetail.tsx`) and the company detail
   dialog (`CompanyDetailDialog.tsx`, opened from Master Data, Dashboard

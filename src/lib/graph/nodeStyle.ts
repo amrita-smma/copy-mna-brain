@@ -151,6 +151,27 @@ export function endpointId(endpoint: string | GraphNode): string {
   return typeof endpoint === 'object' ? endpoint.id : endpoint;
 }
 
+/**
+ * Every company sharing an edge with one of `ids`, excluding the seed ids
+ * themselves. Callers pass the full (unfiltered) link set so the neighbour
+ * relation is intrinsic to the graph rather than a product of the active
+ * edge-type / evidence / date filters.
+ */
+export function neighborIds(
+  links: Array<{ source: string | GraphNode; target: string | GraphNode }>,
+  ids: ReadonlySet<string>,
+): Set<string> {
+  const neighbors = new Set<string>();
+  if (ids.size === 0) return neighbors;
+  for (const l of links) {
+    const s = endpointId(l.source);
+    const t = endpointId(l.target);
+    if (ids.has(s) && !ids.has(t)) neighbors.add(t);
+    if (ids.has(t) && !ids.has(s)) neighbors.add(s);
+  }
+  return neighbors;
+}
+
 /** Edge colour for a relation label, falling back to slate for unknown types. */
 export function relationColor(label: string): string {
   return RELATION_COLORS[label as RelationType] ?? UNKNOWN_RELATION_COLOR;
