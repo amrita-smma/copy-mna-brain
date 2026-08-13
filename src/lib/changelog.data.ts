@@ -6,6 +6,12 @@ import type { ChangelogEntry } from './changelog';
 
 export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   {
+    "hash": "63c12c24767ca1a385e08a06949e682e912d2962",
+    "date": "2026-08-13",
+    "subject": "Deeplinks now redirect to the correct destination after login",
+    "category": "improvement"
+  },
+  {
     "hash": "6afc0a7a642a6f5e63899b0cf80bcb5dd30046a4",
     "date": "2026-08-12",
     "subject": "[skip-ci] Ability to call herdr agent",
@@ -29,6 +35,14 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   },
   {
     "hash": "8691a907840dcb6ff9bd518074afb163acd8f6a3",
+    "date": "2026-08-12",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
+    "hash": "cdbb5871af3ed4fe319924320361310c7a86b1e2",
     "date": "2026-08-12",
     "subject": "[skip deploy] chore: update changelog",
     "category": "improvement",
