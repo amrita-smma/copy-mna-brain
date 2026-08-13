@@ -6,10 +6,24 @@ import type { ChangelogEntry } from './changelog';
 
 export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   {
+    "hash": "d432c9b7c2807e5453dfc9ce16e07c995aeb24f2",
+    "date": "2026-08-14",
+    "subject": "Relationship graph now includes toggle to show connected companies and shareable filter URLs",
+    "category": "feature"
+  },
+  {
     "hash": "63c12c24767ca1a385e08a06949e682e912d2962",
     "date": "2026-08-13",
     "subject": "Deeplinks now redirect to the correct destination after login",
     "category": "improvement"
+  },
+  {
+    "hash": "6d20d1e6d729829f8cf6fcfc4fe657960267c9c8",
+    "date": "2026-08-13",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
   },
   {
     "hash": "6afc0a7a642a6f5e63899b0cf80bcb5dd30046a4",
