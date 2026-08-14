@@ -18,6 +18,22 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "category": "improvement"
   },
   {
+    "hash": "88b349ebb1a98a54dfbdd5ee45e47665439e2a6c",
+    "date": "2026-08-14",
+    "subject": "Add a scoped mna_developer IAM group and move kensen.huang into it",
+    "category": "feature",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "469c5c20d0970930505e7c20c30ba7e9ba2ca471",
+    "date": "2026-08-14",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "63c12c24767ca1a385e08a06949e682e912d2962",
     "date": "2026-08-13",
     "subject": "Deeplinks now redirect to the correct destination after login",
