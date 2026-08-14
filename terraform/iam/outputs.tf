@@ -8,13 +8,18 @@ output "mna_maintainers_user_names" {
   value       = local.current_config.mna_maintainers_users
 }
 
+output "mna_developer_user_names" {
+  description = "Usernames added to mna_developer group when not dev (lambda + s3 + rds only; must exist in IAM)"
+  value       = local.current_config.mna_developer_users
+}
+
 output "rds_iam_db_connect_policy_arn_from_rds_state" {
   description = "Policy ARN from terraform/rds remote state (null if RDS not applied, IAM DB auth off, or attach_rds_iam_db_connect_policy=false)"
   value       = local.rds_iam_db_connect_policy_arn
 }
 
 output "rds_iam_db_connect_group_attachments_enabled" {
-  description = "Whether mna_devops and mna_maintainers get the RDS IAM DB connect policy attachment (non-dev only)"
+  description = "Whether mna_devops, mna_maintainers and mna_developer get the RDS IAM DB connect policy attachment (non-dev only)"
   value = (
     var.attach_rds_iam_db_connect_policy &&
     local.environment != "dev" &&

@@ -75,3 +75,16 @@ resource "aws_iam_group_policy_attachment" "mna_maintainers_rds_iam_db_connect" 
   group      = aws_iam_group.mna_maintainers[0].name
   policy_arn = local.rds_iam_db_connect_policy_arn
 }
+
+# Without this, mna_developer's rds:* grant only covers control-plane calls —
+# it could not obtain a database login token. Production RDS accepts IAM auth only.
+resource "aws_iam_group_policy_attachment" "mna_developer_rds_iam_db_connect" {
+  count = (
+    var.attach_rds_iam_db_connect_policy &&
+    local.environment != "dev" &&
+    local.rds_iam_db_connect_policy_arn != null
+  ) ? 1 : 0
+
+  group      = aws_iam_group.mna_developer[0].name
+  policy_arn = local.rds_iam_db_connect_policy_arn
+}

@@ -18,6 +18,7 @@ locals {
       environment           = "dev"
       mna_devops_users      = ["nico.alimin"]
       mna_maintainers_users = []
+      mna_developer_users   = []
       ses_send_email_users  = []
       tags = {
         Environment = "dev"
@@ -32,12 +33,11 @@ locals {
         "kensen.huang",
       ]
       mna_maintainers_users = [
-        "dicki.sujadi",
         "kensen.huang",
         "nur.khairusy"
       ]
+      mna_developer_users = []
       ses_send_email_users = [
-        "dicki.sujadi",
         "kensen.huang",
         "nico.alimin",
       ]
@@ -49,14 +49,17 @@ locals {
     }
     production = {
       environment = "production"
+      # kensen.huang moved out of mna_devops (AdministratorAccess) and into
+      # mna_developer, which is scoped to lambda + s3 + rds only. Leaving them in
+      # both groups would make the narrower group meaningless.
       mna_devops_users = [
         "nico.alimin",
-        "kensen.huang",
       ]
       mna_maintainers_users = []
-      ses_send_email_users = [
-        "dicki.sujadi",
+      mna_developer_users = [
         "kensen.huang",
+      ]
+      ses_send_email_users = [
         "nico.alimin",
       ]
       tags = {
