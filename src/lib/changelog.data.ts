@@ -12,6 +12,12 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "category": "feature"
   },
   {
+    "hash": "681a9e25c91d24a7e86f2bdf0c63f54033976629",
+    "date": "2026-08-14",
+    "subject": "Relationship graph search queries now persist in the URL for easy sharing",
+    "category": "improvement"
+  },
+  {
     "hash": "63c12c24767ca1a385e08a06949e682e912d2962",
     "date": "2026-08-13",
     "subject": "Deeplinks now redirect to the correct destination after login",
@@ -19,6 +25,14 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   },
   {
     "hash": "6d20d1e6d729829f8cf6fcfc4fe657960267c9c8",
+    "date": "2026-08-13",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
+    "hash": "9fa0cdb16860ec1e72d6ff9299f4a59f8bfc4823",
     "date": "2026-08-13",
     "subject": "[skip deploy] chore: update changelog",
     "category": "improvement",
