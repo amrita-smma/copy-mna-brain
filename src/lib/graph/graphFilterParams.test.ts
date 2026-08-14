@@ -22,12 +22,13 @@ describe('decodeGraphFilters', () => {
 
   it('reads every filter off the query string', () => {
     const state = decode(
-      'highlight=c1&highlight=c2&connected=1&connectedTo=c9&ownership=public' +
+      'q=Acme&highlight=c1&highlight=c2&connected=1&connectedTo=c9&ownership=public' +
         '&geography=Japan&geography=South+Korea&sector=Industrials&stage=L1&stage=__none__' +
         '&status=dropped&rel=PARTNER&rel=NONE&evidence=1&from=2024-01-01&to=2024-12-31',
     );
     expect(state).toEqual(
       filters({
+        search: 'Acme',
         highlighted: ['c1', 'c2'],
         showConnectedCompanies: true,
         connectedTo: 'c9',
@@ -79,6 +80,12 @@ describe('decodeGraphFilters', () => {
     expect(decode('evidence=yes&connected=0').showConnectedCompanies).toBe(false);
   });
 
+  it('trims the search term and treats a blank one as unset', () => {
+    expect(decode('q=+Acme+Corp+').search).toBe('Acme Corp');
+    expect(decode('q=+').search).toBe('');
+    expect(decode('').search).toBe('');
+  });
+
   it('reads the pre-existing `connectedTo` deep link, blank-safe', () => {
     expect(decode('connectedTo=abc-123').connectedTo).toBe('abc-123');
     expect(decode('connectedTo=').connectedTo).toBeNull();
@@ -113,9 +120,19 @@ describe('encodeGraphFilters', () => {
     );
   });
 
+  it('omits a blank search term and trims a set one', () => {
+    expect(encodeGraphFilters(filters({ search: '   ' }))).toBe('');
+    expect(encodeGraphFilters(filters({ search: ' Acme Corp ' }))).toBe('q=Acme+Corp');
+  });
+
   it('emits params in a fixed order so the same filters share one URL', () => {
-    const state = filters({ highlighted: ['c1'], showConnectedCompanies: true, sector: ['X'] });
-    expect(encodeGraphFilters(state)).toBe('highlight=c1&connected=1&sector=X');
+    const state = filters({
+      search: 'Acme',
+      highlighted: ['c1'],
+      showConnectedCompanies: true,
+      sector: ['X'],
+    });
+    expect(encodeGraphFilters(state)).toBe('q=Acme&highlight=c1&connected=1&sector=X');
     expect(encodeGraphFilters(state)).toBe(encodeGraphFilters({ ...state }));
   });
 });
@@ -123,6 +140,7 @@ describe('encodeGraphFilters', () => {
 describe('encodeGraphFilters / decodeGraphFilters round trip', () => {
   it('survives a full filter state', () => {
     const state = filters({
+      search: 'Acme Corp',
       highlighted: ['c1', 'c2'],
       showConnectedCompanies: true,
       connectedTo: 'c9',

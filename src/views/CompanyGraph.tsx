@@ -531,7 +531,10 @@ export default function CompanyGraph({
   const [dimensions, setDimensions] = useState({ width: 800, height: 600 });
 
   // ─── Filters ──────────────────────────────────────────────────────────────
-  const [search, setSearch] = useState('');
+  // Not a node filter — it centres and zooms the canvas on the match — but it
+  // rides in the URL too, and is re-applied once the layout settles (see
+  // `onEngineStop`), so a shared link lands on the same view.
+  const [search, setSearch] = useState(initialFilters.search);
   // "Highlight" companies: when non-empty, the graph is pinned to exactly these
   // companies and the relationships between them (all other filters are
   // bypassed so the selection is shown verbatim).
@@ -702,6 +705,7 @@ export default function CompanyGraph({
   const filterQuery = useMemo(
     () =>
       encodeGraphFilters({
+        search,
         highlighted: [...highlightedIds],
         // Only meaningful alongside a highlight selection — without one the
         // checkbox is inert, so keep it out of shared links.
@@ -720,6 +724,7 @@ export default function CompanyGraph({
         dateTo,
       }),
     [
+      search,
       highlightedIds,
       showConnectedCompanies,
       connectedTo,
@@ -1036,6 +1041,9 @@ export default function CompanyGraph({
   // their edges to read clearly, while disconnected sub-graphs stay grouped
   // toward the centre rather than drifting to the corners.
   const didFitRef = useRef(false);
+  // One-shot latch for the `?q=` seed, which rides on the same settle callback as
+  // the fit below but must not repeat when the simulation reheats.
+  const didInitialSearchRef = useRef(false);
   useEffect(() => {
     const fg = graphRef.current;
     if (!fg || !ForceGraph2D) return;
@@ -1088,18 +1096,29 @@ export default function CompanyGraph({
 
   const clearHighlight = useCallback(() => setHighlightedIds(new Set()), []);
 
-  const handleSearch = () => {
-    const q = search.trim().toLowerCase();
-    if (!q || !graphRef.current) return;
-    const match =
-      filteredData.nodes.find((n) => n.name.toLowerCase() === q) ??
-      filteredData.nodes.find((n) => n.name.toLowerCase().includes(q));
-    if (!match) return;
-    const n = match as GraphNode & { x?: number; y?: number };
-    graphRef.current.centerAt(n.x ?? 0, n.y ?? 0, 800);
-    graphRef.current.zoom(5, 800);
-    setHovered(match);
-  };
+  // Centre and zoom the canvas on the company matching `term` (exact name first,
+  // then substring). Returns whether it found one — the initial `?q=` from a
+  // shared link uses that to decide whether it still needs the default
+  // fit-to-screen. Only meaningful once the force layout has given nodes
+  // coordinates, so callers run it after the engine has settled.
+  const runSearch = useCallback(
+    (term: string): boolean => {
+      const q = term.trim().toLowerCase();
+      if (!q || !graphRef.current) return false;
+      const match =
+        filteredData.nodes.find((n) => n.name.toLowerCase() === q) ??
+        filteredData.nodes.find((n) => n.name.toLowerCase().includes(q));
+      if (!match) return false;
+      const n = match as GraphNode & { x?: number; y?: number };
+      graphRef.current.centerAt(n.x ?? 0, n.y ?? 0, 800);
+      graphRef.current.zoom(5, 800);
+      setHovered(match);
+      return true;
+    },
+    [filteredData.nodes],
+  );
+
+  const handleSearch = () => runSearch(search);
 
   const handleNodeClick = (node: GraphNode) => {
     // Seed the dialog with what the graph node already knows so it opens
@@ -2073,6 +2092,18 @@ export default function CompanyGraph({
                 onEngineStop={() => {
                   if (didFitRef.current) return;
                   didFitRef.current = true;
+                  // A `?q=` carried in a shared link supersedes the *initial*
+                  // fit-to-screen, so the recipient lands on the same company the
+                  // sender was zoomed into. Strictly once: this handler re-arms on
+                  // every filter change (`didFitRef` is reset with each reheat), and
+                  // re-applying the link's term on those later settles would yank the
+                  // canvas back to it long after the user has edited or cleared the
+                  // search box. Falls through to the fit when the term matches nothing
+                  // in the current (filtered) graph.
+                  if (!didInitialSearchRef.current) {
+                    didInitialSearchRef.current = true;
+                    if (initialFilters.search && runSearch(initialFilters.search)) return;
+                  }
                   graphRef.current?.zoomToFit(500, 70);
                 }}
                 backgroundColor="transparent"

@@ -31,6 +31,13 @@ const STATUS_VALUES = ['active', 'dropped'];
 
 /** The shareable slice of the graph's filter panel. */
 export interface GraphFilterState {
+  /**
+   * The sidebar's "Search" term. It doesn't filter the node set — it centres and
+   * zooms the canvas on the matching company — but it's carried in the URL so a
+   * shared link reproduces the view the sender was looking at, not just the same
+   * set of nodes.
+   */
+  search: string;
   /** Highlighted company ids — the graph is pinned to these plus their paths. */
   highlighted: string[];
   /** Whether the highlight view also includes the highlighted companies' direct neighbours. */
@@ -53,6 +60,7 @@ export interface GraphFilterState {
 
 /** The filter state of an unfiltered graph — what an empty query string means. */
 export const DEFAULT_GRAPH_FILTERS: GraphFilterState = {
+  search: '',
   highlighted: [],
   showConnectedCompanies: false,
   connectedTo: null,
@@ -73,6 +81,7 @@ export const DEFAULT_GRAPH_FILTERS: GraphFilterState = {
  * fixed for backwards compatibility.
  */
 export const GRAPH_FILTER_PARAMS = {
+  search: 'q',
   highlighted: 'highlight',
   showConnectedCompanies: 'connected',
   connectedTo: 'connectedTo',
@@ -143,6 +152,7 @@ export function decodeGraphFilters(params: ReadableSearchParams): GraphFilterSta
   const connectedTo = params.get(P.connectedTo)?.trim();
 
   return {
+    search: params.get(P.search)?.trim() ?? '',
     highlighted: readList(params, P.highlighted),
     showConnectedCompanies: readFlag(params, P.showConnectedCompanies),
     connectedTo: connectedTo ? connectedTo : null,
@@ -182,6 +192,7 @@ export function encodeGraphFilters(state: GraphFilterState): string {
     for (const value of values) params.append(name, value);
   };
 
+  if (state.search.trim()) params.set(P.search, state.search.trim());
   appendAll(P.highlighted, state.highlighted);
   if (state.showConnectedCompanies) params.set(P.showConnectedCompanies, '1');
   if (state.connectedTo) params.set(P.connectedTo, state.connectedTo);

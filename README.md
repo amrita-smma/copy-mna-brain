@@ -878,10 +878,14 @@ it.**
 
 - **Shareable filter URLs (`src/lib/graph/graphFilterParams.ts`).** Every graph
   filter is mirrored into the query string, so a filtered view can be shared as a
-  plain link: `highlight` (repeated, company ids), `connected=1`
-  ("show connected companies"), `connectedTo` (the right-click pin), `ownership`,
-  `geography`, `sector`, `stage`, `status`, `rel` (enabled relationship types),
-  `evidence=1`, `from`, `to`. Multi-value filters use repeated params rather than a
+  plain link: `q` (the sidebar search term), `highlight` (repeated, company ids),
+  `connected=1` ("show connected companies"), `connectedTo` (the right-click pin),
+  `ownership`, `geography`, `sector`, `stage`, `status`, `rel` (enabled
+  relationship types), `evidence=1`, `from`, `to`. `q` is the odd one out: it
+  doesn't filter the node set, it centres and zooms the canvas on the matching
+  company, and it's applied on `onEngineStop` (in place of the default
+  fit-to-screen) because it needs the force layout to have settled before nodes
+  have coordinates to centre on. Multi-value filters use repeated params rather than a
   delimiter so values containing commas survive a round trip, and defaults are
   omitted so an unfiltered graph keeps a clean `/graph` URL. Unknown or malformed
   values fall back to their default, so a hand-edited link can't wedge the view;
