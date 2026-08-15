@@ -6,6 +6,14 @@ import type { ChangelogEntry } from './changelog';
 
 export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   {
+    "hash": "533aedd8032b87cacb99dd9cea3b0be325c21264",
+    "date": "2026-08-15",
+    "subject": "Consolidate mna_maintainers into mna_developer",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
     "hash": "d432c9b7c2807e5453dfc9ce16e07c995aeb24f2",
     "date": "2026-08-14",
     "subject": "Relationship graph now includes toggle to show connected companies and shareable filter URLs",
@@ -27,6 +35,14 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   },
   {
     "hash": "469c5c20d0970930505e7c20c30ba7e9ba2ca471",
+    "date": "2026-08-14",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
+    "hash": "4264a44c0143f10059d0caa46390601e613b0a82",
     "date": "2026-08-14",
     "subject": "[skip deploy] chore: update changelog",
     "category": "improvement",
