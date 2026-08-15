@@ -1,6 +1,6 @@
 
 variable "attach_rds_iam_db_connect_policy" {
-  description = "Read RDS remote state and attach iam_db_connect_policy_arn to mna_devops and mna_maintainers. Set false if RDS state does not exist yet for this workspace."
+  description = "Read RDS remote state and attach iam_db_connect_policy_arn to mna_devops and mna_developer. Set false if RDS state does not exist yet for this workspace."
   type        = bool
   default     = true
 }
@@ -8,8 +8,8 @@ variable "attach_rds_iam_db_connect_policy" {
 variable "additional_iam_role_names_for_rds_db_connect" {
   description = <<-EOT
     Optional IAM role names (e.g. AWSReservedSSO_* from IAM Identity Center) to attach the same
-    rds-db:connect policy as the devops/maintainers groups. Use when engineers sign in via SSO
-    assumed-role and are not in IAM groups mna_devops / mna_maintainers.
+    rds-db:connect policy as the devops/developer groups. Use when engineers sign in via SSO
+    assumed-role and are not in IAM groups mna_devops / mna_developer.
   EOT
   type        = list(string)
   default     = []
@@ -62,17 +62,6 @@ resource "aws_iam_group_policy_attachment" "mna_devops_rds_iam_db_connect" {
   ) ? 1 : 0
 
   group      = aws_iam_group.mna_devops[0].name
-  policy_arn = local.rds_iam_db_connect_policy_arn
-}
-
-resource "aws_iam_group_policy_attachment" "mna_maintainers_rds_iam_db_connect" {
-  count = (
-    var.attach_rds_iam_db_connect_policy &&
-    local.environment != "dev" &&
-    local.rds_iam_db_connect_policy_arn != null
-  ) ? 1 : 0
-
-  group      = aws_iam_group.mna_maintainers[0].name
   policy_arn = local.rds_iam_db_connect_policy_arn
 }
 

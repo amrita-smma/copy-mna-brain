@@ -43,7 +43,7 @@ variable "iam_db_auth_username" {
 }
 
 variable "iam_db_auth_attach_users" {
-  description = "Optional: attach rds-db:connect policy directly to these IAM usernames. Prefer attaching via terraform/iam (mna_devops + mna_maintainers groups) using remote state; leave empty when using that path."
+  description = "Optional: attach rds-db:connect policy directly to these IAM usernames. Prefer attaching via terraform/iam (mna_devops + mna_developer groups) using remote state; leave empty when using that path."
   type        = list(string)
   default     = []
 }

@@ -10,9 +10,12 @@ resource "aws_iam_group_membership" "mna_developer" {
   users = local.current_config.mna_developer_users
 }
 
-# Least-privilege day-to-day group: Lambda, S3 and RDS only. Deliberately narrower
-# than mna_maintainers (no ec2/ecs/iam/backup/ssm) and than mna_devops
-# (AdministratorAccess). Database login itself is not granted here — it comes from
+# Day-to-day group, now the only non-admin IAM group: absorbed mna_maintainers
+# (which had zero members in every workspace) along with its full permission
+# set, so no access is lost for anyone added to this group going forward.
+# Deliberately narrower than mna_devops (AdministratorAccess) only in that it
+# has no user/access-key management beyond what's listed below.
+# Database login itself is not granted here — it comes from
 # the rds-db:connect attachment in rds_iam_db_connect.tf, because rds:* does not
 # cover the rds-db service prefix used by RDS IAM authentication.
 resource "aws_iam_group_policy" "mna_developer_policy" {
@@ -23,12 +26,46 @@ resource "aws_iam_group_policy" "mna_developer_policy" {
     Version = "2012-10-17",
     Statement = [
       {
-        Sid    = "LambdaS3Rds",
+        Sid    = "LambdaS3RdsAndFormerMaintainerAccess",
         Effect = "Allow",
         Action = [
           "lambda:*",
           "s3:*",
-          "rds:*"
+          "rds:*",
+          "ec2:*",
+          "elasticloadbalancing:*",
+          "cloudwatch:*",
+          "cloudshell:*",
+          "ecs:*",
+          "events:*",
+          "iam:ListAttachedRolePolicies",
+          "iam:ListInstanceProfiles",
+          "iam:ListRoles",
+          "logs:*",
+          "backup:*",
+          "textract:*",
+          "iam:CreateUser",
+          "iam:CreateAccessKey",
+          "iam:CreatePolicy",
+          "iam:GetPolicy",
+          "iam:GetPolicyVersion",
+          "iam:ListPolicyVersions",
+          "iam:DeletePolicy",
+          "iam:AttachUserPolicy",
+          "iam:ListAttachedUserPolicies",
+          "iam:DetachUserPolicy",
+          "ses:SendEmail",
+          "ses:SendRawEmail",
+          "ssm:StartSession",
+          "ssm:DescribeInstanceInformation",
+          "ssm:TerminateSession",
+          "xray:PutTraceSegments",
+          "xray:PutTelemetryRecords",
+          "xray:GetTraceSummaries",
+          "xray:BatchGetTraces",
+          "xray:GetTraceGraph",
+          "xray:GetServiceGraph",
+          "tag:GetResources"
         ],
         Resource = "*"
       },

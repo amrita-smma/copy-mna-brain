@@ -3,13 +3,8 @@ output "mna_devops_user_names" {
   value       = local.current_config.mna_devops_users
 }
 
-output "mna_maintainers_user_names" {
-  description = "Usernames added to mna_maintainers group when not dev (must exist in IAM)"
-  value       = local.current_config.mna_maintainers_users
-}
-
 output "mna_developer_user_names" {
-  description = "Usernames added to mna_developer group when not dev (lambda + s3 + rds only; must exist in IAM)"
+  description = "Usernames added to mna_developer group when not dev (must exist in IAM)"
   value       = local.current_config.mna_developer_users
 }
 
@@ -19,7 +14,7 @@ output "rds_iam_db_connect_policy_arn_from_rds_state" {
 }
 
 output "rds_iam_db_connect_group_attachments_enabled" {
-  description = "Whether mna_devops, mna_maintainers and mna_developer get the RDS IAM DB connect policy attachment (non-dev only)"
+  description = "Whether mna_devops and mna_developer get the RDS IAM DB connect policy attachment (non-dev only)"
   value = (
     var.attach_rds_iam_db_connect_policy &&
     local.environment != "dev" &&
@@ -39,7 +34,7 @@ output "dbeaver_rds_iam_auth_cli" {
     local.rds_db_port_for_cli != null &&
     local.rds_iam_db_username_for_cli != null
     ) ? join("\n", [
-      "# 1) Ensure AWS CLI v2 and credentials for an identity that has rds-db:connect (mna_devops / mna_maintainers group, or an attached SSO role).",
+      "# 1) Ensure AWS CLI v2 and credentials for an identity that has rds-db:connect (mna_devops / mna_developer group, or an attached SSO role).",
       "# 2) Generate token (paste entire output as DBeaver password; no spaces/newlines if DBeaver complains):",
       "aws rds generate-db-auth-token \\",
       "  --hostname ${local.rds_db_endpoint_for_cli} \\",
