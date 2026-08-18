@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useWorkspaceHref } from '@/hooks/useWorkspaceHref';
 import { useWorkspaceCurrency } from '@/components/layout/WorkspaceCurrencyContext';
@@ -189,6 +189,10 @@ export default function MasterData({
   const [companyToPromote, setCompanyToPromote] = useState<CompanyWithDeal | null>(null);
   const [selectedCompany, setSelectedCompany] = useState<CompanyData | null>(null);
   const [loadingDialog, setLoadingDialog] = useState(false);
+  // Tracks which company id the most recent click/close is for, so an
+  // out-of-order or late-arriving fetch response (or one still in flight
+  // when the dialog is closed) can't clobber the currently selected company.
+  const activeCompanyRequestIdRef = useRef<string | null>(null);
   const { toast } = useToast();
   const currency = useWorkspaceCurrency();
   const formatCurrency = (value: number | null): string => formatMoneyMn(value, currency);
@@ -214,9 +218,16 @@ export default function MasterData({
   const discoveredItemsPerPage = isMobile ? 6 : 12;
 
   const openCompanyDialog = async (companyId: string) => {
+    activeCompanyRequestIdRef.current = companyId;
     setLoadingDialog(true);
     try {
       const data = await getCompanies({ id: companyId });
+      // A newer click (or a dialog close) superseded this request while it
+      // was in flight — discard the stale response instead of overwriting
+      // whatever the user has since selected.
+      if (activeCompanyRequestIdRef.current !== companyId) {
+        return;
+      }
       if (!data) {
         toast({ title: 'Error', description: 'Could not load company', variant: 'destructive' });
         return;
@@ -231,9 +242,13 @@ export default function MasterData({
       // Pipeline view passes straight through.
       setSelectedCompany(data as CompanyData);
     } catch {
-      toast({ title: 'Error', description: 'Could not load company', variant: 'destructive' });
+      if (activeCompanyRequestIdRef.current === companyId) {
+        toast({ title: 'Error', description: 'Could not load company', variant: 'destructive' });
+      }
     } finally {
-      setLoadingDialog(false);
+      if (activeCompanyRequestIdRef.current === companyId) {
+        setLoadingDialog(false);
+      }
     }
   };
 
@@ -1035,7 +1050,13 @@ export default function MasterData({
           <CompanyDetailDialog
             company={selectedCompany}
             open={!!selectedCompany}
-            onOpenChange={(open) => !open && setSelectedCompany(null)}
+            onOpenChange={(open) => {
+              if (!open) {
+                activeCompanyRequestIdRef.current = null;
+                setSelectedCompany(null);
+                setLoadingDialog(false);
+              }
+            }}
             onUpdate={() => {
               fetchCompanies({ silent: true });
             }}
