@@ -26,6 +26,20 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "skipReason": "noise"
   },
   {
+    "hash": "78391827bd65775bfb0906b2311765a814c51733",
+    "date": "2026-08-18",
+    "subject": "Company card popup now displays current company information",
+    "category": "fix"
+  },
+  {
+    "hash": "7e4d248009f36be4a117cd2f1c91006e02943f44",
+    "date": "2026-08-18",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "533aedd8032b87cacb99dd9cea3b0be325c21264",
     "date": "2026-08-15",
     "subject": "Consolidate mna_maintainers into mna_developer",
