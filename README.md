@@ -461,9 +461,9 @@ Layering follows the project's handler → service → repository convention:
 > **Not yet included:** per-key rate limiting. Add Vercel WAF rate rules or an
 > Upstash-backed limiter before exposing this to untrusted clients.
 
-## Copilot flavors (M&A, Investment, Combined)
+## Copilot flavors (M&A, Investment, Combined, VC)
 
-The in-app Copilot ships in three selectable flavors, chosen per workspace:
+The in-app Copilot ships in four selectable flavors, chosen per workspace:
 
 - **`mna`** (default) — the M&A / acquisitions assistant: company/CRM tools,
   pipeline analysis, and Workforce handoffs (`CHAT_SYSTEM_PROMPT` +
@@ -480,6 +480,31 @@ The in-app Copilot ships in three selectable flavors, chosen per workspace:
   the deduplicated union of `DEFAULT_TOOL_LIST` and `investmentTools` — the
   shared read tools (`web_search`, `query_files`, `lookup_crm`, `crm_insights`,
   `lookup_user`, `send_email`, `propose_workforce_handoff`) appear once.
+- **`vc`** — the Venture Capital & Growth Equity assistant: a flavor of the
+  existing Copilot (not a separate agent, graph, or endpoint) powered by
+  `VC_SYSTEM_PROMPT` + `VC_TOOL_LIST`. It combines curated fact-retrieval tools
+  across pipeline companies, fund portfolios, and CRM context with
+  `get_investment_theses` (active/inactive workspace theses/tracks),
+  `calculate_investment_returns` (deterministic scenario math for proceeds, MOIC,
+  and IRR), and enhanced external research via Valyu (`valyu_search` and
+  `valyu_extract_content`, with `web_search` as fallback/corroboration). The model
+  dynamically selects tools and owns qualitative synthesis and recommendations
+  (`invest` / `pass` / `investigate further`); there is no mandatory module
+  sequence or end-of-turn evaluation. External companies and funds not in
+  workspace data are researched seamlessly using cited external search. No schema
+  migration or new table is required (persisted via `workspaces.copilot_agent = 'vc'`).
+
+### VC external research architecture (Valyu & Web)
+
+The VC Copilot integrates external research tools for live diligence across companies, sectors, fund managers, exit comps, and integrity checks:
+
+- **Synchronous chat research tools:**
+  - `valyu_search`: Primary search engine for financial filings, market research, sector dynamics, news, transcripts, and web sources with clickable markdown citations.
+  - `valyu_extract_content`: Targeted factual extractor for deep inspection of 1–3 specific authoritative URLs discovered during research.
+  - `web_search`: Fallback search engine for general web queries and cross-source corroboration.
+- **Coverage boundaries & factual limits:** Valyu provides strong coverage for public markets, SEC/regulatory filings, industry research, and web sources. Documented sources do not guarantee complete private cap tables, private fund performance/LP data, or undisclosed metrics; these remain gaps when not found. Undisclosed private metrics are explicitly reported as data gaps rather than estimated or guessed.
+- **Fast chat vs. deferred DeepResearch/Batch boundary:** Fast synchronous search (`search`) and targeted extraction (`contents`) power interactive chat to keep conversational latency low. Long-running **Valyu DeepResearch** (multi-minute deep investigations) and **Batch** research workflows are **intentionally deferred** to a future AI Workforce background integration and are **not implemented** in the synchronous Copilot chat.
+- **Agentic tool use:** The LLM selects tools dynamically based on user intent and evidence needs (no rigid tool sequences or fixed topic pipelines) and owns all investment synthesis and recommendations.
 
 **Name resolution ("how is X doing?").** On the fund side a name the user types
 can be a holding, a fund, an investor/LP, or a source of capital, and the user

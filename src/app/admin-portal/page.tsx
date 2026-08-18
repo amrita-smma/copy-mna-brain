@@ -86,6 +86,7 @@ const COPILOT_AGENT_OPTIONS: { value: string; label: string }[] = [
   { value: 'mna', label: 'M&A / Acquisitions' },
   { value: 'investment', label: 'Funds & Investing' },
   { value: 'combined', label: 'Combined (M&A + Investment)' },
+  { value: 'vc', label: 'VC / Growth Equity' },
 ];
 
 /** The display currencies, mirrored from the server's WORKSPACE_CURRENCIES. */

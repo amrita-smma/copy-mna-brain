@@ -44,6 +44,20 @@ vi.mock('@/lib/agents/analysis/tools', () => ({
   // getAgentGraph has something to strip.
   investmentTools: [{ name: 'query_funds' }, { name: 'query_fund_sources' }],
   combinedTools: [{ name: 'add_company' }, { name: 'query_fund_sources' }],
+  vcTools: [
+    { name: 'query_companies' },
+    { name: 'get_investment_theses' },
+    { name: 'query_funds' },
+    { name: 'query_fund_sources' },
+    { name: 'valyu_search' },
+    { name: 'valyu_extract_content' },
+    { name: 'get_company_profile' },
+    { name: 'get_sector_context' },
+    { name: 'get_competitor_landscape' },
+    { name: 'get_regulatory_context' },
+    { name: 'get_market_signals' },
+    { name: 'calculate_investment_returns' },
+  ],
 }));
 
 // db.ts constructs a Postgres client at module load and throws without DB env
@@ -217,6 +231,117 @@ describe('getAgentGraph flavor selection', () => {
     const combinedPrompt = mocks.createAgent.mock.calls[1][0].systemPrompt as string;
     expect(combinedPrompt).toContain('M&A + Investment Analysis Assistant');
   });
+
+  it('builds the vc flavor with its own tool list and distinct prompt', async () => {
+    await getAgentGraph('vc');
+
+    const prompt = mocks.createAgent.mock.calls[0][0].systemPrompt as string;
+    const tools = mocks.createAgent.mock.calls[0][0].tools as Array<{ name: string }>;
+
+    expect(prompt).toContain('Venture Capital & Growth Equity Analysis Copilot');
+    expect(prompt).toContain('get_investment_theses');
+    expect(prompt).toContain('get_company_profile');
+    expect(prompt).toContain('get_sector_context');
+    expect(prompt).toContain('get_competitor_landscape');
+    expect(prompt).toContain('get_regulatory_context');
+    expect(prompt).toContain('get_market_signals');
+    expect(prompt).toContain('calculate_investment_returns');
+    expect(prompt).toContain('valyu_extract_content');
+    expect(prompt).toContain('<!-- THINKING_START -->');
+    expect(tools.map((t) => t.name)).toEqual([
+      'query_companies',
+      'get_investment_theses',
+      'query_funds',
+      'query_fund_sources',
+      'valyu_search',
+      'valyu_extract_content',
+      'get_company_profile',
+      'get_sector_context',
+      'get_competitor_landscape',
+      'get_regulatory_context',
+      'get_market_signals',
+      'calculate_investment_returns',
+    ]);
+  });
+
+  it('instructs the vc flavor on Valyu search, topic tools, content extraction, routing guidance, and factual boundaries', async () => {
+    await getAgentGraph('vc');
+
+    const prompt = mocks.createAgent.mock.calls[0][0].systemPrompt as string;
+
+    // Available tools list numbering
+    expect(prompt).toMatch(/17\.\s+\*\*valyu_search\*\*/);
+    expect(prompt).toMatch(/18\.\s+\*\*valyu_extract_content\*\*/);
+    expect(prompt).toMatch(/19\.\s+\*\*get_company_profile\*\*/);
+    expect(prompt).toMatch(/20\.\s+\*\*get_sector_context\*\*/);
+    expect(prompt).toMatch(/21\.\s+\*\*get_competitor_landscape\*\*/);
+    expect(prompt).toMatch(/22\.\s+\*\*get_regulatory_context\*\*/);
+    expect(prompt).toMatch(/23\.\s+\*\*get_market_signals\*\*/);
+    expect(prompt).toMatch(/24\.\s+\*\*calculate_investment_returns\*\*/);
+    expect(prompt).toMatch(/25\.\s+\*\*lookup_user\*\*/);
+    expect(prompt).toMatch(/26\.\s+\*\*send_email\*\*/);
+    expect(prompt).toMatch(/27\.\s+\*\*propose_workforce_handoff\*\*/);
+
+    // Valyu search vs topic tools vs content extraction roles and web_search fallback
+    expect(prompt).toMatch(/prefer focused topic tools/i);
+    expect(prompt).toMatch(/choose the narrowest relevant topic tool/i);
+    expect(prompt).toMatch(/invoke multiple topic research tools in parallel/i);
+    expect(prompt).toMatch(/generic `valyu_search` for ad-hoc/i);
+    expect(prompt).toMatch(/`valyu_extract_content` to deeply inspect a small number/i);
+    expect(prompt).toMatch(/retain `web_search` as a fallback/i);
+
+    // Topic tools focus areas
+    expect(prompt).toMatch(/company overview, founders/i);
+    expect(prompt).toMatch(/market sizing, cagr/i);
+    expect(prompt).toMatch(/direct competitors, substitute products/i);
+    expect(prompt).toMatch(/regulatory requirements, compliance policies/i);
+    expect(prompt).toMatch(/recent news events, executive turnover/i);
+    expect(prompt).toMatch(/exit comparables/i);
+
+    // Factual boundaries and private data gaps
+    expect(prompt).toMatch(/private cap-tables/i);
+    expect(prompt).toMatch(/report it as a data gap rather than guessing/i);
+
+    // Preserved agentic behavior (no rigid sequence, no delegated verdict)
+    expect(prompt).toMatch(/no rigid formulas or delegated judgment/i);
+    expect(prompt).toMatch(/final investment judgment and synthesis is yours and must not be delegated/i);
+  });
+
+  it('memoizes the vc flavor independently from mna, investment, and combined', async () => {
+    const mna = await getAgentGraph('mna');
+    const investment = await getAgentGraph('investment');
+    const combined = await getAgentGraph('combined');
+    const vc = await getAgentGraph('vc');
+
+    expect(vc).not.toBe(mna);
+    expect(vc).not.toBe(investment);
+    expect(vc).not.toBe(combined);
+    expect(mocks.createAgent).toHaveBeenCalledTimes(4);
+
+    expect(await getAgentGraph('vc')).toBe(vc);
+    expect(mocks.createAgent).toHaveBeenCalledTimes(4);
+  });
+
+  it('builds high-effort vc agent with Opus model and memoizes separately', async () => {
+    const medium = await getAgentGraph('vc', 'medium');
+    const high = await getAgentGraph('vc', 'high');
+
+    expect(high).not.toBe(medium);
+    expect(mocks.createAgent).toHaveBeenCalledTimes(2);
+
+    const mediumModel = mocks.createAgent.mock.calls[0][0].model as {
+      opts: Record<string, unknown>;
+    };
+    const highModel = mocks.createAgent.mock.calls[1][0].model as {
+      opts: Record<string, unknown>;
+    };
+
+    expect(mediumModel.opts.model).toBe('claude-sonnet-5');
+    expect(highModel.opts.model).toBe('claude-opus-4-8');
+
+    expect(await getAgentGraph('vc', 'high')).toBe(high);
+    expect(mocks.createAgent).toHaveBeenCalledTimes(2);
+  });
 });
 
 describe('getAgentGraph source-of-funds gating', () => {
@@ -253,6 +378,19 @@ describe('getAgentGraph source-of-funds gating', () => {
     expect(toolNames(0)).toContain('add_company');
   });
 
+  it('includes query_fund_sources for the vc flavor when enabled (the default)', async () => {
+    await getAgentGraph('vc', 'medium', true);
+    expect(toolNames(0)).toContain('query_fund_sources');
+    expect(toolNames(0)).toContain('calculate_investment_returns');
+  });
+
+  it('strips query_fund_sources from the vc flavor when disabled', async () => {
+    await getAgentGraph('vc', 'medium', false);
+    expect(toolNames(0)).not.toContain('query_fund_sources');
+    expect(toolNames(0)).toContain('calculate_investment_returns');
+    expect(toolNames(0)).toContain('get_investment_theses');
+  });
+
   it('memoizes enabled and disabled graphs as distinct singletons', async () => {
     const enabled = await getAgentGraph('investment', 'medium', true);
     const disabled = await getAgentGraph('investment', 'medium', false);
@@ -261,6 +399,16 @@ describe('getAgentGraph source-of-funds gating', () => {
     // Re-requesting each returns its own cached instance.
     expect(await getAgentGraph('investment', 'medium', true)).toBe(enabled);
     expect(await getAgentGraph('investment', 'medium', false)).toBe(disabled);
+    expect(mocks.createAgent).toHaveBeenCalledTimes(2);
+  });
+
+  it('memoizes enabled and disabled vc graphs as distinct singletons', async () => {
+    const enabled = await getAgentGraph('vc', 'medium', true);
+    const disabled = await getAgentGraph('vc', 'medium', false);
+    expect(disabled).not.toBe(enabled);
+    expect(mocks.createAgent).toHaveBeenCalledTimes(2);
+    expect(await getAgentGraph('vc', 'medium', true)).toBe(enabled);
+    expect(await getAgentGraph('vc', 'medium', false)).toBe(disabled);
     expect(mocks.createAgent).toHaveBeenCalledTimes(2);
   });
 });

@@ -1,15 +1,26 @@
 import { CallbackHandler } from "langfuse-langchain";
 
 /**
- * Returns a Langfuse CallbackHandler array if the environment is development
- * and the Langfuse secret key is provided. Otherwise, returns an empty array.
+ * Returns a Langfuse CallbackHandler array for local development and Vercel
+ * Preview deployments when the Langfuse secret key is provided. Production
+ * remains opt-out by default. Otherwise, returns an empty array.
  *
  * This should be passed to the `callbacks` array in LangChain/LangGraph invocations.
  */
 let langfuseHandler: CallbackHandler | null = null;
 
+export function isLangfuseEnabled(
+  env: Partial<
+    Record<"NODE_ENV" | "VERCEL_ENV" | "LANGFUSE_SECRET_KEY", string>
+  > = process.env,
+): boolean {
+  const supportedEnvironment =
+    env.NODE_ENV === "development" || env.VERCEL_ENV === "preview";
+  return supportedEnvironment && Boolean(env.LANGFUSE_SECRET_KEY);
+}
+
 export function getLangfuseCallbacks() {
-  if (process.env.NODE_ENV === "development" && process.env.LANGFUSE_SECRET_KEY) {
+  if (isLangfuseEnabled()) {
     if (!langfuseHandler) {
       langfuseHandler = new CallbackHandler({
         secretKey: process.env.LANGFUSE_SECRET_KEY,

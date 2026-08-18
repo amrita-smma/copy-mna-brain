@@ -59,6 +59,29 @@ const INVESTMENT_SUGGESTIONS: ChatSuggestion[] = [
   },
 ];
 
+const VC_SUGGESTIONS: ChatSuggestion[] = [
+  {
+    label: "Thesis Alignment",
+    prompt: "Evaluate how well a target company aligns with our active workspace investment theses.",
+    icon: Target,
+  },
+  {
+    label: "Return Modeling",
+    prompt: "Model downside, base, and upside investment return scenarios with MOIC and IRR.",
+    icon: TrendingUp,
+  },
+  {
+    label: "Holding Review",
+    prompt: "Review the performance, valuation, and metrics of our internal fund holdings.",
+    icon: Briefcase,
+  },
+  {
+    label: "External Diligence",
+    prompt: "Evaluate an external fund manager or company using cited market research.",
+    icon: Globe,
+  },
+];
+
 // Combined flavor: a mix that exercises both the deal pipeline and the fund
 // portfolio so users see the assistant can move between the two.
 const COMBINED_SUGGESTIONS: ChatSuggestion[] = [
@@ -90,11 +113,13 @@ export function ChatSuggestions({ className }: { className?: string }) {
   const agentType = useCopilotAgent();
   const isBusy = status === "streaming" || status === "submitted";
   const suggestions =
-    agentType === "investment"
-      ? INVESTMENT_SUGGESTIONS
-      : agentType === "combined"
-        ? COMBINED_SUGGESTIONS
-        : MNA_SUGGESTIONS;
+    agentType === "vc"
+      ? VC_SUGGESTIONS
+      : agentType === "investment"
+        ? INVESTMENT_SUGGESTIONS
+        : agentType === "combined"
+          ? COMBINED_SUGGESTIONS
+          : MNA_SUGGESTIONS;
 
   return (
     <div className={cn("grid grid-cols-1 gap-2 sm:grid-cols-2", className)}>

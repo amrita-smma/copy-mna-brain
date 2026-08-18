@@ -17,6 +17,7 @@ export const COPILOT_AGENTS: readonly CopilotAgentType[] = [
   'mna',
   'investment',
   'combined',
+  'vc',
 ] as const;
 
 /** The display currencies a workspace can be set to. Source of truth for
@@ -27,6 +28,7 @@ export const WORKSPACE_CURRENCIES: readonly Currency[] = CURRENCIES;
 export function normalizeCopilotAgent(value: string | null | undefined): CopilotAgentType {
   if (value === 'investment') return 'investment';
   if (value === 'combined') return 'combined';
+  if (value === 'vc') return 'vc';
   return 'mna';
 }
 

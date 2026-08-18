@@ -42,6 +42,14 @@ import { getFundAssetDetails } from "./get_fund_asset_details";
 import { queryInvestors } from "./query_investors";
 import { queryFundSources } from "./query_fund_sources";
 import { searchInvestments } from "./search_investments";
+import { getInvestmentTheses } from "./get_investment_theses";
+import { calculateInvestmentReturns } from "./calculate_investment_returns";
+import { valyuExtractContent } from "./valyu_extract_content";
+import { getCompanyProfile } from "./get_company_profile";
+import { getSectorContext } from "./get_sector_context";
+import { getCompetitorLandscape } from "./get_competitor_landscape";
+import { getRegulatoryContext } from "./get_regulatory_context";
+import { getMarketSignals } from "./get_market_signals";
 
 export {
   getDataSchema,
@@ -82,6 +90,14 @@ export {
   queryInvestors,
   queryFundSources,
   searchInvestments,
+  getInvestmentTheses,
+  calculateInvestmentReturns,
+  valyuExtractContent,
+  getCompanyProfile,
+  getSectorContext,
+  getCompetitorLandscape,
+  getRegulatoryContext,
+  getMarketSignals,
 };
 
 export {
@@ -209,6 +225,42 @@ export const combinedTools = [
   queryInvestors,
   queryFundSources,
   valyuSearch,
+];
+
+/**
+ * VC tools — the curated tool set for the "vc" (Venture Capital / Growth Equity)
+ * Copilot flavor. Combines M&A pipeline companies, workspace investment theses,
+ * fund portfolio data, CRM context, web and Valyu research, deterministic
+ * return calculations, and workforce/communication actions.
+ */
+export const vcTools = [
+  getDataSchema,
+  queryCompanies,
+  getCompanyStats,
+  getCompanyDetails,
+  getInvestmentTheses,
+  getFundDataSchema,
+  searchInvestments,
+  queryFunds,
+  queryFundAssets,
+  getFundAssetDetails,
+  queryInvestors,
+  queryFundSources,
+  queryMeetingNotes,
+  lookupCrm,
+  crmInsights,
+  webSearch,
+  valyuSearch,
+  valyuExtractContent,
+  getCompanyProfile,
+  getSectorContext,
+  getCompetitorLandscape,
+  getRegulatoryContext,
+  getMarketSignals,
+  calculateInvestmentReturns,
+  lookupUser,
+  sendEmailTool,
+  proposeWorkforceHandoff,
 ];
 
 /**
