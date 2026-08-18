@@ -213,7 +213,7 @@ export async function executeValyuSearch({
 
 /**
  * Search Valyu.ai across web, news, and proprietary data sources (financial filings, market data, research).
- * Available to the Funds & Investing, Combined, and VC Copilot flavors.
+ * Available to the M&A, Funds & Investing, Combined, and VC Copilot flavors.
  */
 export const valyuSearch = tool(
   async (input: ValyuSearchInput) =>

@@ -58,6 +58,7 @@ vi.mock('@/lib/agents/analysis/tools', () => ({
     { name: 'get_market_signals' },
     { name: 'calculate_investment_returns' },
   ],
+  valyuSearch: { name: 'valyu_search' },
 }));
 
 // db.ts constructs a Postgres client at module load and throws without DB env
@@ -216,6 +217,13 @@ describe('getAgentGraph flavor selection', () => {
     expect(investmentPrompt).toContain('search_investments');
     expect(investmentPrompt).toContain('How is X doing?');
     expect(investmentPrompt).toMatch(/holding[\s\S]*fund[\s\S]*investor[\s\S]*capital/i);
+  });
+
+  it('equips the M&A flavor with valyu_search', async () => {
+    await getAgentGraph('mna');
+
+    const mnaTools = mocks.createAgent.mock.calls[0][0].tools as { name: string }[];
+    expect(mnaTools.map((t) => t.name)).toContain('valyu_search');
   });
 
   it('builds the combined flavor as its own memoized singleton with a distinct prompt', async () => {

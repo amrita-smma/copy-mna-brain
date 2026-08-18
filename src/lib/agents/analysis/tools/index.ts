@@ -182,7 +182,8 @@ export const workforceOnlyTools = [
  * "investment" Copilot flavor. Lets the agent see and analyze the workspace's
  * funds, assets/holdings, investors (LPs), and fund sources, plus web search
  * and Valyu search for external market data. Distinct from the M&A tool set
- * (companies/CRM); the two flavors never share a tool list.
+ * (companies/CRM) otherwise; `valyu_search` is the one tool shared with the
+ * M&A chat flavor (added directly to `DEFAULT_TOOL_LIST` in index.ts).
  */
 export const investmentTools = [
   getFundDataSchema,
@@ -212,7 +213,9 @@ export const investmentTools = [
  * (web_search, query_files, lookup_crm, crm_insights, lookup_user, send_email,
  * propose_workforce_handoff are shared and must not be duplicated — passing the
  * same tool twice to createAgent would register a duplicate name).
- * `valyu_search` is investment/combined-only, so it is listed explicitly here.
+ * `valyu_search` isn't part of the shared `tools` or `chatOnlyTools` lists
+ * (it's added directly to the M&A chat's `DEFAULT_TOOL_LIST` in index.ts
+ * instead), so it's listed explicitly here too.
  */
 export const combinedTools = [
   ...tools,
@@ -307,6 +310,11 @@ export function getToolDescriptions(): string {
       name: "web_search",
       description:
         "Search the web for company data, financials, market info, and external benchmarks",
+    },
+    {
+      name: "valyu_search",
+      description:
+        "Search Valyu.ai across the web and proprietary data sources (financial filings, market data, research, news) for deeper investment/diligence research with citations",
     },
     {
       name: "query_files",

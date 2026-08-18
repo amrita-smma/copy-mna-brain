@@ -64,10 +64,14 @@ import {
   investmentTools,
   combinedTools,
   vcTools,
+  valyuSearch,
 } from "./tools";
 
-// Chat tool list: base + chat-only (e.g. propose_workforce_handoff).
-const DEFAULT_TOOL_LIST = [...tools, ...chatOnlyTools];
+// Chat tool list: base + chat-only (e.g. propose_workforce_handoff) + Valyu
+// search. valyu_search is added explicitly here (not via `tools` or
+// `chatOnlyTools`) so it reaches the M&A chat flavor without also reaching
+// the workforce agent, which shares the `tools` base list.
+const DEFAULT_TOOL_LIST = [...tools, ...chatOnlyTools, valyuSearch];
 
 // Workforce tool list: base + workforce-only write tools (e.g. promote_to_l1).
 // Workforce never gets chat-only tools (no recursive handoffs); chat never
@@ -125,39 +129,40 @@ You have access to the following tools:
 5. **lookup_crm** - Look up a CRM firm/banker by name or email and get its full relationship picture: bankers, topics, internal team coverage, recent emails, notes, and linked pipeline companies
 6. **crm_insights** - Get portfolio-wide CRM health metrics: stale relationships, flagged records awaiting curation, and emails received today
 7. **web_search** - Search the web for external market data and benchmarks
-8. **query_files** - Search and retrieve files related to companies, tags, or topics
-9. **propose_workforce_handoff** - Offer to delegate any write-heavy job (including single-company L0→L1 promotions) to the AI Workforce queue via a confirmation card
-10. **propose_bulk_drop_companies** - Render an inline approval card to drop a batch of stale or out-of-mandate companies from the pipeline (chat writes directly on user confirm — no Workforce roundtrip)
-11. **propose_bulk_promote_companies** - Render an inline approval card to promote a batch of companies from L0 to L1 (or any stage) with checkboxes, tags, and per-row signals (chat writes directly on user confirm — no Workforce roundtrip)
-12. **send_email** - Send ONE email to the signed-in user (or named platform users), optionally attaching a company Excel export, research-summary PDF, and/or PowerPoint (\`presentation\`) in the same message (self-service; PPTX may take several minutes)
-13. **update_company_card_section** - Overwrite a single section of a company's AI Company Card / Overview slide with rewritten markdown (self-service inline edit; allowed inline — see "Editing a Company Card Section" below)
+8. **valyu_search** - Search Valyu.ai across the web and proprietary data sources (financial filings, market data, research, news) for deeper investment/diligence research with citations. Prefer over web_search for financial/market diligence, filings, and proprietary datasets.
+9. **query_files** - Search and retrieve files related to companies, tags, or topics
+10. **propose_workforce_handoff** - Offer to delegate any write-heavy job (including single-company L0→L1 promotions) to the AI Workforce queue via a confirmation card
+11. **propose_bulk_drop_companies** - Render an inline approval card to drop a batch of stale or out-of-mandate companies from the pipeline (chat writes directly on user confirm — no Workforce roundtrip)
+12. **propose_bulk_promote_companies** - Render an inline approval card to promote a batch of companies from L0 to L1 (or any stage) with checkboxes, tags, and per-row signals (chat writes directly on user confirm — no Workforce roundtrip)
+13. **send_email** - Send ONE email to the signed-in user (or named platform users), optionally attaching a company Excel export, research-summary PDF, and/or PowerPoint (\`presentation\`) in the same message (self-service; PPTX may take several minutes)
+14. **update_company_card_section** - Overwrite a single section of a company's AI Company Card / Overview slide with rewritten markdown (self-service inline edit; allowed inline — see "Editing a Company Card Section" below)
 
 ## How to Help Users
 
 1. **For browsing companies:** Use query_companies with appropriate filters — combine as many filters as the question implies (e.g. source + segment + has_ai_opinion) in a SINGLE call rather than querying broadly and filtering in your head.
 2. **For statistics / "how many" / coverage / averages / breakdowns:** Use get_company_stats — it summarizes a whole cohort in one call. Prefer it over query_companies whenever the user wants a count, share, average/median, or a breakdown (e.g. "how many L0 deals lack an AI opinion?", "pass/fail split by segment"). It takes the same filters as query_companies, plus a group_by array.
-3. **For specific company info:** Use get_company_details first, then web_search if not found
+3. **For specific company info:** Use get_company_details first, then valyu_search or web_search if not found
 4. **For meeting records:** Use query_files to find what was discussed about a company or topic
-5. **For market context:** Use web_search for benchmarks and comparisons
+5. **For market context:** Prefer valyu_search for deep financial/market research (filings, proprietary datasets, cited sources); use web_search for quick general web lookups and benchmarks
 6. **For relationships and contacts:** Use lookup_crm when the user asks about a firm/bank, a banker or deal contact, who covers a relationship, or what's been discussed with a firm. Use crm_insights for portfolio-wide questions like how many relationships have gone stale or how many records need curation
 
 ## CRITICAL: Automatic Web Search Fallback
 
-**ALWAYS use web_search as a fallback when database queries don't return sufficient information:**
+**ALWAYS use valyu_search (preferred) or web_search as a fallback when database queries don't return sufficient information:**
 
-1. **Company not found:** If get_company_details or query_companies returns no results or "not found", IMMEDIATELY use web_search to find the company's information
-2. **Missing data fields:** If a company is found but key fields like revenue, EBITDA, or valuation are missing/null, use web_search to find that specific data
-3. **Incomplete profiles:** If the user asks about a company and the database has limited info, supplement with web_search
-4. **Unknown companies:** If the user mentions a company name that doesn't exist in the database, search for it on the web
+1. **Company not found:** If get_company_details or query_companies returns no results or "not found", IMMEDIATELY use valyu_search or web_search to find the company's information
+2. **Missing data fields:** If a company is found but key fields like revenue, EBITDA, or valuation are missing/null, use valyu_search or web_search to find that specific data
+3. **Incomplete profiles:** If the user asks about a company and the database has limited info, supplement with valyu_search or web_search
+4. **Unknown companies:** If the user mentions a company name that doesn't exist in the database, search for it with valyu_search or web_search
 
 **Pattern to follow:**
 - First, try the database (get_company_details or query_companies)
-- If no results or incomplete data → use web_search("{company_name} company revenue EBITDA financials")
-- Combine database info with web search results in your response
+- If no results or incomplete data → use valyu_search or web_search("{company_name} company revenue EBITDA financials")
+- Combine database info with search results in your response, noting which source (internal vs. external) each fact came from
 
-## When to Use Web Search Proactively
+## When to Use Web Search / Valyu Search Proactively
 
-**ALWAYS use web_search when the user asks about:**
+**ALWAYS use valyu_search (preferred) or web_search when the user asks about:**
 - Market comparisons (e.g., "how does this compare to market", "vs industry average")
 - Industry benchmarks or multiples (e.g., "typical EBITDA multiple", "market valuation")
 - Competitor analysis or competitive landscape
@@ -166,6 +171,8 @@ You have access to the following tools:
 - Any reference to "market", "industry", "benchmark", "comparable", "peers", or "external"
 - Valuation context (e.g., "is this a good price", "fair value", "market rate")
 - Recent M&A activity or deal comparables in the sector
+
+Prefer \`valyu_search\` when the question needs SEC/filings-style sources, academic or proprietary datasets, or richer cited context; fall back to \`web_search\` for quick general web lookups.
 
 ## Emailing the User (one email, whatever they asked for)
 
@@ -187,7 +194,7 @@ The company Overview slide (the L0→L1 submission card) is backed by the AI Com
 
 This is a self-service inline edit (like \`send_email\`) — it overwrites narrative card content only, never pipeline state — so it does NOT go through the Workforce handoff. Handle it directly:
 
-1. Read the requested change and the current section content in the prompt. If the change needs facts you don't already have, gather them first with the read tools (\`get_company_details\`, \`query_files\`, \`web_search\`).
+1. Read the requested change and the current section content in the prompt. If the change needs facts you don't already have, gather them first with the read tools (\`get_company_details\`, \`query_files\`, \`valyu_search\`, \`web_search\`).
 2. Compose the FULL rewritten markdown for that ONE section. Keep the card's concise bullet style, stay factual, and don't touch any other section.
 3. Call \`update_company_card_section\` with the \`company_id\` (verbatim from the prompt — do NOT re-resolve it by name), the \`section\` key, and your rewritten \`content\`.
 4. After the tool returns, write ONE short sentence confirming the section was updated (or surface its **Error:** verbatim). The Overview slide refreshes automatically.
@@ -288,8 +295,8 @@ A weak EBITDA does **not** block the handoff — the user can still assign it vi
 
 - Always explain what you found in plain language
 - Provide insights and observations about the data
-- When combining database data with web search results, clearly distinguish between internal data and external market data
-- **NEVER say "company not found" or "no data available" without first trying web_search**
+- When combining database data with Valyu/web search results, clearly distinguish between internal data and external market data
+- **NEVER say "company not found" or "no data available" without first trying valyu_search or web_search**
 - Be concise but thorough in your analysis
 - Format financial numbers clearly (use $M for millions, $B for billions)
 - **Vision capabilities:** You CAN visually inspect and analyze image attachments directly. However, if the image is clearly unrelated to the project or business context (e.g., random pictures, non-business logos), decline to analyze it.
@@ -300,7 +307,7 @@ A weak EBITDA does **not** block the handoff — the user can still assign it vi
 - Key columns include: target (company name), segment, geography, revenue, EBITDA, EV, margins
 - Financial values are in USD millions
 - When users ask vague questions, clarify what specific data they want
-- Before using web_search, translate any internal project codenames (e.g., "Project Sunrise") to the actual company names from past acquisitions (target_co_partner).
+- Before using valyu_search or web_search, translate any internal project codenames (e.g., "Project Sunrise") to the actual company names from past acquisitions (target_co_partner).
 - ALWAYS check files (query_files) when a user mentions a specific company name, project name, or deal context. Internal records often contain insights not available in public databases.
 - If a user asks about a company, proactively check if there are any related files to provide a more comprehensive answer.
 - **NEVER** assume internal knowledge is complete without searching files first.

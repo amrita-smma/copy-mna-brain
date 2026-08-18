@@ -466,20 +466,22 @@ Layering follows the project's handler → service → repository convention:
 The in-app Copilot ships in four selectable flavors, chosen per workspace:
 
 - **`mna`** (default) — the M&A / acquisitions assistant: company/CRM tools,
-  pipeline analysis, and Workforce handoffs (`CHAT_SYSTEM_PROMPT` +
-  `DEFAULT_TOOL_LIST`).
+  pipeline analysis, Workforce handoffs, and Valyu/web search
+  (`CHAT_SYSTEM_PROMPT` + `DEFAULT_TOOL_LIST`).
 - **`investment`** — the funds & investing assistant: read-only tools to see and
   analyze the workspace's funds, assets/holdings, investors (LPs), and fund
-  sources, plus web search (`INVESTMENT_SYSTEM_PROMPT` + `INVESTMENT_TOOL_LIST`,
-  backed by the fund tools in `src/lib/agents/analysis/tools/`:
-  `get_fund_data_schema`, `search_investments`, `query_funds`, `query_fund_assets`,
+  sources, plus web search and Valyu search (`INVESTMENT_SYSTEM_PROMPT` +
+  `INVESTMENT_TOOL_LIST`, backed by the fund tools in
+  `src/lib/agents/analysis/tools/`: `get_fund_data_schema`,
+  `search_investments`, `query_funds`, `query_fund_assets`,
   `get_fund_asset_details`, `query_investors`, `query_fund_sources`).
 - **`combined`** — a single assistant with access to BOTH tool sets, for
   workspaces that want one Copilot spanning the deal pipeline and the fund
   portfolio (`COMBINED_SYSTEM_PROMPT` + `COMBINED_TOOL_LIST`). `combinedTools` is
   the deduplicated union of `DEFAULT_TOOL_LIST` and `investmentTools` — the
-  shared read tools (`web_search`, `query_files`, `lookup_crm`, `crm_insights`,
-  `lookup_user`, `send_email`, `propose_workforce_handoff`) appear once.
+  shared read tools (`web_search`, `valyu_search`, `query_files`, `lookup_crm`,
+  `crm_insights`, `lookup_user`, `send_email`, `propose_workforce_handoff`)
+  appear once.
 - **`vc`** — the Venture Capital & Growth Equity assistant: a flavor of the
   existing Copilot (not a separate agent, graph, or endpoint) powered by
   `VC_SYSTEM_PROMPT` + `VC_TOOL_LIST`. It combines curated fact-retrieval tools
