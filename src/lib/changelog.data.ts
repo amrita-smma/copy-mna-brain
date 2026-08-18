@@ -12,6 +12,20 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "category": "feature"
   },
   {
+    "hash": "54e9697faa8ae0b99cc844c5dc54097dcbb32dc1",
+    "date": "2026-08-18",
+    "subject": "M&A Copilot now supports enhanced search capabilities",
+    "category": "feature"
+  },
+  {
+    "hash": "03d1d87d8776f82d70495e83d8aebc0bc38e5099",
+    "date": "2026-08-18",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "533aedd8032b87cacb99dd9cea3b0be325c21264",
     "date": "2026-08-15",
     "subject": "Consolidate mna_maintainers into mna_developer",
