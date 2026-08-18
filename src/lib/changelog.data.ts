@@ -6,12 +6,26 @@ import type { ChangelogEntry } from './changelog';
 
 export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   {
+    "hash": "5e4179ab71fbb2a7b9b00d420ce213b1297b9470",
+    "date": "2026-08-18",
+    "subject": "Added VC Copilot mode for venture capital deal analysis and tracking",
+    "category": "feature"
+  },
+  {
     "hash": "533aedd8032b87cacb99dd9cea3b0be325c21264",
     "date": "2026-08-15",
     "subject": "Consolidate mna_maintainers into mna_developer",
     "category": "improvement",
     "skipped": true,
     "skipReason": "vague"
+  },
+  {
+    "hash": "5d7c8ddf5029913b67a33c01504cc139b7781178",
+    "date": "2026-08-15",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
   },
   {
     "hash": "d432c9b7c2807e5453dfc9ce16e07c995aeb24f2",
