@@ -704,7 +704,6 @@ export const companyCardSpecSchema = z.object({
   company_names: z
     .array(z.string().min(1))
     .min(1)
-    .max(10)
     .describe(
       'Pipeline company names (target or project name) whose Company Card should be exported. One card per company, in this order.',
     ),
