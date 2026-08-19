@@ -20,6 +20,22 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "skipReason": "noise"
   },
   {
+    "hash": "94772d6516ee9c45390ea9dd4dadcf4f34d02b62",
+    "date": "2026-08-19",
+    "subject": "Remove max",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "b002a6fa20d554a85d7fc3c3055f106061f640c3",
+    "date": "2026-08-19",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "5e4179ab71fbb2a7b9b00d420ce213b1297b9470",
     "date": "2026-08-18",
     "subject": "Added VC Copilot mode for venture capital deal analysis and tracking",
