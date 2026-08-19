@@ -12,6 +12,14 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "category": "improvement"
   },
   {
+    "hash": "32612bedf082d9b671062958cef7f73bf1136332",
+    "date": "2026-08-19",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "5e4179ab71fbb2a7b9b00d420ce213b1297b9470",
     "date": "2026-08-18",
     "subject": "Added VC Copilot mode for venture capital deal analysis and tracking",
