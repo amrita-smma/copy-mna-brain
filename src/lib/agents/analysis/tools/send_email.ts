@@ -10,9 +10,11 @@ import {
   companyExcelSpecSchema,
   researchSummarySpecSchema,
   presentationSpecSchema,
+  companyCardSpecSchema,
   buildCompanyExcelAttachment,
   buildResearchSummaryAttachment,
   buildPresentationAttachment,
+  buildCompanyCardAttachment,
 } from './emailArtifacts';
 
 /**
@@ -22,6 +24,8 @@ import {
  * carry, in the SAME message:
  *   - a comprehensive company Excel workbook (`company_excel`), and/or
  *   - a formatted research-summary PDF (`research_summary`), and/or
+ *   - the Company Card deck (`company_card`) — the "L0 → L1 Submission" card
+ *     from the company detail view, rendered slide-for-slide, and/or
  *   - a flexible PowerPoint deck (`presentation`) — Workforce only.
  *
  * This is the single send path for everything the agent assembles: instead of
@@ -69,6 +73,11 @@ const argsSchema = z.object({
     .describe(
       'Optional: attach a flexible PowerPoint (.pptx) built from title + brief (+ optional company_names). Same self-service path as Excel/PDF — may take several minutes.',
     ),
+  company_card: companyCardSpecSchema
+    .optional()
+    .describe(
+      'Optional: attach the Company Card (.pptx) — the exact "L0 to L1 Submission" card from the company detail view — for the named companies. Use this whenever the user asks to send a company detail / company card as a PPTX.',
+    ),
 });
 
 type Args = z.infer<typeof argsSchema>;
@@ -83,7 +92,9 @@ export const sendEmailTool = tool(
     logger.debug(
       `🔧 TOOL CALLED: send_email(to=[${(args.to ?? []).join(', ')}], subject='${args.subject ?? ''}', excel=${Boolean(
         args.company_excel,
-      )}, pdf=${Boolean(args.research_summary)}, pptx=${Boolean(args.presentation)})`,
+      )}, pdf=${Boolean(args.research_summary)}, pptx=${Boolean(args.presentation)}, card=${Boolean(
+        args.company_card,
+      )})`,
     );
 
     const subject = args.subject?.trim();
@@ -170,6 +181,28 @@ export const sendEmailTool = tool(
         }
       }
 
+      if (args.company_card) {
+        // Rendering a card deck launches a headless browser — check the size
+        // budget before paying for it, not after.
+        if (SES_SAFE_ATTACHMENT_BYTES - attachmentBytes() < 100_000) {
+          return `**Error:** Existing attachments already use most of the email size budget; cannot add the Company Card deck. Send it in a separate email or drop the Excel/PDF.`;
+        }
+        const artifact = await buildCompanyCardAttachment(args.company_card);
+        if (artifact) {
+          attachments.push(artifact.attachment);
+          attachmentLabels.push(
+            `company card (PPTX: ${artifact.companyTitles.join(', ')} — ${artifact.slideCount} slide${
+              artifact.slideCount === 1 ? '' : 's'
+            })`,
+          );
+          notes.push(...artifact.notes);
+        } else {
+          notes.push(
+            'None of the requested companies could be resolved, so the Company Card deck was not attached.',
+          );
+        }
+      }
+
       if (args.presentation) {
         const remaining = SES_SAFE_ATTACHMENT_BYTES - attachmentBytes();
         if (remaining < 100_000) {
@@ -238,7 +271,7 @@ export const sendEmailTool = tool(
   },
   {
     name: 'send_email',
-    description: `Send ONE email to one or more platform users. You compose the subject and body; you may also attach a company spreadsheet and/or a research PDF — everything goes in a SINGLE email, never split across multiple messages.
+    description: `Send ONE email to one or more platform users. You compose the subject and body; you may also attach a company spreadsheet, a research PDF, and/or a PowerPoint (a Company Card export or a free-form deck) — everything goes in a SINGLE email, never split across multiple messages.
 
 IMPORTANT — recipients are restricted to a whitelist: only addresses that belong to a registered platform user (the users table) can be emailed. Omit \`to\` to send to the signed-in user (resolved by the runtime — you do NOT need their address). Any \`to\` address that is not a known platform user is silently skipped and reported back; the email is never delivered to non-platform addresses. Do NOT use this tool to email customers, bankers, or external parties.
 
@@ -260,6 +293,8 @@ VOICE — always write and sign on behalf of the app, "Investment Brain", NOT th
   - \`priority_list\` { items: [{ priority: { label, tone: "high" | "medium" | "low" }, description, meta? }] }
   Pick the visual block whenever the data suits one; fall back to \`paragraph\` / \`bullets\` for narrative. Also pass a \`title\` (used for the PDF + filename) and optional \`references\`. Rules: keep one unit per bar_chart series; no markdown inside block strings; keep KPI \`value\` to one short line.
 
+- \`company_card\` — Attach the **Company Card** deck (.pptx): a faithful, condensed export of the "L0 to L1 Submission" card shown in the company detail view (header + stage track, Project Type / Geography / Business Line / End Sector, Source / Deal Sponsor / Deal Status / NBO Due, Target Overview, Indicative Financials, Proposed Deal Structure, Investment Thesis, L1 scope of work, Kill criteria). Pass \`company_names\` (one slide set per company, in order) and an optional \`title\`. Content that does not fit one slide continues on "(cont.)" slides. Names that cannot be resolved are reported and skipped. This is FAST — it renders existing data and does NOT call an LLM.
+
 - \`presentation\` — Attach a flexible PowerPoint (.pptx) via the Anthropic pptx skill. Pass \`title\`, free-form \`brief\` (outline/facts — slide count is flexible, NOT a fixed 7-slide template), and optional \`company_names\` to pull pipeline context. May take several minutes.
 
 ## Usage
@@ -267,8 +302,9 @@ VOICE — always write and sign on behalf of the app, "Investment Brain", NOT th
 - Plain note to a colleague → just \`to\` + \`subject\` + \`body\`.
 - "Email me the pipeline as a spreadsheet" → \`body\` + \`company_excel\` (omit \`to\`).
 - "Email me a summary and the L1 companies" → \`body\` + \`research_summary\` + \`company_excel\` — ONE email, both attached.
-- "Email me a PowerPoint about X" → \`body\` + \`presentation\` (omit \`to\`).
-- Mix attachments in ONE call when asked (excel + pdf + pptx).
+- "Send me the company detail / company card for X as a PPTX", "email X's card as slides" → \`body\` + \`company_card\` with \`company_names: ["X"]\`. Use \`company_card\`, NOT \`presentation\`, whenever the user wants the company's existing card/detail as slides — it reproduces the real card instead of writing a new deck.
+- "Email me a PowerPoint about X" (a NEW deck, free-form topic) → \`body\` + \`presentation\` (omit \`to\`).
+- Mix attachments in ONE call when asked (excel + pdf + pptx + company card).
 
 After the tool returns, write ONE short sentence confirming, or surface its **Error:** verbatim.
 
@@ -279,6 +315,7 @@ Args:
     company_excel: Optional. Filters (+ title) for an attached Excel workbook.
     research_summary: Optional. Title + sections (+ references) for an attached PDF.
     presentation: Optional. Title + brief (+ company_names) for an attached PowerPoint.
+    company_card: Optional. company_names (+ title) for an attached Company Card deck.
 
 Returns:
     A confirmation string listing recipients, what was attached, and any skipped addresses, or an error string starting with **Error:**.`,

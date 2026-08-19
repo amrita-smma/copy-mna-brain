@@ -6,45 +6,20 @@ const SLIDE_W_PX = 1120;
 const SLIDE_H_PX = 630;
 
 // ── Public types ───────────────────────────────────────────────────────────
+//
+// The element IR is shared with the browser-free producer/writer in
+// `@/lib/pptx/*`; re-exported here so existing importers keep working.
 
-export interface PptxRect {
-  type: 'rect';
-  x: number; y: number; w: number; h: number; // inches
-  fill: string;
-}
+export type {
+  PptxRect,
+  PptxText,
+  PptxTextRun,
+  PptxTableCell,
+  PptxTable,
+  PptxElement,
+} from '@/lib/pptx/pptxElements';
 
-export interface PptxText {
-  type: 'text';
-  x: number; y: number; w: number; h: number;
-  text: string;
-  fill?: string;         // background fill (hex) — set when background+text are merged
-  inset?: [number, number, number, number]; // [top, right, bottom, left] in inches
-  color?: string;
-  fontSize?: number;     // pt
-  bold?: boolean;
-  align?: string;
-  valign?: string;
-  wrap: boolean;
-}
-
-export interface PptxTableCell {
-  text: string;
-  bold?: boolean;
-  fill?: string;
-  color?: string;
-  fontSize?: number;
-  align?: string;
-  colspan?: number;
-  rowspan?: number;
-}
-
-export interface PptxTable {
-  type: 'table';
-  x: number; y: number; w: number; h: number;
-  rows: PptxTableCell[][];
-}
-
-export type PptxElement = PptxRect | PptxText | PptxTable;
+import type { PptxElement } from '@/lib/pptx/pptxElements';
 
 // ── Browser extraction script ──────────────────────────────────────────────
 //
@@ -99,6 +74,67 @@ function browserExtractor(): unknown[] {
     } catch {
       return null;
     }
+  }
+
+  // Collect inline formatting runs for a leaf element. Descends through inline
+  // children (<strong>, <em>, <span>, …) carrying bold/italic/color down, so a
+  // "Label: value" line keeps its bold lead-in. Returns null when the leaf is
+  // uniformly formatted — callers then fall back to the plain `text` path.
+  function inlineRuns(
+    el: Element,
+    baseBold: boolean,
+    baseItalic: boolean,
+    baseColor: string | null,
+  ): unknown[] | null {
+    const runs: { text: string; bold: boolean; italic: boolean; color: string | null }[] = [];
+
+    function push(text: string, bold: boolean, italic: boolean, color: string | null) {
+      if (!text) return;
+      const last = runs[runs.length - 1];
+      if (last && last.bold === bold && last.italic === italic && last.color === color) {
+        last.text += text;
+      } else {
+        runs.push({ text, bold, italic, color });
+      }
+    }
+
+    function walkInline(node: Node, bold: boolean, italic: boolean, color: string | null): void {
+      if (node.nodeType === 3) {
+        push((node.textContent ?? '').replace(/[ \t\r]+/g, ' '), bold, italic, color);
+        return;
+      }
+      if (node.nodeType !== 1) return;
+      const child = node as Element;
+      if (child.tagName === 'BR') {
+        push('\n', bold, italic, color);
+        return;
+      }
+      const cs = window.getComputedStyle(child);
+      if (cs.display === 'none' || cs.visibility === 'hidden') return;
+      const b = parseInt(cs.fontWeight) >= 700;
+      const i = cs.fontStyle === 'italic' || cs.fontStyle === 'oblique';
+      const c = rgbToHex(cs.color) ?? color;
+      for (const n of child.childNodes) walkInline(n, b, i, c);
+    }
+
+    for (const n of el.childNodes) walkInline(n, baseBold, baseItalic, baseColor);
+
+    // Drop whitespace-only runs at the ends (never in the middle — those carry
+    // the space between two differently-formatted words), then trim what is
+    // left at the edges.
+    while (runs.length > 0 && runs[0].text.trim().length === 0) runs.shift();
+    while (runs.length > 0 && runs[runs.length - 1].text.trim().length === 0) runs.pop();
+    if (runs.length > 0) {
+      runs[0].text = runs[0].text.replace(/^[ \t]+/, '');
+      runs[runs.length - 1].text = runs[runs.length - 1].text.replace(/[ \t]+$/, '');
+    }
+    const kept = runs.filter((r) => r.text.length > 0);
+    if (kept.length < 2) return null;
+    // Uniform formatting → nothing gained over the plain-text path.
+    const varies = kept.some(
+      (r) => r.bold !== kept[0].bold || r.italic !== kept[0].italic || r.color !== kept[0].color,
+    );
+    return varies ? kept : null;
   }
 
   function tableRows(tableEl: Element): unknown[][] {
@@ -161,6 +197,8 @@ function browserExtractor(): unknown[] {
       const pr = parseFloat(cs.paddingRight)  || 0;
       const pb = parseFloat(cs.paddingBottom) || 0;
 
+      const runs = text ? inlineRuns(el, bold, cs.fontStyle === 'italic', color) : null;
+
       if (text && bg) {
         // Background + text → single addText with fill covering the full element.
         // This eliminates the separate rect/text stack and reduces overlapping layers.
@@ -168,6 +206,7 @@ function browserExtractor(): unknown[] {
           type: 'text',
           x, y, w, h,
           text,
+          runs,
           fill: bg,
           inset: [toIn(pt), toIn(pr), toIn(pb), toIn(pl)],
           color,
@@ -191,6 +230,7 @@ function browserExtractor(): unknown[] {
           x: toIn(tx), y: toIn(ty),
           w: toIn(Math.max(tw, 5)), h: toIn(Math.max(th, 5)),
           text,
+          runs,
           fill: null,
           color,
           fontSize,

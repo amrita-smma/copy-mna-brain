@@ -13,6 +13,7 @@ export * from './aiOpinionService';
 export * from './aiScreeningService';
 export * from './marketScreeningService';
 export * from './slideService';
+export * from './companyCardSlideService';
 export * from './fileService';
 export * from './chatService';
 export * from './jobService';

@@ -41,6 +41,9 @@ import {
   type PillInput,
 } from '@/lib/pdfSummary';
 import type { EmailAttachment } from '@/lib/ses';
+import { CompanyNotFoundForCardError } from '@/lib/services/companyCardSlideService';
+import { exportElementsToPptx } from '@/lib/pptx/writePptx';
+import type { PptxSlide } from '@/lib/pptx/pptxElements';
 import { generatePptxBuffer } from '@/lib/pptx/generatePptxBuffer';
 import { buildAgentPresentationPrompt } from '@/lib/pptx/presentationPrompt';
 import { buildPresentationCompanyContext } from '@/lib/pptx/companyContext';
@@ -690,6 +693,105 @@ export interface PresentationArtifact {
   title: string;
   /** Human-readable notes (e.g. unresolved company_names). */
   notes: string[];
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+// Company Card PowerPoint artifact — the on-screen "L0 → L1 Submission" card
+// ───────────────────────────────────────────────────────────────────────────
+
+/** Spec the agent passes to attach the Company Card deck for one or more companies. */
+export const companyCardSpecSchema = z.object({
+  company_names: z
+    .array(z.string().min(1))
+    .min(1)
+    .max(10)
+    .describe(
+      'Pipeline company names (target or project name) whose Company Card should be exported. One card per company, in this order.',
+    ),
+  title: z
+    .string()
+    .optional()
+    .describe(
+      'Optional deck title, used for the attachment filename. Defaults to the company name (or "Company cards" for several).',
+    ),
+});
+
+export type CompanyCardSpec = z.infer<typeof companyCardSpecSchema>;
+
+export interface CompanyCardArtifact {
+  attachment: EmailAttachment;
+  title: string;
+  /** Companies whose card made it into the deck, in deck order. */
+  companyTitles: string[];
+  slideCount: number;
+  /** Human-readable notes (e.g. names that could not be resolved). */
+  notes: string[];
+}
+
+/**
+ * Render the Company Card for each requested company into a single .pptx,
+ * laid out exactly like the Overview tab of the company detail dialog.
+ * Returns `null` when none of the names resolve, so the caller can say so
+ * instead of mailing an empty deck.
+ */
+export async function buildCompanyCardAttachment(
+  spec: CompanyCardSpec,
+  opts?: { workspaceId?: string },
+): Promise<CompanyCardArtifact | null> {
+  const db = createDb();
+  const workspaceId = opts?.workspaceId ?? (await getActiveWorkspaceId());
+  // Imported lazily: the service container transitively reaches the agent tool
+  // registry (container → aiWorkforceService → workforce → agents → tools),
+  // so a static import here would close an import cycle back onto this module
+  // and leave `send_email`'s schemas undefined at evaluation time.
+  const { createContainer } = await import('@/lib/services/container');
+  const { companyCardSlideService } = createContainer(db, workspaceId);
+
+  const slides: PptxSlide[] = [];
+  const companyTitles: string[] = [];
+  const unresolved: string[] = [];
+
+  for (const raw of spec.company_names) {
+    const name = raw.trim();
+    if (!name) continue;
+    try {
+      const deck = await companyCardSlideService.buildByName(name);
+      companyTitles.push(deck.title);
+      slides.push(...deck.slides);
+    } catch (err) {
+      if (err instanceof CompanyNotFoundForCardError) {
+        unresolved.push(name);
+        continue;
+      }
+      throw err;
+    }
+  }
+
+  const notes: string[] = [];
+  if (unresolved.length > 0) {
+    notes.push(
+      `Could not resolve compan${unresolved.length === 1 ? 'y' : 'ies'} for the Company Card deck: ${unresolved.join(', ')}.`,
+    );
+  }
+  if (slides.length === 0) return null;
+
+  const title =
+    spec.title?.trim() ||
+    (companyTitles.length === 1 ? `${companyTitles[0]} — Company Card` : 'Company cards');
+
+  const buffer = await exportElementsToPptx(slides);
+
+  return {
+    attachment: {
+      filename: `${slugifyTitle(title, 'company-card')}.pptx`,
+      content: buffer,
+      contentType: PPTX_CONTENT_TYPE,
+    },
+    title,
+    companyTitles,
+    slideCount: slides.length,
+    notes,
+  };
 }
 
 /**

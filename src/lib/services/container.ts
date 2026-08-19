@@ -75,6 +75,7 @@ import { AIScreeningService } from './aiScreeningService';
 import { MarketScreeningService } from './marketScreeningService';
 import { TrackMatchingService } from './trackMatchingService';
 import { SlideService } from './slideService';
+import { CompanyCardSlideService } from './companyCardSlideService';
 import { FileService } from './fileService';
 import { ChatService } from './chatService';
 import { JobService } from './jobService';
@@ -124,6 +125,7 @@ export interface Container {
   marketScreeningService: MarketScreeningService;
   trackMatchingService: TrackMatchingService;
   slideService: SlideService;
+  companyCardSlideService: CompanyCardSlideService;
   fileService: FileService;
   chatService: ChatService;
   jobService: JobService;
@@ -225,6 +227,14 @@ export function createContainer(db: DbClient, workspaceId: string): Container {
     trackMatchingService,
     userRepo,
     fileRepo,
+  );
+  const companyCardSlideService = new CompanyCardSlideService(
+    companyService,
+    companyAnalysisService,
+    investmentThesisService,
+    trackVariableService,
+    workspaceService,
+    workspaceId,
   );
   const companyGraphService = new CompanyGraphService(companyGraphRepo, jobDispatcher);
   const companyRelationshipService = new CompanyRelationshipService(
@@ -394,6 +404,7 @@ export function createContainer(db: DbClient, workspaceId: string): Container {
     marketScreeningService,
     trackMatchingService,
     slideService,
+    companyCardSlideService,
     fileService,
     chatService,
     jobService,
