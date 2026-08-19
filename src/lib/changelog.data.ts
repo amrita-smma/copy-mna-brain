@@ -6,6 +6,12 @@ import type { ChangelogEntry } from './changelog';
 
 export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   {
+    "hash": "a2ebd9bd02e6709eb5adfa6409a21e3240bf66c7",
+    "date": "2026-08-19",
+    "subject": "Export Company Card as condensed PowerPoint presentation via email",
+    "category": "improvement"
+  },
+  {
     "hash": "5e4179ab71fbb2a7b9b00d420ce213b1297b9470",
     "date": "2026-08-18",
     "subject": "Added VC Copilot mode for venture capital deal analysis and tracking",
@@ -33,6 +39,14 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   },
   {
     "hash": "7e4d248009f36be4a117cd2f1c91006e02943f44",
+    "date": "2026-08-18",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
+    "hash": "05733d129fee8c30b839dafd557b0210e8fc7411",
     "date": "2026-08-18",
     "subject": "[skip deploy] chore: update changelog",
     "category": "improvement",
