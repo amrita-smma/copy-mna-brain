@@ -51,13 +51,15 @@ describe('FundHoldingEntityStakeRepository', () => {
 
   it('findByFundHoldingEntity returns the matching row', async () => {
     const row = { id: 's1', fund_id: 'f1', holding_entity_id: 'i1' };
-    mockDb.limit.mockResolvedValueOnce([row]);
+    mockDb.limit.mockResolvedValueOnce([{ stake: row }]);
 
     expect(await repo.findByFundHoldingEntity('f1', 'i1')).toEqual(row);
   });
 
   it('upsert deletes any existing (fund, holdingEntity) stake then inserts', async () => {
     const row = { id: 's1', fund_id: 'f1', holding_entity_id: 'i1', commitment_amount: 2_000_000 };
+    // First call: select to preserve created_at
+    mockDb.limit.mockResolvedValueOnce([{ created_at: '2026-01-01T00:00:00Z' }]);
     mockDb.returning.mockResolvedValueOnce([row]);
 
     const result = await repo.upsert({

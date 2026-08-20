@@ -30,4 +30,6 @@ export * from './dealResurfaceService';
 export * from './stalledDealService';
 export * from './fundPortfolioService';
 export * from './fundUpdateApplyService';
+export * from './fundCommitmentEventService';
+export * from './fundHoldingEntityStakeService';
 export * from './tableLayoutService';

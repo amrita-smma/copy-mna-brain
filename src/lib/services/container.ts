@@ -48,6 +48,7 @@ import {
   HoldingEntityRepository,
   FundSourceRepository,
   FundHoldingEntityStakeRepository,
+  FundInvestorCommitmentEventRepository,
   FundAssetRepository,
   FundAssetTransactionRepository,
   FundAssetValuationRepository,
@@ -97,6 +98,7 @@ import { FundService } from './fundService';
 import { HoldingEntityService } from './holdingEntityService';
 import { FundSourceService } from './fundSourceService';
 import { FundHoldingEntityStakeService } from './fundHoldingEntityStakeService';
+import { FundCommitmentEventService } from './fundCommitmentEventService';
 import { FundAssetLedgerService } from './fundAssetLedgerService';
 import { FundUpdateApplyService } from './fundUpdateApplyService';
 import { FundPortfolioService } from './fundPortfolioService';
@@ -147,7 +149,9 @@ export interface Container {
   holdingEntityService: HoldingEntityService;
   fundSourceService: FundSourceService;
   fundHoldingEntityStakeService: FundHoldingEntityStakeService;
+  fundCommitmentEventService: FundCommitmentEventService;
   fundAssetLedgerService: FundAssetLedgerService;
+
   fundUpdateApplyService: FundUpdateApplyService;
   fundPortfolioService: FundPortfolioService;
   fundMetricsService: FundMetricsService;
@@ -338,11 +342,23 @@ export function createContainer(db: DbClient, workspaceId: string): Container {
   const fundSourceRepo = new FundSourceRepository(db, workspaceId);
   const fundSourceService = new FundSourceService(fundSourceRepo);
   const fundHoldingEntityStakeRepo = new FundHoldingEntityStakeRepository(db, workspaceId);
-  const fundHoldingEntityStakeService = new FundHoldingEntityStakeService(
+  const fundCommitmentEventRepo = new FundInvestorCommitmentEventRepository(db, workspaceId);
+  const fundCommitmentEventService = new FundCommitmentEventService(
+    db,
+    workspaceId,
+    fundCommitmentEventRepo,
     fundHoldingEntityStakeRepo,
     fundRepo,
     holdingEntityRepo,
   );
+  const fundHoldingEntityStakeService = new FundHoldingEntityStakeService(
+    fundHoldingEntityStakeRepo,
+    fundRepo,
+    holdingEntityRepo,
+    fundCommitmentEventRepo,
+    db,
+  );
+
   const fundAssetLedgerService = new FundAssetLedgerService(
     fundAssetTransactionRepo,
     fundAssetValuationRepo,
@@ -427,7 +443,9 @@ export function createContainer(db: DbClient, workspaceId: string): Container {
     holdingEntityService,
     fundSourceService,
     fundHoldingEntityStakeService,
+    fundCommitmentEventService,
     fundAssetLedgerService,
+
     fundUpdateApplyService,
     fundPortfolioService,
     fundMetricsService,

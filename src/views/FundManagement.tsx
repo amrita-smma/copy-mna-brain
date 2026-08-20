@@ -48,7 +48,9 @@ import { MoneyBreakdown } from './fundManagement/MoneyBreakdown';
 import { AssetTable } from './fundManagement/AssetTable';
 import { FundSummaryTable } from './fundManagement/FundSummaryTable';
 import { EntitySummaryTable } from './fundManagement/EntitySummaryTable';
+import { CommitmentLedgerDialog } from './fundManagement/CommitmentLedgerDialog';
 import { SourceSummaryTable } from './fundManagement/SourceSummaryTable';
+
 import { GlossaryTerm } from './fundManagement/parts';
 import { FundDataContext } from './fundManagement/context';
 import { useFeatureEnabled } from '@/components/layout/FeatureFlagsContext';
@@ -697,8 +699,10 @@ export default function FundManagement({
   const [addEntityOpen, setAddEntityOpen] = useState(false);
   const [addSourceOpen, setAddSourceOpen] = useState(false);
   const [editSource, setEditSource] = useState<{ id: string; name: string } | null>(null);
-  const [editStakesFor, setEditStakesFor] = useState<string | null>(null);
+  const [editStakesFor, setEditStakesFor] = useState<{ investorId: string; fundId?: string | null } | null>(null);
+  const [commitmentNonce, setCommitmentNonce] = useState(0);
   const [editFund, setEditFund] = useState<Fund | null>(null);
+
   // Bump to force a re-render after an in-place optimistic edit to a holding/fund.
   const [, setRev] = useState(0);
   const { toast } = useToast();
@@ -727,6 +731,7 @@ export default function FundManagement({
   const reloadStakes = useCallback(async () => {
     try {
       setStakeRows(await holdingEntityStakesApi.listHoldingEntityStakes());
+      setCommitmentNonce((n) => n + 1);
     } catch (err) {
       console.error('Failed to load investor stakes', err);
     }
@@ -1125,8 +1130,9 @@ export default function FundManagement({
                       <EntitySummaryTable
                         funds={funds ?? []}
                         investors={tabInvestors}
-                        onEditStakes={(id) => setEditStakesFor(id)}
+                        onEditStakes={(id, fundId) => setEditStakesFor({ investorId: id, fundId })}
                         onDeleteInvestor={deleteInvestor}
+                        commitmentNonce={commitmentNonce}
                       />
                     ) : (
                       <SourceSummaryTable
@@ -1200,230 +1206,20 @@ export default function FundManagement({
           setEditSource(null);
         }}
       />
-      <StakeEditDialog
+      <CommitmentLedgerDialog
         open={editStakesFor != null}
         onOpenChange={(o) => !o && setEditStakesFor(null)}
-        investorId={editStakesFor}
-        investorName={investorRows.find((r) => r.id === editStakesFor)?.name ?? ''}
+        investorId={editStakesFor?.investorId ?? null}
+        investorName={investorRows.find((r) => r.id === editStakesFor?.investorId)?.name ?? ''}
         funds={funds ?? []}
-        detail={editStakesFor ? (stakeDetail[editStakesFor] ?? {}) : {}}
+        allInvestors={investorRows}
+        initialFundId={editStakesFor?.fundId}
         onSaved={reloadStakes}
       />
     </DashboardLayout>
   );
 }
 
-/** Edit an investment entity's committed / invested capital in each fund.
- * Fractional ownership (shown in the tab) is derived as committed ÷ fund size. */
-function StakeEditDialog({
-  open,
-  onOpenChange,
-  investorId,
-  investorName,
-  funds: allFunds,
-  detail,
-  onSaved,
-}: {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  investorId: string | null;
-  investorName: string;
-  funds: Fund[];
-  detail: Record<string, StakeRow>;
-  onSaved: () => void | Promise<void>;
-}) {
-  // Invested is no longer captured here — it's derived from each entity's own
-  // transactions (see investorInvestedInFund). Only commitment is editable.
-  type Row = {
-    commitment: number | null;
-    commitmentCcy: Currency;
-  };
-  // Drop the synthetic "Unassigned Assets" pseudo-fund (injected by GET
-  // /api/funds) — it isn't a real fund row, so a stake can't be attached to it
-  // and saving one would fail the funds.id lookup on the server.
-  const funds = useMemo(() => allFunds.filter((f) => f.id !== 'unassigned'), [allFunds]);
-  const { money } = useFundMoney();
-  const [rows, setRows] = useState<Record<string, Row>>({});
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (open) {
-      const next: Record<string, Row> = {};
-      funds.forEach((f) => {
-        const s = detail[f.id];
-        next[f.id] = {
-          commitment: s?.commitment_amount ?? null,
-          commitmentCcy: normalizeCurrency(s?.commitment_amount_currency),
-        };
-      });
-      setRows(next);
-      setError(null);
-    }
-  }, [open, funds, detail]);
-
-  const setRow = (fundId: string, patch: Partial<Row>) =>
-    setRows((p) => ({ ...p, [fundId]: { ...p[fundId], ...patch } }));
-
-  const submit = async () => {
-    if (!investorId) return;
-    setSaving(true);
-    setError(null);
-    try {
-      // Upsert funds the entity has (or had) a stake in; skip funds left blank
-      // that never had one, so we don't create empty rows.
-      await Promise.all(
-        funds
-          .filter((f) => {
-            const r = rows[f.id];
-            return r && (r.commitment != null || detail[f.id]);
-          })
-          .map((f) => {
-            const r = rows[f.id];
-            // Invested is derived from transactions and no longer persisted here.
-            return holdingEntityStakesApi.upsertHoldingEntityStake({
-              fundId: f.id,
-              holdingEntityId: investorId,
-              commitmentAmount: r.commitment,
-              commitmentAmountCurrency: r.commitmentCcy,
-            });
-          }),
-      );
-      await onSaved();
-      onOpenChange(false);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to save stakes');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const perFund = funds.map((f) => {
-    const r = rows[f.id];
-    const committedM = (r?.commitment ?? 0) / 1_000_000;
-    const share = f.size > 0 && committedM > 0 ? committedM / f.size : 0;
-    
-    const fundInvested = f.h.reduce((acc, h) => acc + h.cost, 0);
-    const rawInvested = investorId ? investorInvestedInFund(investorId, f) : 0;
-    const invested = rawInvested > 0 ? rawInvested : fundInvested * share;
-    
-    const value = f.fmv * share;
-    const real = f.real * share;
-    return { f, share, invested, value, real, gain: value + real - invested, moic: invested > 0 ? (value + real) / invested : 0 };
-  });
-  
-  const totalCommit = perFund.reduce(
-    (s, p) => s + (rows[p.f.id]?.commitment ?? 0) / 1_000_000,
-    0,
-  );
-  
-  const totalInvested = perFund.reduce((s, p) => s + p.invested, 0);
-  const totalValue = perFund.reduce((s, p) => s + p.value, 0);
-  const totalReal = perFund.reduce((s, p) => s + p.real, 0);
-  const totalGain = perFund.reduce((s, p) => s + p.gain, 0);
-  
-  const assetAgg = {
-    cost: totalInvested,
-    fmv: totalValue,
-    gain: totalGain,
-    moic: totalInvested > 0 ? (totalValue + totalReal) / totalInvested : 0
-  };
-
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-[600px]">
-        <DialogHeader>
-          <DialogTitle>Edit{investorName ? ` · ${investorName}` : ''}</DialogTitle>
-        </DialogHeader>
-        <div className="max-h-[60vh] space-y-4 overflow-y-auto pr-1">
-          <p className="text-xs text-muted-foreground">
-            Set this entity&apos;s committed capital in each fund. Ownership % is committed ÷ the fund&apos;s
-            commitment size. Invested is computed from this entity&apos;s own transactions; Unrealized MV,
-            Net Gain and MOIC are computed from that share of each fund&apos;s performance.
-          </p>
-          {funds.length === 0 && (
-            <p className="text-sm text-muted-foreground">No funds yet.</p>
-          )}
-          {perFund.map(({ f, share, invested, value, gain, moic }) => {
-            const r = rows[f.id];
-            if (!r) return null;
-            return (
-              <div key={f.id} className="rounded-md border p-3">
-                <div className="mb-2 flex items-center justify-between">
-                  <span className="text-[13px] font-medium text-foreground">{f.n}</span>
-                </div>
-                <div className="space-y-1.5">
-                  <Label>Commitment</Label>
-                  <CurrencyInput
-                    amount={r.commitment}
-                    currency={r.commitmentCcy}
-                    onCommit={(amt, cur) => setRow(f.id, { commitment: amt, commitmentCcy: cur })}
-                  />
-                </div>
-                <div className="mt-3 grid grid-cols-2 gap-3 border-t pt-2.5 sm:grid-cols-4">
-                  <ReadOut label="Invested" value={money(invested)} />
-                  <ReadOut label="Unrealized MV" value={money(value)} />
-                  <ReadOut
-                    label="Net Gain"
-                    value={`${gain >= 0 ? '+' : '−'}${money(Math.abs(gain))}`}
-                    tone={gain >= 0 ? 'success' : 'danger'}
-                  />
-                  <ReadOut label="MOIC" value={`${moic.toFixed(2)}×`} />
-                </div>
-              </div>
-            );
-          })}
-          {funds.length > 0 && (
-            <div className="rounded-md border bg-muted/40 p-3">
-              <div className="mb-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                Total · {investorName || 'entity'}
-              </div>
-              <div className="grid grid-cols-2 gap-x-4 gap-y-2 sm:grid-cols-5">
-                <ReadOut label="Commitment" value={money(totalCommit)} />
-                <ReadOut label="Invested" value={money(assetAgg.cost)} />
-                <ReadOut label="Unrealized MV" value={money(assetAgg.fmv)} />
-                <ReadOut
-                  label="Net Gain"
-                  value={`${assetAgg.gain >= 0 ? '+' : '−'}${money(Math.abs(assetAgg.gain))}`}
-                  tone={assetAgg.gain >= 0 ? 'success' : 'danger'}
-                />
-                <ReadOut label="MOIC" value={`${assetAgg.moic.toFixed(2)}×`} />
-              </div>
-            </div>
-          )}
-          {error && <p className="text-sm text-destructive">{error}</p>}
-        </div>
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>
-            Cancel
-          </Button>
-          <Button onClick={submit} disabled={saving}>
-            {saving ? 'Saving…' : 'Save changes'}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-/** A small labelled read-only figure used in the Edit-entity modal. */
-function ReadOut({ label, value, tone }: { label: string; value: string; tone?: 'success' | 'danger' }) {
-  return (
-    <div>
-      <div className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">{label}</div>
-      <div
-        className={cn(
-          'text-[13px] font-medium',
-          tone === 'success' && 'text-success',
-          tone === 'danger' && 'text-destructive',
-          !tone && 'text-foreground',
-        )}
-      >
-        {value}
-      </div>
-    </div>
-  );
-}
 
 /** Single-text-field dialog used by the "Add Investment Entity" / "Add Source
  * of Fund" header buttons. */

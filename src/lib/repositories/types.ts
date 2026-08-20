@@ -58,7 +58,9 @@ type TableMap = {
   funding_sources: typeof schema.fundingSources;
   fund_assets: typeof schema.fundAssets;
   fund_holding_entity_stakes: typeof schema.fundHoldingEntityStakes;
+  fund_investor_commitment_events: typeof schema.fundInvestorCommitmentEvents;
   fund_asset_transactions: typeof schema.fundAssetTransactions;
+
   fund_asset_valuations: typeof schema.fundAssetValuations;
   fund_asset_holding_entity_stakes: typeof schema.fundAssetHoldingEntityStakes;
   fund_valuations: typeof schema.fundValuations;

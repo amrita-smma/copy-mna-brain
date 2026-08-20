@@ -6,6 +6,7 @@ import type { Fund, Investor } from './types';
 import { investorInvestedInFund } from './calc';
 import { useFundMoney } from './useFundMoney';
 import { DeleteRowMenu, GlossaryTerm, Pill, Chevron } from './parts';
+import { InlineCommitmentHistory } from './CommitmentHistoryTable';
 
 const COLS: { label: string; term?: string; align: 'left' | 'right' }[] = [
   { label: 'Investment Entity', align: 'left' },
@@ -22,14 +23,17 @@ export function EntitySummaryTable({
   investors,
   onEditStakes,
   onDeleteInvestor,
+  commitmentNonce,
 }: {
   funds: Fund[];
   investors: Investor[];
-  onEditStakes?: (investorId: string) => void;
+  onEditStakes?: (investorId: string, fundId?: string) => void;
   onDeleteInvestor?: (investorId: string) => Promise<void>;
+  commitmentNonce?: number;
 }) {
   const { money } = useFundMoney();
   const [openInvestors, setOpenInvestors] = useState<Set<string>>(new Set());
+  const [openFundHistories, setOpenFundHistories] = useState<Set<string>>(new Set());
 
   const toggle = (id: string) => {
     const next = new Set(openInvestors);
@@ -37,6 +41,16 @@ export function EntitySummaryTable({
     else next.add(id);
     setOpenInvestors(next);
   };
+
+  const toggleFundHistory = (key: string) => {
+    setOpenFundHistories((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
+
   const rows = investors
     .map((inv) => {
       let cost = 0;
@@ -203,16 +217,53 @@ export function EntitySummaryTable({
                   );
                 } else {
                   relevantFunds.forEach((r) => {
+                    const historyKey = `${inv.id}-${r.f.id}`;
+                    const isHistoryOpen = openFundHistories.has(historyKey);
+
                     tableRows.push(
-                      <tr key={`${inv.id}-${r.f.id}`} className="border-b [&>td]:bg-muted/10 hover:[&>td]:bg-background">
+                      <tr
+                        key={historyKey}
+                        onClick={() => toggleFundHistory(historyKey)}
+                        className={cn(
+                          'cursor-pointer border-b [&>td]:bg-muted/10 hover:[&>td]:bg-background',
+                          isHistoryOpen && '[&>td]:!bg-accent/10',
+                        )}
+                      >
                         <td className="py-2 pl-3 pr-3 align-middle">
                           <div className="flex items-center">
                             <span className="w-5 shrink-0" />
-                            <div className="border-l-2 border-border pl-2.5">
-                              <div className="text-[13px] font-medium text-foreground">{r.f.n}</div>
+                            <span className="mr-1.5 w-3 shrink-0 text-[11px] text-muted-foreground">
+                              {isHistoryOpen ? '▾' : '▸'}
+                            </span>
+                            <div className="flex items-center gap-2 border-l-2 border-border pl-2.5">
+                              <span className="text-[13px] font-medium text-foreground">{r.f.n}</span>
+                              <button
+                                type="button"
+                                aria-expanded={isHistoryOpen}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  toggleFundHistory(historyKey);
+                                }}
+                                className="text-[11px] text-muted-foreground hover:text-foreground hover:underline"
+                              >
+                                Commitment history
+                              </button>
+                              {onEditStakes && (
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    onEditStakes(inv.id, r.f.id);
+                                  }}
+                                  className="text-[10px] text-muted-foreground hover:text-foreground hover:underline"
+                                >
+                                  ✎ Edit
+                                </button>
+                              )}
                             </div>
                           </div>
                         </td>
+
                         <td className="px-3 py-2 text-right align-middle text-[13px] text-foreground">{money(r.committed)}</td>
                         <td className="px-3 py-2 text-right align-middle text-[13px] text-foreground">{money(r.invested)}</td>
                         <td className="px-3 py-2 text-right align-middle text-[13px] text-foreground">
@@ -233,6 +284,25 @@ export function EntitySummaryTable({
                         </td>
                       </tr>
                     );
+
+                    if (isHistoryOpen) {
+                      tableRows.push(
+                        <tr key={`${historyKey}-history`} className="border-b">
+                          <td colSpan={COLS.length} className="bg-background px-4 py-3">
+                            <div className="pl-6">
+                              <InlineCommitmentHistory
+                                fundId={r.f.id}
+                                fundName={r.f.n}
+                                holdingEntityId={inv.id}
+                                investorName={inv.n}
+                                refreshKey={`${r.committed}-${commitmentNonce ?? 0}`}
+                                onOpenDialog={onEditStakes ? () => onEditStakes(inv.id, r.f.id) : undefined}
+                              />
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    }
                   });
                 }
               }

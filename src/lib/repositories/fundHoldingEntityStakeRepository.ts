@@ -10,9 +10,13 @@ export class FundHoldingEntityStakeRepository {
     private readonly workspaceId: string,
   ) {}
 
+  private getExecutor(executor?: DbClient): DbClient {
+    return executor ?? this.db;
+  }
+
   /** Every stake whose parent fund belongs to this workspace. */
-  async findAll(): Promise<Tables<'fund_holding_entity_stakes'>[]> {
-    const rows = await this.db
+  async findAll(executor?: DbClient): Promise<Tables<'fund_holding_entity_stakes'>[]> {
+    const rows = await this.getExecutor(executor)
       .select({ stake: fundHoldingEntityStakes })
       .from(fundHoldingEntityStakes)
       .innerJoin(funds, eq(fundHoldingEntityStakes.fund_id, funds.id))
@@ -23,27 +27,36 @@ export class FundHoldingEntityStakeRepository {
   async findByFundHoldingEntity(
     fundId: string,
     holdingEntityId: string,
+    executor?: DbClient,
   ): Promise<Tables<'fund_holding_entity_stakes'> | undefined> {
-    const [row] = await this.db
-      .select()
+    const [result] = await this.getExecutor(executor)
+      .select({ stake: fundHoldingEntityStakes })
       .from(fundHoldingEntityStakes)
+      .innerJoin(funds, eq(fundHoldingEntityStakes.fund_id, funds.id))
       .where(
         and(
+          eq(funds.workspace_id, this.workspaceId),
           eq(fundHoldingEntityStakes.fund_id, fundId),
           eq(fundHoldingEntityStakes.holding_entity_id, holdingEntityId),
         ),
       )
       .limit(1);
-    return row;
+    return result?.stake;
   }
 
-  async findById(id: string): Promise<Tables<'fund_holding_entity_stakes'> | undefined> {
-    const [row] = await this.db
-      .select()
+  async findById(id: string, executor?: DbClient): Promise<Tables<'fund_holding_entity_stakes'> | undefined> {
+    const [result] = await this.getExecutor(executor)
+      .select({ stake: fundHoldingEntityStakes })
       .from(fundHoldingEntityStakes)
-      .where(eq(fundHoldingEntityStakes.id, id))
+      .innerJoin(funds, eq(fundHoldingEntityStakes.fund_id, funds.id))
+      .where(
+        and(
+          eq(funds.workspace_id, this.workspaceId),
+          eq(fundHoldingEntityStakes.id, id),
+        ),
+      )
       .limit(1);
-    return row;
+    return result?.stake;
   }
 
   /** Upsert a (fund_id, holding_entity_id) stake. Delete-then-insert rather than
@@ -52,9 +65,27 @@ export class FundHoldingEntityStakeRepository {
    * Postgres treats as distinct — so a conflict target wouldn't dedupe them. */
   async upsert(
     data: TablesInsert<'fund_holding_entity_stakes'>,
+    executor?: DbClient,
   ): Promise<Tables<'fund_holding_entity_stakes'>> {
+    const exec = this.getExecutor(executor);
+    let preservedCreatedAt: string | undefined;
     if (data.holding_entity_id) {
-      await this.db
+      const [existing] = await exec
+        .select({ created_at: fundHoldingEntityStakes.created_at })
+        .from(fundHoldingEntityStakes)
+        .where(
+          and(
+            eq(fundHoldingEntityStakes.fund_id, data.fund_id),
+            eq(fundHoldingEntityStakes.holding_entity_id, data.holding_entity_id),
+          ),
+        )
+        .limit(1);
+      if (existing?.created_at) {
+        preservedCreatedAt = typeof existing.created_at === 'string'
+          ? existing.created_at
+          : (existing.created_at as Date).toISOString();
+      }
+      await exec
         .delete(fundHoldingEntityStakes)
         .where(
           and(
@@ -63,11 +94,14 @@ export class FundHoldingEntityStakeRepository {
           ),
         );
     }
-    const [row] = await this.db.insert(fundHoldingEntityStakes).values(data).returning();
+    const insertData = preservedCreatedAt
+      ? { ...data, created_at: preservedCreatedAt }
+      : data;
+    const [row] = await exec.insert(fundHoldingEntityStakes).values(insertData).returning();
     return row;
   }
 
-  async delete(id: string): Promise<void> {
-    await this.db.delete(fundHoldingEntityStakes).where(eq(fundHoldingEntityStakes.id, id));
+  async delete(id: string, executor?: DbClient): Promise<void> {
+    await this.getExecutor(executor).delete(fundHoldingEntityStakes).where(eq(fundHoldingEntityStakes.id, id));
   }
 }

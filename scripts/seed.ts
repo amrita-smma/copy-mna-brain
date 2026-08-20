@@ -6,6 +6,7 @@
  * Usage: pnpm db:seed
  */
 import { config } from 'dotenv';
+import { pathToFileURL } from 'node:url';
 // Must call config() before dynamically importing db.ts — static imports are
 // hoisted in CJS output, so db.ts's module-level client creation would run
 // before dotenv if we used a static import here.
@@ -32,6 +33,7 @@ import {
   fundAssetTransactions,
   fundAssetValuations,
   fundHoldingEntityStakes,
+  fundInvestorCommitmentEvents,
   fundingSources,
   funds,
   investmentThesis,
@@ -80,8 +82,8 @@ const RETIRED_WORKSPACE_4_ID = '00000000-0000-0000-0000-000000000004';
 // in `...0000000f{N}...`: Combined uses N=0 (the original ids), Funds &
 // Investing uses N=1. Names stay identical across tenants so the UI looks the
 // same; only the ids differ so both can coexist in one DB.
-type FundSeedNs = '0' | '1';
-function fundSeedId(ns: FundSeedNs, rest: string): string {
+export type FundSeedNs = '0' | '1';
+export function fundSeedId(ns: FundSeedNs, rest: string): string {
   // `rest` is the 4 hex digits after `f` in the original Combined ids
   // (e.g. '0001', '030a'). The leading digit is the namespace; Combined keeps
   // the original `0…` ids, Funds & Investing gets `1…`.
@@ -97,7 +99,7 @@ const ENTITY_STARTECH_2 = 'Startech Growth Fund 2';
 const ENTITY_STARTECH_3 = 'Startech Growth Fund 3';
 const ENTITY_MERANTI = 'Meranti Global Investment Ltd';
 
-function buildFundSeedFixture(ns: FundSeedNs) {
+export function buildFundSeedFixture(ns: FundSeedNs) {
   const SEED_FUND_1_ID = fundSeedId(ns, '0001'); // Direct Investments
   const SEED_FUND_2_ID = fundSeedId(ns, '0002'); // Growth Fund II
   const SEED_FUND_3_ID = fundSeedId(ns, '0003'); // Legacy Fund I
@@ -155,6 +157,325 @@ function buildFundSeedFixture(ns: FundSeedNs) {
     { id: fundSeedId(ns, '0307'), fund_id: SEED_FUND_3_ID, holding_entity_id: INVESTOR_STARTECH_3, commitment_amount: 3_000_000, invested_amount: 2_500_000 },
     { id: fundSeedId(ns, '030b'), fund_id: SEED_FUND_3_ID, holding_entity_id: INVESTOR_COINVEST, commitment_amount: 2_000_000, invested_amount: 1_500_000 },
   ];
+
+  // MB-492: Commitment event ledger histories across all seeded funds and investors.
+  // Each history's chronological running balance equals its stake commitment_amount above.
+  const TRANSFER_GROUP_1 = fundSeedId(ns, '04f1');
+  const TRANSFER_GROUP_2 = fundSeedId(ns, '04f2');
+
+  const SEED_COMMITMENT_EVENTS = [
+    // ---- Fund 1: Direct Investments ($5M commitment) ----
+    // Startech Growth Fund 1 ($1.5M final balance: 1.0M initial + 0.8M add - 0.3M transfer_out)
+    {
+      id: fundSeedId(ns, '0401'),
+      fund_id: SEED_FUND_1_ID,
+      holding_entity_id: INVESTOR_STARTECH_1,
+      effective_date: '2023-01-10',
+      event_type: 'initial_commitment' as const,
+      amount: 1_000_000,
+      currency: 'USD',
+      counterparty_holding_entity_id: null,
+      transfer_group_id: null,
+      notes: 'Initial fund subscription — Lead LP',
+      source: 'subscription_agreement',
+    },
+    {
+      id: fundSeedId(ns, '0402'),
+      fund_id: SEED_FUND_1_ID,
+      holding_entity_id: INVESTOR_STARTECH_1,
+      effective_date: '2023-09-15',
+      event_type: 'additional_commitment' as const,
+      amount: 800_000,
+      currency: 'USD',
+      counterparty_holding_entity_id: null,
+      transfer_group_id: null,
+      notes: 'Upsized allocation for Series B co-invest program',
+      source: 'lp_amendment',
+    },
+    {
+      id: fundSeedId(ns, '0403'),
+      fund_id: SEED_FUND_1_ID,
+      holding_entity_id: INVESTOR_STARTECH_1,
+      effective_date: '2024-03-20',
+      event_type: 'transfer_out' as const,
+      amount: 300_000,
+      currency: 'USD',
+      counterparty_holding_entity_id: INVESTOR_STARTECH_2,
+      transfer_group_id: TRANSFER_GROUP_1,
+      notes: 'Secondary transfer to Startech Growth Fund 2',
+      source: 'secondary_transfer',
+    },
+
+    // Startech Growth Fund 2 ($1.0M final balance: 0.7M initial + 0.3M transfer_in)
+    {
+      id: fundSeedId(ns, '0404'),
+      fund_id: SEED_FUND_1_ID,
+      holding_entity_id: INVESTOR_STARTECH_2,
+      effective_date: '2023-01-10',
+      event_type: 'initial_commitment' as const,
+      amount: 700_000,
+      currency: 'USD',
+      counterparty_holding_entity_id: null,
+      transfer_group_id: null,
+      notes: 'Initial fund subscription',
+      source: 'subscription_agreement',
+    },
+    {
+      id: fundSeedId(ns, '0405'),
+      fund_id: SEED_FUND_1_ID,
+      holding_entity_id: INVESTOR_STARTECH_2,
+      effective_date: '2024-03-20',
+      event_type: 'transfer_in' as const,
+      amount: 300_000,
+      currency: 'USD',
+      counterparty_holding_entity_id: INVESTOR_STARTECH_1,
+      transfer_group_id: TRANSFER_GROUP_1,
+      notes: 'Secondary transfer from Startech Growth Fund 1',
+      source: 'secondary_transfer',
+    },
+
+    // Meranti Global Investment Ltd ($1.0M final balance: 1.2M initial - 0.2M reduction)
+    {
+      id: fundSeedId(ns, '0406'),
+      fund_id: SEED_FUND_1_ID,
+      holding_entity_id: INVESTOR_MERANTI,
+      effective_date: '2023-01-10',
+      event_type: 'initial_commitment' as const,
+      amount: 1_200_000,
+      currency: 'USD',
+      counterparty_holding_entity_id: null,
+      transfer_group_id: null,
+      notes: 'Initial institutional LP commitment',
+      source: 'subscription_agreement',
+    },
+    {
+      id: fundSeedId(ns, '0407'),
+      fund_id: SEED_FUND_1_ID,
+      holding_entity_id: INVESTOR_MERANTI,
+      effective_date: '2023-11-15',
+      event_type: 'reduction' as const,
+      amount: 200_000,
+      currency: 'USD',
+      counterparty_holding_entity_id: null,
+      transfer_group_id: null,
+      notes: 'Syndication adjustment / commitment downsize',
+      source: 'side_letter',
+    },
+
+    // PT Sinar Mas Multiartha Tbk ($1.0M final balance: 0.6M initial + 0.4M add)
+    {
+      id: fundSeedId(ns, '0408'),
+      fund_id: SEED_FUND_1_ID,
+      holding_entity_id: INVESTOR_SINARMAS,
+      effective_date: '2023-01-10',
+      event_type: 'initial_commitment' as const,
+      amount: 600_000,
+      currency: 'USD',
+      counterparty_holding_entity_id: null,
+      transfer_group_id: null,
+      notes: 'Initial strategic LP commitment',
+      source: 'subscription_agreement',
+    },
+    {
+      id: fundSeedId(ns, '0409'),
+      fund_id: SEED_FUND_1_ID,
+      holding_entity_id: INVESTOR_SINARMAS,
+      effective_date: '2023-06-01',
+      event_type: 'additional_commitment' as const,
+      amount: 400_000,
+      currency: 'USD',
+      counterparty_holding_entity_id: null,
+      transfer_group_id: null,
+      notes: 'Follow-on closing allocation',
+      source: 'second_closing',
+    },
+
+    // Co-invest Partners ($500k final balance: 0.5M initial)
+    {
+      id: fundSeedId(ns, '040a'),
+      fund_id: SEED_FUND_1_ID,
+      holding_entity_id: INVESTOR_COINVEST,
+      effective_date: '2023-01-10',
+      event_type: 'initial_commitment' as const,
+      amount: 500_000,
+      currency: 'USD',
+      counterparty_holding_entity_id: null,
+      transfer_group_id: null,
+      notes: 'Initial co-investment syndicate allocation',
+      source: 'subscription_agreement',
+    },
+
+    // ---- Fund 2: Growth Fund II ($10M commitment) ----
+    // Startech Growth Fund 3 ($5.0M final balance: 4.0M initial + 2.0M add - 1.0M transfer_out)
+    {
+      id: fundSeedId(ns, '0411'),
+      fund_id: SEED_FUND_2_ID,
+      holding_entity_id: INVESTOR_STARTECH_3,
+      effective_date: '2020-03-01',
+      event_type: 'initial_commitment' as const,
+      amount: 4_000_000,
+      currency: 'USD',
+      counterparty_holding_entity_id: null,
+      transfer_group_id: null,
+      notes: 'Anchor LP subscription',
+      source: 'subscription_agreement',
+    },
+    {
+      id: fundSeedId(ns, '0412'),
+      fund_id: SEED_FUND_2_ID,
+      holding_entity_id: INVESTOR_STARTECH_3,
+      effective_date: '2021-01-15',
+      event_type: 'additional_commitment' as const,
+      amount: 2_000_000,
+      currency: 'USD',
+      counterparty_holding_entity_id: null,
+      transfer_group_id: null,
+      notes: 'Final close expansion',
+      source: 'final_closing',
+    },
+    {
+      id: fundSeedId(ns, '0413'),
+      fund_id: SEED_FUND_2_ID,
+      holding_entity_id: INVESTOR_STARTECH_3,
+      effective_date: '2022-06-30',
+      event_type: 'transfer_out' as const,
+      amount: 1_000_000,
+      currency: 'USD',
+      counterparty_holding_entity_id: INVESTOR_MERANTI,
+      transfer_group_id: TRANSFER_GROUP_2,
+      notes: 'Secondary rebalancing transfer to Meranti',
+      source: 'secondary_transfer',
+    },
+
+    // Meranti Global Investment Ltd ($3.0M final balance: 2.0M initial + 1.0M transfer_in)
+    {
+      id: fundSeedId(ns, '0414'),
+      fund_id: SEED_FUND_2_ID,
+      holding_entity_id: INVESTOR_MERANTI,
+      effective_date: '2020-03-01',
+      event_type: 'initial_commitment' as const,
+      amount: 2_000_000,
+      currency: 'USD',
+      counterparty_holding_entity_id: null,
+      transfer_group_id: null,
+      notes: 'First close LP commitment',
+      source: 'subscription_agreement',
+    },
+    {
+      id: fundSeedId(ns, '0415'),
+      fund_id: SEED_FUND_2_ID,
+      holding_entity_id: INVESTOR_MERANTI,
+      effective_date: '2022-06-30',
+      event_type: 'transfer_in' as const,
+      amount: 1_000_000,
+      currency: 'USD',
+      counterparty_holding_entity_id: INVESTOR_STARTECH_3,
+      transfer_group_id: TRANSFER_GROUP_2,
+      notes: 'Secondary transfer acquisition from Startech Growth Fund 3',
+      source: 'secondary_transfer',
+    },
+
+    // PT Sinar Mas Multiartha Tbk ($2.0M final balance: 2.5M initial - 0.5M reduction)
+    {
+      id: fundSeedId(ns, '0416'),
+      fund_id: SEED_FUND_2_ID,
+      holding_entity_id: INVESTOR_SINARMAS,
+      effective_date: '2020-03-01',
+      event_type: 'initial_commitment' as const,
+      amount: 2_500_000,
+      currency: 'USD',
+      counterparty_holding_entity_id: null,
+      transfer_group_id: null,
+      notes: 'Initial institutional commitment',
+      source: 'subscription_agreement',
+    },
+    {
+      id: fundSeedId(ns, '0417'),
+      fund_id: SEED_FUND_2_ID,
+      holding_entity_id: INVESTOR_SINARMAS,
+      effective_date: '2021-09-10',
+      event_type: 'reduction' as const,
+      amount: 500_000,
+      currency: 'USD',
+      counterparty_holding_entity_id: null,
+      transfer_group_id: null,
+      notes: 'Portfolio rebalancing reduction',
+      source: 'side_letter',
+    },
+
+    // ---- Fund 3: Legacy Fund I ($8M commitment) ----
+    // Startech Growth Fund 1 ($3.0M final balance: 2.5M initial + 0.5M add)
+    {
+      id: fundSeedId(ns, '0421'),
+      fund_id: SEED_FUND_3_ID,
+      holding_entity_id: INVESTOR_STARTECH_1,
+      effective_date: '2018-01-15',
+      event_type: 'initial_commitment' as const,
+      amount: 2_500_000,
+      currency: 'USD',
+      counterparty_holding_entity_id: null,
+      transfer_group_id: null,
+      notes: 'Initial fund subscription',
+      source: 'subscription_agreement',
+    },
+    {
+      id: fundSeedId(ns, '0422'),
+      fund_id: SEED_FUND_3_ID,
+      holding_entity_id: INVESTOR_STARTECH_1,
+      effective_date: '2018-08-01',
+      event_type: 'additional_commitment' as const,
+      amount: 500_000,
+      currency: 'USD',
+      counterparty_holding_entity_id: null,
+      transfer_group_id: null,
+      notes: 'Subsequent closing commitment',
+      source: 'second_closing',
+    },
+
+    // Startech Growth Fund 3 ($3.0M final balance: 3.5M initial - 0.5M reduction)
+    {
+      id: fundSeedId(ns, '0423'),
+      fund_id: SEED_FUND_3_ID,
+      holding_entity_id: INVESTOR_STARTECH_3,
+      effective_date: '2018-01-15',
+      event_type: 'initial_commitment' as const,
+      amount: 3_500_000,
+      currency: 'USD',
+      counterparty_holding_entity_id: null,
+      transfer_group_id: null,
+      notes: 'Initial subscription',
+      source: 'subscription_agreement',
+    },
+    {
+      id: fundSeedId(ns, '0424'),
+      fund_id: SEED_FUND_3_ID,
+      holding_entity_id: INVESTOR_STARTECH_3,
+      effective_date: '2019-04-10',
+      event_type: 'reduction' as const,
+      amount: 500_000,
+      currency: 'USD',
+      counterparty_holding_entity_id: null,
+      transfer_group_id: null,
+      notes: 'Capital reallocation reduction',
+      source: 'lp_amendment',
+    },
+
+    // Co-invest Partners ($2.0M final balance: 2.0M initial)
+    {
+      id: fundSeedId(ns, '0425'),
+      fund_id: SEED_FUND_3_ID,
+      holding_entity_id: INVESTOR_COINVEST,
+      effective_date: '2018-01-15',
+      event_type: 'initial_commitment' as const,
+      amount: 2_000_000,
+      currency: 'USD',
+      counterparty_holding_entity_id: null,
+      transfer_group_id: null,
+      notes: 'Initial subscription',
+      source: 'subscription_agreement',
+    },
+  ];
+
   const SEED_FUND_IDS = [SEED_FUND_1_ID, SEED_FUND_2_ID, SEED_FUND_3_ID];
   const SEED_ASSET_IDS = [
     SEED_ASSET_1_ID,
@@ -183,6 +504,7 @@ function buildFundSeedFixture(ns: FundSeedNs) {
     SEED_INVESTORS,
     SEED_FUND_SOURCES,
     SEED_INVESTOR_STAKES,
+    SEED_COMMITMENT_EVENTS,
     SEED_FUND_IDS,
     SEED_ASSET_IDS,
     INVESTOR_STARTECH_1,
@@ -2666,6 +2988,7 @@ async function seedFundManagement(db: DbClient, workspaceId: string, ns: FundSee
     SEED_INVESTORS,
     SEED_FUND_SOURCES,
     SEED_INVESTOR_STAKES,
+    SEED_COMMITMENT_EVENTS,
     SEED_FUND_IDS,
     SEED_ASSET_IDS,
     INVESTOR_STARTECH_1,
@@ -2735,6 +3058,23 @@ async function seedFundManagement(db: DbClient, workspaceId: string, ns: FundSee
       commitment_amount_currency: 'USD',
       invested_amount: s.invested_amount,
       invested_amount_currency: 'USD',
+    })),
+  ).onConflictDoNothing();
+
+  // MB-492: Detailed commitment event ledger history across all investors/funds.
+  await db.insert(fundInvestorCommitmentEvents).values(
+    SEED_COMMITMENT_EVENTS.map((e) => ({
+      id: e.id,
+      fund_id: e.fund_id,
+      holding_entity_id: e.holding_entity_id,
+      effective_date: e.effective_date,
+      event_type: e.event_type,
+      amount: e.amount,
+      currency: e.currency,
+      counterparty_holding_entity_id: e.counterparty_holding_entity_id,
+      transfer_group_id: e.transfer_group_id,
+      notes: e.notes,
+      source: e.source,
     })),
   ).onConflictDoNothing();
 
@@ -4326,8 +4666,10 @@ async function main() {
   }
 }
 
-main().catch((err) => {
-  console.error('seed failed:');
-  console.error(err);
-  process.exit(1);
-});
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  main().catch((err) => {
+    console.error('seed failed:');
+    console.error(err);
+    process.exit(1);
+  });
+}

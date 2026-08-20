@@ -3058,6 +3058,15 @@ export const valuationMethod = pgEnum("valuation_method", [
   "other",
 ]);
 
+export const commitmentEventType = pgEnum("commitment_event_type", [
+  "initial_commitment",
+  "additional_commitment",
+  "reduction",
+  "transfer_in",
+  "transfer_out",
+]);
+
+
 // The fund vehicle. `called_amount`, `fmv_amount`, `realized_amount`, `dpi`,
 // `tvpi`, and `irr` are derived rollups normalized into `base_currency` —
 // read-only, background-job-refreshed, and can lag the ledger between a
@@ -3372,6 +3381,67 @@ export const fundHoldingEntityStakes = pgTable("fund_investor_stakes", {
     name: "fund_investor_stakes_updated_by_fkey",
   }).onDelete("set null"),
 }));
+
+// MB-492: Investor-to-fund commitment event ledger. Tracks the chronological
+// history of an LP's commitment changes (initial commitments, additions, reductions,
+// and transfers between holding entities). `fundHoldingEntityStakes.commitment_amount`
+// is maintained as the current projected balance across this ledger.
+export const fundInvestorCommitmentEvents = pgTable("fund_investor_commitment_events", {
+  id: uuid().defaultRandom().primaryKey().notNull(),
+  fund_id: uuid().notNull(),
+  holding_entity_id: uuid().notNull(),
+  effective_date: date().notNull(),
+  event_type: commitmentEventType().notNull(),
+  amount: numeric({ mode: "number" }).notNull(),
+  currency: text().default("USD").notNull(),
+  counterparty_holding_entity_id: uuid(),
+  transfer_group_id: uuid(),
+  notes: text(),
+  source: text(),
+  created_by: uuid(),
+  updated_by: uuid(),
+  created_at: timestamp({ withTimezone: true, mode: "string" })
+    .defaultNow()
+    .notNull(),
+  updated_at: timestamp({ withTimezone: true, mode: "string" })
+    .defaultNow()
+    .notNull(),
+}, (table) => ({
+  fundCommitmentEventsFundFkey: foreignKey({
+    columns: [table.fund_id],
+    foreignColumns: [funds.id],
+    name: "fund_investor_commitment_events_fund_id_fkey",
+  }).onDelete("cascade"),
+  fundCommitmentEventsHoldingEntityFkey: foreignKey({
+    columns: [table.holding_entity_id],
+    foreignColumns: [holdingEntities.id],
+    name: "fund_investor_commitment_events_holding_entity_id_fkey",
+  }).onDelete("cascade"),
+  fundCommitmentEventsCounterpartyFkey: foreignKey({
+    columns: [table.counterparty_holding_entity_id],
+    foreignColumns: [holdingEntities.id],
+    name: "fund_investor_commitment_events_counterparty_holding_entity_id_fkey",
+  }).onDelete("set null"),
+  fundCommitmentEventsCreatedByFkey: foreignKey({
+    columns: [table.created_by],
+    foreignColumns: [users.id],
+    name: "fund_investor_commitment_events_created_by_fkey",
+  }).onDelete("set null"),
+  fundCommitmentEventsUpdatedByFkey: foreignKey({
+    columns: [table.updated_by],
+    foreignColumns: [users.id],
+    name: "fund_investor_commitment_events_updated_by_fkey",
+  }).onDelete("set null"),
+  idxFundCommitmentEventsFundHolding: index("idx_fund_commitment_events_fund_holding_entity")
+    .on(table.fund_id, table.holding_entity_id),
+  idxFundCommitmentEventsTransferGroup: index("idx_fund_commitment_events_transfer_group")
+    .on(table.transfer_group_id),
+  fundCommitmentEventsAmountPositive: check(
+    "fund_commitment_events_amount_positive",
+    sql`${table.amount} > 0`,
+  ),
+}));
+
 
 // The ledger — every cash flow into or out of an asset. `share_count` here
 // is a single transaction's delta, not a running total — see

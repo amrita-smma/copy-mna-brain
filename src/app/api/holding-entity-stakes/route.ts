@@ -3,6 +3,10 @@ import { createDb } from '@/lib/server/db';
 import { getActiveWorkspaceId } from '@/lib/workspace';
 import { createContainer } from '@/lib/services';
 import { FundHoldingEntityStakeScopeError } from '@/lib/services/fundHoldingEntityStakeService';
+import {
+  CommitmentNegativeBalanceError,
+  InvalidCommitmentEventError,
+} from '@/lib/services/fundCommitmentEventService';
 
 export async function GET() {
   try {
@@ -43,7 +47,11 @@ export async function POST(req: NextRequest) {
     });
     return NextResponse.json({ data });
   } catch (error: unknown) {
-    if (error instanceof FundHoldingEntityStakeScopeError) {
+    if (
+      error instanceof FundHoldingEntityStakeScopeError ||
+      error instanceof CommitmentNegativeBalanceError ||
+      error instanceof InvalidCommitmentEventError
+    ) {
       return NextResponse.json({ error: error.message }, { status: 400 });
     }
     const message = error instanceof Error ? error.message : 'Failed to save holding entity stake';

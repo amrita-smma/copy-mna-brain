@@ -50,7 +50,9 @@ export * from './fundRepository';
 export * from './holdingEntityRepository';
 export * from './fundSourceRepository';
 export * from './fundHoldingEntityStakeRepository';
+export * from './fundInvestorCommitmentEventRepository';
 export * from './fundAssetRepository';
+
 export * from './fundAssetTransactionRepository';
 export * from './fundAssetValuationRepository';
 export * from './fundValuationRepository';
