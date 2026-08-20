@@ -46,6 +46,20 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "skipReason": "noise"
   },
   {
+    "hash": "87fd2351a6ef8b3f71264c6e25e6246ebfefbc8e",
+    "date": "2026-08-20",
+    "subject": "Asset names now display in fund update review screens",
+    "category": "fix"
+  },
+  {
+    "hash": "7738ee81e8fbc5664c0eaee66f57e258a420c0a7",
+    "date": "2026-08-20",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "a2ebd9bd02e6709eb5adfa6409a21e3240bf66c7",
     "date": "2026-08-19",
     "subject": "Export Company Card as condensed PowerPoint presentation via email",
