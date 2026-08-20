@@ -1,6 +1,27 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { FundUpdateApplyService } from './fundUpdateApplyService';
-import type { ParsedAsset } from '@/lib/fund_updates';
+import type { ParsedAsset, ParsedCommitmentEvent } from '@/lib/fund_updates';
+import { NANJING_TEMPLATE_ID } from '@/lib/fund_updates';
+
+function sampleCommitmentEvent(overrides: Partial<ParsedCommitmentEvent> = {}): ParsedCommitmentEvent {
+  return {
+    fund: 'Fund A',
+    investorName: 'Investor A',
+    investorTypeRaw: '机构投资人',
+    investorTypeLabel: 'Institutional Investor',
+    date: '2024-01-15',
+    intent: 'increase',
+    amount: 1000000,
+    currency: 'CNY',
+    counterpartyName: null,
+    actionRaw: '认缴',
+    natureRaw: '新增额度',
+    directionRaw: '认缴额度增加',
+    notes: null,
+    sourceRow: 3,
+    ...overrides,
+  };
+}
 
 function sampleAsset(overrides: Partial<ParsedAsset> = {}): ParsedAsset {
   return {
@@ -76,6 +97,13 @@ describe('FundUpdateApplyService', () => {
   let fundSourceRepo: { findAll: ReturnType<typeof vi.fn>; insert: ReturnType<typeof vi.fn> };
   let fundMetricsService: { recomputeAsset: ReturnType<typeof vi.fn> };
   let fundAssetLedgerService: { addTransaction: ReturnType<typeof vi.fn> };
+  let commitmentEventRepo: {
+    findByFundAndHoldingEntity: ReturnType<typeof vi.fn>;
+    findAll: ReturnType<typeof vi.fn>;
+  };
+  let commitmentEventService: {
+    createEvent: ReturnType<typeof vi.fn>;
+  };
   let service: FundUpdateApplyService;
 
   beforeEach(() => {
@@ -106,7 +134,7 @@ describe('FundUpdateApplyService', () => {
     };
     holdingEntityRepo = {
       findAll: vi.fn().mockResolvedValue([]),
-      insert: vi.fn().mockResolvedValue({ id: 'he-1', name: 'Asia Star Fund Ltd' }),
+      insert: vi.fn().mockImplementation(async ({ name }) => ({ id: `he-${name}`, name })),
     };
     fundSourceRepo = {
       findAll: vi.fn().mockResolvedValue([]),
@@ -116,6 +144,13 @@ describe('FundUpdateApplyService', () => {
     const insertTxn = txnRepo.insert as unknown as (transaction: unknown) => Promise<unknown>;
     fundAssetLedgerService = {
       addTransaction: vi.fn(async (_assetId: string, transaction: unknown) => insertTxn(transaction)),
+    };
+    commitmentEventRepo = {
+      findByFundAndHoldingEntity: vi.fn().mockResolvedValue([]),
+      findAll: vi.fn().mockResolvedValue([]),
+    };
+    commitmentEventService = {
+      createEvent: vi.fn().mockResolvedValue({ id: 'evt-1' }),
     };
 
     service = new FundUpdateApplyService(
@@ -127,6 +162,8 @@ describe('FundUpdateApplyService', () => {
       fundSourceRepo as never,
       fundMetricsService as never,
       fundAssetLedgerService as never,
+      commitmentEventRepo as never,
+      commitmentEventService as never,
     );
   });
 
@@ -476,6 +513,99 @@ describe('FundUpdateApplyService', () => {
     });
   });
 
+  it('classifies same-name Nanjing asset under a different fund as new (no name-only fallback across funds)', async () => {
+    const asset1 = sampleAsset({
+      code: 'NJ-aaaa111122',
+      name: 'Beijing Huayao Kechuang',
+      legalName: '北京化药科创医药科技发展有限公司',
+      fund: '南京瑞沣股权投资合伙企业（有限合伙）',
+      currency: 'CNY',
+    });
+    const asset2 = sampleAsset({
+      code: 'NJ-bbbb333344',
+      name: 'Beijing Huayao Kechuang',
+      legalName: '北京化药科创医药科技发展有限公司',
+      fund: '淮安熙和创业投资基金合伙企业（有限合伙）',
+      currency: 'CNY',
+    });
+
+    fundAssetRepo.findAll.mockResolvedValue([
+      { id: 'asset-1', asset_name: 'Beijing Huayao Kechuang', type_details: { sheetCode: 'NJ-aaaa111122' } },
+    ]);
+    txnRepo.findByFundAssetIds.mockResolvedValue([
+      { fund_asset_id: 'asset-1', txn_date: '2021-01-01', txn_type: 'contribution', value_amount: 50, share_count: 50, price_per_share: 1 },
+    ]);
+    valuationRepo.findByFundAssetIds.mockResolvedValue([
+      { fund_asset_id: 'asset-1', as_of_date: '2026-03-31' },
+    ]);
+
+    const review = await service.buildReview([asset1, asset2]);
+    expect(review.find((r) => r.code === 'NJ-aaaa111122')).toEqual(
+      expect.objectContaining({ status: 'unchanged', matched_asset_id: 'asset-1' }),
+    );
+    expect(review.find((r) => r.code === 'NJ-bbbb333344')).toEqual(
+      expect.objectContaining({ status: 'new', matched_asset_id: null }),
+    );
+
+    const catalog = ['南京瑞沣股权投资合伙企业（有限合伙）', '淮安熙和创业投资基金合伙企业（有限合伙）'];
+    fundRepo.findAll.mockResolvedValue([
+      { id: 'fund-1', name: '南京瑞沣股权投资合伙企业（有限合伙）' },
+      { id: 'fund-2', name: '淮安熙和创业投资基金合伙企业（有限合伙）' },
+    ]);
+    fundAssetRepo.insert.mockResolvedValue({ id: 'asset-2' });
+
+    const result = await service.applySelected([asset1, asset2], ['NJ-bbbb333344'], undefined, catalog);
+    expect(result.created_assets).toBe(1);
+    expect(fundAssetRepo.insert).toHaveBeenCalledWith(expect.objectContaining({
+      asset_name: 'Beijing Huayao Kechuang',
+      type_details: expect.objectContaining({ sheetCode: 'NJ-bbbb333344' }),
+    }));
+    expect(fundAssetLedgerService.addTransaction).toHaveBeenCalledWith(
+      'asset-2', expect.objectContaining({ fund_id: 'fund-2' }),
+    );
+  });
+
+  it('throws before any DB writes when explicit fund_catalog is empty []', async () => {
+    await expect(service.applySelected([sampleAsset()], ['GOTO'], undefined, [])).rejects.toThrow(
+      'Explicit fund catalog cannot be empty',
+    );
+    expect(fundRepo.insert).not.toHaveBeenCalled();
+    expect(fundAssetRepo.insert).not.toHaveBeenCalled();
+    expect(txnRepo.insert).not.toHaveBeenCalled();
+    expect(valuationRepo.upsert).not.toHaveBeenCalled();
+  });
+
+  it('throws before any DB writes when explicit fund_catalog omits a selected asset fund', async () => {
+    const asset = sampleAsset({ code: 'NJ-1234567890', fund: '淮安熙和创业投资基金合伙企业（有限合伙）' });
+    await expect(service.applySelected(
+      [asset], ['NJ-1234567890'], undefined, ['南京金光紫金股权投资基金（有限合伙企业）'],
+    )).rejects.toThrow(/Explicit fund catalog does not contain proposed fund/);
+    expect(fundRepo.insert).not.toHaveBeenCalled();
+    expect(fundAssetRepo.insert).not.toHaveBeenCalled();
+    expect(txnRepo.insert).not.toHaveBeenCalled();
+    expect(valuationRepo.upsert).not.toHaveBeenCalled();
+  });
+
+  it('preserves legacy name matching for non-Nanjing proposals', async () => {
+    fundAssetRepo.findAll.mockResolvedValue([
+      { id: 'asset-legacy', asset_name: 'GOTO Group', type_details: { sheetCode: 'OLD_GOTO' } },
+    ]);
+    txnRepo.findByFundAssetIds.mockResolvedValue([
+      { fund_asset_id: 'asset-legacy', txn_date: '2021-01-01', txn_type: 'contribution', value_amount: 50, share_count: 50, price_per_share: 1 },
+    ]);
+    valuationRepo.findByFundAssetIds.mockResolvedValue([{ fund_asset_id: 'asset-legacy', as_of_date: '2026-03-31' }]);
+    const review = await service.buildReview([sampleAsset({ code: 'GOTO', name: 'GOTO Group' })]);
+    expect(review[0]).toEqual(expect.objectContaining({ status: 'unchanged', matched_asset_id: 'asset-legacy' }));
+  });
+
+  it('does not match non-Nanjing asset to existing Nanjing asset by name fallback', async () => {
+    fundAssetRepo.findAll.mockResolvedValue([
+      { id: 'asset-nj', asset_name: 'GOTO Group', type_details: { sheetCode: 'NJ-1234567890' } },
+    ]);
+    const review = await service.buildReview([sampleAsset({ code: 'STARTECH_NEW', name: 'GOTO Group' })]);
+    expect(review[0]).toEqual(expect.objectContaining({ status: 'new', matched_asset_id: null }));
+  });
+
   describe('buildFullReview & catalog matching', () => {
     it('marks unmatched names as new with matched_id null and lists them in unique catalogs', async () => {
       fundRepo.findAll.mockResolvedValue([]);
@@ -644,6 +774,278 @@ describe('FundUpdateApplyService', () => {
         matched_id: 'fs-1',
       });
     });
+
+    it('merges commitment event investors and leaves assets identical to no-events call', async () => {
+      fundRepo.findAll.mockResolvedValue([{ id: 'f-1', name: 'Others' }]);
+      holdingEntityRepo.findAll.mockResolvedValue([
+        { id: 'he-existing', name: 'Existing Investor' },
+      ]);
+      fundSourceRepo.findAll.mockResolvedValue([{ id: 'fs-1', name: 'DCA' }]);
+
+      const asset = sampleAsset();
+      const ev1 = sampleCommitmentEvent({ investorName: 'Existing Investor' });
+      const ev2 = sampleCommitmentEvent({ investorName: 'New Proposed Investor' });
+
+      const reviewWithoutEvents = await service.buildFullReview([asset]);
+      const reviewWithEvents = await service.buildFullReview([asset], [ev1, ev2]);
+
+      expect(reviewWithEvents.assets).toEqual(reviewWithoutEvents.assets);
+      expect(reviewWithEvents.investors).toEqual(
+        expect.arrayContaining([
+          { name: 'Existing Investor', status: 'existing', matched_id: 'he-existing' },
+          { name: 'New Proposed Investor', status: 'new', matched_id: null },
+        ]),
+      );
+    });
+  });
+
+  describe('FundUpdateApplyService.applyCommitmentEvents', () => {
+    it('returns all-zero result on empty events array without hitting repo or service', async () => {
+      const result = await service.applyCommitmentEvents([]);
+      expect(result).toEqual({
+        events_inserted: 0,
+        events_skipped_duplicate: 0,
+        events_skipped: 0,
+        warnings: [],
+      });
+      expect(commitmentEventRepo.findByFundAndHoldingEntity).not.toHaveBeenCalled();
+      expect(commitmentEventService.createEvent).not.toHaveBeenCalled();
+    });
+
+    it('assigns initial_commitment on fresh position and additional_commitment on subsequent events', async () => {
+      const ev1 = sampleCommitmentEvent({ date: '2024-01-15', amount: 1000000, sourceRow: 3 });
+      const ev2 = sampleCommitmentEvent({ date: '2024-02-15', amount: 500000, sourceRow: 4 });
+
+      const result = await service.applyCommitmentEvents([ev1, ev2]);
+
+      expect(result.events_inserted).toBe(2);
+      expect(result.events_skipped).toBe(0);
+      expect(result.events_skipped_duplicate).toBe(0);
+      expect(result.warnings).toEqual([]);
+
+      expect(commitmentEventService.createEvent).toHaveBeenNthCalledWith(
+        1,
+        expect.objectContaining({
+          eventType: 'initial_commitment',
+          amount: 1000000,
+          effectiveDate: '2024-01-15',
+          currency: 'CNY',
+        }),
+      );
+      expect(commitmentEventService.createEvent).toHaveBeenNthCalledWith(
+        2,
+        expect.objectContaining({
+          eventType: 'additional_commitment',
+          amount: 500000,
+          effectiveDate: '2024-02-15',
+          currency: 'CNY',
+        }),
+      );
+    });
+
+    it('assigns additional_commitment for position with existing events in DB', async () => {
+      commitmentEventRepo.findByFundAndHoldingEntity.mockResolvedValue([
+        {
+          id: 'existing-1',
+          effective_date: '2023-01-01',
+          event_type: 'initial_commitment',
+          amount: 100000,
+          currency: 'CNY',
+        },
+      ]);
+
+      const ev = sampleCommitmentEvent({ date: '2024-01-15', amount: 500000 });
+      const result = await service.applyCommitmentEvents([ev]);
+
+      expect(result.events_inserted).toBe(1);
+      expect(commitmentEventService.createEvent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          eventType: 'additional_commitment',
+          amount: 500000,
+        }),
+      );
+    });
+
+    it('maps decrease intent to reduction eventType', async () => {
+      const ev = sampleCommitmentEvent({
+        intent: 'decrease',
+        actionRaw: '减资',
+        natureRaw: '认缴额度减少',
+        directionRaw: '认缴额度减少',
+      });
+      const result = await service.applyCommitmentEvents([ev]);
+
+      expect(result.events_inserted).toBe(1);
+      expect(commitmentEventService.createEvent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          eventType: 'reduction',
+        }),
+      );
+    });
+
+    it('skips duplicate events against existing DB events and increments events_skipped_duplicate', async () => {
+      commitmentEventRepo.findByFundAndHoldingEntity.mockResolvedValue([
+        {
+          id: 'existing-1',
+          effective_date: '2024-01-15',
+          event_type: 'initial_commitment',
+          amount: 1000000,
+          currency: 'CNY',
+        },
+      ]);
+
+      const ev = sampleCommitmentEvent({ date: '2024-01-15', amount: 1000000 });
+      const result = await service.applyCommitmentEvents([ev]);
+
+      expect(result.events_skipped_duplicate).toBe(1);
+      expect(result.events_inserted).toBe(0);
+      expect(commitmentEventService.createEvent).not.toHaveBeenCalled();
+    });
+
+    it('inserts nothing when the same proposal is applied twice', async () => {
+      const ev = sampleCommitmentEvent({ date: '2024-01-15', amount: 1000000 });
+
+      // First run: fresh position -> 1 insert
+      const result1 = await service.applyCommitmentEvents([ev]);
+      expect(result1.events_inserted).toBe(1);
+
+      // Second run: existing event now present in DB
+      commitmentEventRepo.findByFundAndHoldingEntity.mockResolvedValue([
+        {
+          id: 'ev-1',
+          effective_date: '2024-01-15',
+          event_type: 'initial_commitment',
+          amount: 1000000,
+          currency: 'CNY',
+        },
+      ]);
+
+      const result2 = await service.applyCommitmentEvents([ev]);
+      expect(result2.events_inserted).toBe(0);
+      expect(result2.events_skipped_duplicate).toBe(1);
+      expect(commitmentEventService.createEvent).toHaveBeenCalledTimes(1);
+    });
+
+    it('skips whole group with a warning if existing ledger currency is not CNY', async () => {
+      commitmentEventRepo.findByFundAndHoldingEntity.mockResolvedValue([
+        {
+          id: 'existing-usd',
+          effective_date: '2023-01-01',
+          event_type: 'initial_commitment',
+          amount: 100000,
+          currency: 'USD',
+        },
+      ]);
+
+      const ev1 = sampleCommitmentEvent({ date: '2024-01-15', amount: 1000000 });
+      const ev2 = sampleCommitmentEvent({ date: '2024-02-15', amount: 500000 });
+      const result = await service.applyCommitmentEvents([ev1, ev2]);
+
+      expect(result.events_skipped).toBe(2);
+      expect(result.events_inserted).toBe(0);
+      expect(result.warnings).toHaveLength(1);
+      expect(result.warnings[0]).toContain('USD');
+      expect(result.warnings[0]).toContain('CNY');
+      expect(commitmentEventService.createEvent).not.toHaveBeenCalled();
+    });
+
+    it('counts single event error in events_skipped and continues applying remaining events', async () => {
+      commitmentEventService.createEvent
+        .mockRejectedValueOnce(new Error('CommitmentNegativeBalanceError: balance cannot be negative'))
+        .mockResolvedValueOnce({ id: 'evt-2' });
+
+      const ev1 = sampleCommitmentEvent({ date: '2024-01-15', amount: 1000000, sourceRow: 3 });
+      const ev2 = sampleCommitmentEvent({ date: '2024-02-15', amount: 500000, sourceRow: 4 });
+
+      const result = await service.applyCommitmentEvents([ev1, ev2]);
+
+      expect(result.events_skipped).toBe(1);
+      expect(result.events_inserted).toBe(1);
+      expect(result.warnings).toHaveLength(1);
+      expect(result.warnings[0]).toContain('balance cannot be negative');
+    });
+
+    it('skips event with a warning when fund is missing in an explicit catalog without throwing', async () => {
+      const ev = sampleCommitmentEvent({ fund: 'Missing Fund', sourceRow: 10 });
+      const result = await service.applyCommitmentEvents([ev], { fundCatalog: ['Fund A'] });
+
+      expect(result.events_skipped).toBe(1);
+      expect(result.events_inserted).toBe(0);
+      expect(result.warnings).toHaveLength(1);
+      expect(result.warnings[0]).toContain('Missing Fund');
+      expect(commitmentEventService.createEvent).not.toHaveBeenCalled();
+    });
+
+    it('inserts missing investor once and reuses it for subsequent events with same investor', async () => {
+      holdingEntityRepo.findAll.mockResolvedValue([]);
+      const ev1 = sampleCommitmentEvent({
+        investorName: 'New Investor Corp',
+        investorTypeLabel: 'Institutional Investor',
+        date: '2024-01-15',
+        sourceRow: 3,
+      });
+      const ev2 = sampleCommitmentEvent({
+        investorName: 'New Investor Corp',
+        investorTypeLabel: 'Institutional Investor',
+        date: '2024-02-15',
+        sourceRow: 4,
+      });
+
+      const result = await service.applyCommitmentEvents([ev1, ev2]);
+
+      expect(result.events_inserted).toBe(2);
+      expect(holdingEntityRepo.insert).toHaveBeenCalledTimes(1);
+      expect(holdingEntityRepo.insert).toHaveBeenCalledWith({
+        name: 'New Investor Corp',
+        entity_type: 'Institutional Investor',
+      });
+    });
+
+    it('passes events to createEvent in chronological order', async () => {
+      const evLate = sampleCommitmentEvent({ date: '2024-03-01', amount: 300000, sourceRow: 5 });
+      const evEarly = sampleCommitmentEvent({ date: '2024-01-01', amount: 100000, sourceRow: 3 });
+      const evMid = sampleCommitmentEvent({ date: '2024-02-01', amount: 200000, sourceRow: 4 });
+
+      await service.applyCommitmentEvents([evLate, evEarly, evMid]);
+
+      expect(commitmentEventService.createEvent).toHaveBeenNthCalledWith(
+        1,
+        expect.objectContaining({ effectiveDate: '2024-01-01', amount: 100000 }),
+      );
+      expect(commitmentEventService.createEvent).toHaveBeenNthCalledWith(
+        2,
+        expect.objectContaining({ effectiveDate: '2024-02-01', amount: 200000 }),
+      );
+      expect(commitmentEventService.createEvent).toHaveBeenNthCalledWith(
+        3,
+        expect.objectContaining({ effectiveDate: '2024-03-01', amount: 300000 }),
+      );
+    });
+
+    it('passes explicit source or defaults to NANJING_TEMPLATE_ID, never manual', async () => {
+      const ev1 = sampleCommitmentEvent();
+      await service.applyCommitmentEvents([ev1], { source: 'custom_source_id' });
+      expect(commitmentEventService.createEvent).toHaveBeenCalledWith(
+        expect.objectContaining({ source: 'custom_source_id' }),
+      );
+
+      const ev2 = sampleCommitmentEvent();
+      await service.applyCommitmentEvents([ev2]);
+      expect(commitmentEventService.createEvent).toHaveBeenLastCalledWith(
+        expect.objectContaining({ source: NANJING_TEMPLATE_ID }),
+      );
+    });
+
+    it('calls holdingEntityRepo.findAll and commitmentEventRepo.findByFundAndHoldingEntity without N+1', async () => {
+      const ev1 = sampleCommitmentEvent({ fund: 'Fund A', investorName: 'Inv 1', date: '2024-01-01', sourceRow: 3 });
+      const ev2 = sampleCommitmentEvent({ fund: 'Fund A', investorName: 'Inv 1', date: '2024-01-02', sourceRow: 4 });
+      const ev3 = sampleCommitmentEvent({ fund: 'Fund A', investorName: 'Inv 2', date: '2024-01-01', sourceRow: 5 });
+
+      await service.applyCommitmentEvents([ev1, ev2, ev3]);
+
+      expect(holdingEntityRepo.findAll).toHaveBeenCalledTimes(1);
+      expect(commitmentEventRepo.findByFundAndHoldingEntity).toHaveBeenCalledTimes(2);
+    });
   });
 
   describe('catalogSelections & selective creation in applySelected', () => {
@@ -803,7 +1205,7 @@ describe('FundUpdateApplyService', () => {
       expect(txnRepo.insert).toHaveBeenCalledWith(
         expect.objectContaining({
           fund_id: 'fund-Custom Off-Catalog Fund',
-          holding_entity_id: 'he-1',
+          holding_entity_id: 'he-Investor Alpha',
           funding_source_id: 'fs-1',
         }),
       );
@@ -831,7 +1233,7 @@ describe('FundUpdateApplyService', () => {
       expect(txnRepo.insert).toHaveBeenCalledWith(
         expect.objectContaining({
           fund_id: 'fund-Custom Fund',
-          holding_entity_id: 'he-1',
+          holding_entity_id: 'he-Asia Star Fund Ltd',
           funding_source_id: 'fs-1',
         }),
       );

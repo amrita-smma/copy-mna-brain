@@ -5,6 +5,7 @@
  * and Smart Files fund-update ingestion (propose-only; no DB writes here).
  */
 import ExcelJS from 'exceljs';
+import type { DeterministicParser, FundUpdateStructuredResult } from '../types';
 
 export const STARTECH_TEMPLATE_ID = 'startech_master_sheet_v1' as const;
 
@@ -278,7 +279,7 @@ export interface ParsedTxn {
   pricePerShare: number | null;
   shareCount: number | null;
   valueAmount: number | null;
-  currency: string;
+  currency?: string;
   fxRate: number | null;
   sellProceedsDestination?: SellProceedsDestination | null;
   notes: string | null;
@@ -321,6 +322,8 @@ export interface ParsedAsset {
   fundingSourceRaw: string | null;
   entryDate: string | null;
   stakePct: number | null;
+  /** ISO-4217 code the asset's amounts are denominated in ('USD' for STARTECH). */
+  currency?: string;
   // Enrichment from the Structure / Appendix master tabs (may be absent).
   commitmentAmount: number | null;
   dealType: string | null;
@@ -764,6 +767,7 @@ export function parseWorkbook(wb: ExcelJS.Workbook): ParsedAsset[] {
       fundingSourceRaw: fundingRaw,
       entryDate,
       stakePct: stakeFrac == null ? null : stakeFrac * 100,
+      currency: 'USD',
       commitmentAmount: structure?.commitmentAmount ?? null,
       dealType: structure?.dealType ?? null,
       mgmtFeeRatePct: structure?.mgmtFeeRatePct ?? null,
@@ -847,3 +851,60 @@ export async function parseStartechQuarterlyForIngestion(buffer: Buffer): Promis
     },
   };
 }
+
+export const startechQuarterlyParser: DeterministicParser = {
+  templateId: STARTECH_TEMPLATE_ID,
+  async parse(buffer: Buffer): Promise<FundUpdateStructuredResult | null> {
+    const parsed = await parseStartechQuarterlyForIngestion(buffer);
+    if (!parsed) return null;
+
+    const { stats, assets, template_id } = parsed;
+    const assetNames = assets.map((a) => a.name);
+    const funds = [...new Set(assets.map((a) => a.fund))].sort();
+
+    // Prefer the latest Market Value Tracker as-of date across assets, else entry dates.
+    let fileDate: string | null = null;
+    for (const a of assets) {
+      for (const v of a.valuations) {
+        if (!fileDate || v.asOfDate > fileDate) fileDate = v.asOfDate;
+      }
+    }
+    if (!fileDate) {
+      for (const a of assets) {
+        if (a.entryDate && (!fileDate || a.entryDate > fileDate)) fileDate = a.entryDate;
+      }
+    }
+
+    return {
+      file_type: 'fund_updates',
+      parser: template_id,
+      summary:
+        `STARTECH quarterly master sheet: ${stats.asset_count} assets ` +
+        `(${stats.direct_count} direct, ${stats.fund_of_funds_count} fund-of-funds), ` +
+        `${stats.transaction_count} transactions, ${stats.valuation_count} valuations. ` +
+        `Proposed only — pending per-asset review before funds DB updates.`,
+      key_points: [
+        `Format: ${STARTECH_TEMPLATE_ID}`,
+        `Funds touched: ${funds.join(', ') || '(none)'}`,
+        `${stats.asset_count} proposed asset updates`,
+        `${stats.transaction_count} proposed ledger rows`,
+        `${stats.valuation_count} proposed valuation marks`,
+      ],
+      action_items: [
+        'Review proposed asset changes in the Fund Updates review flow (mockup pending).',
+      ],
+      tags: ['Fund Update', 'STARTECH', ...funds.slice(0, 8)],
+      companies_detected: assetNames,
+      company_notes: [],
+      file_date: fileDate,
+      suggested_track_ids: [],
+      matched_companies: [],
+      fund_update_proposal: {
+        template_id,
+        stats,
+        assets,
+        fund_catalog: [...FUND_CATALOG],
+      },
+    };
+  },
+};

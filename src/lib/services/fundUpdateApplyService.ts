@@ -3,6 +3,7 @@ import type {
   FundAssetRepository,
   FundAssetTransactionRepository,
   FundAssetValuationRepository,
+  FundInvestorCommitmentEventRepository,
   FundRepository,
   FundSourceRepository,
   HoldingEntityRepository,
@@ -10,13 +11,25 @@ import type {
   TablesInsert,
 } from '@/lib/repositories';
 import type { FundMetricsService } from '@/lib/services/fundMetricsService';
-import type { ParsedAsset, ParsedTxn, ParsedValuation } from '@/lib/fund_updates';
+import type {
+  ParsedAsset,
+  ParsedCommitmentEvent,
+  ParsedTxn,
+  ParsedValuation,
+} from '@/lib/fund_updates';
 import {
   FUND_CATALOG,
+  NANJING_TEMPLATE_ID,
+  commitmentEventKey,
   fundUpdateTxnKey,
+  isNanjingAssetCode,
   sortFundUpdateReviewAssets,
 } from '@/lib/fund_updates';
 import type { FundAssetLedgerService } from './fundAssetLedgerService';
+import type {
+  CommitmentEventType,
+  FundCommitmentEventService,
+} from './fundCommitmentEventService';
 
 export type FundUpdateCatalogKind = 'asset' | 'fund' | 'investor' | 'source';
 
@@ -75,6 +88,17 @@ export interface FundUpdateApplyResult {
   created_funds: number;
   created_investors: number;
   created_sources: number;
+  commitment_events_inserted?: number;
+  commitment_events_skipped_duplicate?: number;
+  commitment_events_skipped?: number;
+  commitment_event_warnings?: string[];
+}
+
+export interface FundUpdateCommitmentApplyResult {
+  events_inserted: number;
+  events_skipped_duplicate: number;
+  events_skipped: number;
+  warnings: string[];
 }
 
 /** Per-asset ledger subset + optional edited rows from HITL review. */
@@ -131,6 +155,8 @@ export class FundUpdateApplyService {
     private readonly fundSourceRepo: FundSourceRepository,
     private readonly fundMetricsService: FundMetricsService,
     private readonly fundAssetLedgerService: FundAssetLedgerService,
+    private readonly commitmentEventRepo: FundInvestorCommitmentEventRepository,
+    private readonly commitmentEventService: FundCommitmentEventService,
   ) {}
 
   async buildReview(proposedAssets: ParsedAsset[]): Promise<FundUpdateAssetReview[]> {
@@ -138,7 +164,10 @@ export class FundUpdateApplyService {
     return full.assets;
   }
 
-  async buildFullReview(proposedAssets: ParsedAsset[]): Promise<FundUpdateFullReview> {
+  async buildFullReview(
+    proposedAssets: ParsedAsset[],
+    commitmentEvents?: ParsedCommitmentEvent[],
+  ): Promise<FundUpdateFullReview> {
     const [existingAssets, existingFunds, existingHoldingEntities, existingFundSources] = await Promise.all([
       this.fundAssetRepo.findAll(),
       this.fundRepo.findAll(),
@@ -155,7 +184,7 @@ export class FundUpdateApplyService {
       const ref = typeDetailsSourceRef(row.type_details);
       if (ref && !bySourceRef.has(ref.toLowerCase())) bySourceRef.set(ref.toLowerCase(), row);
       const name = row.asset_name?.trim().toLowerCase();
-      if (name && !byName.has(name)) byName.set(name, row);
+      if (name && !isNanjingAssetCode(sheet) && !byName.has(name)) byName.set(name, row);
     }
 
     const fundByName = new Map<string, Tables<'funds'>>();
@@ -304,6 +333,13 @@ export class FundUpdateApplyService {
       };
     });
 
+    if (commitmentEvents) {
+      for (const ev of commitmentEvents) {
+        const matched = matchCatalog(ev.investorName, holdingEntityByName);
+        if (matched) upsertUnique(uniqueInvestors, matched);
+      }
+    }
+
     return {
       assets: sortFundUpdateReviewAssets(reviews),
       funds: Array.from(uniqueFunds.values()),
@@ -316,15 +352,27 @@ export class FundUpdateApplyService {
     proposedAssets: ParsedAsset[],
     assetCodes: string[],
     selections?: FundUpdateAssetSelection[],
-    options?: { isV1?: boolean },
+    optionsOrCatalog?: { isV1?: boolean } | string[],
     catalogSelections?: { funds?: string[]; investors?: string[]; sources?: string[] },
+    catalogArg?: string[],
   ): Promise<FundUpdateApplyResult> {
+    const options = Array.isArray(optionsOrCatalog) ? undefined : optionsOrCatalog;
+    const catalog = Array.isArray(optionsOrCatalog) ? optionsOrCatalog : catalogArg;
     const codeSet = new Set(assetCodes);
     const selected = proposedAssets.filter((a) => codeSet.has(a.code));
+    if (catalog) {
+      if (catalog.length === 0) throw new Error('Explicit fund catalog cannot be empty');
+      const catalogSet = new Set(catalog.map((c) => c.trim().toLowerCase()));
+      for (const item of selected) {
+        if (!item.fund || !catalogSet.has(item.fund.trim().toLowerCase())) {
+          throw new Error(`Explicit fund catalog does not contain proposed fund "${item.fund}" for asset "${item.code}"`);
+        }
+      }
+    }
     const review = await this.buildReview(selected);
     const selectionByCode = new Map((selections ?? []).map((s) => [s.asset_code, s]));
 
-    const fundIdByName = await this.ensureFundCatalog();
+    const fundIdByName = await this.ensureFundCatalog(catalog);
 
     // Performance: Preload holding entities and funding sources to eliminate N+1 queries
     const allHoldingEntities = await this.holdingEntityRepo.findAll();
@@ -415,6 +463,8 @@ export class FundUpdateApplyService {
           const hit = fundIdByName.get(proposedFund.toLowerCase());
           if (hit) {
             fundId = hit;
+          } else if (catalog) {
+            throw new Error(`Explicit fund catalog does not contain proposed fund "${proposedFund}"`);
           } else {
             const created = await this.fundRepo.insert({ name: proposedFund });
             fundId = created.id;
@@ -515,6 +565,173 @@ export class FundUpdateApplyService {
     };
   }
 
+  async applyCommitmentEvents(
+    events: ParsedCommitmentEvent[],
+    options?: { source?: string; createdBy?: string | null; fundCatalog?: string[] },
+  ): Promise<FundUpdateCommitmentApplyResult> {
+    if (events.length === 0) {
+      return {
+        events_inserted: 0,
+        events_skipped_duplicate: 0,
+        events_skipped: 0,
+        warnings: [],
+      };
+    }
+
+    let events_inserted = 0;
+    let events_skipped_duplicate = 0;
+    let events_skipped = 0;
+    const warnings: string[] = [];
+
+    const fundIdByName = await this.ensureFundCatalog(options?.fundCatalog);
+
+    const allHoldingEntities = await this.holdingEntityRepo.findAll();
+    const holdingEntityMap = new Map(
+      allHoldingEntities.map((e) => [e.name.trim().toLowerCase(), e.id]),
+    );
+
+    const sortedEvents = [...events].sort((a, b) => {
+      const fundCmp = a.fund.localeCompare(b.fund);
+      if (fundCmp !== 0) return fundCmp;
+      const invCmp = a.investorName.localeCompare(b.investorName);
+      if (invCmp !== 0) return invCmp;
+      const dateCmp = a.date.localeCompare(b.date);
+      if (dateCmp !== 0) return dateCmp;
+      return a.sourceRow - b.sourceRow;
+    });
+
+    interface EventGroup {
+      fundId: string;
+      fundName: string;
+      holdingEntityId: string;
+      investorName: string;
+      events: ParsedCommitmentEvent[];
+    }
+
+    const groups = new Map<string, EventGroup>();
+
+    for (const event of sortedEvents) {
+      const fundKey = event.fund.trim().toLowerCase();
+      let fundId = fundIdByName.get(fundKey);
+      if (!fundId) {
+        if (options?.fundCatalog !== undefined) {
+          events_skipped += 1;
+          warnings.push(
+            `Explicit fund catalog does not contain proposed fund "${event.fund}" for event at row ${event.sourceRow}`,
+          );
+          continue;
+        }
+        const created = await this.fundRepo.insert({ name: event.fund.trim() });
+        fundId = created.id;
+        fundIdByName.set(fundKey, fundId);
+        fundIdByName.set(event.fund.trim(), fundId);
+      }
+
+      const invKey = event.investorName.trim().toLowerCase();
+      let holdingEntityId = holdingEntityMap.get(invKey);
+      if (!holdingEntityId) {
+        const created = await this.holdingEntityRepo.insert({
+          name: event.investorName.trim(),
+          entity_type: event.investorTypeLabel ?? null,
+        });
+        holdingEntityId = created.id;
+        holdingEntityMap.set(invKey, holdingEntityId);
+      }
+
+      const groupKey = `${fundId}:::${holdingEntityId}`;
+      let group = groups.get(groupKey);
+      if (!group) {
+        group = {
+          fundId,
+          fundName: event.fund,
+          holdingEntityId,
+          investorName: event.investorName,
+          events: [],
+        };
+        groups.set(groupKey, group);
+      }
+      group.events.push(event);
+    }
+
+    for (const group of groups.values()) {
+      const existing = await this.commitmentEventRepo.findByFundAndHoldingEntity(
+        group.fundId,
+        group.holdingEntityId,
+      );
+
+      // Currency guard: If existing ledger currency is not CNY, skip the whole group
+      if (existing.length > 0 && (existing[0].currency || 'USD') !== 'CNY') {
+        const existingCurrency = existing[0].currency || 'USD';
+        events_skipped += group.events.length;
+        warnings.push(
+          `Existing commitment ledger for fund "${group.fundName}" and investor "${group.investorName}" is in ${existingCurrency}; cannot apply CNY commitment events.`,
+        );
+        continue;
+      }
+
+      const seenKeys = new Set(existing.map(commitmentEventKey));
+      let hasLedger = existing.length > 0;
+
+      for (const event of group.events) {
+        const eventType: CommitmentEventType =
+          event.intent === 'decrease'
+            ? 'reduction'
+            : hasLedger
+              ? 'additional_commitment'
+              : 'initial_commitment';
+
+        const key = commitmentEventKey({
+          date: event.date,
+          event_type: eventType,
+          amount: event.amount,
+        });
+        const altKey =
+          eventType === 'additional_commitment'
+            ? commitmentEventKey({
+                date: event.date,
+                event_type: 'initial_commitment',
+                amount: event.amount,
+              })
+            : null;
+
+        if (seenKeys.has(key) || (altKey !== null && seenKeys.has(altKey))) {
+          events_skipped_duplicate += 1;
+          continue;
+        }
+
+        try {
+          await this.commitmentEventService.createEvent({
+            fundId: group.fundId,
+            holdingEntityId: group.holdingEntityId,
+            effectiveDate: event.date,
+            eventType,
+            amount: event.amount,
+            currency: 'CNY',
+            notes: event.notes,
+            source: options?.source ?? NANJING_TEMPLATE_ID,
+            createdBy: options?.createdBy ?? null,
+          });
+          events_inserted += 1;
+          seenKeys.add(key);
+          hasLedger = true;
+        } catch (err) {
+          events_skipped += 1;
+          const errMsg = err instanceof Error ? err.message : String(err);
+          warnings.push(
+            `Failed to apply commitment event for fund "${group.fundName}", investor "${group.investorName}" on ${event.date} (${event.amount} CNY): ${errMsg}`,
+          );
+        }
+      }
+    }
+
+    return {
+      events_inserted,
+      events_skipped_duplicate,
+      events_skipped,
+      warnings,
+    };
+  }
+
   private matchExisting(
     proposed: ParsedAsset,
     bySheet: Map<string, Tables<'fund_assets'>>,
@@ -530,11 +747,13 @@ export class FundUpdateApplyService {
     return byName.get(proposed.name.trim().toLowerCase());
   }
 
-  private async ensureFundCatalog(): Promise<Map<string, string>> {
+  private async ensureFundCatalog(catalog?: string[]): Promise<Map<string, string>> {
+    const isExplicit = catalog !== undefined;
+    const names = catalog ?? FUND_CATALOG;
     const existing = await this.fundRepo.findAll();
     const byName = new Map(existing.map((f) => [f.name.trim().toLowerCase(), f]));
     const out = new Map<string, string>();
-    for (const name of FUND_CATALOG) {
+    for (const name of names) {
       const hit = byName.get(name.toLowerCase());
       if (hit) {
         out.set(name.toLowerCase(), hit.id);
@@ -546,11 +765,13 @@ export class FundUpdateApplyService {
         byName.set(name.toLowerCase(), created);
       }
     }
-    // Also map any proposed fund names that fall outside the catalog.
-    for (const f of existing) {
-      if (!out.has(f.name.toLowerCase())) {
-        out.set(f.name.toLowerCase(), f.id);
-        out.set(f.name, f.id);
+    if (!isExplicit) {
+      // Also map any proposed fund names that fall outside the catalog.
+      for (const f of existing) {
+        if (!out.has(f.name.toLowerCase())) {
+          out.set(f.name.toLowerCase(), f.id);
+          out.set(f.name, f.id);
+        }
       }
     }
     return out;
@@ -589,7 +810,7 @@ export class FundUpdateApplyService {
     options?: { isV1?: boolean },
     isSourceSelected: boolean = true,
   ): Promise<Tables<'fund_assets'>> {
-    const rawCurrency = a.txns[0]?.currency?.trim();
+    const rawCurrency = a.currency?.trim() || a.txns[0]?.currency?.trim();
     if (options?.isV1 && !rawCurrency) {
       throw new Error(`Cannot create asset "${a.name}" with unresolved currency.`);
     }

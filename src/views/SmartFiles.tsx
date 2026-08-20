@@ -390,6 +390,12 @@ function FileTable({
               <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-muted-foreground">
                 <span>Format</span>
                 <span className="text-foreground">{proposal.template_id ?? "—"}</span>
+                {proposal.fund_catalog?.length ? (
+                  <>
+                    <span>Funds</span>
+                    <span className="text-foreground">{proposal.fund_catalog.length}</span>
+                  </>
+                ) : null}
                 <span>Assets</span>
                 <span className="text-foreground">{proposal.stats.asset_count}</span>
                 <span>Transactions</span>

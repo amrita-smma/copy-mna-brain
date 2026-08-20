@@ -25,6 +25,19 @@ export function fundUpdateValKey(v: Pick<ParsedValuation, 'asOfDate'>): string {
   return v.asOfDate;
 }
 
+/** Stable dedup key for investor commitment events (matches apply service). */
+export function commitmentEventKey(e: {
+  date?: string | null;
+  effective_date?: string | null;
+  event_type?: string | null;
+  amount?: number | null;
+}): string {
+  const date = e.date ?? e.effective_date ?? '';
+  const eventType = e.event_type ?? '';
+  const amount = e.amount ?? '';
+  return `${date}|${eventType}|${amount}`;
+}
+
 export type FundUpdateAssetStatus = 'new' | 'unchanged' | 'add_missing';
 
 const STATUS_SORT_ORDER: Record<FundUpdateAssetStatus, number> = {

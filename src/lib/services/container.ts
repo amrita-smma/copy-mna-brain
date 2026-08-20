@@ -377,6 +377,8 @@ export function createContainer(db: DbClient, workspaceId: string): Container {
     fundSourceRepo,
     fundMetricsService,
     fundAssetLedgerService,
+    fundCommitmentEventRepo,
+    fundCommitmentEventService,
   );
   fileService.setFundUpdateApplyService(fundUpdateApplyService);
   const fundPortfolioService = new FundPortfolioService(

@@ -1,5 +1,7 @@
 import type { ParsedAsset, ParsedTxn, ParsedValuation, StartechParseResult } from './parsers/startech_quarterly';
 export type { ParsedAsset, ParsedTxn, ParsedValuation, StartechParseResult };
+import type { CommitmentEventIntent, ParsedCommitmentEvent } from './parsers/nanjing_fund_ledger';
+export type { CommitmentEventIntent, ParsedCommitmentEvent };
 
 export interface SourceLocation {
   sheet: string;
@@ -245,12 +247,23 @@ export interface WorkbookFallbackProposalV1 {
   validation: ValidationResult;
   /** Projected legacy assets for backward compatibility with asset-only consumers */
   assets: ParsedAsset[];
+  fund_catalog?: string[];
 }
 
 export interface LegacyAssetProposal {
   template_id: string;
-  stats: StartechParseResult['stats'];
+  stats: StartechParseResult['stats'] & {
+    commitment_event_count?: number;
+  };
   assets: ParsedAsset[];
+  fund_catalog?: string[];
+  /** Investor commitment-ledger rows proposed by a deterministic parser. */
+  commitment_events?: ParsedCommitmentEvent[];
+}
+
+export interface DeterministicParser {
+  templateId: string;
+  parse(buffer: Buffer): Promise<FundUpdateStructuredResult | null>;
 }
 
 export type FundUpdateProposal = LegacyAssetProposal | WorkbookFallbackProposalV1;

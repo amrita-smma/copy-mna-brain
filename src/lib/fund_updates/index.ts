@@ -18,9 +18,25 @@ export {
   parseWorkbook,
   resolveAppendixId,
   scoreAppendixNameMatch,
+  startechQuarterlyParser,
 } from './parsers/startech_quarterly';
-export type { FundUpdateStructuredResult } from './types';
 export {
+  NANJING_ASSET_CODE_PREFIX,
+  NANJING_TEMPLATE_ID,
+  fingerprintNanjingFundLedger,
+  generateNanjingAssetCode,
+  isNanjingAssetCode,
+  nanjingFundLedgerParser,
+  parseLedgerCommitmentEvents,
+} from './parsers/nanjing_fund_ledger';
+export type {
+  CommitmentEventIntent,
+  ParsedCommitmentEvent,
+  ParseLedgerCommitmentEventsResult,
+} from './parsers/nanjing_fund_ledger';
+export type { DeterministicParser, FundUpdateStructuredResult } from './types';
+export {
+  commitmentEventKey,
   fundUpdateTxnKey,
   fundUpdateValKey,
   sortFundUpdateReviewAssets,
@@ -35,11 +51,9 @@ export type {
 } from './linkCatalogAssets';
 export type { FundUpdateAssetStatus } from './reviewKeys';
 
-import {
-  parseStartechQuarterlyForIngestion,
-  STARTECH_TEMPLATE_ID,
-} from './parsers/startech_quarterly';
-import type { FundUpdateStructuredResult } from './types';
+import { startechQuarterlyParser } from './parsers/startech_quarterly';
+import { nanjingFundLedgerParser } from './parsers/nanjing_fund_ledger';
+import type { DeterministicParser, FundUpdateStructuredResult } from './types';
 
 function isExcelFile(fileName: string | undefined, contentType: string): boolean {
   const lower = (fileName ?? '').toLowerCase();
@@ -50,6 +64,11 @@ function isExcelFile(fileName: string | undefined, contentType: string): boolean
     contentType === 'application/vnd.ms-excel.sheet.macroenabled.12'
   );
 }
+
+const PARSERS: DeterministicParser[] = [
+  startechQuarterlyParser,
+  nanjingFundLedgerParser,
+];
 
 /**
  * Try known deterministic Excel templates. Returns null when no fingerprint matches
@@ -65,54 +84,11 @@ export async function tryDeterministicFundUpdateParse(
 ): Promise<FundUpdateStructuredResult | null> {
   if (!isExcelFile(fileName, contentType)) return null;
 
-  const parsed = await parseStartechQuarterlyForIngestion(buffer);
-  if (!parsed) return null;
-
-  const { stats, assets, template_id } = parsed;
-  const assetNames = assets.map((a) => a.name);
-  const funds = [...new Set(assets.map((a) => a.fund))].sort();
-
-  // Prefer the latest Market Value Tracker as-of date across assets, else entry dates.
-  let fileDate: string | null = null;
-  for (const a of assets) {
-    for (const v of a.valuations) {
-      if (!fileDate || v.asOfDate > fileDate) fileDate = v.asOfDate;
-    }
-  }
-  if (!fileDate) {
-    for (const a of assets) {
-      if (a.entryDate && (!fileDate || a.entryDate > fileDate)) fileDate = a.entryDate;
-    }
+  for (const p of PARSERS) {
+    const result = await p.parse(buffer);
+    if (result) return result;
   }
 
-  return {
-    file_type: 'fund_updates',
-    parser: template_id,
-    summary:
-      `STARTECH quarterly master sheet: ${stats.asset_count} assets ` +
-      `(${stats.direct_count} direct, ${stats.fund_of_funds_count} fund-of-funds), ` +
-      `${stats.transaction_count} transactions, ${stats.valuation_count} valuations. ` +
-      `Proposed only — pending per-asset review before funds DB updates.`,
-    key_points: [
-      `Format: ${STARTECH_TEMPLATE_ID}`,
-      `Funds touched: ${funds.join(', ') || '(none)'}`,
-      `${stats.asset_count} proposed asset updates`,
-      `${stats.transaction_count} proposed ledger rows`,
-      `${stats.valuation_count} proposed valuation marks`,
-    ],
-    action_items: [
-      'Review proposed asset changes in the Fund Updates review flow (mockup pending).',
-    ],
-    tags: ['Fund Update', 'STARTECH', ...funds.slice(0, 8)],
-    companies_detected: assetNames,
-    company_notes: [],
-    file_date: fileDate,
-    suggested_track_ids: [],
-    matched_companies: [],
-    fund_update_proposal: {
-      template_id,
-      stats,
-      assets,
-    },
-  };
+  return null;
 }
+

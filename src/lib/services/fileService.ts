@@ -43,6 +43,7 @@ import type { TrackMatchingService } from './trackMatchingService';
 import type {
   FundUpdateApplyService,
   FundUpdateApplyResult,
+  FundUpdateCommitmentApplyResult,
   FundUpdateAssetReview,
   FundUpdateCatalogMatch,
   FundUpdateCatalogMatchStatus,
@@ -54,7 +55,12 @@ import {
 } from '@/lib/jobs/handlers/fundUpdateExtraction';
 import { normalizeWorkbookExtraction } from '@/lib/agents/fund_update_processing/normalizeWorkbookExtraction';
 import { validateWorkbookExtraction } from '@/lib/agents/fund_update_processing/validateWorkbookExtraction';
-import { formatSourceRowKey, type WorkbookFallbackProposalV1 } from '@/lib/fund_updates/types';
+import {
+  formatSourceRowKey,
+  type LegacyAssetProposal,
+  type ProposedEvent,
+  type WorkbookFallbackProposalV1,
+} from '@/lib/fund_updates/types';
 
 /**
  * Helper to safely extract a non-empty string jobId from an unknown response payload.
@@ -1107,7 +1113,10 @@ export class FileService {
       );
     }
 
-    const fullReview = await this.fundUpdateApplyService.buildFullReview(assets);
+    const commitmentEvents = isV1
+      ? []
+      : ((proposal as LegacyAssetProposal | undefined)?.commitment_events ?? []);
+    const fullReview = await this.fundUpdateApplyService.buildFullReview(assets, commitmentEvents);
     const reviews: FundUpdateAssetReview[] = fullReview.assets ?? [];
     let funds: FundUpdateCatalogMatch[] = fullReview.funds ? this.mergeCatalogMatches([], fullReview.funds) : [];
     let investors: FundUpdateCatalogMatch[] = fullReview.investors ? this.mergeCatalogMatches([], fullReview.investors) : [];
@@ -1144,7 +1153,16 @@ export class FileService {
     }
 
     const linkEntities = v1Proposal?.entities ?? [];
-    const linkEvents = v1Proposal?.events ?? [];
+    const linkEvents: ProposedEvent[] = v1Proposal
+      ? (v1Proposal.events ?? [])
+      : commitmentEvents.map((ev, idx) => ({
+          proposalId: `commitment-event-${idx}`,
+          eventType: 'commitment' as const,
+          fromEntityRef: ev.investorName,
+          relatedFundRef: ev.fund,
+          sourceLocation: { sheet: '基金流水明细', row: ev.sourceRow },
+          warnings: [],
+        }));
     const linkAssets = reviews.map((r) => ({
       code: r.code,
       name: r.name,
@@ -1516,13 +1534,55 @@ export class FileService {
     const selections = input.fund_update_selections;
     const codes =
       selections?.map((s) => s.asset_code) ?? input.fund_update_asset_codes ?? [];
-    const applyResult = await this.fundUpdateApplyService.applySelected(
-      assets,
-      codes,
-      selections,
-      { isV1: Boolean(isV1) },
-      input.fund_update_catalog_selections,
-    );
+    const applyResult = proposal?.fund_catalog
+      ? await this.fundUpdateApplyService.applySelected(
+          assets,
+          codes,
+          selections,
+          { isV1: Boolean(isV1) },
+          input.fund_update_catalog_selections,
+          proposal.fund_catalog,
+        )
+      : await this.fundUpdateApplyService.applySelected(
+          assets,
+          codes,
+          selections,
+          { isV1: Boolean(isV1) },
+          input.fund_update_catalog_selections,
+        );
+
+    const commitmentEvents = !isV1
+      ? ((proposal as LegacyAssetProposal | undefined)?.commitment_events ?? [])
+      : [];
+    let commitmentResult: FundUpdateCommitmentApplyResult | null = null;
+    if (!isV1 && commitmentEvents.length > 0) {
+      try {
+        commitmentResult = await this.fundUpdateApplyService.applyCommitmentEvents(commitmentEvents, {
+          source: proposal?.template_id,
+          fundCatalog: proposal?.fund_catalog,
+        });
+      } catch (err) {
+        const errMsg = err instanceof Error ? err.message : String(err);
+        commitmentResult = {
+          events_inserted: 0,
+          events_skipped_duplicate: 0,
+          events_skipped: commitmentEvents.length,
+          warnings: [`Failed to apply commitment events: ${errMsg}`],
+        };
+      }
+    }
+
+    const mergedFundUpdateResult: FundUpdateApplyResult = {
+      ...applyResult,
+      ...(commitmentResult
+        ? {
+            commitment_events_inserted: commitmentResult.events_inserted,
+            commitment_events_skipped_duplicate: commitmentResult.events_skipped_duplicate,
+            commitment_events_skipped: commitmentResult.events_skipped,
+            commitment_event_warnings: commitmentResult.warnings,
+          }
+        : {}),
+    };
 
     await this.fileRepo.updatePartial(fileId, {
       file_type: 'fund_updates',
@@ -1530,7 +1590,7 @@ export class FileService {
     });
 
     const updated = await this.fileRepo.findById(fileId);
-    return { file: updated, company_id: null, fund_update: applyResult };
+    return { file: updated, company_id: null, fund_update: mergedFundUpdateResult };
   }
 
   /**
