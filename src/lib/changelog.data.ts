@@ -6,6 +6,12 @@ import type { ChangelogEntry } from './changelog';
 
 export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   {
+    "hash": "e56c6f2826d6c3212a1eee981f43af27fcf1d5b7",
+    "date": "2026-08-20",
+    "subject": "Open Company Card details directly from the slide footer",
+    "category": "feature"
+  },
+  {
     "hash": "a2ebd9bd02e6709eb5adfa6409a21e3240bf66c7",
     "date": "2026-08-19",
     "subject": "Export Company Card as condensed PowerPoint presentation via email",
@@ -29,6 +35,14 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   },
   {
     "hash": "b002a6fa20d554a85d7fc3c3055f106061f640c3",
+    "date": "2026-08-19",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
+    "hash": "0d5d42b15039e510c97938b4243c6c4950552567",
     "date": "2026-08-19",
     "subject": "[skip deploy] chore: update changelog",
     "category": "improvement",
