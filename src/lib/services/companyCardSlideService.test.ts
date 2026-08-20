@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   CompanyCardSlideService,
   CompanyNotFoundForCardError,
@@ -16,6 +16,11 @@ const slideText = (slide: PptxSlide): string =>
     .filter((e): e is PptxText => e.type === 'text')
     .map((t) => t.text)
     .join('\n');
+
+const findText = (slide: PptxSlide, needle: string): PptxText | undefined =>
+  slide.elements
+    .filter((e): e is PptxText => e.type === 'text')
+    .find((t) => t.text.includes(needle));
 
 const findByIdDTO = vi.fn();
 const findByNameFuzzy = vi.fn();
@@ -109,6 +114,33 @@ describe('CompanyCardSlideService.buildById', () => {
     findByCompanyId.mockResolvedValue(null);
     const deck = await makeService().buildById('c1');
     expect(slideText(deck.slides[0])).toContain('Target overview will appear here');
+  });
+});
+
+describe('CompanyCardSlideService — "Open in Brain" link', () => {
+  const ORIGINAL_ENV = { ...process.env };
+
+  afterEach(() => {
+    process.env = { ...ORIGINAL_ENV };
+  });
+
+  it('links to the pipeline page under the localhost fallback when no app URL env var is set', async () => {
+    delete process.env.APP_URL;
+    delete process.env.NEXT_PUBLIC_APP_URL;
+    delete process.env.NEXTAUTH_URL;
+    const deck = await makeService().buildById('c1');
+    const link = findText(deck.slides[0], 'Open in Brain');
+    expect(link?.hyperlink).toEqual({
+      url: 'http://localhost:3000/pipeline/c1',
+      tooltip: 'Open in Brain',
+    });
+  });
+
+  it('builds the link from APP_URL when set, stripping a trailing slash', async () => {
+    process.env.APP_URL = 'https://mna.sqe.co.id/';
+    const deck = await makeService().buildById('c1');
+    const link = findText(deck.slides[0], 'Open in Brain');
+    expect(link?.hyperlink?.url).toBe('https://mna.sqe.co.id/pipeline/c1');
   });
 });
 

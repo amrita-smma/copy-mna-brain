@@ -35,6 +35,7 @@ import {
   type PptxElement,
   type PptxSlide,
   type PptxTableCell,
+  type PptxText,
   type PptxTextRun,
 } from './pptxElements';
 
@@ -519,9 +520,9 @@ function headerElements(title: string, subtitle: string, currentStage: string): 
   return els;
 }
 
-function footerElements(): PptxElement[] {
+function footerElements(companyUrl?: string): PptxElement[] {
   const y = SLIDE_H - PAD - FOOTER_H;
-  return [
+  const els: PptxElement[] = [
     rect(PAD, y, SLIDE_W - PAD * 2, 1, HAIRLINE),
     plainText('STRICTLY PRIVATE AND CONFIDENTIAL', PAD, y + 4, 400, 10, {
       fontSize: 7.5,
@@ -529,6 +530,19 @@ function footerElements(): PptxElement[] {
       color: FOOTER_INK,
     }),
   ];
+  if (companyUrl) {
+    const linkW = 200;
+    els.push({
+      ...(plainText('Open in Brain', SLIDE_W - PAD - linkW, y + 4, linkW, 10, {
+        fontSize: 7.5,
+        bold: true,
+        color: BLUE,
+        align: 'right',
+      }) as PptxText),
+      hyperlink: { url: companyUrl, tooltip: 'Open in Brain' },
+    });
+  }
+  return els;
 }
 
 /** Lay a column's pieces out top-down from `top`, emitting their shapes. */
@@ -602,6 +616,8 @@ export interface CompanyCardSlideInput {
   dealLead?: string | null;
   /** Track variables the user surfaced under Indicative Financials. */
   trackVariables?: CompanyCardTrackVariable[];
+  /** Absolute URL to the company's dedicated page in the app, e.g. `${appUrl}/pipeline/${companyId}`. */
+  companyUrl?: string;
 }
 
 /** One finished card slide. */
@@ -902,7 +918,7 @@ function flowOverflowColumns(overflows: Overflow[]): Piece[][][] {
  * anything that overflowed.
  */
 export function buildCompanyCardSlides(input: CompanyCardSlideInput): CompanyCardSlide[] {
-  const { company, analysis, currency } = input;
+  const { company, analysis, currency, companyUrl } = input;
   const trackVariables = input.trackVariables ?? [];
 
   const title = companyDisplayTitle(company, 'Company');
@@ -1041,7 +1057,7 @@ export function buildCompanyCardSlides(input: CompanyCardSlideInput): CompanyCar
         2,
         BODY_TOP,
       ),
-      ...footerElements(),
+      ...footerElements(companyUrl),
     ],
   };
 
@@ -1066,7 +1082,7 @@ export function buildCompanyCardSlides(input: CompanyCardSlideInput): CompanyCar
         }),
         rect(PAD, PAD + 18, SLIDE_W - PAD * 2, 2, BLUE),
         ...columns.flatMap((pieces, col) => renderColumn(pieces, col, CONT_BODY_TOP)),
-        ...footerElements(),
+        ...footerElements(companyUrl),
       ],
     });
   });

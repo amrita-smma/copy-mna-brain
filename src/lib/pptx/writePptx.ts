@@ -60,6 +60,7 @@ export function applyElementsToSlide(
           valign: (el.valign as PptxGenJS.VAlign) ?? 'top',
           wrap: true,
           autoFit: false,
+          hyperlink: el.hyperlink,
         });
         break;
       }

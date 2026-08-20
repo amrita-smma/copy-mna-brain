@@ -61,6 +61,13 @@ export class CompanyCardSlideService {
     const stage = (company.pipeline_stage || 'L0').toUpperCase();
     const dealLead = effectiveDealLead(company, stage, tracks as TrackLike[]);
 
+    const appUrl = (
+      process.env.APP_URL ??
+      process.env.NEXT_PUBLIC_APP_URL ??
+      process.env.NEXTAUTH_URL ??
+      'http://localhost:3000'
+    ).replace(/\/+$/, '');
+
     return {
       title: companyDisplayTitle(company, 'Company'),
       slides: buildCompanyCardSlides({
@@ -69,6 +76,7 @@ export class CompanyCardSlideService {
         currency,
         dealLead,
         trackVariables,
+        companyUrl: `${appUrl}/pipeline/${companyId}`,
       }),
     };
   }

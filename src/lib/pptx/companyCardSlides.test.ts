@@ -277,6 +277,32 @@ describe('buildCompanyCardSlides', () => {
     expect(slideText(slides[1])).not.toContain('Proposed Deal Structure');
   });
 
+  it('omits the "Open in Brain" link when no companyUrl is given', () => {
+    const [slide] = buildCompanyCardSlides(input());
+    expect(findText(slide, 'Open in Brain')).toBeUndefined();
+  });
+
+  it('renders an "Open in Brain" footer link on every slide when companyUrl is given', () => {
+    const companyUrl = 'https://app.example.com/pipeline/c1';
+    const slides = buildCompanyCardSlides(
+      input({
+        companyUrl,
+        analysis: {
+          business_overview: longMarkdown(20),
+          investment_highlights: longMarkdown(20),
+          business_model_summary: longMarkdown(10),
+          diligence_priorities: longMarkdown(20),
+          investment_risks: longMarkdown(20),
+        },
+      }),
+    );
+    expect(slides.length).toBeGreaterThan(1);
+    for (const slide of slides) {
+      const link = findText(slide, 'Open in Brain');
+      expect(link?.hyperlink).toEqual({ url: companyUrl, tooltip: 'Open in Brain' });
+    }
+  });
+
   it('never emits overlapping text boxes, on any slide', () => {
     const slides = buildCompanyCardSlides(
       input({

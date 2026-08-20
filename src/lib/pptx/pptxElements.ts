@@ -49,6 +49,7 @@ export interface PptxText {
   align?: string;
   valign?: string;
   wrap: boolean;
+  hyperlink?: { url: string; tooltip?: string };
 }
 
 export interface PptxTableCell {
