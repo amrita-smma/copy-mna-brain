@@ -1,10 +1,14 @@
-import { downloadFile, getSignedUrl } from '@/lib/s3';
-import { deleteFile } from '@/lib/s3';
+import { downloadFile, getSignedUrl, deleteFile } from '@/lib/s3';
 import { sql } from 'drizzle-orm';
 import { extractTextFromFile } from '@/lib/fileExtractor';
 import { processFileContent, type FileTypeOverride } from '@/lib/agents/file_processing';
-import { processFundUpdateContent, buildLlmFundUpdateResult } from '@/lib/agents/fund_update_processing';
-import { tryDeterministicFundUpdateParse } from '@/lib/fund_updates';
+import { processFundUpdateContent } from '@/lib/agents/fund_update_processing';
+import {
+  tryDeterministicFundUpdateParse,
+  hydrateParsedAssetsFromEvents,
+  assetCodesForCatalogName,
+  FUND_CATALOG,
+} from '@/lib/fund_updates';
 import type { FundUpdateStructuredResult, ParsedAsset } from '@/lib/fund_updates';
 import type { FundUpdateAssetSelection } from '@/lib/services/fundUpdateApplyService';
 import { isGenericDocumentPhrase } from '@/lib/agents/file_processing/genericNameDenylist';
@@ -21,6 +25,7 @@ import {
   DealNoteRepository,
   DealLinkRepository,
   FileRepository,
+  JobRepository,
   type DbClient,
   type FileListOptions,
   type CriteriaRepository,
@@ -35,7 +40,34 @@ import type { AIScreeningService } from './aiScreeningService';
 import type { CRMService } from './crmService';
 import { CompanyL0RequirementsError, CompanyService, IN_PIPELINE_STAGES } from './companyService';
 import type { TrackMatchingService } from './trackMatchingService';
-import type { FundUpdateApplyService } from './fundUpdateApplyService';
+import type {
+  FundUpdateApplyService,
+  FundUpdateApplyResult,
+  FundUpdateAssetReview,
+  FundUpdateCatalogMatch,
+  FundUpdateCatalogMatchStatus,
+} from './fundUpdateApplyService';
+import type { JobDispatcher } from './jobDispatcher';
+import {
+  runFundUpdateExtraction,
+  FUND_UPDATE_EXTRACTION_TIMEOUT_SECONDS,
+} from '@/lib/jobs/handlers/fundUpdateExtraction';
+import { normalizeWorkbookExtraction } from '@/lib/agents/fund_update_processing/normalizeWorkbookExtraction';
+import { validateWorkbookExtraction } from '@/lib/agents/fund_update_processing/validateWorkbookExtraction';
+import { formatSourceRowKey, type WorkbookFallbackProposalV1 } from '@/lib/fund_updates/types';
+
+/**
+ * Helper to safely extract a non-empty string jobId from an unknown response payload.
+ */
+export function asyncJobId(data: unknown): string | undefined {
+  if (data && typeof data === 'object' && 'jobId' in data) {
+    const id = (data as { jobId?: unknown }).jobId;
+    if (typeof id === 'string' && id.trim().length > 0) {
+      return id.trim();
+    }
+  }
+  return undefined;
+}
 
 /**
  * File types that describe deal targets (companies/projects genuinely offered
@@ -97,10 +129,10 @@ type IngestStructuredResult =
 
 /**
  * Resolve extraction for an upload/reprocess:
- * 1. Known Excel master sheets → deterministic fund-update parse (no LLM)
- * 2. Explicit fund_updates override → fund-update agent (deterministic first, else LLM fallback)
- * 3. Otherwise → general file-processing agent (classifies + extracts in one pass).
- *    If auto-classified as fund_updates, seamlessly routes to the LLM fallback.
+ * 1. Known Excel master sheets → deterministic fund-update parse (no LLM, synchronous)
+ * 2. Explicit fund_updates override or auto-classified fund_updates without deterministic match
+ *    → marked as async job to be dispatched to background fund_update_extraction job.
+ * 3. Otherwise → general file-processing agent (classifies + extracts in one pass synchronously).
  */
 async function resolveFileIngestion(opts: {
   rawText: string;
@@ -113,35 +145,46 @@ async function resolveFileIngestion(opts: {
   structuredResult: IngestStructuredResult | null;
   effectiveFileType: string;
   fundUpdateNeedsReview: boolean;
+  isAsyncJob: boolean;
 }> {
   const { rawText, buffer, contentType, fileName, rawNotes, fileTypeOverride } = opts;
 
-  // Fast path: STARTECH (and future) master sheets bypass the general agent.
-  if (isExcelUpload(fileName, contentType) && (!fileTypeOverride || fileTypeOverride === 'fund_updates')) {
+  const isExcel = isExcelUpload(fileName, contentType);
+
+  // Fast path: STARTECH (and future) master sheets bypass the general agent and run synchronously.
+  if (isExcel && (!fileTypeOverride || fileTypeOverride === 'fund_updates')) {
     const deterministic = await tryDeterministicFundUpdateParse(buffer, contentType, fileName);
     if (deterministic) {
       return {
         structuredResult: deterministic,
         effectiveFileType: 'fund_updates',
         fundUpdateNeedsReview: true,
+        isAsyncJob: false,
       };
     }
   }
 
+  // Explicit fund_updates override:
   if (fileTypeOverride === 'fund_updates') {
-    const structuredResult = await processFundUpdateContent(
-      rawText,
-      buffer,
-      contentType,
-      fileName,
-    );
+    if (isExcel) {
+      return {
+        structuredResult: null,
+        effectiveFileType: 'fund_updates',
+        fundUpdateNeedsReview: true,
+        isAsyncJob: true,
+      };
+    }
+    // PDF / text file with explicit fund_updates override -> synchronous extraction
+    const fundResult = await processFundUpdateContent(rawText, buffer, contentType, fileName);
     return {
-      structuredResult,
+      structuredResult: fundResult,
       effectiveFileType: 'fund_updates',
       fundUpdateNeedsReview: true,
+      isAsyncJob: false,
     };
   }
 
+  // General file processing
   const structuredResult = await processFileContent(
     rawText,
     buffer,
@@ -153,24 +196,34 @@ async function resolveFileIngestion(opts: {
   const effectiveFileType =
     fileTypeOverride ?? structuredResult?.file_type ?? 'other';
 
-  let finalStructuredResult = structuredResult;
+  // Auto-classified fund updates:
+  if (effectiveFileType === 'fund_updates') {
+    if (isExcel) {
+      return {
+        structuredResult: null,
+        effectiveFileType: 'fund_updates',
+        fundUpdateNeedsReview: true,
+        isAsyncJob: true,
+      };
+    }
+    // Auto-classified PDF / text file -> synchronous extraction
+    const fundResult = (structuredResult && 'fund_update_proposal' in structuredResult)
+      ? (structuredResult as FundUpdateStructuredResult)
+      : await processFundUpdateContent(rawText, buffer, contentType, fileName);
 
-  if (effectiveFileType === 'fund_updates' && !structuredResult?.fund_update_proposal) {
-    const { extractFundUpdateProposal } = await import('@/lib/agents/fund_update_processing/llmExtractor');
-    const proposalResult = await extractFundUpdateProposal(
-      rawText,
-      buffer,
-      contentType,
-      fileName,
-    );
-    
-    finalStructuredResult = buildLlmFundUpdateResult(proposalResult?.assets ?? null, structuredResult);
+    return {
+      structuredResult: fundResult,
+      effectiveFileType: 'fund_updates',
+      fundUpdateNeedsReview: true,
+      isAsyncJob: false,
+    };
   }
 
   return {
-    structuredResult: finalStructuredResult,
+    structuredResult,
     effectiveFileType,
-    fundUpdateNeedsReview: effectiveFileType === 'fund_updates',
+    fundUpdateNeedsReview: false,
+    isAsyncJob: false,
   };
 }
 
@@ -231,6 +284,17 @@ export interface ApproveFileInput {
    * When set, takes precedence over applying all missing/proposed rows.
    */
   fund_update_selections?: FundUpdateAssetSelection[];
+  /**
+   * Names of catalog records the reviewer ticked. A name absent from a list is
+   * NOT created and is written as null on the transactions it would have linked.
+   * Undefined (or an undefined sub-list) means "everything selected" — the
+   * backward-compatible default.
+   */
+  fund_update_catalog_selections?: {
+    funds?: string[];
+    investors?: string[];
+    sources?: string[];
+  };
 }
 
 type ProspectusSummary = {
@@ -282,6 +346,13 @@ type FinancialStatementSummary = {
   fx_adjustments?: unknown[];
 };
 
+const V1_INVESTOR_ENTITY_TYPES = new Set<string>([
+  'investor',
+  'institutional_investor',
+  'individual_investor',
+  'investment_vehicle',
+]);
+
 export class FileService {
   private crmService?: CRMService;
   private fundUpdateApplyService?: FundUpdateApplyService;
@@ -304,6 +375,7 @@ export class FileService {
     private readonly userRepo?: import('@/lib/repositories').UserRepository,
     // Injectable for tests; defaults to the real Vercel Queues producer.
     private readonly enqueueEmail: typeof enqueueSendEmail = enqueueSendEmail,
+    private jobDispatcher?: JobDispatcher,
   ) {}
 
   setCRMService(crmService: CRMService) {
@@ -312,6 +384,10 @@ export class FileService {
 
   setFundUpdateApplyService(service: FundUpdateApplyService) {
     this.fundUpdateApplyService = service;
+  }
+
+  setJobDispatcher(dispatcher: JobDispatcher) {
+    this.jobDispatcher = dispatcher;
   }
 
   async findAll(fileType?: string) {
@@ -451,7 +527,8 @@ export class FileService {
 
     try {
       const isPdf = fileType === 'application/pdf' || fileName.toLowerCase().endsWith('.pdf');
-      if (!isPdf) {
+      const isExplicitExcelFundUpdate = fileTypeOverride === 'fund_updates' && isExcelUpload(fileName, fileType);
+      if (!isPdf && !isExplicitExcelFundUpdate) {
         rawText = await extractTextFromFile(buffer, fileType, fileName);
       }
 
@@ -465,6 +542,77 @@ export class FileService {
       });
       structuredResult = resolved.structuredResult;
       const effectiveFileType = resolved.effectiveFileType;
+
+      if (resolved.isAsyncJob) {
+        await primaryFileRepo.updatePartial(initialData.id, {
+          file_type: 'fund_updates',
+          processing_status: 'processing',
+        });
+
+        if (secondaryFileRepos.length > 0) {
+          await Promise.all(
+            secondaryFileRepos.map((repo, i) =>
+              repo.updatePartial(secondaryInitialRows[i].id, {
+                file_type: 'fund_updates',
+                processing_status: 'failed',
+                raw_notes: 'Async fund update extraction does not support secondary workspace fan-out',
+              }),
+            ),
+          );
+        }
+
+        let jobId: string | null = null;
+        if (this.db) {
+          try {
+            const jobRepo = new JobRepository(this.db);
+            const existingActive = (
+              await jobRepo.findByTypeAndPayload('fund_update_extraction', { fileId: initialData.id })
+            ).find((j) => j.status === 'pending' || j.status === 'running');
+            if (existingActive) {
+              jobId = existingActive.id;
+            }
+          } catch (err) {
+            console.error('[fileService] Failed to query existing active jobs:', err);
+          }
+        }
+
+        if (!jobId && this.jobDispatcher) {
+          try {
+            const result = await this.jobDispatcher.dispatch({
+              type: 'fund_update_extraction',
+              payload: { fileId: initialData.id, workspaceId: primaryWorkspaceId, contentType: fileType },
+              timeoutSeconds: FUND_UPDATE_EXTRACTION_TIMEOUT_SECONDS,
+              work: (ctx) =>
+                runFundUpdateExtraction(
+                  { fileId: initialData.id, workspaceId: primaryWorkspaceId, contentType: fileType },
+                  { db: ctx.db, job: ctx.job },
+                ),
+            });
+            jobId = result.jobId;
+          } catch (dispatchErr) {
+            console.error('[fileService] Failed to dispatch fund update extraction job:', dispatchErr);
+          }
+        }
+
+        if (!jobId) {
+          const failureReason =
+            'Failed to dispatch async fund update extraction job: job dispatcher unavailable or dispatch failed';
+          await primaryFileRepo.updatePartial(initialData.id, {
+            processing_status: 'failed',
+            raw_notes: failureReason,
+          });
+          throw new Error(failureReason);
+        }
+
+        const signedUrl = await getSignedUrl(key).catch(() => null);
+        const updated = await primaryFileRepo.findById(initialData.id);
+        return {
+          ...updated,
+          jobId,
+          signed_url: signedUrl,
+          ...(secondaryFileRepos.length > 0 ? { asyncSecondaryWorkspacesSkipped: true } : {}),
+        };
+      }
 
       if (structuredResult) {
         tags = structuredResult.tags || [];
@@ -598,25 +746,28 @@ export class FileService {
       // enriched from this file (mirrors the post-approve dispatch;
       // untouched existing companies are not re-analyzed).
       for (const company of [...createdCompanies, ...enrichedCompanies]) {
-        await this.companyAnalysisService
-          .dispatch({ companyId: company.id, source: effectiveFileType })
-          .catch((err) => console.error('Error dispatching company analysis:', err));
+        await Promise.resolve(
+          this.companyAnalysisService.dispatch({ companyId: company.id, source: effectiveFileType }),
+        ).catch((err) => console.error('Error dispatching company analysis:', err));
         void this.dispatchScreeningJobs(company.id, company);
       }
     } catch (processError) {
       console.error('Error during file processing:', processError);
       await primaryFileRepo.updatePartial(initialData.id, {
         processing_status: 'failed',
-        raw_notes: rawText || 'Extraction failed',
+        raw_notes: (processError as Error)?.message || rawText || 'Extraction failed',
       });
       await Promise.all(
         secondaryFileRepos.map((repo, i) =>
           repo.updatePartial(secondaryInitialRows[i].id, {
             processing_status: 'failed',
-            raw_notes: rawText || 'Extraction failed',
+            raw_notes: (processError as Error)?.message || rawText || 'Extraction failed',
           }),
         ),
       );
+      if ((processError as Error)?.message?.includes('Failed to dispatch')) {
+        throw processError;
+      }
     }
 
     const updatedData = await primaryFileRepo.findById(initialData.id);
@@ -682,15 +833,16 @@ export class FileService {
     let matched_companies: unknown[] = [];
 
     try {
-      const isPdf = contentType === 'application/pdf' || fileName.toLowerCase().endsWith('.pdf');
-      if (!isPdf) {
-        rawText = await extractTextFromFile(buffer, contentType, fileName);
-      }
-
       // Prefer the stored type for routing so fund_updates stay on the specialist
       // path. Override is only set when the stored type is a user-facing hint.
       const routingOverride: FileTypeOverride | undefined =
         existingFileType === 'fund_updates' ? 'fund_updates' : override;
+
+      const isPdf = contentType === 'application/pdf' || fileName.toLowerCase().endsWith('.pdf');
+      const isExplicitExcelFundUpdate = routingOverride === 'fund_updates' && isExcelUpload(fileName, contentType);
+      if (!isPdf && !isExplicitExcelFundUpdate) {
+        rawText = await extractTextFromFile(buffer, contentType, fileName);
+      }
 
       const resolved = await resolveFileIngestion({
         rawText,
@@ -701,6 +853,60 @@ export class FileService {
         fileTypeOverride: routingOverride,
       });
       structuredResult = resolved.structuredResult;
+
+      if (resolved.isAsyncJob) {
+        await this.fileRepo.updatePartial(fileId, {
+          file_type: 'fund_updates',
+          processing_status: 'processing',
+        });
+
+        let jobId: string | null = null;
+        if (this.db) {
+          try {
+            const jobRepo = new JobRepository(this.db);
+            const existingActive = (
+              await jobRepo.findByTypeAndPayload('fund_update_extraction', { fileId })
+            ).find((j) => j.status === 'pending' || j.status === 'running');
+            if (existingActive) {
+              jobId = existingActive.id;
+            }
+          } catch (err) {
+            console.error('[fileService] Failed to query existing active jobs for reprocess:', err);
+          }
+        }
+
+        if (!jobId && this.jobDispatcher) {
+          try {
+            const result = await this.jobDispatcher.dispatch({
+              type: 'fund_update_extraction',
+              payload: { fileId, workspaceId: this.workspaceId, contentType },
+              timeoutSeconds: FUND_UPDATE_EXTRACTION_TIMEOUT_SECONDS,
+              work: (ctx) =>
+                runFundUpdateExtraction(
+                  { fileId, workspaceId: this.workspaceId, contentType },
+                  { db: ctx.db, job: ctx.job },
+                ),
+            });
+            jobId = result.jobId;
+          } catch (dispatchErr) {
+            console.error('[fileService] Failed to dispatch fund update extraction job for reprocess:', dispatchErr);
+          }
+        }
+
+        if (!jobId) {
+          const failureReason =
+            'Failed to dispatch async fund update extraction job: job dispatcher unavailable or dispatch failed';
+          await this.fileRepo.updatePartial(fileId, {
+            processing_status: 'failed',
+            raw_notes: failureReason,
+          });
+          throw new Error(failureReason);
+        }
+
+        const updatedData = await this.fileRepo.findById(fileId);
+        const signedUrl = await getSignedUrl(key).catch(() => null);
+        return { ...updatedData, jobId, signed_url: signedUrl };
+      }
 
       if (structuredResult) {
         tags = structuredResult.tags || [];
@@ -737,15 +943,6 @@ export class FileService {
     return { ...updatedData, signed_url: signedUrl };
   }
 
-  /**
-   * Build the diff payload for the HITL review dialog.
-   *
-   * `companyIdOverride` lets the dialog ask "what would the diff look like
-   * against THIS company instead?" without persisting anything yet. Pass:
-   *   - `undefined` → fall back to the file's stored matched_companies[0].id
-   *   - `null` or `''` → no company; `current` is empty
-   *   - a uuid → compare against that company
-   */
   async getReviewData(fileId: string, companyIdOverride?: string | null) {
     const file = await this.fileRepo.findById(fileId);
     const parsedNotes = this.parseStructuredNotes(file.structured_notes);
@@ -817,6 +1014,75 @@ export class FileService {
     };
   }
 
+  private mergeCatalogMatches(
+    baseList: FundUpdateCatalogMatch[],
+    extraList: Array<{ name: string; status?: FundUpdateCatalogMatchStatus; matched_id?: string | null; auto_created?: boolean }>,
+  ): FundUpdateCatalogMatch[] {
+    const map = new Map<string, FundUpdateCatalogMatch>();
+
+    for (const item of baseList) {
+      const cleanName = item?.name?.trim();
+      if (!cleanName) continue;
+      const key = cleanName.toLowerCase();
+      const existing = map.get(key);
+      const itemStatus: FundUpdateCatalogMatchStatus = item.status === 'existing' ? 'existing' : 'new';
+      const itemMatchedId = item.matched_id ?? null;
+      const autoCreated = item.auto_created;
+
+      if (!existing) {
+        map.set(key, {
+          name: cleanName,
+          status: itemStatus,
+          matched_id: itemMatchedId,
+          ...(autoCreated !== undefined ? { auto_created: autoCreated } : {}),
+        });
+      } else if (existing.status === 'new' && itemStatus === 'existing') {
+        map.set(key, {
+          name: existing.name,
+          status: 'existing',
+          matched_id: itemMatchedId,
+          ...(autoCreated !== undefined ? { auto_created: autoCreated } : existing.auto_created !== undefined ? { auto_created: existing.auto_created } : {}),
+        });
+      }
+    }
+
+    for (const item of extraList) {
+      const cleanName = item?.name?.trim();
+      if (!cleanName) continue;
+      const key = cleanName.toLowerCase();
+      const existing = map.get(key);
+      const itemStatus: FundUpdateCatalogMatchStatus = item.status === 'existing' ? 'existing' : 'new';
+      const itemMatchedId = item.matched_id ?? null;
+      const autoCreated = item.auto_created;
+
+      if (!existing) {
+        map.set(key, {
+          name: cleanName,
+          status: itemStatus,
+          matched_id: itemMatchedId,
+          ...(autoCreated !== undefined ? { auto_created: autoCreated } : {}),
+        });
+      } else {
+        const mergedAutoCreated = autoCreated !== undefined ? autoCreated : existing.auto_created;
+        if (existing.status === 'new' && itemStatus === 'existing') {
+          map.set(key, {
+            name: existing.name,
+            status: 'existing',
+            matched_id: itemMatchedId,
+            ...(mergedAutoCreated !== undefined ? { auto_created: mergedAutoCreated } : {}),
+          });
+        } else if (mergedAutoCreated !== undefined && existing.auto_created === undefined) {
+          map.set(key, {
+            ...existing,
+            auto_created: mergedAutoCreated,
+          });
+        }
+      }
+    }
+
+    return Array.from(map.values());
+  }
+
   private async getFundUpdateReviewData(
     file: Tables<'files'>,
     parsedNotes: Record<string, unknown> | null,
@@ -824,9 +1090,104 @@ export class FileService {
     if (!this.fundUpdateApplyService) {
       throw new Error('Fund update apply service is not configured');
     }
-    const proposal = (parsedNotes as unknown as FundUpdateStructuredResult | null)?.fund_update_proposal;
-    const assets = (proposal?.assets ?? []) as ParsedAsset[];
-    const reviews = await this.fundUpdateApplyService.buildReview(assets);
+    const structuredResult = parsedNotes as unknown as FundUpdateStructuredResult | null;
+    const proposal = structuredResult?.fund_update_proposal;
+    let assets = (proposal?.assets ?? []) as ParsedAsset[];
+
+    const isV1 = Boolean(
+      proposal && 'schema_version' in proposal && proposal.schema_version === 'workbook_fallback_v1',
+    );
+    const v1Proposal = isV1 ? (proposal as WorkbookFallbackProposalV1) : null;
+
+    if (v1Proposal) {
+      assets = hydrateParsedAssetsFromEvents(
+        assets,
+        v1Proposal.entities ?? [],
+        v1Proposal.events ?? [],
+      );
+    }
+
+    const fullReview = await this.fundUpdateApplyService.buildFullReview(assets);
+    const reviews: FundUpdateAssetReview[] = fullReview.assets ?? [];
+    let funds: FundUpdateCatalogMatch[] = fullReview.funds ? this.mergeCatalogMatches([], fullReview.funds) : [];
+    let investors: FundUpdateCatalogMatch[] = fullReview.investors ? this.mergeCatalogMatches([], fullReview.investors) : [];
+    let sources: FundUpdateCatalogMatch[] = fullReview.sources ? this.mergeCatalogMatches([], fullReview.sources) : [];
+
+    if (v1Proposal) {
+      const v1Entities = v1Proposal.entities ?? [];
+      const extraFunds: FundUpdateCatalogMatch[] = [];
+      const extraInvestors: FundUpdateCatalogMatch[] = [];
+
+      for (const entity of v1Entities) {
+        const entityName = (entity.originalName || entity.englishName || '').trim();
+        if (!entityName) continue;
+
+        const entityType = (entity.entityType || '').trim().toLowerCase();
+        const status: FundUpdateCatalogMatchStatus = entity.existingRecordId ? 'existing' : 'new';
+        const matched_id = entity.existingRecordId ?? null;
+
+        if (entityType === 'fund') {
+          const isAutoCreated = FUND_CATALOG.some((c) => c.trim().toLowerCase() === entityName.toLowerCase());
+          extraFunds.push({
+            name: entityName,
+            status,
+            matched_id,
+            ...(isAutoCreated ? { auto_created: true } : {}),
+          });
+        } else if (V1_INVESTOR_ENTITY_TYPES.has(entityType)) {
+          extraInvestors.push({ name: entityName, status, matched_id });
+        }
+      }
+
+      funds = this.mergeCatalogMatches(funds, extraFunds);
+      investors = this.mergeCatalogMatches(investors, extraInvestors);
+    }
+
+    const linkEntities = v1Proposal?.entities ?? [];
+    const linkEvents = v1Proposal?.events ?? [];
+    const linkAssets = reviews.map((r) => ({
+      code: r.code,
+      name: r.name,
+      fund: r.fund,
+      entity: r.entity,
+      funding_source: r.funding_source,
+      fundingSource: r.funding_source || r.proposed?.fundingSource,
+      fundingSourceRaw: r.proposed?.fundingSourceRaw,
+    }));
+
+    funds = funds.map((f) => ({
+      ...f,
+      asset_codes: assetCodesForCatalogName({
+        catalogName: f.name,
+        kind: 'fund',
+        assets: linkAssets,
+        entities: linkEntities,
+        events: linkEvents,
+      }),
+    }));
+
+    investors = investors.map((inv) => ({
+      ...inv,
+      asset_codes: assetCodesForCatalogName({
+        catalogName: inv.name,
+        kind: 'investor',
+        assets: linkAssets,
+        entities: linkEntities,
+        events: linkEvents,
+      }),
+    }));
+
+    sources = sources.map((s) => ({
+      ...s,
+      asset_codes: assetCodesForCatalogName({
+        catalogName: s.name,
+        kind: 'source',
+        assets: linkAssets,
+        entities: linkEntities,
+        events: linkEvents,
+      }),
+    }));
+
     return {
       kind: 'fund_updates' as const,
       file: {
@@ -837,12 +1198,19 @@ export class FileService {
       },
       template_id: proposal?.template_id ?? null,
       stats: proposal?.stats ?? null,
-      summary: (parsedNotes as unknown as FundUpdateStructuredResult | null)?.summary ?? null,
+      summary: structuredResult?.summary ?? null,
       assets: reviews,
+      funds,
+      investors,
+      sources,
     };
   }
 
-  async approve(fileId: string, input: ApproveFileInput, enteredBy?: string | null) {
+  async approve(
+    fileId: string,
+    input: ApproveFileInput,
+    enteredBy?: string | null,
+  ): Promise<{ file: Tables<'files'>; company_id: string | null; fund_update?: FundUpdateApplyResult }> {
     if (input.file_type === 'fund_updates') {
       return this.approveFundUpdate(fileId, input);
     }
@@ -995,6 +1363,155 @@ export class FileService {
     const file = await this.fileRepo.findById(fileId);
     const parsedNotes = this.parseStructuredNotes(file.structured_notes);
     const proposal = (parsedNotes as unknown as FundUpdateStructuredResult | null)?.fund_update_proposal;
+
+    const isV1 = proposal && 'schema_version' in proposal && proposal.schema_version === 'workbook_fallback_v1';
+    // Server-side validation gate for v1 fallback proposals
+    if (isV1) {
+      const v1 = proposal as unknown as WorkbookFallbackProposalV1;
+
+      if (
+        !v1.row_accounting ||
+        !v1.row_accounting.plannedRows ||
+        !Array.isArray(v1.row_accounting.plannedRows) ||
+        v1.row_accounting.plannedRows.length === 0
+      ) {
+        throw new Error('Cannot approve fund update: missing row_accounting or plannedRows');
+      }
+
+      // Check unique planned rows universe and reject duplicate planned row keys
+      const seenPlannedKeys = new Set<string>();
+      const duplicatePlannedKeys = new Set<string>();
+      for (const pl of v1.row_accounting.plannedRows) {
+        const key = pl.rowKey || formatSourceRowKey(pl.sheet, pl.row, pl.tableId);
+        if (seenPlannedKeys.has(key)) {
+          duplicatePlannedKeys.add(key);
+        } else {
+          seenPlannedKeys.add(key);
+        }
+      }
+
+      if (duplicatePlannedKeys.size > 0) {
+        throw new Error(
+          `Cannot approve fund update: duplicate planned row keys detected for ${duplicatePlannedKeys.size} row(s) in extraction plan`,
+        );
+      }
+
+      const uniquePlannedUniverseSize = seenPlannedKeys.size;
+      const accountingTotal = v1.row_accounting.totalDataRows;
+      const statsTotal = v1.stats?.total_data_rows;
+
+      if (accountingTotal !== uniquePlannedUniverseSize || statsTotal !== uniquePlannedUniverseSize) {
+        throw new Error(
+          `Cannot approve fund update: row_accounting.totalDataRows (${accountingTotal}) and proposal.stats.total_data_rows (${statsTotal}) must equal unique plannedRows universe size (${uniquePlannedUniverseSize})`,
+        );
+      }
+
+      // Re-normalize a cloned v1 merged payload from stored source fields + interpretation before validation
+      const clonedEvents = (v1.events || []).map((e) => ({
+        ...e,
+        warnings: [...(e.warnings || [])],
+        sourceLocation: { ...e.sourceLocation },
+        normalizedAmount: null,
+        normalizedCurrency: null,
+        amountMultiplier: null,
+      }));
+      const clonedValuations = (v1.valuations || []).map((v) => ({
+        ...v,
+        warnings: [...(v.warnings || [])],
+        sourceLocation: { ...v.sourceLocation },
+        normalizedMarketValue: null,
+        normalizedCurrency: null,
+      }));
+
+      const recomputed = normalizeWorkbookExtraction(
+        {
+          entities: (v1.entities || []).map((ent) => ({
+            ...ent,
+            aliases: [...(ent.aliases || [])],
+            sourceLocations: (ent.sourceLocations || []).map((loc) => ({ ...loc })),
+            warnings: [...(ent.warnings || [])],
+          })),
+          events: clonedEvents,
+          valuations: clonedValuations,
+          rowAccounting: v1.row_accounting,
+          warnings: [...(v1.warnings || [])],
+        },
+        v1.interpretation,
+      );
+
+      // Reject if stored normalized amounts/currencies materially disagree with recomputed values
+      for (let i = 0; i < (v1.events || []).length; i++) {
+        const stored = v1.events[i];
+        const recomputedEvt = recomputed.events[i];
+
+        const storedCurr = stored.normalizedCurrency || null;
+        const recomputedCurr = recomputedEvt.normalizedCurrency || null;
+        if (storedCurr !== recomputedCurr) {
+          throw new Error(
+            `Cannot approve fund update: stored normalizedCurrency "${storedCurr}" does not match recomputed currency "${recomputedCurr}" for event at row ${stored.sourceLocation?.row}`,
+          );
+        }
+
+        const storedAmt = stored.normalizedAmount;
+        const recomputedAmt = recomputedEvt.normalizedAmount;
+        if (
+          (storedAmt == null && recomputedAmt != null) ||
+          (storedAmt != null && recomputedAmt == null) ||
+          (storedAmt != null && recomputedAmt != null && Math.abs(storedAmt - recomputedAmt) > 0.01)
+        ) {
+          throw new Error(
+            `Cannot approve fund update: stored normalizedAmount (${storedAmt}) does not match recomputed amount (${recomputedAmt}) for event at row ${stored.sourceLocation?.row}`,
+          );
+        }
+      }
+
+      for (let i = 0; i < (v1.valuations || []).length; i++) {
+        const stored = v1.valuations[i];
+        const recomputedVal = recomputed.valuations[i];
+
+        const storedCurr = stored.normalizedCurrency || null;
+        const recomputedCurr = recomputedVal.normalizedCurrency || null;
+        if (storedCurr !== recomputedCurr) {
+          throw new Error(
+            `Cannot approve fund update: stored normalizedCurrency "${storedCurr}" does not match recomputed currency "${recomputedCurr}" for valuation at row ${stored.sourceLocation?.row}`,
+          );
+        }
+
+        const storedValAmt = stored.normalizedMarketValue;
+        const recomputedValAmt = recomputedVal.normalizedMarketValue;
+        if (
+          (storedValAmt == null && recomputedValAmt != null) ||
+          (storedValAmt != null && recomputedValAmt == null) ||
+          (storedValAmt != null && recomputedValAmt != null && Math.abs(storedValAmt - recomputedValAmt) > 0.01)
+        ) {
+          throw new Error(
+            `Cannot approve fund update: stored normalizedMarketValue (${storedValAmt}) does not match recomputed market value (${recomputedValAmt}) for valuation at row ${stored.sourceLocation?.row}`,
+          );
+        }
+      }
+
+      // Re-run deterministic validation server-side on recomputed data + interpretation
+      const revalidated = validateWorkbookExtraction(recomputed, v1.interpretation);
+
+      if (!revalidated.validation.isReviewable || revalidated.validation.hardFailures.length > 0) {
+        throw new Error(
+          `Cannot approve proposal with critical validation failures: ${revalidated.validation.hardFailures.join('; ')}`,
+        );
+      }
+
+      // Check if proposal has any persistable asset records
+      const persistableEvents = (v1.events || []).filter((ev) =>
+        ['asset_investment', 'asset_follow_on_investment', 'asset_exit', 'asset_exit_distribution'].includes(
+          ev.eventType,
+        ),
+      );
+      if (persistableEvents.length === 0 && (v1.valuations || []).length === 0 && (!v1.assets || v1.assets.length === 0)) {
+        throw new Error(
+          'Cannot approve fund update: proposal contains only investor-to-fund events and no persistable portfolio assets or valuations. Direct investor ledger writes are not supported.',
+        );
+      }
+    }
+
     const assets = (proposal?.assets ?? []) as ParsedAsset[];
     const selections = input.fund_update_selections;
     const codes =
@@ -1003,6 +1520,8 @@ export class FileService {
       assets,
       codes,
       selections,
+      { isV1: Boolean(isV1) },
+      input.fund_update_catalog_selections,
     );
 
     await this.fileRepo.updatePartial(fileId, {
@@ -1024,6 +1543,18 @@ export class FileService {
   ): Promise<boolean> {
     if (!structuredResult || !this.fundUpdateApplyService) return false;
     const proposal = (structuredResult as FundUpdateStructuredResult).fund_update_proposal;
+    if (!proposal) return false;
+
+    if ('schema_version' in proposal && proposal.schema_version === 'workbook_fallback_v1') {
+      const v1 = proposal as unknown as import('@/lib/fund_updates/types').WorkbookFallbackProposalV1;
+      if (v1.events.length > 0 || v1.entities.length > 0) return true;
+      if (v1.assets && v1.assets.length > 0) {
+        const reviews = await this.fundUpdateApplyService.buildReview(v1.assets);
+        return reviews.some((a) => a.status === 'new' || a.status === 'add_missing');
+      }
+      return false;
+    }
+
     const assets = (proposal?.assets ?? []) as ParsedAsset[];
     if (assets.length === 0) return false;
     const reviews = await this.fundUpdateApplyService.buildReview(assets);

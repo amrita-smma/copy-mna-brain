@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ComponentType } from "react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -13,7 +13,7 @@ import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandItem, CommandList } from "@/components/ui/command";
-import { AlertCircle, Check, ChevronDown, Loader2 } from "lucide-react";
+import { AlertCircle, Building2, Check, ChevronDown, Layers, Loader2, Users, Wallet } from "lucide-react";
 import {
   Select,
   SelectContent,
@@ -33,6 +33,27 @@ import {
 import type { ParsedTxn, ParsedValuation, TxnTypeEnum, ValuationMethodEnum } from "@/lib/fund_updates";
 import type { FundUpdateAssetSelection } from "@/lib/services/fundUpdateApplyService";
 
+export type FundUpdateCatalogKind = "asset" | "fund" | "investor" | "source";
+
+export type FundUpdateCatalogMatchStatus = "new" | "existing";
+
+export interface FundUpdateCatalogMatch {
+  name: string;
+  status: FundUpdateCatalogMatchStatus;
+  matched_id: string | null;
+  asset_codes?: string[];
+  auto_created?: boolean;
+}
+
+type CatalogTab = "asset" | "fund" | "investor" | "source";
+
+const CATALOG_TABS: { k: CatalogTab; label: string }[] = [
+  { k: "asset", label: "Asset" },
+  { k: "fund", label: "Fund" },
+  { k: "investor", label: "Investor" },
+  { k: "source", label: "Source of Fund" },
+];
+
 type AssetStatus = "new" | "unchanged" | "add_missing";
 
 interface FundUpdateAssetReview {
@@ -44,6 +65,9 @@ interface FundUpdateAssetReview {
   funding_source: string | null;
   status: AssetStatus;
   matched_asset_id: string | null;
+  matched_fund?: FundUpdateCatalogMatch | null;
+  matched_investor?: FundUpdateCatalogMatch | null;
+  matched_source?: FundUpdateCatalogMatch | null;
   proposed_txn_count: number;
   proposed_valuation_count: number;
   existing_txn_count: number;
@@ -81,6 +105,9 @@ interface FundUpdateReviewData {
   } | null;
   summary: string | null;
   assets: FundUpdateAssetReview[];
+  funds?: FundUpdateCatalogMatch[];
+  investors?: FundUpdateCatalogMatch[];
+  sources?: FundUpdateCatalogMatch[];
 }
 
 interface ItemSelection {
@@ -453,6 +480,11 @@ export function FundUpdateReviewDialog({
   const [edits, setEdits] = useState<Map<string, AssetEdits>>(new Map());
   const [activeCode, setActiveCode] = useState<string | null>(null);
   const [detailTab, setDetailTab] = useState<"overview" | "txn" | "vals">("overview");
+  const [catalogTab, setCatalogTab] = useState<CatalogTab>("asset");
+  const [activeCatalogName, setActiveCatalogName] = useState<string | null>(null);
+  const [selectedFunds, setSelectedFunds] = useState<Set<string>>(new Set());
+  const [selectedInvestors, setSelectedInvestors] = useState<Set<string>>(new Set());
+  const [selectedSources, setSelectedSources] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     if (!open) return;
@@ -469,12 +501,17 @@ export function FundUpdateReviewDialog({
         if (payload.kind !== "fund_updates") {
           throw new Error("This file is not a Fund Updates review");
         }
-        const sorted = {
+        const sorted: FundUpdateReviewData = {
           ...payload,
-          assets: sortFundUpdateReviewAssets(payload.assets),
+          assets: sortFundUpdateReviewAssets(payload.assets ?? []),
+          funds: payload.funds ?? [],
+          investors: payload.investors ?? [],
+          sources: payload.sources ?? [],
         };
         setData(sorted);
         setEdits(new Map());
+        setCatalogTab("asset");
+        setActiveCatalogName(null);
         if (!readOnly) {
           const defaults = new Set(
             sorted.assets
@@ -483,9 +520,21 @@ export function FundUpdateReviewDialog({
           );
           setSelected(defaults);
           setItemSelection(defaultItemSelection(sorted.assets));
+          setSelectedFunds(
+            new Set((sorted.funds ?? []).map((f) => f.name.trim().toLowerCase())),
+          );
+          setSelectedInvestors(
+            new Set((sorted.investors ?? []).map((i) => i.name.trim().toLowerCase())),
+          );
+          setSelectedSources(
+            new Set((sorted.sources ?? []).map((s) => s.name.trim().toLowerCase())),
+          );
         } else {
           setSelected(new Set());
           setItemSelection(new Map());
+          setSelectedFunds(new Set());
+          setSelectedInvestors(new Set());
+          setSelectedSources(new Set());
         }
         setActiveCode(sorted.assets[0]?.code ?? null);
       } catch (err) {
@@ -498,6 +547,198 @@ export function FundUpdateReviewDialog({
       cancelled = true;
     };
   }, [fileId, open, readOnly]);
+
+  const catalogItems = useMemo<FundUpdateCatalogMatch[]>(() => {
+    if (!data) return [];
+    if (catalogTab === "fund") return data.funds ?? [];
+    if (catalogTab === "investor") return data.investors ?? [];
+    if (catalogTab === "source") return data.sources ?? [];
+    return [];
+  }, [data, catalogTab]);
+
+  const activeCatalogItem = useMemo(() => {
+    if (catalogTab === "asset" || catalogItems.length === 0) return null;
+    const found = catalogItems.find(
+      (item) => item.name.toLowerCase() === activeCatalogName?.toLowerCase(),
+    );
+    return found ?? catalogItems[0] ?? null;
+  }, [catalogTab, catalogItems, activeCatalogName]);
+
+  const getReferencingAssetsForItem = useCallback(
+    (item: FundUpdateCatalogMatch, tab: CatalogTab): FundUpdateAssetReview[] => {
+      if (!data) return [];
+      if (Array.isArray(item.asset_codes)) {
+        const codeSet = new Set(item.asset_codes);
+        return data.assets.filter((a) => codeSet.has(a.code));
+      }
+      const targetName = item.name.trim().toLowerCase();
+      if (tab === "fund") {
+        return data.assets.filter(
+          (a) =>
+            (a.fund ?? "").trim().toLowerCase() === targetName ||
+            (a.matched_fund?.name ?? "").trim().toLowerCase() === targetName,
+        );
+      }
+      if (tab === "investor") {
+        return data.assets.filter(
+          (a) =>
+            (a.entity ?? "").trim().toLowerCase() === targetName ||
+            (a.matched_investor?.name ?? "").trim().toLowerCase() === targetName,
+        );
+      }
+      if (tab === "source") {
+        return data.assets.filter(
+          (a) =>
+            (a.funding_source ?? "").trim().toLowerCase() === targetName ||
+            (a.matched_source?.name ?? "").trim().toLowerCase() === targetName,
+        );
+      }
+      return [];
+    },
+    [data],
+  );
+
+  const referencingAssets = useMemo(() => {
+    if (!data || !activeCatalogItem || catalogTab === "asset") return [];
+    return getReferencingAssetsForItem(activeCatalogItem, catalogTab);
+  }, [data, activeCatalogItem, catalogTab, getReferencingAssetsForItem]);
+
+  const getCatalogItemRefCount = useCallback(
+    (item: FundUpdateCatalogMatch, tab: CatalogTab): number => {
+      if (!data) return 0;
+      if (Array.isArray(item.asset_codes)) {
+        return item.asset_codes.length;
+      }
+      return getReferencingAssetsForItem(item, tab).length;
+    },
+    [data, getReferencingAssetsForItem],
+  );
+
+  const catalogLabel =
+    catalogTab === "fund"
+      ? "Fund"
+      : catalogTab === "investor"
+        ? "Investor"
+        : "Source of Fund";
+
+  const currentCatalogSelection = useMemo(() => {
+    if (catalogTab === "fund") return selectedFunds;
+    if (catalogTab === "investor") return selectedInvestors;
+    if (catalogTab === "source") return selectedSources;
+    return new Set<string>();
+  }, [catalogTab, selectedFunds, selectedInvestors, selectedSources]);
+
+  function toggleCatalogItem(tab: CatalogTab, name: string, checked: boolean) {
+    const key = name.trim().toLowerCase();
+    const updater = (prev: Set<string>) => {
+      const next = new Set(prev);
+      if (checked) next.add(key);
+      else next.delete(key);
+      return next;
+    };
+    if (tab === "fund") setSelectedFunds(updater);
+    else if (tab === "investor") setSelectedInvestors(updater);
+    else if (tab === "source") setSelectedSources(updater);
+  }
+
+  function selectAllCatalog(tab: CatalogTab) {
+    if (!data) return;
+    const items =
+      tab === "fund"
+        ? data.funds ?? []
+        : tab === "investor"
+          ? data.investors ?? []
+          : data.sources ?? [];
+    const allKeys = new Set(items.map((i) => i.name.trim().toLowerCase()));
+    if (tab === "fund") setSelectedFunds(allKeys);
+    else if (tab === "investor") setSelectedInvestors(allKeys);
+    else if (tab === "source") setSelectedSources(allKeys);
+  }
+
+  function deselectAllCatalog(tab: CatalogTab) {
+    if (!data) return;
+    const items =
+      tab === "fund"
+        ? data.funds ?? []
+        : tab === "investor"
+          ? data.investors ?? []
+          : data.sources ?? [];
+    const nonActionableKeys = new Set(
+      items
+        .filter((i) => i.status === "existing" || Boolean(i.auto_created))
+        .map((i) => i.name.trim().toLowerCase()),
+    );
+    if (tab === "fund") setSelectedFunds(nonActionableKeys);
+    else if (tab === "investor") setSelectedInvestors(nonActionableKeys);
+    else if (tab === "source") setSelectedSources(nonActionableKeys);
+  }
+
+  const catalogCounts = useMemo(() => {
+    const actionable = catalogItems.filter(
+      (item) => item.status === "new" && !item.auto_created,
+    );
+    const selectedActionable = actionable.filter((item) =>
+      currentCatalogSelection.has(item.name.trim().toLowerCase()),
+    );
+    const totalSelected = catalogItems.filter(
+      (item) =>
+        item.status === "existing" ||
+        Boolean(item.auto_created) ||
+        currentCatalogSelection.has(item.name.trim().toLowerCase()),
+    ).length;
+
+    let checkState: boolean | "indeterminate" = false;
+    if (actionable.length === 0) {
+      checkState = catalogItems.length > 0;
+    } else if (selectedActionable.length === 0) {
+      checkState = false;
+    } else if (selectedActionable.length === actionable.length) {
+      checkState = true;
+    } else {
+      checkState = "indeterminate";
+    }
+
+    return {
+      actionableCount: actionable.length,
+      selectedActionableCount: selectedActionable.length,
+      totalSelected,
+      checkState,
+    };
+  }, [catalogItems, currentCatalogSelection]);
+
+  /**
+   * What approving would create, per catalog kind: ticked records that are new
+   * and not auto-created.
+   */
+  const catalogCreateCounts = useMemo(() => {
+    const countKind = (
+      items: FundUpdateCatalogMatch[],
+      selection: Set<string>,
+    ) => {
+      let created = 0;
+      for (const item of items) {
+        if (
+          item.status === "new" &&
+          !item.auto_created &&
+          selection.has(item.name.trim().toLowerCase())
+        ) {
+          created += 1;
+        }
+      }
+      return created;
+    };
+
+    if (!data) {
+      return { funds: 0, investors: 0, sources: 0 };
+    }
+
+    return {
+      funds: countKind(data.funds ?? [], selectedFunds),
+      investors: countKind(data.investors ?? [], selectedInvestors),
+      sources: countKind(data.sources ?? [], selectedSources),
+    };
+  }, [data, selectedFunds, selectedInvestors, selectedSources]);
+
 
   const active = useMemo(
     () => data?.assets.find((a) => a.code === activeCode) ?? null,
@@ -536,6 +777,47 @@ export function FundUpdateReviewDialog({
     }
     return { txns, vals };
   }, [selected, itemSelection]);
+
+  const hasActionableSelection =
+    selected.size > 0 ||
+    catalogCreateCounts.funds > 0 ||
+    catalogCreateCounts.investors > 0 ||
+    catalogCreateCounts.sources > 0;
+
+  const approveButtonLabel = useMemo(() => {
+    const parts: string[] = [];
+    if (selected.size > 0) {
+      parts.push(`${selected.size} ${selected.size === 1 ? "asset" : "assets"}`);
+    }
+    if (catalogCreateCounts.funds > 0) {
+      parts.push(
+        `${catalogCreateCounts.funds} ${catalogCreateCounts.funds === 1 ? "fund" : "funds"}`,
+      );
+    }
+    if (catalogCreateCounts.investors > 0) {
+      parts.push(
+        `${catalogCreateCounts.investors} ${catalogCreateCounts.investors === 1 ? "investor" : "investors"}`,
+      );
+    }
+    if (catalogCreateCounts.sources > 0) {
+      parts.push(
+        `${catalogCreateCounts.sources} ${catalogCreateCounts.sources === 1 ? "source of fund" : "sources of fund"}`,
+      );
+    }
+
+    if (parts.length === 0) {
+      return "Approve";
+    }
+
+    const mainText = parts.join(", ");
+    if (selected.size > 0) {
+      const txnNoun = approveCounts.txns === 1 ? "txn" : "txns";
+      const valNoun = approveCounts.vals === 1 ? "val" : "vals";
+      return `Approve ${mainText} (+${approveCounts.txns} ${txnNoun}, +${approveCounts.vals} ${valNoun})`;
+    }
+
+    return `Approve ${mainText}`;
+  }, [selected.size, catalogCreateCounts, approveCounts]);
 
   const getEditedTxn = useCallback(
     (assetCode: string, originalKey: string, fallback: ParsedTxn): ParsedTxn => {
@@ -675,6 +957,33 @@ export function FundUpdateReviewDialog({
     setApproving(true);
     try {
       const selections = buildSelections();
+      const selectedFundNames = (data.funds ?? [])
+        .filter(
+          (f) =>
+            f.status === "existing" ||
+            Boolean(f.auto_created) ||
+            selectedFunds.has(f.name.trim().toLowerCase()),
+        )
+        .map((f) => f.name);
+
+      const selectedInvestorNames = (data.investors ?? [])
+        .filter(
+          (i) =>
+            i.status === "existing" ||
+            Boolean(i.auto_created) ||
+            selectedInvestors.has(i.name.trim().toLowerCase()),
+        )
+        .map((i) => i.name);
+
+      const selectedSourceNames = (data.sources ?? [])
+        .filter(
+          (s) =>
+            s.status === "existing" ||
+            Boolean(s.auto_created) ||
+            selectedSources.has(s.name.trim().toLowerCase()),
+        )
+        .map((s) => s.name);
+
       const res = await fetch(`/api/smart-files/${fileId}/approve`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -683,16 +992,47 @@ export function FundUpdateReviewDialog({
           matched_company_id: null,
           fund_update_asset_codes: selections.map((s) => s.asset_code),
           fund_update_selections: selections,
+          fund_update_catalog_selections: {
+            funds: [...selectedFundNames],
+            investors: [...selectedInvestorNames],
+            sources: [...selectedSourceNames],
+          },
         }),
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || "Approve failed");
       const result = json.data?.fund_update;
-      toast.success(
-        result
-          ? `Applied ${result.applied} assets (+${result.txns_inserted} txns, +${result.valuations_upserted} vals)`
-          : "Fund update approved",
-      );
+      if (result) {
+        const createdParts: string[] = [];
+        const createdFunds = result.created_funds ?? 0;
+        const createdInvestors = result.created_investors ?? 0;
+        const createdSources = result.created_sources ?? 0;
+        if (createdFunds > 0) {
+          createdParts.push(`${createdFunds} ${createdFunds === 1 ? "fund" : "funds"}`);
+        }
+        if (createdInvestors > 0) {
+          createdParts.push(
+            `${createdInvestors} ${createdInvestors === 1 ? "investor" : "investors"}`,
+          );
+        }
+        if (createdSources > 0) {
+          createdParts.push(
+            `${createdSources} ${createdSources === 1 ? "source of fund" : "sources of fund"}`,
+          );
+        }
+        const base = `Applied ${result.applied} assets (+${result.txns_inserted} txns, +${result.valuations_upserted} vals)`;
+        // A catalog-only approve touches no asset, so lead with what it did create
+        // rather than reporting "Applied 0 assets".
+        const message =
+          result.applied === 0 && result.txns_inserted === 0 && createdParts.length > 0
+            ? `Created ${createdParts.join(", ")}`
+            : createdParts.length > 0
+              ? `${base} · created ${createdParts.join(", ")}`
+              : base;
+        toast.success(message);
+      } else {
+        toast.success("Fund update approved");
+      }
       onApproved();
     } catch (err) {
       toast.error((err as Error).message);
@@ -720,7 +1060,7 @@ export function FundUpdateReviewDialog({
 
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="flex max-h-[90vh] max-w-5xl flex-col gap-0 overflow-hidden p-0">
+      <DialogContent className="flex h-[85vh] max-h-[90vh] max-w-5xl flex-col gap-0 overflow-hidden p-0">
         <DialogHeader className="border-b px-6 py-4">
           <DialogTitle className="pr-8 text-base">
             {readOnly ? "Parsed Fund Updates" : "Review Fund Updates"}
@@ -759,209 +1099,489 @@ export function FundUpdateReviewDialog({
                     </span>
                   </>
                 ) : null}
+                {readOnly ? (
+                  <span>{data.assets.length} assets parsed</span>
+                ) : null}
               </div>
-              {readOnly ? (
-                <span>{data.assets.length} assets parsed</span>
-              ) : null}
+              <div className="inline-flex overflow-hidden rounded-full border bg-background">
+                {CATALOG_TABS.map(({ k, label }) => (
+                  <button
+                    key={k}
+                    type="button"
+                    onClick={() => setCatalogTab(k)}
+                    className={cn(
+                      "px-3.5 py-1 text-xs",
+                      catalogTab === k
+                        ? "bg-accent text-accent-foreground"
+                        : "text-muted-foreground hover:text-foreground",
+                    )}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
             </div>
 
             <div className="grid min-h-0 flex-1 grid-cols-[240px_1fr] overflow-hidden">
-              <div className="flex min-h-0 flex-col border-r">
-                {!readOnly ? (
-                  <div className="flex items-center gap-2 border-b bg-muted/40 px-3 py-2.5">
-                    <Checkbox
-                      checked={
-                        counts.selected === 0
-                          ? false
-                          : counts.selected === counts.new + counts.add_missing
-                            ? true
-                            : "indeterminate"
-                      }
-                      onCheckedChange={(c) => (c ? selectAll() : setSelected(new Set()))}
-                      aria-label="Select all actionable assets"
-                    />
-                    <span className="text-xs font-medium text-foreground">
-                      {counts.selected} selected
-                    </span>
-                  </div>
-                ) : null}
-                <div className="flex-1 overflow-y-auto overscroll-contain">
-                {data.assets.map((asset) => {
-                  const checked = selected.has(asset.code);
-                  const isActive = activeCode === asset.code;
-                  const sel = itemSelection.get(asset.code);
-                  return (
-                    <div
-                      key={asset.code}
-                      role="option"
-                      aria-selected={isActive}
-                      tabIndex={0}
-                      onClick={() => {
-                        setActiveCode(asset.code);
-                        setDetailTab("overview");
-                      }}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter" || e.key === " ") {
-                          e.preventDefault();
-                          setActiveCode(asset.code);
-                          setDetailTab("overview");
-                        }
-                      }}
-                      className={cn(
-                        "flex w-full cursor-pointer items-start gap-2 border-b px-3 py-2.5 text-left hover:bg-muted/50",
-                        isActive && "bg-muted",
-                      )}
-                    >
-                      {!readOnly ? (
+              {catalogTab === "asset" ? (
+                <>
+                  <div className="flex min-h-0 flex-col border-r">
+                    {!readOnly ? (
+                      <div className="flex items-center gap-2 border-b bg-muted/40 px-3 py-2.5">
                         <Checkbox
-                          checked={checked}
-                          onCheckedChange={(v) => toggle(asset.code, Boolean(v))}
-                          onClick={(e) => e.stopPropagation()}
-                          className="mt-0.5"
-                          disabled={asset.status === "unchanged"}
+                          checked={
+                            counts.selected === 0
+                              ? false
+                              : counts.selected === counts.new + counts.add_missing
+                                ? true
+                                : "indeterminate"
+                          }
+                          onCheckedChange={(c) => (c ? selectAll() : setSelected(new Set()))}
+                          aria-label="Select all actionable assets"
                         />
-                      ) : null}
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-1.5">
-                          <span className="truncate text-sm font-medium">{asset.code}</span>
-                          {!readOnly ? (
-                            <Badge variant={statusVariant(asset.status)} className="shrink-0 text-[10px]">
-                              {STATUS_LABEL[asset.status]}
-                            </Badge>
-                          ) : null}
-                        </div>
-                        <div className="truncate text-xs text-muted-foreground">{asset.name}</div>
-                        <div className="mt-0.5 text-[11px] text-muted-foreground">
-                          {assetSubLabel(asset, sel, readOnly)}
-                        </div>
+                        <span className="text-xs font-medium text-foreground">
+                          {counts.selected} selected
+                        </span>
                       </div>
-                    </div>
-                  );
-                })}
-                </div>
-              </div>
-
-              <div className="flex min-h-0 flex-col overflow-hidden">
-                {active ? (
-                  <>
-                    <div className="flex gap-1 border-b px-4 pt-2">
-                      {(
-                        [
-                          ["overview", "Overview"],
-                          ["txn", `Transactions (${activeTxnRows.length})`],
-                          ["vals", `Valuations (${activeValRows.length})`],
-                        ] as const
-                      ).map(([id, label]) => (
-                        <button
-                          key={id}
-                          type="button"
-                          onClick={() => setDetailTab(id)}
-                          className={cn(
-                            "border-b-2 px-3 py-2 text-sm",
-                            detailTab === id
-                              ? "border-foreground text-foreground"
-                              : "border-transparent text-muted-foreground hover:text-foreground",
-                          )}
-                        >
-                          {label}
-                        </button>
-                      ))}
-                    </div>
-                    <div className="min-h-0 flex-1 overflow-y-auto p-4">
-                      {detailTab === "overview" && (
-                        <div className="grid gap-3 sm:grid-cols-2">
-                          <KV label="Name" value={active.proposed.name} />
-                          <KV label="Legal name" value={active.proposed.legalName} />
-                          <KV label="Fund" value={active.fund} />
-                          <KV label="Type" value={active.proposed.investmentTypeLabel} />
-                          <KV label="Entity" value={active.entity} />
-                          <KV label="Funding source" value={active.funding_source} />
-                          <KV label="Country" value={active.proposed.country} />
-                          <KV label="Entry date" value={active.proposed.entryDate} />
-                          <KV
-                            label="Stake %"
-                            value={
-                              active.proposed.stakePct == null
-                                ? null
-                                : `${active.proposed.stakePct.toFixed(2)}%`
-                            }
-                          />
-                          <KV label="Sector" value={active.proposed.sector} />
-                          <KV label="Commitment" value={money(active.proposed.commitmentAmount)} />
-                          <KV
-                            label="Matched asset"
-                            value={active.matched_asset_id ? active.matched_asset_id.slice(0, 8) : "— (new)"}
-                          />
+                    ) : null}
+                    <div className="flex-1 overflow-y-auto overscroll-contain">
+                      {data.assets.length === 0 ? (
+                        <div className="p-4 text-center text-xs text-muted-foreground">
+                          No assets in proposal
                         </div>
-                      )}
-                      {detailTab === "txn" && (
-                        <TxnTable
-                          rows={activeTxnRows}
-                          caption={rowCaption(active.status, activeTxnRows)}
-                          readOnly={readOnly}
-                          assetCode={active.code}
-                          selectedKeys={activeItemSel?.txns}
-                          allChecked={allTxnChecked}
-                          someChecked={someTxnChecked}
-                          onToggleAll={
-                            readOnly
-                              ? undefined
-                              : (checked) => {
-                                  const keys = buildTxnRows(active)
-                                    .filter((r) => r.rowStatus === "actionable")
-                                    .map((r) => r.originalKey);
-                                  toggleItemKeys(active.code, "txns", keys, checked);
+                      ) : (
+                        data.assets.map((asset) => {
+                          const checked = selected.has(asset.code);
+                          const isActive = activeCode === asset.code;
+                          const sel = itemSelection.get(asset.code);
+                          return (
+                            <div
+                              key={asset.code}
+                              role="option"
+                              aria-selected={isActive}
+                              tabIndex={0}
+                              onClick={() => {
+                                setActiveCode(asset.code);
+                                setDetailTab("overview");
+                              }}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter" || e.key === " ") {
+                                  e.preventDefault();
+                                  setActiveCode(asset.code);
+                                  setDetailTab("overview");
                                 }
-                          }
-                          onToggle={
-                            readOnly
-                              ? undefined
-                              : (originalKey, checked) =>
-                                  toggleItemKeys(active.code, "txns", [originalKey], checked)
-                          }
-                          getEditedTxn={getEditedTxn}
-                          onEdit={readOnly ? undefined : editTxnField}
-                          edits={edits.get(active.code)?.txns}
-                        />
-                      )}
-                      {detailTab === "vals" && (
-                        <ValTable
-                          rows={activeValRows}
-                          caption={rowCaption(active.status, activeValRows)}
-                          readOnly={readOnly}
-                          assetCode={active.code}
-                          selectedKeys={activeItemSel?.vals}
-                          allChecked={allValChecked}
-                          someChecked={someValChecked}
-                          onToggleAll={
-                            readOnly
-                              ? undefined
-                              : (checked) => {
-                                  const keys = buildValRows(active)
-                                    .filter((r) => r.rowStatus === "actionable")
-                                    .map((r) => r.originalKey);
-                                  toggleItemKeys(active.code, "vals", keys, checked);
-                                }
-                          }
-                          onToggle={
-                            readOnly
-                              ? undefined
-                              : (originalKey, checked) =>
-                                  toggleItemKeys(active.code, "vals", [originalKey], checked)
-                          }
-                          getEditedVal={getEditedVal}
-                          onEdit={readOnly ? undefined : editValField}
-                          edits={edits.get(active.code)?.vals}
-                        />
+                              }}
+                              className={cn(
+                                "flex w-full cursor-pointer items-start gap-2 border-b px-3 py-2.5 text-left hover:bg-muted/50",
+                                isActive && "bg-muted",
+                              )}
+                            >
+                              {!readOnly ? (
+                                <Checkbox
+                                  checked={checked}
+                                  onCheckedChange={(v) => toggle(asset.code, Boolean(v))}
+                                  onClick={(e) => e.stopPropagation()}
+                                  className="mt-0.5"
+                                  disabled={asset.status === "unchanged"}
+                                />
+                              ) : null}
+                              <div className="min-w-0 flex-1">
+                                <div className="flex items-center gap-1.5">
+                                  <span className="truncate text-sm font-medium">{asset.code}</span>
+                                  {!readOnly ? (
+                                    <Badge variant={statusVariant(asset.status)} className="shrink-0 text-[10px]">
+                                      {STATUS_LABEL[asset.status]}
+                                    </Badge>
+                                  ) : null}
+                                </div>
+                                <div className="truncate text-xs text-muted-foreground">{asset.name}</div>
+                                <div className="mt-0.5 text-[11px] text-muted-foreground">
+                                  {assetSubLabel(asset, sel, readOnly)}
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })
                       )}
                     </div>
-                  </>
-                ) : (
-                  <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">
-                    No assets in proposal
                   </div>
-                )}
-              </div>
+
+                  <div className="flex min-h-0 flex-col overflow-hidden">
+                    {active ? (
+                      <>
+                        <div className="flex gap-1 border-b px-4 pt-2">
+                          {(
+                            [
+                              ["overview", "Overview"],
+                              ["txn", `Transactions (${activeTxnRows.length})`],
+                              ["vals", `Valuations (${activeValRows.length})`],
+                            ] as const
+                          ).map(([id, label]) => (
+                            <button
+                              key={id}
+                              type="button"
+                              onClick={() => setDetailTab(id)}
+                              className={cn(
+                                "border-b-2 px-3 py-2 text-sm",
+                                detailTab === id
+                                  ? "border-foreground text-foreground"
+                                  : "border-transparent text-muted-foreground hover:text-foreground",
+                              )}
+                            >
+                              {label}
+                            </button>
+                          ))}
+                        </div>
+                        <div className="min-h-0 flex-1 overflow-y-auto p-4">
+                          {detailTab === "overview" && (
+                            <div className="space-y-6">
+                              <div className="grid gap-3 sm:grid-cols-2">
+                                <KV label="Name" value={active.proposed.name} />
+                                <KV label="Legal name" value={active.proposed.legalName} />
+                                <KV label="Fund" value={active.fund} />
+                                <KV label="Type" value={active.proposed.investmentTypeLabel} />
+                                <KV label="Entity" value={active.entity} />
+                                <KV label="Funding source" value={active.funding_source} />
+                                <KV label="Country" value={active.proposed.country} />
+                                <KV label="Entry date" value={active.proposed.entryDate} />
+                                <KV
+                                  label="Stake %"
+                                  value={
+                                    active.proposed.stakePct == null
+                                      ? null
+                                      : `${active.proposed.stakePct.toFixed(2)}%`
+                                  }
+                                />
+                                <KV label="Sector" value={active.proposed.sector} />
+                                <KV label="Commitment" value={money(active.proposed.commitmentAmount)} />
+                              </div>
+
+                              <div>
+                                <div className="mb-2.5 text-xs font-medium text-muted-foreground">
+                                  Related records
+                                </div>
+                                <div className="grid gap-3 sm:grid-cols-2">
+                                  <RelatedRecordCard
+                                    label="Asset"
+                                    icon={Layers}
+                                    name={active.name || active.proposed.name || active.code}
+                                    isExisting={Boolean(active.matched_asset_id)}
+                                    kindLabel="asset"
+                                  />
+                                  <RelatedRecordCard
+                                    label="Investor"
+                                    icon={Users}
+                                    name={active.matched_investor?.name || active.entity}
+                                    isExisting={
+                                      active.matched_investor?.status === "existing" ||
+                                      Boolean(active.matched_investor?.matched_id)
+                                    }
+                                    kindLabel="investor"
+                                  />
+                                  <RelatedRecordCard
+                                    label="Fund"
+                                    icon={Building2}
+                                    name={active.matched_fund?.name || active.fund}
+                                    isExisting={
+                                      active.matched_fund?.status === "existing" ||
+                                      Boolean(active.matched_fund?.matched_id)
+                                    }
+                                    kindLabel="fund"
+                                  />
+                                  <RelatedRecordCard
+                                    label="Source of Fund"
+                                    icon={Wallet}
+                                    name={active.matched_source?.name || active.funding_source}
+                                    isExisting={
+                                      active.matched_source?.status === "existing" ||
+                                      Boolean(active.matched_source?.matched_id)
+                                    }
+                                    kindLabel="source of funds"
+                                  />
+                                </div>
+                              </div>
+                            </div>
+                          )}
+                          {detailTab === "txn" && (
+                            <TxnTable
+                              rows={activeTxnRows}
+                              caption={rowCaption(active.status, activeTxnRows)}
+                              readOnly={readOnly}
+                              assetCode={active.code}
+                              selectedKeys={activeItemSel?.txns}
+                              allChecked={allTxnChecked}
+                              someChecked={someTxnChecked}
+                              onToggleAll={
+                                readOnly
+                                  ? undefined
+                                  : (checked) => {
+                                      const keys = buildTxnRows(active)
+                                        .filter((r) => r.rowStatus === "actionable")
+                                        .map((r) => r.originalKey);
+                                      toggleItemKeys(active.code, "txns", keys, checked);
+                                    }
+                              }
+                              onToggle={
+                                readOnly
+                                  ? undefined
+                                  : (originalKey, checked) =>
+                                      toggleItemKeys(active.code, "txns", [originalKey], checked)
+                              }
+                              getEditedTxn={getEditedTxn}
+                              onEdit={readOnly ? undefined : editTxnField}
+                              edits={edits.get(active.code)?.txns}
+                            />
+                          )}
+                          {detailTab === "vals" && (
+                            <ValTable
+                              rows={activeValRows}
+                              caption={rowCaption(active.status, activeValRows)}
+                              readOnly={readOnly}
+                              assetCode={active.code}
+                              selectedKeys={activeItemSel?.vals}
+                              allChecked={allValChecked}
+                              someChecked={someValChecked}
+                              onToggleAll={
+                                readOnly
+                                  ? undefined
+                                  : (checked) => {
+                                      const keys = buildValRows(active)
+                                        .filter((r) => r.rowStatus === "actionable")
+                                        .map((r) => r.originalKey);
+                                      toggleItemKeys(active.code, "vals", keys, checked);
+                                    }
+                              }
+                              onToggle={
+                                readOnly
+                                  ? undefined
+                                  : (originalKey, checked) =>
+                                      toggleItemKeys(active.code, "vals", [originalKey], checked)
+                              }
+                              getEditedVal={getEditedVal}
+                              onEdit={readOnly ? undefined : editValField}
+                              edits={edits.get(active.code)?.vals}
+                            />
+                          )}
+                        </div>
+                      </>
+                    ) : (
+                      <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">
+                        No assets in proposal
+                      </div>
+                    )}
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="flex min-h-0 flex-col border-r">
+                    {!readOnly ? (
+                      <div className="flex items-center gap-2 border-b bg-muted/40 px-3 py-2.5">
+                        <Checkbox
+                          checked={catalogCounts.checkState}
+                          disabled={catalogCounts.actionableCount === 0}
+                          onCheckedChange={(c) =>
+                            c ? selectAllCatalog(catalogTab) : deselectAllCatalog(catalogTab)
+                          }
+                          aria-label={`Select all actionable ${catalogLabel.toLowerCase()}s`}
+                        />
+                        <span className="text-xs font-medium text-foreground">
+                          {catalogCounts.totalSelected} of {catalogItems.length} selected
+                        </span>
+                      </div>
+                    ) : (
+                      <div className="flex items-center border-b bg-muted/40 px-3 py-2.5">
+                        <span className="text-xs font-medium text-foreground">
+                          {catalogItems.length} {catalogLabel.toLowerCase()}
+                          {catalogItems.length === 1 ? "" : "s"}
+                        </span>
+                      </div>
+                    )}
+                    <div className="flex-1 overflow-y-auto overscroll-contain">
+                      {catalogItems.length === 0 ? (
+                        <div className="p-4 text-center text-xs text-muted-foreground">
+                          {catalogTab === "fund"
+                            ? "No funds in proposal"
+                            : catalogTab === "investor"
+                              ? "No investors in proposal"
+                              : "No sources of fund in proposal"}
+                        </div>
+                      ) : (
+                        catalogItems.map((item) => {
+                          const isActive = activeCatalogItem?.name.toLowerCase() === item.name.toLowerCase();
+                          const refCount = getCatalogItemRefCount(item, catalogTab);
+                          const isExisting = item.status === "existing";
+                          const isAutoCreated = Boolean(item.auto_created);
+                          const isChecked =
+                            isExisting ||
+                            isAutoCreated ||
+                            currentCatalogSelection.has(item.name.trim().toLowerCase());
+                          const isDisabled = isExisting || isAutoCreated;
+
+                          return (
+                            <div
+                              key={item.name}
+                              role="option"
+                              aria-selected={isActive}
+                              tabIndex={0}
+                              onClick={() => setActiveCatalogName(item.name)}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter" || e.key === " ") {
+                                  e.preventDefault();
+                                  setActiveCatalogName(item.name);
+                                }
+                              }}
+                              className={cn(
+                                "flex w-full cursor-pointer items-start gap-2 border-b px-3 py-2.5 text-left hover:bg-muted/50 transition-colors",
+                                isActive && "bg-muted",
+                              )}
+                            >
+                              {!readOnly ? (
+                                <Checkbox
+                                  checked={isChecked}
+                                  disabled={isDisabled}
+                                  onCheckedChange={(v) =>
+                                    toggleCatalogItem(catalogTab, item.name, Boolean(v))
+                                  }
+                                  onClick={(e) => e.stopPropagation()}
+                                  className="mt-0.5"
+                                  aria-label={`Select ${item.name}`}
+                                  title={
+                                    isAutoCreated
+                                      ? "Always created"
+                                      : isExisting
+                                        ? "Already exists in workspace"
+                                        : undefined
+                                  }
+                                />
+                              ) : null}
+                              <div className="min-w-0 flex-1">
+                                <div className="flex items-center justify-between gap-1.5">
+                                  <span className="truncate text-sm font-medium">{item.name}</span>
+                                  <Badge
+                                    variant={item.status === "existing" ? "outline" : "default"}
+                                    className="shrink-0 text-[10px]"
+                                  >
+                                    {item.status === "existing" ? "Existing" : "New"}
+                                  </Badge>
+                                </div>
+                                <div className="flex items-center gap-1 text-[11px] text-muted-foreground">
+                                  <span>
+                                    {refCount} {refCount === 1 ? "asset" : "assets"}
+                                  </span>
+                                  {isAutoCreated ? (
+                                    <>
+                                      <span>·</span>
+                                      <span title="Always created">Always created</span>
+                                    </>
+                                  ) : null}
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="flex min-h-0 flex-col overflow-hidden">
+                    {activeCatalogItem ? (
+                      <>
+                        <div className="flex items-center justify-between border-b px-6 py-3.5">
+                          <div className="flex items-center gap-2.5 min-w-0">
+                            <h3 className="truncate text-base font-semibold">{activeCatalogItem.name}</h3>
+                            <Badge
+                              variant={activeCatalogItem.status === "existing" ? "outline" : "default"}
+                              className="shrink-0 text-[10px]"
+                            >
+                              {activeCatalogItem.status === "existing" ? "Existing" : "New"}
+                            </Badge>
+                          </div>
+                        </div>
+                        <div className="min-h-0 flex-1 overflow-y-auto p-6 space-y-6">
+                          <div className="grid gap-3 sm:grid-cols-2">
+                            <KV label="Name" value={activeCatalogItem.name} />
+                            <KV
+                              label="Match status"
+                              value={
+                                activeCatalogItem.status === "existing"
+                                  ? `Matches existing ${catalogLabel.toLowerCase()}`
+                                  : activeCatalogItem.auto_created
+                                    ? `Create new ${catalogLabel.toLowerCase()} (always created)`
+                                    : `Create new ${catalogLabel.toLowerCase()}`
+                              }
+                            />
+                            {activeCatalogItem.matched_id ? (
+                              <KV label="Matched ID" value={activeCatalogItem.matched_id} />
+                            ) : null}
+                            <KV
+                              label="Referencing assets"
+                              value={`${referencingAssets.length} asset${referencingAssets.length === 1 ? "" : "s"}`}
+                            />
+                          </div>
+
+                          <div>
+                            <div className="mb-2.5 text-xs font-medium text-muted-foreground">
+                              Referencing assets ({referencingAssets.length})
+                            </div>
+                            {referencingAssets.length === 0 ? (
+                              <p className="text-xs text-muted-foreground">
+                                No assets reference this {catalogLabel.toLowerCase()}.
+                              </p>
+                            ) : (
+                              <div className="rounded-md border divide-y text-xs">
+                                {referencingAssets.map((asset) => (
+                                  <div
+                                    key={asset.code}
+                                    role="button"
+                                    tabIndex={0}
+                                    onClick={() => {
+                                      setActiveCode(asset.code);
+                                      setCatalogTab("asset");
+                                      setDetailTab("overview");
+                                    }}
+                                    onKeyDown={(e) => {
+                                      if (e.key === "Enter" || e.key === " ") {
+                                        e.preventDefault();
+                                        setActiveCode(asset.code);
+                                        setCatalogTab("asset");
+                                        setDetailTab("overview");
+                                      }
+                                    }}
+                                    className="flex cursor-pointer items-center justify-between px-3.5 py-2.5 hover:bg-muted/50 transition-colors"
+                                  >
+                                    <div className="min-w-0 flex-1 pr-3">
+                                      <div className="flex items-center gap-2">
+                                        <span className="font-medium text-foreground">{asset.code}</span>
+                                        {!readOnly ? (
+                                          <Badge variant={statusVariant(asset.status)} className="text-[10px]">
+                                            {STATUS_LABEL[asset.status]}
+                                          </Badge>
+                                        ) : null}
+                                      </div>
+                                      <div className="truncate text-muted-foreground">{asset.name}</div>
+                                    </div>
+                                    <div className="shrink-0 text-muted-foreground">
+                                      {asset.proposed.investmentTypeLabel || asset.asset_type || "Asset"}
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </>
+                    ) : (
+                      <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">
+                        {catalogTab === "fund"
+                          ? "No funds in proposal"
+                          : catalogTab === "investor"
+                            ? "No investors in proposal"
+                            : "No sources of fund in proposal"}
+                      </div>
+                    )}
+                  </div>
+                </>
+              )}
             </div>
           </div>
         ) : null}
@@ -979,7 +1599,7 @@ export function FundUpdateReviewDialog({
               <Button
                 type="button"
                 onClick={handleApprove}
-                disabled={approving || loading || !!error || selected.size === 0}
+                disabled={approving || loading || !!error || !hasActionableSelection}
               >
                 {approving ? (
                   <>
@@ -987,7 +1607,7 @@ export function FundUpdateReviewDialog({
                     Applying…
                   </>
                 ) : (
-                  `Approve ${selected.size} asset${selected.size === 1 ? "" : "s"} (+${approveCounts.txns} txns, +${approveCounts.vals} vals)`
+                  approveButtonLabel
                 )}
               </Button>
             </>
@@ -995,6 +1615,72 @@ export function FundUpdateReviewDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+function RelatedRecordCard({
+  label,
+  icon: Icon,
+  name,
+  isExisting,
+  kindLabel,
+}: {
+  label: string;
+  icon: ComponentType<{ className?: string }>;
+  name: string | null | undefined;
+  isExisting: boolean;
+  kindLabel: "asset" | "investor" | "fund" | "source of funds";
+}) {
+  const trimmed = name?.trim() || null;
+  const hasName = Boolean(trimmed);
+
+  let status: "existing" | "new" | "none" = "none";
+  let copy = "Not specified";
+
+  if (hasName) {
+    if (isExisting) {
+      status = "existing";
+      copy = `Matches existing ${trimmed}`;
+    } else {
+      status = "new";
+      copy = `Create new ${kindLabel}`;
+    }
+  }
+
+  return (
+    <div className="rounded-lg border bg-card p-3 shadow-sm">
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+          <Icon className="h-3.5 w-3.5 shrink-0" />
+          <span>{label}</span>
+        </div>
+        {status === "existing" ? (
+          <Badge variant="outline" className="text-[10px]">
+            Existing
+          </Badge>
+        ) : status === "new" ? (
+          <Badge variant="default" className="text-[10px]">
+            New
+          </Badge>
+        ) : null}
+      </div>
+      <div className="mt-2 min-w-0">
+        <div
+          className={cn(
+            "truncate text-xs font-medium",
+            status === "none" ? "text-muted-foreground" : "text-foreground",
+          )}
+          title={copy}
+        >
+          {copy}
+        </div>
+        {status === "new" && trimmed ? (
+          <div className="mt-0.5 truncate text-[11px] text-muted-foreground" title={trimmed}>
+            {trimmed}
+          </div>
+        ) : null}
+      </div>
+    </div>
   );
 }
 

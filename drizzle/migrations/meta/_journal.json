@@ -841,6 +841,13 @@
       "when": 1786406400000,
       "tag": "20260811000000_workspace_table_layouts",
       "breakpoints": true
+    },
+    {
+      "idx": 120,
+      "version": "7",
+      "when": 1787011200000,
+      "tag": "20260818000000_add_fund_update_extraction_job_type",
+      "breakpoints": true
     }
   ]
 }

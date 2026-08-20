@@ -54,6 +54,7 @@ export const jobType = pgEnum("job_type", [
   "stuck_cleanup",
   "graph_sync",
   "track_matching",
+  "fund_update_extraction",
 ]);
 export const l1Result = pgEnum("l1_result", ["pass", "fail", "inconclusive"]);
 export const pipelineStage = pgEnum("pipeline_stage", [

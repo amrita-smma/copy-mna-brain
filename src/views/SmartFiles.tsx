@@ -894,6 +894,57 @@ function useFileBucket(fileType: string, externalSearch?: string, enabled = true
     fetchFiles();
   }, [fetchFiles, enabled]);
 
+  const pollStartRef = useRef<number | null>(null);
+  const stuckWarnedRef = useRef(false);
+
+  // If any file in this bucket is pending or processing, poll with exponential backoff
+  // (3s -> 6s -> 12s -> 15s) until complete or timed out (~10 mins)
+  useEffect(() => {
+    const hasActiveProcessing = files.some(
+      (f) => f.processing_status === "pending" || f.processing_status === "processing",
+    );
+    if (!hasActiveProcessing || !enabled) {
+      pollStartRef.current = null;
+      stuckWarnedRef.current = false;
+      return;
+    }
+
+    if (!pollStartRef.current) {
+      pollStartRef.current = Date.now();
+    }
+
+    const elapsedMs = Date.now() - pollStartRef.current;
+    const MAX_POLL_DURATION_MS = 10 * 60 * 1000; // 10 minutes
+
+    if (elapsedMs >= MAX_POLL_DURATION_MS) {
+      if (!stuckWarnedRef.current) {
+        stuckWarnedRef.current = true;
+        toast.warning(
+          "File processing is taking longer than expected. Please check back later or reprocess if failed.",
+        );
+      }
+      const slowTimer = setTimeout(() => {
+        fetchFiles();
+      }, 60000);
+      return () => clearTimeout(slowTimer);
+    }
+
+    let delay = 3000;
+    if (elapsedMs > 60000) {
+      delay = 15000;
+    } else if (elapsedMs > 30000) {
+      delay = 12000;
+    } else if (elapsedMs > 10000) {
+      delay = 6000;
+    }
+
+    const timer = setTimeout(() => {
+      fetchFiles();
+    }, delay);
+
+    return () => clearTimeout(timer);
+  }, [files, enabled, fetchFiles]);
+
   // If a refetch shrank the result set past the current page (e.g. after a
   // delete on the last page), step back so we never sit on an empty page.
   useEffect(() => {
@@ -1256,6 +1307,8 @@ export default function SmartFiles({
       success: 0,
       failed: 0,
     };
+    let asyncCount = 0;
+    let hasSecondarySkipped = false;
 
     for (let i = 0; i < filesToUpload.length; i++) {
       const file = filesToUpload[i];
@@ -1319,8 +1372,15 @@ export default function SmartFiles({
 
         const notifyResult = await notifyResponse.json();
 
-        if (notifyResult.success) {
+        if (notifyResponse.ok && notifyResult.success) {
           results.success++;
+          const isAsync = notifyResponse.status === 202 || Boolean(notifyResult.data?.jobId);
+          if (isAsync) {
+            asyncCount++;
+          }
+          if (notifyResult.data?.asyncSecondaryWorkspacesSkipped) {
+            hasSecondarySkipped = true;
+          }
         } else {
           console.error(
             `Processing failed for ${file.name}:`,
@@ -1342,11 +1402,27 @@ export default function SmartFiles({
         duplicate_count: duplicates.length,
       });
 
-      toast.success(
-        filesToUpload.length === 1
-          ? "File uploaded successfully"
-          : `Successfully uploaded ${results.success} of ${filesToUpload.length} files`,
-      );
+      if (filesToUpload.length === 1) {
+        if (asyncCount > 0) {
+          toast.success("File processing started");
+        } else {
+          toast.success("File uploaded successfully");
+        }
+      } else {
+        if (asyncCount === results.success) {
+          toast.success(`File processing started for ${results.success} files`);
+        } else {
+          toast.success(
+            `Successfully uploaded ${results.success} of ${filesToUpload.length} files`,
+          );
+        }
+      }
+
+      if (hasSecondarySkipped) {
+        toast.warning(
+          "Async fund update extraction does not support secondary workspace fan-out.",
+        );
+      }
 
       if (duplicates.length > 0) {
         toast.warning(
@@ -1423,7 +1499,11 @@ export default function SmartFiles({
           file_id: id,
         });
 
-        toast.success("File reprocessed successfully");
+        if (response.status === 202 || result.data?.jobId) {
+          toast.success("File processing started");
+        } else {
+          toast.success("File reprocessed successfully");
+        }
         refetchVisited();
       } else {
         toast.error(result.error || "Failed to reprocess file");

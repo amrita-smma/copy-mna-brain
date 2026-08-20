@@ -24,6 +24,14 @@ export {
   fundUpdateValKey,
   sortFundUpdateReviewAssets,
 } from './reviewKeys';
+export {
+  assetCodesForCatalogName,
+  hydrateParsedAssetsFromEvents,
+} from './linkCatalogAssets';
+export type {
+  AssetCodesForCatalogNameParams,
+  FundUpdateCatalogKind,
+} from './linkCatalogAssets';
 export type { FundUpdateAssetStatus } from './reviewKeys';
 
 import {

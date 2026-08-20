@@ -120,6 +120,13 @@
       "when": 1785229200000,
       "tag": "20260728090000_drop_emails_subject_body_text",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1787011201000,
+      "tag": "20260818000001_add_fund_update_extraction_job_type",
+      "breakpoints": true
     }
   ]
 }

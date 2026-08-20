@@ -103,6 +103,10 @@ Deal-target file types — **prospectus** and **shopping_list** — can describe
 
 Other file types (financial statements, legal documents, MoMs, buyer/sponsor/advisor material) never auto-create companies — they describe counterparties or process, not companies on sale.
 
+### Fund updates extraction (async jobs)
+
+Smart Files fund reporting workbooks and updates (`fund_updates`) are extracted via deterministic parsers (e.g. STARTECH master sheets) or dispatched as background jobs (`jobs.type = fund_update_extraction`). Async jobs return HTTP 202 and the client polls until extraction reaches `awaiting_review` or `failed`. Both upload (`/api/smart-files`) and reprocess (`/api/smart-files/[id]/reprocess`) routes configure `export const maxDuration = 600` to match the 10-minute extraction job timeout.
+
 ## CRM (Contact Relationship Management)
 
 The CRM module manages contacts and their communication history.

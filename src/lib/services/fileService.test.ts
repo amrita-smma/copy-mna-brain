@@ -1,13 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type {
+import {
   FileRepository,
-  CriteriaRepository,
-  ScreeningRepository,
-  CompanyFinancialRepository,
-  CompanyFxAdjustmentRepository,
-  DbClient,
-  Tables,
-  UserWorkspaceRepository,
+  type CriteriaRepository,
+  type ScreeningRepository,
+  type CompanyFinancialRepository,
+  type CompanyFxAdjustmentRepository,
+  type DbClient,
+  type Tables,
+  type UserWorkspaceRepository,
 } from '@/lib/repositories';
 import type { CompanyAnalysisService } from './companyAnalysisService';
 import type { AIScreeningService } from './aiScreeningService';
@@ -495,27 +495,278 @@ describe('FileService.processUpload', () => {
     );
   });
 
-  it('calls extractFundUpdateProposal when the general agent identifies the file as fund_updates', async () => {
+  it('dispatches fund_update_extraction job when the general agent identifies the file as fund_updates', async () => {
+    const mockDispatcher = {
+      dispatch: vi.fn().mockResolvedValue({ jobId: 'job-123' }),
+    };
+    service.setJobDispatcher(mockDispatcher as any);
+
     vi.mocked(processFileContent).mockResolvedValue({
       file_type: 'fund_updates',
       summary: 'Some summary',
     } as never);
-    
-    // Set the mock return for this test
-    const { extractFundUpdateProposal } = await import('@/lib/agents/fund_update_processing/llmExtractor');
-    vi.mocked(extractFundUpdateProposal).mockResolvedValue({
-      assets: [{ name: 'Extracted Asset', txns: [], valuations: [] }]
-    } as any);
 
-    await service.processUpload('uploads/fund_report.pdf', 'fund_report.pdf', 'application/pdf');
+    const result = await service.processUpload(
+      'uploads/fund_report.xlsx',
+      'fund_report.xlsx',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    );
+
+    expect(mockDispatcher.dispatch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'fund_update_extraction',
+        payload: expect.objectContaining({ fileId: 'file-1' }),
+      }),
+    );
+    expect(fileRepo.updatePartial).toHaveBeenCalledWith(
+      'file-1',
+      expect.objectContaining({
+        file_type: 'fund_updates',
+        processing_status: 'processing',
+      }),
+    );
+    expect(result).toMatchObject({
+      jobId: 'job-123',
+    });
+  });
+
+  it('skips extractTextFromFile and dispatches fund_update_extraction job for explicit fund_updates Excel upload', async () => {
+    const mockDispatcher = {
+      dispatch: vi.fn().mockResolvedValue({ jobId: 'job-123' }),
+    };
+    service.setJobDispatcher(mockDispatcher as any);
+
+    const result = await service.processUpload(
+      'uploads/fund_report.xlsx',
+      'fund_report.xlsx',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      undefined,
+      'fund_updates',
+    );
+
+    expect(extractTextFromFile).not.toHaveBeenCalled();
+    expect(mockDispatcher.dispatch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'fund_update_extraction',
+        payload: expect.objectContaining({ fileId: 'file-1' }),
+      }),
+    );
+    expect(result).toMatchObject({
+      jobId: 'job-123',
+    });
+  });
+
+  it('marks secondary workspace file rows failed with explicit unsupported fan-out error on async fund_updates Excel upload', async () => {
+    const userWorkspaceRepo = makeUserWorkspaceRepoStub();
+    vi.mocked(userWorkspaceRepo.findWorkspaceIdsBySyncedEmail).mockResolvedValue(['workspace-1', 'workspace-2']);
+
+    const customService = new FileService(
+      null as unknown as DbClient,
+      'workspace-1',
+      fileRepo,
+      companyAnalysisService,
+      aiScreeningService,
+      criteriaRepo,
+      screeningRepo,
+      companyFinancialRepo,
+      companyService,
+      makeCompanyFxAdjustmentRepoStub(),
+      userWorkspaceRepo,
+    );
+
+    const mockDispatcher = {
+      dispatch: vi.fn().mockResolvedValue({ jobId: 'job-async-123' }),
+    };
+    customService.setJobDispatcher(mockDispatcher as any);
+
+    const insertSpy = vi.spyOn(FileRepository.prototype, 'insert').mockResolvedValue(
+      makeFile({ id: 'file-secondary-1', workspace_id: 'workspace-2', processing_status: 'processing' }),
+    );
+    const updatePartialSpy = vi.spyOn(FileRepository.prototype, 'updatePartial').mockResolvedValue(undefined);
+
+    const result = await customService.processUpload(
+      'uploads/fund_report.xlsx',
+      'fund_report.xlsx',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      undefined,
+      'fund_updates',
+      false,
+      undefined,
+      'custodian@corp.com',
+    );
+
+    expect(result).toMatchObject({
+      jobId: 'job-async-123',
+      asyncSecondaryWorkspacesSkipped: true,
+    });
+    expect(fileRepo.updatePartial).toHaveBeenCalledWith(
+      'file-1',
+      expect.objectContaining({ processing_status: 'processing' }),
+    );
+    expect(updatePartialSpy).toHaveBeenCalledWith(
+      'file-secondary-1',
+      expect.objectContaining({
+        processing_status: 'failed',
+        raw_notes: 'Async fund update extraction does not support secondary workspace fan-out',
+      }),
+    );
+
+    insertSpy.mockRestore();
+    updatePartialSpy.mockRestore();
+  });
+
+  it('marks primary file failed and throws when jobDispatcher is not set for async fund_updates Excel upload', async () => {
+    await expect(
+      service.processUpload(
+        'uploads/fund_report.xlsx',
+        'fund_report.xlsx',
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        undefined,
+        'fund_updates',
+      ),
+    ).rejects.toThrow('Failed to dispatch async fund update extraction job');
 
     expect(fileRepo.updatePartial).toHaveBeenCalledWith(
       'file-1',
-      expect.objectContaining({ 
-        file_type: 'fund_updates', 
-        processing_status: 'completed',
-      })
+      expect.objectContaining({
+        processing_status: 'failed',
+        raw_notes: expect.stringContaining('Failed to dispatch async fund update extraction job'),
+      }),
     );
+  });
+
+  it('marks primary file failed and throws when jobDispatcher.dispatch throws on async fund_updates Excel upload', async () => {
+    const mockDispatcher = {
+      dispatch: vi.fn().mockRejectedValue(new Error('Dispatcher queue full')),
+    };
+    service.setJobDispatcher(mockDispatcher as any);
+
+    await expect(
+      service.processUpload(
+        'uploads/fund_report.xlsx',
+        'fund_report.xlsx',
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        undefined,
+        'fund_updates',
+      ),
+    ).rejects.toThrow('Failed to dispatch async fund update extraction job');
+
+    expect(fileRepo.updatePartial).toHaveBeenCalledWith(
+      'file-1',
+      expect.objectContaining({
+        processing_status: 'failed',
+        raw_notes: expect.stringContaining('Failed to dispatch async fund update extraction job'),
+      }),
+    );
+  });
+
+  it('falls through to dispatch when JobRepository.findByTypeAndPayload throws during async upload', async () => {
+    const { JobRepository } = await import('@/lib/repositories');
+    const findSpy = vi.spyOn(JobRepository.prototype, 'findByTypeAndPayload').mockRejectedValueOnce(
+      new Error('DB connection refused'),
+    );
+
+    const mockDbClient = {} as DbClient;
+    const customService = new FileService(
+      mockDbClient,
+      'workspace-1',
+      fileRepo,
+      companyAnalysisService,
+      aiScreeningService,
+      criteriaRepo,
+      screeningRepo,
+      companyFinancialRepo,
+      companyService,
+      makeCompanyFxAdjustmentRepoStub(),
+      makeUserWorkspaceRepoStub(),
+    );
+    const mockDispatcher = {
+      dispatch: vi.fn().mockResolvedValue({ jobId: 'job-dispatched-after-query-fail' }),
+    };
+    customService.setJobDispatcher(mockDispatcher as any);
+
+    const result = await customService.processUpload(
+      'uploads/fund_report.xlsx',
+      'fund_report.xlsx',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      undefined,
+      'fund_updates',
+    );
+
+    expect(mockDispatcher.dispatch).toHaveBeenCalled();
+    expect(result).toMatchObject({ jobId: 'job-dispatched-after-query-fail' });
+    findSpy.mockRestore();
+  });
+
+  it('routes explicit fund_updates PDF upload synchronously via processFundUpdateContent without dispatching job', async () => {
+    const mockDispatcher = {
+      dispatch: vi.fn().mockResolvedValue({ jobId: 'job-123' }),
+    };
+    service.setJobDispatcher(mockDispatcher as any);
+
+    vi.mocked(processFundUpdateContent).mockResolvedValue({
+      file_type: 'fund_updates',
+      parser: 'llm_fallback',
+      summary: 'PDF Fund update summary',
+      tags: ['Fund Update'],
+      fund_update_proposal: null,
+    } as any);
+
+    const result = await service.processUpload(
+      'uploads/fund_report.pdf',
+      'fund_report.pdf',
+      'application/pdf',
+      undefined,
+      'fund_updates',
+    );
+
+    expect(mockDispatcher.dispatch).not.toHaveBeenCalled();
+    expect(processFundUpdateContent).toHaveBeenCalled();
+    expect(fileRepo.updatePartial).toHaveBeenCalledWith(
+      'file-1',
+      expect.objectContaining({
+        file_type: 'fund_updates',
+        processing_status: 'completed',
+      }),
+    );
+    expect((result as any).jobId).toBeUndefined();
+  });
+
+  it('routes auto-classified fund_updates PDF upload synchronously via processFundUpdateContent without dispatching job', async () => {
+    const mockDispatcher = {
+      dispatch: vi.fn().mockResolvedValue({ jobId: 'job-123' }),
+    };
+    service.setJobDispatcher(mockDispatcher as any);
+
+    vi.mocked(processFileContent).mockResolvedValue({
+      file_type: 'fund_updates',
+      summary: 'Auto-classified PDF fund update',
+    } as never);
+
+    vi.mocked(processFundUpdateContent).mockResolvedValue({
+      file_type: 'fund_updates',
+      parser: 'llm_fallback',
+      summary: 'PDF Fund update extracted',
+      tags: ['Fund Update'],
+      fund_update_proposal: null,
+    } as any);
+
+    const result = await service.processUpload(
+      'uploads/fund_report.pdf',
+      'fund_report.pdf',
+      'application/pdf',
+    );
+
+    expect(mockDispatcher.dispatch).not.toHaveBeenCalled();
+    expect(processFundUpdateContent).toHaveBeenCalled();
+    expect(fileRepo.updatePartial).toHaveBeenCalledWith(
+      'file-1',
+      expect.objectContaining({
+        file_type: 'fund_updates',
+        processing_status: 'completed',
+      }),
+    );
+    expect((result as any).jobId).toBeUndefined();
   });
 
   it('honors a fileTypeOverride of "other"', async () => {
@@ -1682,11 +1933,490 @@ describe('FileService.approve', () => {
     );
     vi.mocked(criteriaRepo.findAll).mockResolvedValue([makeCriteria('c-1', 'track-1')]);
 
-    const input: ApproveFileInput = { file_type: 'prospectus', matched_company_id: 'company-1' };
-    await service.approve('file-1', input);
-
     expect(screeningRepo.insert).not.toHaveBeenCalled();
     expect(aiScreeningService.dispatch).not.toHaveBeenCalled();
+  });
+
+  describe('FileService.approve (fund_updates v1 proposals)', () => {
+    let mockApplyService: any;
+
+    beforeEach(() => {
+      mockApplyService = {
+        applySelected: vi.fn().mockResolvedValue({
+          applied: 1,
+          created_assets: 1,
+          updated_assets: 0,
+          skipped: 0,
+          txns_inserted: 1,
+          valuations_upserted: 0,
+        }),
+        buildReview: vi.fn().mockResolvedValue([]),
+      };
+      service.setFundUpdateApplyService(mockApplyService);
+    });
+
+    it('rejects v1 proposal missing row_accounting', async () => {
+      const v1Notes = JSON.stringify({
+        file_type: 'fund_updates',
+        parser: 'workbook_fallback_v1',
+        fund_update_proposal: {
+          schema_version: 'workbook_fallback_v1',
+          entities: [{ proposalId: 'ent_1', entityType: 'portfolio_company', originalName: 'Acme Corp' }],
+          events: [{ eventType: 'asset_investment', relatedFundRef: 'Fund I', normalizedCurrency: 'USD', normalizedAmount: 100 }],
+          valuations: [],
+          assets: [{ code: 'ACME', name: 'Acme Corp', fund: 'Fund I', txns: [{ currency: 'USD' }] }],
+          // missing row_accounting
+        },
+      });
+
+      vi.mocked(fileRepo.findById).mockResolvedValue(
+        makeFile({ id: 'file-1', file_type: 'fund_updates', structured_notes: v1Notes }),
+      );
+
+      await expect(
+        service.approve('file-1', { file_type: 'fund_updates', matched_company_id: null, fund_update_asset_codes: ['ACME'] }),
+      ).rejects.toThrow('missing row_accounting or plannedRows');
+    });
+
+    it('rejects v1 proposal missing plannedRows in row_accounting', async () => {
+      const v1Notes = JSON.stringify({
+        file_type: 'fund_updates',
+        parser: 'workbook_fallback_v1',
+        fund_update_proposal: {
+          schema_version: 'workbook_fallback_v1',
+          entities: [{ proposalId: 'ent_1', entityType: 'portfolio_company', originalName: 'Acme Corp' }],
+          events: [{ eventType: 'asset_investment', relatedFundRef: 'Fund I', normalizedCurrency: 'USD', normalizedAmount: 100 }],
+          valuations: [],
+          row_accounting: {
+            totalDataRows: 1,
+            parsedRows: [2],
+            excludedRows: [],
+            ambiguousRows: [],
+            coveragePct: 100,
+            unaccountedRows: [],
+            // missing plannedRows
+          },
+          assets: [{ code: 'ACME', name: 'Acme Corp', fund: 'Fund I', txns: [{ currency: 'USD' }] }],
+        },
+      });
+
+      vi.mocked(fileRepo.findById).mockResolvedValue(
+        makeFile({ id: 'file-1', file_type: 'fund_updates', structured_notes: v1Notes }),
+      );
+
+      await expect(
+        service.approve('file-1', { file_type: 'fund_updates', matched_company_id: null, fund_update_asset_codes: ['ACME'] }),
+      ).rejects.toThrow('missing row_accounting or plannedRows');
+    });
+
+    it('rejects v1 proposal when accounting has tampered overlapping categories', async () => {
+      const v1Notes = JSON.stringify({
+        file_type: 'fund_updates',
+        parser: 'workbook_fallback_v1',
+        fund_update_proposal: {
+          schema_version: 'workbook_fallback_v1',
+          stats: { total_data_rows: 1 },
+          interpretation: { currencies: [{ sourceCurrency: 'USD', sourceUnit: '1', multiplier: 1 }] },
+          entities: [{ proposalId: 'ent_1', entityType: 'portfolio_company', originalName: 'Acme Corp' }],
+          events: [{
+            eventType: 'asset_investment',
+            sourceAction: '投资',
+            relatedFundRef: 'Fund I',
+            sourceCurrency: 'USD',
+            normalizedCurrency: 'USD',
+            sourceUnit: 'USD',
+            amountMultiplier: 1,
+            sourceAmount: 100,
+            normalizedAmount: 100,
+            sourceLocation: { sheet: 'Sheet1', row: 2 },
+          }],
+          valuations: [],
+          row_accounting: {
+            totalDataRows: 1,
+            plannedRows: [{ sheet: 'Sheet1', row: 2, rowKey: 'Sheet1::::2' }],
+            parsedRows: [2],
+            parsedRowItems: [{ sheet: 'Sheet1', row: 2, rowKey: 'Sheet1::::2' }],
+            excludedRows: [{ sheet: 'Sheet1', row: 2, reason: 'Duplicate!' }], // Overlapping!
+            ambiguousRows: [],
+            coveragePct: 100,
+            unaccountedRows: [],
+          },
+          assets: [{ code: 'ACME', name: 'Acme Corp', fund: 'Fund I', txns: [{ currency: 'USD' }] }],
+        },
+      });
+
+      vi.mocked(fileRepo.findById).mockResolvedValue(
+        makeFile({ id: 'file-1', file_type: 'fund_updates', structured_notes: v1Notes }),
+      );
+
+      await expect(
+        service.approve('file-1', { file_type: 'fund_updates', matched_company_id: null, fund_update_asset_codes: ['ACME'] }),
+      ).rejects.toThrow('Categories must be strictly mutually disjoint');
+    });
+
+    it('rejects v1 proposal when deterministic validation has hard failures (e.g. unresolved currency)', async () => {
+      const v1Notes = JSON.stringify({
+        file_type: 'fund_updates',
+        parser: 'workbook_fallback_v1',
+        fund_update_proposal: {
+          schema_version: 'workbook_fallback_v1',
+          stats: { total_data_rows: 1 },
+          interpretation: { currencies: [] },
+          entities: [{ proposalId: 'ent_1', entityType: 'portfolio_company', originalName: 'Acme Corp' }],
+          events: [{
+            eventType: 'asset_investment',
+            sourceAction: '投资',
+            relatedFundRef: 'Fund I',
+            sourceCurrency: null,
+            normalizedCurrency: null, // Unresolved currency!
+            sourceAmount: 100,
+            normalizedAmount: null,
+            sourceLocation: { sheet: 'Sheet1', row: 2 },
+          }],
+          valuations: [],
+          row_accounting: {
+            totalDataRows: 1,
+            plannedRows: [{ sheet: 'Sheet1', row: 2, rowKey: 'Sheet1::::2' }],
+            parsedRows: [2],
+            parsedRowItems: [{ sheet: 'Sheet1', row: 2, rowKey: 'Sheet1::::2' }],
+            excludedRows: [],
+            ambiguousRows: [],
+            coveragePct: 100,
+            unaccountedRows: [],
+          },
+          assets: [{ code: 'ACME', name: 'Acme Corp', fund: 'Fund I', txns: [{ currency: 'USD' }] }],
+        },
+      });
+
+      vi.mocked(fileRepo.findById).mockResolvedValue(
+        makeFile({ id: 'file-1', file_type: 'fund_updates', structured_notes: v1Notes }),
+      );
+
+      await expect(
+        service.approve('file-1', { file_type: 'fund_updates', matched_company_id: null, fund_update_asset_codes: ['ACME'] }),
+      ).rejects.toThrow('Cannot approve proposal with critical validation failures');
+    });
+
+    it('rejects v1 proposal containing only investor-to-fund events without portfolio assets', async () => {
+      const v1Notes = JSON.stringify({
+        file_type: 'fund_updates',
+        parser: 'workbook_fallback_v1',
+        fund_update_proposal: {
+          schema_version: 'workbook_fallback_v1',
+          stats: { total_data_rows: 1 },
+          interpretation: { currencies: [{ sourceCurrency: 'USD', sourceUnit: '1', multiplier: 1 }] },
+          entities: [{ proposalId: 'ent_1', entityType: 'investor', originalName: 'LP Investor' }],
+          events: [{
+            eventType: 'capital_contribution', // Investor event only!
+            sourceAction: '实缴',
+            relatedFundRef: 'Fund I',
+            sourceCurrency: 'USD',
+            normalizedCurrency: 'USD',
+            sourceUnit: 'USD',
+            amountMultiplier: 1,
+            sourceAmount: 100,
+            normalizedAmount: 100,
+            sourceLocation: { sheet: 'Sheet1', row: 2 },
+          }],
+          valuations: [],
+          row_accounting: {
+            totalDataRows: 1,
+            plannedRows: [{ sheet: 'Sheet1', row: 2, rowKey: 'Sheet1::::2' }],
+            parsedRows: [2],
+            parsedRowItems: [{ sheet: 'Sheet1', row: 2, rowKey: 'Sheet1::::2' }],
+            excludedRows: [],
+            ambiguousRows: [],
+            coveragePct: 100,
+            unaccountedRows: [],
+          },
+          assets: [], // No portfolio assets
+        },
+      });
+
+      vi.mocked(fileRepo.findById).mockResolvedValue(
+        makeFile({ id: 'file-1', file_type: 'fund_updates', structured_notes: v1Notes }),
+      );
+
+      await expect(
+        service.approve('file-1', { file_type: 'fund_updates', matched_company_id: null, fund_update_asset_codes: [] }),
+      ).rejects.toThrow('contains only investor-to-fund events and no persistable portfolio assets');
+    });
+
+    it('rejects v1 proposal with duplicate planned row keys in row_accounting', async () => {
+      const v1Notes = JSON.stringify({
+        file_type: 'fund_updates',
+        parser: 'workbook_fallback_v1',
+        fund_update_proposal: {
+          schema_version: 'workbook_fallback_v1',
+          stats: { total_data_rows: 2 },
+          interpretation: { currencies: [{ sourceCurrency: 'USD', sourceUnit: '1', multiplier: 1 }] },
+          entities: [{ proposalId: 'ent_1', entityType: 'portfolio_company', originalName: 'Acme Corp' }],
+          events: [{
+            eventType: 'asset_investment',
+            sourceAction: '投资',
+            relatedFundRef: 'Fund I',
+            sourceCurrency: 'USD',
+            normalizedCurrency: 'USD',
+            sourceUnit: 'USD',
+            amountMultiplier: 1,
+            sourceAmount: 100,
+            normalizedAmount: 100,
+            sourceLocation: { sheet: 'Sheet1', row: 2 },
+          }],
+          valuations: [],
+          row_accounting: {
+            totalDataRows: 2,
+            plannedRows: [
+              { sheet: 'Sheet1', row: 2, rowKey: 'Sheet1::::2' },
+              { sheet: 'Sheet1', row: 2, rowKey: 'Sheet1::::2' }, // Duplicate!
+            ],
+            parsedRows: [2],
+            parsedRowItems: [{ sheet: 'Sheet1', row: 2, rowKey: 'Sheet1::::2' }],
+            excludedRows: [],
+            ambiguousRows: [],
+            coveragePct: 100,
+            unaccountedRows: [],
+          },
+          assets: [{ code: 'ACME', name: 'Acme Corp', fund: 'Fund I', txns: [{ currency: 'USD' }] }],
+        },
+      });
+
+      vi.mocked(fileRepo.findById).mockResolvedValue(
+        makeFile({ id: 'file-1', file_type: 'fund_updates', structured_notes: v1Notes }),
+      );
+
+      await expect(
+        service.approve('file-1', { file_type: 'fund_updates', matched_company_id: null, fund_update_asset_codes: ['ACME'] }),
+      ).rejects.toThrow('duplicate planned row keys detected');
+    });
+
+    it('rejects v1 proposal with shrunk plannedRows / stat mismatch', async () => {
+      const v1Notes = JSON.stringify({
+        file_type: 'fund_updates',
+        parser: 'workbook_fallback_v1',
+        fund_update_proposal: {
+          schema_version: 'workbook_fallback_v1',
+          stats: { total_data_rows: 10 }, // Stats says 10
+          interpretation: { currencies: [{ sourceCurrency: 'USD', sourceUnit: '1', multiplier: 1 }] },
+          entities: [{ proposalId: 'ent_1', entityType: 'portfolio_company', originalName: 'Acme Corp' }],
+          events: [{
+            eventType: 'asset_investment',
+            sourceAction: '投资',
+            relatedFundRef: 'Fund I',
+            sourceCurrency: 'USD',
+            normalizedCurrency: 'USD',
+            sourceUnit: 'USD',
+            amountMultiplier: 1,
+            sourceAmount: 100,
+            normalizedAmount: 100,
+            sourceLocation: { sheet: 'Sheet1', row: 2 },
+          }],
+          valuations: [],
+          row_accounting: {
+            totalDataRows: 10, // Accounting says 10, but plannedRows only has 1
+            plannedRows: [{ sheet: 'Sheet1', row: 2, rowKey: 'Sheet1::::2' }],
+            parsedRows: [2],
+            parsedRowItems: [{ sheet: 'Sheet1', row: 2, rowKey: 'Sheet1::::2' }],
+            excludedRows: [],
+            ambiguousRows: [],
+            coveragePct: 100,
+            unaccountedRows: [],
+          },
+          assets: [{ code: 'ACME', name: 'Acme Corp', fund: 'Fund I', txns: [{ currency: 'USD' }] }],
+        },
+      });
+
+      vi.mocked(fileRepo.findById).mockResolvedValue(
+        makeFile({ id: 'file-1', file_type: 'fund_updates', structured_notes: v1Notes }),
+      );
+
+      await expect(
+        service.approve('file-1', { file_type: 'fund_updates', matched_company_id: null, fund_update_asset_codes: ['ACME'] }),
+      ).rejects.toThrow('must equal unique plannedRows universe size');
+    });
+
+    it('rejects v1 proposal with tampered normalizedAmount', async () => {
+      const v1Notes = JSON.stringify({
+        file_type: 'fund_updates',
+        parser: 'workbook_fallback_v1',
+        fund_update_proposal: {
+          schema_version: 'workbook_fallback_v1',
+          stats: { total_data_rows: 1 },
+          interpretation: { currencies: [{ sourceCurrency: 'USD', sourceUnit: '1', multiplier: 1 }] },
+          entities: [{ proposalId: 'ent_1', entityType: 'portfolio_company', originalName: 'Acme Corp' }],
+          events: [{
+            eventType: 'asset_investment',
+            sourceAction: '投资',
+            relatedFundRef: 'Fund I',
+            sourceCurrency: 'USD',
+            normalizedCurrency: 'USD',
+            sourceUnit: 'USD',
+            amountMultiplier: 1,
+            sourceAmount: 100,
+            normalizedAmount: 999999, // Tampered! Recomputed is 100
+            sourceLocation: { sheet: 'Sheet1', row: 2 },
+          }],
+          valuations: [],
+          row_accounting: {
+            totalDataRows: 1,
+            plannedRows: [{ sheet: 'Sheet1', row: 2, rowKey: 'Sheet1::::2' }],
+            parsedRows: [2],
+            parsedRowItems: [{ sheet: 'Sheet1', row: 2, rowKey: 'Sheet1::::2' }],
+            excludedRows: [],
+            ambiguousRows: [],
+            coveragePct: 100,
+            unaccountedRows: [],
+          },
+          assets: [{ code: 'ACME', name: 'Acme Corp', fund: 'Fund I', txns: [{ currency: 'USD' }] }],
+        },
+      });
+
+      vi.mocked(fileRepo.findById).mockResolvedValue(
+        makeFile({ id: 'file-1', file_type: 'fund_updates', structured_notes: v1Notes }),
+      );
+
+      await expect(
+        service.approve('file-1', { file_type: 'fund_updates', matched_company_id: null, fund_update_asset_codes: ['ACME'] }),
+      ).rejects.toThrow('stored normalizedAmount (999999) does not match recomputed amount (100)');
+    });
+
+    it('successfully approves valid v1 fund update proposal and marks file completed', async () => {
+      const v1Notes = JSON.stringify({
+        file_type: 'fund_updates',
+        parser: 'workbook_fallback_v1',
+        fund_update_proposal: {
+          schema_version: 'workbook_fallback_v1',
+          stats: { total_data_rows: 1 },
+          interpretation: { currencies: [{ sourceCurrency: 'USD', sourceUnit: '1', multiplier: 1 }] },
+          entities: [{ proposalId: 'ent_1', entityType: 'portfolio_company', originalName: 'Acme Corp' }],
+          events: [{
+            eventType: 'asset_investment',
+            sourceAction: '投资',
+            relatedFundRef: 'Fund I',
+            sourceCurrency: 'USD',
+            normalizedCurrency: 'USD',
+            sourceUnit: 'USD',
+            amountMultiplier: 1,
+            sourceAmount: 100,
+            normalizedAmount: 100,
+            sourceLocation: { sheet: 'Sheet1', row: 2 },
+          }],
+          valuations: [],
+          row_accounting: {
+            totalDataRows: 1,
+            plannedRows: [{ sheet: 'Sheet1', row: 2, rowKey: 'Sheet1::::2' }],
+            parsedRows: [2],
+            parsedRowItems: [{ sheet: 'Sheet1', row: 2, rowKey: 'Sheet1::::2' }],
+            excludedRows: [],
+            ambiguousRows: [],
+            coveragePct: 100,
+            unaccountedRows: [],
+          },
+          assets: [{ code: 'ACME', name: 'Acme Corp', fund: 'Fund I', txns: [{ currency: 'USD' }] }],
+        },
+      });
+
+      vi.mocked(fileRepo.findById).mockResolvedValue(
+        makeFile({ id: 'file-1', file_type: 'fund_updates', structured_notes: v1Notes }),
+      );
+
+      const result = await service.approve('file-1', {
+        file_type: 'fund_updates',
+        matched_company_id: null,
+        fund_update_asset_codes: ['ACME'],
+      });
+
+      expect(mockApplyService.applySelected).toHaveBeenCalledWith(
+        expect.any(Array),
+        ['ACME'],
+        undefined,
+        { isV1: true },
+        undefined,
+      );
+      expect(fileRepo.updatePartial).toHaveBeenCalledWith(
+        'file-1',
+        expect.objectContaining({ processing_status: 'completed' }),
+      );
+      expect(result.fund_update).toBeDefined();
+    });
+
+    it('threads fund_update_catalog_selections to applySelected', async () => {
+      const fileRepo = makeFileRepoStub();
+      const mockApplyService = {
+        applySelected: vi.fn().mockResolvedValue({
+          applied: 1,
+          created_assets: 1,
+          updated_assets: 0,
+          skipped: 0,
+          txns_inserted: 1,
+          valuations_upserted: 0,
+        }),
+      };
+
+      const service = makeService({ fileRepo });
+      service.setFundUpdateApplyService(mockApplyService as any);
+
+      const v1Notes = JSON.stringify({
+        file_type: 'fund_updates',
+        parser: 'workbook_fallback_v1',
+        fund_update_proposal: {
+          schema_version: 'workbook_fallback_v1',
+          stats: { total_data_rows: 1 },
+          interpretation: { currencies: [{ sourceCurrency: 'USD', sourceUnit: '1', multiplier: 1 }] },
+          entities: [{ proposalId: 'ent_1', entityType: 'portfolio_company', originalName: 'Acme Corp' }],
+          events: [{
+            eventType: 'asset_investment',
+            sourceAction: '投资',
+            relatedFundRef: 'Fund I',
+            sourceCurrency: 'USD',
+            normalizedCurrency: 'USD',
+            sourceUnit: 'USD',
+            amountMultiplier: 1,
+            sourceAmount: 100,
+            normalizedAmount: 100,
+            sourceLocation: { sheet: 'Sheet1', row: 2 },
+          }],
+          valuations: [],
+          row_accounting: {
+            totalDataRows: 1,
+            plannedRows: [{ sheet: 'Sheet1', row: 2, rowKey: 'Sheet1::::2' }],
+            parsedRows: [2],
+            parsedRowItems: [{ sheet: 'Sheet1', row: 2, rowKey: 'Sheet1::::2' }],
+            excludedRows: [],
+            ambiguousRows: [],
+            coveragePct: 100,
+            unaccountedRows: [],
+          },
+          assets: [{ code: 'ACME', name: 'Acme Corp', fund: 'Fund I', txns: [{ currency: 'USD' }] }],
+        },
+      });
+
+      vi.mocked(fileRepo.findById).mockResolvedValue(
+        makeFile({ id: 'file-1', file_type: 'fund_updates', structured_notes: v1Notes }),
+      );
+
+      const catalogSelections = {
+        funds: ['Startech Growth Fund 1'],
+        investors: ['Investor A'],
+        sources: ['Source B'],
+      };
+
+      const result = await service.approve('file-1', {
+        file_type: 'fund_updates',
+        matched_company_id: null,
+        fund_update_asset_codes: ['ACME'],
+        fund_update_catalog_selections: catalogSelections,
+      });
+
+      expect(mockApplyService.applySelected).toHaveBeenCalledWith(
+        expect.any(Array),
+        ['ACME'],
+        undefined,
+        { isV1: true },
+        catalogSelections,
+      );
+      expect(result.fund_update).toBeDefined();
+    });
   });
 });
 
@@ -1769,6 +2499,475 @@ describe('FileService.getReviewData', () => {
       target: 'Beta Ltd',
       segment: 'Healthcare',
     });
+  });
+});
+
+describe('FileService.getReviewData fund_updates', () => {
+  it('throws error when fundUpdateApplyService is not set', async () => {
+    const fileRepo = makeFileRepoStub();
+    vi.mocked(fileRepo.findById).mockResolvedValue(
+      makeFile({ id: 'file-fu-1', file_type: 'fund_updates' }),
+    );
+    const service = makeService({ fileRepo });
+
+    await expect(service.getReviewData('file-fu-1')).rejects.toThrow(
+      'Fund update apply service is not configured',
+    );
+  });
+
+  it('includes funds, investors, and sources from buildFullReview for STARTECH-style proposal', async () => {
+    const fileRepo = makeFileRepoStub();
+    const mockFullReview = {
+      assets: [
+        {
+          code: 'ACME',
+          name: 'Acme Corp',
+          fund: 'STARTECH I',
+          asset_type: 'direct' as const,
+          entity: 'HoldCo A',
+          funding_source: 'DCA',
+          status: 'new' as const,
+          matched_asset_id: null,
+          matched_fund: { name: 'STARTECH I', status: 'existing' as const, matched_id: 'fund-1' },
+          matched_investor: { name: 'HoldCo A', status: 'new' as const, matched_id: null },
+          matched_source: { name: 'DCA', status: 'existing' as const, matched_id: 'src-1' },
+          proposed_txn_count: 1,
+          proposed_valuation_count: 0,
+          existing_txn_count: 0,
+          existing_valuation_count: 0,
+          missing_txn_count: 1,
+          missing_valuation_count: 0,
+          proposed: {
+            code: 'ACME',
+            name: 'Acme Corp',
+            fund: 'STARTECH I',
+            assetType: 'direct' as const,
+            entity: 'HoldCo A',
+            fundingSource: 'DCA',
+            txns: [],
+            valuations: [],
+          },
+          missing_txns: [],
+          missing_valuations: [],
+        },
+      ],
+      funds: [{ name: 'STARTECH I', status: 'existing' as const, matched_id: 'fund-1' }],
+      investors: [{ name: 'HoldCo A', status: 'new' as const, matched_id: null }],
+      sources: [{ name: 'DCA', status: 'existing' as const, matched_id: 'src-1' }],
+    };
+
+    const mockApplyService = {
+      buildFullReview: vi.fn().mockResolvedValue(mockFullReview),
+      buildReview: vi.fn().mockResolvedValue(mockFullReview.assets),
+    };
+
+    const notes = JSON.stringify({
+      file_type: 'fund_updates',
+      parser: 'startech_quarterly',
+      summary: 'Q2 2024 report',
+      fund_update_proposal: {
+        template_id: 'startech_q2_2024',
+        stats: { total_assets: 1 },
+        assets: mockFullReview.assets.map((a) => a.proposed),
+      },
+    });
+
+    vi.mocked(fileRepo.findById).mockResolvedValue(
+      makeFile({ id: 'file-fu-1', file_type: 'fund_updates', structured_notes: notes }),
+    );
+
+    const service = makeService({ fileRepo });
+    service.setFundUpdateApplyService(mockApplyService as any);
+
+    const result = await service.getReviewData('file-fu-1');
+
+    expect(result.kind).toBe('fund_updates');
+    if (result.kind !== 'fund_updates') throw new Error('expected fund_updates');
+
+    expect(mockApplyService.buildFullReview).toHaveBeenCalledTimes(1);
+    expect(result.template_id).toBe('startech_q2_2024');
+    expect(result.summary).toBe('Q2 2024 report');
+    expect(result.assets).toHaveLength(1);
+    expect(result.assets[0].name).toBe('Acme Corp');
+    expect(result.funds).toEqual([
+      { name: 'STARTECH I', status: 'existing', matched_id: 'fund-1', asset_codes: ['ACME'] },
+    ]);
+    expect(result.investors).toEqual([
+      { name: 'HoldCo A', status: 'new', matched_id: null, asset_codes: ['ACME'] },
+    ]);
+    expect(result.sources).toEqual([
+      { name: 'DCA', status: 'existing', matched_id: 'src-1', asset_codes: ['ACME'] },
+    ]);
+  });
+
+  it('merges extra entities from v1 proposal into funds and investors catalogs with asset_codes', async () => {
+    const fileRepo = makeFileRepoStub();
+    const mockFullReview = {
+      assets: [
+        {
+          code: 'ACME',
+          name: 'Acme Corp',
+          fund: 'Fund Alpha',
+          asset_type: 'direct' as const,
+          entity: 'Investor Alpha',
+          funding_source: 'DCA',
+          status: 'new' as const,
+          matched_asset_id: null,
+          proposed_txn_count: 1,
+          proposed_valuation_count: 0,
+          existing_txn_count: 0,
+          existing_valuation_count: 0,
+          missing_txn_count: 1,
+          missing_valuation_count: 0,
+          proposed: {
+            code: 'ACME',
+            name: 'Acme Corp',
+            fund: 'Fund Alpha',
+            assetType: 'direct' as const,
+            entity: 'Investor Alpha',
+            fundingSource: 'DCA',
+            txns: [],
+            valuations: [],
+          },
+          missing_txns: [],
+          missing_valuations: [],
+        },
+      ],
+      funds: [{ name: 'Fund Alpha', status: 'existing' as const, matched_id: 'fund-alpha-id' }],
+      investors: [{ name: 'Investor Alpha', status: 'new' as const, matched_id: null }],
+      sources: [{ name: 'DCA', status: 'existing' as const, matched_id: 'src-1' }],
+    };
+
+    const mockApplyService = {
+      buildFullReview: vi.fn().mockResolvedValue(mockFullReview),
+    };
+
+    const v1Notes = JSON.stringify({
+      file_type: 'fund_updates',
+      parser: 'workbook_fallback_v1',
+      summary: 'Workbook fallback extraction',
+      fund_update_proposal: {
+        template_id: 'workbook_fallback_v1',
+        schema_version: 'workbook_fallback_v1',
+        stats: { asset_count: 1 },
+        assets: mockFullReview.assets.map((a) => a.proposed),
+        entities: [
+          // Extra fund (new)
+          { proposalId: 'e-1', entityType: 'fund', originalName: 'Fund Beta' },
+          // Existing fund duplicate from asset (case insensitive) -> keep existing status & id
+          { proposalId: 'e-2', entityType: 'fund', originalName: 'fund alpha' },
+          // Extra investor types
+          { proposalId: 'e-3', entityType: 'institutional_investor', originalName: 'Global Pension Fund' },
+          { proposalId: 'e-4', entityType: 'individual_investor', originalName: 'Jane Doe', existingRecordId: 'inv-jane' },
+          { proposalId: 'e-5', entityType: 'investment_vehicle', originalName: 'SPV Holdings Ltd' },
+          { proposalId: 'e-6', entityType: 'investor', originalName: 'investor alpha' }, // duplicate of existing
+          // Non-catalog entity types -> must be skipped
+          { proposalId: 'e-7', entityType: 'portfolio_company', originalName: 'Beta Tech' },
+          { proposalId: 'e-8', entityType: 'fund_or_partnership_asset', originalName: 'Sidecar Vehicle' },
+          { proposalId: 'e-9', entityType: 'counterparty', originalName: 'Bank of New York' },
+          { proposalId: 'e-10', entityType: 'unknown', originalName: 'Unknown Corp' },
+          // Blank entity name -> ignored
+          { proposalId: 'e-11', entityType: 'fund', originalName: '   ' },
+        ],
+      },
+    });
+
+    vi.mocked(fileRepo.findById).mockResolvedValue(
+      makeFile({ id: 'file-v1', file_type: 'fund_updates', structured_notes: v1Notes }),
+    );
+
+    const service = makeService({ fileRepo });
+    service.setFundUpdateApplyService(mockApplyService as any);
+
+    const result = await service.getReviewData('file-v1');
+
+    expect(result.kind).toBe('fund_updates');
+    if (result.kind !== 'fund_updates') throw new Error('expected fund_updates');
+
+    // Funds: Fund Alpha (retains existing status from fullReview + asset_codes) + Fund Beta (new, no asset_codes)
+    expect(result.funds).toEqual([
+      { name: 'Fund Alpha', status: 'existing', matched_id: 'fund-alpha-id', asset_codes: ['ACME'] },
+      { name: 'Fund Beta', status: 'new', matched_id: null, asset_codes: [] },
+    ]);
+
+    // Investors: Investor Alpha (new + asset_codes) + others (no asset_codes)
+    expect(result.investors).toEqual([
+      { name: 'Investor Alpha', status: 'new', matched_id: null, asset_codes: ['ACME'] },
+      { name: 'Global Pension Fund', status: 'new', matched_id: null, asset_codes: [] },
+      { name: 'Jane Doe', status: 'existing', matched_id: 'inv-jane', asset_codes: [] },
+      { name: 'SPV Holdings Ltd', status: 'new', matched_id: null, asset_codes: [] },
+    ]);
+
+    // Sources: DCA (unchanged from assets)
+    expect(result.sources).toEqual([
+      { name: 'DCA', status: 'existing', matched_id: 'src-1', asset_codes: ['ACME'] },
+    ]);
+  });
+
+  it('links v1 LP to projected assets via fund when capital_contribution has relatedFundRef', async () => {
+    const fileRepo = makeFileRepoStub();
+    const mockFullReview = {
+      assets: [
+        {
+          code: 'PORTCO_1',
+          name: 'Portco One',
+          fund: 'Fund F',
+          asset_type: 'direct' as const,
+          entity: null,
+          funding_source: null,
+          status: 'new' as const,
+          matched_asset_id: null,
+          proposed_txn_count: 0,
+          proposed_valuation_count: 0,
+          existing_txn_count: 0,
+          existing_valuation_count: 0,
+          missing_txn_count: 0,
+          missing_valuation_count: 0,
+          proposed: {
+            code: 'PORTCO_1',
+            name: 'Portco One',
+            fund: 'Fund F',
+            assetType: 'direct' as const,
+            entity: null,
+            fundingSource: null,
+            txns: [],
+            valuations: [],
+          },
+          missing_txns: [],
+          missing_valuations: [],
+        },
+      ],
+      funds: [{ name: 'Fund F', status: 'new' as const, matched_id: null }],
+      investors: [],
+      sources: [],
+    };
+
+    const mockApplyService = {
+      buildFullReview: vi.fn().mockResolvedValue(mockFullReview),
+    };
+
+    const v1Notes = JSON.stringify({
+      file_type: 'fund_updates',
+      parser: 'workbook_fallback_v1',
+      fund_update_proposal: {
+        template_id: 'workbook_fallback_v1',
+        schema_version: 'workbook_fallback_v1',
+        assets: mockFullReview.assets.map((a) => a.proposed),
+        entities: [
+          { proposalId: 'ent_lp1', entityType: 'investor', originalName: 'LP Alpha' },
+        ],
+        events: [
+          {
+            proposalId: 'ev_1',
+            eventType: 'capital_contribution',
+            fromEntityRef: 'ent_lp1',
+            relatedFundRef: 'Fund F',
+          },
+        ],
+      },
+    });
+
+    vi.mocked(fileRepo.findById).mockResolvedValue(
+      makeFile({ id: 'file-v1-lp', file_type: 'fund_updates', structured_notes: v1Notes }),
+    );
+
+    const service = makeService({ fileRepo });
+    service.setFundUpdateApplyService(mockApplyService as any);
+
+    const result = await service.getReviewData('file-v1-lp');
+
+    expect(result.kind).toBe('fund_updates');
+    if (result.kind !== 'fund_updates') throw new Error('expected fund_updates');
+
+    expect(result.investors).toEqual([
+      { name: 'LP Alpha', status: 'new', matched_id: null, asset_codes: ['PORTCO_1'] },
+    ]);
+    expect(result.funds).toEqual([
+      { name: 'Fund F', status: 'new', matched_id: null, asset_codes: ['PORTCO_1'] },
+    ]);
+  });
+
+  it('hydrates parsed assets before calling buildFullReview for v1 proposal', async () => {
+    const fileRepo = makeFileRepoStub();
+    const mockApplyService = {
+      buildFullReview: vi.fn().mockImplementation((assets) =>
+        Promise.resolve({
+          assets: assets.map((a: any) => ({
+            code: a.code,
+            name: a.name,
+            fund: a.fund,
+            entity: a.entity,
+            funding_source: a.fundingSource,
+            status: 'new',
+            matched_asset_id: null,
+            proposed_txn_count: 0,
+            proposed_valuation_count: 0,
+            existing_txn_count: 0,
+            existing_valuation_count: 0,
+            missing_txn_count: 0,
+            missing_valuation_count: 0,
+            proposed: a,
+            missing_txns: [],
+            missing_valuations: [],
+          })),
+          funds: [{ name: 'Fund X', status: 'new', matched_id: null }],
+          investors: [{ name: 'Holding Corp', status: 'new', matched_id: null }],
+          sources: [],
+        }),
+      ),
+    };
+
+    const v1Notes = JSON.stringify({
+      file_type: 'fund_updates',
+      parser: 'workbook_fallback_v1',
+      fund_update_proposal: {
+        template_id: 'workbook_fallback_v1',
+        schema_version: 'workbook_fallback_v1',
+        assets: [{ code: 'PORT_A', name: 'Port A', fund: '', entity: '', txns: [], valuations: [] }],
+        entities: [
+          { proposalId: 'ent_h', entityType: 'investment_vehicle', originalName: 'Holding Corp' },
+          { proposalId: 'ent_f', entityType: 'fund', originalName: 'Fund X' },
+        ],
+        events: [
+          {
+            proposalId: 'ev_1',
+            eventType: 'asset_investment',
+            fromEntityRef: 'ent_h',
+            toEntityRef: 'PORT_A',
+            relatedFundRef: 'Fund X',
+          },
+        ],
+      },
+    });
+
+    vi.mocked(fileRepo.findById).mockResolvedValue(
+      makeFile({ id: 'file-v1-hydrate', file_type: 'fund_updates', structured_notes: v1Notes }),
+    );
+
+    const service = makeService({ fileRepo });
+    service.setFundUpdateApplyService(mockApplyService as any);
+
+    const result = await service.getReviewData('file-v1-hydrate');
+
+    expect(result.kind).toBe('fund_updates');
+    if (result.kind !== 'fund_updates') throw new Error('expected fund_updates');
+
+    // buildFullReview received the hydrated assets
+    expect(mockApplyService.buildFullReview).toHaveBeenCalledWith([
+      expect.objectContaining({
+        code: 'PORT_A',
+        name: 'Port A',
+        fund: 'Fund X',
+        entity: 'Holding Corp',
+      }),
+    ]);
+  });
+
+  it('returns empty catalog arrays when proposal has no assets and no entities', async () => {
+    const fileRepo = makeFileRepoStub();
+    const mockApplyService = {
+      buildFullReview: vi.fn().mockResolvedValue({ assets: [], funds: [], investors: [], sources: [] }),
+    };
+
+    const notes = JSON.stringify({
+      file_type: 'fund_updates',
+      parser: 'startech_quarterly',
+      fund_update_proposal: {
+        template_id: 'startech_q2_2024',
+        assets: [],
+      },
+    });
+
+    vi.mocked(fileRepo.findById).mockResolvedValue(
+      makeFile({ id: 'file-empty', file_type: 'fund_updates', structured_notes: notes }),
+    );
+
+    const service = makeService({ fileRepo });
+    service.setFundUpdateApplyService(mockApplyService as any);
+
+    const result = await service.getReviewData('file-empty');
+
+    expect(result.kind).toBe('fund_updates');
+    if (result.kind !== 'fund_updates') throw new Error('expected fund_updates');
+
+    expect(result.assets).toEqual([]);
+    expect(result.funds).toEqual([]);
+    expect(result.investors).toEqual([]);
+    expect(result.sources).toEqual([]);
+  });
+
+  it('preserves auto_created flag on catalog matches in getReviewData', async () => {
+    const fileRepo = makeFileRepoStub();
+    const mockFullReview = {
+      assets: [
+        {
+          code: 'ACME',
+          name: 'Acme Corp',
+          fund: 'Startech Growth Fund 1',
+          asset_type: 'direct' as const,
+          entity: 'Investor Alpha',
+          funding_source: 'DCA',
+          status: 'new' as const,
+          matched_asset_id: null,
+          matched_fund: { name: 'Startech Growth Fund 1', status: 'existing' as const, matched_id: 'f-1', auto_created: true },
+          matched_investor: { name: 'Investor Alpha', status: 'new' as const, matched_id: null },
+          matched_source: { name: 'DCA', status: 'existing' as const, matched_id: 'src-1' },
+          proposed_txn_count: 1,
+          proposed_valuation_count: 0,
+          existing_txn_count: 0,
+          existing_valuation_count: 0,
+          missing_txn_count: 1,
+          missing_valuation_count: 0,
+          proposed: {
+            code: 'ACME',
+            name: 'Acme Corp',
+            fund: 'Startech Growth Fund 1',
+            assetType: 'direct' as const,
+            entity: 'Investor Alpha',
+            fundingSource: 'DCA',
+            txns: [],
+            valuations: [],
+          },
+          missing_txns: [],
+          missing_valuations: [],
+        },
+      ],
+      funds: [
+        { name: 'Startech Growth Fund 1', status: 'existing' as const, matched_id: 'f-1', auto_created: true },
+        { name: 'Custom Fund', status: 'new' as const, matched_id: null },
+      ],
+      investors: [{ name: 'Investor Alpha', status: 'new' as const, matched_id: null }],
+      sources: [{ name: 'DCA', status: 'existing' as const, matched_id: 'src-1' }],
+    };
+
+    const mockApplyService = {
+      buildFullReview: vi.fn().mockResolvedValue(mockFullReview),
+    };
+
+    const notes = JSON.stringify({
+      file_type: 'fund_updates',
+      parser: 'startech_quarterly',
+      fund_update_proposal: {
+        template_id: 'startech_q2_2024',
+        assets: mockFullReview.assets.map((a) => a.proposed),
+      },
+    });
+
+    vi.mocked(fileRepo.findById).mockResolvedValue(
+      makeFile({ id: 'file-auto-created', file_type: 'fund_updates', structured_notes: notes }),
+    );
+
+    const service = makeService({ fileRepo });
+    service.setFundUpdateApplyService(mockApplyService as any);
+
+    const result = await service.getReviewData('file-auto-created');
+    if (result.kind !== 'fund_updates') throw new Error('expected fund_updates');
+
+    const catFund = result.funds.find((f) => f.name === 'Startech Growth Fund 1');
+    expect(catFund?.auto_created).toBe(true);
+
+    const nonCatFund = result.funds.find((f) => f.name === 'Custom Fund');
+    expect(nonCatFund?.auto_created).toBeUndefined();
   });
 });
 
@@ -2090,6 +3289,129 @@ describe('FileService.reprocess', () => {
 
     expect(getSignedUrl).toHaveBeenCalledWith('uploads/report.pdf');
     expect(result).toMatchObject({ id: 'file-1', signed_url: 'https://signed-url' });
+  });
+
+  it('dispatches fund_update_extraction job when reprocessing an Excel fund_updates file', async () => {
+    const mockDispatcher = {
+      dispatch: vi.fn().mockResolvedValue({ jobId: 'job-reprocess-123' }),
+    };
+    service.setJobDispatcher(mockDispatcher as any);
+
+    vi.mocked(fileRepo.findById).mockResolvedValue(
+      makeFile({ id: 'file-1', file_name: 'report.xlsx', file_link: 'uploads/report.xlsx', file_type: 'fund_updates' }),
+    );
+
+    const result = await service.reprocess('file-1');
+
+    expect(extractTextFromFile).not.toHaveBeenCalled();
+    expect(mockDispatcher.dispatch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'fund_update_extraction',
+        payload: expect.objectContaining({ fileId: 'file-1' }),
+      }),
+    );
+    expect(result).toMatchObject({ jobId: 'job-reprocess-123' });
+  });
+
+  it('synchronously extracts via processFundUpdateContent when reprocessing a PDF fund_updates file without dispatching job', async () => {
+    const mockDispatcher = {
+      dispatch: vi.fn().mockResolvedValue({ jobId: 'job-reprocess-123' }),
+    };
+    service.setJobDispatcher(mockDispatcher as any);
+
+    vi.mocked(fileRepo.findById).mockResolvedValue(
+      makeFile({ id: 'file-1', file_name: 'report.pdf', file_link: 'uploads/report.pdf', file_type: 'fund_updates' }),
+    );
+    vi.mocked(processFundUpdateContent).mockResolvedValue({
+      file_type: 'fund_updates',
+      parser: 'llm_fallback',
+      summary: 'PDF reprocessed summary',
+      tags: ['Fund Update'],
+      fund_update_proposal: null,
+    } as any);
+
+    const result = await service.reprocess('file-1');
+
+    expect(mockDispatcher.dispatch).not.toHaveBeenCalled();
+    expect(processFundUpdateContent).toHaveBeenCalled();
+    expect((result as any).jobId).toBeUndefined();
+  });
+
+  it('marks file failed and throws when jobDispatcher is not set for async fund_updates Excel reprocess', async () => {
+    vi.mocked(fileRepo.findById).mockResolvedValue(
+      makeFile({ id: 'file-1', file_name: 'report.xlsx', file_link: 'uploads/report.xlsx', file_type: 'fund_updates' }),
+    );
+
+    await expect(service.reprocess('file-1')).rejects.toThrow(
+      'Failed to dispatch async fund update extraction job',
+    );
+
+    expect(fileRepo.updatePartial).toHaveBeenCalledWith(
+      'file-1',
+      expect.objectContaining({
+        processing_status: 'failed',
+        raw_notes: expect.stringContaining('Failed to dispatch async fund update extraction job'),
+      }),
+    );
+  });
+
+  it('marks file failed and throws when jobDispatcher.dispatch throws on async fund_updates Excel reprocess', async () => {
+    const mockDispatcher = {
+      dispatch: vi.fn().mockRejectedValue(new Error('Dispatcher down')),
+    };
+    service.setJobDispatcher(mockDispatcher as any);
+
+    vi.mocked(fileRepo.findById).mockResolvedValue(
+      makeFile({ id: 'file-1', file_name: 'report.xlsx', file_link: 'uploads/report.xlsx', file_type: 'fund_updates' }),
+    );
+
+    await expect(service.reprocess('file-1')).rejects.toThrow(
+      'Failed to dispatch async fund update extraction job',
+    );
+
+    expect(fileRepo.updatePartial).toHaveBeenCalledWith(
+      'file-1',
+      expect.objectContaining({
+        processing_status: 'failed',
+        raw_notes: expect.stringContaining('Failed to dispatch async fund update extraction job'),
+      }),
+    );
+  });
+
+  it('falls through to dispatch when JobRepository.findByTypeAndPayload throws during async reprocess', async () => {
+    const { JobRepository } = await import('@/lib/repositories');
+    const findSpy = vi.spyOn(JobRepository.prototype, 'findByTypeAndPayload').mockRejectedValueOnce(
+      new Error('DB timeout'),
+    );
+
+    const mockDbClient = {} as DbClient;
+    const customService = new FileService(
+      mockDbClient,
+      'workspace-1',
+      fileRepo,
+      makeCompanyAnalysisServiceStub(),
+      makeAIScreeningServiceStub(),
+      makeCriteriaRepoStub(),
+      makeScreeningRepoStub(),
+      companyFinancialRepo,
+      companyService,
+      makeCompanyFxAdjustmentRepoStub(),
+      makeUserWorkspaceRepoStub(),
+    );
+    const mockDispatcher = {
+      dispatch: vi.fn().mockResolvedValue({ jobId: 'job-reprocess-dispatched' }),
+    };
+    customService.setJobDispatcher(mockDispatcher as any);
+
+    vi.mocked(fileRepo.findById).mockResolvedValue(
+      makeFile({ id: 'file-1', file_name: 'report.xlsx', file_link: 'uploads/report.xlsx', file_type: 'fund_updates' }),
+    );
+
+    const result = await customService.reprocess('file-1');
+
+    expect(mockDispatcher.dispatch).toHaveBeenCalled();
+    expect(result).toMatchObject({ jobId: 'job-reprocess-dispatched' });
+    findSpy.mockRestore();
   });
 });
 

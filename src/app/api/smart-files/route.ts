@@ -2,11 +2,14 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createDb } from '@/lib/server/db';
 import { getActiveWorkspaceId } from '@/lib/workspace';
 import { createContainer } from '@/lib/services';
+import { asyncJobId } from '@/lib/services/fileService';
 import { auth } from '@/auth';
 import {
   UserWorkspaceRepository,
   type FileSortField,
 } from '@/lib/repositories';
+
+export const maxDuration = 600;
 
 const FILE_TYPE_OVERRIDES = ['mom', 'prospectus', 'other', 'shopping_list', 'market_study', 'fund_updates'] as const;
 type FileTypeOverrideValue = (typeof FILE_TYPE_OVERRIDES)[number];
@@ -109,7 +112,8 @@ export async function POST(request: NextRequest) {
       uploaderUserId,
     );
 
-    return NextResponse.json({ success: true, data });
+    const isAsync = Boolean(asyncJobId(data));
+    return NextResponse.json({ success: true, data }, { status: isAsync ? 202 : 200 });
   } catch (error) {
     console.error('Upload file error:', error);
     return NextResponse.json(

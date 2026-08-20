@@ -318,6 +318,7 @@ export function createContainer(db: DbClient, workspaceId: string): Container {
   );
 
   fileService.setCRMService(crmService);
+  fileService.setJobDispatcher(jobDispatcher);
 
   const chatAttachmentService = new ChatAttachmentService(workspaceId);
 

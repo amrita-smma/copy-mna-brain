@@ -93,4 +93,49 @@ describe('extractTextFromFile Office formats', () => {
     );
     expect(text).toContain(marker);
   });
+
+  it('extracts rich text from XLSX without producing [object Object]', async () => {
+    const workbook = new ExcelJS.Workbook();
+    const sheet = workbook.addWorksheet('基金流水明细');
+    sheet.addRow(['序号', '实体名称', '金额（万元）']);
+    sheet.addRow([
+      1,
+      {
+        richText: [
+          { text: '高亚投资有限公司\n' },
+          { text: 'GLOBE ASIA INVESTMENTS LIMITED' },
+        ],
+      },
+      15000,
+    ]);
+    const buf = Buffer.from(await workbook.xlsx.writeBuffer());
+    const text = await extractTextFromFile(
+      buf,
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'ledger.xlsx',
+    );
+
+    expect(text).not.toContain('[object Object]');
+    expect(text).toContain('高亚投资有限公司\nGLOBE ASIA INVESTMENTS LIMITED');
+    expect(text).toContain('15000');
+  });
+
+  it('extracts text from an XLSM file via the workbook extractor', async () => {
+    const workbook = new ExcelJS.Workbook();
+    const sheet = workbook.addWorksheet('MacroData');
+    sheet.addRow(['Macro Header', 'Value']);
+    sheet.addRow(['Special Asset', 99999]);
+    const buf = Buffer.from(await workbook.xlsx.writeBuffer());
+
+    const text = await extractTextFromFile(
+      buf,
+      'application/vnd.ms-excel.sheet.macroenabled.12',
+      'macro_workbook.xlsm',
+    );
+
+    expect(text).not.toContain('[object Object]');
+    expect(text).toContain('Macro Header');
+    expect(text).toContain('Special Asset');
+    expect(text).toContain('99999');
+  });
 });

@@ -50,32 +50,21 @@ export async function extractTextFromFile(
     return extractPptxText(buffer);
   }
 
-  // 4. XLSX
+  // 4. XLSX & XLSM
   if (
     mimeType === "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" ||
-    lowerName.endsWith(".xlsx")
+    mimeType === "application/vnd.ms-excel.sheet.macroenabled.12" ||
+    mimeType === "application/vnd.ms-excel" ||
+    lowerName.endsWith(".xlsx") ||
+    lowerName.endsWith(".xlsm")
   ) {
     try {
-      const workbook = new ExcelJS.Workbook();
-      await workbook.xlsx.load(buffer as any);
-      let text = "";
-      workbook.eachSheet((worksheet, sheetId) => {
-        text += `\n--- Sheet: ${worksheet.name} ---\n`;
-        worksheet.eachRow((row, rowNumber) => {
-          // row.values is an array (1-indexed for some reason in exceljs, index 0 is null/undefined)
-          // We join the values to simulate CSV-like line
-          const rowValues = Array.isArray(row.values)
-            ? row.values.slice(1).map(val => val?.toString() || "").join(", ")
-            : "";
-          if (rowValues.trim()) {
-            text += rowValues + "\n";
-          }
-        });
-      });
-      return text;
+      const { serializeWorkbookFromBuffer, formatWorkbookAsText } = await import("./workbook/serializeWorkbook");
+      const serialized = await serializeWorkbookFromBuffer(buffer, fileName);
+      return formatWorkbookAsText(serialized);
     } catch (e) {
-      console.error("Error extracting text from XLSX:", e);
-      throw new Error(`Failed to extract text from XLSX: ${(e as Error).message}`);
+      console.error("Error extracting text from Excel workbook:", e);
+      throw new Error(`Failed to extract text from Excel workbook: ${(e as Error).message}`);
     }
   }
 

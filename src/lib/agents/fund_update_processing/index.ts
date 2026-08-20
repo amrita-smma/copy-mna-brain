@@ -2,7 +2,16 @@ import { tryDeterministicFundUpdateParse } from '@/lib/fund_updates';
 import type { FundUpdateStructuredResult } from '@/lib/fund_updates';
 import { logger } from '../logger';
 import { extractFundUpdateProposal } from './llmExtractor';
+import { orchestrateWorkbookFallback } from './orchestrateFallback';
 import type { ParsedAsset } from '@/lib/fund_updates';
+
+export { orchestrateWorkbookFallback } from './orchestrateFallback';
+export { interpretWorkbook } from './interpretWorkbook';
+export { planWorkbookExtraction } from './planWorkbookExtraction';
+export { extractWorkbookChunk } from './extractWorkbookChunk';
+export { mergeWorkbookExtraction } from './mergeWorkbookExtraction';
+export { normalizeWorkbookExtraction } from './normalizeWorkbookExtraction';
+export { validateWorkbookExtraction } from './validateWorkbookExtraction';
 
 /**
  * Shared helper to build a FundUpdateStructuredResult from LLM extracted assets.
@@ -103,6 +112,23 @@ export async function processFundUpdateContent(
   }
 
   logger.info('⏳ No known Excel template matched; falling back to fund update LLM extractor');
+
+  const isExcel =
+    Boolean(fileName?.toLowerCase().endsWith('.xlsx')) ||
+    Boolean(fileName?.toLowerCase().endsWith('.xlsm')) ||
+    contentType === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
+    contentType === 'application/vnd.ms-excel.sheet.macroenabled.12';
+  if (isExcel && buffer && buffer.length > 0) {
+    try {
+      return await orchestrateWorkbookFallback({
+        buffer,
+        fileName,
+        contentType,
+      });
+    } catch (err) {
+      logger.warn(`Multi-step fallback failed; falling back to legacy single-pass: ${err}`);
+    }
+  }
   
   const proposalResult = await extractFundUpdateProposal(
     rawText,
