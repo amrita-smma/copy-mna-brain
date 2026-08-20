@@ -67,10 +67,12 @@ export function projectToLegacyAssets(
 
     const txns: ParsedTxn[] = assetTxnEvents.map((ev) => {
       let type: ParsedTxn['type'] = 'other';
+      let sellProceedsDestination: ParsedTxn['sellProceedsDestination'] = null;
       if (ev.eventType === 'asset_investment' || ev.eventType === 'asset_follow_on_investment') {
         type = 'contribution';
       } else if (ev.eventType === 'asset_exit' || ev.eventType === 'asset_exit_distribution') {
         type = 'divestment';
+        sellProceedsDestination = 'distributed_to_investor';
       }
 
       return {
@@ -82,6 +84,7 @@ export function projectToLegacyAssets(
         valueAmount: ev.normalizedAmount,
         currency: ev.normalizedCurrency || '',
         fxRate: null,
+        sellProceedsDestination,
         notes: null,
       };
     });

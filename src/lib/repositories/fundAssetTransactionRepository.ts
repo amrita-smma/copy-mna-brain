@@ -101,4 +101,71 @@ export class FundAssetTransactionRepository {
         ),
       );
   }
+
+  async findBySourceDivestmentTxnId(
+    divestmentTxnId: string,
+  ): Promise<Tables<'fund_asset_transactions'> | undefined> {
+    const [row] = await this.db
+      .select()
+      .from(fundAssetTransactions)
+      .where(
+        and(
+          eq(fundAssetTransactions.source_divestment_txn_id, divestmentTxnId),
+          inArray(fundAssetTransactions.fund_asset_id, this.workspaceFundAssetIds()),
+        ),
+      )
+      .limit(1);
+    return row;
+  }
+
+  async deleteBySourceDivestmentTxnId(divestmentTxnId: string): Promise<void> {
+    await this.db
+      .delete(fundAssetTransactions)
+      .where(
+        and(
+          eq(fundAssetTransactions.source_divestment_txn_id, divestmentTxnId),
+          inArray(fundAssetTransactions.fund_asset_id, this.workspaceFundAssetIds()),
+        ),
+      );
+  }
+
+  async upsertLinkedCashMovement(
+    data: TablesInsert<'fund_asset_transactions'>,
+  ): Promise<Tables<'fund_asset_transactions'>> {
+    if (!data.source_divestment_txn_id) {
+      throw new Error('source_divestment_txn_id is required to upsert a linked cash movement');
+    }
+    const existing = await this.findBySourceDivestmentTxnId(data.source_divestment_txn_id);
+    if (existing) {
+      const [updated] = await this.db
+        .update(fundAssetTransactions)
+        .set({
+          fund_asset_id: data.fund_asset_id,
+          fund_id: data.fund_id,
+          holding_entity_id: data.holding_entity_id,
+          funding_source_id: data.funding_source_id,
+          txn_date: data.txn_date,
+          txn_type: data.txn_type ?? 'internal_transfer',
+          sub_type_label: data.sub_type_label,
+          value_amount: data.value_amount,
+          price_per_share: data.price_per_share ?? null,
+          share_count: data.share_count ?? null,
+          txn_currency: data.txn_currency,
+          fx_rate: data.fx_rate,
+          sell_proceeds_destination: null,
+          notes: data.notes,
+          updated_at: new Date().toISOString(),
+        })
+        .where(
+          and(
+            eq(fundAssetTransactions.id, existing.id),
+            inArray(fundAssetTransactions.fund_asset_id, this.workspaceFundAssetIds()),
+          ),
+        )
+        .returning();
+      return updated ?? existing;
+    }
+    const [row] = await this.db.insert(fundAssetTransactions).values(data).returning();
+    return row;
+  }
 }

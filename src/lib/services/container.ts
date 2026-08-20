@@ -360,8 +360,12 @@ export function createContainer(db: DbClient, workspaceId: string): Container {
   );
 
   const fundAssetLedgerService = new FundAssetLedgerService(
+    db,
+    workspaceId,
     fundAssetTransactionRepo,
     fundAssetValuationRepo,
+    fundAssetRepo,
+    fundRepo,
     fundMetricsService,
   );
   const fundUpdateApplyService = new FundUpdateApplyService(
@@ -372,6 +376,7 @@ export function createContainer(db: DbClient, workspaceId: string): Container {
     holdingEntityRepo,
     fundSourceRepo,
     fundMetricsService,
+    fundAssetLedgerService,
   );
   fileService.setFundUpdateApplyService(fundUpdateApplyService);
   const fundPortfolioService = new FundPortfolioService(

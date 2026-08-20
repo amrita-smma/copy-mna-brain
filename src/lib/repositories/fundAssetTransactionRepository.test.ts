@@ -44,16 +44,16 @@ describe('FundAssetTransactionRepository', () => {
   });
 
   it('insert writes the row as-is, including its txn_type', async () => {
-    const row = { id: 't1', fund_asset_id: 'a1', txn_type: 'distribution' };
+    const row = { id: 't1', fund_asset_id: 'a1', txn_type: 'divestment' };
     db.returning.mockResolvedValueOnce([row]);
     const result = await repo.insert({
       fund_asset_id: 'a1',
       txn_date: '2026-07-08',
-      txn_type: 'distribution',
+      txn_type: 'divestment',
     } as never);
     expect(result).toEqual(row);
     expect(db.values).toHaveBeenCalledWith(
-      expect.objectContaining({ txn_type: 'distribution' }),
+      expect.objectContaining({ txn_type: 'divestment' }),
     );
   });
 
@@ -68,6 +68,56 @@ describe('FundAssetTransactionRepository', () => {
     db.where.mockResolvedValueOnce(undefined);
     await repo.delete('t1');
     expect(db.delete).toHaveBeenCalled();
+  });
+
+  it('findBySourceDivestmentTxnId returns the linked cash movement', async () => {
+    const row = { id: 'm1', fund_asset_id: 'cash-1', source_divestment_txn_id: 'sale-1' };
+    db.limit.mockResolvedValueOnce([row]);
+    const result = await repo.findBySourceDivestmentTxnId('sale-1');
+    expect(result).toEqual(row);
+  });
+
+  it('deleteBySourceDivestmentTxnId deletes the linked cash movement', async () => {
+    db.where.mockResolvedValueOnce(undefined);
+    await repo.deleteBySourceDivestmentTxnId('sale-1');
+    expect(db.delete).toHaveBeenCalled();
+  });
+
+  it('upsertLinkedCashMovement inserts when no movement exists yet', async () => {
+    db.limit.mockResolvedValueOnce([]); // findBySourceDivestmentTxnId finds nothing
+    const row = { id: 'm1', fund_asset_id: 'cash-1', source_divestment_txn_id: 'sale-1', value_amount: 300000 };
+    db.returning.mockResolvedValueOnce([row]);
+
+    const result = await repo.upsertLinkedCashMovement({
+      fund_asset_id: 'cash-1',
+      fund_id: 'fund-1',
+      source_divestment_txn_id: 'sale-1',
+      txn_date: '2026-07-08',
+      txn_type: 'internal_transfer',
+      value_amount: 300000,
+    } as never);
+
+    expect(result).toEqual(row);
+    expect(db.insert).toHaveBeenCalled();
+  });
+
+  it('upsertLinkedCashMovement updates when movement already exists', async () => {
+    const existing = { id: 'm1', fund_asset_id: 'cash-1', source_divestment_txn_id: 'sale-1', value_amount: 300000 };
+    db.limit.mockResolvedValueOnce([existing]); // findBySourceDivestmentTxnId finds existing
+    const updated = { ...existing, value_amount: 320000 };
+    db.returning.mockResolvedValueOnce([updated]);
+
+    const result = await repo.upsertLinkedCashMovement({
+      fund_asset_id: 'cash-1',
+      fund_id: 'fund-1',
+      source_divestment_txn_id: 'sale-1',
+      txn_date: '2026-07-08',
+      txn_type: 'internal_transfer',
+      value_amount: 320000,
+    } as never);
+
+    expect(result).toEqual(updated);
+    expect(db.update).toHaveBeenCalled();
   });
 
   describe('workspace isolation', () => {

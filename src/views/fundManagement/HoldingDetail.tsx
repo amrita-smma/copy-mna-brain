@@ -17,17 +17,22 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import type { EquityMetrics, Fund, Holding, HoldingFacts, Quarter, Txn, TxnType } from './types';
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
+import type { EquityMetrics, Fund, Holding, HoldingFacts, Quarter, SellProceedsDestination, Txn, TxnType } from './types';
 import {
   applyCommas,
+  canSubmitTxnDialog,
   computeFoF,
   computeInv,
   formatCompact,
   formatGrouped,
   getAssetInvestType,
+  getNextSellProceedsDestination,
   INVEST_TYPES,
   isFoF,
   parseCurrencyInput,
+  proceedsTreatmentLabel,
+  proceedsTreatmentOptionsFor,
   setAssetInvestType,
   txnTypeLabel,
   txnValue,
@@ -37,6 +42,7 @@ import { useWorkspaceCurrency } from '@/components/layout/WorkspaceCurrencyConte
 import { useFundData } from './context';
 import { Combobox } from './Combobox';
 import * as fundsApi from '@/lib/api/funds';
+import { isSellProceedsDestination } from '@/lib/sellProceedsDestination';
 import { quarterToPayload, toLocalISODate, txnToPayload } from './adapters';
 import { FieldKey, GlossaryTerm, InlineEdit, type InlineKind, MiniSpark, Pill } from './parts';
 import { CURRENCIES, CurrencyInput, MoneyInlineEdit, normalizeCurrency, type Currency } from './CurrencyInput';
@@ -913,12 +919,17 @@ function CashDetail({ fund, holding }: { fund: Fund; holding: Holding }) {
 // ================= Transactions (editable) =================
 function TxnTable({ fund, holding, fof }: { fund: Fund; holding: Holding; fof?: boolean }) {
   const { refreshHolding, refreshAll } = useFundData();
+  const { money } = useFundMoney();
   const { toast } = useToast();
-  const [dialog, setDialog] = useState<{ mode: 'add' | 'edit'; idx: number } | null>(null);
+  const [dialog, setDialog] = useState<{
+    mode: 'add' | 'edit';
+    idx: number;
+    initialOverride?: Partial<Txn>;
+  } | null>(null);
   const txns = holding.inv?.txns || [];
   const ccy = normalizeCurrency(holding.inv?.ccy);
   const dispCcy = useWorkspaceCurrency();
-  const typeOptions: TxnType[] = fof ? ['Buy', 'Distribution', 'Other'] : ['Buy', 'Sell', 'Distribution', 'Other'];
+  const typeOptions: TxnType[] = ['Buy', 'Sell', 'Other'];
 
   const onFailure = (message: string) => (err: unknown) => {
     console.error(message, err);
@@ -930,7 +941,7 @@ function TxnTable({ fund, holding, fof }: { fund: Fund; holding: Holding; fof?: 
     refreshHolding(fund, holding);
   };
 
-  const persist = (t: Txn) => {
+  const persist = (t: Txn, previousTxn?: Txn) => {
     if (!holding.id) return;
     const payload = txnToPayload(t);
     // Default to the holding's assigned entity/source if the transaction didn't explicitly override it.
@@ -942,27 +953,29 @@ function TxnTable({ fund, holding, fof }: { fund: Fund; holding: Holding; fof?: 
     request
       .then(() => {
         // Fund membership is transaction-driven, so a transaction naming a
-        // different fund moves the asset there (e.g. an unassigned asset's
-        // first transaction assigns it to a real fund). Refreshing only the
-        // fund this panel is open under would drop the asset from view — the
-        // asset just left it and the destination fund is never reloaded — so
-        // refresh the whole portfolio instead.
+        // different fund moves the asset there. Additionally, any create/edit of a
+        // Sell transaction can create or modify linked cash movements in a fund cash asset,
+        // so refresh the whole portfolio instead of only this holding.
+        const isSell = payload.txnType === 'divestment' || t.type === 'Sell' || previousTxn?.type === 'Sell';
         const txnFundId = t.fundId ?? 'unassigned';
-        return txnFundId !== fund.id ? refreshAll() : refreshHolding(fund, holding);
+        return isSell || txnFundId !== fund.id ? refreshAll() : refreshHolding(fund, holding);
       })
       .catch(onFailure('Failed to save transaction'));
   };
   const editTxn = (i: number, k: keyof Txn, raw: string, numeric = false) => {
-    const next = { ...txns[i], [k]: numeric ? num(raw) : txt(raw) };
+    const prev = txns[i];
+    if (prev.isGenerated || prev.sourceDivestmentTxnId) return;
+    const next = { ...prev, [k]: numeric ? num(raw) : txt(raw) };
     txns[i] = next;
-    persist(next);
+    persist(next, prev);
   };
   const delTxn = (i: number) => {
     const t = txns[i];
-    if (txns.length <= 1 || !holding.id || !t.id) return;
+    if (txns.length <= 1 || !holding.id || !t.id || t.isGenerated || t.sourceDivestmentTxnId) return;
+    const isSell = t.type === 'Sell' || t.sellProceedsDestination != null;
     fundsApi
       .deleteTransaction(fund.id, holding.id, t.id)
-      .then(() => refreshHolding(fund, holding))
+      .then(() => (isSell ? refreshAll() : refreshHolding(fund, holding)))
       .catch(onFailure('Failed to delete transaction'));
   };
 
@@ -977,67 +990,137 @@ function TxnTable({ fund, holding, fof }: { fund: Fund; holding: Holding; fof?: 
             {!fof && <th className={cn(th, 'text-right')}><GlossaryTerm term="pps">PPS</GlossaryTerm></th>}
             {!fof && <th className={cn(th, 'text-right')}>Number of Shares</th>}
             <th className={cn(th, 'text-right')}>Value</th>
+            {!fof && <th className={cn(th, 'text-left')}>Proceeds treatment</th>}
             <th className={cn(th, 'text-left')}><GlossaryTerm term="fxref">FX</GlossaryTerm></th>
             <th className={cn(th, 'text-left')}><GlossaryTerm term="txnotes">Remarks</GlossaryTerm></th>
             <th className={cn(th, 'w-16 text-right')}>Actions</th>
           </tr>
         </thead>
         <tbody>
-          {txns.map((t, i) => (
-            <tr key={i} className="group border-b">
-              <td className="px-2 py-1 text-xs text-muted-foreground">
-                <InlineEdit value={t.date} kind="date" onCommit={(r) => editTxn(i, 'date', r)} />
-              </td>
-              <td className="px-2 py-1 text-xs text-muted-foreground">
-                <InlineEdit value={t.eom} onCommit={(r) => editTxn(i, 'eom', r)} />
-              </td>
-              <td className="px-2 py-1">
-                <InlineEdit value={t.type} display={<Pill>{txnTypeLabel(t, holding)}</Pill>} kind="select" options={typeOptions} onCommit={(r) => editTxn(i, 'type', r)} />
-              </td>
-              {!fof && (
-                <td className="px-2 py-1 text-right text-xs">
-                  <InlineEdit align="right" kind="num" value={t.pps} display={t.pps ? `$${formatCompact(t.pps)}` : undefined} onCommit={(r) => editTxn(i, 'pps', r, true)} />
+          {txns.map((t, i) => {
+            const isGen = Boolean(t.isGenerated || t.sourceDivestmentTxnId);
+            return (
+              <tr key={i} className="group border-b">
+                <td className="px-2 py-1 text-xs text-muted-foreground">
+                  {isGen ? (
+                    t.date || '—'
+                  ) : (
+                    <InlineEdit value={t.date} kind="date" onCommit={(r) => editTxn(i, 'date', r)} />
+                  )}
                 </td>
-              )}
-              {!fof && (
-                <td className="px-2 py-1 text-right text-xs">
-                  <InlineEdit
-                    align="right"
-                    kind="num"
-                    value={t.shares != null ? t.shares * M : undefined}
-                    display={t.shares ? formatGrouped(t.shares * M) : undefined}
-                    onCommit={(r) => {
-                      const raw = r ? parseFloat(r) : null;
-                      const next = { ...txns[i], shares: raw != null ? raw / M : null };
-                      txns[i] = next;
-                      persist(next);
-                    }}
-                  />
+                <td className="px-2 py-1 text-xs text-muted-foreground">
+                  {isGen ? (
+                    t.eom || '—'
+                  ) : (
+                    <InlineEdit value={t.eom} onCommit={(r) => editTxn(i, 'eom', r)} />
+                  )}
                 </td>
-              )}
-              <td className="px-2 py-1 text-right text-xs">
-                <MoneyInlineEdit
-                  align="right"
-                  amount={toRaw(txnValue(t))}
-                  currency={dispCcy}
-                  onCommit={(amt) => editTxn(i, 'value', rawToMillions(amt), true)}
-                />
-              </td>
-              <td className="px-2 py-1 text-xs text-muted-foreground">
-                <InlineEdit value={t.fx} onCommit={(r) => editTxn(i, 'fx', r)} />
-              </td>
-              <td className="px-2 py-1 text-xs text-muted-foreground">
-                <InlineEdit value={t.notes} onCommit={(r) => editTxn(i, 'notes', r)} />
-              </td>
-              <td className="px-1 py-1 text-right">
-                <RowActions
-                  deleteDisabled={txns.length <= 1}
-                  onEdit={() => setDialog({ mode: 'edit', idx: i })}
-                  onDelete={() => delTxn(i)}
-                />
-              </td>
-            </tr>
-          ))}
+                <td className="px-2 py-1">
+                  {isGen ? (
+                    <Pill>{txnTypeLabel(t, holding)}</Pill>
+                  ) : (
+                    <InlineEdit
+                      value={t.type}
+                      display={<Pill>{txnTypeLabel(t, holding)}</Pill>}
+                      kind="select"
+                      options={typeOptions}
+                      onCommit={(r) => {
+                        const newType = r as TxnType;
+                        if (newType === 'Sell') {
+                          setDialog({
+                            mode: 'edit',
+                            idx: i,
+                            initialOverride: { type: 'Sell' },
+                          });
+                          return;
+                        }
+                        const prev = txns[i];
+                        const next: Txn = {
+                          ...prev,
+                          type: newType,
+                          sellProceedsDestination: null,
+                        };
+                        txns[i] = next;
+                        persist(next, prev);
+                      }}
+                    />
+                  )}
+                </td>
+                {!fof && (
+                  <td className="px-2 py-1 text-right text-xs text-muted-foreground">
+                    {isGen ? (
+                      '—'
+                    ) : (
+                      <InlineEdit align="right" kind="num" value={t.pps} display={t.pps ? `$${formatCompact(t.pps)}` : undefined} onCommit={(r) => editTxn(i, 'pps', r, true)} />
+                    )}
+                  </td>
+                )}
+                {!fof && (
+                  <td className="px-2 py-1 text-right text-xs text-muted-foreground">
+                    {isGen ? (
+                      '—'
+                    ) : (
+                      <InlineEdit
+                        align="right"
+                        kind="num"
+                        value={t.shares != null ? t.shares * M : undefined}
+                        display={t.shares ? formatGrouped(t.shares * M) : undefined}
+                        onCommit={(r) => {
+                          const raw = r ? parseFloat(r) : null;
+                          const prev = txns[i];
+                          const next = { ...prev, shares: raw != null ? raw / M : null };
+                          txns[i] = next;
+                          persist(next, prev);
+                        }}
+                      />
+                    )}
+                  </td>
+                )}
+                <td className="px-2 py-1 text-right text-xs">
+                  {isGen ? (
+                    <span className="font-mono text-foreground">{money(txnValue(t) ?? 0)}</span>
+                  ) : (
+                    <MoneyInlineEdit
+                      align="right"
+                      amount={toRaw(txnValue(t))}
+                      currency={dispCcy}
+                      onCommit={(amt) => editTxn(i, 'value', rawToMillions(amt), true)}
+                    />
+                  )}
+                </td>
+                {!fof && (
+                  <td className="px-2 py-1 text-xs text-muted-foreground">
+                    {proceedsTreatmentLabel(t.sellProceedsDestination, t.type)}
+                  </td>
+                )}
+                <td className="px-2 py-1 text-xs text-muted-foreground">
+                  {isGen ? (
+                    t.fx || '—'
+                  ) : (
+                    <InlineEdit value={t.fx} onCommit={(r) => editTxn(i, 'fx', r)} />
+                  )}
+                </td>
+                <td className="px-2 py-1 text-xs text-muted-foreground">
+                  {isGen ? (
+                    t.notes || '—'
+                  ) : (
+                    <InlineEdit value={t.notes} onCommit={(r) => editTxn(i, 'notes', r)} />
+                  )}
+                </td>
+                <td className="px-1 py-1 text-right">
+                  {isGen ? (
+                    <span className="text-xs text-muted-foreground">—</span>
+                  ) : (
+                    <RowActions
+                      deleteDisabled={txns.length <= 1}
+                      onEdit={() => setDialog({ mode: 'edit', idx: i })}
+                      onDelete={() => delTxn(i)}
+                    />
+                  )}
+                </td>
+              </tr>
+            );
+          })}
         </tbody>
       </table>
       <AddRowButton label="Add transaction" onClick={() => setDialog({ mode: 'add', idx: -1 })} />
@@ -1048,16 +1131,22 @@ function TxnTable({ fund, holding, fof }: { fund: Fund; holding: Holding; fof?: 
       {dialog && (
         <TxnDialog
           fof={fof}
+          holdingType={holding.tp}
           currency={ccy}
           typeOptions={typeOptions}
           mode={dialog.mode}
           fundId={fund.id}
-          initial={dialog.mode === 'edit' ? txns[dialog.idx] : undefined}
+          initial={
+            dialog.mode === 'edit'
+              ? { ...txns[dialog.idx], ...dialog.initialOverride }
+              : undefined
+          }
           onClose={() => setDialog(null)}
           onSubmit={(t) => {
+            const previousTxn = dialog.mode === 'edit' ? txns[dialog.idx] : undefined;
             if (dialog.mode === 'edit') txns[dialog.idx] = t;
             else (holding.inv!.txns ||= []).push(t);
-            persist(t);
+            persist(t, previousTxn);
             setDialog(null);
           }}
         />
@@ -1068,6 +1157,7 @@ function TxnTable({ fund, holding, fof }: { fund: Fund; holding: Holding; fof?: 
 
 function TxnDialog({
   fof,
+  holdingType,
   currency,
   typeOptions,
   mode,
@@ -1077,6 +1167,7 @@ function TxnDialog({
   onClose,
 }: {
   fof?: boolean;
+  holdingType?: string;
   currency: Currency;
   typeOptions: TxnType[];
   mode: 'add' | 'edit';
@@ -1088,6 +1179,9 @@ function TxnDialog({
   const { funds, investorOptions, sourceOptions, entityNameById, sourceNameById, sourceOfFundsEnabled } =
     useFundData();
   const wsCurrency = useWorkspaceCurrency();
+  const isCash = holdingType === 'Cash';
+  const initialProceeds = initial?.sellProceedsDestination ?? '';
+  const sanitizedInitialProceeds = isCash && initialProceeds === 'cash_in_fund' ? '' : initialProceeds;
   const [f, setF] = useState<{ [k: string]: string }>(() =>
     initial
       ? {
@@ -1112,15 +1206,24 @@ function TxnDialog({
           fundingSourceId: initial.fundingSourceId
             ? (sourceNameById.get(initial.fundingSourceId) ?? initial.fundingSourceId)
             : '',
+          sellProceedsDestination: sanitizedInitialProceeds,
         }
-      : { type: 'Buy', fundId: fundId ?? '' },
+      : { type: 'Buy', fundId: fundId ?? '', sellProceedsDestination: '' },
   );
   const g = (k: string) => f[k] ?? '';
   const set = (k: string, v: string) => setF((p) => ({ ...p, [k]: v }));
-  // One of "Value" or "Price per share + Number of shares" must be filled.
-  const hasValue = !!g('value');
-  const hasPpsShares = !fof && !!g('pps') && !!g('shares');
-  const canSubmit = !!g('date') && (hasValue || hasPpsShares);
+  const isCashInFundSell = g('type') === 'Sell' && g('sellProceedsDestination') === 'cash_in_fund';
+  const canSubmit = canSubmitTxnDialog({
+    date: g('date'),
+    value: g('value'),
+    pps: g('pps'),
+    shares: g('shares'),
+    type: g('type'),
+    sellProceedsDestination: g('sellProceedsDestination'),
+    fundId: g('fundId'),
+    fof,
+    isCash,
+  });
   const submit = () => {
     const pps = !fof && g('pps') ? (parseCurrencyInput(g('pps')) ?? null) : null;
     const shares = !fof && g('shares') ? (parseCurrencyInput(g('shares')) ?? 0) / M : null;
@@ -1129,6 +1232,9 @@ function TxnDialog({
     // later edits to PPS or shares keep the value in sync automatically.
     const explicitValue = g('value') ? parseFloat(g('value')) : null;
     const value = explicitValue != null ? explicitValue : fof ? 0 : null;
+    const dest = g('sellProceedsDestination');
+    const sellProceedsDestination: SellProceedsDestination | null =
+      g('type') === 'Sell' && isSellProceedsDestination(dest) ? dest : null;
     const t: Txn = {
       id: initial?.id,
       date: g('date') || '—',
@@ -1144,6 +1250,7 @@ function TxnDialog({
       fundId: g('fundId') || null,
       holdingEntityId: g('holdingEntityId') || null,
       fundingSourceId: g('fundingSourceId') || null,
+      sellProceedsDestination,
     };
     onSubmit(t);
   };
@@ -1156,7 +1263,7 @@ function TxnDialog({
       submitDisabled={!canSubmit}
     >
       <FormRow>
-        <FormField label="Fund">
+        <FormField label="Fund" required={isCashInFundSell}>
           <Combobox
             value={g('fundId')}
             options={funds.map((fd) => fd.id)}
@@ -1186,12 +1293,47 @@ function TxnDialog({
       </FormRow>
       <FormRow>
         <FormField label="Type" required>
-          <FormSelect value={g('type')} onChange={(v) => set('type', v)} options={typeOptions} />
+          <FormSelect
+            value={g('type')}
+            onChange={(v) => {
+              setF((p) => ({
+                ...p,
+                type: v,
+                sellProceedsDestination: getNextSellProceedsDestination(v, p.sellProceedsDestination),
+              }));
+            }}
+            options={typeOptions}
+          />
         </FormField>
         <FormField label="Date" required>
           <FormInput type="date" value={g('date')} onChange={(v) => set('date', v)} />
         </FormField>
       </FormRow>
+      {g('type') === 'Sell' && (
+        <fieldset className="flex flex-col gap-1.5 border-0 p-0 m-0">
+          <legend className="text-[11px] font-medium text-muted-foreground">
+            Proceeds treatment<span className="ml-0.5 text-destructive">*</span>
+          </legend>
+          <RadioGroup
+            value={g('sellProceedsDestination')}
+            onValueChange={(v) => set('sellProceedsDestination', v)}
+            className="flex flex-wrap gap-4 pt-0.5"
+          >
+            {proceedsTreatmentOptionsFor(holdingType).map((opt) => (
+              <label
+                key={opt.value}
+                className="flex cursor-pointer items-center gap-2 text-[13px] text-foreground"
+              >
+                <RadioGroupItem
+                  value={opt.value}
+                  id={`proceeds-${opt.value.replace(/_/g, '-')}`}
+                />
+                <span>{opt.label}</span>
+              </label>
+            ))}
+          </RadioGroup>
+        </fieldset>
+      )}
       {!fof && (
         <FormRow>
           <FormField label="Price per share">

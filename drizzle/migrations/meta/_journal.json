@@ -852,6 +852,34 @@
     {
       "idx": 121,
       "version": "7",
+      "when": 1787011201000,
+      "tag": "20260818000001_add_sell_proceeds_destination",
+      "breakpoints": true
+    },
+    {
+      "idx": 122,
+      "version": "7",
+      "when": 1787011202000,
+      "tag": "20260818000002_add_cash_ledger_source_divestment",
+      "breakpoints": true
+    },
+    {
+      "idx": 123,
+      "version": "7",
+      "when": 1787011203000,
+      "tag": "20260818000003_backfill_cash_ledger_source_divestment",
+      "breakpoints": true
+    },
+    {
+      "idx": 124,
+      "version": "7",
+      "when": 1787011204000,
+      "tag": "20260818000004_remove_distribution_txn_type",
+      "breakpoints": true
+    },
+    {
+      "idx": 125,
+      "version": "7",
       "when": 1787097601000,
       "tag": "20260819000001_add_fund_investor_commitment_events",
       "breakpoints": true

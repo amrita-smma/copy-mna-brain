@@ -349,7 +349,6 @@ describe('Txn round trip', () => {
   const cases: Array<[TxnRow['txn_type'], string]> = [
     ['contribution', 'Buy'],
     ['divestment', 'Sell'],
-    ['distribution', 'Distribution'],
     ['other', 'Other'],
   ];
 
@@ -359,6 +358,18 @@ describe('Txn round trip', () => {
     expect(txn.type).toBe(uiType);
     const payload = txnToPayload(txn);
     expect(payload.txnType).toBe(txnType);
+  });
+
+  it('reads legacy distribution rows as Sell', () => {
+    const row: TxnRow = { ...BASE_TXN(), txn_type: 'distribution' as TxnRow['txn_type'] };
+    const txn = txnRowToTxn(row);
+    expect(txn.type).toBe('Sell');
+  });
+
+  it('reads an unrecognised backend txn_type as Other', () => {
+    const row: TxnRow = { ...BASE_TXN(), txn_type: 'unknown_future_type' as TxnRow['txn_type'] };
+    const txn = txnRowToTxn(row);
+    expect(txn.type).toBe('Other');
   });
 
   it('folds interest_income/return_of_capital into Other with a recognizable label, and round-trips the label back to the same backend type', () => {
@@ -392,6 +403,61 @@ describe('Txn round trip', () => {
     const payload = txnToPayload(txn);
     expect(payload.txnCurrency).toBeUndefined();
   });
+
+  it('round-trips sell_proceeds_destination on divestment transactions', () => {
+    const cashInFundRow: TxnRow = {
+      ...BASE_TXN(),
+      txn_type: 'divestment',
+      sell_proceeds_destination: 'cash_in_fund',
+    };
+    const cashInFundTxn = txnRowToTxn(cashInFundRow);
+    expect(cashInFundTxn.sellProceedsDestination).toBe('cash_in_fund');
+    expect(txnToPayload(cashInFundTxn).sellProceedsDestination).toBe('cash_in_fund');
+
+    const distributedRow: TxnRow = {
+      ...BASE_TXN(),
+      txn_type: 'divestment',
+      sell_proceeds_destination: 'distributed_to_investor',
+    };
+    const distributedTxn = txnRowToTxn(distributedRow);
+    expect(distributedTxn.sellProceedsDestination).toBe('distributed_to_investor');
+    expect(txnToPayload(distributedTxn).sellProceedsDestination).toBe('distributed_to_investor');
+  });
+
+  it('normalizes sellProceedsDestination to null for non-divestment transactions in txnToPayload', () => {
+    const buyTxn: TxnRow = {
+      ...BASE_TXN(),
+      txn_type: 'contribution',
+      sell_proceeds_destination: null,
+    };
+    const txn = txnRowToTxn(buyTxn);
+    // Even if somehow populated on a Buy txn, payload forces null
+    txn.sellProceedsDestination = 'cash_in_fund';
+    const payload = txnToPayload(txn);
+    expect(payload.txnType).toBe('contribution');
+    expect(payload.sellProceedsDestination).toBeNull();
+  });
+
+  it('maps internal_transfer to Other with Retained sale proceeds label, sets isGenerated and sourceDivestmentTxnId', () => {
+    const transferRow: TxnRow = {
+      ...BASE_TXN(),
+      txn_type: 'internal_transfer',
+      sub_type_label: 'Retained sale proceeds',
+      source_divestment_txn_id: 'sale-txn-123',
+      value_amount: 300_000,
+    };
+    const txn = txnRowToTxn(transferRow);
+    expect(txn.type).toBe('Other');
+    expect(txn.label).toBe('Retained sale proceeds');
+    expect(txn.isGenerated).toBe(true);
+    expect(txn.sourceDivestmentTxnId).toBe('sale-txn-123');
+    expect(txn.value).toBe(0.3);
+
+    // txnToPayload never outputs internal_transfer or sourceDivestmentTxnId
+    const payload = txnToPayload(txn);
+    expect(payload.txnType).toBe('other');
+    expect((payload as unknown as Record<string, unknown>).sourceDivestmentTxnId).toBeUndefined();
+  });
 });
 
 function BASE_TXN(): TxnRow {
@@ -409,6 +475,8 @@ function BASE_TXN(): TxnRow {
     value_amount: 500_000,
     txn_currency: 'USD',
     fx_rate: 1,
+    sell_proceeds_destination: null,
+    source_divestment_txn_id: null,
     notes: 'Initial investment',
     created_by: null,
     updated_by: null,

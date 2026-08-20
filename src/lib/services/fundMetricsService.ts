@@ -10,7 +10,6 @@ const SHARE_ACQUIRING_TXN_TYPES = new Set(['contribution']);
 const SHARE_DISPOSING_TXN_TYPES = new Set(['divestment']);
 const REALIZED_TXN_TYPES = new Set([
   'divestment',
-  'distribution',
   'interest_income',
   'return_of_capital',
   'other',
@@ -87,6 +86,7 @@ export class FundMetricsService {
       share_count: metrics.shareCount,
       invested_capital_amount: metrics.investedCapitalAmount,
       net_distribution_amount: metrics.netDistributionAmount,
+      fmv_amount: metrics.unrealizedValueAmount,
       gross_moic: metrics.grossMoic,
       gross_irr: metrics.grossIrr,
       dpi: metrics.dpi,
@@ -134,8 +134,26 @@ export class FundMetricsService {
     );
 
     const calledAmount = sum(perAsset.map((m) => m.investedCapitalAmount));
-    const realizedAmount = sum(perAsset.map((m) => m.netDistributionAmount));
     const fmvAmount = sum(perAsset.map((m) => m.unrealizedValueAmount));
+
+    let realizedAmount = 0;
+    for (const txn of allTxns) {
+      if (txn.fund_id !== fundId) continue;
+      // Skip retained divestments: they were kept as cash in fund, not distributed to LPs
+      if (txn.txn_type === 'divestment' && txn.sell_proceeds_destination === 'cash_in_fund') {
+        continue;
+      }
+      if (REALIZED_TXN_TYPES.has(txn.txn_type)) {
+        const amount =
+          txn.value_amount ??
+          (txn.price_per_share != null && txn.share_count != null
+            ? txn.price_per_share * txn.share_count
+            : 0);
+        const converted = amount * (txn.fx_rate ?? 1);
+        realizedAmount += converted;
+      }
+    }
+
     const totalValue = realizedAmount + fmvAmount;
     const dpi = calledAmount ? realizedAmount / calledAmount : 0;
     const tvpi = calledAmount ? totalValue / calledAmount : 0;
@@ -204,6 +222,39 @@ export class FundMetricsService {
       const spotFactor =
         asset.investment_currency === asset.report_currency ? 1 : (latestFxRate ?? 1);
       unrealizedValueAmount = shareCount * asset.current_price_per_share * spotFactor;
+    } else if (asset.asset_type === 'cash') {
+      const baseAmount = latestValuation?.market_value_amount ?? 0;
+      const asOfDate = latestValuation?.as_of_date ?? null;
+      let netPostValuationInflows = 0;
+
+      for (const txn of transactions) {
+        if (asOfDate && txn.txn_date <= asOfDate) {
+          continue;
+        }
+        const amount =
+          txn.value_amount ??
+          (txn.price_per_share != null && txn.share_count != null
+            ? txn.price_per_share * txn.share_count
+            : 0);
+        const converted = amount * (txn.fx_rate ?? 1);
+
+        if (
+          txn.txn_type === 'contribution' ||
+          txn.txn_type === 'internal_transfer' ||
+          txn.txn_type === 'interest_income'
+        ) {
+          netPostValuationInflows += converted;
+        } else if (
+          txn.txn_type === 'divestment' ||
+          txn.txn_type === 'return_of_capital'
+        ) {
+          netPostValuationInflows -= converted;
+        } else if (txn.txn_type === 'other') {
+          netPostValuationInflows += converted;
+        }
+      }
+
+      unrealizedValueAmount = Math.max(0, baseAmount + netPostValuationInflows);
     } else {
       unrealizedValueAmount = latestValuation?.market_value_amount ?? 0;
     }

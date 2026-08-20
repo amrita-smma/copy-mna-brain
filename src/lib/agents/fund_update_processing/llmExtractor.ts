@@ -47,7 +47,7 @@ const SYSTEM_PROMPT = `You are a specialized Fund Management Data Extraction Ass
    - valuationMethod: Must be one of: "at_cost", "fundraise_round", "secondary_sale", "stock_market_price", "comparables", "capital_account_statement", "other".
 4. **Extract Transactions**:
    - date: Transaction date (YYYY-MM-DD).
-   - type: Must be one of: "contribution", "divestment", "distribution", "interest_income", "return_of_capital", "other".
+   - type: Must be one of: "contribution", "divestment", "interest_income", "return_of_capital", "other". Proceeds returned to investors are "divestment" (the caller records them as distributed to the investor).
    - valueAmount: The absolute amount (always positive) in the transaction currency.
    - currency: 3-letter currency code (e.g. USD, SGD, IDR).
    - pricePerShare, shareCount: Details if applicable.
@@ -273,10 +273,18 @@ export async function extractFundUpdateProposal(
       }
 
       const txns = Array.isArray(a.txns) ? a.txns.map((t: any) => {
-        let type = t.type as TxnTypeEnum;
-        if (!['contribution', 'divestment', 'distribution', 'interest_income', 'return_of_capital', 'other'].includes(type)) {
+        const rawType = (t.type as string) === 'distribution' ? 'divestment' : t.type;
+        let type = rawType as TxnTypeEnum;
+        if (!['contribution', 'divestment', 'interest_income', 'return_of_capital', 'other'].includes(type)) {
             type = 'other';
         }
+
+        const sellProceedsDestination =
+          type === 'divestment'
+            ? (t.sellProceedsDestination === 'cash_in_fund' || t.sellProceedsDestination === 'distributed_to_investor'
+                ? t.sellProceedsDestination
+                : 'distributed_to_investor')
+            : null;
 
         return {
             date: parseDate(t.date),
@@ -287,6 +295,7 @@ export async function extractFundUpdateProposal(
             valueAmount: parseNum(t.valueAmount),
             currency: t.currency || 'USD',
             fxRate: parseNum(t.fxRate),
+            sellProceedsDestination,
             notes: t.notes || null,
         }
       }).filter((t: any) => t.date) : [];

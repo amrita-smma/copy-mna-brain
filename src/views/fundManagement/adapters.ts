@@ -603,24 +603,30 @@ export function buildAssetCreatePayload(
 
 // ---- Transactions ----
 
-const TXN_TYPE_FROM_BACKEND: Record<TxnRow['txn_type'], TxnType> = {
+const TXN_TYPE_FROM_BACKEND: Record<TxnRow['txn_type'] | 'distribution', TxnType> = {
   contribution: 'Buy',
   divestment: 'Sell',
-  distribution: 'Distribution',
+  // Legacy read-tolerance: the 'distribution' label still exists in the
+  // Postgres enum type even though nothing can write it any more.
+  distribution: 'Sell',
   interest_income: 'Other',
   return_of_capital: 'Other',
+  internal_transfer: 'Other',
   other: 'Other',
 };
 
 const OTHER_LABEL_FROM_BACKEND: Partial<Record<TxnRow['txn_type'], string>> = {
   interest_income: 'Interest income',
   return_of_capital: 'Return of capital',
+  internal_transfer: 'Retained sale proceeds',
 };
 
 export function txnRowToTxn(row: TxnRow): Txn {
-  const type = TXN_TYPE_FROM_BACKEND[row.txn_type];
+  const type: TxnType =
+    TXN_TYPE_FROM_BACKEND[row.txn_type as keyof typeof TXN_TYPE_FROM_BACKEND] ?? 'Other';
   const label =
     type === 'Other' ? (row.sub_type_label ?? OTHER_LABEL_FROM_BACKEND[row.txn_type]) : undefined;
+  const isGenerated = row.txn_type === 'internal_transfer' || Boolean(row.source_divestment_txn_id);
   return {
     id: row.id,
     date: row.txn_date,
@@ -638,13 +644,16 @@ export function txnRowToTxn(row: TxnRow): Txn {
     fundId: row.fund_id ?? null,
     holdingEntityId: row.holding_entity_id ?? null,
     fundingSourceId: row.funding_source_id ?? null,
+    sellProceedsDestination: row.sell_proceeds_destination ?? null,
+    sourceDivestmentTxnId: row.source_divestment_txn_id ?? null,
+    isGenerated,
   };
 }
 
 /**
- * Widening the UI's 4-value TxnType to the backend's 6 txn_type values would
+ * Widening the UI's 3-value TxnType to the backend's txn_type values would
  * break calc.ts's `computeInv`/`computeFoF`, which switch on exactly
- * 'Buy'|'Sell'|'Distribution'|'Other' — so interest_income/return_of_capital
+ * 'Buy'|'Sell'|'Other' — so interest_income/return_of_capital
  * fold into 'Other' with a label instead. Editing an existing
  * interest_income/return_of_capital transaction through the UI and saving it
  * loses that specific sub-type (it becomes plain 'other' unless the label
@@ -657,13 +666,11 @@ export function txnToPayload(t: Txn): CreateTransactionInput {
       ? 'contribution'
       : t.type === 'Sell'
         ? 'divestment'
-        : t.type === 'Distribution'
-          ? 'distribution'
-          : t.label === 'Interest income'
-            ? 'interest_income'
-            : t.label === 'Return of capital'
-              ? 'return_of_capital'
-              : 'other';
+        : t.label === 'Interest income'
+          ? 'interest_income'
+          : t.label === 'Return of capital'
+            ? 'return_of_capital'
+            : 'other';
   const subTypeLabel = txnType === 'other' ? (t.label ?? null) : null;
   const fxRate = t.fx ? Number.parseFloat(t.fx) : null;
   return {
@@ -674,6 +681,8 @@ export function txnToPayload(t: Txn): CreateTransactionInput {
     shareCount: fromM(t.shares) ?? null,
     valueAmount: fromM(t.value) ?? null,
     fxRate: fxRate != null && Number.isFinite(fxRate) ? fxRate : null,
+    sellProceedsDestination:
+      txnType === 'divestment' ? (t.sellProceedsDestination ?? null) : null,
     notes: t.notes ?? null,
     fundId: t.fundId ?? null,
     holdingEntityId: t.holdingEntityId ?? null,

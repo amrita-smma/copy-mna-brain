@@ -10,7 +10,9 @@ import type {
   Investor,
   Quarter,
   Txn,
+  TxnType,
 } from './types';
+import type { SellProceedsDestination } from '@/lib/sellProceedsDestination';
 import { quarterEndLabel, trailingQuarterEnds } from './adapters';
 
 // The 4 trailing completed quarters as of "now" — real labels for real
@@ -128,31 +130,117 @@ export function isValueBased(h: Holding) {
   return h.tp === 'Fund of funds' || h.tp === 'Cash';
 }
 
-export function txnTypeLabel(t: { type: string; label?: string }, h: Holding) {
+function isGeneratedCashMovement(t: Txn): boolean {
+  return Boolean(t.isGenerated || t.sourceDivestmentTxnId);
+}
+
+export function txnTypeLabel(
+  t: {
+    type: string;
+    label?: string;
+    isGenerated?: boolean;
+    sourceDivestmentTxnId?: string | null;
+    sellProceedsDestination?: SellProceedsDestination | null;
+  },
+  h: Holding,
+) {
+  if (t.isGenerated || t.sourceDivestmentTxnId || t.label === 'Retained sale proceeds') {
+    return 'Retained sale proceeds';
+  }
   if (h.tp === 'Cash') {
-    return (
-      ({ Buy: 'Deposit', Distribution: 'Distribution', Other: t.label || 'Interest / adjustment' } as Record<
-        string,
-        string
-      >)[t.type] || t.type
-    );
+    if (t.type === 'Buy') return 'Deposit';
+    if (t.type === 'Sell') {
+      return t.sellProceedsDestination === 'distributed_to_investor'
+        ? 'Distribution'
+        : 'Withdrawal';
+    }
+    if (t.type === 'Other') return t.label || 'Interest / adjustment';
+    return t.type;
   }
   if (isFoF(h)) {
-    return (
-      ({ Buy: 'Capital call', Distribution: 'Distribution', Other: t.label || 'Other' } as Record<
-        string,
-        string
-      >)[t.type] || t.type
-    );
+    if (t.type === 'Buy') return 'Capital call';
+    if (t.type === 'Sell') {
+      return t.sellProceedsDestination === 'distributed_to_investor'
+        ? 'Distribution'
+        : 'Divestment';
+    }
+    if (t.type === 'Other') return t.label || 'Other';
+    return t.type;
   }
   return (
     ({
       Buy: 'Purchase',
       Sell: 'Divestment',
-      Distribution: 'Distribution',
       Other: t.label || 'Other',
     } as Record<string, string>)[t.type] || t.type
   );
+}
+
+export const PROCEEDS_TREATMENT_OPTIONS = [
+  { value: 'cash_in_fund', label: 'Convert to cash in fund' },
+  { value: 'distributed_to_investor', label: 'Distribute to investor' },
+] as const;
+
+/**
+ * A Cash holding IS the fund's cash, so "convert to cash in fund" would
+ * resolve back to the same asset and generate a self-referencing internal
+ * transfer. Cash sells can only be distributed to the investor.
+ */
+export function proceedsTreatmentOptionsFor(holdingType?: string) {
+  return holdingType === 'Cash'
+    ? PROCEEDS_TREATMENT_OPTIONS.filter((o) => o.value === 'distributed_to_investor')
+    : PROCEEDS_TREATMENT_OPTIONS;
+}
+
+/** Label for the proceeds treatment on a sell transaction. */
+export function proceedsTreatmentLabel(
+  destination: SellProceedsDestination | null | undefined,
+  type?: string,
+): string {
+  if (type !== undefined && type !== 'Sell') return '—';
+  if (destination === 'cash_in_fund') return 'Cash in fund';
+  if (destination === 'distributed_to_investor') return 'Investor distribution';
+  return '—';
+}
+
+export interface TxnDialogValidationInput {
+  date?: string | null;
+  value?: string | number | null;
+  pps?: string | number | null;
+  shares?: string | number | null;
+  type?: TxnType | string;
+  sellProceedsDestination?: string | null;
+  fundId?: string | null;
+  fof?: boolean;
+  isCash?: boolean;
+}
+
+/** Form validation for the add/edit transaction dialog. */
+export function canSubmitTxnDialog(input: TxnDialogValidationInput): boolean {
+  const hasDate = Boolean(input.date && input.date.trim() !== '');
+  const hasValue = input.value != null && String(input.value).trim() !== '';
+  const hasPps = input.pps != null && String(input.pps).trim() !== '';
+  const hasShares = input.shares != null && String(input.shares).trim() !== '';
+  const hasPpsShares = !input.fof && hasPps && hasShares;
+  const isSell = input.type === 'Sell';
+  const hasProceeds =
+    !isSell ||
+    (!input.isCash && input.sellProceedsDestination === 'cash_in_fund') ||
+    input.sellProceedsDestination === 'distributed_to_investor';
+  const requiresFund = isSell && !input.isCash && input.sellProceedsDestination === 'cash_in_fund';
+  const hasFund =
+    !requiresFund ||
+    (input.fundId != null && input.fundId.trim() !== '' && input.fundId !== 'unassigned');
+
+  return hasDate && (hasValue || hasPpsShares) && hasProceeds && hasFund;
+}
+
+/** Updates sell proceeds destination when switching transaction types in the dialog. */
+export function getNextSellProceedsDestination(
+  newType: TxnType | string,
+  currentDestination?: string | null,
+): string {
+  return newType === 'Sell' ? (currentDestination ?? '') : '';
 }
 
 /**
@@ -179,13 +267,10 @@ export function computeInv(h: Holding): EquityMetrics | null {
   const txns = inv.txns || [];
   const buys = txns.filter((t) => t.type === 'Buy');
   const sells = txns.filter((t) => t.type === 'Sell');
-  const dists = txns.filter((t) => t.type === 'Distribution');
   const others = txns.filter((t) => t.type === 'Other');
 
   const investedCapital = buys.reduce((s, t) => s + (txnValue(t) ?? 0), 0);
-  const realizedProceedsGross =
-    sells.reduce((s, t) => s + (txnValue(t) ?? 0), 0) +
-    dists.reduce((s, t) => s + (t.value || 0), 0);
+  const realizedProceedsGross = sells.reduce((s, t) => s + (txnValue(t) ?? 0), 0);
   const otherVal = others.reduce((s, t) => s + (t.value || 0), 0);
   const divestment = sells.reduce((s, t) => s + (txnValue(t) ?? 0), 0);
   const sharesAcquired = buys.reduce((s, t) => s + (t.shares || 0), 0);
@@ -306,8 +391,12 @@ export function computeFoF(h: Holding): FoFMetrics | null {
   if (!inv) return null;
   const txns = inv.txns || [];
   const calls = txns.filter((t) => t.type === 'Buy');
-  const dists = txns.filter((t) => t.type === 'Distribution');
-  const others = txns.filter((t) => t.type === 'Other');
+  const dists = txns.filter((t) => t.type === 'Sell');
+  const others = txns.filter(
+    (t) =>
+      t.type === 'Other' &&
+      !isGeneratedCashMovement(t),
+  );
   const totalCalled = calls.reduce((s, t) => s + (t.value || 0), 0);
   const totalDist = dists.reduce((s, t) => s + (t.value || 0), 0);
   const totalOther = others.reduce((s, t) => s + (t.value || 0), 0);
@@ -513,7 +602,12 @@ export function splitHoldingByTxn(
     const b = bucket(keyFor(t, h, f));
     if (valueBased) {
       if (t.type === 'Buy') b.cost += t.value || 0;
-      else if (t.type === 'Distribution' || t.type === 'Other') b.real += t.value || 0;
+      else if (
+        t.type === 'Sell' ||
+        (t.type === 'Other' && !isGeneratedCashMovement(t))
+      ) {
+        b.real += t.value || 0;
+      }
     } else {
       if (t.type === 'Buy') {
         b.cost += legValue(t);
@@ -521,8 +615,6 @@ export function splitHoldingByTxn(
       } else if (t.type === 'Sell') {
         b.real += legValue(t);
         b.shares -= t.shares || 0;
-      } else if (t.type === 'Distribution') {
-        b.real += t.value || 0;
       }
     }
   });
@@ -586,7 +678,10 @@ export function scopeHoldingToFund(h: Holding, fundId: string): Holding {
       if (t.type === 'Buy') {
         totalCost += t.value || 0;
         if (mine) fundCost += t.value || 0;
-      } else if (t.type === 'Distribution' || t.type === 'Other') {
+      } else if (
+        t.type === 'Sell' ||
+        (t.type === 'Other' && !isGeneratedCashMovement(t))
+      ) {
         totalReal += t.value || 0;
         if (mine) fundReal += t.value || 0;
       }
@@ -608,9 +703,6 @@ export function scopeHoldingToFund(h: Holding, fundId: string): Holding {
         fundReal += v;
         fundShares -= s;
       }
-    } else if (t.type === 'Distribution') {
-      totalReal += t.value || 0;
-      if (mine) fundReal += t.value || 0;
     }
   });
 
@@ -916,4 +1008,3 @@ export function recomputeFund(f: Fund) {
   f.dpi = f.called ? f.real / f.called : 0;
   if (f.hist && f.hist.fmv.length) f.hist.fmv[f.hist.fmv.length - 1] = f.fmv;
 }
-

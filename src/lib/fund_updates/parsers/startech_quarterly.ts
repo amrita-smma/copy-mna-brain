@@ -264,10 +264,12 @@ export function resolveAppendixId(
 export type TxnTypeEnum =
   | 'contribution'
   | 'divestment'
-  | 'distribution'
   | 'interest_income'
   | 'return_of_capital'
   | 'other';
+
+import type { SellProceedsDestination } from '@/lib/sellProceedsDestination';
+export type { SellProceedsDestination };
 
 export interface ParsedTxn {
   date: string;
@@ -278,6 +280,7 @@ export interface ParsedTxn {
   valueAmount: number | null;
   currency: string;
   fxRate: number | null;
+  sellProceedsDestination?: SellProceedsDestination | null;
   notes: string | null;
 }
 
@@ -334,20 +337,30 @@ export interface ParsedAsset {
   txns: ParsedTxn[];
 }
 
-const TXN_TYPE_MAP: Record<string, TxnTypeEnum> = {
-  'cost of investment': 'contribution',
-  contribution: 'contribution',
-  distribution: 'distribution',
-  divestment: 'divestment',
-  'return of capital': 'return_of_capital',
-  'interest income': 'interest_income',
-  interest: 'interest_income',
-  others: 'other',
-  other: 'other',
+interface MappedTxnType {
+  type: TxnTypeEnum;
+  sellProceedsDestination: SellProceedsDestination | null;
+}
+
+const TXN_TYPE_MAP: Record<string, MappedTxnType> = {
+  'cost of investment': { type: 'contribution', sellProceedsDestination: null },
+  contribution: { type: 'contribution', sellProceedsDestination: null },
+  distribution: { type: 'divestment', sellProceedsDestination: 'distributed_to_investor' },
+  divestment: { type: 'divestment', sellProceedsDestination: 'distributed_to_investor' },
+  'return of capital': { type: 'return_of_capital', sellProceedsDestination: null },
+  'interest income': { type: 'interest_income', sellProceedsDestination: null },
+  interest: { type: 'interest_income', sellProceedsDestination: null },
+  others: { type: 'other', sellProceedsDestination: null },
+  other: { type: 'other', sellProceedsDestination: null },
 };
 
-function mapTxnType(raw: string): TxnTypeEnum {
-  return TXN_TYPE_MAP[raw.toLowerCase().trim()] ?? 'other';
+function mapTxnType(raw: string): MappedTxnType {
+  return (
+    TXN_TYPE_MAP[raw.toLowerCase().trim()] ?? {
+      type: 'other',
+      sellProceedsDestination: null,
+    }
+  );
 }
 
 /** Finds the "Txn Date" header row (col C) in the 18..32 band. */
@@ -381,12 +394,14 @@ function parseTransactions(ws: ExcelJS.Worksheet, headerRow: number): ParsedTxn[
     // Skip stray rows with no type/date (subtotals, notes, spacers).
     if (!typeRaw || !date) continue;
 
-    const type = mapTxnType(typeRaw);
+    const mapped = mapTxnType(typeRaw);
+    const type = mapped.type;
     // Sheet convention: outflows (contributions) are negative, inflows positive.
     // Store invested capital as a positive magnitude; keep the natural sign for
     // realized flows so a negative "Others" (a fee/cost) reduces net distribution.
     const valueAmount =
       rawValue == null ? null : type === 'contribution' ? Math.abs(rawValue) : rawValue;
+    const sellProceedsDestination = mapped.sellProceedsDestination;
 
     txns.push({
       date: isoDate(date)!,
@@ -397,6 +412,7 @@ function parseTransactions(ws: ExcelJS.Worksheet, headerRow: number): ParsedTxn[
       valueAmount,
       currency: normalizeCurrency(asString(cellValue(ws.getCell(r, 9)))), // I: Currency
       fxRate: asNumber(cellValue(ws.getCell(r, 10))), // J: Forex Reference
+      sellProceedsDestination,
       notes: asString(cellValue(ws.getCell(r, 11))), // K: Notes
     });
   }

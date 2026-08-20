@@ -3,9 +3,11 @@ import { createDb } from '@/lib/server/db';
 import { getActiveWorkspaceId } from '@/lib/workspace';
 import { createContainer } from '@/lib/services';
 import {
+  InvalidTransactionError,
   LastTransactionDeleteError,
   TransactionNotFoundError,
 } from '@/lib/services/fundAssetLedgerService';
+import { isSellProceedsDestination } from '@/lib/sellProceedsDestination';
 import { isUuid } from '@/lib/uuid';
 
 export async function PATCH(
@@ -14,6 +16,7 @@ export async function PATCH(
 ) {
   try {
     const { assetId, txnId } = await params;
+    const reqBody = await req.json();
     const {
       txnDate,
       txnType,
@@ -23,11 +26,36 @@ export async function PATCH(
       valueAmount,
       txnCurrency,
       fxRate,
+      sellProceedsDestination,
       notes,
       fundId: bodyFundId,
       holdingEntityId,
       fundingSourceId,
-    } = await req.json();
+      sourceDivestmentTxnId,
+      source_divestment_txn_id,
+    } = reqBody;
+    if (txnType === 'internal_transfer') {
+      return NextResponse.json(
+        { error: 'Transactions cannot be converted to internal_transfer' },
+        { status: 400 },
+      );
+    }
+    if (sourceDivestmentTxnId !== undefined || source_divestment_txn_id !== undefined) {
+      return NextResponse.json(
+        { error: 'sourceDivestmentTxnId cannot be modified directly' },
+        { status: 400 },
+      );
+    }
+    if (
+      sellProceedsDestination !== undefined &&
+      sellProceedsDestination !== null &&
+      !isSellProceedsDestination(sellProceedsDestination)
+    ) {
+      return NextResponse.json(
+        { error: 'Invalid sellProceedsDestination: must be cash_in_fund or distributed_to_investor' },
+        { status: 400 },
+      );
+    }
     const db = createDb();
     const { fundAssetLedgerService, holdingEntityService, fundSourceService } = createContainer(db, await getActiveWorkspaceId());
 
@@ -60,6 +88,9 @@ export async function PATCH(
       ...(valueAmount !== undefined && { value_amount: valueAmount }),
       ...(txnCurrency !== undefined && { txn_currency: txnCurrency }),
       ...(fxRate !== undefined && { fx_rate: fxRate }),
+      ...(sellProceedsDestination !== undefined && {
+        sell_proceeds_destination: sellProceedsDestination,
+      }),
       ...(notes !== undefined && { notes }),
       ...(bodyFundId !== undefined && { fund_id: bodyFundId === 'unassigned' ? null : bodyFundId }),
       ...(holdingEntityId !== undefined && { holding_entity_id: actualHoldingEntityId }),
@@ -69,6 +100,9 @@ export async function PATCH(
   } catch (error: unknown) {
     if (error instanceof TransactionNotFoundError) {
       return NextResponse.json({ error: error.message }, { status: 404 });
+    }
+    if (error instanceof InvalidTransactionError) {
+      return NextResponse.json({ error: error.message }, { status: 400 });
     }
     const message = error instanceof Error ? error.message : 'Failed to update transaction';
     return NextResponse.json({ error: message }, { status: 500 });
@@ -88,6 +122,12 @@ export async function DELETE(
   } catch (error: unknown) {
     if (error instanceof LastTransactionDeleteError) {
       return NextResponse.json({ error: error.message }, { status: 409 });
+    }
+    if (error instanceof InvalidTransactionError) {
+      return NextResponse.json({ error: error.message }, { status: 400 });
+    }
+    if (error instanceof TransactionNotFoundError) {
+      return NextResponse.json({ error: error.message }, { status: 404 });
     }
     const message = error instanceof Error ? error.message : 'Failed to delete transaction';
     return NextResponse.json({ error: message }, { status: 500 });

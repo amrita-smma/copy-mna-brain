@@ -2,6 +2,7 @@ export type {
   ParsedAsset,
   ParsedTxn,
   ParsedValuation,
+  SellProceedsDestination,
   StartechParseResult,
   TxnTypeEnum,
   ValuationMethodEnum,

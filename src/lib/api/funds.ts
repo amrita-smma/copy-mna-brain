@@ -63,15 +63,19 @@ export interface CreateAssetInput {
 }
 export type UpdateAssetInput = Partial<Omit<CreateAssetInput, 'assetType'>>;
 
+import type { SellProceedsDestination } from '@/lib/sellProceedsDestination';
+export type { SellProceedsDestination };
+
 export interface CreateTransactionInput {
   txnDate: string;
-  txnType: 'contribution' | 'divestment' | 'distribution' | 'interest_income' | 'return_of_capital' | 'other';
+  txnType: 'contribution' | 'divestment' | 'interest_income' | 'return_of_capital' | 'other';
   subTypeLabel?: string | null;
   pricePerShare?: number | null;
   shareCount?: number | null;
   valueAmount?: number | null;
   txnCurrency?: string | null;
   fxRate?: number | null;
+  sellProceedsDestination?: SellProceedsDestination | null;
   notes?: string | null;
   fundId?: string | null;
   holdingEntityId?: string | null;

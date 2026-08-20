@@ -16,6 +16,7 @@ import {
   fundUpdateTxnKey,
   sortFundUpdateReviewAssets,
 } from '@/lib/fund_updates';
+import type { FundAssetLedgerService } from './fundAssetLedgerService';
 
 export type FundUpdateCatalogKind = 'asset' | 'fund' | 'investor' | 'source';
 
@@ -129,6 +130,7 @@ export class FundUpdateApplyService {
     private readonly holdingEntityRepo: HoldingEntityRepository,
     private readonly fundSourceRepo: FundSourceRepository,
     private readonly fundMetricsService: FundMetricsService,
+    private readonly fundAssetLedgerService: FundAssetLedgerService,
   ) {}
 
   async buildReview(proposedAssets: ParsedAsset[]): Promise<FundUpdateAssetReview[]> {
@@ -468,7 +470,7 @@ export class FundUpdateApplyService {
         const txns = selection?.txns ?? item.proposed.txns;
         const valuations = selection?.valuations ?? item.proposed.valuations;
         for (const t of txns) {
-          await this.txnRepo.insert(this.toTxnInsert(asset.id, fundId, holdingEntityId, fundingSourceId, t, options));
+          await this.applyTxn(asset.id, fundId, holdingEntityId, fundingSourceId, t, options);
           txns_inserted += 1;
         }
         for (const v of valuations) {
@@ -485,7 +487,7 @@ export class FundUpdateApplyService {
       const valuations = selection?.valuations ?? item.missing_valuations;
       const fallbackValCurrency = item.proposed.txns[0]?.currency || txns[0]?.currency || (options?.isV1 ? '' : 'USD');
       for (const t of txns) {
-        await this.txnRepo.insert(this.toTxnInsert(assetId, fundId, holdingEntityId, fundingSourceId, t, options));
+        await this.applyTxn(assetId, fundId, holdingEntityId, fundingSourceId, t, options);
         txns_inserted += 1;
       }
       for (const v of valuations) {
@@ -613,34 +615,41 @@ export class FundUpdateApplyService {
     });
   }
 
-  private toTxnInsert(
+  private async applyTxn(
     assetId: string,
     fundId: string | null,
     holdingEntityId: string | null,
     fundingSourceId: string | null,
     t: ParsedTxn,
     options?: { isV1?: boolean },
-  ): TablesInsert<'fund_asset_transactions'> {
+  ): Promise<void> {
+    // Legacy proposals persisted before `distribution` was folded into
+    // `divestment` may still carry the old type.
+    const txnType = (t.type as string) === 'distribution' ? 'divestment' : t.type;
     const rawCurrency = t.currency?.trim();
     if (options?.isV1 && !rawCurrency) {
       throw new Error('Cannot insert transaction with unresolved currency in v1 apply.');
     }
     const currency = rawCurrency || (options?.isV1 ? '' : 'USD');
-    return {
-      fund_asset_id: assetId,
+    const sellProceedsDestination =
+      txnType === 'divestment'
+        ? (t.sellProceedsDestination ?? 'distributed_to_investor')
+        : null;
+    await this.fundAssetLedgerService.addTransaction(assetId, {
       fund_id: fundId,
       holding_entity_id: holdingEntityId,
       funding_source_id: fundingSourceId,
       txn_date: t.date,
-      txn_type: t.type,
+      txn_type: txnType,
       sub_type_label: t.subTypeLabel,
       price_per_share: t.pricePerShare,
       share_count: t.shareCount,
       value_amount: t.valueAmount,
       txn_currency: currency,
       fx_rate: t.fxRate,
+      sell_proceeds_destination: sellProceedsDestination,
       notes: t.notes,
-    };
+    });
   }
 
   private toValuationInsert(

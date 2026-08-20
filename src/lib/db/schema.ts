@@ -24,6 +24,10 @@ import {
   type AnyPgColumn,
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
+import {
+  SELL_PROCEEDS_DESTINATIONS,
+  type SellProceedsDestination,
+} from "../sellProceedsDestination";
 
 // MB-205: the analytics schema holds the recomputable / machine-owned data
 // plane — raw layer, email facts, mbox-pipeline state, and the marts. Declared
@@ -3042,11 +3046,18 @@ export const assetStatus = pgEnum("asset_status", [
 export const transactionType = pgEnum("transaction_type", [
   "contribution",
   "divestment",
-  "distribution",
   "interest_income",
   "return_of_capital",
   "other",
+  "internal_transfer",
 ]);
+
+export const sellProceedsDestination = pgEnum(
+  "sell_proceeds_destination",
+  SELL_PROCEEDS_DESTINATIONS,
+);
+
+export type { SellProceedsDestination };
 
 export const valuationMethod = pgEnum("valuation_method", [
   "at_cost",
@@ -3462,6 +3473,8 @@ export const fundAssetTransactions = pgTable("fund_asset_transactions", {
   value_amount: numeric({ mode: "number" }),
   txn_currency: text(),
   fx_rate: numeric({ mode: "number" }),
+  sell_proceeds_destination: sellProceedsDestination(),
+  source_divestment_txn_id: uuid(),
   notes: text(),
   created_by: uuid(),
   updated_by: uuid(),
@@ -3492,6 +3505,11 @@ export const fundAssetTransactions = pgTable("fund_asset_transactions", {
     foreignColumns: [fundingSources.id],
     name: "fund_asset_transactions_funding_source_id_fkey",
   }).onDelete("set null"),
+  fundAssetTxnSourceDivestmentFkey: foreignKey({
+    columns: [table.source_divestment_txn_id],
+    foreignColumns: [table.id],
+    name: "fund_asset_transactions_source_divestment_fkey",
+  }).onDelete("cascade"),
   fundAssetTxnCreatedByFkey: foreignKey({
     columns: [table.created_by],
     foreignColumns: [users.id],
@@ -3502,6 +3520,13 @@ export const fundAssetTransactions = pgTable("fund_asset_transactions", {
     foreignColumns: [users.id],
     name: "fund_asset_transactions_updated_by_fkey",
   }).onDelete("set null"),
+  fundAssetTxnSellProceedsDestinationChk: check(
+    "fund_asset_transactions_sell_proceeds_destination_chk",
+    sql`(txn_type = 'divestment' AND sell_proceeds_destination IS NOT NULL) OR (txn_type != 'divestment' AND sell_proceeds_destination IS NULL)`,
+  ),
+  fundAssetTxnSourceDivestmentUniq: unique(
+    "fund_asset_transactions_source_divestment_uniq",
+  ).on(table.source_divestment_txn_id),
   idxFundAssetTxnAsset: index("idx_fund_asset_transactions_fund_asset_id")
     .using("btree", table.fund_asset_id.asc().nullsLast().op("uuid_ops")),
 }));

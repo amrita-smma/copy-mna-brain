@@ -75,6 +75,7 @@ describe('FundUpdateApplyService', () => {
   let holdingEntityRepo: { findAll: ReturnType<typeof vi.fn>; insert: ReturnType<typeof vi.fn> };
   let fundSourceRepo: { findAll: ReturnType<typeof vi.fn>; insert: ReturnType<typeof vi.fn> };
   let fundMetricsService: { recomputeAsset: ReturnType<typeof vi.fn> };
+  let fundAssetLedgerService: { addTransaction: ReturnType<typeof vi.fn> };
   let service: FundUpdateApplyService;
 
   beforeEach(() => {
@@ -112,6 +113,10 @@ describe('FundUpdateApplyService', () => {
       insert: vi.fn().mockResolvedValue({ id: 'fs-1', name: 'DCA' }),
     };
     fundMetricsService = { recomputeAsset: vi.fn().mockResolvedValue(undefined) };
+    const insertTxn = txnRepo.insert as unknown as (transaction: unknown) => Promise<unknown>;
+    fundAssetLedgerService = {
+      addTransaction: vi.fn(async (_assetId: string, transaction: unknown) => insertTxn(transaction)),
+    };
 
     service = new FundUpdateApplyService(
       fundRepo as never,
@@ -121,6 +126,7 @@ describe('FundUpdateApplyService', () => {
       holdingEntityRepo as never,
       fundSourceRepo as never,
       fundMetricsService as never,
+      fundAssetLedgerService as never,
     );
   });
 
@@ -296,6 +302,72 @@ describe('FundUpdateApplyService', () => {
     expect(result.updated_assets).toBe(1);
     expect(result.txns_inserted).toBe(1);
     expect(txnRepo.insert).toHaveBeenCalledTimes(1);
+  });
+
+  it('defaults imported divestment sell_proceeds_destination to distributed_to_investor and non-divestment to null', async () => {
+    fundRepo.findAll.mockResolvedValue([
+      { id: 'fund-others', name: 'Others' },
+    ]);
+
+    const divestmentTxn = {
+      date: '2023-01-01',
+      type: 'divestment' as const,
+      subTypeLabel: null,
+      pricePerShare: 5,
+      shareCount: 10,
+      valueAmount: 50,
+      currency: 'USD',
+      fxRate: null,
+      notes: null,
+    };
+    const explicitCashTxn = {
+      date: '2023-06-01',
+      type: 'divestment' as const,
+      subTypeLabel: null,
+      pricePerShare: 5,
+      shareCount: 10,
+      valueAmount: 50,
+      currency: 'USD',
+      fxRate: null,
+      sellProceedsDestination: 'cash_in_fund' as const,
+      notes: null,
+    };
+    const contributionTxn = {
+      date: '2021-01-01',
+      type: 'contribution' as const,
+      subTypeLabel: null,
+      pricePerShare: 1,
+      shareCount: 50,
+      valueAmount: 50,
+      currency: 'USD',
+      fxRate: null,
+      notes: null,
+    };
+
+    const asset = sampleAsset({
+      txns: [contributionTxn, divestmentTxn, explicitCashTxn],
+    });
+
+    await service.applySelected([asset], ['GOTO']);
+
+    expect(txnRepo.insert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        txn_type: 'contribution',
+        sell_proceeds_destination: null,
+      }),
+    );
+    expect(txnRepo.insert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        txn_type: 'divestment',
+        sell_proceeds_destination: 'distributed_to_investor',
+      }),
+    );
+    expect(txnRepo.insert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        txn_type: 'divestment',
+        sell_proceeds_destination: 'cash_in_fund',
+      }),
+    );
   });
 
   it('sorts review assets by status then code', async () => {

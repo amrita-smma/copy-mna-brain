@@ -28,7 +28,6 @@ describe('scoreAppendixNameMatch', () => {
     expect(scoreAppendixNameMatch('GOTO Group', 'Gojek')).toBeLessThan(0.7);
   });
 });
-
 describe('resolveAppendixId', () => {
   it('uses manual overrides for awkward sheet codes', () => {
     expect(resolveAppendixId('GOTO', ['GOTO Group'], APPENDIX)).toBe('S009');
@@ -48,5 +47,87 @@ describe('resolveAppendixId', () => {
   it('returns undefined when nothing is confident', () => {
     expect(resolveAppendixId('EURO', ['EURO', 'PT Euro Medika', 'Euro Medika'], APPENDIX)).toBeUndefined();
     expect(resolveAppendixId('NEWX', ['Brand New Co'], APPENDIX)).toBeUndefined();
+  });
+});
+
+describe('parseWorkbook transaction sell_proceeds_destination', () => {
+  it('defaults divestments to distributed_to_investor and non-divestments to null', async () => {
+    const ExcelJS = (await import('exceljs')).default;
+    const { parseWorkbook } = await import('./startech_quarterly');
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet('Acme');
+
+    ws.getCell(4, 7).value = new Date('2026-06-30'); // G4 reporting date
+    ws.getCell(7, 4).value = 'Acme Corp'; // D7
+    ws.getCell(10, 4).value = 'Direct Investments'; // D10
+
+    // Header row
+    ws.getCell(23, 2).value = 'S/N';
+    ws.getCell(23, 3).value = 'Txn Date';
+    ws.getCell(23, 5).value = 'Transaction Type';
+    ws.getCell(23, 6).value = 'Price per Share';
+    ws.getCell(23, 7).value = 'No of Shares';
+    ws.getCell(23, 8).value = 'Transaction Value';
+    ws.getCell(23, 9).value = 'Currency';
+
+    // Contribution row
+    ws.getCell(24, 3).value = new Date('2021-01-01');
+    ws.getCell(24, 5).value = 'Cost of investment';
+    ws.getCell(24, 8).value = -1000000;
+    ws.getCell(24, 9).value = 'USD';
+
+    // Divestment row
+    ws.getCell(25, 3).value = new Date('2023-05-15');
+    ws.getCell(25, 5).value = 'Divestment';
+    ws.getCell(25, 8).value = 500000;
+    ws.getCell(25, 9).value = 'USD';
+
+    const assets = parseWorkbook(wb);
+    expect(assets).toHaveLength(1);
+    expect(assets[0].txns).toHaveLength(2);
+
+    expect(assets[0].txns[0]).toMatchObject({
+      type: 'contribution',
+      sellProceedsDestination: null,
+    });
+    expect(assets[0].txns[1]).toMatchObject({
+      type: 'divestment',
+      sellProceedsDestination: 'distributed_to_investor',
+    });
+  });
+
+  it('parses a workbook row labelled Distribution to type divestment with sellProceedsDestination distributed_to_investor', async () => {
+    const ExcelJS = (await import('exceljs')).default;
+    const { parseWorkbook } = await import('./startech_quarterly');
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet('Acme');
+
+    ws.getCell(4, 7).value = new Date('2026-06-30'); // G4 reporting date
+    ws.getCell(7, 4).value = 'Acme Corp'; // D7
+    ws.getCell(10, 4).value = 'Direct Investments'; // D10
+
+    // Header row
+    ws.getCell(23, 2).value = 'S/N';
+    ws.getCell(23, 3).value = 'Txn Date';
+    ws.getCell(23, 5).value = 'Transaction Type';
+    ws.getCell(23, 6).value = 'Price per Share';
+    ws.getCell(23, 7).value = 'No of Shares';
+    ws.getCell(23, 8).value = 'Transaction Value';
+    ws.getCell(23, 9).value = 'Currency';
+
+    // Distribution row
+    ws.getCell(24, 3).value = new Date('2024-06-01');
+    ws.getCell(24, 5).value = 'Distribution';
+    ws.getCell(24, 8).value = 250000;
+    ws.getCell(24, 9).value = 'USD';
+
+    const assets = parseWorkbook(wb);
+    expect(assets).toHaveLength(1);
+    expect(assets[0].txns).toHaveLength(1);
+    expect(assets[0].txns[0]).toMatchObject({
+      type: 'divestment',
+      sellProceedsDestination: 'distributed_to_investor',
+      valueAmount: 250000,
+    });
   });
 });

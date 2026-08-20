@@ -152,13 +152,13 @@ const STATUS_LABEL: Record<AssetStatus, string> = {
 const TXN_TYPE_OPTIONS: { value: TxnTypeEnum; label: string }[] = [
   { value: "contribution", label: "Contribution" },
   { value: "divestment", label: "Divestment" },
-  { value: "distribution", label: "Distribution" },
   { value: "interest_income", label: "Interest income" },
   { value: "return_of_capital", label: "Return of capital" },
   { value: "other", label: "Other" },
 ];
 
 function txnTypeLabel(type: string): string {
+  if (type === "distribution") return "Divestment";
   return TXN_TYPE_OPTIONS.find((o) => o.value === type)?.label ?? type;
 }
 
@@ -1816,7 +1816,7 @@ function TxnTable({
                   <td className={REVIEW_CELL}>
                     {canEdit ? (
                       <Select
-                        value={txn.type}
+                        value={((txn.type as string) === "distribution" ? "divestment" : txn.type) as string}
                         onValueChange={(value) =>
                           onEdit?.(assetCode, row.originalKey, row.txn, "type", value)
                         }

@@ -6,7 +6,10 @@ import type { FundAiOpinionConfidence } from '@/lib/services/fundAiOpinionDataSu
 
 export type { FundAiOpinionConfidence };
 
-export type TxnType = 'Buy' | 'Sell' | 'Distribution' | 'Other';
+export type TxnType = 'Buy' | 'Sell' | 'Other';
+
+import type { SellProceedsDestination } from '@/lib/sellProceedsDestination';
+export type { SellProceedsDestination };
 
 export interface Txn {
   /** Server-assigned id (fund_asset_transactions.id) — absent only for a
@@ -25,6 +28,9 @@ export interface Txn {
   fundId?: string | null;
   holdingEntityId?: string | null;
   fundingSourceId?: string | null;
+  sellProceedsDestination?: SellProceedsDestination | null;
+  sourceDivestmentTxnId?: string | null;
+  isGenerated?: boolean;
 }
 
 export interface Quarter {

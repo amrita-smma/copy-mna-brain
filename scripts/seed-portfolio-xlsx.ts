@@ -55,6 +55,7 @@ config();
 import { createHash } from 'node:crypto';
 import { homedir } from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import ExcelJS from 'exceljs';
 import { drizzle } from 'drizzle-orm/postgres-js';
@@ -77,6 +78,7 @@ import {
   FUND_CATALOG,
   parseWorkbook,
   type ParsedAsset,
+  type ParsedTxn,
 } from '../src/lib/fund_updates/parsers/startech_quarterly';
 
 
@@ -149,6 +151,36 @@ async function makeNameResolver(
     return toInsert.length;
   };
   return { resolve, flush };
+}
+
+export function mapParsedTxnToRow(
+  assetId: string,
+  fundId: string,
+  holdingEntityId: string | null,
+  fundingSourceId: string | null,
+  t: ParsedTxn,
+) {
+  const sellProceedsDestination =
+    t.type === 'divestment'
+      ? (t.sellProceedsDestination ?? 'distributed_to_investor')
+      : null;
+
+  return {
+    fund_asset_id: assetId,
+    fund_id: fundId,
+    holding_entity_id: holdingEntityId,
+    funding_source_id: fundingSourceId,
+    txn_date: t.date,
+    txn_type: t.type,
+    sell_proceeds_destination: sellProceedsDestination,
+    sub_type_label: t.subTypeLabel,
+    price_per_share: t.pricePerShare,
+    share_count: t.shareCount,
+    value_amount: t.valueAmount,
+    txn_currency: t.currency,
+    fx_rate: t.fxRate,
+    notes: t.notes,
+  };
 }
 
 async function seedPortfolio(db: DbClient, workspaceId: string, assets: ParsedAsset[]) {
@@ -227,21 +259,9 @@ async function seedPortfolio(db: DbClient, workspaceId: string, assets: ParsedAs
     const fundingSourceId = a.fundingSource ? sourceResolver.resolve(a.fundingSource) : null;
     const assetId = detUuid('asset', `${workspaceId}:${a.code}`);
     for (const t of a.txns) {
-      txnRows.push({
-        fund_asset_id: assetId,
-        fund_id: fundId,
-        holding_entity_id: holdingEntityId,
-        funding_source_id: fundingSourceId,
-        txn_date: t.date,
-        txn_type: t.type,
-        sub_type_label: t.subTypeLabel,
-        price_per_share: t.pricePerShare,
-        share_count: t.shareCount,
-        value_amount: t.valueAmount,
-        txn_currency: t.currency,
-        fx_rate: t.fxRate,
-        notes: t.notes,
-      });
+      txnRows.push(
+        mapParsedTxnToRow(assetId, fundId, holdingEntityId, fundingSourceId, t),
+      );
     }
   }
   await rawDb.insert(fundAssetTransactions).values(txnRows as never);
@@ -420,8 +440,14 @@ async function main() {
   }
 }
 
-main().catch((err) => {
-  console.error('portfolio seed failed:');
-  console.error(err);
-  process.exit(1);
-});
+const isCliEntry =
+  Boolean(process.argv[1]) &&
+  path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+
+if (isCliEntry) {
+  main().catch((err) => {
+    console.error('portfolio seed failed:');
+    console.error(err);
+    process.exit(1);
+  });
+}
