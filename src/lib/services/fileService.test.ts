@@ -2974,14 +2974,6 @@ describe('FileService.getReviewData fund_updates', () => {
   });
   it('forwards commitment_events from proposal into buildFullReview', async () => {
     const fileRepo = makeFileRepoStub();
-    const mockApplyService = {
-      buildFullReview: vi.fn().mockResolvedValue({
-        assets: [],
-        funds: [],
-        investors: [],
-        sources: [],
-      }),
-    };
     const commitmentEvents = [
       {
         fund: 'Fund A',
@@ -3000,6 +2992,20 @@ describe('FileService.getReviewData fund_updates', () => {
         sourceRow: 3,
       },
     ];
+    const commitmentEventReview = [{
+      key: 'fund a|investor a|2024-01-15|increase|1000000|3',
+      status: 'actionable' as const,
+      event: commitmentEvents[0],
+    }];
+    const mockApplyService = {
+      buildFullReview: vi.fn().mockResolvedValue({
+        assets: [],
+        funds: [],
+        investors: [],
+        sources: [],
+        commitment_events: commitmentEventReview,
+      }),
+    };
     const notes = JSON.stringify({
       file_type: 'fund_updates',
       parser: 'nanjing_fund_ledger_v1',
@@ -3014,11 +3020,15 @@ describe('FileService.getReviewData fund_updates', () => {
     );
     const service = makeService({ fileRepo });
     service.setFundUpdateApplyService(mockApplyService as any);
-    await service.getReviewData('file-nanjing-review');
+    const result = await service.getReviewData('file-nanjing-review');
     expect(mockApplyService.buildFullReview).toHaveBeenCalledWith(
       expect.any(Array),
       commitmentEvents,
     );
+    expect(result).toMatchObject({
+      kind: 'fund_updates',
+      commitment_events: commitmentEventReview,
+    });
   });
 
   it('links a Nanjing investor to every asset booked under their committed fund (MB-485 regression)', async () => {
@@ -3167,6 +3177,7 @@ describe('FileService.approve (fund_updates commitment events)', () => {
       {
         source: 'nanjing_fund_ledger_v1',
         fundCatalog: ['Fund A'],
+        catalogSelections: undefined,
       },
     );
     expect(res.fund_update).toEqual({
@@ -3182,6 +3193,159 @@ describe('FileService.approve (fund_updates commitment events)', () => {
       commitment_event_warnings: ['Some warning'],
     });
   });
+
+  it('threads fund_update_catalog_selections to applyCommitmentEvents for legacy proposal with commitment_events', async () => {
+    const fileRepo = makeFileRepoStub();
+    const mockApplyService = {
+      applySelected: vi.fn().mockResolvedValue({
+        applied: 1,
+        created_assets: 1,
+        updated_assets: 0,
+        skipped: 0,
+        txns_inserted: 1,
+        valuations_upserted: 0,
+      }),
+      applyCommitmentEvents: vi.fn().mockResolvedValue({
+        events_inserted: 1,
+        events_skipped_duplicate: 0,
+        events_skipped: 0,
+        warnings: [],
+      }),
+      buildReview: vi.fn().mockResolvedValue([]),
+    };
+    const commitmentEvents = [
+      {
+        fund: 'Fund A',
+        investorName: 'Investor A',
+        investorTypeRaw: '机构投资人',
+        investorTypeLabel: 'Institutional Investor',
+        date: '2024-01-15',
+        intent: 'increase' as const,
+        amount: 1000000,
+        currency: 'CNY' as const,
+        counterpartyName: null,
+        actionRaw: '认缴',
+        natureRaw: '新增额度',
+        directionRaw: '认缴额度增加',
+        notes: null,
+        sourceRow: 3,
+      },
+    ];
+    const notes = JSON.stringify({
+      file_type: 'fund_updates',
+      parser: 'nanjing_fund_ledger_v1',
+      fund_update_proposal: {
+        template_id: 'nanjing_fund_ledger_v1',
+        stats: { asset_count: 1, commitment_event_count: 1 },
+        assets: [{ code: 'NJ-01', name: 'Asset 1', fund: 'Fund A', txns: [] }],
+        fund_catalog: ['Fund A'],
+        commitment_events: commitmentEvents,
+      },
+    });
+    vi.mocked(fileRepo.findById).mockResolvedValue(
+      makeFile({ id: 'file-nanjing', file_type: 'fund_updates', structured_notes: notes }),
+    );
+    const service = makeService({ fileRepo });
+    service.setFundUpdateApplyService(mockApplyService as any);
+
+    const catalogSelections = {
+      funds: ['Fund A'],
+      investors: ['Investor A'],
+      sources: ['Source B'],
+    };
+    const eventKeys = ['fund a|investor a|2024-01-15|increase|1000000|3'];
+
+    await service.approve('file-nanjing', {
+      file_type: 'fund_updates',
+      matched_company_id: null,
+      fund_update_asset_codes: ['NJ-01'],
+      fund_update_catalog_selections: catalogSelections,
+      fund_update_commitment_event_keys: eventKeys,
+    });
+
+    expect(mockApplyService.applyCommitmentEvents).toHaveBeenCalledWith(
+      commitmentEvents,
+      {
+        source: 'nanjing_fund_ledger_v1',
+        fundCatalog: ['Fund A'],
+        catalogSelections,
+        eventKeys,
+      },
+    );
+  });
+
+  it('forwards empty eventKeys array when fund_update_commitment_event_keys is empty array', async () => {
+    const fileRepo = makeFileRepoStub();
+    const mockApplyService = {
+      applySelected: vi.fn().mockResolvedValue({
+        applied: 1,
+        created_assets: 1,
+        updated_assets: 0,
+        skipped: 0,
+        txns_inserted: 1,
+        valuations_upserted: 0,
+      }),
+      applyCommitmentEvents: vi.fn().mockResolvedValue({
+        events_inserted: 0,
+        events_skipped_duplicate: 0,
+        events_skipped: 1,
+        warnings: [],
+      }),
+      buildReview: vi.fn().mockResolvedValue([]),
+    };
+    const commitmentEvents = [
+      {
+        fund: 'Fund A',
+        investorName: 'Investor A',
+        investorTypeRaw: '机构投资人',
+        investorTypeLabel: 'Institutional Investor',
+        date: '2024-01-15',
+        intent: 'increase' as const,
+        amount: 1000000,
+        currency: 'CNY' as const,
+        counterpartyName: null,
+        actionRaw: '认缴',
+        natureRaw: '新增额度',
+        directionRaw: '认缴额度增加',
+        notes: null,
+        sourceRow: 3,
+      },
+    ];
+    const notes = JSON.stringify({
+      file_type: 'fund_updates',
+      parser: 'nanjing_fund_ledger_v1',
+      fund_update_proposal: {
+        template_id: 'nanjing_fund_ledger_v1',
+        stats: { asset_count: 1, commitment_event_count: 1 },
+        assets: [{ code: 'NJ-01', name: 'Asset 1', fund: 'Fund A', txns: [] }],
+        fund_catalog: ['Fund A'],
+        commitment_events: commitmentEvents,
+      },
+    });
+    vi.mocked(fileRepo.findById).mockResolvedValue(
+      makeFile({ id: 'file-nanjing', file_type: 'fund_updates', structured_notes: notes }),
+    );
+    const service = makeService({ fileRepo });
+    service.setFundUpdateApplyService(mockApplyService as any);
+
+    await service.approve('file-nanjing', {
+      file_type: 'fund_updates',
+      matched_company_id: null,
+      fund_update_asset_codes: ['NJ-01'],
+      fund_update_commitment_event_keys: [],
+    });
+
+    expect(mockApplyService.applyCommitmentEvents).toHaveBeenCalledWith(
+      commitmentEvents,
+      {
+        source: 'nanjing_fund_ledger_v1',
+        fundCatalog: ['Fund A'],
+        catalogSelections: undefined,
+        eventKeys: [],
+      },
+    );
+  });
+
   it('never calls applyCommitmentEvents for a v1 (workbook_fallback_v1) proposal', async () => {
     const fileRepo = makeFileRepoStub();
     const mockApplyService = {

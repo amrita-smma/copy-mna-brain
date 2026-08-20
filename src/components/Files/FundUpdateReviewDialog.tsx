@@ -29,6 +29,9 @@ import {
   fundUpdateTxnKey,
   fundUpdateValKey,
   sortFundUpdateReviewAssets,
+  defaultCommitmentEventSelection,
+  filterCommitmentEventsByInvestor,
+  setInvestorCommitmentEventSelection,
 } from "@/lib/fund_updates";
 import type { ParsedTxn, ParsedValuation, TxnTypeEnum, ValuationMethodEnum } from "@/lib/fund_updates";
 import type { FundUpdateAssetSelection } from "@/lib/services/fundUpdateApplyService";
@@ -108,6 +111,26 @@ interface FundUpdateReviewData {
   funds?: FundUpdateCatalogMatch[];
   investors?: FundUpdateCatalogMatch[];
   sources?: FundUpdateCatalogMatch[];
+  commitment_events?: {
+    key: string;
+    status: "actionable" | "duplicate";
+    event: {
+      fund: string;
+      investorName: string;
+      investorTypeRaw: string | null;
+      investorTypeLabel: string | null;
+      date: string;
+      intent: "increase" | "decrease";
+      amount: number;
+      currency: "CNY";
+      counterpartyName: string | null;
+      actionRaw: string;
+      natureRaw: string | null;
+      directionRaw: string;
+      notes: string | null;
+      sourceRow: number;
+    };
+  }[];
 }
 
 interface ItemSelection {
@@ -485,6 +508,7 @@ export function FundUpdateReviewDialog({
   const [selectedFunds, setSelectedFunds] = useState<Set<string>>(new Set());
   const [selectedInvestors, setSelectedInvestors] = useState<Set<string>>(new Set());
   const [selectedSources, setSelectedSources] = useState<Set<string>>(new Set());
+  const [selectedCommitmentEvents, setSelectedCommitmentEvents] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     if (!open) return;
@@ -529,12 +553,16 @@ export function FundUpdateReviewDialog({
           setSelectedSources(
             new Set((sorted.sources ?? []).map((s) => s.name.trim().toLowerCase())),
           );
+          setSelectedCommitmentEvents(
+            defaultCommitmentEventSelection(sorted.commitment_events),
+          );
         } else {
           setSelected(new Set());
           setItemSelection(new Map());
           setSelectedFunds(new Set());
           setSelectedInvestors(new Set());
           setSelectedSources(new Set());
+          setSelectedCommitmentEvents(new Set());
         }
         setActiveCode(sorted.assets[0]?.code ?? null);
       } catch (err) {
@@ -603,6 +631,19 @@ export function FundUpdateReviewDialog({
     return getReferencingAssetsForItem(activeCatalogItem, catalogTab);
   }, [data, activeCatalogItem, catalogTab, getReferencingAssetsForItem]);
 
+  const activeInvestorCommitmentEvents = useMemo(() => {
+    if (!data || catalogTab !== "investor" || !activeCatalogItem || !data.commitment_events) {
+      return [];
+    }
+    return filterCommitmentEventsByInvestor(data.commitment_events, activeCatalogItem.name);
+  }, [data, catalogTab, activeCatalogItem]);
+  const activeInvestorIsSelected =
+    catalogTab === "investor" &&
+    Boolean(
+      activeCatalogItem &&
+        selectedInvestors.has(activeCatalogItem.name.trim().toLowerCase()),
+    );
+
   const getCatalogItemRefCount = useCallback(
     (item: FundUpdateCatalogMatch, tab: CatalogTab): number => {
       if (!data) return 0;
@@ -637,7 +678,17 @@ export function FundUpdateReviewDialog({
       return next;
     };
     if (tab === "fund") setSelectedFunds(updater);
-    else if (tab === "investor") setSelectedInvestors(updater);
+    else if (tab === "investor") {
+      setSelectedInvestors(updater);
+      setSelectedCommitmentEvents((prev) =>
+        setInvestorCommitmentEventSelection(
+          prev,
+          data?.commitment_events ?? [],
+          name,
+          checked,
+        ),
+      );
+    }
     else if (tab === "source") setSelectedSources(updater);
   }
 
@@ -651,7 +702,12 @@ export function FundUpdateReviewDialog({
           : data.sources ?? [];
     const allKeys = new Set(items.map((i) => i.name.trim().toLowerCase()));
     if (tab === "fund") setSelectedFunds(allKeys);
-    else if (tab === "investor") setSelectedInvestors(allKeys);
+    else if (tab === "investor") {
+      setSelectedInvestors(allKeys);
+      setSelectedCommitmentEvents(
+        defaultCommitmentEventSelection(data.commitment_events),
+      );
+    }
     else if (tab === "source") setSelectedSources(allKeys);
   }
 
@@ -669,7 +725,21 @@ export function FundUpdateReviewDialog({
         .map((i) => i.name.trim().toLowerCase()),
     );
     if (tab === "fund") setSelectedFunds(nonActionableKeys);
-    else if (tab === "investor") setSelectedInvestors(nonActionableKeys);
+    else if (tab === "investor") {
+      setSelectedInvestors(nonActionableKeys);
+      const selectedEvents = new Set<string>();
+      for (const investor of items) {
+        const investorKey = investor.name.trim().toLowerCase();
+        if (!nonActionableKeys.has(investorKey)) continue;
+        for (const event of filterCommitmentEventsByInvestor(
+          data.commitment_events ?? [],
+          investor.name,
+        )) {
+          if (event.status === "actionable") selectedEvents.add(event.key);
+        }
+      }
+      setSelectedCommitmentEvents(selectedEvents);
+    }
     else if (tab === "source") setSelectedSources(nonActionableKeys);
   }
 
@@ -782,7 +852,8 @@ export function FundUpdateReviewDialog({
     selected.size > 0 ||
     catalogCreateCounts.funds > 0 ||
     catalogCreateCounts.investors > 0 ||
-    catalogCreateCounts.sources > 0;
+    catalogCreateCounts.sources > 0 ||
+    selectedCommitmentEvents.size > 0;
 
   const approveButtonLabel = useMemo(() => {
     const parts: string[] = [];
@@ -804,6 +875,11 @@ export function FundUpdateReviewDialog({
         `${catalogCreateCounts.sources} ${catalogCreateCounts.sources === 1 ? "source of fund" : "sources of fund"}`,
       );
     }
+    if (selectedCommitmentEvents.size > 0) {
+      parts.push(
+        `${selectedCommitmentEvents.size} ${selectedCommitmentEvents.size === 1 ? "commitment event" : "commitment events"}`,
+      );
+    }
 
     if (parts.length === 0) {
       return "Approve";
@@ -817,7 +893,7 @@ export function FundUpdateReviewDialog({
     }
 
     return `Approve ${mainText}`;
-  }, [selected.size, catalogCreateCounts, approveCounts]);
+  }, [selected.size, selectedCommitmentEvents.size, catalogCreateCounts, approveCounts]);
 
   const getEditedTxn = useCallback(
     (assetCode: string, originalKey: string, fallback: ParsedTxn): ParsedTxn => {
@@ -997,6 +1073,7 @@ export function FundUpdateReviewDialog({
             investors: [...selectedInvestorNames],
             sources: [...selectedSourceNames],
           },
+          fund_update_commitment_event_keys: Array.from(selectedCommitmentEvents),
         }),
       });
       const json = await res.json();
@@ -1020,6 +1097,12 @@ export function FundUpdateReviewDialog({
             `${createdSources} ${createdSources === 1 ? "source of fund" : "sources of fund"}`,
           );
         }
+        const createdCommitmentEvents = result.commitment_events_inserted ?? 0;
+        if (createdCommitmentEvents > 0) {
+          createdParts.push(
+            `${createdCommitmentEvents} ${createdCommitmentEvents === 1 ? "commitment event" : "commitment events"}`,
+          );
+        }
         const base = `Applied ${result.applied} assets (+${result.txns_inserted} txns, +${result.valuations_upserted} vals)`;
         // A catalog-only approve touches no asset, so lead with what it did create
         // rather than reporting "Applied 0 assets".
@@ -1030,6 +1113,11 @@ export function FundUpdateReviewDialog({
               ? `${base} · created ${createdParts.join(", ")}`
               : base;
         toast.success(message);
+        if (result.commitment_event_warnings && result.commitment_event_warnings.length > 0) {
+          toast.warning("Some commitment events had issues", {
+            description: result.commitment_event_warnings[0] + (result.commitment_event_warnings.length > 1 ? ` (and ${result.commitment_event_warnings.length - 1} more)` : ""),
+          });
+        }
       } else {
         toast.success("Fund update approved");
       }
@@ -1187,14 +1275,13 @@ export function FundUpdateReviewDialog({
                               ) : null}
                               <div className="min-w-0 flex-1">
                                 <div className="flex items-center gap-1.5">
-                                  <span className="truncate text-sm font-medium">{asset.code}</span>
+                                  <span className="truncate text-sm font-medium">{asset.name}</span>
                                   {!readOnly ? (
                                     <Badge variant={statusVariant(asset.status)} className="shrink-0 text-[10px]">
                                       {STATUS_LABEL[asset.status]}
                                     </Badge>
                                   ) : null}
                                 </div>
-                                <div className="truncate text-xs text-muted-foreground">{asset.name}</div>
                                 <div className="mt-0.5 text-[11px] text-muted-foreground">
                                   {assetSubLabel(asset, sel, readOnly)}
                                 </div>
@@ -1551,14 +1638,13 @@ export function FundUpdateReviewDialog({
                                   >
                                     <div className="min-w-0 flex-1 pr-3">
                                       <div className="flex items-center gap-2">
-                                        <span className="font-medium text-foreground">{asset.code}</span>
+                                        <span className="truncate font-medium text-foreground">{asset.name}</span>
                                         {!readOnly ? (
                                           <Badge variant={statusVariant(asset.status)} className="text-[10px]">
                                             {STATUS_LABEL[asset.status]}
                                           </Badge>
                                         ) : null}
                                       </div>
-                                      <div className="truncate text-muted-foreground">{asset.name}</div>
                                     </div>
                                     <div className="shrink-0 text-muted-foreground">
                                       {asset.proposed.investmentTypeLabel || asset.asset_type || "Asset"}
@@ -1568,6 +1654,96 @@ export function FundUpdateReviewDialog({
                               </div>
                             )}
                           </div>
+                          {catalogTab === "investor" && activeInvestorCommitmentEvents.length > 0 && (
+                            <div className="pt-2">
+                              <div className="mb-2.5 flex items-center justify-between">
+                                <div className="text-xs font-medium text-muted-foreground">
+                                  Commitment Events ({activeInvestorCommitmentEvents.length})
+                                </div>
+                                {!readOnly && (
+                                  <div className="flex gap-2">
+                                    <Button
+                                      type="button"
+                                      variant="ghost"
+                                      size="sm"
+                                      className="h-6 px-2 text-[10px]"
+                                      disabled={!activeInvestorIsSelected}
+                                      onClick={() => {
+                                        const keys = activeInvestorCommitmentEvents
+                                          .filter((e) => e.status === "actionable")
+                                          .map((e) => e.key);
+                                        setSelectedCommitmentEvents((prev) => {
+                                          const next = new Set(prev);
+                                          keys.forEach((k) => next.add(k));
+                                          return next;
+                                        });
+                                      }}
+                                    >
+                                      Select all
+                                    </Button>
+                                    <Button
+                                      type="button"
+                                      variant="ghost"
+                                      size="sm"
+                                      className="h-6 px-2 text-[10px]"
+                                      disabled={!activeInvestorIsSelected}
+                                      onClick={() => {
+                                        const keys = activeInvestorCommitmentEvents
+                                          .filter((e) => e.status === "actionable")
+                                          .map((e) => e.key);
+                                        setSelectedCommitmentEvents((prev) => {
+                                          const next = new Set(prev);
+                                          keys.forEach((k) => next.delete(k));
+                                          return next;
+                                        });
+                                      }}
+                                    >
+                                      Deselect all
+                                    </Button>
+                                  </div>
+                                )}
+                              </div>
+                              <div className="rounded-md border divide-y text-xs">
+                                {activeInvestorCommitmentEvents.map((ev) => {
+                                  const isSelected = selectedCommitmentEvents.has(ev.key);
+                                  const isDisabled =
+                                    ev.status === "duplicate" || !activeInvestorIsSelected;
+                                  return (
+                                    <div key={ev.key} className={cn("flex items-start gap-3 p-3", isDisabled && "opacity-60 bg-muted/30")}>
+                                      {!readOnly && (
+                                        <Checkbox
+                                          checked={isSelected}
+                                          disabled={isDisabled}
+                                          onCheckedChange={(checked) => {
+                                            setSelectedCommitmentEvents((prev) => {
+                                              const next = new Set(prev);
+                                              if (checked) next.add(ev.key);
+                                              else next.delete(ev.key);
+                                              return next;
+                                            });
+                                          }}
+                                          className="mt-1 flex-shrink-0"
+                                        />
+                                      )}
+                                      <div className="min-w-0 flex-1 space-y-1">
+                                        <div className="flex items-center gap-2">
+                                          <span className="font-medium text-foreground">{ev.event.date}</span>
+                                          <Badge variant="outline" className="text-[10px] font-normal">{ev.event.intent === "increase" ? "Increase" : "Reduction"}</Badge>
+                                          {isDisabled && !readOnly && <Badge variant="secondary" className="text-[10px]">Existing</Badge>}
+                                        </div>
+                                        <div className="grid grid-cols-2 gap-2 text-muted-foreground mt-1.5">
+                                          <KV label="Amount" value={`${money(ev.event.amount)} ${ev.event.currency}`} />
+                                          <KV label="Fund" value={ev.event.fund} />
+                                          {ev.event.counterpartyName && <KV label="Counterparty" value={ev.event.counterpartyName} />}
+                                          {ev.event.notes && <KV label="Notes" value={ev.event.notes} className="col-span-2" />}
+                                        </div>
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          )}
                         </div>
                       </>
                     ) : (
@@ -1690,9 +1866,9 @@ function RowStatusBadge({ isExisting, isEdited }: { isExisting: boolean; isEdite
   return <Badge variant="default" className="text-[10px]">New</Badge>;
 }
 
-function KV({ label, value }: { label: string; value: string | null | undefined }) {
+function KV({ label, value, className }: { label: string; value: string | null | undefined; className?: string }) {
   return (
-    <div>
+    <div className={className}>
       <div className="text-xs text-muted-foreground">{label}</div>
       <div className="text-sm">{value && value !== "" ? value : "—"}</div>
     </div>

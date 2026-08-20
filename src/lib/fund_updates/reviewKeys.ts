@@ -38,6 +38,49 @@ export function commitmentEventKey(e: {
   return `${date}|${eventType}|${amount}`;
 }
 
+/** Stable key for proposed review commitment events. */
+export function reviewCommitmentEventKey(e: {
+  fund: string;
+  investorName: string;
+  date: string;
+  intent: string;
+  amount: number;
+  sourceRow: number;
+}): string {
+  const fund = e.fund.trim().toLowerCase();
+  const investor = e.investorName.trim().toLowerCase();
+  return `${fund}|${investor}|${e.date}|${e.intent}|${e.amount}|${e.sourceRow}`;
+}
+
+export function defaultCommitmentEventSelection(
+  events?: Array<{ key: string; status: 'actionable' | 'duplicate' }>,
+): Set<string> {
+  if (!events) return new Set();
+  return new Set(events.filter((e) => e.status === 'actionable').map((e) => e.key));
+}
+
+/** Helper to filter review commitment events for a specific investor. */
+export function filterCommitmentEventsByInvestor<
+  T extends { event: { investorName: string } },
+>(events: T[], investorName: string): T[] {
+  const target = investorName.trim().toLowerCase();
+  return events.filter((e) => e.event.investorName.trim().toLowerCase() === target);
+}
+
+export function setInvestorCommitmentEventSelection<
+  T extends { key: string; status: 'actionable' | 'duplicate'; event: { investorName: string } },
+>(current: Set<string>, events: T[], investorName: string, selected: boolean): Set<string> {
+  const next = new Set(current);
+  for (const event of filterCommitmentEventsByInvestor(events, investorName)) {
+    if (!selected) {
+      next.delete(event.key);
+      continue;
+    }
+    if (event.status === 'actionable') next.add(event.key);
+  }
+  return next;
+}
+
 export type FundUpdateAssetStatus = 'new' | 'unchanged' | 'add_missing';
 
 const STATUS_SORT_ORDER: Record<FundUpdateAssetStatus, number> = {

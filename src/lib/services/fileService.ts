@@ -301,6 +301,11 @@ export interface ApproveFileInput {
     investors?: string[];
     sources?: string[];
   };
+  /**
+   * Deterministic keys for commitment events the user wants to apply.
+   * If empty array [], no events are applied. If undefined, all events are applied.
+   */
+  fund_update_commitment_event_keys?: string[];
 }
 
 type ProspectusSummary = {
@@ -1221,6 +1226,7 @@ export class FileService {
       funds,
       investors,
       sources,
+      commitment_events: fullReview.commitment_events ?? [],
     };
   }
 
@@ -1560,6 +1566,10 @@ export class FileService {
         commitmentResult = await this.fundUpdateApplyService.applyCommitmentEvents(commitmentEvents, {
           source: proposal?.template_id,
           fundCatalog: proposal?.fund_catalog,
+          catalogSelections: input.fund_update_catalog_selections,
+          ...(input.fund_update_commitment_event_keys !== undefined
+            ? { eventKeys: input.fund_update_commitment_event_keys }
+            : {}),
         });
       } catch (err) {
         const errMsg = err instanceof Error ? err.message : String(err);

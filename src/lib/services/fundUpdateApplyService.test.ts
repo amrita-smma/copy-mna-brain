@@ -797,6 +797,40 @@ describe('FundUpdateApplyService', () => {
         ]),
       );
     });
+    it('marks existing commitment events as duplicate and includes actionable events', async () => {
+      fundRepo.findAll.mockResolvedValue([{ id: 'f-1', name: 'Fund A' }]);
+      holdingEntityRepo.findAll.mockResolvedValue([{ id: 'he-1', name: 'Investor A' }]);
+      commitmentEventRepo.findByFundAndHoldingEntity.mockImplementation(async (f, he) => {
+        if (f === 'f-1' && he === 'he-1') {
+          return [{
+            id: 'ce-1',
+            fund_id: 'f-1',
+            holding_entity_id: 'he-1',
+            effective_date: '2024-01-01',
+            event_type: 'initial_commitment',
+            amount: 500000,
+            currency: 'CNY'
+          }];
+        }
+        return [];
+      });
+
+      const ev1 = sampleCommitmentEvent({ fund: 'Fund A', investorName: 'Investor A', date: '2024-01-01', amount: 500000 });
+      const ev2 = sampleCommitmentEvent({ fund: 'Fund A', investorName: 'Investor A', date: '2024-02-01', amount: 250000 });
+      const ev3 = sampleCommitmentEvent({ fund: 'Fund B', investorName: 'Investor B', date: '2024-01-01', amount: 100000 });
+
+      const review = await service.buildFullReview([], [ev1, ev2, ev3]);
+      expect(review.commitment_events).toBeDefined();
+      expect(review.commitment_events).toHaveLength(3);
+
+      const st1 = review.commitment_events?.find(e => e.event === ev1)?.status;
+      const st2 = review.commitment_events?.find(e => e.event === ev2)?.status;
+      const st3 = review.commitment_events?.find(e => e.event === ev3)?.status;
+
+      expect(st1).toBe('duplicate');
+      expect(st2).toBe('actionable');
+      expect(st3).toBe('actionable');
+    });
   });
 
   describe('FundUpdateApplyService.applyCommitmentEvents', () => {
@@ -1045,6 +1079,226 @@ describe('FundUpdateApplyService', () => {
 
       expect(holdingEntityRepo.findAll).toHaveBeenCalledTimes(1);
       expect(commitmentEventRepo.findByFundAndHoldingEntity).toHaveBeenCalledTimes(2);
+    });
+
+    it('skips events whose fund is unticked without inserting fund or creating event, while applying selected events', async () => {
+      fundRepo.findAll.mockResolvedValue([]);
+      holdingEntityRepo.findAll.mockResolvedValue([]);
+
+      const evSelected = sampleCommitmentEvent({
+        fund: 'Selected Fund',
+        investorName: 'Investor A',
+        sourceRow: 2,
+        amount: 1000000,
+      });
+      const evUnticked = sampleCommitmentEvent({
+        fund: 'Unticked Fund',
+        investorName: 'Investor A',
+        sourceRow: 3,
+        amount: 500000,
+      });
+
+      const result = await service.applyCommitmentEvents(
+        [evSelected, evUnticked],
+        {
+          catalogSelections: {
+            funds: ['Selected Fund'],
+            investors: ['Investor A'],
+          },
+        },
+      );
+
+      expect(result.events_inserted).toBe(1);
+      expect(result.events_skipped).toBe(1);
+      expect(result.warnings).toHaveLength(1);
+      expect(result.warnings[0]).toContain('Unticked Fund');
+      expect(result.warnings[0]).toContain('not selected');
+
+      // Only Selected Fund was inserted into fundRepo
+      expect(fundRepo.insert).toHaveBeenCalledWith({ name: 'Selected Fund' });
+      expect(fundRepo.insert).not.toHaveBeenCalledWith(
+        expect.objectContaining({ name: 'Unticked Fund' }),
+      );
+
+      // Only 1 commitment event was created
+      expect(commitmentEventService.createEvent).toHaveBeenCalledTimes(1);
+      expect(commitmentEventService.createEvent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          amount: 1000000,
+        }),
+      );
+    });
+
+    it('filters events by eventKeys when explicitly provided', async () => {
+      fundRepo.findAll.mockResolvedValue([]);
+      holdingEntityRepo.findAll.mockResolvedValue([]);
+      fundRepo.insert.mockResolvedValue({ id: 'f-new', name: 'Some Fund' });
+      holdingEntityRepo.insert.mockResolvedValue({ id: 'he-new', name: 'Some Investor', entity_type: null });
+      commitmentEventRepo.findByFundAndHoldingEntity.mockResolvedValue([]);
+
+      const ev1 = sampleCommitmentEvent({ amount: 1000000, sourceRow: 1 });
+      const ev2 = sampleCommitmentEvent({ amount: 500000, sourceRow: 2 });
+      const ev3 = sampleCommitmentEvent({ amount: 200000, sourceRow: 3 });
+
+      const { reviewCommitmentEventKey } = await import('@/lib/fund_updates');
+      const keysToApply = [reviewCommitmentEventKey(ev1), reviewCommitmentEventKey(ev3)];
+
+      const result = await service.applyCommitmentEvents(
+        [ev1, ev2, ev3],
+        { eventKeys: keysToApply }
+      );
+
+      expect(result.events_inserted).toBe(2);
+      expect(result.events_skipped).toBe(1);
+
+      expect(commitmentEventService.createEvent).toHaveBeenCalledTimes(2);
+      expect(commitmentEventService.createEvent).toHaveBeenCalledWith(expect.objectContaining({ amount: 1000000 }));
+      expect(commitmentEventService.createEvent).toHaveBeenCalledWith(expect.objectContaining({ amount: 200000 }));
+      expect(commitmentEventService.createEvent).not.toHaveBeenCalledWith(expect.objectContaining({ amount: 500000 }));
+    });
+
+    it('applies no events and creates no catalog records when eventKeys is explicitly empty', async () => {
+      const events = [sampleCommitmentEvent()];
+
+      const result = await service.applyCommitmentEvents(events, { eventKeys: [] });
+
+      expect(result).toEqual({
+        events_inserted: 0,
+        events_skipped_duplicate: 0,
+        events_skipped: 1,
+        warnings: [],
+      });
+      expect(fundRepo.findAll).not.toHaveBeenCalled();
+      expect(fundRepo.insert).not.toHaveBeenCalled();
+      expect(holdingEntityRepo.findAll).not.toHaveBeenCalled();
+      expect(holdingEntityRepo.insert).not.toHaveBeenCalled();
+      expect(commitmentEventService.createEvent).not.toHaveBeenCalled();
+    });
+
+    it('overrides eventKeys when investor or fund is unticked in catalogSelections', async () => {
+      fundRepo.findAll.mockResolvedValue([]);
+      holdingEntityRepo.findAll.mockResolvedValue([]);
+      fundRepo.insert.mockResolvedValue({ id: 'f-1', name: 'Fund A' });
+      holdingEntityRepo.insert.mockResolvedValue({ id: 'he-1', name: 'Investor 1', entity_type: null });
+      commitmentEventRepo.findByFundAndHoldingEntity.mockResolvedValue([]);
+
+      const ev1 = sampleCommitmentEvent({
+        fund: 'Fund A',
+        investorName: 'Investor 1',
+        amount: 1000000,
+        sourceRow: 1,
+      });
+      const ev2 = sampleCommitmentEvent({
+        fund: 'Fund A',
+        investorName: 'Unticked Investor',
+        amount: 500000,
+        sourceRow: 2,
+      });
+
+      const { reviewCommitmentEventKey } = await import('@/lib/fund_updates');
+      // Both events are in eventKeys, but Investor 2 is not in catalogSelections.investors
+      const keys = [reviewCommitmentEventKey(ev1), reviewCommitmentEventKey(ev2)];
+
+      const result = await service.applyCommitmentEvents([ev1, ev2], {
+        eventKeys: keys,
+        catalogSelections: {
+          funds: ['Fund A'],
+          investors: ['Investor 1'],
+        },
+      });
+
+      expect(result.events_inserted).toBe(1);
+      expect(result.events_skipped).toBe(1);
+      expect(result.warnings).toHaveLength(1);
+      expect(result.warnings[0]).toContain('Unticked Investor');
+      expect(result.warnings[0]).toContain('investor is not selected');
+
+      expect(holdingEntityRepo.insert).toHaveBeenCalledWith(
+        expect.objectContaining({ name: 'Investor 1' }),
+      );
+      expect(holdingEntityRepo.insert).not.toHaveBeenCalledWith(
+        expect.objectContaining({ name: 'Unticked Investor' }),
+      );
+      expect(commitmentEventService.createEvent).toHaveBeenCalledTimes(1);
+      expect(commitmentEventService.createEvent).toHaveBeenCalledWith(
+        expect.objectContaining({ amount: 1000000 }),
+      );
+    });
+
+
+    it('skips events whose investor is unticked without inserting investor or creating event, while applying selected events', async () => {
+      fundRepo.findAll.mockResolvedValue([]);
+      holdingEntityRepo.findAll.mockResolvedValue([]);
+
+      const evSelected = sampleCommitmentEvent({
+        fund: 'Fund A',
+        investorName: 'Selected Investor',
+        sourceRow: 2,
+        amount: 1000000,
+      });
+      const evUnticked = sampleCommitmentEvent({
+        fund: 'Fund A',
+        investorName: 'Unticked Investor',
+        sourceRow: 3,
+        amount: 500000,
+      });
+
+      const result = await service.applyCommitmentEvents(
+        [evSelected, evUnticked],
+        {
+          catalogSelections: {
+            funds: ['Fund A'],
+            investors: ['Selected Investor'],
+          },
+        },
+      );
+
+      expect(result.events_inserted).toBe(1);
+      expect(result.events_skipped).toBe(1);
+      expect(result.warnings).toHaveLength(1);
+      expect(result.warnings[0]).toContain('Unticked Investor');
+      expect(result.warnings[0]).toContain('not selected');
+
+      // Only Selected Investor was inserted into holdingEntityRepo
+      expect(holdingEntityRepo.insert).toHaveBeenCalledWith({
+        name: 'Selected Investor',
+        entity_type: 'Institutional Investor',
+      });
+      expect(holdingEntityRepo.insert).not.toHaveBeenCalledWith(
+        expect.objectContaining({ name: 'Unticked Investor' }),
+      );
+
+      // Only 1 commitment event was created
+      expect(commitmentEventService.createEvent).toHaveBeenCalledTimes(1);
+      expect(commitmentEventService.createEvent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          amount: 1000000,
+        }),
+      );
+    });
+
+    it('ignores source selections in applyCommitmentEvents', async () => {
+      fundRepo.findAll.mockResolvedValue([]);
+      holdingEntityRepo.findAll.mockResolvedValue([]);
+
+      const ev = sampleCommitmentEvent({
+        fund: 'Fund A',
+        investorName: 'Investor A',
+      });
+
+      const result = await service.applyCommitmentEvents(
+        [ev],
+        {
+          catalogSelections: {
+            funds: ['Fund A'],
+            investors: ['Investor A'],
+            sources: [], // empty sources must not skip commitment event
+          },
+        },
+      );
+
+      expect(result.events_inserted).toBe(1);
+      expect(result.events_skipped).toBe(0);
     });
   });
 
@@ -1346,23 +1600,140 @@ describe('FundUpdateApplyService', () => {
       expect(result.created_sources).toBe(0);
     });
 
-    it('does not double-count a FUND_CATALOG fund that ensureFundCatalog already created', async () => {
-      // Fresh workspace: ensureFundCatalog seeds all eight catalog funds before the
-      // eager pass runs, so a ticked catalog name is already in the lookup and must
-      // not be reported as a reviewer-driven creation. The UI agrees — those rows
-      // carry auto_created and are excluded from the button's count.
+    it('creates only selected FUND_CATALOG fund in fresh workspace without seeding unticked ones', async () => {
       fundRepo.findAll.mockResolvedValue([]);
 
       const result = await service.applySelected([], [], undefined, undefined, {
         funds: ['Meranti 1'],
       });
 
-      expect(result.created_funds).toBe(0);
-      // Seeded by ensureFundCatalog, exactly once, not again by the eager pass.
-      const meranti1Inserts = fundRepo.insert.mock.calls.filter(
-        ([arg]) => arg.name === 'Meranti 1',
+      expect(result.created_funds).toBe(1);
+      expect(fundRepo.insert).toHaveBeenCalledTimes(1);
+      expect(fundRepo.insert).toHaveBeenCalledWith({ name: 'Meranti 1' });
+    });
+
+    it('with explicit partial fund selection and proposal fund_catalog, unticked missing funds are not inserted and approved asset is applied with null fund relationship', async () => {
+      fundRepo.findAll.mockResolvedValue([]);
+      const catalog = ['Fund A', 'Fund B'];
+      const assetA = sampleAsset({ code: 'A1', fund: 'Fund A' });
+      const assetB = sampleAsset({ code: 'B1', fund: 'Fund B' });
+
+      // Reviewer approves assetB, but deselects Fund B (only selects Fund A in catalog selections)
+      const result = await service.applySelected(
+        [assetA, assetB],
+        ['B1'],
+        undefined,
+        undefined,
+        { funds: ['Fund A'] },
+        catalog,
       );
-      expect(meranti1Inserts).toHaveLength(1);
+
+      expect(result.created_assets).toBe(1);
+      expect(result.created_funds).toBe(1);
+      expect(fundRepo.insert).toHaveBeenCalledTimes(1);
+      expect(fundRepo.insert).toHaveBeenCalledWith({ name: 'Fund A' });
+      expect(fundRepo.insert).not.toHaveBeenCalledWith(expect.objectContaining({ name: 'Fund B' }));
+      expect(txnRepo.insert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          fund_id: null,
+        }),
+      );
+    });
+
+    it('with explicit empty fund selection and proposal fund_catalog, no funds are inserted and approved asset is applied with null fund relationship', async () => {
+      fundRepo.findAll.mockResolvedValue([]);
+      const catalog = ['Fund A', 'Fund B'];
+      const asset = sampleAsset({ code: 'A1', fund: 'Fund A' });
+
+      const result = await service.applySelected(
+        [asset],
+        ['A1'],
+        undefined,
+        undefined,
+        { funds: [] },
+        catalog,
+      );
+
+      expect(result.created_assets).toBe(1);
+      expect(result.created_funds).toBe(0);
+      expect(fundRepo.insert).not.toHaveBeenCalled();
+      expect(txnRepo.insert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          fund_id: null,
+        }),
+      );
+    });
+
+    it('inserts and links selected investors and sources while leaving unticked ones uninserted and null', async () => {
+      holdingEntityRepo.findAll.mockResolvedValue([]);
+      fundSourceRepo.findAll.mockResolvedValue([]);
+
+      const asset1 = sampleAsset({
+        code: 'A1',
+        entity: 'Selected Investor',
+        fundingSource: 'Selected Source',
+        fundingSourceRaw: 'Selected Source',
+      });
+      const asset2 = sampleAsset({
+        code: 'A2',
+        entity: 'Unticked Investor',
+        fundingSource: 'Unticked Source',
+        fundingSourceRaw: 'Unticked Source',
+      });
+
+      const result = await service.applySelected(
+        [asset1, asset2],
+        ['A1', 'A2'],
+        undefined,
+        undefined,
+        {
+          investors: ['Selected Investor'],
+          sources: ['Selected Source'],
+        },
+      );
+
+      expect(result.created_assets).toBe(2);
+      expect(result.created_investors).toBe(1);
+      expect(result.created_sources).toBe(1);
+
+      expect(holdingEntityRepo.insert).toHaveBeenCalledWith({ name: 'Selected Investor' });
+      expect(holdingEntityRepo.insert).not.toHaveBeenCalledWith(
+        expect.objectContaining({ name: 'Unticked Investor' }),
+      );
+
+      expect(fundSourceRepo.insert).toHaveBeenCalledWith({ name: 'Selected Source' });
+      expect(fundSourceRepo.insert).not.toHaveBeenCalledWith(
+        expect.objectContaining({ name: 'Unticked Source' }),
+      );
+
+      // Asset 1 has source, asset 2 has null source
+      expect(fundAssetRepo.insert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          asset_name: asset1.name,
+          funding_source: 'Selected Source',
+        }),
+      );
+      expect(fundAssetRepo.insert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          asset_name: asset2.name,
+          funding_source: null,
+        }),
+      );
+
+      // Asset 1 txn has holding_entity_id & funding_source_id
+      expect(txnRepo.insert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          holding_entity_id: 'he-Selected Investor',
+          funding_source_id: 'fs-1',
+        }),
+      );
+      // Asset 2 txn has null holding_entity_id & null funding_source_id
+      expect(txnRepo.insert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          holding_entity_id: null,
+          funding_source_id: null,
+        }),
+      );
     });
 
     it('creates ticked fund not referenced by any approved asset', async () => {

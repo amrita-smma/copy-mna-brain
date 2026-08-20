@@ -37,9 +37,13 @@ export type {
 export type { DeterministicParser, FundUpdateStructuredResult } from './types';
 export {
   commitmentEventKey,
+  reviewCommitmentEventKey,
   fundUpdateTxnKey,
   fundUpdateValKey,
   sortFundUpdateReviewAssets,
+  defaultCommitmentEventSelection,
+  filterCommitmentEventsByInvestor,
+  setInvestorCommitmentEventSelection,
 } from './reviewKeys';
 export {
   assetCodesForCatalogName,
@@ -91,4 +95,3 @@ export async function tryDeterministicFundUpdateParse(
 
   return null;
 }
-

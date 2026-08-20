@@ -1,9 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import {
   commitmentEventKey,
+  reviewCommitmentEventKey,
   fundUpdateTxnKey,
   fundUpdateValKey,
   sortFundUpdateReviewAssets,
+  defaultCommitmentEventSelection,
+  filterCommitmentEventsByInvestor,
+  setInvestorCommitmentEventSelection,
   type FundUpdateAssetStatus,
 } from './reviewKeys';
 
@@ -127,5 +131,129 @@ describe('sortFundUpdateReviewAssets', () => {
       { status: 'add_missing', code: 'A' },
       { status: 'unchanged', code: 'B' },
     ]);
+  });
+});
+
+describe('reviewCommitmentEventKey', () => {
+  it('generates a deterministic key with normalized fund and investorName', () => {
+    const ev1 = {
+      fund: '  Fund Startech  ',
+      investorName: '  Investor Alpha  ',
+      date: '2024-01-15',
+      intent: 'increase',
+      amount: 1000000,
+      sourceRow: 5,
+    };
+    const ev2 = {
+      fund: 'fund startech',
+      investorName: 'investor alpha',
+      date: '2024-01-15',
+      intent: 'increase',
+      amount: 1000000,
+      sourceRow: 5,
+    };
+
+    expect(reviewCommitmentEventKey(ev1)).toBe('fund startech|investor alpha|2024-01-15|increase|1000000|5');
+    expect(reviewCommitmentEventKey(ev1)).toBe(reviewCommitmentEventKey(ev2));
+  });
+
+  it('differentiates distinct source rows', () => {
+    const base = {
+      fund: 'Fund A',
+      investorName: 'Investor A',
+      date: '2024-01-15',
+      intent: 'increase',
+      amount: 1000000,
+    };
+    const k1 = reviewCommitmentEventKey({ ...base, sourceRow: 3 });
+    const k2 = reviewCommitmentEventKey({ ...base, sourceRow: 4 });
+    expect(k1).not.toBe(k2);
+  });
+
+  it('differentiates distinct amounts, intents, dates, funds, and investors', () => {
+    const base = {
+      fund: 'Fund A',
+      investorName: 'Investor A',
+      date: '2024-01-15',
+      intent: 'increase',
+      amount: 1000000,
+      sourceRow: 3,
+    };
+    expect(reviewCommitmentEventKey(base)).not.toBe(
+      reviewCommitmentEventKey({ ...base, intent: 'decrease' }),
+    );
+    expect(reviewCommitmentEventKey(base)).not.toBe(
+      reviewCommitmentEventKey({ ...base, amount: 2000000 }),
+    );
+    expect(reviewCommitmentEventKey(base)).not.toBe(
+      reviewCommitmentEventKey({ ...base, date: '2024-02-15' }),
+    );
+    expect(reviewCommitmentEventKey(base)).not.toBe(
+      reviewCommitmentEventKey({ ...base, fund: 'Fund B' }),
+    );
+    expect(reviewCommitmentEventKey(base)).not.toBe(
+      reviewCommitmentEventKey({ ...base, investorName: 'Investor B' }),
+    );
+  });
+});
+
+describe('defaultCommitmentEventSelection', () => {
+  it('selects only actionable events and excludes duplicate events', () => {
+    const events = [
+      { key: 'k1', status: 'actionable' as const },
+      { key: 'k2', status: 'duplicate' as const },
+      { key: 'k3', status: 'actionable' as const },
+    ];
+    const selected = defaultCommitmentEventSelection(events);
+    expect(selected).toEqual(new Set(['k1', 'k3']));
+    expect(selected.has('k2')).toBe(false);
+  });
+
+  it('returns empty set when given empty array or undefined', () => {
+    expect(defaultCommitmentEventSelection([])).toEqual(new Set());
+    expect(defaultCommitmentEventSelection(undefined)).toEqual(new Set());
+  });
+});
+
+describe('filterCommitmentEventsByInvestor', () => {
+  it('filters events matching the investor name case-insensitively with trimming', () => {
+    const events = [
+      { event: { investorName: 'Investor Alpha' }, id: 1 },
+      { event: { investorName: 'investor alpha' }, id: 2 },
+      { event: { investorName: 'Investor Beta' }, id: 3 },
+    ];
+    const filtered = filterCommitmentEventsByInvestor(events, '  INVESTOR ALPHA  ');
+    expect(filtered).toHaveLength(2);
+    expect(filtered.map((e) => e.id)).toEqual([1, 2]);
+  });
+
+  it('returns empty array when no events match', () => {
+    const events = [{ event: { investorName: 'Investor Alpha' }, id: 1 }];
+    expect(filterCommitmentEventsByInvestor(events, 'Nonexistent')).toEqual([]);
+  });
+});
+
+describe('setInvestorCommitmentEventSelection', () => {
+  const events = [
+    { key: 'alpha-1', status: 'actionable' as const, event: { investorName: 'Alpha' } },
+    { key: 'alpha-duplicate', status: 'duplicate' as const, event: { investorName: 'Alpha' } },
+    { key: 'beta-1', status: 'actionable' as const, event: { investorName: 'Beta' } },
+  ];
+
+  it('selects every actionable event for the investor without selecting duplicates', () => {
+    expect(setInvestorCommitmentEventSelection(new Set(['beta-1']), events, ' alpha ', true)).toEqual(
+      new Set(['beta-1', 'alpha-1']),
+    );
+  });
+
+  it('deselects only the investor events and preserves other investors', () => {
+    expect(
+      setInvestorCommitmentEventSelection(
+        new Set(['alpha-1', 'alpha-duplicate', 'beta-1']),
+        events,
+        'ALPHA',
+        false,
+      ),
+    ).toEqual(new Set(['beta-1']));
   });
 });

@@ -21,6 +21,7 @@ import {
   FUND_CATALOG,
   NANJING_TEMPLATE_ID,
   commitmentEventKey,
+  reviewCommitmentEventKey,
   fundUpdateTxnKey,
   isNanjingAssetCode,
   sortFundUpdateReviewAssets,
@@ -71,11 +72,18 @@ export interface FundUpdateAssetReview {
   missing_valuations: ParsedValuation[];
 }
 
+export interface FundUpdateCommitmentEventReview {
+  key: string;
+  status: 'actionable' | 'duplicate';
+  event: ParsedCommitmentEvent;
+}
+
 export interface FundUpdateFullReview {
   assets: FundUpdateAssetReview[];
   funds: FundUpdateCatalogMatch[];
   investors: FundUpdateCatalogMatch[];
   sources: FundUpdateCatalogMatch[];
+  commitment_events?: FundUpdateCommitmentEventReview[];
 }
 
 export interface FundUpdateApplyResult {
@@ -333,10 +341,57 @@ export class FundUpdateApplyService {
       };
     });
 
+    let commitment_events_review: FundUpdateCommitmentEventReview[] | undefined;
     if (commitmentEvents) {
+      commitment_events_review = [];
+      const ledgerCache = new Map<string, Tables<'fund_investor_commitment_events'>[]>();
+
       for (const ev of commitmentEvents) {
         const matched = matchCatalog(ev.investorName, holdingEntityByName);
         if (matched) upsertUnique(uniqueInvestors, matched);
+
+        let isDuplicate = false;
+        const fundMatched = matchCatalog(ev.fund, fundByName, true);
+        if (fundMatched) upsertUnique(uniqueFunds, fundMatched);
+        if (fundMatched?.matched_id && matched?.matched_id) {
+          const cacheKey = `${fundMatched.matched_id}:${matched.matched_id}`;
+          let existing = ledgerCache.get(cacheKey);
+          if (!existing) {
+            existing = await this.commitmentEventRepo.findByFundAndHoldingEntity(
+              fundMatched.matched_id,
+              matched.matched_id,
+            );
+            ledgerCache.set(cacheKey, existing);
+          }
+          const hasLedger = existing.length > 0;
+          const seenKeys = new Set(existing.map(commitmentEventKey));
+          const eventType = ev.intent === 'decrease'
+            ? 'reduction'
+            : hasLedger
+              ? 'additional_commitment'
+              : 'initial_commitment';
+          const evKey = commitmentEventKey({
+            date: ev.date,
+            event_type: eventType,
+            amount: ev.amount,
+          });
+          const altKey = eventType === 'additional_commitment'
+            ? commitmentEventKey({
+                date: ev.date,
+                event_type: 'initial_commitment',
+                amount: ev.amount,
+              })
+            : null;
+          if (seenKeys.has(evKey) || (altKey && seenKeys.has(altKey))) {
+            isDuplicate = true;
+          }
+        }
+
+        commitment_events_review.push({
+          key: reviewCommitmentEventKey(ev),
+          status: isDuplicate ? 'duplicate' : 'actionable',
+          event: ev,
+        });
       }
     }
 
@@ -345,6 +400,7 @@ export class FundUpdateApplyService {
       funds: Array.from(uniqueFunds.values()),
       investors: Array.from(uniqueInvestors.values()),
       sources: Array.from(uniqueSources.values()),
+      ...(commitment_events_review ? { commitment_events: commitment_events_review } : {}),
     };
   }
 
@@ -372,15 +428,6 @@ export class FundUpdateApplyService {
     const review = await this.buildReview(selected);
     const selectionByCode = new Map((selections ?? []).map((s) => [s.asset_code, s]));
 
-    const fundIdByName = await this.ensureFundCatalog(catalog);
-
-    // Performance: Preload holding entities and funding sources to eliminate N+1 queries
-    const allHoldingEntities = await this.holdingEntityRepo.findAll();
-    const holdingEntityMap = new Map(allHoldingEntities.map((e) => [e.name.trim().toLowerCase(), e.id]));
-
-    const allFundSources = await this.fundSourceRepo.findAll();
-    const fundingSourceMap = new Map(allFundSources.map((s) => [s.name.trim().toLowerCase(), s.id]));
-
     const fundsAllowList =
       catalogSelections?.funds !== undefined
         ? new Set(catalogSelections.funds.map((f) => f.trim().toLowerCase()))
@@ -393,6 +440,18 @@ export class FundUpdateApplyService {
       catalogSelections?.sources !== undefined
         ? new Set(catalogSelections.sources.map((s) => s.trim().toLowerCase()))
         : undefined;
+
+    const fundIdByName =
+      fundsAllowList !== undefined
+        ? await this.getExistingFundMap()
+        : await this.ensureFundCatalog(catalog);
+
+    // Performance: Preload holding entities and funding sources to eliminate N+1 queries
+    const allHoldingEntities = await this.holdingEntityRepo.findAll();
+    const holdingEntityMap = new Map(allHoldingEntities.map((e) => [e.name.trim().toLowerCase(), e.id]));
+
+    const allFundSources = await this.fundSourceRepo.findAll();
+    const fundingSourceMap = new Map(allFundSources.map((s) => [s.name.trim().toLowerCase(), s.id]));
 
     let created_assets = 0;
     let updated_assets = 0;
@@ -474,7 +533,7 @@ export class FundUpdateApplyService {
           fundId = null;
         }
       } else {
-        fundId = fundIdByName.get('others') || fundIdByName.get('Others')!;
+        fundId = fundIdByName.get('others') || fundIdByName.get('Others') || null;
       }
 
       const proposedEntity = item.proposed.entity?.trim();
@@ -567,7 +626,13 @@ export class FundUpdateApplyService {
 
   async applyCommitmentEvents(
     events: ParsedCommitmentEvent[],
-    options?: { source?: string; createdBy?: string | null; fundCatalog?: string[] },
+    options?: {
+      source?: string;
+      createdBy?: string | null;
+      fundCatalog?: string[];
+      catalogSelections?: { funds?: string[]; investors?: string[]; sources?: string[] };
+      eventKeys?: string[];
+    },
   ): Promise<FundUpdateCommitmentApplyResult> {
     if (events.length === 0) {
       return {
@@ -578,19 +643,45 @@ export class FundUpdateApplyService {
       };
     }
 
+    let filteredEvents = events;
+    if (options?.eventKeys !== undefined) {
+      const allowedKeys = new Set(options.eventKeys);
+      filteredEvents = events.filter((e) => allowedKeys.has(reviewCommitmentEventKey(e)));
+      if (filteredEvents.length === 0) {
+        return {
+          events_inserted: 0,
+          events_skipped_duplicate: 0,
+          events_skipped: events.length,
+          warnings: [],
+        };
+      }
+    }
+
     let events_inserted = 0;
     let events_skipped_duplicate = 0;
-    let events_skipped = 0;
+    let events_skipped = events.length - filteredEvents.length;
     const warnings: string[] = [];
 
-    const fundIdByName = await this.ensureFundCatalog(options?.fundCatalog);
+    const fundsAllowList =
+      options?.catalogSelections?.funds !== undefined
+        ? new Set(options.catalogSelections.funds.map((f) => f.trim().toLowerCase()))
+        : undefined;
+    const investorsAllowList =
+      options?.catalogSelections?.investors !== undefined
+        ? new Set(options.catalogSelections.investors.map((i) => i.trim().toLowerCase()))
+        : undefined;
+
+    const fundIdByName =
+      fundsAllowList !== undefined
+        ? await this.getExistingFundMap()
+        : await this.ensureFundCatalog(options?.fundCatalog);
 
     const allHoldingEntities = await this.holdingEntityRepo.findAll();
     const holdingEntityMap = new Map(
       allHoldingEntities.map((e) => [e.name.trim().toLowerCase(), e.id]),
     );
 
-    const sortedEvents = [...events].sort((a, b) => {
+    const sortedEvents = [...filteredEvents].sort((a, b) => {
       const fundCmp = a.fund.localeCompare(b.fund);
       if (fundCmp !== 0) return fundCmp;
       const invCmp = a.investorName.localeCompare(b.investorName);
@@ -612,9 +703,29 @@ export class FundUpdateApplyService {
 
     for (const event of sortedEvents) {
       const fundKey = event.fund.trim().toLowerCase();
+      if (fundsAllowList !== undefined && !fundsAllowList.has(fundKey)) {
+        events_skipped += 1;
+        warnings.push(
+          `Commitment event for fund "${event.fund}" and investor "${event.investorName}" at row ${event.sourceRow} skipped: fund is not selected`,
+        );
+        continue;
+      }
+
+      const invKey = event.investorName.trim().toLowerCase();
+      if (investorsAllowList !== undefined && !investorsAllowList.has(invKey)) {
+        events_skipped += 1;
+        warnings.push(
+          `Commitment event for fund "${event.fund}" and investor "${event.investorName}" at row ${event.sourceRow} skipped: investor is not selected`,
+        );
+        continue;
+      }
+
       let fundId = fundIdByName.get(fundKey);
       if (!fundId) {
-        if (options?.fundCatalog !== undefined) {
+        if (
+          options?.fundCatalog !== undefined &&
+          !options.fundCatalog.some((c) => c.trim().toLowerCase() === fundKey)
+        ) {
           events_skipped += 1;
           warnings.push(
             `Explicit fund catalog does not contain proposed fund "${event.fund}" for event at row ${event.sourceRow}`,
@@ -627,7 +738,6 @@ export class FundUpdateApplyService {
         fundIdByName.set(event.fund.trim(), fundId);
       }
 
-      const invKey = event.investorName.trim().toLowerCase();
       let holdingEntityId = holdingEntityMap.get(invKey);
       if (!holdingEntityId) {
         const created = await this.holdingEntityRepo.insert({
@@ -745,6 +855,16 @@ export class FundUpdateApplyService {
       if (refHit) return refHit;
     }
     return byName.get(proposed.name.trim().toLowerCase());
+  }
+
+  private async getExistingFundMap(): Promise<Map<string, string>> {
+    const existing = await this.fundRepo.findAll();
+    const out = new Map<string, string>();
+    for (const f of existing) {
+      out.set(f.name.trim().toLowerCase(), f.id);
+      out.set(f.name, f.id);
+    }
+    return out;
   }
 
   private async ensureFundCatalog(catalog?: string[]): Promise<Map<string, string>> {
