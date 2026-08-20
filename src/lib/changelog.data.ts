@@ -12,6 +12,40 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "category": "feature"
   },
   {
+    "hash": "85b1951864f64bc0f4474a924442890f7f2151ee",
+    "date": "2026-08-20",
+    "subject": "[MB-485] Deterministic fingerprint parser for Nanjing fund ledger",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "dc3d2b410840452da34a4731f945a4a4a2e751e3",
+    "date": "2026-08-20",
+    "subject": "Added sell proceeds calculation and tracking for transaction exits",
+    "category": "feature"
+  },
+  {
+    "hash": "a0cd347cd3796377b17f01c0dfe9c2dd85883809",
+    "date": "2026-08-20",
+    "subject": "Track deal commitment changes over time with detailed history ledger",
+    "category": "feature"
+  },
+  {
+    "hash": "f4f98290dff3b58804b107b63cbf7b4429a72d92",
+    "date": "2026-08-20",
+    "subject": "Smart Files now extracts text in additional languages when primary extraction methods fail",
+    "category": "feature"
+  },
+  {
+    "hash": "191bf7ecf6e4fa04de742976ce1bfe97d8bcea03",
+    "date": "2026-08-20",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "a2ebd9bd02e6709eb5adfa6409a21e3240bf66c7",
     "date": "2026-08-19",
     "subject": "Export Company Card as condensed PowerPoint presentation via email",
