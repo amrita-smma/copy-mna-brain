@@ -533,7 +533,8 @@ export function buildFundSeedFixture(ns: FundSeedNs) {
  *  - Funds & Investing has no Dashboard or Pipeline — both are deal-flow
  *    surfaces with nothing to show for a fund manager.
  *  - Combined gets Dashboard, Pipeline, and Fund Management.
- *  - Company Graph is on for every workspace (catalog default is off).
+ *  - Company Graph and Insights Dashboard are on for every workspace
+ *    (catalog default is off for both).
  */
 const SEED_WORKSPACES: Array<{
   id: string;
@@ -552,6 +553,7 @@ const SEED_WORKSPACES: Array<{
       PIPELINE_ENABLED: true,
       FUND_MANAGEMENT_ENABLED: true,
       COMPANY_GRAPH_ENABLED: true,
+      INSIGHTS_DASHBOARD_ENABLED: true,
     },
   },
   {
@@ -564,6 +566,7 @@ const SEED_WORKSPACES: Array<{
       PIPELINE_ENABLED: true,
       FUND_MANAGEMENT_ENABLED: false,
       COMPANY_GRAPH_ENABLED: true,
+      INSIGHTS_DASHBOARD_ENABLED: true,
     },
   },
   {
@@ -576,6 +579,7 @@ const SEED_WORKSPACES: Array<{
       PIPELINE_ENABLED: false,
       FUND_MANAGEMENT_ENABLED: true,
       COMPANY_GRAPH_ENABLED: true,
+      INSIGHTS_DASHBOARD_ENABLED: true,
     },
   },
 ];
