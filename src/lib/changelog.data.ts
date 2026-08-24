@@ -6,6 +6,14 @@ import type { ChangelogEntry } from './changelog';
 
 export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   {
+    "hash": "0ac7e58fa78a50361d744865efe5b783600199ac",
+    "date": "2026-08-24",
+    "subject": "enable insights dashboard flag in seeder",
+    "category": "feature",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
     "hash": "e56c6f2826d6c3212a1eee981f43af27fcf1d5b7",
     "date": "2026-08-20",
     "subject": "Open Company Card details directly from the slide footer",
@@ -53,6 +61,14 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   },
   {
     "hash": "7738ee81e8fbc5664c0eaee66f57e258a420c0a7",
+    "date": "2026-08-20",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
+    "hash": "3e508e34f341f5e9d858f45334c6f2152c77f1be",
     "date": "2026-08-20",
     "subject": "[skip deploy] chore: update changelog",
     "category": "improvement",
