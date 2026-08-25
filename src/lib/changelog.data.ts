@@ -6,12 +6,28 @@ import type { ChangelogEntry } from './changelog';
 
 export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   {
+    "hash": "7339c982f236ca07ba7adaf67fbcbaf8d03704dd",
+    "date": "2026-08-25",
+    "subject": "Integrate horizon",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
     "hash": "0ac7e58fa78a50361d744865efe5b783600199ac",
     "date": "2026-08-24",
     "subject": "enable insights dashboard flag in seeder",
     "category": "feature",
     "skipped": true,
     "skipReason": "vague"
+  },
+  {
+    "hash": "be722793cc1f205ebb097672e435e8b8e2d34f0c",
+    "date": "2026-08-24",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
   },
   {
     "hash": "e56c6f2826d6c3212a1eee981f43af27fcf1d5b7",
