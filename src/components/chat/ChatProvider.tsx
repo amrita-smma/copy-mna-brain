@@ -144,7 +144,7 @@ export interface CopilotChatSummary {
  * server — the client sends it explicitly so the two can't silently disagree
  * about how far an offset advances.
  */
-const CHAT_PAGE_SIZE = 30;
+const CHAT_PAGE_SIZE = 20;
 
 /** Mirrors `CHAT_HISTORY_MAX_PAGE_SIZE`; the server clamps to it regardless. */
 const CHAT_MAX_PAGE_SIZE = 100;
@@ -192,9 +192,9 @@ interface ChatContextValue extends ReturnType<typeof useChat> {
   chats: CopilotChatSummary[];
   refreshChats: () => Promise<void>;
   /**
-   * Append the next page of chat history. The sidebar calls this when its
-   * scroll sentinel comes into view. No-op while a load is in flight or once
-   * every chat has been fetched.
+   * Append the next page of chat history. The sidebar calls this when the
+   * user clicks "See More". No-op while a load is in flight or once every
+   * chat has been fetched.
    */
   loadMoreChats: () => Promise<void>;
   /** Whether the server reported another page after the ones already loaded. */
@@ -441,8 +441,9 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 
   /**
    * Append the next page. Guarded by a ref rather than the `isLoadingMoreChats`
-   * state because the sentinel can fire again before React commits the state
-   * update, which would fire two requests for the same offset and duplicate rows.
+   * state because a fast double-click on "See More" can fire before React
+   * commits the state update, which would fire two requests for the same
+   * offset and duplicate rows.
    */
   const loadMoreChats = useCallback(async () => {
     if (loadingMoreRef.current || !hasMoreChats) return;

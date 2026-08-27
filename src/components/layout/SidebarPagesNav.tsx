@@ -152,7 +152,7 @@ export function SidebarPagesNav({
   }
 
   return (
-    <nav aria-label="Pages" className={cn('flex flex-col gap-1', className)}>
+    <nav aria-label="Pages" className={cn('flex flex-col gap-4', className)}>
       {groupedConsoleTabs(featureFlags).map((group) => (
         <SidebarCollapsibleSection key={group.id} id={group.id} label={group.label}>
           <ul className="space-y-0.5">

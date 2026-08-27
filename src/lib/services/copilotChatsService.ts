@@ -39,7 +39,7 @@ export class CopilotChatForbiddenError extends Error {
 }
 
 /** Chats returned per page when the caller doesn't ask for a specific size. */
-export const CHAT_HISTORY_PAGE_SIZE = 30;
+export const CHAT_HISTORY_PAGE_SIZE = 20;
 
 /** Upper bound on a caller-supplied page size, so one request can't ask for everything. */
 export const CHAT_HISTORY_MAX_PAGE_SIZE = 100;

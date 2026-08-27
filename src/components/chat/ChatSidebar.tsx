@@ -95,32 +95,6 @@ export function ChatSidebar({
     onNavigate?.("chat");
   };
 
-  // Infinite scroll: a zero-height sentinel below the last row. When it scrolls
-  // into the viewport the next page is fetched and appended.
-  //
-  // `root: null` (the browser viewport) rather than the ScrollArea's viewport
-  // element: the sentinel is inside a scroll container we don't hold a ref to,
-  // and intersection with the visual viewport is the condition we actually
-  // care about — "the user can see the bottom of the list". The 200px
-  // rootMargin starts the fetch just before they arrive, so the next page is
-  // usually there by the time they reach it.
-  //
-  // The observer is rebuilt when `hasMoreChats` flips (it is disconnected on
-  // the last page) and when the section is folded away (the sentinel unmounts).
-  const sentinelRef = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    const el = sentinelRef.current;
-    if (!el || !hasMoreChats) return;
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (entries.some((e) => e.isIntersecting)) void loadMoreChats();
-      },
-      { rootMargin: "200px" },
-    );
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, [hasMoreChats, loadMoreChats]);
-
   return (
     <aside
       className={cn(
@@ -139,7 +113,7 @@ export function ChatSidebar({
         </Button>
       </div>
       <ScrollArea className="flex-1 min-h-0 [&>[data-radix-scroll-area-viewport]>div]:!block">
-        <div className="flex flex-col gap-1 py-2">
+        <div className="flex flex-col gap-4 py-3">
           <SidebarPagesNav onNavigate={() => onNavigate?.("page")} />
           <SidebarCollapsibleSection
             id="chat-history"
@@ -176,17 +150,16 @@ export function ChatSidebar({
               })}
             </ul>
             {hasMoreChats && (
-              <div
-                ref={sentinelRef}
-                className="flex items-center justify-center py-3"
-                aria-hidden={!isLoadingMoreChats}
-              >
-                {isLoadingMoreChats && (
-                  <span className="flex items-center gap-2 text-xs text-muted-foreground">
-                    <Loader2 className="h-3 w-3 animate-spin" />
-                    Loading older chats…
-                  </span>
-                )}
+              <div className="flex items-center justify-center py-2">
+                <button
+                  type="button"
+                  onClick={() => void loadMoreChats()}
+                  disabled={isLoadingMoreChats}
+                  className="flex items-center gap-2 rounded px-2 py-1 text-xs text-muted-foreground/70 hover:text-foreground transition-colors disabled:opacity-60 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                >
+                  {isLoadingMoreChats && <Loader2 className="h-3 w-3 animate-spin" />}
+                  {isLoadingMoreChats ? "Loading…" : "See More"}
+                </button>
               </div>
             )}
           </SidebarCollapsibleSection>

@@ -67,7 +67,7 @@ export function SidebarCollapsibleSection({
         data-testid={`sidebar-section-${id}`}
         className={cn(
           'flex w-full items-center gap-1.5 rounded-md px-2 py-1.5',
-          'text-[11px] font-semibold uppercase tracking-wide text-muted-foreground',
+          'text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70',
           'transition-colors hover:bg-muted hover:text-foreground',
         )}
       >

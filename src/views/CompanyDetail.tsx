@@ -1199,20 +1199,9 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
           </div>
           {/* Action buttons */}
           <div className="flex flex-wrap items-center gap-2 md:shrink-0 md:self-center">
-            {analysis?.status === 'completed' && (
-              <Button
-                variant="outline"
-                size="sm"
-                className="gap-2"
-                onClick={() => router.push(`${pipelineHref}/${companyId}/slides`)}
-              >
-                <Presentation className="h-4 w-4" />
-                Generate Slides
-              </Button>
-            )}
             {/* While a card is generating, the progress + cancel pair stays
                 inline — a spinner buried in a closed menu is invisible. Once
-                idle, both AI actions collapse into the overflow menu. */}
+                idle, all secondary actions collapse into the overflow menu. */}
             {analysisGenerating ? (
               <div className="flex items-center gap-2">
                 <Button
@@ -1266,6 +1255,14 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
                     <Sparkles className="mr-2 h-4 w-4" />
                     Analyze using AI
                   </DropdownMenuItem>
+                  {analysis?.status === 'completed' && (
+                    <DropdownMenuItem
+                      onClick={() => router.push(`${pipelineHref}/${companyId}/slides`)}
+                    >
+                      <Presentation className="mr-2 h-4 w-4" />
+                      Generate Slides
+                    </DropdownMenuItem>
+                  )}
                 </DropdownMenuContent>
               </DropdownMenu>
             )}
