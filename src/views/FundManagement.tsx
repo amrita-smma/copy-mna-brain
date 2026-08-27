@@ -23,7 +23,6 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Building2, Layers, Wallet } from 'lucide-react';
-import DashboardLayout from '@/components/layout/DashboardLayout';
 import * as fundsApi from '@/lib/api/funds';
 import * as holdingEntitiesApi from '@/lib/api/holdingEntities';
 import * as fundSourcesApi from '@/lib/api/fundSources';
@@ -68,11 +67,6 @@ import type { Fund, Holding, HoldingType, Investor } from './fundManagement/type
 type InvestorRow = Awaited<ReturnType<typeof holdingEntitiesApi.listHoldingEntities>>[number];
 type StakeRow = Awaited<ReturnType<typeof holdingEntityStakesApi.listHoldingEntityStakes>>[number];
 type FundSourceRow = Awaited<ReturnType<typeof fundSourcesApi.listFundSources>>[number];
-
-interface FundManagementProps {
-  showCompanyGraph?: boolean;
-  showFundManagement?: boolean;
-}
 
 type PortfolioTab = 'asset' | 'fund' | 'investor' | 'source';
 
@@ -661,10 +655,7 @@ function AddAssetDialog({
 // (src/lib/api/funds.ts). Investment Entities (investors) and Sources of Fund
 // (funding_sources) are persisted through their own APIs; the by-entity /
 // by-source tabs group the live funds' holdings by those managed lists.
-export default function FundManagement({
-  showCompanyGraph = false,
-  showFundManagement = false,
-}: FundManagementProps) {
+export default function FundManagement() {
   const [_funds, setFunds] = useState<Fund[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [investorRows, setInvestorRows] = useState<InvestorRow[]>([]);
@@ -1039,7 +1030,7 @@ export default function FundManagement({
   }, [investorRows, stakeDetail, funds]);
 
   return (
-    <DashboardLayout showCompanyGraph={showCompanyGraph} showFundManagement={showFundManagement}>
+    <>
       <FundDataContext.Provider value={dataCtx}>
         <TooltipProvider delayDuration={120}>
           <div className="mx-auto max-w-[1180px] px-5 pb-16 pt-6">
@@ -1216,7 +1207,7 @@ export default function FundManagement({
         initialFundId={editStakesFor?.fundId}
         onSaved={reloadStakes}
       />
-    </DashboardLayout>
+    </>
   );
 }
 

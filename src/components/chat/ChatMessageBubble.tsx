@@ -1,7 +1,6 @@
 import { type UIMessage } from "@ai-sdk/react";
 import { memo, useState, useEffect } from "react";
 import { cn } from "@/lib/utils";
-import { companyDisplayName } from "@/lib/companyDisplay";
 import { User, ChevronDown, ChevronRight, Wrench, Loader2, FileText, X, Sparkles, FileSearch, Brain, AlertTriangle } from "lucide-react";
 import { MarkdownRenderer } from "./MarkdownRenderer";
 import {
@@ -32,6 +31,14 @@ import {
   type BulkPromoteApprovalPayload,
 } from "./BulkPromoteCompaniesCard";
 import { useChatContext } from "./ChatProvider";
+import { CompanyChip } from "./CompanyChip";
+import { stripNavigateMarkers } from "@/lib/navigation/navigateAction";
+import {
+  parseCompanyMentions,
+  selectMentionedCompanies,
+  stripCompanyMentionMarkers,
+  type CompanyMention,
+} from "@/lib/navigation/companyMentions";
 
 const WORKFORCE_HANDOFF_MARKER = "WORKFORCE_HANDOFF_JSON";
 const WORKFORCE_HANDOFF_TOOL_NAME = "propose_workforce_handoff";
@@ -382,6 +389,9 @@ function AssistantMessageBubble(props: ChatMessageBubbleProps) {
   let workforceHandoff: WorkforceHandoffPayload | null = null;
   let bulkDropApproval: BulkDropApprovalPayload | null = null;
   let bulkPromoteApproval: BulkPromoteApprovalPayload | null = null;
+  // Every company any tool in this turn resolved, as id↔name pairs. Narrowed
+  // below to just the ones the answer actually names.
+  const companyMentions: CompanyMention[] = [];
 
   for (const part of toolParts) {
     const toolName = (part as any).toolName || "";
@@ -463,6 +473,8 @@ function AssistantMessageBubble(props: ChatMessageBubbleProps) {
       }
     }
 
+    companyMentions.push(...parseCompanyMentions(content));
+
     if (toolName === "query_files") {
       const notesMatch = content.match(/<!-- FILES_JSON:(.*?) -->/);
       if (notesMatch) {
@@ -479,6 +491,10 @@ function AssistantMessageBubble(props: ChatMessageBubbleProps) {
       }
     }
   }
+
+  // A single query can return fifty rows; chipping all of them would bury the
+  // answer. Keep only the companies the assistant actually named.
+  const mentionedCompanies = selectMentionedCompanies(companyMentions, responseText);
 
   // Chat context for sending follow-up messages (e.g. "Just answer here")
   const { sendMessage } = useChatContext();
@@ -571,6 +587,8 @@ function AssistantMessageBubble(props: ChatMessageBubbleProps) {
                     new RegExp(`\\n*<!--\\s*${WORKFORCE_HANDOFF_MARKER}:.*?-->`, "gs"),
                     "",
                   );
+                  displayContent = stripNavigateMarkers(displayContent);
+                  displayContent = stripCompanyMentionMarkers(displayContent);
 
                   return (
                     <div key={`tool-${index}`} className="border-b border-border/50 pb-2 last:border-0 last:pb-0">
@@ -697,6 +715,18 @@ function AssistantMessageBubble(props: ChatMessageBubbleProps) {
         {/* Bulk promote approval card */}
         {bulkPromoteApproval && (
           <BulkPromoteCompaniesCard payload={bulkPromoteApproval} />
+        )}
+
+        {/* One "Open <company>" chip per company the answer actually names,
+            in the order it named them. Only companies a tool resolved to an id
+            can appear here — see `companyMentions` for why the ids travel in a
+            hidden manifest rather than being parsed out of the prose. */}
+        {mentionedCompanies.length > 0 && (
+          <div className="flex w-full flex-wrap gap-1.5">
+            {mentionedCompanies.map((company) => (
+              <CompanyChip key={company.id} company={company} prefix="Open" />
+            ))}
+          </div>
         )}
 
         {/* Sources */}
@@ -865,9 +895,7 @@ function AssistantMessageBubble(props: ChatMessageBubbleProps) {
                                 <h4 className="font-medium text-primary mb-1">Companies Mentioned</h4>
                                 <div className="flex flex-wrap gap-1.5">
                                   {previewNote.matched_companies.map((company, i) => (
-                                    <Badge key={i} variant="outline" className="text-xs">
-                                      {typeof company === 'string' ? company : companyDisplayName(company)}
-                                    </Badge>
+                                    <CompanyChip key={i} company={company} />
                                   ))}
                                 </div>
                               </div>

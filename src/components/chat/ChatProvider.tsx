@@ -16,6 +16,7 @@ import {
 import { toast } from "sonner";
 import { useAuth } from "@/hooks/useAuth";
 import { apiRequest, buildWorkspaceHeaders } from "@/lib/api/client";
+import { getPageContext } from "@/lib/chat/pageContextStore";
 import type { EffortChoice } from "@/lib/agents/analysis";
 
 export type ChatEffortChoice = 'auto' | EffortChoice;
@@ -31,6 +32,14 @@ import {
 } from "@/components/ui/alert-dialog";
 
 const CHAT_API = "/api/chat";
+
+/**
+ * How many animation frames `focusComposer` will wait for the composer to
+ * appear before giving up. Generous enough to cover the copilot pane's 300ms
+ * open animation (~18 frames at 60Hz) plus the remount that swaps the docked
+ * composer for the empty state's hero one.
+ */
+const FOCUS_COMPOSER_MAX_FRAMES = 30;
 
 /** Max size for a single chat attachment. Supports documents, images, and text. */
 export const MAX_ATTACHMENT_BYTES = 100 * 1024 * 1024; // 100 MB
@@ -168,6 +177,13 @@ interface ChatContextValue extends ReturnType<typeof useChat> {
   refreshChats: () => Promise<void>;
   isLoadingMessages: boolean;
   /**
+   * Which chat the current `messages` array belongs to; `undefined` while a
+   * history load is in flight. Consumers that must distinguish "this chat's
+   * persisted history" from "something that just streamed in" have to key off
+   * this rather than `chatId`, which changes a commit earlier.
+   */
+  messagesChatId: string | null | undefined;
+  /**
    * Entry point for every "Analyze using AI" trigger. Sends the prompt to the
    * copilot immediately when idle; when a response is already streaming it
    * opens a confirmation dialog offering to stop the current response and
@@ -189,6 +205,12 @@ interface ChatContextValue extends ReturnType<typeof useChat> {
   startFreshFromCached: () => void;
   /** Ref the active chat input registers so we can focus it programmatically. */
   chatInputRef: RefObject<HTMLTextAreaElement | null>;
+  /**
+   * Put the caret in the composer, ready to type. Tolerates the composer not
+   * being mounted yet (see the implementation), so callers can fire it in the
+   * same tick as the state change that reveals it.
+   */
+  focusComposer: () => void;
   /** Files attached to the composer for the current chat (persist across turns). */
   attachments: ChatAttachment[];
   /** Upload files to S3 and attach them to the composer. */
@@ -225,6 +247,17 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 
   const [chats, setChats] = useState<CopilotChatSummary[]>([]);
   const [isLoadingMessages, setIsLoadingMessages] = useState(false);
+  // Which chat the CURRENT `messages` array belongs to — `undefined` while a
+  // load is in flight, meaning "don't trust `messages` yet".
+  //
+  // This exists because `chatId` and `messages` change in separate commits:
+  // selecting a chat sets `chatId` immediately while `messages` still holds the
+  // previous conversation, and the history only lands an effect (or a network
+  // round-trip) later. Any consumer that needs to know "are these messages the
+  // ones this chat arrived with, or something that just streamed in?" cannot
+  // answer it from `chatId` alone. Always updated in the same batch as
+  // `setMessages`, so it is never out of step with the array it describes.
+  const [messagesChatId, setMessagesChatId] = useState<string | null | undefined>(null);
   // A cached chat that started with the same first message as the one the user
   // is about to send in a brand-new chat. Non-null while the inline cached
   // preview is shown (offering "continue from chat" or "start fresh").
@@ -270,10 +303,17 @@ export function ChatProvider({ children }: { children: ReactNode }) {
           pendingAttachmentsRef.current = [];
           
           const mc = effortChoiceRef.current;
+          // What the user has on screen right now, so `read_page_context` can
+          // resolve "this deal" / "summarize this page". Read from the module
+          // store rather than React state: `PageContextProvider` lives inside
+          // the workspace layout, below this provider, so context can't reach
+          // up here.
+          const pageContext = getPageContext();
           return {
             ...(chatIdRef.current ? { chat_id: chatIdRef.current } : {}),
             ...(ready.length ? { attachments: ready } : {}),
             ...(mc !== 'auto' ? { effort: mc } : {}),
+            ...(pageContext ? { page_context: pageContext } : {}),
           };
         },
         fetch: async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -289,6 +329,12 @@ export function ChatProvider({ children }: { children: ReactNode }) {
             chatIdRef.current = newId;
             justMintedChatIdRef.current = newId;
             setChatIdState(newId);
+            // The in-flight messages now belong to the newly minted chat. Move
+            // the stamp with the id — the load effect skips its fetch for a
+            // just-minted chat, so nothing else will set it, and leaving it on
+            // the old value would make the rest of this live turn read as
+            // another chat's history.
+            setMessagesChatId(newId);
             // Surface the new chat in the sidebar immediately. The row exists
             // in the DB by the time headers arrive; the title will be pushed
             // via the stream's `data-chat-title` part the moment Haiku
@@ -379,6 +425,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     if (!chatId) {
       chatStateRef.current.stop();
       setMessages([]);
+      setMessagesChatId(null);
       setIsLoadingMessages(false);
       // Pick up any title that landed via the server's `after()` hook between
       // the user aborting and now — the data-chat-title SSE chunk would have
@@ -394,6 +441,9 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     void refreshChats();
 
     setMessages([]);
+    // `undefined`, not `chatId`: these empty messages are not this chat's
+    // history, they are a placeholder until the fetch below lands.
+    setMessagesChatId(undefined);
     setIsLoadingMessages(true);
 
     let cancelled = false;
@@ -418,6 +468,10 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       const initial = await fetchMessages();
       if (cancelled) return;
       if (initial) setMessages(initial);
+      // Stamp the loaded history in the same batch as the messages it
+      // describes, so consumers can tell "this chat's history" from "something
+      // that just streamed in" without racing the two state updates.
+      setMessagesChatId(chatId);
       setIsLoadingMessages(false);
 
       // The chat is "in-flight" from the user's perspective if the last
@@ -581,13 +635,59 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     });
   }, [deleteAttachmentObject]);
 
+  // Put the caret in the composer with the cursor at the end of whatever is
+  // already there.
+  //
+  // Callers fire this in the same tick as the state change that reveals the
+  // composer (opening a new chat, landing on the chat route), at which point the
+  // textarea may not be mounted yet — the empty state and the transcript render
+  // separate composers, and the copilot pane animates open. So retry across a
+  // bounded number of frames until one lands. Bails if the user has meanwhile
+  // put their cursor in some other text field, so this never steals focus from
+  // a control they deliberately clicked.
+  const focusComposer = useCallback(() => {
+    if (typeof window === 'undefined') return;
+    let framesLeft = FOCUS_COMPOSER_MAX_FRAMES;
+    const attempt = () => {
+      const active = document.activeElement as HTMLElement | null;
+      const el = chatInputRef.current;
+      if (
+        active &&
+        active !== el &&
+        (active.tagName === 'INPUT' ||
+          active.tagName === 'TEXTAREA' ||
+          active.isContentEditable)
+      ) {
+        return;
+      }
+      // A disabled textarea (mid-send, mid-enhance) can't take focus; keep
+      // waiting rather than burning the attempt on a no-op.
+      if (el && !el.disabled) {
+        el.focus();
+        const end = el.value.length;
+        el.setSelectionRange(end, end);
+        return;
+      }
+      if (framesLeft-- > 0) requestAnimationFrame(attempt);
+    };
+    requestAnimationFrame(attempt);
+  }, []);
+
   const newChat = useCallback(() => {
     setChatId(null);
     setMessages([]);
+    // Same batch as the empty transcript so NavigationActionHandler does not
+    // see "chat B's stamp, no messages" for a frame.
+    setMessagesChatId(null);
     // Starting a new chat discards any pending cached-chat preview.
     setCacheHit(null);
     clearAttachments();
-  }, [setChatId, setMessages, clearAttachments]);
+    // Pressing "New Chat" is always a prelude to typing one, so hand the caret
+    // over. Emptying the transcript swaps the docked composer for the empty
+    // state's hero one, so the focus has to survive that remount — which
+    // `focusComposer` handles.
+    focusComposer();
+  }, [setChatId, setMessages, clearAttachments, focusComposer]);
 
   // Entry point for sending the FIRST message of a chat. For a brand-new chat
   // (no chatId yet) it first asks the server whether the same question was
@@ -733,12 +833,14 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       chats,
       refreshChats,
       isLoadingMessages,
+      messagesChatId,
       analyzeWithAI,
       sendWithCacheCheck,
       cacheHit,
       continueFromCached,
       startFreshFromCached,
       chatInputRef,
+      focusComposer,
       attachments,
       addFiles,
       removeAttachment,
@@ -754,11 +856,13 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       chats,
       refreshChats,
       isLoadingMessages,
+      messagesChatId,
       analyzeWithAI,
       sendWithCacheCheck,
       cacheHit,
       continueFromCached,
       startFreshFromCached,
+      focusComposer,
       attachments,
       addFiles,
       removeAttachment,

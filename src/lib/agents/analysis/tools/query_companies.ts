@@ -8,6 +8,7 @@ import {
   CompanyRepository,
   type CompanyAgentFilters,
 } from "@/lib/repositories";
+import { buildCompanyMentionsMarker } from "@/lib/navigation/companyMentions";
 
 /**
  * Query companies with filters.
@@ -164,6 +165,17 @@ export const queryCompanies = tool(
       let result = `**Query Results (${companies.length} companies):**\n\n`;
       result += `| ${header} |\n| ${separator} |\n`;
       result += rows.map((row) => `| ${row} |`).join("\n");
+      // The table carries names but no ids, so the chat UI has nothing to build
+      // a company link from. Append a hidden id↔name manifest; the client chips
+      // only the ones the model actually names in its answer.
+      const mentionsMarker = buildCompanyMentionsMarker(
+        companies.flatMap((c) =>
+          [c.target, c.project_name]
+            .filter((name): name is string => !!name?.trim())
+            .map((name) => ({ id: c.id, name })),
+        ),
+      );
+      if (mentionsMarker) result += `\n\n${mentionsMarker}`;
 
       logger.debug(`✓ Query returned ${companies.length} companies`);
       return result;

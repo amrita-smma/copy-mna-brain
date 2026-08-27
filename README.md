@@ -519,6 +519,113 @@ Layering follows the project's handler → service → repository convention:
 > **Not yet included:** per-key rate limiting. Add Vercel WAF rate rules or an
 > Upstash-backed limiter before exposing this to untrusted clients.
 
+## App shell (chat-first landing + center console)
+
+The product is chat-first: the Copilot is the landing page, and the left sidebar
+carries both of the app's navigations — chat history and the page list — behind a
+two-tab toggle. Pages open in a center console beside the Copilot.
+
+- **One shell, mounted once.** `src/components/layout/AppShell.tsx` is rendered
+  by `src/app/w/[workspaceSlug]/layout.tsx`, above the routed `children`. That
+  placement is the whole design: switching tabs is a Next.js soft navigation
+  that swaps only the page, so the sidebar, the Copilot pane, and any in-flight
+  chat stream stay mounted. (The shell used to be `DashboardLayout`, wrapped
+  *inside* each of 13 views, which remounted everything on every navigation.)
+  Views therefore render bare content — no view wraps the shell.
+- **Two states.** On the landing (`/w/<slug>` and its `/w/<slug>/chat` alias)
+  the Copilot fills the console; `AppShell` derives that from the route rather
+  than writing it to storage, so the state can't leak onto the next page.
+  Collapsing the Copilot navigates to `layout:last-tab` (or the first
+  feature-enabled page). On a page route the page fills the console with the
+  Copilot docked right; expanding it keeps the URL, so collapsing returns to the
+  same page. The only chrome over the console is the full-screen toggle.
+- **One sidebar, two tabs.** `ChatSidebar`
+  (`src/components/chat/ChatSidebar.tsx`) opens with a **History / Pages**
+  segmented toggle above the "New Chat" button, and shows one list at a time:
+  chat history, or the app's destinations (`SidebarPagesNav`). The choice
+  persists under `layout:sidebar-section`. This replaced a strip of icon tabs
+  across the top of the console — two competing navigations pointing in
+  different directions, which read as one confusing bar. Choosing a page calls
+  `revealConsole()`, because the Copilot may be sitting full-screen over the
+  console and navigating behind it would look like nothing happened.
+- **Page registry.** `src/lib/navigation/consoleTabs.ts` holds `CONSOLE_TABS`
+  (slug, path, label, feature flag, purpose) and is deliberately free of UI
+  imports, because the Copilot's `navigate_page` tool builds its argument enum
+  from it. `SidebarPagesNav` (`src/components/layout/SidebarPagesNav.tsx`)
+  attaches the `lucide-react` icons and renders the list as real
+  `<WorkspaceLink>`s. `visibleConsoleTabs(flags)` is the single flag filter,
+  shared by that list and by `AppShell`'s collapse target, so the two can't
+  disagree about which pages are reachable.
+- **`LayoutControlContext` wraps the whole shell** and carries the three actions
+  that move the two panes past each other:
+  - `revealConsole()` — docks the Copilot. Called by anything in the transcript
+    that sends the user to a page (the "Open X" navigation chip, a company
+    chip). Without it the console would swap pages *behind* an expanded Copilot
+    and the click would look like it did nothing.
+  - `expandCopilot()` — puts the Copilot full-screen. Called by every "New chat"
+    trigger and by selecting a chat from history, so opening a conversation
+    lands the user in it rather than in a 384px docked column (or, on a tab
+    route with the pane collapsed, nowhere visible at all).
+  - `focusCopilot()` — the existing "Analyze using AI" path.
+
+  The provider wraps the entire shell rather than just the panes because the
+  sidebar's "New chat" buttons live outside `SidebarInset`. It returns no-ops
+  outside the shell, so `ChatSidebar` still works in the mobile history drawer.
+- **Company mentions become "Open &lt;company&gt;" chips.** When the Copilot's
+  answer names a company, the transcript renders a chip that opens it at
+  `/companies/<id>`. This replaced a chip that recorded the `navigate_page`
+  destination ("Open Pipeline") — a tab the user can already see — with
+  something specific enough to act on. The `navigate_page` skill itself is
+  unchanged and still navigates on a live call.
+
+  Getting an id for a name is the interesting part. `query_companies` returns a
+  markdown table of names with **no ids**, so the client has nothing to build a
+  URL from. Rather than guess or re-query by name, the company-returning tools
+  append a hidden `COMPANY_MENTIONS_JSON` manifest of `{ id, name }` pairs
+  (`src/lib/navigation/companyMentions.ts`), and the client keeps only the
+  entries whose name appears in the answer's own prose. That filter matters: one
+  query can return fifty rows, and chipping all of them would bury the answer.
+  Matching is case-insensitive and word-boundary anchored, so `Acme` does not
+  light up inside `Acmetric`.
+
+  `companyDetailPath` (`src/lib/navigation/companyPath.ts`) is the single place
+  the destination is encoded. `/companies/<id>` and `/pipeline/<dealId>` render
+  the same `CompanyDetail` view — both segments are the company id — the
+  difference being that the pipeline route frames the company as a deal in the
+  funnel. Mentions with no id (a file's `matched_companies` can hold bare name
+  strings) stay inert badges rather than linking to `/companies/undefined`.
+- **Empty chat.** `AICopilotPane` greets the user by first name ("Ask away,
+  Nico!") with the composer and a few suggestions centered beneath it, replacing
+  the old canned "Hello! I'm your M&A assistant" feature-list bubble.
+
+### Page-aware Copilot skills
+
+Two chat-only tools connect the conversation to the console beside it. Both are
+in `chatOnlyTools` — a Workforce run has no browser, so neither reaches it.
+
+- **`navigate_page`** moves the console. The tool emits a
+  `<!-- NAVIGATE_PAGE_JSON:{…} -->` marker (same pattern as
+  `propose_workforce_handoff`); the format lives in
+  `src/lib/navigation/navigateAction.ts` so the client can parse it without
+  pulling LangChain into the browser bundle.
+  `src/components/chat/NavigationActionHandler.tsx` performs the navigation, and
+  the interesting part is *not* navigating: the marker is persisted in the tool
+  output and so re-renders forever. Each chat starts with a baseline of the
+  `nav_id`s already in its transcript and only acts on ids appearing after it,
+  so re-opening an old chat from history replays nothing. `ChatMessageBubble`
+  renders the record as an "Opened X" link — clickable, never auto-firing.
+- **`read_page_context`** reports what's on screen, so "summarize this" or "this
+  deal" resolves without the user restating it. `PageContextProvider` derives
+  the tab and path from the route; a view can enrich it with the record or
+  filters in view via `useSetPageDetail` (wired in `Pipeline` and
+  `CompanyDetail`). The value reaches `ChatProvider`'s transport body through
+  the `src/lib/chat/pageContextStore.ts` singleton — needed because
+  `ChatProvider` is mounted at the app root, *above* `PageContextProvider`, so
+  React context can't reach it. `/api/chat` sanitizes the payload
+  (`sanitizePageContext`: unknown tab dropped, path shape enforced, detail
+  clamped — it is browser-supplied and ends up in a prompt) and passes it as
+  `configurable.pageContext`, the same seam `thread_id` and `userEmail` use.
+
 ## Copilot flavors (M&A, Investment, Combined, VC)
 
 The in-app Copilot ships in four selectable flavors, chosen per workspace:
@@ -698,12 +805,14 @@ How it's wired:
   `X-Workspace-Slug` header `proxy.ts` sets on `/w/<slug>/…` requests) and reads
   that workspace's rows. An override wins over the env/Vercel default, so toggles
   take effect across every existing flag consumer without consumer changes.
-- **Sidebar gating** — the workspace layout (`src/app/w/[workspaceSlug]/layout.tsx`)
+- **Tab gating** — the workspace layout (`src/app/w/[workspaceSlug]/layout.tsx`)
   resolves the full per-workspace flag map once via `resolveWorkspaceFeatureFlags`
   and provides it through `FeatureFlagsProvider`
-  (`src/components/layout/FeatureFlagsContext.tsx`). `DashboardLayout` reads the
-  context and hides any nav item whose `flag` is disabled — no per-page prop
-  threading.
+  (`src/components/layout/FeatureFlagsContext.tsx`). `SidebarPagesNav` reads the
+  context and hides any page whose `flag` is disabled — no per-page prop
+  threading. `AppShell` consults the same map when deciding which page to open,
+  and the copilot's `navigate_page` tool refuses a destination the workspace has
+  switched off.
 
 ## In-app Copilot chat caching
 

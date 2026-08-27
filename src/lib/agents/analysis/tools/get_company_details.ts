@@ -8,6 +8,7 @@ import {
   CompanyRepository,
   CompanyScreeningDerivedRepository,
 } from "@/lib/repositories";
+import { buildCompanyMentionsMarker } from "@/lib/navigation/companyMentions";
 
 /**
  * Get detailed information about a specific company.
@@ -90,7 +91,14 @@ ${c.comments ? `### Comments\n${c.comments}` : ""}
 `;
 
       logger.debug("✓ Company details retrieved");
-      return result;
+      // Hidden id↔name manifest so the chat UI can offer an "Open <company>"
+      // chip when the answer names this company. See `companyMentions`.
+      const mentionsMarker = buildCompanyMentionsMarker(
+        [c.target, c.project_name]
+          .filter((name): name is string => !!name?.trim())
+          .map((name) => ({ id: c.id, name })),
+      );
+      return mentionsMarker ? `${result}\n${mentionsMarker}` : result;
     } catch (error) {
       logger.error(`Details error: ${(error as Error).message}`);
       return `**Error:** ${(error as Error).message}`;

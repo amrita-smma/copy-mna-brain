@@ -1,7 +1,6 @@
 import { Suspense } from 'react';
 import { Loader2 } from 'lucide-react';
 import Presentation from '@/views/Presentation';
-import { companyGraphEnabled, fundManagementEnabled } from '@/lib/flags';
 
 function PresentationLoading() {
   return (
@@ -12,14 +11,9 @@ function PresentationLoading() {
 }
 
 export default async function PresentationPage() {
-  const showCompanyGraph = await companyGraphEnabled().then(Boolean);
-  const showFundManagement = await fundManagementEnabled().then(Boolean);
   return (
     <Suspense fallback={<PresentationLoading />}>
-      <Presentation
-        showCompanyGraph={showCompanyGraph}
-        showFundManagement={showFundManagement}
-      />
+      <Presentation />
     </Suspense>
   );
 }

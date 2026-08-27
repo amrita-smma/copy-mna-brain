@@ -678,7 +678,7 @@ export function TaskCanvas({
     </main>
     {/* Floating notification overlay — bottom-right, above everything.
         Rendered via portal at document.body so a transformed ancestor
-        (DashboardLayout uses framer-motion which sets `transform`, creating
+        (AppShell uses framer-motion which sets `transform`, creating
         a new containing block) doesn't reframe the `fixed` positioning.
         pointer-events-none on the wrapper keeps the empty space click-through;
         individual cards re-enable their own pointer events. */}

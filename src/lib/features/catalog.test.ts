@@ -22,7 +22,7 @@ describe('FEATURE_CATALOG', () => {
 
   it('registers Smart Files as a nav feature under SMART_FILES_ENABLED', () => {
     // Guards the "AI File Dump" → "Smart Files" rename: this key must stay in
-    // sync with the `flag` field on DashboardLayout's Smart Files nav entry and
+    // sync with the `flag` field on SidebarPagesNav's Smart Files nav entry and
     // with the feature_flags rows migrated in
     // 20260810000000_rename_ai_file_dump_flag_to_smart_files.sql.
     const smartFiles = FEATURE_CATALOG.find((feature) => feature.key === 'SMART_FILES_ENABLED');

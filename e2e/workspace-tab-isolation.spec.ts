@@ -96,12 +96,15 @@ test.describe('Multi-tab workspace isolation (MB-337)', () => {
     // unaffected — this is the property a shared session cookie cannot
     // provide, and the reason this feature exists.
     const idsBBeforeSwitch = idsB;
-    // The nav sidebar (and the switcher inside it) starts collapsed to an
-    // icon-only rail for any fresh browser profile (`layout:sidebar-open`
-    // defaults to false — see DashboardLayout.tsx) and must be expanded
-    // before the switcher is interactable.
-    await tabA.getByRole('button', { name: 'Toggle Sidebar' }).click();
+    // The sidebar (chat history, with the workspace switcher in its header)
+    // starts EXPANDED for a fresh browser profile — `layout:sidebar-open-v2`
+    // defaults to true in AppShell.tsx, because a collapsed icon rail has
+    // nothing useful to show for a list of chat titles. Toggle only if some
+    // stored state left it collapsed, so this doesn't close it by accident.
     const switcher = tabA.getByRole('combobox').filter({ hasText: wsA.workspaceName });
+    if (!(await switcher.isVisible())) {
+      await tabA.getByRole('button', { name: 'Toggle Sidebar' }).click();
+    }
     await switcher.waitFor({ state: 'visible', timeout: 30_000 });
     await switcher.click();
     await tabA.getByRole('option', { name: wsB.workspaceName }).click();

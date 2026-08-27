@@ -2,7 +2,6 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import DashboardLayout from '@/components/layout/DashboardLayout';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Input } from '@/components/ui/input';
@@ -355,15 +354,7 @@ function PresentationMode({
 // Main Page Component
 // ---------------------------------------------------------------------------
 
-interface CompanySlidesProps {
-  showCompanyGraph?: boolean;
-  showFundManagement?: boolean;
-}
-
-export default function CompanySlides({
-  showCompanyGraph = false,
-  showFundManagement = false,
-}: CompanySlidesProps) {
+export default function CompanySlides() {
   const params = useParams();
   const router = useRouter();
   const companyId = params.dealId as string;
@@ -736,23 +727,17 @@ export default function CompanySlides({
 
   if (loading) {
     return (
-      <DashboardLayout
-      showCompanyGraph={showCompanyGraph}
-      showFundManagement={showFundManagement}
-    >
+      <>
         <div className="flex items-center justify-center h-full">
           <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
         </div>
-      </DashboardLayout>
+      </>
     );
   }
 
   if (!company) {
     return (
-      <DashboardLayout
-      showCompanyGraph={showCompanyGraph}
-      showFundManagement={showFundManagement}
-    >
+      <>
         <div className="flex flex-col items-center justify-center h-full gap-4">
           <p className="text-muted-foreground">Company not found</p>
           <Button onClick={() => router.push(pipelineHref)}>
@@ -760,15 +745,12 @@ export default function CompanySlides({
             Go Back
           </Button>
         </div>
-      </DashboardLayout>
+      </>
     );
   }
 
   return (
-    <DashboardLayout
-      showCompanyGraph={showCompanyGraph}
-      showFundManagement={showFundManagement}
-    >
+    <>
       <div className="flex flex-col h-[calc(100vh-0px)]">
         {/* Top bar */}
         <div className="flex items-center justify-between px-4 py-2 border-b bg-background/80 backdrop-blur-sm shrink-0">
@@ -1086,6 +1068,6 @@ export default function CompanySlides({
           onClose={() => setPresentationMode(false)}
         />
       )}
-    </DashboardLayout>
+    </>
   );
 }

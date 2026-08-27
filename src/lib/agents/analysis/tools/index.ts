@@ -50,6 +50,8 @@ import { getSectorContext } from "./get_sector_context";
 import { getCompetitorLandscape } from "./get_competitor_landscape";
 import { getRegulatoryContext } from "./get_regulatory_context";
 import { getMarketSignals } from "./get_market_signals";
+import { navigatePage } from "./navigate_page";
+import { readPageContext } from "./read_page_context";
 
 export {
   getDataSchema,
@@ -98,6 +100,8 @@ export {
   getCompetitorLandscape,
   getRegulatoryContext,
   getMarketSignals,
+  navigatePage,
+  readPageContext,
 };
 
 export {
@@ -133,6 +137,10 @@ export const tools = [
  * cannot recursively spawn child workforce tasks (the v1
  * single-workforce-step invariant), and so a workforce agent doesn't waste
  * tokens emitting handoff cards that have no UI to render them.
+ *
+ * navigate_page and read_page_context are chat-only for the same reason: both
+ * assume a browser the workforce doesn't have. A workforce run has no center
+ * console to move and nobody looking at a page.
  */
 export const chatOnlyTools = [
   proposeWorkforceHandoff,
@@ -140,6 +148,8 @@ export const chatOnlyTools = [
   proposeBulkPromoteCompanies,
   sendEmailTool,
   updateCompanyCardSection,
+  navigatePage,
+  readPageContext,
 ];
 
 /**
@@ -201,6 +211,8 @@ export const investmentTools = [
   lookupUser,
   sendEmailTool,
   proposeWorkforceHandoff,
+  navigatePage,
+  readPageContext,
 ];
 
 /**
@@ -264,6 +276,8 @@ export const vcTools = [
   lookupUser,
   sendEmailTool,
   proposeWorkforceHandoff,
+  navigatePage,
+  readPageContext,
 ];
 
 /**
@@ -360,6 +374,16 @@ export function getToolDescriptions(): string {
       name: "update_company_card_section",
       description:
         "Overwrite a single section (e.g. business overview, investment thesis, risks) of a company's AI Company Card / Overview slide with rewritten markdown",
+    },
+    {
+      name: "navigate_page",
+      description:
+        "Move the center console to another page in the app (dashboard, pipeline, fund management, master data, CRM, smart files, presentation, AI workspace, company graph) without leaving the conversation",
+    },
+    {
+      name: "read_page_context",
+      description:
+        "Find out which page the user is currently looking at and what is on it (the open record, the active filters) — call this before answering any request that says \"this page\", \"this deal\", or \"these results\"",
     },
   ];
 

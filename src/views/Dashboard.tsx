@@ -7,7 +7,6 @@ import { useRouter } from "next/navigation";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useWorkspaceCurrency } from "@/components/layout/WorkspaceCurrencyContext";
 import type { Currency } from "@/lib/currency";
-import DashboardLayout from "@/components/layout/DashboardLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -644,14 +643,10 @@ function NotesModal({ event, onClose }: NotesModalProps) {
 // ─── Main Dashboard ───────────────────────────────────────────────────────────
 
 interface DashboardProps {
-  showCompanyGraph?: boolean;
-  showFundManagement?: boolean;
   showInsightsDashboard?: boolean;
 }
 
 export default function Dashboard({
-  showCompanyGraph = false,
-  showFundManagement = false,
   showInsightsDashboard = false,
 }: DashboardProps) {
   const [loading, setLoading] = useState(true);
@@ -1152,10 +1147,7 @@ export default function Dashboard({
 
   if (loading) {
     return (
-      <DashboardLayout
-      showCompanyGraph={showCompanyGraph}
-      showFundManagement={showFundManagement}
-    >
+      <>
         <div className="flex h-full items-center justify-center">
           <div className="flex flex-col items-center gap-4">
             <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
@@ -1164,15 +1156,12 @@ export default function Dashboard({
             </p>
           </div>
         </div>
-      </DashboardLayout>
+      </>
     );
   }
 
   return (
-    <DashboardLayout
-      showCompanyGraph={showCompanyGraph}
-      showFundManagement={showFundManagement}
-    >
+    <>
       <div className="p-6 lg:p-8 space-y-8 animate-fade-in">
         {/* Header */}
         <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between sm:gap-6">
@@ -2154,7 +2143,7 @@ export default function Dashboard({
           />
         )
       }
-    </DashboardLayout >
+    </>
   );
 }
 

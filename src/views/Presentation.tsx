@@ -1,6 +1,5 @@
 "use client";
 
-import DashboardLayout from "@/components/layout/DashboardLayout";
 import { Button } from "@/components/ui/button";
 import {
   Loader2,
@@ -23,11 +22,6 @@ import {
 } from "@/components/presentation/PresentationViewerContext";
 import { useWorkspaceHref } from "@/hooks/useWorkspaceHref";
 
-interface PresentationProps {
-  showCompanyGraph?: boolean;
-  showFundManagement?: boolean;
-}
-
 interface RecentFileItem {
   id: string;
   file_name: string;
@@ -37,10 +31,7 @@ interface RecentFileItem {
 
 const PAGE_SIZE = 10;
 
-export default function Presentation({
-  showCompanyGraph = false,
-  showFundManagement = false,
-}: PresentationProps) {
+export default function Presentation() {
   const router = useRouter();
   const presentationHref = useWorkspaceHref("/presentation");
   const searchParams = useSearchParams();
@@ -121,14 +112,11 @@ export default function Presentation({
   // list (the viewer is about to render).
   if (!hydrated) {
     return (
-      <DashboardLayout
-      showCompanyGraph={showCompanyGraph}
-      showFundManagement={showFundManagement}
-    >
+      <>
         <div className="flex h-full items-center justify-center">
           <Loader2 className="h-8 w-8 animate-spin text-primary" />
         </div>
-      </DashboardLayout>
+      </>
     );
   }
 
@@ -141,10 +129,7 @@ export default function Presentation({
     const canFullscreen = !!signedUrl && (kind === "pdf" || kind === "pptx");
 
     return (
-      <DashboardLayout
-      showCompanyGraph={showCompanyGraph}
-      showFundManagement={showFundManagement}
-    >
+      <>
         <div className="flex h-full min-h-0 flex-col">
           <div className="flex items-center justify-between gap-2 border-b px-4 py-2.5">
             <div className="flex min-w-0 items-center gap-3">
@@ -204,7 +189,7 @@ export default function Presentation({
             )}
           </div>
         </div>
-      </DashboardLayout>
+      </>
     );
   }
 
@@ -212,10 +197,7 @@ export default function Presentation({
   // Recently-opened list
   // ---------------------------------------------------------------------------
   return (
-    <DashboardLayout
-      showCompanyGraph={showCompanyGraph}
-      showFundManagement={showFundManagement}
-    >
+    <>
       <div className="mx-auto w-full max-w-3xl p-6">
         <div className="mb-6 flex items-center gap-3">
           <PresentationIcon className="h-7 w-7 text-primary" />
@@ -306,6 +288,6 @@ export default function Presentation({
           </>
         )}
       </div>
-    </DashboardLayout>
+    </>
   );
 }

@@ -1,6 +1,5 @@
 "use client";
 
-import DashboardLayout from "@/components/layout/DashboardLayout";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { AlertTriangle, Loader2, Search, Users, X } from "lucide-react";
@@ -28,15 +27,7 @@ import type {
 } from "./crm/types";
 import { LAST_CONTACT_LABELS, PAGE_SIZE, TOPIC_SUGGESTIONS } from "./crm/utils";
 
-interface CRMProps {
-  showCompanyGraph?: boolean;
-  showFundManagement?: boolean;
-}
-
-export default function CRM({
-  showCompanyGraph = false,
-  showFundManagement = false,
-}: CRMProps) {
+export default function CRM() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { user, loading: authLoading } = useAuth();
@@ -266,10 +257,7 @@ export default function CRM({
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
   return (
-    <DashboardLayout
-      showCompanyGraph={showCompanyGraph}
-      showFundManagement={showFundManagement}
-    >
+    <>
       <datalist id="topic-suggestions">
         {TOPIC_SUGGESTIONS.map((t) => (
           <option key={t} value={t} />
@@ -462,6 +450,6 @@ export default function CRM({
         onOpenChange={setCurationOpen}
         onResolved={() => fetchEmployers()}
       />
-    </DashboardLayout>
+    </>
   );
 }

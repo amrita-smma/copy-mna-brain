@@ -17,6 +17,17 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { apiRequest } from '@/lib/api/client';
 
+interface FeedbackDialogProps {
+  /**
+   * Controlled open state. Pass this (with `onOpenChange`) to drive the dialog
+   * from somewhere else — the sidebar footer opens it from its overflow menu,
+   * so it renders no trigger of its own. Omit both for a self-contained
+   * button + dialog.
+   */
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+}
+
 /**
  * "Send Feedback" affordance in the sidebar footer (MB-480). Opens a dialog
  * with a required title + free-text box; submitting posts to `/api/feedback`,
@@ -24,8 +35,11 @@ import { apiRequest } from '@/lib/api/client';
  * nico.alimin@smma.id, and files a Jira ticket — all server-side, so this
  * component just POSTs and reports success/failure.
  */
-export function FeedbackDialog() {
-  const [open, setOpen] = useState(false);
+export function FeedbackDialog({ open: controlledOpen, onOpenChange }: FeedbackDialogProps = {}) {
+  const [uncontrolledOpen, setUncontrolledOpen] = useState(false);
+  const isControlled = controlledOpen !== undefined;
+  const open = isControlled ? controlledOpen : uncontrolledOpen;
+  const setOpen = isControlled ? (onOpenChange ?? (() => {})) : setUncontrolledOpen;
   const [title, setTitle] = useState('');
   const [message, setMessage] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -56,17 +70,19 @@ export function FeedbackDialog() {
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          className="justify-start text-sidebar-foreground/70 hover:text-sidebar-foreground group-data-[state=collapsed]:justify-center group-data-[state=collapsed]:p-2"
-        >
-          <MessageSquarePlus className="h-4 w-4 group-data-[state=expanded]:mr-2" />
-          <span className="group-data-[state=collapsed]:hidden">Send Feedback</span>
-        </Button>
-      </DialogTrigger>
+      {!isControlled && (
+        <DialogTrigger asChild>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="justify-start text-sidebar-foreground/70 hover:text-sidebar-foreground group-data-[state=collapsed]:justify-center group-data-[state=collapsed]:p-2"
+          >
+            <MessageSquarePlus className="h-4 w-4 group-data-[state=expanded]:mr-2" />
+            <span className="group-data-[state=collapsed]:hidden">Send Feedback</span>
+          </Button>
+        </DialogTrigger>
+      )}
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>Send Feedback</DialogTitle>

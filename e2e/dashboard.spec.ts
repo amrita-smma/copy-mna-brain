@@ -1,6 +1,6 @@
 import { test, expect, Page } from '@playwright/test';
 import { signIn } from './helpers/auth';
-import { collapseCopilot } from './helpers/layout';
+import { collapseCopilot, openPagesNav } from './helpers/layout';
 import {
   baseCompany,
   getDataMode,
@@ -218,8 +218,10 @@ test.describe('Dashboard page', () => {
     await expect(page.getByRole('heading', { name: 'Dashboard', level: 1 })).toBeVisible();
     await expect(page.getByText('Real-time overview of your M&A deal pipeline')).toBeVisible();
 
-    // Sidebar navigation links
-    for (const name of ['Pipeline', 'Master Data', 'CRM', 'Smart Files', 'AI Workforce']) {
+    // Sidebar navigation links — inside the sidebar's collapsible "Deal Flow"
+    // and "Intelligence" sections, above chat history.
+    await openPagesNav(page);
+    for (const name of ['Pipeline', 'Master Data', 'CRM', 'Smart Files', 'AI Workspace']) {
       await expect(page.getByRole('link', { name })).toBeVisible();
     }
 
@@ -569,11 +571,14 @@ test.describe('Dashboard page', () => {
       page.goto('/dashboard'),
     ]);
 
-    await expect(page.getByText("Hello! I'm your M&A discovery assistant.")).toBeVisible();
-    await expect(page.getByText('Company Discovery')).toBeVisible();
-    await expect(page.getByText('Deep Dive Analysis')).toBeVisible();
-    await expect(page.getByText('Pipeline Insights')).toBeVisible();
+    // An empty chat greets the user by first name ("Test User" -> "Test") with
+    // the composer and a few starting prompts beneath it. This replaced the old
+    // canned "Hello! I'm your M&A discovery assistant" feature-list bubble.
+    await expect(
+      page.getByRole('heading', { name: 'Ask away, Test!', level: 1 }),
+    ).toBeVisible();
     await expect(page.getByPlaceholder('Ask anything...')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Pipeline Suggestions' })).toBeVisible();
   });
 
   // ─── REG-DASH-27 ──────────────────────────────────────────────────────────
@@ -607,12 +612,14 @@ test.describe('Dashboard page', () => {
     // REG-DASH-28
     await openDashboard(page);
 
+    await openPagesNav(page);
+
     const navLinks: Array<[string, string]> = [
       ['Pipeline', '/pipeline'],
       ['Master Data', '/master-data'],
       ['CRM', '/crm'],
       ['Smart Files', '/smart-files'],
-      ['AI Workforce', '/ai-workforce'],
+      ['AI Workspace', '/ai-workforce'],
     ];
 
     for (const [name, href] of navLinks) {

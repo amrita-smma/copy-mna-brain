@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { Sparkles } from 'lucide-react';
+import { Bell } from 'lucide-react';
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
 import { cn } from '@/lib/utils';
 import { useLocalStorage } from '@/hooks/useLocalStorage';
@@ -35,8 +35,11 @@ const CATEGORY_CLASS: Record<ChangeCategory, string> = {
  *
  * A pulsing dot marks changes the viewer hasn't seen; opening the popover
  * records the latest change date in localStorage, clearing the dot until the
- * next merge. Renders nothing before the first generation has run. Collapses to
- * just its icon when the sidebar is in icon mode.
+ * next merge. Renders nothing before the first generation has run.
+ *
+ * The trigger is a bare bell icon at both sidebar widths — the footer row it
+ * sits in is deliberately just the user's name, this bell, and the overflow
+ * menu, so there is no room for a label or an "Updated <date>" line.
  */
 export function ChangelogWidget() {
   const [open, setOpen] = useState(false);
@@ -64,29 +67,19 @@ export function ChangelogWidget() {
         <button
           type="button"
           aria-label="What’s new"
+          title="What’s new"
           className={cn(
-            'relative flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs text-sidebar-foreground/70 transition-colors',
+            'relative flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-sidebar-foreground/70 transition-colors',
             'hover:bg-sidebar-accent hover:text-sidebar-foreground',
-            'group-data-[state=collapsed]:justify-center group-data-[state=collapsed]:px-0',
           )}
         >
-          <span className="relative flex h-4 w-4 shrink-0 items-center justify-center">
-            <Sparkles className="h-4 w-4" />
-            {unseen && (
-              <span className="absolute -right-0.5 -top-0.5 flex h-2 w-2">
-                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-blue-400 opacity-75" />
-                <span className="relative inline-flex h-2 w-2 rounded-full bg-blue-500" />
-              </span>
-            )}
-          </span>
-          <span className="flex min-w-0 flex-1 flex-col group-data-[state=collapsed]:hidden">
-            <span className="font-medium text-sidebar-foreground/90">What’s new</span>
-            {latest && (
-              <span className="truncate text-[11px] text-sidebar-foreground/50">
-                Updated {formatChangelogDate(latest)}
-              </span>
-            )}
-          </span>
+          <Bell className="h-4 w-4" />
+          {unseen && (
+            <span className="absolute right-1.5 top-1.5 flex h-2 w-2">
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-blue-400 opacity-75" />
+              <span className="relative inline-flex h-2 w-2 rounded-full bg-blue-500" />
+            </span>
+          )}
         </button>
       </PopoverTrigger>
       <PopoverContent side="top" align="start" className="w-80 p-0">

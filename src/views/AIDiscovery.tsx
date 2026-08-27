@@ -3,7 +3,6 @@
 import { useEffect } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
-import DashboardLayout from '@/components/layout/DashboardLayout';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Sparkles, Zap, FileStack } from 'lucide-react';
@@ -11,15 +10,7 @@ import { ChatWindow } from '@/components/chat/ChatWindow';
 import { ChatSidebar } from '@/components/chat/ChatSidebar';
 import { cn } from '@/lib/utils';
 
-interface AIDiscoveryProps {
-  showCompanyGraph?: boolean;
-  showFundManagement?: boolean;
-}
-
-export default function AIDiscovery({
-  showCompanyGraph = false,
-  showFundManagement = false,
-}: AIDiscoveryProps) {
+export default function AIDiscovery() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
@@ -33,10 +24,7 @@ export default function AIDiscovery({
   }, [searchParams, router]);
 
   return (
-    <DashboardLayout
-      showCompanyGraph={showCompanyGraph}
-      showFundManagement={showFundManagement}
-    >
+    <>
       <div className="flex flex-col h-screen p-6">
         {/* Header - AI CoPilot */}
         <div className="relative mb-6 flex-shrink-0">
@@ -109,6 +97,6 @@ export default function AIDiscovery({
           </div>
         </Card>
       </div>
-    </DashboardLayout>
+    </>
   );
 }

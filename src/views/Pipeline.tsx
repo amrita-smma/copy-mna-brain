@@ -1,12 +1,12 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useLocalStorage } from "@/hooks/useLocalStorage";
+import { useSetPageDetail } from "@/components/layout/PageContextProvider";
 import { useEventStream } from "@/hooks/useEventStream";
 import { useSearchParams, useRouter } from "next/navigation";
 import { WorkspaceLink } from "@/components/WorkspaceLink";
 import { useWorkspaceHref } from "@/hooks/useWorkspaceHref";
-import DashboardLayout from "@/components/layout/DashboardLayout";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Card,
@@ -320,15 +320,7 @@ const L1StatusBadge = ({ status }: { status: L1Status | null }) => {
   );
 };
 
-interface PipelineProps {
-  showCompanyGraph?: boolean;
-  showFundManagement?: boolean;
-}
-
-export default function Pipeline({
-  showCompanyGraph = false,
-  showFundManagement = false,
-}: PipelineProps) {
+export default function Pipeline() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const pipelineHref = useWorkspaceHref("/pipeline");
@@ -894,6 +886,40 @@ export default function Pipeline({
     ? sortedCompanies
     : paginatedCompanies;
 
+  // Tell the copilot what this table is currently showing, so "summarize this
+  // page" or "why are these stalled?" resolves against the user's actual view
+  // instead of the whole pipeline. Memoized on the filter values so the context
+  // isn't rewritten on every keystroke-driven re-render.
+  useSetPageDetail(
+    useMemo(() => {
+      const filters = [
+        `stage ${activeTab}`,
+        sourceFilter,
+        viewMode === 'dropped' ? 'dropped deals' : 'active deals',
+        sectorFilter !== 'all' ? `sector ${sectorFilter}` : null,
+        l1StatusFilter !== 'all' ? `L1 status ${l1StatusFilter}` : null,
+        docTypeFilter !== 'all' ? `doc type ${docTypeFilter}` : null,
+        trackFilter.length > 0 ? `${trackFilter.length} track filter(s)` : null,
+        searchQuery.trim() ? `search "${searchQuery.trim()}"` : null,
+      ].filter(Boolean);
+      return [
+        `The deal pipeline table, filtered to: ${filters.join(', ')}.`,
+        `${sortedCompanies.length} deal(s) match; ${visibleCompanies.length} shown on this page.`,
+      ].join(' ');
+    }, [
+      activeTab,
+      sourceFilter,
+      viewMode,
+      sectorFilter,
+      l1StatusFilter,
+      docTypeFilter,
+      trackFilter.length,
+      searchQuery,
+      sortedCompanies.length,
+      visibleCompanies.length,
+    ]),
+  );
+
   // MB-225: unreviewed inbound companies for the current stage/view — independent
   // of the active sub-tab so the Unreviewed tab badge and triage modal stay correct
   // even while the Inbound (reviewed-only) tab is selected.
@@ -1228,10 +1254,7 @@ export default function Pipeline({
   );
 
   return (
-    <DashboardLayout
-      showCompanyGraph={showCompanyGraph}
-      showFundManagement={showFundManagement}
-    >
+    <>
       <div className="p-6 space-y-6 animate-fade-in">
         <div className="flex items-center justify-between">
           <div>
@@ -2262,6 +2285,6 @@ export default function Pipeline({
           </AlertDialogContent>
         </AlertDialog>
       </div>
-    </DashboardLayout>
+    </>
   );
 }

@@ -11,7 +11,7 @@
  * Two kinds of entries live here:
  *  - Flags with a code-level consumer, exported from `@/lib/flags` (e.g.
  *    `COMPANY_GRAPH_ENABLED`, `CHAT_CACHE_ENABLED`).
- *  - Navigation features whose only gate is the sidebar in `DashboardLayout`
+ *  - Navigation features whose only gate is the sidebar in `SidebarPagesNav`
  *    (e.g. `PIPELINE_ENABLED`, `MASTER_DATA_ENABLED`). These default ON so the
  *    app is unchanged until an admin turns one off.
  *
@@ -32,8 +32,8 @@ export interface FeatureDefinition {
    */
   defaultEnabled: boolean;
   /**
-   * True when this feature is a sidebar section in `DashboardLayout` (its `key`
-   * matches a `baseNavigation` item's `flag`). False for features that aren't
+   * True when this feature is a sidebar section in `SidebarPagesNav` (its `key`
+   * matches a `CONSOLE_TABS` item's `flag`). False for features that aren't
    * on the navbar (in-page flags, background/sub-features). Drives the
    * Navigation vs. Other sub-tabs in the admin Features tab.
    */
@@ -48,7 +48,7 @@ export interface FeatureDefinition {
 
 /**
  * Every feature that can be turned on/off from the admin portal. Nav-feature
- * keys must match the `flag` fields in `DashboardLayout`'s `baseNavigation`.
+ * keys must match the `flag` fields in the `CONSOLE_TABS` registry.
  */
 export const FEATURE_CATALOG: FeatureDefinition[] = [
   // ── Navigation features (sidebar entries) — default ON ──────────────────

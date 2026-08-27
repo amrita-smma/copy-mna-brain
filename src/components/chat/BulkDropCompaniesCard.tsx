@@ -6,6 +6,7 @@ import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { CompanyNavigateButton } from "./CompanyChip";
 
 export interface BulkDropCandidate {
   id: string;
@@ -227,6 +228,7 @@ export function BulkDropCompaniesCard({
                     >
                       {c.name}
                     </span>
+                    <CompanyNavigateButton companyId={c.id} label={c.name} />
                     {c.tag && (
                       <span className="text-[10px] font-bold uppercase tracking-wider rounded-full px-2 py-[2px] bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-300">
                         {c.tag}

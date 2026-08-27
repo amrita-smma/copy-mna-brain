@@ -4,11 +4,11 @@ import { useState, useEffect, useRef } from 'react';
 import { useParams, usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useWorkspaceHref } from '@/hooks/useWorkspaceHref';
 import { useWorkspaceCurrency } from '@/components/layout/WorkspaceCurrencyContext';
+import { useSetPageDetail } from '@/components/layout/PageContextProvider';
 import { formatMoneyMn } from '@/lib/currency';
-import DashboardLayout from '@/components/layout/DashboardLayout';
+import posthog from 'posthog-js';
 import { MarkdownRenderer } from '@/components/chat/MarkdownRenderer';
 import { useChatContext } from '@/components/chat/ChatProvider';
-import { AskAIButton } from '@/components/chat/AskAIButton';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { useEventStream } from '@/hooks/useEventStream';
 import { companyDisplayName, companyDisplayTitle, companyInitials } from '@/lib/companyDisplay';
@@ -49,7 +49,14 @@ import {
   Pencil,
   Check,
   X,
+  MoreVertical,
 } from 'lucide-react';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import {
   Select,
   SelectContent,
@@ -333,15 +340,7 @@ const DEFAULT_TAB: CompanyTab = 'overview';
 const isCompanyTab = (value: string | null): value is CompanyTab =>
   value !== null && (TAB_VALUES as readonly string[]).includes(value);
 
-interface CompanyDetailProps {
-  showCompanyGraph?: boolean;
-  showFundManagement?: boolean;
-}
-
-export default function CompanyDetail({
-  showCompanyGraph = false,
-  showFundManagement = false,
-}: CompanyDetailProps) {
+export default function CompanyDetail() {
   const params = useParams();
   const router = useRouter();
   const { analyzeWithAI } = useChatContext();
@@ -351,7 +350,11 @@ export default function CompanyDetail({
   const searchParams = useSearchParams();
   const pathname = usePathname();
   const isMobile = useIsMobile();
-  const companyId = params.dealId as string;
+  // This view serves two routes: `/companies/<id>` (a company on its own, where
+  // chat and search send you) and `/pipeline/<dealId>` (the same company read as
+  // a deal in the funnel). Both segments carry the company id — the pipeline
+  // route's is named `dealId` for historical reasons.
+  const companyId = (params.id ?? params.dealId) as string;
   const pipelineHref = useWorkspaceHref('/pipeline');
   const chatHref = useWorkspaceHref('/chat');
   const smartFilesHref = useWorkspaceHref('/smart-files');
@@ -383,13 +386,33 @@ export default function CompanyDetail({
 
   const [company, setCompany] = useState<CompanyData | null>(null);
 
-  // "Analyze using AI" sends the prompt to the shared copilot. On mobile the
-  // copilot lives on the Chat tab, so jump there to watch the response stream.
+  // Name the deal on screen for the copilot, so "this company" resolves without
+  // the user having to type the name — and so the agent can pass the id straight
+  // to its lookup tools instead of fuzzy-matching a name.
+  useSetPageDetail(
+    company
+      ? [
+          `Deal open: ${companyDisplayName(company, 'unnamed company')}`,
+          `(company id ${company.id}, stage ${company.pipeline_stage ?? 'unknown'},`,
+          `status ${company.status ?? 'unknown'}).`,
+          `Viewing the "${activeTab}" tab.`,
+        ].join(' ')
+      : null,
+  );
+
+  // "Analyze using AI" sends the prompt to the shared copilot, then surfaces it.
+  // On mobile the copilot lives on the Chat tab (no side pane), so jump there to
+  // watch the response stream; on desktop reveal the copilot pane instead.
   const handleAnalyzeWithAI = () => {
     analyzeWithAI(
       `Analyze ${companyDisplayName(company, 'this company')} and provide insights about it as a potential deal.`,
     );
-    if (isMobile) router.push(chatHref);
+    if (isMobile) {
+      posthog.capture('mobile_ai_analysis_opened', { label: 'Analyze using AI' });
+      router.push(chatHref);
+    } else {
+      focusCopilot();
+    }
   };
   const [stageHistory, setStageHistory] = useState<StageHistory[]>([]);
   const [notes, setNotes] = useState<DealNote[]>([]);
@@ -1096,23 +1119,17 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
 
   if (loading) {
     return (
-      <DashboardLayout
-      showCompanyGraph={showCompanyGraph}
-      showFundManagement={showFundManagement}
-    >
+      <>
         <div className="flex items-center justify-center h-full">
           <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
         </div>
-      </DashboardLayout>
+      </>
     );
   }
 
   if (!company) {
     return (
-      <DashboardLayout
-      showCompanyGraph={showCompanyGraph}
-      showFundManagement={showFundManagement}
-    >
+      <>
         <div className="flex flex-col items-center justify-center h-full gap-4">
           <p className="text-muted-foreground">Company not found</p>
           <Button onClick={() => router.push(returnTo)}>
@@ -1120,7 +1137,7 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
             Go Back
           </Button>
         </div>
-      </DashboardLayout>
+      </>
     );
   }
 
@@ -1133,10 +1150,7 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
     : null;
 
   return (
-    <DashboardLayout
-      showCompanyGraph={showCompanyGraph}
-      showFundManagement={showFundManagement}
-    >
+    <>
       <div className="p-6 space-y-6">
         {/* Header */}
         <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between md:gap-6">
@@ -1196,6 +1210,9 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
                 Generate Slides
               </Button>
             )}
+            {/* While a card is generating, the progress + cancel pair stays
+                inline — a spinner buried in a closed menu is invisible. Once
+                idle, both AI actions collapse into the overflow menu. */}
             {analysisGenerating ? (
               <div className="flex items-center gap-2">
                 <Button
@@ -1222,22 +1239,36 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
                 </Button>
               </div>
             ) : (
-              <Button
-                size="sm"
-                className="bg-accent hover:bg-accent/90 text-accent-foreground gap-2"
-                onClick={analysis?.status === 'completed' ? regenerateAnalysis : generateAnalysis}
-              >
-                <Sparkles className="h-4 w-4" />
-                {analysis?.status === 'completed'
-                  ? 'Regenerate AI Card'
-                  : 'Generate AI Company Card'}
-              </Button>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    aria-label="More actions"
+                    title="More actions"
+                    className="h-7 w-7"
+                  >
+                    <MoreVertical className="h-4 w-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem
+                    onClick={
+                      analysis?.status === 'completed' ? regenerateAnalysis : generateAnalysis
+                    }
+                  >
+                    <Sparkles className="mr-2 h-4 w-4" />
+                    {analysis?.status === 'completed'
+                      ? 'Regenerate AI Card'
+                      : 'Generate AI Company Card'}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={handleAnalyzeWithAI}>
+                    <Sparkles className="mr-2 h-4 w-4" />
+                    Analyze using AI
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             )}
-            <AskAIButton
-              variant="button"
-              label="Analyze using AI"
-              onClick={handleAnalyzeWithAI}
-            />
           </div>
         </div>
 
@@ -2050,7 +2081,7 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
           </div>
         </DialogContent>
       </Dialog>
-    </DashboardLayout>
+    </>
   );
 }
 

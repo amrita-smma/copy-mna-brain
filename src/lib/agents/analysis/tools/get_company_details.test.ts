@@ -21,6 +21,7 @@ vi.mock('@/lib/repositories', () => ({
 }));
 
 import { getCompanyDetails } from './get_company_details';
+import { parseCompanyMentions } from '@/lib/navigation/companyMentions';
 
 afterEach(() => vi.clearAllMocks());
 
@@ -55,6 +56,24 @@ describe('getCompanyDetails', () => {
     expect(findByNameFuzzyMock).toHaveBeenCalledWith('Alpha');
     expect(result).toContain('## Company Details: Acme');
     expect(result).toContain('**Project Name:** Project Alpha');
+  });
+
+  // Feeds the chat UI's "Open <company>" chip — see `companyMentions`.
+  it('appends an id-to-name manifest covering target and project name', async () => {
+    findByNameFuzzyMock.mockResolvedValue({
+      id: 'c-acme',
+      target: 'Acme',
+      project_name: 'Project Alpha',
+    });
+    findByCompanyFinancialsMock.mockResolvedValue([]);
+    findByCompanyScreeningMock.mockResolvedValue(null);
+
+    const result = (await getCompanyDetails.invoke({ company_name: 'Acme' })) as string;
+
+    expect(parseCompanyMentions(result)).toEqual([
+      { id: 'c-acme', name: 'Acme' },
+      { id: 'c-acme', name: 'Project Alpha' },
+    ]);
   });
 
   it('renders financials, screening, and basic info for a real company', async () => {

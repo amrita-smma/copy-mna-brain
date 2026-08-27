@@ -6,6 +6,7 @@ import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { CompanyNavigateButton } from "./CompanyChip";
 
 export type SignalStatus = "pass" | "fail" | "warn";
 
@@ -244,6 +245,7 @@ export function BulkPromoteCompaniesCard({
                     >
                       {c.name}
                     </span>
+                    <CompanyNavigateButton companyId={c.id} label={c.name} />
                     {c.tags?.map((tag, i) => (
                       <span
                         key={`${c.id}-tag-${i}`}

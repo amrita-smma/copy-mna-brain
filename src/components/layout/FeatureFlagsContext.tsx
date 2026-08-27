@@ -9,7 +9,7 @@ const FeatureFlagsContext = createContext<FeatureFlagMap>({});
 
 /**
  * Provides the request's active-workspace feature-flag map (resolved server-side
- * in the workspace layout) to client components like `DashboardLayout`, which
+ * in the workspace layout) to client components like `SidebarPagesNav`, which
  * use it to gate sidebar navigation without per-page prop threading.
  */
 export function FeatureFlagsProvider({

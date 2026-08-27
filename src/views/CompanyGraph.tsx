@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
-import DashboardLayout from '@/components/layout/DashboardLayout';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -498,15 +497,11 @@ function fallbackCompany(node: GraphNode): CompanyData {
 }
 
 interface CompanyGraphProps {
-  showCompanyGraph?: boolean;
-  showFundManagement?: boolean;
   /** When true, the edit-mode "Combine companies" section is available. */
   isWorkspaceAdmin?: boolean;
 }
 
 export default function CompanyGraph({
-  showCompanyGraph = false,
-  showFundManagement = false,
   isWorkspaceAdmin = false,
 }: CompanyGraphProps) {
   // Every filter is mirrored into the URL so a filtered graph is shareable as a
@@ -1424,10 +1419,7 @@ export default function CompanyGraph({
   const ready = !loading && !error && ForceGraph2D && graphData.nodes.length > 0;
 
   return (
-    <DashboardLayout
-      showCompanyGraph={showCompanyGraph}
-      showFundManagement={showFundManagement}
-    >
+    <>
       <div className="flex flex-col h-full">
         <div className="relative flex flex-1 min-h-0 p-4">
           {/* Filters + legend — a collapsible card overlaid on the graph */}
@@ -2522,6 +2514,6 @@ export default function CompanyGraph({
           </DialogContent>
         </Dialog>
       )}
-    </DashboardLayout>
+    </>
   );
 }

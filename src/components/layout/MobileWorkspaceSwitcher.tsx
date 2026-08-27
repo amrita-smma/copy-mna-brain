@@ -47,7 +47,7 @@ function initialsFor(name: string) {
  * bottom-sheet listing every workspace the user can access — each row shows the
  * workspace avatar (initials), name, and slug.
  *
- * Mirrors the desktop `WorkspaceSwitcher` in `DashboardLayout`: the current
+ * Mirrors the desktop `WorkspaceSwitcher` in `AppShell`: the current
  * workspace is read from the URL's `workspaceSlug` param (not the session's
  * globally-active id) and switching hard-navigates to the same page under the
  * new slug after syncing the session cookie via `switchWorkspace`.

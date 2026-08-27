@@ -17,6 +17,7 @@ vi.mock('@/lib/repositories', () => ({
 }));
 
 import { queryCompanies } from './query_companies';
+import { parseCompanyMentions } from '@/lib/navigation/companyMentions';
 
 afterEach(() => vi.clearAllMocks());
 
@@ -50,6 +51,32 @@ describe('queryCompanies', () => {
     expect(result).toContain('$12.3');
     expect(result).toContain('Beta');
     expect(result).toContain('| - |'); // missing financials render as '-'
+  });
+
+  // The table has names but no ids, so the chat UI has nothing to build an
+  // "Open <company>" link from without this manifest.
+  it('appends an id-to-name manifest for the chat UI, covering target and project name', async () => {
+    searchForAgentMock.mockResolvedValue([
+      { id: 'c1', target: 'Acme', project_name: 'Project Alpha' },
+      { id: 'c2', target: 'Beta', project_name: null },
+    ]);
+    findLatestByCompaniesMock.mockResolvedValue([]);
+
+    const result = (await queryCompanies.invoke({ search_term: 'a' })) as string;
+
+    expect(parseCompanyMentions(result)).toEqual([
+      { id: 'c1', name: 'Acme' },
+      { id: 'c1', name: 'Project Alpha' },
+      { id: 'c2', name: 'Beta' },
+    ]);
+  });
+
+  it('omits the manifest when no companies matched', async () => {
+    searchForAgentMock.mockResolvedValue([]);
+
+    const result = (await queryCompanies.invoke({ search_term: 'zzz' })) as string;
+
+    expect(parseCompanyMentions(result)).toEqual([]);
   });
 
   it('forwards the stage filter to the repository', async () => {

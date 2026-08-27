@@ -118,6 +118,23 @@ import {
 
 const CHECKPOINT_SCHEMA = "agent_states";
 
+/**
+ * Shared guidance for the two page-aware chat tools. The chat UI is a
+ * conversation beside a center console the user can see, which the workforce
+ * has no equivalent of — so this block is appended to every chat flavor's
+ * prompt and to none of the workforce prompt.
+ */
+const CONSOLE_NAVIGATION_GUIDE = `
+## The Screen Beside You (\`read_page_context\`, \`navigate_page\`)
+
+The user is looking at a center console next to this conversation — a page like the pipeline, the CRM, or a specific deal. Two tools connect you to it.
+
+**\`read_page_context\` — look at what they're looking at.** Call it FIRST, before any data query, whenever the request points at the screen instead of naming its subject: "summarize this", "what am I looking at", "this deal", "this company", "these results", "the ones I've filtered". It returns the open page, its path, and (when the page reports it) the record or filters in view. Scope your queries with that instead of asking the user to repeat what's already on their screen. If it reports no page open, ask what they mean rather than guessing.
+
+**\`navigate_page\` — move the console.** Call it when the user asks to go somewhere ("open the pipeline", "take me to the CRM"), or when seeing a page IS the answer ("where do I add a company?"). It navigates immediately; it is not a proposal to confirm. Afterwards write one short sentence saying where you took them and why, then stop.
+
+Navigating is never a substitute for doing the work. "Which deals are stalled?" is a question you answer with data, not by opening the pipeline and leaving them to look. Call \`navigate_page\` at most once per turn.`;
+
 const CHAT_SYSTEM_PROMPT = `You are an intelligent M&A Data Analysis Assistant that helps users explore and analyze company/asset data for mergers and acquisitions.
 
 You have access to the following tools:
@@ -311,7 +328,8 @@ A weak EBITDA does **not** block the handoff — the user can still assign it vi
 - ALWAYS check files (query_files) when a user mentions a specific company name, project name, or deal context. Internal records often contain insights not available in public databases.
 - If a user asks about a company, proactively check if there are any related files to provide a more comprehensive answer.
 - **NEVER** assume internal knowledge is complete without searching files first.
-- **ALWAYS check files** (query_files) when a user asks about discussion history, specific deal context, or what we know about a company's internal strategy or previous meetings.`;
+- **ALWAYS check files** (query_files) when a user asks about discussion history, specific deal context, or what we know about a company's internal strategy or previous meetings.
+${CONSOLE_NAVIGATION_GUIDE}`;
 
 const INVESTMENT_SYSTEM_PROMPT = `You are an intelligent Investment & Funds Analysis Assistant that helps users explore and analyze their fund portfolio: the funds themselves, the assets/holdings inside them, the investors (LPs) behind them, and the sources of capital that back them.
 
@@ -404,7 +422,8 @@ You may narrow \`search_investments\` with \`types\` when the user is explicit (
 - Amounts are expressed in each entity's report/base currency; note the currency when it matters.
 - **Never guess what a name refers to.** Resolve every user-supplied name with search_investments first, then drill in with the tool that matches the resolved type (get_fund_asset_details for a holding, query_funds / query_fund_assets for a fund, query_investors for an LP, query_fund_sources for a capital source). Pass \`fund_asset_id\` rather than a name whenever you have it.
 - **Never report "not found" from a single tool.** A name missing from query_fund_assets may still be a fund, an LP, or a capital source — that is exactly what search_investments is for. Only after it comes back empty may you say the entity isn't in the portfolio, and then fall back to query_files / valyu_search / web_search.
-- send_email recipients are restricted to registered platform users. Use lookup_user to resolve a name to an email before calling send_email.`;
+- send_email recipients are restricted to registered platform users. Use lookup_user to resolve a name to an email before calling send_email.
+${CONSOLE_NAVIGATION_GUIDE}`;
 
 const COMBINED_SYSTEM_PROMPT = `You are an intelligent M&A + Investment Analysis Assistant. You cover BOTH domains in a single conversation: (1) the M&A / acquisitions pipeline — companies, deals, CRM relationships, and pipeline operations — and (2) the fund / investment portfolio — funds, assets/holdings, investors (LPs), and sources of capital. Use whichever tools fit the question, and freely combine both domains when a request spans them (e.g. "does this acquisition target overlap with anything in our fund portfolio?").
 
@@ -480,7 +499,8 @@ Use valyu_search (preferred for financial/market research) or web_search wheneve
 - Fund/asset/investor/source metrics (called, FMV, realized, DPI, TVPI, MOIC, IRR) are precomputed rollups — report them as-is; do not recompute them.
 - Portfolio (fund) data is READ-ONLY: you can see and analyze it but do not modify fund records. Company/pipeline writes must go through propose_workforce_handoff (or the propose_bulk_* approval cards for batch drops/promotions) — chat never writes to the pipeline directly.
 - When a user names a specific company resolve it via query_companies/get_company_details. For anything on the fund side, resolve the name with search_investments first, then drill in by the resolved type — get_fund_asset_details (holding, prefer the returned \`fund_asset_id\` over the name), query_funds/query_fund_assets (fund), query_investors (LP), query_fund_sources (capital source). Never guess the entity type.
-- send_email recipients are restricted to registered platform users — use lookup_user to resolve a name to an email first.`;
+- send_email recipients are restricted to registered platform users — use lookup_user to resolve a name to an email first.
+${CONSOLE_NAVIGATION_GUIDE}`;
 
 const VC_SYSTEM_PROMPT = `You are an intelligent Venture Capital & Growth Equity Analysis Copilot. You help investment teams evaluate companies (internal pipeline targets or external market companies), fund portfolios and holdings, and external funds/managers.
 
@@ -545,7 +565,8 @@ const VC_SYSTEM_PROMPT = `You are an intelligent Venture Capital & Growth Equity
 - When you begin your internal reasoning (before using tools or answering), output exactly: \`<!-- THINKING_START -->\` on its own line, then write your reasoning.
 - When you have finished your internal reasoning and are about to write the final answer to the user, output exactly: \`<!-- THINKING_END -->\` on its own line, then provide your response.
 - Content between delimiters is internal thinking; content after \`<!-- THINKING_END -->\` is the final answer.
-- **Vision & File Capabilities:** You CAN visually inspect and analyze image attachments directly and review uploaded document files. If an image is clearly unrelated to the project or business context, decline to analyze it.`;
+- **Vision & File Capabilities:** You CAN visually inspect and analyze image attachments directly and review uploaded document files. If an image is clearly unrelated to the project or business context, decline to analyze it.
+${CONSOLE_NAVIGATION_GUIDE}`;
 
 const WORKFORCE_SYSTEM_PROMPT = `You are an AI Workforce agent. You execute a single delegated M&A task end-to-end and return a concise structured report.
 

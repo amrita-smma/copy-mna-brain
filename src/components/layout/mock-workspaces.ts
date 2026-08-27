@@ -3,7 +3,7 @@
  *
  * Shared workspace list used by the post-sign-in workspace picker
  * (`src/app/workspace/page.tsx`) and the sidebar workspace switcher
- * (`DashboardLayout`). There is no workspace/tenant concept on the backend yet
+ * (`AppShell`). There is no workspace/tenant concept on the backend yet
  * — selecting a workspace simply routes into the app at `href`. Once real
  * multi-tenancy lands (see `getActiveWorkspaceId()` in `src/lib/workspace.ts`),
  * this constant is replaced by a fetch of the user's `user_workspaces`.

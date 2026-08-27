@@ -5,7 +5,6 @@ import { useRouter } from 'next/navigation';
 import { useWorkspaceHref } from '@/hooks/useWorkspaceHref';
 import { useWorkspaceCurrency } from '@/components/layout/WorkspaceCurrencyContext';
 import { formatMoneyMn } from '@/lib/currency';
-import DashboardLayout from '@/components/layout/DashboardLayout';
 import CompanyDetailDialog, { type CompanyData } from '@/components/pipeline/CompanyDetailDialog';
 import PromoteDialog from '@/components/pipeline/PromoteDialog';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -165,15 +164,7 @@ const getRevenueChange = (year2: number | null, year3: number | null): { directi
   return { direction: 'flat', percent: 0 };
 };
 
-interface MasterDataProps {
-  showCompanyGraph?: boolean;
-  showFundManagement?: boolean;
-}
-
-export default function MasterData({
-  showCompanyGraph = false,
-  showFundManagement = false,
-}: MasterDataProps) {
+export default function MasterData() {
   const [companies, setCompanies] = useState<CompanyWithDeal[]>([]);
   // Companies the relationship-graph tooling auto-created (stage "discovered").
   // They sit outside the L0–L5 pipeline, so they get their own section below.
@@ -590,22 +581,16 @@ export default function MasterData({
 
   if (loading) {
     return (
-      <DashboardLayout
-      showCompanyGraph={showCompanyGraph}
-      showFundManagement={showFundManagement}
-    >
+      <>
         <div className="flex h-full items-center justify-center">
           <Loader2 className="h-8 w-8 animate-spin text-primary" />
         </div>
-      </DashboardLayout>
+      </>
     );
   }
 
   return (
-    <DashboardLayout
-      showCompanyGraph={showCompanyGraph}
-      showFundManagement={showFundManagement}
-    >
+    <>
       <div className="p-6 space-y-6 animate-fade-in">
         {/* Header */}
         <div className="flex items-center justify-between">
@@ -1081,6 +1066,6 @@ export default function MasterData({
           />
         )}
       </div>
-    </DashboardLayout>
+    </>
   );
 }

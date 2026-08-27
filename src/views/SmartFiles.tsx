@@ -1,6 +1,5 @@
 "use client";
 
-import DashboardLayout from "@/components/layout/DashboardLayout";
 import FilePreview from "@/components/Files/FilePreview";
 import {
   AlertDialog,
@@ -987,15 +986,11 @@ function useFileBucket(fileType: string, externalSearch?: string, enabled = true
 }
 
 interface SmartFilesProps {
-  showCompanyGraph?: boolean;
-  showFundManagement?: boolean;
   /** Deep-link tab from `/smart-files/<tab>` — defaults to MoM. */
   initialTab?: SmartFilesTab;
 }
 
 export default function SmartFiles({
-  showCompanyGraph = false,
-  showFundManagement = false,
   initialTab = "mom",
 }: SmartFilesProps) {
   const { analyzeWithAI } = useChatContext();
@@ -1597,22 +1592,16 @@ export default function SmartFiles({
 
   if (loading) {
     return (
-      <DashboardLayout
-      showCompanyGraph={showCompanyGraph}
-      showFundManagement={showFundManagement}
-    >
+      <>
         <div className="flex h-full items-center justify-center">
           <Loader2 className="h-8 w-8 animate-spin text-primary" />
         </div>
-      </DashboardLayout>
+      </>
     );
   }
 
   return (
-    <DashboardLayout
-      showCompanyGraph={showCompanyGraph}
-      showFundManagement={showFundManagement}
-    >
+    <>
       <div className="flex flex-col min-h-full p-6 space-y-6 animate-fade-in">
         {/* Header */}
         <div className="relative flex-shrink-0">
@@ -2369,6 +2358,6 @@ export default function SmartFiles({
           }}
         />
       )}
-    </DashboardLayout>
+    </>
   );
 }

@@ -53,7 +53,7 @@ export async function resolveFeatureOverride(key: string): Promise<boolean | und
 /**
  * The fully-resolved effective state of every catalog feature for a workspace:
  * the stored override when present, else the env/catalog default. Provided to
- * the client nav shell so `DashboardLayout` can gate sidebar items without
+ * the client nav shell so `SidebarPagesNav` can gate sidebar items without
  * per-page prop threading. Pass `workspaceId` explicitly (the workspace layout
  * already knows it, and it may differ from `getActiveWorkspaceId()` for a
  * superadmin viewing a workspace they don't belong to); omit it to resolve the

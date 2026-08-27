@@ -7,6 +7,7 @@ import { createDb } from '@/lib/server/db';
 import { createContainer } from '@/lib/services';
 import { MNA_WORKSPACE_ID } from '@/lib/constants';
 import { CopilotAgentProvider } from '@/components/chat/CopilotAgentContext';
+import { AppShell } from '@/components/layout/AppShell';
 import { FeatureFlagsProvider } from '@/components/layout/FeatureFlagsContext';
 import { WorkspaceCurrencyProvider } from '@/components/layout/WorkspaceCurrencyContext';
 import PostHogWorkspaceTracker from '@/components/layout/PostHogWorkspaceTracker';
@@ -67,7 +68,11 @@ export default async function WorkspaceLayout({
               workspace's layouts. */}
           <TableLayoutProvider key={workspaceSlug}>
             <PostHogWorkspaceTracker workspaceId={workspaceId} workspaceSlug={workspaceSlug} />
-            {children}
+            {/* The app shell lives HERE, not inside each view. Because it sits
+                above the routed `children`, moving between console tabs is a
+                soft navigation that swaps only the page — the sidebar, the
+                copilot pane, and any in-flight chat stream stay mounted. */}
+            <AppShell>{children}</AppShell>
           </TableLayoutProvider>
         </FeatureFlagsProvider>
       </WorkspaceCurrencyProvider>

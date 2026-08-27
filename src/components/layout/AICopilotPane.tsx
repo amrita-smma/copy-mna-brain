@@ -34,47 +34,18 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { useCopilotAgent } from '@/components/chat/CopilotAgentContext';
-import type { CopilotAgentType } from '@/lib/agents/analysis';
+import { useAuth } from '@/hooks/useAuth';
+import { useLayoutControl } from './LayoutControlContext';
 import { StickToBottom, useStickToBottomContext } from 'use-stick-to-bottom';
 import { motion, AnimatePresence } from 'framer-motion';
-import type { UIMessage } from '@ai-sdk/react';
 
-const MNA_WELCOME_MESSAGE = `# Hello! I'm your M&A discovery assistant.
-
-🔍 **Company Discovery** - Find acquisition targets
-🔬 **Deep Dive Analysis** - Detailed assessments
-📊 **Pipeline Insights** - Performance metrics`;
-
-const INVESTMENT_WELCOME_MESSAGE = `# Hello! I'm your Investment Assistant.
-
-💼 **Fund Asset Deep Dive** - Detailed fund and asset analysis
-📊 **Asset Statistics** - Performance and allocation metrics
-👥 **Investor Analysis** - LP profiles and investor insights`;
-
-const COMBINED_WELCOME_MESSAGE = `# Hello! I'm your M&A + Investment assistant.
-
-🔍 **Company Discovery** - Find acquisition targets
-📊 **Pipeline Insights** - Deal performance metrics
-💼 **Fund & Asset Analysis** - Fund and holding performance`;
-
-function makeWelcomeMessage(agentType: CopilotAgentType): UIMessage {
-  const text =
-    agentType === 'investment'
-      ? INVESTMENT_WELCOME_MESSAGE
-      : agentType === 'combined'
-        ? COMBINED_WELCOME_MESSAGE
-        : MNA_WELCOME_MESSAGE;
-  return {
-    id: 'welcome-pane',
-    role: 'assistant',
-    parts: [
-      {
-        type: 'text',
-        text,
-      },
-    ],
-  };
+/**
+ * The greeting's first name. `user.name` is a full display name, so take the
+ * leading word; a blank/absent name falls back to a neutral address rather than
+ * an awkward "Ask away, !".
+ */
+function firstNameOf(name: string | undefined): string {
+  return name?.trim().split(/\s+/)[0] || 'there';
 }
 
 function ScrollContent({ children }: { children: React.ReactNode }) {
@@ -96,7 +67,20 @@ function ScrollContent({ children }: { children: React.ReactNode }) {
 // affordance appears next to the composer.
 const ENHANCE_IDLE_MS = 1250;
 
-function ChatInput({ isExpanded }: { isExpanded: boolean }) {
+/**
+ * Where the composer is sitting. `docked` is the classic bottom-of-transcript
+ * bar; `hero` is the free-standing box under the greeting on an empty chat,
+ * which carries no border or fill of its own.
+ */
+type ComposerPlacement = 'docked' | 'hero';
+
+function ChatInput({
+  isExpanded,
+  placement = 'docked',
+}: {
+  isExpanded: boolean;
+  placement?: ComposerPlacement;
+}) {
   const [input, setInput] = useState('');
   const [showEnhance, setShowEnhance] = useState(false);
   const [isEnhancing, setIsEnhancing] = useState(false);
@@ -225,11 +209,13 @@ function ChatInput({ isExpanded }: { isExpanded: boolean }) {
     }
   };
 
+  const isHero = placement === 'hero';
+
   return (
-    <div className="p-4 border-t bg-muted shrink-0">
+    <div className={cn('shrink-0', isHero ? 'w-full' : 'p-4 border-t bg-muted')}>
       <motion.div
         className="mx-auto"
-        animate={{ maxWidth: isExpanded ? '95%' : '100%' }}
+        animate={{ maxWidth: isExpanded && !isHero ? '95%' : '100%' }}
         transition={{ duration: 0.3, ease: 'easeInOut' }}
       >
         <form
@@ -240,7 +226,14 @@ function ChatInput({ isExpanded }: { isExpanded: boolean }) {
           onPaste={onPaste}
         >
           <AttachmentChips className="mb-2" />
-          <div className="relative flex items-end gap-2 p-2 bg-background rounded-2xl border">
+          <div
+            className={cn(
+              'relative flex items-end gap-2 rounded-2xl border bg-background p-2',
+              // The hero composer is the focal point of an empty chat, so it
+              // gets a little more presence than the docked bar.
+              isHero && 'rounded-3xl p-2.5 shadow-lg shadow-black/5 dark:shadow-black/20',
+            )}
+          >
 
             <AttachButton disabled={isBusy} className="self-end" />
             {/* The textarea is absolutely positioned over an invisible in-flow
@@ -323,11 +316,46 @@ function ChatInput({ isExpanded }: { isExpanded: boolean }) {
   );
 }
 
+/**
+ * An untouched chat: a greeting, the composer, and a few starting points —
+ * centered, with nothing else on screen. Replaces the old canned "Hello! I'm
+ * your M&A assistant" message bubble, which spent the user's first impression
+ * listing features instead of inviting a question.
+ */
+function ChatEmptyState({ isExpanded }: { isExpanded: boolean }) {
+  const { user } = useAuth();
+
+  return (
+    <div className="flex flex-1 flex-col items-center justify-center overflow-y-auto p-4 min-h-0">
+      <div className={cn('w-full', isExpanded ? 'max-w-2xl' : 'max-w-full')}>
+        <h1
+          className={cn(
+            'bg-gradient-to-r from-blue-600 via-indigo-500 to-blue-500 bg-clip-text pb-1 font-medium tracking-tight text-transparent dark:from-blue-400 dark:via-indigo-300 dark:to-blue-300',
+            isExpanded ? 'text-3xl sm:text-4xl' : 'text-2xl',
+          )}
+        >
+          Ask away, {firstNameOf(user?.name)}!
+        </h1>
+        <div className="mt-6">
+          <ChatInput isExpanded={isExpanded} placement="hero" />
+        </div>
+        <ChatSuggestions
+          className={cn('mt-4', isExpanded ? 'sm:grid-cols-2' : 'grid-cols-1')}
+        />
+      </div>
+    </div>
+  );
+}
+
 function ChatContent({ isExpanded }: { isExpanded: boolean }) {
   const { messages, status, cacheHit } = useChatContext();
   const isStreaming = status === 'streaming';
-  const agentType = useCopilotAgent();
-  const welcomeUIMessage = makeWelcomeMessage(agentType);
+
+  // A pending cached-chat preview is content in its own right, so it belongs in
+  // the transcript view even before any message exists.
+  if (messages.length === 0 && !cacheHit) {
+    return <ChatEmptyState isExpanded={isExpanded} />;
+  }
 
   return (
     <StickToBottom className="flex-1 flex flex-col min-h-0">
@@ -341,10 +369,6 @@ function ChatContent({ isExpanded }: { isExpanded: boolean }) {
           }}
           transition={{ duration: 0.3, ease: 'easeInOut' }}
         >
-          <ChatMessageBubble message={welcomeUIMessage} />
-          {messages.length === 0 && !cacheHit && (
-            <ChatSuggestions className="mt-1 grid-cols-1" />
-          )}
           <CachedChatPreview />
           {messages.map((message, index) => (
             <ChatMessageBubble
@@ -392,8 +416,13 @@ export function AICopilotPane({
   hideExpandToggle = false,
   showHistoryButton = false,
 }: AICopilotPaneProps) {
-  const { newChat, effortChoice, setEffortChoice } = useChatContext();
+  const { newChat, focusComposer, effortChoice, setEffortChoice } = useChatContext();
+  const { expandCopilot } = useLayoutControl();
   const [historyOpen, setHistoryOpen] = useState(false);
+  // Set when the history drawer is closing because the user picked a chat (or
+  // started a new one), as opposed to just dismissing it — see the drawer's
+  // `onCloseAutoFocus`.
+  const drawerChoseChatRef = useRef(false);
   const [isDragging, setIsDragging] = useState(false);
   const dragState = useRef<{ startX: number; startWidth: number } | null>(null);
   // File drag-and-drop covers the entire pane, not just the composer — drop a
@@ -444,8 +473,12 @@ export function AICopilotPane({
 
   return (
     <motion.div
+      data-testid="copilot-pane"
       className={cn(
-        'relative flex flex-col bg-background border-l h-full top-0 overflow-hidden',
+        'relative flex flex-col bg-background h-full top-0 overflow-hidden',
+        // The left border separates the docked pane from the console. Expanded,
+        // there is no console beside it to separate from.
+        !isExpanded && 'border-l',
         className
       )}
       initial={false}
@@ -476,7 +509,15 @@ export function AICopilotPane({
         />
       )}
       <motion.div
-        className="flex items-center justify-between p-3 border-b bg-background/80 backdrop-blur-xl shrink-0 sticky top-0 z-10"
+        className={cn(
+          'flex items-center justify-between p-3 shrink-0 sticky top-0 z-10',
+          // Full-screen, the copilot IS the page — a titled, ruled header would
+          // just be chrome around it. Docked, the rule is what separates the
+          // pane from the console beside it.
+          isExpanded
+            ? 'bg-transparent'
+            : 'border-b bg-background/80 backdrop-blur-xl',
+        )}
         layout
       >
         <div className="flex items-center gap-2">
@@ -487,30 +528,56 @@ export function AICopilotPane({
                   variant="ghost"
                   size="sm"
                   className="h-7 w-7 p-0"
-                  aria-label="Chat history"
+                  aria-label="Chats and pages"
                 >
                   <History className="h-4 w-4" />
                 </Button>
               </SheetTrigger>
-              <SheetContent side="left" className="flex w-72 flex-col p-0">
+              <SheetContent
+                side="left"
+                className="flex w-72 flex-col p-0"
+                // Choosing a chat closes this drawer, and Radix would then
+                // restore focus to the history button — undoing the composer
+                // focus the choice just asked for. Keep the caret in the
+                // composer in that case. A plain dismiss (Esc, overlay tap)
+                // still gets the default restore, so closing the drawer never
+                // pops the keyboard on its own.
+                onCloseAutoFocus={(e) => {
+                  if (!drawerChoseChatRef.current) return;
+                  drawerChoseChatRef.current = false;
+                  e.preventDefault();
+                  focusComposer();
+                }}
+              >
                 <SheetHeader className="p-4 pb-0">
-                  <SheetTitle>Chat history</SheetTitle>
+                  <SheetTitle>Chats &amp; pages</SheetTitle>
                 </SheetHeader>
                 <ChatSidebar
                   className="w-full flex-1 border-r-0"
-                  onNavigate={() => setHistoryOpen(false)}
+                  onNavigate={(target) => {
+                    // Only a chat keeps the user on this screen, so only a chat
+                    // should pull the caret back into the composer. Picking a
+                    // page navigates away — focusing the composer there would
+                    // pop the keyboard over the page just opened.
+                    drawerChoseChatRef.current = target === 'chat';
+                    setHistoryOpen(false);
+                  }}
                 />
               </SheetContent>
             </Sheet>
           )}
-          <motion.div
-            className="flex h-7 w-7 items-center justify-center rounded-lg bg-blue-500/10"
-            whileHover={{ scale: 1.05 }}
-            whileTap={{ scale: 0.95 }}
-          >
-            <Sparkles className="h-4 w-4 text-blue-500" />
-          </motion.div>
-          <span className="text-sm font-medium">AI CoPilot</span>
+          {!isExpanded && (
+            <>
+              <motion.div
+                className="flex h-7 w-7 items-center justify-center rounded-lg bg-blue-500/10"
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+              >
+                <Sparkles className="h-4 w-4 text-blue-500" />
+              </motion.div>
+              <span className="text-sm font-medium">AI CoPilot</span>
+            </>
+          )}
         </div>
         <div className="flex items-center gap-1">
           <Select value={effortChoice} onValueChange={(v) => setEffortChoice(v as typeof effortChoice)}>
@@ -534,7 +601,12 @@ export function AICopilotPane({
                 <Button
                   variant="ghost"
                   size="sm"
-                  onClick={newChat}
+                  onClick={() => {
+                    newChat();
+                    // Docked, a fresh chat is a greeting and a composer squeezed
+                    // into a 384px column — go full-screen for it.
+                    expandCopilot();
+                  }}
                   className="h-7 w-7 p-0"
                 >
                   <PenLine className="h-4 w-4" />

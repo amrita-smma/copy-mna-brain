@@ -22,7 +22,7 @@ import {
 
 // `/ai-workforce` is no longer flag-gated: the page renders for any
 // authenticated user and redirects unauthenticated visitors to login. The bare
-// route lands on the **Workforce Tasks** tab (see the page's parseSlug).
+// route renders the **Workforce Tasks** queue directly (see the page's parseSlug).
 
 // Queue rows and their reasoning traces are produced by the agent runtime and
 // cannot be injected deterministically through the real API, so the tests that
@@ -40,7 +40,7 @@ test.describe('AI Workforce', () => {
   /**
    * Authenticate (mock session in mock mode; real sign-in in real mode so the
    * session cookie is present for real routine POSTs), provision the fixtures
-   * for the active data mode, navigate to the Workforce Tasks tab and wait for
+   * for the active data mode, navigate to the Workforce Tasks queue and wait for
    * the queue fetch.
    */
   const openWorkforce = async (page: Page, fixtures: WorkforceFixtures = {}) => {
@@ -508,16 +508,16 @@ test.describe('AI Workforce', () => {
 
   // ─── MB-81-02 ─────────────────────────────────────────────────────────────────
 
-  test('MB-81-02 The Workforce Tasks tab exposes no direct task-creation UI', async ({ page }) => {
-    // The only creation control on this tab is "New Routine"; tasks are created
+  test('MB-81-02 The Workforce Tasks page exposes no direct task-creation UI', async ({ page }) => {
+    // The only creation control on this page is "New Routine"; tasks are created
     // via CoPilot escalation or a routine firing — never a "New Task" button or
-    // a free-text task composer on the tab itself.
+    // a free-text task composer on the page itself.
     await openWorkforce(page, { items: [], routines: [] });
 
     // The sole sidebar action is New Routine.
     await expect(page.getByTestId('workforce-new-routine-button')).toBeVisible();
 
-    // No "New Task" / "Create Task" affordance anywhere on the tab.
+    // No "New Task" / "Create Task" affordance anywhere on the page.
     await expect(
       page.getByRole('button', { name: /new task|create task|add task/i }),
     ).toHaveCount(0);
@@ -587,20 +587,20 @@ test.describe('AI Workforce', () => {
     company_ids: [],
   };
 
+  // The AI Workspace's in-page CoPilot tab is gone; the copilot now lives in
+  // the shell's own pane, full-screen on the chat landing. The cards under test
+  // (handoff, bulk drop, bulk promote) are rendered by the shared
+  // ChatMessageBubble, so they behave the same on this surface. Deliberately no
+  // `collapseCopilot` here — these specs need the pane visible.
   const openCopilot = async (page: Page, opts: CopilotChatOptions) => {
-    await collapseCopilot(page);
     await mockAuthSession(page);
     await mockCopilotChat(page, opts);
-    await page.goto('/ai-workforce/ai-copilot');
-    await expect(page.getByTestId('copilot-panel')).toBeVisible();
+    await page.goto('/chat');
+    await expect(page.getByTestId('copilot-pane')).toBeVisible();
   };
 
   const sendPrompt = async (page: Page, text: string) => {
-    const input = page
-      .getByTestId('copilot-panel')
-      .getByPlaceholder(
-        'Ask about companies, analysis, comparisons, or pipeline performance...',
-      );
+    const input = page.getByTestId('copilot-pane').getByPlaceholder('Ask anything...');
     await expect(input).toBeVisible();
     await input.fill(text);
     await input.press('Enter');
@@ -654,7 +654,7 @@ test.describe('AI Workforce', () => {
     // The card confirms the assignment inline.
     await expect(page.getByText('Assigned to Workforce.')).toBeVisible();
     // PRODUCT NOTE: the TC also expects an automatic switch to the Workforce
-    // tab; the card only confirms inline (+ a toast) and does not navigate.
+    // page; the card only confirms inline (+ a toast) and does not navigate.
   });
 
   // ─── MB-96-02 ───────────────────────────────────────────────────────────────

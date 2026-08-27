@@ -1,6 +1,5 @@
 import { notFound } from 'next/navigation';
 import SmartFiles from '@/views/SmartFiles';
-import { companyGraphEnabled, fundManagementEnabled } from '@/lib/flags';
 import { type SmartFilesTab, isSmartFilesTab } from '@/lib/smartFilesTabs';
 
 type ParsedTab =
@@ -22,9 +21,6 @@ export default async function SmartFilesPage({
 }: {
   params: Promise<{ workspaceSlug: string; tab?: string[] }>;
 }) {
-  const showCompanyGraph = await companyGraphEnabled().then(Boolean);
-  const showFundManagement = await fundManagementEnabled().then(Boolean);
-
   const { tab } = await params;
   const parsed = parseTab(tab);
   if (parsed.kind === 'not-found') {
@@ -33,8 +29,6 @@ export default async function SmartFilesPage({
 
   return (
     <SmartFiles
-      showCompanyGraph={showCompanyGraph}
-      showFundManagement={showFundManagement}
       initialTab={parsed.initialTab}
     />
   );

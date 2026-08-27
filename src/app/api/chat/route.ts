@@ -19,6 +19,7 @@ import {
 import { chatCacheEnabled, sourceOfFundsEnabled } from '@/lib/flags';
 import { flushLangfuse } from '@/lib/langfuse';
 import { generateChatTitle } from '@/lib/chat/title';
+import { sanitizePageContext } from '@/lib/chat/pageContext';
 
 /** Allow long Anthropic pptx-skill runs inside send_email (up to ~10 min). */
 export const maxDuration = 600;
@@ -82,6 +83,13 @@ export async function POST(req: NextRequest) {
     const attachments: ChatAttachmentRef[] = Array.isArray(body.attachments)
       ? (body.attachments as ChatAttachmentRef[])
       : [];
+
+    // What the user is looking at in the center console. Browser-supplied, so
+    // it is normalized (unknown tab dropped, path shape enforced, detail
+    // clamped) before it can reach a prompt. Travels via `configurable`, like
+    // `userEmail` — the model reads it through `read_page_context`, never as an
+    // argument it could fabricate.
+    const pageContext = sanitizePageContext(body.page_context);
 
     let chat;
     if (requestedChatId) {
@@ -281,7 +289,7 @@ export async function POST(req: NextRequest) {
         {
           version: 'v2',
           recursionLimit: 50,
-          configurable: { thread_id: chat.id, userEmail, agentRole: 'chat' },
+          configurable: { thread_id: chat.id, userEmail, agentRole: 'chat', pageContext },
           // Propagate client disconnects (the UI's stop()/aborted fetch) down
           // into LangGraph so the underlying Anthropic request is cancelled and
           // the graph stops executing — not just the SSE stream to the client.
@@ -338,7 +346,7 @@ export async function POST(req: NextRequest) {
           { messages, additionalSystemContext: contextData || undefined },
           {
             recursionLimit: 50,
-            configurable: { thread_id: chat.id, userEmail, agentRole: 'chat' },
+            configurable: { thread_id: chat.id, userEmail, agentRole: 'chat', pageContext },
             signal: req.signal,
           },
         );
