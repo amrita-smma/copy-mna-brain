@@ -6,12 +6,26 @@ import type { ChangelogEntry } from './changelog';
 
 export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   {
+    "hash": "a5a4f67def38f41d02ea318c469ac3b2742feef8",
+    "date": "2026-08-27",
+    "subject": "Landing page now features chat-first design with tabbed center console",
+    "category": "improvement"
+  },
+  {
     "hash": "7339c982f236ca07ba7adaf67fbcbaf8d03704dd",
     "date": "2026-08-25",
     "subject": "Integrate horizon",
     "category": "improvement",
     "skipped": true,
     "skipReason": "vague"
+  },
+  {
+    "hash": "dab3eba1933f4e31bf0279dd40d6dbac3e29ba84",
+    "date": "2026-08-25",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
   },
   {
     "hash": "0ac7e58fa78a50361d744865efe5b783600199ac",
