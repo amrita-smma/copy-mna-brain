@@ -2,6 +2,9 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 const searchForAgentMock = vi.fn();
 const findLatestByCompaniesMock = vi.fn();
+const findByNameFuzzyMock = vi.fn();
+const getConnectedCompaniesMock = vi.fn();
+const getGraphDataMock = vi.fn();
 
 vi.mock('@/lib/server/db', () => ({
   createDb: vi.fn(() => ({})),
@@ -9,11 +12,23 @@ vi.mock('@/lib/server/db', () => ({
 
 vi.mock('@/lib/repositories', () => ({
   CompanyRepository: function CompanyRepository() {
-    return { searchForAgent: searchForAgentMock };
+    return {
+      searchForAgent: searchForAgentMock,
+      findByNameFuzzy: findByNameFuzzyMock,
+    };
   },
   CompanyFinancialRepository: function CompanyFinancialRepository() {
     return { findLatestByCompanies: findLatestByCompaniesMock };
   },
+}));
+
+vi.mock('@/lib/services/container', () => ({
+  createContainer: () => ({
+    companyGraphService: {
+      getConnectedCompanies: getConnectedCompaniesMock,
+      getGraphData: getGraphDataMock,
+    },
+  }),
 }));
 
 import { queryCompanies } from './query_companies';
@@ -47,10 +62,27 @@ describe('queryCompanies', () => {
     expect(result).toContain('Query Results (2 companies)');
     expect(result).toContain('Acme');
     expect(result).toContain('Project Alpha');
-    expect(result).toContain('Target | Project | Segment');
+    expect(result).toContain('ID | Target | Project | Segment');
     expect(result).toContain('$12.3');
     expect(result).toContain('Beta');
     expect(result).toContain('| - |'); // missing financials render as '-'
+  });
+
+  // The ids are the handoff channel to send_email's company_excel /
+  // company_card — without them in the visible table the agent has nothing to
+  // pass along, and the export re-derives (and can disagree with) the cohort.
+  it('prints each company id and tells the model what to do with them', async () => {
+    searchForAgentMock.mockResolvedValue([
+      { id: 'c1', target: 'Acme' },
+      { id: 'c2', target: 'Beta' },
+    ]);
+    findLatestByCompaniesMock.mockResolvedValue([]);
+
+    const result = (await queryCompanies.invoke({})) as string;
+
+    expect(result).toContain('| c1 | Acme');
+    expect(result).toContain('| c2 | Beta');
+    expect(result).toContain('company_ids');
   });
 
   // The table has names but no ids, so the chat UI has nothing to build an
@@ -158,6 +190,115 @@ describe('queryCompanies', () => {
         limit: 20,
       }),
     );
+  });
+
+  it('forwards the newly exposed column filters to the repository', async () => {
+    searchForAgentMock.mockResolvedValue([]);
+
+    await queryCompanies.invoke({
+      entry_id: 42,
+      website: 'acme.com',
+      workflow_status: 'NDA signed',
+      advisor: 'Goldman',
+      is_live: true,
+      has_nbo_date: true,
+      ai_opinion_status: 'completed',
+      last_activity_after: '2026-01-01',
+      matched_track_id: 'track-1',
+      alias: 'Old Acme',
+    });
+
+    expect(searchForAgentMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        entryId: 42,
+        website: 'acme.com',
+        workflowStatus: 'NDA signed',
+        advisor: 'Goldman',
+        isLive: true,
+        hasNboDate: true,
+        aiOpinionStatus: 'completed',
+        lastActivityAfter: '2026-01-01',
+        matchedTrackId: 'track-1',
+        alias: 'Old Acme',
+      }),
+    );
+  });
+
+  it('scopes to company_ids and skips the L0–L5 stage default when given', async () => {
+    searchForAgentMock.mockResolvedValue([]);
+
+    await queryCompanies.invoke({ company_ids: ['c1', 'c2'] });
+
+    const passed = searchForAgentMock.mock.calls[0][0];
+    expect(passed.ids).toEqual(['c1', 'c2']);
+    expect(passed.stageIn).toBeUndefined();
+  });
+
+  it('searches every stage when include_pre_pipeline is set', async () => {
+    searchForAgentMock.mockResolvedValue([]);
+
+    await queryCompanies.invoke({ include_pre_pipeline: true });
+
+    expect(searchForAgentMock.mock.calls[0][0].stageIn).toContain('market_screening');
+  });
+
+  it('forwards stage_in as-is instead of applying the default cohort', async () => {
+    searchForAgentMock.mockResolvedValue([]);
+
+    await queryCompanies.invoke({ stage_in: ['L3', 'L4'] });
+
+    expect(searchForAgentMock.mock.calls[0][0].stageIn).toEqual(['L3', 'L4']);
+  });
+
+  it('never touches the graph when no relationship filter is given', async () => {
+    searchForAgentMock.mockResolvedValue([]);
+
+    await queryCompanies.invoke({ segment: 'Tech' });
+
+    expect(getConnectedCompaniesMock).not.toHaveBeenCalled();
+    expect(getGraphDataMock).not.toHaveBeenCalled();
+  });
+
+  it('narrows the cohort to the graph neighbours of connected_to', async () => {
+    findByNameFuzzyMock.mockResolvedValue({ id: 'anchor', target: 'Acme' });
+    getConnectedCompaniesMock.mockResolvedValue([
+      { company: { id: 'n1', name: 'Beta' }, type: 'SELLS_TO', direction: 'outgoing' },
+    ]);
+    searchForAgentMock.mockResolvedValue([{ id: 'n1', target: 'Beta' }]);
+    findLatestByCompaniesMock.mockResolvedValue([]);
+
+    const result = (await queryCompanies.invoke({ connected_to: 'Acme' })) as string;
+
+    expect(searchForAgentMock.mock.calls[0][0].ids).toEqual(['n1']);
+    expect(result).toContain('directly connected to Acme');
+  });
+
+  it('errors when connected_to cannot be resolved', async () => {
+    findByNameFuzzyMock.mockResolvedValue(null);
+
+    const result = (await queryCompanies.invoke({ connected_to: 'Ghost' })) as string;
+
+    expect(result).toContain('**Error:**');
+    expect(result).toContain('Ghost');
+    expect(searchForAgentMock).not.toHaveBeenCalled();
+  });
+
+  it('appends a Relationships column with one graph read for the whole page', async () => {
+    searchForAgentMock.mockResolvedValue([{ id: 'c1', target: 'Acme' }]);
+    findLatestByCompaniesMock.mockResolvedValue([]);
+    getGraphDataMock.mockResolvedValue({
+      nodes: [
+        { id: 'c1', name: 'Acme' },
+        { id: 'c2', name: 'Beta' },
+      ],
+      links: [{ source: 'c1', target: 'c2', label: 'SELLS_TO' }],
+    });
+
+    const result = (await queryCompanies.invoke({ include_relationships: true })) as string;
+
+    expect(result).toContain('Relationships');
+    expect(result).toContain('Acme --SELLS_TO--> Beta');
+    expect(getGraphDataMock).toHaveBeenCalledTimes(1);
   });
 
   it('returns a formatted error when the search call throws', async () => {

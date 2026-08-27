@@ -7,6 +7,7 @@ interface MockDb {
   where: ReturnType<typeof vi.fn>;
   orderBy: ReturnType<typeof vi.fn>;
   limit: ReturnType<typeof vi.fn>;
+  offset: ReturnType<typeof vi.fn>;
   insert: ReturnType<typeof vi.fn>;
   values: ReturnType<typeof vi.fn>;
   returning: ReturnType<typeof vi.fn>;
@@ -25,6 +26,7 @@ describe('CopilotChatsRepository', () => {
       where: vi.fn().mockReturnThis(),
       orderBy: vi.fn(),
       limit: vi.fn(),
+      offset: vi.fn(),
       insert: vi.fn().mockReturnThis(),
       values: vi.fn().mockReturnThis(),
       returning: vi.fn(),
@@ -45,6 +47,46 @@ describe('CopilotChatsRepository', () => {
 
     expect(result).toEqual(rows);
     expect(mockDb.orderBy).toHaveBeenCalledTimes(1);
+    // No page requested → no LIMIT/OFFSET clause at all.
+    expect(mockDb.limit).not.toHaveBeenCalled();
+    expect(mockDb.offset).not.toHaveBeenCalled();
+  });
+
+  // last_active_at alone is not unique: chats touched in the same transaction
+  // share a timestamp, and without a tiebreak Postgres may order them
+  // differently per query — the same row would appear on two pages while
+  // another never appears at all.
+  it('listByUser breaks ties on id so paging cannot duplicate or skip a row', async () => {
+    mockDb.orderBy.mockResolvedValueOnce([]);
+
+    await repo.listByUser('u1');
+
+    expect(mockDb.orderBy.mock.calls[0]).toHaveLength(2);
+  });
+
+  it('listByUser applies limit and offset when a page is requested', async () => {
+    const rows = [{ id: 'c3', user_id: 'u1' }];
+    mockDb.orderBy.mockReturnThis();
+    mockDb.limit.mockReturnThis();
+    mockDb.offset.mockResolvedValueOnce(rows);
+
+    const result = await repo.listByUser('u1', { limit: 31, offset: 30 });
+
+    expect(result).toEqual(rows);
+    expect(mockDb.limit).toHaveBeenCalledWith(31);
+    expect(mockDb.offset).toHaveBeenCalledWith(30);
+  });
+
+  it('listByUser skips the OFFSET clause for the first page', async () => {
+    const rows = [{ id: 'c1', user_id: 'u1' }];
+    mockDb.orderBy.mockReturnThis();
+    mockDb.limit.mockResolvedValueOnce(rows);
+
+    const result = await repo.listByUser('u1', { limit: 31, offset: 0 });
+
+    expect(result).toEqual(rows);
+    expect(mockDb.limit).toHaveBeenCalledWith(31);
+    expect(mockDb.offset).not.toHaveBeenCalled();
   });
 
   it('create returns the inserted row', async () => {

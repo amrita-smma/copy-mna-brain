@@ -11,6 +11,7 @@ import {
   isNull,
   lte,
   ne,
+  notInArray,
   or,
   sql,
   type SQL,
@@ -127,15 +128,34 @@ export interface CompanyFilters {
  * `company_financials`.
  */
 export interface CompanyAgentFilters {
+  /**
+   * Restrict to an explicit set of company ids. This is the handoff channel
+   * between `query_companies` (which prints the ids) and the artifact builders
+   * (Excel / Company Card), so an export covers exactly the rows the user just
+   * saw. An empty array matches nothing.
+   */
+  ids?: string[];
+  /** Drop these company ids from the result (used by graph "not connected" filters). */
+  excludeIds?: string[];
+  entryId?: number;
+  watchlistId?: number;
   segment?: string;
+  segmentRelatedOfferings?: string;
   geography?: string;
+  website?: string;
   watchlistStatus?: string;
   stage?: string;
   /** Match any of several pipeline stages (exact). Combined with OR. */
   stageIn?: string[];
   name?: string;
+  /** Partial match against any of the company's stored alternative names. */
+  alias?: string;
   ownership?: string;
   companyFocus?: string;
+  comments?: string;
+  remarks?: string;
+  thesisContent?: string;
+  promotedReasons?: string;
   source?: "inbound" | "outbound";
   status?: "active" | "dropped";
   dealType?: "majority" | "minority";
@@ -145,11 +165,41 @@ export interface CompanyAgentFilters {
   dealCaptain?: string;
   /** Entered-by user name (partial, case-insensitive; entered_by is a uuid FK to users). */
   enteredBy?: string;
+  /** Dropped-by user name (partial, case-insensitive; dropped_by is a uuid FK to users). */
+  droppedBy?: string;
+  originator?: string;
   banker?: string;
+  bankerSource?: string;
+  advisor?: string;
+  docType?: string;
+  stake?: string;
+  dealSize?: string;
+  workflowStatus?: string;
+  keyRationale?: string;
+  droppedReason?: string;
+  /**
+   * Effective "live process" status, mirroring `isDealLive()`: TRUE/FALSE on
+   * `is_live` wins, otherwise the presence of a non-empty advisor decides.
+   */
+  isLive?: boolean;
+  /** Keep only companies that have (true) / lack (false) an NBO due date. */
+  hasNboDate?: boolean;
+  nboAfter?: string;
+  nboBefore?: string;
+  /** Keep only companies flagged as a possible duplicate (true) / not flagged (false). */
+  hasPossibleDuplicate?: boolean;
+  /** Keep only companies manually matched to this investment-thesis (Track) id. */
+  matchedTrackId?: string;
   /** When set, keep only companies that have (true) / lack (false) an AI Opinion verdict. */
   hasAiOpinion?: boolean;
   /** Exact AI Opinion verdict (case-insensitive): pass | fail | tentative. */
   aiOpinionVerdict?: "pass" | "fail" | "tentative";
+  /** AI Opinion run lifecycle (case-insensitive): processing | completed | failed. */
+  aiOpinionStatus?: string;
+  /** Partial match against the AI Opinion rationale text. */
+  aiOpinionSummary?: string;
+  aiOpinionUpdatedAfter?: string;
+  aiOpinionUpdatedBefore?: string;
   minRevenue?: number;
   maxRevenue?: number;
   minEbitda?: number;
@@ -162,6 +212,16 @@ export interface CompanyAgentFilters {
   createdAfter?: string;
   /** Keep only companies created on/before this timestamp (inclusive). */
   createdBefore?: string;
+  updatedAfter?: string;
+  updatedBefore?: string;
+  lastActivityAfter?: string;
+  lastActivityBefore?: string;
+  droppedAfter?: string;
+  droppedBefore?: string;
+  /** Keep only dropped companies with (true) / without (false) a scheduled resurface. */
+  hasResurfaceScheduled?: boolean;
+  resurfaceAfter?: string;
+  resurfaceBefore?: string;
   /** Free-text ILIKE across target, project_name, segment, and geography. */
   searchTerm?: string;
   limit?: number;
@@ -489,9 +549,31 @@ export class CompanyRepository {
       if (c) conditions.push(c);
     };
 
+    // An explicit id list is the narrowest possible scope. An EMPTY list means
+    // "the caller resolved zero companies", which must match nothing — never
+    // silently widen to the whole workspace (and never hand Drizzle an empty
+    // inArray, which it cannot compile).
+    if (filters.ids) {
+      if (filters.ids.length === 0) push(sql`false`);
+      else push(inArray(companies.id, filters.ids));
+    }
+    if (filters.excludeIds && filters.excludeIds.length > 0)
+      push(notInArray(companies.id, filters.excludeIds));
+    if (filters.entryId !== undefined)
+      push(eq(companies.entry_id, filters.entryId));
+    if (filters.watchlistId !== undefined)
+      push(eq(companies.watchlist_id, filters.watchlistId));
     if (filters.segment) push(ilike(companies.segment, `%${filters.segment}%`));
+    if (filters.segmentRelatedOfferings)
+      push(
+        ilike(
+          companies.segment_related_offerings,
+          `%${filters.segmentRelatedOfferings}%`,
+        ),
+      );
     if (filters.geography)
       push(ilike(companies.geography, `%${filters.geography}%`));
+    if (filters.website) push(ilike(companies.website, `%${filters.website}%`));
     if (filters.watchlistStatus)
       push(ilike(companies.watchlist_status, `%${filters.watchlistStatus}%`));
     if (filters.stage)
@@ -504,10 +586,24 @@ export class CompanyRepository {
         or(ilike(companies.target, term), ilike(companies.project_name, term)),
       );
     }
+    if (filters.alias) {
+      // aliases is a jsonb string array — unnest it and match any element.
+      const term = `%${filters.alias.toLowerCase()}%`;
+      push(
+        sql`exists (select 1 from jsonb_array_elements_text(coalesce(${companies.aliases}, '[]'::jsonb)) as alias_elem(txt) where lower(txt) like ${term})`,
+      );
+    }
     if (filters.ownership)
       push(ilike(companies.ownership, `%${filters.ownership}%`));
     if (filters.companyFocus)
       push(ilike(companies.company_focus, `%${filters.companyFocus}%`));
+    if (filters.comments)
+      push(ilike(companies.comments, `%${filters.comments}%`));
+    if (filters.remarks) push(ilike(companies.remarks, `%${filters.remarks}%`));
+    if (filters.thesisContent)
+      push(ilike(companies.thesis_content, `%${filters.thesisContent}%`));
+    if (filters.promotedReasons)
+      push(ilike(companies.promoted_reasons, `%${filters.promotedReasons}%`));
     if (filters.source) push(eq(companies.source, filters.source));
     if (filters.status) push(eq(companies.status, filters.status));
     if (filters.dealType) push(eq(companies.deal_type, filters.dealType));
@@ -543,7 +639,59 @@ export class CompanyRepository {
             .where(ilike(users.name, `%${filters.enteredBy}%`)),
         ),
       );
+    if (filters.droppedBy)
+      push(
+        inArray(
+          companies.dropped_by,
+          this.db
+            .select({ id: users.id })
+            .from(users)
+            .where(ilike(users.name, `%${filters.droppedBy}%`)),
+        ),
+      );
+    if (filters.originator)
+      push(ilike(companies.originator, `%${filters.originator}%`));
     if (filters.banker) push(ilike(companies.banker, `%${filters.banker}%`));
+    if (filters.bankerSource)
+      push(ilike(companies.banker_source, `%${filters.bankerSource}%`));
+    if (filters.advisor) push(ilike(companies.advisor, `%${filters.advisor}%`));
+    if (filters.docType) push(ilike(companies.doc_type, `%${filters.docType}%`));
+    if (filters.stake) push(ilike(companies.stake, `%${filters.stake}%`));
+    if (filters.dealSize)
+      push(ilike(companies.deal_size, `%${filters.dealSize}%`));
+    if (filters.workflowStatus)
+      push(ilike(companies.workflow_status, `%${filters.workflowStatus}%`));
+    if (filters.keyRationale)
+      push(ilike(companies.key_rationale, `%${filters.keyRationale}%`));
+    if (filters.droppedReason)
+      push(ilike(companies.dropped_reason, `%${filters.droppedReason}%`));
+
+    // "Live process" mirrors isDealLive(): the is_live override wins when set,
+    // otherwise a non-empty advisor makes the deal live.
+    const hasAdvisor = sql`${companies.advisor} is not null and btrim(${companies.advisor}) <> ''`;
+    if (filters.isLive === true)
+      push(
+        sql`(${companies.is_live} = true or (${companies.is_live} is null and ${hasAdvisor}))`,
+      );
+    if (filters.isLive === false)
+      push(
+        sql`(${companies.is_live} = false or (${companies.is_live} is null and not (${hasAdvisor})))`,
+      );
+
+    if (filters.hasNboDate === true) push(isNotNull(companies.nbo_date));
+    if (filters.hasNboDate === false) push(isNull(companies.nbo_date));
+    if (filters.nboAfter) push(gte(companies.nbo_date, filters.nboAfter));
+    if (filters.nboBefore) push(lte(companies.nbo_date, filters.nboBefore));
+
+    if (filters.hasPossibleDuplicate === true)
+      push(isNotNull(companies.possible_duplicate_company_id));
+    if (filters.hasPossibleDuplicate === false)
+      push(isNull(companies.possible_duplicate_company_id));
+    if (filters.matchedTrackId)
+      push(
+        sql`coalesce(${companies.matched_track_ids}, '[]'::jsonb) @> ${JSON.stringify([filters.matchedTrackId])}::jsonb`,
+      );
+
     if (filters.hasAiOpinion === true)
       push(isNotNull(companies.ai_opinion_verdict));
     if (filters.hasAiOpinion === false)
@@ -552,11 +700,45 @@ export class CompanyRepository {
       push(
         sql`lower(${companies.ai_opinion_verdict}) = ${filters.aiOpinionVerdict.toLowerCase()}`,
       );
+    if (filters.aiOpinionStatus)
+      push(
+        sql`lower(${companies.ai_opinion_status}) = ${filters.aiOpinionStatus.toLowerCase()}`,
+      );
+    if (filters.aiOpinionSummary)
+      push(ilike(companies.ai_opinion_summary, `%${filters.aiOpinionSummary}%`));
+    if (filters.aiOpinionUpdatedAfter)
+      push(
+        gte(companies.ai_opinion_updated_at, filters.aiOpinionUpdatedAfter),
+      );
+    if (filters.aiOpinionUpdatedBefore)
+      push(
+        lte(companies.ai_opinion_updated_at, filters.aiOpinionUpdatedBefore),
+      );
 
     if (filters.createdAfter)
       push(gte(companies.created_at, filters.createdAfter));
     if (filters.createdBefore)
       push(lte(companies.created_at, filters.createdBefore));
+    if (filters.updatedAfter)
+      push(gte(companies.updated_at, filters.updatedAfter));
+    if (filters.updatedBefore)
+      push(lte(companies.updated_at, filters.updatedBefore));
+    if (filters.lastActivityAfter)
+      push(gte(companies.last_activity_at, filters.lastActivityAfter));
+    if (filters.lastActivityBefore)
+      push(lte(companies.last_activity_at, filters.lastActivityBefore));
+    if (filters.droppedAfter)
+      push(gte(companies.dropped_at, filters.droppedAfter));
+    if (filters.droppedBefore)
+      push(lte(companies.dropped_at, filters.droppedBefore));
+    if (filters.hasResurfaceScheduled === true)
+      push(isNotNull(companies.resurface_at));
+    if (filters.hasResurfaceScheduled === false)
+      push(isNull(companies.resurface_at));
+    if (filters.resurfaceAfter)
+      push(gte(companies.resurface_at, filters.resurfaceAfter));
+    if (filters.resurfaceBefore)
+      push(lte(companies.resurface_at, filters.resurfaceBefore));
 
     // Revenue/EBITDA filters apply against fiscal_year 2024 rows in company_financials.
     const needsFinancialsJoin =
@@ -596,8 +778,14 @@ export class CompanyRepository {
       this.buildAgentConditions(filters);
     // `discovered` rows are auto-created relationship-graph stubs that sit
     // outside the L0–L5 origination funnel, so the agent search defaults to
-    // excluding them unless explicitly requested.
-    if (filters.stage !== "discovered" && !filters.stageIn?.includes("discovered")) {
+    // excluding them unless explicitly requested. An explicit id list opts out:
+    // the caller already chose those exact rows, so second-guessing the stage
+    // would silently drop companies the user asked for by id.
+    if (
+      !filters.ids &&
+      filters.stage !== "discovered" &&
+      !filters.stageIn?.includes("discovered")
+    ) {
       conditions.push(ne(companies.pipeline_stage, "discovered" as DealStage));
     }
     const where = and(...conditions);
@@ -631,8 +819,13 @@ export class CompanyRepository {
     // The stats snapshot summarizes the origination pipeline only. `discovered`
     // rows are auto-created relationship-graph stubs that sit outside the L0–L5
     // funnel, so they must never inflate the aggregate — exclude them here
-    // unless explicitly requested.
-    if (filters.stage !== "discovered" && !filters.stageIn?.includes("discovered")) {
+    // unless explicitly requested (or unless the caller pinned an exact id set,
+    // e.g. an Excel export of rows query_companies already returned).
+    if (
+      !filters.ids &&
+      filters.stage !== "discovered" &&
+      !filters.stageIn?.includes("discovered")
+    ) {
       conditions.push(ne(companies.pipeline_stage, "discovered" as DealStage));
     }
     const where = and(...conditions);

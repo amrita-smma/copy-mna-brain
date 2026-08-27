@@ -15,6 +15,40 @@
 /** HTML comment marker wrapping the JSON manifest in a tool's output. */
 export const COMPANY_MENTIONS_MARKER = 'COMPANY_MENTIONS_JSON';
 
+/**
+ * The prompt block that makes the chips actually appear, appended to every chat
+ * flavor that has company tools (see `src/lib/agents/analysis/index.ts`).
+ *
+ * It lives here, next to `selectMentionedCompanies`, because the two are one
+ * mechanism: the chips are a pure function of how the model writes, and the
+ * rules the prompt states ("write the name exactly as returned", "a whole name,
+ * not a prefix") are the matcher's rules. Change the matching and this text has
+ * to change with it — keeping them in the same file is what makes that obvious.
+ *
+ * The bias toward naming companies is deliberate and aimed squarely at
+ * summaries. "12 deals at L1" is a dead end: no name in the prose means no
+ * manifest entry matches, which means no chip and no way for the user to click
+ * through to the record. The workforce prompt does NOT get this block — it has
+ * no transcript to render chips into.
+ */
+export const COMPANY_MENTIONS_PROMPT_GUIDE = `
+## Naming Companies So The User Can Click Through
+
+Whenever your answer names a company that a tool returned this turn, the chat renders an "Open <name>" button under your message that takes the user straight to that company. The button appears ONLY when the company's name appears in your prose — so how you write decides whether the user can act on your answer or has to go hunting for the record themselves.
+
+**Name the companies. Always. Including in summaries.** A summary is where this matters most and where it is easiest to get wrong. "12 active deals at L1, mostly Japanese industrials" is a dead end. "12 active deals at L1, mostly Japanese industrials — the largest are Acme Chemicals, Toyo Materials and Nippon Fine Products" is the same summary with three places the user can go next. Aggregates, counts, breakdowns, rankings, health checks and recaps should all land on named companies:
+
+- Reporting a count or a share → name the notable members of the cohort (the biggest, the newest, the outliers), not just the number.
+- Reporting a breakdown → name an example or two inside the buckets that matter.
+- Reporting a ranking or a "top N" → name every company in the list.
+- Answering about one company → name it, rather than falling back to "this deal" or "the target".
+
+**Write the name exactly as the tool returned it** (the target or project name from the result table). Chips match the whole name, case-insensitively, on word boundaries — so "Acme Chemicals" links, while "Acme" (a prefix of it) and "the Acme deal" do not. Do not invent, translate, abbreviate, or pluralize a name to make a sentence read better.
+
+**A company can only be chipped if a tool returned it this turn.** \`get_company_stats\` returns aggregates, not rows — a stats-only turn has no companies to link. When your answer is going to reference specific companies, run \`query_companies\` (scoped with the same filters) so the names you use are backed by real records, and use the ids it prints for any follow-on export.
+
+Naming is not a licence to list everything. Fifty chips bury the answer as thoroughly as none. Name the companies your answer is actually about — typically three to ten — and let the table carry the rest.`;
+
 export interface CompanyMention {
   id: string;
   name: string;

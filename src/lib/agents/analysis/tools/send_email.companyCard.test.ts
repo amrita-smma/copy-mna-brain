@@ -144,6 +144,7 @@ describe('send_email company_card', () => {
       title: 'Huge',
       companyCount: 900,
       filterSummary: 'all',
+      notes: [],
     });
 
     const result = await invoke(
@@ -172,6 +173,7 @@ describe('send_email company_card', () => {
       title: 'Export',
       companyCount: 3,
       filterSummary: 'stage=L1',
+      notes: [],
     });
 
     await invoke(

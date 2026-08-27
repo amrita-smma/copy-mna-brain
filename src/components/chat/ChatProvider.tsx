@@ -140,6 +140,22 @@ export interface CopilotChatSummary {
 }
 
 /**
+ * Chats fetched per page. Kept in step with `CHAT_HISTORY_PAGE_SIZE` on the
+ * server — the client sends it explicitly so the two can't silently disagree
+ * about how far an offset advances.
+ */
+const CHAT_PAGE_SIZE = 30;
+
+/** Mirrors `CHAT_HISTORY_MAX_PAGE_SIZE`; the server clamps to it regardless. */
+const CHAT_MAX_PAGE_SIZE = 100;
+
+interface ChatListResponse {
+  chats: CopilotChatSummary[];
+  hasMore?: boolean;
+  nextOffset?: number | null;
+}
+
+/**
  * A file the user has dropped/attached to the composer. It is uploaded to S3
  * as soon as it's added; `key` is populated once the presigned upload resolves.
  * `status: 'ready'` attachments are sent (as `{ key, fileName, contentType }`)
@@ -175,6 +191,16 @@ interface ChatContextValue extends ReturnType<typeof useChat> {
   newChat: () => void;
   chats: CopilotChatSummary[];
   refreshChats: () => Promise<void>;
+  /**
+   * Append the next page of chat history. The sidebar calls this when its
+   * scroll sentinel comes into view. No-op while a load is in flight or once
+   * every chat has been fetched.
+   */
+  loadMoreChats: () => Promise<void>;
+  /** Whether the server reported another page after the ones already loaded. */
+  hasMoreChats: boolean;
+  /** True while `loadMoreChats` is fetching, so the list can show a spinner. */
+  isLoadingMoreChats: boolean;
   isLoadingMessages: boolean;
   /**
    * Which chat the current `messages` array belongs to; `undefined` while a
@@ -246,6 +272,14 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   const justMintedChatIdRef = useRef<string | null>(null);
 
   const [chats, setChats] = useState<CopilotChatSummary[]>([]);
+  const [hasMoreChats, setHasMoreChats] = useState(false);
+  const [isLoadingMoreChats, setIsLoadingMoreChats] = useState(false);
+  // The paging callbacks read the current list length to compute the next
+  // offset. Going through a ref keeps them stable across renders, so the
+  // sidebar's IntersectionObserver isn't torn down and rebuilt on every append.
+  const chatsRef = useRef<CopilotChatSummary[]>([]);
+  chatsRef.current = chats;
+  const loadingMoreRef = useRef(false);
   const [isLoadingMessages, setIsLoadingMessages] = useState(false);
   // Which chat the CURRENT `messages` array belongs to — `undefined` while a
   // load is in flight, meaning "don't trust `messages` yet".
@@ -383,17 +417,55 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   const chatStateRef = useRef(chat);
   chatStateRef.current = chat;
 
+  /**
+   * Refetch the chat list from the top.
+   *
+   * Called whenever the list can have changed (a chat was created, renamed, or
+   * touched). It re-reads as many chats as are currently on screen rather than
+   * just the first page, so a user who has scrolled through several pages does
+   * not watch the list collapse back to thirty entries when a title lands.
+   */
   const refreshChats = useCallback(async () => {
+    const loaded = Math.max(chatsRef.current.length, CHAT_PAGE_SIZE);
     try {
-      const data = await apiRequest<{ chats: CopilotChatSummary[] }>(
-        '/api/copilot/chats',
+      const data = await apiRequest<ChatListResponse>(
+        `/api/copilot/chats?limit=${Math.min(loaded, CHAT_MAX_PAGE_SIZE)}`,
       );
       setChats(data.chats ?? []);
+      setHasMoreChats(Boolean(data.hasMore));
     } catch (err) {
       console.error('[chat] failed to load chat list:', err);
     }
   }, []);
   refreshChatsRef.current = refreshChats;
+
+  /**
+   * Append the next page. Guarded by a ref rather than the `isLoadingMoreChats`
+   * state because the sentinel can fire again before React commits the state
+   * update, which would fire two requests for the same offset and duplicate rows.
+   */
+  const loadMoreChats = useCallback(async () => {
+    if (loadingMoreRef.current || !hasMoreChats) return;
+    loadingMoreRef.current = true;
+    setIsLoadingMoreChats(true);
+    try {
+      const data = await apiRequest<ChatListResponse>(
+        `/api/copilot/chats?limit=${CHAT_PAGE_SIZE}&offset=${chatsRef.current.length}`,
+      );
+      // Dedupe on id: a chat touched between page loads shifts toward the top
+      // of the ordering, so the same row can appear in two consecutive pages.
+      setChats((prev) => {
+        const seen = new Set(prev.map((c) => c.id));
+        return [...prev, ...(data.chats ?? []).filter((c) => !seen.has(c.id))];
+      });
+      setHasMoreChats(Boolean(data.hasMore));
+    } catch (err) {
+      console.error('[chat] failed to load more chats:', err);
+    } finally {
+      loadingMoreRef.current = false;
+      setIsLoadingMoreChats(false);
+    }
+  }, [hasMoreChats]);
 
   useEffect(() => {
     // ChatProvider is mounted at the app root (providers.tsx), so this runs
@@ -832,6 +904,9 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       newChat,
       chats,
       refreshChats,
+      loadMoreChats,
+      hasMoreChats,
+      isLoadingMoreChats,
       isLoadingMessages,
       messagesChatId,
       analyzeWithAI,
@@ -855,6 +930,9 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       newChat,
       chats,
       refreshChats,
+      loadMoreChats,
+      hasMoreChats,
+      isLoadingMoreChats,
       isLoadingMessages,
       messagesChatId,
       analyzeWithAI,

@@ -1,10 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { CompanyNotFoundForCardError } from '@/lib/services/companyCardSlideService';
 
-const { createContainer, exportElementsToPptx, buildByName } = vi.hoisted(() => ({
+const { createContainer, exportElementsToPptx, buildByName, buildById } = vi.hoisted(() => ({
   createContainer: vi.fn(),
   exportElementsToPptx: vi.fn(),
   buildByName: vi.fn(),
+  buildById: vi.fn(),
 }));
 
 vi.mock('@/lib/server/db', () => ({ createDb: vi.fn(() => ({})) }));
@@ -18,17 +19,23 @@ const slide = (title: string) => ({ title, elements: [] });
 
 beforeEach(() => {
   buildByName.mockReset();
+  buildById.mockReset();
   exportElementsToPptx.mockReset().mockResolvedValue(Buffer.from('PK-fake-pptx'));
   createContainer.mockReset().mockReturnValue({
-    companyCardSlideService: { buildByName },
+    companyCardSlideService: { buildByName, buildById },
   });
 });
 
 describe('buildCompanyCardAttachment', () => {
   it('renders one card per company into a single deck, in the requested order', async () => {
     buildByName
-      .mockResolvedValueOnce({ title: 'Acme', slides: [slide('Acme — Company Card')] })
       .mockResolvedValueOnce({
+        companyId: 'c1',
+        title: 'Acme',
+        slides: [slide('Acme — Company Card')],
+      })
+      .mockResolvedValueOnce({
+        companyId: 'c2',
         title: 'Beta',
         slides: [slide('Beta — Company Card'), slide('Beta — Company Card (cont. 1)')],
       });
@@ -50,6 +57,7 @@ describe('buildCompanyCardAttachment', () => {
 
   it('names the file after the single company when no title is given', async () => {
     buildByName.mockResolvedValue({
+      companyId: 'c1',
       title: 'Acme Chemicals [Project London B]',
       slides: [slide('x')],
     });
@@ -59,7 +67,7 @@ describe('buildCompanyCardAttachment', () => {
   });
 
   it('uses an explicit title for the filename when provided', async () => {
-    buildByName.mockResolvedValue({ title: 'Acme', slides: [slide('x')] });
+    buildByName.mockResolvedValue({ companyId: 'c1', title: 'Acme', slides: [slide('x')] });
     const artifact = await buildCompanyCardAttachment({
       company_names: ['Acme'],
       title: 'Q3 Pipeline Review',
@@ -70,7 +78,7 @@ describe('buildCompanyCardAttachment', () => {
   it('skips names that do not resolve and reports them as a note', async () => {
     buildByName
       .mockRejectedValueOnce(new CompanyNotFoundForCardError('Ghost Co'))
-      .mockResolvedValueOnce({ title: 'Acme', slides: [slide('x')] });
+      .mockResolvedValueOnce({ companyId: 'c1', title: 'Acme', slides: [slide('x')] });
 
     const artifact = await buildCompanyCardAttachment({
       company_names: ['Ghost Co', 'Acme'],
@@ -94,5 +102,71 @@ describe('buildCompanyCardAttachment', () => {
     await expect(buildCompanyCardAttachment({ company_names: ['Acme'] })).rejects.toThrow(
       'db down',
     );
+  });
+
+  // company_ids is the handoff from query_companies: exact, no fuzzy matching.
+  it('renders cards addressed by company_ids, in the requested order', async () => {
+    buildById
+      .mockResolvedValueOnce({ companyId: 'c1', title: 'Acme', slides: [slide('a')] })
+      .mockResolvedValueOnce({ companyId: 'c2', title: 'Beta', slides: [slide('b')] });
+
+    const artifact = await buildCompanyCardAttachment({ company_ids: ['c1', 'c2'] });
+
+    expect(buildById.mock.calls.map((c) => c[0])).toEqual(['c1', 'c2']);
+    expect(artifact!.companyTitles).toEqual(['Acme', 'Beta']);
+    expect(buildByName).not.toHaveBeenCalled();
+  });
+
+  it('renders ids first, then names, deduplicating a company named both ways', async () => {
+    buildById.mockResolvedValue({ companyId: 'c1', title: 'Acme', slides: [slide('a')] });
+    buildByName.mockResolvedValue({ companyId: 'c1', title: 'Acme', slides: [slide('a')] });
+
+    const artifact = await buildCompanyCardAttachment({
+      company_ids: ['c1'],
+      company_names: ['Acme'],
+    });
+
+    expect(artifact!.companyTitles).toEqual(['Acme']);
+    expect(artifact!.slideCount).toBe(1);
+  });
+
+  it('reports an unknown id as unresolved instead of failing the whole deck', async () => {
+    buildById
+      .mockRejectedValueOnce(new Error('Company c-missing not found'))
+      .mockResolvedValueOnce({ companyId: 'c1', title: 'Acme', slides: [slide('a')] });
+
+    const artifact = await buildCompanyCardAttachment({
+      company_ids: ['c-missing', 'c1'],
+    });
+
+    expect(artifact!.companyTitles).toEqual(['Acme']);
+    expect(artifact!.notes).toEqual([
+      'Could not resolve company for the Company Card deck: c-missing.',
+    ]);
+  });
+
+  it('propagates a render failure on an id rather than calling it unresolved', async () => {
+    buildById.mockRejectedValue(new Error('pptx renderer exploded'));
+
+    await expect(buildCompanyCardAttachment({ company_ids: ['c1'] })).rejects.toThrow(
+      'pptx renderer exploded',
+    );
+  });
+
+  it('rejects a spec with neither ids nor names', async () => {
+    await expect(buildCompanyCardAttachment({})).rejects.toThrow(/company_ids/);
+  });
+
+  // Titles are not unique: two records can share a name, and an unnamed one
+  // falls back to a placeholder. Deduping on title would drop the second card.
+  it('keeps distinct companies that happen to share a display title', async () => {
+    buildById
+      .mockResolvedValueOnce({ companyId: 'c1', title: 'Company', slides: [slide('a')] })
+      .mockResolvedValueOnce({ companyId: 'c2', title: 'Company', slides: [slide('b')] });
+
+    const artifact = await buildCompanyCardAttachment({ company_ids: ['c1', 'c2'] });
+
+    expect(artifact!.slideCount).toBe(2);
+    expect(artifact!.companyTitles).toEqual(['Company', 'Company']);
   });
 });

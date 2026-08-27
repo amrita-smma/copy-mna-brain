@@ -156,6 +156,50 @@ A distraction-free, full-screen file viewer for PDF and PPTX files — the file 
 
 All three are session-authenticated via `auth()`.
 
+## One company-filter vocabulary across the analysis tools
+
+`src/lib/agents/analysis/tools/companyFilters.ts` owns the single filter
+vocabulary shared by every analysis tool that scopes a cohort of companies:
+`query_companies`, `get_company_stats`, and `send_email`'s `company_excel` /
+`company_card` artifact specs.
+
+Before it, each tool carried a hand-maintained subset of filters. The agent could
+narrow a query by a column the matching export then silently ignored, and the
+spreadsheet it mailed could disagree with the table it had just shown. Everything
+now derives from one place:
+
+- **`companyFilterShape`** — the zod raw shape, one entry per user-meaningful
+  `companies` column (identity, classification, pipeline position, deal shape,
+  people, narrative text, AI Opinion, financial bounds, every lifecycle
+  timestamp, housekeeping flags) plus the graph filters below. Tools spread it
+  into their own `z.object({ ...companyFilterShape, <tool-specific fields> })`.
+  Add a filter once and all three tools accept it.
+- **`mapCompanyFilters`** — snake_case tool args → the repository's
+  `CompanyAgentFilters`, which `CompanyRepository.buildAgentConditions` turns
+  into SQL for both `searchForAgent` (paged read) and `findForAgentStats`
+  (full cohort).
+- **`COMPANY_FILTER_DOC`** — the filter reference injected verbatim into each
+  tool's description, so the model reads one identical list regardless of which
+  tool it reaches for. `COMPANY_STAGE_DEFAULT_DOC` is deliberately separate: the
+  read tools default to the L0–L5 committed funnel, while the Excel export has
+  **no** stage default so "email me the whole pipeline" means the whole pipeline.
+- **`resolveCompanyGraphFilter`** — relationship-graph filters (`connected_to`,
+  `relation_type`, `has_relationships`) live in Neo4j, not Postgres. This
+  resolves them into an id include/exclude list that `mergeGraphFilter` ANDs into
+  the column filters, in a fixed number of graph queries regardless of cohort
+  size (one neighbour lookup, or one whole-graph read — never one per row). Its
+  deps arrive as a factory, so a query with no graph filter never constructs the
+  Neo4j-backed services at all.
+
+**Ids are the handoff between listing and exporting.** `query_companies` prints
+each row's uuid in an `ID` column, and both `company_excel` and `company_card`
+accept `company_ids`. The intended flow is query first, then export those exact
+ids — the attachment then contains precisely the rows the user saw instead of a
+cohort re-derived from filters. `CompanyAgentFilters.ids` also opts out of the
+default `discovered`-stage exclusion (the caller already chose those rows) and
+treats an **empty** array as "match nothing" rather than widening to the whole
+workspace.
+
 ## Company Card → PowerPoint (email export)
 
 The "L0 → L1 Submission" Company Card — the Overview tab of `CompanyDetailDialog`
@@ -182,6 +226,9 @@ Layers:
 - **`buildCompanyCardAttachment`** in
   `src/lib/agents/analysis/tools/emailArtifacts.ts` — renders one card per
   requested company into a single deck and returns it as an `EmailAttachment`.
+  Companies are addressed by `company_ids` (the ids `query_companies` printed —
+  exact, no fuzzy matching) or by `company_names` as a fallback; the two lists
+  are deduplicated on card title so naming a company both ways renders it once.
 
 **Why no headless browser.** `slideExportService.exportSlidesToPptx` lays HTML
 out in Chromium via Playwright, which is the right tool for the AI slide deck at
@@ -578,15 +625,29 @@ two-tab toggle. Pages open in a center console beside the Copilot.
   something specific enough to act on. The `navigate_page` skill itself is
   unchanged and still navigates on a live call.
 
-  Getting an id for a name is the interesting part. `query_companies` returns a
-  markdown table of names with **no ids**, so the client has nothing to build a
-  URL from. Rather than guess or re-query by name, the company-returning tools
-  append a hidden `COMPANY_MENTIONS_JSON` manifest of `{ id, name }` pairs
+  Getting an id for a name is the interesting part. The client never sees a
+  tool's raw table — it sees the model's prose answer, which names companies but
+  carries no ids, so there is nothing to build a URL from. (`query_companies`
+  does print an `ID` column for the *model* to hand to the export tools; that
+  column is not what the chip renderer reads.) Rather than guess or re-query by
+  name, the company-returning tools append a hidden `COMPANY_MENTIONS_JSON`
+  manifest of `{ id, name }` pairs
   (`src/lib/navigation/companyMentions.ts`), and the client keeps only the
   entries whose name appears in the answer's own prose. That filter matters: one
   query can return fifty rows, and chipping all of them would bury the answer.
   Matching is case-insensitive and word-boundary anchored, so `Acme` does not
   light up inside `Acmetric`.
+
+  Because the chips are a pure function of the prose, the model's writing style
+  decides whether they appear at all — and the failure mode is a summary. "12
+  active deals at L1, mostly Japanese industrials" names nobody, so it produces
+  no chips and no way to click through. `COMPANY_MENTIONS_PROMPT_GUIDE` (same
+  file, appended to every chat flavor that has company tools) biases the model
+  toward landing every count, breakdown and ranking on named companies, written
+  exactly as the tool returned them. It lives next to `selectMentionedCompanies`
+  on purpose: the rules it states *are* the matcher's rules, and
+  `companyMentions.test.ts` asserts the guidance's own worked examples really do
+  chip, so the advice can't drift away from the implementation.
 
   `companyDetailPath` (`src/lib/navigation/companyPath.ts`) is the single place
   the destination is encoded. `/companies/<id>` and `/pipeline/<dealId>` render
@@ -594,6 +655,22 @@ two-tab toggle. Pages open in a center console beside the Copilot.
   difference being that the pipeline route frames the company as a deal in the
   funnel. Mentions with no id (a file's `matched_companies` can hold bare name
   strings) stay inert badges rather than linking to `/companies/undefined`.
+- **Chat history pages in as you scroll.** `GET /api/copilot/chats` returns 30
+  chats at a time (`limit`/`offset`, clamped server-side) rather than every
+  conversation the account has ever had — `CopilotChatsService.list` reads
+  `limit + 1` rows and drops the extra, so `hasMore` costs nothing beyond the
+  page itself. `ChatSidebar` renders a zero-height sentinel under the last row
+  and appends the next page when an `IntersectionObserver` sees it, 200px before
+  it reaches the viewport. `ChatProvider` owns the paging state: `loadMoreChats`
+  guards re-entry with a ref (the sentinel can fire again before React commits
+  the loading flag) and dedupes appended rows by id, since a chat touched
+  between two page loads moves up the ordering and would otherwise arrive twice.
+  `refreshChats` re-reads as many chats as are currently on screen instead of
+  just the first page, so a title landing mid-session doesn't collapse a list
+  the user has already scrolled through. The `last_active_at DESC` ordering
+  carries an `id DESC` tiebreak — chats touched in one transaction share a
+  timestamp, and without it a row can straddle two pages while another is never
+  served.
 - **Empty chat.** `AICopilotPane` greets the user by first name ("Ask away,
   Nico!") with the composer and a few suggestions centered beneath it, replacing
   the old canned "Hello! I'm your M&A assistant" feature-list bubble.

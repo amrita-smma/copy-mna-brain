@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { MessageSquarePlus, MessageSquare } from "lucide-react";
+import { MessageSquarePlus, MessageSquare, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -63,7 +63,15 @@ export function ChatSidebar({
    *  (so the composer should keep the caret) or navigates away from it. */
   onNavigate?: (target: "chat" | "page") => void;
 }) {
-  const { chatId, setChatId, newChat, chats } = useChatContext();
+  const {
+    chatId,
+    setChatId,
+    newChat,
+    chats,
+    loadMoreChats,
+    hasMoreChats,
+    isLoadingMoreChats,
+  } = useChatContext();
   // Starting or opening a conversation should put the copilot in front of the
   // user. A no-op outside the app shell (and on mobile, where the copilot is
   // already full-screen whenever this list is reachable).
@@ -86,6 +94,32 @@ export function ChatSidebar({
     expandCopilot();
     onNavigate?.("chat");
   };
+
+  // Infinite scroll: a zero-height sentinel below the last row. When it scrolls
+  // into the viewport the next page is fetched and appended.
+  //
+  // `root: null` (the browser viewport) rather than the ScrollArea's viewport
+  // element: the sentinel is inside a scroll container we don't hold a ref to,
+  // and intersection with the visual viewport is the condition we actually
+  // care about — "the user can see the bottom of the list". The 200px
+  // rootMargin starts the fetch just before they arrive, so the next page is
+  // usually there by the time they reach it.
+  //
+  // The observer is rebuilt when `hasMoreChats` flips (it is disconnected on
+  // the last page) and when the section is folded away (the sentinel unmounts).
+  const sentinelRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = sentinelRef.current;
+    if (!el || !hasMoreChats) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((e) => e.isIntersecting)) void loadMoreChats();
+      },
+      { rootMargin: "200px" },
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [hasMoreChats, loadMoreChats]);
 
   return (
     <aside
@@ -141,6 +175,20 @@ export function ChatSidebar({
                 );
               })}
             </ul>
+            {hasMoreChats && (
+              <div
+                ref={sentinelRef}
+                className="flex items-center justify-center py-3"
+                aria-hidden={!isLoadingMoreChats}
+              >
+                {isLoadingMoreChats && (
+                  <span className="flex items-center gap-2 text-xs text-muted-foreground">
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                    Loading older chats…
+                  </span>
+                )}
+              </div>
+            )}
           </SidebarCollapsibleSection>
         </div>
       </ScrollArea>

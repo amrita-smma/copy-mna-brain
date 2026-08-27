@@ -90,6 +90,7 @@ describe('send_email', () => {
       title: 'Export',
       companyCount: 3,
       filterSummary: 'stage=L1',
+      notes: [],
     });
     buildResearchSummaryAttachment.mockResolvedValue({
       attachment: PDF_ATTACHMENT,

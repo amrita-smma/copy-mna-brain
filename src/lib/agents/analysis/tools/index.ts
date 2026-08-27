@@ -294,12 +294,12 @@ export function getToolDescriptions(): string {
     {
       name: "query_companies",
       description:
-        "Search and filter companies by segment, geography, stage, source, status, deal type, sponsor, banker, ownership, revenue/EBITDA, and AI Opinion (use include_pre_pipeline=true to search all stages including intake/discovery)",
+        "Search and filter companies by ANY companies column (segment, geography, stage, source, status, deal type, sponsor/captain/banker/advisor, ownership, workflow status, NBO date, live status, revenue/EBITDA, AI Opinion, timestamps, ...) plus relationship-graph filters (connected_to / relation_type / has_relationships). Returns each row's company id — pass those ids to send_email's company_excel / company_card to export exactly what you listed. Use include_pre_pipeline=true to search all stages including intake/discovery",
     },
     {
       name: "get_company_stats",
       description:
-        "Aggregate summary of a filtered cohort: counts, active/dropped & inbound/outbound splits, revenue/EBITDA totals/averages/medians, AI Opinion coverage, and breakdowns by segment/geography/stage/source/status/ownership/deal_type/ai_opinion",
+        "Aggregate summary of a cohort scoped by the SAME filters as query_companies: counts, active/dropped & inbound/outbound splits, revenue/EBITDA totals/averages/medians, AI Opinion coverage, and breakdowns by segment/geography/stage/source/status/ownership/deal_type/ai_opinion",
     },
     {
       name: "get_company_details",
@@ -368,7 +368,7 @@ export function getToolDescriptions(): string {
     {
       name: "send_email",
       description:
-        "Send ONE email (subject + body) to the signed-in user or named platform users, optionally attaching a comprehensive company Excel (.xlsx) export and/or a formatted research-summary PDF in the same message; recipients are restricted to registered platform users",
+        "Send ONE email (subject + body) to the signed-in user or named platform users, optionally attaching a comprehensive company Excel (.xlsx) export, a Company Card deck (.pptx), and/or a formatted research-summary PDF in the same message. Run query_companies FIRST and pass the ids it returned as company_ids so the attachments cover exactly the rows you showed; recipients are restricted to registered platform users",
     },
     {
       name: "update_company_card_section",

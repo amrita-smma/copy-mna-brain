@@ -20,9 +20,18 @@ import {
   CompanyFxAdjustmentRepository,
   CompanyAnalysisRepository,
   UserRepository,
-  type CompanyAgentFilters,
   type Tables,
 } from '@/lib/repositories';
+import {
+  ALL_STAGES,
+  COMPANY_FILTER_DOC,
+  companyFilterShape,
+  mapCompanyFilters,
+  mergeGraphFilter,
+  resolveCompanyGraphFilter,
+  summarizeCompanyFilters,
+  type GraphDeps,
+} from './companyFilters';
 import {
   generateCompanyExcel,
   type ExcelSheet,
@@ -41,7 +50,11 @@ import {
   type PillInput,
 } from '@/lib/pdfSummary';
 import type { EmailAttachment } from '@/lib/ses';
-import { CompanyNotFoundForCardError } from '@/lib/services/companyCardSlideService';
+import { isDealLive } from '@/lib/dealStatus';
+import {
+  CompanyNotFoundForCardError,
+  type CompanyCardDeck,
+} from '@/lib/services/companyCardSlideService';
 import { exportElementsToPptx } from '@/lib/pptx/writePptx';
 import type { PptxSlide } from '@/lib/pptx/pptxElements';
 import { generatePptxBuffer } from '@/lib/pptx/generatePptxBuffer';
@@ -69,45 +82,16 @@ export function slugifyTitle(title: string, fallback: string): string {
 // Company Excel artifact
 // ───────────────────────────────────────────────────────────────────────────
 
-/** Spec the agent passes to attach a comprehensive company Excel workbook. */
+/**
+ * Spec the agent passes to attach a comprehensive company Excel workbook.
+ *
+ * Shares the exact filter vocabulary of `query_companies` via
+ * `companyFilterShape`, so any cohort the agent can list it can also export —
+ * including by `company_ids`, the ids `query_companies` prints. The intended
+ * flow is query first, then export the ids that came back.
+ */
 export const companyExcelSpecSchema = z.object({
-  // Filters — mirror query_companies. All optional, AND-combined.
-  segment: z.string().optional().describe('Filter by segment (partial match)'),
-  geography: z.string().optional().describe('Filter by geography (partial match)'),
-  watchlist_status: z.string().optional().describe('Filter by watchlist status (partial)'),
-  stage: z
-    .enum(['market_screening', 'unreviewed', 'L0', 'L1', 'L2', 'L3', 'L4', 'L5', 'discovered'])
-    .optional()
-    .describe('Filter by pipeline stage (exact match)'),
-  name: z
-    .string()
-    .optional()
-    .describe('Filter by company name (partial, matches target or project_name)'),
-  ownership: z.string().optional().describe('Filter by ownership (partial match)'),
-  company_focus: z.string().optional().describe('Filter by company focus (partial match)'),
-  source: z.enum(['inbound', 'outbound']).optional().describe('Filter by deal origin (exact)'),
-  status: z.enum(['active', 'dropped']).optional().describe('Filter by record status (exact)'),
-  deal_type: z.enum(['majority', 'minority']).optional().describe('Filter by deal type (exact)'),
-  deal_sponsor: z.string().optional().describe('Filter by deal sponsor name (partial match)'),
-  banker: z.string().optional().describe('Filter by banker / deal contact (partial match)'),
-  has_ai_opinion: z
-    .boolean()
-    .optional()
-    .describe('true → only companies with an AI Opinion verdict; false → only those without'),
-  ai_opinion_verdict: z
-    .enum(['pass', 'fail', 'tentative'])
-    .optional()
-    .describe('Filter by AI Opinion verdict (exact)'),
-  min_revenue: z.number().optional().describe('Minimum FY2024 revenue (USD M)'),
-  max_revenue: z.number().optional().describe('Maximum FY2024 revenue (USD M)'),
-  min_ebitda: z.number().optional().describe('Minimum FY2024 EBITDA (USD M)'),
-  max_ebitda: z.number().optional().describe('Maximum FY2024 EBITDA (USD M)'),
-  created_after: z.string().optional().describe('Only companies added on/after this date (inclusive)'),
-  created_before: z.string().optional().describe('Only companies added on/before this date (inclusive)'),
-  search_term: z
-    .string()
-    .optional()
-    .describe('Free-text search across target, project name, segment, and geography'),
+  ...companyFilterShape,
   title: z
     .string()
     .optional()
@@ -116,62 +100,9 @@ export const companyExcelSpecSchema = z.object({
 
 export type CompanyExcelSpec = z.infer<typeof companyExcelSpecSchema>;
 
-function mapFilters(spec: CompanyExcelSpec): CompanyAgentFilters {
-  return {
-    segment: spec.segment,
-    geography: spec.geography,
-    watchlistStatus: spec.watchlist_status,
-    stage: spec.stage,
-    name: spec.name,
-    ownership: spec.ownership,
-    companyFocus: spec.company_focus,
-    source: spec.source,
-    status: spec.status,
-    dealType: spec.deal_type,
-    dealSponsor: spec.deal_sponsor,
-    banker: spec.banker,
-    hasAiOpinion: spec.has_ai_opinion,
-    aiOpinionVerdict: spec.ai_opinion_verdict,
-    minRevenue: spec.min_revenue,
-    maxRevenue: spec.max_revenue,
-    minEbitda: spec.min_ebitda,
-    maxEbitda: spec.max_ebitda,
-    createdAfter: spec.created_after,
-    createdBefore: spec.created_before,
-    searchTerm: spec.search_term,
-  };
-}
-
 /** One-line, human-readable summary of the active filters (for email + title). */
 export function summarizeFilters(spec: CompanyExcelSpec): string {
-  const parts: string[] = [];
-  const add = (label: string, value: unknown) => {
-    if (value !== undefined && value !== null && `${value}`.length > 0) {
-      parts.push(`${label}=${value}`);
-    }
-  };
-  add('segment', spec.segment);
-  add('geography', spec.geography);
-  add('stage', spec.stage);
-  add('name', spec.name);
-  add('ownership', spec.ownership);
-  add('focus', spec.company_focus);
-  add('source', spec.source);
-  add('status', spec.status);
-  add('deal_type', spec.deal_type);
-  add('sponsor', spec.deal_sponsor);
-  add('banker', spec.banker);
-  add('watchlist', spec.watchlist_status);
-  if (spec.has_ai_opinion !== undefined) add('has_ai_opinion', spec.has_ai_opinion);
-  add('ai_verdict', spec.ai_opinion_verdict);
-  add('min_revenue', spec.min_revenue);
-  add('max_revenue', spec.max_revenue);
-  add('min_ebitda', spec.min_ebitda);
-  add('max_ebitda', spec.max_ebitda);
-  add('created_after', spec.created_after);
-  add('created_before', spec.created_before);
-  add('search', spec.search_term);
-  return parts.length > 0 ? parts.join(', ') : 'All companies (no filter applied)';
+  return summarizeCompanyFilters(spec);
 }
 
 const round = (n: number | null | undefined, digits = 2): number | null =>
@@ -226,6 +157,7 @@ export function buildCompanySheets(data: {
       { header: 'Deal Sponsor', key: 'deal_sponsor' },
       { header: 'Deal Captain', key: 'deal_captain' },
       { header: 'Entered By', key: 'entered_by' },
+      { header: 'Dropped By', key: 'dropped_by' },
       { header: 'Originator', key: 'originator' },
       { header: 'Banker', key: 'banker' },
       { header: 'Advisor', key: 'advisor' },
@@ -271,10 +203,14 @@ export function buildCompanySheets(data: {
         deal_sponsor: userName(c.deal_sponsor),
         deal_captain: userName(c.deal_captain),
         entered_by: userName(c.entered_by),
+        dropped_by: userName(c.dropped_by),
         originator: c.originator,
         banker: c.banker,
         advisor: c.advisor,
-        is_live: c.is_live,
+        // Export the EFFECTIVE live status, matching what the app shows and what
+        // the `is_live` filter selects on. The raw column is null for the common
+        // case of a deal that is live purely because an advisor is engaged.
+        is_live: isDealLive(c),
         nbo_date: c.nbo_date,
         stake: c.stake,
         deal_size: c.deal_size,
@@ -406,6 +342,33 @@ export interface CompanyExcelArtifact {
   title: string;
   companyCount: number;
   filterSummary: string;
+  /** Human-readable notes (e.g. an unresolved connected_to name). */
+  notes: string[];
+}
+
+/**
+ * Wire the relationship-graph resolver. Imported lazily for the same reason as
+ * the Company Card path below: a static import of the service container would
+ * close an import cycle back onto this module (container → aiWorkforceService
+ * → workforce → agents → tools → emailArtifacts).
+ */
+async function buildGraphDeps(
+  db: ReturnType<typeof createDb>,
+  workspaceId: string,
+  companyRepo: CompanyRepository,
+): Promise<GraphDeps> {
+  const { createContainer } = await import('@/lib/services/container');
+  const { companyGraphService } = createContainer(db, workspaceId);
+  return {
+    resolveCompany: async (nameOrId: string) => {
+      const match = await companyRepo.findByNameFuzzy(nameOrId);
+      return match
+        ? { id: match.id, name: match.target || match.project_name || nameOrId }
+        : null;
+    },
+    getConnectedCompanies: (id: string) => companyGraphService.getConnectedCompanies(id),
+    getGraphData: () => companyGraphService.getGraphData(),
+  };
 }
 
 /**
@@ -421,7 +384,31 @@ export async function buildCompanyExcelAttachment(
   const workspaceId = await getActiveWorkspaceId();
 
   const companyRepo = new CompanyRepository(db, workspaceId);
-  const companies = await companyRepo.findForAgentStats(mapFilters(spec));
+
+  const graph = await resolveCompanyGraphFilter(spec, () =>
+    buildGraphDeps(db, workspaceId, companyRepo),
+  );
+  if (graph.error) throw new Error(graph.error);
+  const notes = [...graph.notes];
+
+  // NOTE: unlike query_companies / get_company_stats, the export deliberately
+  // has NO stage default — "email me the pipeline as a spreadsheet" with no
+  // filters must mean every stage, not just the L0–L5 funnel. Narrowing here
+  // would silently drop intake rows from a workbook the user asked for in full.
+  const filters = mergeGraphFilter(mapCompanyFilters(spec), graph);
+  // `include_pre_pipeline` still has to do something here: findForAgentStats
+  // drops `discovered` relationship-graph stubs unless a stage filter names
+  // them, so asking for the pre-pipeline stages must name them explicitly.
+  if (
+    spec.include_pre_pipeline &&
+    !spec.stage &&
+    !(spec.stage_in && spec.stage_in.length > 0) &&
+    !spec.company_ids
+  ) {
+    filters.stageIn = [...ALL_STAGES];
+  }
+
+  const companies = await companyRepo.findForAgentStats(filters);
   if (companies.length === 0) {
     return null;
   }
@@ -466,6 +453,7 @@ export async function buildCompanyExcelAttachment(
     title,
     companyCount: companies.length,
     filterSummary,
+    notes,
   };
 }
 
@@ -699,13 +687,35 @@ export interface PresentationArtifact {
 // Company Card PowerPoint artifact — the on-screen "L0 → L1 Submission" card
 // ───────────────────────────────────────────────────────────────────────────
 
-/** Spec the agent passes to attach the Company Card deck for one or more companies. */
+/**
+ * Cards are built one at a time (each is a separate data assembly + layout
+ * pass), so the deck size is capped rather than left to whatever list the agent
+ * decides to paste in. A deck this large already strains the SES attachment
+ * budget anyway.
+ */
+const MAX_CARD_COMPANIES = 25;
+
+/**
+ * Spec the agent passes to attach the Company Card deck for one or more
+ * companies. `company_ids` is the preferred addressing mode — run
+ * `query_companies` first and hand back the ids it printed, so the deck covers
+ * exactly the rows the user saw with no fuzzy-name ambiguity. `company_names`
+ * remains for the case where the user named a company that was never queried.
+ */
 export const companyCardSpecSchema = z.object({
+  company_ids: z
+    .array(z.string().min(1))
+    .max(MAX_CARD_COMPANIES)
+    .optional()
+    .describe(
+      `Company IDs (uuids) from a previous query_companies result. Preferred over company_names — exact, no fuzzy matching. One card per id, in this order. Max ${MAX_CARD_COMPANIES}.`,
+    ),
   company_names: z
     .array(z.string().min(1))
-    .min(1)
+    .max(MAX_CARD_COMPANIES)
+    .optional()
     .describe(
-      'Pipeline company names (target or project name) whose Company Card should be exported. One card per company, in this order.',
+      `Pipeline company names (target or project name) whose Company Card should be exported. Use only when you have no id. One card per company, in this order. Max ${MAX_CARD_COMPANIES}.`,
     ),
   title: z
     .string()
@@ -728,15 +738,38 @@ export interface CompanyCardArtifact {
 }
 
 /**
+ * `CompanyRepository.findById` reports a missing row as `Company <id> not
+ * found`, which surfaces through `buildById`. Recognise exactly that so a bad
+ * id from the agent degrades to an "unresolved" note while any other failure
+ * (render error, DB outage) still propagates.
+ */
+function isMissingCompanyError(err: unknown, id: string): boolean {
+  return err instanceof Error && err.message === `Company ${id} not found`;
+}
+
+/**
  * Render the Company Card for each requested company into a single .pptx,
  * laid out exactly like the Overview tab of the company detail dialog.
- * Returns `null` when none of the names resolve, so the caller can say so
- * instead of mailing an empty deck.
+ *
+ * Companies are addressed by id first (`company_ids`, as printed by
+ * `query_companies`) and by name only as a fallback — an id from a prior query
+ * is exact, whereas a name goes through fuzzy matching and can land on the
+ * wrong record. Ids and names are deduplicated against each other so naming the
+ * same company both ways doesn't produce the card twice.
+ *
+ * Returns `null` when nothing resolves, so the caller can say so instead of
+ * mailing an empty deck.
  */
 export async function buildCompanyCardAttachment(
   spec: CompanyCardSpec,
   opts?: { workspaceId?: string },
 ): Promise<CompanyCardArtifact | null> {
+  const requestedIds = (spec.company_ids ?? []).map((id) => id.trim()).filter(Boolean);
+  const requestedNames = (spec.company_names ?? []).map((n) => n.trim()).filter(Boolean);
+  if (requestedIds.length === 0 && requestedNames.length === 0) {
+    throw new Error('company_card needs company_ids (preferred) or company_names.');
+  }
+
   const db = createDb();
   const workspaceId = opts?.workspaceId ?? (await getActiveWorkspaceId());
   // Imported lazily: the service container transitively reaches the agent tool
@@ -749,14 +782,36 @@ export async function buildCompanyCardAttachment(
   const slides: PptxSlide[] = [];
   const companyTitles: string[] = [];
   const unresolved: string[] = [];
+  // Ids and names can address the same company; dedupe on the resolved company
+  // id, not the display title — two records can share a name, and an unnamed one
+  // falls back to a placeholder, so titles would collapse distinct companies.
+  const seenIds = new Set<string>();
 
-  for (const raw of spec.company_names) {
-    const name = raw.trim();
-    if (!name) continue;
+  const appendDeck = async (build: () => Promise<CompanyCardDeck>) => {
+    const deck = await build();
+    if (seenIds.has(deck.companyId)) return;
+    seenIds.add(deck.companyId);
+    companyTitles.push(deck.title);
+    slides.push(...deck.slides);
+  };
+
+  for (const id of requestedIds) {
     try {
-      const deck = await companyCardSlideService.buildByName(name);
-      companyTitles.push(deck.title);
-      slides.push(...deck.slides);
+      await appendDeck(() => companyCardSlideService.buildById(id));
+    } catch (err) {
+      // buildById throws a plain Error for an unknown id; treat that the same
+      // way as an unresolvable name rather than failing the whole email.
+      if (err instanceof CompanyNotFoundForCardError || isMissingCompanyError(err, id)) {
+        unresolved.push(id);
+        continue;
+      }
+      throw err;
+    }
+  }
+
+  for (const name of requestedNames) {
+    try {
+      await appendDeck(() => companyCardSlideService.buildByName(name));
     } catch (err) {
       if (err instanceof CompanyNotFoundForCardError) {
         unresolved.push(name);

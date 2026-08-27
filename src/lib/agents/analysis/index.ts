@@ -108,6 +108,7 @@ type ToolList = Array<
   | (typeof investmentTools)[number]
   | (typeof vcTools)[number]
 >;
+import { COMPANY_MENTIONS_PROMPT_GUIDE } from "@/lib/navigation/companyMentions";
 import { logger } from "../logger";
 import {
   isLocalPostgresHost,
@@ -134,6 +135,7 @@ The user is looking at a center console next to this conversation — a page lik
 **\`navigate_page\` — move the console.** Call it when the user asks to go somewhere ("open the pipeline", "take me to the CRM"), or when seeing a page IS the answer ("where do I add a company?"). It navigates immediately; it is not a proposal to confirm. Afterwards write one short sentence saying where you took them and why, then stop.
 
 Navigating is never a substitute for doing the work. "Which deals are stalled?" is a question you answer with data, not by opening the pipeline and leaving them to look. Call \`navigate_page\` at most once per turn.`;
+
 
 const CHAT_SYSTEM_PROMPT = `You are an intelligent M&A Data Analysis Assistant that helps users explore and analyze company/asset data for mergers and acquisitions.
 
@@ -329,7 +331,8 @@ A weak EBITDA does **not** block the handoff — the user can still assign it vi
 - If a user asks about a company, proactively check if there are any related files to provide a more comprehensive answer.
 - **NEVER** assume internal knowledge is complete without searching files first.
 - **ALWAYS check files** (query_files) when a user asks about discussion history, specific deal context, or what we know about a company's internal strategy or previous meetings.
-${CONSOLE_NAVIGATION_GUIDE}`;
+${CONSOLE_NAVIGATION_GUIDE}
+${COMPANY_MENTIONS_PROMPT_GUIDE}`;
 
 const INVESTMENT_SYSTEM_PROMPT = `You are an intelligent Investment & Funds Analysis Assistant that helps users explore and analyze their fund portfolio: the funds themselves, the assets/holdings inside them, the investors (LPs) behind them, and the sources of capital that back them.
 
@@ -500,7 +503,8 @@ Use valyu_search (preferred for financial/market research) or web_search wheneve
 - Portfolio (fund) data is READ-ONLY: you can see and analyze it but do not modify fund records. Company/pipeline writes must go through propose_workforce_handoff (or the propose_bulk_* approval cards for batch drops/promotions) — chat never writes to the pipeline directly.
 - When a user names a specific company resolve it via query_companies/get_company_details. For anything on the fund side, resolve the name with search_investments first, then drill in by the resolved type — get_fund_asset_details (holding, prefer the returned \`fund_asset_id\` over the name), query_funds/query_fund_assets (fund), query_investors (LP), query_fund_sources (capital source). Never guess the entity type.
 - send_email recipients are restricted to registered platform users — use lookup_user to resolve a name to an email first.
-${CONSOLE_NAVIGATION_GUIDE}`;
+${CONSOLE_NAVIGATION_GUIDE}
+${COMPANY_MENTIONS_PROMPT_GUIDE}`;
 
 const VC_SYSTEM_PROMPT = `You are an intelligent Venture Capital & Growth Equity Analysis Copilot. You help investment teams evaluate companies (internal pipeline targets or external market companies), fund portfolios and holdings, and external funds/managers.
 
@@ -566,7 +570,8 @@ const VC_SYSTEM_PROMPT = `You are an intelligent Venture Capital & Growth Equity
 - When you have finished your internal reasoning and are about to write the final answer to the user, output exactly: \`<!-- THINKING_END -->\` on its own line, then provide your response.
 - Content between delimiters is internal thinking; content after \`<!-- THINKING_END -->\` is the final answer.
 - **Vision & File Capabilities:** You CAN visually inspect and analyze image attachments directly and review uploaded document files. If an image is clearly unrelated to the project or business context, decline to analyze it.
-${CONSOLE_NAVIGATION_GUIDE}`;
+${CONSOLE_NAVIGATION_GUIDE}
+${COMPANY_MENTIONS_PROMPT_GUIDE}`;
 
 const WORKFORCE_SYSTEM_PROMPT = `You are an AI Workforce agent. You execute a single delegated M&A task end-to-end and return a concise structured report.
 

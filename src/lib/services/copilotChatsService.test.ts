@@ -5,6 +5,8 @@ import {
   CopilotChatForbiddenError,
   hashFirstMessage,
   isCacheableResponse,
+  CHAT_HISTORY_PAGE_SIZE,
+  CHAT_HISTORY_MAX_PAGE_SIZE,
 } from './copilotChatsService';
 import type { CopilotChatsRepository } from '@/lib/repositories';
 
@@ -33,11 +35,55 @@ describe('CopilotChatsService', () => {
     service = new CopilotChatsService(repo as unknown as CopilotChatsRepository);
   });
 
-  it('list delegates to repo.listByUser', async () => {
+  it('list returns the first page and reports no more when the page is short', async () => {
     repo.listByUser.mockResolvedValueOnce([{ id: 'c1' }]);
+
     const result = await service.list('u1');
-    expect(result).toEqual([{ id: 'c1' }]);
-    expect(repo.listByUser).toHaveBeenCalledWith('u1');
+
+    expect(result).toEqual({ chats: [{ id: 'c1' }], hasMore: false, nextOffset: null });
+    // limit + 1: the extra row is what tells us whether another page exists,
+    // without a second COUNT over a table that grows without bound.
+    expect(repo.listByUser).toHaveBeenCalledWith('u1', {
+      limit: CHAT_HISTORY_PAGE_SIZE + 1,
+      offset: 0,
+    });
+  });
+
+  it('trims the probe row and reports hasMore when a full page came back', async () => {
+    const rows = Array.from({ length: CHAT_HISTORY_PAGE_SIZE + 1 }, (_, i) => ({
+      id: `c${i}`,
+    }));
+    repo.listByUser.mockResolvedValueOnce(rows);
+
+    const result = await service.list('u1');
+
+    expect(result.chats).toHaveLength(CHAT_HISTORY_PAGE_SIZE);
+    expect(result.chats.at(-1)).toEqual({ id: `c${CHAT_HISTORY_PAGE_SIZE - 1}` });
+    expect(result.hasMore).toBe(true);
+    expect(result.nextOffset).toBe(CHAT_HISTORY_PAGE_SIZE);
+  });
+
+  it('advances nextOffset past the rows already served', async () => {
+    const rows = Array.from({ length: 4 }, (_, i) => ({ id: `c${i}` }));
+    repo.listByUser.mockResolvedValueOnce(rows);
+
+    const result = await service.list('u1', { limit: 3, offset: 30 });
+
+    expect(repo.listByUser).toHaveBeenCalledWith('u1', { limit: 4, offset: 30 });
+    expect(result.nextOffset).toBe(33);
+  });
+
+  it('clamps a hostile page size instead of letting one request drain the table', async () => {
+    repo.listByUser.mockResolvedValue([]);
+
+    await service.list('u1', { limit: 100_000 });
+    expect(repo.listByUser).toHaveBeenCalledWith('u1', {
+      limit: CHAT_HISTORY_MAX_PAGE_SIZE + 1,
+      offset: 0,
+    });
+
+    await service.list('u1', { limit: 0, offset: -5 });
+    expect(repo.listByUser).toHaveBeenLastCalledWith('u1', { limit: 2, offset: 0 });
   });
 
   it('create delegates to repo.create', async () => {

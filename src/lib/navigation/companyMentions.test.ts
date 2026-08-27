@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   COMPANY_MENTIONS_MARKER,
+  COMPANY_MENTIONS_PROMPT_GUIDE,
   buildCompanyMentionsMarker,
   parseCompanyMentions,
   selectMentionedCompanies,
@@ -133,5 +134,46 @@ describe('selectMentionedCompanies', () => {
     expect(selectMentionedCompanies([], 'Acme Corp')).toEqual([]);
     expect(selectMentionedCompanies([acme], '')).toEqual([]);
     expect(selectMentionedCompanies([acme], '   ')).toEqual([]);
+  });
+});
+
+/**
+ * The prompt guidance and the matcher are one mechanism. These assert the
+ * advice the model is given actually produces chips, so the two cannot drift
+ * apart silently — a change to the matching rules should break these first.
+ */
+describe('COMPANY_MENTIONS_PROMPT_GUIDE', () => {
+  const cohort = [
+    { id: 'c1', name: 'Acme Chemicals' },
+    { id: 'c2', name: 'Toyo Materials' },
+    { id: 'c3', name: 'Nippon Fine Products' },
+  ];
+
+  // The block's central claim: a bare aggregate is a dead end, and naming the
+  // companies is what turns the same summary into something clickable.
+  it('is right that an unnamed summary produces no chips', () => {
+    const summary = '12 active deals at L1, mostly Japanese industrials.';
+    expect(selectMentionedCompanies(cohort, summary)).toEqual([]);
+  });
+
+  it('is right that its own rewritten summary chips every company it names', () => {
+    const summary =
+      '12 active deals at L1, mostly Japanese industrials — the largest are ' +
+      'Acme Chemicals, Toyo Materials and Nippon Fine Products.';
+    expect(selectMentionedCompanies(cohort, summary)).toEqual(cohort);
+  });
+
+  // The block tells the model "Acme Chemicals" links but "Acme" does not.
+  it('is right that a prefix of a name does not chip', () => {
+    expect(selectMentionedCompanies(cohort, 'Acme is progressing.')).toEqual([]);
+    expect(selectMentionedCompanies(cohort, 'Acme Chemicals is progressing.')).toEqual([
+      cohort[0],
+    ]);
+  });
+
+  it('states the rules it relies on, so the advice stays self-contained', () => {
+    for (const claim of ['query_companies', 'get_company_stats', 'summaries']) {
+      expect(COMPANY_MENTIONS_PROMPT_GUIDE).toContain(claim);
+    }
   });
 });

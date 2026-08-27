@@ -6,9 +6,20 @@ import { createDb } from "@/lib/server/db";
 import {
   CompanyFinancialRepository,
   CompanyRepository,
-  type CompanyAgentFilters,
   type Tables,
 } from "@/lib/repositories";
+import {
+  COMPANY_FILTER_DOC,
+  COMPANY_STAGES,
+  COMPANY_STAGE_DEFAULT_DOC,
+  PIPELINE_STAGES,
+  companyFilterShape,
+  mapCompanyFilters,
+  mergeGraphFilter,
+  resolveCompanyGraphFilter,
+  type CompanyFilterArgs,
+  type GraphDeps,
+} from "./companyFilters";
 
 type Company = Tables<"companies">;
 
@@ -98,6 +109,44 @@ function renderBreakdown(
   return out;
 }
 
+const argsSchema = z.object({
+  group_by: z
+    .array(z.enum(GROUP_BY_DIMENSIONS))
+    .optional()
+    .describe(
+      'Breakdown dimensions to append, e.g. ["stage","ai_opinion"]. Defaults to ["segment"].',
+    ),
+  ...companyFilterShape,
+});
+
+type StatsArgs = z.infer<typeof argsSchema>;
+
+/**
+ * Wire the graph resolver's dependencies. Imported lazily so a plain
+ * column-filter cohort never constructs the Neo4j-backed services, and so the
+ * service container (which transitively reaches this tool registry) isn't
+ * pulled in at module-evaluation time.
+ */
+async function buildGraphDeps(
+  db: ReturnType<typeof createDb>,
+  workspaceId: string,
+  companyRepo: CompanyRepository,
+): Promise<GraphDeps> {
+  const { createContainer } = await import("@/lib/services/container");
+  const { companyGraphService } = createContainer(db, workspaceId);
+  return {
+    resolveCompany: async (nameOrId: string) => {
+      const match = await companyRepo.findByNameFuzzy(nameOrId);
+      return match
+        ? { id: match.id, name: match.target || match.project_name || nameOrId }
+        : null;
+    },
+    getConnectedCompanies: (id: string) =>
+      companyGraphService.getConnectedCompanies(id),
+    getGraphData: () => companyGraphService.getGraphData(),
+  };
+}
+
 /**
  * Get aggregate statistics for a (optionally filtered) cohort of companies.
  *
@@ -109,57 +158,8 @@ function renderBreakdown(
  * pipeline utility out of the box.
  */
 export const getCompanyStats = tool(
-  async ({
-    group_by,
-    segment,
-    geography,
-    watchlist_status,
-    stage,
-    name,
-    ownership,
-    company_focus,
-    source,
-    status,
-    deal_type,
-    deal_sponsor,
-    deal_captain,
-    entered_by,
-    banker,
-    has_ai_opinion,
-    ai_opinion_verdict,
-    min_revenue,
-    max_revenue,
-    min_ebitda,
-    max_ebitda,
-    created_after,
-    created_before,
-    search_term,
-  }: {
-    group_by?: GroupByDimension[];
-    segment?: string;
-    geography?: string;
-    watchlist_status?: string;
-    stage?: string;
-    name?: string;
-    ownership?: string;
-    company_focus?: string;
-    source?: "inbound" | "outbound";
-    status?: "active" | "dropped";
-    deal_type?: "majority" | "minority";
-    deal_sponsor?: string;
-    deal_captain?: string;
-    entered_by?: string;
-    banker?: string;
-    has_ai_opinion?: boolean;
-    ai_opinion_verdict?: "pass" | "fail" | "tentative";
-    min_revenue?: number;
-    max_revenue?: number;
-    min_ebitda?: number;
-    max_ebitda?: number;
-    created_after?: string;
-    created_before?: string;
-    search_term?: string;
-  }) => {
+  async (args: StatsArgs) => {
+    const { group_by, ...filterArgs } = args;
     const groupBy =
       group_by && group_by.length > 0 ? group_by : (["segment"] as const);
     logger.debug(
@@ -168,43 +168,35 @@ export const getCompanyStats = tool(
 
     try {
       const db = createDb();
-      const companyRepo = new CompanyRepository(db, await getActiveWorkspaceId());
-      const financialRepo = new CompanyFinancialRepository(db, await getActiveWorkspaceId());
+      const workspaceId = await getActiveWorkspaceId();
+      const companyRepo = new CompanyRepository(db, workspaceId);
+      const financialRepo = new CompanyFinancialRepository(db, workspaceId);
 
-      const filters: CompanyAgentFilters = {
-        segment,
-        geography,
-        watchlistStatus: watchlist_status,
-        stage,
-        name,
-        ownership,
-        companyFocus: company_focus,
-        source,
-        status,
-        dealType: deal_type,
-        dealSponsor: deal_sponsor,
-        dealCaptain: deal_captain,
-        enteredBy: entered_by,
-        banker,
-        hasAiOpinion: has_ai_opinion,
-        aiOpinionVerdict: ai_opinion_verdict,
-        minRevenue: min_revenue,
-        maxRevenue: max_revenue,
-        minEbitda: min_ebitda,
-        maxEbitda: max_ebitda,
-        createdAfter: created_after,
-        createdBefore: created_before,
-        searchTerm: search_term,
-      };
+      // Graph filters live in Neo4j; resolve them into an id include/exclude
+      // list before Postgres sees the cohort.
+      const graph = await resolveCompanyGraphFilter(filterArgs, () =>
+        buildGraphDeps(db, workspaceId, companyRepo),
+      );
+      if (graph.error) return `**Error:** ${graph.error}`;
+
+      const filters = mergeGraphFilter(
+        mapCompanyFilters(filterArgs as CompanyFilterArgs),
+        graph,
+      );
       const hasFilter = Object.values(filters).some((v) => v !== undefined);
 
-      // Unless the caller explicitly scopes a stage, default the cohort to the
-      // L0–L5 committed origination funnel. Earlier triage buckets
-      // (market_screening, unreviewed, discovered) are excluded from the default snapshot
-      // so pipeline stats reflect real deals, not raw intake. An explicit
-      // `stage` filter overrides this default entirely.
-      if (!stage) {
-        filters.stageIn = ["L0", "L1", "L2", "L3", "L4", "L5"];
+      // Unless the caller explicitly scopes a stage (or pins exact ids), default
+      // the cohort to the L0–L5 committed origination funnel. Earlier triage
+      // buckets (market_screening, unreviewed, discovered) are excluded from the
+      // default snapshot so pipeline stats reflect real deals, not raw intake.
+      if (
+        !filterArgs.stage &&
+        !(filterArgs.stage_in && filterArgs.stage_in.length > 0) &&
+        !filterArgs.company_ids
+      ) {
+        filters.stageIn = filterArgs.include_pre_pipeline
+          ? [...COMPANY_STAGES]
+          : [...PIPELINE_STAGES];
       }
 
       const companies = await companyRepo.findForAgentStats(filters);
@@ -308,19 +300,13 @@ export const getCompanyStats = tool(
 
 The summary always reports: total companies, active vs dropped, inbound vs outbound, financial data coverage, revenue/EBITDA totals + averages + medians, and AI Opinion coverage (with/without an opinion and the pass/fail/tentative split).
 
-Scope the cohort with the SAME filters as query_companies (all optional, AND-combined):
-    segment, geography, watchlist_status, stage, name, ownership, company_focus,
-    source ("inbound"|"outbound"), status ("active"|"dropped"),
-    deal_type ("majority"|"minority"), deal_sponsor, deal_captain, entered_by, banker,
-    has_ai_opinion (true → only companies WITH an AI Opinion; false → only those WITHOUT),
-    ai_opinion_verdict ("pass"|"fail"|"tentative"),
-    min_revenue / max_revenue / min_ebitda / max_ebitda (FY2024, USD M),
-    created_after / created_before (companies.created_at bounds, inclusive; date or ISO-8601 timestamp),
-    search_term (target name/project name/segment/geography).
+Scope the cohort with the SAME filter vocabulary as query_companies and send_email's company_excel:
 
-Note: "discovered" relationship-graph stubs are always excluded from the snapshot — the aggregate covers the origination pipeline only.
+${COMPANY_FILTER_DOC}
 
-Stage default: unless the query explicitly asks about a stage (via the stage filter), the cohort defaults to the L0–L5 committed funnel only — earlier triage buckets ("market_screening", "unreviewed", "discovered") are excluded. Pass an explicit stage to override this and scope to any single stage.
+${COMPANY_STAGE_DEFAULT_DOC}
+
+Note: "discovered" relationship-graph stubs are excluded from the snapshot unless you ask for them (via stage / stage_in / include_pre_pipeline / company_ids) — the aggregate covers the origination pipeline only.
 
 group_by: optional array of breakdown dimensions to append as tables. Any of:
     "segment", "geography", "stage", "source", "status", "ownership", "deal_type", "ai_opinion".
@@ -330,108 +316,10 @@ Examples:
     - Overall pipeline health: call with no args.
     - "How many inbound deals lack an AI opinion?": source="inbound", has_ai_opinion=false.
     - "Pass/fail split of semiconductor targets by stage": segment="semiconductor", group_by=["ai_opinion","stage"].
+    - "How many of our L2+ deals are connected to Acme?": stage_in=["L2","L3","L4","L5"], connected_to="Acme".
 
 Returns:
     Markdown: an overview + financials + AI-opinion block, followed by one breakdown table per requested dimension (each with count, % of cohort, avg revenue, avg EBITDA).`,
-    schema: z.object({
-      group_by: z
-        .array(z.enum(GROUP_BY_DIMENSIONS))
-        .optional()
-        .describe(
-          'Breakdown dimensions to append, e.g. ["stage","ai_opinion"]. Defaults to ["segment"].',
-        ),
-      segment: z.string().optional().describe("Filter by segment (partial)"),
-      geography: z.string().optional().describe("Filter by geography (partial)"),
-      watchlist_status: z
-        .string()
-        .optional()
-        .describe("Filter by watchlist status (partial)"),
-      stage: z
-        .enum([
-          "market_screening",
-          "unreviewed",
-          "discovered",
-          "L0",
-          "L1",
-          "L2",
-          "L3",
-          "L4",
-          "L5",
-        ])
-        .optional()
-        .describe("Filter by pipeline stage (exact)"),
-      name: z
-        .string()
-        .optional()
-        .describe("Filter by company name (partial, target or project_name)"),
-      ownership: z
-        .string()
-        .optional()
-        .describe("Filter by ownership (partial)"),
-      company_focus: z
-        .string()
-        .optional()
-        .describe("Filter by company focus (partial)"),
-      source: z
-        .enum(["inbound", "outbound"])
-        .optional()
-        .describe("Filter by deal origin (exact)"),
-      status: z
-        .enum(["active", "dropped"])
-        .optional()
-        .describe("Filter by record status (exact)"),
-      deal_type: z
-        .enum(["majority", "minority"])
-        .optional()
-        .describe("Filter by deal type (exact)"),
-      deal_sponsor: z
-        .string()
-        .optional()
-        .describe("Filter by deal sponsor / owner (partial, shown at L0–L2)"),
-      deal_captain: z
-        .string()
-        .optional()
-        .describe("Filter by deal captain name (partial, shown at L3+)"),
-      entered_by: z
-        .string()
-        .optional()
-        .describe("Filter by the name of the user who sourced/entered the company (partial)"),
-      banker: z
-        .string()
-        .optional()
-        .describe("Filter by banker / deal contact (partial)"),
-      has_ai_opinion: z
-        .boolean()
-        .optional()
-        .describe(
-          "true → only companies with an AI Opinion; false → only those without",
-        ),
-      ai_opinion_verdict: z
-        .enum(["pass", "fail", "tentative"])
-        .optional()
-        .describe("Filter by AI Opinion verdict (exact)"),
-      min_revenue: z.number().optional().describe("Minimum FY2024 revenue (USD M)"),
-      max_revenue: z.number().optional().describe("Maximum FY2024 revenue (USD M)"),
-      min_ebitda: z.number().optional().describe("Minimum FY2024 EBITDA (USD M)"),
-      max_ebitda: z.number().optional().describe("Maximum FY2024 EBITDA (USD M)"),
-      created_after: z
-        .string()
-        .optional()
-        .describe(
-          "Only companies added on/after this date (inclusive). Date or ISO-8601 timestamp, matched against companies.created_at",
-        ),
-      created_before: z
-        .string()
-        .optional()
-        .describe(
-          "Only companies added on/before this date (inclusive). Date or ISO-8601 timestamp, matched against companies.created_at",
-        ),
-      search_term: z
-        .string()
-        .optional()
-        .describe(
-          "Free-text search across target name, project name, segment, and geography",
-        ),
-    }),
+    schema: argsSchema,
   }
 );

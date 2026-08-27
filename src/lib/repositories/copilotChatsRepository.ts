@@ -4,14 +4,35 @@ import type { DbClient } from './types';
 
 export type CopilotChatRow = typeof copilotChats.$inferSelect;
 
+export interface ListByUserOptions {
+  limit?: number;
+  offset?: number;
+}
+
 export class CopilotChatsRepository {
   constructor(
     private readonly db: DbClient,
     private readonly workspaceId: string,
   ) {}
 
-  async listByUser(userId: string): Promise<CopilotChatRow[]> {
-    return this.db
+  /**
+   * One page of the user's chat history, most recently active first.
+   *
+   * Paged rather than unbounded: a long-lived account accumulates thousands of
+   * conversations, and the sidebar only ever shows the top of the list. `limit`
+   * is applied by the caller (the service asks for one extra row to detect a
+   * further page); omitting it returns everything, which only callers that
+   * genuinely need the whole set should do.
+   *
+   * `last_active_at` alone is not a stable sort key — chats touched in the same
+   * transaction share a timestamp and could otherwise swap between pages,
+   * duplicating one row and hiding another. `id` breaks the tie deterministically.
+   */
+  async listByUser(
+    userId: string,
+    { limit, offset }: ListByUserOptions = {},
+  ): Promise<CopilotChatRow[]> {
+    const base = this.db
       .select()
       .from(copilotChats)
       .where(
@@ -21,7 +42,9 @@ export class CopilotChatsRepository {
           eq(copilotChats.workspace_id, this.workspaceId),
         ),
       )
-      .orderBy(desc(copilotChats.last_active_at));
+      .orderBy(desc(copilotChats.last_active_at), desc(copilotChats.id));
+    const paged = limit === undefined ? base : base.limit(limit);
+    return offset ? paged.offset(offset) : paged;
   }
 
   async create(userId: string): Promise<CopilotChatRow> {

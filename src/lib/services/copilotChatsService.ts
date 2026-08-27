@@ -38,11 +38,51 @@ export class CopilotChatForbiddenError extends Error {
   }
 }
 
+/** Chats returned per page when the caller doesn't ask for a specific size. */
+export const CHAT_HISTORY_PAGE_SIZE = 30;
+
+/** Upper bound on a caller-supplied page size, so one request can't ask for everything. */
+export const CHAT_HISTORY_MAX_PAGE_SIZE = 100;
+
+export interface ChatHistoryPage {
+  chats: CopilotChatRow[];
+  /** Whether another page exists after this one. */
+  hasMore: boolean;
+  /** Offset to pass for the next page; null when this is the last page. */
+  nextOffset: number | null;
+}
+
 export class CopilotChatsService {
   constructor(private readonly repo: CopilotChatsRepository) {}
 
-  list(userId: string) {
-    return this.repo.listByUser(userId);
+  /**
+   * One page of the user's chat history, newest activity first.
+   *
+   * Reads `limit + 1` rows and discards the extra: that tells us whether a
+   * further page exists without paying for a second COUNT query over a table
+   * that grows without bound. The sidebar uses `hasMore` to decide whether to
+   * keep observing its scroll sentinel.
+   */
+  async list(
+    userId: string,
+    { limit, offset = 0 }: { limit?: number; offset?: number } = {},
+  ): Promise<ChatHistoryPage> {
+    const pageSize = Math.min(
+      Math.max(Math.trunc(limit ?? CHAT_HISTORY_PAGE_SIZE), 1),
+      CHAT_HISTORY_MAX_PAGE_SIZE,
+    );
+    const start = Math.max(Math.trunc(offset), 0);
+    const rows = await this.repo.listByUser(userId, {
+      limit: pageSize + 1,
+      offset: start,
+    });
+    const hasMore = rows.length > pageSize;
+    const chats = hasMore ? rows.slice(0, pageSize) : rows;
+    return {
+      chats,
+      hasMore,
+      nextOffset: hasMore ? start + chats.length : null,
+    };
   }
 
   create(userId: string) {

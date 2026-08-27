@@ -2,6 +2,9 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 const findForAgentStatsMock = vi.fn();
 const findLatestByCompaniesMock = vi.fn();
+const findByNameFuzzyMock = vi.fn();
+const getConnectedCompaniesMock = vi.fn();
+const getGraphDataMock = vi.fn();
 
 vi.mock('@/lib/server/db', () => ({
   createDb: vi.fn(() => ({})),
@@ -9,11 +12,23 @@ vi.mock('@/lib/server/db', () => ({
 
 vi.mock('@/lib/repositories', () => ({
   CompanyRepository: function CompanyRepository() {
-    return { findForAgentStats: findForAgentStatsMock };
+    return {
+      findForAgentStats: findForAgentStatsMock,
+      findByNameFuzzy: findByNameFuzzyMock,
+    };
   },
   CompanyFinancialRepository: function CompanyFinancialRepository() {
     return { findLatestByCompanies: findLatestByCompaniesMock };
   },
+}));
+
+vi.mock('@/lib/services/container', () => ({
+  createContainer: () => ({
+    companyGraphService: {
+      getConnectedCompanies: getConnectedCompaniesMock,
+      getGraphData: getGraphDataMock,
+    },
+  }),
 }));
 
 import { getCompanyStats } from './get_company_stats';
@@ -131,6 +146,57 @@ describe('getCompanyStats', () => {
     const passed = findForAgentStatsMock.mock.calls[0][0];
     expect(passed.stage).toBe('market_screening');
     expect(passed.stageIn).toBeUndefined();
+  });
+
+  it('forwards the newly exposed column filters to the repository', async () => {
+    findForAgentStatsMock.mockResolvedValue([]);
+
+    await getCompanyStats.invoke({
+      is_live: true,
+      workflow_status: 'NDA signed',
+      advisor: 'Goldman',
+      last_activity_after: '2026-01-01',
+    });
+
+    expect(findForAgentStatsMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        isLive: true,
+        workflowStatus: 'NDA signed',
+        advisor: 'Goldman',
+        lastActivityAfter: '2026-01-01',
+      }),
+    );
+  });
+
+  it('scopes the cohort to an explicit id list without the stage default', async () => {
+    findForAgentStatsMock.mockResolvedValue([]);
+
+    await getCompanyStats.invoke({ company_ids: ['c1'] });
+
+    const passed = findForAgentStatsMock.mock.calls[0][0];
+    expect(passed.ids).toEqual(['c1']);
+    expect(passed.stageIn).toBeUndefined();
+  });
+
+  it('narrows the cohort to the graph neighbours of connected_to', async () => {
+    findByNameFuzzyMock.mockResolvedValue({ id: 'anchor', target: 'Acme' });
+    getConnectedCompaniesMock.mockResolvedValue([
+      { company: { id: 'n1', name: 'Beta' }, type: 'PARTNER', direction: 'outgoing' },
+    ]);
+    findForAgentStatsMock.mockResolvedValue([]);
+
+    await getCompanyStats.invoke({ connected_to: 'Acme' });
+
+    expect(findForAgentStatsMock.mock.calls[0][0].ids).toEqual(['n1']);
+  });
+
+  it('errors when connected_to cannot be resolved', async () => {
+    findByNameFuzzyMock.mockResolvedValue(null);
+
+    const result = (await getCompanyStats.invoke({ connected_to: 'Ghost' })) as string;
+
+    expect(result).toContain('**Error:**');
+    expect(findForAgentStatsMock).not.toHaveBeenCalled();
   });
 
   it('appends multiple requested breakdowns', async () => {

@@ -6,148 +6,111 @@ import { createDb } from "@/lib/server/db";
 import {
   CompanyFinancialRepository,
   CompanyRepository,
-  type CompanyAgentFilters,
 } from "@/lib/repositories";
 import { buildCompanyMentionsMarker } from "@/lib/navigation/companyMentions";
+import {
+  COMPANY_FILTER_DOC,
+  COMPANY_STAGE_DEFAULT_DOC,
+  applyStageDefault,
+  companyFilterShape,
+  mapCompanyFilters,
+  mergeGraphFilter,
+  resolveCompanyGraphFilter,
+  type CompanyFilterArgs,
+} from "./companyFilters";
 
 /**
  * Query companies with filters.
  *
- * Returns a compact markdown table of matching companies plus their latest
- * financials. All filters are optional and AND-combined, so the agent can
- * narrow the pipeline along any of the dimensions below in a single call.
+ * The entry point for every company cohort the agent works with. It accepts the
+ * full shared filter vocabulary (`companyFilterShape` — one filter per
+ * user-meaningful `companies` column, plus relationship-graph filters) and
+ * prints each row's uuid, so the follow-on artifact tools (`send_email`'s
+ * `company_excel` / `company_card`) can export exactly the rows the user just
+ * saw by passing those ids back.
  */
 
+const argsSchema = z.object({
+  ...companyFilterShape,
+  include_relationships: z
+    .boolean()
+    .optional()
+    .describe(
+      "Append a Relationships column listing each company's direct graph edges. Costs one extra graph read.",
+    ),
+  limit: z.number().optional().default(20).describe("Max results to return"),
+});
 
-/**
- * Query companies with filters.
- *
- * Returns a compact markdown table of matching companies plus their latest
- * financials. All filters are optional and AND-combined, so the agent can
- * narrow the pipeline along any of the dimensions below in a single call.
- */
+type Args = z.infer<typeof argsSchema>;
+
 export const queryCompanies = tool(
-  async ({
-    segment,
-    geography,
-    watchlist_status,
-    stage,
-    include_pre_pipeline,
-    name,
-    ownership,
-    company_focus,
-    source,
-    status,
-    deal_type,
-    deal_sponsor,
-    deal_captain,
-    entered_by,
-    banker,
-    has_ai_opinion,
-    ai_opinion_verdict,
-    min_revenue,
-    max_revenue,
-    min_ebitda,
-    max_ebitda,
-    created_after,
-    created_before,
-    search_term,
-    limit = 20,
-  }: {
-    segment?: string;
-    geography?: string;
-    watchlist_status?: string;
-    stage?: string;
-    include_pre_pipeline?: boolean;
-    name?: string;
-    ownership?: string;
-    company_focus?: string;
-    source?: "inbound" | "outbound";
-    status?: "active" | "dropped";
-    deal_type?: "majority" | "minority";
-    deal_sponsor?: string;
-    deal_captain?: string;
-    entered_by?: string;
-    banker?: string;
-    has_ai_opinion?: boolean;
-    ai_opinion_verdict?: "pass" | "fail" | "tentative";
-    min_revenue?: number;
-    max_revenue?: number;
-    min_ebitda?: number;
-    max_ebitda?: number;
-    created_after?: string;
-    created_before?: string;
-    search_term?: string;
-    limit?: number;
-  }) => {
+  async (args: Args) => {
+    const { include_relationships, limit = 20, ...filterArgs } = args;
     logger.debug(
-      `🔧 TOOL CALLED: query_companies(segment='${segment}', stage='${stage}', include_pre_pipeline='${include_pre_pipeline}', name='${name}', search='${search_term}')`,
+      `🔧 TOOL CALLED: query_companies(segment='${filterArgs.segment}', stage='${filterArgs.stage}', connected_to='${filterArgs.connected_to}', ids=${filterArgs.company_ids?.length ?? 0}, search='${filterArgs.search_term}')`,
     );
 
     try {
-      const companyRepo = new CompanyRepository(
-        createDb(),
-        await getActiveWorkspaceId(),
-      );
-      const filters: CompanyAgentFilters = {
-        segment,
-        geography,
-        watchlistStatus: watchlist_status,
-        stage,
-        name,
-        ownership,
-        companyFocus: company_focus,
-        source,
-        status,
-        dealType: deal_type,
-        dealSponsor: deal_sponsor,
-        dealCaptain: deal_captain,
-        enteredBy: entered_by,
-        banker,
-        hasAiOpinion: has_ai_opinion,
-        aiOpinionVerdict: ai_opinion_verdict,
-        minRevenue: min_revenue,
-        maxRevenue: max_revenue,
-        minEbitda: min_ebitda,
-        maxEbitda: max_ebitda,
-        createdAfter: created_after,
-        createdBefore: created_before,
-        searchTerm: search_term,
-        limit,
-      };
+      const db = createDb();
+      const workspaceId = await getActiveWorkspaceId();
+      const companyRepo = new CompanyRepository(db, workspaceId);
 
-      // Unless the caller explicitly scopes a stage, default the cohort to the
-      // L0–L5 committed origination funnel. Earlier triage buckets
-      // (market_screening, unreviewed, discovered) are excluded from the default listing so
-      // results reflect real deals, not raw intake.
-      if (!stage) {
-        if (include_pre_pipeline) {
-          filters.stageIn = ["market_screening", "unreviewed", "discovered", "L0", "L1", "L2", "L3", "L4", "L5"];
-        } else {
-          filters.stageIn = ["L0", "L1", "L2", "L3", "L4", "L5"];
-        }
-      }
+      // Relationship-graph filters live in Neo4j; resolve them into an id
+      // include/exclude list first so Postgres can AND them with the columns.
+      const graph = await resolveCompanyGraphFilter(
+        filterArgs as CompanyFilterArgs,
+        () => buildGraphDeps(db, workspaceId, companyRepo),
+      );
+      if (graph.error) return `**Error:** ${graph.error}`;
+
+      const filters = mergeGraphFilter(
+        applyStageDefault(
+          mapCompanyFilters(filterArgs as CompanyFilterArgs),
+          filterArgs,
+        ),
+        graph,
+      );
+      filters.limit = limit;
 
       const companies = await companyRepo.searchForAgent(filters);
 
       if (!companies || companies.length === 0) {
-        return "No companies found matching your criteria.";
+        const graphNote = graph.notes.length ? ` ${graph.notes.join(" ")}` : "";
+        return `No companies found matching your criteria.${graphNote}`;
       }
 
-      const financialRepo = new CompanyFinancialRepository(
-        createDb(),
-        await getActiveWorkspaceId(),
-      );
+      const financialRepo = new CompanyFinancialRepository(db, workspaceId);
       const latestFin = await financialRepo.findLatestByCompanies(
         companies.map((c) => c.id),
       );
       const finByCompany = new Map<string, (typeof latestFin)[number]>();
       for (const r of latestFin) finByCompany.set(r.company_id, r);
 
-      const header =
-        "Target | Project | Segment | Geography | Stage | Status | AI Opinion | Rev ($M) | EBITDA ($M) | EV ($M)";
-      const separator =
-        "--- | --- | --- | --- | --- | --- | --- | --- | --- | ---";
+      // Relationship column: one graph read for the whole page, never one per
+      // row. Reuse the edges the connected_to filter already fetched when it ran.
+      const relationshipsById = include_relationships
+        ? await loadRelationships(
+            db,
+            workspaceId,
+            companies.map((c) => c.id),
+            graph.edgeSummaries,
+          )
+        : null;
+
+      const headerCells = [
+        "ID",
+        "Target",
+        "Project",
+        "Segment",
+        "Geography",
+        "Stage",
+        "Status",
+        "AI Opinion",
+        "Rev ($M)",
+        "EBITDA ($M)",
+        "EV ($M)",
+      ];
+      if (relationshipsById) headerCells.push("Relationships");
 
       const rows = companies.map((c) => {
         const f = finByCompany.get(c.id);
@@ -159,15 +122,36 @@ export const queryCompanies = tool(
         const opinion = c.ai_opinion_verdict
           ? c.ai_opinion_verdict.toUpperCase()
           : "-";
-        return `${c.target || "N/A"} | ${c.project_name || "-"} | ${c.segment || "-"} | ${c.geography || "-"} | ${c.pipeline_stage || "-"} | ${c.status || "-"} | ${opinion} | ${rev} | ${ebitda} | ${ev}`;
+        const cells = [
+          c.id,
+          c.target || "N/A",
+          c.project_name || "-",
+          c.segment || "-",
+          c.geography || "-",
+          c.pipeline_stage || "-",
+          c.status || "-",
+          opinion,
+          rev,
+          ebitda,
+          ev,
+        ];
+        if (relationshipsById) {
+          const edges = relationshipsById.get(c.id) ?? [];
+          cells.push(edges.length ? edges.join("; ") : "-");
+        }
+        return cells.join(" | ");
       });
 
       let result = `**Query Results (${companies.length} companies):**\n\n`;
-      result += `| ${header} |\n| ${separator} |\n`;
+      if (graph.notes.length) result += `${graph.notes.join(" ")}\n\n`;
+      result += `| ${headerCells.join(" | ")} |\n`;
+      result += `| ${headerCells.map(() => "---").join(" | ")} |\n`;
       result += rows.map((row) => `| ${row} |`).join("\n");
-      // The table carries names but no ids, so the chat UI has nothing to build
-      // a company link from. Append a hidden id↔name manifest; the client chips
-      // only the ones the model actually names in its answer.
+      result +=
+        "\n\n_The ID column holds each company's uuid. Pass those ids as `company_ids` to send_email's `company_excel` / `company_card` to export exactly these rows._";
+      // The table carries names but no ids in a form the chat UI understands, so
+      // append a hidden id↔name manifest; the client chips only the ones the
+      // model actually names in its answer.
       const mentionsMarker = buildCompanyMentionsMarker(
         companies.flatMap((c) =>
           [c.target, c.project_name]
@@ -186,153 +170,80 @@ export const queryCompanies = tool(
   },
   {
     name: "query_companies",
-    description: `Query/list companies (deal targets) from the pipeline database with optional filters.
+    description: `Query/list companies (deal targets) from the pipeline database.
 
-Use this to find specific companies by attribute, or to pull a cohort to inspect row-by-row. All filters are optional and AND-combined. For counts/averages/breakdowns across a cohort, prefer get_company_stats — it summarizes without returning every row.
+Use this to find companies by any attribute, or to pull a cohort to inspect row-by-row. For counts/averages/breakdowns across a cohort, prefer get_company_stats — it summarizes without returning every row.
 
-Available filters (every one maps to a real column):
-    segment: Segment (partial match, e.g. "Technology", "Semiconductors")
-    geography: Geography (partial match, e.g. "USA", "Japan", "APAC")
-    watchlist_status: Watchlist status (partial match)
-    stage: Pipeline stage (exact, one of: "market_screening", "unreviewed", "discovered", "L0", "L1", "L2", "L3", "L4", "L5"). If omitted, results default to the L0–L5 committed funnel only. Pass an explicit stage to override and scope to any single stage.
-    include_pre_pipeline: If true, and no specific stage is provided, the query will search ALL stages (both active L0-L5 and pre-pipeline intake stages). Defaults to false (active L0-L5 only).
-    name: Company name (partial, case-insensitive against target OR project_name)
-    ownership: Ownership (partial match, e.g. "family office", "PE", "public")
-    company_focus: Company focus / what they do (partial match)
-    source: Deal origin (exact, one of: "inbound", "outbound")
-    status: Record status (exact, one of: "active", "dropped"). Omit for all.
-    deal_type: Deal type (exact, one of: "majority", "minority")
-    deal_sponsor: Deal sponsor / owner name (partial match, shown at L0–L2)
-    deal_captain: Deal captain name (partial match, shown at L3+)
-    entered_by: Name of the user who sourced/entered the company (partial match)
-    banker: Banker / deal contact (partial match)
-    has_ai_opinion: true → only companies that already have an AI Opinion verdict; false → only those without one
-    ai_opinion_verdict: AI Opinion verdict (exact, one of: "pass", "fail", "tentative")
-    min_revenue / max_revenue: FY2024 revenue bounds (USD millions)
-    min_ebitda / max_ebitda: FY2024 EBITDA bounds (USD millions)
-    created_after / created_before: Filter by when the company was added to the pipeline (companies.created_at). Inclusive bounds. Accept a date ("2026-01-01") or full ISO-8601 timestamp; combine both for a range.
-    search_term: Free-text search across target name, project name, segment, and geography (works for non-English names, e.g. Mandarin — matches whichever of target/project_name holds the string)
+This is also the FIRST STEP of any export: the result table's ID column holds each company's uuid. To email a spreadsheet or a Company Card deck, run query_companies first, then pass those ids as \`company_ids\` to send_email's \`company_excel\` / \`company_card\` — that guarantees the attachment covers exactly the rows you just showed the user.
+
+${COMPANY_FILTER_DOC}
+
+${COMPANY_STAGE_DEFAULT_DOC}
+
+Extra args:
+    include_relationships: If true, append a Relationships column listing each company's direct graph edges (who it sells to / invested in / partners with).
     limit: Max rows to return (default: 20, max: 50)
 
 Returns:
-    A markdown table: target, project, segment, geography, stage, status, AI opinion, and latest revenue/EBITDA/EV.`,
-    schema: z.object({
-      segment: z.string().optional().describe("Filter by segment (partial)"),
-      geography: z
-        .string()
-        .optional()
-        .describe("Filter by geography (partial)"),
-      watchlist_status: z
-        .string()
-        .optional()
-        .describe("Filter by watchlist status (partial)"),
-      stage: z
-        .enum([
-          "market_screening",
-          "unreviewed",
-          "discovered",
-          "L0",
-          "L1",
-          "L2",
-          "L3",
-          "L4",
-          "L5",
-        ])
-        .optional()
-        .describe("Filter by pipeline stage (exact match)"),
-      include_pre_pipeline: z
-        .boolean()
-        .optional()
-        .describe(
-          "If true and stage is omitted, searches all stages instead of defaulting to L0-L5",
-        ),
-      name: z
-        .string()
-        .optional()
-        .describe(
-          "Filter by company name (partial, matches target or project_name)",
-        ),
-      ownership: z
-        .string()
-        .optional()
-        .describe("Filter by ownership (partial match)"),
-      company_focus: z
-        .string()
-        .optional()
-        .describe("Filter by company focus (partial match)"),
-      source: z
-        .enum(["inbound", "outbound"])
-        .optional()
-        .describe("Filter by deal origin (exact match)"),
-      status: z
-        .enum(["active", "dropped"])
-        .optional()
-        .describe("Filter by record status (exact match)"),
-      deal_type: z
-        .enum(["majority", "minority"])
-        .optional()
-        .describe("Filter by deal type (exact match)"),
-      deal_sponsor: z
-        .string()
-        .optional()
-        .describe("Filter by deal sponsor / owner name (partial match, shown at L0–L2)"),
-      deal_captain: z
-        .string()
-        .optional()
-        .describe("Filter by deal captain name (partial match, shown at L3+)"),
-      entered_by: z
-        .string()
-        .optional()
-        .describe("Filter by the name of the user who sourced/entered the company (partial match)"),
-      banker: z
-        .string()
-        .optional()
-        .describe("Filter by banker / deal contact (partial match)"),
-      has_ai_opinion: z
-        .boolean()
-        .optional()
-        .describe(
-          "true → only companies with an AI Opinion verdict; false → only those without",
-        ),
-      ai_opinion_verdict: z
-        .enum(["pass", "fail", "tentative"])
-        .optional()
-        .describe("Filter by AI Opinion verdict (exact match)"),
-      min_revenue: z
-        .number()
-        .optional()
-        .describe("Minimum FY2024 revenue (USD M)"),
-      max_revenue: z
-        .number()
-        .optional()
-        .describe("Maximum FY2024 revenue (USD M)"),
-      min_ebitda: z
-        .number()
-        .optional()
-        .describe("Minimum FY2024 EBITDA (USD M)"),
-      max_ebitda: z
-        .number()
-        .optional()
-        .describe("Maximum FY2024 EBITDA (USD M)"),
-      created_after: z
-        .string()
-        .optional()
-        .describe(
-          "Only companies added on/after this date (inclusive). Date or ISO-8601 timestamp, matched against companies.created_at",
-        ),
-      created_before: z
-        .string()
-        .optional()
-        .describe(
-          "Only companies added on/before this date (inclusive). Date or ISO-8601 timestamp, matched against companies.created_at",
-        ),
-      search_term: z
-        .string()
-        .optional()
-        .describe(
-          "Free-text search across target name, project name, segment, and geography (works for non-English names, e.g. Mandarin — matches whichever of target/project_name holds the string)",
-        ),
-      limit: z.number().optional().default(20).describe("Max results to return"),
-    }),
+    A markdown table: company id, target, project, segment, geography, stage, status, AI opinion, and latest revenue/EBITDA/EV (plus relationships when requested).`,
+    schema: argsSchema,
   },
 );
+
+/**
+ * Wire the graph resolver's dependencies. Imported lazily so a plain
+ * column-filter query never pays for the Neo4j driver, and so the service
+ * container (which transitively reaches this tool registry) isn't pulled in at
+ * module-evaluation time.
+ */
+async function buildGraphDeps(
+  db: ReturnType<typeof createDb>,
+  workspaceId: string,
+  companyRepo: CompanyRepository,
+) {
+  const { createContainer } = await import("@/lib/services/container");
+  const { companyGraphService } = createContainer(db, workspaceId);
+  return {
+    resolveCompany: async (nameOrId: string) => {
+      const match = await companyRepo.findByNameFuzzy(nameOrId);
+      return match
+        ? { id: match.id, name: match.target || match.project_name || nameOrId }
+        : null;
+    },
+    getConnectedCompanies: (id: string) =>
+      companyGraphService.getConnectedCompanies(id),
+    getGraphData: () => companyGraphService.getGraphData(),
+  };
+}
+
+/**
+ * Direct edges for the companies on this page, as one-line summaries. Uses a
+ * single whole-graph read (not one lookup per row) and reuses whatever the
+ * connected_to filter already resolved.
+ */
+async function loadRelationships(
+  db: ReturnType<typeof createDb>,
+  workspaceId: string,
+  ids: string[],
+  alreadyResolved: Map<string, string[]>,
+): Promise<Map<string, string[]>> {
+  if (alreadyResolved.size > 0) return alreadyResolved;
+  const { createContainer } = await import("@/lib/services/container");
+  const { companyGraphService } = createContainer(db, workspaceId);
+  const graph = await companyGraphService.getGraphData();
+  const nameById = new Map(graph.nodes.map((n) => [n.id, n.name]));
+  const wanted = new Set(ids);
+  const byCompany = new Map<string, string[]>();
+  for (const link of graph.links) {
+    const label = `${nameById.get(link.source) ?? link.source} --${link.label}--> ${
+      nameById.get(link.target) ?? link.target
+    }`;
+    for (const endpoint of [link.source, link.target]) {
+      if (!wanted.has(endpoint)) continue;
+      const list = byCompany.get(endpoint) ?? [];
+      list.push(label);
+      byCompany.set(endpoint, list);
+    }
+  }
+  return byCompany;
+}

@@ -333,6 +333,141 @@ describe('CompanyRepository.searchForAgent', () => {
     expect(rendered).toContain('"pipeline_stage" <>');
     expect(params).toContain('discovered');
   });
+
+  it('scopes to an explicit id list and stops excluding discovered stubs', async () => {
+    const { db, where } = makeAgentSearchDb([]);
+    const repo = new CompanyRepository(db, 'workspace-1');
+
+    await repo.searchForAgent({ ids: ['c1', 'c2'] });
+
+    const condition = where.mock.calls[0][0] as SQL;
+    const { sql: rendered, params } = renderSql(condition);
+    expect(rendered).toContain('"id" in');
+    expect(params).toContain('c1');
+    expect(params).toContain('c2');
+    // The caller pinned exact rows; second-guessing their stage would drop them.
+    expect(params).not.toContain('discovered');
+  });
+
+  // An empty id list means "the caller resolved zero companies" — widening to
+  // the whole workspace would export rows nobody asked for.
+  it('matches nothing when the id list is empty', async () => {
+    const { db, where } = makeAgentSearchDb([]);
+    const repo = new CompanyRepository(db, 'workspace-1');
+
+    await repo.searchForAgent({ ids: [] });
+
+    const condition = where.mock.calls[0][0] as SQL;
+    const { sql: rendered } = renderSql(condition);
+    expect(rendered).toContain('false');
+    expect(rendered).not.toContain('"id" in');
+  });
+
+  it('renders excludeIds as a not-in list', async () => {
+    const { db, where } = makeAgentSearchDb([]);
+    const repo = new CompanyRepository(db, 'workspace-1');
+
+    await repo.searchForAgent({ excludeIds: ['c9'] });
+
+    const condition = where.mock.calls[0][0] as SQL;
+    const { sql: rendered, params } = renderSql(condition);
+    expect(rendered).toContain('"id" not in');
+    expect(params).toContain('c9');
+  });
+
+  it('ignores an empty excludeIds list rather than emitting a vacuous not-in', async () => {
+    const { db, where } = makeAgentSearchDb([]);
+    const repo = new CompanyRepository(db, 'workspace-1');
+
+    await repo.searchForAgent({ excludeIds: [] });
+
+    const condition = where.mock.calls[0][0] as SQL;
+    const { sql: rendered } = renderSql(condition);
+    expect(rendered).not.toContain('not in');
+  });
+
+  it('derives isLive from the advisor when is_live is unset', async () => {
+    const { db, where } = makeAgentSearchDb([]);
+    const repo = new CompanyRepository(db, 'workspace-1');
+
+    await repo.searchForAgent({ isLive: true });
+
+    const condition = where.mock.calls[0][0] as SQL;
+    const { sql: rendered } = renderSql(condition);
+    expect(rendered).toContain('"is_live" = true');
+    expect(rendered).toContain('"is_live" is null');
+    expect(rendered).toContain('"advisor"');
+  });
+
+  it('inverts the live derivation for isLive=false', async () => {
+    const { db, where } = makeAgentSearchDb([]);
+    const repo = new CompanyRepository(db, 'workspace-1');
+
+    await repo.searchForAgent({ isLive: false });
+
+    const { sql: rendered } = renderSql(where.mock.calls[0][0] as SQL);
+    expect(rendered).toContain('"is_live" = false');
+    expect(rendered).toContain('not (');
+  });
+
+  it('matches an alias against the jsonb aliases array', async () => {
+    const { db, where } = makeAgentSearchDb([]);
+    const repo = new CompanyRepository(db, 'workspace-1');
+
+    await repo.searchForAgent({ alias: 'Old Name' });
+
+    const { sql: rendered, params } = renderSql(where.mock.calls[0][0] as SQL);
+    expect(rendered).toContain('jsonb_array_elements_text');
+    expect(params).toContain('%old name%');
+  });
+
+  it('matches matchedTrackId with a jsonb containment check', async () => {
+    const { db, where } = makeAgentSearchDb([]);
+    const repo = new CompanyRepository(db, 'workspace-1');
+
+    await repo.searchForAgent({ matchedTrackId: 'track-7' });
+
+    const { sql: rendered, params } = renderSql(where.mock.calls[0][0] as SQL);
+    expect(rendered).toContain('@>');
+    expect(params).toContain('["track-7"]');
+  });
+
+  it('renders the newly exposed column filters', async () => {
+    const { db, where } = makeAgentSearchDb([]);
+    const repo = new CompanyRepository(db, 'workspace-1');
+
+    await repo.searchForAgent({
+      entryId: 42,
+      website: 'acme.com',
+      workflowStatus: 'NDA signed',
+      advisor: 'Goldman',
+      stake: '51%',
+      docType: 'teaser',
+      originator: 'Referral',
+      remarks: 'follow up',
+      hasNboDate: true,
+      hasPossibleDuplicate: false,
+      aiOpinionStatus: 'processing',
+      updatedAfter: '2026-01-01',
+      lastActivityBefore: '2026-06-30',
+    });
+
+    const { sql: rendered, params } = renderSql(where.mock.calls[0][0] as SQL);
+    expect(rendered).toContain('"entry_id" =');
+    expect(rendered).toContain('"website" ilike');
+    expect(rendered).toContain('"workflow_status" ilike');
+    expect(rendered).toContain('"advisor" ilike');
+    expect(rendered).toContain('"stake" ilike');
+    expect(rendered).toContain('"doc_type" ilike');
+    expect(rendered).toContain('"originator" ilike');
+    expect(rendered).toContain('"remarks" ilike');
+    expect(rendered).toContain('"nbo_date" is not null');
+    expect(rendered).toContain('"possible_duplicate_company_id" is null');
+    expect(rendered).toContain('"updated_at" >=');
+    expect(rendered).toContain('"last_activity_at" <=');
+    expect(params).toContain(42);
+    expect(params).toContain('processing');
+  });
 });
 
 describe('CompanyRepository.findForAgentStats', () => {

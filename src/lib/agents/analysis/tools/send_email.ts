@@ -16,6 +16,7 @@ import {
   buildPresentationAttachment,
   buildCompanyCardAttachment,
 } from './emailArtifacts';
+import { COMPANY_FILTER_DOC } from './companyFilters';
 
 /**
  * send_email — send ONE agent-composed email to one or more platform users.
@@ -61,7 +62,7 @@ const argsSchema = z.object({
   company_excel: companyExcelSpecSchema
     .optional()
     .describe(
-      'Optional: attach a comprehensive multi-sheet company Excel (.xlsx) built from these filters. Omit if no spreadsheet is wanted.',
+      'Optional: attach a comprehensive multi-sheet company Excel (.xlsx). Run query_companies first and pass the ids it returned as company_ids, or pass any of the same filters. Omit if no spreadsheet is wanted.',
     ),
   research_summary: researchSummarySpecSchema
     .optional()
@@ -76,7 +77,7 @@ const argsSchema = z.object({
   company_card: companyCardSpecSchema
     .optional()
     .describe(
-      'Optional: attach the Company Card (.pptx) — the exact "L0 to L1 Submission" card from the company detail view — for the named companies. Use this whenever the user asks to send a company detail / company card as a PPTX.',
+      'Optional: attach the Company Card (.pptx) — the exact "L0 to L1 Submission" card from the company detail view. Run query_companies first and pass the ids it returned as company_ids (company_names is the fallback). Use this whenever the user asks to send a company detail / company card as a PPTX.',
     ),
 });
 
@@ -174,6 +175,7 @@ export const sendEmailTool = tool(
           attachmentLabels.push(
             `company Excel (${artifact.companyCount} compan${artifact.companyCount === 1 ? 'y' : 'ies'})`,
           );
+          notes.push(...artifact.notes);
         } else {
           notes.push(
             'No companies matched the Excel filter, so the spreadsheet was not attached.',
@@ -277,9 +279,20 @@ IMPORTANT — recipients are restricted to a whitelist: only addresses that belo
 
 VOICE — always write and sign on behalf of the app, "Investment Brain", NOT the human user. Do NOT sign off with an individual person's name. If you include a signature, sign as "Investment Brain".
 
+## Company attachments run AFTER query_companies
+
+\`company_excel\` and \`company_card\` both address companies by ID. The normal flow is:
+
+1. Call \`query_companies\` with whatever the user asked for. Its result table's **ID** column holds each company's uuid.
+2. Call \`send_email\` with those ids in \`company_excel.company_ids\` / \`company_card.company_ids\`.
+
+That guarantees the attachment contains exactly the rows you just showed the user, instead of re-deriving a cohort from filters and quietly disagreeing with your own answer. Only skip step 1 when the user asked for a whole unfiltered cohort ("email me the entire pipeline") — then pass filters (or nothing) instead of ids.
+
 ## Attachments (optional — include only what the user asked for)
 
-- \`company_excel\` — attach a comprehensive multi-sheet Excel (.xlsx) export of filtered companies (profile + resolved sponsor/captain/enterer names + latest-year financials + AI Opinion, plus "Financials by Year", "Screening", and "FX Adjustments" sheets). Pass any combination of query_companies-style filters (segment, geography, watchlist_status, stage, name, ownership, company_focus, source, status, deal_type, deal_sponsor, banker, has_ai_opinion, ai_opinion_verdict, min_revenue, max_revenue, min_ebitda, max_ebitda, created_after, created_before, search_term) plus an optional \`title\`. Omit all filters to export the entire pipeline. If the filter matches no companies, the spreadsheet is skipped (the email still sends).
+- \`company_excel\` — attach a comprehensive multi-sheet Excel (.xlsx) export of companies (profile + resolved sponsor/captain/enterer names + latest-year financials + AI Opinion, plus "Financials by Year", "Screening", and "FX Adjustments" sheets). Pass \`company_ids\` from a previous query_companies call, and/or any of the SAME filters query_companies accepts (see below), plus an optional \`title\`. Omit everything to export the entire pipeline (all stages). If nothing matches, the spreadsheet is skipped and the email still sends.
+
+${COMPANY_FILTER_DOC}
 
 - \`research_summary\` — attach a formatted PDF built from an ordered \`sections\` array. Each entry is one of:
   - \`heading\` { text, level?: "section" | "subsection" }
@@ -293,16 +306,17 @@ VOICE — always write and sign on behalf of the app, "Investment Brain", NOT th
   - \`priority_list\` { items: [{ priority: { label, tone: "high" | "medium" | "low" }, description, meta? }] }
   Pick the visual block whenever the data suits one; fall back to \`paragraph\` / \`bullets\` for narrative. Also pass a \`title\` (used for the PDF + filename) and optional \`references\`. Rules: keep one unit per bar_chart series; no markdown inside block strings; keep KPI \`value\` to one short line.
 
-- \`company_card\` — Attach the **Company Card** deck (.pptx): a faithful, condensed export of the "L0 to L1 Submission" card shown in the company detail view (header + stage track, Project Type / Geography / Business Line / End Sector, Source / Deal Sponsor / Deal Status / NBO Due, Target Overview, Indicative Financials, Proposed Deal Structure, Investment Thesis, L1 scope of work, Kill criteria). Pass \`company_names\` (one slide set per company, in order) and an optional \`title\`. Content that does not fit one slide continues on "(cont.)" slides. Names that cannot be resolved are reported and skipped. This is FAST — it renders existing data and does NOT call an LLM.
+- \`company_card\` — Attach the **Company Card** deck (.pptx): a faithful, condensed export of the "L0 to L1 Submission" card shown in the company detail view (header + stage track, Project Type / Geography / Business Line / End Sector, Source / Deal Sponsor / Deal Status / NBO Due, Target Overview, Indicative Financials, Proposed Deal Structure, Investment Thesis, L1 scope of work, Kill criteria). Pass \`company_ids\` from a previous query_companies call (preferred — exact, no fuzzy matching), or \`company_names\` when you have no id. One slide set per company, in the order given; ids and names are deduplicated so the same company never appears twice. Optional \`title\`. Content that does not fit one slide continues on "(cont.)" slides. Ids/names that cannot be resolved are reported and skipped. This is FAST — it renders existing data and does NOT call an LLM.
 
 - \`presentation\` — Attach a flexible PowerPoint (.pptx) via the Anthropic pptx skill. Pass \`title\`, free-form \`brief\` (outline/facts — slide count is flexible, NOT a fixed 7-slide template), and optional \`company_names\` to pull pipeline context. May take several minutes.
 
 ## Usage
 
 - Plain note to a colleague → just \`to\` + \`subject\` + \`body\`.
-- "Email me the pipeline as a spreadsheet" → \`body\` + \`company_excel\` (omit \`to\`).
-- "Email me a summary and the L1 companies" → \`body\` + \`research_summary\` + \`company_excel\` — ONE email, both attached.
-- "Send me the company detail / company card for X as a PPTX", "email X's card as slides" → \`body\` + \`company_card\` with \`company_names: ["X"]\`. Use \`company_card\`, NOT \`presentation\`, whenever the user wants the company's existing card/detail as slides — it reproduces the real card instead of writing a new deck.
+- "Email me the pipeline as a spreadsheet" → \`body\` + \`company_excel\` with no filters (omit \`to\`).
+- "Email me these as a spreadsheet" after you listed a cohort → run \`query_companies\`, then \`body\` + \`company_excel\` with \`company_ids: [<ids from that table>]\`.
+- "Email me a summary and the L1 companies" → \`query_companies\` (stage="L1"), then \`body\` + \`research_summary\` + \`company_excel\` with those \`company_ids\` — ONE email, both attached.
+- "Send me the company detail / company card for X as a PPTX", "email X's card as slides" → \`query_companies\` (name="X"), then \`body\` + \`company_card\` with \`company_ids: ["<X's id>"]\`. Use \`company_card\`, NOT \`presentation\`, whenever the user wants the company's existing card/detail as slides — it reproduces the real card instead of writing a new deck.
 - "Email me a PowerPoint about X" (a NEW deck, free-form topic) → \`body\` + \`presentation\` (omit \`to\`).
 - Mix attachments in ONE call when asked (excel + pdf + pptx + company card).
 
@@ -312,10 +326,10 @@ Args:
     to: Optional. Recipient email addresses (each a registered platform user). Omit to send to the signed-in user.
     subject: Required. The email subject line.
     body: Required. Plain-text body (Markdown is NOT rendered). Sign off as "Investment Brain".
-    company_excel: Optional. Filters (+ title) for an attached Excel workbook.
+    company_excel: Optional. company_ids from query_companies and/or filters (+ title) for an attached Excel workbook.
     research_summary: Optional. Title + sections (+ references) for an attached PDF.
     presentation: Optional. Title + brief (+ company_names) for an attached PowerPoint.
-    company_card: Optional. company_names (+ title) for an attached Company Card deck.
+    company_card: Optional. company_ids (preferred) or company_names (+ title) for an attached Company Card deck.
 
 Returns:
     A confirmation string listing recipients, what was attached, and any skipped addresses, or an error string starting with **Error:**.`,

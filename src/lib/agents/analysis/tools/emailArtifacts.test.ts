@@ -6,6 +6,10 @@ const {
   findScreening,
   findFx,
   findByIds,
+  findByNameFuzzy,
+  getConnectedCompanies,
+  getGraphData,
+  createContainer,
   generateCompanyExcel,
   generateResearchSummaryPdf,
 } = vi.hoisted(() => ({
@@ -14,6 +18,10 @@ const {
   findScreening: vi.fn(),
   findFx: vi.fn(),
   findByIds: vi.fn(),
+  findByNameFuzzy: vi.fn(),
+  getConnectedCompanies: vi.fn(),
+  getGraphData: vi.fn(),
+  createContainer: vi.fn(),
   generateCompanyExcel: vi.fn(),
   generateResearchSummaryPdf: vi.fn(),
 }));
@@ -24,6 +32,7 @@ vi.mock('@/lib/workspace', () => ({ getActiveWorkspaceId: vi.fn(async () => 'ws-
 vi.mock('@/lib/repositories', () => ({
   CompanyRepository: class {
     findForAgentStats = findForAgentStats;
+    findByNameFuzzy = findByNameFuzzy;
   },
   CompanyFinancialRepository: class {
     findByCompanies = findFinancials;
@@ -39,6 +48,7 @@ vi.mock('@/lib/repositories', () => ({
   },
 }));
 
+vi.mock('@/lib/services/container', () => ({ createContainer }));
 vi.mock('@/lib/companyExcel', () => ({ generateCompanyExcel }));
 vi.mock('@/lib/pdfSummary', () => ({ generateResearchSummaryPdf }));
 
@@ -82,6 +92,14 @@ beforeEach(() => {
   ]);
   generateCompanyExcel.mockResolvedValue(Buffer.from('xlsx-bytes'));
   generateResearchSummaryPdf.mockResolvedValue(Buffer.from('%PDF-1.4'));
+  findByNameFuzzy.mockReset().mockResolvedValue({ id: 'anchor', target: 'Acme' });
+  getConnectedCompanies.mockReset().mockResolvedValue([
+    { company: { id: 'c1', name: 'Beta' }, type: 'PARTNER', direction: 'outgoing' },
+  ]);
+  getGraphData.mockReset().mockResolvedValue({ nodes: [], links: [] });
+  createContainer.mockReset().mockReturnValue({
+    companyGraphService: { getConnectedCompanies, getGraphData },
+  });
 });
 
 describe('slugifyTitle', () => {
@@ -126,6 +144,37 @@ describe('buildCompanySheets', () => {
     expect(companiesRow.latest_revenue).toBe(112);
     expect(companiesRow.latest_margin).toBe(24);
   });
+
+  // The is_live column is null for the common case of a deal that is live only
+  // because an advisor is engaged; exporting it raw would contradict both the
+  // app and the `is_live` filter the same cohort was selected with.
+  it('exports the effective live status, not the raw override column', () => {
+    const rows = (companies: unknown[]) =>
+      buildCompanySheets({
+        companies: companies as never,
+        financials: [],
+        screening: [],
+        fx: [],
+        userNamesById: new Map(),
+      })[0].rows;
+
+    expect(rows([{ id: 'a', is_live: null, advisor: 'Goldman' }])[0].is_live).toBe(true);
+    expect(rows([{ id: 'b', is_live: null, advisor: '  ' }])[0].is_live).toBe(false);
+    expect(rows([{ id: 'c', is_live: false, advisor: 'Goldman' }])[0].is_live).toBe(false);
+  });
+
+  it('renders the resolved Dropped By name it already looks up', () => {
+    const sheets = buildCompanySheets({
+      companies: [{ id: 'a', dropped_by: 'u3' } as never],
+      financials: [],
+      screening: [],
+      fx: [],
+      userNamesById: new Map([['u3', 'Dana']]),
+    });
+
+    expect(sheets[0].columns.map((c) => c.key)).toContain('dropped_by');
+    expect(sheets[0].rows[0].dropped_by).toBe('Dana');
+  });
 });
 
 describe('buildCompanyExcelAttachment', () => {
@@ -146,6 +195,80 @@ describe('buildCompanyExcelAttachment', () => {
     );
     expect(result!.attachment.content).toBeInstanceOf(Buffer);
     expect(generateCompanyExcel).toHaveBeenCalledTimes(1);
+  });
+
+  // The export shares query_companies' filter vocabulary so any cohort the
+  // agent can list, it can also export — including the exact rows it listed.
+  it('scopes the export to the ids query_companies returned', async () => {
+    await buildCompanyExcelAttachment({ company_ids: ['c1', 'c2'] });
+
+    expect(findForAgentStats).toHaveBeenCalledWith(
+      expect.objectContaining({ ids: ['c1', 'c2'] }),
+    );
+  });
+
+  it('forwards the full filter vocabulary, not just the legacy subset', async () => {
+    await buildCompanyExcelAttachment({
+      workflow_status: 'NDA signed',
+      is_live: true,
+      advisor: 'Goldman',
+      last_activity_after: '2026-01-01',
+      deal_captain: 'Nico',
+      entered_by: 'Bob',
+    });
+
+    expect(findForAgentStats).toHaveBeenCalledWith(
+      expect.objectContaining({
+        workflowStatus: 'NDA signed',
+        isLive: true,
+        advisor: 'Goldman',
+        lastActivityAfter: '2026-01-01',
+        dealCaptain: 'Nico',
+        enteredBy: 'Bob',
+      }),
+    );
+  });
+
+  // An unfiltered "email me the pipeline" must stay unfiltered — unlike the
+  // read tools, the export deliberately has no L0–L5 stage default.
+  it('does not narrow an unfiltered export to the L0–L5 funnel', async () => {
+    await buildCompanyExcelAttachment({});
+
+    expect(findForAgentStats.mock.calls[0][0].stageIn).toBeUndefined();
+  });
+
+  // findForAgentStats drops `discovered` stubs unless a stage filter names them,
+  // so include_pre_pipeline has to spell the stages out to mean anything here.
+  it('names every stage so include_pre_pipeline actually reaches discovered rows', async () => {
+    await buildCompanyExcelAttachment({ include_pre_pipeline: true });
+
+    expect(findForAgentStats.mock.calls[0][0].stageIn).toContain('discovered');
+  });
+
+  it('lets an explicit stage win over include_pre_pipeline', async () => {
+    await buildCompanyExcelAttachment({ include_pre_pipeline: true, stage: 'L1' });
+
+    const passed = findForAgentStats.mock.calls[0][0];
+    expect(passed.stage).toBe('L1');
+    expect(passed.stageIn).toBeUndefined();
+  });
+
+  it('surfaces the graph-filter note alongside the workbook', async () => {
+    const result = await buildCompanyExcelAttachment({ connected_to: 'Acme' });
+
+    expect(result!.notes.join(' ')).toContain('directly connected to Acme');
+    expect(findForAgentStats).toHaveBeenCalledWith(
+      expect.objectContaining({ ids: ['c1'] }),
+    );
+  });
+
+  it('throws rather than exporting the wrong cohort when connected_to is unknown', async () => {
+    findByNameFuzzy.mockResolvedValue(null);
+
+    await expect(buildCompanyExcelAttachment({ connected_to: 'Ghost' })).rejects.toThrow(
+      /Ghost/,
+    );
+    expect(generateCompanyExcel).not.toHaveBeenCalled();
   });
 });
 

@@ -29,6 +29,12 @@ export class CompanyNotFoundForCardError extends Error {
 }
 
 export interface CompanyCardDeck {
+  /**
+   * Id of the company the slides describe. Callers that assemble a multi-company
+   * deck dedupe on this — display titles are not unique (two records can share a
+   * name, and an unnamed one falls back to a placeholder).
+   */
+  companyId: string;
   /** Display title of the company the slides describe. */
   title: string;
   slides: CompanyCardSlide[];
@@ -69,6 +75,7 @@ export class CompanyCardSlideService {
     ).replace(/\/+$/, '');
 
     return {
+      companyId,
       title: companyDisplayTitle(company, 'Company'),
       slides: buildCompanyCardSlides({
         company,
