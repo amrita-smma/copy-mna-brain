@@ -12,6 +12,20 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "category": "improvement"
   },
   {
+    "hash": "6ba6d2a9ee659a482af8813045b87bd06423b4e4",
+    "date": "2026-08-27",
+    "subject": "Standardized company filtering options across analysis tools for consistency",
+    "category": "improvement"
+  },
+  {
+    "hash": "474ddc4132a6cd9e341618d5f9032a97d4451d21",
+    "date": "2026-08-27",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "7339c982f236ca07ba7adaf67fbcbaf8d03704dd",
     "date": "2026-08-25",
     "subject": "Integrate horizon",
