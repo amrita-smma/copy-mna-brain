@@ -26,6 +26,20 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "skipReason": "noise"
   },
   {
+    "hash": "11296cfeeae81826539e8e4eb95c70b18b28ae89",
+    "date": "2026-08-27",
+    "subject": "Refined sidebar layout, added chat message pagination, and reorganized menu options",
+    "category": "improvement"
+  },
+  {
+    "hash": "36afd022b1f9b19d1373d4a1b30429d1a3af6fac",
+    "date": "2026-08-27",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "7339c982f236ca07ba7adaf67fbcbaf8d03704dd",
     "date": "2026-08-25",
     "subject": "Integrate horizon",
