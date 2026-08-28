@@ -6,6 +6,12 @@ import type { ChangelogEntry } from './changelog';
 
 export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   {
+    "hash": "8df27fc20aef1029c7541b53fe838a11d35ca13d",
+    "date": "2026-08-28",
+    "subject": "Fixed tab navigation from reopening the closed copilot pane",
+    "category": "improvement"
+  },
+  {
     "hash": "a5a4f67def38f41d02ea318c469ac3b2742feef8",
     "date": "2026-08-27",
     "subject": "Landing page now features chat-first design with tabbed center console",
@@ -33,6 +39,14 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   },
   {
     "hash": "36afd022b1f9b19d1373d4a1b30429d1a3af6fac",
+    "date": "2026-08-27",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
+    "hash": "2f3836985df63d61c4c82f872be8a4cf4d0e3c95",
     "date": "2026-08-27",
     "subject": "[skip deploy] chore: update changelog",
     "category": "improvement",
