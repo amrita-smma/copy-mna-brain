@@ -12,6 +12,22 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "category": "improvement"
   },
   {
+    "hash": "15f27a85b83e4a9f095c3c34a824231fc7418333",
+    "date": "2026-08-28",
+    "subject": "Skip stuck-cleanup scheduler on preview, drop opportunistic dispatch trigger",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "6cc74e1dad8ce8709295931c0e3b86b8cdd8d141",
+    "date": "2026-08-28",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "a5a4f67def38f41d02ea318c469ac3b2742feef8",
     "date": "2026-08-27",
     "subject": "Landing page now features chat-first design with tabbed center console",
