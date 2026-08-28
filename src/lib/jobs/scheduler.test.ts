@@ -146,4 +146,41 @@ describe('runSchedulerIfDue', () => {
     const ran = await runSchedulerIfDue(fakeDb);
     expect(ran).toBe(false);
   });
+
+  describe('on Vercel preview deployments', () => {
+    const originalVercelEnv = process.env.VERCEL_ENV;
+
+    afterEach(() => {
+      if (originalVercelEnv === undefined) {
+        delete process.env.VERCEL_ENV;
+      } else {
+        process.env.VERCEL_ENV = originalVercelEnv;
+      }
+    });
+
+    it('skips without touching the database when VERCEL_ENV is preview', async () => {
+      process.env.VERCEL_ENV = 'preview';
+
+      const ran = await runSchedulerIfDue(fakeDb);
+
+      expect(ran).toBe(false);
+      expect(findMostRecentByType).not.toHaveBeenCalled();
+      expect(create).not.toHaveBeenCalled();
+    });
+
+    it.each(['production', undefined])('still runs when VERCEL_ENV is %s', async (value) => {
+      if (value === undefined) {
+        delete process.env.VERCEL_ENV;
+      } else {
+        process.env.VERCEL_ENV = value;
+      }
+      findMostRecentByType.mockResolvedValue(null);
+      create.mockImplementation(async (input) => makeJob({ id: 'non-preview', ...input }));
+
+      const ran = await runSchedulerIfDue(fakeDb);
+
+      expect(ran).toBe(true);
+      expect(findMostRecentByType).toHaveBeenCalledWith('stuck_cleanup', expect.any(String));
+    });
+  });
 });

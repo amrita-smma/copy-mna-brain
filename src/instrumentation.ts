@@ -12,8 +12,9 @@
 
 export async function register(): Promise<void> {
   if (process.env.NEXT_RUNTIME !== 'nodejs') return;
-
-
+  // Preview deployments get ephemeral, per-PR Neon branches that can be
+  // mid-spinup or already deleted on a cold start — never even open a pool.
+  if (process.env.VERCEL_ENV === 'preview') return;
 
   const [{ runSchedulerIfDue }, { createDb }] = await Promise.all([
     import('@/lib/jobs/scheduler'),

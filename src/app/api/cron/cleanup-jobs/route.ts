@@ -6,8 +6,9 @@ import { runSchedulerIfDue } from '@/lib/jobs/scheduler';
 
 /**
  * Manual trigger for the stuck-job cleanup sweep. The in-app scheduler
- * already fires on cold start and on every job dispatch, so this route
- * exists for ops / debugging.
+ * already fires on cold start (skipped on preview), so this route exists
+ * for ops / debugging, and as the only trigger during long warm stretches
+ * with no cold starts.
  *
  * Default behaviour honors the 24h window (same as the scheduler). Pass
  * `?force=true` to bypass the window and run the cleanup immediately;

@@ -1251,15 +1251,22 @@ forever; if the runner process crashes mid-work, a job can get stuck in
 `timed_out`, writing a `job_logs` entry that records the forced transition.
 
 The sweep runs in-process via `src/lib/jobs/scheduler.ts`. `setInterval` isn't
-viable on serverless (the function freezes between requests), so the scheduler
-is triggered by two request-adjacent hooks:
+viable on serverless (the function freezes between requests), so it's
+triggered solely by **cold start**: `src/instrumentation.ts` fires
+`runSchedulerIfDue` once per Node runtime init, fire-and-forget so cold-start
+latency is unaffected. It is deliberately *not* triggered opportunistically on
+every job dispatch — that multiplied DB connections made under load and made
+production connection timeouts more likely for no real benefit.
 
-1. **Cold start** — `src/instrumentation.ts` fires `runSchedulerIfDue` once per
-   Node runtime init. Fire-and-forget so cold-start latency is unaffected.
-2. **Job dispatch** — `dispatchJob` schedules a second `after()` that calls
-   the same function. Guarantees the sweep runs even if cold starts are rare.
+The cold-start trigger is skipped entirely when `VERCEL_ENV === 'preview'`
+(checked before `createDb()` is even called, in both `instrumentation.ts` and
+as defense-in-depth inside `runSchedulerIfDue` itself). Preview deployments
+get ephemeral, per-PR Neon branches that are created/torn down by
+`.github/workflows/preview-db.yml`; a cold start hitting a branch that's
+mid-spinup or already deleted surfaces as password-auth or connection-timeout
+errors that have nothing to do with real stuck jobs.
 
-Every trigger is gated by a 24h DB window: `runSchedulerIfDue` queries the
+The trigger is gated by a 24h DB window: `runSchedulerIfDue` queries the
 most recent `stuck_cleanup` job row and skips if one was created within the
 last 24h. Each sweep that actually runs is itself inserted as a
 `stuck_cleanup` job, producing standard `job_logs` transitions
@@ -1268,8 +1275,9 @@ last 24h. Each sweep that actually runs is itself inserted as a
 
 Trade-offs:
 
-- If the deployment has no cold starts and no job dispatches for 24h, no sweep
-  runs. That's fine: no activity ⇒ no new stuck jobs.
+- If the deployment has no cold starts for 24h, no sweep runs from the
+  in-app trigger. Use the manual `GET /api/cron/cleanup-jobs` route (below)
+  for long warm stretches with no cold starts.
 - Multi-instance deployments can race — two cold starts within a few ms of
   each other could both see "no recent sweep" and both dispatch. Cleanup is
   idempotent, so at worst two sweeps run in the same window.

@@ -4,12 +4,15 @@ import { JobService } from '@/lib/services/jobService';
 import { runJob } from './runner';
 
 /**
- * In-app scheduler for the stuck-job cleanup sweep. Triggered on cold start
- * (via instrumentation.ts) and opportunistically on every dispatchJob call.
+ * In-app scheduler for the stuck-job cleanup sweep. Triggered solely on cold
+ * start (via instrumentation.ts) — not opportunistically from dispatchJob,
+ * since piggybacking the sweep on every job dispatch multiplied the number of
+ * DB connections made under load and made production connection timeouts
+ * more likely.
  *
  * Serverless constraint: setInterval doesn't survive function freezes, so we
- * rely on these request-adjacent triggers instead. The 24h DB window ensures
- * we never run the cleanup more than once per day regardless of trigger cadence.
+ * rely on the cold-start trigger instead. The 24h DB window ensures we never
+ * run the cleanup more than once per day regardless of cold-start cadence.
  *
  * Each run is recorded as a normal `stuck_cleanup` job row with job_logs
  * transitions, matching the async-task rule in CLAUDE.md.
@@ -20,8 +23,8 @@ const CLEANUP_JOB_TIMEOUT_SECONDS = 300;
 
 // Per-process guard: once a scheduler run is in flight for this instance,
 // skip further triggers until it finishes. Prevents double-work when a cold
-// start triggers register() and the same instance immediately handles a job
-// dispatch that also calls the scheduler.
+// start's register() overlaps with another in-flight cold start on the same
+// warm instance.
 let inFlight: Promise<boolean> | null = null;
 
 export interface SchedulerRunOptions {
@@ -32,11 +35,17 @@ export interface SchedulerRunOptions {
 /**
  * Runs the cleanup sweep if the last one was longer than `windowSeconds` ago.
  * Returns true when a sweep actually ran, false when skipped.
+ *
+ * Skipped entirely on Vercel preview deployments: preview Neon branches are
+ * ephemeral (created/torn down per-PR by preview-db.yml) and can be mid-spinup
+ * or already deleted on a cold start, which surfaces as password-auth or
+ * connection-timeout errors here that have nothing to do with real stuck jobs.
  */
 export function runSchedulerIfDue(
   db: DbClient,
   options: SchedulerRunOptions = {},
 ): Promise<boolean> {
+  if (process.env.VERCEL_ENV === 'preview') return Promise.resolve(false);
   if (inFlight) return inFlight;
   inFlight = execute(db, options).finally(() => {
     inFlight = null;

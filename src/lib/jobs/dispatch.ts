@@ -44,21 +44,5 @@ export async function dispatchJob<T>(opts: {
     });
   });
 
-  // Skip recursive scheduler trigger: the sweep itself is dispatched via the
-  // scheduler path (not dispatchJob), so a normal dispatch won't re-enter.
-  // But when a stuck_cleanup row is somehow dispatched here, avoid looping.
-  if (opts.type !== 'stuck_cleanup') {
-    after(async () => {
-      try {
-        const { runSchedulerIfDue } = await import('./scheduler');
-        await withBackgroundDb(async (db) => {
-          await runSchedulerIfDue(db);
-        });
-      } catch (err) {
-        console.error('[dispatch] scheduler trigger failed:', err);
-      }
-    });
-  }
-
   return { jobId: job.id };
 }
