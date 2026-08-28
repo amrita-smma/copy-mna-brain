@@ -181,10 +181,12 @@ export function AppShell({ children }: { children: ReactNode }) {
   // this: the agent calling navigate_page, and the user clicking the "Opened X"
   // chip it left behind. Without it the console would swap pages behind an
   // expanded copilot and the click would look like it did nothing.
+  // Deliberately does NOT touch `isMainExpanded`: that flag means the user
+  // explicitly closed the copilot pane, and a tab navigation should leave it
+  // closed (or open) exactly as they left it rather than forcing it back open.
   const handleRevealConsole = useCallback(() => {
     setIsCopilotExpanded(false);
-    setIsMainExpanded(false);
-  }, [setIsCopilotExpanded, setIsMainExpanded]);
+  }, [setIsCopilotExpanded]);
 
   // Put the copilot full-screen. Starting a new chat should land the user in
   // the conversation rather than in a cramped docked pane. On the landing route
