@@ -121,6 +121,7 @@ export const tools = [
   queryCompanies,
   getCompanyStats,
   getCompanyDetails,
+  getInvestmentTheses,
   analyzeStalledDeals,
   lookupCrm,
   crmInsights,
@@ -304,6 +305,11 @@ export function getToolDescriptions(): string {
     {
       name: "get_company_details",
       description: "Get detailed information about a specific company by name",
+    },
+    {
+      name: "get_investment_theses",
+      description:
+        "Read the workspace's investment theses — the firm's active investment mandate (sector, geography, deal size, deal type scope). Use it to judge whether a company is inside or outside mandate before forming a view on it",
     },
     {
       name: "analyze_stalled_deals",

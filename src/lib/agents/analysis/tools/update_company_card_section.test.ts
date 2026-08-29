@@ -93,6 +93,20 @@ describe("update_company_card_section", () => {
     expect(String(result)).toMatch(/Updated the/);
   });
 
+  it("carries the card's house style so an inline edit cannot reintroduce the banned bullets", () => {
+    const description = updateCompanyCardSection.description;
+
+    expect(description).toContain("Neutral, factual investment-analyst register");
+    expect(description).toContain("3-4 points per section");
+    expect(description).toContain(
+      'do NOT include a "Data Gaps" bullet or any variant',
+    );
+    expect(description).toContain("generic end-market cyclicality bullet");
+    expect(description).toContain(
+      "ONLY when it is materially above the industry norm",
+    );
+  });
+
   it("returns an error string when the update throws", async () => {
     updateByCompanyId.mockRejectedValueOnce(new Error("db down"));
     const result = await call({

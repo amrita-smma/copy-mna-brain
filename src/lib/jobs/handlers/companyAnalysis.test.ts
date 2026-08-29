@@ -102,6 +102,54 @@ describe('runCompanyAnalysis', () => {
   });
 });
 
+describe('generateCompanyCard prompt', () => {
+  /** The prompt text handed to the agent for the run. */
+  async function promptFor(): Promise<string> {
+    await generateCompanyCard({ companyId: 'co-1' }, { db: {} as never });
+    const [state] = mocks.invoke.mock.calls[0];
+    return (state.messages[0] as { content: string }).content;
+  }
+
+  it('caps every section at 3-4 points, with a hard ceiling of 6', async () => {
+    const prompt = await promptFor();
+
+    expect(prompt).toContain('POINT LIMIT (strict): give each section 3-4 points');
+    expect(prompt).toContain('never by more than 2 extra points (6 absolute maximum)');
+  });
+
+  it('asks for a neutral analyst register that neither oversells nor undersells', async () => {
+    const prompt = await promptFor();
+
+    expect(prompt).toContain('TONE (strict): write as an investment analyst');
+    expect(prompt).toContain('Do not oversell');
+    expect(prompt).toContain('Do not undersell either');
+  });
+
+  it('bans a Data Gaps bullet from Investment Risks and routes it to Diligence Priorities', async () => {
+    const prompt = await promptFor();
+
+    expect(prompt).toContain('Do not include a "Data Gaps" bullet or any variant of it');
+    expect(prompt).toContain('unverified items belong in Diligence Priorities');
+    // …and the JSON example must not model the banned bullet either.
+    expect(prompt).not.toContain('"investment_risks": "- **Customer Concentration**');
+  });
+
+  it('only flags customer concentration above the industry norm', async () => {
+    const prompt = await promptFor();
+
+    expect(prompt).toContain('ONLY when it exceeds the industry norm');
+    expect(prompt).toContain('60-70% of revenue is unremarkable');
+    expect(prompt).toContain('materially above that norm');
+  });
+
+  it('deprioritizes end-market cyclicality as a standalone risk', async () => {
+    const prompt = await promptFor();
+
+    expect(prompt).toContain('Deprioritize — do NOT include these as standalone bullets');
+    expect(prompt).toContain('accepted feature of this segment');
+  });
+});
+
 describe('generateCompanyCard', () => {
   it('returns the parsed related companies and the analysed company name', async () => {
     mocks.updateByCompanyId.mockResolvedValue({ id: 'analysis-1' } as Tables<'company_analyses'>);

@@ -49,6 +49,49 @@ describe('readPageContext', () => {
     expect(result).toContain('full-screen chat');
   });
 
+  it('hands over the open deal\'s company_id so tools skip the fuzzy name lookup', async () => {
+    const result = (await readPageContext.invoke(
+      {},
+      {
+        configurable: {
+          pageContext: {
+            tabSlug: 'pipeline',
+            path: '/pipeline/8f2c-abc',
+            detail: 'Deal open: 杭州华友新材料',
+            companyId: '11111111-2222-3333-4444-555555555555',
+          },
+        },
+      },
+    )) as string;
+
+    expect(result).toContain('company_id 11111111-2222-3333-4444-555555555555');
+    expect(result).toContain('Do NOT re-resolve this company by name');
+  });
+
+  // Re-sanitized here, so a non-UUID id never reaches the model as an id it
+  // would then pass to a write tool.
+  it('drops a companyId that is not a UUID', async () => {
+    const result = (await readPageContext.invoke(
+      {},
+      {
+        configurable: {
+          pageContext: {
+            tabSlug: 'pipeline',
+            path: '/pipeline',
+            companyId: 'the-one-i-want',
+          },
+        },
+      },
+    )) as string;
+
+    expect(result).not.toContain('company_id');
+  });
+
+  it('tells the model to prefer the supplied id over a name lookup', () => {
+    expect(readPageContext.description).toContain('Pass that id VERBATIM');
+    expect(readPageContext.description).toContain('near-identical names');
+  });
+
   // The route sanitizes before this point, but the tool must not trust its
   // input either — a garbage payload degrades to "no page open".
   it('ignores a malformed context', async () => {

@@ -123,9 +123,10 @@ Verdict meaning (rendered as icons in the AI Opinion column):
 
 Be DECISIVE. Do NOT use "tentative" unless it is absolutely necessary — in almost every case commit to "pass" or "fail". Even when every automated AI Screening criterion fails, that is itself a strong signal (usually "fail"), never grounds for "tentative". Write the summary in confident, direct language — state the verdict as a conclusion, and avoid hedging words like "may", "might", "could", "possibly", "appears", or "seems". The summary must be ≤50 words, plain prose, and justify the verdict (it is truncated server-side if longer).
 
-Keep the verdict UNBIASED:
+Keep the verdict UNBIASED, but NOT mandate-blind:
 - Form it from fundamentals only. Do not read any human-recorded drop reason before deciding; consult it only afterwards, if your verdict disagrees with an existing drop decision, and note the disagreement in the summary.
-- Investment tracks are an organizational grouping, not screening criteria. Matching no track is never a reason to "fail", and track fit should carry little weight either way.
+- MANDATE FIT COUNTS. Read the firm's active investment mandate with get_investment_theses and judge the company against what it actually says — sector, sub-sector, geography, deal size, deal type. A target outside that stated scope is a strong negative signal and normally warrants "fail" unless there is a specific, compelling reason to pursue it anyway. Name the mandate fit — aligned or mismatched, and on which dimension — in the summary.
+- Track *tagging* is a separate thing: it is an organizational grouping, not a screening criterion. Matching no track is never a reason to "fail", and track tagging should carry little weight either way.
 
 Args:
     company_id: UUID of the company to record the opinion for. Required (use verbatim from the instruction).

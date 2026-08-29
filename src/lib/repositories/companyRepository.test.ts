@@ -8,10 +8,11 @@ import type { CompanyGraphMirror } from './companyRelationRepository';
 /** Build a db whose `select().from().where().limit()` resolves to `rows`. */
 function makeFuzzyDb(rows: Array<Partial<Tables<'companies'>>>) {
   const limit = vi.fn().mockResolvedValue(rows);
-  const where = vi.fn().mockReturnValue({ limit });
+  const orderBy = vi.fn().mockReturnValue({ limit });
+  const where = vi.fn().mockReturnValue({ orderBy });
   const from = vi.fn().mockReturnValue({ where });
   const select = vi.fn().mockReturnValue({ from });
-  return { db: { select } as never, select, from, where, limit };
+  return { db: { select } as never, select, from, where, orderBy, limit };
 }
 
 /** Build a db whose `select(...).from(...).where(...)` resolves to the given rows. */
@@ -591,6 +592,92 @@ describe('CompanyRepository.findByNameFuzzy', () => {
     expect(clause.sql).toContain('jsonb_array_elements_text');
     expect(clause.sql).toContain('"aliases"');
     expect(clause.params).toContain('workspace-1');
+  });
+
+  it('ranks the substring match so the closest name wins the limit(1)', async () => {
+    const { db, orderBy } = makeFuzzyDb([]);
+    const repo = new CompanyRepository(db, 'workspace-1');
+
+    // "杭州华友" is a substring of "杭州华友新材料"; without an ORDER BY, Postgres
+    // is free to return either row.
+    await repo.findByNameFuzzy('杭州华友控股');
+
+    expect(orderBy).toHaveBeenCalledTimes(1);
+    const [rank, length] = orderBy.mock.calls[0] as SQL[];
+    const rankSql = new PgDialect().sqlToQuery(rank).sql;
+    // Exact-on-full-input outranks exact-on-base, which outranks a prefix
+    // match, which outranks a bare substring hit.
+    expect(rankSql).toContain('case');
+    expect(rankSql).toContain('then 0');
+    expect(rankSql).toContain('then 1');
+    expect(rankSql).toContain('then 2');
+    expect(rankSql).toContain('else 3');
+    // Shortest name breaks a tie — the least-embellished record.
+    expect(new PgDialect().sqlToQuery(length).sql).toContain('char_length');
+  });
+
+  it('ranks alias hits alongside names, not in the leftover bucket', async () => {
+    const { db, orderBy } = makeFuzzyDb([]);
+    const repo = new CompanyRepository(db, 'workspace-1');
+
+    await repo.findByNameFuzzy('杭州华友控股');
+
+    // A company that absorbed the searched name as an alias via "combine" has
+    // to outrank a leftover stub whose target merely starts with it, or the
+    // combine is undone on the next lookup.
+    const rankSql = new PgDialect().sqlToQuery(orderBy.mock.calls[0][0] as SQL).sql;
+    const aliasHits = rankSql.match(/jsonb_array_elements_text/g) ?? [];
+    expect(aliasHits).toHaveLength(3); // exact-full, exact-base, prefix
+    expect(rankSql.slice(0, rankSql.indexOf('then 0'))).toContain(
+      'jsonb_array_elements_text',
+    );
+  });
+
+  it('orders the short-name exact branch so a name match beats an alias-only match', async () => {
+    const { db, orderBy } = makeFuzzyDb([]);
+    const repo = new CompanyRepository(db, 'workspace-1');
+
+    await repo.findByNameFuzzy('IBM');
+
+    expect(orderBy).toHaveBeenCalledTimes(1);
+    const rankSql = new PgDialect().sqlToQuery(orderBy.mock.calls[0][0] as SQL).sql;
+    expect(rankSql).toContain('case');
+    expect(rankSql).toContain('then 0 else 1 end');
+  });
+});
+
+describe('CompanyRepository.findByIdOrNull', () => {
+  /** Build a db whose `select(...).from(...).where(...).limit(1)` resolves to `rows`. */
+  function makeDb(rows: Array<Partial<Tables<'companies'>>>) {
+    const limit = vi.fn().mockResolvedValue(rows);
+    const where = vi.fn().mockReturnValue({ limit });
+    const from = vi.fn().mockReturnValue({ where });
+    const select = vi.fn().mockReturnValue({ from });
+    return { db: { select } as never, where };
+  }
+
+  it('returns the row, scoped to the workspace', async () => {
+    const row = { id: 'c1', target: 'Acme' };
+    const { db, where } = makeDb([row]);
+    const repo = new CompanyRepository(db, 'workspace-1');
+
+    expect(await repo.findByIdOrNull('c1')).toEqual(row);
+    const clause = new PgDialect().sqlToQuery(where.mock.calls[0][0] as SQL);
+    expect(clause.params).toEqual(expect.arrayContaining(['c1', 'workspace-1']));
+  });
+
+  it('returns null instead of throwing when there is no such row', async () => {
+    const { db } = makeDb([]);
+    const repo = new CompanyRepository(db, 'workspace-1');
+
+    expect(await repo.findByIdOrNull('missing')).toBeNull();
+  });
+
+  it('makes findById throw on the same miss', async () => {
+    const { db } = makeDb([]);
+    const repo = new CompanyRepository(db, 'workspace-1');
+
+    await expect(repo.findById('missing')).rejects.toThrow('Company missing not found');
   });
 });
 

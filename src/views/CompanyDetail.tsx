@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useParams, usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useWorkspaceHref } from '@/hooks/useWorkspaceHref';
 import { useWorkspaceCurrency } from '@/components/layout/WorkspaceCurrencyContext';
-import { useSetPageDetail } from '@/components/layout/PageContextProvider';
+import { useSetPageCompanyId, useSetPageDetail } from '@/components/layout/PageContextProvider';
 import { formatMoneyMn } from '@/lib/currency';
 import posthog from 'posthog-js';
 import { MarkdownRenderer } from '@/components/chat/MarkdownRenderer';
@@ -95,7 +95,7 @@ import { useLayoutControl } from '@/components/layout/LayoutControlContext';
 import FilePreview from '@/components/Files/FilePreview';
 import { FinancialCharts } from '@/components/pipeline/FinancialCharts';
 import { DealStage } from '@/lib/types';
-import { STAGE_LABELS, isAnalysisInProgress } from '@/lib/constants';
+import { OWNERSHIP_OPTIONS, STAGE_LABELS, isAnalysisInProgress } from '@/lib/constants';
 import { formatDistanceToNow, format } from 'date-fns';
 import {
   addCompanyLink,
@@ -121,15 +121,6 @@ const isoToDateInput = (iso: string | null | undefined): string => {
   const d = new Date(iso);
   return isNaN(d.getTime()) ? '' : d.toISOString().split('T')[0];
 };
-
-const OWNERSHIP_OPTIONS = [
-  'Public',
-  'Private',
-  'Private Equity',
-  'Venture Capital',
-  'Family Owned',
-  'Subsidiary',
-] as const;
 
 const getStageLabel = (stage: string | null): string => {
   const key = (stage || 'L0') as DealStage;
@@ -400,6 +391,11 @@ export default function CompanyDetail() {
       : null,
   );
 
+  // Hand the copilot the deal's id as its own context field, so tools that take
+  // a company_id get it verbatim instead of fuzzy-matching a name — which picks
+  // the wrong record when two companies share a near-identical name.
+  useSetPageCompanyId(company?.id ?? null);
+
   // "Analyze using AI" sends the prompt to the shared copilot, then surfaces it.
   // On mobile the copilot lives on the Chat tab (no side pane), so jump there to
   // watch the response stream; on desktop reveal the copilot pane instead.
@@ -538,6 +534,8 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
     deal_sponsor: string;
     deal_captain: string;
     entered_by: string;
+    company_focus: string;
+    comments: string;
   };
   const [isEditing, setIsEditing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -573,6 +571,8 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
       deal_sponsor: company.deal_sponsor ?? '',
       deal_captain: company.deal_captain ?? '',
       entered_by: company.entered_by ?? '',
+      company_focus: company.company_focus ?? '',
+      comments: company.comments ?? '',
     });
     setIsEditing(true);
     if (bankerOptions.length === 0) {
@@ -629,6 +629,24 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
     }
   };
 
+  // Inline shareholding save from the Overview slide. Kept separate from the
+  // Company Information card's edit mode so correcting ownership on the card
+  // doesn't require entering (and saving) the whole form.
+  const saveOwnership = async (ownership: string | null) => {
+    if (!company) return;
+    try {
+      await updateCompany(company.id, { ownership });
+      setCompany((prev) => (prev ? { ...prev, ownership } : prev));
+      toast.success('Shareholding updated');
+    } catch (err: unknown) {
+      console.error('Failed to save shareholding:', err);
+      toast.error(`Failed to save: ${(err as Error)?.message || 'Unknown error'}`);
+      // Rethrow so the slide keeps its editor open on the failed value rather
+      // than closing over a write that never landed.
+      throw err;
+    }
+  };
+
   const saveEditing = async () => {
     if (!editForm || !company) return;
     setIsSaving(true);
@@ -669,6 +687,8 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
         deal_sponsor: editForm.deal_sponsor.trim() || null,
         deal_captain: editForm.deal_captain.trim() || null,
         entered_by: editForm.entered_by.trim() || null,
+        company_focus: editForm.company_focus.trim() || null,
+        comments: editForm.comments.trim() || null,
       });
       const refreshedCompany = await getCompanies({ id: company.id });
       if (refreshedCompany) {
@@ -1338,6 +1358,7 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
                 analysis={analysis}
                 onEditSection={handleEditSection}
                 editingSectionKey={editingSectionKey}
+                onUpdateOwnership={saveOwnership}
               />
             )}
           </TabsContent>
@@ -1660,17 +1681,49 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
                   </div>
                 )}
               </div>
-              {company.company_focus && !isEditing && (
-                <div className="mt-3 pt-3 border-t">
-                  <p className="text-xs text-muted-foreground mb-0.5">Company Focus</p>
-                  <p className="text-sm break-words">{company.company_focus}</p>
-                </div>
-              )}
-              {company.comments && !isEditing && (
-                <div className="mt-3 pt-3 border-t">
-                  <p className="text-xs text-muted-foreground mb-0.5">Comments</p>
-                  <p className="text-sm break-words">{company.comments}</p>
-                </div>
+              {/* Company Focus / Comments are free text, so they sit below the
+                  two-column grid. In edit mode both always render (even when
+                  empty) — that's the only way to fill in a blank one. */}
+              {isEditing && editForm ? (
+                <>
+                  <div className="mt-3 pt-3 border-t">
+                    <p className="text-xs text-muted-foreground mb-0.5">Company Focus</p>
+                    <Textarea
+                      value={editForm.company_focus}
+                      onChange={(e) => setEditForm({ ...editForm, company_focus: e.target.value })}
+                      rows={3}
+                      placeholder="What the company focuses on…"
+                      disabled={isSaving}
+                      className="mt-1 text-sm resize-y"
+                    />
+                  </div>
+                  <div className="mt-3 pt-3 border-t">
+                    <p className="text-xs text-muted-foreground mb-0.5">Comments</p>
+                    <Textarea
+                      value={editForm.comments}
+                      onChange={(e) => setEditForm({ ...editForm, comments: e.target.value })}
+                      rows={3}
+                      placeholder="Internal comments on this deal…"
+                      disabled={isSaving}
+                      className="mt-1 text-sm resize-y"
+                    />
+                  </div>
+                </>
+              ) : (
+                <>
+                  {company.company_focus && (
+                    <div className="mt-3 pt-3 border-t">
+                      <p className="text-xs text-muted-foreground mb-0.5">Company Focus</p>
+                      <p className="text-sm break-words whitespace-pre-wrap">{company.company_focus}</p>
+                    </div>
+                  )}
+                  {company.comments && (
+                    <div className="mt-3 pt-3 border-t">
+                      <p className="text-xs text-muted-foreground mb-0.5">Comments</p>
+                      <p className="text-sm break-words whitespace-pre-wrap">{company.comments}</p>
+                    </div>
+                  )}
+                </>
               )}
               {isEditing && editForm && (
                 <div className="mt-4 flex justify-end gap-2">

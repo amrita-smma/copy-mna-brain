@@ -36,6 +36,8 @@ Call this FIRST — before querying anything — whenever the request points at 
 
 Returns the page name, its path, and (when the page reports it) the specific record or filters in view — e.g. which deal is open, or which stage the pipeline is filtered to. Use that to scope your follow-up queries instead of guessing or asking the user to repeat themselves.
 
+When a deal is open it also returns that company's \`company_id\`. Pass that id VERBATIM to every tool that accepts one (get_company_details, update_company_card_section, …) and do NOT look the company up by name — a name lookup is fuzzy and resolves to the wrong record when two companies have near-identical names.
+
 Takes no arguments. When the user is in the full-screen chat with no page open, it says so — in that case ask what they're referring to rather than assuming.`,
     schema: z.object({}),
   },

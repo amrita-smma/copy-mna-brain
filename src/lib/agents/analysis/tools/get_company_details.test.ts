@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 const findByNameFuzzyMock = vi.fn();
+const findByIdOrNullMock = vi.fn();
 const findByCompanyFinancialsMock = vi.fn();
 const findByCompanyScreeningMock = vi.fn();
 
@@ -10,7 +11,10 @@ vi.mock('@/lib/server/db', () => ({
 
 vi.mock('@/lib/repositories', () => ({
   CompanyRepository: function CompanyRepository() {
-    return { findByNameFuzzy: findByNameFuzzyMock };
+    return {
+      findByNameFuzzy: findByNameFuzzyMock,
+      findByIdOrNull: findByIdOrNullMock,
+    };
   },
   CompanyFinancialRepository: function CompanyFinancialRepository() {
     return { findByCompany: findByCompanyFinancialsMock };
@@ -37,8 +41,65 @@ describe('getCompanyDetails', () => {
   it('rejects whitespace-only input without hitting the repository', async () => {
     const result = (await getCompanyDetails.invoke({ company_name: '   ' })) as string;
 
-    expect(result).toContain('Please provide a company target name or project name');
+    expect(result).toContain('Please provide a company_id, or a company target name');
     expect(findByNameFuzzyMock).not.toHaveBeenCalled();
+    expect(findByIdOrNullMock).not.toHaveBeenCalled();
+  });
+
+  it('rejects a call with neither company_id nor company_name', async () => {
+    const result = (await getCompanyDetails.invoke({})) as string;
+
+    expect(result).toContain('Please provide a company_id, or a company target name');
+    expect(findByNameFuzzyMock).not.toHaveBeenCalled();
+    expect(findByIdOrNullMock).not.toHaveBeenCalled();
+  });
+
+  it('looks the company up by id exactly, never by name, when company_id is given', async () => {
+    findByIdOrNullMock.mockResolvedValue({
+      id: '11111111-2222-3333-4444-555555555555',
+      target: '杭州华友新材料',
+      pipeline_stage: 'L1',
+    });
+    findByCompanyFinancialsMock.mockResolvedValue([]);
+    findByCompanyScreeningMock.mockResolvedValue(null);
+
+    const result = (await getCompanyDetails.invoke({
+      company_id: '11111111-2222-3333-4444-555555555555',
+      // A name is supplied too — the id must still win, since the name is what
+      // resolves to a near-identically named sibling record.
+      company_name: '杭州华友',
+    })) as string;
+
+    expect(findByIdOrNullMock).toHaveBeenCalledWith('11111111-2222-3333-4444-555555555555');
+    expect(findByNameFuzzyMock).not.toHaveBeenCalled();
+    expect(result).toContain('## Company Details: 杭州华友新材料');
+  });
+
+  it('reports a company_id that resolves to nothing without falling back to the name', async () => {
+    findByIdOrNullMock.mockResolvedValue(null);
+
+    const result = (await getCompanyDetails.invoke({
+      company_id: '11111111-2222-3333-4444-555555555555',
+      company_name: 'Acme',
+    })) as string;
+
+    expect(result).toContain('No company found for company_id "11111111-2222-3333-4444-555555555555"');
+    expect(findByNameFuzzyMock).not.toHaveBeenCalled();
+  });
+
+  it('rejects a malformed company_id rather than querying with it', async () => {
+    const result = (await getCompanyDetails.invoke({ company_id: 'not-a-uuid' })) as string;
+
+    expect(result).toContain('is not a valid UUID');
+    expect(findByIdOrNullMock).not.toHaveBeenCalled();
+    expect(findByNameFuzzyMock).not.toHaveBeenCalled();
+  });
+
+  it('tells the model to prefer company_id over the fuzzy name match', async () => {
+    expect(getCompanyDetails.description).toContain('PREFER company_id whenever you have one');
+    expect(getCompanyDetails.description).toContain(
+      'Never re-resolve by name a company whose id you already have',
+    );
   });
 
   it('resolves a company looked up by its project name', async () => {

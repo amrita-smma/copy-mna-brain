@@ -12,10 +12,12 @@ import {
   Send,
   Loader2,
   X,
+  Check,
 } from "lucide-react";
 import { MarkdownRenderer } from "@/components/chat/MarkdownRenderer";
 import { useWorkspaceCurrency } from "@/components/layout/WorkspaceCurrencyContext";
 import { CURRENCY_SYMBOL } from "@/lib/currency";
+import { OWNERSHIP_OPTIONS } from "@/lib/constants";
 import { getTrackVariables, type TrackVariable } from "@/lib/api/pipeline";
 import { companyDisplayTitle } from "@/lib/companyDisplay";
 import { isDealLive } from "@/lib/dealStatus";
@@ -33,6 +35,13 @@ import {
   ContextMenuItem,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 /**
  * Read-only "L0 → L1 Submission" overview slide. The narrative sections are
@@ -337,12 +346,133 @@ function EditableSection({
   );
 }
 
+const NO_OWNERSHIP = "__none__";
+
+/**
+ * The Shareholding line under Target Overview. Read-only unless the parent
+ * wires `onSave` — with it, hovering reveals a pencil that swaps the value for
+ * an ownership picker, so a wrong or missing shareholding can be corrected on
+ * the card itself instead of only from the Details tab.
+ */
+function EditableShareholding({
+  ownership,
+  onSave,
+}: {
+  ownership: string | null;
+  onSave?: (ownership: string | null) => Promise<void>;
+}) {
+  const [open, setOpen] = useState(false);
+  const [draft, setDraft] = useState(ownership ?? "");
+  const [saving, setSaving] = useState(false);
+
+  if (!onSave) {
+    if (!ownership) return null;
+    return (
+      <p className="mt-2 text-[11.5px] text-muted-foreground">
+        <span className="font-semibold">Shareholding:</span> {ownership}
+      </p>
+    );
+  }
+
+  const startEditing = () => {
+    setDraft(ownership ?? "");
+    setOpen(true);
+  };
+
+  const submit = async () => {
+    const next = draft.trim() || null;
+    if (next === (ownership ?? null)) {
+      setOpen(false);
+      return;
+    }
+    setSaving(true);
+    try {
+      await onSave(next);
+      setOpen(false);
+    } catch {
+      // Stay in edit mode with the draft intact so the value isn't silently
+      // lost — the parent has already surfaced the failure as a toast.
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (open) {
+    return (
+      <div className="mt-2 flex items-center gap-1.5">
+        <span className="text-[11.5px] font-semibold text-muted-foreground">
+          Shareholding:
+        </span>
+        <Select
+          value={draft || NO_OWNERSHIP}
+          onValueChange={(v) => setDraft(v === NO_OWNERSHIP ? "" : v)}
+          disabled={saving}
+        >
+          <SelectTrigger className="h-6 w-44 text-[11.5px]" aria-label="Shareholding">
+            <SelectValue placeholder="Not set" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={NO_OWNERSHIP}>—</SelectItem>
+            {OWNERSHIP_OPTIONS.map((o) => (
+              <SelectItem key={o} value={o}>
+                {o}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Button
+          type="button"
+          size="sm"
+          className="h-6 gap-1 bg-blue-600 px-2 text-[11px] text-white hover:bg-blue-700"
+          onClick={submit}
+          disabled={saving}
+        >
+          {saving ? (
+            <Loader2 className="h-3 w-3 animate-spin" />
+          ) : (
+            <Check className="h-3 w-3" />
+          )}
+          Save
+        </Button>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="h-6 px-2 text-[11px]"
+          onClick={() => setOpen(false)}
+          disabled={saving}
+        >
+          <X className="h-3 w-3" />
+        </Button>
+      </div>
+    );
+  }
+
+  return (
+    <p className="group/own mt-2 flex items-center gap-1.5 text-[11.5px] text-muted-foreground">
+      <span>
+        <span className="font-semibold">Shareholding:</span> {ownership || "—"}
+      </span>
+      <button
+        type="button"
+        onClick={startEditing}
+        title="Edit shareholding"
+        aria-label="Edit shareholding"
+        className="hidden items-center rounded border border-blue-300 bg-white/90 p-0.5 text-blue-700 shadow-sm group-hover/own:inline-flex dark:border-blue-700 dark:bg-card dark:text-blue-300"
+      >
+        <Pencil className="h-2.5 w-2.5" />
+      </button>
+    </p>
+  );
+}
+
 export default function CompanyOverviewSlide({
   company,
   analysis,
   tracks = [],
   onEditSection,
   editingSectionKey,
+  onUpdateOwnership,
 }: {
   company: OverviewSlideCompany;
   analysis: OverviewSlideAnalysis | null;
@@ -356,6 +486,11 @@ export default function CompanyOverviewSlide({
   onEditSection?: (req: EditSectionRequest) => void;
   /** The section currently being rewritten by the copilot (shows a busy overlay). */
   editingSectionKey?: AnalysisSectionKey | null;
+  /**
+   * Persist a new shareholding for this company. When omitted the Shareholding
+   * line stays read-only (and hides entirely if there's nothing to show).
+   */
+  onUpdateOwnership?: (ownership: string | null) => Promise<void>;
 }) {
   const currency = useWorkspaceCurrency();
   const fmtMoney = (value: number | null | undefined): string => {
@@ -562,12 +697,10 @@ export default function CompanyOverviewSlide({
                 placeholder="Target overview will appear here once the AI Company Card is generated."
               />
             </EditableSection>
-            {company.ownership && (
-              <p className="mt-2 text-[11.5px] text-muted-foreground">
-                <span className="font-semibold">Shareholding:</span>{" "}
-                {company.ownership}
-              </p>
-            )}
+            <EditableShareholding
+              ownership={company.ownership}
+              onSave={onUpdateOwnership}
+            />
           </section>
 
           <section>

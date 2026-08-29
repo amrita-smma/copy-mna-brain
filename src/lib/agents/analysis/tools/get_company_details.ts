@@ -10,16 +10,32 @@ import {
 } from "@/lib/repositories";
 import { buildCompanyMentionsMarker } from "@/lib/navigation/companyMentions";
 
+/** Canonical 8-4-4-4-12 UUID, the shape every `companies.id` takes. */
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 /**
  * Get detailed information about a specific company.
+ *
+ * `company_id` is the exact path and always wins when supplied — the agent gets
+ * one from `read_page_context` or from an earlier lookup, and using it sidesteps
+ * the fuzzy name match entirely. Name matching is a fallback: it is a substring
+ * match, so it can land on a sibling record when two companies share a
+ * near-identical name.
  */
 export const getCompanyDetails = tool(
-  async ({ company_name }: { company_name: string }) => {
-    logger.debug(`🔧 TOOL CALLED: get_company_details(company_name='${company_name}')`);
+  async ({ company_name, company_id }: { company_name?: string; company_id?: string }) => {
+    logger.debug(
+      `🔧 TOOL CALLED: get_company_details(company_name='${company_name ?? ""}', company_id='${company_id ?? ""}')`,
+    );
 
+    const id = company_id?.trim() ?? "";
     const trimmed = company_name?.trim() ?? "";
-    if (trimmed.length === 0) {
-      return "Please provide a company target name or project name to look up. Use query_companies to browse available companies.";
+    if (id.length === 0 && trimmed.length === 0) {
+      return "Please provide a company_id, or a company target name or project name to look up. Use query_companies to browse available companies.";
+    }
+    if (id.length > 0 && !UUID_RE.test(id)) {
+      return `**Error:** company_id "${id}" is not a valid UUID. Pass the id verbatim as returned by read_page_context or a prior lookup, or omit it and pass company_name instead.`;
     }
 
     try {
@@ -27,10 +43,14 @@ export const getCompanyDetails = tool(
       const companyRepo = new CompanyRepository(db, await getActiveWorkspaceId());
       const financialRepo = new CompanyFinancialRepository(db, await getActiveWorkspaceId());
       const screeningRepo = new CompanyScreeningDerivedRepository(db, await getActiveWorkspaceId());
-      const c = await companyRepo.findByNameFuzzy(trimmed);
+      const c = id
+        ? await companyRepo.findByIdOrNull(id)
+        : await companyRepo.findByNameFuzzy(trimmed);
 
       if (!c) {
-        return `No company found matching "${trimmed}". Try a different search term or use query_companies to browse available companies.`;
+        return id
+          ? `No company found for company_id "${id}". It may belong to another workspace, or have been deleted.`
+          : `No company found matching "${trimmed}". Try a different search term or use query_companies to browse available companies.`;
       }
 
       const [financials, screening] = await Promise.all([
@@ -106,25 +126,39 @@ ${c.comments ? `### Comments\n${c.comments}` : ""}
   },
   {
     name: "get_company_details",
-    description: `Get detailed information about a specific company by name or project name.
+    description: `Get detailed information about a specific company, by company_id (preferred) or by name.
 
 Use this when the user asks about a specific company's financials, details, or history.
-Matches case-insensitively against both the company target name and the project name.
+
+**PREFER company_id whenever you have one** — from read_page_context (the deal the user has open), from query_companies, or from an earlier get_company_details call. It is an exact lookup and cannot resolve to the wrong record.
+
+Only fall back to company_name when no id is available. Name matching is case-insensitive and PARTIAL against both the target name and the project name, so with two near-identically named companies ("Jiangsu Silicon Materials" vs "Jiangsu Silicon Materials Group") it can return the wrong one. Never re-resolve by name a company whose id you already have.
 
 Also use this to resolve a company's ID (UUID) from its name — the returned
 "Company ID (UUID)" is the company_id required by tools like
 update_company_card_section when it wasn't supplied directly.
 
 Args:
-    company_name: The company target name or project name (partial match) to look up
+    company_id: UUID of the company. Optional, but preferred over company_name when known — exact match, no ambiguity.
+    company_name: The company target name or project name (partial match) to look up. Used only when company_id is omitted.
+
+Provide at least one of the two.
 
 Returns:
     Detailed company profile including the company ID (UUID) and all available financial data.`,
     schema: z.object({
+      company_id: z
+        .string()
+        .optional()
+        .describe(
+          "UUID of the company. Preferred over company_name when known (exact match — no ambiguity between similarly named companies)",
+        ),
       company_name: z
         .string()
-        .min(1)
-        .describe("Company target name or project name (partial match, must be non-empty)"),
+        .optional()
+        .describe(
+          "Company target name or project name (partial match). Used only when company_id is omitted",
+        ),
     }),
   }
 );

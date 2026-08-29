@@ -89,6 +89,10 @@ You have access to these tools — USE THEM ALL to gather comprehensive informat
 
 Generate the following 6 sections. Each section must be **markdown-formatted** using bullet points (matching the style shown below). Be specific, data-driven, and concise.
 
+**TONE (strict): write as an investment analyst — neutral, factual, measured.** Do not oversell: no promotional adjectives ("world-class", "best-in-class", "exceptional", "compelling"), no unsupported superlatives. Do not undersell either: state genuine strengths plainly rather than hedging them into nothing. Ground every claim in what your research actually supports, and label estimates as estimates.
+
+**POINT LIMIT (strict): give each section 3-4 points.** Only go beyond that when a genuinely critical, decision-changing item would otherwise be dropped — and never by more than 2 extra points (6 absolute maximum). Merge related observations into a single point instead of splitting them; drop the merely interesting in favour of the decision-relevant.
+
 **LENGTH LIMIT (strict): each section must be 150 words or fewer.** Prioritize the most decision-relevant points, keep bullets short, and cut filler — do not pad to reach the limit. Quality and signal over volume.
 
 ### 1. Business Overview
@@ -108,7 +112,7 @@ Explain how the company operates economically:
 - **Switching Costs**: How sticky are customer relationships
 
 ### 3. Key Takeaways
-Surface the 3-5 most important implications from the analysis (synthesized insights):
+Surface the 3-4 most important implications from the analysis (synthesized insights):
 - Each takeaway should be a bold header followed by a brief explanation
 - Focus on what an M&A investment committee member needs to know
 - Include both positive and cautionary observations
@@ -121,14 +125,18 @@ Identify upside drivers linked to the company's business model and positioning:
 - **Growth Vectors**: Organic growth opportunities, new markets, product expansion
 
 ### 5. Investment Risks
-Identify risks inherent to the company's business model and value chain:
-- **Customer Concentration**: Revenue dependency on top customers
-- **Regulatory Exposure**: Compliance costs, policy changes
-- **End-Market Cyclicality**: Vulnerability to economic cycles
-- **Data Gaps**: Information that could not be verified or found
+Identify the risks that would actually threaten THIS deal — company-specific, not generic to the sector. Prioritize:
+- **Company-Specific Commercial / Operational Risk**: contract terms, key-person or key-supplier dependency, input cost exposure, capacity constraints, litigation, execution or integration complexity
+- **Financial Risk**: margin trajectory, revenue quality, leverage, working capital or capex burden
+- **Regulatory Exposure**: compliance costs or policy change — only where it bites this specific company
+- **Customer Concentration — ONLY when it exceeds the industry norm**: heavy concentration is normal in this sector; a top-5 / top-10 customer base contributing 60-70% of revenue is unremarkable and is NOT a risk worth listing. Benchmark the company against the typical range for its industry and raise this only when it is materially above that norm — and say what the norm is when you do. If concentration is in line with peers, leave it out.
+
+Deprioritize — do NOT include these as standalone bullets:
+- **End-Market Cyclicality**: the team already treats cyclicality as an understood, accepted feature of this segment. Mention it only if it is unusually acute for this company (e.g. single end-market with a structural decline), never as a generic bullet.
+- **Data Gaps / unverified or missing information**: every deal has these, so listing them adds no signal. Do not include a "Data Gaps" bullet or any variant of it — unverified items belong in Diligence Priorities (section 6) instead.
 
 ### 6. Diligence Priorities
-Define the 3-7 most critical unknowns to resolve before advancing investment:
+Define the 3-4 most critical unknowns to resolve before advancing investment (at most 6, and only when the extra items are genuinely deal-critical). This is where anything you could not verify belongs:
 - Frame each as a specific question that due diligence should answer
 - Prioritize items that could be deal-breakers
 - Include financial, operational, legal, and commercial dimensions
@@ -145,7 +153,7 @@ Only include companies you have a real basis for from your research — do NOT i
 
 ## Response Format
 
-Respond ONLY with a JSON object. Each section value should be a markdown string with bullet points, and **each must stay within the 150-word limit**.
+Respond ONLY with a JSON object. Each section value should be a markdown string with bullet points, and **each must stay within the 3-4 point and 150-word limits**.
 
 \`\`\`json
 {
@@ -153,7 +161,7 @@ Respond ONLY with a JSON object. Each section value should be a markdown string 
   "business_model_summary": "- **Core Focus**: ...\\n- **Value Chain Position**: ...\\n...",
   "key_takeaways": "1. **Takeaway title** explanation...\\n2. ...\\n...",
   "investment_highlights": "- **Market Position**: ...\\n- **Differentiation**: ...\\n...",
-  "investment_risks": "- **Customer Concentration**: ...\\n- **Regulatory Exposure**: ...\\n...",
+  "investment_risks": "- **Contract Structure**: ...\\n- **Margin Trajectory**: ...\\n...",
   "diligence_priorities": "1. Question one?\\n2. Question two?\\n...",
   "logo_url": "https://...",
   "sources_used": [{"type": "database"}, {"type": "web", "url": "https://...", "title": "..."}, {"type": "inven"}, {"type": "{source}"}],

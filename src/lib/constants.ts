@@ -48,6 +48,21 @@ export const DOC_TYPE_OPTIONS: { value: string; label: string }[] = [
 ];
 
 /**
+ * Ownership / shareholding structures a target can have. Stored on
+ * `companies.ownership` (plain text, constrained in the UI only). Shared by the
+ * Company Information cards and the Overview slide's Shareholding line so the
+ * three surfaces can't drift apart.
+ */
+export const OWNERSHIP_OPTIONS = [
+  'Public',
+  'Private',
+  'Private Equity',
+  'Venture Capital',
+  'Family Owned',
+  'Subsidiary',
+] as const;
+
+/**
  * Fixed IDs for the tenancy seed data. Hardcoded (not `defaultRandom()`) so
  * staging, prod, and dev always agree on the same workspace/role rows across
  * independently-applied migrations. See `drizzle/migrations/*_add_workspace_tables.sql`.

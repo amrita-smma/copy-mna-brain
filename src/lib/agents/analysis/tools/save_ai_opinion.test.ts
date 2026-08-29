@@ -146,7 +146,7 @@ describe("save_ai_opinion", () => {
     expect(String(result)).toMatch(/\*\*Error:\*\* db down/);
   });
 
-  it("keeps the verdict unbiased by design: description forbids reading the drop reason up front and over-weighting tracks", () => {
+  it("keeps the verdict unbiased by design: description forbids reading the drop reason up front and over-weighting track tags", () => {
     expect(saveAiOpinion.description).toContain(
       "Do not read any human-recorded drop reason before deciding",
     );
@@ -154,7 +154,18 @@ describe("save_ai_opinion", () => {
       "Matching no track is never a reason to \"fail\"",
     );
     expect(saveAiOpinion.description).toContain(
-      "track fit should carry little weight",
+      "track tagging should carry little weight",
+    );
+  });
+
+  it("requires the verdict to weigh mandate fit, not just fundamentals", () => {
+    expect(saveAiOpinion.description).toContain("MANDATE FIT COUNTS");
+    expect(saveAiOpinion.description).toContain("get_investment_theses");
+    expect(saveAiOpinion.description).toContain(
+      "A target outside that stated scope is a strong negative signal",
+    );
+    expect(saveAiOpinion.description).toContain(
+      "Name the mandate fit — aligned or mismatched",
     );
   });
 });

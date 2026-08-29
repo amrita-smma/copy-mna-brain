@@ -88,9 +88,15 @@ export class AiOpinionService {
       `"appears", or "seems". ` +
       `Form the view independently, on fundamentals: do NOT read any recorded drop reason before ` +
       `deciding — only if your verdict disagrees with an existing drop decision should you then ` +
-      `evaluate the drop reason and note the disagreement in your summary. Matched investment ` +
-      `tracks are organizational only: matching no track is not a negative signal, and track fit ` +
-      `should carry little weight in the verdict. ` +
+      `evaluate the drop reason and note the disagreement in your summary. ` +
+      `WEIGH MANDATE FIT EXPLICITLY. Before you decide, call get_investment_theses to read the firm's ` +
+      `active investment mandate and judge this company against what it actually says — sector, ` +
+      `sub-sector, geography, deal size, deal type. A target outside the mandate's stated scope is a ` +
+      `strong negative signal: absent a specific, compelling reason to look at it anyway, that alone ` +
+      `points to "fail". Name the mandate fit — aligned or mismatched, and on which dimension — in ` +
+      `your summary. This is about the mandate's substance, not bookkeeping: which investment tracks ` +
+      `a company happens to be tagged with is an organizational grouping only, so "no matched track" ` +
+      `is never itself a reason to fail and track tagging should carry little weight either way. ` +
       `After the tool returns, briefly report the verdict you recorded.`;
 
     let runId: string;

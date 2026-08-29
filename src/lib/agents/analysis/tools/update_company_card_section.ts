@@ -92,6 +92,11 @@ export const updateCompanyCardSection = tool(
 
 You compose the FULL replacement markdown for that one section and pass it as \`content\`; the tool overwrites only that field and leaves every other section untouched. Match the existing concise, markdown bullet style of the card and stay factually grounded — if the request needs fresh facts, research first with the read tools (get_company_details, query_files, web_search) before composing the new content.
 
+House style for card content (apply unless the user explicitly asks otherwise):
+- Neutral, factual investment-analyst register. No promotional adjectives or unsupported superlatives, and no hedging that talks a real strength down.
+- 3-4 points per section. Go to at most 6 only when an extra point is genuinely decision-changing; merge related observations rather than splitting them. 150 words or fewer.
+- Investment Risks specifically: do NOT include a "Data Gaps" bullet or any variant (missing/unverified information belongs in Diligence Priorities). Do NOT include a generic end-market cyclicality bullet — the team already treats cyclicality as an accepted feature of this segment. Raise customer concentration ONLY when it is materially above the industry norm: a top-5/top-10 customer base at 60-70% of revenue is unremarkable in this sector, so name the norm when you do flag it.
+
 When invoked from the "right-click a section → Edit with AI" flow, the user's message includes the company_id, the section, and its current content — use that company_id verbatim. When the request is general (no company_id given), resolve it first: call get_company_details with the company name and use the "Company ID (UUID)" it returns as the company_id here.
 
 Args:

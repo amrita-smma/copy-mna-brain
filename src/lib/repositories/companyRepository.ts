@@ -334,13 +334,24 @@ export class CompanyRepository {
   }
 
   async findById(id: string): Promise<Tables<"companies">> {
+    const row = await this.findByIdOrNull(id);
+    if (!row) throw new Error(`Company ${id} not found`);
+    return row;
+  }
+
+  /**
+   * Same exact, workspace-scoped lookup as {@link findById} but returns `null`
+   * instead of throwing when there's no such row. Callers that treat "not
+   * found" as an ordinary outcome (e.g. the agent's `get_company_details`,
+   * which reports it back to the model) use this.
+   */
+  async findByIdOrNull(id: string): Promise<Tables<"companies"> | null> {
     const [row] = await this.db
       .select()
       .from(companies)
       .where(and(eq(companies.id, id), eq(companies.workspace_id, this.workspaceId)))
       .limit(1);
-    if (!row) throw new Error(`Company ${id} not found`);
-    return row;
+    return row ?? null;
   }
 
   async findAll(filters: CompanyFilters = {}): Promise<Tables<"companies">[]> {
@@ -501,6 +512,12 @@ export class CompanyRepository {
             sql`exists (select 1 from jsonb_array_elements_text(coalesce(${companies.aliases}, '[]'::jsonb)) as elem(txt) where lower(txt) = ${lowered})`,
           ),
         ))
+        // Prefer a real name match over an alias-only one, and keep the pick
+        // stable when several rows tie — an unordered limit(1) is a coin flip.
+        .orderBy(
+          asc(sql`case when lower(${companies.target}) = ${lowered} or lower(${companies.project_name}) = ${lowered} then 0 else 1 end`),
+          asc(companies.id),
+        )
         .limit(1);
       return row ?? null;
     }
@@ -516,6 +533,34 @@ export class CompanyRepository {
     // acting as wildcards. ESCAPE '\' makes the backslash escapes take effect.
     const escaped = term.replace(/[\\%_]/g, "\\$&").toLowerCase();
     const pattern = `%${escaped}%`;
+    const prefixPattern = `${escaped}%`;
+    const loweredFull = trimmed.toLowerCase();
+    const loweredTerm = term.toLowerCase();
+    // A bare `limit(1)` over a substring match is a coin flip whenever one name
+    // contains another — "杭州华友" also matches "杭州华友新材料", and Postgres is
+    // free to return either. Rank the candidates so the closest name always
+    // wins: exact on the full input, then exact on the suffix-stripped base,
+    // then a prefix match, then any substring. Shortest name breaks a tie
+    // (it's the least-embellished record), and the id makes it total.
+    //
+    // Aliases are ranked alongside the names, not left in the "everything else"
+    // bucket: a company that absorbed "杭州华友" as an alias via "combine" must
+    // outrank a leftover stub that merely starts with it, or the combine is
+    // undone on the next lookup.
+    const aliasMatches = (predicate: SQL) =>
+      sql`exists (select 1 from jsonb_array_elements_text(coalesce(${companies.aliases}, '[]'::jsonb)) as elem(txt) where ${predicate})`;
+    const matchRank = sql<number>`case
+      when lower(${companies.target}) = ${loweredFull}
+        or lower(${companies.project_name}) = ${loweredFull}
+        or ${aliasMatches(sql`lower(txt) = ${loweredFull}`)} then 0
+      when lower(${companies.target}) = ${loweredTerm}
+        or lower(${companies.project_name}) = ${loweredTerm}
+        or ${aliasMatches(sql`lower(txt) = ${loweredTerm}`)} then 1
+      when lower(${companies.target}) like ${prefixPattern} escape '\\'
+        or lower(${companies.project_name}) like ${prefixPattern} escape '\\'
+        or ${aliasMatches(sql`lower(txt) like ${prefixPattern} escape '\\'`)} then 2
+      else 3
+    end`;
     const [row] = await this.db
       .select()
       .from(companies)
@@ -530,6 +575,11 @@ export class CompanyRepository {
           sql`exists (select 1 from jsonb_array_elements_text(coalesce(${companies.aliases}, '[]'::jsonb)) as elem(txt) where lower(txt) like ${pattern} escape '\\')`,
         ),
       ))
+      .orderBy(
+        asc(matchRank),
+        asc(sql`coalesce(char_length(${companies.target}), 2147483647)`),
+        asc(companies.id),
+      )
       .limit(1);
     return row ?? null;
   }

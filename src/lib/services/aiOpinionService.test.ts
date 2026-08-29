@@ -133,18 +133,31 @@ describe('AiOpinionService.dispatch', () => {
     );
   });
 
-  it('instructs the agent that track matches are organizational and low-weight', async () => {
+  it('instructs the agent that track tags are organizational and low-weight', async () => {
     const service = makeService(makeCompanyRepo());
     await service.dispatch('co-1');
 
     const { input } = enqueueAgentRun.mock.calls[0][1];
-    expect(input.instruction).toContain('tracks are organizational only');
+    expect(input.instruction).toContain('an organizational grouping only');
     expect(input.instruction).toContain(
-      'matching no track is not a negative signal',
+      '"no matched track" is never itself a reason to fail',
     );
     expect(input.instruction).toContain(
-      'track fit should carry little weight',
+      'track tagging should carry little weight',
     );
+  });
+
+  it('instructs the agent to weigh mandate fit before deciding', async () => {
+    const service = makeService(makeCompanyRepo());
+    await service.dispatch('co-1');
+
+    const { input } = enqueueAgentRun.mock.calls[0][1];
+    expect(input.instruction).toContain('WEIGH MANDATE FIT EXPLICITLY');
+    expect(input.instruction).toContain('call get_investment_theses');
+    expect(input.instruction).toContain(
+      'A target outside the mandate\'s stated scope is a strong negative signal',
+    );
+    expect(input.instruction).toContain('Name the mandate fit');
   });
 
   it('routes the AI Opinion run to high effort (Opus)', async () => {

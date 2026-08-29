@@ -64,7 +64,12 @@ import CompanyOverviewSlide, {
 } from "@/components/pipeline/CompanyOverviewSlide";
 import FilePreview from "@/components/Files/FilePreview";
 import { DealStage } from "@/lib/types";
-import { STAGE_LABELS, isAnalysisInProgress, type AnalysisJobStatus } from "@/lib/constants";
+import {
+  OWNERSHIP_OPTIONS,
+  STAGE_LABELS,
+  isAnalysisInProgress,
+  type AnalysisJobStatus,
+} from "@/lib/constants";
 import { formatDistanceToNow, format } from "date-fns";
 import {
   addCompanyLink,
@@ -108,15 +113,6 @@ import TrackMultiSelect from "@/components/pipeline/TrackMultiSelect";
 import { companyDisplayName, companyDisplayTitle, companyInitials } from "@/lib/companyDisplay";
 import { isDealLive } from "@/lib/dealStatus";
 
-const OWNERSHIP_OPTIONS = [
-  "Public",
-  "Private",
-  "Private Equity",
-  "Venture Capital",
-  "Family Owned",
-  "Subsidiary",
-] as const;
-
 const getStageLabel = (stage: string | null): string => {
   const key = (stage || "L0") as DealStage;
   return STAGE_LABELS[key] ?? key;
@@ -148,6 +144,7 @@ import { MarkdownRenderer } from "@/components/chat/MarkdownRenderer";
 import { useChatContext } from "@/components/chat/ChatProvider";
 import { AskAIButton } from "@/components/chat/AskAIButton";
 import { useLayoutControl } from "@/components/layout/LayoutControlContext";
+import { useSetPageCompanyId } from "@/components/layout/PageContextProvider";
 
 export interface CompanyData {
   id: string;
@@ -568,6 +565,24 @@ export default function CompanyDetailDialog({
     }
   };
 
+  // Inline shareholding save from the Overview slide. Kept separate from the
+  // Company Information card's edit mode so correcting ownership on the card
+  // doesn't require entering (and saving) the whole form.
+  const saveOwnership = async (ownership: string | null) => {
+    try {
+      await updateCompany(company.id, { ownership });
+      setCompany((prev) => ({ ...prev, ownership }));
+      toast.success('Shareholding updated');
+      onUpdate();
+    } catch (err: unknown) {
+      console.error('Failed to save shareholding:', err);
+      toast.error(`Failed to save: ${(err as Error)?.message || 'Unknown error'}`);
+      // Rethrow so the slide keeps its editor open on the failed value rather
+      // than closing over a write that never landed.
+      throw err;
+    }
+  };
+
   const saveEditing = async () => {
     if (!editForm) return;
     setIsSaving(true);
@@ -764,6 +779,11 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, company.id]);
+
+  // While this dialog is open it — not the table behind it — is the record the
+  // user means by "this company". Publish its id so the copilot passes it
+  // verbatim to company_id tools instead of re-resolving a near-identical name.
+  useSetPageCompanyId(open ? company.id : null);
 
   // When opened via the "Update" action, jump straight to the Details tab with
   // the Company Information card already in inline edit mode.
@@ -1420,6 +1440,7 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
                   tracks={tracks}
                   onEditSection={handleEditSection}
                   editingSectionKey={editingSectionKey}
+                  onUpdateOwnership={saveOwnership}
                 />
               )}
             </TabsContent>

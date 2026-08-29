@@ -702,6 +702,12 @@ in `chatOnlyTools` — a Workforce run has no browser, so neither reaches it.
   (`sanitizePageContext`: unknown tab dropped, path shape enforced, detail
   clamped — it is browser-supplied and ends up in a prompt) and passes it as
   `configurable.pageContext`, the same seam `thread_id` and `userEmail` use.
+  A view with a single deal on screen also publishes that deal's `companies.id`
+  via `useSetPageCompanyId` (wired in `CompanyDetail` and `CompanyDetailDialog`).
+  It travels as its own `companyId` field rather than inside the `detail` prose,
+  must be a well-formed UUID to survive sanitization, and is rendered into the
+  tool output as an id to pass verbatim to `company_id`-taking tools — which is
+  what stops a near-identical company name from resolving to a sibling record.
 
 ## Copilot flavors (M&A, Investment, Combined, VC)
 
