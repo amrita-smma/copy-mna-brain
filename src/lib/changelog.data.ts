@@ -6,6 +6,12 @@ import type { ChangelogEntry } from './changelog';
 
 export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   {
+    "hash": "8bbcbd5a70bc2b7bbdc97fbd9e2f7a61ff2f562d",
+    "date": "2026-08-30",
+    "subject": "AI Opinion now includes mandate fit analysis and company cards display improved prompts",
+    "category": "feature"
+  },
+  {
     "hash": "8df27fc20aef1029c7541b53fe838a11d35ca13d",
     "date": "2026-08-28",
     "subject": "Fixed tab navigation from reopening the closed copilot pane",
@@ -21,6 +27,14 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   },
   {
     "hash": "6cc74e1dad8ce8709295931c0e3b86b8cdd8d141",
+    "date": "2026-08-28",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
+    "hash": "b9d0d43dded6a35d4cb42521f8136e537d8508de",
     "date": "2026-08-28",
     "subject": "[skip deploy] chore: update changelog",
     "category": "improvement",
