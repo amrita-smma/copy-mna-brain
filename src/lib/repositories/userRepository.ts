@@ -1,5 +1,5 @@
 import { asc, eq, ilike, inArray, sql } from 'drizzle-orm';
-import { users } from '@/lib/db/schema';
+import { users, userWorkspaces } from '@/lib/db/schema';
 import type { DbClient, Tables, TablesInsert, TablesUpdate } from './types';
 
 export type UserListItem = Pick<Tables<'users'>, 'id' | 'name' | 'email' | 'role'>;
@@ -11,6 +11,23 @@ export class UserRepository {
     return this.db
       .select({ id: users.id, name: users.name, email: users.email, role: users.role })
       .from(users)
+      .orderBy(asc(users.name));
+  }
+
+  /**
+   * Members of a single workspace, alphabetical by name. This — not
+   * `findAll` — backs every user picker in the app (Entered by, Deal
+   * Sponsor, Deal Captain, Track PIC, assignees): those columns are uuid FKs
+   * to users.id, but only a member of the current workspace is a valid
+   * choice. The unique (user_id, workspace_id) key on user_workspaces means
+   * the join cannot duplicate a user.
+   */
+  async findAllInWorkspace(workspaceId: string): Promise<UserListItem[]> {
+    return this.db
+      .select({ id: users.id, name: users.name, email: users.email, role: users.role })
+      .from(users)
+      .innerJoin(userWorkspaces, eq(userWorkspaces.user_id, users.id))
+      .where(eq(userWorkspaces.workspace_id, workspaceId))
       .orderBy(asc(users.name));
   }
 

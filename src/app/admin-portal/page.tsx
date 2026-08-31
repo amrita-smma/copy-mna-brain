@@ -188,7 +188,10 @@ export default function AdminPortalPage() {
     let cancelled = false;
     (async () => {
       try {
-        const res = await fetch('/api/users');
+        // scope=all: the member picker must offer users who are not yet in
+        // the workspace, so it needs the global directory rather than the
+        // workspace-scoped default.
+        const res = await fetch('/api/users?scope=all');
         if (res.status === 401) {
           router.replace('/login');
           return;
