@@ -6,10 +6,24 @@ import type { ChangelogEntry } from './changelog';
 
 export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   {
+    "hash": "1b1abff1caa068b40a8a3fc172d001e7d0ec3150",
+    "date": "2026-08-31",
+    "subject": "User pickers now only display members from your current workspace",
+    "category": "improvement"
+  },
+  {
     "hash": "8bbcbd5a70bc2b7bbdc97fbd9e2f7a61ff2f562d",
     "date": "2026-08-30",
     "subject": "AI Opinion now includes mandate fit analysis and company cards display improved prompts",
     "category": "feature"
+  },
+  {
+    "hash": "b43bca286ec48dc58e7428f4860c6f63a48073f2",
+    "date": "2026-08-29",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
   },
   {
     "hash": "8df27fc20aef1029c7541b53fe838a11d35ca13d",
