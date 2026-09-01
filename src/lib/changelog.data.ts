@@ -12,6 +12,20 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "category": "improvement"
   },
   {
+    "hash": "1064dc90e16ab34588453277666d65297c3f55b4",
+    "date": "2026-09-01",
+    "subject": "PDF documents now display with improved rendering and zoom controls",
+    "category": "improvement"
+  },
+  {
+    "hash": "2e1b5f5dc9fb52acb086c65bd823ec373e2cff56",
+    "date": "2026-09-01",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "1b1abff1caa068b40a8a3fc172d001e7d0ec3150",
     "date": "2026-08-31",
     "subject": "User pickers now only display members from your current workspace",
