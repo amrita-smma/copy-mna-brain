@@ -138,6 +138,9 @@ export async function GET(request: NextRequest) {
     const pageSize = parsePositiveInt(params.get("pageSize"), DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE);
     const sortField = parseSortField(params.get("sortField"));
     const sortDirection = params.get("sortDirection") === "asc" ? "asc" : "desc";
+    // Callers that only need name/key (e.g. a search picker) skip S3 signing
+    // entirely — signing is a real API round-trip per row that goes unused.
+    const lite = params.get("lite") === "true";
 
     const db = createDb();
     const { fileService } = createContainer(db, await getActiveWorkspaceId());
@@ -148,6 +151,7 @@ export async function GET(request: NextRequest) {
       sortDirection,
       limit: pageSize,
       offset: (page - 1) * pageSize,
+      skipSignedUrls: lite,
     });
     return NextResponse.json({ success: true, data, total, page, pageSize });
   } catch (error) {

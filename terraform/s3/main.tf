@@ -38,7 +38,12 @@ resource "aws_s3_bucket_cors_configuration" "app_data" {
     allowed_headers = ["*"]
     allowed_methods = ["GET", "PUT", "POST", "HEAD", "DELETE"]
     allowed_origins = local.s3_cors_allowed_origins
-    expose_headers  = ["ETag"]
+    # Content-Length/Accept-Ranges/Content-Range must be exposed so the
+    # in-browser PDF viewer (react-pdf/pdfjs, which fetches via XHR and is
+    # therefore subject to CORS header-exposure rules unlike a plain iframe
+    # navigation) can detect range-request support and stream large PDFs
+    # page-by-page instead of downloading the whole file up front.
+    expose_headers  = ["ETag", "Content-Length", "Accept-Ranges", "Content-Range"]
     max_age_seconds = 3000
   }
 }

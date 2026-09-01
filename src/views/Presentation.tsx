@@ -20,6 +20,8 @@ import {
   usePresentationViewer,
   fileKind,
 } from "@/components/presentation/PresentationViewerContext";
+import { PresentationFileSearch } from "@/components/presentation/PresentationFileSearch";
+import { detectFileKind, isPresentableFileKind } from "@/lib/fileType";
 import { useWorkspaceHref } from "@/hooks/useWorkspaceHref";
 
 interface RecentFileItem {
@@ -99,6 +101,12 @@ export default function Presentation() {
     router.replace(`${presentationHref}?${params.toString()}`);
   };
 
+  const openSearchResult = (file: { fileKey: string; fileName: string }) => {
+    openFile({ key: file.fileKey, name: file.fileName });
+    const params = new URLSearchParams({ key: file.fileKey, name: file.fileName });
+    router.replace(`${presentationHref}?${params.toString()}`);
+  };
+
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
   // Clear the persisted file before showing the list, otherwise it would
@@ -126,7 +134,9 @@ export default function Presentation() {
   if (showViewer) {
     const displayName = currentFile?.name ?? name;
     const kind = fileKind(displayName);
-    const canFullscreen = !!signedUrl && (kind === "pdf" || kind === "pptx");
+    // Fullscreen is available for any kind FileBody can actually render, not
+    // just pdf/pptx — matches what the search picker offers as "presentable".
+    const canFullscreen = !!signedUrl && isPresentableFileKind(detectFileKind(displayName));
 
     return (
       <>
@@ -145,6 +155,9 @@ export default function Presentation() {
                 )}
                 <span className="truncate text-sm font-medium">{displayName || "File"}</span>
               </div>
+            </div>
+            <div className="min-w-0 flex-1">
+              <PresentationFileSearch onSelect={openSearchResult} className="ml-auto max-w-sm" />
             </div>
             <div className="flex flex-shrink-0 items-center gap-2">
               {canFullscreen && (
@@ -201,13 +214,15 @@ export default function Presentation() {
       <div className="mx-auto w-full max-w-3xl p-6">
         <div className="mb-6 flex items-center gap-3">
           <PresentationIcon className="h-7 w-7 text-primary" />
-          <div>
+          <div className="min-w-0 flex-1">
             <h1 className="text-2xl font-semibold tracking-tight">Presentation</h1>
             <p className="text-sm text-muted-foreground">
               Recently opened files. Select one to display it full screen.
             </p>
           </div>
         </div>
+
+        <PresentationFileSearch onSelect={openSearchResult} className="mb-6" />
 
         {listLoading ? (
           <div className="flex h-64 items-center justify-center">

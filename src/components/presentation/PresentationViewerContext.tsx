@@ -10,8 +10,9 @@ import {
   type ReactNode,
 } from 'react';
 import { usePathname } from 'next/navigation';
-import { Loader2, FileText, FileType2, Download } from 'lucide-react';
-import { Button } from '@/components/ui/button';
+import { Loader2, FileText } from 'lucide-react';
+import FileBody from '@/components/Files/FileBody';
+import { detectFileKind } from '@/lib/fileType';
 
 export interface PresentationFile {
   /** Stable S3 key (preferred — re-signs on demand, recorded as recently-opened). */
@@ -24,9 +25,9 @@ export interface PresentationFile {
 export type PresentationKind = 'pdf' | 'pptx' | 'other';
 
 export function fileKind(name: string): PresentationKind {
-  const ext = name.split('.').pop()?.toLowerCase();
-  if (ext === 'pdf') return 'pdf';
-  if (ext === 'pptx' || ext === 'ppt') return 'pptx';
+  const kind = detectFileKind(name);
+  if (kind === 'pdf') return 'pdf';
+  if (kind === 'pptx') return 'pptx';
   return 'other';
 }
 
@@ -73,13 +74,14 @@ function fileIdentity(file: PresentationFile | null): string | null {
  * Keeps the Presentation file viewer mounted for the whole session so it never
  * reloads when the user navigates between tabs.
  *
- * An iframe is destroyed and reloaded whenever it is unmounted or reparented in
- * the DOM (a browser limitation, not a React one), so we cannot rely on
- * portals or per-route mounting. Instead the iframe lives in a single fixed
- * overlay rendered above the router, and the `/presentation` page registers a
- * placeholder element that the overlay is positioned over. Leaving the page
- * just hides the overlay with CSS; returning re-reveals the very same iframe
- * with its live state (current slide, scroll position) intact.
+ * An iframe (used for pptx) is destroyed and reloaded whenever it is unmounted
+ * or reparented in the DOM (a browser limitation, not a React one), and the
+ * PDF viewer would likewise lose its component state (current page, zoom) on
+ * unmount, so we cannot rely on portals or per-route mounting. Instead the
+ * viewer lives in a single fixed overlay rendered above the router, and the
+ * `/presentation` page registers a placeholder element that the overlay is
+ * positioned over. Leaving the page just hides the overlay with CSS;
+ * returning re-reveals the very same viewer with its live state intact.
  */
 export function PresentationViewerProvider({ children }: { children: ReactNode }) {
   const pathname = usePathname();
@@ -219,7 +221,18 @@ export function PresentationViewerProvider({ children }: { children: ReactNode }
     return () => cancelAnimationFrame(raf);
   }, [visible, viewport]);
 
-  const kind = currentFile ? fileKind(currentFile.name) : 'other';
+  // Triggers a same-tab download via a throwaway anchor — mirrors what a
+  // plain `<a download>` does, but as an on-demand action so it can be
+  // FileBody's shared "Download instead" / "Download File" button.
+  const triggerDownload = useCallback(async () => {
+    const href = downloadUrl || signedUrl;
+    if (!href) return;
+    const link = document.createElement('a');
+    link.href = href;
+    if (currentFile?.name) link.download = currentFile.name;
+    link.rel = 'noreferrer';
+    link.click();
+  }, [downloadUrl, signedUrl, currentFile?.name]);
 
   return (
     <PresentationViewerContext.Provider
@@ -252,35 +265,8 @@ export function PresentationViewerProvider({ children }: { children: ReactNode }
             <FileText className="h-10 w-10 opacity-50" />
             <p>{error}</p>
           </div>
-        ) : signedUrl && kind === 'pdf' ? (
-          <iframe src={signedUrl} className="h-full w-full border-0" title={currentFile?.name || 'PDF'} />
-        ) : signedUrl && kind === 'pptx' ? (
-          <iframe
-            src={`https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(signedUrl)}`}
-            className="h-full w-full border-0"
-            title={currentFile?.name || 'Presentation'}
-          />
         ) : signedUrl ? (
-          <div className="flex h-full w-full flex-col items-center justify-center gap-4 text-muted-foreground">
-            <FileType2 className="h-12 w-12 opacity-50" />
-            <div className="text-center">
-              <p className="font-medium text-foreground">Preview not supported</p>
-              <p className="text-sm">Only PDF and PPTX files can be displayed here.</p>
-            </div>
-            {(downloadUrl || signedUrl) && (
-              <a
-                href={(downloadUrl || signedUrl) as string}
-                target="_blank"
-                rel="noreferrer"
-                download={currentFile?.name || undefined}
-              >
-                <Button variant="outline" className="gap-1.5">
-                  <Download className="h-4 w-4" />
-                  Download file
-                </Button>
-              </a>
-            )}
-          </div>
+          <FileBody url={signedUrl} fileName={currentFile?.name || ''} onDownload={triggerDownload} />
         ) : null}
       </div>
     </PresentationViewerContext.Provider>

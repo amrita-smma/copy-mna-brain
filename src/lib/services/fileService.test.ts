@@ -3550,6 +3550,18 @@ describe('FileService.list', () => {
       offset: 40,
     });
   });
+
+  it('skips signing entirely when skipSignedUrls is set', async () => {
+    const fileRepo = makeFileRepoStub();
+    const row = makeFile({ id: 'file-1' });
+    vi.mocked(fileRepo.listPaginated).mockResolvedValue({ rows: [row], total: 1 });
+    const service = makeService({ fileRepo });
+
+    const result = await service.list({ limit: 10, offset: 0, skipSignedUrls: true });
+
+    expect(result.data).toEqual([row]);
+    expect(getSignedUrl).not.toHaveBeenCalled();
+  });
 });
 
 describe('FileService.reprocess', () => {

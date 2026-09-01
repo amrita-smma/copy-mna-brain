@@ -410,10 +410,15 @@ export class FileService {
    * Paginated listing for the Smart Files view. Delegates the search / sort /
    * pagination to the repository and only signs URLs for the returned page, so
    * a large workspace no longer signs and ships every file on each load.
+   *
+   * `skipSignedUrls` opts out of signing entirely — for callers (e.g. a file
+   * search/picker) that only need `file_name`/`file_link`, signing every
+   * result on each keystroke would be pure waste (a real S3 API round-trip
+   * per row for a value that's never read).
    */
-  async list(opts: FileListOptions) {
+  async list(opts: FileListOptions & { skipSignedUrls?: boolean }) {
     const { rows, total } = await this.fileRepo.listPaginated(opts);
-    const data = await this.attachSignedUrls(rows);
+    const data = opts.skipSignedUrls ? rows : await this.attachSignedUrls(rows);
     return { data, total };
   }
 
