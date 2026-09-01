@@ -6,10 +6,24 @@ import type { ChangelogEntry } from './changelog';
 
 export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   {
+    "hash": "db8fa40a79e25b18c65da32fd008fc60de89a7cf",
+    "date": "2026-09-01",
+    "subject": "Standardized geography and industry segment formatting for clearer deal classification",
+    "category": "improvement"
+  },
+  {
     "hash": "1b1abff1caa068b40a8a3fc172d001e7d0ec3150",
     "date": "2026-08-31",
     "subject": "User pickers now only display members from your current workspace",
     "category": "improvement"
+  },
+  {
+    "hash": "64491b2deec38066e68b940ea37a41c35a1175e3",
+    "date": "2026-08-31",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
   },
   {
     "hash": "8bbcbd5a70bc2b7bbdc97fbd9e2f7a61ff2f562d",
