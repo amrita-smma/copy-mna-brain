@@ -154,12 +154,12 @@ ${thesis}
 ## Data Fields to Research
 For each company, try to find and populate ALL of these fields (use null if data not available):
 - target: Company name
-- segment: Industry/sector classification
+- segment: Industry/sector classification. Keep it BROAD, not hyper-specific — a category many companies can share (e.g. "Semiconductor", "CMP Slurry", "Petrochemical", "Upstream Palm Oil"), not a narrow niche unique to one company, an em-dash sub-clause, or a comma-separated list of sub-activities. Over-specific segments create minimal overlap and make cohort grouping useless. Always in ENGLISH, even if source material is in another language — translate rather than keep the original-language term.
 - segment_related_offerings: Specific products/services in the segment
 - company_focus: Main business focus and offerings
 - website: Company website URL
 - ownership: "Private", "Public", or "PE-backed"
-- geography: Headquarters country — a SINGLE country name only (e.g. "United States", "Switzerland", "South Korea"). Pick the one country where the company is headquartered. NEVER combine multiple countries, regions, cities, or facility/R&D locations (e.g. NOT "United States (HQ: New York City; R&D: Tel Aviv, Israel)" and NOT "Switzerland / China").
+- geography: Headquarters country — EXACTLY ONE country name only (e.g. "United States", "Switzerland", "South Korea"). Pick the one country where the company is headquartered. Output just the country name — never append a province, state, region, city, or facility in parentheses or after a dash (e.g. NOT "China (Guangxi Zhuang Autonomous Region, Guigang)" and NOT "Indonesia (Central and West Kalimantan)"). NEVER combine multiple countries, regions, cities, or facility/R&D locations (e.g. NOT "United States (HQ: New York City; R&D: Tel Aviv, Israel)" and NOT "Switzerland / China"). Always in ENGLISH, even if source material is in another language (e.g. "中国" → "China", "대한민국" → "South Korea") — never the original-language name.
 - revenue_2021_usd_mn through revenue_2024_usd_mn: Annual revenue in USD millions
 - ebitda_2021_usd_mn through ebitda_2024_usd_mn: Annual EBITDA in USD millions
 - ev_2024: Enterprise value in USD millions

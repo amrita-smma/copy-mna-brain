@@ -9,7 +9,7 @@ export const companiesSchema = [
   { name: "watchlist_id", type: "integer" },
   // Basic info
   { name: "target", type: "text" },
-  { name: "segment", type: "text" },
+  { name: "segment", type: "text (broad sector/segment category, e.g. \"Semiconductor\", \"Upstream Palm Oil\" — not a hyper-specific niche or a long descriptive clause; always in English)" },
   { name: "segment_related_offerings", type: "text" },
   { name: "company_focus", type: "text" },
   { name: "website", type: "text" },
@@ -17,7 +17,7 @@ export const companiesSchema = [
   { name: "pipeline_stage", type: "pipeline_stage (enum: market_screening, unreviewed, discovered, L0, L1, L2, L3, L4, L5)" },
   { name: "comments", type: "text" },
   { name: "ownership", type: "text" },
-  { name: "geography", type: "text (headquarters country — EXACTLY ONE country name, e.g. \"United States\"; never a region, a city, or multiple countries)" },
+  { name: "geography", type: "text (headquarters country — EXACTLY ONE country name, e.g. \"United States\"; never a region, a city, or multiple countries; always in English)" },
   { name: "source", type: "deal_origin (enum: inbound, outbound)" },
   { name: "status", type: "company_status (enum: active, dropped)" },
   { name: "remarks", type: "text" },

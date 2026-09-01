@@ -148,7 +148,8 @@ ${userRawNotes}
    - communications: Array of email communications extracted from banker communications files. Only exists if the file type is "banker_communications". Each communication should have: from_email, from_name, to_email, to_name, sent_at (in ISO 8601 format if available), company (if the sender/recipient is associated with a company). Do not extract subject or body.
 
 ## Output Format:
-Your response should end with a JSON block in this format:
+Your response should end with a JSON block in this format.
+**segment / geography rules (CRITICAL):** "segment" must be a BROAD sector/category many companies can share — a few words only (e.g. "Semiconductor", "Pulp and Paper Manufacturing", "Upstream Palm Oil"). Do NOT append em-dash sub-clauses, product grades, or comma-separated sub-activity lists. "geography" must be EXACTLY ONE country name (e.g. "China", "Indonesia", "United States") — never a country plus a province/state/region/city/facility in parentheses or after a dash. Both fields must ALWAYS be in ENGLISH, even when the source document is in another language (e.g. translate "中国" to "China", "印度尼西亚" to "Indonesia", "造纸" to "Pulp and Paper Manufacturing") — never output the original-language term.
 \`\`\`json
 {
   "file_type": "...",
@@ -191,14 +192,14 @@ Your response should end with a JSON block in this format:
     {
       "company_name": "Deal target legal entity name — same rules as prospectus_summary.company_name below.",
       "project_name": "Project codename if present — same rules as prospectus_summary.project_name below.",
-      "segment": "...",
+      "segment": "BROAD sector/category only (e.g. 'Semiconductor', 'Upstream Palm Oil') — a few words, no em-dash sub-clauses or comma-separated sub-activity lists",
       "segment_related_offerings": "...",
       "company_focus": "...",
       "website": "...",
       "watchlist_status": "...",
       "comments": "...",
       "ownership": "...",
-      "geography": "country name",
+      "geography": "EXACTLY ONE country name (e.g. 'China', 'United States') — never append a province/state/region/city/facility in parentheses or after a dash",
       "remarks": "...",
       "banker": "...",
       "financials": [],
@@ -208,14 +209,14 @@ Your response should end with a JSON block in this format:
   "prospectus_summary": {
     "company_name": "Legal entity name if the document identifies one (e.g. 'Acme Corp'). Null if only a project codename is known.",
     "project_name": "Project codename if present (e.g. 'Project Phoenix'). Null if no codename is used. Set this even when company_name is also known.",
-    "segment": "...",
+    "segment": "BROAD sector/category only (e.g. 'Semiconductor', 'Upstream Palm Oil') — a few words, no em-dash sub-clauses or comma-separated sub-activity lists",
     "segment_related_offerings": "...",
     "company_focus": "...",
     "website": "...",
     "watchlist_status": "...",
     "comments": "...",
     "ownership": "...",
-    "geography": "country name",
+    "geography": "EXACTLY ONE country name (e.g. 'China', 'United States') — never append a province/state/region/city/facility in parentheses or after a dash",
     "remarks": "...",
     "banker": "Name of the investment bank or financial advisor that prepared or is presenting this document (e.g. 'Goldman Sachs', 'Morgan Stanley'). Only populate when explicitly stated and you are confident — null if unclear or low confidence.",
     "financials": [
