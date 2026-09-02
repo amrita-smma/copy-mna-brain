@@ -6,6 +6,20 @@ import type { ChangelogEntry } from './changelog';
 
 export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   {
+    "hash": "f7bd8b195c74982a5416c3429665adcb37c65987",
+    "date": "2026-09-02",
+    "subject": "override image-size with image-size-next@2.1.1",
+    "category": "fix",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "5d265ca7b44fa4a0349f7c2661c570d298fc3345",
+    "date": "2026-09-02",
+    "subject": "Reduced storage usage by automatically cleaning up outdated preview artifacts",
+    "category": "fix"
+  },
+  {
     "hash": "db8fa40a79e25b18c65da32fd008fc60de89a7cf",
     "date": "2026-09-01",
     "subject": "Standardized geography and industry segment formatting for clearer deal classification",
@@ -19,6 +33,14 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   },
   {
     "hash": "2e1b5f5dc9fb52acb086c65bd823ec373e2cff56",
+    "date": "2026-09-01",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
+    "hash": "92899fa2f8b14e32dc51fb2d0435060e395aa41c",
     "date": "2026-09-01",
     "subject": "[skip deploy] chore: update changelog",
     "category": "improvement",
