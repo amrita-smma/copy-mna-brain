@@ -20,6 +20,22 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "category": "fix"
   },
   {
+    "hash": "00543523336d56ed71d44bb48cb7b724c078faa0",
+    "date": "2026-09-02",
+    "subject": "pin nanoid to 3.3.18 and 5.1.16",
+    "category": "fix",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "cffcdfc36c94083d0d919412a92ebc67ae9b6cec",
+    "date": "2026-09-02",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "db8fa40a79e25b18c65da32fd008fc60de89a7cf",
     "date": "2026-09-01",
     "subject": "Standardized geography and industry segment formatting for clearer deal classification",
