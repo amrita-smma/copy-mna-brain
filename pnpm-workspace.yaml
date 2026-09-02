@@ -15,6 +15,9 @@ overrides:
   # got@9 (via aframe → react-force-graph) has no patched 9.x; pin to patched 11.x
   'got@9': 11.8.6
   '@esbuild-kit/core-utils>esbuild': ^0.25.0
+  # Official image-size is archived (latest 2.0.2, no patch). Transitive via
+  # pptxgenjs 4.0.1. image-size-next@2.1.1 is a drop-in fork for CVE-2025-71329/71330.
+  image-size: npm:image-size-next@2.1.1
 
 onlyBuiltDependencies:
   - '@nestjs/core'
