@@ -51,7 +51,7 @@ jobs:
     permissions:
       contents: write
       pull-requests: write
-      actions: read
+      actions: write
 
     env:
       VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
@@ -297,13 +297,35 @@ jobs:
           echo "Running e2e against $PREVIEW_BASE_URL (E2E_DATA_MODE=$E2E_DATA_MODE)"
           pnpm test:e2e:preview
 
-      - name: Upload Playwright report
+      # Full HTML reports were ~350MB (traces/videos) and 14-day always-on
+      # uploads exhausted the org Actions artifact quota.
+      - name: Prune old Playwright artifacts
         if: always()
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh api --paginate "repos/${GITHUB_REPOSITORY}/actions/artifacts?per_page=100" \
+            --jq '.artifacts[] | select(.name | startswith("playwright-report")) | "\(.created_at)\t\(.id)\t\(.name)\t\(.size_in_bytes)"' \
+            | sort \
+            | while IFS=$'\t' read -r created id name size; do
+                [ -z "${id:-}" ] && continue
+                echo "Deleting $name id=$id size=$size created=$created"
+                gh api -X DELETE "repos/${GITHUB_REPOSITORY}/actions/artifacts/$id"
+              done
+
+      - name: Upload Playwright report
+        if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: playwright-report-${{ github.run_id }}
-          path: playwright-report/
-          retention-days: 14
+          path: |
+            playwright-report/
+            !playwright-report/**/*.zip
+            !playwright-report/**/*.webm
+          retention-days: 3
+          if-no-files-found: ignore
 
       - name: Close ephemeral PR
         if: always() && steps.pr.outputs.pr_number != ''

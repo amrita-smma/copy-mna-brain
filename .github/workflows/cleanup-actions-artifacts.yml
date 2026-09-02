@@ -1,0 +1,51 @@
+name: Cleanup Actions Artifacts
+
+# Frees GitHub Actions artifact quota by deleting old Playwright reports.
+# Does not run the 90-minute E2E Preview suite.
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/cleanup-actions-artifacts.yml'
+      - '.github/workflows/e2e-preview.yml'
+  workflow_dispatch:
+  schedule:
+    # Weekly — keep expired/old playwright-report artifacts from re-filling quota.
+    - cron: '0 4 * * 1'
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  cleanup:
+    name: Delete old playwright-report artifacts
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Delete playwright-report artifacts (oldest first)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          echo "Listing playwright-report artifacts for ${GITHUB_REPOSITORY}..."
+          rows=$(gh api --paginate "repos/${GITHUB_REPOSITORY}/actions/artifacts?per_page=100" \
+            --jq '.artifacts[] | select(.name | startswith("playwright-report")) | "\(.created_at)\t\(.id)\t\(.name)\t\(.size_in_bytes)"' \
+            | sort)
+          if [ -z "$rows" ]; then
+            echo "No playwright-report artifacts to delete."
+            exit 0
+          fi
+          deleted=0
+          bytes=0
+          while IFS=$'\t' read -r created id name size; do
+            [ -z "${id:-}" ] && continue
+            echo "Deleting $name id=$id size=$size created=$created"
+            gh api -X DELETE "repos/${GITHUB_REPOSITORY}/actions/artifacts/$id"
+            deleted=$((deleted + 1))
+            bytes=$((bytes + size))
+          done <<< "$rows"
+          echo "Deleted $deleted artifacts totaling $bytes bytes"
+          echo "Remaining artifacts:"
+          gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts?per_page=100" \
+            --jq '{total: .total_count, bytes: ([.artifacts[] | .size_in_bytes] | add // 0), names: [.artifacts[].name]}'
