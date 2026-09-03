@@ -12,6 +12,20 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "category": "feature"
   },
   {
+    "hash": "fa717b1b381ea15b680e87e0b4adcfb0d45b910d",
+    "date": "2026-09-03",
+    "subject": "Data Navigator search now powered by advanced AI capabilities",
+    "category": "improvement"
+  },
+  {
+    "hash": "6c84a105ad9d1356bcbf46e5a1f673718c1dd3d4",
+    "date": "2026-09-03",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "f7bd8b195c74982a5416c3429665adcb37c65987",
     "date": "2026-09-02",
     "subject": "override image-size with image-size-next@2.1.1",
