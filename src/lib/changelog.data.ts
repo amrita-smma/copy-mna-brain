@@ -106,6 +106,20 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "skipReason": "noise"
   },
   {
+    "hash": "b955f42d4e179beff6e9ed69e5dcbf6727707382",
+    "date": "2026-09-03",
+    "subject": "Admin portal Users table columns now fit properly without covering the remove button",
+    "category": "fix"
+  },
+  {
+    "hash": "28e606d16f428d98f259fe5ad8cc4f589484eabf",
+    "date": "2026-09-03",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "f7bd8b195c74982a5416c3429665adcb37c65987",
     "date": "2026-09-02",
     "subject": "override image-size with image-size-next@2.1.1",
