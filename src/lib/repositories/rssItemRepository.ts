@@ -1,4 +1,5 @@
-import { and, desc, eq, gte, ilike, inArray, lte, or, sql } from 'drizzle-orm';
+import { and, desc, eq, getTableColumns, ilike, inArray, or, sql } from 'drizzle-orm';
+import type { Column, SQL } from 'drizzle-orm';
 import { rssItems } from '@/lib/db/schema';
 import type { RssCategory } from '@/lib/db/schema';
 import type { DbClient, Tables } from './types';
@@ -26,6 +27,52 @@ export const DEFAULT_PAGE_SIZE = 50;
 export const MAX_PAGE_SIZE = 100;
 
 /**
+ * The publish timestamp we actually trust.
+ *
+ * `published_at` comes from the feed's `<pubDate>`, which is publisher-
+ * controlled and is wrong often enough to matter: a timezone bug, a
+ * mis-set clock, or a scheduled post can stamp an item hours or days
+ * ahead of when it was actually published. In a newest-first feed such an
+ * item pins itself to the very top and stays there — ahead of genuinely
+ * newer stories — until real time catches up with the bad date.
+ *
+ * When an item claims to have been published AFTER we fetched it, that
+ * claim is not credible, so we fall back to `ingested_at` — the one
+ * timestamp in the row we produced ourselves and can vouch for.
+ *
+ * Compared against `ingested_at` rather than `now()` on purpose. `now()`
+ * would make a row's sort key change as the wall clock advances, which
+ * both reshuffles the feed under a reader mid-scroll and can break the
+ * keyset cursor below (a cursor captured before the flip would skip or
+ * repeat rows after it). Against `ingested_at` the expression is a pure
+ * function of the row: stable forever once written.
+ *
+ * A NULL `published_at` stays NULL — `CASE` returns NULL from the ELSE
+ * branch — which keeps undated rows in the `NULLS LAST` bucket the
+ * pagination logic already handles explicitly.
+ */
+function trustedPublishedAt(published: SQL | Column, ingested: SQL | Column) {
+  return sql<string | null>`CASE
+  WHEN ${published} > ${ingested} THEN ${ingested}
+  ELSE ${published}
+END`;
+}
+
+const EFFECTIVE_PUBLISHED_AT = trustedPublishedAt(rssItems.published_at, rssItems.ingested_at);
+
+/**
+ * The same expression bound to the `i` alias used by the hand-written join in
+ * `rssItemChunkRepository.vectorSearch`. That query cannot take the Drizzle
+ * column refs above (they render table-qualified as `items.…`, not `i.…`), and
+ * hand-copying the CASE there would let the two drift apart — so both come out
+ * of `trustedPublishedAt` and change together.
+ */
+export const EFFECTIVE_PUBLISHED_AT_JOINED_ITEM = trustedPublishedAt(
+  sql`i.published_at`,
+  sql`i.ingested_at`,
+);
+
+/**
  * The list projection: everything except `content_text` (potentially 200 KB
  * per row) and `llm_labels`. The detail endpoint fetches those for one row.
  */
@@ -40,7 +87,7 @@ const LIST_COLUMNS = {
   summary: rssItems.summary,
   authors: rssItems.authors,
   tags: rssItems.tags,
-  published_at: rssItems.published_at,
+  published_at: EFFECTIVE_PUBLISHED_AT.as('published_at'),
   ingested_at: rssItems.ingested_at,
   relevance: rssItems.relevance,
   relevance_score: rssItems.relevance_score,
@@ -81,8 +128,8 @@ export class RssItemRepository {
       // the moment a reader pages past the last dated row.
       conditions.push(
         publishedAt === null
-          ? sql`(${rssItems.published_at} IS NULL AND ${rssItems.id} < ${id})`
-          : sql`((${rssItems.published_at}, ${rssItems.id}) < (${publishedAt}::timestamptz, ${id}::uuid) OR ${rssItems.published_at} IS NULL)`,
+          ? sql`(${EFFECTIVE_PUBLISHED_AT} IS NULL AND ${rssItems.id} < ${id})`
+          : sql`((${EFFECTIVE_PUBLISHED_AT}, ${rssItems.id}) < (${publishedAt}::timestamptz, ${id}::uuid) OR ${EFFECTIVE_PUBLISHED_AT} IS NULL)`,
       );
     }
 
@@ -91,13 +138,19 @@ export class RssItemRepository {
     const filtered = conditions.length > 0 ? query.where(and(...conditions)) : query;
 
     return filtered
-      .orderBy(sql`${rssItems.published_at} DESC NULLS LAST`, desc(rssItems.id))
+      .orderBy(sql`${EFFECTIVE_PUBLISHED_AT} DESC NULLS LAST`, desc(rssItems.id))
       .limit(limit) as Promise<RssItemListRow[]>;
   }
 
   async findById(id: string): Promise<Tables<'rss_items'> | undefined> {
-    const [row] = await this.db.select().from(rssItems).where(eq(rssItems.id, id)).limit(1);
-    return row;
+    const [row] = await this.db
+      // Every column, with `published_at` swapped for the trusted expression
+      // so the reading pane can't display a date the list already corrected.
+      .select({ ...getTableColumns(rssItems), published_at: EFFECTIVE_PUBLISHED_AT.as('published_at') })
+      .from(rssItems)
+      .where(eq(rssItems.id, id))
+      .limit(1);
+    return row as Tables<'rss_items'> | undefined;
   }
 
   /**
@@ -140,7 +193,7 @@ export class RssItemRepository {
       .select(LIST_COLUMNS)
       .from(rssItems)
       .where(and(...conditions))
-      .orderBy(sql`${rssItems.published_at} DESC NULLS LAST`, desc(rssItems.id))
+      .orderBy(sql`${EFFECTIVE_PUBLISHED_AT} DESC NULLS LAST`, desc(rssItems.id))
       .limit(clampLimit(limit)) as Promise<RssItemListRow[]>;
   }
 
@@ -178,8 +231,16 @@ function buildConditions(filters: RssItemFilters): ReturnType<typeof and>[] | nu
     if (filters.regions.length === 0) return null;
     conditions.push(inArray(rssItems.region, filters.regions));
   }
-  if (filters.from) conditions.push(gte(rssItems.published_at, filters.from));
-  if (filters.to) conditions.push(lte(rssItems.published_at, filters.to));
+  // Raw `sql` on the left means Drizzle has no column type to bind the ISO
+  // string against, so it would go over as untyped text and Postgres would
+  // reject `timestamptz >= text`. Cast explicitly, exactly as the keyset
+  // cursor above and `rssItemChunkRepository` already do.
+  if (filters.from) {
+    conditions.push(sql`${EFFECTIVE_PUBLISHED_AT} >= ${filters.from}::timestamptz`);
+  }
+  if (filters.to) {
+    conditions.push(sql`${EFFECTIVE_PUBLISHED_AT} <= ${filters.to}::timestamptz`);
+  }
   if (filters.selectedOnly) conditions.push(eq(rssItems.relevance, 'selected'));
 
   return conditions;

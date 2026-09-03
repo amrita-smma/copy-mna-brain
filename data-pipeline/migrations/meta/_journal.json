@@ -134,6 +134,13 @@
       "when": 1788307200000,
       "tag": "20260902000000_rss_schema",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1788393600000,
+      "tag": "20260903000000_rss_items_effective_published_at_index",
+      "breakpoints": true
     }
   ]
 }

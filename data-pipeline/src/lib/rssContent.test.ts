@@ -165,6 +165,35 @@ describe('fetchWithRedirectGuard', () => {
     );
   });
 
+  it('sends an identifying User-Agent and Accept headers on the request', async () => {
+    // A header-less request is what most publishers answer with a 403 or a
+    // consent shell, which is what used to strand items on `content_status
+    // = 'failed'` with nothing but their feed summary.
+    const fetchImpl = vi.fn().mockResolvedValueOnce(new Response('<html></html>', { status: 200 }));
+
+    await fetchWithRedirectGuard('https://example.com/article', 1000, fetchImpl as never);
+
+    const init = fetchImpl.mock.calls[0][1] as { headers: Record<string, string> };
+    expect(init.headers['user-agent']).toMatch(/MnaBrainBot/);
+    expect(init.headers['accept']).toContain('text/html');
+    expect(init.headers['accept-language']).toBeDefined();
+  });
+
+  it('re-sends the headers on every redirect hop, not just the first', async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(redirectResponse('https://example.com/canonical'))
+      .mockResolvedValueOnce(new Response('<html></html>', { status: 200 }));
+
+    await fetchWithRedirectGuard('https://example.com/article', 1000, fetchImpl as never);
+
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    for (const call of fetchImpl.mock.calls) {
+      const init = call[1] as { headers: Record<string, string> };
+      expect(init.headers['user-agent']).toMatch(/MnaBrainBot/);
+    }
+  });
+
   it('rejects a hostname it cannot resolve rather than letting it through', async () => {
     dnsMocks.lookup.mockRejectedValueOnce(new Error('ENOTFOUND'));
     const fetchImpl = vi.fn();

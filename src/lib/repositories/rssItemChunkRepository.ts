@@ -1,6 +1,7 @@
 import { sql } from 'drizzle-orm';
 import { EMBEDDING_DIMENSIONS } from '@/lib/bedrock';
 import type { DbClient } from './types';
+import { EFFECTIVE_PUBLISHED_AT_JOINED_ITEM } from './rssItemRepository';
 import type { RssItemFilters } from './rssItemRepository';
 
 export interface VectorHit {
@@ -80,10 +81,17 @@ export class RssItemChunkRepository {
           sql`, `,
         )})`
       : sql``;
+    // Same trusted date the list/detail/text-search paths use. Filtering the
+    // raw `published_at` here would make the two halves of hybrid search
+    // disagree about a misattributed item: unpinned from the feed but still
+    // dropped from a `to=now` vector query, or pulled into a `from` window it
+    // does not belong in.
     const fromClause = filters.from
-      ? sql`AND i.published_at >= ${filters.from}::timestamptz`
+      ? sql`AND ${EFFECTIVE_PUBLISHED_AT_JOINED_ITEM} >= ${filters.from}::timestamptz`
       : sql``;
-    const toClause = filters.to ? sql`AND i.published_at <= ${filters.to}::timestamptz` : sql``;
+    const toClause = filters.to
+      ? sql`AND ${EFFECTIVE_PUBLISHED_AT_JOINED_ITEM} <= ${filters.to}::timestamptz`
+      : sql``;
     // Relevance lives on the item (`i`), not the chunk (`c`) — the curated
     // ~75/day are marked on `rss.items.relevance`, chunks have no such column.
     const selectedOnlyClause = filters.selectedOnly ? sql`AND i.relevance = ${'selected'}` : sql``;

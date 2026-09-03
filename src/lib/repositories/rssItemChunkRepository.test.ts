@@ -58,6 +58,32 @@ describe('RssItemChunkRepository.vectorSearch', () => {
     expect(text).toContain('published_at');
   });
 
+  it('filters from/to on the trusted date so both halves of hybrid search agree', async () => {
+    const repo = new RssItemChunkRepository(mockDb as never);
+
+    await repo.vectorSearch(embedding, 5, {
+      from: '2026-09-01T00:00:00Z',
+      to: '2026-09-30T00:00:00Z',
+    });
+
+    // The item-list side ignores a `published_at` later than `ingested_at`
+    // (publishers stamp future dates). If this half filtered the raw column,
+    // a misattributed item would be unpinned from the feed yet still dropped
+    // from a bounded vector query.
+    const text = sqlText(mockDb.execute.mock.calls[0][0]);
+    const trustedDate =
+      /CASE\s+WHEN\s+i\.published_at\s*>\s*i\.ingested_at\s+THEN\s+i\.ingested_at\s+ELSE\s+i\.published_at\s+END/g;
+    // BOTH bounds, not just one — asserting the CASE merely appears would
+    // still pass with `from` regressed to the raw column, since `to` would
+    // put the expression in the statement on its own.
+    expect((text.match(trustedDate) ?? []).length).toBe(2);
+    // ...and neither bound may compare the raw column.
+    expect(text).not.toMatch(/AND\s+i\.published_at\s*[<>]=/);
+    // Both bounds carry an explicit cast; an untyped bind would fail as
+    // `timestamptz >= text`.
+    expect((text.match(/::timestamptz/g) ?? []).length).toBe(2);
+  });
+
   it('deduplicates to the best chunk per item so one article cannot fill the page', async () => {
     const repo = new RssItemChunkRepository(mockDb as never);
     await repo.vectorSearch(embedding, 5, {});

@@ -47,6 +47,7 @@ import {
   workspaceCorrespondents,
   workspaces,
 } from '../src/lib/db/schema';
+import { RSS_CATEGORIES, type RssCategory } from '../src/lib/db/schema';
 import { hashPassword } from '../src/lib/services/password';
 import { createContainer } from '../src/lib/services';
 import type { DbClient } from '../src/lib/server/db';
@@ -538,11 +539,27 @@ export function buildFundSeedFixture(ns: FundSeedNs) {
  *  - Company Graph and Insights Dashboard are on for every workspace
  *    (catalog default is off for both).
  */
+/**
+ * Feature overrides written for EVERY seeded workspace, before that
+ * workspace's own `features` map is layered on top.
+ *
+ * `DATA_NAVIGATOR_ENABLED` defaults to `false` in `FEATURE_CATALOG` (it is an
+ * opt-in nav feature in production), which meant a freshly seeded local DB had
+ * news data in `rss.items` but no way to reach it — the sidebar entry was
+ * hidden in all three workspaces. Seeding the override ON here keeps the demo
+ * data reachable everywhere without changing the production default. A
+ * workspace can still opt out by setting the key `false` in its own `features`.
+ */
+const SEED_WORKSPACE_DEFAULT_FEATURES: Record<string, boolean> = {
+  DATA_NAVIGATOR_ENABLED: true,
+};
+
 const SEED_WORKSPACES: Array<{
   id: string;
   name: string;
   slug: string;
   copilotAgent: CopilotAgentType;
+  /** Layered over `SEED_WORKSPACE_DEFAULT_FEATURES`; same key here wins. */
   features: Record<string, boolean>;
 }> = [
   {
@@ -3387,6 +3404,686 @@ const SEED_RSS_FEEDS = [
   { id: '00000000-0000-0000-0000-0000000f000f', category: 'industry_reports', source_name: 'Google News: initiates coverage', feed_url: 'https://news.google.com/rss/search?q=%22initiates+coverage%22', region: 'Global', tier: 'query' },
 ] as const;
 
+interface SeedRssStory {
+  title: string;
+  summary: string;
+  /** Extracted article body, one entry per paragraph. */
+  body: string[];
+  authors?: string;
+  tags?: string;
+}
+
+/**
+ * The local Data Navigator corpus, twelve stories per category.
+ *
+ * Every company, fund and person below is invented. That is deliberate: this
+ * fixture renders as finished market copy, and inventing the entities keeps it
+ * from reading as a factual claim about a real firm the moment someone
+ * screenshots a demo. Feeds keep their real `source_name`, since those are just
+ * the publications the poller is configured against.
+ *
+ * Twelve per category × five categories = 60 items, which is deliberately
+ * above the Data Navigator's 50-row page size so a fresh seed exercises the
+ * keyset cursor and the infinite-scroll sentinel rather than fitting on page
+ * one.
+ */
+const SEED_RSS_STORIES: Record<RssCategory, SeedRssStory[]> = {
+  expert_insights: [
+    {
+      title: 'The productivity gap between mid-market acquirers and their sponsors is widening',
+      summary:
+        'Mid-market operators are closing deals faster than their sponsors can integrate them, and the drag is showing up in year-two margins rather than at the deal table.',
+      body: [
+        'Integration capacity, not deal supply, has become the binding constraint for mid-market acquirers. Firms closing four or more bolt-ons a year are reporting that the finance function absorbs the first two cleanly and then degrades sharply, with month-end close slipping by a week or more for each subsequent transaction.',
+        'The pattern argues for staging acquisitions against integration throughput rather than against the pipeline. Acquirers that capped themselves at three deals a year held their close calendar and, on our sample, recovered synergy targets roughly two quarters earlier than peers who front-loaded.',
+      ],
+      authors: 'Dr. Helena Marsh',
+      tags: 'integration, mid-market, operating leverage',
+    },
+    {
+      title: 'Why earn-outs keep failing the sellers who negotiate them hardest',
+      summary:
+        'Sellers who win aggressive earn-out ceilings routinely collect less than those who accept lower caps tied to metrics they still control post-close.',
+      body: [
+        'The mechanics are unforgiving. An earn-out indexed to consolidated EBITDA hands the buyer every lever that determines the payout — allocation of shared costs, timing of capex, the pace at which the acquired brand is folded into a group structure. Sellers routinely accept this in exchange for a headline number they then fail to reach.',
+        'Ceilings tied to revenue in the seller’s own book, or to a retained-customer count, pay out far more reliably. The headline is smaller and the realised proceeds are larger, which is an uncomfortable trade to put in front of a founder in the last week of a negotiation.',
+      ],
+      authors: 'Priya Raghunathan',
+      tags: 'earn-outs, deal structure',
+    },
+    {
+      title: 'Diligence teams are over-indexing on churn and under-reading expansion',
+      summary:
+        'A retention number that looks stable can hide a book where expansion revenue has quietly stopped covering contraction.',
+      body: [
+        'Net revenue retention flatters a business whenever a handful of large accounts are still expanding. Strip out the top decile and many targets that present at 108 percent land closer to 94, which is a materially different asset and usually a materially different price.',
+        'The fix is unglamorous: ask for the retention bridge by cohort and by decile before the management presentation, not after. Targets that decline to produce it are telling you something about the shape of the book.',
+      ],
+      authors: 'Marcus Feld',
+      tags: 'diligence, retention, saas',
+    },
+    {
+      title: 'Rate expectations have stopped driving mid-market entry multiples',
+      summary:
+        'The correlation between forward rate curves and observed entry multiples in the sub-$200m bracket has broken down over the last four quarters.',
+      body: [
+        'Through the tightening cycle, mid-market multiples tracked the forward curve closely enough that sponsors could underwrite off it. That relationship has decoupled. Entry multiples in the bracket have held within a narrow band while the curve moved substantially in both directions.',
+        'The most plausible explanation is supply. Sale processes in the bracket are being run by a smaller cohort of sellers with genuine optionality, and those sellers are simply not clearing at the prices a rate-driven model implies.',
+      ],
+      authors: 'Dr. Helena Marsh',
+      tags: 'valuation, rates, mid-market',
+    },
+    {
+      title: 'The case against buying your way into an adjacent vertical',
+      summary:
+        'Cross-vertical acquisitions underperform same-vertical bolt-ons on almost every measure except the one that gets presented to investment committees.',
+      body: [
+        'Adjacency is easy to argue and hard to realise. The shared-infrastructure thesis assumes the two businesses sell to buyers with comparable procurement cycles; in practice the sales motions diverge enough that the combined entity runs two go-to-market organisations while paying for one.',
+        'Where cross-vertical deals do work, the acquirer has usually bought a capability rather than a customer base, and has been willing to leave the acquired commercial team entirely alone for eighteen months.',
+      ],
+      tags: 'strategy, adjacency',
+    },
+    {
+      title: 'Founder retention clauses are being priced too cheaply',
+      summary:
+        'Two-year founder lock-ups clear at a fraction of what the departure risk is actually worth to the acquirer.',
+      body: [
+        'The standard two-year lock-up is priced as a formality. It should be priced as an option the acquirer is buying, because in owner-operated businesses the founder frequently is the customer relationship, the pricing authority and the institutional memory of why the product is built the way it is.',
+        'Acquirers who have modelled the replacement cost honestly — recruitment, ramp, the revenue that leaves with the relationship — generally conclude they should have paid materially more for a longer commitment.',
+      ],
+      authors: 'Priya Raghunathan',
+      tags: 'founders, retention, deal structure',
+    },
+    {
+      title: 'Working-capital adjustments are where mid-market value quietly leaks',
+      summary:
+        'A poorly specified working-capital peg transfers more value at completion than most of the terms the parties spent their time arguing about.',
+      body: [
+        'The peg is usually set from a twelve-month average that includes a seasonal trough the buyer will never actually operate through. The result is a completion adjustment that flows to the seller for reasons unrelated to performance.',
+        'Setting the peg from a normalised operating cycle, and agreeing the normalisation before exclusivity rather than during completion accounts, removes an argument that reliably sours the first month of ownership.',
+      ],
+      tags: 'completion accounts, working capital',
+    },
+    {
+      title: 'Sponsors are rediscovering the operating partner, on very different terms',
+      summary:
+        'The operating-partner model is being rebuilt around a smaller number of deeply embedded specialists rather than a broad bench of generalists.',
+      body: [
+        'The generalist operating bench proved expensive to carry and difficult to deploy against portfolio companies whose problems were specific rather than structural. Several mid-market sponsors have cut the bench and replaced it with two or three specialists who sit inside a single portfolio company for a year at a time.',
+        'The economics are better and the outcomes are more legible, though the model concentrates risk on the sponsor’s ability to hire the right two or three people.',
+      ],
+      authors: 'Marcus Feld',
+      tags: 'operating partners, private equity',
+    },
+    {
+      title: 'What a decade of failed roll-ups says about sequencing',
+      summary:
+        'The roll-ups that failed did not buy the wrong assets; they bought the right assets in an order that made the platform unmanageable.',
+      body: [
+        'Reviewing a decade of unwound roll-ups, the common failure is sequencing rather than selection. Acquirers bought the largest available target first, which set the platform’s systems and culture around a business that was never intended to be the operating core.',
+        'The durable platforms bought a small, clean, well-instrumented business first and used it to define the operating standard everything else was migrated onto. It is a slower start and a much shorter integration tail.',
+      ],
+      tags: 'roll-ups, platform strategy',
+    },
+    {
+      title: 'Management presentations have stopped being a source of information',
+      summary:
+        'The management presentation has converged on a template so tightly that it now discriminates poorly between good and mediocre targets.',
+      body: [
+        'When every target arrives with the same forty slides prepared by the same handful of advisers, the deck stops carrying signal. Buyers increasingly treat it as a formality and move their real diligence into unstructured sessions with second-line management.',
+        'The targets that still differentiate themselves do so by volunteering the parts of the business that are not working, which remains rare enough to be genuinely informative.',
+      ],
+      authors: 'Marcus Feld',
+      tags: 'diligence, process',
+    },
+    {
+      title: 'Carve-outs are getting cheaper and considerably harder',
+      summary:
+        'Corporate sellers are accepting lower prices for non-core divisions while transferring more separation risk to the buyer than they did three years ago.',
+      body: [
+        'Transitional service agreements have shortened and narrowed. Buyers who assumed an eighteen-month runway to stand up independent finance and IT functions are being offered nine months, and are pricing the gap into the headline rather than walking.',
+        'That trade works for acquirers with genuine separation capability in-house and punishes those relying on the seller’s goodwill after completion.',
+      ],
+      tags: 'carve-outs, separation',
+    },
+    {
+      title: 'The quiet return of the minority stake',
+      summary:
+        'Sponsors unable to agree control valuations are taking structured minority positions at a rate not seen since the last cycle.',
+      body: [
+        'Where buyer and seller cannot bridge a control valuation, a structured minority with defined governance and a path to control is re-emerging as the compromise. It clears the immediate liquidity need without forcing a price the seller believes is wrong.',
+        'The risk sits in the governance package. Minority positions negotiated without genuine information rights have a long history of becoming very difficult to exit.',
+      ],
+      authors: 'Priya Raghunathan',
+      tags: 'minority stakes, structuring',
+    },
+  ],
+  market_assessment: [
+    {
+      title: 'Southeast Asian logistics software consolidates around three regional platforms',
+      summary:
+        'Fragmented national vendors are being absorbed into a small number of cross-border platforms, compressing the addressable market for new entrants.',
+      body: [
+        'Three platforms now account for an estimated two-thirds of licensed freight-management seats across the region, up from roughly a third two years ago. The consolidation has been driven by acquirers buying national incumbents for their regulatory integrations rather than their technology.',
+        'For new entrants the practical consequence is that a competitive product is no longer sufficient. Distribution now runs through customs and port integrations that take years to accredit, which is precisely what the consolidators have been buying.',
+      ],
+      authors: 'Amara Sitepu',
+      tags: 'logistics, southeast asia, consolidation',
+    },
+    {
+      title: 'Enterprise procurement cycles lengthen for the fourth consecutive quarter',
+      summary:
+        'Median time from qualified opportunity to signed contract has extended again, with the additional delay concentrated in security and legal review.',
+      body: [
+        'The extension is not a demand signal. Pipeline volume and win rates have held; what has changed is the number of internal approvals a contract passes through, with security review now the single longest stage in a majority of enterprise deals.',
+        'Vendors that pre-clear security documentation are closing materially faster than those that begin the process after commercial agreement, which is turning compliance readiness into a genuine commercial advantage.',
+      ],
+      tags: 'enterprise, procurement, sales cycles',
+    },
+    {
+      title: 'Specialty chemicals capacity additions outpace demand into next year',
+      summary:
+        'Announced capacity in the specialty segment exceeds credible demand growth, pointing to margin pressure once the new lines commission.',
+      body: [
+        'Capacity announced over the last eighteen months implies supply growth well ahead of any reasonable demand case. Most of the additions are concentrated in a narrow band of intermediates where the marginal producer already operates on thin spreads.',
+        'The likely outcome is a period of utilisation discipline followed by consolidation among sub-scale producers, a pattern the segment has run through twice before.',
+      ],
+      authors: 'Dr. Ingrid Sollberg',
+      tags: 'chemicals, capacity, margins',
+    },
+    {
+      title: 'Regional banks retreat from equipment finance, opening a gap for specialists',
+      summary:
+        'Balance-sheet pressure has pushed regional lenders out of mid-ticket equipment finance, and independent specialists are repricing accordingly.',
+      body: [
+        'Regional banks have withdrawn from mid-ticket equipment lending faster than independents can absorb the volume, leaving borrowers with fewer options and specialists with pricing power they have not had for years.',
+        'The gap is unlikely to persist. Spreads at current levels will attract capital, and the specialists best positioned are those already holding origination relationships rather than those raising a fund against the opportunity.',
+      ],
+      tags: 'equipment finance, banking',
+    },
+    {
+      title: 'Industrial automation demand splits sharply by end market',
+      summary:
+        'Aggregate automation demand looks flat, but the aggregate conceals a pronounced divergence between discrete and process end markets.',
+      body: [
+        'Headline automation orders have been broadly flat, which has been read as a plateau. Disaggregated, discrete manufacturing has contracted while process industries have grown at a healthy clip, leaving the aggregate misleading in both directions.',
+        'Suppliers weighted to process end markets are compounding through what looks from the outside like a flat market, and are being valued as though they are not.',
+      ],
+      authors: 'Dr. Ingrid Sollberg',
+      tags: 'automation, industrials',
+    },
+    {
+      title: 'Data-centre power constraints move from a coastal problem to a national one',
+      summary:
+        'Interconnection queues that were a coastal bottleneck now bind in inland markets that were the designated overflow.',
+      body: [
+        'The relocation strategy assumed inland grids had headroom. Queue data suggests that assumption has expired, with interconnection timelines in the primary overflow markets now approaching those of the coastal regions operators left.',
+        'Site selection is consequently being driven by generation adjacency rather than land cost or latency, which changes the economics of a large share of announced projects.',
+      ],
+      tags: 'data centres, power, infrastructure',
+    },
+    {
+      title: 'Private credit spreads compress as competition returns to the upper mid-market',
+      summary:
+        'Spreads in the upper mid-market have tightened materially as capital returns, while the lower mid-market holds its premium.',
+      body: [
+        'The upper mid-market is again competitive enough that pricing has moved back toward pre-tightening levels, with covenant packages loosening alongside. The lower mid-market has not followed, and the spread between the two brackets is unusually wide.',
+        'For lenders with the origination capacity to work smaller cheques, the risk-adjusted case currently sits well below the bracket where most capital is being deployed.',
+      ],
+      authors: 'Tomás Berenguer',
+      tags: 'private credit, spreads',
+    },
+    {
+      title: 'Aftermarket parts distribution proves more defensible than the equipment it serves',
+      summary:
+        'Distribution margins in aftermarket parts have held through a cycle that compressed original-equipment margins substantially.',
+      body: [
+        'Original-equipment margins have compressed through the cycle while aftermarket distribution has held, a divergence explained less by pricing power than by the switching cost embedded in a service technician’s parts catalogue.',
+        'Acquirers have noticed. Distribution assets in the segment are transacting at premiums that would have looked indefensible against the equipment manufacturers three years ago.',
+      ],
+      tags: 'aftermarket, distribution',
+    },
+    {
+      title: 'Healthcare staffing normalises, but not back to where it started',
+      summary:
+        'Contract labour rates have fallen from their peak and settled well above the pre-disruption baseline, resetting provider cost structures permanently.',
+      body: [
+        'Rates have come down substantially from peak but have stabilised at a level that leaves provider cost structures permanently reset. Operators budgeting a return to the old baseline are, on current evidence, budgeting for something that is not going to happen.',
+        'The staffing platforms that survived the correction are those that moved from spot placement into managed service arrangements, which price lower and retain far better.',
+      ],
+      authors: 'Amara Sitepu',
+      tags: 'healthcare, staffing, labour',
+    },
+    {
+      title: 'Consumer subscription churn stabilises at a structurally higher level',
+      summary:
+        'Monthly churn across consumer subscription categories has stopped rising and settled roughly two points above its historical band.',
+      body: [
+        'The stabilisation is real but the new level is not the old one. Households that learned to cycle subscriptions during the squeeze have not unlearned it, and reactivation campaigns are performing well precisely because cancellation is no longer treated as final.',
+        'Operators are adapting by underwriting to a shorter expected life and a higher reactivation rate, which produces similar lifetime value through a very different mechanism.',
+      ],
+      tags: 'consumer, subscriptions, churn',
+    },
+    {
+      title: 'European industrial energy costs stop being the decisive siting variable',
+      summary:
+        'The energy-cost gap that drove siting decisions has narrowed enough that labour availability is again the binding constraint.',
+      body: [
+        'For two years energy cost dominated European siting decisions. That gap has narrowed to the point where it no longer overrides other factors, and skilled labour availability has reasserted itself as the constraint that actually determines where a plant can run.',
+        'Regions that used cheap power as their entire pitch are finding it insufficient, while those with established technical training pipelines are winning mandates they lost during the energy spike.',
+      ],
+      authors: 'Dr. Ingrid Sollberg',
+      tags: 'europe, industrials, siting',
+    },
+    {
+      title: 'Freight rates decouple from container volumes',
+      summary:
+        'Spot freight rates and underlying container volumes have moved in opposite directions for two consecutive quarters.',
+      body: [
+        'Rates have firmed while volumes softened, a combination that historically signals capacity withdrawal rather than demand strength. Idle tonnage and slower steaming account for most of the divergence.',
+        'Shippers reading firm rates as a demand recovery are likely to be disappointed, and those locking long-term contracts at current levels are paying for a scarcity that is being managed rather than structural.',
+      ],
+      tags: 'freight, shipping, rates',
+    },
+  ],
+  new_funding: [
+    {
+      title: 'Meridian Grid raises $84m Series B for industrial demand-response software',
+      summary:
+        'The round was led by Calderwood Partners with participation from existing backers, and will fund expansion into two new regional grid operators.',
+      body: [
+        'Meridian Grid has raised $84m in a Series B led by Calderwood Partners, taking total funding to roughly $130m. The company sells demand-response orchestration to industrial energy consumers and takes a share of the capacity payments it unlocks.',
+        'Proceeds are earmarked for accreditation with two additional regional grid operators, a process management described as the primary gate on revenue rather than customer demand.',
+      ],
+      authors: 'Reuben Achterberg',
+      tags: 'series b, energy, software',
+    },
+    {
+      title: 'Sable Health closes $32m Series A for post-acute care coordination',
+      summary:
+        'The financing was led by Thornbury Ventures and brings a former hospital network operator onto the board.',
+      body: [
+        'Sable Health raised $32m in a Series A led by Thornbury Ventures. The platform coordinates discharge planning between acute hospitals and post-acute facilities, a handoff where avoidable readmissions concentrate.',
+        'The company said the round will fund expansion from its initial two-state footprint into a further five, with a former hospital network chief operating officer joining the board as part of the transaction.',
+      ],
+      tags: 'series a, healthcare',
+    },
+    {
+      title: 'Kestrel Materials secures $145m growth round for recycled aluminium capacity',
+      summary:
+        'The round combines equity and a project-finance facility to fund a second recycling line.',
+      body: [
+        'Kestrel Materials has secured $145m in a growth financing that pairs equity with a ring-fenced project-finance facility for its second recycled aluminium line. The structure keeps construction risk off the operating balance sheet.',
+        'Management said offtake for the new line is substantially contracted ahead of commissioning, which was a condition of the debt package.',
+      ],
+      authors: 'Reuben Achterberg',
+      tags: 'growth equity, materials, project finance',
+    },
+    {
+      title: 'Lanternfish raises $18m seed extension after tripling deployed volume',
+      summary:
+        'The unusually large seed extension was raised on the back of deployment growth rather than a new product cycle.',
+      body: [
+        'Lanternfish has raised an $18m seed extension, a size that would ordinarily indicate a Series A. The company deliberately avoided the round label, citing a preference to raise again on eighteen months of operating data.',
+        'Deployed volume has roughly tripled over the period without a corresponding increase in headcount, which management presented as the case for the extension.',
+      ],
+      tags: 'seed, fintech',
+    },
+    {
+      title: 'Orrin Robotics raises $60m Series C to move from pilot to production deployments',
+      summary:
+        'The company said the round funds a transition from pilot installations to multi-site production contracts with three existing customers.',
+      body: [
+        'Orrin Robotics closed a $60m Series C to fund the shift from pilots into production deployments. Three existing customers have signed multi-site agreements contingent on the company reaching a manufacturing rate it could not previously finance.',
+        'The round was led by an existing investor, with management noting that outside interest was available at a lower price and was declined.',
+      ],
+      authors: 'Naomi Okafor',
+      tags: 'series c, robotics',
+    },
+    {
+      title: 'Threadmark lands $27m to build compliance tooling for mid-market lenders',
+      summary:
+        'The financing targets a segment large lenders build in-house and small lenders currently handle manually.',
+      body: [
+        'Threadmark raised $27m to build compliance automation aimed squarely at mid-market lenders — institutions too small to justify an in-house build and too regulated to continue with spreadsheets.',
+        'The company said its early customers replaced between four and nine full-time compliance roles, which is the basis of a pricing model indexed to headcount displaced rather than seats sold.',
+      ],
+      tags: 'fintech, compliance, series a',
+    },
+    {
+      title: 'Vantablue raises $210m for its second infrastructure software fund',
+      summary:
+        'The fund closed above target and will write cheques into a segment the manager says remains under-competed.',
+      body: [
+        'Vantablue has closed its second infrastructure software fund at $210m, above a $175m target. The manager invests in software serving physical infrastructure operators, a segment it argues remains under-competed relative to enterprise SaaS generally.',
+        'Roughly two-thirds of commitments came from existing limited partners, with the balance from two institutions new to the manager.',
+      ],
+      authors: 'Naomi Okafor',
+      tags: 'fund close, venture capital',
+    },
+    {
+      title: 'Halvard Bio raises $46m Series B on manufacturing rather than clinical milestones',
+      summary:
+        'The round is explicitly structured around scaling manufacture of an approved product rather than advancing a pipeline.',
+      body: [
+        'Halvard Bio raised $46m in a Series B structured around manufacturing scale-up for an already-approved product, an unusual framing for a round at this stage and size.',
+        'Management said demand has exceeded supply since approval and that the constraint is entirely production capacity, making the financing a capacity decision rather than a clinical one.',
+      ],
+      tags: 'series b, biotech, manufacturing',
+    },
+    {
+      title: 'Coastline Freight raises $39m to expand cross-border brokerage',
+      summary:
+        'The round funds expansion of a digital brokerage into two additional border crossings.',
+      body: [
+        'Coastline Freight has raised $39m to extend its digital brokerage operation to two further border crossings. The company matches shippers with carriers holding the specific customs accreditations a given lane requires.',
+        'Expansion economics depend on carrier density on each new lane, which management acknowledged takes roughly three quarters to reach a workable level.',
+      ],
+      authors: 'Reuben Achterberg',
+      tags: 'logistics, series b',
+    },
+    {
+      title: 'Piedmont Analytics closes $12m to serve regional insurers',
+      summary:
+        'A deliberately small round aimed at a customer segment the founders argue is too small for incumbent vendors to serve.',
+      body: [
+        'Piedmont Analytics raised $12m, a size the founders described as sufficient to reach profitability without a further round. The company sells underwriting analytics to regional insurers below the threshold at which incumbent vendors will engage.',
+        'The segment is large in aggregate and fragmented in practice, which makes distribution the principal risk rather than product.',
+      ],
+      tags: 'insurtech, seed',
+    },
+    {
+      title: 'Northfleet raises $95m to consolidate regional waste haulers',
+      summary:
+        'The vehicle will pursue a buy-and-build across regional waste collection, a strategy the team ran previously at a larger sponsor.',
+      body: [
+        'Northfleet has raised $95m to consolidate regional waste haulers, a strategy the founding team executed previously inside a larger sponsor before spinning out.',
+        'The thesis rests on route density: acquiring adjacent haulers whose routes overlap allows collection frequency to be rationalised without service degradation, which is where the margin improvement sits.',
+      ],
+      authors: 'Naomi Okafor',
+      tags: 'buy-and-build, environmental services',
+    },
+    {
+      title: 'Aperture Labs raises $22m after two years without external capital',
+      summary:
+        'The company raised for the first time since inception, having reached meaningful scale on revenue alone.',
+      body: [
+        'Aperture Labs has taken $22m in its first external financing since founding, having previously funded growth from operations. The round was raised against an expansion opportunity management said could not be self-funded on an acceptable timeline.',
+        'Founders retain majority control following the transaction, an outcome the company attributed directly to having deferred the raise.',
+      ],
+      tags: 'growth equity, bootstrapped',
+    },
+  ],
+  ma_partnerships: [
+    {
+      title: 'Aldergate Industrial acquires Penvale Controls for $310m',
+      summary:
+        'The acquisition adds process-control instrumentation to Aldergate’s automation portfolio and closes an acknowledged product gap.',
+      body: [
+        'Aldergate Industrial has agreed to acquire Penvale Controls for $310m in cash. Penvale supplies process-control instrumentation into chemical and water-treatment end markets, filling a gap Aldergate has flagged to investors for several reporting periods.',
+        'The companies said Penvale will continue to operate under its own brand, with integration limited to procurement and back-office functions for at least the first year.',
+      ],
+      authors: 'Clare Whittaker',
+      tags: 'acquisition, industrials',
+    },
+    {
+      title: 'Brightmoor Group and Sennen Partners form a joint venture for regional data centres',
+      summary:
+        'The venture pairs Brightmoor’s land bank with Sennen’s development capability under a shared-economics structure.',
+      body: [
+        'Brightmoor Group and Sennen Partners have formed a joint venture to develop regional data-centre capacity, contributing land holdings and development capability respectively. Economics are shared rather than split at a fixed ratio, with returns tiered against delivered capacity.',
+        'The structure avoids Brightmoor selling land into a market it believes is undervalued while giving Sennen sites without a capital outlay it would struggle to justify.',
+      ],
+      tags: 'joint venture, data centres',
+    },
+    {
+      title: 'Corvid Software acquires Tessellate for $88m to enter the public sector',
+      summary:
+        'The deal buys accreditation and existing government contracts rather than technology.',
+      body: [
+        'Corvid Software will acquire Tessellate for $88m, a price management acknowledged is well above what the target’s technology alone would command. The rationale is Tessellate’s public-sector accreditations and contract vehicles, which take years to obtain independently.',
+        'Corvid said it expects to migrate Tessellate customers onto its own platform over eighteen months while retaining the acquired contracting entity.',
+      ],
+      authors: 'Clare Whittaker',
+      tags: 'acquisition, software, public sector',
+    },
+    {
+      title: 'Harlow Foods divests its ambient division to Kettleby Capital',
+      summary:
+        'The carve-out completes a portfolio reshaping Harlow announced two years ago.',
+      body: [
+        'Harlow Foods has agreed to sell its ambient division to Kettleby Capital, completing a reshaping announced two years ago. The division has been the group’s slowest-growing but most cash-generative segment.',
+        'Transitional services run for twelve months, notably shorter than the eighteen to twenty-four the market has come to expect on carve-outs of this size.',
+      ],
+      tags: 'carve-out, food and beverage',
+    },
+    {
+      title: 'Ravensworth Logistics acquires two regional hauliers in a single transaction',
+      summary:
+        'Both targets were bought from the same family holding company, allowing a single set of completion mechanics.',
+      body: [
+        'Ravensworth Logistics has acquired two regional hauliers held under one family holding company, structuring the purchase as a single transaction with one set of completion accounts.',
+        'Route overlap between the two targets is substantial, which Ravensworth said would allow depot consolidation without reducing service frequency on any served lane.',
+      ],
+      authors: 'Desmond Iyer',
+      tags: 'acquisition, logistics',
+    },
+    {
+      title: 'Fennimore Health partners with Larkspur Clinics on outcome-based contracting',
+      summary:
+        'A commercial partnership rather than an acquisition, structured around shared outcome risk.',
+      body: [
+        'Fennimore Health and Larkspur Clinics have entered a commercial partnership under which both parties share financial exposure to patient outcomes across an initial cohort of chronic-care patients.',
+        'Neither party took equity in the other. Both described the arrangement as a precursor to a deeper transaction should the initial cohort perform.',
+      ],
+      tags: 'partnership, healthcare',
+    },
+    {
+      title: 'Quillon Capital takes a 34% stake in Ashgrove Manufacturing',
+      summary:
+        'A structured minority with defined governance rights and a contractual path to control.',
+      body: [
+        'Quillon Capital has taken a 34 percent stake in Ashgrove Manufacturing, having failed to agree a control valuation with the founding family. The package includes board representation, information rights and a defined mechanism to move to control at a formula price.',
+        'The family retains operational control and has committed to remain for a minimum of four years under the agreement.',
+      ],
+      authors: 'Desmond Iyer',
+      tags: 'minority stake, manufacturing',
+    },
+    {
+      title: 'Marbrook Insurance acquires Stancliffe Brokers to expand specialty lines',
+      summary:
+        'The acquisition adds specialty broking capability in marine and energy risk.',
+      body: [
+        'Marbrook Insurance has agreed to acquire Stancliffe Brokers, adding specialty broking in marine and energy risk to a book weighted toward commercial property.',
+        'Marbrook said the acquired team will be left structurally intact, citing the concentration of client relationships in a small number of individual brokers.',
+      ],
+      tags: 'acquisition, insurance',
+    },
+    {
+      title: 'Petrel Energy and Ashcombe Renewables agree a development partnership',
+      summary:
+        'The partnership gives Petrel a renewables development pipeline without an outright acquisition.',
+      body: [
+        'Petrel Energy has agreed a development partnership with Ashcombe Renewables, funding project development in exchange for offtake rights and an option over completed assets.',
+        'The structure lets Petrel build exposure without consolidating development risk onto its balance sheet, and gives Ashcombe capital it could not raise on comparable terms independently.',
+      ],
+      authors: 'Clare Whittaker',
+      tags: 'partnership, energy',
+    },
+    {
+      title: 'Underhill Group acquires Fairweather Testing for $54m',
+      summary:
+        'A bolt-on adding laboratory capacity in a geography Underhill had been serving from out of region.',
+      body: [
+        'Underhill Group will acquire Fairweather Testing for $54m, adding laboratory capacity in a region Underhill has been serving through sample transport from neighbouring facilities.',
+        'The transaction removes a logistics cost and a turnaround-time disadvantage that Underhill said had cost it several tenders in the region over the past two years.',
+      ],
+      tags: 'acquisition, testing and inspection',
+    },
+    {
+      title: 'Sturmont Retail sells its distribution arm in a management buyout',
+      summary:
+        'The incumbent management team acquired the division with backing from a mid-market sponsor.',
+      body: [
+        'Sturmont Retail has sold its distribution arm to the incumbent management team, backed by a mid-market sponsor. The division had been run at arm’s length from the retail operation for some years.',
+        'A long-term supply agreement between the two entities was signed alongside the transaction, which was a condition of the sponsor’s financing.',
+      ],
+      authors: 'Desmond Iyer',
+      tags: 'mbo, retail',
+    },
+    {
+      title: 'Calder & Voss merges with Pemberton Advisory',
+      summary:
+        'Two mid-market advisory firms combine, citing client demand for sector coverage neither could sustain alone.',
+      body: [
+        'Calder & Voss and Pemberton Advisory have agreed to merge, creating a mid-market advisory firm with combined coverage across industrials, healthcare and business services.',
+        'Both firms cited client pressure for sector depth neither could fund independently. Leadership will be shared for an initial two-year period before consolidating.',
+      ],
+      tags: 'merger, professional services',
+    },
+  ],
+  industry_reports: [
+    {
+      title: 'Annual mid-market M&A review: volumes flat, structures more complex',
+      summary:
+        'Deal count was broadly unchanged year on year while the share of transactions carrying contingent consideration rose sharply.',
+      body: [
+        'Mid-market deal count finished the year broadly flat, an outcome that conceals a pronounced shift in how transactions were structured. The proportion including earn-outs, vendor loans or deferred consideration rose by more than a third.',
+        'The shift reflects a persistent valuation gap that parties are bridging through structure rather than price, which pushes the real economics of the current vintage several years out.',
+      ],
+      authors: 'Research Desk',
+      tags: 'annual review, m&a',
+    },
+    {
+      title: 'Sector outlook: business services faces a labour cost reset',
+      summary:
+        'A structural wage reset is compressing margins in labour-intensive business services faster than pricing can respond.',
+      body: [
+        'Labour-intensive business services are absorbing a wage reset that pricing has not caught up with. Contracts written on multi-year terms without indexation are the principal source of the compression.',
+        'Operators with indexed contracts have held margin. The dispersion between the two groups is now wide enough to be the dominant variable in sector valuations.',
+      ],
+      tags: 'sector outlook, business services',
+    },
+    {
+      title: 'Quarterly credit conditions: covenant packages loosen at the top of the market',
+      summary:
+        'Documentation quality has deteriorated in the upper mid-market while holding firm below it.',
+      body: [
+        'Covenant packages in the upper mid-market have loosened materially over the quarter, with maintenance covenants disappearing from a rising share of documentation. The lower mid-market has not followed.',
+        'The divergence tracks competitive intensity rather than credit quality, which is the familiar precondition for a period of poor vintage performance.',
+      ],
+      authors: 'Research Desk',
+      tags: 'credit, quarterly',
+    },
+    {
+      title: 'Technology adoption survey: automation budgets shift from pilots to production',
+      summary:
+        'A majority of surveyed enterprises moved automation spending out of innovation budgets and into operating budgets.',
+      body: [
+        'For the first time in the survey’s history, a majority of respondents reported funding automation from operating rather than innovation budgets. The shift matters because operating budgets demand a payback case that innovation budgets do not.',
+        'Vendors reporting lengthening sales cycles are, on this evidence, encountering a different buyer rather than weaker demand.',
+      ],
+      tags: 'survey, automation, enterprise',
+    },
+    {
+      title: 'Fund performance review: dispersion widens between top and median managers',
+      summary:
+        'The gap between top-quartile and median mid-market managers has widened to its largest in the dataset.',
+      body: [
+        'Dispersion between top-quartile and median mid-market managers has reached its widest level in the series. The widening is driven by the bottom of the distribution deteriorating rather than the top improving.',
+        'Manager selection consequently carries more weight in expected outcomes than allocation between strategies, reversing the relationship that held through the previous cycle.',
+      ],
+      authors: 'Research Desk',
+      tags: 'fund performance, private equity',
+    },
+    {
+      title: 'Regional economic assessment: inland manufacturing corridors outperform',
+      summary:
+        'Inland manufacturing regions recorded employment and output growth ahead of coastal metropolitan areas.',
+      body: [
+        'Inland manufacturing corridors outperformed coastal metropolitan areas on both employment and industrial output over the assessment period, continuing a reversal that began two years ago.',
+        'Power availability and industrial land cost account for most of the differential, both of which have become binding constraints in coastal markets.',
+      ],
+      tags: 'regional, manufacturing',
+    },
+    {
+      title: 'Supply chain resilience index falls for the second straight period',
+      summary:
+        'Measured resilience declined again as firms unwound the inventory buffers built during the disruption cycle.',
+      body: [
+        'The resilience index declined for a second consecutive period as firms released inventory buffers accumulated during the disruption cycle. Working-capital pressure, not restored confidence in supply, appears to be the driver.',
+        'The unwind leaves the measured supply base more exposed than at any point since the index was rebased, without a corresponding improvement in supplier diversification.',
+      ],
+      authors: 'Research Desk',
+      tags: 'supply chain, index',
+    },
+    {
+      title: 'Valuation benchmarks: software multiples stratify by growth durability',
+      summary:
+        'Multiples have separated according to growth durability rather than growth rate, a change from prior periods.',
+      body: [
+        'Software valuation multiples have re-stratified around the durability of growth rather than its rate. Businesses growing moderately for many consecutive periods now command premiums over faster-growing but more volatile peers.',
+        'The change is consistent with a buyer base weighted toward strategic acquirers and control investors rather than growth funds, and is unlikely to reverse while that composition holds.',
+      ],
+      tags: 'valuation, software',
+    },
+    {
+      title: 'Labour market study: technical training pipelines determine industrial siting',
+      summary:
+        'Access to trained technical labour has overtaken wage cost as the primary industrial siting determinant.',
+      body: [
+        'Across surveyed siting decisions, availability of trained technical labour outranked wage cost as the determining factor for the first time in the study’s history.',
+        'Regions with established apprenticeship and technical training infrastructure are capturing investment from lower-wage regions without it, a reversal of the pattern that held for most of the previous decade.',
+      ],
+      authors: 'Research Desk',
+      tags: 'labour, industrial policy',
+    },
+    {
+      title: 'ESG reporting review: assurance costs rise faster than reporting scope',
+      summary:
+        'The cost of assuring sustainability disclosures has grown faster than the disclosures themselves.',
+      body: [
+        'Assurance costs for sustainability reporting have risen faster than the scope of what is being reported, driven by a shortage of qualified assurance providers rather than by expanding requirements.',
+        'Mid-market issuers are disproportionately affected, facing broadly fixed assurance costs against a much smaller revenue base than large-cap peers.',
+      ],
+      tags: 'esg, reporting',
+    },
+    {
+      title: 'Insolvency trends: distress concentrates in leveraged services roll-ups',
+      summary:
+        'Insolvency filings are concentrated in leveraged roll-ups assembled during the low-rate period.',
+      body: [
+        'Filings have concentrated markedly in leveraged services roll-ups assembled during the low-rate period. The common profile is a platform that completed several acquisitions without integrating the acquired finance functions.',
+        'Distress in these cases has generally been triggered by an inability to produce reliable consolidated reporting for lenders rather than by underlying trading performance.',
+      ],
+      authors: 'Research Desk',
+      tags: 'insolvency, distress',
+    },
+    {
+      title: 'Cross-border deal survey: regulatory timelines lengthen in every surveyed jurisdiction',
+      summary:
+        'Median regulatory clearance timelines extended across all surveyed jurisdictions, with foreign-investment review the largest contributor.',
+      body: [
+        'Median clearance timelines lengthened in every surveyed jurisdiction, with foreign-investment review accounting for the majority of the extension. No jurisdiction in the survey recorded a reduction.',
+        'Acquirers are responding by pricing longer exclusivity periods and, in several observed cases, by declining cross-border processes entirely in favour of domestic targets.',
+      ],
+      tags: 'cross-border, regulatory',
+    },
+  ],
+};
+
+/**
+ * Stories whose feed `<pubDate>` is deliberately wrong — stamped in the future
+ * relative to when the row was ingested. `RssItemRepository`'s trusted-date
+ * expression should fall back to `ingested_at` for these, so they must appear
+ * in date order among their neighbours rather than pinned to the top of the
+ * feed. Keyed by title so the fixture stays readable.
+ */
+const MISATTRIBUTED_PUBLISH_DATES = new Set<string>([
+  'Rate expectations have stopped driving mid-market entry multiples',
+  'Coastline Freight raises $39m to expand cross-border brokerage',
+]);
+
 async function seedRssFeeds(db: DbClient) {
   const ids = SEED_RSS_FEEDS.map((f) => f.id);
   // Items cascade from feeds; delete children first anyway so a partial
@@ -3396,38 +4093,77 @@ async function seedRssFeeds(db: DbClient) {
   await db.insert(rssFeeds).values(SEED_RSS_FEEDS.map((f) => ({ ...f })));
 
   const now = Date.now();
-  await db.insert(rssItems).values(
-    SEED_RSS_FEEDS.flatMap((feed, feedIndex) =>
-      [0, 1].map((n) => {
-        const index = feedIndex * 2 + n;
-        const selected = index % 3 === 0;
-        return {
-          item_hash: `seed-${feed.id}-${n}`,
-          feed_id: feed.id,
-          category: feed.category,
-          source_name: feed.source_name,
-          region: feed.region,
-          feed_tier: feed.tier,
-          title: `${feed.source_name}: sample headline ${n + 1}`,
-          link: `https://example.com/${feed.category}/${index}`,
-          summary: `Seeded summary ${n + 1} for ${feed.source_name}. Used to render the Data Navigator locally.`,
-          authors: n === 0 ? 'Jane Analyst' : null,
-          tags: feed.category,
-          // Stagger backwards in time so the newest-first ordering is visible.
-          published_at: new Date(now - index * 3_600_000).toISOString(),
-          relevance: selected ? ('selected' as const) : ('rejected' as const),
-          relevance_score: selected ? 0.82 : 0.21,
-          content_status: selected ? ('fetched' as const) : ('none' as const),
-          content_text: selected
-            ? `Full seeded article body for ${feed.source_name} headline ${n + 1}. `.repeat(40)
-            : null,
-          content_fetched_at: selected ? new Date(now - index * 3_600_000).toISOString() : null,
-        };
-      }),
-    ),
-  );
+  const HOUR = 3_600_000;
+  /** Spacing between consecutive items, so 60 stories span roughly 12 days. */
+  const STORY_INTERVAL_MS = 5 * HOUR;
 
-  console.log(`  seeded ${SEED_RSS_FEEDS.length} rss feeds + ${SEED_RSS_FEEDS.length * 2} items`);
+  const feedsByCategory = new Map<RssCategory, typeof SEED_RSS_FEEDS[number][]>();
+  for (const feed of SEED_RSS_FEEDS) {
+    const list = feedsByCategory.get(feed.category) ?? [];
+    list.push(feed);
+    feedsByCategory.set(feed.category, list);
+  }
+
+  // Interleave the categories rather than emitting one category at a time:
+  // the feed is ordered by date, so a category-major walk would produce a
+  // list that reads as five contiguous blocks instead of a mixed news feed.
+  const ordered: Array<{ story: SeedRssStory; category: RssCategory; slot: number }> = [];
+  const deepest = Math.max(...RSS_CATEGORIES.map((c) => SEED_RSS_STORIES[c].length));
+  for (let slot = 0; slot < deepest; slot++) {
+    for (const category of RSS_CATEGORIES) {
+      const story = SEED_RSS_STORIES[category][slot];
+      if (story) ordered.push({ story, category, slot });
+    }
+  }
+
+  const rows = ordered.map(({ story, category, slot }, index) => {
+    const feeds = feedsByCategory.get(category)!;
+    const feed = feeds[slot % feeds.length];
+
+    // Rotate three content states so every branch of the reading pane is
+    // reachable from a fresh seed: a fetched full article, an item that was
+    // never queued for extraction, and one whose extraction terminally
+    // failed (both of the latter render the "Summary only" fallback).
+    const state = index % 7 === 3 ? 'none' : index % 7 === 5 ? 'failed' : 'fetched';
+    const ingestedAt = new Date(now - index * STORY_INTERVAL_MS);
+    // The honest publish time sits a little before ingestion, as it would in
+    // a real poll. The misattributed rows instead claim a future date; the
+    // repository is expected to ignore it and fall back to `ingested_at`.
+    const publishedAt = MISATTRIBUTED_PUBLISH_DATES.has(story.title)
+      ? new Date(now + (index + 12) * HOUR)
+      : new Date(ingestedAt.getTime() - 40 * 60_000);
+
+    return {
+      item_hash: `seed-${category}-${slot}`,
+      feed_id: feed.id,
+      category,
+      source_name: feed.source_name,
+      region: feed.region,
+      feed_tier: feed.tier,
+      title: story.title,
+      link: `https://example.com/${category}/${slot}`,
+      summary: story.summary,
+      authors: story.authors ?? null,
+      tags: story.tags ?? category,
+      published_at: publishedAt.toISOString(),
+      ingested_at: ingestedAt.toISOString(),
+      relevance: state === 'none' ? ('rejected' as const) : ('selected' as const),
+      relevance_score: state === 'none' ? 0.24 : 0.79,
+      content_status: state as 'fetched' | 'none' | 'failed',
+      content_text: state === 'fetched' ? story.body.join('\n\n') : null,
+      content_fetched_at: state === 'fetched' ? ingestedAt.toISOString() : null,
+      content_attempts: state === 'failed' ? 3 : 0,
+      content_error: state === 'failed' ? 'content too short' : null,
+    };
+  });
+
+  await db.insert(rssItems).values(rows);
+
+  console.log(
+    `  seeded ${SEED_RSS_FEEDS.length} rss feeds + ${rows.length} news items ` +
+      `(${rows.filter((r) => r.content_status === 'fetched').length} with full article text, ` +
+      `${MISATTRIBUTED_PUBLISH_DATES.size} with a future publish date to exercise the ingest-date fallback)`,
+  );
 }
 
 async function main() {
@@ -3506,7 +4242,8 @@ async function main() {
     // Per-workspace feature overrides. Attributed to the seed superadmin so the
     // admin portal's "last changed by" reads like a real toggle.
     for (const ws of SEED_WORKSPACES) {
-      for (const [featureKey, enabled] of Object.entries(ws.features)) {
+      const features = { ...SEED_WORKSPACE_DEFAULT_FEATURES, ...ws.features };
+      for (const [featureKey, enabled] of Object.entries(features)) {
         await db
           .insert(featureFlags)
           .values({ workspace_id: ws.id, feature_key: featureKey, enabled, updated_by: seedUser.id })
@@ -3516,7 +4253,7 @@ async function main() {
           });
       }
       console.log(
-        `  ✓ ${ws.name} (/w/${ws.slug}) → Copilot '${ws.copilotAgent}', features: ${Object.entries(ws.features)
+        `  ✓ ${ws.name} (/w/${ws.slug}) → Copilot '${ws.copilotAgent}', features: ${Object.entries(features)
           .map(([key, enabled]) => `${key}=${enabled}`)
           .join(', ')}`,
       );

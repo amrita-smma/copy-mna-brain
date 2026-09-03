@@ -8,6 +8,13 @@ import { RssItemRepository } from './rssItemRepository';
  * walking their own `queryChunks`, not just the top-level chunk array. A
  * non-recursive version of this helper can miss text that's actually in the
  * generated query, which would let a broken nested condition pass silently.
+ *
+ * It also renders the two node kinds a bare `queryChunks` walk returns '' for:
+ * an aliased fragment (`sql\`...\`.as('x')`, which holds its fragment under
+ * `.sql`) and a column reference (which carries its own `.name`). Without
+ * those, any assertion about an expression built from columns — such as the
+ * trusted-date CASE below — silently compares against an empty string and
+ * passes no matter what the query actually says.
  */
 function sqlText(q: unknown): string {
   if (q === null || q === undefined) return '';
@@ -18,6 +25,12 @@ function sqlText(q: unknown): string {
     if (Array.isArray(withChunks.queryChunks)) {
       return withChunks.queryChunks.map(sqlText).join('');
     }
+    // `SQL.Aliased` — unwrap to the fragment it wraps.
+    const aliased = q as { sql?: unknown };
+    if (aliased.sql !== undefined) return sqlText(aliased.sql);
+    // A `Column`: render as its column name so expressions read back.
+    const column = q as { name?: unknown };
+    if (typeof column.name === 'string') return column.name;
     if ('value' in q) {
       return sqlText((q as { value: unknown }).value);
     }
@@ -189,5 +202,102 @@ describe('RssItemRepository.listFilterOptions', () => {
     expect(options).toHaveLength(1);
     expect(mockDb.execute).toHaveBeenCalledTimes(1);
     expect(sqlText(mockDb.execute.mock.calls[0][0])).toContain('DISTINCT');
+  });
+});
+
+/**
+ * A feed's `<pubDate>` is publisher-controlled and sometimes lands in the
+ * future (timezone bugs, scheduled posts, bad clocks). Such a row would pin
+ * itself to the top of a newest-first feed until real time caught up, so
+ * every read path substitutes `ingested_at` for a publish date the row claims
+ * is later than its own ingestion. These tests assert the CASE expression is
+ * actually in the emitted SQL on each of those paths — the mock DB never runs
+ * it, so the guarantee is "the query says this", not "Postgres computed this".
+ */
+describe('RssItemRepository effective published_at', () => {
+  let repo: RssItemRepository;
+
+  /** The trusted-date CASE, insensitive to whitespace/newlines in the template. */
+  const EFFECTIVE_SQL =
+    /CASE\s+WHEN\s+[\s\S]*published_at[\s\S]*>[\s\S]*ingested_at[\s\S]*THEN[\s\S]*ingested_at[\s\S]*ELSE[\s\S]*published_at[\s\S]*END/;
+
+  beforeEach(() => {
+    resetDb();
+    repo = new RssItemRepository(mockDb as never);
+  });
+
+  it('orders listItems by the trusted date, not the raw published_at', async () => {
+    selectChain.limit.mockResolvedValueOnce([]);
+
+    await repo.listItems({});
+
+    expect(sqlText(selectChain.orderBy.mock.calls[0][0])).toMatch(EFFECTIVE_SQL);
+  });
+
+  it('projects the trusted date under the published_at key so callers need no fallback', async () => {
+    selectChain.limit.mockResolvedValueOnce([]);
+
+    await repo.listItems({});
+
+    const projection = mockDb.select.mock.calls[0][0] as Record<string, unknown>;
+    expect(sqlText(projection.published_at)).toMatch(EFFECTIVE_SQL);
+    // `ingested_at` is still exposed on its own, untouched.
+    expect(sqlText(projection.published_at)).not.toBe(sqlText(projection.ingested_at));
+  });
+
+  it('compares the keyset cursor against the trusted date so paging matches the order', async () => {
+    selectChain.limit.mockResolvedValueOnce([]);
+
+    await repo.listItems({ cursor: { publishedAt: '2026-01-01T00:00:00Z', id: 'i9' } });
+
+    expect(sqlText(selectChain.where.mock.calls[0][0])).toMatch(EFFECTIVE_SQL);
+  });
+
+  it('applies the undated-bucket cursor branch against the trusted date too', async () => {
+    selectChain.limit.mockResolvedValueOnce([]);
+
+    await repo.listItems({ cursor: { publishedAt: null, id: 'i9' } });
+
+    const where = sqlText(selectChain.where.mock.calls[0][0]);
+    expect(where).toMatch(EFFECTIVE_SQL);
+    expect(where).toContain('IS NULL');
+  });
+
+  it('filters a from/to date range on the trusted date, not the publisher claim', async () => {
+    selectChain.limit.mockResolvedValueOnce([]);
+
+    await repo.listItems({ from: '2026-01-01T00:00:00Z', to: '2026-02-01T00:00:00Z' });
+
+    expect(sqlText(selectChain.where.mock.calls[0][0])).toMatch(EFFECTIVE_SQL);
+  });
+
+  it('orders textSearch by the trusted date as well', async () => {
+    selectChain.limit.mockResolvedValueOnce([]);
+
+    await repo.textSearch('acquisition', {}, 10);
+
+    expect(sqlText(selectChain.orderBy.mock.calls[0][0])).toMatch(EFFECTIVE_SQL);
+  });
+
+  it('overrides published_at on the single-item detail read', async () => {
+    selectChain.limit.mockResolvedValueOnce([{ id: 'i1' }]);
+
+    await repo.findById('i1');
+
+    const projection = mockDb.select.mock.calls[0][0] as Record<string, unknown>;
+    // Detail selects every column, so assert the override landed AND that
+    // unrelated columns (the ones the list projection omits) came along.
+    expect(sqlText(projection.published_at)).toMatch(EFFECTIVE_SQL);
+    expect(projection.content_text).toBeDefined();
+    expect(projection.llm_labels).toBeDefined();
+  });
+
+  it('hydrates search hits through the same trusted projection', async () => {
+    selectChain.where.mockResolvedValueOnce([{ id: 'i1' }]);
+
+    await repo.findByIds(['i1']);
+
+    const projection = mockDb.select.mock.calls[0][0] as Record<string, unknown>;
+    expect(sqlText(projection.published_at)).toMatch(EFFECTIVE_SQL);
   });
 });

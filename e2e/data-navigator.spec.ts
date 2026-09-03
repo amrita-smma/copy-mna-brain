@@ -57,7 +57,7 @@ test.describe('Data Navigator', () => {
     const firstTitle = await optionTitle(page, 0).innerText();
     const article = page.getByRole('article');
     await expect(article).toBeVisible();
-    await expect(article.locator('h1')).toHaveText(firstTitle);
+    await expect(article.locator('h2')).toHaveText(firstTitle);
   });
 
   test('selecting a different item swaps the preview and moves aria-selected', async ({ page }) => {
@@ -70,7 +70,7 @@ test.describe('Data Navigator', () => {
 
     await expect(options.nth(1)).toHaveAttribute('aria-selected', 'true');
     await expect(options.first()).toHaveAttribute('aria-selected', 'false');
-    await expect(page.getByRole('article').locator('h1')).toHaveText(secondTitle);
+    await expect(page.getByRole('article').locator('h2')).toHaveText(secondTitle);
   });
 
   test('a category chip narrows the list and Clear restores it', async ({ page }) => {

@@ -7,6 +7,8 @@ import type { FilterOptions, NewsItem, NewsItemDetail } from '@/lib/api/dataNavi
 import { FilterBar, type FilterState } from './dataNavigator/FilterBar';
 import { NewsList } from './dataNavigator/NewsList';
 import { NewsPreview } from './dataNavigator/NewsPreview';
+import { sortByPublishedDesc } from './dataNavigator/sortByTime';
+import { Newspaper } from 'lucide-react';
 
 const PAGE_SIZE = 50;
 const SEARCH_DEBOUNCE_MS = 300;
@@ -95,19 +97,28 @@ export default function DataNavigator() {
             content_status: 'fetched',
           }),
         );
-        setItems(asItems);
+        // Relevance picked the hits; recency orders them for reading.
+        const ordered = sortByPublishedDesc(asItems);
+        setItems(ordered);
         setCursor(null);
         setHasMore(false);
-        setSelectedId(asItems[0]?.id ?? null);
+        setSelectedId(ordered[0]?.id ?? null);
         return;
       }
 
       const page = await newsApi.listNewsItems(listParams);
       if (requestIdRef.current !== requestId) return; // superseded — drop it
-      setItems(page.items);
+      // Auto-select from the SAME ordering the list renders. The feed query
+      // already returns published_at DESC NULLS LAST, so this normally agrees
+      // with page.items[0] — but selecting off the raw array would silently
+      // desync the highlighted row from the first visible row the moment the
+      // two orderings disagreed. `nextCursor` still comes from the server's
+      // own last row, so paging is unaffected.
+      const ordered = sortByPublishedDesc(page.items);
+      setItems(ordered);
       setCursor(page.nextCursor);
       setHasMore(page.nextCursor !== null);
-      setSelectedId(page.items[0]?.id ?? null);
+      setSelectedId(ordered[0]?.id ?? null);
     } finally {
       if (requestIdRef.current === requestId) setListLoading(false);
     }
@@ -132,6 +143,10 @@ export default function DataNavigator() {
     }
   }, [cursor, listLoading, listParams]);
 
+  // Whatever produced `items` — feed page, appended page, or a search — the
+  // rendered list is always newest first.
+  const sortedItems = useMemo(() => sortByPublishedDesc(items), [items]);
+
   const { data: selectedItem, isLoading: previewLoading } = useQuery<NewsItemDetail | null>({
     queryKey: ['data-navigator', 'item', selectedId],
     queryFn: () => (selectedId ? newsApi.getNewsItem(selectedId) : Promise.resolve(null)),
@@ -145,10 +160,10 @@ export default function DataNavigator() {
       const target = event.target as HTMLElement | null;
       if (target && ['INPUT', 'TEXTAREA'].includes(target.tagName)) return;
 
-      const index = items.findIndex((item) => item.id === selectedId);
+      const index = sortedItems.findIndex((item) => item.id === selectedId);
       if (index === -1) return;
       const nextIndex = event.key === 'ArrowDown' ? index + 1 : index - 1;
-      const next = items[nextIndex];
+      const next = sortedItems[nextIndex];
       if (!next) return;
       event.preventDefault();
       setSelectedId(next.id);
@@ -156,27 +171,43 @@ export default function DataNavigator() {
 
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [items, selectedId]);
+  }, [sortedItems, selectedId]);
 
   return (
-    <div className="flex h-full min-h-0">
-      <aside className="flex w-[380px] shrink-0 flex-col border-r">
-        <FilterBar options={options ?? null} value={filters} onChange={setFilters} />
-        <div className="min-h-0 flex-1 overflow-y-auto">
-          <NewsList
-            items={items}
-            selectedId={selectedId}
-            loading={listLoading}
-            hasMore={hasMore}
-            onSelect={setSelectedId}
-            onLoadMore={loadMore}
-          />
+    <div className="flex h-full min-h-0 flex-col gap-5 p-6 lg:p-8">
+      <header className="shrink-0">
+        <div className="mb-2 flex items-center gap-3">
+          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-foreground/10">
+            <Newspaper className="h-5 w-5 text-foreground" />
+          </div>
+          <h1 className="text-3xl font-semibold tracking-tight text-foreground">Data Navigator</h1>
         </div>
-      </aside>
+        <p className="ml-[52px] text-muted-foreground">
+          Curated market news and industry coverage, newest first
+        </p>
+      </header>
 
-      <main className="min-h-0 flex-1 overflow-y-auto">
-        <NewsPreview item={selectedItem ?? null} loading={previewLoading && selectedId !== null} />
-      </main>
+      <div className="flex min-h-0 flex-1 gap-5">
+        <aside className="flex min-h-0 w-[380px] shrink-0 flex-col gap-3">
+          <FilterBar options={options ?? null} value={filters} onChange={setFilters} />
+          {/* The scroll container owns the padding so card shadows/rings are
+              not clipped at the edges of the overflow box. */}
+          <div className="-mx-1 min-h-0 flex-1 overflow-y-auto px-1 pb-1">
+            <NewsList
+              items={sortedItems}
+              selectedId={selectedId}
+              loading={listLoading}
+              hasMore={hasMore}
+              onSelect={setSelectedId}
+              onLoadMore={loadMore}
+            />
+          </div>
+        </aside>
+
+        <main className="-mx-1 min-h-0 flex-1 overflow-y-auto px-1 pb-1">
+          <NewsPreview item={selectedItem ?? null} loading={previewLoading && selectedId !== null} />
+        </main>
+      </div>
     </div>
   );
 }

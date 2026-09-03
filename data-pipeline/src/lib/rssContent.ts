@@ -101,6 +101,29 @@ function createSafeFetcher(timeoutMs: number, fetchImpl?: typeof fetch): Fetcher
 /** Hard cap on redirect hops a single fetch will follow before giving up. */
 const MAX_REDIRECT_HOPS = 5;
 
+/**
+ * Request headers every article fetch sends.
+ *
+ * Neither `@extractus/article-extractor` (its `retrieve` helper calls the
+ * fetcher with the URL alone) nor the SSRF-hardened fetcher below used to
+ * send ANY of these, so every request went out with undici's bare defaults
+ * and no User-Agent at all. A large share of publishers answer a
+ * header-less request with a 403 or a consent/interstitial shell instead of
+ * the article — which surfaced downstream as `no article extracted` or
+ * `content too short`, burned all three attempts, and left the item
+ * `content_status = 'failed'` with nothing but its feed summary to show.
+ *
+ * The User-Agent identifies this crawler honestly and carries a contact URL,
+ * per robots convention — it does not impersonate a browser, and nothing
+ * here bypasses a paywall or an access control. A genuinely gated article
+ * still fails, which is the correct outcome.
+ */
+const REQUEST_HEADERS: Record<string, string> = {
+  'user-agent': 'MnaBrainBot/1.0 (+https://github.com/mna-brain; news-lake article extractor)',
+  accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+  'accept-language': 'en-US,en;q=0.9',
+};
+
 const BLOCKED_HOSTNAME_SUFFIXES = ['.internal', '.local'];
 
 /** IPv4 dotted-quad -> 32-bit unsigned integer, or null if malformed. */
@@ -330,7 +353,11 @@ export async function fetchWithRedirectGuard(
     const timer = setTimeout(() => controller.abort(), remaining);
     let response: Response;
     try {
-      response = await fetchImpl(currentUrl, { signal: controller.signal, redirect: 'manual' });
+      response = await fetchImpl(currentUrl, {
+        signal: controller.signal,
+        redirect: 'manual',
+        headers: REQUEST_HEADERS,
+      });
     } finally {
       clearTimeout(timer);
     }

@@ -1,5 +1,6 @@
 'use client';
 
+import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
@@ -43,7 +44,7 @@ export function FilterBar({ options, value, onChange }: FilterBarProps) {
     value.categories.length > 0 || value.regions.length > 0 || value.query.length > 0;
 
   return (
-    <div className="space-y-3 border-b p-4">
+    <Card className="shrink-0 space-y-3 border bg-card p-4">
       <div className="relative">
         <Search className="pointer-events-none absolute left-2 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
         <Input
@@ -102,7 +103,7 @@ export function FilterBar({ options, value, onChange }: FilterBarProps) {
           </Button>
         )}
       </div>
-    </div>
+    </Card>
   );
 }
 

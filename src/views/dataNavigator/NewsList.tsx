@@ -2,6 +2,7 @@
 
 import { useEffect, useRef } from 'react';
 import { formatDistanceToNow } from 'date-fns';
+import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 import { CATEGORY_LABELS } from './FilterBar';
 import type { NewsItem } from '@/lib/api/dataNavigator';
@@ -24,6 +25,17 @@ export function NewsList({
   onLoadMore,
 }: NewsListProps) {
   const sentinelRef = useRef<HTMLDivElement>(null);
+  const selectedRef = useRef<HTMLButtonElement>(null);
+
+  // Arrow-key selection lives on a window listener in the parent view, so
+  // nothing moves the scroller on its own. With compact rows the next item was
+  // usually already on screen; cards are tall enough that it often isn't, which
+  // left the highlight off-screen while the preview silently changed.
+  // `block: 'nearest'` makes this a no-op when the row is already visible, so a
+  // plain mouse click never yanks the list around.
+  useEffect(() => {
+    selectedRef.current?.scrollIntoView({ block: 'nearest' });
+  }, [selectedId]);
 
   useEffect(() => {
     const node = sentinelRef.current;
@@ -41,25 +53,32 @@ export function NewsList({
 
   if (!loading && items.length === 0) {
     return (
-      <div className="p-8 text-center text-sm text-muted-foreground">
+      <div className="rounded-lg border bg-card p-8 text-center text-sm text-muted-foreground shadow-sm">
         No news matches these filters.
       </div>
     );
   }
 
   return (
-    <div role="listbox" aria-label="News items" className="divide-y">
+    <div role="listbox" aria-label="News items" className="flex flex-col gap-2">
       {items.map((item) => (
         <button
           key={item.id}
+          ref={item.id === selectedId ? selectedRef : undefined}
           type="button"
           role="option"
           aria-selected={item.id === selectedId}
           onClick={() => onSelect(item.id)}
           className={cn(
-            'w-full px-4 py-3 text-left transition-colors hover:bg-muted/60',
+            // Same shape as `Card`, but as a real <button> so the row keeps
+            // its listbox option semantics and keyboard focus behaviour.
+            // `bg-card` is an opaque token — the shell renders a living
+            // background behind the console, and a translucent row would let
+            // it bleed through the text.
+            'w-full rounded-lg border bg-card px-4 py-3 text-left text-card-foreground shadow-sm',
+            'transition-colors hover:bg-muted',
             'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
-            item.id === selectedId && 'bg-muted',
+            item.id === selectedId && 'border-primary/60 bg-card ring-1 ring-primary/40 hover:bg-card',
           )}
         >
           <div className="flex items-baseline justify-between gap-2">
@@ -72,20 +91,23 @@ export function NewsList({
                 : 'undated'}
             </span>
           </div>
-          <div data-testid="news-item-title" className="mt-0.5 line-clamp-2 text-sm font-medium">
+          <div data-testid="news-item-title" className="mt-1 line-clamp-2 text-sm font-medium">
             {item.title}
           </div>
           {item.summary && (
-            <div className="mt-1 line-clamp-1 text-xs text-muted-foreground">{item.summary}</div>
+            <div className="mt-1 line-clamp-2 text-xs text-muted-foreground">{item.summary}</div>
           )}
-          <div className="mt-1.5 flex items-center gap-1.5">
-            <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-muted-foreground">
+          <div className="mt-2 flex items-center gap-1.5">
+            <Badge
+              variant="secondary"
+              className="px-2 py-0 text-[10px] font-medium uppercase tracking-wide"
+            >
               {CATEGORY_LABELS[item.category] ?? item.category}
-            </span>
+            </Badge>
             {item.relevance === 'selected' && (
-              <span className="rounded bg-primary/10 px-1.5 py-0.5 text-[10px] text-primary">
+              <Badge variant="outline" className="border-primary/40 px-2 py-0 text-[10px] font-medium text-primary">
                 Curated
-              </span>
+              </Badge>
             )}
           </div>
         </button>
@@ -93,7 +115,9 @@ export function NewsList({
 
       <div ref={sentinelRef} data-testid="news-list-sentinel" className="h-8" />
       {loading && (
-        <div className="p-4 text-center text-xs text-muted-foreground">Loading…</div>
+        <div className="rounded-lg border bg-card p-3 text-center text-xs text-muted-foreground shadow-sm">
+          Loading…
+        </div>
       )}
     </div>
   );
