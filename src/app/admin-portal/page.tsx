@@ -102,6 +102,10 @@ const CURRENCY_OPTIONS: { value: string; label: string }[] = [
 const ACTIVE_TAB_CLASS =
   'data-[state=active]:bg-blue-700 data-[state=active]:text-white data-[state=active]:shadow-sm';
 
+/** Shared column layout for the member header and rows — kept narrow so the
+ *  remove button never gets pushed past the panel's right edge. */
+const MEMBER_ROW_GRID = 'sm:grid-cols-[minmax(0,1fr)_104px_128px_84px_36px]';
+
 interface Role {
   id: string;
   name: string;
@@ -838,12 +842,27 @@ export default function AdminPortalPage() {
                       </Button>
                     </div>
 
-                  {usersLoading || membersLoading ? (
+                    {usersLoading || membersLoading ? (
                     <div className="mt-3 flex items-center justify-center py-8 text-muted-foreground">
                       <Loader2 className="h-5 w-5 animate-spin" />
                     </div>
-                  ) : (
-                    <div className="mt-3 min-h-0 flex-1 space-y-2 overflow-y-auto pr-1">
+                    ) : (
+                    <div className="mt-3 min-h-0 flex-1 overflow-y-auto pr-1">
+                      {(members.length > 0 || draftRows.length > 0) && (
+                        <div
+                          className={cn(
+                            'hidden gap-2 px-3 pb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground sm:grid',
+                            MEMBER_ROW_GRID,
+                          )}
+                        >
+                          <span>Name</span>
+                          <span>Role</span>
+                          <span>Sync</span>
+                          <span>Status</span>
+                          <span />
+                        </div>
+                      )}
+                      <div className="space-y-2">
                       {members.length === 0 && draftRows.length === 0 && (
                         <p className="rounded-lg border border-dashed py-6 text-center text-sm text-muted-foreground">
                           No users yet.
@@ -855,7 +874,10 @@ export default function AdminPortalPage() {
                         return (
                           <div
                             key={m.userId}
-                            className="grid grid-cols-1 items-center gap-3 rounded-lg border bg-background px-3 py-2 sm:grid-cols-[1fr_140px_170px_110px_auto]"
+                            className={cn(
+                              'grid grid-cols-1 items-center gap-2 rounded-lg border bg-background px-3 py-2',
+                              MEMBER_ROW_GRID,
+                            )}
                           >
                             <UserCombobox
                               selectedUser={dbUser ?? { id: m.userId, name: m.userName, email: m.userEmail }}
@@ -928,7 +950,10 @@ export default function AdminPortalPage() {
                         return (
                           <div
                             key={draft.draftId}
-                            className="grid grid-cols-1 items-center gap-3 rounded-lg border bg-background px-3 py-2 sm:grid-cols-[1fr_140px_170px_110px_auto]"
+                            className={cn(
+                              'grid grid-cols-1 items-center gap-2 rounded-lg border bg-background px-3 py-2',
+                              MEMBER_ROW_GRID,
+                            )}
                           >
                             <UserCombobox
                               selectedUser={null}
@@ -962,6 +987,7 @@ export default function AdminPortalPage() {
                           </div>
                         );
                       })}
+                      </div>
                     </div>
                   )}
                   </TabsContent>

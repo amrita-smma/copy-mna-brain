@@ -4304,12 +4304,12 @@ async function main() {
       .onConflictDoNothing({ target: roles.id });
     await db
       .insert(userWorkspaces)
-      .values({ user_id: seedUser.id, workspace_id: MNA_WORKSPACE_ID, role_id: ROLE_EDITOR_ID, is_email_synced: true })
+      .values({ user_id: seedUser.id, workspace_id: MNA_WORKSPACE_ID, role_id: ROLE_EDITOR_ID, is_email_synced: false })
       .onConflictDoUpdate({
         target: [userWorkspaces.user_id, userWorkspaces.workspace_id],
-        set: { is_email_synced: true },
+        set: { is_email_synced: false },
       });
-    console.log('  ✓ Combined workspace + roles + seed user membership (is_email_synced=true — toggle it in admin portal to test)');
+    console.log('  ✓ Combined workspace + roles + seed user membership (is_email_synced=false — toggle it in admin portal to test)');
 
     // Per-workspace feature overrides. Attributed to the seed superadmin so the
     // admin portal's "last changed by" reads like a real toggle.
