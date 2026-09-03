@@ -24,6 +24,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import { toast } from "sonner";
 import {
   Building2,
@@ -297,6 +298,8 @@ interface MatchedFile {
   file_link: string;
   file_date: string | null;
   created_at: string;
+  file_type: string | null;
+  structured_notes: string | null;
 }
 
 interface Screening {
@@ -1142,6 +1145,51 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
     setPreviewDoc(null);
     setPreviewMatchedFile(null);
     setPreviewUrl(null);
+  };
+
+  // Mirrors the "AI Structured Notes" rendering in the Smart Files view so
+  // the same file's notes read identically whether opened from Smart Files
+  // or from a company's Attachments tab.
+  const renderMatchedFileStructuredNotes = (file: MatchedFile) => {
+    if (!file.structured_notes) {
+      return (
+        <p className="text-sm text-muted-foreground italic p-4">
+          Processing not complete or structure extraction failed.
+        </p>
+      );
+    }
+
+    try {
+      const structured = JSON.parse(file.structured_notes);
+      return (
+        <>
+          <div>
+            <h4 className="font-medium text-primary mb-1">Summary</h4>
+            <p>{structured.summary}</p>
+          </div>
+          <div>
+            <h4 className="font-medium text-primary mb-1">Key Points</h4>
+            <ul className="list-disc pl-4 space-y-1">
+              {structured.key_points?.map((p: string, i: number) => (
+                <li key={i}>{p}</li>
+              ))}
+            </ul>
+          </div>
+          <div>
+            <h4 className="font-medium text-primary mb-1">Action Items</h4>
+            <ul className="list-disc pl-4 space-y-1">
+              {structured.action_items?.map((p: string, i: number) => (
+                <li key={i}>{p}</li>
+              ))}
+            </ul>
+          </div>
+        </>
+      );
+    } catch {
+      return (
+        <pre className="text-xs whitespace-pre-wrap">{file.structured_notes}</pre>
+      );
+    }
   };
 
   const downloadMatchedFile = async (file: MatchedFile) => {
@@ -2598,23 +2646,47 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
               </span>
             </DialogTitle>
           </DialogHeader>
-          <div className="flex-1 min-h-0 overflow-auto">
+          <div className="flex-1 min-h-0 overflow-hidden">
             {loadingPreview ? (
               <div className="flex h-full w-full items-center justify-center bg-muted/30 rounded-md border">
                 <Loader2 className="h-8 w-8 animate-spin text-primary" />
               </div>
-            ) : previewUrl && (previewDoc || previewMatchedFile) ? (
+            ) : previewUrl && previewMatchedFile ? (
+              // Smart Files carry AI-extracted structured notes — show them
+              // side-by-side with the preview, consistent with Smart Files.
+              <div className="grid md:grid-cols-2 gap-6 h-full min-h-0">
+                <div className="flex flex-col gap-2 min-h-0">
+                  <FilePreview
+                    title={
+                      <>
+                        <FileText className="h-4 w-4" />
+                        File Preview
+                      </>
+                    }
+                    url={previewUrl}
+                    fileName={previewMatchedFile.file_name}
+                    fileKey={previewMatchedFile.file_link}
+                    onDownload={() => downloadMatchedFile(previewMatchedFile)}
+                  />
+                </div>
+                <div className="flex flex-col gap-2 min-h-0">
+                  <h3 className="text-sm font-semibold flex items-center gap-2">
+                    <Sparkles className="h-4 w-4" />
+                    AI Structured Notes
+                  </h3>
+                  <ScrollArea className="flex-1 min-h-0 w-full rounded-md border p-4 bg-muted/30">
+                    <div className="space-y-4 text-sm">
+                      {renderMatchedFileStructuredNotes(previewMatchedFile)}
+                    </div>
+                  </ScrollArea>
+                </div>
+              </div>
+            ) : previewUrl && previewDoc ? (
               <FilePreview
                 url={previewUrl}
-                fileName={
-                  previewDoc?.file_name ?? previewMatchedFile?.file_name ?? ""
-                }
-                fileKey={previewDoc?.file_path ?? previewMatchedFile?.file_link}
-                onDownload={() =>
-                  previewMatchedFile
-                    ? downloadMatchedFile(previewMatchedFile)
-                    : previewDoc && downloadDocument(previewDoc)
-                }
+                fileName={previewDoc.file_name}
+                fileKey={previewDoc.file_path}
+                onDownload={() => downloadDocument(previewDoc)}
               />
             ) : (
               <div className="flex h-full w-full items-center justify-center bg-muted/30 rounded-md border text-muted-foreground">

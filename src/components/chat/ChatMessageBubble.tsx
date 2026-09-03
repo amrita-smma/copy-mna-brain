@@ -805,17 +805,25 @@ function AssistantMessageBubble(props: ChatMessageBubbleProps) {
           <div className="grid md:grid-cols-2 gap-6 mt-4 flex-1 min-h-0 overflow-hidden">
             {/* Left: File Preview */}
             <div className="flex flex-col gap-2 min-h-0">
-              <h3 className="text-sm font-semibold flex items-center gap-2">
-                <FileSearch className="h-4 w-4" />
-                File Preview
-              </h3>
               {loadingPreview ? (
-                <div className="flex flex-1 min-h-0 w-full items-center justify-center bg-muted/30 rounded-md border">
-                  <Loader2 className="h-8 w-8 animate-spin text-primary" />
-                </div>
+                <>
+                  <h3 className="text-sm font-semibold flex items-center gap-2">
+                    <FileSearch className="h-4 w-4" />
+                    File Preview
+                  </h3>
+                  <div className="flex flex-1 min-h-0 w-full items-center justify-center bg-muted/30 rounded-md border">
+                    <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                  </div>
+                </>
               ) : previewUrl ? (
                 <div className="flex-1 min-h-0">
                   <FilePreview
+                    title={
+                      <>
+                        <FileSearch className="h-4 w-4" />
+                        File Preview
+                      </>
+                    }
                     url={previewUrl}
                     fileName={previewNote?.file_name || ""}
                     fileKey={
@@ -826,9 +834,15 @@ function AssistantMessageBubble(props: ChatMessageBubbleProps) {
                   />
                 </div>
               ) : (
-                <div className="flex flex-1 min-h-0 w-full items-center justify-center bg-muted/30 rounded-md border text-muted-foreground">
-                  Preview not available
-                </div>
+                <>
+                  <h3 className="text-sm font-semibold flex items-center gap-2">
+                    <FileSearch className="h-4 w-4" />
+                    File Preview
+                  </h3>
+                  <div className="flex flex-1 min-h-0 w-full items-center justify-center bg-muted/30 rounded-md border text-muted-foreground">
+                    Preview not available
+                  </div>
+                </>
               )}
             </div>
 

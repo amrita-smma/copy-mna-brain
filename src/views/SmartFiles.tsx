@@ -650,13 +650,15 @@ function FileTable({
                                 </DialogHeader>
                                 <div className="grid md:grid-cols-2 gap-6 mt-4 flex-1 min-h-0 overflow-hidden">
                                   <div className="flex flex-col gap-2 min-h-0">
-                                    <h3 className="text-sm font-semibold flex items-center gap-2">
-                                      <FileText className="h-4 w-4" />
-                                      File Preview
-                                    </h3>
                                     {note.signed_url ? (
                                       <div className="flex-1 min-h-0">
                                         <FilePreview
+                                          title={
+                                            <>
+                                              <FileText className="h-4 w-4" />
+                                              File Preview
+                                            </>
+                                          }
                                           url={note.signed_url}
                                           onDownload={() =>
                                             onDownload(note.id, note.file_name)
@@ -666,9 +668,15 @@ function FileTable({
                                         />
                                       </div>
                                     ) : (
-                                      <div className="flex flex-1 min-h-0 w-full items-center justify-center bg-muted/30 rounded-md border text-muted-foreground">
-                                        Preview not available (Link missing)
-                                      </div>
+                                      <>
+                                        <h3 className="text-sm font-semibold flex items-center gap-2">
+                                          <FileText className="h-4 w-4" />
+                                          File Preview
+                                        </h3>
+                                        <div className="flex flex-1 min-h-0 w-full items-center justify-center bg-muted/30 rounded-md border text-muted-foreground">
+                                          Preview not available (Link missing)
+                                        </div>
+                                      </>
                                     )}
                                   </div>
                                   <div className="flex flex-col gap-2 min-h-0">

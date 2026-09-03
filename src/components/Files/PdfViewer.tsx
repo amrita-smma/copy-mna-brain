@@ -8,6 +8,8 @@ import {
   ChevronDown,
   ChevronUp,
   Loader2,
+  Maximize,
+  Minimize,
   Search,
   X,
   ZoomIn,
@@ -104,6 +106,8 @@ function PdfViewer({ url, className }: PdfViewerProps) {
   const [matches, setMatches] = useState<PageMatch[]>([]);
   const [currentMatchIndex, setCurrentMatchIndex] = useState(0);
 
+  const wrapperRef = useRef<HTMLDivElement>(null);
+  const [isFullscreen, setIsFullscreen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const [containerWidth, setContainerWidth] = useState<number>();
   const pageWrapperRefs = useRef(new Map<number, HTMLDivElement>());
@@ -402,12 +406,31 @@ function PdfViewer({ url, className }: PdfViewerProps) {
   const zoomOut = useCallback(() => setScale((s) => Math.max(MIN_SCALE, s - SCALE_STEP)), []);
   const zoomIn = useCallback(() => setScale((s) => Math.min(MAX_SCALE, s + SCALE_STEP)), []);
 
+  // Tracks the fullscreen state via the browser event (rather than only in
+  // `toggleFullscreen`) so the icon/title stay correct when the user exits
+  // via Esc instead of clicking the button again.
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      setIsFullscreen(document.fullscreenElement === wrapperRef.current);
+    };
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
+  }, []);
+
+  const toggleFullscreen = useCallback(() => {
+    if (document.fullscreenElement) {
+      document.exitFullscreen();
+    } else {
+      wrapperRef.current?.requestFullscreen();
+    }
+  }, []);
+
   const aspectRatio = pageAspectRatio ?? FALLBACK_ASPECT_RATIO;
   const pageWidth = containerWidth ? containerWidth * scale : undefined;
   const totalMatchCount = matches.reduce((sum, m) => sum + m.count, 0);
 
   return (
-    <div className={cn('flex h-full w-full flex-col', className)}>
+    <div ref={wrapperRef} className={cn('flex h-full w-full flex-col bg-background', className)}>
       <div className="flex flex-wrap items-center gap-2 border-b bg-background p-2">
         <span className="min-w-[5rem] text-sm text-muted-foreground">
           {numPages !== null ? `Page ${currentPage} of ${numPages}` : ' '}
@@ -494,6 +517,16 @@ function PdfViewer({ url, className }: PdfViewerProps) {
           title="Zoom in"
         >
           <ZoomIn className="h-4 w-4" />
+        </Button>
+        <Button
+          type="button"
+          variant="outline"
+          size="icon"
+          className="h-8 w-8"
+          onClick={toggleFullscreen}
+          title={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
+        >
+          {isFullscreen ? <Minimize className="h-4 w-4" /> : <Maximize className="h-4 w-4" />}
         </Button>
       </div>
 

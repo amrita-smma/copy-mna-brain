@@ -240,7 +240,13 @@ type ScreeningWithCriteria = Tables<"screenings"> & {
 
 type MatchedFile = Pick<
   Tables<"files">,
-  "id" | "file_name" | "file_link" | "file_date" | "created_at"
+  | "id"
+  | "file_name"
+  | "file_link"
+  | "file_date"
+  | "created_at"
+  | "file_type"
+  | "structured_notes"
 >;
 
 export type CompanyDetails = {
@@ -1217,6 +1223,8 @@ export class CompanyRepository {
           file_link: files.file_link,
           file_date: files.file_date,
           created_at: files.created_at,
+          file_type: files.file_type,
+          structured_notes: files.structured_notes,
         })
         .from(files)
         .where(

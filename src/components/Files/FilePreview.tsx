@@ -1,5 +1,6 @@
 'use client';
 
+import type { ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
 import { Presentation } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -16,9 +17,15 @@ interface FilePreviewProps {
    * the full-screen button falls back to passing the signed URL through.
    */
   fileKey?: string;
+  /**
+   * Optional heading rendered to the left of the Present button, in the same
+   * toolbar row — lets callers fold a "File Preview" label into this
+   * component's own header instead of stacking a separate heading above it.
+   */
+  title?: ReactNode;
 }
 
-export default function FilePreview({ url, onDownload, fileName, fileKey }: FilePreviewProps) {
+export default function FilePreview({ url, onDownload, fileName, fileKey, title }: FilePreviewProps) {
   const router = useRouter();
   const presentationHref = useWorkspaceHref('/presentation');
 
@@ -38,7 +45,12 @@ export default function FilePreview({ url, onDownload, fileName, fileKey }: File
 
   return (
     <div className="flex h-full w-full min-h-[300px] flex-col">
-      <div className="flex flex-shrink-0 items-center justify-end border-b bg-background px-2 py-1.5">
+      <div
+        className={`flex flex-shrink-0 items-center border-b bg-background px-2 py-1.5 ${title ? 'justify-between gap-2' : 'justify-end'}`}
+      >
+        {title ? (
+          <h3 className="flex items-center gap-2 text-sm font-semibold">{title}</h3>
+        ) : null}
         <Button
           type="button"
           variant="secondary"
