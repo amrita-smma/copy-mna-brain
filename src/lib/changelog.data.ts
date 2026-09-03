@@ -6,6 +6,12 @@ import type { ChangelogEntry } from './changelog';
 
 export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   {
+    "hash": "0257a7e6c93c4079fb8db13f73883e66159f476e",
+    "date": "2026-09-03",
+    "subject": "RSS news feed integration now surfaces relevant deal intelligence directly in Data Navigator",
+    "category": "feature"
+  },
+  {
     "hash": "f7bd8b195c74982a5416c3429665adcb37c65987",
     "date": "2026-09-02",
     "subject": "override image-size with image-size-next@2.1.1",
@@ -29,6 +35,14 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   },
   {
     "hash": "cffcdfc36c94083d0d919412a92ebc67ae9b6cec",
+    "date": "2026-09-02",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
+    "hash": "8889145dd7b290ac1d858ab5de6a87d785010158",
     "date": "2026-09-02",
     "subject": "[skip deploy] chore: update changelog",
     "category": "improvement",
