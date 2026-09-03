@@ -26,6 +26,28 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "skipReason": "noise"
   },
   {
+    "hash": "99c96ecf220d746926c27e54df0223f2966f5470",
+    "date": "2026-09-03",
+    "subject": "Add runbook for deploying data navigator",
+    "category": "feature",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "fd5e5b1045c734a2544e1cd21e32af36c2f93b5a",
+    "date": "2026-09-03",
+    "subject": "Data Navigator now displays deals as cards with improved article fetching reliability",
+    "category": "fix"
+  },
+  {
+    "hash": "688656b194f26bec1cf9352ffc56d4c556d94f1c",
+    "date": "2026-09-03",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "f7bd8b195c74982a5416c3429665adcb37c65987",
     "date": "2026-09-02",
     "subject": "override image-size with image-size-next@2.1.1",
