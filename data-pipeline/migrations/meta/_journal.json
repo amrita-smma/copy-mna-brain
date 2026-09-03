@@ -141,6 +141,13 @@
       "when": 1788393600000,
       "tag": "20260903000000_rss_items_effective_published_at_index",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1788393601000,
+      "tag": "20260903000001_rss_items_translation",
+      "breakpoints": true
     }
   ]
 }

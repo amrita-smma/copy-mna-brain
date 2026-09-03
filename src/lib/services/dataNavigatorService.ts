@@ -1,5 +1,5 @@
 import type { BedrockEmbeddingClient } from '@/lib/bedrock';
-import type { RssCategory, RssRelevance } from '@/lib/db/schema';
+import type { RssCategory, RssRelevance, RssTranslationStatus } from '@/lib/db/schema';
 import { clampLimit } from '@/lib/repositories';
 import type {
   RssItemChunkRepository,
@@ -27,6 +27,12 @@ export interface SearchOptions {
 
 export interface NewsSearchHit {
   id: string;
+  /**
+   * Display headline: the English translation when the item has one, else the
+   * original. A search result list has no room for both, and an untranslated
+   * foreign headline is unreadable to the reader who typed an English query.
+   * `language` / `translation_status` below say which one this is.
+   */
   title: string;
   source_name: string;
   category: RssCategory;
@@ -37,6 +43,9 @@ export interface NewsSearchHit {
   matchedBy: 'vector' | 'text' | 'both';
   /** The item's real curation state — never fabricated by the search merge. */
   relevance: RssRelevance;
+  /** ISO 639-1 code of the item's ORIGINAL language, when it was detected. */
+  language: string | null;
+  translation_status: RssTranslationStatus;
 }
 
 export interface FilterOptions {
@@ -151,12 +160,17 @@ export class DataNavigatorService {
         if (!row) return null;
         return {
           id: row.id,
-          title: row.title,
+          // English when we have it — see `NewsSearchHit.title`.
+          title: row.title_en ?? row.title,
           source_name: row.source_name,
           category: row.category,
           published_at: row.published_at,
           link: row.link,
-          snippet: (entry.snippet ?? row.summary ?? '').slice(0, 400),
+          // A vector snippet is already English: the enrich pipeline embeds
+          // the translated text precisely so these chunks are searchable and
+          // readable. The summary fallback has to pick the English rendering
+          // itself.
+          snippet: (entry.snippet ?? row.summary_en ?? row.summary ?? '').slice(0, 400),
           score: Number(entry.score.toFixed(4)),
           matchedBy: (entry.vector && entry.text
             ? 'both'
@@ -165,6 +179,8 @@ export class DataNavigatorService {
               : 'text') as NewsSearchHit['matchedBy'],
           // The row's real curation state — never fabricated by the caller.
           relevance: row.relevance,
+          language: row.language,
+          translation_status: row.translation_status,
         };
       })
       .filter((hit): hit is NewsSearchHit => hit !== null)

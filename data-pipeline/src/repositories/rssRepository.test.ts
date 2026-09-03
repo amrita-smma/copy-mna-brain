@@ -284,6 +284,133 @@ describe('RssRepository content bookkeeping', () => {
   });
 });
 
+describe('RssRepository translation bookkeeping', () => {
+  beforeEach(resetDb);
+
+  it('listPendingTranslation queues only selected items with a resolved content fetch', async () => {
+    mockDb.execute.mockResolvedValueOnce({ rows: [] });
+    const repo = new RssRepository(mockDb as never);
+
+    await repo.listPendingTranslation(15);
+
+    const text = sqlText(mockDb.execute.mock.calls[0][0]);
+    expect(text).toContain("relevance = 'selected'");
+    // 'failed' is included on purpose: such an item has only a title and a
+    // summary, and a Japanese headline is exactly as unreadable as a
+    // Japanese article.
+    expect(text).toContain("content_status IN ('fetched', 'failed')");
+    expect(text).toContain("translation_status IN ('none', 'pending')");
+    expect(text).toContain('ORDER BY ingested_at ASC');
+  });
+
+  it('recordTranslationSuccess writes the *_en columns and leaves the originals alone', async () => {
+    // The reading pane's "display in original language" toggle is only
+    // possible because nothing here overwrites `title`/`summary`/`content_text`.
+    updateChain.where.mockResolvedValueOnce(undefined);
+    const repo = new RssRepository(mockDb as never);
+
+    await repo.recordTranslationSuccess('i1', {
+      language: 'ja',
+      title: 'Title',
+      summary: 'Summary',
+      content: 'Body',
+    });
+
+    const setArg = updateChain.set.mock.calls[0][0];
+    expect(setArg).toMatchObject({
+      language: 'ja',
+      title_en: 'Title',
+      summary_en: 'Summary',
+      content_text_en: 'Body',
+      translation_status: 'translated',
+      translation_error: null,
+    });
+    expect(setArg.title).toBeUndefined();
+    expect(setArg.summary).toBeUndefined();
+    expect(setArg.content_text).toBeUndefined();
+  });
+
+  it('markTranslationNotNeeded settles a whole batch in ONE statement', async () => {
+    // The English majority is the hot path here (DETECT_LIMIT is 200), so a
+    // loop of UPDATEs would be a write-side N+1.
+    mockDb.execute.mockResolvedValueOnce({ rows: [] });
+    const repo = new RssRepository(mockDb as never);
+
+    await repo.markTranslationNotNeeded([
+      { id: 'i1', language: 'en' },
+      { id: 'i2', language: null },
+    ]);
+
+    expect(mockDb.execute).toHaveBeenCalledTimes(1);
+    const text = sqlText(mockDb.execute.mock.calls[0][0]);
+    expect(text).toContain('jsonb_to_recordset');
+    expect(text).toContain("translation_status = 'not_needed'");
+    // A null language travels as null rather than a guessed 'en' — the
+    // detector reports null when the text is too short to judge, and
+    // recording 'en' would state as fact something never established.
+    expect(text).toContain('"language":null');
+  });
+
+  it('markTranslationNotNeeded does nothing for an empty batch', async () => {
+    const repo = new RssRepository(mockDb as never);
+    await repo.markTranslationNotNeeded([]);
+    expect(mockDb.execute).not.toHaveBeenCalled();
+  });
+
+  it('recordTranslationFailure increments attempts and only gives up at the budget', async () => {
+    mockDb.execute.mockResolvedValueOnce({ rows: [] });
+    const repo = new RssRepository(mockDb as never);
+
+    await repo.recordTranslationFailure('i1', 'overloaded');
+
+    const text = sqlText(mockDb.execute.mock.calls[0][0]);
+    expect(text).toContain('translation_attempts + 1');
+    expect(text).toContain("'failed'");
+    expect(text).toContain("'pending'");
+  });
+
+  it('recordTranslationFailure truncates a runaway error message', async () => {
+    mockDb.execute.mockResolvedValueOnce({ rows: [] });
+    const repo = new RssRepository(mockDb as never);
+
+    await repo.recordTranslationFailure('i1', 'x'.repeat(900));
+
+    const text = sqlText(mockDb.execute.mock.calls[0][0]);
+    expect(text).toContain('x'.repeat(500));
+    expect(text).not.toContain('x'.repeat(501));
+  });
+});
+
+describe('RssRepository.listPendingEmbedding', () => {
+  beforeEach(resetDb);
+
+  it('waits for translation to resolve before embedding an item', async () => {
+    // Both halves of hybrid search are English, so embedding a Japanese body
+    // would bury the item in the index. 'failed' IS embeddable — from the
+    // original text — which is what stops the gate from deadlocking.
+    mockDb.execute.mockResolvedValueOnce({ rows: [] });
+    const repo = new RssRepository(mockDb as never);
+
+    await repo.listPendingEmbedding(25);
+
+    const text = sqlText(mockDb.execute.mock.calls[0][0]);
+    expect(text).toContain("translation_status IN ('not_needed', 'translated', 'failed')");
+    expect(text).toContain('embedded_at IS NULL');
+  });
+
+  it('selects the translated columns so the embedder can prefer English', async () => {
+    mockDb.execute.mockResolvedValueOnce({ rows: [] });
+    const repo = new RssRepository(mockDb as never);
+
+    await repo.listPendingEmbedding(25);
+
+    const text = sqlText(mockDb.execute.mock.calls[0][0]);
+    expect(text).toContain('title_en');
+    expect(text).toContain('summary_en');
+    expect(text).toContain('content_text_en');
+  });
+});
+
 describe('RssRepository.saveChunks', () => {
   beforeEach(resetDb);
 

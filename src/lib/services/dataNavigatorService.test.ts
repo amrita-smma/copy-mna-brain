@@ -21,8 +21,25 @@ function row(id: string, overrides: Record<string, unknown> = {}) {
     relevance: 'selected',
     relevance_score: 0.9,
     content_status: 'fetched',
+    language: 'en',
+    translation_status: 'not_needed',
+    title_en: null,
+    summary_en: null,
     ...overrides,
   };
+}
+
+/** A row as the translate stage leaves a non-English item. */
+function translatedRow(id: string, overrides: Record<string, unknown> = {}) {
+  return row(id, {
+    title: 'ソフトバンク、Arm株を追加取得',
+    summary: '同社は株式を追加取得したと発表した。',
+    language: 'ja',
+    translation_status: 'translated',
+    title_en: 'SoftBank buys additional Arm shares',
+    summary_en: 'The company said it acquired additional shares.',
+    ...overrides,
+  });
 }
 
 describe('DataNavigatorService', () => {
@@ -215,6 +232,47 @@ describe('DataNavigatorService', () => {
     const hits = await service.searchNews('acme');
 
     expect(hits[0].relevance).toBe('pending');
+  });
+
+  it('searchNews returns the English headline for a translated item', async () => {
+    // A hit carries only one headline, so the service has to choose — and the
+    // reader who typed an English query cannot read the original.
+    chunkRepo.vectorSearch.mockResolvedValueOnce([
+      { item_id: 'a', chunk_text: 'The body continues.', distance: 0.1 },
+    ]);
+    itemRepo.findByIds.mockResolvedValueOnce([translatedRow('a')]);
+
+    const hits = await service.searchNews('softbank');
+
+    expect(hits[0].title).toBe('SoftBank buys additional Arm shares');
+    expect(hits[0].language).toBe('ja');
+    expect(hits[0].translation_status).toBe('translated');
+  });
+
+  it('searchNews falls back to the English summary when there is no vector snippet', async () => {
+    // A lexical-only hit has no chunk text, so the snippet comes from the row
+    // — and must be the translated summary, not the original.
+    itemRepo.textSearch.mockResolvedValueOnce([translatedRow('a')]);
+    itemRepo.findByIds.mockResolvedValueOnce([translatedRow('a')]);
+
+    const hits = await service.searchNews('softbank');
+
+    expect(hits[0].snippet).toBe('The company said it acquired additional shares.');
+  });
+
+  it('searchNews falls back to the original text for an untranslated item', async () => {
+    const untranslated = translatedRow('a', {
+      translation_status: 'failed',
+      title_en: null,
+      summary_en: null,
+    });
+    itemRepo.textSearch.mockResolvedValueOnce([untranslated]);
+    itemRepo.findByIds.mockResolvedValueOnce([untranslated]);
+
+    const hits = await service.searchNews('softbank');
+
+    expect(hits[0].title).toBe('ソフトバンク、Arm株を追加取得');
+    expect(hits[0].snippet).toBe('同社は株式を追加取得したと発表した。');
   });
 
   it('searchNews forwards selectedOnly to both the vector and lexical halves', async () => {

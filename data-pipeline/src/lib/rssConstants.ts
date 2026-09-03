@@ -13,3 +13,12 @@
  * `rssRepository.ts` depend on it without pulling in the parser stack.
  */
 export const MAX_CONTENT_ATTEMPTS = 3;
+
+/**
+ * Translation attempts before an item is given up on. Same shape and reason
+ * as `MAX_CONTENT_ATTEMPTS`: a transient model outage must not permanently
+ * strand an item, but a body the model keeps refusing must eventually stop
+ * being re-queued. On exhaustion the item stays fully readable in its
+ * original language and is embedded from that text.
+ */
+export const MAX_TRANSLATION_ATTEMPTS = 3;

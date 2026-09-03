@@ -3705,6 +3705,22 @@ export type RssFeedTier = "curated" | "query";
 export type RssFeedStatus = "active" | "paused" | "dead";
 export type RssRelevance = "pending" | "selected" | "rejected";
 export type RssContentStatus = "none" | "pending" | "fetched" | "failed";
+/**
+ * Translation lifecycle for a non-English item.
+ *
+ * `none` — the translate stage has not looked at it yet. `not_needed` — it
+ * looked, and the text is already English (or too short to judge, in which
+ * case we deliberately don't spend a model call). `pending` — an attempt
+ * failed with budget left, so the next run retries. `translated` — the
+ * `*_en` columns are populated. `failed` — budget exhausted; the item stays
+ * readable in its original language.
+ */
+export type RssTranslationStatus =
+  | "none"
+  | "not_needed"
+  | "pending"
+  | "translated"
+  | "failed";
 
 export const rssFeeds = rss.table("feeds", {
   id: uuid().defaultRandom().primaryKey().notNull(),
@@ -3748,6 +3764,18 @@ export const rssItems = rss.table("items", {
   content_fetched_at: timestamp({ withTimezone: true, mode: "string" }),
   content_attempts: integer().default(0).notNull(),
   content_error: text(),
+  // Translation. The original `title`/`summary`/`content_text` above are never
+  // overwritten — the reading pane can toggle back to them — so the English
+  // rendering lives in parallel `*_en` columns.
+  /** Detected ISO 639-1 code of the ORIGINAL text (`en`, `ja`, `de`, …). */
+  language: text(),
+  translation_status: text().$type<RssTranslationStatus>().default("none").notNull(),
+  title_en: text(),
+  summary_en: text(),
+  content_text_en: text(),
+  translated_at: timestamp({ withTimezone: true, mode: "string" }),
+  translation_attempts: integer().default(0).notNull(),
+  translation_error: text(),
   embedded_at: timestamp({ withTimezone: true, mode: "string" }),
 });
 

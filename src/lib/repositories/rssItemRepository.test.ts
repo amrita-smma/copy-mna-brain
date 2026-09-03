@@ -186,6 +186,63 @@ describe('RssItemRepository.textSearch', () => {
     expect(await repo.textSearch('   ', {}, 20)).toEqual([]);
     expect(mockDb.select).not.toHaveBeenCalled();
   });
+
+  it('also matches title_en, so an English query can reach a translated headline', async () => {
+    // Without this the lexical half is structurally blind to every
+    // non-English item in the lake: the original title contains no English
+    // word to match, and only the translation does.
+    selectChain.limit.mockResolvedValueOnce([]);
+
+    await repo.textSearch('softbank', {}, 20);
+
+    const where = sqlText(selectChain.where.mock.calls[0][0]);
+    expect(where).toContain('title_en');
+    expect(where).toContain('ilike');
+  });
+});
+
+describe('RssItemRepository translation projection', () => {
+  let repo: RssItemRepository;
+
+  beforeEach(() => {
+    resetDb();
+    repo = new RssItemRepository(mockDb as never);
+  });
+
+  it('includes the translation columns in the list projection', async () => {
+    // The news list renders each card's headline, and for a non-English item
+    // that has to be the English one. Fetching it per card would be a
+    // client-side request fan-out.
+    selectChain.limit.mockResolvedValueOnce([]);
+
+    await repo.listItems({});
+
+    const projection = mockDb.select.mock.calls[0][0] as Record<string, unknown>;
+    for (const column of ['language', 'translation_status', 'title_en', 'summary_en']) {
+      expect(projection[column]).toBeDefined();
+    }
+  });
+
+  it('keeps the two body columns out of the list projection', async () => {
+    // Up to 200 KB each; the detail endpoint fetches them for one row.
+    selectChain.limit.mockResolvedValueOnce([]);
+
+    await repo.listItems({});
+
+    const projection = mockDb.select.mock.calls[0][0] as Record<string, unknown>;
+    expect(projection.content_text).toBeUndefined();
+    expect(projection.content_text_en).toBeUndefined();
+  });
+
+  it('returns the translated body on the single-item detail read', async () => {
+    selectChain.limit.mockResolvedValueOnce([{ id: 'i1' }]);
+
+    await repo.findById('i1');
+
+    const projection = mockDb.select.mock.calls[0][0] as Record<string, unknown>;
+    expect(projection.content_text_en).toBeDefined();
+    expect(projection.title_en).toBeDefined();
+  });
 });
 
 describe('RssItemRepository.listFilterOptions', () => {

@@ -95,6 +95,17 @@ export default function DataNavigator() {
             relevance: hit.relevance,
             relevance_score: hit.score,
             content_status: 'fetched',
+            // A hit carries only ONE headline, and the service already
+            // resolved it to the English rendering server-side. So `title` and
+            // `title_en` are deliberately the same string here: the original
+            // is simply not part of a search result. Setting `*_en` (rather
+            // than leaving them null) is what lets `hasTranslation` recognise
+            // the item and badge the card — the search list has no toggle, so
+            // there is nothing for the duplication to get wrong.
+            language: hit.language,
+            translation_status: hit.translation_status,
+            title_en: hit.translation_status === 'translated' ? hit.title : null,
+            summary_en: hit.translation_status === 'translated' ? hit.snippet : null,
           }),
         );
         // Relevance picked the hits; recency orders them for reading.

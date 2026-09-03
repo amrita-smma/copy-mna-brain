@@ -73,8 +73,15 @@ export const EFFECTIVE_PUBLISHED_AT_JOINED_ITEM = trustedPublishedAt(
 );
 
 /**
- * The list projection: everything except `content_text` (potentially 200 KB
- * per row) and `llm_labels`. The detail endpoint fetches those for one row.
+ * The list projection: everything except the two potentially-huge body
+ * columns (`content_text` / `content_text_en`, up to 200 KB each) and
+ * `llm_labels`. The detail endpoint fetches those for one row.
+ *
+ * The translation columns ARE included: the news list renders each card's
+ * headline and summary, and for a non-English item those have to be the
+ * English rendering — a card showing a Japanese headline is unreadable, and
+ * fetching the translation per card would be exactly the client-side request
+ * fan-out this repo's performance rules forbid.
  */
 const LIST_COLUMNS = {
   id: rssItems.id,
@@ -92,6 +99,10 @@ const LIST_COLUMNS = {
   relevance: rssItems.relevance,
   relevance_score: rssItems.relevance_score,
   content_status: rssItems.content_status,
+  language: rssItems.language,
+  translation_status: rssItems.translation_status,
+  title_en: rssItems.title_en,
+  summary_en: rssItems.summary_en,
 } as const;
 
 export type RssItemListRow = {
@@ -168,6 +179,11 @@ export class RssItemRepository {
   /**
    * Lexical half of hybrid search: trigram-indexed ILIKE over the fields a
    * human types verbatim — headline words, an author, a publication.
+   *
+   * `title_en` is searched alongside `title` so an English query can reach a
+   * translated foreign-language headline; without it the lexical half was
+   * structurally blind to every non-English item in the lake. Both columns
+   * have a `gin_trgm_ops` index, so this stays an index scan.
    */
   async textSearch(
     query: string,
@@ -184,6 +200,7 @@ export class RssItemRepository {
     conditions.push(
       or(
         ilike(rssItems.title, pattern),
+        ilike(rssItems.title_en, pattern),
         ilike(rssItems.authors, pattern),
         ilike(rssItems.source_name, pattern),
       )!,

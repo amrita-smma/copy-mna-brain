@@ -3,7 +3,7 @@ import { rssFeeds, rssItems, rssIngestRuns, rssItemChunks } from '@/lib/db/schem
 import type { DbClient } from '@/lib/repositories';
 import type { FeedRow, NormalizedItem } from '../handlers/rssNormalize';
 import type { ClassifiableItem, SelectionDecision } from '../handlers/rssClassify';
-import { MAX_CONTENT_ATTEMPTS } from '../lib/rssConstants';
+import { MAX_CONTENT_ATTEMPTS, MAX_TRANSLATION_ATTEMPTS } from '../lib/rssConstants';
 
 /**
  * Consecutive failed polls before a feed is retired to `dead`. The PoC found
@@ -36,12 +36,31 @@ export interface ContentQueueRow {
   summary: string | null;
 }
 
+export interface TranslationQueueRow {
+  id: string;
+  title: string;
+  summary: string | null;
+  content_text: string | null;
+}
+
+export interface TranslationResult {
+  /** Detected ISO 639-1 code of the ORIGINAL text. */
+  language: string;
+  title: string;
+  summary: string | null;
+  content: string | null;
+}
+
 export interface EmbeddableRow {
   id: string;
   title: string;
   content_text: string | null;
   summary: string | null;
   content_status: string;
+  /** English rendering, when the translation stage produced one. */
+  title_en: string | null;
+  summary_en: string | null;
+  content_text_en: string | null;
 }
 
 /** Data access for the ingest Lambdas. Global — the rss schema has no tenant column. */
@@ -257,17 +276,127 @@ export class RssRepository {
   }
 
   /**
+   * Items whose translation state is still open: selected, and with their
+   * content fetch already resolved one way or the other. `failed` is included
+   * on purpose — such an item has only its title and summary, and a Japanese
+   * headline is exactly as unreadable as a Japanese article.
+   *
+   * `none` is the never-looked-at state; `pending` is a burnt attempt with
+   * budget left. Both are re-queued oldest-first, like every other stage.
+   */
+  async listPendingTranslation(limit: number): Promise<TranslationQueueRow[]> {
+    const result = await this.db.execute(sql`
+      SELECT id, title, summary, content_text
+      FROM rss.items
+      WHERE relevance = 'selected'
+        AND content_status IN ('fetched', 'failed')
+        AND translation_status IN ('none', 'pending')
+      ORDER BY ingested_at ASC
+      LIMIT ${limit}
+    `);
+    return queryRows<TranslationQueueRow>(result);
+  }
+
+  /**
+   * Store the English rendering alongside — never over — the original text.
+   * The reading pane toggles between the two, so overwriting `title` /
+   * `summary` / `content_text` would make "display in original language"
+   * impossible to honour.
+   */
+  async recordTranslationSuccess(id: string, result: TranslationResult): Promise<void> {
+    await this.db
+      .update(rssItems)
+      .set({
+        language: result.language,
+        title_en: result.title,
+        summary_en: result.summary,
+        content_text_en: result.content,
+        translation_status: 'translated',
+        translated_at: sql`now()`,
+        translation_error: null,
+      })
+      .where(eq(rssItems.id, id));
+  }
+
+  /**
+   * Settle a batch of items that need no translation, in ONE statement.
+   *
+   * Batched rather than per-item because this is the common case by a wide
+   * margin — the catalog is majority-English and the language gate is local
+   * and free, so a run can settle a couple of hundred rows without making a
+   * single model call. A loop of UPDATEs there would be a write-side N+1.
+   *
+   * `language` is nullable because the detector reports null when the text is
+   * too short to call; recording a guessed `'en'` would state as fact
+   * something we never established.
+   */
+  async markTranslationNotNeeded(
+    rows: { id: string; language: string | null }[],
+  ): Promise<void> {
+    if (rows.length === 0) return;
+
+    const payload = JSON.stringify(
+      rows.map((row) => ({ id: row.id, language: row.language ?? null })),
+    );
+
+    await this.db.execute(sql`
+      UPDATE rss.items AS i SET
+        language = u.language,
+        translation_status = 'not_needed',
+        translated_at = now(),
+        translation_error = NULL
+      FROM jsonb_to_recordset(${payload}::jsonb)
+        AS u(id uuid, language text)
+      WHERE i.id = u.id
+    `);
+  }
+
+  /**
+   * Burn one attempt. Mirrors `recordContentFailure`: the item stays `pending`
+   * (and so retryable) until the budget is spent, then goes `failed` so it
+   * stops being picked up. A `failed` item is still perfectly usable — it just
+   * reads and embeds in its original language.
+   */
+  async recordTranslationFailure(id: string, reason: string): Promise<void> {
+    await this.db.execute(sql`
+      UPDATE rss.items SET
+        translation_attempts = translation_attempts + 1,
+        translation_error = ${reason.slice(0, 500)},
+        translation_status = CASE
+          WHEN translation_attempts + 1 >= ${MAX_TRANSLATION_ATTEMPTS} THEN 'failed'
+          ELSE 'pending'
+        END
+      WHERE id = ${id}::uuid
+    `);
+  }
+
+  /**
    * Items ready to embed: successfully fetched, or terminally failed (those
    * get a title+summary chunk so RAG recall degrades gracefully instead of
    * dropping the story entirely).
+   *
+   * Gated on translation having RESOLVED — `'none'`/`'pending'` are excluded —
+   * because both halves of hybrid search are English, so embedding a Japanese
+   * body would bury the item in the index.
+   *
+   * The gate cannot deadlock, only delay. The translate stage runs
+   * immediately before this one in the same invocation, and every row it
+   * looks at leaves `'none'`; a row it defers past `TRANSLATE_LIMIT` stays
+   * `'none'` but is re-queued next run, and `'pending'` is bounded by
+   * `MAX_TRANSLATION_ATTEMPTS` before it becomes the terminal `'failed'` —
+   * which IS embeddable, from the original text. So an item waits at most a
+   * few 10-minute runs, and the pre-existing corpus was moved to
+   * `'not_needed'` by the migration precisely so it never queues here at all.
    */
   async listPendingEmbedding(limit: number): Promise<EmbeddableRow[]> {
     const result = await this.db.execute(sql`
-      SELECT id, title, content_text, summary, content_status
+      SELECT id, title, content_text, summary, content_status,
+             title_en, summary_en, content_text_en
       FROM rss.items
       WHERE relevance = 'selected'
         AND embedded_at IS NULL
         AND content_status IN ('fetched', 'failed')
+        AND translation_status IN ('not_needed', 'translated', 'failed')
       ORDER BY ingested_at ASC
       LIMIT ${limit}
     `);

@@ -38,6 +38,8 @@ function hit(overrides: Record<string, unknown> = {}) {
     snippet: 'Acme Corp closed a $40m round led by Beta Ventures.',
     score: 0.91,
     matchedBy: 'both',
+    language: 'en',
+    translation_status: 'not_needed',
     ...overrides,
   };
 }
@@ -56,6 +58,28 @@ describe('search_news tool', () => {
     expect(out).toContain('DealStreetAsia');
     expect(out).toContain('2026-09-02');
     expect(out).toContain('https://example.com/acme');
+  });
+
+  it('flags a machine-translated hit so the model does not quote it as verbatim', async () => {
+    mocks.searchNewsImpl.mockResolvedValueOnce([
+      hit({
+        title: 'SoftBank buys additional Arm shares',
+        language: 'ja',
+        translation_status: 'translated',
+      }),
+    ]);
+
+    const out = (await searchNews.invoke({ query: 'softbank arm' })) as string;
+
+    expect(out).toContain('machine-translated from Japanese');
+  });
+
+  it('adds no provenance note for an item that needed no translation', async () => {
+    mocks.searchNewsImpl.mockResolvedValueOnce([hit()]);
+
+    const out = (await searchNews.invoke({ query: 'acme funding' })) as string;
+
+    expect(out).not.toContain('machine-translated');
   });
 
   it('passes category and date filters through to the service', async () => {

@@ -3411,6 +3411,23 @@ interface SeedRssStory {
   body: string[];
   authors?: string;
   tags?: string;
+  /**
+   * Present only on the non-English fixtures. When set, the story's
+   * `title`/`summary`/`body` above are seeded as the ENGLISH TRANSLATION
+   * (`*_en` columns, `translation_status = 'translated'`) and the text here is
+   * seeded as the original the publisher shipped — which is exactly the shape
+   * the enrich pipeline's translate stage produces.
+   *
+   * Without at least one of these in the fixture, the Data Navigator's
+   * "display in original language" toggle is unreachable from a fresh seed.
+   */
+  original?: {
+    /** ISO 639-1 code, as `detectLanguage` would report it. */
+    language: string;
+    title: string;
+    summary: string;
+    body: string[];
+  };
 }
 
 /**
@@ -3718,6 +3735,18 @@ const SEED_RSS_STORIES: Record<RssCategory, SeedRssStory[]> = {
       ],
       authors: 'Reuben Achterberg',
       tags: 'growth equity, materials, project finance',
+      // Seeded as a German article with an English translation, so the
+      // reading pane's language toggle is exercised by a fresh seed.
+      original: {
+        language: 'de',
+        title: 'Kestrel Materials sichert sich 145 Mio. USD Wachstumsfinanzierung für Aluminium-Recyclingkapazität',
+        summary:
+          'Die Runde kombiniert Eigenkapital mit einer Projektfinanzierungslinie und finanziert eine zweite Recyclinglinie.',
+        body: [
+          'Kestrel Materials hat sich eine Wachstumsfinanzierung über 145 Mio. USD gesichert, die Eigenkapital mit einer abgegrenzten Projektfinanzierungslinie für die zweite Recyclinglinie für Aluminium verbindet. Die Struktur hält das Baurisiko von der operativen Bilanz fern.',
+          'Das Management erklärte, die Abnahme für die neue Linie sei bereits vor der Inbetriebnahme weitgehend vertraglich gesichert, was eine Bedingung des Fremdkapitalpakets gewesen sei.',
+        ],
+      },
     },
     {
       title: 'Lanternfish raises $18m seed extension after tripling deployed volume',
@@ -3835,6 +3864,19 @@ const SEED_RSS_STORIES: Record<RssCategory, SeedRssStory[]> = {
         'The structure avoids Brightmoor selling land into a market it believes is undervalued while giving Sennen sites without a capital outlay it would struggle to justify.',
       ],
       tags: 'joint venture, data centres',
+      // Seeded as a Japanese article with an English translation — a
+      // non-Latin script, so it also exercises the script-census branch of
+      // `detectLanguage` if this fixture is ever run back through the stage.
+      original: {
+        language: 'ja',
+        title: 'ブライトムーア・グループとセネン・パートナーズ、地方データセンターの合弁会社を設立',
+        summary:
+          'この合弁事業は、ブライトムーアの保有地とセネンの開発力を、経済条件を共有する枠組みの下で組み合わせるものである。',
+        body: [
+          'ブライトムーア・グループとセネン・パートナーズは、地方データセンターの容量を開発するための合弁会社を設立した。ブライトムーアが保有地を、セネンが開発能力をそれぞれ拠出する。経済条件は固定比率で分割するのではなく共有され、リターンは引き渡された容量に応じて段階的に設定される。',
+          'この枠組みにより、ブライトムーアは過小評価されていると考える市場に土地を売却する必要がなくなり、セネンは自社では正当化しがたい資本支出なしに用地を確保できる。',
+        ],
+      },
     },
     {
       title: 'Corvid Software acquires Tessellate for $88m to enter the public sector',
@@ -4124,7 +4166,18 @@ async function seedRssFeeds(db: DbClient) {
     // reachable from a fresh seed: a fetched full article, an item that was
     // never queued for extraction, and one whose extraction terminally
     // failed (both of the latter render the "Summary only" fallback).
-    const state = index % 7 === 3 ? 'none' : index % 7 === 5 ? 'failed' : 'fetched';
+    //
+    // Translated fixtures opt out of the rotation. The pipeline only ever
+    // translates `relevance = 'selected'` items with a resolved content
+    // fetch, so seeding a translated-but-rejected row would put a state in
+    // the database that no run can actually produce.
+    const state = story.original
+      ? 'fetched'
+      : index % 7 === 3
+        ? 'none'
+        : index % 7 === 5
+          ? 'failed'
+          : 'fetched';
     const ingestedAt = new Date(now - index * STORY_INTERVAL_MS);
     // The honest publish time sits a little before ingestion, as it would in
     // a real poll. The misattributed rows instead claim a future date; the
@@ -4133,6 +4186,13 @@ async function seedRssFeeds(db: DbClient) {
       ? new Date(now + (index + 12) * HOUR)
       : new Date(ingestedAt.getTime() - 40 * 60_000);
 
+    // For a translated fixture the ORIGINAL text is what the publisher
+    // shipped and therefore what lands in `title`/`summary`/`content_text`;
+    // the story's own English copy is the translation. For everything else
+    // the story is already English and there is no translation at all.
+    const source = story.original ?? story;
+    const body = state === 'fetched' ? source.body.join('\n\n') : null;
+
     return {
       item_hash: `seed-${category}-${slot}`,
       feed_id: feed.id,
@@ -4140,9 +4200,9 @@ async function seedRssFeeds(db: DbClient) {
       source_name: feed.source_name,
       region: feed.region,
       feed_tier: feed.tier,
-      title: story.title,
+      title: source.title,
       link: `https://example.com/${category}/${slot}`,
-      summary: story.summary,
+      summary: source.summary,
       authors: story.authors ?? null,
       tags: story.tags ?? category,
       published_at: publishedAt.toISOString(),
@@ -4150,10 +4210,20 @@ async function seedRssFeeds(db: DbClient) {
       relevance: state === 'none' ? ('rejected' as const) : ('selected' as const),
       relevance_score: state === 'none' ? 0.24 : 0.79,
       content_status: state as 'fetched' | 'none' | 'failed',
-      content_text: state === 'fetched' ? story.body.join('\n\n') : null,
+      content_text: body,
       content_fetched_at: state === 'fetched' ? ingestedAt.toISOString() : null,
       content_attempts: state === 'failed' ? 3 : 0,
       content_error: state === 'failed' ? 'content too short' : null,
+      // `not_needed` for the English majority — the same verdict the
+      // translate stage records once it has looked at an item and found
+      // nothing to do. Leaving these `none` would put every seeded row in
+      // the translate queue.
+      language: story.original?.language ?? 'en',
+      translation_status: story.original ? ('translated' as const) : ('not_needed' as const),
+      title_en: story.original ? story.title : null,
+      summary_en: story.original ? story.summary : null,
+      content_text_en: story.original && state === 'fetched' ? story.body.join('\n\n') : null,
+      translated_at: ingestedAt.toISOString(),
     };
   });
 
@@ -4162,6 +4232,8 @@ async function seedRssFeeds(db: DbClient) {
   console.log(
     `  seeded ${SEED_RSS_FEEDS.length} rss feeds + ${rows.length} news items ` +
       `(${rows.filter((r) => r.content_status === 'fetched').length} with full article text, ` +
+      `${rows.filter((r) => r.translation_status === 'translated').length} non-English with an ` +
+      `English translation to exercise the language toggle, ` +
       `${MISATTRIBUTED_PUBLISH_DATES.size} with a future publish date to exercise the ingest-date fallback)`,
   );
 }

@@ -1447,7 +1447,8 @@ clean import reports **256 imported**, not 263.
 - **Schema:** `rss` (pipeline-owned, no `workspace_id` anywhere — the catalog
   and the ingested news are shared by every workspace by design; migrations
   live in `data-pipeline/migrations`). `rss.feeds` is the runtime-editable
-  catalog; `rss.items` holds metadata for every ingested item; `rss.item_chunks`
+  catalog; `rss.items` holds metadata for every ingested item (plus the
+  original *and* English text of anything translated); `rss.item_chunks`
   holds 1024-dim pgvector embeddings for the LLM-selected subset; `rss.ingest_runs`
   records each poll/enrich run's stats and error.
 - **Ingest:** two scheduled Lambdas in `data-pipeline` (`data-pipeline/src/lambda/`) —
@@ -1457,12 +1458,54 @@ clean import reports **256 imported**, not 263.
   itself to `dead` after **10** consecutive failures
   (`MAX_CONSECUTIVE_FAILURES` in `rssRepository.ts`) rather than waiting for a
   human to notice — the PoC found ~35% of a raw seed catalog was already
-  rotten. `rss-enrich` (`rate(10 minutes)`) drains three bounded, sequentially-run
+  rotten. `rss-enrich` (`rate(10 minutes)`) drains four bounded, sequentially-run
   queues: Haiku relevance classification (capped per category per UTC day),
   full-article extraction for selected items (3 attempts,
-  `MAX_CONTENT_ATTEMPTS`), and Bedrock Titan embeddings into `rss.item_chunks`.
+  `MAX_CONTENT_ATTEMPTS`), Haiku translation of non-English items (see below),
+  and Bedrock Titan embeddings into `rss.item_chunks`.
   Both Lambdas are idempotent — status columns and the unique `item_hash` index
   make a crashed/re-run invocation a no-op rather than a duplicate.
+- **Translation (non-English items).** The catalog spans several regions, so a
+  real slice of the lake arrives in Japanese, Korean, German, Spanish and so
+  on. The translate stage (`data-pipeline/src/handlers/rssTranslate.ts`) detects
+  the language **locally** first — `rssLanguage.ts` is a dependency-free
+  script-census + stopword heuristic — so the English majority never costs a
+  model call; only what it flags goes to Haiku, one bounded plain-text call per
+  field and per ~6 KB body chunk (JSON would let one `max_tokens` cutoff make a
+  200 KB body unparseable). Results land in parallel `language` /
+  `title_en` / `summary_en` / `content_text_en` columns: the original is
+  **never** overwritten, because the reading pane offers a "display in original
+  language" toggle. Three attempts (`MAX_TRANSLATION_ATTEMPTS`), then the item
+  goes `failed` and stays fully usable in its own language.
+  - **Two limits, not one.** The stage examines `DETECT_LIMIT` (200) rows per
+    run but translates at most `TRANSLATE_LIMIT` (15), settling every English
+    row in a single batched `UPDATE`. Keeping them separate is load-bearing:
+    embedding waits on translation resolving, so if English rows counted
+    against the model budget a backlog of them would starve the embed queue
+    with work that never needed a model. The overflow is reported as
+    `translation_deferred` rather than silently dropped. For the same reason,
+    the migration backfills every already-embedded row to `not_needed` — the
+    default `'none'` would otherwise make the whole historical corpus
+    simultaneously unembeddable and queued for re-examination.
+  - **Order matters:** embedding is gated on `translation_status` having
+    resolved, because *both* halves of hybrid search are English (an English
+    query embedding, and a trigram `ILIKE` over English words) — indexing a
+    Japanese body would leave the item unreachable by any query a user would
+    actually type. `runEmbedding` therefore embeds `title_en`/`content_text_en`
+    whenever they exist. Same reason the lexical half now ILIKEs `title_en`
+    alongside `title` (with a matching `gin_trgm_ops` index).
+  - **Surfaces:** the news list always renders the English headline plus a
+    language badge — a foreign headline is unreadable to someone scanning the
+    feed — while the reading pane adds the per-article toggle and a
+    machine-translation notice. `search_news` marks a translated hit in its
+    output so the agent doesn't quote machine copy as verbatim. The single
+    shared answer to "which text do I show" lives in
+    `src/views/dataNavigator/translation.ts`.
+  - **Detection bias:** the heuristic answers "English" when unsure (including
+    for text below `MIN_WORDS_FOR_DETECTION`, e.g. a bare headline on an item
+    whose content fetch failed). A false "English" costs a slightly-awkward
+    card; a false "non-English" wastes a call and round-trips real English
+    prose through a translator.
 - **Volume control:** `RSS_DAILY_CAP_PER_CATEGORY` (default **25**) caps
   selected items per category per UTC day, shared across every batch in a run
   so a large backlog can't blow through the cap by splitting into batches.

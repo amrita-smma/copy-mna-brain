@@ -10,12 +10,17 @@ const mocks = vi.hoisted(() => ({
   listPendingContent: vi.fn().mockResolvedValue([]),
   recordContentSuccess: vi.fn().mockResolvedValue(undefined),
   recordContentFailure: vi.fn().mockResolvedValue(undefined),
+  listPendingTranslation: vi.fn().mockResolvedValue([]),
+  recordTranslationSuccess: vi.fn().mockResolvedValue(undefined),
+  markTranslationNotNeeded: vi.fn().mockResolvedValue(undefined),
+  recordTranslationFailure: vi.fn().mockResolvedValue(undefined),
   listPendingEmbedding: vi.fn().mockResolvedValue([]),
   saveChunks: vi.fn().mockResolvedValue(undefined),
   startRun: vi.fn().mockResolvedValue('run-1'),
   finishRun: vi.fn().mockResolvedValue(undefined),
   classifyBatch: vi.fn().mockResolvedValue([]),
   fetchArticleContent: vi.fn(),
+  translateItem: vi.fn(),
   embed: vi.fn(),
 }));
 
@@ -29,6 +34,10 @@ vi.mock('../repositories', () => ({
     listPendingContent = mocks.listPendingContent;
     recordContentSuccess = mocks.recordContentSuccess;
     recordContentFailure = mocks.recordContentFailure;
+    listPendingTranslation = mocks.listPendingTranslation;
+    recordTranslationSuccess = mocks.recordTranslationSuccess;
+    markTranslationNotNeeded = mocks.markTranslationNotNeeded;
+    recordTranslationFailure = mocks.recordTranslationFailure;
     listPendingEmbedding = mocks.listPendingEmbedding;
     saveChunks = mocks.saveChunks;
     startRun = mocks.startRun;
@@ -42,6 +51,10 @@ vi.mock('../handlers/rssClassify', async (importOriginal) => {
 vi.mock('../lib/rssContent', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../lib/rssContent')>();
   return { ...actual, fetchArticleContent: mocks.fetchArticleContent };
+});
+vi.mock('../handlers/rssTranslate', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../handlers/rssTranslate')>();
+  return { ...actual, translateItem: mocks.translateItem };
 });
 vi.mock('@/lib/bedrock', () => ({
   EMBEDDING_DIMENSIONS: 1024,
@@ -69,7 +82,9 @@ beforeEach(() => {
   mocks.startRun.mockResolvedValue('run-1');
   mocks.listPendingClassification.mockResolvedValue([]);
   mocks.listPendingContent.mockResolvedValue([]);
+  mocks.listPendingTranslation.mockResolvedValue([]);
   mocks.listPendingEmbedding.mockResolvedValue([]);
+  mocks.translateItem.mockResolvedValue({ kind: 'not_needed', language: 'en' });
   mocks.countSelectedToday.mockResolvedValue({});
   mocks.embed.mockResolvedValue(Array.from({ length: 1024 }, () => 0.01));
 });
@@ -195,6 +210,178 @@ describe('rss-enrich — content stage', () => {
   });
 });
 
+describe('rss-enrich — translation stage', () => {
+  /**
+   * Japanese, and long enough for the real `detectItemLanguage` to call it —
+   * the stage's own gate is NOT mocked, so a fixture that reads as English
+   * would be filtered out before `translateItem` is ever consulted.
+   */
+  function foreign(id = 'i1') {
+    return {
+      id,
+      title: 'ソフトバンクグループ、アーム株式の追加取得を発表',
+      summary: '同社は半導体設計会社アームの株式を追加で取得したと発表した。取得額は明らかにしていない。',
+      content_text: '本文が続きます。',
+    };
+  }
+
+  /** English, so the local gate settles it without a model call. */
+  function english(id = 'i1') {
+    return {
+      id,
+      title: 'Aldergate Industrial acquires Penvale Controls for $310m',
+      summary:
+        'The acquisition adds process-control instrumentation to the automation portfolio and closes a product gap that management has flagged to investors for several reporting periods.',
+      content_text: null,
+    };
+  }
+
+  it('stores the English rendering alongside the original', async () => {
+    mocks.listPendingTranslation.mockResolvedValue([foreign()]);
+    mocks.translateItem.mockResolvedValue({
+      kind: 'translated',
+      language: 'ja',
+      title: 'Title',
+      summary: 'Summary',
+      content: 'Body',
+    });
+
+    const out = await handler({}, {});
+
+    expect(out.result.translated).toBe(1);
+    expect(mocks.recordTranslationSuccess).toHaveBeenCalledWith('i1', {
+      language: 'ja',
+      title: 'Title',
+      summary: 'Summary',
+      content: 'Body',
+    });
+  });
+
+  it('settles English items locally, without spending a model call', async () => {
+    // The whole point of the local gate: the catalog is majority-English, so
+    // paying Haiku to be told "already English" would dominate the stage.
+    mocks.listPendingTranslation.mockResolvedValue([english('i1'), english('i2')]);
+
+    const out = await handler({}, {});
+
+    expect(out.result.translation_skipped).toBe(2);
+    expect(out.result.translated).toBe(0);
+    expect(mocks.translateItem).not.toHaveBeenCalled();
+    expect(mocks.markTranslationNotNeeded).toHaveBeenCalledWith([
+      { id: 'i1', language: 'en' },
+      { id: 'i2', language: 'en' },
+    ]);
+  });
+
+  it('settles the English majority in ONE write, not one per row', async () => {
+    // A loop of UPDATEs here would be a write-side N+1 on the stage's hottest
+    // path — DETECT_LIMIT is 200 and nearly all of it is English.
+    mocks.listPendingTranslation.mockResolvedValue(
+      Array.from({ length: 60 }, (_, i) => english(`i${i}`)),
+    );
+
+    await handler({}, {});
+
+    expect(mocks.markTranslationNotNeeded).toHaveBeenCalledTimes(1);
+    expect(mocks.markTranslationNotNeeded.mock.calls[0][0]).toHaveLength(60);
+  });
+
+  it('records a null language when the text is too short to judge', async () => {
+    // The detector reports null below its word floor. Recording a guessed
+    // 'en' would state as fact something never established.
+    mocks.listPendingTranslation.mockResolvedValue([
+      { id: 'i1', title: 'Acme buys Penvale', summary: null, content_text: null },
+    ]);
+
+    await handler({}, {});
+
+    expect(mocks.markTranslationNotNeeded).toHaveBeenCalledWith([
+      { id: 'i1', language: null },
+    ]);
+  });
+
+  it('caps model calls at TRANSLATE_LIMIT and reports the deferred remainder', async () => {
+    // DETECT_LIMIT (200) is far above TRANSLATE_LIMIT (15) because detection
+    // is free and translation is not. The overflow must be counted, not
+    // silently dropped — the next run picks it up.
+    mocks.listPendingTranslation.mockResolvedValue(
+      Array.from({ length: 20 }, (_, i) => foreign(`i${i}`)),
+    );
+    mocks.translateItem.mockResolvedValue({
+      kind: 'translated',
+      language: 'ja',
+      title: 'T',
+      summary: null,
+      content: null,
+    });
+
+    const out = await handler({}, {});
+
+    expect(mocks.translateItem).toHaveBeenCalledTimes(15);
+    expect(out.result.translated).toBe(15);
+    expect(out.result.translation_deferred).toBe(5);
+  });
+
+  it('does not let an English backlog consume the translation budget', async () => {
+    // This is the failure mode the two limits exist to prevent: if English
+    // rows counted against TRANSLATE_LIMIT, a backlog of them would starve
+    // the embed queue, which waits on translation resolving.
+    mocks.listPendingTranslation.mockResolvedValue([
+      ...Array.from({ length: 50 }, (_, i) => english(`e${i}`)),
+      foreign('j1'),
+    ]);
+    mocks.translateItem.mockResolvedValue({
+      kind: 'translated',
+      language: 'ja',
+      title: 'T',
+      summary: null,
+      content: null,
+    });
+
+    const out = await handler({}, {});
+
+    expect(out.result.translated).toBe(1);
+    expect(out.result.translation_deferred).toBe(0);
+    expect(mocks.translateItem).toHaveBeenCalledTimes(1);
+  });
+
+  it('burns an attempt on a failed outcome', async () => {
+    mocks.listPendingTranslation.mockResolvedValue([foreign()]);
+    mocks.translateItem.mockResolvedValue({ kind: 'failed', reason: 'overloaded' });
+
+    const out = await handler({}, {});
+
+    expect(out.result.translation_failed).toBe(1);
+    expect(mocks.recordTranslationFailure).toHaveBeenCalledWith('i1', 'overloaded');
+  });
+
+  it('keeps draining the queue when one item throws outright', async () => {
+    // Per-item isolation, as in every other stage: a thrown error (a DB write
+    // blowing up, say) must not abort the invocation before embedding runs.
+    mocks.listPendingTranslation.mockResolvedValue([foreign('i1'), foreign('i2')]);
+    mocks.translateItem.mockRejectedValueOnce(new Error('boom')).mockResolvedValueOnce({
+      kind: 'translated',
+      language: 'ja',
+      title: 'T',
+      summary: null,
+      content: null,
+    });
+
+    const out = await handler({}, {});
+
+    expect(out.ok).toBe(true);
+    expect(out.result.translation_failed).toBe(1);
+    expect(out.result.translated).toBe(1);
+    expect(mocks.recordTranslationFailure).toHaveBeenCalledWith('i1', 'boom');
+  });
+
+  it('skips the stage entirely when the queue is empty', async () => {
+    await handler({}, {});
+    expect(mocks.translateItem).not.toHaveBeenCalled();
+    expect(mocks.markTranslationNotNeeded).not.toHaveBeenCalled();
+  });
+});
+
 describe('rss-enrich — embedding stage', () => {
   it('embeds each chunk of a fetched article and saves them', async () => {
     mocks.listPendingEmbedding.mockResolvedValue([
@@ -218,6 +405,76 @@ describe('rss-enrich — embedding stage', () => {
     const chunks = mocks.saveChunks.mock.calls[0][1] as { text: string }[];
     expect(chunks).toHaveLength(1);
     expect(chunks[0].text).toContain('A funding round.');
+  });
+
+  it('embeds the English translation, not the original, when one exists', async () => {
+    // Both halves of hybrid search are English — an English query embedding
+    // and a trigram ILIKE over English words — so indexing the Japanese body
+    // would leave the item unreachable by any query a user would type.
+    mocks.listPendingEmbedding.mockResolvedValue([
+      {
+        id: 'i1',
+        title: 'ソフトバンク、Arm株を追加取得',
+        content_text: '本文が続きます。',
+        summary: '要約',
+        content_status: 'fetched',
+        title_en: 'SoftBank buys additional Arm shares',
+        summary_en: 'Summary',
+        content_text_en: 'The body continues.',
+      },
+    ]);
+
+    await handler({}, {});
+
+    const chunks = mocks.saveChunks.mock.calls[0][1] as { text: string }[];
+    expect(chunks[0].text).toContain('SoftBank buys additional Arm shares');
+    expect(chunks[0].text).toContain('The body continues.');
+    expect(chunks[0].text).not.toContain('本文が続きます。');
+  });
+
+  it('falls back to the original text when translation terminally failed', async () => {
+    // A `failed` translation is still embeddable — burying the item entirely
+    // would be worse than indexing it in its own language.
+    mocks.listPendingEmbedding.mockResolvedValue([
+      {
+        id: 'i1',
+        title: 'Titel auf Deutsch',
+        content_text: 'Der Text.',
+        summary: 'Zusammenfassung',
+        content_status: 'fetched',
+        title_en: null,
+        summary_en: null,
+        content_text_en: null,
+      },
+    ]);
+
+    await handler({}, {});
+
+    const chunks = mocks.saveChunks.mock.calls[0][1] as { text: string }[];
+    expect(chunks[0].text).toContain('Titel auf Deutsch');
+    expect(chunks[0].text).toContain('Der Text.');
+  });
+
+  it('uses the translated summary when the content fetch failed', async () => {
+    mocks.listPendingEmbedding.mockResolvedValue([
+      {
+        id: 'i1',
+        title: '見出し',
+        content_text: null,
+        summary: '要約テキスト',
+        content_status: 'failed',
+        title_en: 'Headline',
+        summary_en: 'Summary text.',
+        content_text_en: null,
+      },
+    ]);
+
+    await handler({}, {});
+
+    const chunks = mocks.saveChunks.mock.calls[0][1] as { text: string }[];
+    expect(chunks).toHaveLength(1);
+    expect(chunks[0].text).toContain('Headline');
+    expect(chunks[0].text).toContain('Summary text.');
   });
 
   it('leaves an item unembedded when Bedrock fails, so a later run retries it', async () => {

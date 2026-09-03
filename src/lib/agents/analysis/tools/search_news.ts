@@ -5,6 +5,7 @@ import { createDb } from '@/lib/server/db';
 import { RssItemRepository, RssItemChunkRepository } from '@/lib/repositories';
 import { BedrockEmbeddingClient } from '@/lib/bedrock';
 import { DataNavigatorService } from '@/lib/services/dataNavigatorService';
+import { languageLabel } from '@/lib/languageNames';
 import { RSS_CATEGORIES, type RssCategory } from '@/lib/db/schema';
 
 /**
@@ -61,9 +62,16 @@ export const searchNews = tool(
       const lines = hits.map((hit, index) => {
         const date = hit.published_at ? hit.published_at.slice(0, 10) : 'undated';
         const snippet = hit.snippet.replace(/\s+/g, ' ').slice(0, MAX_SNIPPET);
+        // The service already hands back the English rendering for a
+        // translated item, but the model should know the wording is
+        // machine-produced before it quotes a figure from it verbatim.
+        const provenance =
+          hit.translation_status === 'translated'
+            ? ` · machine-translated from ${languageLabel(hit.language) ?? 'the original'}`
+            : '';
         return [
           `${index + 1}. **${hit.title}**`,
-          `   ${hit.source_name} · ${hit.category} · ${date}`,
+          `   ${hit.source_name} · ${hit.category} · ${date}${provenance}`,
           `   ${snippet}`,
           `   ${hit.link}`,
         ].join('\n');

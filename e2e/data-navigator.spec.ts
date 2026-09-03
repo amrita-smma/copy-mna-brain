@@ -73,6 +73,60 @@ test.describe('Data Navigator', () => {
     await expect(page.getByRole('article').locator('h2')).toHaveText(secondTitle);
   });
 
+  test('a translated item reads in English and can be flipped to the original', async ({
+    page,
+  }) => {
+    await openDataNavigator(page);
+    await expect(newsOptions(page).first()).toBeVisible();
+
+    // The seeded corpus carries two non-English fixtures (German and
+    // Japanese) with an English translation — see `story.original` in
+    // `scripts/seed.ts` — so at least one badged card is always on page one.
+    const translated = newsOptions(page).filter({
+      has: page.getByTestId('news-item-translated'),
+    });
+    await expect(translated.first()).toBeVisible();
+
+    // The card shows the English headline; the badge says where it came from.
+    const englishTitle = (
+      await translated.first().getByTestId('news-item-title').innerText()
+    ).trim();
+
+    await translated.first().click();
+
+    const article = page.getByRole('article');
+    await expect(article.locator('h2')).toHaveText(englishTitle);
+    await expect(page.getByTestId('news-translation-notice')).toContainText(
+      'Machine-translated',
+    );
+
+    // Flipping to the original must actually change the rendered headline —
+    // if the toggle silently kept showing the translation, this fails.
+    const toggle = page.getByTestId('news-translation-toggle');
+    await expect(toggle).toHaveAttribute('aria-pressed', 'false');
+    await toggle.click();
+
+    await expect(toggle).toHaveAttribute('aria-pressed', 'true');
+    await expect(article.locator('h2')).not.toHaveText(englishTitle);
+
+    // And back.
+    await toggle.click();
+    await expect(article.locator('h2')).toHaveText(englishTitle);
+
+    // The choice is per-article, not sticky: moving to an English item must
+    // not leave the pane in "original" mode. Picked by the absence of the
+    // badge rather than by index, since the feed is also live-polled and a
+    // real non-English item could occupy any position.
+    await toggle.click();
+    await expect(toggle).toHaveAttribute('aria-pressed', 'true');
+
+    const untranslated = newsOptions(page).filter({
+      hasNot: page.getByTestId('news-item-translated'),
+    });
+    await untranslated.first().click();
+    await expect(page.getByTestId('news-translation-toggle')).toHaveCount(0);
+  });
+
   test('a category chip narrows the list and Clear restores it', async ({ page }) => {
     await openDataNavigator(page);
 
