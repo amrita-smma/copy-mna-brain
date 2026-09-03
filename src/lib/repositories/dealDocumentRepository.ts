@@ -1,6 +1,6 @@
 import { and, eq, inArray } from 'drizzle-orm';
 import { companies, dealDocuments } from '@/lib/db/schema';
-import type { DbClient, Tables, TablesInsert } from './types';
+import type { DbClient, Tables, TablesInsert, TablesUpdate } from './types';
 
 export class DealDocumentRepository {
   constructor(
@@ -42,8 +42,17 @@ export class DealDocumentRepository {
     return rows.map((d) => d.file_path).filter(Boolean);
   }
 
-  async insert(data: TablesInsert<'deal_documents'>): Promise<void> {
-    await this.db.insert(dealDocuments).values(data);
+  async insert(data: TablesInsert<'deal_documents'>): Promise<Tables<'deal_documents'>> {
+    const [row] = await this.db.insert(dealDocuments).values(data).returning();
+    if (!row) throw new Error('Failed to insert deal document');
+    return row;
+  }
+
+  async updatePartial(id: string, updates: TablesUpdate<'deal_documents'>): Promise<void> {
+    await this.db
+      .update(dealDocuments)
+      .set(updates)
+      .where(and(eq(dealDocuments.id, id), inArray(dealDocuments.deal_id, this.workspaceCompanyIds())));
   }
 
   async delete(id: string): Promise<void> {

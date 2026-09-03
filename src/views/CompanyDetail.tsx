@@ -93,6 +93,14 @@ import CompanyOverviewSlide, {
 } from '@/components/pipeline/CompanyOverviewSlide';
 import { useLayoutControl } from '@/components/layout/LayoutControlContext';
 import FilePreview from '@/components/Files/FilePreview';
+import {
+  DocumentStatusBadge,
+  DocumentTagsList,
+  DocumentInsightsToggle,
+  DocumentInsightsPanel,
+  hasDocumentInsights,
+  useDealDocumentProcessingPoll,
+} from '@/components/Files/DocumentInsightsPanel';
 import { FinancialCharts } from '@/components/pipeline/FinancialCharts';
 import { DealStage } from '@/lib/types';
 import { OWNERSHIP_OPTIONS, STAGE_LABELS, isAnalysisInProgress } from '@/lib/constants';
@@ -274,6 +282,9 @@ interface DealDocument {
   file_path: string;
   stage: string;
   created_at: string | null;
+  structured_notes: string | null;
+  tags: string[] | null;
+  processing_status: string | null;
 }
 
 /** File from the "files" table (Smart Files) where matched_companies contains this company */
@@ -414,6 +425,8 @@ export default function CompanyDetail() {
   const [notes, setNotes] = useState<DealNote[]>([]);
   const [links, setLinks] = useState<DealLink[]>([]);
   const [documents, setDocuments] = useState<DealDocument[]>([]);
+  const [expandedDocNotes, setExpandedDocNotes] = useState<Record<string, boolean>>({});
+  const [expandedDocTags, setExpandedDocTags] = useState<Record<string, boolean>>({});
   const [matchedFiles, setMatchedFiles] = useState<MatchedFile[]>([]);
   const [screenings, setScreenings] = useState<Screening[]>([]);
   const [tracks, setTracks] = useState<Track[]>([]);
@@ -760,6 +773,10 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
       console.error('Error fetching details:', error);
     }
   };
+
+  useDealDocumentProcessingPoll(documents, () => {
+    void fetchDetails();
+  });
 
   // Live screening progress over SSE (replaces a 3s poll): connect only while a
   // screening is pending; the stream pushes the full list on every state change.
@@ -1972,34 +1989,59 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
                   </div>
                   <div className="space-y-2 max-h-[300px] overflow-y-auto">
                     {documents.map((doc) => (
-                      <div key={doc.id} className="flex items-center justify-between p-2 bg-muted rounded-lg">
-                        <div className="flex items-center gap-2 min-w-0 flex-1">
-                          <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
-                          <span className="text-sm truncate" title={doc.file_name}>
-                            {doc.file_name}
-                          </span>
+                      <div key={doc.id} className="border rounded-lg bg-muted/30 overflow-hidden">
+                        <div className="flex items-center justify-between p-2 gap-2">
+                          <div className="flex items-center gap-2 min-w-0 flex-1">
+                            <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
+                            <span className="text-sm truncate" title={doc.file_name}>
+                              {doc.file_name}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-1 shrink-0">
+                            <DocumentInsightsToggle
+                              hasNotes={hasDocumentInsights(doc)}
+                              expanded={Boolean(expandedDocNotes[doc.id])}
+                              onToggle={() =>
+                                setExpandedDocNotes((prev) => ({ ...prev, [doc.id]: !prev[doc.id] }))
+                              }
+                            />
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => downloadDocument(doc)}
+                              title="Download"
+                            >
+                              <Download className="h-4 w-4" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => handleOpenPreview(doc)}
+                              title="Preview"
+                            >
+                              <Eye className="h-4 w-4" />
+                            </Button>
+                            <Button variant="ghost" size="icon" onClick={() => deleteDocument(doc)} title="Delete">
+                              <Trash2 className="h-4 w-4 text-destructive" />
+                            </Button>
+                          </div>
                         </div>
-                        <div className="flex items-center gap-1 shrink-0">
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => downloadDocument(doc)}
-                            title="Download"
-                          >
-                            <Download className="h-4 w-4" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => handleOpenPreview(doc)}
-                            title="Preview"
-                          >
-                            <Eye className="h-4 w-4" />
-                          </Button>
-                          <Button variant="ghost" size="icon" onClick={() => deleteDocument(doc)} title="Delete">
-                            <Trash2 className="h-4 w-4 text-destructive" />
-                          </Button>
+                        <div className="flex items-center gap-2 px-2 pb-2">
+                          <DocumentStatusBadge status={doc.processing_status} />
+                          <DocumentTagsList
+                            tags={doc.tags}
+                            expanded={Boolean(expandedDocTags[doc.id])}
+                            onToggleExpand={() =>
+                              setExpandedDocTags((prev) => ({ ...prev, [doc.id]: !prev[doc.id] }))
+                            }
+                          />
                         </div>
+                        {expandedDocNotes[doc.id] && (
+                          <DocumentInsightsPanel
+                            structuredNotes={doc.structured_notes}
+                            status={doc.processing_status}
+                          />
+                        )}
                       </div>
                     ))}
                     {documents.length === 0 && <p className="text-muted-foreground text-sm">No documents yet</p>}

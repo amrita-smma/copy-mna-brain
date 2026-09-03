@@ -64,6 +64,14 @@ import CompanyOverviewSlide, {
   type EditSectionRequest,
 } from "@/components/pipeline/CompanyOverviewSlide";
 import FilePreview from "@/components/Files/FilePreview";
+import {
+  DocumentStatusBadge,
+  DocumentTagsList,
+  DocumentInsightsToggle,
+  DocumentInsightsPanel,
+  hasDocumentInsights,
+  useDealDocumentProcessingPoll,
+} from "@/components/Files/DocumentInsightsPanel";
 import { DealStage } from "@/lib/types";
 import {
   OWNERSHIP_OPTIONS,
@@ -289,6 +297,9 @@ interface DealDocument {
   file_path: string;
   stage: string;
   created_at: string;
+  structured_notes: string | null;
+  tags: string[] | null;
+  processing_status: string | null;
 }
 
 /** File from the "files" table (Smart Files) where matched_companies contains this company */
@@ -442,6 +453,8 @@ export default function CompanyDetailDialog({
   const [notes, setNotes] = useState<DealNote[]>([]);
   const [links, setLinks] = useState<DealLink[]>([]);
   const [documents, setDocuments] = useState<DealDocument[]>([]);
+  const [expandedDocNotes, setExpandedDocNotes] = useState<Record<string, boolean>>({});
+  const [expandedDocTags, setExpandedDocTags] = useState<Record<string, boolean>>({});
   const [matchedFiles, setMatchedFiles] = useState<MatchedFile[]>([]);
   const [screenings, setScreenings] = useState<Screening[]>([]);
   const [tracks, setTracks] = useState<Track[]>([]);
@@ -824,8 +837,8 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
     };
   }, []);
 
-  const fetchDetails = async () => {
-    setLoading(true);
+  const fetchDetails = async (opts: { silent?: boolean } = {}) => {
+    if (!opts.silent) setLoading(true);
     try {
       const data = await getCompanyDetails(company.id);
       setStageHistory(
@@ -839,9 +852,13 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
     } catch (error) {
       console.error("Error fetching details:", error);
     } finally {
-      setLoading(false);
+      if (!opts.silent) setLoading(false);
     }
   };
+
+  useDealDocumentProcessingPoll(open ? documents : [], () => {
+    void fetchDetails({ silent: true });
+  });
 
   // Live screening progress over SSE (replaces a 3s poll): connect only while
   // the dialog is open and a screening is pending; the stream pushes the full
@@ -2457,7 +2474,7 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
                         disabled={isSubmitting}
                       />
                     </div>
-                    <div className="space-y-2 max-h-[200px] overflow-y-auto">
+                    <div className="space-y-2 max-h-[300px] overflow-y-auto">
                       {documents.length === 0 ? (
                         <p className="text-muted-foreground text-xs">
                           No documents yet
@@ -2466,18 +2483,68 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
                         documents.map((doc) => (
                           <div
                             key={doc.id}
-                            className="flex items-center justify-between p-2 border rounded-lg"
+                            className="border rounded-lg bg-muted/30 overflow-hidden"
                           >
-                            <div className="flex items-center gap-2 min-w-0 flex-1">
-                              <FileText className="h-3 w-3 text-muted-foreground shrink-0" />
-                              <button
-                                type="button"
-                                onClick={() => downloadDocument(doc)}
-                                className="text-xs text-primary hover:underline truncate text-left"
-                              >
-                                {doc.file_name}
-                              </button>
+                            <div className="flex items-center justify-between p-2 gap-2">
+                              <div className="flex items-center gap-2 min-w-0 flex-1">
+                                <FileText className="h-4 w-4 text-muted-foreground shrink-0" />
+                                <span
+                                  className="text-xs truncate"
+                                  title={doc.file_name}
+                                >
+                                  {doc.file_name}
+                                </span>
+                              </div>
+                              <div className="flex items-center gap-1 shrink-0">
+                                <DocumentInsightsToggle
+                                  hasNotes={hasDocumentInsights(doc)}
+                                  expanded={Boolean(expandedDocNotes[doc.id])}
+                                  onToggle={() =>
+                                    setExpandedDocNotes((prev) => ({ ...prev, [doc.id]: !prev[doc.id] }))
+                                  }
+                                />
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  onClick={() => downloadDocument(doc)}
+                                  title="Download"
+                                >
+                                  <Download className="h-4 w-4" />
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  onClick={() => handleOpenPreview(doc)}
+                                  title="Preview"
+                                >
+                                  <Eye className="h-4 w-4" />
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  onClick={() => deleteDocument(doc)}
+                                  title="Delete"
+                                >
+                                  <Trash2 className="h-4 w-4 text-destructive" />
+                                </Button>
+                              </div>
                             </div>
+                            <div className="flex items-center gap-2 px-2 pb-2">
+                              <DocumentStatusBadge status={doc.processing_status} />
+                              <DocumentTagsList
+                                tags={doc.tags}
+                                expanded={Boolean(expandedDocTags[doc.id])}
+                                onToggleExpand={() =>
+                                  setExpandedDocTags((prev) => ({ ...prev, [doc.id]: !prev[doc.id] }))
+                                }
+                              />
+                            </div>
+                            {expandedDocNotes[doc.id] && (
+                              <DocumentInsightsPanel
+                                structuredNotes={doc.structured_notes}
+                                status={doc.processing_status}
+                              />
+                            )}
                           </div>
                         ))
                       )}

@@ -257,7 +257,7 @@ export function createContainer(db: DbClient, workspaceId: string): Container {
     companyService,
     companyGraphService,
   );
-  const dealDocumentService = new DealDocumentService(dealDocRepo);
+  const dealDocumentService = new DealDocumentService(dealDocRepo, jobDispatcher, workspaceId);
   const recentFileService = new RecentFileService(recentFileRepo);
   const fileService = new FileService(
     db,

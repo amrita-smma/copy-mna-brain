@@ -8,6 +8,9 @@ interface MockDb {
   limit: ReturnType<typeof vi.fn>;
   insert: ReturnType<typeof vi.fn>;
   values: ReturnType<typeof vi.fn>;
+  returning: ReturnType<typeof vi.fn>;
+  update: ReturnType<typeof vi.fn>;
+  set: ReturnType<typeof vi.fn>;
   delete: ReturnType<typeof vi.fn>;
 }
 
@@ -18,7 +21,10 @@ function makeMockDb(): MockDb {
     where: vi.fn().mockReturnThis(),
     limit: vi.fn(),
     insert: vi.fn().mockReturnThis(),
-    values: vi.fn(),
+    values: vi.fn().mockReturnThis(),
+    returning: vi.fn(),
+    update: vi.fn().mockReturnThis(),
+    set: vi.fn().mockReturnThis(),
     delete: vi.fn().mockReturnThis(),
   };
 }
@@ -59,20 +65,43 @@ describe('DealDocumentRepository', () => {
     expect(result).toEqual(['p/a.pdf']);
   });
 
-  it('insert writes the row without stamping a workspace_id', async () => {
-    await repo.insert({
+  it('insert writes the row without stamping a workspace_id and returns it', async () => {
+    const row = { id: 'doc1', deal_id: 'deal-1', file_name: 'a.pdf', file_path: 'p/a.pdf', stage: 'L0' };
+    mockDb.returning.mockResolvedValueOnce([row]);
+
+    const result = await repo.insert({
       deal_id: 'deal-1',
       file_name: 'a.pdf',
       file_path: 'p/a.pdf',
       stage: 'L0',
     });
 
+    expect(result).toEqual(row);
     expect(mockDb.values).toHaveBeenCalledWith({
       deal_id: 'deal-1',
       file_name: 'a.pdf',
       file_path: 'p/a.pdf',
       stage: 'L0',
     });
+  });
+
+  it('insert throws when returning is empty', async () => {
+    mockDb.returning.mockResolvedValueOnce([]);
+    await expect(
+      repo.insert({
+        deal_id: 'deal-1',
+        file_name: 'a.pdf',
+        file_path: 'p/a.pdf',
+        stage: 'L0',
+      }),
+    ).rejects.toThrow(/Failed to insert/);
+  });
+
+  it('updatePartial scopes the update via the companies subquery', async () => {
+    await repo.updatePartial('doc1', { processing_status: 'completed', tags: ['acme'] });
+
+    expect(mockDb.set).toHaveBeenCalledWith({ processing_status: 'completed', tags: ['acme'] });
+    expect(mockDb.where).toHaveBeenCalledTimes(2);
   });
 
   describe('workspace isolation', () => {

@@ -61,6 +61,7 @@ export const jobType = pgEnum("job_type", [
   "graph_sync",
   "track_matching",
   "fund_update_extraction",
+  "deal_document_processing",
 ]);
 export const l1Result = pgEnum("l1_result", ["pass", "fail", "inconclusive"]);
 export const pipelineStage = pgEnum("pipeline_stage", [
@@ -1022,6 +1023,10 @@ export const dealDocuments = pgTable(
     mime_type: text(),
     stage: text().notNull(),
     created_at: timestamp({ withTimezone: true, mode: "string" }).defaultNow(),
+    raw_notes: text(),
+    structured_notes: text(),
+    tags: text().array().default([]),
+    processing_status: text().default("pending"),
   },
   (table) => {
     return {
