@@ -156,6 +156,20 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "skipReason": "noise"
   },
   {
+    "hash": "8132984c4a1d1a54d598c36206643e14055753c2",
+    "date": "2026-09-03",
+    "subject": "Track company voting with customizable ballots and AI-generated summaries",
+    "category": "feature"
+  },
+  {
+    "hash": "f82773c3ebe3a3bbccaf9bcccfc78ad330fa37ab",
+    "date": "2026-09-03",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "f7bd8b195c74982a5416c3429665adcb37c65987",
     "date": "2026-09-02",
     "subject": "override image-size with image-size-next@2.1.1",
