@@ -70,6 +70,28 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "skipReason": "noise"
   },
   {
+    "hash": "c5cfa98a4e69b0ec76fd09fa16df15f56c5f4ed5",
+    "date": "2026-09-03",
+    "subject": "pin browserslist to 4.28.7",
+    "category": "fix",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "104a1bf74328497c660d2c250cbe698d4e2f8e12",
+    "date": "2026-09-03",
+    "subject": "Workspace access now requires user consent before syncing data",
+    "category": "feature"
+  },
+  {
+    "hash": "7a90d17f396f3a0f184621ee67fc7caf20461236",
+    "date": "2026-09-03",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "f7bd8b195c74982a5416c3429665adcb37c65987",
     "date": "2026-09-02",
     "subject": "override image-size with image-size-next@2.1.1",
