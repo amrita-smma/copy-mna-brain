@@ -83,3 +83,33 @@ resource "aws_iam_user_policy_attachment" "mna_files_user_rds_attachment" {
   user       = aws_iam_user.mna_files_user.name
   policy_arn = "arn:aws:iam::aws:policy/AmazonRDSFullAccess"
 }
+
+# Bedrock — the app embeds Data Navigator search queries in-process via
+# `BedrockEmbeddingClient` (src/lib/bedrock.ts), constructed in
+# `createContainer` and in the `search_news` agent tool. Without this the
+# embed call fails, `DataNavigatorService.vectorHalf` swallows the error and
+# returns [], and hybrid search silently degrades to trigram-only. Scoped to
+# the single embedding model, mirroring the pipeline Lambdas' policy in
+# data-pipeline/terraform/pipeline-compute/iam.tf.
+resource "aws_iam_policy" "bedrock_invoke_app" {
+  name        = "mna-app-bedrock-invoke"
+  description = "Allow the mna-app user to invoke the Bedrock embedding model for search query embeddings"
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Sid      = "InvokeEmbeddingModel"
+      Effect   = "Allow"
+      Action   = ["bedrock:InvokeModel"]
+      Resource = "arn:aws:bedrock:${var.bedrock_region}::foundation-model/${var.bedrock_embedding_model}"
+    }]
+  })
+
+  tags = local.common_tags
+}
+
+# Attach Bedrock invoke policy to user
+resource "aws_iam_user_policy_attachment" "mna_files_user_bedrock_attachment" {
+  user       = aws_iam_user.mna_files_user.name
+  policy_arn = aws_iam_policy.bedrock_invoke_app.arn
+}

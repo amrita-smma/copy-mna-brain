@@ -9,6 +9,7 @@ This directory contains Terraform configuration for IAM resources to access the 
 | IAM Policy | `mna-files-s3-policy` | Read/write access to S3 bucket |
 | IAM Role | `mna-files-role` | Assumable by EC2/Lambda |
 | IAM User | `mna-files-user` | For programmatic access |
+| IAM Policy | `mna-app-bedrock-invoke` | `bedrock:InvokeModel` on the Titan embed model, for the app's search-query embeddings |
 | Access Key | - | Credentials for the IAM user |
 
 ## Prerequisites
@@ -61,6 +62,49 @@ The policy grants the following S3 permissions:
 - `s3:GetObjectVersion`
 - `s3:GetObjectAcl`
 - `s3:PutObjectAcl`
+
+## Bedrock Permissions
+
+`mna-app-bedrock-invoke` grants `bedrock:InvokeModel` on a single foundation
+model ARN, built from `var.bedrock_region` and `var.bedrock_embedding_model`.
+
+This is **not** for the pipeline Lambdas (they get their own policy in
+`data-pipeline/terraform/pipeline-compute/iam.tf`). It is for the Next.js app:
+`createContainer` and the `search_news` agent tool each build a
+`BedrockEmbeddingClient` (`src/lib/bedrock.ts`) to embed Data Navigator search
+queries in-process, using this user's access keys.
+
+⚠️ The failure mode is silent. `DataNavigatorService.vectorHalf` catches embed
+errors, logs `[data-navigator] vector search unavailable:`, and returns `[]`,
+so hybrid search degrades to trigram-only and still returns plausible results.
+Three things must all be true or you get that degradation with no visible error:
+
+1. This policy is attached, and its model ARN matches the app's
+   `BEDROCK_REGION` / `BEDROCK_EMBEDDING_MODEL` env vars.
+2. Model access for Titan Embed v2 is enabled in the Bedrock console for
+   `var.bedrock_region` — IAM alone is not sufficient.
+3. The `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` actually configured in
+   Vercel belong to **this** user. `terraform/rds` can also mint a
+   `mna-<env>-vercel-rds-iam` user whose variable description tells you to put
+   its key in that same env-var pair, and that principal is scoped to
+   `rds-db:connect` only — attaching Bedrock here would do nothing for it.
+   Quick check without reading the secret: if S3 uploads work in that
+   environment, the keys are `mna-app`, because `src/lib/s3.ts` signs with the
+   same pair and would fail outright otherwise.
+
+Verify against the **API**, not the page — `matchedBy` is produced by
+`DataNavigatorService` but never rendered in the UI:
+
+```bash
+curl -s "https://<host>/api/data-navigator/search?q=series+B+funding" \
+  -H "Cookie: <session>" | jq '.data[] | {title, matchedBy, score}'
+```
+
+All-`"text"` results are a *symptom*, not a diagnosis: an empty
+`rss.item_chunks` (the enrich Lambda never ran) looks exactly the same. The
+`[data-navigator] vector search unavailable:` line in the app logs is what
+distinguishes a permissions failure from an empty index — present means the
+embed call is failing, absent means there is simply nothing to match against.
 
 ## Using the IAM Role
 

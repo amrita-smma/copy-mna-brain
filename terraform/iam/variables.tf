@@ -3,6 +3,24 @@ variable "aws_region" {
   default = "ap-southeast-3"
 }
 
+# Bedrock is used by the app itself, not just the pipeline Lambdas:
+# `createContainer` builds a `BedrockEmbeddingClient` (src/lib/bedrock.ts) to
+# embed Data Navigator search queries. These must stay in sync with the app's
+# BEDROCK_REGION / BEDROCK_EMBEDDING_MODEL env vars and with
+# data-pipeline/terraform/pipeline-compute/variables.tf — a mismatch produces a
+# silent AccessDenied that degrades search to trigram-only.
+variable "bedrock_region" {
+  description = "Region used for the app's Bedrock calls. Bedrock is unavailable in ap-southeast-3, and Titan Embed v2 is not offered in ap-southeast-1."
+  type        = string
+  default     = "ap-southeast-2"
+}
+
+variable "bedrock_embedding_model" {
+  description = "Bedrock embedding model id the app invokes to embed search queries. Must match the pipeline's model so query and chunk vectors are comparable."
+  type        = string
+  default     = "amazon.titan-embed-text-v2:0"
+}
+
 variable "tags" {
   type    = map(string)
   default = {}

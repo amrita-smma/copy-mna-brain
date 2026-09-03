@@ -1471,6 +1471,20 @@ clean import reports **256 imported**, not 263.
   `ap-southeast-2`, see `src/lib/bedrock.ts`) and must **never** fall back to
   `AWS_REGION` — that reserved Lambda env var is `ap-southeast-3` and silently
   falling back to it would break every embed call.
+- **Bedrock IAM — two sides, not one.** The pipeline Lambdas embed article
+  chunks and get `bedrock:InvokeModel` from
+  `data-pipeline/terraform/pipeline-compute/iam.tf`. The **app** separately
+  embeds the *search query* in-process — `createContainer` and the
+  `search_news` tool each build a `BedrockEmbeddingClient` — under the
+  `mna-app` IAM user, which gets `mna-app-bedrock-invoke` from
+  `terraform/iam`. Miss the app-side grant and
+  `DataNavigatorService.vectorHalf` swallows the `AccessDenied`, logs
+  `[data-navigator] vector search unavailable:`, and returns `[]`, so hybrid
+  search silently degrades to trigram-only. Both policies scope to a single
+  model ARN, so `BEDROCK_REGION` / `BEDROCK_EMBEDDING_MODEL` must match the
+  `bedrock_region` / `bedrock_embedding_model` Terraform vars on both sides.
+  Model access for Titan Embed v2 must also be enabled in the Bedrock console
+  for that region — IAM alone is not enough.
 - **Serving:** `DataNavigatorService` → `/api/data-navigator/*`
   (`filters`, `items`, `items/[id]`, `search`) → the `/data-navigator` page,
   gated by the `DATA_NAVIGATOR_ENABLED` runtime feature toggle (see
@@ -1506,10 +1520,14 @@ pnpm --filter data-pipeline invoke rssEnrich '{}'
 `data-pipeline/scripts/invoke-local.ts` for `invoke <name>` to resolve them.)
 
 **Not yet deployed.** The Terraform for the RSS bronze bucket
-(`terraform/s3-rss`), the two Lambda schedules + Bedrock IAM policy
+(`terraform/s3-rss`) and the two Lambda schedules + Bedrock IAM policy
 (`data-pipeline/terraform/pipeline-compute`) is written and passes `fmt`/`validate`,
 but has never been `apply`'d to any environment, and no staging feed import
-has been run. Treat the subsystem as code-complete but operationally
+has been run. Separately, the app-side Bedrock policy in `terraform/iam` is an
+**incremental** change to a module that is already live in every environment
+(`mna-app` is the identity Vercel already uses for S3/SES/RDS) — it needs a
+plain `make init-<env> && terraform apply` per account, not a first-time
+stand-up. Treat the subsystem as code-complete but operationally
 unproven until that happens.
 
 Design: `docs/superpowers/specs/2026-09-02-data-navigator-rss-lake-design.md`.
