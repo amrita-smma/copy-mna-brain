@@ -56,6 +56,20 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "skipReason": "noise"
   },
   {
+    "hash": "c76604aa1fbcd6c59be607688f7c2062c8b0fe91",
+    "date": "2026-09-03",
+    "subject": "RSS feed items now automatically translate to English for consistent search and display",
+    "category": "improvement"
+  },
+  {
+    "hash": "e1dbaa1005559ba1da7fdd29249d512470d5e6eb",
+    "date": "2026-09-03",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "f7bd8b195c74982a5416c3429665adcb37c65987",
     "date": "2026-09-02",
     "subject": "override image-size with image-size-next@2.1.1",
