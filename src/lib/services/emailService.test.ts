@@ -13,6 +13,9 @@ import {
   renderDealResurfacedEmail,
   renderFeedbackSubmittedEmail,
   renderConsentRecordedEmail,
+  renderVoteInvitationEmail,
+  renderVoteSubmittedEmail,
+  renderVoteRecapEmail,
 } from './emailService';
 import type { AttachmentSender, EmailSender } from './emailService';
 
@@ -894,5 +897,289 @@ describe('EmailService.sendConsentRecordedEmail', () => {
         consentedAtLabel: 'August 27, 2026, 2:42 PM',
       }),
     ).rejects.toThrow(/userEmail is required/);
+  });
+});
+
+describe('renderVoteInvitationEmail', () => {
+  const input = {
+    recipientName: 'CP Tei',
+    companyName: 'Project Highway',
+    initiatorName: 'Nico',
+    deadlineLabel: '5:00 PM UTC on September 5, 2026',
+    durationLabel: '2 days 4 hours',
+    voteUrl: 'https://app.example.com/w/mna/companies/c-1?tab=voting',
+  };
+
+  it('names the company in the subject', () => {
+    expect(renderVoteInvitationEmail(input).subject).toBe(
+      "You're a voter on Project Highway",
+    );
+  });
+
+  it('states the deadline, window and initiator in both bodies', () => {
+    const { html, text } = renderVoteInvitationEmail(input);
+    for (const body of [html, text]) {
+      expect(body).toContain('Project Highway');
+      expect(body).toContain('5:00 PM UTC on September 5, 2026');
+      expect(body).toContain('2 days 4 hours');
+      expect(body).toContain('Nico');
+    }
+  });
+
+  it('spells out the draft / submit / auto-submit rules', () => {
+    const { html, text } = renderVoteInvitationEmail(input);
+    expect(html).toContain('INCONCLUSIVE');
+    expect(text).toContain('INCONCLUSIVE');
+    expect(text).toContain('vote is final');
+  });
+
+  it('deep-links to the voting tab', () => {
+    const { html, text } = renderVoteInvitationEmail(input);
+    expect(html).toContain('tab=voting');
+    expect(text).toContain(input.voteUrl);
+  });
+
+  it('links the company card in the app when a URL is supplied', () => {
+    const withCard = {
+      ...input,
+      companyCardUrl: 'https://app.example.com/w/mna/companies/c-1?tab=overview',
+    };
+    const { html, text } = renderVoteInvitationEmail(withCard);
+
+    expect(html).toContain('tab=overview');
+    expect(html).toContain('view the company card');
+    expect(text).toContain(withCard.companyCardUrl);
+  });
+
+  it('omits the card link when no URL is supplied', () => {
+    const { html } = renderVoteInvitationEmail(input);
+    expect(html).not.toContain('tab=overview');
+  });
+
+  it('promises the attachment only when there actually is one', () => {
+    const withAttachment = renderVoteInvitationEmail(input, { hasAttachment: true });
+    const without = renderVoteInvitationEmail(input, { hasAttachment: false });
+
+    expect(withAttachment.text).toContain('attached to this email');
+    expect(without.text).not.toContain('attached to this email');
+    expect(without.html).toContain('Open the company card in the app');
+  });
+});
+
+describe('EmailService.sendVoteInvitationEmail', () => {
+  const input = {
+    email: 'cp@example.com',
+    recipientName: 'CP Tei',
+    companyName: 'Project Highway',
+    initiatorName: 'Nico',
+    deadlineLabel: 'tomorrow',
+    durationLabel: '1 day',
+    voteUrl: 'https://app.example.com/vote',
+  };
+
+  it('attaches the company card as a .pptx when one is supplied', async () => {
+    const sender = vi.fn().mockResolvedValue({ messageId: 'm' });
+    const attachmentSender = vi.fn().mockResolvedValue({ messageId: 'm' });
+    const svc = new EmailService(sender as EmailSender, attachmentSender as AttachmentSender);
+
+    await svc.sendVoteInvitationEmail({
+      ...input,
+      companyCardPptx: Buffer.from('deck'),
+    });
+
+    expect(sender).not.toHaveBeenCalled();
+    expect(attachmentSender).toHaveBeenCalledTimes(1);
+    const call = vi.mocked(attachmentSender).mock.calls[0][0];
+    expect(call.attachments[0]).toMatchObject({
+      filename: 'project-highway-company-card.pptx',
+      contentType:
+        'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+    });
+  });
+
+  it('does not promise an attachment on the plain fallback path', async () => {
+    const sender = vi.fn().mockResolvedValue({ messageId: 'm' });
+    const svc = new EmailService(sender as EmailSender, vi.fn() as AttachmentSender);
+
+    await svc.sendVoteInvitationEmail({
+      ...input,
+      companyCardUrl: 'https://app.example.com/card',
+    });
+
+    const call = vi.mocked(sender).mock.calls[0][0];
+    expect(call.text).not.toContain('attached to this email');
+    expect(call.html).toContain('Open the company card in the app');
+    expect(call.html).toContain('https://app.example.com/card');
+  });
+
+  it('falls back to a plain email when the deck could not be built', async () => {
+    const sender = vi.fn().mockResolvedValue({ messageId: 'm' });
+    const attachmentSender = vi.fn().mockResolvedValue({ messageId: 'm' });
+    const svc = new EmailService(sender as EmailSender, attachmentSender as AttachmentSender);
+
+    await svc.sendVoteInvitationEmail(input);
+
+    expect(attachmentSender).not.toHaveBeenCalled();
+    expect(sender).toHaveBeenCalledTimes(1);
+  });
+
+  it('throws without an email, companyName or voteUrl', async () => {
+    const svc = new EmailService(vi.fn() as EmailSender);
+    await expect(svc.sendVoteInvitationEmail({ ...input, email: '' })).rejects.toThrow(
+      /email is required/,
+    );
+    await expect(
+      svc.sendVoteInvitationEmail({ ...input, companyName: '' }),
+    ).rejects.toThrow(/companyName is required/);
+    await expect(svc.sendVoteInvitationEmail({ ...input, voteUrl: '' })).rejects.toThrow(
+      /voteUrl is required/,
+    );
+  });
+});
+
+describe('renderVoteSubmittedEmail', () => {
+  const input = {
+    recipientName: 'CP Tei',
+    companyName: 'Project Highway',
+    choiceLabel: 'HARD YES',
+    deadlineLabel: 'tomorrow',
+    voteUrl: 'https://app.example.com/vote',
+  };
+
+  it('confirms the submission in the subject', () => {
+    expect(renderVoteSubmittedEmail(input).subject).toBe(
+      'Your vote has been submitted for Project Highway',
+    );
+  });
+
+  it('echoes back the recorded choice', () => {
+    const { html, text } = renderVoteSubmittedEmail(input);
+    expect(html).toContain('HARD YES');
+    expect(text).toContain('HARD YES');
+  });
+
+  it('explains that the ballot is now locked', () => {
+    expect(renderVoteSubmittedEmail(input).html).toContain('longer be edited');
+  });
+});
+
+describe('EmailService.sendVoteSubmittedEmail', () => {
+  it('delegates to the plain sender', async () => {
+    const sender = vi.fn().mockResolvedValue({ messageId: 'm' });
+    const svc = new EmailService(sender as EmailSender);
+
+    await svc.sendVoteSubmittedEmail({
+      email: 'cp@example.com',
+      recipientName: 'CP Tei',
+      companyName: 'Project Highway',
+      choiceLabel: 'YES',
+      deadlineLabel: 'tomorrow',
+      voteUrl: 'https://app.example.com/vote',
+    });
+
+    expect(vi.mocked(sender).mock.calls[0][0]).toMatchObject({
+      to: 'cp@example.com',
+      subject: 'Your vote has been submitted for Project Highway',
+    });
+  });
+});
+
+describe('renderVoteRecapEmail', () => {
+  const input = {
+    companyName: 'Project Highway',
+    headline: '4–0 FOR',
+    outcomeLabel: '4 Proceed',
+    closedReason: 'all_submitted' as const,
+    ballots: [
+      { voterName: 'CP Tei', choiceLabel: 'YES', rationale: 'Support signing the NDA.' },
+      { voterName: 'Jien Lit', choiceLabel: 'YES' },
+    ],
+    voteUrl: 'https://app.example.com/vote',
+  };
+
+  it('puts the company and headline in the subject', () => {
+    expect(renderVoteRecapEmail(input).subject).toBe(
+      'Voting closed: Project Highway — 4–0 FOR',
+    );
+  });
+
+  it('lists every voter with their choice and rationale', () => {
+    const { html, text } = renderVoteRecapEmail(input);
+    for (const body of [html, text]) {
+      expect(body).toContain('CP Tei');
+      expect(body).toContain('Support signing the NDA.');
+      expect(body).toContain('Jien Lit');
+    }
+  });
+
+  it('says the round closed early when everyone submitted', () => {
+    expect(renderVoteRecapEmail(input).text).toContain('closed early');
+  });
+
+  it('explains the auto-submit rule when the deadline closed it', () => {
+    const { text } = renderVoteRecapEmail({ ...input, closedReason: 'deadline' });
+    expect(text).toContain('deadline passed');
+    expect(text).toContain('INCONCLUSIVE');
+  });
+
+  it('handles a round where nobody voted', () => {
+    const { html, text } = renderVoteRecapEmail({ ...input, ballots: [] });
+    expect(html).toContain('No ballots were cast');
+    expect(text).toContain('(no ballots were cast)');
+  });
+
+  it('escapes voter-authored rationale so the recap cannot inject markup', () => {
+    const { html } = renderVoteRecapEmail({
+      ...input,
+      ballots: [
+        {
+          voterName: 'CP Tei',
+          choiceLabel: 'YES',
+          rationale: '<img src=x onerror=alert(1)>',
+        },
+      ],
+    });
+    expect(html).not.toContain('<img');
+    expect(html).toContain('&lt;img');
+  });
+});
+
+describe('EmailService.sendVoteRecapEmail', () => {
+  it('delegates to the plain sender', async () => {
+    const sender = vi.fn().mockResolvedValue({ messageId: 'm' });
+    const svc = new EmailService(sender as EmailSender);
+
+    await svc.sendVoteRecapEmail({
+      email: 'nico@example.com',
+      companyName: 'Project Highway',
+      headline: '4–0 FOR',
+      outcomeLabel: '4 Proceed',
+      closedReason: 'deadline',
+      ballots: [],
+      voteUrl: 'https://app.example.com/vote',
+    });
+
+    expect(vi.mocked(sender).mock.calls[0][0]).toMatchObject({
+      to: 'nico@example.com',
+    });
+  });
+
+  it('throws without an email or companyName', async () => {
+    const svc = new EmailService(vi.fn() as EmailSender);
+    const base = {
+      email: 'nico@example.com',
+      companyName: 'Project Highway',
+      headline: '4–0 FOR',
+      outcomeLabel: '4 Proceed',
+      closedReason: 'deadline' as const,
+      ballots: [],
+      voteUrl: 'https://app.example.com/vote',
+    };
+    await expect(svc.sendVoteRecapEmail({ ...base, email: '' })).rejects.toThrow(
+      /email is required/,
+    );
+    await expect(svc.sendVoteRecapEmail({ ...base, companyName: '' })).rejects.toThrow(
+      /companyName is required/,
+    );
   });
 });

@@ -786,6 +786,221 @@ export function renderDealResurfacedEmail(
   return { subject, html, text };
 }
 
+// ---------------------------------------------------------------------------
+// Company voting
+// ---------------------------------------------------------------------------
+
+const PPTX_CONTENT_TYPE =
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation';
+
+export interface VoteInvitationEmailInput {
+  /** Recipient address — a workspace member selected as a voter. */
+  email: string;
+  recipientName: string;
+  companyName: string;
+  initiatorName: string;
+  /** Pre-formatted absolute deadline, e.g. "5:00 PM on September 5, 2026". */
+  deadlineLabel: string;
+  /** Pre-formatted duration, e.g. "2 days 4 hours". */
+  durationLabel: string;
+  /** Deep link straight to the company's Voting tab. */
+  voteUrl: string;
+  /** Deep link to the company's Company Card (the Overview tab). */
+  companyCardUrl?: string;
+  /** The Company Card deck, attached so voters can decide from the email. */
+  companyCardPptx?: Buffer;
+  /** Attachment filename — defaults to a slug of the company name. */
+  filename?: string;
+}
+
+export function renderVoteInvitationEmail(
+  input: Omit<VoteInvitationEmailInput, 'email' | 'companyCardPptx' | 'filename'>,
+  opts?: { hasAttachment?: boolean },
+): { subject: string; html: string; text: string } {
+  const subject = `You're a voter on ${input.companyName}`;
+  const rows = [
+    { label: 'Company', value: input.companyName },
+    { label: 'Initiated by', value: input.initiatorName },
+    { label: 'Voting window', value: input.durationLabel },
+    { label: 'Deadline', value: input.deadlineLabel },
+  ];
+
+  const html = renderNotificationShell({
+    bannerTitle: 'You Have a Vote to Cast',
+    accent: '#6d5ef5',
+    accentDark: '#5a4bd6',
+    bodyHtml: `<p style="margin:0 0 8px; color:#52525b; font-size:15px;">Hey, ${escapeHtml(input.recipientName)},</p>
+      <h1 style="margin:0 0 16px; font-size:22px; line-height:1.3;">You have been selected as a voter for ${escapeHtml(input.companyName)}</h1>
+      <p style="margin:0 0 16px; line-height:1.6; color:#374151; font-size:15px;">
+        Please cast your vote before the deadline. You can save a draft and revise
+        it as often as you like — but once you press <strong>Submit</strong> your
+        vote is final. Any ballot still in draft when the deadline passes is
+        submitted automatically as <strong>INCONCLUSIVE</strong>.
+      </p>
+      ${kvTable(rows.map((r) => kvRow(r.label, r.value)).join(''))}
+      ${sectionLabel('THE COMPANY CARD')}
+      <p style="margin:6px 0 0; line-height:1.6; color:#52525b; font-size:14px;">
+        ${
+          opts?.hasAttachment === false
+            ? 'Open the company card in the app for the full picture before you vote.'
+            : 'The company card is attached as a PowerPoint deck, so you have the full picture without leaving your inbox.'
+        }
+        ${
+          input.companyCardUrl
+            ? `You can also <a href="${escapeHtml(input.companyCardUrl)}" style="color:#2563eb; font-weight:600;">view the company card in Investment Brain</a>, where it stays up to date.`
+            : ''
+        }
+      </p>`,
+    ctaUrl: input.voteUrl,
+    ctaLabel: 'Cast your vote',
+    footer: 'You are receiving this because you were selected as a voter on this company.',
+  });
+
+  const text = [
+    `You have been selected as a voter for ${input.companyName}`,
+    '',
+    ...rows.map((r) => `${r.label}: ${r.value}`),
+    '',
+    'You can save a draft and revise it until you submit. Once submitted, your',
+    'vote is final. Anything still in draft at the deadline is submitted',
+    'automatically as INCONCLUSIVE.',
+    '',
+    ...(opts?.hasAttachment === false
+      ? []
+      : ['The company card is attached to this email as a PowerPoint deck.']),
+    ...(input.companyCardUrl
+      ? [`View the company card: ${input.companyCardUrl}`]
+      : []),
+    '',
+    `Cast your vote: ${input.voteUrl}`,
+  ].join('\n');
+
+  return { subject, html, text };
+}
+
+export interface VoteSubmittedEmailInput {
+  email: string;
+  recipientName: string;
+  companyName: string;
+  /** Display label of the submitted choice, e.g. "HARD YES". */
+  choiceLabel: string;
+  deadlineLabel: string;
+  voteUrl: string;
+}
+
+export function renderVoteSubmittedEmail(
+  input: Omit<VoteSubmittedEmailInput, 'email'>,
+): { subject: string; html: string; text: string } {
+  const subject = `Your vote has been submitted for ${input.companyName}`;
+  const rows = [
+    { label: 'Company', value: input.companyName },
+    { label: 'Your vote', value: input.choiceLabel },
+    { label: 'Voting closes', value: input.deadlineLabel },
+  ];
+
+  const html = renderNotificationShell({
+    bannerTitle: 'Vote Submitted',
+    accent: '#22c55e',
+    accentDark: '#15803d',
+    bodyHtml: `<p style="margin:0 0 8px; color:#16a34a; font-weight:700;">✔ Submitted</p>
+      <h1 style="margin:0 0 16px; font-size:22px; line-height:1.3;">Your vote has been submitted for ${escapeHtml(input.companyName)}</h1>
+      <p style="margin:0 0 16px; line-height:1.6; color:#374151; font-size:15px;">
+        Thanks, ${escapeHtml(input.recipientName)}. Your ballot is locked and can no
+        longer be edited. If the initiator sends submissions back for revision you
+        will be able to change it again.
+      </p>
+      ${kvTable(rows.map((r) => kvRow(r.label, r.value)).join(''))}`,
+    ctaUrl: input.voteUrl,
+    ctaLabel: 'View the vote',
+    footer: 'You are receiving this because you submitted a vote on this company.',
+  });
+
+  const text = [
+    `Your vote has been submitted for ${input.companyName}`,
+    '',
+    ...rows.map((r) => `${r.label}: ${r.value}`),
+    '',
+    `View the vote: ${input.voteUrl}`,
+  ].join('\n');
+
+  return { subject, html, text };
+}
+
+export interface VoteRecapRow {
+  voterName: string;
+  choiceLabel: string;
+  /** Plain-text rationale — already flattened from the stored HTML. */
+  rationale?: string;
+}
+
+export interface VoteRecapEmailInput {
+  email: string;
+  companyName: string;
+  /** e.g. "4–0 FOR". */
+  headline: string;
+  /** e.g. "4 Proceed". */
+  outcomeLabel: string;
+  /** Why the round closed. */
+  closedReason: 'all_submitted' | 'deadline';
+  ballots: VoteRecapRow[];
+  voteUrl: string;
+}
+
+export function renderVoteRecapEmail(
+  input: Omit<VoteRecapEmailInput, 'email'>,
+): { subject: string; html: string; text: string } {
+  const subject = `Voting closed: ${input.companyName} — ${input.headline}`;
+  const reason =
+    input.closedReason === 'all_submitted'
+      ? 'Every voter submitted, so the round closed early.'
+      : 'The deadline passed. Any ballot still in draft was submitted automatically as INCONCLUSIVE.';
+
+  const ballotsHtml = input.ballots
+    .map(
+      (b) => `<tr>
+        <td style="padding:12px 12px 12px 0; border-bottom:1px solid #efeff2; color:#111; font-size:15px; font-weight:700; vertical-align:top; white-space:nowrap;">${escapeHtml(b.voterName)}</td>
+        <td style="padding:12px 0; border-bottom:1px solid #efeff2; color:#52525b; font-size:14px; vertical-align:top;">
+          <div style="font-weight:700; color:#111; margin-bottom:${b.rationale ? '6px' : '0'};">${escapeHtml(b.choiceLabel)}</div>
+          ${b.rationale ? `<div style="white-space:pre-wrap; line-height:1.6;">${escapeHtml(b.rationale)}</div>` : ''}
+        </td>
+      </tr>`,
+    )
+    .join('');
+
+  const html = renderNotificationShell({
+    bannerTitle: 'Voting Results',
+    accent: '#6d5ef5',
+    accentDark: '#5a4bd6',
+    bodyHtml: `<h1 style="margin:0 0 6px; font-size:22px; line-height:1.3;">${escapeHtml(input.companyName)} — ${escapeHtml(input.headline)}</h1>
+      <p style="margin:0 0 16px; color:#6d5ef5; font-weight:700; font-size:15px;">${escapeHtml(input.outcomeLabel)}</p>
+      <p style="margin:0 0 8px; line-height:1.6; color:#374151; font-size:15px;">${escapeHtml(reason)}</p>
+      ${sectionLabel('REVIEWER FEEDBACK')}
+      ${ballotsHtml ? `<table width="100%" style="border-collapse:collapse;">${ballotsHtml}</table>` : '<p style="margin:8px 0 0; color:#a1a1aa; font-size:14px;">No ballots were cast.</p>'}`,
+    ctaUrl: input.voteUrl,
+    ctaLabel: 'Open the full results',
+    footer: 'You are receiving this because you initiated or voted in this round.',
+  });
+
+  const text = [
+    `${input.companyName} — ${input.headline} (${input.outcomeLabel})`,
+    '',
+    reason,
+    '',
+    'Reviewer feedback:',
+    ...(input.ballots.length
+      ? input.ballots.flatMap((b) => [
+          '',
+          `${b.voterName} — ${b.choiceLabel}`,
+          ...(b.rationale ? [b.rationale] : []),
+        ])
+      : ['(no ballots were cast)']),
+    '',
+    `Open the full results: ${input.voteUrl}`,
+  ].join('\n');
+
+  return { subject, html, text };
+}
+
 export interface FeedbackSubmittedEmailInput {
   /** Fixed recipient — nico.alimin@smma.id — but kept as an input so tests
    * and the caller stay explicit about who's being emailed. */
@@ -1148,6 +1363,71 @@ export class EmailService {
       throw new Error('sendConsentRecordedEmail: userEmail is required');
     }
     const { subject, html, text } = renderConsentRecordedEmail(input);
+    return this.sender({ to: input.email, subject, html, text });
+  }
+
+  /**
+   * Invite a selected voter to a company vote, with the Company Card deck
+   * attached as a .pptx so they can decide without opening the app.
+   *
+   * Uses the raw/attachment SES path when a deck is supplied and degrades to
+   * the plain path when the card could not be built — a missing attachment must
+   * never cost someone their invitation.
+   */
+  async sendVoteInvitationEmail(
+    input: VoteInvitationEmailInput,
+  ): Promise<SendEmailResult> {
+    if (!input.email) throw new Error('sendVoteInvitationEmail: email is required');
+    if (!input.companyName) {
+      throw new Error('sendVoteInvitationEmail: companyName is required');
+    }
+    if (!input.voteUrl) throw new Error('sendVoteInvitationEmail: voteUrl is required');
+
+    const hasAttachment = Boolean(
+      input.companyCardPptx && input.companyCardPptx.length > 0,
+    );
+    const { subject, html, text } = renderVoteInvitationEmail(input, { hasAttachment });
+    if (!hasAttachment) {
+      // The deck could not be built. The in-app link is then the only route to
+      // the card, so the body must not promise an attachment that isn't there.
+      return this.sender({ to: input.email, subject, html, text });
+    }
+
+    return this.attachmentSender({
+      to: input.email,
+      subject,
+      html,
+      text,
+      attachments: [
+        {
+          filename:
+            input.filename ?? `${slugifyTitle(`${input.companyName} company card`)}.pptx`,
+          content: input.companyCardPptx,
+          contentType: PPTX_CONTENT_TYPE,
+        },
+      ],
+    });
+  }
+
+  /** Confirm to a voter that their ballot is locked in. */
+  async sendVoteSubmittedEmail(
+    input: VoteSubmittedEmailInput,
+  ): Promise<SendEmailResult> {
+    if (!input.email) throw new Error('sendVoteSubmittedEmail: email is required');
+    if (!input.companyName) {
+      throw new Error('sendVoteSubmittedEmail: companyName is required');
+    }
+    const { subject, html, text } = renderVoteSubmittedEmail(input);
+    return this.sender({ to: input.email, subject, html, text });
+  }
+
+  /** Recap a closed round to the initiator and every voter. */
+  async sendVoteRecapEmail(input: VoteRecapEmailInput): Promise<SendEmailResult> {
+    if (!input.email) throw new Error('sendVoteRecapEmail: email is required');
+    if (!input.companyName) {
+      throw new Error('sendVoteRecapEmail: companyName is required');
+    }
+    const { subject, html, text } = renderVoteRecapEmail(input);
     return this.sender({ to: input.email, subject, html, text });
   }
 

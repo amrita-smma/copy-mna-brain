@@ -8,7 +8,10 @@
   "functions": {
     "src/app/api/queues/send-email/route.ts": {
       "experimentalTriggers": [
-        { "type": "queue/v2beta", "topic": "send-email" }
+        {
+          "type": "queue/v2beta",
+          "topic": "send-email"
+        }
       ]
     }
   },
@@ -24,6 +27,10 @@
     {
       "path": "/api/cron/daily-pulse",
       "schedule": "0 0 * * *"
+    },
+    {
+      "path": "/api/cron/close-votes",
+      "schedule": "*/5 * * * *"
     }
   ]
 }

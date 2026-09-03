@@ -62,6 +62,7 @@ export const jobType = pgEnum("job_type", [
   "track_matching",
   "fund_update_extraction",
   "deal_document_processing",
+  "company_vote",
 ]);
 export const l1Result = pgEnum("l1_result", ["pass", "fail", "inconclusive"]);
 export const pipelineStage = pgEnum("pipeline_stage", [
@@ -109,6 +110,32 @@ export const scheduleKind = pgEnum("schedule_kind", [
   "weekly",
   "monthly",
   "cron",
+]);
+
+// Company voting (Investment Committee style vote on a single company).
+// `vote_session_status`: an `active` session is open for ballots until it is
+// `completed` (everyone submitted, or the deadline swept it) or `cancelled` by
+// its initiator. `vote_choice` is the five-point scale the UI offers.
+// `vote_ballot_status`: a ballot stays `draft` — freely editable — until the
+// voter submits it, after which it is immutable (unless the initiator sends
+// submissions back, which flips it to `draft` again).
+export const voteSessionStatus = pgEnum("vote_session_status", [
+  "active",
+  "completed",
+  "cancelled",
+]);
+
+export const voteChoice = pgEnum("vote_choice", [
+  "hard_yes",
+  "yes",
+  "no",
+  "inconclusive",
+  "hard_no",
+]);
+
+export const voteBallotStatus = pgEnum("vote_ballot_status", [
+  "draft",
+  "submitted",
 ]);
 
 export const jobs = pgTable(
@@ -3066,6 +3093,151 @@ export const dailyPulse = pgTable(
 // --- Fund Management (Confluence 2641362965) ---------------------------
 // Funds the firm manages, the assets each fund holds, their transaction
 // ledgers and valuation history, and fund-level performance rollups.
+
+// ---------------------------------------------------------------------------
+// Company voting (Investment Committee vote on one company)
+// ---------------------------------------------------------------------------
+
+/**
+ * One round of voting on a company. A company can only have a single `active`
+ * session at a time (enforced by the partial unique index in the migration);
+ * concluded/cancelled rounds are kept forever so "Vote again" builds history
+ * rather than overwriting it.
+ *
+ * The `ai_*` columns hold the post-conclusion synthesis rendered in the results
+ * view: `ai_synthesis` is the narrative paragraph, `ai_key_positives` /
+ * `ai_key_concerns` are bullet arrays, and `ai_opinion_*` snapshot the
+ * company's standing AI Opinion at the moment the vote closed (the company row
+ * can be re-evaluated later; the results card must not silently change).
+ */
+export const companyVoteSessions = pgTable(
+  "company_vote_sessions",
+  {
+    id: uuid().defaultRandom().primaryKey().notNull(),
+    company_id: uuid().notNull(),
+    workspace_id: uuid().notNull(),
+    initiated_by: uuid().notNull(),
+    status: voteSessionStatus().default("active").notNull(),
+    /** Ballots are auto-submitted once this passes (cron sweep). */
+    deadline_at: timestamp({ withTimezone: true, mode: "string" }).notNull(),
+    /** The duration the initiator picked, kept verbatim for display. */
+    duration_days: integer().default(0).notNull(),
+    duration_hours: integer().default(0).notNull(),
+    concluded_at: timestamp({ withTimezone: true, mode: "string" }),
+    cancelled_at: timestamp({ withTimezone: true, mode: "string" }),
+    ai_status: analysisJobStatus().default("pending").notNull(),
+    ai_synthesis: text(),
+    ai_key_positives: jsonb().$type<string[]>(),
+    ai_key_concerns: jsonb().$type<string[]>(),
+    ai_opinion_verdict: text(),
+    ai_opinion_summary: text(),
+    /**
+     * The AI Opinion's own ballot — it counts as one voter. Derived from
+     * `ai_opinion_verdict` when the round closes (see `aiVerdictToVoteChoice`),
+     * so it is null while the round is still open.
+     */
+    ai_vote_choice: voteChoice(),
+    ai_error: text(),
+    created_at: timestamp({ withTimezone: true, mode: "string" })
+      .defaultNow()
+      .notNull(),
+    updated_at: timestamp({ withTimezone: true, mode: "string" })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    idxCompanyVoteSessionsCompanyId: index(
+      "idx_company_vote_sessions_company_id",
+    ).using("btree", table.company_id.asc().nullsLast().op("uuid_ops")),
+    idxCompanyVoteSessionsWorkspaceId: index(
+      "idx_company_vote_sessions_workspace_id",
+    ).using("btree", table.workspace_id.asc().nullsLast().op("uuid_ops")),
+    // Backs the deadline sweep — the cron scans (status, deadline_at) only.
+    idxCompanyVoteSessionsDeadline: index(
+      "idx_company_vote_sessions_deadline",
+    ).using(
+      "btree",
+      table.status.asc().nullsLast().op("enum_ops"),
+      table.deadline_at.asc().nullsLast().op("timestamptz_ops"),
+    ),
+    companyVoteSessionsCompanyIdFkey: foreignKey({
+      columns: [table.company_id],
+      foreignColumns: [companies.id],
+      name: "company_vote_sessions_company_id_fkey",
+    }).onDelete("cascade"),
+    companyVoteSessionsWorkspaceIdFkey: foreignKey({
+      columns: [table.workspace_id],
+      foreignColumns: [workspaces.id],
+      name: "company_vote_sessions_workspace_id_fkey",
+    }).onDelete("cascade"),
+    // At most one open round per company — "Vote again" must conclude or cancel
+    // the previous round first, and two racing "Start Vote" clicks can't both win.
+    uqCompanyVoteSessionsOneActive: uniqueIndex(
+      "uq_company_vote_sessions_one_active",
+    )
+      .using("btree", table.company_id.asc().nullsLast().op("uuid_ops"))
+      .where(sql`status = 'active'`),
+    // RESTRICT, not cascade: deleting a user must never silently delete a
+    // concluded round. Company/workspace deletion does cascade — a vote on a
+    // company that no longer exists has nothing to say.
+    companyVoteSessionsInitiatedByFkey: foreignKey({
+      columns: [table.initiated_by],
+      foreignColumns: [users.id],
+      name: "company_vote_sessions_initiated_by_fkey",
+    }).onDelete("restrict"),
+  }),
+);
+
+/**
+ * One voter's ballot inside a session. Rows are created up-front (one per
+ * selected voter) so "who still owes a vote" is a plain query rather than a set
+ * difference, and so a voter who never opens the tab still gets an
+ * auto-submitted `inconclusive` ballot at the deadline.
+ *
+ * `body_html` is the WYSIWYG rationale, stored as sanitized HTML.
+ */
+export const companyVoteBallots = pgTable(
+  "company_vote_ballots",
+  {
+    id: uuid().defaultRandom().primaryKey().notNull(),
+    vote_session_id: uuid().notNull(),
+    voter_id: uuid().notNull(),
+    choice: voteChoice(),
+    body_html: text(),
+    status: voteBallotStatus().default("draft").notNull(),
+    submitted_at: timestamp({ withTimezone: true, mode: "string" }),
+    /** True when the deadline sweep submitted this instead of the voter. */
+    auto_submitted: boolean().default(false).notNull(),
+    created_at: timestamp({ withTimezone: true, mode: "string" })
+      .defaultNow()
+      .notNull(),
+    updated_at: timestamp({ withTimezone: true, mode: "string" })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    idxCompanyVoteBallotsSessionId: index(
+      "idx_company_vote_ballots_session_id",
+    ).using("btree", table.vote_session_id.asc().nullsLast().op("uuid_ops")),
+    idxCompanyVoteBallotsVoterId: index(
+      "idx_company_vote_ballots_voter_id",
+    ).using("btree", table.voter_id.asc().nullsLast().op("uuid_ops")),
+    companyVoteBallotsSessionIdFkey: foreignKey({
+      columns: [table.vote_session_id],
+      foreignColumns: [companyVoteSessions.id],
+      name: "company_vote_ballots_vote_session_id_fkey",
+    }).onDelete("cascade"),
+    // RESTRICT, not cascade: losing a voter must not rewrite a recorded tally.
+    companyVoteBallotsVoterIdFkey: foreignKey({
+      columns: [table.voter_id],
+      foreignColumns: [users.id],
+      name: "company_vote_ballots_voter_id_fkey",
+    }).onDelete("restrict"),
+    companyVoteBallotsSessionVoterKey: unique(
+      "company_vote_ballots_session_voter_key",
+    ).on(table.vote_session_id, table.voter_id),
+  }),
+);
 
 export const fundStatus = pgEnum("fund_status", ["investing", "harvesting"]);
 

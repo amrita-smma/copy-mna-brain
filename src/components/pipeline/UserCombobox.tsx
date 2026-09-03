@@ -107,12 +107,14 @@ export default function UserCombobox({
               <CommandGroup>
                 {users.map((user) => {
                   const isSelected = selectedUserIds.includes(user.id);
+                  // `group` so the name/role spans can follow the item's own
+                  // highlight state — see their group-data rules below.
                   return (
                     <CommandItem
                       key={user.id}
                       value={`${user.name} ${user.email ?? ""} ${user.role ?? ""}`}
                       onSelect={() => toggle(user.id)}
-                      className="flex items-start gap-2"
+                      className="group flex items-start gap-2"
                     >
                       <Check
                         className={cn(
@@ -121,8 +123,15 @@ export default function UserCombobox({
                         )}
                       />
                       <div className="flex flex-col">
-                        <span className="text-foreground">{user.name}</span>
-                        <span className="text-xs text-muted-foreground">
+                        {/* The highlighted row is filled with `--accent` (a deep
+                            blue), so the name must flip to `accent-foreground`
+                            (white). Hardcoding `text-foreground` here would
+                            override CommandItem's own highlight colour and
+                            leave black-on-blue. */}
+                        <span className="group-data-[selected=true]:text-accent-foreground">
+                          {user.name}
+                        </span>
+                        <span className="text-xs text-muted-foreground group-data-[selected=true]:text-accent-foreground/75">
                           {user.role ?? "—"}
                         </span>
                       </div>

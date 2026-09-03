@@ -6,6 +6,7 @@ export * from './companyFinancialRepository';
 export * from './companyFxAdjustmentRepository';
 export * from './companyScreeningDerivedRepository';
 export * from './companySlidesRepository';
+export * from './companyVoteRepository';
 export * from './screeningRepository';
 export * from './criteriaRepository';
 export * from './fileRepository';

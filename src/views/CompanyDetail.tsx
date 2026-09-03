@@ -69,6 +69,7 @@ import StatusCombobox, {
   DEFAULT_OUTBOUND_STATUS_OPTIONS,
 } from '@/components/pipeline/StatusCombobox';
 import UserSelectCombobox from '@/components/pipeline/UserSelectCombobox';
+import CompanyVotingTab from '@/components/pipeline/voting/CompanyVotingTab';
 import TrackVariablesSection from '@/components/pipeline/TrackVariablesSection';
 import { normalizeStake } from '@/lib/stake';
 import {
@@ -335,7 +336,7 @@ interface AnalysisSource {
 }
 
 /** Tab values, mirrored in the `?tab=` query param so back/forward restores one. */
-const TAB_VALUES = ['overview', 'company-card', 'filters', 'attachments'] as const;
+const TAB_VALUES = ['overview', 'company-card', 'filters', 'attachments', 'voting'] as const;
 type CompanyTab = (typeof TAB_VALUES)[number];
 const DEFAULT_TAB: CompanyTab = 'overview';
 
@@ -1339,11 +1340,12 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
 
         {/* Content */}
         <Tabs value={activeTab} onValueChange={handleTabChange} className="w-full">
-          <TabsList className="grid grid-cols-4 max-w-2xl">
+          <TabsList className="grid grid-cols-5 max-w-3xl">
             <TabsTrigger value="overview">Overview</TabsTrigger>
             <TabsTrigger value="company-card">Details</TabsTrigger>
             <TabsTrigger value="filters">L1 Screening</TabsTrigger>
             <TabsTrigger value="attachments">Attachments</TabsTrigger>
+            <TabsTrigger value="voting">Voting</TabsTrigger>
           </TabsList>
 
           {/* Overview — read-only L0→L1 submission slide, powered by the AI
@@ -1923,7 +1925,7 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
                   ) : (
                     <div className="space-y-2 max-h-[200px] overflow-y-auto">
                       {matchedFiles.map((file) => (
-                        <div key={file.id} className="flex items-center justify-between p-3 border rounded-lg bg-muted/30">
+                        <div key={file.id} className="flex items-center justify-between p-3 border rounded-lg bg-muted">
                           <div className="flex items-center gap-2 min-w-0 flex-1">
                             <FileText className="h-4 w-4 text-muted-foreground shrink-0" />
                             <span className="text-sm truncate" title={file.file_name}>
@@ -1989,7 +1991,7 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
                   </div>
                   <div className="space-y-2 max-h-[300px] overflow-y-auto">
                     {documents.map((doc) => (
-                      <div key={doc.id} className="border rounded-lg bg-muted/30 overflow-hidden">
+                      <div key={doc.id} className="border rounded-lg bg-muted overflow-hidden">
                         <div className="flex items-center justify-between p-2 gap-2">
                           <div className="flex items-center gap-2 min-w-0 flex-1">
                             <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
@@ -2137,6 +2139,11 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
               </Card>
             </div>
           </TabsContent>
+
+          {/* Voting — Investment-Committee round on this company. */}
+          <TabsContent value="voting" className="mt-6">
+            <CompanyVotingTab companyId={companyId} />
+          </TabsContent>
         </Tabs>
       </div>
 
@@ -2151,7 +2158,7 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
           </DialogHeader>
           <div className="flex-1 min-h-0 overflow-auto">
             {loadingPreview ? (
-              <div className="flex h-full w-full items-center justify-center bg-muted/30 rounded-md border">
+              <div className="flex h-full w-full items-center justify-center bg-muted rounded-md border">
                 <Loader2 className="h-8 w-8 animate-spin text-primary" />
               </div>
             ) : previewUrl && (previewDoc || previewMatchedFile) ? (
@@ -2166,7 +2173,7 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
                 }
               />
             ) : (
-              <div className="flex h-full w-full items-center justify-center bg-muted/30 rounded-md border text-muted-foreground">
+              <div className="flex h-full w-full items-center justify-center bg-muted rounded-md border text-muted-foreground">
                 Preview not available
               </div>
             )}

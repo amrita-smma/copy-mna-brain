@@ -72,6 +72,25 @@ export type SendEmailPayload =
       companyUrl?: string;
     }
   | {
+      kind: 'vote_submitted';
+      to: string;
+      recipientName: string;
+      companyName: string;
+      choiceLabel: string;
+      deadlineLabel: string;
+      voteUrl: string;
+    }
+  | {
+      kind: 'vote_recap';
+      to: string;
+      companyName: string;
+      headline: string;
+      outcomeLabel: string;
+      closedReason: 'all_submitted' | 'deadline';
+      ballots: Array<{ voterName: string; choiceLabel: string; rationale?: string }>;
+      voteUrl: string;
+    }
+  | {
       kind: 'deal_resurfaced';
       to: string;
       companyName: string;
@@ -195,6 +214,35 @@ export async function runSendEmail(
         companyUrl: payload.companyUrl,
       });
       return { kind: 'company_assigned', to: payload.to, messageId };
+    }
+    case 'vote_submitted': {
+      if (!payload.companyName) {
+        throw new Error('send_email[vote_submitted]: `companyName` is required');
+      }
+      const { messageId } = await emailService.sendVoteSubmittedEmail({
+        email: payload.to,
+        recipientName: payload.recipientName,
+        companyName: payload.companyName,
+        choiceLabel: payload.choiceLabel,
+        deadlineLabel: payload.deadlineLabel,
+        voteUrl: payload.voteUrl,
+      });
+      return { kind: 'vote_submitted', to: payload.to, messageId };
+    }
+    case 'vote_recap': {
+      if (!payload.companyName) {
+        throw new Error('send_email[vote_recap]: `companyName` is required');
+      }
+      const { messageId } = await emailService.sendVoteRecapEmail({
+        email: payload.to,
+        companyName: payload.companyName,
+        headline: payload.headline,
+        outcomeLabel: payload.outcomeLabel,
+        closedReason: payload.closedReason,
+        ballots: payload.ballots ?? [],
+        voteUrl: payload.voteUrl,
+      });
+      return { kind: 'vote_recap', to: payload.to, messageId };
     }
     case 'deal_resurfaced': {
       if (!payload.companyName) {

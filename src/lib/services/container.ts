@@ -13,6 +13,7 @@ import {
   CompanyFxAdjustmentRepository,
   CompanyScreeningDerivedRepository,
   CompanySlidesRepository,
+  CompanyVoteRepository,
   FileRepository,
   InvestmentThesisRepository,
   TrackVariableRepository,
@@ -81,6 +82,7 @@ import { MarketScreeningService } from './marketScreeningService';
 import { TrackMatchingService } from './trackMatchingService';
 import { SlideService } from './slideService';
 import { CompanyCardSlideService } from './companyCardSlideService';
+import { CompanyVoteService } from './companyVoteService';
 import { FileService } from './fileService';
 import { ChatService } from './chatService';
 import { JobService } from './jobService';
@@ -136,6 +138,7 @@ export interface Container {
   trackMatchingService: TrackMatchingService;
   slideService: SlideService;
   companyCardSlideService: CompanyCardSlideService;
+  companyVoteService: CompanyVoteService;
   fileService: FileService;
   chatService: ChatService;
   jobService: JobService;
@@ -249,6 +252,16 @@ export function createContainer(db: DbClient, workspaceId: string): Container {
     investmentThesisService,
     trackVariableService,
     workspaceService,
+    workspaceId,
+  );
+  const companyVoteService = new CompanyVoteService(
+    new CompanyVoteRepository(db, workspaceId),
+    userRepo,
+    companyRepo,
+    workspaceRepo,
+    companyCardSlideService,
+    aiOpinionService,
+    jobDispatcher,
     workspaceId,
   );
   const companyGraphService = new CompanyGraphService(companyGraphRepo, jobDispatcher);
@@ -456,6 +469,7 @@ export function createContainer(db: DbClient, workspaceId: string): Container {
     trackMatchingService,
     slideService,
     companyCardSlideService,
+    companyVoteService,
     fileService,
     chatService,
     jobService,

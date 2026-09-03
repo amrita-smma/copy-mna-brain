@@ -155,3 +155,13 @@
 ::-webkit-scrollbar-thumb:hover {
   @apply bg-muted-foreground/50;
 }
+
+/* TipTap (ballot rationale editor) — the Placeholder extension marks the empty
+   first block, which has no visible text of its own to hint with. */
+.tiptap p.is-editor-empty:first-child::before {
+  @apply text-muted-foreground;
+  content: attr(data-placeholder);
+  float: left;
+  height: 0;
+  pointer-events: none;
+}

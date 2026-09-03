@@ -904,6 +904,20 @@
       "when": 1788393601000,
       "tag": "20260903000001_add_deal_document_processing_job_type",
       "breakpoints": true
+    },
+    {
+      "idx": 129,
+      "version": "7",
+      "when": 1788393602000,
+      "tag": "20260903000002_company_voting",
+      "breakpoints": true
+    },
+    {
+      "idx": 130,
+      "version": "7",
+      "when": 1788393603000,
+      "tag": "20260903000003_add_vote_ai_ballot",
+      "breakpoints": true
     }
   ]
 }

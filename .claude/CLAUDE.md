@@ -61,6 +61,15 @@ The backend layers as: **repositories** (`src/lib/repositories/*`, workspace-sco
 - **Avoid client-side request fan-out.** Do not issue one HTTP request per row from a React view. Add a single batched/aggregated endpoint instead. The canonical example is `GET /api/funds/portfolio` backed by `FundPortfolioService`, which assembles every fund with its assets and each asset's full transaction + valuation ledger in a fixed handful of batched queries regardless of row count. The anti-pattern it replaced was the view calling `listTransactions`/`listValuations` per asset — that per-asset fan-out opened a DB connection per asset and exhausted the pool (`53300`).
 - **Watch for related anti-patterns.** Paginate unbounded result sets rather than selecting everything. Ensure filtered/joined columns have indexes. Use set-based updates instead of `SELECT`-then-loop-and-update-each-row. Hoist or batch repeated identical queries so the same read isn't issued many times per request.
 
+## Card & Surface Backgrounds
+
+**Never ship a card or panel with a transparent (or partially transparent) background.** Anything that reads as a raised surface — a bordered/rounded container, a panel, a popover, an empty-state box, a summary tile — must paint an opaque background so whatever sits behind it (page background, another card, a sticky header scrolling underneath) cannot show through.
+
+- Use `bg-card` for a surface sitting on the page background, and `bg-muted` for a subtler surface or one nested inside another card. Both are opaque.
+- Do **not** use alpha-suffixed utilities for a surface background: `bg-muted/20`, `bg-muted/30`, `bg-background/80`, `bg-card/50` and friends are banned on cards. Alpha is fine only for genuine overlays (dialog scrims, hover/active tints on a control, gradient fades).
+- A `rounded-* border` container with no `bg-*` class at all is also transparent — give it one.
+- Check both themes: a tint that looks solid in light mode is usually see-through in dark mode.
+
 ## Country Codes
 
 Country values (`companies.geography`) are stored as free-text country **names**, not codes. When rendering a flag, do not hardcode a flag emoji per country — resolve the name to its **ISO 3166-1 alpha-2** code with the `country-to-iso` library (`countryToAlpha2("South Korea")` → `"KR"`; it tolerates inconsistent inputs like `USA`/`United States`), then derive the emoji from that code via Unicode regional indicator symbols (`0x1F1E6 + (charCode - 'A')`). Values that aren't countries (e.g. `"Asia Pacific"`) return `null` → fall back to a globe. Avoid hand-maintained name→code maps; only add a tiny alias for genuinely ambiguous names the library can't resolve (e.g. bare `"Korea"` → `"South Korea"`).

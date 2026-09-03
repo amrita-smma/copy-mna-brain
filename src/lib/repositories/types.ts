@@ -14,6 +14,8 @@ type TableMap = {
   company_fx_adjustments: typeof schema.companyFxAdjustments;
   company_screening_derived: typeof schema.companyScreeningDerived;
   company_slides: typeof schema.companySlides;
+  company_vote_sessions: typeof schema.companyVoteSessions;
+  company_vote_ballots: typeof schema.companyVoteBallots;
   criterias: typeof schema.criterias;
   deal_documents: typeof schema.dealDocuments;
   deal_links: typeof schema.dealLinks;

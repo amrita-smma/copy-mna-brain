@@ -1324,6 +1324,115 @@ Notifications are best-effort: the reactivation stands even if no recipient can
 be resolved or the queue is unavailable. A manual restore from the UI cancels
 any pending resurface schedule.
 
+### Company voting (Investment Committee rounds)
+
+Every company detail surface — the full page (`/companies/<id>` and
+`/pipeline/<dealId>`) and the `CompanyDetailDialog` — carries a **Voting** tab
+(`src/components/pipeline/voting/CompanyVotingTab.tsx`, deep-linkable as
+`?tab=voting`). It runs an Investment-Committee style round on one company.
+
+**Data model.** `company_vote_sessions` holds one row per round (initiator,
+deadline, the days/hours the initiator picked, status, and the post-conclusion
+`ai_*` synthesis columns). `company_vote_ballots` holds one row per selected
+voter (`choice`, `body_html`, `status`, `submitted_at`, `auto_submitted`),
+unique on `(vote_session_id, voter_id)`. A **partial unique index**
+(`uq_company_vote_sessions_one_active` on `company_id WHERE status = 'active'`)
+is what guarantees at most one open round per company — two racing "Start Vote"
+clicks cannot both win.
+
+**Lifecycle** (all rules enforced in `CompanyVoteService`, and restated for
+users by `VotingRules.tsx`):
+
+1. **Start.** The initiator multi-selects voters (workspace members only) and a
+   duration in days + hours. Ballot rows are created up-front, so "who still
+   owes a vote" is a plain query rather than a set difference.
+2. **Invite.** A `company_vote` job (`kind: 'invite'`) builds the Company Card
+   deck **once** via `CompanyCardSlideService` + `exportElementsToPptx` and
+   emails every voter an invitation carrying a deep link to the Voting tab, a
+   link to the Company Card in-app (`?tab=overview`), and the deck itself as a
+   `.pptx` attachment. A failed deck build degrades to an attachment-less
+   invitation — the body then stops promising an attachment and points at the
+   link instead — rather than dropping the email. This path uses
+   `EmailService.sendVoteInvitationEmail` directly rather than the `send-email`
+   queue, because a multi-MB attachment cannot ride a JSON queue payload.
+
+   If the job cannot be dispatched at all (most often the `company_vote`
+   `job_type` enum value missing because the migration has not been applied to
+   that environment), `startVote` returns `invitationsQueued: false` and the
+   route puts a `notice` on the response so the UI warns instead of reporting a
+   clean success — otherwise "I never got the email" leaves no signal anywhere.
+3. **The AI Opinion votes.** The company's standing AI Opinion counts as **one
+   more voter** — it is in `voterCount`, in the tally, in the synthesis prompt
+   and in the recap email. `startVote` calls `AiOpinionService.dispatch` when
+   the company has no verdict yet (and *only* then — `dispatch` treats every
+   call as a re-evaluation and would clear an existing opinion). Its ballot is
+   derived at conclusion by `aiVerdictToVoteChoice` (`pass` → YES, `fail` → NO,
+   anything else including "still generating" → INCONCLUSIVE) and snapshotted
+   into `company_vote_sessions.ai_vote_choice`, so re-evaluating the company
+   later cannot rewrite a recorded tally. It never maps to a HARD variant: the
+   verdict expresses direction, not the conviction a human signals by choosing
+   HARD.
+4. **Vote.** The five choices are `HARD YES / YES / NO / INCONCLUSIVE / HARD NO`.
+   The rationale is a TipTap WYSIWYG field (bold, italic, underline, font size,
+   bullets, numbering, Tab indentation) stored as HTML and **sanitized
+   server-side** by `sanitizeBallotHtml` (`src/lib/voting/html.ts`) on every
+   save — it is rendered back into other users' browsers once the round closes.
+   A voter can Save / Cancel (a purely local revert) freely; **Submit** locks the
+   ballot and enqueues a `vote_submitted` confirmation email.
+5. **Privacy.** While a round is `active`, `getState` returns only the viewer's
+   own choice and rationale plus everyone's submitted/pending status. A non-voter
+   sees "Voting in progress".
+6. **Initiator controls.** *Cancel vote* abandons the round; *Send back
+   submissions* flips every submitted ballot back to `draft` in one set-based
+   UPDATE.
+7. **Close.** The round concludes when the last ballot is submitted, or when the
+   deadline passes — swept every 5 minutes by `GET /api/cron/close-votes`
+   (`CRON_SECRET`-protected, like the other crons). That route **iterates every
+   workspace** and calls `processDueSessions` with a per-workspace container:
+   Vercel Cron carries no session, so `getActiveWorkspaceId()` would silently
+   fall back to the default workspace and leave every other tenant's rounds open
+   forever. Closing auto-submits stragglers (as picked if the voter had chosen,
+   otherwise `INCONCLUSIVE`, always with `auto_submitted = true`), snapshots the
+   company's standing AI Opinion onto the session, and queues a `company_vote`
+   job (`kind: 'conclude'`).
+8. **Recap + synthesis.** The conclusion job runs `generateVoteSynthesis`
+   (`src/lib/voting/synthesis.ts` — structured output over the verbatim ballots)
+   into `ai_synthesis` / `ai_key_positives` / `ai_key_concerns`, then enqueues a
+   `vote_recap` email to the initiator and every voter (deduped). A synthesis
+   failure is recorded on the session and does **not** block the recap.
+9. **Results.** `VoteResults.tsx` renders the outcome pill + headline (`4–0
+   FOR`, from the pure `tallyVotes` in `src/lib/voting/tally.ts`), the synthesis
+   / key positives / key concerns / AI Opinion row, and every reviewer's
+   verbatim rationale side by side. A **Vote again** button opens a fresh round.
+
+**Unsaved drafts survive a tab switch.** Radix unmounts an inactive
+`TabsContent`, so `BallotPanel` is destroyed the moment the user looks at
+Overview. `ballotDraftStore.ts` mirrors the in-progress choice + rationale into
+`sessionStorage` (keyed per round) and restores it on mount, so leaving the tab,
+reloading, or reopening the dialog is non-destructive. The cache holds only work
+the server has not accepted: it is cleared as soon as the ballot is saved,
+cancelled or submitted, and is ignored entirely for a submitted ballot. It is a
+convenience cache, never a source of truth.
+
+**Concurrency.** Closing, cancelling and submitting all race each other (the
+last submit vs. the deadline cron; an autosave vs. a submit), so the writes that
+must happen exactly once are **compare-and-swap**, not read-then-write:
+`updateSession(..., { expectedStatus: 'active' })` claims a round *before* any
+side effect runs, and `updateBallot(..., { expectedStatus: 'draft' })` is what
+actually enforces "a submitted vote can no longer be changed". The loser of
+either CAS gets `null` back and surfaces a 409 instead of repeating the
+side effects. `startVote` maps the partial unique index's `23505` onto that same
+409, and rolls the session back by hand if the ballot insert fails — a session
+with zero ballots would block every future round on the company.
+
+**Endpoints.** `GET|POST|PATCH /api/companies/<id>/vote` (state / start /
+`cancel`+`send_back`) and `PUT /api/companies/<id>/vote/ballot` (save or
+submit). Every mutation returns the recomputed tab state, so the client never
+follows a write with a second GET. Each mutating route passes the URL's company
+id down so a body-supplied `sessionId` cannot reach another company's round.
+Domain violations are typed `VoteRuleError`s carrying the HTTP status the route
+should map them to.
+
 ### Fund Management
 
 The **Fund Management** page (`/fund-management`, nav item gated by the

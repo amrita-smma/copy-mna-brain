@@ -11,6 +11,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import CompanyVotingTab from "@/components/pipeline/voting/CompanyVotingTab";
 import {
   Card,
   CardContent,
@@ -412,7 +413,7 @@ interface CompanyDetailDialogProps {
   onOpenChange: (open: boolean) => void;
   onUpdate: () => void;
   /** Tab to show when the dialog first opens. Defaults to "overview". */
-  initialTab?: "overview" | "details" | "filters" | "attachments";
+  initialTab?: "overview" | "details" | "filters" | "attachments" | "voting";
   /** When true, the Company Information card opens in inline edit mode. */
   initialEditing?: boolean;
 }
@@ -770,7 +771,7 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
   const [loadingPreview, setLoadingPreview] = useState(false);
 
   const [activeTab, setActiveTab] = useState<
-    "overview" | "details" | "filters" | "attachments"
+    "overview" | "details" | "filters" | "attachments" | "voting"
   >(initialTab);
 
   // Re-fetch the authoritative company record whenever the dialog opens. The
@@ -1429,14 +1430,19 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
             value={activeTab}
             onValueChange={(v) =>
               setActiveTab(
-                v as "overview" | "details" | "filters" | "attachments",
+                v as
+                  | "overview"
+                  | "details"
+                  | "filters"
+                  | "attachments"
+                  | "voting",
               )
             }
             className="flex flex-col flex-1 min-h-0"
           >
             {/* Tab bar pinned to top */}
             <div className="shrink-0 border-b bg-background">
-              <TabsList className="w-full h-auto rounded-none bg-transparent p-0 grid grid-cols-4">
+              <TabsList className="w-full h-auto rounded-none bg-transparent p-0 grid grid-cols-5">
                 <TabsTrigger
                   value="overview"
                   className="rounded-none border-b-2 border-transparent data-[state=active]:border-accent data-[state=active]:text-accent data-[state=active]:bg-transparent py-3 text-sm font-medium"
@@ -1460,6 +1466,12 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
                   className="rounded-none border-b-2 border-transparent data-[state=active]:border-accent data-[state=active]:text-accent data-[state=active]:bg-transparent py-3 text-sm font-medium"
                 >
                   Attachments
+                </TabsTrigger>
+                <TabsTrigger
+                  value="voting"
+                  className="rounded-none border-b-2 border-transparent data-[state=active]:border-accent data-[state=active]:text-accent data-[state=active]:bg-transparent py-3 text-sm font-medium"
+                >
+                  Voting
                 </TabsTrigger>
               </TabsList>
             </div>
@@ -2690,6 +2702,11 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
                 </Card>
 
               </div>
+            </TabsContent>
+
+            {/* Voting — Investment-Committee round on this company. */}
+            <TabsContent value="voting" className="pb-4">
+              <CompanyVotingTab companyId={company.id} variant="dialog" />
             </TabsContent>
 
             </div>{/* end scrollable content */}

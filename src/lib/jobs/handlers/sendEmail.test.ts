@@ -278,4 +278,104 @@ describe('runSendEmail', () => {
       runSendEmail({ kind: 'deal_resurfaced', to: 'a@b.com', companyName: '' }),
     ).rejects.toThrow('`companyName` is required');
   });
+
+  it('delegates vote_submitted to EmailService.sendVoteSubmittedEmail', async () => {
+    const emailService = new EmailService(
+      vi.fn().mockResolvedValue({ messageId: 'm6' }),
+    );
+    const spy = vi.spyOn(emailService, 'sendVoteSubmittedEmail');
+    const result = await runSendEmail(
+      {
+        kind: 'vote_submitted',
+        to: 'cp@example.com',
+        recipientName: 'CP Tei',
+        companyName: 'Project Highway',
+        choiceLabel: 'HARD YES',
+        deadlineLabel: 'tomorrow',
+        voteUrl: 'https://x/vote',
+      },
+      { emailService },
+    );
+    expect(spy).toHaveBeenCalledWith({
+      email: 'cp@example.com',
+      recipientName: 'CP Tei',
+      companyName: 'Project Highway',
+      choiceLabel: 'HARD YES',
+      deadlineLabel: 'tomorrow',
+      voteUrl: 'https://x/vote',
+    });
+    expect(result).toEqual({
+      kind: 'vote_submitted',
+      to: 'cp@example.com',
+      messageId: 'm6',
+    });
+  });
+
+  it('throws when vote_submitted payload is missing companyName', async () => {
+    await expect(
+      runSendEmail({
+        kind: 'vote_submitted',
+        to: 'a@b.com',
+        recipientName: 'A',
+        companyName: '',
+        choiceLabel: 'YES',
+        deadlineLabel: 'tomorrow',
+        voteUrl: 'https://x/vote',
+      }),
+    ).rejects.toThrow('`companyName` is required');
+  });
+
+  it('delegates vote_recap to EmailService.sendVoteRecapEmail', async () => {
+    const emailService = new EmailService(
+      vi.fn().mockResolvedValue({ messageId: 'm7' }),
+    );
+    const spy = vi.spyOn(emailService, 'sendVoteRecapEmail');
+    const result = await runSendEmail(
+      {
+        kind: 'vote_recap',
+        to: 'nico@example.com',
+        companyName: 'Project Highway',
+        headline: '4–0 FOR',
+        outcomeLabel: '4 Proceed',
+        closedReason: 'all_submitted',
+        ballots: [{ voterName: 'CP Tei', choiceLabel: 'YES' }],
+        voteUrl: 'https://x/vote',
+      },
+      { emailService },
+    );
+    expect(spy).toHaveBeenCalledWith({
+      email: 'nico@example.com',
+      companyName: 'Project Highway',
+      headline: '4–0 FOR',
+      outcomeLabel: '4 Proceed',
+      closedReason: 'all_submitted',
+      ballots: [{ voterName: 'CP Tei', choiceLabel: 'YES' }],
+      voteUrl: 'https://x/vote',
+    });
+    expect(result).toEqual({
+      kind: 'vote_recap',
+      to: 'nico@example.com',
+      messageId: 'm7',
+    });
+  });
+
+  it('defaults vote_recap ballots to an empty list when the payload omits them', async () => {
+    const emailService = new EmailService(
+      vi.fn().mockResolvedValue({ messageId: 'm8' }),
+    );
+    const spy = vi.spyOn(emailService, 'sendVoteRecapEmail');
+    await runSendEmail(
+      {
+        kind: 'vote_recap',
+        to: 'nico@example.com',
+        companyName: 'Project Highway',
+        headline: '0–0 SPLIT',
+        outcomeLabel: 'Split',
+        closedReason: 'deadline',
+        voteUrl: 'https://x/vote',
+      } as never,
+      { emailService },
+    );
+    expect(spy).toHaveBeenCalledWith(expect.objectContaining({ ballots: [] }));
+  });
 });
