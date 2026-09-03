@@ -92,6 +92,20 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "skipReason": "noise"
   },
   {
+    "hash": "1d449c42937e5e1ae795550dda8e87a167d20f25",
+    "date": "2026-09-03",
+    "subject": "View AI-generated notes and open PDFs fullscreen directly from attachment previews",
+    "category": "fix"
+  },
+  {
+    "hash": "fb7240d6fd4fc2c284b58bdaf25353e5384d3545",
+    "date": "2026-09-03",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "f7bd8b195c74982a5416c3429665adcb37c65987",
     "date": "2026-09-02",
     "subject": "override image-size with image-size-next@2.1.1",
