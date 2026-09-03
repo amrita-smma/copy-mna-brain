@@ -1,4 +1,4 @@
-import type { Tables, UserConsentRepository, UserRepository } from '@/lib/repositories';
+import type { Tables, UserConsentRepository, UserRepository, UserWorkspaceRepository } from '@/lib/repositories';
 import { EmailService } from './emailService';
 
 const CONSENT_NOTIFICATION_EMAIL = 'nico.alimin@smma.id';
@@ -10,11 +10,19 @@ export class ConsentService {
   constructor(
     private readonly consentRepo: UserConsentRepository,
     private readonly userRepo: UserRepository,
+    private readonly userWorkspaceRepo: UserWorkspaceRepository,
     private readonly emailService: EmailService = new EmailService(),
   ) {}
 
-  /** Whether this user has accepted the current (or any) consent policy version. */
+  /**
+   * Whether this user is clear to pass the consent gate: either they've
+   * accepted the current policy, or none of their workspace memberships have
+   * email sync enabled, so there's nothing for them to consent to.
+   */
   async hasConsented(userId: string): Promise<boolean> {
+    const anySyncEnabled = await this.userWorkspaceRepo.hasAnySyncEnabled(userId);
+    if (!anySyncEnabled) return true;
+
     const row = await this.consentRepo.findByUserId(userId);
     return row !== null;
   }

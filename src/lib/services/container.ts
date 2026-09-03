@@ -434,7 +434,7 @@ export function createContainer(db: DbClient, workspaceId: string): Container {
   );
 
   const userConsentRepo = new UserConsentRepository(db);
-  const consentService = new ConsentService(userConsentRepo, userRepo);
+  const consentService = new ConsentService(userConsentRepo, userRepo, userWorkspaceRepo);
 
   return {
     companyService,

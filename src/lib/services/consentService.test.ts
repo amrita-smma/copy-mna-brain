@@ -4,8 +4,9 @@ import { ConsentService, CURRENT_POLICY_VERSION } from './consentService';
 function makeDeps() {
   const consentRepo = { findByUserId: vi.fn(), upsertConsent: vi.fn() };
   const userRepo = { findById: vi.fn() };
+  const userWorkspaceRepo = { hasAnySyncEnabled: vi.fn().mockResolvedValue(true) };
   const emailService = { sendConsentRecordedEmail: vi.fn() };
-  return { consentRepo, userRepo, emailService };
+  return { consentRepo, userRepo, userWorkspaceRepo, emailService };
 }
 
 const ROW = {
@@ -23,7 +24,12 @@ describe('ConsentService.hasConsented', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     deps = makeDeps();
-    service = new ConsentService(deps.consentRepo as never, deps.userRepo as never, deps.emailService as never);
+    service = new ConsentService(
+      deps.consentRepo as never,
+      deps.userRepo as never,
+      deps.userWorkspaceRepo as never,
+      deps.emailService as never,
+    );
   });
 
   it('returns true when a consent row exists', async () => {
@@ -34,6 +40,14 @@ describe('ConsentService.hasConsented', () => {
   it('returns false when no consent row exists', async () => {
     deps.consentRepo.findByUserId.mockResolvedValue(null);
     await expect(service.hasConsented('u2')).resolves.toBe(false);
+  });
+
+  it('returns true without consulting consent rows when the user has no email sync enabled', async () => {
+    deps.userWorkspaceRepo.hasAnySyncEnabled.mockResolvedValue(false);
+
+    await expect(service.hasConsented('u3')).resolves.toBe(true);
+
+    expect(deps.consentRepo.findByUserId).not.toHaveBeenCalled();
   });
 });
 
@@ -46,7 +60,12 @@ describe('ConsentService.recordConsent', () => {
     deps = makeDeps();
     deps.consentRepo.upsertConsent.mockResolvedValue(ROW);
     deps.userRepo.findById.mockResolvedValue({ id: 'u1', name: 'Jane Doe', email: 'jane@sqe.co.id' });
-    service = new ConsentService(deps.consentRepo as never, deps.userRepo as never, deps.emailService as never);
+    service = new ConsentService(
+      deps.consentRepo as never,
+      deps.userRepo as never,
+      deps.userWorkspaceRepo as never,
+      deps.emailService as never,
+    );
   });
 
   it('upserts consent at the current policy version', async () => {

@@ -82,6 +82,16 @@ export class UserWorkspaceRepository {
     return rows.map(({ consentedAt, ...rest }) => ({ ...rest, hasConsented: consentedAt !== null }));
   }
 
+  /** Whether this user has email sync enabled on at least one workspace membership. */
+  async hasAnySyncEnabled(userId: string): Promise<boolean> {
+    const [row] = await this.db
+      .select({ workspace_id: userWorkspaces.workspace_id })
+      .from(userWorkspaces)
+      .where(and(eq(userWorkspaces.user_id, userId), eq(userWorkspaces.is_email_synced, true)))
+      .limit(1);
+    return row !== undefined;
+  }
+
   async findOne(userId: string, workspaceId: string): Promise<Tables<'user_workspaces'> | undefined> {
     const [row] = await this.db
       .select()

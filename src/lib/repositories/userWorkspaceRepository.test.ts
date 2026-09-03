@@ -119,6 +119,22 @@ describe('UserWorkspaceRepository', () => {
     expect(result).toBeUndefined();
   });
 
+  it('hasAnySyncEnabled returns true when at least one membership has sync enabled', async () => {
+    mockDb.limit.mockResolvedValueOnce([{ workspace_id: 'w1' }]);
+
+    const result = await repo.hasAnySyncEnabled('u1');
+
+    expect(result).toBe(true);
+  });
+
+  it('hasAnySyncEnabled returns false when no membership has sync enabled', async () => {
+    mockDb.limit.mockResolvedValueOnce([]);
+
+    const result = await repo.hasAnySyncEnabled('u1');
+
+    expect(result).toBe(false);
+  });
+
   it('updateRole sets the new role_id and returns the updated row', async () => {
     const row = { id: 'uw1', user_id: 'u1', workspace_id: 'w1', role_id: 'r2' };
     mockDb.returning.mockResolvedValueOnce([row]);

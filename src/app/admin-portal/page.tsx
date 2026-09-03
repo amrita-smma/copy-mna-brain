@@ -905,10 +905,12 @@ export default function AdminPortalPage() {
                               onChange={(next) => updateMemberEmailSync(m.userId, next)}
                             />
                             <Badge
-                              variant={m.hasConsented ? 'default' : 'secondary'}
+                              variant={
+                                !m.isEmailSynced ? 'outline' : m.hasConsented ? 'default' : 'secondary'
+                              }
                               className="w-fit justify-self-start"
                             >
-                              {m.hasConsented ? 'Consented' : 'Pending'}
+                              {!m.isEmailSynced ? 'Not required' : m.hasConsented ? 'Consented' : 'Pending'}
                             </Badge>
                             <AlertDialog>
                               <AlertDialogTrigger asChild>
