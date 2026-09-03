@@ -142,6 +142,20 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "skipReason": "noise"
   },
   {
+    "hash": "fd5c10fca45292f46bfa5c78ae13a1d082432ea7",
+    "date": "2026-09-03",
+    "subject": "Email sync now requires explicit user consent only when enabled",
+    "category": "fix"
+  },
+  {
+    "hash": "74d399c43687be87d0c2e7113a9946d2d44ebf98",
+    "date": "2026-09-03",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "f7bd8b195c74982a5416c3429665adcb37c65987",
     "date": "2026-09-02",
     "subject": "override image-size with image-size-next@2.1.1",
