@@ -2,7 +2,7 @@ import { ReactNode } from 'react';
 import { redirect } from 'next/navigation';
 import { headers } from 'next/headers';
 import { auth } from '@/auth';
-import { loginUrlWithCallback } from '@/lib/callbackUrl';
+import { loginUrlWithCallback, consentUrlWithCallback } from '@/lib/callbackUrl';
 import { createDb } from '@/lib/server/db';
 import { createContainer } from '@/lib/services';
 import { MNA_WORKSPACE_ID } from '@/lib/constants';
@@ -40,6 +40,11 @@ export default async function WorkspaceLayout({
     // to the workspace root keeps at least the workspace when it's absent.
     const requestPath = (await headers()).get('X-Pathname');
     redirect(loginUrlWithCallback(requestPath ?? `/w/${workspaceSlug}`));
+  }
+
+  if (!session.user.hasConsented) {
+    const requestPath = (await headers()).get('X-Pathname');
+    redirect(consentUrlWithCallback(requestPath ?? `/w/${workspaceSlug}`));
   }
 
   const membership = session.user.workspaces.find((w) => w.slug === workspaceSlug);

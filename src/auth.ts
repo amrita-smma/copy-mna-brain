@@ -55,7 +55,10 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       // workspaceId via `update()` and read/write another tenant's data.
       if (trigger === "update") {
         const db = createDb();
-        const { workspaceService } = createContainer(db, MNA_WORKSPACE_ID);
+        const { workspaceService, consentService } = createContainer(
+          db,
+          MNA_WORKSPACE_ID,
+        );
 
         if (typeof session?.workspaceId === "string") {
           const isMember = await workspaceService.isMember(
@@ -77,6 +80,15 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           workspaceService,
           token.id as string,
         );
+
+        // Re-read consent from the DB rather than trusting the client-supplied
+        // `session.hasConsented` value — the same "never trust the client's
+        // claim, re-derive from source of truth" rule the membership check
+        // above follows. The consent page's `update({ hasConsented: true })`
+        // call right after its POST succeeds exists purely to force this
+        // refresh — the payload's VALUE is ignored here on purpose; its mere
+        // presence is what makes next-auth's client POST instead of GET.
+        token.hasConsented = await consentService.hasConsented(token.id as string);
       }
 
       return token;
@@ -97,15 +109,16 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           // Workspace doesn't matter for authService/workspaceService (both
           // workspace-agnostic) — MNA_WORKSPACE_ID here is just a throwaway
           // container-construction arg, not a tenant decision.
-          const { authService, workspaceService } = createContainer(
+          const { authService, workspaceService, consentService } = createContainer(
             db,
             MNA_WORKSPACE_ID,
           );
           const user = await authService.signIn(email, password);
-          const [workspaceId, isSuperadmin, workspaces] = await Promise.all([
+          const [workspaceId, isSuperadmin, workspaces, hasConsented] = await Promise.all([
             workspaceService.resolveDefaultWorkspaceId(user.id),
             workspaceService.isSuperadmin(user.id),
             getWorkspaceClaims(workspaceService, user.id),
+            consentService.hasConsented(user.id),
           ]);
           return {
             id: user.id,
@@ -114,6 +127,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
             workspaceId,
             isSuperadmin,
             workspaces,
+            hasConsented,
           };
         } catch (err) {
           // Auth.js collapses any null/throw in authorize() into the opaque
@@ -138,15 +152,16 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         if (!token) return null;
         try {
           const db = createDb();
-          const { authService, workspaceService } = createContainer(
+          const { authService, workspaceService, consentService } = createContainer(
             db,
             MNA_WORKSPACE_ID,
           );
           const user = await authService.signInWithGoogleToken(token);
-          const [workspaceId, isSuperadmin, workspaces] = await Promise.all([
+          const [workspaceId, isSuperadmin, workspaces, hasConsented] = await Promise.all([
             workspaceService.resolveDefaultWorkspaceId(user.id),
             workspaceService.isSuperadmin(user.id),
             getWorkspaceClaims(workspaceService, user.id),
+            consentService.hasConsented(user.id),
           ]);
           return {
             id: user.id,
@@ -155,6 +170,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
             workspaceId,
             isSuperadmin,
             workspaces,
+            hasConsented,
           };
         } catch (err) {
           console.error("[auth] google-sso authorize failed:", err);
@@ -179,15 +195,16 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         if (!token) return null;
         try {
           const db = createDb();
-          const { authService, workspaceService } = createContainer(
+          const { authService, workspaceService, consentService } = createContainer(
             db,
             MNA_WORKSPACE_ID,
           );
           const user = await authService.signInWithLauncherToken(token);
-          const [workspaceId, isSuperadmin, workspaces] = await Promise.all([
+          const [workspaceId, isSuperadmin, workspaces, hasConsented] = await Promise.all([
             workspaceService.resolveDefaultWorkspaceId(user.id),
             workspaceService.isSuperadmin(user.id),
             getWorkspaceClaims(workspaceService, user.id),
+            consentService.hasConsented(user.id),
           ]);
           return {
             id: user.id,
@@ -196,6 +213,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
             workspaceId,
             isSuperadmin,
             workspaces,
+            hasConsented,
           };
         } catch (err) {
           console.error("[auth] launcher-sso authorize failed:", err);
@@ -228,6 +246,9 @@ declare module "next-auth" {
       /** Every workspace this user can enter — used to validate a URL/header
        *  supplied workspace (slug or id) without a DB round-trip. */
       workspaces: WorkspaceClaim[];
+      /** Has this user accepted the Sync/Terms consent screen? Gates `/w/*`
+       *  in `proxy.ts` — see `ConsentService.hasConsented`. */
+      hasConsented: boolean;
     };
   }
   interface User {
@@ -235,6 +256,7 @@ declare module "next-auth" {
     workspaceId?: string | null;
     isSuperadmin?: boolean;
     workspaces?: WorkspaceClaim[];
+    hasConsented?: boolean;
   }
 }
 
@@ -251,5 +273,6 @@ declare module "next-auth/jwt" {
     workspaceId: string | null;
     isSuperadmin: boolean;
     workspaces: WorkspaceClaim[];
+    hasConsented: boolean;
   }
 }

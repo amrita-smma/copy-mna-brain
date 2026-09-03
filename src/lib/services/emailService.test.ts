@@ -12,6 +12,7 @@ import {
   renderCompanyAssignedEmail,
   renderDealResurfacedEmail,
   renderFeedbackSubmittedEmail,
+  renderConsentRecordedEmail,
 } from './emailService';
 import type { AttachmentSender, EmailSender } from './emailService';
 
@@ -814,5 +815,84 @@ describe('EmailService.sendFeedbackSubmittedEmail', () => {
         message: '',
       }),
     ).rejects.toThrow(/message is required/);
+  });
+});
+
+describe('renderConsentRecordedEmail', () => {
+  it('builds subject, html, and text with user, policy version, and timestamp', () => {
+    const out = renderConsentRecordedEmail({
+      userName: 'Jane Doe',
+      userEmail: 'jane@sqe.co.id',
+      policyVersion: 'v1',
+      consentedAtLabel: 'August 27, 2026, 2:42 PM',
+    });
+    expect(out.subject).toBe('Jane Doe accepted the Sync consent screen');
+    expect(out.html).toContain('Jane Doe');
+    expect(out.html).toContain('jane@sqe.co.id');
+    expect(out.html).toContain('v1');
+    expect(out.html).toContain('August 27, 2026, 2:42 PM');
+    expect(out.text).toContain('Jane Doe accepted the Sync consent screen');
+  });
+
+  it('falls back to "Unknown user" in the subject when the name is blank', () => {
+    const out = renderConsentRecordedEmail({
+      userName: '   ',
+      userEmail: 'jane@sqe.co.id',
+      policyVersion: 'v1',
+      consentedAtLabel: 'August 27, 2026, 2:42 PM',
+    });
+    expect(out.subject).toBe('Unknown user accepted the Sync consent screen');
+  });
+
+  it('strips CR/LF from the user name in the subject to prevent header injection', () => {
+    const out = renderConsentRecordedEmail({
+      userName: 'Evil\r\nBcc: attacker@evil.com',
+      userEmail: 'jane@sqe.co.id',
+      policyVersion: 'v1',
+      consentedAtLabel: 'August 27, 2026, 2:42 PM',
+    });
+    expect(out.subject).toBe('Evil Bcc: attacker@evil.com accepted the Sync consent screen');
+    expect(out.subject).not.toMatch(/[\r\n]/);
+  });
+});
+
+describe('EmailService.sendConsentRecordedEmail', () => {
+  it('delegates to the sender with the rendered email', async () => {
+    const sender = vi.fn().mockResolvedValue({ messageId: 'm' });
+    const svc = new EmailService(sender as EmailSender);
+    await svc.sendConsentRecordedEmail({
+      email: 'nico.alimin@smma.id',
+      userName: 'Jane Doe',
+      userEmail: 'jane@sqe.co.id',
+      policyVersion: 'v1',
+      consentedAtLabel: 'August 27, 2026, 2:42 PM',
+    });
+    expect(sender).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(sender).mock.calls[0][0]).toMatchObject({
+      to: 'nico.alimin@smma.id',
+      subject: 'Jane Doe accepted the Sync consent screen',
+    });
+  });
+
+  it('throws without an email or userEmail', async () => {
+    const svc = new EmailService(vi.fn() as EmailSender);
+    await expect(
+      svc.sendConsentRecordedEmail({
+        email: '',
+        userName: 'Jane Doe',
+        userEmail: 'jane@sqe.co.id',
+        policyVersion: 'v1',
+        consentedAtLabel: 'August 27, 2026, 2:42 PM',
+      }),
+    ).rejects.toThrow(/email is required/);
+    await expect(
+      svc.sendConsentRecordedEmail({
+        email: 'nico.alimin@smma.id',
+        userName: 'Jane Doe',
+        userEmail: '',
+        policyVersion: 'v1',
+        consentedAtLabel: 'August 27, 2026, 2:42 PM',
+      }),
+    ).rejects.toThrow(/userEmail is required/);
   });
 });

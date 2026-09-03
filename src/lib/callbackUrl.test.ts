@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { CALLBACK_URL_PARAM, loginUrlWithCallback, sanitizeCallbackUrl } from './callbackUrl';
+import { CALLBACK_URL_PARAM, consentUrlWithCallback, loginUrlWithCallback, sanitizeCallbackUrl } from './callbackUrl';
 
 describe('sanitizeCallbackUrl', () => {
   it('accepts a same-origin workspace-scoped path', () => {
@@ -107,5 +107,32 @@ describe('loginUrlWithCallback', () => {
   it('returns a bare /login for destinations the post-login default already covers', () => {
     expect(loginUrlWithCallback('/')).toBe('/login');
     expect(loginUrlWithCallback('/workspace')).toBe('/login');
+  });
+});
+
+describe('consentUrlWithCallback', () => {
+  it('appends the sanitized destination as an encoded query param', () => {
+    expect(consentUrlWithCallback('/w/togan-vcc/pipeline/deal-123')).toBe(
+      `/consent?${CALLBACK_URL_PARAM}=%2Fw%2Ftogan-vcc%2Fpipeline%2Fdeal-123`,
+    );
+  });
+
+  it('encodes a destination that itself carries a query string', () => {
+    const url = consentUrlWithCallback('/w/togan-vcc/pipeline?stage=L0');
+    expect(url).toBe(`/consent?${CALLBACK_URL_PARAM}=%2Fw%2Ftogan-vcc%2Fpipeline%3Fstage%3DL0`);
+  });
+
+  it('returns a bare /consent for an unsafe destination', () => {
+    expect(consentUrlWithCallback('//evil.example')).toBe('/consent');
+    expect(consentUrlWithCallback('https://evil.example')).toBe('/consent');
+    expect(consentUrlWithCallback(null)).toBe('/consent');
+  });
+
+  it('returns a bare /consent only when the destination is the redundant root path', () => {
+    expect(consentUrlWithCallback('/')).toBe('/consent');
+  });
+
+  it('unlike loginUrlWithCallback, still preserves /workspace as a real destination', () => {
+    expect(consentUrlWithCallback('/workspace')).toBe(`/consent?${CALLBACK_URL_PARAM}=%2Fworkspace`);
   });
 });

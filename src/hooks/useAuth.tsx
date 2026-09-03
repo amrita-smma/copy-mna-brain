@@ -40,10 +40,11 @@ export function useAuth() {
             workspaceId: sessionUser.workspaceId ?? null,
             isSuperadmin: sessionUser.isSuperadmin ?? false,
             workspaces: sessionUser.workspaces ?? [],
+            hasConsented: sessionUser.hasConsented ?? false,
           }
         : null,
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [sessionUser?.id, sessionUser?.name, sessionUser?.email, sessionUser?.workspaceId, sessionUser?.isSuperadmin, workspacesKey],
+    [sessionUser?.id, sessionUser?.name, sessionUser?.email, sessionUser?.workspaceId, sessionUser?.isSuperadmin, sessionUser?.hasConsented, workspacesKey],
   );
 
   /**
@@ -57,6 +58,21 @@ export function useAuth() {
     },
     [update],
   );
+
+  /**
+   * Refresh the session after `/api/consent` records acceptance.
+   *
+   * MUST pass a payload — next-auth's client `update()` only POSTs (which is
+   * what actually invokes the jwt callback with `trigger: 'update'`) when
+   * called with an argument; a bare `update()` silently does a GET that just
+   * re-returns the unchanged session. The payload's VALUE doesn't matter —
+   * the jwt callback in `src/auth.ts` always re-reads consent status from the
+   * DB rather than trusting it, the same rule `switchWorkspace` follows for
+   * membership — but its presence is load-bearing.
+   */
+  const acceptConsent = useCallback(async () => {
+    await update({ hasConsented: true });
+  }, [update]);
 
   const signIn = useCallback(async (email: string, password: string): Promise<SignInResult> => {
     const result = await nextAuthSignIn('credentials', {
@@ -97,5 +113,6 @@ export function useAuth() {
     signInWithGoogleToken,
     signOut,
     switchWorkspace,
+    acceptConsent,
   };
 }

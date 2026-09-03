@@ -1,5 +1,5 @@
 import { and, eq, isNotNull } from 'drizzle-orm';
-import { roles, userWorkspaces, workspaces, users } from '@/lib/db/schema';
+import { roles, userWorkspaces, workspaces, users, userConsents } from '@/lib/db/schema';
 import type { DbClient, Tables, TablesInsert } from './types';
 
 export interface MembershipDetail {
@@ -18,6 +18,8 @@ export interface WorkspaceMemberDetail {
   roleId: string;
   roleName: string;
   isEmailSynced: boolean;
+  /** Whether this member has accepted the Sync/Terms consent screen. */
+  hasConsented: boolean;
 }
 
 export class UserWorkspaceRepository {
@@ -54,9 +56,14 @@ export class UserWorkspaceRepository {
       .orderBy(workspaces.created_at);
   }
 
-  /** One row per member of a workspace, joined with user + role details. */
+  /**
+   * One row per member of a workspace, joined with user + role details.
+   * `userConsents` is left-joined (not inner) — a member who hasn't accepted
+   * the Sync consent screen still has to appear in this list, just with
+   * `hasConsented: false`, so the admin portal can surface who's pending.
+   */
   async findMembersForWorkspace(workspaceId: string): Promise<WorkspaceMemberDetail[]> {
-    return this.db
+    const rows = await this.db
       .select({
         userId: userWorkspaces.user_id,
         userName: users.name,
@@ -64,12 +71,15 @@ export class UserWorkspaceRepository {
         roleId: userWorkspaces.role_id,
         roleName: roles.name,
         isEmailSynced: userWorkspaces.is_email_synced,
+        consentedAt: userConsents.consented_at,
       })
       .from(userWorkspaces)
       .innerJoin(users, eq(userWorkspaces.user_id, users.id))
       .innerJoin(roles, eq(userWorkspaces.role_id, roles.id))
+      .leftJoin(userConsents, eq(userConsents.user_id, users.id))
       .where(eq(userWorkspaces.workspace_id, workspaceId))
       .orderBy(users.name);
+    return rows.map(({ consentedAt, ...rest }) => ({ ...rest, hasConsented: consentedAt !== null }));
   }
 
   async findOne(userId: string, workspaceId: string): Promise<Tables<'user_workspaces'> | undefined> {
@@ -118,6 +128,10 @@ export class UserWorkspaceRepository {
    *
    * Replaces the old dedicated workspace_email_to_sync table: a user's own
    * email can be flagged as "synced" per workspace via is_email_synced.
+   *
+   * Also requires a `user_consents` row — a user who has toggled sync on but
+   * never accepted the Sync consent screen must not be treated as a synced
+   * custodian. See `ConsentService.hasConsented`.
    */
   async findWorkspaceIdsBySyncedEmail(email: string): Promise<string[]> {
     const rows = await this.db
@@ -125,6 +139,7 @@ export class UserWorkspaceRepository {
       .from(userWorkspaces)
       .innerJoin(users, eq(userWorkspaces.user_id, users.id))
       .innerJoin(workspaces, eq(userWorkspaces.workspace_id, workspaces.id))
+      .innerJoin(userConsents, eq(userConsents.user_id, users.id))
       .where(and(eq(users.email, email), eq(userWorkspaces.is_email_synced, true)))
       .orderBy(workspaces.created_at);
     return rows.map((r) => r.workspace_id);
@@ -135,22 +150,28 @@ export class UserWorkspaceRepository {
    * mailbox, across all workspaces. This is the single source of truth for
    * which mailboxes the Vault archive/export pipeline should pull from —
    * replaces the old hardcoded VAULT_CUSTODIAN_EMAILS list.
+   *
+   * Requires a `user_consents` row in addition to `is_email_synced = true` —
+   * a mailbox is never handed to the pipeline for a user who hasn't accepted
+   * the Sync consent screen, regardless of the toggle.
    */
   async findSyncedCustodianEmails(): Promise<string[]> {
     const rows = await this.db
       .select({ email: users.email })
       .from(userWorkspaces)
       .innerJoin(users, eq(userWorkspaces.user_id, users.id))
+      .innerJoin(userConsents, eq(userConsents.user_id, users.id))
       .where(and(eq(userWorkspaces.is_email_synced, true), isNotNull(users.email)));
     return [...new Set(rows.map((r) => r.email as string))];
   }
 
-  /** Count of distinct synced custodian mailboxes belonging to one workspace. */
+  /** Count of distinct synced + consented custodian mailboxes belonging to one workspace. */
   async countSyncedCustodians(workspaceId: string): Promise<number> {
     const rows = await this.db
       .select({ email: users.email })
       .from(userWorkspaces)
       .innerJoin(users, eq(userWorkspaces.user_id, users.id))
+      .innerJoin(userConsents, eq(userConsents.user_id, users.id))
       .where(
         and(
           eq(userWorkspaces.workspace_id, workspaceId),

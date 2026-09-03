@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import { useAuth } from '@/hooks/useAuth';
+import { consentUrlWithCallback } from '@/lib/callbackUrl';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -16,6 +17,7 @@ import {
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Switch } from '@/components/ui/switch';
+import { Badge } from '@/components/ui/badge';
 import {
   Command,
   CommandEmpty,
@@ -112,6 +114,7 @@ interface Member {
   roleId: string;
   roleName: string;
   isEmailSynced: boolean;
+  hasConsented: boolean;
 }
 
 /** An "Add user" row that hasn't picked a person yet — no server call until it does. */
@@ -177,10 +180,17 @@ export default function AdminPortalPage() {
     }
     if (!user.isSuperadmin) {
       router.replace('/workspace');
+      return;
+    }
+    // Superadmins reach this page directly (bypassing the /workspace picker,
+    // which they're allowed to skip past — see that page's auto-select
+    // effect), so the consent gate has to be re-checked here too.
+    if (!user.hasConsented) {
+      router.replace(consentUrlWithCallback('/admin-portal'));
     }
   }, [user, loading, router]);
 
-  const isAuthorized = !loading && Boolean(user?.isSuperadmin);
+  const isAuthorized = !loading && Boolean(user?.isSuperadmin) && Boolean(user?.hasConsented);
 
   // Users directory (for the member picker).
   useEffect(() => {
@@ -557,7 +567,7 @@ export default function AdminPortalPage() {
     }
   };
 
-  if (loading || !user || !user.isSuperadmin) {
+  if (loading || !user || !user.isSuperadmin || !user.hasConsented) {
     return (
       <div className="relative flex min-h-screen items-center justify-center">
         <LivingBackground variant="default" />
@@ -845,7 +855,7 @@ export default function AdminPortalPage() {
                         return (
                           <div
                             key={m.userId}
-                            className="grid grid-cols-1 items-center gap-3 rounded-lg border bg-background px-3 py-2 sm:grid-cols-[1fr_140px_170px_auto]"
+                            className="grid grid-cols-1 items-center gap-3 rounded-lg border bg-background px-3 py-2 sm:grid-cols-[1fr_140px_170px_110px_auto]"
                           >
                             <UserCombobox
                               selectedUser={dbUser ?? { id: m.userId, name: m.userName, email: m.userEmail }}
@@ -872,6 +882,12 @@ export default function AdminPortalPage() {
                               value={m.isEmailSynced}
                               onChange={(next) => updateMemberEmailSync(m.userId, next)}
                             />
+                            <Badge
+                              variant={m.hasConsented ? 'default' : 'secondary'}
+                              className="w-fit justify-self-start"
+                            >
+                              {m.hasConsented ? 'Consented' : 'Pending'}
+                            </Badge>
                             <AlertDialog>
                               <AlertDialogTrigger asChild>
                                 <Button
@@ -912,7 +928,7 @@ export default function AdminPortalPage() {
                         return (
                           <div
                             key={draft.draftId}
-                            className="grid grid-cols-1 items-center gap-3 rounded-lg border bg-background px-3 py-2 sm:grid-cols-[1fr_140px_170px_auto]"
+                            className="grid grid-cols-1 items-center gap-3 rounded-lg border bg-background px-3 py-2 sm:grid-cols-[1fr_140px_170px_110px_auto]"
                           >
                             <UserCombobox
                               selectedUser={null}
@@ -932,6 +948,7 @@ export default function AdminPortalPage() {
                               </SelectContent>
                             </Select>
                             <EmailSyncCombobox value={false} onChange={() => {}} disabled />
+                            <span className="text-xs text-muted-foreground">—</span>
                             <Button
                               type="button"
                               size="icon"

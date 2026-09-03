@@ -63,18 +63,41 @@ describe('proxy /w/ authentication gate', () => {
 
   it('still bounces an authenticated non-member to the picker, not the deeplink', () => {
     const res = runProxy('/w/other-tenant/pipeline', {
-      user: { id: 'u1', isSuperadmin: false, workspaces: [{ slug: 'togan-vcc' }] },
+      user: { id: 'u1', isSuperadmin: false, workspaces: [{ slug: 'togan-vcc' }], hasConsented: true },
     });
     expect(locationOf(res)).toBe('/workspace');
   });
 
   it('injects the request path for the layout to build its own callback URL', () => {
     const res = runProxy('/w/togan-vcc/pipeline?stage=L0', {
-      user: { id: 'u1', isSuperadmin: false, workspaces: [{ slug: 'togan-vcc' }] },
+      user: { id: 'u1', isSuperadmin: false, workspaces: [{ slug: 'togan-vcc' }], hasConsented: true },
     });
     // `NextResponse.next({ request: { headers } })` surfaces overrides here.
     expect(res.headers.get('x-middleware-override-headers')).toContain('x-pathname');
     expect(res.headers.get('x-middleware-request-x-pathname')).toBe('/w/togan-vcc/pipeline?stage=L0');
+  });
+});
+
+describe('proxy /w/ consent gate', () => {
+  it('bounces an authenticated-but-unconsented user to /consent, preserving the deeplink', () => {
+    const res = runProxy('/w/togan-vcc/pipeline?stage=L0', {
+      user: { id: 'u1', isSuperadmin: false, workspaces: [{ slug: 'togan-vcc' }], hasConsented: false },
+    });
+    expect(locationOf(res)).toBe('/consent?callbackUrl=%2Fw%2Ftogan-vcc%2Fpipeline%3Fstage%3DL0');
+  });
+
+  it('checks consent before slug membership, so an unconsented non-member also lands on /consent', () => {
+    const res = runProxy('/w/other-tenant/pipeline', {
+      user: { id: 'u1', isSuperadmin: false, workspaces: [{ slug: 'togan-vcc' }], hasConsented: false },
+    });
+    expect(locationOf(res)).toBe('/consent?callbackUrl=%2Fw%2Fother-tenant%2Fpipeline');
+  });
+
+  it('lets a consented member through to the slug/header-injection logic', () => {
+    const res = runProxy('/w/togan-vcc/pipeline', {
+      user: { id: 'u1', isSuperadmin: false, workspaces: [{ slug: 'togan-vcc' }], hasConsented: true },
+    });
+    expect(res.headers.get('location')).toBeNull();
   });
 });
 

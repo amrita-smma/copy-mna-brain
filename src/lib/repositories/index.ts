@@ -40,6 +40,7 @@ export * from './appSettingsRepository';
 export * from './dailyPulseRepository';
 export * from './featureFlagRepository';
 export * from './feedbackRepository';
+export * from './userConsentRepository';
 export * from './employerRelatedCompanyRepository';
 export * from './workspaceRepository';
 export * from './roleRepository';

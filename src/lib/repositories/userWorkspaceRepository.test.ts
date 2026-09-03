@@ -5,6 +5,7 @@ interface MockDb {
   select: ReturnType<typeof vi.fn>;
   from: ReturnType<typeof vi.fn>;
   innerJoin: ReturnType<typeof vi.fn>;
+  leftJoin: ReturnType<typeof vi.fn>;
   where: ReturnType<typeof vi.fn>;
   orderBy: ReturnType<typeof vi.fn>;
   limit: ReturnType<typeof vi.fn>;
@@ -25,6 +26,7 @@ describe('UserWorkspaceRepository', () => {
       select: vi.fn().mockReturnThis(),
       from: vi.fn().mockReturnThis(),
       innerJoin: vi.fn().mockReturnThis(),
+      leftJoin: vi.fn().mockReturnThis(),
       where: vi.fn().mockReturnThis(),
       orderBy: vi.fn(),
       limit: vi.fn(),
@@ -73,7 +75,9 @@ describe('UserWorkspaceRepository', () => {
     const result = await repo.findWorkspaceIdsBySyncedEmail('custodian@example.com');
 
     expect(result).toEqual(['w1', 'w2']);
-    expect(mockDb.innerJoin).toHaveBeenCalledTimes(2);
+    // users, workspaces, and user_consents — a synced-but-unconsented user
+    // must be excluded, so the consent table is joined too.
+    expect(mockDb.innerJoin).toHaveBeenCalledTimes(3);
     expect(mockDb.orderBy).toHaveBeenCalledTimes(1);
   });
 
@@ -135,14 +139,38 @@ describe('UserWorkspaceRepository', () => {
 
   it('findMembersForWorkspace returns joined user + role details, ordered by name', async () => {
     const rows = [
-      { userId: 'u1', userName: 'Alice', userEmail: 'alice@x', roleId: 'r1', roleName: 'editor', isEmailSynced: false },
+      {
+        userId: 'u1',
+        userName: 'Alice',
+        userEmail: 'alice@x',
+        roleId: 'r1',
+        roleName: 'editor',
+        isEmailSynced: false,
+        consentedAt: '2026-08-27T10:00:00.000Z',
+      },
+      {
+        userId: 'u2',
+        userName: 'Bob',
+        userEmail: 'bob@x',
+        roleId: 'r1',
+        roleName: 'editor',
+        isEmailSynced: true,
+        consentedAt: null,
+      },
     ];
     mockDb.orderBy.mockResolvedValueOnce(rows);
 
     const result = await repo.findMembersForWorkspace('w1');
 
-    expect(result).toEqual(rows);
+    // `consentedAt` is collapsed into `hasConsented`, not exposed raw — a
+    // member who hasn't accepted the consent screen still appears (via the
+    // left join) but with `hasConsented: false`.
+    expect(result).toEqual([
+      { userId: 'u1', userName: 'Alice', userEmail: 'alice@x', roleId: 'r1', roleName: 'editor', isEmailSynced: false, hasConsented: true },
+      { userId: 'u2', userName: 'Bob', userEmail: 'bob@x', roleId: 'r1', roleName: 'editor', isEmailSynced: true, hasConsented: false },
+    ]);
     expect(mockDb.innerJoin).toHaveBeenCalledTimes(2);
+    expect(mockDb.leftJoin).toHaveBeenCalledTimes(1);
     expect(mockDb.orderBy).toHaveBeenCalledTimes(1);
   });
 
@@ -166,6 +194,9 @@ describe('UserWorkspaceRepository', () => {
     const result = await repo.findSyncedCustodianEmails();
 
     expect(result).toEqual(['alice@x.com', 'bob@x.com']);
+    // users and user_consents — an is_email_synced user with no recorded
+    // consent must never be returned as an eligible custodian mailbox.
+    expect(mockDb.innerJoin).toHaveBeenCalledTimes(2);
   });
 
   it('findSyncedCustodianEmails returns [] when nobody is synced', async () => {
@@ -182,5 +213,6 @@ describe('UserWorkspaceRepository', () => {
     const result = await repo.countSyncedCustodians('w1');
 
     expect(result).toBe(2);
+    expect(mockDb.innerJoin).toHaveBeenCalledTimes(2);
   });
 });

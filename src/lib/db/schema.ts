@@ -2990,6 +2990,37 @@ export const feedback = pgTable(
   }),
 );
 
+// One row per user who has accepted the Sync/Terms consent screen. A user
+// with no row here has not consented — gates both app access (see
+// `hasConsented` on the session/JWT) and email-sync eligibility (see
+// `UserWorkspaceRepository.findSyncedCustodianEmails`, which requires both
+// `is_email_synced = true` AND a row here). Re-accepting a later
+// `policy_version` upserts this row rather than inserting a new one.
+export const userConsents = pgTable(
+  "user_consents",
+  {
+    id: uuid().defaultRandom().primaryKey().notNull(),
+    user_id: uuid().notNull(),
+    policy_version: text().notNull(),
+    consented_at: timestamp({ withTimezone: true, mode: "string" })
+      .defaultNow()
+      .notNull(),
+    created_at: timestamp({ withTimezone: true, mode: "string" })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    userConsentsUserIdFkey: foreignKey({
+      columns: [table.user_id],
+      foreignColumns: [users.id],
+      name: "user_consents_user_id_fkey",
+    }).onDelete("cascade"),
+    userConsentsUserIdKey: unique("user_consents_user_id_key").on(
+      table.user_id,
+    ),
+  }),
+);
+
 // "Today's Recap" daily pipeline pulse cache. One row per workspace per UTC day
 // stores the assembled pulse (deterministic scoreboard + LLM narration): the
 // first request of the day computes + narrates and upserts it, later requests

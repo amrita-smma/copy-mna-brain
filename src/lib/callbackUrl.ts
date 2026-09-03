@@ -108,3 +108,16 @@ export function loginUrlWithCallback(pathAndSearch: string | null | undefined): 
   if (!destination || REDUNDANT_DESTINATIONS.has(destination)) return '/login';
   return `/login?${new URLSearchParams({ [CALLBACK_URL_PARAM]: destination }).toString()}`;
 }
+
+/**
+ * The `/consent` URL to bounce an unconsented user to, preserving
+ * `pathAndSearch` as the post-consent destination — same sanitization as
+ * `loginUrlWithCallback`, since this also ends up in a redirect `Location`.
+ * Unlike the login variant, `/workspace` is a real, worth-preserving
+ * destination here (only `/` is redundant with the default post-consent landing).
+ */
+export function consentUrlWithCallback(pathAndSearch: string | null | undefined): string {
+  const destination = sanitizeCallbackUrl(pathAndSearch);
+  if (!destination || destination === '/') return '/consent';
+  return `/consent?${new URLSearchParams({ [CALLBACK_URL_PARAM]: destination }).toString()}`;
+}

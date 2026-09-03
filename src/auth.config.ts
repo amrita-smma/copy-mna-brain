@@ -68,6 +68,7 @@ export const authConfig = {
         token.workspaceId = user.workspaceId ?? null;
         token.isSuperadmin = user.isSuperadmin ?? false;
         token.workspaces = user.workspaces ?? [];
+        token.hasConsented = user.hasConsented ?? false;
       }
       return token;
     },
@@ -79,6 +80,7 @@ export const authConfig = {
         session.user.workspaceId = (token.workspaceId as string | null) ?? null;
         session.user.isSuperadmin = Boolean(token.isSuperadmin);
         session.user.workspaces = token.workspaces ?? [];
+        session.user.hasConsented = Boolean(token.hasConsented);
       }
       return session;
     },

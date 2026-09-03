@@ -8,6 +8,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { LivingBackground } from '@/components/LivingBackground';
 import { Loader2, ArrowRight, Settings, LogOut } from 'lucide-react';
 import { apiRequest } from '@/lib/api/client';
+import { consentUrlWithCallback } from '@/lib/callbackUrl';
 
 interface Membership {
   workspaceId: string;
@@ -34,6 +35,12 @@ export default function WorkspacePage() {
   const [autoSelecting, setAutoSelecting] = useState(false);
   const [isNavigating, setIsNavigating] = useState(false);
 
+  // `/workspace` sits outside `/w/*`, so it's never touched by the proxy.ts /
+  // WorkspaceLayout consent gate — this is the standard post-login landing
+  // page, and an unconsented user must never see the picker (workspace
+  // names, the superadmin Admin Portal link) before agreeing to Sync's terms.
+  const needsConsent = !loading && !!user && !user.hasConsented;
+
   useEffect(() => {
     if (!loading && !user) {
       router.replace('/login');
@@ -41,7 +48,13 @@ export default function WorkspacePage() {
   }, [user, loading, router]);
 
   useEffect(() => {
-    if (loading || !user) return;
+    if (needsConsent) {
+      router.replace(consentUrlWithCallback('/workspace'));
+    }
+  }, [needsConsent, router]);
+
+  useEffect(() => {
+    if (loading || !user || needsConsent) return;
     let cancelled = false;
     (async () => {
       try {
@@ -58,7 +71,7 @@ export default function WorkspacePage() {
     return () => {
       cancelled = true;
     };
-  }, [loading, user, router]);
+  }, [loading, user, needsConsent, router]);
 
   // Single-membership users skip the picker entirely — except superadmins,
   // who need a chance to reach the Admin Portal link below rather than being
@@ -90,7 +103,7 @@ export default function WorkspacePage() {
     }
   };
 
-  const showLoader = loading || !user || memberships === null || autoSelecting || isNavigating;
+  const showLoader = loading || !user || needsConsent || memberships === null || autoSelecting || isNavigating;
 
   if (showLoader) {
     return (

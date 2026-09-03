@@ -1,7 +1,7 @@
 import NextAuth from 'next-auth';
 import { NextResponse } from 'next/server';
 import { authConfig } from '@/auth.config';
-import { loginUrlWithCallback } from '@/lib/callbackUrl';
+import { loginUrlWithCallback, consentUrlWithCallback } from '@/lib/callbackUrl';
 
 // Middleware-only NextAuth instance. It carries no providers (those live in
 // `src/auth.ts` and touch the DB) — here we only read and verify the JWT
@@ -137,6 +137,17 @@ export const proxy = auth((req) => {
       // `/workspace`, so an unauthorized slug can't be reached this way.
       return NextResponse.redirect(
         new URL(loginUrlWithCallback(pathname + req.nextUrl.search), req.url),
+      );
+    }
+
+    // Consent gate: a logged-in user who hasn't accepted the Sync/Terms
+    // consent screen can't reach any `/w/<slug>/...` page. Checked before slug
+    // validation — an unconsented user shouldn't learn anything about
+    // workspace membership before consenting. `/consent` itself isn't under
+    // `/w/*`, so it's unaffected by this branch.
+    if (!req.auth.user.hasConsented) {
+      return NextResponse.redirect(
+        new URL(consentUrlWithCallback(pathname + req.nextUrl.search), req.url),
       );
     }
 

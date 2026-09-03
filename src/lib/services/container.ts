@@ -56,6 +56,7 @@ import {
   RssFeedRepository,
   RssItemRepository,
   RssItemChunkRepository,
+  UserConsentRepository,
 } from '@/lib/repositories';
 import { JobDispatcher } from './jobDispatcher';
 import { CompanyService } from './companyService';
@@ -113,6 +114,7 @@ import { FeedbackService } from './feedbackService';
 import { RssFeedService } from './rssFeedService';
 import { DataNavigatorService } from './dataNavigatorService';
 import { BedrockEmbeddingClient } from '@/lib/bedrock';
+import { ConsentService } from './consentService';
 
 export interface Container {
   companyService: CompanyService;
@@ -168,6 +170,7 @@ export interface Container {
   tableLayoutService: TableLayoutService;
   rssFeedService: RssFeedService;
   dataNavigatorService: DataNavigatorService;
+  consentService: ConsentService;
 }
 
 export function createContainer(db: DbClient, workspaceId: string): Container {
@@ -430,6 +433,9 @@ export function createContainer(db: DbClient, workspaceId: string): Container {
     new BedrockEmbeddingClient(),
   );
 
+  const userConsentRepo = new UserConsentRepository(db);
+  const consentService = new ConsentService(userConsentRepo, userRepo);
+
   return {
     companyService,
     companyGraphService,
@@ -484,5 +490,6 @@ export function createContainer(db: DbClient, workspaceId: string): Container {
     tableLayoutService,
     rssFeedService,
     dataNavigatorService,
+    consentService,
   };
 }

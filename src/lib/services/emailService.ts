@@ -871,6 +871,41 @@ export function renderFeedbackSubmittedEmail(
   return { subject, html, text };
 }
 
+export interface ConsentRecordedEmailInput {
+  /** Fixed recipient — nico.alimin@smma.id — but kept as an input so tests
+   * and the caller stay explicit about who's being emailed. */
+  email: string;
+  userName: string;
+  userEmail: string;
+  policyVersion: string;
+  /** Pre-formatted "August 27, 2026, 2:42 PM". */
+  consentedAtLabel: string;
+}
+
+export function renderConsentRecordedEmail(
+  input: Omit<ConsentRecordedEmailInput, 'email'>,
+): { subject: string; html: string; text: string } {
+  const userName = sanitizeEmailHeaderFragment(input.userName) || 'Unknown user';
+  const subject = `${userName} accepted the Sync consent screen`;
+
+  const rows = [
+    { label: 'User', value: `${input.userName} (${input.userEmail})` },
+    { label: 'Policy version', value: input.policyVersion },
+    { label: 'Consented at', value: input.consentedAtLabel },
+  ];
+
+  const html = renderNotificationShell({
+    bannerTitle: '✅ Sync Consent Recorded',
+    accent: '#0f7a82',
+    accentDark: '#0b5960',
+    bodyHtml: kvTable(rows.map((r) => kvRow(r.label, r.value)).join('')),
+  });
+
+  const text = [subject, '', ...rows.map((r) => `${r.label}: ${r.value}`)].join('\n');
+
+  return { subject, html, text };
+}
+
 function slugifyTitle(title: string): string {
   return title
     .toLowerCase()
@@ -1101,6 +1136,18 @@ export class EmailService {
     if (!input.title) throw new Error('sendFeedbackSubmittedEmail: title is required');
     if (!input.message) throw new Error('sendFeedbackSubmittedEmail: message is required');
     const { subject, html, text } = renderFeedbackSubmittedEmail(input);
+    return this.sender({ to: input.email, subject, html, text });
+  }
+
+  /** Notify the product owner (nico.alimin@smma.id) that a user accepted the Sync consent screen. */
+  async sendConsentRecordedEmail(
+    input: ConsentRecordedEmailInput,
+  ): Promise<SendEmailResult> {
+    if (!input.email) throw new Error('sendConsentRecordedEmail: email is required');
+    if (!input.userEmail) {
+      throw new Error('sendConsentRecordedEmail: userEmail is required');
+    }
+    const { subject, html, text } = renderConsentRecordedEmail(input);
     return this.sender({ to: input.email, subject, html, text });
   }
 

@@ -77,3 +77,4 @@ data-pipeline/template.local.yaml
 todo.md
 /tasks/
 /.swc
+.review-implementation.md
