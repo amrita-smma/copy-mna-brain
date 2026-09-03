@@ -7,28 +7,30 @@
     "./handlers/vaultArchive": "./src/handlers/vaultArchive.ts"
   },
   "dependencies": {
-    "adm-zip": "*",
-    "drizzle-orm": "*",
     "@anthropic-ai/sdk": "*",
     "@aws-sdk/client-s3": "*",
     "@aws-sdk/client-ssm": "*",
     "@aws-sdk/lib-storage": "*",
     "@aws-sdk/rds-signer": "*",
+    "@extractus/article-extractor": "^9.0.1",
+    "adm-zip": "*",
+    "drizzle-orm": "*",
     "exceljs": "*",
     "jszip": "*",
     "mammoth": "*",
     "pdf-parse": "*",
+    "rss-parser": "^3.13.0",
     "unzipper": "*"
   },
   "devDependencies": {
-    "typescript": "*",
-    "vitest": "*",
-    "@types/node": "*",
     "@types/adm-zip": "*",
+    "@types/node": "*",
     "@types/unzipper": "*",
+    "dotenv": "*",
     "esbuild": "*0.28.1",
     "tsx": "*4.22.0",
-    "dotenv": "*"
+    "typescript": "*",
+    "vitest": "*"
   },
   "scripts": {
     "test": "vitest run",

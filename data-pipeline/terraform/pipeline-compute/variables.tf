@@ -67,6 +67,24 @@ variable "github_oidc_provider_arn" {
   default     = null
 }
 
+variable "bedrock_region" {
+  description = "Region used for Bedrock calls. Bedrock is unavailable in ap-southeast-3, and Titan Embed v2 is not offered in ap-southeast-1."
+  type        = string
+  default     = "ap-southeast-2"
+}
+
+variable "bedrock_embedding_model" {
+  description = "Bedrock embedding model id. Must produce 1024 dimensions to match rss.item_chunks."
+  type        = string
+  default     = "amazon.titan-embed-text-v2:0"
+}
+
+variable "rss_daily_cap_per_category" {
+  description = "Maximum items selected per category per UTC day (5 categories x this = daily ceiling)."
+  type        = number
+  default     = 25
+}
+
 data "aws_caller_identity" "current" {}
 
 locals {

@@ -115,6 +115,14 @@ export const FEATURE_CATALOG: FeatureDefinition[] = [
     defaultEnabled: false,
     navItem: true,
   },
+  {
+    key: 'DATA_NAVIGATOR_ENABLED',
+    label: 'Data Navigator',
+    description:
+      'Curated news feed built from global RSS sources, with full-article preview and semantic search.',
+    defaultEnabled: false,
+    navItem: true,
+  },
   // ── Not on the navbar: in-page flags & background/sub-features (default OFF) ──
   {
     key: 'INSIGHTS_DASHBOARD_ENABLED',

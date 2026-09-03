@@ -29,6 +29,8 @@ config({ path: resolve(repoRoot, '.env') });
 const HANDLERS = [
   'vaultArchiveStart',
   'vaultArchivePoll',
+  'rssPoll',
+  'rssEnrich',
 ] as const;
 
 type HandlerName = (typeof HANDLERS)[number];

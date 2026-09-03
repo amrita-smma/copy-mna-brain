@@ -52,6 +52,7 @@ import { getRegulatoryContext } from "./get_regulatory_context";
 import { getMarketSignals } from "./get_market_signals";
 import { navigatePage } from "./navigate_page";
 import { readPageContext } from "./read_page_context";
+import { searchNews } from "./search_news";
 
 export {
   getDataSchema,
@@ -102,6 +103,7 @@ export {
   getMarketSignals,
   navigatePage,
   readPageContext,
+  searchNews,
 };
 
 export {
@@ -126,6 +128,7 @@ export const tools = [
   lookupCrm,
   crmInsights,
   webSearch,
+  searchNews,
   queryMeetingNotes,
   readRelationshipGraph,
   getTaskProgress,
@@ -390,6 +393,11 @@ export function getToolDescriptions(): string {
       name: "read_page_context",
       description:
         "Find out which page the user is currently looking at and what is on it (the open record, the active filters) — call this before answering any request that says \"this page\", \"this deal\", or \"these results\"",
+    },
+    {
+      name: "search_news",
+      description:
+        "Search the ingested market-news lake (funding, M&A, market assessments, expert insights, industry reports) for recent real-world events about a company, sector or deal",
     },
   ];
 

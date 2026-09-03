@@ -53,6 +53,9 @@ import {
   FundAssetTransactionRepository,
   FundAssetValuationRepository,
   FeedbackRepository,
+  RssFeedRepository,
+  RssItemRepository,
+  RssItemChunkRepository,
 } from '@/lib/repositories';
 import { JobDispatcher } from './jobDispatcher';
 import { CompanyService } from './companyService';
@@ -107,6 +110,9 @@ import { StalledDealService } from './stalledDealService';
 import { FeatureFlagsService } from './featureFlagsService';
 import { TableLayoutService } from './tableLayoutService';
 import { FeedbackService } from './feedbackService';
+import { RssFeedService } from './rssFeedService';
+import { DataNavigatorService } from './dataNavigatorService';
+import { BedrockEmbeddingClient } from '@/lib/bedrock';
 
 export interface Container {
   companyService: CompanyService;
@@ -160,6 +166,8 @@ export interface Container {
   featureFlagsService: FeatureFlagsService;
   feedbackService: FeedbackService;
   tableLayoutService: TableLayoutService;
+  rssFeedService: RssFeedService;
+  dataNavigatorService: DataNavigatorService;
 }
 
 export function createContainer(db: DbClient, workspaceId: string): Container {
@@ -409,6 +417,19 @@ export function createContainer(db: DbClient, workspaceId: string): Container {
   const feedbackRepo = new FeedbackRepository(db, workspaceId);
   const feedbackService = new FeedbackService(feedbackRepo, userRepo, workspaceRepo, workspaceId);
 
+  // Global (non-workspace-scoped): the RSS feed catalog is shared by every
+  // workspace, so the repo takes no workspaceId.
+  const rssFeedRepo = new RssFeedRepository(db);
+  const rssFeedService = new RssFeedService(rssFeedRepo);
+
+  const rssItemRepo = new RssItemRepository(db);
+  const rssItemChunkRepo = new RssItemChunkRepository(db);
+  const dataNavigatorService = new DataNavigatorService(
+    rssItemRepo,
+    rssItemChunkRepo,
+    new BedrockEmbeddingClient(),
+  );
+
   return {
     companyService,
     companyGraphService,
@@ -461,5 +482,7 @@ export function createContainer(db: DbClient, workspaceId: string): Container {
     featureFlagsService,
     feedbackService,
     tableLayoutService,
+    rssFeedService,
+    dataNavigatorService,
   };
 }

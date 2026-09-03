@@ -22,3 +22,15 @@ data "terraform_remote_state" "rds" {
     region = var.aws_region
   }
 }
+
+# RSS bronze bucket — created by terraform/s3-rss, consumed here for the
+# Lambda env var and the S3 write policy.
+data "terraform_remote_state" "s3_rss" {
+  backend = "s3"
+
+  config = {
+    bucket = local.tfstate_bucket
+    key    = "env:/${terraform.workspace}/mna/s3-rss"
+    region = var.aws_region
+  }
+}

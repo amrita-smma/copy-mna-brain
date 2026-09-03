@@ -146,6 +146,7 @@ describe('groupedConsoleTabs', () => {
     ]);
     expect(groups.find((g) => g.id === 'intelligence')?.tabs.map((t) => t.slug)).toEqual([
       'smart-files',
+      'data-navigator',
       'presentation',
       'ai-workforce',
       'graph',
@@ -184,5 +185,25 @@ describe('describeConsoleTabs', () => {
     for (const slug of CONSOLE_TAB_SLUGS) {
       expect(described).toContain(`\`${slug}\``);
     }
+  });
+});
+
+describe('Data Navigator tab', () => {
+  it('is registered in the intelligence group behind its own flag', () => {
+    const tab = CONSOLE_TABS.find((t) => t.slug === 'data-navigator');
+    expect(tab).toBeDefined();
+    expect(tab?.path).toBe('/data-navigator');
+    expect(tab?.group).toBe('intelligence');
+    expect(tab?.flag).toBe('DATA_NAVIGATOR_ENABLED');
+  });
+
+  it('is hidden when the flag is off', () => {
+    const visible = visibleConsoleTabs({ DATA_NAVIGATOR_ENABLED: false });
+    expect(visible.some((t) => t.slug === 'data-navigator')).toBe(false);
+  });
+
+  it('is visible when the flag is on', () => {
+    const visible = visibleConsoleTabs({ DATA_NAVIGATOR_ENABLED: true });
+    expect(visible.some((t) => t.slug === 'data-navigator')).toBe(true);
   });
 });

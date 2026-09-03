@@ -51,3 +51,48 @@ an Anthropic API key, and Smart Files API credentials. Lambda has no S3 permissi
 temporarily spooled to `/tmp`. A source resumes by its stable
 `export_id + ZIP object + entry path` key and is abandoned after its fail budget
 is exhausted.
+
+## RSS news lake
+
+Two further scheduled functions, independent of the email pipeline above:
+
+1. `rss-poll` (`rate(30 minutes)`) conditional-GETs every `status = 'active'`
+   row in `rss.feeds`, normalizes entries, inserts genuinely-new ones into
+   `rss.items`, archives them as NDJSON to `s3://mna-<env>-rss-lake/bronze/`,
+   and updates per-feed health — a feed retires to `dead` after 10 consecutive
+   failures (`MAX_CONSECUTIVE_FAILURES` in `src/repositories/rssRepository.ts`).
+2. `rss-enrich` (`rate(10 minutes)`) drains three queues, run sequentially so a
+   thrown error in an earlier stage aborts the invocation (self-healing: the
+   next run 10 minutes later resumes where it left off): Haiku relevance
+   classification (capped by `RSS_DAILY_CAP_PER_CATEGORY`, default 25, per
+   category per UTC day), full-article extraction for selected items (3
+   attempts, `MAX_CONTENT_ATTEMPTS`), and Bedrock Titan embeddings into
+   `rss.item_chunks`.
+
+Unlike the email path, these functions do use S3 — a separate bucket
+(`terraform/s3-rss`), with an IAM policy scoped to its `bronze/*` prefix. The
+email functions above still make no S3 calls.
+
+Bedrock is not offered in `ap-southeast-3`, where these Lambdas run, so
+embedding calls go cross-region via `BEDROCK_REGION` (default
+`ap-southeast-2`) — never `AWS_REGION`, which Lambda injects as
+`ap-southeast-3` for this deployment.
+
+Local:
+
+```bash
+pnpm --filter data-pipeline invoke rssPoll '{}'
+pnpm --filter data-pipeline invoke rssEnrich '{}'
+```
+
+Both names must be in the `HANDLERS` allowlist in `scripts/invoke-local.ts`
+for `invoke <name>` to resolve them (both already are).
+
+**Not yet deployed.** The Terraform for the RSS bronze bucket, the two Lambda
+schedules, and the Bedrock IAM policy pass `terraform fmt -check` and
+`terraform validate` but have never been `apply`'d to any environment, and no
+staging feed import has been run yet. See the root `README.md`'s
+[Data Navigator (RSS news lake)](../README.md#data-navigator-rss-news-lake)
+section and
+`docs/superpowers/specs/2026-09-02-data-navigator-rss-lake-design.md` for the
+full design.

@@ -69,7 +69,7 @@ export default defineConfig({
     url,
     ssl: isLocal ? false : 'require',
   },
-  schemaFilter: ['analytics'],
+  schemaFilter: ['analytics', 'rss'],
   casing: 'snake_case',
   migrations: {
     table: '__drizzle_migrations',

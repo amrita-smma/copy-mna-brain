@@ -1,0 +1,264 @@
+category,source_name,feed_url,region,notes,status,entries
+expert_insights,AEI,https://www.aei.org/feed/,US,Think tank,OK,24
+expert_insights,Bank Underground (BoE),https://bankunderground.co.uk/feed/,UK,Central bank,OK,10
+expert_insights,Benedict Evans,https://www.ben-evans.com/benedictevans?format=rss,Global,Tech analyst,OK,20
+expert_insights,Bing: analyst commentary sector,https://www.bing.com/news/search?q=analyst+commentary+sector+outlook&format=rss,Global,Bing News query feed,OK,4
+expert_insights,Bing: economists view inflation,https://www.bing.com/news/search?q=economists+view+inflation+growth&format=rss&brdr=1,Global,Bing News query feed,OK,12
+expert_insights,Bing: expert insights economy,https://www.bing.com/news/search?q=expert+insights+economy&format=rss&brdr=1,Global,Bing News query feed,OK,2
+expert_insights,Bing: expert view India economy,https://www.bing.com/news/search?q=expert+view+India+economy&format=rss&brdr=1,Global,Bing News query feed,OK,4
+expert_insights,Bing: research insights AI,https://www.bing.com/news/search?q=research+insights+artificial+intelligence&format=rss&brdr=1,Global,Bing News query feed,OK,8
+expert_insights,Bing: thought leadership report,https://www.bing.com/news/search?q=thought+leadership+report&format=rss,Global,Bing News query feed,OK,6
+expert_insights,CB Insights Research,https://www.cbinsights.com/research/feed/,Global,VC research,OK,25
+expert_insights,CSIS,https://www.csis.org/rss.xml,Global,Think tank,OK,10
+expert_insights,Calculated Risk,https://calculatedrisk.substack.com/feed,US,Macro blog,OK,20
+expert_insights,Conversable Economist,https://conversableeconomist.com/feed/,US,Economics blog,OK,10
+expert_insights,Council on Foreign Relations,https://www.cfr.org/feed,Global,Think tank,REPAIRED,24
+expert_insights,ECB Blog & Research,https://www.ecb.europa.eu/rss/press.html,EU,Central bank,OK,15
+expert_insights,Econbrowser,https://econbrowser.com/feed,US,Economics blog,OK,10
+expert_insights,Exponential View (Azeem Azhar),https://www.exponentialview.co/feed,Global,Tech Substack,OK,20
+expert_insights,GNews: CEO interview strategy,https://news.google.com/rss/search?q=CEO+interview+strategy+growth&hl=en-IN&gl=IN&ceid=IN:en,Global,Google News query feed,OK,78
+expert_insights,GNews: CIO/CTO perspective,https://news.google.com/rss/search?q=CIO+OR+CTO+perspective+enterprise+technology&hl=en-IN&gl=IN&ceid=IN:en,Global,Google News query feed,OK,78
+expert_insights,GNews: McKinsey/BCG/Bain report,https://news.google.com/rss/search?q=McKinsey+OR+BCG+OR+Bain+report+finds&hl=en-IN&gl=IN&ceid=IN:en,Global,Google News query feed,OK,100
+expert_insights,GNews: Nobel economist commentary,https://news.google.com/rss/search?q=economist+Nobel+commentary+policy&hl=en-IN&gl=IN&ceid=IN:en,Global,Google News query feed,OK,78
+expert_insights,GNews: RBI/Fed commentary experts,https://news.google.com/rss/search?q=RBI+OR+%22Federal+Reserve%22+experts+react&hl=en-IN&gl=IN&ceid=IN:en,Global,Google News query feed,OK,65
+expert_insights,GNews: analyst view technology sector,https://news.google.com/rss/search?q=analyst+view+OR+expert+insight+technology+sector&hl=en-IN&gl=IN&ceid=IN:en,Global,Google News query feed,OK,78
+expert_insights,GNews: chief economist outlook,https://news.google.com/rss/search?q=%22chief+economist%22+outlook&hl=en-IN&gl=IN&ceid=IN:en,Global,Google News query feed,OK,100
+expert_insights,GNews: economists warn/predict,https://news.google.com/rss/search?q=economists+predict+OR+economists+warn&hl=en-IN&gl=IN&ceid=IN:en,Global,Google News query feed,OK,100
+expert_insights,GNews: expert analysis markets,https://news.google.com/rss/search?q=expert+analysis+markets+outlook&hl=en-IN&gl=IN&ceid=IN:en,Global,Google News query feed,OK,79
+expert_insights,GNews: expert commentary economy India,https://news.google.com/rss/search?q=expert+OR+economist+%22says%22+India+economy+outlook&hl=en-IN&gl=IN&ceid=IN:en,India,Google News query feed,OK,63
+expert_insights,GNews: expert insights energy transition,https://news.google.com/rss/search?q=expert+insights+energy+transition&hl=en-IN&gl=IN&ceid=IN:en,Global,Google News query feed,OK,79
+expert_insights,GNews: expert insights supply chain,https://news.google.com/rss/search?q=expert+insights+supply+chain&hl=en-IN&gl=IN&ceid=IN:en,Global,Google News query feed,OK,79
+expert_insights,GNews: industry expert interview,https://news.google.com/rss/search?q=%22industry+expert%22+interview+OR+insights&hl=en-IN&gl=IN&ceid=IN:en,Global,Google News query feed,OK,78
+expert_insights,GNews: industry veterans say,https://news.google.com/rss/search?q=%22industry+veterans%22+OR+%22industry+leaders%22+say&hl=en-IN&gl=IN&ceid=IN:en,Global,Google News query feed,OK,100
+expert_insights,GNews: keynote insights conference,https://news.google.com/rss/search?q=keynote+OR+panel+insights+summit+industry&hl=en-IN&gl=IN&ceid=IN:en,Global,Google News query feed,OK,69
+expert_insights,GNews: professor research finds,https://news.google.com/rss/search?q=professor+research+finds+business&hl=en-IN&gl=IN&ceid=IN:en,Global,Google News query feed,OK,79
+expert_insights,GNews: thought leadership AI,https://news.google.com/rss/search?q=expert+opinion+artificial+intelligence+enterprise&hl=en-IN&gl=IN&ceid=IN:en,Global,Google News query feed,OK,80
+expert_insights,GNews: white paper released,https://news.google.com/rss/search?q=%22white+paper%22+released+industry&hl=en-IN&gl=IN&ceid=IN:en,Global,Google News query feed,OK,100
+expert_insights,HBS Working Knowledge,https://hbswk.hbs.edu/rss/rss.xml,Global,Academia,OK,10
+expert_insights,Harvard Business Review,http://feeds.hbr.org/harvardbusiness,Global,Management,OK,100
+expert_insights,Import AI (Jack Clark),https://importai.substack.com/feed,Global,AI Substack,OK,20
+expert_insights,Knowledge at Wharton,https://knowledge.wharton.upenn.edu/feed/,Global,Academia,OK,10
+expert_insights,Lenny's Newsletter,https://www.lennysnewsletter.com/feed,Global,Product Substack,OK,20
+expert_insights,Liberty Street Economics (NY Fed),https://libertystreeteconomics.newyorkfed.org/feed/,US,Central bank,OK,100
+expert_insights,Lowy Institute Interpreter,https://www.lowyinstitute.org/the-interpreter/rss.xml,APAC,Think tank,OK,50
+expert_insights,MIT Sloan Management Review,https://sloanreview.mit.edu/feed/,Global,Management,OK,20
+expert_insights,Marginal Revolution,https://marginalrevolution.com/feed,Global,Economics blog,OK,15
+expert_insights,McKinsey Insights,https://www.mckinsey.com/insights/rss,Global,Consulting,OK,50
+expert_insights,NBER Working Papers,https://back.nber.org/rss/new.xml,Global,Economics research,OK,31
+expert_insights,Noahpinion (Noah Smith),https://www.noahpinion.blog/feed,Global,Economics Substack,OK,20
+expert_insights,Not Boring (Packy McCormick),https://www.notboring.co/feed,Global,Strategy Substack,OK,20
+expert_insights,Peterson Institute (PIIE),https://www.piie.com/rss/update.xml,Global,Think tank,OK,10
+expert_insights,Pew Research Center,https://www.pewresearch.org/feed/,Global,Research,OK,100
+expert_insights,Project Syndicate,https://www.project-syndicate.org/rss,Global,Op-eds by experts,OK,20
+expert_insights,RAND Corporation,https://www.rand.org/pubs/new.xml,Global,Think tank,OK,20
+expert_insights,Stratechery,https://stratechery.com/feed/,Global,Tech strategy (partial free),OK,10
+expert_insights,The Conversation,https://theconversation.com/articles.atom,Global,Academic experts,OK,50
+expert_insights,The Diff (Byrne Hobart),https://www.thediff.co/rss/,Global,Finance Substack,OK,5
+expert_insights,VoxEU / CEPR,https://cepr.org/rss/vox-content,Global,Economics research,OK,50
+industry_reports,BIS Research & Publications,https://www.bis.org/rss.xml,Global,Banking research,REPAIRED,5
+industry_reports,Benzinga Analyst Ratings,https://www.benzinga.com/feed,US,Initiations,REPAIRED,10
+industry_reports,Bing: analyst report sector,https://www.bing.com/news/search?q=analyst+report+sector+outlook&format=rss,Global,Bing News query feed,OK,2
+industry_reports,Bing: brokerage report India stock,https://www.bing.com/news/search?q=brokerage+report+India+stock&format=rss,Global,Bing News query feed,OK,2
+industry_reports,Bing: equity research initiation,https://www.bing.com/news/search?q=equity+research+initiation&format=rss&brdr=1,Global,Bing News query feed,OK,4
+industry_reports,Bing: industry report 2026,https://www.bing.com/news/search?q=industry+report+2026+released&format=rss&brdr=1,Global,Bing News query feed,OK,8
+industry_reports,Bing: initiates coverage price target,https://www.bing.com/news/search?q=initiates+coverage+price+target&format=rss,Global,Bing News query feed,OK,8
+industry_reports,Bing: rating upgrade downgrade,https://www.bing.com/news/search?q=rating+upgrade+downgrade+analyst&format=rss&brdr=1,Global,Bing News query feed,OK,4
+industry_reports,BioPharma Dive,https://www.biopharmadive.com/feeds/news/,US,Pharma industry,OK,10
+industry_reports,CFRA / research news via GNews below,https://news.google.com/rss/search?q=CFRA%20research%20report&hl=en-IN&gl=IN&ceid=IN:en,US,Research,OK,50
+industry_reports,Construction Dive,https://www.constructiondive.com/feeds/news/,US,Construction industry,OK,10
+industry_reports,EIA Today in Energy,https://www.eia.gov/rss/todayinenergy.xml,US,Energy data,OK,11
+industry_reports,EV Volumes / InsideEVs,https://insideevs.com/rss/articles/all/,Global,EV industry,OK,20
+industry_reports,FreightWaves,https://www.freightwaves.com/news/feed,US,Logistics industry,OK,56
+industry_reports,GNews: Goldman/Morgan Stanley report,https://news.google.com/rss/search?q=Goldman+Sachs+OR+%22Morgan+Stanley%22+research+report+says&hl=en-IN&gl=IN&ceid=IN:en,Global,Google News query feed,OK,100
+industry_reports,GNews: Hana Financial research,https://news.google.com/rss/search?q=%22Hana+Financial%22+OR+%22Hana+Securities%22+report&hl=en-IN&gl=IN&ceid=IN:en,Global,Google News query feed,OK,52
+industry_reports,GNews: Jefferies/Nomura/CLSA India,https://news.google.com/rss/search?q=Jefferies+OR+Nomura+OR+CLSA+India+report&hl=en-IN&gl=IN&ceid=IN:en,India,Google News query feed,OK,100
+industry_reports,GNews: UBS research report,https://news.google.com/rss/search?q=UBS+Global+Research+report&hl=en-IN&gl=IN&ceid=IN:en,Global,Google News query feed,OK,71
+industry_reports,GNews: brokerage initiates India,https://news.google.com/rss/search?q=brokerage+initiates+coverage+India+stock&hl=en-IN&gl=IN&ceid=IN:en,India,Google News query feed,OK,100
+industry_reports,GNews: coverage initiated stock,https://news.google.com/rss/search?q=%22coverage+initiated%22+stock+target&hl=en-IN&gl=IN&ceid=IN:en,Global,Google News query feed,OK,37
+industry_reports,GNews: credit rating assigned,https://news.google.com/rss/search?q=%22credit+rating%22+assigned+OR+affirmed&hl=en-IN&gl=IN&ceid=IN:en,Global,Google News query feed,OK,75
+industry_reports,GNews: industry report released,https://news.google.com/rss/search?q=%22industry+report%22+released+2026&hl=en-IN&gl=IN&ceid=IN:en,Global,Google News query feed,OK,100
+industry_reports,GNews: initiates coverage,https://news.google.com/rss/search?q=%22initiates+coverage%22+price+target&hl=en-IN&gl=IN&ceid=IN:en,Global,Google News query feed,OK,100
+industry_reports,GNews: initiates with buy,https://news.google.com/rss/search?q=%22initiates%22+%22with+buy%22+OR+%22with+overweight%22&hl=en-IN&gl=IN&ceid=IN:en,Global,Google News query feed,OK,100
+industry_reports,GNews: initiation report buy rating,https://news.google.com/rss/search?q=initiation+%22buy+rating%22+OR+%22outperform%22+brokerage&hl=en-IN&gl=IN&ceid=IN:en,Global,Google News query feed,OK,76
+industry_reports,GNews: outlook 2027 industry report,https://news.google.com/rss/search?q=outlook+2027+industry+report&hl=en-IN&gl=IN&ceid=IN:en,Global,Google News query feed,OK,91
+industry_reports,GNews: price target raised,https://news.google.com/rss/search?q=%22price+target%22+raised+OR+cut+analyst&hl=en-IN&gl=IN&ceid=IN:en,Global,Google News query feed,OK,100
+industry_reports,GNews: rating agency report India,https://news.google.com/rss/search?q=CRISIL+OR+ICRA+OR+%22India+Ratings%22+report&hl=en-IN&gl=IN&ceid=IN:en,India,Google News query feed,OK,100
+industry_reports,GNews: research note upgrade,https://news.google.com/rss/search?q=research+note+upgrade+analyst&hl=en-IN&gl=IN&ceid=IN:en,Global,Google News query feed,OK,73
+industry_reports,GNews: sector outlook report,https://news.google.com/rss/search?q=sector+outlook+report+upgrade+downgrade&hl=en-IN&gl=IN&ceid=IN:en,Global,Google News query feed,OK,64
+industry_reports,GNews: sector report brokerage India,https://news.google.com/rss/search?q=sector+report+brokerage+India&hl=en-IN&gl=IN&ceid=IN:en,Global,Google News query feed,OK,78
+industry_reports,GSMA Newsroom,https://www.gsma.com/newsroom/feed/,Global,Telecom industry,OK,10
+industry_reports,Gartner Newsroom,https://www.gartner.com/en/newsroom/rss,Global,Forecast reports,OK,25
+industry_reports,GuruFocus,https://www.gurufocus.com/rss.php,US,Analysis,OK,2723
+industry_reports,IBEF (India Brand Equity Foundation),https://www.ibef.org/news/feed,India,Industry reports,REPAIRED,990
+industry_reports,IDC Press,https://www.idc.com/feed/,Global,Forecast reports,REPAIRED,10
+industry_reports,MarketBeat Ratings,https://www.marketbeat.com/feed/,US,Analyst ratings,OK,100
+industry_reports,McKinsey Global Institute,https://www.mckinsey.com/insights/rss,Global,Industry deep dives,REPAIRED,50
+industry_reports,NASSCOM Community,https://community.nasscom.in/feed,India,IT industry,REPAIRED,10
+industry_reports,NITI Aayog,https://www.niti.gov.in/rss.xml,India,Government reports,OK,10
+industry_reports,OilPrice.com,https://oilprice.com/rss/main,Global,Energy reports,OK,15
+industry_reports,PV Magazine,https://www.pv-magazine.com/feed/,Global,Solar industry,OK,10
+industry_reports,RBI Press Releases,https://www.rbi.org.in/pressreleases_rss.xml,India,Central bank reports,OK,10
+industry_reports,RBI Publications,https://www.rbi.org.in/publication_rss.xml,India,Reports,OK,10
+industry_reports,Restaurant Dive,https://www.restaurantdive.com/feeds/news/,US,F&B industry,OK,10
+industry_reports,S&P Global Press,https://press.spglobal.com/index.php?s=2429&pagetemplate=rss,Global,Rating agency,REPAIRED,5
+industry_reports,SEBI Press,https://www.sebi.gov.in/sebirss.xml,India,Regulator,OK,30
+industry_reports,SEMI (semiconductors),https://www.semi.org/en/rss.xml,Global,Industry association,OK,10
+industry_reports,Seeking Alpha All News,https://seekingalpha.com/feed.xml,US,Analysis,OK,30
+industry_reports,Stock Titan Analyst,https://www.stocktitan.net/rss,US,Ratings/news,OK,100
+industry_reports,Windpower Monthly,https://www.windpowermonthly.com/rss/news,Global,Wind industry,OK,20
+industry_reports,World Steel Association,https://worldsteel.org/feed/,Global,Steel industry,OK,10
+ma_partnerships,ACCESSWIRE,https://www.accessnewswire.com/feed/rss2,Global,Press releases,REPAIRED,144
+ma_partnerships,Aviation Week,https://aviationweek.com/rss.xml,Global,Aerospace deals,OK,10
+ma_partnerships,Banking Dive,https://www.bankingdive.com/feeds/news/,US,Bank M&A,OK,10
+ma_partnerships,Bing: acquisition announced today,https://www.bing.com/news/search?q=acquisition+announced&format=rss,Global,Bing News query feed,OK,12
+ma_partnerships,Bing: buyout deal private equity,https://www.bing.com/news/search?q=buyout+deal+private+equity&format=rss,Global,Bing News query feed,OK,10
+ma_partnerships,Bing: joint venture formed,https://www.bing.com/news/search?q=joint+venture+formed&format=rss,Global,Bing News query feed,OK,9
+ma_partnerships,Bing: merger approval regulator,https://www.bing.com/news/search?q=merger+approval+regulator&format=rss,Global,Bing News query feed,OK,9
+ma_partnerships,Bing: stake acquisition India,https://www.bing.com/news/search?q=stake+acquisition+India&format=rss,Global,Bing News query feed,OK,11
+ma_partnerships,Bing: strategic partnership signed,https://www.bing.com/news/search?q=strategic+partnership+signed&format=rss,Global,Bing News query feed,OK,8
+ma_partnerships,Business Standard Finance,https://www.business-standard.com/rss/finance-103.rss,India,Deals,OK,35
+ma_partnerships,CIO Dive,https://www.ciodive.com/feeds/news/,US,Tech partnerships,OK,10
+ma_partnerships,City A.M.,https://www.cityam.com/feed/,UK,Deals,OK,30
+ma_partnerships,Fast Company,https://www.fastcompany.com/latest/rss,Global,Magazine,OK,20
+ma_partnerships,Fierce Biotech,https://www.fiercebiotech.com/rss/xml,US,Biotech M&A,OK,25
+ma_partnerships,Fierce Pharma,https://www.fiercepharma.com/rss/xml,US,Pharma M&A,OK,25
+ma_partnerships,FinTech Futures,https://www.fintechfutures.com/rss.xml,Global,Fintech partnerships,REPAIRED,50
+ma_partnerships,Finextra,https://www.finextra.com/rss/headlines.aspx,Global,Fintech partnerships,OK,56
+ma_partnerships,Forbes Business,https://www.forbes.com/business/feed/,Global,Magazine,OK,25
+ma_partnerships,Fortune,https://fortune.com/feed/fortune-feeds/?id=3230629,Global,Magazine,OK,10
+ma_partnerships,GNews: India M&A,https://news.google.com/rss/search?q=acquires+stake+India+company+deal&hl=en-IN&gl=IN&ceid=IN:en,India,Google News query feed,OK,100
+ma_partnerships,GNews: MoU signed companies,https://news.google.com/rss/search?q=MoU+signed+companies+partnership&hl=en-IN&gl=IN&ceid=IN:en,Global,Google News query feed,OK,100
+ma_partnerships,GNews: acquires majority stake,https://news.google.com/rss/search?q=acquires+%22majority+stake%22&hl=en-IN&gl=IN&ceid=IN:en,Global,Google News query feed,OK,100
+ma_partnerships,GNews: acquisition India crore,https://news.google.com/rss/search?q=acquisition+India+crore+deal&hl=en-IN&gl=IN&ceid=IN:en,Global,Google News query feed,OK,100
+ma_partnerships,GNews: acquisition announced,https://news.google.com/rss/search?q=acquisition+announced+acquires+company&hl=en-IN&gl=IN&ceid=IN:en,Global,Google News query feed,OK,100
+ma_partnerships,GNews: all-cash deal acquisition,https://news.google.com/rss/search?q=%22all-cash%22+OR+%22all-stock%22+deal+acquisition&hl=en-IN&gl=IN&ceid=IN:en,Global,Google News query feed,OK,100
+ma_partnerships,GNews: antitrust merger review,https://news.google.com/rss/search?q=antitrust+OR+CCI+merger+approval&hl=en-IN&gl=IN&ceid=IN:en,Global,Google News query feed,OK,100
+ma_partnerships,GNews: divestiture / stake sale,https://news.google.com/rss/search?q=divestiture+OR+%22stake+sale%22+company&hl=en-IN&gl=IN&ceid=IN:en,Global,Google News query feed,OK,100
+ma_partnerships,GNews: joint venture,https://news.google.com/rss/search?q=%22joint+venture%22+announced&hl=en-IN&gl=IN&ceid=IN:en,Global,Google News query feed,OK,100
+ma_partnerships,GNews: merger agreement,https://news.google.com/rss/search?q=%22merger+agreement%22+OR+%22definitive+agreement%22+signed&hl=en-IN&gl=IN&ceid=IN:en,Global,Google News query feed,OK,100
+ma_partnerships,GNews: merger completed closes,https://news.google.com/rss/search?q=merger+completed+OR+%22deal+closes%22&hl=en-IN&gl=IN&ceid=IN:en,Global,Google News query feed,OK,100
+ma_partnerships,GNews: partnership expands companies,https://news.google.com/rss/search?q=partnership+expands+companies+announce&hl=en-IN&gl=IN&ceid=IN:en,Global,Google News query feed,OK,100
+ma_partnerships,GNews: private equity buyout,https://news.google.com/rss/search?q=%22private+equity%22+buyout+acquires&hl=en-IN&gl=IN&ceid=IN:en,Global,Google News query feed,OK,100
+ma_partnerships,GNews: strategic partnership,https://news.google.com/rss/search?q=%22strategic+partnership%22+announced+companies&hl=en-IN&gl=IN&ceid=IN:en,Global,Google News query feed,OK,100
+ma_partnerships,GNews: takeover bid,https://news.google.com/rss/search?q=%22takeover+bid%22+OR+%22tender+offer%22&hl=en-IN&gl=IN&ceid=IN:en,Global,Google News query feed,OK,100
+ma_partnerships,GNews: teams up with company,https://news.google.com/rss/search?q=%22teams+up+with%22+company+launch&hl=en-IN&gl=IN&ceid=IN:en,Global,Google News query feed,OK,100
+ma_partnerships,Harvard Law Corp Governance Forum,https://corpgov.law.harvard.edu/feed/,US,M&A/governance analysis,OK,20
+ma_partnerships,Healthcare Dive,https://www.healthcaredive.com/feeds/news/,US,Healthcare M&A,OK,10
+ma_partnerships,Institutional Investor,https://www.institutionalinvestor.com/rss.xml,Global,Magazine,REPAIRED,10
+ma_partnerships,Law360 via GNews,https://news.google.com/rss/search?q=%22Law360%22+merger+deal&hl=en-IN&gl=IN&ceid=IN:en,US,Query feed,OK,71
+ma_partnerships,MarketBeat Headlines,https://www.marketbeat.com/feed/,US,Your named source,OK,100
+ma_partnerships,Marketing Dive,https://www.marketingdive.com/feeds/news/,US,Agency M&A,OK,10
+ma_partnerships,MedCity News,https://medcitynews.com/feed/,US,Healthcare M&A,OK,30
+ma_partnerships,Mining.com,https://www.mining.com/feed/,Global,Mining M&A,OK,36
+ma_partnerships,Nikkei Asia Business Deals,https://asia.nikkei.com/rss/feed/nar,Asia,Deals,OK,50
+ma_partnerships,PE Hub (M&A),https://www.pehub.com/feed/,Global,PE-backed M&A,OK,10
+ma_partnerships,PR Newswire: All news,https://www.prnewswire.com/rss/news-releases-list.rss,Global,Press releases,OK,20
+ma_partnerships,PR Newswire: Financial services,https://www.prnewswire.com/rss/financial-services-latest-news/financial-services-latest-news-list.rss,Global,Press releases,OK,20
+ma_partnerships,Retail Dive,https://www.retaildive.com/feeds/news/,US,Retail M&A,OK,10
+ma_partnerships,Reuters via GNews M&A,https://news.google.com/rss/search?q=merger+OR+acquisition+site%3Areuters.com&hl=en-IN&gl=IN&ceid=IN:en,Global,Query feed,OK,100
+ma_partnerships,Seeking Alpha Market News,https://seekingalpha.com/market_currents.xml,US,Deal news,OK,7
+ma_partnerships,Supply Chain Dive,https://www.supplychaindive.com/feeds/news/,US,Logistics partnerships,OK,10
+ma_partnerships,TechCrunch M&A tag,https://techcrunch.com/tag/mergers-and-acquisitions/feed/,Global,Tech M&A,OK,20
+ma_partnerships,The Register (deals),https://api.theregister.com/api/v1/article?orderBy=published&site_id=2&remapper=rss,Global,Tech M&A,REPAIRED,50
+ma_partnerships,Utility Dive,https://www.utilitydive.com/feeds/news/,US,Energy deals,OK,10
+market_assessment,Apple Newsroom,https://www.apple.com/newsroom/rss-feed.rss,Global,Company announcements,OK,20
+market_assessment,BSE India notices,https://www.bseindia.com/data/xml/notices.xml,India,Exchange announcements,OK,12
+market_assessment,Bing: India GDP sector data,https://www.bing.com/news/search?q=India+GDP+sector+data&format=rss,Global,Bing News query feed,OK,11
+market_assessment,Bing: SaaS market growth,https://www.bing.com/news/search?q=SaaS+market+growth+report&format=rss,Global,Bing News query feed,OK,7
+market_assessment,Bing: annual report highlights,https://www.bing.com/news/search?q=annual+report+highlights+company&format=rss,Global,Bing News query feed,OK,4
+market_assessment,Bing: company announces expansion,https://www.bing.com/news/search?q=company+announces+expansion+investment&format=rss,Global,Bing News query feed,OK,11
+market_assessment,Bing: industry revenue statistics,https://www.bing.com/news/search?q=industry+revenue+statistics+report&format=rss,Global,Bing News query feed,OK,4
+market_assessment,Bing: market share Q3 2026,https://www.bing.com/news/search?q=market+share+Q3+2026&format=rss,Global,Bing News query feed,OK,6
+market_assessment,Bing: market size report,https://www.bing.com/news/search?q=market+size+report+forecast&format=rss&brdr=1,Global,Bing News query feed,OK,3
+market_assessment,Bing: quarterly earnings beat,https://www.bing.com/news/search?q=quarterly+earnings+beat+estimates&format=rss,Global,Bing News query feed,OK,5
+market_assessment,Bing: shareholder meeting vote,https://www.bing.com/news/search?q=shareholder+meeting+vote&format=rss&brdr=1,Global,Bing News query feed,OK,10
+market_assessment,Business Standard Companies,https://www.business-standard.com/rss/companies-101.rss,India,News feed,OK,35
+market_assessment,CNBC Business,https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=10001147,US,News feed,OK,30
+market_assessment,Engadget,https://www.engadget.com/rss.xml,Global,Consumer tech,OK,20
+market_assessment,Forrester Blog,https://www.forrester.com/blogs/feed/,Global,Market research,OK,10
+market_assessment,GNews: 10-K annual filing,https://news.google.com/rss/search?q=%2210-K%22+OR+%22annual+filing%22+company&hl=en-IN&gl=IN&ceid=IN:en,Global,Google News query feed,OK,100
+market_assessment,GNews: AGM / proxy vote,https://news.google.com/rss/search?q=AGM+OR+%22annual+general+meeting%22+OR+%22proxy+vote%22+shareholders&hl=en-IN&gl=IN&ceid=IN:en,Global,Google News query feed,OK,100
+market_assessment,GNews: EV sales market share,https://news.google.com/rss/search?q=EV+sales+market+share+quarter&hl=en-IN&gl=IN&ceid=IN:en,Global,Google News query feed,OK,100
+market_assessment,GNews: Gartner forecasts spending,https://news.google.com/rss/search?q=Gartner+OR+IDC+forecasts+spending&hl=en-IN&gl=IN&ceid=IN:en,Global,Google News query feed,OK,100
+market_assessment,GNews: India market size sector,https://news.google.com/rss/search?q=India+market+size+sector+report&hl=en-IN&gl=IN&ceid=IN:en,Global,Google News query feed,OK,100
+market_assessment,GNews: TAM forecast,https://news.google.com/rss/search?q=%22total+addressable+market%22+OR+TAM+forecast&hl=en-IN&gl=IN&ceid=IN:en,Global,Google News query feed,OK,100
+market_assessment,GNews: annual report published,https://news.google.com/rss/search?q=%22annual+report%22+FY2026+published&hl=en-IN&gl=IN&ceid=IN:en,Global,Google News query feed,OK,66
+market_assessment,GNews: cloud market share AWS Azure,https://news.google.com/rss/search?q=cloud+market+share+AWS+Azure+Google&hl=en-IN&gl=IN&ceid=IN:en,Global,Google News query feed,OK,100
+market_assessment,GNews: company announcement launch,https://news.google.com/rss/search?q=announces+launch+OR+unveils+product+company&hl=en-IN&gl=IN&ceid=IN:en,Global,Google News query feed,OK,100
+market_assessment,GNews: earnings call highlights,https://news.google.com/rss/search?q=%22earnings+call%22+highlights+guidance&hl=en-IN&gl=IN&ceid=IN:en,Global,Google News query feed,OK,100
+market_assessment,GNews: fintech market report,https://news.google.com/rss/search?q=fintech+market+report+growth&hl=en-IN&gl=IN&ceid=IN:en,Global,Google News query feed,OK,100
+market_assessment,GNews: industry to reach $X billion,https://news.google.com/rss/search?q=market+%22expected+to+reach%22+billion+2030&hl=en-IN&gl=IN&ceid=IN:en,Global,Google News query feed,OK,100
+market_assessment,GNews: market forecast CAGR 2030,https://news.google.com/rss/search?q=market+forecast+CAGR+2030+report&hl=en-IN&gl=IN&ceid=IN:en,Global,Google News query feed,OK,100
+market_assessment,GNews: market share smartphone/cloud,https://news.google.com/rss/search?q=%22market+share%22+smartphone+OR+cloud+OR+EV&hl=en-IN&gl=IN&ceid=IN:en,Global,Google News query feed,OK,100
+market_assessment,GNews: market size report,https://news.google.com/rss/search?q=%22market+size%22+report+forecast+CAGR&hl=en-IN&gl=IN&ceid=IN:en,Global,Google News query feed,OK,100
+market_assessment,GNews: proxy statement SEC,https://news.google.com/rss/search?q=%22proxy+statement%22+SEC+filed&hl=en-IN&gl=IN&ceid=IN:en,Global,Google News query feed,OK,100
+market_assessment,GNews: quarterly results India,https://news.google.com/rss/search?q=quarterly+results+net+profit+India&hl=en-IN&gl=IN&ceid=IN:en,India,Google News query feed,OK,100
+market_assessment,GNews: revenue guidance quarterly,https://news.google.com/rss/search?q=revenue+guidance+quarterly+results&hl=en-IN&gl=IN&ceid=IN:en,Global,Google News query feed,OK,100
+market_assessment,GNews: semiconductor market outlook,https://news.google.com/rss/search?q=semiconductor+market+outlook&hl=en-IN&gl=IN&ceid=IN:en,Global,Google News query feed,OK,100
+market_assessment,GNews: shareholder meeting India,https://news.google.com/rss/search?q=shareholder+meeting+resolution+India&hl=en-IN&gl=IN&ceid=IN:en,India,Google News query feed,OK,79
+market_assessment,GNews: shipments grew market,https://news.google.com/rss/search?q=shipments+grew+quarter+market+IDC+OR+Canalys+OR+Counterpoint&hl=en-IN&gl=IN&ceid=IN:en,Global,Google News query feed,OK,100
+market_assessment,GSMArena (device market),https://www.gsmarena.com/rss-news-reviews.php3,Global,Devices,OK,20
+market_assessment,Google Blog,https://blog.google/rss/,Global,Company announcements,OK,20
+market_assessment,IDC Press Releases,https://www.idc.com/feed/,Global,Market sizing,REPAIRED,10
+market_assessment,Investing.com News,https://www.investing.com/rss/news.rss,Global,News feed,OK,10
+market_assessment,MarketWatch Top Stories,https://feeds.content.dowjones.io/public/rss/mw_topstories,US,News feed,OK,10
+market_assessment,Meta Newsroom,https://about.fb.com/news/feed/,Global,Company announcements,OK,10
+market_assessment,Microsoft News,https://news.microsoft.com/feed/,Global,Company announcements,OK,10
+market_assessment,NDTV Profit,https://feeds.feedburner.com/ndtvprofit-latest,India,Markets,OK,20
+market_assessment,NVIDIA Newsroom,https://nvidianews.nvidia.com/rss.xml,Global,Company announcements,REPAIRED,20
+market_assessment,Reliance Industries Press,https://www.ril.com/rss.xml,India,Company announcements,REPAIRED,10
+market_assessment,S&P Global Market Intelligence News,https://press.spglobal.com/index.php?s=2429&pagetemplate=rss,Global,Market data,REPAIRED,5
+market_assessment,Samsung Newsroom,https://news.samsung.com/global/feed,Global,Company announcements,OK,50
+market_assessment,Statista Infographics,https://www.statista.com/rss,Global,Market data,REPAIRED,10
+market_assessment,The Motley Fool,https://www.fool.com/a/feeds/foolwatch?apikey=foolwatch-feed,US,Blog posts,OK,50
+market_assessment,Yahoo Finance,https://finance.yahoo.com/news/rssindex,Global,News feed,OK,50
+new_funding,AlleyWatch,https://www.alleywatch.com/feed/,US,NY funding rounds,OK,10
+new_funding,Axios Technology,https://api.axios.com/feed/,US,Tech/deals,REPAIRED,100
+new_funding,Bing: India startup funding,https://www.bing.com/news/search?q=India+startup+funding+raises&format=rss,Global,Bing News query feed,OK,11
+new_funding,Bing: Southeast Asia funding,https://www.bing.com/news/search?q=Southeast+Asia+startup+funding&format=rss,Global,Bing News query feed,OK,6
+new_funding,Bing: biotech raises funding,https://www.bing.com/news/search?q=biotech+raises+funding&format=rss,Global,Bing News query feed,OK,6
+new_funding,Bing: funding round announced,https://www.bing.com/news/search?q=funding+round+announced+million&format=rss,Global,Bing News query feed,OK,11
+new_funding,Bing: startup raises Series A,https://www.bing.com/news/search?q=startup+raises+Series+A&format=rss,Global,Bing News query feed,OK,6
+new_funding,Crunchbase News,https://news.crunchbase.com/feed/,Global,Funding data + news,OK,10
+new_funding,DBusiness Magazine,https://www.dbusiness.com/feed/,US-Detroit,Your named source,OK,10
+new_funding,EU-Startups,https://www.eu-startups.com/feed/,Europe,Funding rounds,OK,10
+new_funding,Entrackr,https://entrackr.com/rss,India,Indian startup funding,REPAIRED,50
+new_funding,GNews: AI startup raises,https://news.google.com/rss/search?q=AI+startup+raises+funding&hl=en-IN&gl=IN&ceid=IN:en,Global,Google News query feed,OK,100
+new_funding,GNews: SEA startup funding,https://news.google.com/rss/search?q=startup+funding+Singapore+OR+Indonesia+OR+Vietnam&hl=en-IN&gl=IN&ceid=IN:en,SEA,Google News query feed,OK,100
+new_funding,GNews: Series C+ late stage,https://news.google.com/rss/search?q=%22Series+C%22+OR+%22Series+D%22+raises&hl=en-IN&gl=IN&ceid=IN:en,Global,Google News query feed,OK,100
+new_funding,GNews: closes funding round,https://news.google.com/rss/search?q=closes+funding+round+investors&hl=en-IN&gl=IN&ceid=IN:en,Global,Google News query feed,OK,100
+new_funding,GNews: fintech funding round,https://news.google.com/rss/search?q=fintech+raises+funding+round&hl=en-IN&gl=IN&ceid=IN:en,Global,Google News query feed,OK,100
+new_funding,GNews: fund launch / new fund,https://news.google.com/rss/search?q=VC+%22new+fund%22+launches+million+OR+billion&hl=en-IN&gl=IN&ceid=IN:en,Global,Google News query feed,OK,100
+new_funding,GNews: pre-Series A bridge round,https://news.google.com/rss/search?q=%22bridge+round%22+OR+%22pre-Series+A%22+raises&hl=en-IN&gl=IN&ceid=IN:en,Global,Google News query feed,OK,100
+new_funding,GNews: pre-seed / angel round,https://news.google.com/rss/search?q=%22pre-seed%22+OR+%22angel+round%22+raises&hl=en-IN&gl=IN&ceid=IN:en,Global,Google News query feed,OK,100
+new_funding,GNews: raises $X million funding,https://news.google.com/rss/search?q=startup+raises+million+funding+round&hl=en-IN&gl=IN&ceid=IN:en,Global,Google News query feed,OK,100
+new_funding,GNews: raises Series A/B India,https://news.google.com/rss/search?q=%22raises%22+%22Series+A%22+OR+%22Series+B%22+India+funding&hl=en-IN&gl=IN&ceid=IN:en,India,Google News query feed,OK,100
+new_funding,GNews: raises crore funding,https://news.google.com/rss/search?q=raises+crore+funding+startup&hl=en-IN&gl=IN&ceid=IN:en,Global,Google News query feed,OK,100
+new_funding,GNews: raises seed round led by,https://news.google.com/rss/search?q=raises+%22seed+round%22+%22led+by%22&hl=en-IN&gl=IN&ceid=IN:en,Global,Google News query feed,OK,100
+new_funding,GNews: secures funding million,https://news.google.com/rss/search?q=secures+funding+million+led+by&hl=en-IN&gl=IN&ceid=IN:en,Global,Google News query feed,OK,100
+new_funding,GNews: seed funding startup,https://news.google.com/rss/search?q=%22seed+funding%22+OR+%22seed+round%22+startup+raises&hl=en-IN&gl=IN&ceid=IN:en,Global,Google News query feed,OK,100
+new_funding,GNews: unicorn valuation round,https://news.google.com/rss/search?q=unicorn+valuation+funding+round&hl=en-IN&gl=IN&ceid=IN:en,Global,Google News query feed,OK,100
+new_funding,GNews: venture debt India,https://news.google.com/rss/search?q=%22venture+debt%22+India+raised&hl=en-IN&gl=IN&ceid=IN:en,India,Google News query feed,OK,51
+new_funding,GeekWire,https://www.geekwire.com/feed/,US,Tech/funding,OK,35
+new_funding,Inc42,https://inc42.com/feed/,India,Indian startups,OK,24
+new_funding,Indian Startup News,https://indianstartupnews.com/rss,India,Funding,REPAIRED,50
+new_funding,MarketBeat Headlines,https://www.marketbeat.com/feed/,US,Your named source,OK,100
+new_funding,Nikkei Asia (tech),https://asia.nikkei.com/rss/feed/nar,Asia,Business news,OK,50
+new_funding,PE Hub,https://www.pehub.com/feed/,Global,PE deals,OK,10
+new_funding,Private Equity Wire,https://www.privateequitywire.co.uk/feed/,Global,PE,OK,10
+new_funding,Sifted (FT),https://sifted.eu/feed,Europe,EU startups,OK,24
+new_funding,Silicon Canals,https://siliconcanals.com/feed/,Europe,Funding rounds,OK,10
+new_funding,Startup Daily (AU),https://www.startupdaily.net/feed/,ANZ,Funding,OK,10
+new_funding,StartupTalky,https://startuptalky.com/rss/,India,Startups,OK,15
+new_funding,Tech Collective SEA,https://techcollectivesea.com/feed/,SEA,SEA tech,OK,10
+new_funding,Tech Funding News,https://techfundingnews.com/feed/,Global,Funding rounds,OK,10
+new_funding,Tech In Africa,https://www.techinafrica.com/feed/,Africa,Funding,OK,10
+new_funding,Tech Times,https://www.techtimes.com/rss/archives/archives.xml,Global,Business,REPAIRED,20
+new_funding,Tech.eu,https://tech.eu/feed/,Europe,Funding rounds,OK,20
+new_funding,TechCabal,https://techcabal.com/feed/,Africa,Funding,OK,10
+new_funding,TechCrunch,https://techcrunch.com/feed/,Global,Startup news,OK,20
+new_funding,TechCrunch Venture,https://techcrunch.com/category/venture/feed/,Global,Funding rounds,OK,17
+new_funding,VentureBeat,https://venturebeat.com/feed,Global,Tech/funding,OK,7
+new_funding,Wamda,https://www.wamda.com/feed,MENA,Funding,OK,20
+new_funding,YourStory,https://yourstory.com/feed,India,Indian startups,OK,20
+new_funding,e27,https://e27.co/index_wp.php/feed/,SEA,SEA startups,OK,50

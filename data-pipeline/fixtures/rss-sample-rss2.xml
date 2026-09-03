@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:dc="http://purl.org/dc/elements/1.1/">
+  <channel>
+    <title>Sample Wire</title>
+    <item>
+      <title>Acme raises $40m Series B</title>
+      <link>https://example.com/acme-series-b</link>
+      <guid isPermaLink="false">urn:sample:1</guid>
+      <pubDate>Tue, 02 Sep 2026 08:30:00 GMT</pubDate>
+      <dc:creator>Jane Analyst</dc:creator>
+      <category>funding</category>
+      <category>venture</category>
+      <description>&lt;p&gt;Acme&amp;nbsp;Corp &lt;b&gt;closed&lt;/b&gt;&lt;/p&gt;</description>
+    </item>
+    <item>
+      <title>Beta Ltd acquires Gamma</title>
+      <link>https://example.com/beta-gamma</link>
+      <pubDate>Mon, 01 Sep 2026 12:00:00 GMT</pubDate>
+      <description>All-cash deal.</description>
+    </item>
+    <item>
+      <title>Undated note</title>
+      <link>https://example.com/undated</link>
+      <description>No pubDate on this one.</description>
+    </item>
+  </channel>
+</rss>

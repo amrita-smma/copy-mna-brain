@@ -1433,3 +1433,83 @@ without pinging a developer directly.
   `JIRA_BASE_URL` + `JIRA_EMAIL` + `JIRA_API_TOKEN` being set (see
   `.env.example`); when unset, feedback still saves and still emails, just
   without a ticket.
+
+## Data Navigator (RSS news lake)
+
+A global, cross-workspace news lake ingested from a curated catalog of RSS
+feeds across five categories (`expert_insights`, `market_assessment`,
+`new_funding`, `ma_partnerships`, `industry_reports` —
+`RSS_CATEGORIES` in `src/lib/db/schema.ts`). The checked-in catalog
+(`data-pipeline/fixtures/rss-feeds.csv`) has 263 rows but only 256 distinct
+`feed_url`s (6 duplicates); the import upsert is keyed on `feed_url`, so a
+clean import reports **256 imported**, not 263.
+
+- **Schema:** `rss` (pipeline-owned, no `workspace_id` anywhere — the catalog
+  and the ingested news are shared by every workspace by design; migrations
+  live in `data-pipeline/migrations`). `rss.feeds` is the runtime-editable
+  catalog; `rss.items` holds metadata for every ingested item; `rss.item_chunks`
+  holds 1024-dim pgvector embeddings for the LLM-selected subset; `rss.ingest_runs`
+  records each poll/enrich run's stats and error.
+- **Ingest:** two scheduled Lambdas in `data-pipeline` (`data-pipeline/src/lambda/`) —
+  `rss-poll` (`rate(30 minutes)`) conditional-GETs every `status = 'active'` feed,
+  normalizes and inserts genuinely-new entries into `rss.items`, archives them as
+  NDJSON to the S3 bronze bucket, and updates per-feed health; a feed retires
+  itself to `dead` after **10** consecutive failures
+  (`MAX_CONSECUTIVE_FAILURES` in `rssRepository.ts`) rather than waiting for a
+  human to notice — the PoC found ~35% of a raw seed catalog was already
+  rotten. `rss-enrich` (`rate(10 minutes)`) drains three bounded, sequentially-run
+  queues: Haiku relevance classification (capped per category per UTC day),
+  full-article extraction for selected items (3 attempts,
+  `MAX_CONTENT_ATTEMPTS`), and Bedrock Titan embeddings into `rss.item_chunks`.
+  Both Lambdas are idempotent — status columns and the unique `item_hash` index
+  make a crashed/re-run invocation a no-op rather than a duplicate.
+- **Volume control:** `RSS_DAILY_CAP_PER_CATEGORY` (default **25**) caps
+  selected items per category per UTC day, shared across every batch in a run
+  so a large backlog can't blow through the cap by splitting into batches.
+- **Bedrock region.** Bedrock is not offered in `ap-southeast-3`, where the
+  pipeline Lambdas run, so embedding calls use `BEDROCK_REGION` (default
+  `ap-southeast-2`, see `src/lib/bedrock.ts`) and must **never** fall back to
+  `AWS_REGION` — that reserved Lambda env var is `ap-southeast-3` and silently
+  falling back to it would break every embed call.
+- **Serving:** `DataNavigatorService` → `/api/data-navigator/*`
+  (`filters`, `items`, `items/[id]`, `search`) → the `/data-navigator` page,
+  gated by the `DATA_NAVIGATOR_ENABLED` runtime feature toggle (see
+  [Runtime feature toggles](#runtime-feature-toggles) — **defaults to
+  disabled**, so the feature ships dark until a superadmin turns it on per
+  workspace).
+- **RAG:** the `search_news` agent tool runs hybrid search (pgvector cosine
+  similarity + trigram `ILIKE`, merged and re-ranked in
+  `DataNavigatorService.searchNews`) over the lake. It's registered on the
+  base `tools` list, so it reaches the **`mna` chat, AI Workforce, and
+  `combined`** Copilot flavors; the **`investment`** and **`vc`** flavors
+  enumerate their own tool lists in `src/lib/agents/analysis/tools/index.ts`
+  and do **not** include it.
+- **Feed admin:** `X-Api-Secret`-gated routes under `/api/auth/rss-feeds`
+  (list/create, `/:id`, `/import`) — see [Admin routes](#admin-routes-apiauth).
+  Bulk-import the checked-in catalog with `pnpm rss:import-feeds`.
+
+**Build note.** `canvas` sits in the esbuild `external` list
+(`data-pipeline/scripts/build.ts`) solely because `rss-enrich`'s article
+extractor (`@extractus/article-extractor`) pulls in `linkedom`, which
+`require`s `canvas` inside a try/catch and falls back to a stub when it's
+absent — esbuild can't bundle the native `.node` binary anyway, and
+`rss-enrich` only strips/parses HTML text, never renders to a real canvas.
+
+**Local invoke:**
+
+```bash
+pnpm --filter data-pipeline invoke rssPoll '{}'
+pnpm --filter data-pipeline invoke rssEnrich '{}'
+```
+
+(Both handler names must be listed in the `HANDLERS` allowlist in
+`data-pipeline/scripts/invoke-local.ts` for `invoke <name>` to resolve them.)
+
+**Not yet deployed.** The Terraform for the RSS bronze bucket
+(`terraform/s3-rss`), the two Lambda schedules + Bedrock IAM policy
+(`data-pipeline/terraform/pipeline-compute`) is written and passes `fmt`/`validate`,
+but has never been `apply`'d to any environment, and no staging feed import
+has been run. Treat the subsystem as code-complete but operationally
+unproven until that happens.
+
+Design: `docs/superpowers/specs/2026-09-02-data-navigator-rss-lake-design.md`.

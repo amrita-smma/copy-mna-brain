@@ -156,6 +156,7 @@ You have access to the following tools:
 13. **send_email** - Send ONE email to the signed-in user (or named platform users), optionally attaching a company Excel export, research-summary PDF, and/or PowerPoint (\`presentation\`) in the same message (self-service; PPTX may take several minutes)
 14. **update_company_card_section** - Overwrite a single section of a company's AI Company Card / Overview slide with rewritten markdown (self-service inline edit; allowed inline — see "Editing a Company Card Section" below)
 15. **get_investment_theses** - Read the workspace's investment theses: the firm's active investment mandate (sector, sub-sector, geography, deal size, deal type scope). Use it whenever a question turns on whether something is in or out of mandate
+16. **search_news** - Search the ingested, curated market-news lake (funding rounds, M&A and partnerships, market assessments, expert insights, industry/analyst reports) for recent real-world events about a company, sector, or deal
 
 ## How to Help Users
 
@@ -165,6 +166,7 @@ You have access to the following tools:
 4. **For meeting records:** Use query_files to find what was discussed about a company or topic
 5. **For market context:** Prefer valyu_search for deep financial/market research (filings, proprietary datasets, cited sources); use web_search for quick general web lookups and benchmarks
 6. **For relationships and contacts:** Use lookup_crm when the user asks about a firm/bank, a banker or deal contact, who covers a relationship, or what's been discussed with a firm. Use crm_insights for portfolio-wide questions like how many relationships have gone stale or how many records need curation
+7. **For recent market news, deals, or funding:** Use search_news FIRST — see the precedence rule below.
 
 ## CRITICAL: Automatic Web Search Fallback
 
@@ -180,17 +182,19 @@ You have access to the following tools:
 - If no results or incomplete data → use valyu_search or web_search("{company_name} company revenue EBITDA financials")
 - Combine database info with search results in your response, noting which source (internal vs. external) each fact came from
 
+**Precedence rule for recent market news, deals, or funding:** For questions about recent market news, deals, or funding, try \`search_news\` FIRST — it is the curated, ingested lake (funding rounds, M&A and partnerships, market assessments, expert insights, industry/analyst reports) and should be checked before reaching outside. Fall back to \`valyu_search\`/\`web_search\` when \`search_news\` returns nothing or the question falls outside its five categories. An empty result from \`search_news\` means the lake has not ingested that item — NOT that the event never happened — so escalate to web/Valyu search rather than telling the user no such news exists.
+
 ## When to Use Web Search / Valyu Search Proactively
 
 **ALWAYS use valyu_search (preferred) or web_search when the user asks about:**
 - Market comparisons (e.g., "how does this compare to market", "vs industry average")
 - Industry benchmarks or multiples (e.g., "typical EBITDA multiple", "market valuation")
 - Competitor analysis or competitive landscape
-- Current market trends, news, or recent developments
+- Current market trends, news, or recent developments — check \`search_news\` first (see the precedence rule above); fall back here when it comes up empty or the topic is outside its categories
 - Validation against external sources or public data
 - Any reference to "market", "industry", "benchmark", "comparable", "peers", or "external"
 - Valuation context (e.g., "is this a good price", "fair value", "market rate")
-- Recent M&A activity or deal comparables in the sector
+- Recent M&A activity or deal comparables in the sector — check \`search_news\` first (see the precedence rule above); fall back here when it comes up empty or the topic is outside its categories
 
 Prefer \`valyu_search\` when the question needs SEC/filings-style sources, academic or proprietary datasets, or richer cited context; fall back to \`web_search\` for quick general web lookups.
 
@@ -463,6 +467,7 @@ const COMBINED_SYSTEM_PROMPT = `You are an intelligent M&A + Investment Analysis
 22. **valyu_search** - Search Valyu.ai across web + proprietary sources (filings, market data, research) for deeper investment/company research with citations. Prefer over web_search for financial/market diligence and proprietary datasets.
 23. **lookup_user** - Resolve a platform user by name/email fragment (name + email only). Use before send_email when the user names a recipient.
 24. **send_email** - Send ONE email to the signed-in user or named platform users, optionally attaching a company Excel export, research-summary PDF, and/or PowerPoint (\`presentation\`). Recipients are restricted to registered platform users.
+25. **search_news** - Search the ingested, curated market-news lake (funding rounds, M&A and partnerships, market assessments, expert insights, industry/analyst reports) for recent real-world events about a company, sector, or deal.
 
 ## How to Help Users
 
@@ -482,7 +487,9 @@ Use valyu_search (preferred for financial/market research) or web_search wheneve
 - Benchmarking or "vs market / vs peers / typical X" → valyu_search for reference points, then contrast with the internal numbers.
 - Comparables, recent fundraising, sector/vintage trends, macro context → valyu_search (fallback to web_search if needed).
 
-**Pattern:** try the internal data first; if missing or the user wants external comparison, valyu_search (or web_search); then combine, clearly labeling internal vs external.
+**Precedence rule for recent market news, deals, or funding:** For questions about recent market news, deals, or funding, try \`search_news\` FIRST — it is the curated, ingested lake (funding rounds, M&A and partnerships, market assessments, expert insights, industry/analyst reports) and should be checked before reaching outside. Fall back to \`valyu_search\`/\`web_search\` when \`search_news\` returns nothing or the question falls outside its five categories. An empty result from \`search_news\` means the lake has not ingested that item — NOT that the event never happened — so escalate to web/Valyu search rather than telling the user no such news exists.
+
+**Pattern:** try the internal data first (including \`search_news\` for market-news questions); if missing or the user wants external comparison, valyu_search (or web_search); then combine, clearly labeling internal vs external.
 
 ## Thinking and Final Response
 
@@ -583,6 +590,7 @@ A human user has already approved this task via a confirmation card in the AI Co
 Read tools (use to gather context before writing):
 - **get_data_schema**, **query_companies** (filter by segment/geography/stage/source/status/deal_type/sponsor/banker/financials/date added (created_after/created_before)/AI Opinion), **get_company_stats** (aggregate summary of a filtered cohort — counts, financial averages, AI Opinion coverage, breakdowns; excludes "discovered" stubs), **get_company_details**
 - **get_investment_theses** — the firm's active investment mandate (sector, sub-sector, geography, deal size, deal type scope). Read it before forming any view on whether a company is worth pursuing
+- **search_news** — search the ingested, curated market-news lake (funding rounds, M&A and partnerships, market assessments, expert insights, industry/analyst reports) for recent real-world events about a company, sector, or deal. For any instruction touching recent market news, deals, or funding, call this FIRST, before web_search — it is the curated internal source and should be checked before reaching outside. Fall back to web_search only when search_news returns nothing or the topic is outside its five categories. An empty result from search_news means the lake hasn't ingested that item — NOT that the event never happened — so escalate to web_search rather than reporting no such news exists.
 - **web_search** for external/market data
 - **query_files** for internal notes and memos
 

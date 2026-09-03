@@ -127,6 +127,13 @@
       "when": 1787011201000,
       "tag": "20260818000001_add_fund_update_extraction_job_type",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1788307200000,
+      "tag": "20260902000000_rss_schema",
+      "breakpoints": true
     }
   ]
 }

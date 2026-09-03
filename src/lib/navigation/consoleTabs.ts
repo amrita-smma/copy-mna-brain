@@ -91,6 +91,15 @@ export const CONSOLE_TABS: ConsoleTab[] = [
     purpose: 'Uploaded documents and meeting notes with extracted structure.',
   },
   {
+    slug: 'data-navigator',
+    path: '/data-navigator',
+    label: 'Data Navigator',
+    group: 'intelligence',
+    flag: 'DATA_NAVIGATOR_ENABLED',
+    purpose:
+      'Recent market news from curated RSS sources — funding, M&A, market assessments and research, filterable and searchable.',
+  },
+  {
     slug: 'presentation',
     path: '/presentation',
     label: 'Presentation',

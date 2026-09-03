@@ -85,7 +85,7 @@ describe('FeatureFlagsService', () => {
     it('returns one entry per catalog feature', async () => {
       repo.findByWorkspace.mockResolvedValue(emptyOverrides());
       const { features } = await service.listFeatures(WS);
-      expect(features).toHaveLength(14);
+      expect(features).toHaveLength(15);
     });
 
     it('marks sidebar sections as navItem and non-navbar features as not', async () => {

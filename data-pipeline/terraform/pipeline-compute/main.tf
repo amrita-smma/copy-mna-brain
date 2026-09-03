@@ -18,6 +18,20 @@ locals {
       ephemeral_storage_mb = 4096
       input                = jsonencode({})
     }
+    rss-poll = {
+      handler      = "rssPoll.handler"
+      schedule     = "rate(30 minutes)"
+      description  = "Conditional-GET every active RSS feed; upsert new items and archive them to S3 bronze"
+      memory_heavy = false
+      input        = jsonencode({})
+    }
+    rss-enrich = {
+      handler      = "rssEnrich.handler"
+      schedule     = "rate(10 minutes)"
+      description  = "Classify pending RSS items, fetch article content for selected ones, and embed them into pgvector"
+      memory_heavy = false
+      input        = jsonencode({})
+    }
   }
 
   # Shared environment variables injected into every Lambda
@@ -30,6 +44,14 @@ locals {
     DB_USER         = var.rds_db_username
     SSM_PREFIX      = "/mna/${local.environment}/pipeline"
     NODE_ENV        = local.environment
+
+    RSS_BRONZE_BUCKET = data.terraform_remote_state.s3_rss.outputs.bucket_id
+
+    # Bedrock is not offered in ap-southeast-3, and Titan Embed v2 is not in
+    # ap-southeast-1 — call it cross-region in ap-southeast-2.
+    BEDROCK_REGION             = var.bedrock_region
+    BEDROCK_EMBEDDING_MODEL    = var.bedrock_embedding_model
+    RSS_DAILY_CAP_PER_CATEGORY = tostring(var.rss_daily_cap_per_category)
   }
 }
 

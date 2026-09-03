@@ -24,10 +24,11 @@ const srcAlias = resolve(repoRoot, 'src');
 const distDir = resolve(pkgRoot, 'dist');
 
 // entrypoint file (camelCase) → terraform key (kebab-case)
-// The no-S3 architecture has exactly two scheduled email Lambdas.
 const ENTRIES: Record<string, string> = {
   vaultArchiveStart: 'vault-archive-start',
   vaultArchivePoll: 'vault-archive-poll',
+  rssPoll: 'rss-poll',
+  rssEnrich: 'rss-enrich',
 };
 
 async function main() {
@@ -49,6 +50,17 @@ async function main() {
       alias: { '@': srcAlias },
       // Core AWS SDK v3 clients are in the nodejs20 Lambda runtime — keep external.
       // Helper packages NOT in the runtime must be bundled (rds-signer, lib-storage).
+      //
+      // `canvas` is a native (.node) optional dependency of `linkedom`, which is
+      // pulled in solely by `@extractus/article-extractor` — the HTML-to-text
+      // extractor `rssEnrich` uses to fetch selected articles' full body text.
+      // (`react-pdf`/`pdfjs-dist` also depend on `canvas`, but those are frontend
+      // packages unreachable from any Lambda entrypoint — not the source here.)
+      // esbuild can't bundle a .node binary, and it isn't needed at runtime:
+      // linkedom's own `commonjs/canvas.cjs` wraps `require('canvas')` in
+      // try/catch and falls back to a no-op `canvas-shim.cjs` stub when the
+      // module is absent — which it deliberately is here, since rssEnrich only
+      // strips/parses HTML text and never renders to a real <canvas>.
       external: [
         '@aws-sdk/client-s3',
         '@aws-sdk/client-ssm',
@@ -57,6 +69,7 @@ async function main() {
         '@aws-sdk/client-dynamodb',
         '@aws-sdk/client-sts',
         '@aws-sdk/client-lambda',
+        'canvas',
       ],
       logLevel: 'warning',
     });

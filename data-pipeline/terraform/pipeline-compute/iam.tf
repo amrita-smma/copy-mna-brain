@@ -93,3 +93,52 @@ resource "aws_iam_role_policy_attachment" "dlq_send" {
   role       = aws_iam_role.pipeline_lambda.name
   policy_arn = aws_iam_policy.dlq_send.arn
 }
+
+# S3 — the RSS Lambdas write the bronze archive. Scoped to the bronze prefix
+# of the RSS lake bucket only; the email Lambdas share this role but never
+# call S3, so the no-S3 email guarantee is a code property, not an IAM one.
+resource "aws_iam_policy" "rss_bronze_write" {
+  name        = "${local.prefix}-rss-bronze-write"
+  description = "Allow pipeline Lambdas to write the RSS bronze archive"
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Sid      = "PutBronzeObjects"
+      Effect   = "Allow"
+      Action   = ["s3:PutObject"]
+      Resource = "${data.terraform_remote_state.s3_rss.outputs.bucket_arn}/bronze/*"
+    }]
+  })
+
+  tags = local.common_tags
+}
+
+resource "aws_iam_role_policy_attachment" "rss_bronze_write" {
+  role       = aws_iam_role.pipeline_lambda.name
+  policy_arn = aws_iam_policy.rss_bronze_write.arn
+}
+
+# Bedrock — embedding article chunks and search queries. Scoped to the single
+# embedding model, in the cross-region Bedrock endpoint.
+resource "aws_iam_policy" "bedrock_invoke" {
+  name        = "${local.prefix}-bedrock-invoke"
+  description = "Allow pipeline Lambdas to invoke the Bedrock embedding model"
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Sid      = "InvokeEmbeddingModel"
+      Effect   = "Allow"
+      Action   = ["bedrock:InvokeModel"]
+      Resource = "arn:aws:bedrock:${var.bedrock_region}::foundation-model/${var.bedrock_embedding_model}"
+    }]
+  })
+
+  tags = local.common_tags
+}
+
+resource "aws_iam_role_policy_attachment" "bedrock_invoke" {
+  role       = aws_iam_role.pipeline_lambda.name
+  policy_arn = aws_iam_policy.bedrock_invoke.arn
+}

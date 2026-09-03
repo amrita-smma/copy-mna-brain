@@ -21,6 +21,8 @@ import {
   date,
   pgEnum,
   primaryKey,
+  real,
+  vector,
   type AnyPgColumn,
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
@@ -3679,3 +3681,97 @@ export const fundValuations = pgTable("fund_valuations", {
     name: "fund_valuations_updated_by_fkey",
   }).onDelete("set null"),
 }));
+
+// ── Data Navigator RSS news lake (schema `rss`) ─────────────────────────────
+// Pipeline-owned and GLOBAL: no workspace_id anywhere. The feed catalog and
+// the ingested news are shared by every workspace by design.
+//
+// Indexes and CHECK constraints live in the hand-authored SQL migration
+// (data-pipeline/migrations/*_rss_schema.sql), not here — the HNSW vector
+// index has no Drizzle expression, and keeping all of them in one place beats
+// splitting them across two sources of truth.
+export const rss = pgSchema("rss");
+
+export const RSS_CATEGORIES = [
+  "expert_insights",
+  "market_assessment",
+  "new_funding",
+  "ma_partnerships",
+  "industry_reports",
+] as const;
+export type RssCategory = (typeof RSS_CATEGORIES)[number];
+
+export type RssFeedTier = "curated" | "query";
+export type RssFeedStatus = "active" | "paused" | "dead";
+export type RssRelevance = "pending" | "selected" | "rejected";
+export type RssContentStatus = "none" | "pending" | "fetched" | "failed";
+
+export const rssFeeds = rss.table("feeds", {
+  id: uuid().defaultRandom().primaryKey().notNull(),
+  category: text().$type<RssCategory>().notNull(),
+  source_name: text().notNull(),
+  feed_url: text().notNull(),
+  region: text(),
+  tier: text().$type<RssFeedTier>().default("curated").notNull(),
+  status: text().$type<RssFeedStatus>().default("active").notNull(),
+  notes: text(),
+  etag: text(),
+  last_modified: text(),
+  last_polled_at: timestamp({ withTimezone: true, mode: "string" }),
+  last_success_at: timestamp({ withTimezone: true, mode: "string" }),
+  consecutive_failures: integer().default(0).notNull(),
+  created_at: timestamp({ withTimezone: true, mode: "string" }).defaultNow().notNull(),
+  updated_at: timestamp({ withTimezone: true, mode: "string" }).defaultNow().notNull(),
+});
+
+export const rssItems = rss.table("items", {
+  id: uuid().defaultRandom().primaryKey().notNull(),
+  item_hash: text().notNull(),
+  feed_id: uuid(),
+  category: text().$type<RssCategory>().notNull(),
+  source_name: text().notNull(),
+  region: text(),
+  feed_tier: text().$type<RssFeedTier>().default("curated").notNull(),
+  title: text().notNull(),
+  link: text().notNull(),
+  summary: text(),
+  authors: text(),
+  tags: text(),
+  published_at: timestamp({ withTimezone: true, mode: "string" }),
+  ingested_at: timestamp({ withTimezone: true, mode: "string" }).defaultNow().notNull(),
+  relevance: text().$type<RssRelevance>().default("pending").notNull(),
+  relevance_score: real(),
+  llm_labels: jsonb().$type<RssItemLabels>(),
+  classified_at: timestamp({ withTimezone: true, mode: "string" }),
+  content_status: text().$type<RssContentStatus>().default("none").notNull(),
+  content_text: text(),
+  content_fetched_at: timestamp({ withTimezone: true, mode: "string" }),
+  content_attempts: integer().default(0).notNull(),
+  content_error: text(),
+  embedded_at: timestamp({ withTimezone: true, mode: "string" }),
+});
+
+/** Shape written into `rss.items.llm_labels` by the classification stage. */
+export interface RssItemLabels {
+  companies: string[];
+  topics: string[];
+  reason: string;
+}
+
+export const rssItemChunks = rss.table("item_chunks", {
+  id: uuid().defaultRandom().primaryKey().notNull(),
+  item_id: uuid().notNull(),
+  chunk_index: integer().notNull(),
+  text: text().notNull(),
+  embedding: vector({ dimensions: 1024 }).notNull(),
+  created_at: timestamp({ withTimezone: true, mode: "string" }).defaultNow().notNull(),
+});
+
+export const rssIngestRuns = rss.table("ingest_runs", {
+  id: uuid().defaultRandom().primaryKey().notNull(),
+  kind: text().$type<"poll" | "enrich">().notNull(),
+  started_at: timestamp({ withTimezone: true, mode: "string" }).defaultNow().notNull(),
+  finished_at: timestamp({ withTimezone: true, mode: "string" }),
+  stats: jsonb().default({}).notNull(),
+  error: text(),
+});

@@ -1,8 +1,9 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Transform: AWS::Serverless-2016-10-31
 Description: >
-  Local SAM template for the two ephemeral Vault email Lambdas. Production
-  deployment is managed by Terraform.
+  Local SAM template for the two ephemeral Vault email Lambdas and the two
+  RSS news-lake Lambdas (rss-poll, rss-enrich). Production deployment is
+  managed by Terraform.
 
 Globals:
   Function:
@@ -36,3 +37,17 @@ Resources:
       MemorySize: 3008
       EphemeralStorage:
         Size: 4096
+
+  RssPoll:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: rss-poll
+      CodeUri: dist/rss-poll/
+      Handler: index.handler
+
+  RssEnrich:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: rss-enrich
+      CodeUri: dist/rss-enrich/
+      Handler: index.handler

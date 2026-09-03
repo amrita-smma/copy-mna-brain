@@ -22,7 +22,11 @@ const { auth } = NextAuth(authConfig);
  */
 export type ApiAuthMode = 'allow' | 'secret' | 'session';
 
-const ADMIN_ROUTES = new Set(['/api/auth/signup', '/api/auth/api-keys']);
+const ADMIN_ROUTES = new Set([
+  '/api/auth/signup',
+  '/api/auth/api-keys',
+  '/api/auth/rss-feeds',
+]);
 
 // Prefixes whose routes authenticate themselves inside the handler (API key,
 // CRON_SECRET) or are private Vercel queue triggers with no public URL.
@@ -31,7 +35,11 @@ const SELF_AUTHED_PREFIXES = ['/api/v1/', '/api/cron/', '/api/queues/'];
 export function classifyApiRoute(pathname: string): ApiAuthMode {
   // Admin (shared-secret) routes must be checked before the generic
   // `/api/auth/` passthrough below, since they live under that prefix.
-  if (ADMIN_ROUTES.has(pathname) || pathname.startsWith('/api/auth/api-keys/')) {
+  if (
+    ADMIN_ROUTES.has(pathname) ||
+    pathname.startsWith('/api/auth/api-keys/') ||
+    pathname.startsWith('/api/auth/rss-feeds/')
+  ) {
     return 'secret';
   }
 

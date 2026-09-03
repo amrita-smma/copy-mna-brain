@@ -193,3 +193,18 @@ describe('extractRefererWorkspaceSlug', () => {
     expect(extractRefererWorkspaceSlug('not-a-url', host)).toBeNull();
   });
 });
+
+describe('classifyApiRoute — rss feed admin routes', () => {
+  it('gates the rss-feeds collection behind the shared secret', () => {
+    expect(classifyApiRoute('/api/auth/rss-feeds')).toBe('secret');
+  });
+
+  it('gates rss-feeds sub-paths behind the shared secret', () => {
+    expect(classifyApiRoute('/api/auth/rss-feeds/import')).toBe('secret');
+    expect(classifyApiRoute('/api/auth/rss-feeds/abc-123')).toBe('secret');
+  });
+
+  it('leaves the rest of /api/auth open for NextAuth', () => {
+    expect(classifyApiRoute('/api/auth/session')).toBe('allow');
+  });
+});

@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <title>Sample Atom Research</title>
+  <entry>
+    <title>Initiating coverage on Delta Industries</title>
+    <link href="https://example.com/delta-initiation"/>
+    <id>tag:example.com,2026:delta-initiation</id>
+    <updated>2026-09-02T06:00:00Z</updated>
+    <author><name>Research Desk</name></author>
+    <summary type="html">&lt;p&gt;We initiate at Buy.&lt;/p&gt;</summary>
+  </entry>
+</feed>

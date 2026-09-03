@@ -56,3 +56,6 @@ export * from './fundAssetRepository';
 export * from './fundAssetTransactionRepository';
 export * from './fundAssetValuationRepository';
 export * from './fundValuationRepository';
+export * from './rssFeedRepository';
+export * from './rssItemRepository';
+export * from './rssItemChunkRepository';

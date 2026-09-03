@@ -64,6 +64,10 @@ type TableMap = {
   fund_asset_valuations: typeof schema.fundAssetValuations;
   fund_asset_holding_entity_stakes: typeof schema.fundAssetHoldingEntityStakes;
   fund_valuations: typeof schema.fundValuations;
+  rss_feeds: typeof schema.rssFeeds;
+  rss_items: typeof schema.rssItems;
+  rss_item_chunks: typeof schema.rssItemChunks;
+  rss_ingest_runs: typeof schema.rssIngestRuns;
 };
 
 export type Tables<T extends keyof TableMap> = TableMap[T]["$inferSelect"];

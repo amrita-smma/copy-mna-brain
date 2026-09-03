@@ -39,6 +39,8 @@ import {
   investmentThesis,
   holdingEntities,
   roles,
+  rssFeeds,
+  rssItems,
   topics,
   users,
   userWorkspaces,
@@ -3359,6 +3361,75 @@ async function seedFundManagement(db: DbClient, workspaceId: string, ns: FundSee
   );
 }
 
+/**
+ * A representative slice of the global RSS catalog (3 feeds per category) plus
+ * a handful of items, so the Data Navigator page renders locally without
+ * running the ingest Lambdas. The full 263-feed catalog is imported separately
+ * with `pnpm rss:import-feeds`.
+ */
+// UUIDs must be valid hex — the `f` prefix below is just a readable marker for
+// "RSS feed seed row", not arbitrary text.
+const SEED_RSS_FEEDS = [
+  { id: '00000000-0000-0000-0000-0000000f0001', category: 'expert_insights', source_name: 'AEI', feed_url: 'https://www.aei.org/feed/', region: 'US', tier: 'curated' },
+  { id: '00000000-0000-0000-0000-0000000f0002', category: 'expert_insights', source_name: 'Bank Underground (BoE)', feed_url: 'https://bankunderground.co.uk/feed/', region: 'UK', tier: 'curated' },
+  { id: '00000000-0000-0000-0000-0000000f0003', category: 'expert_insights', source_name: 'Bruegel', feed_url: 'https://www.bruegel.org/rss.xml', region: 'EU', tier: 'curated' },
+  { id: '00000000-0000-0000-0000-0000000f0004', category: 'market_assessment', source_name: 'SEC Press Releases', feed_url: 'https://www.sec.gov/news/pressreleases.rss', region: 'US', tier: 'curated' },
+  { id: '00000000-0000-0000-0000-0000000f0005', category: 'market_assessment', source_name: 'BusinessWire Markets', feed_url: 'https://feed.businesswire.com/rss/home/?rss=G1QFDERJXkJeGVtRVQ==', region: 'Global', tier: 'curated' },
+  { id: '00000000-0000-0000-0000-0000000f0006', category: 'market_assessment', source_name: 'Google News: market share report', feed_url: 'https://news.google.com/rss/search?q=%22market+share%22+report', region: 'Global', tier: 'query' },
+  { id: '00000000-0000-0000-0000-0000000f0007', category: 'new_funding', source_name: 'DealStreetAsia', feed_url: 'https://www.dealstreetasia.com/feed', region: 'APAC', tier: 'curated' },
+  { id: '00000000-0000-0000-0000-0000000f0008', category: 'new_funding', source_name: 'Mint Companies', feed_url: 'https://www.livemint.com/rss/companies', region: 'India', tier: 'curated' },
+  { id: '00000000-0000-0000-0000-0000000f0009', category: 'new_funding', source_name: 'Google News: raises series', feed_url: 'https://news.google.com/rss/search?q=raises+%22series+a%22', region: 'Global', tier: 'query' },
+  { id: '00000000-0000-0000-0000-0000000f000a', category: 'ma_partnerships', source_name: 'MarketBeat M&A', feed_url: 'https://www.marketbeat.com/feed/', region: 'US', tier: 'curated' },
+  { id: '00000000-0000-0000-0000-0000000f000b', category: 'ma_partnerships', source_name: 'PR Newswire M&A', feed_url: 'https://www.prnewswire.com/rss/financial-services-latest-news/acquisitions-mergers-and-takeovers-list.rss', region: 'US', tier: 'curated' },
+  { id: '00000000-0000-0000-0000-0000000f000c', category: 'ma_partnerships', source_name: 'Google News: acquires stake', feed_url: 'https://news.google.com/rss/search?q=acquires+stake', region: 'Global', tier: 'query' },
+  { id: '00000000-0000-0000-0000-0000000f000d', category: 'industry_reports', source_name: 'IMF Publications', feed_url: 'https://www.imf.org/en/Publications/RSS', region: 'Global', tier: 'curated' },
+  { id: '00000000-0000-0000-0000-0000000f000e', category: 'industry_reports', source_name: 'BIS Research', feed_url: 'https://www.bis.org/doclist/all_rss.rss', region: 'Global', tier: 'curated' },
+  { id: '00000000-0000-0000-0000-0000000f000f', category: 'industry_reports', source_name: 'Google News: initiates coverage', feed_url: 'https://news.google.com/rss/search?q=%22initiates+coverage%22', region: 'Global', tier: 'query' },
+] as const;
+
+async function seedRssFeeds(db: DbClient) {
+  const ids = SEED_RSS_FEEDS.map((f) => f.id);
+  // Items cascade from feeds; delete children first anyway so a partial
+  // previous seed can't leave orphans behind.
+  await db.delete(rssItems).where(inArray(rssItems.feed_id, ids));
+  await db.delete(rssFeeds).where(inArray(rssFeeds.id, ids));
+  await db.insert(rssFeeds).values(SEED_RSS_FEEDS.map((f) => ({ ...f })));
+
+  const now = Date.now();
+  await db.insert(rssItems).values(
+    SEED_RSS_FEEDS.flatMap((feed, feedIndex) =>
+      [0, 1].map((n) => {
+        const index = feedIndex * 2 + n;
+        const selected = index % 3 === 0;
+        return {
+          item_hash: `seed-${feed.id}-${n}`,
+          feed_id: feed.id,
+          category: feed.category,
+          source_name: feed.source_name,
+          region: feed.region,
+          feed_tier: feed.tier,
+          title: `${feed.source_name}: sample headline ${n + 1}`,
+          link: `https://example.com/${feed.category}/${index}`,
+          summary: `Seeded summary ${n + 1} for ${feed.source_name}. Used to render the Data Navigator locally.`,
+          authors: n === 0 ? 'Jane Analyst' : null,
+          tags: feed.category,
+          // Stagger backwards in time so the newest-first ordering is visible.
+          published_at: new Date(now - index * 3_600_000).toISOString(),
+          relevance: selected ? ('selected' as const) : ('rejected' as const),
+          relevance_score: selected ? 0.82 : 0.21,
+          content_status: selected ? ('fetched' as const) : ('none' as const),
+          content_text: selected
+            ? `Full seeded article body for ${feed.source_name} headline ${n + 1}. `.repeat(40)
+            : null,
+          content_fetched_at: selected ? new Date(now - index * 3_600_000).toISOString() : null,
+        };
+      }),
+    ),
+  );
+
+  console.log(`  seeded ${SEED_RSS_FEEDS.length} rss feeds + ${SEED_RSS_FEEDS.length * 2} items`);
+}
+
 async function main() {
   const { createPostgresClientFromEnv } = await import('../src/lib/server/db');
   const client = createPostgresClientFromEnv({
@@ -4663,6 +4734,7 @@ async function main() {
 
     await seedFundManagement(db as unknown as DbClient, MNA_WORKSPACE_ID, '0');
     await seedFundManagement(db as unknown as DbClient, TEST_WORKSPACE_3_ID, '1');
+    await seedRssFeeds(db as unknown as DbClient);
 
     console.log('done.');
   } finally {
