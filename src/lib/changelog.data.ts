@@ -120,6 +120,28 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "skipReason": "noise"
   },
   {
+    "hash": "4292c2c599b2448d879a3d11a3a310f3fe15523b",
+    "date": "2026-09-03",
+    "subject": "keep teardown running when Neon preview branch is already gone",
+    "category": "fix",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "5735fb153c96a403df1695f2defd823e5c9b88a0",
+    "date": "2026-09-03",
+    "subject": "AI automatically structures notes from company attachment uploads",
+    "category": "feature"
+  },
+  {
+    "hash": "5d55804d634b6efb8f488e27b04a325e1acdbf47",
+    "date": "2026-09-03",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "f7bd8b195c74982a5416c3429665adcb37c65987",
     "date": "2026-09-02",
     "subject": "override image-size with image-size-next@2.1.1",
