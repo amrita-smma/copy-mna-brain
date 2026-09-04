@@ -893,7 +893,11 @@ describe("CompanyService.updateFinancials", () => {
     vi.mocked(repos.companyRepo.findById).mockResolvedValue(makeCompany());
   });
 
-  it("preserves untouched fields when only revenue is submitted", async () => {
+  // Figures not submitted are carried over, and so is a ratio whose own inputs
+  // didn't move — but the margin must be recomputed, since keeping the stored
+  // one would publish a percentage computed against the previous revenue on the
+  // company card and the Excel export.
+  it("preserves untouched figures and recomputes only the affected ratio", async () => {
     vi.mocked(repos.companyFinancialRepo.findByCompany).mockResolvedValue([
       {
         id: "fin-1",
@@ -926,8 +930,148 @@ describe("CompanyService.updateFinancials", () => {
           revenue_usd_mn: 150,
           ebitda_usd_mn: "20",
           ev_usd_mn: "500",
-          ebitda_margin: "0.2",
+          // 20 / 150, not the stored 0.2 computed against the old revenue.
+          ebitda_margin: 20 / 150,
+          // EV and EBITDA didn't move, so the stored multiple stands.
+          ev_ebitda: "25",
+          // Cross-year value owned by the screening pipeline — left alone.
+          revenue_cagr_vs_prior: "0.1",
         }),
+      ]),
+    );
+  });
+
+  it("clears margin and multiple when their inputs are cleared", async () => {
+    vi.mocked(repos.companyFinancialRepo.findByCompany).mockResolvedValue([
+      {
+        id: "fin-1",
+        company_id: "company-1",
+        fiscal_year: 2024,
+        revenue_usd_mn: "100" as any,
+        ebitda_usd_mn: "20" as any,
+        ev_usd_mn: "500" as any,
+        ebitda_margin: "0.2" as any,
+        ev_ebitda: "25" as any,
+        revenue_cagr_vs_prior: null,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      },
+    ]);
+
+    await service.updateFinancials(
+      "company-1",
+      [{ fiscal_year: 2024, ebitda_usd_mn: null }],
+      [],
+    );
+
+    expect(
+      repos.companyFinancialRepo.bulkUpsertForCompany,
+    ).toHaveBeenCalledWith(
+      "company-1",
+      expect.arrayContaining([
+        expect.objectContaining({
+          fiscal_year: 2024,
+          ebitda_usd_mn: null,
+          ebitda_margin: null,
+          ev_ebitda: null,
+        }),
+      ]),
+    );
+  });
+
+  // The FE charts PUT a single metric. A revenue-only save must not be read as
+  // a reason to recompute EV/EBITDA — that would wipe a multiple ingest or
+  // screening stored for a year with no EV on file.
+  it("leaves the multiple alone on a revenue-only save", async () => {
+    vi.mocked(repos.companyFinancialRepo.findByCompany).mockResolvedValue([
+      {
+        id: "fin-1",
+        company_id: "company-1",
+        fiscal_year: 2024,
+        revenue_usd_mn: "100" as any,
+        ebitda_usd_mn: "20" as any,
+        ev_usd_mn: null,
+        ebitda_margin: "0.2" as any,
+        ev_ebitda: "11.5" as any,
+        revenue_cagr_vs_prior: null,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      },
+    ]);
+
+    await service.updateFinancials(
+      "company-1",
+      [{ fiscal_year: 2024, revenue_usd_mn: 150 }],
+      [],
+    );
+
+    expect(
+      repos.companyFinancialRepo.bulkUpsertForCompany,
+    ).toHaveBeenCalledWith(
+      "company-1",
+      expect.arrayContaining([
+        expect.objectContaining({
+          fiscal_year: 2024,
+          ebitda_margin: 20 / 150,
+          ev_ebitda: "11.5",
+        }),
+      ]),
+    );
+  });
+
+  it("leaves the margin alone on an EV-only save", async () => {
+    vi.mocked(repos.companyFinancialRepo.findByCompany).mockResolvedValue([
+      {
+        id: "fin-1",
+        company_id: "company-1",
+        fiscal_year: 2024,
+        revenue_usd_mn: null,
+        ebitda_usd_mn: "20" as any,
+        ev_usd_mn: "500" as any,
+        ebitda_margin: "0.18" as any,
+        ev_ebitda: "25" as any,
+        revenue_cagr_vs_prior: null,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      },
+    ]);
+
+    await service.updateFinancials(
+      "company-1",
+      [{ fiscal_year: 2024, ev_usd_mn: 640 }],
+      [],
+    );
+
+    expect(
+      repos.companyFinancialRepo.bulkUpsertForCompany,
+    ).toHaveBeenCalledWith(
+      "company-1",
+      expect.arrayContaining([
+        expect.objectContaining({
+          fiscal_year: 2024,
+          ebitda_margin: "0.18",
+          ev_ebitda: 32,
+        }),
+      ]),
+    );
+  });
+
+  // A zero denominator must not become Infinity in a numeric column.
+  it("leaves margin null rather than dividing by zero revenue", async () => {
+    vi.mocked(repos.companyFinancialRepo.findByCompany).mockResolvedValue([]);
+
+    await service.updateFinancials(
+      "company-1",
+      [{ fiscal_year: 2024, revenue_usd_mn: 0, ebitda_usd_mn: 5 }],
+      [],
+    );
+
+    expect(
+      repos.companyFinancialRepo.bulkUpsertForCompany,
+    ).toHaveBeenCalledWith(
+      "company-1",
+      expect.arrayContaining([
+        expect.objectContaining({ fiscal_year: 2024, ebitda_margin: null }),
       ]),
     );
   });
@@ -952,6 +1096,80 @@ describe("CompanyService.updateFinancials", () => {
           ebitda_usd_mn: null,
           ev_usd_mn: null,
         }),
+      ]),
+    );
+  });
+
+  // The AI Workforce's update_company_details tool sets EV per year; the FE
+  // financials editor never sends it, so an omitted key must keep the stored
+  // value rather than blanking it.
+  it("writes a submitted ev_usd_mn over the stored one", async () => {
+    vi.mocked(repos.companyFinancialRepo.findByCompany).mockResolvedValue([
+      {
+        id: "fin-1",
+        company_id: "company-1",
+        fiscal_year: 2024,
+        revenue_usd_mn: "100" as any,
+        ebitda_usd_mn: "20" as any,
+        ev_usd_mn: "500" as any,
+        ebitda_margin: "0.2" as any,
+        ev_ebitda: "25" as any,
+        revenue_cagr_vs_prior: "0.1" as any,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      },
+    ]);
+
+    await service.updateFinancials(
+      "company-1",
+      [{ fiscal_year: 2024, ev_usd_mn: 640 }],
+      [],
+    );
+
+    expect(
+      repos.companyFinancialRepo.bulkUpsertForCompany,
+    ).toHaveBeenCalledWith(
+      "company-1",
+      expect.arrayContaining([
+        expect.objectContaining({
+          fiscal_year: 2024,
+          ev_usd_mn: 640,
+          revenue_usd_mn: "100",
+          ebitda_usd_mn: "20",
+        }),
+      ]),
+    );
+  });
+
+  it("clears ev_usd_mn when null is submitted explicitly", async () => {
+    vi.mocked(repos.companyFinancialRepo.findByCompany).mockResolvedValue([
+      {
+        id: "fin-1",
+        company_id: "company-1",
+        fiscal_year: 2024,
+        revenue_usd_mn: "100" as any,
+        ebitda_usd_mn: "20" as any,
+        ev_usd_mn: "500" as any,
+        ebitda_margin: null,
+        ev_ebitda: null,
+        revenue_cagr_vs_prior: null,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      },
+    ]);
+
+    await service.updateFinancials(
+      "company-1",
+      [{ fiscal_year: 2024, ev_usd_mn: null }],
+      [],
+    );
+
+    expect(
+      repos.companyFinancialRepo.bulkUpsertForCompany,
+    ).toHaveBeenCalledWith(
+      "company-1",
+      expect.arrayContaining([
+        expect.objectContaining({ fiscal_year: 2024, ev_usd_mn: null }),
       ]),
     );
   });

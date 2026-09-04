@@ -43,6 +43,23 @@ describe("agent tool lists", () => {
     expect(AGENT_TOOL_LISTS.chat.map((t) => t.name)).toContain("get_investment_theses");
   });
 
+  // Field-level company edits are a write, so they belong to the workforce
+  // only: chat proposes them via propose_workforce_handoff and the user
+  // approves the card before anything is mutated.
+  it("exposes update_company_details to the workforce agent", () => {
+    expect(AGENT_TOOL_LISTS.workforce.map((t) => t.name)).toContain(
+      "update_company_details",
+    );
+  });
+
+  it.each([
+    ["chat", AGENT_TOOL_LISTS.chat],
+    ["combined", AGENT_TOOL_LISTS.combined],
+    ["vc", AGENT_TOOL_LISTS.vc],
+  ])("keeps update_company_details out of the %s agent", (_label, list) => {
+    expect(list.map((t) => t.name)).not.toContain("update_company_details");
+  });
+
   it.each(Object.entries(AGENT_TOOL_LISTS))(
     "registers each tool name exactly once in the %s list",
     (_label, list) => {

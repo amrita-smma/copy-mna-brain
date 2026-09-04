@@ -496,6 +496,34 @@ export class CompanyRepository {
       .where(eq(companies.workspace_id, this.workspaceId));
   }
 
+  /**
+   * Every company whose target, project name, or recorded alias equals `name`
+   * case-insensitively. Unlike {@link findByNameFuzzy} this is an identity
+   * check, not a "did you mean" lookup: it never strips legal suffixes and
+   * never substring-matches, so it can be used to answer "does this exact name
+   * already belong to a company?" — which is what a rename has to ask before
+   * it forks one company into two records. Returns all matches (normally zero
+   * or one) so the caller can ignore the row it is renaming.
+   */
+  async findByExactName(name: string): Promise<Tables<"companies">[]> {
+    const lowered = name.trim().toLowerCase();
+    if (!lowered) return [];
+    return this.db
+      .select()
+      .from(companies)
+      .where(
+        and(
+          eq(companies.workspace_id, this.workspaceId),
+          or(
+            sql`lower(${companies.target}) = ${lowered}`,
+            sql`lower(${companies.project_name}) = ${lowered}`,
+            sql`exists (select 1 from jsonb_array_elements_text(coalesce(${companies.aliases}, '[]'::jsonb)) as elem(txt) where lower(txt) = ${lowered})`,
+          ),
+        ),
+      )
+      .orderBy(asc(companies.id));
+  }
+
   async findByNameFuzzy(namePart: string): Promise<Tables<"companies"> | null> {
     const trimmed = namePart.trim();
     if (!trimmed) return null;

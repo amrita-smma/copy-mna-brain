@@ -709,6 +709,73 @@ in `chatOnlyTools` — a Workforce run has no browser, so neither reaches it.
   tool output as an id to pass verbatim to `company_id`-taking tools — which is
   what stops a near-identical company name from resolving to a sibling record.
 
+### Editing company records from chat (`update_company_details`)
+
+Any editable field on a company can be changed by asking the Copilot — its
+name, profile (segment, geography, website, ownership, company focus, project
+name), deal fields (source, deal type, stake, deal size, banker, banker source,
+advisor, doc type, NBO date, live flag, workflow status, key rationale,
+comments, remarks, thesis content), and per-year financials (revenue / EBITDA /
+EV in USD millions).
+
+The write itself only ever happens in the **Workforce**.
+`update_company_details` is registered in `workforceOnlyTools`, so chat cannot
+call it: the Copilot resolves the company with `get_company_details`, then
+proposes a `propose_workforce_handoff` card carrying an exact field-level
+instruction (company id, field, new value). Nothing is mutated until the user
+clicks **Assign to Workforce**, and the resulting run's trace records the
+before/after — the tool returns each change as `field: old → new`. Once
+assigned, the card grows a **View task in AI Workspace** link
+(`WorkforceHandoffCard`) that deep-links to `/ai-workforce/tasks/<queueId>` so
+the user can watch the run instead of hunting for the row; it falls back to the
+queue root when the id isn't a UUID (the route validates it and 404s
+otherwise), and clicking it calls `revealConsole()` first, since the copilot
+pane may be full-screen over the console. A
+`tools/index.test.ts` case pins the tool to the workforce list and out of the
+chat/combined/vc lists so it can't drift into an inline write.
+
+Implementation notes (`src/lib/agents/analysis/tools/update_company_details.ts`):
+
+- Core fields go through `CompanyService.updateFromDTO` (log action
+  `UPDATED_DETAILS_BY_AI_WORKFORCE`) and yearly figures through
+  `CompanyService.updateFinancials` (`UPDATED_FINANCIALS_BY_AI_WORKFORCE`), so
+  a detail edit lands on the same normalized write path as the FE company form.
+  `FinancialUpsertInput` gained `ev_usd_mn` for this — an omitted key still
+  keeps the stored value, which is what the FE editor relies on. Those two
+  service calls are two commits, so the error path reports which half landed
+  rather than implying a rollback (same shape as `promote_to_l0`'s
+  update-then-promote).
+- **Derived figures are recomputed, not carried over.** `updateFinancials` now
+  recalculates `ebitda_margin` and `ev_ebitda` from the merged revenue / EBITDA
+  / EV, and nulls them when an input is missing or the denominator is zero.
+  Carrying the stored ratio over meant a revenue edit published a margin
+  computed against the *old* revenue on the company card and the Excel export.
+  Each ratio is gated on **its own** inputs (margin on revenue/EBITDA, multiple
+  on EV/EBITDA), not on "any figure changed" — the FE charts PUT a single
+  metric, and a revenue-only save must not wipe a multiple that ingest stored
+  for a year with no EV on file. `revenue_cagr_vs_prior` is deliberately
+  untouched: it spans two fiscal years and belongs to the screening pipeline.
+- **Years whose figures already match are skipped**, both in the write and in
+  the reported summary, so re-running the same instruction doesn't rewrite rows
+  or claim changes that didn't happen.
+- **Pipeline state is out of scope, loudly.** `pipeline_stage`, `status` /
+  `dropped_*`, `ai_opinion_*` and the user-reference columns are *rejected with
+  a pointer to the owning tool* rather than silently stripped — a stage move
+  belongs to `promote_to_l0` / the HITL-gated `promote_to_l1`, a drop to
+  `drop_company`, the verdict to `save_ai_opinion`. Silently dropping them
+  would let the agent report a change that never happened, and accepting
+  `pipeline_stage` would route around the promotion approval gate.
+- A rename whose new name already belongs to a **different** company is
+  refused, so a rename can't fork one company into two records and break every
+  subsequent name lookup. The check is `CompanyRepository.findByExactName` —
+  a case-insensitive whole-name match on target / project name / aliases — not
+  `findByNameFuzzy`, which strips legal suffixes and substring-matches: the
+  fuzzy helper answers "did you mean this company?" and would both refuse an
+  innocent "Acme Corp" → "Acme Holdings" (an unrelated "Acme Industries" wins
+  the rank) and miss a real duplicate it happened to rank second.
+- Dropped companies stay editable (matching `CompanyService`, which blocks only
+  lifecycle moves after a drop) — a dropped record can still be corrected.
+
 ## Copilot flavors (M&A, Investment, Combined, VC)
 
 The in-app Copilot ships in four selectable flavors, chosen per workspace:

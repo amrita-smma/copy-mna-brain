@@ -81,6 +81,7 @@ import {
   extractFirstTurn,
   getStatelessAgentGraph,
   getAgentGraph,
+  getWorkforceAgentGraphForEffort,
   resetAgent,
 } from '@/lib/agents/analysis';
 import type { BaseMessage } from '@langchain/core/messages';
@@ -194,6 +195,37 @@ describe('getAgentGraph flavor selection', () => {
     // Each flavor is its own singleton after the first build.
     expect(await getAgentGraph('investment')).toBe(investment);
     expect(mocks.createAgent).toHaveBeenCalledTimes(2);
+  });
+
+  // Field-level company edits (rename, financials, segment, banker) are writes,
+  // so the chat flavor must route them to the Workforce rather than implying it
+  // can apply them inline.
+  it('routes company detail edits through the workforce handoff in the M&A prompt', async () => {
+    await getAgentGraph('mna');
+
+    const prompt = mocks.createAgent.mock.calls[0][0].systemPrompt as string;
+
+    expect(prompt).toContain('## Editing Company Details');
+    expect(prompt).toContain('update_company_details');
+    expect(prompt).toMatch(/only by the Workforce/i);
+    expect(prompt).toMatch(/editing a company's stored details/i);
+    // The Workforce cannot see this conversation, so the instruction has to
+    // carry the company id, the field, and the exact value.
+    expect(prompt).toMatch(/exact, self-contained field-level order/i);
+  });
+
+  it('documents update_company_details as a workforce write tool', async () => {
+    await getWorkforceAgentGraphForEffort('medium');
+
+    const prompt = mocks.createAgent.mock.calls[0][0].systemPrompt as string;
+
+    expect(prompt).toContain('## Editing company details');
+    expect(prompt).toContain('**update_company_details**');
+    // Its boundaries must stay explicit: the HITL-gated promotion path and the
+    // drop path must not be reachable through a detail edit.
+    expect(prompt).toMatch(/promote_to_l0[^\n]*promote_to_l1/);
+    expect(prompt).toMatch(/dropping goes through `drop_company`/);
+    expect(prompt).toMatch(/Never invent a number/i);
   });
 
   it('builds the investment flavor with a distinct system prompt', async () => {

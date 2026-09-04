@@ -41,6 +41,10 @@ export interface FinancialUpsertInput {
   fiscal_year: number;
   revenue_usd_mn?: number | null;
   ebitda_usd_mn?: number | null;
+  // Enterprise value for the year. Only the AI Workforce's
+  // `update_company_details` tool sets this today — the FE financials editor
+  // sends revenue/EBITDA only, and an omitted key keeps the stored value.
+  ev_usd_mn?: number | null;
 }
 
 // Dropped companies stay editable for detail fields (target, financials,
@@ -68,6 +72,24 @@ export class CompanyDroppedError extends Error {
     this.name = "CompanyDroppedError";
     this.droppedIds = droppedIds;
   }
+}
+
+/**
+ * `numerator / denominator` as a stored decimal (EBITDA margin is a ratio, not
+ * a percentage — the UI multiplies by 100), or null when either side is
+ * missing or the denominator would divide by zero. Values are coerced because
+ * a numeric column can surface as a string depending on the driver path.
+ */
+function ratio(
+  numerator: number | string | null | undefined,
+  denominator: number | string | null | undefined,
+): number | null {
+  if (numerator === null || numerator === undefined) return null;
+  if (denominator === null || denominator === undefined) return null;
+  const n = Number(numerator);
+  const d = Number(denominator);
+  if (!Number.isFinite(n) || !Number.isFinite(d) || d === 0) return null;
+  return n / d;
 }
 
 export class CompanyService {
@@ -659,15 +681,35 @@ export class CompanyService {
 
     const merged = rows.map((row) => {
       const prior = existingByYear.get(row.fiscal_year);
+      const revenue =
+        row.revenue_usd_mn !== undefined ? row.revenue_usd_mn : (prior?.revenue_usd_mn ?? null);
+      const ebitda =
+        row.ebitda_usd_mn !== undefined ? row.ebitda_usd_mn : (prior?.ebitda_usd_mn ?? null);
+      const ev = row.ev_usd_mn !== undefined ? row.ev_usd_mn : (prior?.ev_usd_mn ?? null);
+      // Margin and multiple are pure functions of the figures above, so once
+      // one of their OWN inputs is submitted the stored value is stale and
+      // must be recomputed (or cleared when an input is missing) rather than
+      // carried over — a revenue edit that leaves the old margin in place
+      // silently publishes a percentage computed against the previous revenue
+      // on the company card and the Excel export.
+      //
+      // Each ratio is gated on its own inputs, not on "any figure changed":
+      // the FE charts PUT a single metric, and treating a revenue-only save as
+      // a reason to recompute EV/EBITDA would wipe a multiple that ingest or
+      // screening stored for a year with no EV on file.
+      // `revenue_cagr_vs_prior` is deliberately NOT touched: it spans two
+      // fiscal years and belongs to the screening pipeline that fills it.
+      const marginTouched =
+        row.revenue_usd_mn !== undefined || row.ebitda_usd_mn !== undefined;
+      const multipleTouched =
+        row.ev_usd_mn !== undefined || row.ebitda_usd_mn !== undefined;
       return {
         fiscal_year: row.fiscal_year,
-        revenue_usd_mn:
-          row.revenue_usd_mn !== undefined ? row.revenue_usd_mn : (prior?.revenue_usd_mn ?? null),
-        ebitda_usd_mn:
-          row.ebitda_usd_mn !== undefined ? row.ebitda_usd_mn : (prior?.ebitda_usd_mn ?? null),
-        ev_usd_mn: prior?.ev_usd_mn ?? null,
-        ebitda_margin: prior?.ebitda_margin ?? null,
-        ev_ebitda: prior?.ev_ebitda ?? null,
+        revenue_usd_mn: revenue,
+        ebitda_usd_mn: ebitda,
+        ev_usd_mn: ev,
+        ebitda_margin: marginTouched ? ratio(ebitda, revenue) : (prior?.ebitda_margin ?? null),
+        ev_ebitda: multipleTouched ? ratio(ev, ebitda) : (prior?.ev_ebitda ?? null),
         revenue_cagr_vs_prior: prior?.revenue_cagr_vs_prior ?? null,
       };
     });

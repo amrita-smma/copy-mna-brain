@@ -25,6 +25,7 @@ import { generateRelationshipGraph } from "./generate_relationship_graph";
 import { readRelationshipGraph } from "./read_relationship_graph";
 import { generateCompanyCard } from "./generate_company_card";
 import { updateCompanyCardSection } from "./update_company_card_section";
+import { updateCompanyDetails } from "./update_company_details";
 import { saveAiOpinion } from "./save_ai_opinion";
 import { saveFundAiOpinion } from "./save_fund_ai_opinion";
 import { narrateStep } from "./narrate_step";
@@ -76,6 +77,7 @@ export {
   readRelationshipGraph,
   generateCompanyCard,
   updateCompanyCardSection,
+  updateCompanyDetails,
   saveAiOpinion,
   saveFundAiOpinion,
   narrateStep,
@@ -177,6 +179,7 @@ export const workforceOnlyTools = [
   promoteToL0,
   promoteToL1,
   addCompany,
+  updateCompanyDetails,
   updateCompanyRelationship,
   generateRelationshipGraph,
   generateCompanyCard,

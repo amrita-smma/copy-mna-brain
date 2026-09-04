@@ -710,3 +710,51 @@ describe('CompanyRepository.findExistingIds', () => {
     expect(clause.params).toEqual(expect.arrayContaining(['c1', 'c2', 'c3', 'workspace-1']));
   });
 });
+
+/** Build a db whose `select().from().where().orderBy()` resolves to `rows`. */
+function makeExactNameDb(rows: Array<Partial<Tables<'companies'>>>) {
+  const orderBy = vi.fn().mockResolvedValue(rows);
+  const where = vi.fn().mockReturnValue({ orderBy });
+  const from = vi.fn().mockReturnValue({ where });
+  const select = vi.fn().mockReturnValue({ from });
+  return { db: { select } as never, select, where, orderBy };
+}
+
+describe('CompanyRepository.findByExactName', () => {
+  it('returns [] without hitting the DB for a blank name', async () => {
+    const { db, select } = makeExactNameDb([]);
+    const repo = new CompanyRepository(db, 'workspace-1');
+
+    expect(await repo.findByExactName('   ')).toEqual([]);
+    expect(select).not.toHaveBeenCalled();
+  });
+
+  it('returns every exact match so the caller can ignore its own row', async () => {
+    const rows = [{ id: 'c1', target: 'Acme Corp' }, { id: 'c2', target: 'Acme Corp' }];
+    const { db } = makeExactNameDb(rows);
+    const repo = new CompanyRepository(db, 'workspace-1');
+
+    expect(await repo.findByExactName('Acme Corp')).toEqual(rows);
+  });
+
+  // This is the identity check a rename relies on, so it must compare whole
+  // names case-insensitively across target, project name, and aliases — never
+  // substring-match the way findByNameFuzzy does.
+  it('matches target, project_name and aliases on the lower-cased full name, workspace-scoped', async () => {
+    const { db, where } = makeExactNameDb([]);
+    const repo = new CompanyRepository(db, 'workspace-1');
+
+    await repo.findByExactName('  Acme Holdings Ltd.  ');
+
+    const clause = new PgDialect().sqlToQuery(where.mock.calls[0][0] as SQL);
+    expect(clause.sql).toContain('"target"');
+    expect(clause.sql).toContain('"project_name"');
+    expect(clause.sql).toContain('jsonb_array_elements_text');
+    expect(clause.sql).not.toContain('like');
+    expect(clause.params).toEqual(
+      expect.arrayContaining(['workspace-1', 'acme holdings ltd.']),
+    );
+    // The full name is compared verbatim — no legal-suffix stripping.
+    expect(clause.params).not.toContain('acme');
+  });
+});
