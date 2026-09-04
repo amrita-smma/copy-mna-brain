@@ -148,6 +148,19 @@ describe("add_company (workforce tool)", () => {
     expect(String(result)).toMatch(/to the database at discovered/);
   });
 
+  it("inserts at the 'unreviewed' stage with logAction 'CREATED_AS_UNREVIEWED' when a human requested the add via chat", async () => {
+    findByNameFuzzy.mockResolvedValueOnce(null);
+    create.mockResolvedValueOnce({ id: "c-new" });
+
+    const result = await call({ target: "ChatCo", stage: "unreviewed" });
+
+    expect(create).toHaveBeenCalledWith(
+      expect.objectContaining({ pipeline_stage: "unreviewed", status: "active" }),
+      "CREATED_AS_UNREVIEWED",
+    );
+    expect(String(result)).toMatch(/to the database at unreviewed/);
+  });
+
   it("inserts at market_screening with logAction 'CREATED_AS_MARKET_SCREENING'", async () => {
     findByNameFuzzy.mockResolvedValueOnce(null);
     create.mockResolvedValueOnce({ id: "c-new" });

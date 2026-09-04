@@ -5,8 +5,10 @@ import { useLocalStorage } from "@/hooks/useLocalStorage";
 import { useSetPageDetail } from "@/components/layout/PageContextProvider";
 import { useEventStream } from "@/hooks/useEventStream";
 import { useSearchParams, useRouter } from "next/navigation";
-import { WorkspaceLink } from "@/components/WorkspaceLink";
 import { useWorkspaceHref } from "@/hooks/useWorkspaceHref";
+import { useChatContext } from "@/components/chat/ChatProvider";
+import { useLayoutControl } from "@/components/layout/LayoutControlContext";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Card,
@@ -324,6 +326,18 @@ export default function Pipeline() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const pipelineHref = useWorkspaceHref("/pipeline");
+  const chatHref = useWorkspaceHref("/chat");
+  const { analyzeWithAI } = useChatContext();
+  const { focusCopilot } = useLayoutControl();
+  const isMobile = useIsMobile();
+  const handleAddCompanyClick = () => {
+    analyzeWithAI("How do I add a new company?");
+    if (isMobile) {
+      router.push(chatHref);
+      return;
+    }
+    focusCopilot();
+  };
   const initialTab = searchParams.get("stage") || "L0";
   const [activeTab, setActiveTab] = useState<DealStage>(
     initialTab as DealStage,
@@ -1386,12 +1400,13 @@ export default function Pipeline() {
                                 </Button>
                               )}
                               {showL0Pipeline && (
-                                <WorkspaceLink href="/smart-files">
-                                  <Button data-testid="pipeline-add-company-button">
-                                    <Plus className="mr-2 h-4 w-4" />
-                                    Add Company
-                                  </Button>
-                                </WorkspaceLink>
+                                <Button
+                                  data-testid="pipeline-add-company-button"
+                                  onClick={handleAddCompanyClick}
+                                >
+                                  <Plus className="mr-2 h-4 w-4" />
+                                  Add Company
+                                </Button>
                               )}
                               {/* Visibility toggle — always rightmost */}
                               <Button

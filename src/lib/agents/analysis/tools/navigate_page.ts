@@ -59,7 +59,7 @@ export const navigatePage = tool(
 
 Use this when:
   - The user asks to go somewhere ("open the pipeline", "take me to the CRM", "show me the funds").
-  - Showing a page IS the answer ("where do I add a company?" → open Master Data).
+  - Showing a page IS the answer ("where can I see stalled deals?" → open the pipeline, "show me the CRM view" → open CRM). Do NOT navigate for "how/where do I add a company?" — there is no add-company form; answer in chat.
   - You are about to describe data the user would rather see laid out on its page.
 
 Do NOT use this to answer a data question — query the data and answer in chat. Navigating is not a substitute for doing the work. Do not call it more than once in a turn; the last call would just override the earlier ones.

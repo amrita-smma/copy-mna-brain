@@ -6,18 +6,27 @@ import { createDb } from "@/lib/server/db";
 import { createContainer } from "@/lib/services";
 import { CompanyRepository } from "@/lib/repositories";
 
-// Stages the agent is allowed to add a company at. Both sit BELOW L1, so neither
-// requires a HITL approval — they are triage/intake stages, not commitments:
+// Stages the agent is allowed to add a company at. All three sit BELOW L1, so
+// none requires a HITL approval — they are triage/intake stages, not
+// commitments:
 //   - market_screening  — DEFAULT. AI-screened intake ("AI Screened Companies" /
 //                          "Market Scanning"). Any company the AI Workforce
-//                          surfaces lands here unless told otherwise.
+//                          surfaces on its own initiative lands here unless
+//                          told otherwise.
 //   - discovered        — a company surfaced via the relationship graph that is
 //                          not a market-scan find. Use when the instruction
 //                          frames the company as a graph/relationship discovery.
+//   - unreviewed        — a company a HUMAN explicitly asked to be added via
+//                          chat (typed details or an attached teaser/screenshot),
+//                          relayed through propose_workforce_handoff. Mirrors the
+//                          stage used for companies auto-created from email
+//                          attachments — a person is triaging it, so it is not
+//                          an AI-discovery pick and must not land in
+//                          market_screening/discovered.
 // The AI Workforce must NEVER add directly to L0 (the first committed pipeline
 // stage, "Sourcing"). Entry into L0+ happens through the gated promote flow /
 // human action, never as a raw intake write.
-const ADDABLE_STAGES = ["market_screening", "discovered"] as const;
+const ADDABLE_STAGES = ["market_screening", "discovered", "unreviewed"] as const;
 type AddableStage = (typeof ADDABLE_STAGES)[number];
 const DEFAULT_STAGE: AddableStage = "market_screening";
 
@@ -35,16 +44,18 @@ function logActionFor(stage: AddableStage): string {
  * Add a newly surfaced company to the database at a chosen intake stage.
  *
  * Workforce-only write tool. AUTO-EXECUTES (no HITL gate) — every stage this
- * tool can write to (`market_screening`, `discovered`) sits below L1, so it is
- * triage/intake, not a commitment. The tool CANNOT write to L0 or any committed
- * pipeline stage; entry into L0+ goes through the gated `promote_to_l1` / HITL
- * middleware or human action. See the gating policy in
+ * tool can write to (`market_screening`, `discovered`, `unreviewed`) sits below
+ * L1, so it is triage/intake, not a commitment. The tool CANNOT write to L0 or
+ * any committed pipeline stage; entry into L0+ goes through the gated
+ * `promote_to_l1` / HITL middleware or human action. See the gating policy in
  * `src/lib/agents/analysis/index.ts`.
  *
  * Stage policy:
  *   - Default is `market_screening` ("AI Screened Companies"). Any company the
  *     AI Workforce surfaces lands in the AI-screened intake bucket, never in L0.
  *   - `discovered` is for relationship-graph / non-scan surfacing.
+ *   - `unreviewed` is for a company a human explicitly asked to be added via
+ *     chat — never the default; only use it when the instruction says so.
  *
  * Idempotency: refuses to create a duplicate when a fuzzy match against
  * existing `target` or `project_name` is found. The agent should fall back to
@@ -130,14 +141,15 @@ This is the workforce-side execution of a company intake. Every stage this tool 
 
 ## Choosing the stage (IMPORTANT)
 
-- **market_screening** (DEFAULT): the "AI Screened Companies" intake bucket ("Market Scanning"). Any company you surface lands here. A bare "add this company" / "add Acme" MUST use this. NEVER add a company directly to the L0 pipeline — that is not an option here.
+- **market_screening** (DEFAULT): the "AI Screened Companies" intake bucket ("Market Scanning"). Any company you surface on your own initiative lands here. A bare "add this company" / "add Acme" MUST use this. NEVER add a company directly to the L0 pipeline — that is not an option here.
 - **discovered**: a company surfaced via the relationship graph that is not a market-scan find. Use only when the instruction frames the company as a graph/relationship discovery.
+- **unreviewed**: a company a HUMAN explicitly asked to be added via chat (named it directly, typed its details, or attached a teaser/screenshot). Use ONLY when the instruction says the request came from a human via chat, not an AI-sourced discovery — this keeps it out of the "AI Screened Companies" bucket and in the same triage queue as companies auto-created from email attachments.
 
 Before inserting, the tool fuzzy-matches the target name against existing companies (target or project_name). If a match is found, no row is inserted; the tool returns the existing record so the agent can decide whether to update instead.
 
 Args:
     target: Company name to record. Required.
-    stage: Intake stage — one of "market_screening" (default) or "discovered". Defaults to "market_screening". L0 is NOT accepted.
+    stage: Intake stage — one of "market_screening" (default), "discovered", or "unreviewed". Defaults to "market_screening". L0 is NOT accepted.
     segment: Optional sector/segment classification. Keep it BROAD, not hyper-specific — a category many companies can share (e.g. "Semiconductor", "CMP Slurry", "Petrochemical"), not a narrow niche unique to one company. Over-specific segments create minimal overlap and make cohort grouping useless. Always in English, even if source material is in another language.
     geography: Optional headquarters country — EXACTLY ONE country name (e.g. "South Korea", "United States"). Never combine multiple countries, regions, cities, or facility/R&D locations. Always in English, even if source material is in another language.
     source: Optional origin tag. One of "inbound" or "outbound"; defaults to "outbound" (AI-discovered companies are outbound by nature).
@@ -153,7 +165,7 @@ Returns:
         .enum(ADDABLE_STAGES)
         .optional()
         .describe(
-          'Intake stage: "market_screening" (default, the "AI Screened Companies" bucket) or "discovered". L0 is not accepted — the workforce never adds directly to the committed pipeline.',
+          'Intake stage: "market_screening" (default, the "AI Screened Companies" bucket), "discovered", or "unreviewed" (a human explicitly asked to add this via chat — never the default). L0 is not accepted — the workforce never adds directly to the committed pipeline.',
         ),
       segment: z
         .string()

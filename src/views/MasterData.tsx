@@ -40,6 +40,7 @@ import {
   Lightbulb,
   ArrowRight,
   MoreVertical,
+  Plus,
 } from 'lucide-react';
 import type { DealStage } from '@/lib/types';
 import { Button } from '@/components/ui/button';
@@ -74,6 +75,7 @@ import { useToast } from '@/hooks/use-toast';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { useChatContext } from '@/components/chat/ChatProvider';
 import { AskAIButton } from '@/components/chat/AskAIButton';
+import { useLayoutControl } from '@/components/layout/LayoutControlContext';
 import { companyDisplayName } from '@/lib/companyDisplay';
 
 interface CompanyWithDeal {
@@ -188,8 +190,10 @@ export default function MasterData() {
   const currency = useWorkspaceCurrency();
   const formatCurrency = (value: number | null): string => formatMoneyMn(value, currency);
   const { analyzeWithAI } = useChatContext();
+  const { focusCopilot } = useLayoutControl();
   const router = useRouter();
   const isMobile = useIsMobile();
+  const chatHref = useWorkspaceHref('/chat');
   const { nearEdge, edgeHandlers } = useNearRightEdge();
   const pipelineHref = useWorkspaceHref('/pipeline');
   const masterDataHref = useWorkspaceHref('/master-data');
@@ -598,6 +602,21 @@ export default function MasterData() {
             <h1 className="text-3xl font-bold tracking-tight">Master Data</h1>
             <p className="text-muted-foreground">Complete overview of all companies in the system</p>
           </div>
+          <Button
+            data-testid="master-data-add-company-button"
+            className="gap-2"
+            onClick={() => {
+              analyzeWithAI('How do I add a new company?');
+              if (isMobile) {
+                router.push(chatHref);
+                return;
+              }
+              focusCopilot();
+            }}
+          >
+            <Plus className="h-4 w-4" />
+            Add Company
+          </Button>
         </div>
 
         {/* Stats Cards — hidden on mobile to keep the view focused on search */}
