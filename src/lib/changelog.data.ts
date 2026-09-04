@@ -6,10 +6,24 @@ import type { ChangelogEntry } from './changelog';
 
 export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   {
+    "hash": "83f6250e2bf7f44d6349924d992ee41cb4779fea",
+    "date": "2026-09-05",
+    "subject": "Companies added via chat now enter the unreviewed stage for validation",
+    "category": "feature"
+  },
+  {
     "hash": "b74e6ce5a016906c7d7a322fb7508fc66995c80d",
     "date": "2026-09-04",
     "subject": "AI Workforce can now edit any company detail directly from chat",
     "category": "feature"
+  },
+  {
+    "hash": "7bdb91892ecad42fbe833ac0185179b19db43f63",
+    "date": "2026-09-04",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
   },
   {
     "hash": "0257a7e6c93c4079fb8db13f73883e66159f476e",
