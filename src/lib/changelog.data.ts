@@ -6,6 +6,12 @@ import type { ChangelogEntry } from './changelog';
 
 export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   {
+    "hash": "b74e6ce5a016906c7d7a322fb7508fc66995c80d",
+    "date": "2026-09-04",
+    "subject": "AI Workforce can now edit any company detail directly from chat",
+    "category": "feature"
+  },
+  {
     "hash": "0257a7e6c93c4079fb8db13f73883e66159f476e",
     "date": "2026-09-03",
     "subject": "RSS news feed integration now surfaces relevant deal intelligence directly in Data Navigator",
@@ -163,6 +169,14 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   },
   {
     "hash": "f82773c3ebe3a3bbccaf9bcccfc78ad330fa37ab",
+    "date": "2026-09-03",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
+    "hash": "8c022982de7bc5f652d7009bbf87f7dc1e804238",
     "date": "2026-09-03",
     "subject": "[skip deploy] chore: update changelog",
     "category": "improvement",
