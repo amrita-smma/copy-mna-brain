@@ -6,6 +6,12 @@ import type { ChangelogEntry } from './changelog';
 
 export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   {
+    "hash": "d8d8bf7a933bbfd2074075be31da282d246d6eab",
+    "date": "2026-09-10",
+    "subject": "Refresh company card details when moving deals between stages",
+    "category": "improvement"
+  },
+  {
     "hash": "83f6250e2bf7f44d6349924d992ee41cb4779fea",
     "date": "2026-09-05",
     "subject": "Companies added via chat now enter the unreviewed stage for validation",
@@ -19,6 +25,14 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   },
   {
     "hash": "7bdb91892ecad42fbe833ac0185179b19db43f63",
+    "date": "2026-09-04",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
+    "hash": "11b4c0716b8d90f25dbd5679f755437e386d021c",
     "date": "2026-09-04",
     "subject": "[skip deploy] chore: update changelog",
     "category": "improvement",
