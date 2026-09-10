@@ -26,6 +26,20 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "skipReason": "noise"
   },
   {
+    "hash": "2eb56ceff8a89da6a15dc92b883e735228cd633d",
+    "date": "2026-09-10",
+    "subject": "AlphaSense research now available as a dedicated tool for all agents",
+    "category": "feature"
+  },
+  {
+    "hash": "fcd7832c74cfd5e450021a4d32c3162d15708555",
+    "date": "2026-09-10",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "83f6250e2bf7f44d6349924d992ee41cb4779fea",
     "date": "2026-09-05",
     "subject": "Companies added via chat now enter the unreviewed stage for validation",
