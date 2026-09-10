@@ -15,15 +15,18 @@ import {
   tools,
   chatOnlyTools,
   workforceOnlyTools,
+  investmentTools,
   combinedTools,
   vcTools,
+  valyuSearch,
   getToolDescriptions,
 } from "./index";
 
 /** The tool set each agent flavor is actually constructed with. */
 const AGENT_TOOL_LISTS = {
   workforce: [...tools, ...workforceOnlyTools],
-  chat: [...tools, ...chatOnlyTools],
+  chat: [...tools, ...chatOnlyTools, valyuSearch],
+  investment: investmentTools,
   combined: combinedTools,
   vc: vcTools,
 };
@@ -59,6 +62,15 @@ describe("agent tool lists", () => {
   ])("keeps update_company_details out of the %s agent", (_label, list) => {
     expect(list.map((t) => t.name)).not.toContain("update_company_details");
   });
+
+  // AlphaSense is the firm's premium research subscription — every flavor,
+  // including the workforce, is meant to be able to reach it.
+  it.each(Object.entries(AGENT_TOOL_LISTS))(
+    "exposes alphasense_search to the %s agent",
+    (_label, list) => {
+      expect(list.map((t) => t.name)).toContain("alphasense_search");
+    },
+  );
 
   it.each(Object.entries(AGENT_TOOL_LISTS))(
     "registers each tool name exactly once in the %s list",

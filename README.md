@@ -781,7 +781,7 @@ Implementation notes (`src/lib/agents/analysis/tools/update_company_details.ts`)
 The in-app Copilot ships in four selectable flavors, chosen per workspace:
 
 - **`mna`** (default) — the M&A / acquisitions assistant: company/CRM tools,
-  pipeline analysis, Workforce handoffs, and Valyu/web search
+  pipeline analysis, Workforce handoffs, and AlphaSense/Valyu/web search
   (`CHAT_SYSTEM_PROMPT` + `DEFAULT_TOOL_LIST`).
 - **`investment`** — the funds & investing assistant: read-only tools to see and
   analyze the workspace's funds, assets/holdings, investors (LPs), and fund
@@ -810,6 +810,47 @@ The in-app Copilot ships in four selectable flavors, chosen per workspace:
   sequence or end-of-turn evaluation. External companies and funds not in
   workspace data are researched seamlessly using cited external search. No schema
   migration or new table is required (persisted via `workspaces.copilot_agent = 'vc'`).
+
+### AlphaSense research (`alphasense_search`)
+
+`alphasense_search` (`src/lib/agents/analysis/tools/alphasense_search.ts`) is the
+one tool registered for **every** agent flavor — M&A chat, AI Workforce,
+investment, combined, and VC. It lives in the shared read-only base list
+(`tools` in `src/lib/agents/analysis/tools/index.ts`) plus `investmentTools` and
+`vcTools`, so any agent can reach the firm's AlphaSense subscription: sell-side /
+broker research, SEC and global filings, earnings-call and expert-call
+transcripts, company presentations, and licensed news.
+
+The transport is `src/lib/alphasense.ts` (`AlphaSenseClient`), a thin wrapper
+over the [AlphaSense Agent API](https://developer.alpha-sense.com/agent-api/quickstart):
+
+1. `POST https://api.alpha-sense.com/auth` — OAuth2 password grant
+   (`x-api-key` + client id/secret + user email/password) returns an
+   `access_token`. Tokens are cached in-module keyed by api key + username and
+   refreshed 60s before `expires_in`, so several tool calls in one chat turn
+   authenticate once. A 401/403 on a GraphQL call triggers exactly one forced
+   re-auth and retry.
+2. `POST https://api.alpha-sense.com/gql` — the `genSearch.auto` mutation starts
+   a conversation and returns its id; the `genSearch.conversation` query is then
+   polled every 2s until `progress` reaches `1.0` (or `error.code` is set).
+   GenSearch is asynchronous and typically takes 20–90s.
+
+Because the run is long, the tool bounds it twice: a 150s poll budget inside
+`runGenSearch` (which returns the partial `markdown` flagged `timedOut` rather
+than hanging the turn) and a 180s `withToolTimeout` backstop for a hung socket.
+The answer is returned as markdown with AlphaSense's inline `[[n • Source]]`
+citations preserved.
+
+Configuration is the five `ALPHASENSE_*` env vars in `.env.example`
+(`ALPHASENSE_API_KEY`, `ALPHASENSE_CLIENT_ID`, `ALPHASENSE_CLIENT_SECRET`,
+`ALPHASENSE_EMAIL`, `ALPHASENSE_PASSWORD`). When any are unset the tool returns a
+message naming the missing variables and telling the agent to fall back to
+`valyu_search` / `web_search` — it never throws, so an unconfigured environment
+degrades instead of breaking a chat turn. Routing guidance in each flavor's
+system prompt: prefer `alphasense_search` when the answer should rest on filings,
+transcripts, or analyst research; `valyu_search` for broad multi-source /
+proprietary-dataset research; `web_search` for quick general lookups;
+`search_news` first for recent market news the internal lake may already cover.
 
 ### VC external research architecture (Valyu & Web)
 

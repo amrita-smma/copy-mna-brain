@@ -12,6 +12,7 @@ import { lookupCrm } from "./lookup_crm";
 import { crmInsights } from "./crm_insights";
 import { webSearch } from "./web_search";
 import { valyuSearch } from "./valyu_search";
+import { alphasenseSearch } from "./alphasense_search";
 import { queryMeetingNotes } from "./query_files";
 import { proposeWorkforceHandoff } from "./propose_workforce_handoff";
 import { proposeBulkDropCompanies } from "./propose_bulk_drop_companies";
@@ -65,6 +66,7 @@ export {
   crmInsights,
   webSearch,
   valyuSearch,
+  alphasenseSearch,
   queryMeetingNotes,
   proposeWorkforceHandoff,
   proposeBulkDropCompanies,
@@ -118,7 +120,10 @@ export {
 /**
  * Base tools — safe for any agent context, including the workforce itself.
  * Read-only data/web tools. Anything added here is callable by workforce
- * runs too.
+ * runs too. `alphasense_search` lives here (rather than in a per-flavor list)
+ * because the AlphaSense subscription is meant to back every agent: it is
+ * read-only external research, and the base list is what the workforce and the
+ * M&A/combined chats share.
  */
 export const tools = [
   getDataSchema,
@@ -131,6 +136,7 @@ export const tools = [
   crmInsights,
   webSearch,
   searchNews,
+  alphasenseSearch,
   queryMeetingNotes,
   readRelationshipGraph,
   getTaskProgress,
@@ -197,10 +203,11 @@ export const workforceOnlyTools = [
 /**
  * Investment tools — the read-only fund/investing tool set for the
  * "investment" Copilot flavor. Lets the agent see and analyze the workspace's
- * funds, assets/holdings, investors (LPs), and fund sources, plus web search
- * and Valyu search for external market data. Distinct from the M&A tool set
- * (companies/CRM) otherwise; `valyu_search` is the one tool shared with the
- * M&A chat flavor (added directly to `DEFAULT_TOOL_LIST` in index.ts).
+ * funds, assets/holdings, investors (LPs), and fund sources, plus web search,
+ * Valyu search, and AlphaSense research for external market data. Distinct from the M&A tool set
+ * (companies/CRM) otherwise; `valyu_search` is added directly to the M&A
+ * chat's `DEFAULT_TOOL_LIST` in index.ts, while `alphasense_search` is also
+ * listed here because this flavor does not spread the shared `tools` base.
  */
 export const investmentTools = [
   getFundDataSchema,
@@ -212,6 +219,7 @@ export const investmentTools = [
   queryFundSources,
   webSearch,
   valyuSearch,
+  alphasenseSearch,
   queryMeetingNotes,
   lookupCrm,
   crmInsights,
@@ -273,6 +281,7 @@ export const vcTools = [
   crmInsights,
   webSearch,
   valyuSearch,
+  alphasenseSearch,
   valyuExtractContent,
   getCompanyProfile,
   getSectorContext,
@@ -341,6 +350,11 @@ export function getToolDescriptions(): string {
       name: "valyu_search",
       description:
         "Search Valyu.ai across the web and proprietary data sources (financial filings, market data, research, news) for deeper investment/diligence research with citations",
+    },
+    {
+      name: "alphasense_search",
+      description:
+        "Ask AlphaSense a research question and get a cited answer synthesized from broker research, SEC/global filings, earnings-call and expert-call transcripts, and licensed news",
     },
     {
       name: "query_files",

@@ -159,6 +159,7 @@ You have access to the following tools:
 14. **update_company_card_section** - Overwrite a single section of a company's AI Company Card / Overview slide with rewritten markdown (self-service inline edit; allowed inline — see "Editing a Company Card Section" below)
 15. **get_investment_theses** - Read the workspace's investment theses: the firm's active investment mandate (sector, sub-sector, geography, deal size, deal type scope). Use it whenever a question turns on whether something is in or out of mandate
 16. **search_news** - Search the ingested, curated market-news lake (funding rounds, M&A and partnerships, market assessments, expert insights, industry/analyst reports) for recent real-world events about a company, sector, or deal
+17. **alphasense_search** - Ask AlphaSense a research question and get a cited answer synthesized from its premium corpus: broker/sell-side research, SEC and global filings, earnings-call and expert-call transcripts, and licensed news. Prefer it over valyu_search/web_search when the answer should rest on filings, transcripts, or analyst research (one full question per call; it can take up to ~2 minutes).
 
 ## How to Help Users
 
@@ -395,6 +396,7 @@ You have access to the following tools:
 13. **lookup_user** - Resolve a platform user by a name or email fragment, returning only their name and email. Use before send_email when the user names a recipient ("send this to nico …") to get the exact address.
 14. **send_email** - Send ONE email (subject + body) to the signed-in user or named platform users, optionally attaching a research-summary PDF, company Excel, and/or PowerPoint (\`presentation\`). Use when the user asks to email a report, spreadsheet, or deck.
 15. **propose_workforce_handoff** - Offer to delegate a write-heavy or multi-step request to the AI Workforce queue via a confirmation card. Use when the user asks to modify records, run a screening, or execute any task that requires pipeline writes.
+16. **alphasense_search** - Ask AlphaSense a research question and get a cited answer synthesized from its premium corpus: broker/sell-side research, SEC and global filings, earnings-call and expert-call transcripts, and licensed news. Prefer it over valyu_search/web_search when the answer should rest on filings, transcripts, or analyst research (one full question per call; it can take up to ~2 minutes).
 
 ## CRITICAL: Resolving a Name — "How is X doing?"
 
@@ -505,6 +507,7 @@ const COMBINED_SYSTEM_PROMPT = `You are an intelligent M&A + Investment Analysis
 23. **lookup_user** - Resolve a platform user by name/email fragment (name + email only). Use before send_email when the user names a recipient.
 24. **send_email** - Send ONE email to the signed-in user or named platform users, optionally attaching a company Excel export, research-summary PDF, and/or PowerPoint (\`presentation\`). Recipients are restricted to registered platform users.
 25. **search_news** - Search the ingested, curated market-news lake (funding rounds, M&A and partnerships, market assessments, expert insights, industry/analyst reports) for recent real-world events about a company, sector, or deal.
+26. **alphasense_search** - Ask AlphaSense a research question and get a cited answer synthesized from its premium corpus: broker/sell-side research, SEC and global filings, earnings-call and expert-call transcripts, and licensed news. Prefer it over valyu_search/web_search when the answer should rest on filings, transcripts, or analyst research (one full question per call; it can take up to ~2 minutes).
 
 ## How to Help Users
 
@@ -586,6 +589,7 @@ const VC_SYSTEM_PROMPT = `You are an intelligent Venture Capital & Growth Equity
 25. **lookup_user** - Resolve platform user email by name fragment before emailing.
 26. **send_email** - Send an email with notes, spreadsheets, or presentations to platform users.
 27. **propose_workforce_handoff** - Offer to delegate pipeline write actions or screening tasks to the AI Workforce queue.
+28. **alphasense_search** - Ask AlphaSense a research question and get a cited answer synthesized from its premium corpus: broker/sell-side research, SEC and global filings, earnings-call and expert-call transcripts, and licensed news. Prefer it over valyu_search/web_search when the answer should rest on filings, transcripts, or analyst research (one full question per call; it can take up to ~2 minutes).
 
 ## Principles & Core Guidelines
 
@@ -634,6 +638,7 @@ Read tools (use to gather context before writing):
 - **get_investment_theses** — the firm's active investment mandate (sector, sub-sector, geography, deal size, deal type scope). Read it before forming any view on whether a company is worth pursuing
 - **search_news** — search the ingested, curated market-news lake (funding rounds, M&A and partnerships, market assessments, expert insights, industry/analyst reports) for recent real-world events about a company, sector, or deal. For any instruction touching recent market news, deals, or funding, call this FIRST, before web_search — it is the curated internal source and should be checked before reaching outside. Fall back to web_search only when search_news returns nothing or the topic is outside its five categories. An empty result from search_news means the lake hasn't ingested that item — NOT that the event never happened — so escalate to web_search rather than reporting no such news exists.
 - **web_search** for external/market data
+- **alphasense_search** — ask AlphaSense one full research question and get a cited answer from broker research, SEC/global filings, earnings-call and expert-call transcripts, and licensed news. Use it when the write you are about to make needs institutional-grade evidence (financials, guidance, analyst views, sector or regulatory context); it can take up to ~2 minutes, so call it once per question and fall back to web_search if it is unavailable
 - **query_files** for internal notes and memos
 
 Write tools (use to actually mutate state — the whole point of this run):
