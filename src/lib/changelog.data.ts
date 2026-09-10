@@ -40,6 +40,22 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "skipReason": "noise"
   },
   {
+    "hash": "7429757c5303346560013718fe0457eaf3522b46",
+    "date": "2026-09-10",
+    "subject": "Cap RSS classify volume per environment to cut staging pipeline cost.",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "0ee5e4920434106ff9978d6dc7cc4a1a91f36999",
+    "date": "2026-09-10",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "83f6250e2bf7f44d6349924d992ee41cb4779fea",
     "date": "2026-09-05",
     "subject": "Companies added via chat now enter the unreviewed stage for validation",
