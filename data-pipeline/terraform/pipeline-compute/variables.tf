@@ -92,6 +92,10 @@ locals {
     staging = {
       environment      = "staging"
       slack_channel_id = "C0BG0HR1KSQ" # #mna-brain-alerts-staging
+      # Staging doesn't need real news coverage, just a working pipeline — cap
+      # the classify stage (the Haiku/Bedrock cost driver) to a token trickle
+      # instead of running production-scale volume every 10 minutes.
+      rss_classify_limit = 3
       tags = {
         Environment = "staging"
         Project     = "MnA"
@@ -99,8 +103,9 @@ locals {
       }
     }
     production = {
-      environment      = "production"
-      slack_channel_id = "C0BFWNGM4SW" # #mna-brain-alerts-production
+      environment        = "production"
+      slack_channel_id   = "C0BFWNGM4SW" # #mna-brain-alerts-production
+      rss_classify_limit = 200
       tags = {
         Environment = "production"
         Project     = "MnA"

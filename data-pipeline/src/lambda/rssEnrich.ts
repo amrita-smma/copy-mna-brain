@@ -126,7 +126,11 @@ export const handler = async (
 };
 
 async function runClassification(repo: RssRepository, result: RssEnrichResult): Promise<void> {
-  const pending = await repo.listPendingClassification(CLASSIFY_LIMIT);
+  // Overridable per environment (see RSS_CLASSIFY_LIMIT in the pipeline-compute
+  // Terraform module) — staging caps this far below CLASSIFY_LIMIT so a 10-minute
+  // schedule doesn't run the same Haiku/Bedrock cost as production.
+  const classifyLimit = Number(process.env.RSS_CLASSIFY_LIMIT ?? CLASSIFY_LIMIT);
+  const pending = await repo.listPendingClassification(classifyLimit);
   if (pending.length === 0) return;
 
   const cap = Number(process.env.RSS_DAILY_CAP_PER_CATEGORY ?? DEFAULT_DAILY_CAP);

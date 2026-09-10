@@ -52,6 +52,7 @@ locals {
     BEDROCK_REGION             = var.bedrock_region
     BEDROCK_EMBEDDING_MODEL    = var.bedrock_embedding_model
     RSS_DAILY_CAP_PER_CATEGORY = tostring(var.rss_daily_cap_per_category)
+    RSS_CLASSIFY_LIMIT         = tostring(local.current_config.rss_classify_limit)
   }
 }
 

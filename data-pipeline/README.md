@@ -64,9 +64,13 @@ Two further scheduled functions, independent of the email pipeline above:
 2. `rss-enrich` (`rate(10 minutes)`) drains three queues, run sequentially so a
    thrown error in an earlier stage aborts the invocation (self-healing: the
    next run 10 minutes later resumes where it left off): Haiku relevance
-   classification (capped by `RSS_DAILY_CAP_PER_CATEGORY`, default 25, per
-   category per UTC day), full-article extraction for selected items (3
-   attempts, `MAX_CONTENT_ATTEMPTS`), and Bedrock Titan embeddings into
+   classification (how many pending items are pulled in per run is capped by
+   `RSS_CLASSIFY_LIMIT` — 200 in production, 3 in staging, so the costly
+   Haiku/Bedrock stages don't run at production volume on a 10-minute
+   schedule; how many of those get *selected* is separately capped by
+   `RSS_DAILY_CAP_PER_CATEGORY`, default 25, per category per UTC day),
+   full-article extraction for selected items (3 attempts,
+   `MAX_CONTENT_ATTEMPTS`), and Bedrock Titan embeddings into
    `rss.item_chunks`.
 
 Unlike the email path, these functions do use S3 — a separate bucket

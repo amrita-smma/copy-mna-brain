@@ -78,6 +78,10 @@ function pending(id: string, category = 'new_funding') {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // Belt-and-suspenders: a test that fails before reaching its own `delete`
+  // would otherwise leak this into later tests and make them order-dependent.
+  delete process.env.RSS_DAILY_CAP_PER_CATEGORY;
+  delete process.env.RSS_CLASSIFY_LIMIT;
   mocks.createLambdaDb.mockResolvedValue({ pgClient: { end: mocks.pgClientEnd }, db: {} });
   mocks.startRun.mockResolvedValue('run-1');
   mocks.listPendingClassification.mockResolvedValue([]);
@@ -141,6 +145,27 @@ describe('rss-enrich — classification stage', () => {
     expect(mocks.applyClassifications).not.toHaveBeenCalled();
     expect(out.result.classified).toBe(0);
     expect(out.result.selected).toBe(0);
+  });
+
+  it('caps the pending-items lookup at RSS_CLASSIFY_LIMIT when set (staging cost control)', async () => {
+    process.env.RSS_CLASSIFY_LIMIT = '3';
+    mocks.listPendingClassification.mockResolvedValue([pending('i1')]);
+    mocks.classifyBatch.mockResolvedValue([
+      { index: 0, relevant: true, score: 0.9, companies: [], topics: [], reason: 'r' },
+    ]);
+
+    await handler({}, {});
+
+    expect(mocks.listPendingClassification).toHaveBeenCalledWith(3);
+    delete process.env.RSS_CLASSIFY_LIMIT;
+  });
+
+  it('falls back to the default classify limit when RSS_CLASSIFY_LIMIT is unset', async () => {
+    mocks.listPendingClassification.mockResolvedValue([]);
+
+    await handler({}, {});
+
+    expect(mocks.listPendingClassification).toHaveBeenCalledWith(200);
   });
 
   it('never selects more than the daily cap across multiple batches within one run', async () => {
