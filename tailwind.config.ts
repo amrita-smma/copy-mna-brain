@@ -29,7 +29,7 @@ export default {
         // SQE Enterprise Intelligence Suite brand palette
         brand: {
           ink: "hsl(var(--brand-ink))", // #0C0C10
-          azure: "hsl(var(--brand-azure))", // #3B82F6
+          azure: "hsl(var(--brand-azure))", // #1F5FE0
           midnight: "hsl(var(--brand-midnight))", // #1838CC
           white: "hsl(var(--brand-white))", // #FFFFFF
         },

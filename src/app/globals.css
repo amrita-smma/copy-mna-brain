@@ -6,7 +6,7 @@
   :root {
     /* SQE Enterprise Intelligence Suite brand palette (theme-agnostic) */
     --brand-ink: 240 14% 5%; /* #0C0C10 */
-    --brand-azure: 217 91% 60%; /* #3B82F6 */
+    --brand-azure: 220 76% 50%; /* #1F5FE0 */
     --brand-midnight: 229 79% 45%; /* #1838CC */
     --brand-white: 0 0% 100%; /* #FFFFFF */
 
@@ -16,7 +16,7 @@
     --card-foreground: 240 14% 8%;
     --popover: 0 0% 100%;
     --popover-foreground: 240 14% 8%;
-    --primary: 217 91% 60%; /* Azure #3B82F6 */
+    --primary: 220 76% 50%; /* Azure #1F5FE0 */
     --primary-foreground: 0 0% 100%;
     --secondary: 220 14% 96%;
     --secondary-foreground: 220 20% 20%;
@@ -32,11 +32,11 @@
     --warning-foreground: 0 0% 100%;
     --border: 220 13% 91%;
     --input: 220 13% 91%;
-    --ring: 217 91% 60%;
+    --ring: 220 76% 50%;
     --radius: 0.625rem;
 
     /* Stage colors */
-    --stage-l0: 217 91% 60%;
+    --stage-l0: 220 76% 50%;
     --stage-l1: 229 79% 52%;
     --stage-l2: 38 92% 50%;
     --stage-l3: 142 76% 36%;
@@ -54,12 +54,12 @@
     /* Sidebar - Light mode */
     --sidebar-background: 0 0% 100%;
     --sidebar-foreground: 220 20% 20%;
-    --sidebar-primary: 217 91% 60%;
+    --sidebar-primary: 220 76% 50%;
     --sidebar-primary-foreground: 0 0% 100%;
     --sidebar-accent: 220 14% 96%;
     --sidebar-accent-foreground: 220 20% 20%;
     --sidebar-border: 220 13% 91%;
-    --sidebar-ring: 217 91% 60%;
+    --sidebar-ring: 220 76% 50%;
   }
 
   .dark {
@@ -69,7 +69,7 @@
     --card-foreground: 240 10% 96%;
     --popover: 240 12% 9%;
     --popover-foreground: 240 10% 96%;
-    --primary: 217 91% 60%; /* Azure #3B82F6 */
+    --primary: 220 76% 50%; /* Azure #1F5FE0 */
     --primary-foreground: 0 0% 100%;
     --secondary: 240 10% 15%;
     --secondary-foreground: 240 10% 96%;
@@ -85,20 +85,20 @@
     --warning-foreground: 0 0% 100%;
     --border: 240 10% 18%;
     --input: 240 10% 18%;
-    --ring: 217 91% 60%;
+    --ring: 220 76% 50%;
 
     /* Sidebar dark */
     --sidebar-background: 240 14% 4%;
     --sidebar-foreground: 240 10% 96%;
-    --sidebar-primary: 217 91% 60%;
+    --sidebar-primary: 220 76% 50%;
     --sidebar-primary-foreground: 0 0% 100%;
     --sidebar-accent: 240 12% 10%;
     --sidebar-accent-foreground: 240 10% 96%;
     --sidebar-border: 240 10% 14%;
-    --sidebar-ring: 217 91% 60%;
+    --sidebar-ring: 220 76% 50%;
 
     /* Pipeline stage colors - dark mode */
-    --stage-l0: 217 91% 60%;
+    --stage-l0: 220 76% 50%;
     --stage-l1: 199 89% 48%;
     --stage-l2: 229 79% 52%;
     --stage-l3: 24 95% 53%;

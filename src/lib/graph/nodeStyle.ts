@@ -9,7 +9,7 @@ import type { GraphNode, RelationType } from '@/lib/repositories/companyRelation
  */
 
 export const RELATION_COLORS: Record<RelationType, string> = {
-  INVESTED_IN: '#3b82f6',
+  INVESTED_IN: '#1f5fe0',
   PARTNER: '#22c55e',
   SELLS_TO: '#f59e0b',
   SUPPLIER: '#f59e0b', // legacy — same colour as SELLS_TO
@@ -29,7 +29,7 @@ export const UNKNOWN_RELATION_COLOR = '#64748b';
 
 export const STAGE_COLOR_GREY = '#94a3b8'; // discovered
 export const STAGE_COLOR_YELLOW = '#eab308'; // market_screening / no stage
-export const STAGE_COLOR_BLUE = '#3b82f6'; // L0–L5
+export const STAGE_COLOR_BLUE = '#1f5fe0'; // L0–L5
 
 /** Node colour by pipeline stage. */
 export function nodeColor(node: GraphNode): string {

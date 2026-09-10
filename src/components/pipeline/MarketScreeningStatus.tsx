@@ -165,7 +165,7 @@ export default function MarketScreeningStatus({ onScanComplete, newCandidatesCou
 
         {/* Left Section: Icon & Title */}
         <div className="flex items-center gap-3 min-w-0">
-          <div className="relative h-10 w-10 rounded-lg bg-gradient-to-br from-[#3B82F6] to-[#1838CC] flex items-center justify-center shadow-md shadow-blue-500/20 shrink-0">
+          <div className="relative h-10 w-10 rounded-lg bg-gradient-to-br from-[#1F5FE0] to-[#1838CC] flex items-center justify-center shadow-md shadow-blue-500/20 shrink-0">
             <Sparkles className="h-5 w-5 text-white" />
             {isActive && (
               <span className="absolute -bottom-1 -right-1 h-3 w-3 rounded-full bg-emerald-400 border-2 border-white dark:border-gray-900" />
