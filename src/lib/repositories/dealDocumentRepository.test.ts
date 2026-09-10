@@ -5,6 +5,7 @@ interface MockDb {
   select: ReturnType<typeof vi.fn>;
   from: ReturnType<typeof vi.fn>;
   where: ReturnType<typeof vi.fn>;
+  orderBy: ReturnType<typeof vi.fn>;
   limit: ReturnType<typeof vi.fn>;
   insert: ReturnType<typeof vi.fn>;
   values: ReturnType<typeof vi.fn>;
@@ -19,6 +20,7 @@ function makeMockDb(): MockDb {
     select: vi.fn().mockReturnThis(),
     from: vi.fn().mockReturnThis(),
     where: vi.fn().mockReturnThis(),
+    orderBy: vi.fn(),
     limit: vi.fn(),
     insert: vi.fn().mockReturnThis(),
     values: vi.fn().mockReturnThis(),
@@ -51,6 +53,43 @@ describe('DealDocumentRepository', () => {
   it('findById throws when no row matches (wrong id or wrong workspace)', async () => {
     mockDb.limit.mockResolvedValueOnce([]);
     await expect(repo.findById('missing')).rejects.toThrow(/not found/);
+  });
+
+  it('findByDealId returns every document for the deal, newest first', async () => {
+    const rows = [
+      { id: 'doc-2', deal_id: 'deal-1', created_at: '2026-04-01T00:00:00.000Z' },
+      { id: 'doc-1', deal_id: 'deal-1', created_at: '2026-01-01T00:00:00.000Z' },
+    ];
+    mockDb.orderBy.mockResolvedValueOnce(rows);
+
+    const result = await repo.findByDealId('deal-1');
+
+    expect(result).toEqual(rows);
+    // Two where() calls: the workspace-companies subquery and the outer query.
+    expect(mockDb.where).toHaveBeenCalledTimes(2);
+    expect(mockDb.orderBy).toHaveBeenCalledTimes(1);
+  });
+
+  it('findByDealId returns an empty list when the deal has no documents', async () => {
+    mockDb.orderBy.mockResolvedValueOnce([]);
+    await expect(repo.findByDealId('deal-1')).resolves.toEqual([]);
+  });
+
+  it('findByDealId caps the read when a limit is given', async () => {
+    mockDb.orderBy.mockReturnValueOnce({ limit: mockDb.limit });
+    mockDb.limit.mockResolvedValueOnce([]);
+
+    await repo.findByDealId('deal-1', 50);
+
+    expect(mockDb.limit).toHaveBeenCalledWith(50);
+  });
+
+  it('findByDealId issues no LIMIT when none is requested', async () => {
+    mockDb.orderBy.mockResolvedValueOnce([]);
+
+    await repo.findByDealId('deal-1');
+
+    expect(mockDb.limit).not.toHaveBeenCalled();
   });
 
   it('findFilePathsByDealId scopes to companies in this workspace and drops falsy paths', async () => {

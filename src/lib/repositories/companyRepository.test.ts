@@ -758,3 +758,39 @@ describe('CompanyRepository.findByExactName', () => {
     expect(clause.params).not.toContain('acme');
   });
 });
+
+describe('CompanyRepository.findIdAndNameByIds', () => {
+  /** Build a db whose `select(...).from(...).where(...)` resolves to `rows`. */
+  function makeNameDb(
+    rows: Array<{ id: string; target: string | null; project_name: string | null }>,
+  ) {
+    const where = vi.fn().mockResolvedValue(rows);
+    const from = vi.fn().mockReturnValue({ where });
+    const select = vi.fn().mockReturnValue({ from });
+    return { db: { select } as never, select, where };
+  }
+
+  it('returns [] without hitting the DB when the id list is empty', async () => {
+    const { db, select } = makeNameDb([]);
+    const repo = new CompanyRepository(db, 'workspace-1');
+
+    expect(await repo.findIdAndNameByIds([])).toEqual([]);
+    expect(select).not.toHaveBeenCalled();
+  });
+
+  it('resolves every name in a single workspace-scoped query', async () => {
+    const rows = [
+      { id: 'c1', target: 'Acme Corp', project_name: null },
+      { id: 'c2', target: null, project_name: 'Project Beta' },
+    ];
+    const { db, select, where } = makeNameDb(rows);
+    const repo = new CompanyRepository(db, 'workspace-1');
+
+    expect(await repo.findIdAndNameByIds(['c1', 'c2'])).toEqual(rows);
+    expect(select).toHaveBeenCalledTimes(1);
+
+    const clause = new PgDialect().sqlToQuery(where.mock.calls[0][0] as SQL);
+    expect(clause.sql).toContain('in');
+    expect(clause.params).toEqual(expect.arrayContaining(['c1', 'c2', 'workspace-1']));
+  });
+});

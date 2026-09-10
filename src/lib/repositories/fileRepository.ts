@@ -248,6 +248,27 @@ export class FileRepository {
    * general search term across file_name / notes. Results ordered by file_date
    * descending, capped at 20.
    */
+  /**
+   * Smart Files linked to a company via `matched_companies`, newest first.
+   *
+   * Company Card regeneration reads these to pick up information that only
+   * exists in an uploaded file (MoM, prospectus, financials) and to compare
+   * each file's date against the card's `created_at`.
+   */
+  async findByMatchedCompanyId(companyId: string, limit = 50): Promise<Tables<'files'>[]> {
+    return this.db
+      .select()
+      .from(files)
+      .where(
+        and(
+          sql`${files.matched_companies} @> ${JSON.stringify([{ id: companyId }])}::jsonb`,
+          eq(files.workspace_id, this.workspaceId),
+        ),
+      )
+      .orderBy(desc(files.file_date), desc(files.created_at))
+      .limit(limit);
+  }
+
   async searchForAgent(opts: FileAgentSearchOptions): Promise<Tables<'files'>[]> {
     const { companyName, tag, searchTerm, limit = 20 } = opts;
     const conditions: (SQL | undefined)[] = [eq(files.workspace_id, this.workspaceId)];

@@ -1419,6 +1419,13 @@ export const files = pgTable(
         "btree",
         table.created_at.asc().nullsLast().op("timestamptz_ops"),
       ),
+      // Supports the `matched_companies @> '[{"id": ...}]'` containment filter
+      // used by the company-detail read and Company Card generation.
+      // jsonb_path_ops keeps the index small since we only ever use `@>`.
+      idxFilesMatchedCompaniesGin: index("idx_files_matched_companies_gin").using(
+        "gin",
+        table.matched_companies.asc().nullsLast().op("jsonb_path_ops"),
+      ),
       idxFilesFileName: index("idx_files_file_name").using(
         "btree",
         table.file_name.asc().nullsLast().op("text_ops"),

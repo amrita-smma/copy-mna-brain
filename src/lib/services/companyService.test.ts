@@ -113,9 +113,17 @@ function makeTrackMatchingService() {
   return { dispatch: vi.fn().mockResolvedValue({ jobId: 'job-1' }) };
 }
 
+function makeCompanyAnalysisService() {
+  return {
+    regenerate: vi.fn().mockResolvedValue({ runId: 'run-1' }),
+    regenerateMany: vi.fn().mockResolvedValue({ enqueued: [], skipped: [] }),
+  };
+}
+
 function buildService(
   repos: ReturnType<typeof makeRepos>,
   trackMatchingService?: ReturnType<typeof makeTrackMatchingService>,
+  companyAnalysisService?: Partial<ReturnType<typeof makeCompanyAnalysisService>>,
 ) {
   return new CompanyService(
     repos.companyRepo,
@@ -129,6 +137,7 @@ function buildService(
     trackMatchingService as never,
     undefined,
     repos.fileRepo,
+    companyAnalysisService as never,
   );
 }
 
@@ -1708,5 +1717,188 @@ describe("CompanyService user-name resolution (entered_by / deal_sponsor / deal_
     expect(dtos[0].deal_sponsor_name).toBe("Sponsor Sally");
     expect(dtos[0].deal_captain_name).toBeNull();
     expect(dtos[1].deal_captain_name).toBe("Captain Carl");
+  });
+});
+
+describe('CompanyService — Company Card regeneration on a stage move', () => {
+  it('regenerates the card after a promote, naming the stages as the reason', async () => {
+    const repos = makeRepos();
+    const analysis = makeCompanyAnalysisService();
+    const service = buildService(repos, undefined, analysis);
+
+    await service.promote('company-1', 'L1', 'L2');
+
+    expect(analysis.regenerate).toHaveBeenCalledWith('company-1', {
+      reason: 'stage move L1 -> L2',
+      source: 'stage_move',
+    });
+  });
+
+  it('regenerates after the stage write has landed, not before', async () => {
+    const repos = makeRepos();
+    const order: string[] = [];
+    vi.mocked(repos.companyRepo.update).mockImplementation(async () => {
+      order.push('update');
+      return [] as never;
+    });
+    const analysis = {
+      regenerate: vi.fn().mockImplementation(async () => {
+        order.push('regenerate');
+        return { runId: 'run-1' };
+      }),
+    };
+    const service = buildService(repos, undefined, analysis);
+
+    await service.promote('company-1', 'L1', 'L2');
+
+    expect(order).toEqual(['update', 'regenerate']);
+  });
+
+  it('omits the previous stage from the reason when it is unknown', async () => {
+    const repos = makeRepos();
+    const analysis = makeCompanyAnalysisService();
+    const service = buildService(repos, undefined, analysis);
+
+    await service.promote('company-1', undefined, 'L1');
+
+    expect(analysis.regenerate).toHaveBeenCalledWith('company-1', {
+      reason: 'stage move to L1',
+      source: 'stage_move',
+    });
+  });
+
+  it('does not fail the promote when the regeneration enqueue throws', async () => {
+    const repos = makeRepos();
+    const analysis = {
+      regenerate: vi.fn().mockRejectedValue(new Error('workforce unavailable')),
+    };
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const service = buildService(repos, undefined, analysis);
+
+    await expect(service.promote('company-1', 'L1', 'L2')).resolves.toBeUndefined();
+
+    // The stage move itself is already committed, so a card failure is logged, not thrown.
+    expect(repos.companyRepo.update).toHaveBeenCalled();
+    expect(errorSpy).toHaveBeenCalled();
+    errorSpy.mockRestore();
+  });
+
+  it('is a no-op when no analysis service is wired in', async () => {
+    const repos = makeRepos();
+    const service = buildService(repos);
+
+    await expect(service.promote('company-1', 'L1', 'L2')).resolves.toBeUndefined();
+  });
+
+  it('routes a bulk promote through the batched path, not one regenerate per deal', async () => {
+    const repos = makeRepos();
+    const analysis = makeCompanyAnalysisService();
+    const service = buildService(repos, undefined, analysis);
+
+    await service.promoteMany(
+      [
+        { id: 'c-1', currentStage: 'L1' },
+        { id: 'c-2', currentStage: 'L2' },
+      ],
+      'L3',
+    );
+
+    // Per-deal regenerate() would fire two reads per deal; regenerateMany
+    // batches the in-flight check and the name lookup.
+    expect(analysis.regenerate).not.toHaveBeenCalled();
+    expect(analysis.regenerateMany).toHaveBeenCalledOnce();
+    const [ids, opts] = analysis.regenerateMany.mock.calls[0];
+    expect(ids).toEqual(['c-1', 'c-2']);
+    expect(opts.source).toBe('stage_move');
+    expect(opts.reasonById.get('c-1')).toBe('stage move L1 -> L3');
+    expect(opts.reasonById.get('c-2')).toBe('stage move L2 -> L3');
+  });
+
+  it('does not fail a bulk promote when the batched regeneration throws', async () => {
+    const repos = makeRepos();
+    const analysis = {
+      regenerate: vi.fn(),
+      regenerateMany: vi.fn().mockRejectedValue(new Error('workforce unavailable')),
+    };
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const service = buildService(repos, undefined, analysis);
+
+    await expect(
+      service.promoteMany([{ id: 'c-1', currentStage: 'L1' }], 'L2'),
+    ).resolves.toBeUndefined();
+
+    expect(repos.companyRepo.updateMany).toHaveBeenCalled();
+    expect(errorSpy).toHaveBeenCalled();
+    errorSpy.mockRestore();
+  });
+
+  it('skips the batched regeneration entirely for an empty bulk promote', async () => {
+    const repos = makeRepos();
+    const analysis = makeCompanyAnalysisService();
+    const service = buildService(repos, undefined, analysis);
+
+    await service.promoteMany([], 'L3');
+
+    expect(analysis.regenerateMany).not.toHaveBeenCalled();
+  });
+
+  it('regenerates when the Current Stage dropdown moves the company', async () => {
+    const repos = makeRepos();
+    vi.mocked(repos.companyRepo.findById).mockResolvedValue(
+      makeCompany({ pipeline_stage: 'L2' }),
+    );
+    vi.mocked(repos.companyRepo.findDetails).mockResolvedValue({
+      company: makeCompany({ pipeline_stage: 'L3' }),
+      financials: [],
+      fx: [],
+      screening: null,
+    } as never);
+    const analysis = makeCompanyAnalysisService();
+    const service = buildService(repos, undefined, analysis);
+
+    await service.updateFromDTO('company-1', { pipeline_stage: 'L3' } as never);
+
+    expect(analysis.regenerate).toHaveBeenCalledWith('company-1', {
+      reason: 'stage move L2 -> L3',
+      source: 'stage_move',
+    });
+  });
+
+  it('does NOT regenerate when a detail-only save echoes the current stage', async () => {
+    const repos = makeRepos();
+    vi.mocked(repos.companyRepo.findById).mockResolvedValue(
+      makeCompany({ pipeline_stage: 'L2' }),
+    );
+    vi.mocked(repos.companyRepo.findDetails).mockResolvedValue({
+      company: makeCompany({ pipeline_stage: 'L2' }),
+      financials: [],
+      fx: [],
+      screening: null,
+    } as never);
+    const analysis = makeCompanyAnalysisService();
+    const service = buildService(repos, undefined, analysis);
+
+    await service.updateFromDTO('company-1', {
+      pipeline_stage: 'L2',
+      comments: 'just a note',
+    } as never);
+
+    expect(analysis.regenerate).not.toHaveBeenCalled();
+  });
+
+  it('does NOT regenerate on an update that carries no stage at all', async () => {
+    const repos = makeRepos();
+    vi.mocked(repos.companyRepo.findDetails).mockResolvedValue({
+      company: makeCompany({ pipeline_stage: 'L2' }),
+      financials: [],
+      fx: [],
+      screening: null,
+    } as never);
+    const analysis = makeCompanyAnalysisService();
+    const service = buildService(repos, undefined, analysis);
+
+    await service.updateFromDTO('company-1', { comments: 'just a note' } as never);
+
+    expect(analysis.regenerate).not.toHaveBeenCalled();
   });
 });

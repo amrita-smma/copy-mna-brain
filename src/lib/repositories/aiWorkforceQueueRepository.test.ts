@@ -1,5 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { AiWorkforceQueueRepository } from './aiWorkforceQueueRepository';
+import {
+  AiWorkforceQueueRepository,
+  isTerminalWorkforceStatus,
+} from './aiWorkforceQueueRepository';
 
 function makeMockDb() {
   const selectChain = {
@@ -910,5 +913,54 @@ describe('AiWorkforceQueueRepository.findActiveByFundAssetId', () => {
     const result = await repo.findActiveByFundAssetId('fund_ai_opinion', 'asset-1');
 
     expect(result).toBeNull();
+  });
+});
+
+describe('AiWorkforceQueueRepository.findActiveCompanyIds', () => {
+  it('returns the subset of ids with a non-terminal run, in one query', async () => {
+    const { db, selectChain } = makeMockDb();
+    // The batched query has no limit(); where() is the awaited terminal call.
+    selectChain.where.mockResolvedValueOnce([
+      { company_id: 'c-1' },
+      { company_id: 'c-3' },
+    ]);
+
+    const repo = new AiWorkforceQueueRepository(db as never, 'workspace-1');
+    const result = await repo.findActiveCompanyIds('company_card', ['c-1', 'c-2', 'c-3']);
+
+    expect(result).toEqual(new Set(['c-1', 'c-3']));
+    expect(db.select).toHaveBeenCalledOnce();
+  });
+
+  it('returns an empty set without hitting the DB when the id list is empty', async () => {
+    const { db } = makeMockDb();
+    const repo = new AiWorkforceQueueRepository(db as never, 'workspace-1');
+
+    await expect(repo.findActiveCompanyIds('company_card', [])).resolves.toEqual(new Set());
+    expect(db.select).not.toHaveBeenCalled();
+  });
+
+  it('drops rows whose trigger_meta carries no company_id', async () => {
+    const { db, selectChain } = makeMockDb();
+    selectChain.where.mockResolvedValueOnce([{ company_id: null }, { company_id: 'c-2' }]);
+
+    const repo = new AiWorkforceQueueRepository(db as never, 'workspace-1');
+    const result = await repo.findActiveCompanyIds('company_card', ['c-1', 'c-2']);
+
+    expect(result).toEqual(new Set(['c-2']));
+  });
+});
+
+describe('isTerminalWorkforceStatus', () => {
+  it('is true for every status a run can never leave', () => {
+    for (const status of ['succeeded', 'failed', 'rejected', 'timed_out'] as const) {
+      expect(isTerminalWorkforceStatus(status)).toBe(true);
+    }
+  });
+
+  it('is false while a run can still progress', () => {
+    for (const status of ['pending', 'running'] as const) {
+      expect(isTerminalWorkforceStatus(status)).toBe(false);
+    }
   });
 });

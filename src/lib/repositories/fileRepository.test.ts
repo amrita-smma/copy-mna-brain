@@ -110,3 +110,60 @@ describe('FileRepository.listPaginated', () => {
     expect(params.filter((p) => p === '%acme%')).toHaveLength(3);
   });
 });
+
+/**
+ * Chain for `findByMatchedCompanyId`:
+ * `select().from().where().orderBy().limit()`.
+ */
+function makeMatchedDb(rows: Array<Partial<Tables<'files'>>>) {
+  const limit = vi.fn().mockResolvedValue(rows);
+  const orderBy = vi.fn().mockReturnValue({ limit });
+  const where = vi.fn().mockReturnValue({ orderBy });
+  const from = vi.fn().mockReturnValue({ where });
+  const select = vi.fn().mockReturnValue({ from });
+  return { db: { select } as never, where, orderBy, limit };
+}
+
+describe('FileRepository.findByMatchedCompanyId', () => {
+  it('returns the files linked to the company', async () => {
+    const rows = [{ id: 'file-1' }, { id: 'file-2' }];
+    const { db } = makeMatchedDb(rows);
+    const repo = new FileRepository(db, 'workspace-1');
+
+    await expect(repo.findByMatchedCompanyId('company-1')).resolves.toEqual(rows);
+  });
+
+  it('filters on the jsonb matched_companies containment and the workspace', async () => {
+    const { db, where } = makeMatchedDb([]);
+    const repo = new FileRepository(db, 'workspace-1');
+
+    await repo.findByMatchedCompanyId('company-1');
+
+    const [condition] = where.mock.calls[0];
+    const { sql: text, params } = new PgDialect().sqlToQuery(condition as SQL);
+    expect(text).toContain('@>');
+    expect(params).toContain(JSON.stringify([{ id: 'company-1' }]));
+    expect(params).toContain('workspace-1');
+  });
+
+  it('orders by the business file_date first so the newest information leads', async () => {
+    const { db, orderBy } = makeMatchedDb([]);
+    const repo = new FileRepository(db, 'workspace-1');
+
+    await repo.findByMatchedCompanyId('company-1');
+
+    // Two ORDER BY expressions: file_date desc, then created_at desc as the
+    // tiebreak for files the extractor could not date.
+    expect(orderBy.mock.calls[0]).toHaveLength(2);
+  });
+
+  it('caps the result set, defaulting to 50 and honouring an explicit limit', async () => {
+    const first = makeMatchedDb([]);
+    await new FileRepository(first.db, 'workspace-1').findByMatchedCompanyId('company-1');
+    expect(first.limit).toHaveBeenCalledWith(50);
+
+    const second = makeMatchedDb([]);
+    await new FileRepository(second.db, 'workspace-1').findByMatchedCompanyId('company-1', 5);
+    expect(second.limit).toHaveBeenCalledWith(5);
+  });
+});

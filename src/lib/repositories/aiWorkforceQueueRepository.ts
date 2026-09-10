@@ -41,6 +41,11 @@ const TERMINAL_STATUSES: readonly Status[] = [
   'timed_out',
 ] as const;
 
+/** Whether a run has finished (successfully or not) and will never progress. */
+export function isTerminalWorkforceStatus(status: Status): boolean {
+  return TERMINAL_STATUSES.includes(status);
+}
+
 // Advisory lock key for the dispatcher critical section. Chosen as an
 // arbitrary but stable bigint so concurrent dispatcherTick() callers serialize
 // across the EXISTS(running) precheck + atomic claim. Without this, two
@@ -148,6 +153,33 @@ export class AiWorkforceQueueRepository {
       .orderBy(desc(aiWorkforceQueue.created_at))
       .limit(1);
     return row ?? null;
+  }
+
+  /**
+   * Batched {@link findActiveByCompanyId}: the subset of `companyIds` that
+   * already have a non-terminal run for `agentName`. Lets a bulk caller ask
+   * "which of these are already in flight?" in one query instead of one
+   * lookup per company inside a loop.
+   */
+  async findActiveCompanyIds(
+    agentName: string,
+    companyIds: string[],
+  ): Promise<Set<string>> {
+    if (companyIds.length === 0) return new Set();
+    const rows = await this.db
+      .select({
+        company_id: sql<string>`${aiWorkforceQueue.trigger_meta}->>'company_id'`,
+      })
+      .from(aiWorkforceQueue)
+      .where(
+        and(
+          eq(aiWorkforceQueue.agent_name, agentName),
+          inArray(sql`${aiWorkforceQueue.trigger_meta}->>'company_id'`, companyIds),
+          sql`${aiWorkforceQueue.status} NOT IN ('succeeded', 'failed', 'rejected', 'timed_out')`,
+          eq(aiWorkforceQueue.workspace_id, this.workspaceId),
+        ),
+      );
+    return new Set(rows.map((r) => r.company_id).filter(Boolean));
   }
 
   /** Same idempotency check as {@link findActiveByCompanyId}, keyed on a

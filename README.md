@@ -1315,6 +1315,60 @@ company's related suppliers/partners/investors into the relationship graph
 (creating unknown ones as `discovered`). The legacy `runCompanyAnalysis` job
 wrapper remains for backward compatibility but is no longer dispatched.
 
+**Company Card regeneration on a stage move.** Every pipeline stage move
+refreshes the card, so it never goes stale as a deal advances.
+`CompanyService.promote`, `promoteMany` and `updateFromDTO` (the Current Stage
+dropdown — only when the stage actually changes) call
+`CompanyAnalysisService.regenerate`, which enqueues a `company_card` workforce
+run with `trigger_meta.source = 'stage_move'`. It is best-effort: the stage move
+is already committed, so an enqueue failure is logged, never thrown. Unlike
+`dispatch` it is **not** idempotent on a completed card (that is the point), but
+it *is* idempotent on an in-flight run: a `findActiveByCompanyId` pre-check plus
+a per-minute `idempotency_key` (uniquely indexed on `ai_workforce_queue`), so
+even two concurrent moves on one company produce one run. That key is unique for
+all time, so when it collapses onto a run that already finished or was cancelled
+(cancel marks a run `failed`) the enqueue is retried without a key — otherwise a
+cancel-then-retry inside the same minute would return a 202 pointing at a dead
+row. A bulk promote goes
+through `regenerateMany`, which resolves the in-flight set and the company names
+in one batched query each rather than two reads per deal. The "Regenerate" button
+routes through the same path via `POST /api/company-analysis` with `force: true`.
+
+**Freshness and conflict resolution** (`src/lib/companies/cardFreshness.ts`).
+`company_analyses.created_at` records when the card *content* was produced.
+There is one row per company and it is upserted in place, so the completion
+write **re-stamps `created_at`** — left alone it would freeze at the first-ever
+generation and the comparison below would drift further out with every refresh.
+(`updated_at` cannot serve here: it also bumps on the `status → 'processing'`
+write at the start of a run, which would make the card look fresher than its
+content and wrongly beat a newer document. One consequence of re-stamping:
+`DashboardInsightsRepository.getCompanyCardStats` counts card generations in a
+window, regenerations included, not only first-time ones.)
+
+Whether a *prior card exists* is decided by **content** (`hasCardContent`), not
+by `status` and not by the timestamp. `status` would be wrong because a failed
+run overwrites only `status`/`error_message`, so a row sitting at `failed` can
+still hold the last good card and a retry must weigh it rather than start blank.
+The timestamp alone would be wrong because `created_at` defaults to `NOW()` on
+the `status: 'processing'` insert that opens every run, so a first run that
+failed leaves a dated but empty row — treating that as a card would inline an
+empty one and let its processing-start timestamp beat genuinely older documents.
+A regeneration reads the prior card **before** marking the row processing (so the
+row is never deleted first), then collects the company's dated source material:
+`deal_documents` (dated by `created_at`) and Smart Files matched to the company
+(dated by the business `file_date`, falling back to `created_at`). Two clocks are
+used deliberately: a date-only `file_date` is weighed against the card at the
+**end** of its day, so a file dated today does not lose to a card generated
+earlier the same morning, but sources are *ranked against each other* on the raw
+instant — otherwise a file dated `2026-03-01` would outrank a deal document
+actually created at `2026-03-01T22:00Z`. Those, their dates, and the
+previous card's sections are inlined into the agent prompt with
+one rule: **when two sources disagree, the later-dated one wins.** A document
+dated after the card's `created_at` overrides the card; an older one loses to it and is
+used only for facts the card doesn't cover; an undated document can never win a
+conflict. Anything the newer sources don't contradict is carried forward, so a
+refresh never silently drops still-valid findings.
+
 ### Stuck-job cleanup scheduler
 
 If a request is aborted before `after()` fires, a job can get stuck in `pending`

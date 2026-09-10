@@ -1,4 +1,4 @@
-import { and, eq, inArray } from 'drizzle-orm';
+import { and, desc, eq, inArray } from 'drizzle-orm';
 import { companies, dealDocuments } from '@/lib/db/schema';
 import type { DbClient, Tables, TablesInsert, TablesUpdate } from './types';
 
@@ -32,6 +32,24 @@ export class DealDocumentRepository {
       .limit(1);
     if (!row) throw new Error(`Deal document ${id} not found`);
     return row;
+  }
+
+  /**
+   * Documents attached to a deal, newest first. Used by Company Card
+   * regeneration to date-rank the company's own paperwork against the card's
+   * `created_at`.
+   *
+   * `limit` is optional but callers on a prompt path should pass one: the rows
+   * carry full extracted notes, so an unbounded read on a document-heavy deal
+   * pulls far more text than the consumer can use.
+   */
+  async findByDealId(dealId: string, limit?: number): Promise<Tables<'deal_documents'>[]> {
+    const query = this.db
+      .select()
+      .from(dealDocuments)
+      .where(and(eq(dealDocuments.deal_id, dealId), inArray(dealDocuments.deal_id, this.workspaceCompanyIds())))
+      .orderBy(desc(dealDocuments.created_at));
+    return limit === undefined ? query : query.limit(limit);
   }
 
   async findFilePathsByDealId(dealId: string): Promise<string[]> {

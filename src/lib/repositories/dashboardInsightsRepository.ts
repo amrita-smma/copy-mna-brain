@@ -438,9 +438,11 @@ export class DashboardInsightsRepository {
     return Number(row?.value ?? 0);
   }
 
-  /** AI Company Cards (`company_analyses`) created within the window, split by
-   * terminal status. One row exists per company; re-generation overwrites it,
-   * so `created_at` counts first-time card generations. */
+  /** AI Company Cards (`company_analyses`) generated within the window, split
+   * by terminal status. One row exists per company and a completed run
+   * re-stamps `created_at` (it is the card's "content produced at" timestamp —
+   * see `@/lib/companies/cardFreshness`), so this counts card *generations* in
+   * the window, regenerations included, not only first-time ones. */
   async getCompanyCardStats(from: Date, to: Date): Promise<CompanyCardStats> {
     const [row] = await this.db
       .select({

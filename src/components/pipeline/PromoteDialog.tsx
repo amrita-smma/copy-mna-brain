@@ -78,13 +78,10 @@ export default function PromoteDialog({
             : undefined,
       });
 
-      // Auto-trigger AI Company Card when promoting to L1
-      if (nextStage === "L1") {
-        apiRequest("/api/company-analysis", {
-          method: "POST",
-          body: JSON.stringify({ companyId: dealId }),
-        }).catch(() => {}); // Silent — don't block promotion on analysis
-      }
+      // The Company Card is refreshed server-side on every stage move (see
+      // CompanyService.promote → CompanyAnalysisService.regenerate), so there
+      // is no client-side trigger here — a second POST would enqueue a
+      // duplicate workforce run for a company that has no card yet.
 
       // 3. Upload and Save Document
       if (selectedFile) {

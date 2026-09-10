@@ -1,7 +1,7 @@
 import type { CompanyAnalysisRepository, CompanyRepository } from '@/lib/repositories';
 import type { Tables } from '@/lib/repositories';
 import type { DbClient } from '@/lib/repositories';
-import { AiWorkforceQueueRepository } from '@/lib/repositories';
+import { AiWorkforceQueueRepository, isTerminalWorkforceStatus } from '@/lib/repositories';
 import type { CompanyAnalysisPayload } from '@/lib/jobs/handlers/companyAnalysis';
 import { enqueueAgentRun } from '@/lib/workforce';
 
@@ -21,6 +21,226 @@ export class CompanyAnalysisService {
   }
 
   /**
+   * Enqueue an AI Workforce run that drives `generate_company_card`.
+   *
+   * Shared by first-time generation and regeneration; `extraInstruction` is
+   * appended so a regeneration can tell the agent why it is running.
+   */
+  private async enqueueCardRun(
+    companyId: string,
+    opts: {
+      source?: string | null;
+      reason?: string | null;
+      extraInstruction?: string | null;
+      triggeredByUserId?: string | null;
+      idempotencyKey?: string | null;
+      /** Pre-resolved display name, so a batched caller doesn't re-read the row. */
+      companyName?: string | null;
+    },
+  ): Promise<{ runId: string; created: boolean }> {
+    let companyName = opts.companyName ?? null;
+    if (!companyName) {
+      const company = await this.companyRepo.findById(companyId);
+      companyName = company?.target || company?.project_name || 'the company';
+    }
+
+    const instruction =
+      `Generate the AI Company Card for "${companyName}" (company_id: ${companyId}). ` +
+      `Call the generate_company_card tool with company_id "${companyId}". ` +
+      `It researches the company, produces and saves the structured Company Card, and links the company's ` +
+      `related companies (suppliers, partners, investors) into the relationship graph — creating any unknown ` +
+      `company at the "discovered" stage. After it returns, briefly summarise what was produced and which ` +
+      `related companies were linked.` +
+      (opts.extraInstruction ? ` ${opts.extraInstruction}` : '');
+
+    return enqueueAgentRun(this.db, {
+      agentName: COMPANY_CARD_AGENT_NAME,
+      triggerSource: 'api',
+      triggerMeta: {
+        company_id: companyId,
+        source: opts.source ?? null,
+        reason: opts.reason ?? null,
+      },
+      input: {
+        title: opts.reason
+          ? `Company card refresh: ${companyName}`
+          : `Company card: ${companyName}`,
+        instruction,
+        prompt: instruction,
+        company_id: companyId,
+      },
+      triggeredByUserId: opts.triggeredByUserId ?? null,
+      idempotencyKey: opts.idempotencyKey ?? null,
+    });
+  }
+
+  /**
+   * Idempotency key that collapses a burst of regeneration requests for the
+   * same company into a single queue row.
+   *
+   * `findActiveByCompanyId` catches the common case (a run is already queued or
+   * executing) but is a read-then-write, so two concurrent stage moves can both
+   * pass it. `ai_workforce_queue.idempotency_key` is uniquely indexed, so a
+   * shared key makes the second insert a no-op at the database level. The key
+   * is bucketed per minute: near-simultaneous moves collapse, while a genuine
+   * refresh requested later still gets its own run.
+   */
+  private static regenerationIdempotencyKey(companyId: string): string {
+    const minuteBucket = Math.floor(Date.now() / 60_000);
+    return `${COMPANY_CARD_AGENT_NAME}:regen:${companyId}:${minuteBucket}`;
+  }
+
+  /**
+   * Enqueue a regeneration under the per-minute key, but only let it collapse
+   * onto a run that is still alive.
+   *
+   * `idempotency_key` is unique table-wide and for all time, so a run that has
+   * already reached a terminal state still owns its minute's key. Cancelling a
+   * card run marks it `failed`, so without this a user who cancels and
+   * immediately retries would get a 202 pointing at the dead row and no work
+   * would ever be done. When the key collapses onto a terminal run we retry
+   * with no key at all — the caller has already established that nothing is in
+   * flight, so a plain insert is what it asked for.
+   */
+  private async enqueueRegeneration(
+    companyId: string,
+    queueRepo: AiWorkforceQueueRepository,
+    opts: {
+      source?: string | null;
+      reason: string | null;
+      companyName?: string | null;
+      triggeredByUserId?: string | null;
+    },
+  ): Promise<{ runId: string }> {
+    const args = {
+      source: opts.source ?? null,
+      reason: opts.reason,
+      companyName: opts.companyName ?? null,
+      extraInstruction: CompanyAnalysisService.regenerationInstruction(opts.reason),
+      triggeredByUserId: opts.triggeredByUserId ?? null,
+    };
+
+    const first = await this.enqueueCardRun(companyId, {
+      ...args,
+      idempotencyKey: CompanyAnalysisService.regenerationIdempotencyKey(companyId),
+    });
+    if (first.created) return { runId: first.runId };
+
+    const existing = await queueRepo.findById(first.runId);
+    if (existing && !isTerminalWorkforceStatus(existing.status)) {
+      // A concurrent request won the key and its run is still live — reuse it.
+      return { runId: first.runId };
+    }
+
+    const retried = await this.enqueueCardRun(companyId, { ...args, idempotencyKey: null });
+    return { runId: retried.runId };
+  }
+
+  /**
+   * Batched {@link regenerate} for a bulk stage move.
+   *
+   * One query resolves which companies already have a run in flight and one
+   * more resolves their display names, so a 50-deal promote does not fire two
+   * reads per deal (the per-id-lookup-in-a-loop pattern CLAUDE.md forbids).
+   * The enqueue itself is inherently per-company — each needs its own queue row
+   * — and is awaited sequentially so a large bulk move doesn't open a
+   * connection per deal.
+   */
+  async regenerateMany(
+    companyIds: string[],
+    opts?: {
+      /** Per-company reason, keyed by company id. */
+      reasonById?: Map<string, string | null>;
+      source?: string | null;
+      triggeredByUserId?: string | null;
+    },
+  ): Promise<{ enqueued: string[]; skipped: string[] }> {
+    const ids = [...new Set(companyIds)];
+    if (ids.length === 0) return { enqueued: [], skipped: [] };
+
+    const queueRepo = new AiWorkforceQueueRepository(this.db, this.workspaceId);
+    const [active, names] = await Promise.all([
+      queueRepo.findActiveCompanyIds(COMPANY_CARD_AGENT_NAME, ids),
+      this.companyRepo.findIdAndNameByIds(ids),
+    ]);
+    const nameById = new Map(
+      names.map((n) => [n.id, n.target || n.project_name || 'the company']),
+    );
+
+    const enqueued: string[] = [];
+    const skipped: string[] = [];
+    for (const companyId of ids) {
+      if (active.has(companyId)) {
+        skipped.push(companyId);
+        continue;
+      }
+      const reason = opts?.reasonById?.get(companyId)?.trim() || null;
+      await this.enqueueRegeneration(companyId, queueRepo, {
+        source: opts?.source ?? null,
+        reason,
+        // Explicit fallback, never null: a null name would send enqueueCardRun
+        // back to a per-id findById and reintroduce the fan-out this method
+        // exists to avoid. A miss here means the row isn't in this workspace.
+        companyName: nameById.get(companyId) ?? 'the company',
+        triggeredByUserId: opts?.triggeredByUserId ?? null,
+      });
+      enqueued.push(companyId);
+    }
+    return { enqueued, skipped };
+  }
+
+  /** Shared regeneration addendum: what the agent must do differently on a refresh. */
+  private static regenerationInstruction(reason: string | null): string {
+    return (
+      `This is a REGENERATION of an existing card${reason ? ` (${reason})` : ''}. ` +
+      `Refresh it against the latest information, including the company's uploaded files and deal ` +
+      `documents. The prompt lists the date the previous card was generated alongside each document's ` +
+      `date — where a document and the existing card disagree, the later-dated source wins.`
+    );
+  }
+
+  /**
+   * Force a fresh Company Card run even when a completed card already exists.
+   *
+   * Unlike {@link dispatch} this is *not* idempotent on a completed card — that
+   * is the point: a stage move (or an explicit "Regenerate") must re-research
+   * the company and pick up anything that landed since the card was written.
+   *
+   * The existing `company_analyses` row is deliberately left in place. It
+   * carries `created_at` (re-stamped by each completed run) and the current
+   * card text, and the generation
+   * handler reads both to date-rank the card against the company's documents:
+   * on a conflict the later-dated source wins. Deleting the row first would
+   * throw that comparison away.
+   *
+   * Still idempotent on an *in-flight* run: if a card run is already queued or
+   * executing for this company we leave it alone rather than stacking a
+   * duplicate. That check is a read-then-write, so it is backed by a
+   * per-minute idempotency key (see {@link enqueueRegeneration}) that collapses
+   * concurrent requests at the unique index — while never collapsing onto a run
+   * that has already finished or been cancelled.
+   */
+  async regenerate(
+    companyId: string,
+    opts?: {
+      reason?: string | null;
+      source?: string | null;
+      triggeredByUserId?: string | null;
+    },
+  ): Promise<{ runId: string } | { skipped: 'already_running' }> {
+    const queueRepo = new AiWorkforceQueueRepository(this.db, this.workspaceId);
+    const active = await queueRepo.findActiveByCompanyId(COMPANY_CARD_AGENT_NAME, companyId);
+    if (active) return { skipped: 'already_running' };
+
+    const reason = opts?.reason?.trim() || null;
+    return this.enqueueRegeneration(companyId, queueRepo, {
+      source: opts?.source ?? null,
+      reason,
+      triggeredByUserId: opts?.triggeredByUserId ?? null,
+    });
+  }
+
+  /**
    * Generate the AI Company Card via the AI Workforce.
    *
    * Previously a `company_analysis` job; now enqueues a workforce run that
@@ -29,8 +249,9 @@ export class CompanyAnalysisService {
    * company's related companies into the relationship graph.
    *
    * Idempotent on a *completed* card: if one already exists we return it
-   * without enqueueing. Regeneration deletes the row first (see delete), so a
-   * fresh run is enqueued.
+   * without enqueueing. Use {@link regenerate} to force a refresh of a card
+   * that already exists — it keeps the row so the run can compare the card's
+   * `created_at` against the company's documents.
    *
    * `triggeredByUserId` is the logged-in user who clicked "Generate Company
    * Card". It owns the resulting AI Workforce run so the task is attributed to
@@ -43,28 +264,9 @@ export class CompanyAnalysisService {
     const existing = await this.companyAnalysisRepo.findCompletedByCompanyId(payload.companyId);
     if (existing) return { existing };
 
-    const company = await this.companyRepo.findById(payload.companyId);
-    const companyName = company?.target || company?.project_name || 'the company';
-
-    const instruction =
-      `Generate the AI Company Card for "${companyName}" (company_id: ${payload.companyId}). ` +
-      `Call the generate_company_card tool with company_id "${payload.companyId}". ` +
-      `It researches the company, produces and saves the structured Company Card, and links the company's ` +
-      `related companies (suppliers, partners, investors) into the relationship graph — creating any unknown ` +
-      `company at the "discovered" stage. After it returns, briefly summarise what was produced and which ` +
-      `related companies were linked.`;
-
-    const { runId } = await enqueueAgentRun(this.db, {
-      agentName: COMPANY_CARD_AGENT_NAME,
-      triggerSource: 'api',
-      triggerMeta: { company_id: payload.companyId, source: payload.source ?? null },
-      input: {
-        title: `Company card: ${companyName}`,
-        instruction,
-        prompt: instruction,
-        company_id: payload.companyId,
-      },
-      triggeredByUserId: triggeredByUserId ?? null,
+    const { runId } = await this.enqueueCardRun(payload.companyId, {
+      source: payload.source ?? null,
+      triggeredByUserId,
     });
 
     return { runId };

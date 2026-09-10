@@ -921,7 +921,7 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
     }, 300000);
   };
 
-  const generateAnalysis = async () => {
+  const generateAnalysis = async (force = false) => {
     setAnalysisGenerating(true);
     let dispatched = false;
     try {
@@ -929,7 +929,7 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
         "/api/company-analysis",
         {
           method: "POST",
-          body: JSON.stringify({ companyId: company.id }),
+          body: JSON.stringify({ companyId: company.id, force }),
         },
       );
 
@@ -952,15 +952,10 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
   };
 
   const regenerateAnalysis = async () => {
-    try {
-      await apiRequest(`/api/company-analysis?companyId=${company.id}`, {
-        method: "DELETE",
-      });
-      setAnalysis(null);
-    } catch {
-      // Continue even if delete fails
-    }
-    await generateAnalysis();
+    // Deliberately does NOT delete the existing card first: the run reads its
+    // `created_at` and content to date-rank it against the company's
+    // documents, so on a conflict the later-dated source wins.
+    await generateAnalysis(true);
   };
 
   const scrollToAICardAndRun = (forceRegenerate = false) => {
@@ -2271,6 +2266,13 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
                     </div>
                   ) : analysis?.status === "completed" ? (
                     <div className="space-y-4">
+                      {analysis.created_at && (
+                        <p className="text-xs text-muted-foreground">
+                          Generated{" "}
+                          {formatDistanceToNow(new Date(analysis.created_at), { addSuffix: true })}{" "}
+                          · a stage move or Regenerate refreshes it against newer documents
+                        </p>
+                      )}
                       {analysis.sources && Array.isArray(analysis.sources) && analysis.sources.length > 0 && (
                         <div className="flex items-center gap-2 flex-wrap">
                           <span className="text-xs text-muted-foreground">Sources:</span>

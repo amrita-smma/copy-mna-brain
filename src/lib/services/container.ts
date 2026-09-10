@@ -245,6 +245,9 @@ export function createContainer(db: DbClient, workspaceId: string): Container {
     trackMatchingService,
     userRepo,
     fileRepo,
+    // A pipeline stage move regenerates the AI Company Card against the latest
+    // information (see CompanyService.promote / promoteMany / updateFromDTO).
+    companyAnalysisService,
   );
   const companyCardSlideService = new CompanyCardSlideService(
     companyService,

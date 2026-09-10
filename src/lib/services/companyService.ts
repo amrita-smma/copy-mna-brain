@@ -21,6 +21,7 @@ import {
   type CompanyDTOInput,
 } from '@/lib/dto/companyDTO';
 import type { TrackMatchingService } from './trackMatchingService';
+import type { CompanyAnalysisService } from './companyAnalysisService';
 import type { UserRepository } from '@/lib/repositories';
 import { bestFuzzyMatch } from '@/lib/fuzzySearch';
 import { getMissingL0Fields, type L0CompanyInput } from '@/lib/companies/l0Requirements';
@@ -110,7 +111,72 @@ export class CompanyService {
     // of every file's `matched_companies` array. Left out in contexts that
     // never delete (e.g. the file-ingest-built service).
     private readonly fileRepo?: FileRepository,
+    // Optional: when present, a pipeline stage move regenerates the company's
+    // AI Company Card so it reflects whatever has landed since it was written.
+    // Left out in contexts that never move a company between stages.
+    private readonly companyAnalysisService?: CompanyAnalysisService,
   ) {}
+
+  /**
+   * Kick off a Company Card regeneration after a pipeline stage move.
+   *
+   * A stage move is the point at which the card gets read by a wider audience,
+   * so it must reflect the latest information — including anything that only
+   * exists in a file uploaded after the card was written. Regeneration keeps
+   * the existing row so the run can compare the card's `created_at` against
+   * each document's date and let the later-dated source win a conflict.
+   *
+   * Best-effort and never fatal: the stage move itself has already been
+   * committed, and an enqueue failure must not roll it back or 500 the caller.
+   * Duplicate suppression lives in `CompanyAnalysisService.regenerate`, which
+   * no-ops while a card run for the company is still in flight.
+   */
+  private async regenerateCompanyCardForStageMove(
+    id: string,
+    currentStage: string | undefined,
+    nextStage: string,
+  ): Promise<void> {
+    if (!this.companyAnalysisService) return;
+    try {
+      await this.companyAnalysisService.regenerate(id, {
+        reason: CompanyService.stageMoveReason(currentStage, nextStage),
+        source: 'stage_move',
+      });
+    } catch (err) {
+      console.error('Error regenerating company card after stage move:', err);
+    }
+  }
+
+  /**
+   * Bulk counterpart of {@link regenerateCompanyCardForStageMove}. Routed
+   * through `regenerateMany` so the in-flight check and the company-name lookup
+   * are each a single batched query instead of two reads per deal.
+   */
+  private async regenerateCompanyCardsForBulkStageMove(
+    deals: Array<{ id: string; currentStage?: string }>,
+    nextStage: string,
+  ): Promise<void> {
+    if (!this.companyAnalysisService || deals.length === 0) return;
+    try {
+      await this.companyAnalysisService.regenerateMany(
+        deals.map((d) => d.id),
+        {
+          reasonById: new Map(
+            deals.map((d) => [d.id, CompanyService.stageMoveReason(d.currentStage, nextStage)]),
+          ),
+          source: 'stage_move',
+        },
+      );
+    } catch (err) {
+      console.error('Error regenerating company cards after bulk stage move:', err);
+    }
+  }
+
+  private static stageMoveReason(currentStage: string | undefined, nextStage: string): string {
+    return currentStage
+      ? `stage move ${currentStage} -> ${nextStage}`
+      : `stage move to ${nextStage}`;
+  }
 
   findById(id: string) {
     return this.companyRepo.findById(id);
@@ -340,8 +406,13 @@ export class CompanyService {
     // single save, and validate *before* any write so a 422 leaves the row
     // untouched.
     const nextStage = split.company.pipeline_stage;
+    // Only read the existing row when the payload actually carries a stage —
+    // that's the one case where we need the prior stage (for the L0 gate below
+    // and to detect a stage move worth regenerating the card for).
+    const priorCompany =
+      typeof nextStage === 'string' ? (await this.companyRepo.findById(id)) : null;
     if (typeof nextStage === 'string' && IN_PIPELINE_STAGES.has(nextStage)) {
-      const existing = await this.companyRepo.findById(id);
+      const existing = priorCompany!;
       const wasPreL0 = !IN_PIPELINE_STAGES.has(existing.pipeline_stage ?? '');
       if (wasPreL0) {
         this.assertL0Requirements({
@@ -357,6 +428,21 @@ export class CompanyService {
     await this.applyChildWrites(id, split);
     if (logAction) {
       await this.companyLogRepo.insert({ company_id: id, action: logAction });
+    }
+    // The Current Stage dropdown is a stage move too, so it refreshes the card
+    // exactly like an explicit promote. Only when the stage actually changed —
+    // a detail-only save that happens to echo the current stage must not
+    // re-trigger a run.
+    if (
+      typeof nextStage === 'string' &&
+      priorCompany &&
+      (priorCompany.pipeline_stage ?? '') !== nextStage
+    ) {
+      await this.regenerateCompanyCardForStageMove(
+        id,
+        priorCompany.pipeline_stage ?? undefined,
+        nextStage,
+      );
     }
     return this.findByIdDTO(id);
   }
@@ -522,6 +608,7 @@ export class CompanyService {
     if (assigneeIds !== undefined) {
       await this.companyRepo.setAssignees(id, assigneeIds);
     }
+    await this.regenerateCompanyCardForStageMove(id, currentStage, nextStage);
   }
 
   getAssignees(id: string) {
@@ -641,6 +728,7 @@ export class CompanyService {
           : `PROMOTED_TO_${nextStage}`,
       })),
     );
+    await this.regenerateCompanyCardsForBulkStageMove(deals, nextStage);
   }
 
   async drop(id: string, reason?: string): Promise<void> {

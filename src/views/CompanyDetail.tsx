@@ -840,7 +840,7 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
     }, 300000);
   };
 
-  const generateAnalysis = async () => {
+  const generateAnalysis = async (force = false) => {
     if (!companyId) return;
     setAnalysisGenerating(true);
 
@@ -849,7 +849,7 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
       const res = await fetch('/api/company-analysis', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ companyId }),
+        body: JSON.stringify({ companyId, force }),
       });
 
       if (!res.ok) {
@@ -878,19 +878,10 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
 
   const regenerateAnalysis = async () => {
     if (!companyId) return;
-
-    try {
-      // Delete existing analysis first
-      await fetch(`/api/company-analysis?companyId=${companyId}`, {
-        method: 'DELETE',
-      });
-      setAnalysis(null);
-    } catch {
-      // Continue even if delete fails
-    }
-
-    // Generate fresh
-    await generateAnalysis();
+    // Deliberately does NOT delete the existing card first: the run reads its
+    // `created_at` and content to date-rank it against the company's
+    // documents, so on a conflict the later-dated source wins.
+    await generateAnalysis(true);
   };
 
   const cancelAnalysis = async () => {
@@ -1280,8 +1271,10 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
                   <DropdownMenuItem
-                    onClick={
-                      analysis?.status === 'completed' ? regenerateAnalysis : generateAnalysis
+                    onClick={() =>
+                      analysis?.status === 'completed'
+                        ? regenerateAnalysis()
+                        : generateAnalysis()
                     }
                   >
                     <Sparkles className="mr-2 h-4 w-4" />
@@ -1783,6 +1776,13 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
               </div>
             ) : analysis?.status === 'completed' ? (
               <div className="space-y-6">
+                {analysis.created_at && (
+                  <p className="text-xs text-muted-foreground">
+                    Generated{' '}
+                    {formatDistanceToNow(new Date(analysis.created_at), { addSuffix: true })} · a
+                    stage move or Regenerate refreshes it against newer documents
+                  </p>
+                )}
                 {analysis.sources && Array.isArray(analysis.sources) && analysis.sources.length > 0 && (
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className="text-xs text-muted-foreground">Sources:</span>

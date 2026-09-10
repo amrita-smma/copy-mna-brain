@@ -40,7 +40,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const body = (await request.json()) as CompanyAnalysisPayload;
+    const body = (await request.json()) as CompanyAnalysisPayload & { force?: boolean };
     if (!body.companyId) {
       return NextResponse.json(
         { error: 'Missing required field: companyId' },
@@ -50,6 +50,26 @@ export async function POST(request: NextRequest) {
 
     const db = createDb();
     const { companyAnalysisService } = createContainer(db, await getActiveWorkspaceId());
+
+    // `force` is the "Regenerate" button. It re-runs even though a completed
+    // card exists, and deliberately keeps the existing row: the run reads its
+    // `created_at` and content to date-rank the card against the company's
+    // documents, letting the later-dated source win a conflict.
+    if (body.force) {
+      const result = await companyAnalysisService.regenerate(body.companyId, {
+        reason: 'manual regenerate',
+        source: body.source ?? null,
+        triggeredByUserId: session.user.id,
+      });
+      if ('skipped' in result) {
+        return NextResponse.json(
+          { error: 'A Company Card run is already in progress for this company' },
+          { status: 409 },
+        );
+      }
+      return NextResponse.json({ runId: result.runId }, { status: 202 });
+    }
+
     // Attribute the workforce run to the user who clicked "Generate Company
     // Card" so it shows as their task (not "System") and they get the email.
     const result = await companyAnalysisService.dispatch(body, session.user.id);

@@ -7,9 +7,12 @@ const mocks = vi.hoisted(() => ({
   getStatelessAgentGraph: vi.fn(),
   upsertByCompanyId: vi.fn(),
   updateByCompanyId: vi.fn(),
+  findByCompanyIdAnalysis: vi.fn(),
   findById: vi.fn(),
   findByCompanyFinancials: vi.fn(),
   findByCompanyScreening: vi.fn(),
+  findByDealId: vi.fn(),
+  findByMatchedCompanyId: vi.fn(),
   capture: vi.fn(),
 }));
 
@@ -37,6 +40,7 @@ vi.mock('@/lib/repositories', () => ({
   CompanyAnalysisRepository: class {
     upsertByCompanyId = mocks.upsertByCompanyId;
     updateByCompanyId = mocks.updateByCompanyId;
+    findByCompanyId = mocks.findByCompanyIdAnalysis;
   },
   CompanyRepository: class {
     findById = mocks.findById;
@@ -46,6 +50,12 @@ vi.mock('@/lib/repositories', () => ({
   },
   CompanyScreeningDerivedRepository: class {
     findByCompany = mocks.findByCompanyScreening;
+  },
+  DealDocumentRepository: class {
+    findByDealId = mocks.findByDealId;
+  },
+  FileRepository: class {
+    findByMatchedCompanyId = mocks.findByMatchedCompanyId;
   },
 }));
 
@@ -68,11 +78,18 @@ beforeEach(() => {
   mocks.findById.mockReset();
   mocks.findByCompanyFinancials.mockReset();
   mocks.findByCompanyScreening.mockReset();
+  mocks.findByCompanyIdAnalysis.mockReset();
+  mocks.findByDealId.mockReset();
+  mocks.findByMatchedCompanyId.mockReset();
   mocks.capture.mockReset();
 
   mocks.findById.mockResolvedValue({ id: 'co-1', target: 'Acme Corp' });
   mocks.findByCompanyFinancials.mockResolvedValue([]);
   mocks.findByCompanyScreening.mockResolvedValue(null);
+  // Default: first-ever generation for a company with no documents.
+  mocks.findByCompanyIdAnalysis.mockResolvedValue(null);
+  mocks.findByDealId.mockResolvedValue([]);
+  mocks.findByMatchedCompanyId.mockResolvedValue([]);
   mocks.upsertByCompanyId.mockResolvedValue(undefined);
   mocks.updateByCompanyId.mockResolvedValue({} as Tables<'company_analyses'>);
   mocks.invoke.mockResolvedValue({
@@ -232,5 +249,265 @@ describe('generateCompanyCard', () => {
       generateCompanyCard({ companyId: 'co-1' }, { db: {} as never }),
     ).rejects.toThrow();
     expect(mocks.capture).not.toHaveBeenCalled();
+  });
+});
+
+describe('generateCompanyCard — source freshness and the card timestamp', () => {
+  /** The prompt text handed to the agent for the run. */
+  async function promptFor(): Promise<string> {
+    await generateCompanyCard({ companyId: 'co-1' }, { db: {} as never });
+    const [state] = mocks.invoke.mock.calls[0];
+    return (state.messages[0] as { content: string }).content;
+  }
+
+  function completedCard(overrides: Record<string, unknown> = {}) {
+    return {
+      id: 'analysis-1',
+      company_id: 'co-1',
+      status: 'completed',
+      created_at: '2026-01-15T00:00:00.000Z',
+      business_overview: '- Old overview: revenue $40M',
+      business_model_summary: null,
+      key_takeaways: null,
+      investment_highlights: null,
+      investment_risks: null,
+      diligence_priorities: null,
+      ...overrides,
+    } as unknown as Tables<'company_analyses'>;
+  }
+
+  it('re-stamps created_at when the card completes', async () => {
+    // The row is upserted in place, so left alone created_at would freeze at
+    // the first-ever generation and the date comparison would drift.
+    const before = Date.now();
+    await generateCompanyCard({ companyId: 'co-1' }, { db: {} as never });
+
+    const [, updates] = mocks.updateByCompanyId.mock.calls.at(-1)!;
+    expect(updates.status).toBe('completed');
+    expect(typeof updates.created_at).toBe('string');
+    expect(new Date(updates.created_at as string).getTime()).toBeGreaterThanOrEqual(before);
+  });
+
+  it('leaves created_at alone on a failed run, so the last good card keeps its date', async () => {
+    mocks.invoke.mockResolvedValue({ messages: [{ content: 'not json at all' }] });
+
+    await expect(
+      generateCompanyCard({ companyId: 'co-1' }, { db: {} as never }),
+    ).rejects.toThrow();
+
+    for (const [, updates] of mocks.updateByCompanyId.mock.calls) {
+      expect(updates.created_at).toBeUndefined();
+    }
+  });
+
+  it('does not touch created_at when marking the row processing', async () => {
+    // Only the completion write moves it; the processing upsert must not, or
+    // the card would look freshly generated before it has any new content.
+    await generateCompanyCard({ companyId: 'co-1' }, { db: {} as never });
+
+    const [upsert] = mocks.upsertByCompanyId.mock.calls[0];
+    expect(upsert.created_at).toBeUndefined();
+  });
+
+  it('leaves the prompt free of a freshness block on a first generation with no documents', async () => {
+    const prompt = await promptFor();
+    // The template's conditional pointer at "Existing Card & Source Freshness"
+    // stays, but the section itself is not emitted.
+    expect(prompt).not.toContain('## Existing Card & Source Freshness');
+  });
+
+  it('inlines the company documents with their dates and the later-date-wins rule', async () => {
+    mocks.findByCompanyIdAnalysis.mockResolvedValue(completedCard());
+    mocks.findByDealId.mockResolvedValue([
+      {
+        id: 'doc-1',
+        deal_id: 'co-1',
+        file_name: 'IC memo.pdf',
+        file_path: 'p',
+        stage: 'L2',
+        created_at: '2026-04-01T00:00:00.000Z',
+        structured_notes: 'Revenue revised to $55M',
+        raw_notes: null,
+      },
+    ]);
+    mocks.findByMatchedCompanyId.mockResolvedValue([
+      {
+        id: 'file-1',
+        file_name: 'Old teaser.pdf',
+        file_type: 'prospectus',
+        file_date: '2025-06-01',
+        created_at: '2025-06-02T00:00:00.000Z',
+        structured_notes: 'Revenue $40M',
+        raw_notes: null,
+      },
+    ]);
+
+    const prompt = await promptFor();
+
+    expect(prompt).toContain('## Existing Card & Source Freshness');
+    expect(prompt).toContain('generated on **2026-01-15**');
+    // The post-card document overrides the card; the pre-card one does not.
+    expect(prompt).toMatch(/IC memo\.pdf \(2026-04-01.*NEWER than the existing card/);
+    expect(prompt).toMatch(/Old teaser\.pdf \(2025-06-01.*the card wins on conflict/);
+    expect(prompt).toContain('the one with the later date wins');
+    // File content is available to the agent, so it can act on the revision.
+    expect(prompt).toContain('Revenue revised to $55M');
+    // And the card's own prior content is there to carry forward.
+    expect(prompt).toContain('- Old overview: revenue $40M');
+  });
+
+  it('reads the documents before flipping the row to processing, so the prior card survives', async () => {
+    mocks.findByCompanyIdAnalysis.mockResolvedValue(completedCard());
+    const order: string[] = [];
+    mocks.findByCompanyIdAnalysis.mockImplementation(async () => {
+      order.push('read-card');
+      return completedCard();
+    });
+    mocks.upsertByCompanyId.mockImplementation(async () => {
+      order.push('mark-processing');
+    });
+
+    await generateCompanyCard({ companyId: 'co-1' }, { db: {} as never });
+
+    expect(order).toEqual(['read-card', 'mark-processing']);
+  });
+
+  it('treats a row that never completed as having no prior card', async () => {
+    // A first run that failed still leaves a row: created_at defaults to NOW()
+    // on the `status: processing` insert that opens the run. Only the empty
+    // sections reveal that there is no card here.
+    mocks.findByCompanyIdAnalysis.mockResolvedValue(
+      completedCard({
+        status: 'failed',
+        created_at: '2026-01-15T00:00:00.000Z',
+        business_overview: null,
+        business_model_summary: null,
+        key_takeaways: null,
+        investment_highlights: null,
+        investment_risks: null,
+        diligence_priorities: null,
+        error_message: 'Failed to parse AI response',
+      }),
+    );
+    mocks.findByMatchedCompanyId.mockResolvedValue([
+      {
+        id: 'file-1',
+        file_name: 'MoM.pdf',
+        file_type: 'mom',
+        file_date: '2026-02-01',
+        created_at: '2026-02-02T00:00:00.000Z',
+        structured_notes: 'notes',
+        raw_notes: null,
+      },
+    ]);
+
+    const prompt = await promptFor();
+
+    expect(prompt).toContain('no previously generated Company Card content');
+    // The processing-start timestamp must not be presented as a card date, or
+    // it would beat genuinely older documents in a conflict.
+    expect(prompt).not.toContain('generated on **2026-01-15**');
+  });
+
+  it('does not treat an in-flight empty row as a prior card either', async () => {
+    mocks.findByCompanyIdAnalysis.mockResolvedValue(
+      completedCard({
+        status: 'processing',
+        business_overview: null,
+        business_model_summary: null,
+        key_takeaways: null,
+        investment_highlights: null,
+        investment_risks: null,
+        diligence_priorities: null,
+      }),
+    );
+    // A document is needed for the freshness block to be emitted at all.
+    mocks.findByMatchedCompanyId.mockResolvedValue([
+      {
+        id: 'file-1',
+        file_name: 'MoM.pdf',
+        file_type: 'mom',
+        file_date: '2025-06-01',
+        created_at: '2025-06-02T00:00:00.000Z',
+        structured_notes: 'notes',
+        raw_notes: null,
+      },
+    ]);
+
+    const prompt = await promptFor();
+
+    expect(prompt).toContain('no previously generated Company Card content');
+    // And the older document is not told it loses to a card that doesn't exist.
+    expect(prompt).not.toContain('the card wins on conflict');
+  });
+
+  it('still uses the last good card when a later run failed on top of it', async () => {
+    // A failed run only overwrites status/error_message, so the row keeps the
+    // previous card's created_at and section text. Retrying must weigh that
+    // content against the documents rather than starting from blank.
+    mocks.findByCompanyIdAnalysis.mockResolvedValue(
+      completedCard({ status: 'failed', error_message: 'Agent not available' }),
+    );
+
+    const prompt = await promptFor();
+
+    expect(prompt).toContain('generated on **2026-01-15**');
+    expect(prompt).toContain('- Old overview: revenue $40M');
+    expect(prompt).not.toContain('no previously generated Company Card content');
+  });
+
+  it('does not let $-substitution patterns in document text rewrite the prompt', async () => {
+    mocks.findByMatchedCompanyId.mockResolvedValue([
+      {
+        id: 'file-1',
+        file_name: 'MoM.pdf',
+        file_type: 'mom',
+        file_date: '2026-02-01',
+        created_at: '2026-02-02T00:00:00.000Z',
+        // `$&` and `$'` are replacement-pattern specials in String.replace.
+        structured_notes: "Revenue $& up; margin $' flat",
+        raw_notes: null,
+      },
+    ]);
+
+    const prompt = await promptFor();
+
+    expect(prompt).toContain("Revenue $& up; margin $' flat");
+  });
+
+  it('caps how many documents it reads per run', async () => {
+    await generateCompanyCard({ companyId: 'co-1' }, { db: {} as never });
+
+    expect(mocks.findByDealId).toHaveBeenCalledWith('co-1', 50);
+    expect(mocks.findByMatchedCompanyId).toHaveBeenCalledWith('co-1', 50);
+  });
+
+  it('records regeneration context on the PostHog event', async () => {
+    mocks.findByCompanyIdAnalysis.mockResolvedValue(completedCard());
+    mocks.findByDealId.mockResolvedValue([
+      {
+        id: 'doc-1',
+        deal_id: 'co-1',
+        file_name: 'IC memo.pdf',
+        file_path: 'p',
+        stage: 'L2',
+        created_at: '2026-04-01T00:00:00.000Z',
+        structured_notes: 'notes',
+        raw_notes: null,
+      },
+    ]);
+
+    await generateCompanyCard({ companyId: 'co-1' }, { db: {} as never });
+
+    expect(mocks.capture).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: 'company_card_generated',
+        properties: expect.objectContaining({
+          regenerated: true,
+          source_document_count: 1,
+          previous_generated_at: '2026-01-15T00:00:00.000Z',
+        }),
+      }),
+    );
   });
 });

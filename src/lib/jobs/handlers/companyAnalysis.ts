@@ -9,7 +9,16 @@ import {
   CompanyFinancialRepository,
   CompanyRepository,
   CompanyScreeningDerivedRepository,
+  DealDocumentRepository,
+  FileRepository,
 } from "@/lib/repositories";
+import {
+  buildSourceFreshnessContext,
+  dealDocumentToSource,
+  fileToSource,
+  hasCardContent,
+  type CardSourceDocument,
+} from "@/lib/companies/cardFreshness";
 import type { DbClient, Tables } from "@/lib/repositories";
 import {
   RELATION_TYPES,
@@ -20,6 +29,13 @@ import { z } from "zod";
 import { getActiveWorkspaceId } from "@/lib/workspace";
 
 export const COMPANY_ANALYSIS_TIMEOUT_SECONDS = 480; // 8 minutes
+
+/**
+ * Max deal documents and max matched files fetched per card run. The prompt
+ * only lists MAX_SOURCES_IN_PROMPT of them anyway, so reading more (with their
+ * full extracted notes) is wasted I/O on a document-heavy deal.
+ */
+const MAX_SOURCE_DOCUMENTS = 50;
 
 const RelatedCompanySchema = z.object({
   name: z.string(),
@@ -80,10 +96,14 @@ You have access to these tools — USE THEM ALL to gather comprehensive informat
 1. Use \`get_company_details\` to retrieve internal database information about "{companyName}"
 2. Use \`inven_paid_data_source_search\` to find the company on Inven, then \`inven_paid_data_source_enrichment\` for detailed data
 3. Use \`web_search\` to research the company's website, products, market position, recent news, and competitive landscape (e.g., "{companyName} company overview products services", "{companyName} revenue market position competitors")
-4. Use \`query_files\` to check if there are any internal files about this company
+4. Use \`query_files\` to check if there are any internal files about this company beyond the ones already inlined under "Existing Card & Source Freshness" below
+
+**If an "Existing Card & Source Freshness" section appears below, read it FIRST.** It carries the date the previous card was generated, the company's own documents with their dates, and the rule for resolving contradictions between them — the later-dated source always wins.
 
 ## Company Context
 {companyContext}
+
+{sourceFreshness}
 
 ## Analysis Sections to Produce
 
@@ -262,12 +282,47 @@ export async function generateCompanyCard(
   const companyRepo = new CompanyRepository(deps.db, workspaceId);
   const financialRepo = new CompanyFinancialRepository(deps.db, workspaceId);
   const screeningRepo = new CompanyScreeningDerivedRepository(deps.db, workspaceId);
+  const dealDocRepo = new DealDocumentRepository(deps.db, workspaceId);
+  const fileRepo = new FileRepository(deps.db, workspaceId);
 
-  const [company, financials, screening] = await Promise.all([
-    companyRepo.findById(companyId),
-    financialRepo.findByCompany(companyId),
-    screeningRepo.findByCompany(companyId),
-  ]);
+  // Read the previous card and the company's documents in the same batch as
+  // the company itself: a regeneration needs the card's `created_at` and
+  // every document's date up front to resolve conflicts in favour of the
+  // later-dated source.
+  const [company, financials, screening, previousCard, dealDocs, matchedFiles] =
+    await Promise.all([
+      companyRepo.findById(companyId),
+      financialRepo.findByCompany(companyId),
+      screeningRepo.findByCompany(companyId),
+      analysisRepo.findByCompanyId(companyId),
+      dealDocRepo.findByDealId(companyId, MAX_SOURCE_DOCUMENTS),
+      fileRepo.findByMatchedCompanyId(companyId, MAX_SOURCE_DOCUMENTS),
+    ]);
+
+  const sources: CardSourceDocument[] = [
+    ...dealDocs.map(dealDocumentToSource),
+    ...matchedFiles.map(fileToSource),
+  ];
+  // Whether there is a prior card is decided by *content*, not by `status` and
+  // not by the timestamp alone:
+  //   - `status` would be wrong because a failed run overwrites nothing but
+  //     `status`/`error_message`, so a row sitting at 'failed' can still hold
+  //     the last good card. Keying off it would make a retry after a failed
+  //     regeneration start blank and drop still-valid findings.
+  //   - `created_at` alone would be wrong because it defaults to NOW() on the
+  //     `status: 'processing'` insert that opens every run, so a first run that
+  //     failed leaves a dated but empty row.
+  // Once content is established, `created_at` is its date: there is one row per
+  // company and the completion write re-stamps it, so it reads "when the card
+  // content currently in this row was produced".
+  const previousGeneratedAt = hasCardContent(previousCard)
+    ? previousCard!.created_at ?? null
+    : null;
+  const sourceFreshness = buildSourceFreshnessContext({
+    sources,
+    generatedAt: previousGeneratedAt,
+    previousCard: previousGeneratedAt ? previousCard : null,
+  });
 
   await analysisRepo.upsertByCompanyId({
     company_id: companyId,
@@ -291,13 +346,18 @@ export async function generateCompanyCard(
   const companyContext = buildCompanyContext(company, financials, screening);
   const toolDescriptions = getToolDescriptions();
 
+  // Every replacement uses a function replacer: the values are user/agent data
+  // (company comments, extracted document text) and `$&` / `$1` / `$'` in a
+  // *string* replacement are substitution patterns, which would let a document
+  // rewrite the prompt around it.
   const prompt = ANALYSIS_PROMPT_TEMPLATE.replace(
     "{toolDescriptions}",
-    toolDescriptions,
+    () => toolDescriptions,
   )
-    .replaceAll("{companyName}", companyName)
-    .replace("{companyContext}", companyContext)
-    .replace("{source}", source || "files");
+    .replaceAll("{companyName}", () => companyName)
+    .replace("{companyContext}", () => companyContext)
+    .replace("{sourceFreshness}", () => sourceFreshness)
+    .replace("{source}", () => source || "files");
 
   // The stateless graph has no checkpointer, so thread_id is only a trace
   // label — use the job id when present, else a company-scoped fallback.
@@ -367,8 +427,20 @@ export async function generateCompanyCard(
     }
   }
 
+  // Stamp the moment this content was produced. Every later regeneration
+  // date-ranks the company's documents against this value.
+  //
+  // Re-stamping `created_at` is deliberate: the row is upserted in place, so
+  // left alone it would freeze at the first-ever generation and the date
+  // comparison would drift further out with every refresh. The card content is
+  // genuinely recreated by each run, so `created_at` tracks it. (`updated_at`
+  // can't serve here — it also bumps on the status -> 'processing' write at the
+  // start of a run, which would make the card look fresher than its content and
+  // wrongly beat a newer document.)
+  const generatedAt = new Date().toISOString();
   const updated = await analysisRepo.updateByCompanyId(companyId, {
     status: "completed",
+    created_at: generatedAt,
     business_overview: analysisResult.business_overview,
     business_model_summary: analysisResult.business_model_summary,
     key_takeaways: analysisResult.key_takeaways,
@@ -389,6 +461,9 @@ export async function generateCompanyCard(
       company_name: companyName,
       source: source || "files",
       related_company_count: analysisResult.related_companies?.length ?? 0,
+      source_document_count: sources.length,
+      regenerated: previousGeneratedAt != null,
+      previous_generated_at: previousGeneratedAt,
     },
   });
 

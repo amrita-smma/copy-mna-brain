@@ -487,6 +487,21 @@ export class CompanyRepository {
     );
   }
 
+  /**
+   * Display-name columns for a set of companies in one query. Batched
+   * counterpart to {@link findById} for callers that would otherwise read one
+   * company per id inside a loop (e.g. bulk Company Card regeneration).
+   */
+  async findIdAndNameByIds(
+    ids: string[],
+  ): Promise<Array<{ id: string; target: string | null; project_name: string | null }>> {
+    if (ids.length === 0) return [];
+    return this.db
+      .select({ id: companies.id, target: companies.target, project_name: companies.project_name })
+      .from(companies)
+      .where(and(inArray(companies.id, ids), eq(companies.workspace_id, this.workspaceId)));
+  }
+
   async findAllIdAndTarget(): Promise<
     Array<{ id: string; target: string | null; project_name: string | null }>
   > {
