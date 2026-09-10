@@ -12,6 +12,20 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "category": "improvement"
   },
   {
+    "hash": "9215685fab4c213a591f119a362d9b40ec2eaf38",
+    "date": "2026-09-10",
+    "subject": "Brand color updated to deeper blue across the platform",
+    "category": "improvement"
+  },
+  {
+    "hash": "3895961dc1910403439524acd1f1d527e794a4dc",
+    "date": "2026-09-10",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "83f6250e2bf7f44d6349924d992ee41cb4779fea",
     "date": "2026-09-05",
     "subject": "Companies added via chat now enter the unreviewed stage for validation",
