@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { FeatureFlagRepository } from '@/lib/repositories/featureFlagRepository';
+import { FEATURE_CATALOG } from '@/lib/features/catalog';
 import { FeatureFlagsService, UnknownFeatureError } from './featureFlagsService';
 
 const WS = 'ws-123';
@@ -85,7 +86,9 @@ describe('FeatureFlagsService', () => {
     it('returns one entry per catalog feature', async () => {
       repo.findByWorkspace.mockResolvedValue(emptyOverrides());
       const { features } = await service.listFeatures(WS);
-      expect(features).toHaveLength(15);
+      // Compared against the catalog rather than a literal so adding a feature
+      // doesn't fail a test that is really about the mapping being total.
+      expect(features).toHaveLength(FEATURE_CATALOG.length);
     });
 
     it('marks sidebar sections as navItem and non-navbar features as not', async () => {
@@ -103,8 +106,27 @@ describe('FeatureFlagsService', () => {
         category: 'funds',
         enabled: true,
       });
+      // Fund Vehicle View is also a Funds-tab setting, on by default.
+      expect(features.find((f) => f.key === 'FUND_VEHICLE_VIEW_ENABLED')).toMatchObject({
+        category: 'funds',
+        enabled: true,
+      });
       // Everything else falls under the general (Features) tab.
       expect(features.find((f) => f.key === 'PIPELINE_ENABLED')?.category).toBe('general');
+    });
+
+    it('applies workspace override for FUND_VEHICLE_VIEW_ENABLED (e.g. Startech setting)', async () => {
+      repo.findByWorkspace.mockResolvedValue({
+        overrides: { FUND_VEHICLE_VIEW_ENABLED: false },
+        updatedAt: '2026-09-04T00:00:00.000Z',
+        updatedBy: null,
+      });
+      const { features } = await service.listFeatures(WS);
+      expect(features.find((f) => f.key === 'FUND_VEHICLE_VIEW_ENABLED')).toMatchObject({
+        category: 'funds',
+        enabled: false,
+        isOverridden: true,
+      });
     });
   });
 

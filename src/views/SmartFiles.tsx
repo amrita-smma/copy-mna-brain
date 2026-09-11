@@ -48,6 +48,11 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import {
   useColumnLayout,
   ColumnManagerProvider,
   ManagedTableHeader,
@@ -166,6 +171,68 @@ interface FileRecord {
   updated_at: string;
 }
 
+interface FileFailureDetails {
+  reasons: string[];
+  warnings: string[];
+  coverage: {
+    parsed: number;
+    excluded: number;
+    ambiguous: number;
+    total: number;
+    percentage: number;
+  } | null;
+}
+
+function getFileFailureDetails(note: FileRecord): FileFailureDetails | null {
+  if (note.processing_status !== "failed") return null;
+
+  try {
+    const structured = note.structured_notes ? JSON.parse(note.structured_notes) : null;
+    const proposal = structured?.fund_update_proposal;
+    const validation = proposal?.validation;
+    const stats = proposal?.stats;
+    const reasons: string[] = Array.isArray(validation?.hardFailures)
+      ? Array.from(
+          new Set<string>(
+            validation.hardFailures.filter(
+              (reason: unknown): reason is string => typeof reason === "string",
+            ) as string[],
+          ),
+        )
+      : [];
+    const warnings = Array.isArray(proposal?.warnings)
+      ? proposal.warnings.filter((warning: unknown): warning is string => typeof warning === "string")
+      : [];
+    const hasCoverage = [
+      stats?.parsed_rows_count,
+      stats?.excluded_rows_count,
+      stats?.ambiguous_rows_count,
+      stats?.total_data_rows,
+      stats?.coverage_pct,
+    ].every((value) => typeof value === "number");
+
+    return {
+      reasons: reasons.length > 0 ? reasons : [note.raw_notes || "Extraction failed"],
+      warnings,
+      coverage: hasCoverage
+        ? {
+            parsed: stats.parsed_rows_count,
+            excluded: stats.excluded_rows_count,
+            ambiguous: stats.ambiguous_rows_count,
+            total: stats.total_data_rows,
+            percentage: stats.coverage_pct,
+          }
+        : null,
+    };
+  } catch {
+    return {
+      reasons: [note.raw_notes || "Extraction failed"],
+      warnings: [],
+      coverage: null,
+    };
+  }
+}
+
 // Keep these for backward compatibility
 type MeetingNote = FileRecord;
 type Prospectus = FileRecord;
@@ -256,7 +323,8 @@ function FileTable({
     );
   };
 
-  const renderStatusBadge = (status: FileRecord["processing_status"]) => {
+  const renderStatusBadge = (note: FileRecord) => {
+    const status = note.processing_status;
     switch (status) {
       case "processing":
         return (
@@ -288,16 +356,31 @@ function FileTable({
             Completed
           </Badge>
         );
-      case "failed":
+      case "failed": {
+        const failure = getFileFailureDetails(note);
         return (
-          <Badge
-            variant="outline"
-            className="flex items-center gap-1 text-red-600 bg-red-500/5 border-red-200"
-          >
-            <AlertCircle className="h-3 w-3" />
-            Failed
-          </Badge>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Badge
+                variant="outline"
+                className="flex cursor-help items-center gap-1 text-red-600 bg-red-500/5 border-red-200"
+              >
+                <AlertCircle className="h-3 w-3" />
+                Failed
+              </Badge>
+            </TooltipTrigger>
+            <TooltipContent side="right" className="max-w-sm">
+              <p className="font-medium">Why this failed</p>
+              <p className="mt-1">{failure?.reasons[0] ?? "Extraction failed"}</p>
+              {failure && failure.reasons.length > 1 ? (
+                <p className="mt-1 text-xs opacity-80">
+                  +{failure.reasons.length - 1} more — open file details
+                </p>
+              ) : null}
+            </TooltipContent>
+          </Tooltip>
         );
+      }
       case "pending":
       default:
         return (
@@ -364,6 +447,18 @@ function FileTable({
 
   const renderStructuredNotes = (note: FileRecord) => {
     if (!note.structured_notes) {
+      const failure = getFileFailureDetails(note);
+      if (failure) {
+        return (
+          <div className="rounded-md border border-red-200 bg-red-500/5 p-3 text-sm text-red-700">
+            <div className="flex items-center gap-2 font-medium">
+              <AlertCircle className="h-4 w-4 shrink-0" />
+              Why this failed
+            </div>
+            <p className="mt-2">{failure.reasons[0]}</p>
+          </div>
+        );
+      }
       return (
         <p className="text-sm text-muted-foreground italic p-4">
           Processing not complete or structure extraction failed.
@@ -376,9 +471,44 @@ function FileTable({
       const proposal = structured.fund_update_proposal;
       const isFundUpdate =
         structured.file_type === "fund_updates" || note.file_type === "fund_updates";
+      const failure = getFileFailureDetails(note);
 
       return (
         <>
+          {failure ? (
+            <div className="rounded-md border border-red-200 bg-red-500/5 p-3 text-sm">
+              <div className="flex items-center gap-2 font-medium text-red-700">
+                <AlertCircle className="h-4 w-4 shrink-0" />
+                Why this failed
+              </div>
+              <ul className="mt-2 list-disc space-y-1 pl-5 text-red-700">
+                {failure.reasons.map((reason, index) => (
+                  <li key={index}>{reason}</li>
+                ))}
+              </ul>
+              {failure.coverage ? (
+                <div className="mt-3 rounded border border-red-200/80 bg-background/70 p-2 text-xs text-foreground">
+                  <span className="font-medium">Coverage: {failure.coverage.percentage}%</span>
+                  <span className="text-muted-foreground">
+                    {` · ${failure.coverage.parsed} parsed · ${failure.coverage.excluded} excluded · ${failure.coverage.ambiguous} ambiguous · ${failure.coverage.total} planned`}
+                  </span>
+                </div>
+              ) : null}
+              {failure.warnings.length > 0 ? (
+                <details className="mt-3 text-xs text-muted-foreground">
+                  <summary className="cursor-pointer font-medium">
+                    Show {failure.warnings.length} extraction warning
+                    {failure.warnings.length === 1 ? "" : "s"}
+                  </summary>
+                  <ul className="mt-2 list-disc space-y-1 pl-5">
+                    {failure.warnings.map((warning, index) => (
+                      <li key={index}>{warning}</li>
+                    ))}
+                  </ul>
+                </details>
+              ) : null}
+            </div>
+          ) : null}
           <div>
             <h4 className="font-medium text-primary mb-1">Summary</h4>
             <p>{structured.summary}</p>
@@ -461,7 +591,7 @@ function FileTable({
             <SortIcon field="processing_status" />
           </div>
         ),
-        cell: (note) => renderStatusBadge(note.processing_status),
+        cell: (note) => renderStatusBadge(note),
       },
       {
         id: "tags",

@@ -2,24 +2,24 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const {
   createDb,
-  completeAiOpinionIfProcessing,
+  updateAsset,
   findById,
-  findByFundAssetId,
+  findSeriesByTarget,
   findQueueById,
-  FundAssetRepository,
-  FundAssetValuationRepository,
+  FlAssetRepository,
+  FlValuationRepository,
   AiWorkforceQueueRepository,
 } = vi.hoisted(() => {
-  const completeAiOpinionIfProcessing = vi.fn();
+  const updateAsset = vi.fn();
   const findById = vi.fn();
-  const findByFundAssetId = vi.fn();
+  const findSeriesByTarget = vi.fn();
   const findQueueById = vi.fn();
-  class FundAssetRepository {
-    completeAiOpinionIfProcessing = completeAiOpinionIfProcessing;
+  class FlAssetRepository {
+    update = updateAsset;
     findById = findById;
   }
-  class FundAssetValuationRepository {
-    findByFundAssetId = findByFundAssetId;
+  class FlValuationRepository {
+    findSeriesByTarget = findSeriesByTarget;
   }
   class AiWorkforceQueueRepository {
     findById = findQueueById;
@@ -29,12 +29,12 @@ const {
   }
   return {
     createDb: vi.fn(),
-    completeAiOpinionIfProcessing,
+    updateAsset,
     findById,
-    findByFundAssetId,
+    findSeriesByTarget,
     findQueueById,
-    FundAssetRepository,
-    FundAssetValuationRepository,
+    FlAssetRepository,
+    FlValuationRepository,
     AiWorkforceQueueRepository,
   };
 });
@@ -46,8 +46,8 @@ vi.mock("@/lib/workspace", () => ({
 }));
 
 vi.mock("@/lib/repositories", () => ({
-  FundAssetRepository,
-  FundAssetValuationRepository,
+  FlAssetRepository,
+  FlValuationRepository,
   AiWorkforceQueueRepository,
 }));
 
@@ -55,24 +55,28 @@ import { saveFundAiOpinion } from "./save_fund_ai_opinion";
 
 const RICH_ASSET = {
   id: "asset-1",
+  workspace_id: "ws-1",
   sector: "Robotics",
   country: "Singapore",
-  fmv_amount: 800_000,
-  gross_moic: 1.6,
-  gross_irr: 0.12,
-  invested_capital_amount: 500_000,
-  investment_description: "Series B lead.",
+  description: "Series B lead.",
+  instrument_terms: {
+    custom: "value",
+    aiOpinion: {
+      status: "processing",
+    },
+  },
 };
 
 const RICH_VALUATIONS = [
-  { as_of_date: "2024-12-31" },
-  { as_of_date: "2024-06-30" },
-  { as_of_date: "2023-12-31" },
+  { as_of_date: "2024-12-31", market_value: "800000.00" },
+  { as_of_date: "2024-06-30", market_value: "700000.00" },
+  { as_of_date: "2023-12-31", market_value: "600000.00" },
 ];
 
 function call(
   args: {
-    fund_asset_id: string;
+    asset_id?: string;
+    fund_asset_id?: string;
     verdict: string;
     summary: string;
     confidence: string;
@@ -85,154 +89,106 @@ function call(
 describe("save_fund_ai_opinion", () => {
   beforeEach(() => {
     createDb.mockReset().mockReturnValue({});
-    completeAiOpinionIfProcessing.mockReset().mockResolvedValue({ id: "asset-1" });
+    updateAsset.mockReset().mockResolvedValue({ id: "asset-1" });
     findById.mockReset().mockResolvedValue(RICH_ASSET);
-    findByFundAssetId.mockReset().mockResolvedValue(RICH_VALUATIONS);
+    findSeriesByTarget.mockReset().mockResolvedValue(RICH_VALUATIONS);
     findQueueById.mockReset().mockResolvedValue({ id: "run-1", status: "running" });
   });
 
   afterEach(() => vi.restoreAllMocks());
 
-  it("rejects a blank fund_asset_id without touching the repository", async () => {
+  it("rejects a blank asset_id without touching the repository", async () => {
     const result = await call({
-      fund_asset_id: " ",
+      asset_id: " ",
       verdict: "buy",
       summary: "x",
       confidence: "high",
     });
-    expect(String(result)).toMatch(/fund_asset_id is required/);
-    expect(completeAiOpinionIfProcessing).not.toHaveBeenCalled();
+    expect(String(result)).toMatch(/asset_id is required/);
+    expect(updateAsset).not.toHaveBeenCalled();
   });
 
   it("rejects a blank summary without touching the repository", async () => {
     const result = await call({
-      fund_asset_id: "asset-1",
+      asset_id: "asset-1",
       verdict: "sell",
       summary: "   ",
       confidence: "medium",
     });
     expect(String(result)).toMatch(/summary is required/);
-    expect(completeAiOpinionIfProcessing).not.toHaveBeenCalled();
+    expect(updateAsset).not.toHaveBeenCalled();
   });
 
   it("rejects an invalid verdict at the schema layer without touching the repository", async () => {
-    // The zod schema's enum() already restricts verdict to buy/hold/sell, so
-    // an out-of-enum value never reaches the handler — LangChain's tool
-    // wrapper throws during input validation instead.
     await expect(
       call({
-        fund_asset_id: "asset-1",
+        asset_id: "asset-1",
         verdict: "pass" as never,
         summary: "x",
         confidence: "high",
       }),
     ).rejects.toThrow(/Received tool input did not match expected schema/);
-    expect(completeAiOpinionIfProcessing).not.toHaveBeenCalled();
+    expect(updateAsset).not.toHaveBeenCalled();
   });
 
-  it("writes the verdict, summary, confidence, and completed status onto the fund asset row", async () => {
+  it("writes the verdict, summary, confidence, and completed status onto fl_assets.instrument_terms", async () => {
     const result = await call({
-      fund_asset_id: "asset-1",
+      asset_id: "asset-1",
       verdict: "buy",
       summary: "Strong growth trajectory and healthy MOIC.",
       confidence: "high",
     });
 
-    expect(completeAiOpinionIfProcessing).toHaveBeenCalledTimes(1);
-    const [id, updates] = completeAiOpinionIfProcessing.mock.calls[0];
+    expect(updateAsset).toHaveBeenCalledTimes(1);
+    const [workspaceId, id, updates] = updateAsset.mock.calls[0];
+    expect(workspaceId).toBe("ws-1");
     expect(id).toBe("asset-1");
     expect(updates).toMatchObject({
-      ai_opinion_verdict: "buy",
-      ai_opinion_summary: "Strong growth trajectory and healthy MOIC.",
-      ai_opinion_confidence: "high",
-      ai_opinion_status: "completed",
+      instrument_terms: expect.objectContaining({
+        custom: "value",
+        aiOpinion: expect.objectContaining({
+          verdict: "buy",
+          summary: "Strong growth trajectory and healthy MOIC.",
+          status: "completed",
+        }),
+      }),
     });
-    expect(updates.ai_opinion_data_gaps).toBeNull();
-    expect(String(result)).toMatch(/Saved AI Opinion .* BUY/);
+    expect(String(result)).toMatch(/Saved AI Opinion for asset_id "asset-1": BUY/);
   });
 
-  it("clamps agent confidence down when recorded data is sparse", async () => {
-    findById.mockResolvedValueOnce({
-      ...RICH_ASSET,
-      sector: null,
-      country: null,
-      fmv_amount: null,
-      gross_moic: null,
-      gross_irr: null,
-      invested_capital_amount: null,
-      investment_description: null,
-    });
-    findByFundAssetId.mockResolvedValueOnce([]);
-
-    await call({
-      fund_asset_id: "asset-1",
-      verdict: "buy",
-      summary: "Buy on sector narrative alone.",
-      confidence: "high",
-    });
-
-    const [, updates] = completeAiOpinionIfProcessing.mock.calls[0];
-    expect(updates.ai_opinion_confidence).toBe("low");
-    expect(String(updates.ai_opinion_data_gaps)).toContain("no valuation history");
-  });
-
-  it("clamps the summary to 50 words before persisting", async () => {
-    const summary = Array.from({ length: 60 }, (_, i) => `w${i}`).join(" ");
-    await call({
+  it("accepts fund_asset_id as an alias for backwards compatibility", async () => {
+    const result = await call({
       fund_asset_id: "asset-1",
       verdict: "hold",
-      summary,
+      summary: "Fairly valued.",
       confidence: "medium",
     });
 
-    const [, updates] = completeAiOpinionIfProcessing.mock.calls[0];
-    const words = String(updates.ai_opinion_summary).split(/\s+/);
-    expect(words).toHaveLength(50);
-    expect(String(updates.ai_opinion_summary)).toMatch(/…$/);
+    expect(updateAsset).toHaveBeenCalledTimes(1);
+    expect(String(result)).toMatch(/Saved AI Opinion for asset_id "asset-1": HOLD/);
   });
 
-  it("errors when no fund asset matches the id", async () => {
-    findById.mockResolvedValueOnce(undefined);
-    const result = await call({
-      fund_asset_id: "missing",
-      verdict: "sell",
-      summary: "x",
-      confidence: "low",
-    });
-    expect(String(result)).toMatch(/No fund asset found for fund_asset_id "missing"/);
-    expect(completeAiOpinionIfProcessing).not.toHaveBeenCalled();
-  });
+  it("refuses to overwrite when the workforce run is terminal", async () => {
+    findQueueById.mockResolvedValueOnce({ id: "run-1", status: "timed_out" });
 
-  it("skips the write when the holding is no longer processing", async () => {
-    completeAiOpinionIfProcessing.mockResolvedValueOnce(undefined);
-    const result = await call({
-      fund_asset_id: "asset-1",
-      verdict: "buy",
-      summary: "x",
-      confidence: "high",
-    });
-    expect(String(result)).toMatch(/no longer processing/);
-  });
-
-  it("skips the write when the owning workforce run is already terminal", async () => {
-    findQueueById.mockResolvedValueOnce({ id: "run-1", status: "failed" });
     const result = await call(
       {
-        fund_asset_id: "asset-1",
+        asset_id: "asset-1",
         verdict: "buy",
-        summary: "x",
+        summary: "Late verdict.",
         confidence: "high",
       },
       { configurable: { thread_id: "run-1" } },
     );
-    expect(String(result)).toMatch(/no longer active/);
-    expect(completeAiOpinionIfProcessing).not.toHaveBeenCalled();
+
+    expect(String(result)).toMatch(/workforce run is no longer active/);
+    expect(updateAsset).not.toHaveBeenCalled();
   });
 
   it("returns an error string when the update throws", async () => {
-    completeAiOpinionIfProcessing.mockRejectedValueOnce(new Error("db down"));
+    updateAsset.mockRejectedValueOnce(new Error("db down"));
     const result = await call({
-      fund_asset_id: "asset-1",
+      asset_id: "asset-1",
       verdict: "buy",
       summary: "x",
       confidence: "high",

@@ -1,6 +1,7 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { runFundUpdateExtraction } from './fundUpdateExtraction';
 import type { Tables } from '@/lib/repositories';
+import { tryDeterministicFundUpdateParse } from '@/lib/fund_updates';
 
 // Mock dependencies
 vi.mock('@/lib/s3', () => ({
@@ -137,6 +138,48 @@ describe('fundUpdateExtraction job handler', () => {
     );
 
     expect((result.fund_update_proposal as any)?.schema_version).toBe('workbook_fallback_v1');
+  });
+
+  it('reparses Nanjing workbooks with existing master investor names', async () => {
+    const { FileRepository, FlInvestorRepository, JobRepository } = await import('@/lib/repositories');
+    vi.spyOn(FileRepository.prototype, 'findById').mockImplementation(mockFileRepo.findById);
+    vi.spyOn(FileRepository.prototype, 'updatePartial').mockImplementation(mockFileRepo.updatePartial);
+    vi.spyOn(JobRepository.prototype, 'appendLog').mockImplementation(mockJobRepo.appendLog);
+    vi.spyOn(FlInvestorRepository.prototype, 'findByWorkspaceId').mockResolvedValue([
+      { name: 'Existing Transferor' } as Tables<'fl_investors'>,
+    ]);
+
+    const nanjingResult = {
+      file_type: 'fund_updates',
+      parser: 'nanjing_fund_ledger_v1',
+      summary: 'Nanjing ledger',
+      key_points: [],
+      action_items: [],
+      tags: [],
+      companies_detected: [],
+      company_notes: [],
+      file_date: null,
+      suggested_track_ids: [],
+      matched_companies: [],
+      fund_update_proposal: { assets: [], stats: { asset_count: 0 } },
+    } as any;
+    vi.mocked(tryDeterministicFundUpdateParse)
+      .mockClear()
+      .mockResolvedValueOnce(nanjingResult)
+      .mockResolvedValueOnce(nanjingResult);
+
+    await runFundUpdateExtraction(
+      { fileId: 'file-123', workspaceId: 'ws-1' },
+      { db: mockDb, job: mockJob },
+    );
+
+    expect(tryDeterministicFundUpdateParse).toHaveBeenCalledTimes(2);
+    expect(tryDeterministicFundUpdateParse).toHaveBeenLastCalledWith(
+      expect.any(Buffer),
+      expect.any(String),
+      'test_ledger.xlsx',
+      { knownMasterInvestors: ['Existing Transferor'] },
+    );
   });
 
   it('marks file as failed when extraction has critical validation failures', async () => {

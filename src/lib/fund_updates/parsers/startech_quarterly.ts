@@ -6,6 +6,7 @@
  */
 import ExcelJS from 'exceljs';
 import type { DeterministicParser, FundUpdateStructuredResult } from '../types';
+import { normalizeParsedAsset, quarterPeriodLabel } from '../normalizeParsedAsset';
 
 export const STARTECH_TEMPLATE_ID = 'startech_master_sheet_v1' as const;
 
@@ -31,10 +32,10 @@ const INVESTMENT_TYPE_LABEL: Record<string, string> = {
 
 const VALID_INVESTMENT_TYPES = new Set(Object.keys(INVESTMENT_TYPE_LABEL));
 
-// The full catalog of funds this workspace tracks. All eight are always created
-// (even when empty) so the fund list is stable regardless of what the workbook
+// The full catalog of groups this workspace tracks. All eight are always created
+// (even when empty) so the group list is stable regardless of what the workbook
 // happens to contain this quarter.
-export const FUND_CATALOG = [
+export const GROUP_CATALOG = [
   'Startech Growth Fund 1',
   'Startech Growth Fund 2',
   'Startech Growth Fund 3',
@@ -44,26 +45,52 @@ export const FUND_CATALOG = [
   'Meranti 2',
   'Others',
 ] as const;
-export const OTHERS_FUND = 'Others';
+
+/** @deprecated Use GROUP_CATALOG */
+export const FUND_CATALOG = GROUP_CATALOG;
+
+export const OTHERS_GROUP = 'Others';
+
+/** @deprecated Use OTHERS_GROUP */
+export const OTHERS_FUND = OTHERS_GROUP;
+
+export const UNATTRIBUTED_ENTITY = 'Unattributed (STARTECH)';
+
+const COMPOSITE_ENTITY_REGEX = /[,&]|\s+and\s+/i;
 
 /**
- * Assigns an asset to one of the catalog funds from its holding entity (the
+ * Returns true when the entity string names more than one entity.
+ * Treats `,`, `&`, and whitespace-delimited `and` as separators.
+ * Does not fire on legal suffixes or null.
+ */
+export function isCompositeEntity(entity: string | null): boolean {
+  if (!entity) return false;
+  return COMPOSITE_ENTITY_REGEX.test(entity);
+}
+
+/**
+ * Assigns an asset to one of the catalog groups from its holding entity (the
  * investor), per the agreed mapping:
  *   - "Meranti Global Investment Ltd" (the flagship vehicle) -> Meranti 1
  *   - any other Meranti vehicle (Pte / SG / co-invest)       -> Meranti 2
  *   - "Startech Growth Fund VCC"                             -> Startech Growth Fund 1
  *     (the workbook exposes a single Startech entity, so all Startech holdings
- *      land in one Startech fund rather than being split across 1-5)
+ *      land in one Startech group rather than being split across 1-5)
  *   - everything else (incl. no entity)                      -> Others
  */
-export function fundForEntity(entity: string | null): string {
-  if (!entity) return OTHERS_FUND;
+export function groupForEntity(entity: string | null): string {
+  if (!entity) return OTHERS_GROUP;
   const e = entity.toLowerCase();
   if (e.includes('meranti')) {
     return /^meranti global investment ltd\.?$/.test(e) ? 'Meranti 1' : 'Meranti 2';
   }
   if (e.includes('startech')) return 'Startech Growth Fund 1';
-  return OTHERS_FUND;
+  return OTHERS_GROUP;
+}
+
+/** @deprecated Use groupForEntity */
+export function fundForEntity(entity: string | null): string {
+  return groupForEntity(entity);
 }
 
 // ---- Master-data enrichment (Structure + Appendix tabs) ----
@@ -266,7 +293,9 @@ export type TxnTypeEnum =
   | 'contribution'
   | 'divestment'
   | 'interest_income'
+  | 'dividend'
   | 'return_of_capital'
+  | 'expense'
   | 'other';
 
 import type { SellProceedsDestination } from '@/lib/sellProceedsDestination';
@@ -283,6 +312,22 @@ export interface ParsedTxn {
   fxRate: number | null;
   sellProceedsDestination?: SellProceedsDestination | null;
   notes: string | null;
+  /** Exact workbook provenance. Required for deterministic replay. */
+  sourceSheet?: string;
+  sourceRow?: number;
+  dataStatus?: 'verified' | 'needs_verification';
+  /** Original submitted review ID when threading approval decisions through apply. */
+  submittedId?: string;
+  /**
+   * Set when a reviewer explicitly reclassified an unresolved (Other / Unknown) row into a
+   * concrete economic type. Carries the actual-event policy through to posting so estimate
+   * wording in the source no longer blocks the row.
+   */
+  reviewerResolvedType?: boolean;
+  allocations?: Array<{ funding_source_id?: string; fundingSourceId?: string; amount?: string | number }>;
+  fundingSource?: string | null;
+  fundingSourceId?: string | null;
+  allowPost?: boolean;
 }
 
 export type ValuationMethodEnum =
@@ -307,16 +352,34 @@ export interface ParsedValuation {
   grossXirr: number | null;
   valuationMethod: ValuationMethodEnum | null;
   notes: string | null;
+  /** Exact workbook provenance. */
+  sourceSheet?: string;
+  sourceRow?: number;
+  dataStatus?: 'verified' | 'needs_verification';
+  /** Original submitted review ID when threading approval decisions through apply. */
+  submittedId?: string;
 }
 
 export interface ParsedAsset {
   code: string; // sheet name
   name: string;
   legalName: string | null;
+  englishName?: string | null;
   country: string | null;
   investmentTypeLabel: string; // "Direct Investments" / "Fund of Funds" (D10)
   assetType: 'direct_investment' | 'fund_of_funds';
   fund: string; // catalog fund, derived from the holding entity
+  fundEnglishName?: string | null;
+  /** Group the holding entity rolls up to (was the synthetic fund name). */
+  group?: string;
+  /** Who holds the position: the real holding entity, or a fund (legacy/Nanjing). */
+  holderKind?: 'fund' | 'investor';
+  /** Display name of the holder — the entity, or UNATTRIBUTED_ENTITY when absent. */
+  holderName?: string | null;
+  /** G8 named more than one entity; needs human attribution before apply. */
+  entityIsComposite?: boolean;
+  /** G8 had no usable entity; holder falls back to UNATTRIBUTED_ENTITY. */
+  entityIsUnattributed?: boolean;
   entity: string | null; // holding entity (Investment Entity)
   fundingSource: string | null; // source of funds (Funding Source)
   fundingSourceRaw: string | null;
@@ -345,6 +408,18 @@ interface MappedTxnType {
   sellProceedsDestination: SellProceedsDestination | null;
 }
 
+// RFC §5 rule: 'distributed_to_investor' means the cash bypassed the fund's
+// accounts entirely and no corresponding LP distribution entry exists.
+// Proceeds that landed in the fund and were later paid to LPs via a distribution
+// event are 'cash_in_fund' (to prevent double-deduction).
+//
+// Startech mapping review decision:
+// The Startech quarterly reporting parser only parses portfolio asset tabs
+// (direct investments and fund of funds holdings). The workbook does not
+// contain or emit any LP-level distribution entries. Because these asset
+// divestments/distributions do not produce matching LP distribution entries
+// for the same money in this ingestion pipeline, they represent genuine
+// pass-throughs and safely map to 'distributed_to_investor'.
 const TXN_TYPE_MAP: Record<string, MappedTxnType> = {
   'cost of investment': { type: 'contribution', sellProceedsDestination: null },
   contribution: { type: 'contribution', sellProceedsDestination: null },
@@ -406,17 +481,25 @@ function parseTransactions(ws: ExcelJS.Worksheet, headerRow: number): ParsedTxn[
       rawValue == null ? null : type === 'contribution' ? Math.abs(rawValue) : rawValue;
     const sellProceedsDestination = mapped.sellProceedsDestination;
 
+    // Some STARTECH sheets retain dated placeholder rows whose transaction
+    // value is exactly zero and which have no share movement. They are not
+    // ledger events. Keep share-only rows so they can still be reviewed.
+    if (valueAmount === 0 && (shares == null || shares === 0)) continue;
+
     txns.push({
       date: isoDate(date)!,
       type,
       subTypeLabel: type === 'other' ? typeRaw : null,
-      pricePerShare: pps,
+      pricePerShare: pps == null ? null : Math.abs(pps),
       shareCount: shares == null ? null : Math.abs(shares),
       valueAmount,
       currency: normalizeCurrency(asString(cellValue(ws.getCell(r, 9)))), // I: Currency
       fxRate: asNumber(cellValue(ws.getCell(r, 10))), // J: Forex Reference
       sellProceedsDestination,
       notes: asString(cellValue(ws.getCell(r, 11))), // K: Notes
+      sourceSheet: ws.name,
+      sourceRow: r,
+      dataStatus: 'verified',
     });
   }
   return txns;
@@ -479,11 +562,6 @@ function mapValuationMethod(raw: string | null): ValuationMethodEnum | null {
   return 'other';
 }
 
-/** "Q3 2025"-style label from an as-of date (calendar quarter of its month). */
-function periodLabel(iso: string): string {
-  const [y, m] = iso.split('-').map(Number);
-  return `Q${Math.floor((m - 1) / 3) + 1} ${y}`;
-}
 
 /** Percentages are stored as fractions in the sheet (0.1451 = 14.51%). */
 function normalizePct(v: number | null): number | null {
@@ -568,9 +646,9 @@ function parseValuations(
 
     byDate.set(iso, {
       asOfDate: iso,
-      periodLabel: periodLabel(iso),
+      periodLabel: quarterPeriodLabel(iso),
       marketValue: mv,
-      pricePerShare: pps,
+      pricePerShare: pps == null ? null : Math.abs(pps),
       sharesOutstanding: sharesOut,
       shareholdingPct: shPct,
       investedCapitalCum: costCum,
@@ -578,11 +656,14 @@ function parseValuations(
       grossXirr: xirr,
       valuationMethod: method,
       notes,
+      sourceSheet: ws.name,
+      sourceRow: r,
+      dataStatus: 'verified',
     });
 
     if (pps != null && (latestPpsDate == null || iso > latestPpsDate)) {
       latestPpsDate = iso;
-      currentPricePerShare = pps;
+      currentPricePerShare = Math.abs(pps);
     }
   }
 
@@ -598,7 +679,7 @@ function parseValuations(
       if (!existing) {
         byDate.set(iso, {
           asOfDate: iso,
-          periodLabel: periodLabel(iso),
+          periodLabel: quarterPeriodLabel(iso),
           marketValue: sumMv,
           pricePerShare: null,
           sharesOutstanding: null,
@@ -608,6 +689,9 @@ function parseValuations(
           grossXirr: null,
           valuationMethod: null,
           notes: null,
+          sourceSheet: ws.name,
+          sourceRow: r,
+          dataStatus: 'verified',
         });
       } else if (existing.marketValue == null) {
         existing.marketValue = sumMv;
@@ -761,7 +845,12 @@ export function parseWorkbook(wb: ExcelJS.Workbook): ParsedAsset[] {
       country: meaningful(asString(cellValue(ws.getCell(9, 4)))), // D9
       investmentTypeLabel: INVESTMENT_TYPE_LABEL[invType],
       assetType: invType === 'fund of funds' ? 'fund_of_funds' : 'direct_investment',
-      fund: fundForEntity(entity),
+      fund: groupForEntity(entity),
+      group: groupForEntity(entity),
+      holderKind: 'investor',
+      holderName: entity ?? UNATTRIBUTED_ENTITY,
+      entityIsComposite: isCompositeEntity(entity),
+      entityIsUnattributed: entity == null,
       entity,
       fundingSource: meaningful(fundingRaw),
       fundingSourceRaw: fundingRaw,
@@ -783,7 +872,7 @@ export function parseWorkbook(wb: ExcelJS.Workbook): ParsedAsset[] {
     });
   }
 
-  return assets;
+  return assets.map(normalizeParsedAsset);
 }
 
 

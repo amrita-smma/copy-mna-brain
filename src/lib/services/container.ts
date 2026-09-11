@@ -45,24 +45,33 @@ import {
   RoleRepository,
   WorkspaceCorrespondentRepository,
   WorkspaceTableLayoutRepository,
-  FundRepository,
-  HoldingEntityRepository,
-  FundSourceRepository,
-  FundHoldingEntityStakeRepository,
-  FundInvestorCommitmentEventRepository,
-  FundAssetRepository,
-  FundAssetTransactionRepository,
-  FundAssetValuationRepository,
   FeedbackRepository,
   RssFeedRepository,
   RssItemRepository,
   RssItemChunkRepository,
   UserConsentRepository,
+  FlInvestorRepository,
+  FlFundRepository,
+  FlAssetRepository,
+  FlFundingSourceRepository,
+  FlPositionRepository,
+  FlBusinessEventRepository,
+  FlBusinessEventRevisionRepository,
+  FlLedgerEntryRepository,
+  FlAllocationRepository,
+  FlValuationRepository,
+  FlSourceRecordRepository,
 } from '@/lib/repositories';
 import { JobDispatcher } from './jobDispatcher';
 import { CompanyService } from './companyService';
 import { CompanyGraphService } from './companyGraphService';
 import { CompanyRelationshipService } from './companyRelationshipService';
+import { FlMasterDataService } from './flMasterDataService';
+import { FlPositionService } from './flPositionService';
+import { FlLedgerService } from './flLedgerService';
+import { FlValuationService } from './flValuationService';
+import { FlBalanceService } from './flBalanceService';
+import { FlPortfolioService } from './flPortfolioService';
 import { createNeo4jDriver } from '@/lib/neo4j';
 import { CompanyRelationRepository } from '@/lib/repositories/companyRelationRepository';
 import { ScreeningService } from './screeningService';
@@ -100,15 +109,7 @@ import { NotificationService } from './notificationService';
 import { WorkspaceService } from './workspaceService';
 import { DealResurfaceService } from './dealResurfaceService';
 import { ChatAttachmentService } from './chatAttachmentService';
-import { FundService } from './fundService';
-import { HoldingEntityService } from './holdingEntityService';
-import { FundSourceService } from './fundSourceService';
-import { FundHoldingEntityStakeService } from './fundHoldingEntityStakeService';
-import { FundCommitmentEventService } from './fundCommitmentEventService';
-import { FundAssetLedgerService } from './fundAssetLedgerService';
 import { FundUpdateApplyService } from './fundUpdateApplyService';
-import { FundPortfolioService } from './fundPortfolioService';
-import { FundMetricsService } from './fundMetricsService';
 import { StalledDealService } from './stalledDealService';
 import { FeatureFlagsService } from './featureFlagsService';
 import { TableLayoutService } from './tableLayoutService';
@@ -156,16 +157,7 @@ export interface Container {
   workspaceService: WorkspaceService;
   dealResurfaceService: DealResurfaceService;
   chatAttachmentService: ChatAttachmentService;
-  fundService: FundService;
-  holdingEntityService: HoldingEntityService;
-  fundSourceService: FundSourceService;
-  fundHoldingEntityStakeService: FundHoldingEntityStakeService;
-  fundCommitmentEventService: FundCommitmentEventService;
-  fundAssetLedgerService: FundAssetLedgerService;
-
   fundUpdateApplyService: FundUpdateApplyService;
-  fundPortfolioService: FundPortfolioService;
-  fundMetricsService: FundMetricsService;
   fundAiOpinionService: FundAiOpinionService;
   stalledDealService: StalledDealService;
   featureFlagsService: FeatureFlagsService;
@@ -174,6 +166,12 @@ export interface Container {
   rssFeedService: RssFeedService;
   dataNavigatorService: DataNavigatorService;
   consentService: ConsentService;
+  flMasterDataService: FlMasterDataService;
+  flPositionService: FlPositionService;
+  flLedgerService: FlLedgerService;
+  flValuationService: FlValuationService;
+  flBalanceService: FlBalanceService;
+  flPortfolioService: FlPortfolioService;
 }
 
 export function createContainer(db: DbClient, workspaceId: string): Container {
@@ -353,74 +351,7 @@ export function createContainer(db: DbClient, workspaceId: string): Container {
 
   const chatAttachmentService = new ChatAttachmentService(workspaceId);
 
-  const fundRepo = new FundRepository(db, workspaceId);
-  const fundAssetRepo = new FundAssetRepository(db, workspaceId);
-  const fundAssetTransactionRepo = new FundAssetTransactionRepository(db, workspaceId);
-  const fundAssetValuationRepo = new FundAssetValuationRepository(db, workspaceId);
-  const fundMetricsService = new FundMetricsService(
-    fundRepo,
-    fundAssetRepo,
-    fundAssetTransactionRepo,
-    fundAssetValuationRepo,
-  );
-  const fundService = new FundService(fundRepo, fundAssetRepo, fundMetricsService);
-  const holdingEntityRepo = new HoldingEntityRepository(db, workspaceId);
-  const holdingEntityService = new HoldingEntityService(holdingEntityRepo);
-  const fundSourceRepo = new FundSourceRepository(db, workspaceId);
-  const fundSourceService = new FundSourceService(fundSourceRepo);
-  const fundHoldingEntityStakeRepo = new FundHoldingEntityStakeRepository(db, workspaceId);
-  const fundCommitmentEventRepo = new FundInvestorCommitmentEventRepository(db, workspaceId);
-  const fundCommitmentEventService = new FundCommitmentEventService(
-    db,
-    workspaceId,
-    fundCommitmentEventRepo,
-    fundHoldingEntityStakeRepo,
-    fundRepo,
-    holdingEntityRepo,
-  );
-  const fundHoldingEntityStakeService = new FundHoldingEntityStakeService(
-    fundHoldingEntityStakeRepo,
-    fundRepo,
-    holdingEntityRepo,
-    fundCommitmentEventRepo,
-    db,
-  );
 
-  const fundAssetLedgerService = new FundAssetLedgerService(
-    db,
-    workspaceId,
-    fundAssetTransactionRepo,
-    fundAssetValuationRepo,
-    fundAssetRepo,
-    fundRepo,
-    fundMetricsService,
-  );
-  const fundUpdateApplyService = new FundUpdateApplyService(
-    fundRepo,
-    fundAssetRepo,
-    fundAssetTransactionRepo,
-    fundAssetValuationRepo,
-    holdingEntityRepo,
-    fundSourceRepo,
-    fundMetricsService,
-    fundAssetLedgerService,
-    fundCommitmentEventRepo,
-    fundCommitmentEventService,
-  );
-  fileService.setFundUpdateApplyService(fundUpdateApplyService);
-  const fundPortfolioService = new FundPortfolioService(
-    fundRepo,
-    fundAssetRepo,
-    fundAssetTransactionRepo,
-    fundAssetValuationRepo,
-    workspaceId,
-  );
-  const fundAiOpinionService = new FundAiOpinionService(
-    fundAssetRepo,
-    fundAssetValuationRepo,
-    db,
-    workspaceId,
-  );
 
   const stalledDealService = new StalledDealService(companyRepo, companyLogRepo);
 
@@ -451,7 +382,106 @@ export function createContainer(db: DbClient, workspaceId: string): Container {
 
   const userConsentRepo = new UserConsentRepository(db);
   const consentService = new ConsentService(userConsentRepo, userRepo, userWorkspaceRepo);
+  const flInvestorRepo = new FlInvestorRepository(db);
+  const flFundRepo = new FlFundRepository(db);
+  const flAssetRepo = new FlAssetRepository(db);
+  const flFundingSourceRepo = new FlFundingSourceRepository(db);
+  const flPositionRepo = new FlPositionRepository(db);
+  const flBusinessEventRepo = new FlBusinessEventRepository(db);
+  const flBusinessEventRevisionRepo = new FlBusinessEventRevisionRepository(db);
+  const flLedgerEntryRepo = new FlLedgerEntryRepository(db);
+  const flAllocationRepo = new FlAllocationRepository(db);
+  const flValuationRepo = new FlValuationRepository(db);
+  const flSourceRecordRepo = new FlSourceRecordRepository(db);
 
+  const flMasterDataService = new FlMasterDataService(
+    db,
+    flInvestorRepo,
+    flFundRepo,
+    flAssetRepo,
+    flFundingSourceRepo,
+  );
+  const flPositionService = new FlPositionService(
+    db,
+    flPositionRepo,
+    flInvestorRepo,
+    flFundRepo,
+    flAssetRepo,
+    flLedgerEntryRepo,
+    flFundingSourceRepo,
+    flMasterDataService,
+  );
+  const flLedgerService = new FlLedgerService(
+    db,
+    flLedgerEntryRepo,
+    flBusinessEventRepo,
+    flAllocationRepo,
+    flPositionRepo,
+    flFundingSourceRepo,
+    flSourceRecordRepo,
+    flAssetRepo,
+    flFundRepo,
+    flMasterDataService,
+    flPositionService,
+    flInvestorRepo,
+    flBusinessEventRevisionRepo,
+  );
+  const flValuationService = new FlValuationService(
+    db,
+    flValuationRepo,
+    flAssetRepo,
+    flFundRepo,
+    flPositionRepo,
+    flSourceRecordRepo,
+  );
+  const flBalanceService = new FlBalanceService(
+    db,
+    flLedgerEntryRepo,
+    flPositionRepo,
+    flFundRepo,
+    flAssetRepo,
+    flValuationRepo,
+  );
+  const flPortfolioService = new FlPortfolioService(
+    db,
+    flFundRepo,
+    flAssetRepo,
+    flPositionRepo,
+    flInvestorRepo,
+    flFundingSourceRepo,
+    flBusinessEventRepo,
+    flLedgerEntryRepo,
+    flAllocationRepo,
+    flValuationRepo,
+    flBalanceService,
+  );
+
+  const fundUpdateApplyService = new FundUpdateApplyService(
+    db,
+    workspaceId,
+    flFundRepo,
+    flAssetRepo,
+    flPositionRepo,
+    flInvestorRepo,
+    flFundingSourceRepo,
+    flMasterDataService,
+    flPositionService,
+    flLedgerService,
+    flValuationService,
+    flValuationRepo,
+    flLedgerEntryRepo,
+    flSourceRecordRepo,
+    flAllocationRepo,
+  );
+  fileService.setFundUpdateApplyService(fundUpdateApplyService);
+  const fundAiOpinionService = new FundAiOpinionService(
+    flAssetRepo,
+    flValuationRepo,
+    db,
+    workspaceId,
+    flPositionRepo,
+    flBalanceService,
+  );
   return {
     companyService,
     companyGraphService,
@@ -490,16 +520,7 @@ export function createContainer(db: DbClient, workspaceId: string): Container {
     workspaceService,
     dealResurfaceService,
     chatAttachmentService,
-    fundService,
-    holdingEntityService,
-    fundSourceService,
-    fundHoldingEntityStakeService,
-    fundCommitmentEventService,
-    fundAssetLedgerService,
-
     fundUpdateApplyService,
-    fundPortfolioService,
-    fundMetricsService,
     fundAiOpinionService,
     stalledDealService,
     featureFlagsService,
@@ -508,5 +529,11 @@ export function createContainer(db: DbClient, workspaceId: string): Container {
     rssFeedService,
     dataNavigatorService,
     consentService,
+    flMasterDataService,
+    flPositionService,
+    flLedgerService,
+    flValuationService,
+    flBalanceService,
+    flPortfolioService,
   };
 }

@@ -1,9 +1,22 @@
 'use client';
 
 import { useRef, useState, type ReactNode } from 'react';
+import { Loader2, Lock, RotateCcw } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { formatPercentage } from '@/lib/numberFormat';
 import { useToast } from '@/hooks/use-toast';
 import { Button } from '@/components/ui/button';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/components/ui/alert-dialog';
 import {
   Dialog,
   DialogContent,
@@ -20,7 +33,6 @@ import {
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import type { EquityMetrics, Fund, Holding, HoldingFacts, Quarter, SellProceedsDestination, Txn, TxnType } from './types';
 import {
-  applyCommas,
   canSubmitTxnDialog,
   computeFoF,
   computeInv,
@@ -33,19 +45,25 @@ import {
   parseCurrencyInput,
   proceedsTreatmentLabel,
   proceedsTreatmentOptionsFor,
+  PROCEEDS_TREATMENT_OPTIONS,
+  regroupNumericInput,
+  selectEligibleMark,
   setAssetInvestType,
   txnTypeLabel,
   txnValue,
 } from './calc';
+import { isProceedsTreatmentApplicable } from '@/lib/fundLedger/proceedsTreatment';
+import type { CashHolderCandidate } from '@/lib/fundLedger/cashOwnership';
 import { useFundMoney } from './useFundMoney';
 import { useWorkspaceCurrency } from '@/components/layout/WorkspaceCurrencyContext';
 import { useFundData } from './context';
 import { Combobox } from './Combobox';
-import * as fundsApi from '@/lib/api/funds';
+import * as fundLedgerApi from '@/lib/api/fundLedger';
 import { isSellProceedsDestination } from '@/lib/sellProceedsDestination';
-import { quarterToPayload, toLocalISODate, txnToPayload } from './adapters';
+import { toLocalISODate } from './adapters';
 import { FieldKey, GlossaryTerm, InlineEdit, type InlineKind, MiniSpark, Pill } from './parts';
 import { CURRENCIES, CurrencyInput, MoneyInlineEdit, normalizeCurrency, type Currency } from './CurrencyInput';
+import { executeCloseHolding, executeReopenHolding } from './actions';
 
 // Money domain values are in millions; the currency editors work in raw units.
 const M = 1_000_000;
@@ -56,7 +74,7 @@ const rawToMillions = (raw: number | null): string => (raw == null ? '' : String
 const num = (raw: string): number | null => (raw === '' ? null : parseFloat(raw) || 0);
 const txt = (raw: string): string | null => raw || null;
 
-/** Commit handler for the English-name field. It's a `fund_assets` column that
+/** Commit handler for the English-name field. It's an asset column that
  * applies to every holding type, so it lives on the holding itself rather than
  * on `inv` / `d` like the other Legal-tab fields. */
 const englishNameSetter = (h: Holding, save: () => void) => (raw: string) => {
@@ -155,7 +173,7 @@ function Tile({
   tone?: 'success' | 'danger';
 }) {
   return (
-    <div className="rounded-lg border bg-muted/40 px-2.5 py-2">
+    <div className="rounded-lg border bg-muted px-2.5 py-2">
       <FieldKey>{term ? <GlossaryTerm term={term}>{label}</GlossaryTerm> : label}</FieldKey>
       <div
         className={cn(
@@ -236,33 +254,21 @@ function EquityDetail({ fund, holding }: { fund: Fund; holding: Holding }) {
   };
   const setEnglishName = englishNameSetter(holding, save);
 
-  // Convert raw-dollar DB overrides to millions for display/value (money()
-  // expects millions; these fields load from the DB without toM conversion).
-  const investedCapM = inv._investedCapitalAmount != null ? inv._investedCapitalAmount / M : null;
-  const realizedProcM = inv._netDistributionAmount != null ? inv._netDistributionAmount / M : null;
-  const shareCountM = inv._shareCount != null ? inv._shareCount / M : null;
-  const fmvM = inv._fmvAmount != null ? inv._fmvAmount / M : null;
-
   const performance = (
     <>
       <div className="mb-4 grid grid-cols-2 gap-2">
         <Tile
           label="Gross MOIC"
           term="moicT"
-          value={
-            <InlineEdit
-              kind="num"
-              value={inv._grossMoic ?? c.grossMOIC}
-              display={`${(inv._grossMoic ?? c.grossMOIC).toFixed(2)}×`}
-              onCommit={(r) => {
-                inv._grossMoic = r ? parseFloat(r) : undefined;
-                save();
-              }}
-            />
-          }
-          tone={(inv._grossMoic ?? c.grossMOIC) >= 1 ? 'success' : 'danger'}
+          value={c.grossMOIC != null ? `${c.grossMOIC.toFixed(2)}×` : '—'}
+          tone={c.grossMOIC != null ? (c.grossMOIC >= 1 ? 'success' : 'danger') : undefined}
         />
-        <Tile label="Net MOIC" term="moicT" value={`${c.netMOIC.toFixed(2)}×`} tone={c.netMOIC >= 1 ? 'success' : 'danger'} />
+        <Tile
+          label="Net MOIC"
+          term="moicT"
+          value={c.netMOIC != null ? `${c.netMOIC.toFixed(2)}×` : '—'}
+          tone={c.netMOIC != null ? (c.netMOIC >= 1 ? 'success' : 'danger') : undefined}
+        />
       </div>
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <div>
@@ -270,87 +276,32 @@ function EquityDetail({ fund, holding }: { fund: Fund; holding: Holding }) {
             <CalcRow
               label="Invested Capital"
               term="costinv"
-              value={
-                <InlineEdit
-                  align="right"
-                  kind="num"
-                  value={inv._investedCapitalAmount ?? c.investedCapital * M}
-                  display={money(investedCapM ?? c.investedCapital)}
-                  onCommit={(r) => {
-                    inv._investedCapitalAmount = r ? parseFloat(r) : undefined;
-                    save();
-                  }}
-                />
-              }
+              value={money(c.investedCapital)}
             />
             <CalcRow
               label="Realized Proceeds"
               term="realproc"
-              value={
-                <InlineEdit
-                  align="right"
-                  kind="num"
-                  value={inv._netDistributionAmount ?? c.realizedProceedsGross * M}
-                  display={money(realizedProcM ?? c.realizedProceedsGross)}
-                  onCommit={(r) => {
-                    inv._netDistributionAmount = r ? parseFloat(r) : undefined;
-                    save();
-                  }}
-                />
-              }
+              value={money(c.realizedProceedsGross)}
             />
             <CalcRow label="Shares acquired" term="sharesacquired" value={formatCompact(c.sharesAcquired * M)} indent />
             <CalcRow label="Shares disposed" term="sharesdisposed" value={formatCompact(c.sharesDisposed * M)} indent />
             <CalcRow
               label="Remaining shares held"
               term="sharesheld"
-              value={
-                <InlineEdit
-                  align="right"
-                  kind="num"
-                  value={inv._shareCount ?? c.sharesHeld * M}
-                  display={formatCompact((shareCountM ?? c.sharesHeld) * M)}
-                  onCommit={(r) => {
-                    inv._shareCount = r ? parseFloat(r) : undefined;
-                    save();
-                  }}
-                />
-              }
+              value={formatCompact(c.sharesHeld * M)}
             />
             <CalcRow label="Blended entry price" term="avgbuy" value={`$${formatCompact(c.blendedEntryPrice)}`} />
             <CalcRow
               label="Current share price"
               term="curprice"
-              value={
-                <InlineEdit
-                  align="right"
-                  kind="num"
-                  value={Number(c.curPrice.toFixed(2))}
-                  display={`$${formatCompact(c.curPrice)}`}
-                  onCommit={(r) => {
-                    inv._cur = parseFloat(r) || 0;
-                    save();
-                  }}
-                />
-              }
+              value={c.curPrice != null ? `$${formatCompact(c.curPrice)}` : '—'}
             />
             <CalcRow
               label="Unrealized value"
               term="marketvalue"
-              value={
-                <InlineEdit
-                  align="right"
-                  kind="num"
-                  value={inv._fmvAmount ?? c.unrealizedValue * M}
-                  display={money(fmvM ?? c.unrealizedValue)}
-                  onCommit={(r) => {
-                    inv._fmvAmount = r ? parseFloat(r) : undefined;
-                    save();
-                  }}
-                />
-              }
+              value={c.unrealizedValue != null ? money(c.unrealizedValue) : '—'}
             />
-            <CalcRow label="Total Value (Gross)" term="totalvalgross" value={money(c.totalValueGross)} bold />
+            <CalcRow label="Total Value (Gross)" term="totalvalgross" value={c.totalValueGross != null ? money(c.totalValueGross) : '—'} bold />
             <CalcRow
               label="Holding period"
               term="holdperiod"
@@ -389,8 +340,8 @@ function EquityDetail({ fund, holding }: { fund: Fund; holding: Holding }) {
             </table>
           </div>
           <SectionTable head="Return Metrics">
-            <CalcRow label="Gross MOIC" term="grossmoic" value={`${c.grossMOIC.toFixed(2)}×`} />
-            <CalcRow label="Net MOIC" term="netmoic" value={`${c.netMOIC.toFixed(2)}×`} bold />
+            <CalcRow label="Gross MOIC" term="grossmoic" value={c.grossMOIC != null ? `${c.grossMOIC.toFixed(2)}×` : '—'} />
+            <CalcRow label="Net MOIC" term="netmoic" value={c.netMOIC != null ? `${c.netMOIC.toFixed(2)}×` : '—'} bold />
             <CalcRow label="DPI" term="dpiT" value={`${c.dpi.toFixed(2)}×`} />
           </SectionTable>
         </div>
@@ -422,22 +373,19 @@ function EquityDetail({ fund, holding }: { fund: Fund; holding: Holding }) {
           save();
         }}
       />
-      <EditKV label="Entry date" kind="date" value={holding.dt} onCommit={(r) => { holding.dt = r; save(); }} />
+      <KV label="Entry date" value={holding.dt} />
       {sourceOfFundsEnabled && (
-        <SelectKV
+        <KV
           label="Source of fund"
           term="fundingsource"
           value={inv.fundingSource}
-          options={sourceOptions}
-          placeholder="Select source…"
-          onCommit={(r) => setInv('fundingSource', r)}
         />
       )}
-      <EditKV label="Stake" value={inv.stakePct} display={inv.stakePct != null ? `${inv.stakePct}%` : undefined} kind="num" onCommit={(r) => setInv('stakePct', r, true)} />
+      <KV label="Stake" value={inv.stakePct != null ? formatPercentage(inv.stakePct) : undefined} />
       <EditKV label="Hold period" term="holdperiod" value={d.holdYrs} display={d.holdYrs != null ? `${d.holdYrs} yrs` : undefined} kind="num" onCommit={(r) => setD('holdYrs', r, true)} />
       <EditKV label="Reporting date" term="reportdate" kind="date" value={inv.reportDate} onCommit={(r) => setInv('reportDate', r)} />
-      <EditKV label="Investment Currency" term="invccy" value={inv.investCcy} onCommit={(r) => setInv('investCcy', r)} />
-      <EditKV label="Currency" term="reportccy" value={inv.ccy} onCommit={(r) => setInv('ccy', r)} />
+      <KV label="Investment Currency" term="invccy" value={inv.investCcy} />
+      <KV label="Currency" term="reportccy" value={inv.ccy} />
     </div>
   );
 
@@ -472,8 +420,8 @@ function EquityDetail({ fund, holding }: { fund: Fund; holding: Holding }) {
           <div className="text-[13px] text-foreground">
             <InlineEdit
               kind="num"
-              value={Number(c.curPrice.toFixed(2))}
-              display={`$${formatCompact(c.curPrice)}`}
+              value={c.curPrice != null ? Number(c.curPrice.toFixed(2)) : null}
+              display={c.curPrice != null ? `$${formatCompact(c.curPrice)}` : '—'}
               onCommit={(r) => {
                 inv._cur = parseFloat(r) || 0;
                 save();
@@ -481,15 +429,23 @@ function EquityDetail({ fund, holding }: { fund: Fund; holding: Holding }) {
             />
           </div>
         </div>
-        <KV label="Total valuation" term="totalval" value={money(c.unrealizedValue)} />
-        <KV label="Live MOIC" value={`${c.grossMOIC.toFixed(2)}×`} />
+        <KV label="Total valuation" term="totalval" value={c.unrealizedValue != null ? money(c.unrealizedValue) : undefined} />
+        <KV label="Live MOIC" value={c.grossMOIC != null ? `${c.grossMOIC.toFixed(2)}×` : undefined} />
         <div>
           <FieldKey>
             <GlossaryTerm term="unreal">Unrealised return</GlossaryTerm>
           </FieldKey>
-          <div className={cn('text-[15px] font-medium', c.unreal >= 0 ? 'text-success' : 'text-destructive')}>
-            {c.unreal >= 0 ? '+' : ''}
-            {(c.unreal * 100).toFixed(1)}%
+          <div
+            className={cn(
+              'text-[15px] font-medium',
+              c.unreal == null
+                ? 'text-foreground'
+                : c.unreal >= 0
+                  ? 'text-success'
+                  : 'text-destructive',
+            )}
+          >
+            {c.unreal != null ? `${c.unreal >= 0 ? '+' : ''}${(c.unreal * 100).toFixed(1)}%` : '—'}
           </div>
         </div>
       </div>
@@ -542,7 +498,7 @@ function FeeRow({
         <GlossaryTerm term={term}>{label}</GlossaryTerm>
       </td>
       <td className="px-2.5 py-1 text-right text-xs">
-        <InlineEdit align="right" kind="num" value={rate} display={rate != null ? `${rate} %` : undefined} onCommit={onCommit} />
+        <InlineEdit align="right" kind="num" value={rate} display={rate != null ? formatPercentage(rate) : undefined} onCommit={onCommit} />
       </td>
       <td className="px-2.5 py-1 text-right text-xs">{moneyFee(value)}</td>
     </tr>
@@ -550,7 +506,7 @@ function FeeRow({
 }
 
 // ================= Fund of funds =================
-function FoFDetail({ fund, holding }: { fund: Fund; holding: Holding }) {
+export function FoFDetail({ fund, holding }: { fund: Fund; holding: Holding }) {
   const { commitHolding, refreshHolding, investorOptions, sourceOptions, sourceOfFundsEnabled } =
     useFundData();
   const { moneyK, currency: dispCcy } = useFundMoney();
@@ -577,13 +533,13 @@ function FoFDetail({ fund, holding }: { fund: Fund; holding: Holding }) {
   const setMarketValue = (raw: string) => {
     const millions = num(raw);
     if (!holding.id || millions == null) return;
-    const latest = inv.quarterly && inv.quarterly.length ? inv.quarterly[inv.quarterly.length - 1] : null;
+    const latest = selectEligibleMark(inv.quarterly);
     const asOfDate = latest?.asOfDate || toLocalISODate(new Date());
-    fundsApi
-      .upsertValuation(fund.id, holding.id, {
+    fundLedgerApi
+      .saveHoldingValuation(holding.id, holding.targetKind !== 'asset', {
+        ...latest,
         asOfDate,
-        periodLabel: latest?.q,
-        marketValueAmount: millions * 1_000_000,
+        mv: millions,
       })
       .then(() => refreshHolding(fund, holding))
       .catch((err) => {
@@ -597,13 +553,11 @@ function FoFDetail({ fund, holding }: { fund: Fund; holding: Holding }) {
       });
   };
 
-  // Live values fold in any manual override (inv._*) over the ledger-derived
-  // metric, exactly like the Equity Performance tab.
-  const xirr = inv._grossIrr ?? c.xirr;
-  const moic = inv._grossMoic ?? c.moic;
-  const costInv = inv._investedCapitalAmount != null ? inv._investedCapitalAmount / M : c.costInv;
-  const netDist = inv._netDistributionAmount != null ? inv._netDistributionAmount / M : c.netDist;
-  const dpiVal = inv._dpi ?? c.dpi;
+  const xirr = c.xirr;
+  const moic = c.moic;
+  const costInv = c.costInv;
+  const netDist = c.netDist;
+  const dpiVal = c.dpi;
 
   const performance = (
     <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
@@ -611,47 +565,44 @@ function FoFDetail({ fund, holding }: { fund: Fund; holding: Holding }) {
         label="XIRR"
         term="xirr"
         value={
-          <InlineEdit
-            kind="num"
-            value={Number((xirr * 100).toFixed(1))}
-            display={`${(xirr * 100).toFixed(1)}%`}
-            onCommit={(r) => {
-              inv._grossIrr = r ? parseFloat(r) / 100 : undefined;
-              save();
-            }}
-          />
+          xirr?.status === 'calculated' && xirr.value != null ? (
+            `${(xirr.value * 100).toFixed(1)}%`
+          ) : xirr?.status === 'unavailable' ? (
+            <span
+              className="cursor-help text-muted-foreground"
+              title={
+                xirr.reason === 'insufficient_flows'
+                  ? 'IRR unavailable: requires at least two dated cash flows'
+                  : xirr.reason === 'no_sign_change'
+                    ? 'IRR unavailable: cash flows do not change sign (requires both inflows and outflows)'
+                    : xirr.reason === 'did_not_converge'
+                      ? 'IRR unavailable: calculation did not converge'
+                      : 'IRR unavailable'
+              }
+            >
+              Unavailable
+            </span>
+          ) : (
+            '—'
+          )
         }
-        tone={xirr >= 0 ? 'success' : 'danger'}
+        tone={
+          xirr?.status === 'calculated' && xirr.value != null
+            ? xirr.value >= 0
+              ? 'success'
+              : 'danger'
+            : undefined
+        }
       />
       <Tile
         label="MOIC"
         term="moicT"
-        value={
-          <InlineEdit
-            kind="num"
-            value={Number(moic.toFixed(2))}
-            display={`${moic.toFixed(2)}×`}
-            onCommit={(r) => {
-              inv._grossMoic = r ? parseFloat(r) : undefined;
-              save();
-            }}
-          />
-        }
+        value={moic != null ? `${moic.toFixed(2)}×` : '—'}
       />
       <Tile
         label="Invested Capital"
         term="costinv"
-        value={
-          <InlineEdit
-            kind="num"
-            value={costInv}
-            display={moneyK(costInv)}
-            onCommit={(r) => {
-              inv._investedCapitalAmount = r ? parseFloat(r) * M : undefined;
-              save();
-            }}
-          />
-        }
+        value={moneyK(costInv)}
       />
       <Tile
         label="Unrealized Market Value"
@@ -670,32 +621,12 @@ function FoFDetail({ fund, holding }: { fund: Fund; holding: Holding }) {
       <Tile
         label="Net distribution"
         term="netdist"
-        value={
-          <InlineEdit
-            kind="num"
-            value={netDist}
-            display={moneyK(netDist)}
-            onCommit={(r) => {
-              inv._netDistributionAmount = r ? parseFloat(r) * M : undefined;
-              save();
-            }}
-          />
-        }
+        value={moneyK(netDist)}
       />
       <Tile
         label="DPI"
         term="dpiT"
-        value={
-          <InlineEdit
-            kind="num"
-            value={Number(dpiVal.toFixed(2))}
-            display={`${dpiVal.toFixed(2)}×`}
-            onCommit={(r) => {
-              inv._dpi = r ? parseFloat(r) : undefined;
-              save();
-            }}
-          />
-        }
+        value={`${dpiVal.toFixed(2)}×`}
       />
     </div>
   );
@@ -713,22 +644,19 @@ function FoFDetail({ fund, holding }: { fund: Fund; holding: Holding }) {
         placeholder="Select entity…"
         onCommit={(r) => setInv('entity', r)}
       />
-      <EditKV label="Country" value={d.geo} display={d.geo || inv.country || 'Indonesia'} onCommit={(r) => setD('geo', r)} />
-      <EditKV label="Investment type" value={getAssetInvestType(holding)} kind="select" options={INVEST_TYPES} onCommit={(r) => { setAssetInvestType(holding, r); save(); }} />
+      <KV label="Country" value={d.geo || inv.country || 'Indonesia'} />
+      <KV label="Investment type" value={getAssetInvestType(holding)} />
       {sourceOfFundsEnabled && (
-        <SelectKV
+        <KV
           label="Source of fund"
           term="fundingsource"
           value={inv.fundingSource}
-          options={sourceOptions}
-          placeholder="Select source…"
-          onCommit={(r) => setInv('fundingSource', r)}
         />
       )}
-      <EditKV label="Stake" value={inv.stakePct} display={inv.stakePct != null ? `${inv.stakePct}%` : undefined} kind="num" onCommit={(r) => setInv('stakePct', r, true)} />
-      <EditKV label="Entry date" kind="date" value={holding.dt} onCommit={(r) => { holding.dt = r; save(); }} />
+      <KV label="Stake" value={inv.stakePct != null ? formatPercentage(inv.stakePct) : undefined} />
+      <KV label="Entry date" value={holding.dt} />
       <EditKV label="Reporting date" term="reportdate" kind="date" value={inv.reportDate} onCommit={(r) => setInv('reportDate', r)} />
-      <EditKV label="Currency" term="reportccy" value={inv.ccy} onCommit={(r) => setInv('ccy', r)} />
+      <KV label="Currency" term="reportccy" value={inv.ccy} />
     </div>
   );
 
@@ -756,7 +684,7 @@ function FoFDetail({ fund, holding }: { fund: Fund; holding: Holding }) {
         <KV label="Capital calls" value={`${c.callsCount} transactions`} />
         <KV label="Total distributed" term="distrib" value={moneyK(c.totalDist + c.totalOther)} />
         <KV label="Distributions" value={`${c.distsCount + c.othersCount} transactions`} />
-        <EditKV label="Shareholding %" term="shpct" value={inv.stakePct} display={inv.stakePct != null ? `${inv.stakePct}%` : undefined} kind="num" onCommit={(r) => setInv('stakePct', r, true)} />
+        <KV label="Shareholding %" term="shpct" value={inv.stakePct != null ? formatPercentage(inv.stakePct) : undefined} />
         <div>
           <FieldKey>
             <GlossaryTerm term="marketvalue">Unrealized market value</GlossaryTerm>
@@ -769,7 +697,7 @@ function FoFDetail({ fund, holding }: { fund: Fund; holding: Holding }) {
             />
           </div>
         </div>
-        <KV label="MOIC" value={`${c.moic.toFixed(2)}×`} />
+        <KV label="MOIC" value={c.moic != null ? `${c.moic.toFixed(2)}×` : undefined} />
       </div>
       <div className="mt-2 text-[11px] text-muted-foreground">
         Fund-of-funds positions are not share-based at this level. Ownership is expressed through
@@ -803,6 +731,7 @@ function FoFDetail({ fund, holding }: { fund: Fund; holding: Holding }) {
 // ================= Cash =================
 function CashDetail({ fund, holding }: { fund: Fund; holding: Holding }) {
   const { commitHolding, sourceOptions, sourceOfFundsEnabled } = useFundData();
+  const { money } = useFundMoney();
   const save = () => commitHolding(fund, holding);
   const inv = holding.inv!;
   const d = (holding.d = holding.d || {});
@@ -810,7 +739,6 @@ function CashDetail({ fund, holding }: { fund: Fund; holding: Holding }) {
   // fund-of-funds position.
   const c = computeFoF(holding)!;
   const ccy = normalizeCurrency(inv.ccy);
-  const dispCcy = useWorkspaceCurrency();
 
   const setInv = (k: keyof typeof inv, raw: string, numeric = false) => {
     (inv as unknown as Record<string, unknown>)[k as string] = numeric ? num(raw) : txt(raw);
@@ -821,14 +749,9 @@ function CashDetail({ fund, holding }: { fund: Fund; holding: Holding }) {
     save();
   };
 
-  // Live figures fold any manual override (inv._*) over the ledger-derived
-  // amount, exactly like the Equity/FoF Performance tabs. Editing a value here
-  // writes the override straight to the asset's invested_capital_amount /
-  // fmv_amount columns (flags is_manually_overridden) — adding or editing a
-  // transaction afterwards clears the override and re-derives from the ledger.
-  const balance = inv._investedCapitalAmount != null ? inv._investedCapitalAmount / M : c.costInv;
-  const currentValue = inv._fmvAmount != null ? inv._fmvAmount / M : c.marketValue;
-  const netDist = inv._netDistributionAmount != null ? inv._netDistributionAmount / M : c.netDist;
+  const balance = c.costInv;
+  const currentValue = c.marketValue;
+  const netDist = c.netDist;
 
   const overview = (
     <>
@@ -836,72 +759,41 @@ function CashDetail({ fund, holding }: { fund: Fund; holding: Holding }) {
         <Tile
           label="Amount"
           term="costinv"
-          value={
-            <MoneyInlineEdit
-              amount={toRaw(balance)}
-              currency={dispCcy}
-              onCommit={(amt) => {
-                inv._investedCapitalAmount = amt ?? undefined;
-                save();
-              }}
-            />
-          }
+          value={money(balance)}
         />
         <Tile
           label="Current value"
           term="marketvalue"
-          value={
-            <MoneyInlineEdit
-              amount={toRaw(currentValue)}
-              currency={dispCcy}
-              onCommit={(amt) => {
-                inv._fmvAmount = amt ?? undefined;
-                save();
-              }}
-            />
-          }
+          value={currentValue != null ? money(currentValue) : '—'}
         />
         <Tile
           label="Interest / income"
           term="netdist"
-          value={
-            <MoneyInlineEdit
-              amount={toRaw(netDist)}
-              currency={dispCcy}
-              onCommit={(amt) => {
-                inv._netDistributionAmount = amt ?? undefined;
-                save();
-              }}
-            />
-          }
+          value={money(netDist)}
         />
       </div>
       <div className="mt-2 text-[10px] text-muted-foreground">
-        → Balances roll up from the Transactions ledger. Typing a value here overrides that
-        roll-up until you next add or edit a transaction, which recomputes from the ledger.
+        → Balances roll up from the Transactions ledger and valuation history.
       </div>
       <div className="mt-4 grid grid-cols-2 gap-x-5 gap-y-2.5 border-t pt-4 sm:grid-cols-4">
         <EditKV label="Held at" value={d.institution} onCommit={(r) => setD('institution', r)} />
         <EditKV
           label="Interest earned"
           value={d.yieldPct}
-          display={d.yieldPct != null ? `${d.yieldPct}%` : undefined}
+          display={d.yieldPct != null ? formatPercentage(d.yieldPct) : undefined}
           kind="num"
           onCommit={(r) => setD('yieldPct', r, true)}
         />
         <EditKV label="Type" value={d.type} onCommit={(r) => setD('type', r)} />
-        {sourceOfFundsEnabled && (
-          <SelectKV
+      {sourceOfFundsEnabled && (
+          <KV
             label="Source of fund"
             term="fundingsource"
             value={inv.fundingSource}
-            options={sourceOptions}
-            placeholder="Select source…"
-            onCommit={(r) => setInv('fundingSource', r)}
           />
         )}
-        <EditKV label="Entry date" kind="date" value={holding.dt} onCommit={(r) => { holding.dt = r; save(); }} />
-        <EditKV label="Currency" term="reportccy" value={inv.ccy} onCommit={(r) => setInv('ccy', r)} />
+        <KV label="Entry date" value={holding.dt} />
+        <KV label="Currency" term="reportccy" value={inv.ccy} />
       </div>
     </>
   );
@@ -918,7 +810,7 @@ function CashDetail({ fund, holding }: { fund: Fund; holding: Holding }) {
 
 // ================= Transactions (editable) =================
 function TxnTable({ fund, holding, fof }: { fund: Fund; holding: Holding; fof?: boolean }) {
-  const { refreshHolding, refreshAll } = useFundData();
+  const { refreshHolding, refreshAll, sourceIdsByName } = useFundData();
   const { money } = useFundMoney();
   const { toast } = useToast();
   const [dialog, setDialog] = useState<{
@@ -943,20 +835,23 @@ function TxnTable({ fund, holding, fof }: { fund: Fund; holding: Holding; fof?: 
 
   const persist = (t: Txn, previousTxn?: Txn) => {
     if (!holding.id) return;
-    const payload = txnToPayload(t);
-    // Default to the holding's assigned entity/source if the transaction didn't explicitly override it.
-    if (!payload.holdingEntityId) payload.holdingEntityId = holding.inv?.entity || null;
-    if (!payload.fundingSourceId) payload.fundingSourceId = holding.inv?.fundingSource || null;
-    const request = t.id
-      ? fundsApi.updateTransaction(fund.id, holding.id, t.id, payload)
-      : fundsApi.addTransaction(fund.id, holding.id, payload);
-    request
+    const resolvedSourceId = t.fundingSourceId
+      ? (sourceIdsByName?.get(t.fundingSourceId) || t.fundingSourceId)
+      : (holding.fundingSourceId ||
+         holding.inv?.fundingSourceId ||
+         (holding.inv?.fundingSource ? sourceIdsByName?.get(holding.inv.fundingSource) : null) ||
+         null);
+
+    const tWithDefaults: Txn = {
+      ...t,
+      positionId: t.positionId ?? holding.positionId ?? null,
+      holdingEntityId: t.holdingEntityId || holding.inv?.entity || null,
+      fundingSourceId: resolvedSourceId,
+    };
+    fundLedgerApi
+      .saveHoldingTransaction(fund.id, holding.id, holding.targetKind ? holding.targetKind === 'fund' : fof, { ...tWithDefaults, fundStyle: fof }, t.id)
       .then(() => {
-        // Fund membership is transaction-driven, so a transaction naming a
-        // different fund moves the asset there. Additionally, any create/edit of a
-        // Sell transaction can create or modify linked cash movements in a fund cash asset,
-        // so refresh the whole portfolio instead of only this holding.
-        const isSell = payload.txnType === 'divestment' || t.type === 'Sell' || previousTxn?.type === 'Sell';
+        const isSell = t.type === 'Sell' || previousTxn?.type === 'Sell';
         const txnFundId = t.fundId ?? 'unassigned';
         return isSell || txnFundId !== fund.id ? refreshAll() : refreshHolding(fund, holding);
       })
@@ -965,16 +860,28 @@ function TxnTable({ fund, holding, fof }: { fund: Fund; holding: Holding; fof?: 
   const editTxn = (i: number, k: keyof Txn, raw: string, numeric = false) => {
     const prev = txns[i];
     if (prev.isGenerated || prev.sourceDivestmentTxnId) return;
-    const next = { ...prev, [k]: numeric ? num(raw) : txt(raw) };
+    const next = {
+      ...prev,
+      [k]: numeric ? num(raw) : txt(raw),
+      preserveEconomicFields: k === 'notes' || k === 'date' || k === 'label',
+    };
     txns[i] = next;
     persist(next, prev);
   };
   const delTxn = (i: number) => {
     const t = txns[i];
-    if (txns.length <= 1 || !holding.id || !t.id || t.isGenerated || t.sourceDivestmentTxnId) return;
+    if (!holding.id || !t.id || t.isGenerated || t.sourceDivestmentTxnId) return;
     const isSell = t.type === 'Sell' || t.sellProceedsDestination != null;
-    fundsApi
-      .deleteTransaction(fund.id, holding.id, t.id)
+    const resolvedSourceId = t.fundingSourceId
+      ? (sourceIdsByName?.get(t.fundingSourceId) || t.fundingSourceId)
+      : (holding.fundingSourceId ||
+         holding.inv?.fundingSourceId ||
+         (holding.inv?.fundingSource ? sourceIdsByName?.get(holding.inv.fundingSource) : null) ||
+         null);
+    fundLedgerApi
+      .deleteHoldingTransaction(fund.id, holding.id, holding.targetKind ? holding.targetKind === 'fund' : fof, t.id, {
+        fundingSourceId: resolvedSourceId,
+      })
       .then(() => (isSell ? refreshAll() : refreshHolding(fund, holding)))
       .catch(onFailure('Failed to delete transaction'));
   };
@@ -1112,7 +1019,6 @@ function TxnTable({ fund, holding, fof }: { fund: Fund; holding: Holding; fof?: 
                     <span className="text-xs text-muted-foreground">—</span>
                   ) : (
                     <RowActions
-                      deleteDisabled={txns.length <= 1}
                       onEdit={() => setDialog({ mode: 'edit', idx: i })}
                       onDelete={() => delTxn(i)}
                     />
@@ -1124,7 +1030,7 @@ function TxnTable({ fund, holding, fof }: { fund: Fund; holding: Holding; fof?: 
         </tbody>
       </table>
       <AddRowButton label="Add transaction" onClick={() => setDialog({ mode: 'add', idx: -1 })} />
-      <div className="mt-1.5 flex items-center gap-1.5 border-t bg-muted/40 px-2.5 py-1.5 text-[10px] text-muted-foreground">
+      <div className="mt-1.5 flex items-center gap-1.5 border-t bg-muted px-2.5 py-1.5 text-[10px] text-muted-foreground">
         → Adding, editing, or removing transactions recalculates Invested Capital, Realized Proceeds,
         Shares Held and all downstream metrics.
       </div>
@@ -1136,6 +1042,8 @@ function TxnTable({ fund, holding, fof }: { fund: Fund; holding: Holding; fof?: 
           typeOptions={typeOptions}
           mode={dialog.mode}
           fundId={fund.id}
+          fund={fund}
+          holding={holding}
           initial={
             dialog.mode === 'edit'
               ? { ...txns[dialog.idx], ...dialog.initialOverride }
@@ -1163,6 +1071,8 @@ function TxnDialog({
   mode,
   initial,
   fundId,
+  fund,
+  holding,
   onSubmit,
   onClose,
 }: {
@@ -1173,6 +1083,8 @@ function TxnDialog({
   mode: 'add' | 'edit';
   initial?: Txn;
   fundId?: string;
+  fund?: Fund;
+  holding?: Holding;
   onSubmit: (t: Txn) => void;
   onClose: () => void;
 }) {
@@ -1180,8 +1092,54 @@ function TxnDialog({
     useFundData();
   const wsCurrency = useWorkspaceCurrency();
   const isCash = holdingType === 'Cash';
-  const initialProceeds = initial?.sellProceedsDestination ?? '';
-  const sanitizedInitialProceeds = isCash && initialProceeds === 'cash_in_fund' ? '' : initialProceeds;
+
+  const getHolderCandidate = (currentFundId: string, currentHoldingEntityId: string): CashHolderCandidate => {
+    const resolvedEntity = currentHoldingEntityId || holding?.inv?.entity || null;
+    if (resolvedEntity) {
+      return {
+        holder_investor_id: resolvedEntity,
+        holder_fund_id: null,
+        holderFundManaged: false,
+      };
+    }
+    const resolvedFundId = currentFundId || fundId || fund?.id || null;
+    const targetFund = (funds ?? []).find((fd) => fd.id === resolvedFundId) ?? fund;
+    const isManaged =
+      typeof (targetFund as any)?.managed === 'boolean'
+        ? (targetFund as any).managed === true
+        : targetFund?.disclosure === 'external_fund'
+          ? false
+          : Boolean(targetFund?.id);
+
+    return {
+      holder_investor_id: null,
+      holder_fund_id: resolvedFundId,
+      holderFundManaged: isManaged,
+    };
+  };
+
+  const isApplicableFor = (type: string, currentFundId: string, currentHoldingEntityId: string): boolean => {
+    const candidate = getHolderCandidate(currentFundId, currentHoldingEntityId);
+    return isProceedsTreatmentApplicable({
+      entryType: type?.toLowerCase(),
+      holder: candidate,
+    });
+  };
+
+  const initialType = initial?.type ?? 'Buy';
+  const initialFundId = initial?.fundId ?? fundId ?? '';
+  const initialEntityId = initial?.holdingEntityId
+    ? (entityNameById.get(initial.holdingEntityId) ?? initial.holdingEntityId)
+    : '';
+
+  const initialApplicable = isApplicableFor(initialType, initialFundId, initialEntityId);
+  const initialProceeds = initial?.sellProceedsDestination;
+  const resolvedInitialProceeds = initialApplicable
+    ? (initialProceeds === 'cash_in_fund' || initialProceeds === 'distributed_to_investor'
+        ? initialProceeds
+        : 'cash_in_fund')
+    : '';
+
   const [f, setF] = useState<{ [k: string]: string }>(() =>
     initial
       ? {
@@ -1194,36 +1152,53 @@ function TxnDialog({
           value: initial.value != null ? String(initial.value) : '',
           fx: initial.fx ?? '',
           notes: initial.notes ?? '',
-          fundId: initial.fundId ?? fundId ?? '',
+          fundId: initialFundId,
           // The ledger stores entity/source as UUID foreign keys, but the
           // comboboxes are name-based (and the save path resolves name → id).
           // Map the stored id to its name so the picker shows the name, not
           // the raw UUID. Fall back to the raw value if it's already a name or
           // has no managed row.
-          holdingEntityId: initial.holdingEntityId
-            ? (entityNameById.get(initial.holdingEntityId) ?? initial.holdingEntityId)
-            : '',
+          holdingEntityId: initialEntityId,
           fundingSourceId: initial.fundingSourceId
             ? (sourceNameById.get(initial.fundingSourceId) ?? initial.fundingSourceId)
             : '',
-          sellProceedsDestination: sanitizedInitialProceeds,
+          sellProceedsDestination: resolvedInitialProceeds,
         }
-      : { type: 'Buy', fundId: fundId ?? '', sellProceedsDestination: '' },
+      : {
+          type: 'Buy',
+          fundId: initialFundId,
+          holdingEntityId: initialEntityId,
+          sellProceedsDestination: resolvedInitialProceeds,
+        },
   );
   const g = (k: string) => f[k] ?? '';
   const set = (k: string, v: string) => setF((p) => ({ ...p, [k]: v }));
-  const isCashInFundSell = g('type') === 'Sell' && g('sellProceedsDestination') === 'cash_in_fund';
-  const canSubmit = canSubmitTxnDialog({
-    date: g('date'),
-    value: g('value'),
-    pps: g('pps'),
-    shares: g('shares'),
-    type: g('type'),
-    sellProceedsDestination: g('sellProceedsDestination'),
-    fundId: g('fundId'),
-    fof,
-    isCash,
-  });
+
+  const destinationApplicable = isApplicableFor(g('type'), g('fundId'), g('holdingEntityId'));
+  const isCashInFundSell = destinationApplicable && g('sellProceedsDestination') === 'cash_in_fund';
+
+  const canSubmit = destinationApplicable
+    ? canSubmitTxnDialog({
+        date: g('date'),
+        value: g('value'),
+        pps: g('pps'),
+        shares: g('shares'),
+        type: g('type'),
+        sellProceedsDestination: g('sellProceedsDestination'),
+        fundId: g('fundId'),
+        fof,
+        isCash,
+      })
+    : canSubmitTxnDialog({
+        date: g('date'),
+        value: g('value'),
+        pps: g('pps'),
+        shares: g('shares'),
+        type: 'Other',
+        fof,
+        isCash,
+      });
+
   const submit = () => {
     const pps = !fof && g('pps') ? (parseCurrencyInput(g('pps')) ?? null) : null;
     const shares = !fof && g('shares') ? (parseCurrencyInput(g('shares')) ?? 0) / M : null;
@@ -1234,7 +1209,7 @@ function TxnDialog({
     const value = explicitValue != null ? explicitValue : fof ? 0 : null;
     const dest = g('sellProceedsDestination');
     const sellProceedsDestination: SellProceedsDestination | null =
-      g('type') === 'Sell' && isSellProceedsDestination(dest) ? dest : null;
+      destinationApplicable && isSellProceedsDestination(dest) ? dest : null;
     const t: Txn = {
       id: initial?.id,
       date: g('date') || '—',
@@ -1268,7 +1243,16 @@ function TxnDialog({
             value={g('fundId')}
             options={funds.map((fd) => fd.id)}
             labelFor={(id) => funds.find((fd) => fd.id === id)?.n ?? id}
-            onChange={(v) => set('fundId', v)}
+            onChange={(v) => {
+              const nextApplicable = isApplicableFor(g('type'), v, g('holdingEntityId'));
+              setF((p) => ({
+                ...p,
+                fundId: v,
+                sellProceedsDestination: nextApplicable
+                  ? (p.sellProceedsDestination || 'cash_in_fund')
+                  : '',
+              }));
+            }}
             placeholder="Select fund…"
           />
         </FormField>
@@ -1276,7 +1260,16 @@ function TxnDialog({
           <Combobox
             value={g('holdingEntityId')}
             options={investorOptions}
-            onChange={(v) => set('holdingEntityId', v)}
+            onChange={(v) => {
+              const nextApplicable = isApplicableFor(g('type'), g('fundId'), v);
+              setF((p) => ({
+                ...p,
+                holdingEntityId: v,
+                sellProceedsDestination: nextApplicable
+                  ? (p.sellProceedsDestination || 'cash_in_fund')
+                  : '',
+              }));
+            }}
             placeholder="Select entity…"
           />
         </FormField>
@@ -1296,10 +1289,13 @@ function TxnDialog({
           <FormSelect
             value={g('type')}
             onChange={(v) => {
+              const nextApplicable = isApplicableFor(v, g('fundId'), g('holdingEntityId'));
               setF((p) => ({
                 ...p,
                 type: v,
-                sellProceedsDestination: getNextSellProceedsDestination(v, p.sellProceedsDestination),
+                sellProceedsDestination: nextApplicable
+                  ? (p.sellProceedsDestination || 'cash_in_fund')
+                  : '',
               }));
             }}
             options={typeOptions}
@@ -1309,7 +1305,7 @@ function TxnDialog({
           <FormInput type="date" value={g('date')} onChange={(v) => set('date', v)} />
         </FormField>
       </FormRow>
-      {g('type') === 'Sell' && (
+      {destinationApplicable && (
         <fieldset className="flex flex-col gap-1.5 border-0 p-0 m-0">
           <legend className="text-[11px] font-medium text-muted-foreground">
             Proceeds treatment<span className="ml-0.5 text-destructive">*</span>
@@ -1319,7 +1315,7 @@ function TxnDialog({
             onValueChange={(v) => set('sellProceedsDestination', v)}
             className="flex flex-wrap gap-4 pt-0.5"
           >
-            {proceedsTreatmentOptionsFor(holdingType).map((opt) => (
+            {PROCEEDS_TREATMENT_OPTIONS.map((opt) => (
               <label
                 key={opt.value}
                 className="flex cursor-pointer items-center gap-2 text-[13px] text-foreground"
@@ -1387,7 +1383,7 @@ function TxnDialog({
 // ================= Historical value / quarterly (editable) =================
 // Same rationale as TxnTable above: valuations are upserted directly against
 // their own endpoint, never through commitHolding.
-function QuarterTable({ fund, holding, equity }: { fund: Fund; holding: Holding; equity?: boolean }) {
+export function QuarterTable({ fund, holding, equity }: { fund: Fund; holding: Holding; equity?: boolean }) {
   const { refreshHolding } = useFundData();
   const { toast } = useToast();
   const [dialog, setDialog] = useState<{ mode: 'add' | 'edit'; idx: number } | null>(null);
@@ -1409,8 +1405,8 @@ function QuarterTable({ fund, holding, equity }: { fund: Fund; holding: Holding;
 
   const persist = (rec: Quarter) => {
     if (!holding.id || !rec.asOfDate) return;
-    fundsApi
-      .upsertValuation(fund.id, holding.id, quarterToPayload(rec, rec.asOfDate))
+    fundLedgerApi
+      .saveHoldingValuation(holding.id, holding.targetKind ? holding.targetKind === 'fund' : !equity, rec)
       .then(() => refreshHolding(fund, holding))
       .catch(onFailure('Failed to save valuation'));
   };
@@ -1422,8 +1418,8 @@ function QuarterTable({ fund, holding, equity }: { fund: Fund; holding: Holding;
   const delQ = (i: number) => {
     const rec = q[i];
     if (q.length <= 1 || !holding.id || !rec.id) return;
-    fundsApi
-      .deleteValuation(fund.id, holding.id, rec.id)
+    fundLedgerApi
+      .deleteValuation(rec.id)
       .then(() => refreshHolding(fund, holding))
       .catch(onFailure('Failed to delete valuation'));
   };
@@ -1453,8 +1449,18 @@ function QuarterTable({ fund, holding, equity }: { fund: Fund; holding: Holding;
             </tr>
           </thead>
           <tbody>
-            {q.map((x, i) => {
-              const last = i === q.length - 1;
+            {q.length === 0 ? (
+              <tr>
+                <td
+                  colSpan={equity ? 10 : 9}
+                  className="px-2 py-4 text-center text-xs text-muted-foreground"
+                >
+                  No quarterly valuation history recorded
+                </td>
+              </tr>
+            ) : (
+              q.map((x, i) => {
+                const last = i === q.length - 1;
               return (
                 <tr key={i} className={cn('group border-b', last && 'bg-accent/10')}>
                   <td className={cn('px-2 py-1 text-xs text-foreground', last && 'font-semibold')}>
@@ -1489,7 +1495,7 @@ function QuarterTable({ fund, holding, equity }: { fund: Fund; holding: Holding;
                     />
                   </td>
                   <td className="px-2 py-1 text-right text-xs">
-                    <InlineEdit align="right" kind="num" value={x.shPct} display={safe(x.shPct, (v) => `${v}%`)} onCommit={(r) => editQ(i, 'shPct', r)} />
+                    <InlineEdit align="right" kind="num" value={x.shPct} display={safe(x.shPct, formatPercentage)} onCommit={(r) => editQ(i, 'shPct', r)} />
                   </td>
                   <td className="px-2 py-1 text-right text-xs">
                     <MoneyInlineEdit align="right" amount={toRaw(x.cost)} currency={dispCcy} onCommit={(amt) => editQ(i, 'cost', rawToMillions(amt))} />
@@ -1512,7 +1518,8 @@ function QuarterTable({ fund, holding, equity }: { fund: Fund; holding: Holding;
                   </td>
                 </tr>
               );
-            })}
+            })
+          )}
           </tbody>
         </table>
       </div>
@@ -1536,9 +1543,9 @@ function QuarterTable({ fund, holding, equity }: { fund: Fund; holding: Holding;
               // permanently lose the valuation if the insert failed after
               // the delete had already gone through.
               if (holding.id && prev.id && prev.asOfDate && rec.asOfDate !== prev.asOfDate) {
-                fundsApi
-                  .upsertValuation(fund.id, holding.id, quarterToPayload(rec, rec.asOfDate!))
-                  .then(() => fundsApi.deleteValuation(fund.id, holding.id!, prev.id!))
+                fundLedgerApi
+                  .saveHoldingValuation(holding.id, holding.targetKind ? holding.targetKind === 'fund' : !equity, rec)
+                  .then(() => fundLedgerApi.deleteValuation(prev.id!))
                   .then(() => refreshHolding(fund, holding))
                   .catch(onFailure('Failed to move valuation to its new date'));
                 setDialog(null);
@@ -1814,26 +1821,11 @@ function FormInput({
       onChange={(e) => {
         if (!isNum) { onChange(e.target.value); return; }
         const el = e.currentTarget;
-        const cursorInV = el.selectionStart ?? el.value.length;
-        const before = el.value.slice(0, cursorInV).replace(/,/g, '').length;
-        const stripped = el.value.replace(/,/g, '');
-        const formatted = applyCommas(stripped);
-        onChange(formatted);
-        requestAnimationFrame(() => {
-          const inp = ref.current;
-          if (!inp) return;
-          let rem = before;
-          let cur = formatted.length;
-          if (rem === 0) {
-            cur = 0;
-          } else {
-            for (let i = 0; i < formatted.length; i++) {
-              if (formatted[i] !== ',') rem--;
-              if (rem === 0) { cur = i + 1; break; }
-            }
-          }
-          inp.setSelectionRange(cur, cur);
+        const next = regroupNumericInput(el.value, el.selectionStart ?? el.value.length, {
+          allowSuffix: true,
         });
+        onChange(next.text);
+        requestAnimationFrame(() => ref.current?.setSelectionRange(next.caret, next.caret));
       }}
       className="rounded-md border bg-background px-2 py-1.5 text-[13px] text-foreground outline-none focus:border-accent"
     />
@@ -1896,7 +1888,7 @@ function genericFields(
       {
         label: 'Interest rate',
         value: d.coupon,
-        display: d.coupon != null ? `${d.coupon}%` : undefined,
+        display: d.coupon != null ? formatPercentage(d.coupon) : undefined,
         kind: 'num',
         onCommit: (r) => setD('coupon', r, true),
       },
@@ -1935,7 +1927,7 @@ function genericFields(
       {
         label: 'Interest earned',
         value: d.yieldPct,
-        display: d.yieldPct != null ? `${d.yieldPct}%` : undefined,
+        display: d.yieldPct != null ? formatPercentage(d.yieldPct) : undefined,
         kind: 'num',
         onCommit: (r) => setD('yieldPct', r, true),
       },
@@ -1954,35 +1946,7 @@ function GenericDetail({ fund, holding, typeName }: { fund: Fund; holding: Holdi
     (d as Record<string, unknown>)[k as string] = numeric ? num(raw) : txt(raw);
     save();
   };
-  // Cash (and other non-equity types) have no `inv` ledger, so the amount is
-  // written straight to the asset's invested/value columns as a manual
-  // override — the raw-dollar buffer lives on `d` (see holdingToAssetUpdateInput).
-  const setAmount = (field: '_investedAmount' | '_fmvAmount', target: 'cost' | 'fmv', raw: string) => {
-    const millions = num(raw);
-    holding[target] = millions ?? 0;
-    d[field] = millions == null ? null : millions * M;
-    save();
-  };
-
   const fields: GenericField[] = [];
-  if (holding.tp === 'Cash') {
-    fields.push(
-      {
-        label: 'Amount',
-        value: holding.cost,
-        display: money(holding.cost),
-        kind: 'num',
-        onCommit: (r) => setAmount('_investedAmount', 'cost', r),
-      },
-      {
-        label: 'Current value',
-        value: holding.fmv,
-        display: money(holding.fmv),
-        kind: 'num',
-        onCommit: (r) => setAmount('_fmvAmount', 'fmv', r),
-      },
-    );
-  }
   fields.push(...genericFields(holding, setD, money));
 
   return (
@@ -2032,36 +1996,172 @@ function TabbedDetail({ tabs }: { tabs: { id: string; label: string; body: React
   );
 }
 
+/** Header row showing current position status and providing manual Close / Reopen actions. */
+export function HoldingPositionHeader({ fund, holding }: { fund: Fund; holding: Holding }) {
+  const { refreshHolding, refreshAll } = useFundData();
+  const { toast } = useToast();
+  const [busy, setBusy] = useState(false);
+  const [openDialog, setOpenDialog] = useState(false);
+
+  const explicitIds = holding.positionIds?.length
+    ? holding.positionIds
+    : holding.positionId
+      ? [holding.positionId]
+      : [];
+
+  const isClosed =
+    holding.st?.toLowerCase() === 'exited' ||
+    holding.st?.toLowerCase() === 'closed';
+
+  const hasPosition = explicitIds.length > 0;
+  const isMulti = explicitIds.length > 1;
+
+  const handleAction = async () => {
+    if (!hasPosition) return;
+    setBusy(true);
+    try {
+      const action = isClosed ? executeReopenHolding : executeCloseHolding;
+      await action(fund, holding, { reloadAll: refreshAll, toast });
+      refreshHolding(fund, holding);
+    } catch {
+      // The shared action already reports the failure through the standard toast.
+    } finally {
+      setBusy(false);
+      setOpenDialog(false);
+    }
+  };
+
+  return (
+    <div className="mb-4 flex flex-wrap items-center justify-between gap-2 border-b border-border/60 pb-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+          Position Status
+        </span>
+        <Pill
+          className={cn(
+            isClosed
+              ? 'border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400'
+              : 'border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
+          )}
+        >
+          {holding.st || (isClosed ? 'Exited' : 'Active')}
+        </Pill>
+        {isMulti ? (
+          <span className="text-xs text-muted-foreground" title={explicitIds.join(', ')}>
+            ({explicitIds.length} linked positions: <code className="text-[11px]">{explicitIds.join(', ')}</code>)
+          </span>
+        ) : hasPosition ? (
+          <span className="text-xs text-muted-foreground">
+            (Position ID: <code className="font-mono text-[11px]">{explicitIds[0]}</code>)
+          </span>
+        ) : (
+          <span className="text-xs text-amber-600 dark:text-amber-400">
+            (No linked position ID)
+          </span>
+        )}
+      </div>
+
+      <div>
+        <AlertDialog open={openDialog} onOpenChange={setOpenDialog}>
+          <AlertDialogTrigger asChild>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={busy || !hasPosition || (isClosed && isMulti)}
+              title={
+                isClosed && isMulti
+                  ? 'Reopening multiple linked positions is disabled because it cannot be atomic.'
+                  : undefined
+              }
+              className={cn(
+                'h-7 px-2.5 text-xs',
+                isClosed
+                  ? 'border-emerald-500/40 text-emerald-600 hover:bg-emerald-500/10 hover:text-emerald-700 dark:text-emerald-400'
+                  : 'border-amber-500/40 text-amber-600 hover:bg-amber-500/10 hover:text-amber-700 dark:text-amber-400',
+              )}
+            >
+              {busy ? (
+                <>
+                  <Loader2 className="mr-1.5 h-3 w-3 animate-spin" />
+                  {isClosed ? 'Reopening…' : 'Closing…'}
+                </>
+              ) : isClosed ? (
+                <>
+                  <RotateCcw className="mr-1.5 h-3 w-3" />
+                  Reopen holding
+                </>
+              ) : (
+                <>
+                  <Lock className="mr-1.5 h-3 w-3" />
+                  Close holding
+                </>
+              )}
+            </Button>
+          </AlertDialogTrigger>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>
+                {isClosed ? `Reopen "${holding.n}"?` : `Close "${holding.n}"?`}
+              </AlertDialogTitle>
+              <AlertDialogDescription>
+                {isClosed
+                  ? isMulti
+                    ? `This will reopen all ${explicitIds.length} linked positions (${explicitIds.join(', ')}) and restore their status to open.`
+                    : `This will reopen position ${explicitIds[0]} and restore its status to open.`
+                  : isMulti
+                    ? `This will close all ${explicitIds.length} linked positions (${explicitIds.join(', ')}) in batch. Active positions must have zero remaining quantity and zero unfunded commitment to close.`
+                    : `This will close position ${explicitIds[0]}. Active positions must have zero remaining quantity and zero unfunded commitment to close.`}
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel disabled={busy}>Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                disabled={busy}
+                onClick={(e) => {
+                  e.preventDefault();
+                  handleAction();
+                }}
+                className={cn(
+                  isClosed
+                    ? 'bg-emerald-600 text-white hover:bg-emerald-700'
+                    : 'bg-destructive text-destructive-foreground hover:bg-destructive/90',
+                )}
+              >
+                {busy ? (
+                  <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                ) : null}
+                {isClosed ? 'Reopen holding' : 'Close holding'}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      </div>
+    </div>
+  );
+}
+
 /** Section: the expanded detail panel for one holding (equity / FoF / other). */
 export function HoldingDetail({ fund, holding }: { fund: Fund; holding: Holding }) {
+  let content: ReactNode;
   if (holding.tp === 'Equity' && holding.inv) {
-    return (
-      <div className="pl-4 sm:pl-10">
-        <EquityDetail fund={fund} holding={holding} />
-      </div>
-    );
+    content = <EquityDetail fund={fund} holding={holding} />;
+  } else if (holding.tp === 'Fund of funds' && holding.inv) {
+    content = <FoFDetail fund={fund} holding={holding} />;
+  } else if (holding.tp === 'Cash' && holding.inv) {
+    content = <CashDetail fund={fund} holding={holding} />;
+  } else {
+    const typeName =
+      ({ Equity: 'Company', Cash: 'Cash', Obligation: 'Loan', Shares: 'Public shares', 'Fund of funds': 'Fund' } as Record<string, string>)[
+        holding.tp
+      ] || holding.tp;
+    content = <GenericDetail fund={fund} holding={holding} typeName={typeName} />;
   }
-  if (holding.tp === 'Fund of funds' && holding.inv) {
-    return (
-      <div className="pl-4 sm:pl-10">
-        <FoFDetail fund={fund} holding={holding} />
-      </div>
-    );
-  }
-  if (holding.tp === 'Cash' && holding.inv) {
-    return (
-      <div className="pl-4 sm:pl-10">
-        <CashDetail fund={fund} holding={holding} />
-      </div>
-    );
-  }
-  const typeName =
-    ({ Equity: 'Company', Cash: 'Cash', Obligation: 'Loan', Shares: 'Public shares', 'Fund of funds': 'Fund' } as Record<string, string>)[
-      holding.tp
-    ] || holding.tp;
+
   return (
     <div className="pl-4 sm:pl-10">
-      <GenericDetail fund={fund} holding={holding} typeName={typeName} />
+      <HoldingPositionHeader fund={fund} holding={holding} />
+      {content}
     </div>
   );
 }

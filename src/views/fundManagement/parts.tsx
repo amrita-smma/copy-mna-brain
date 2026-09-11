@@ -1,9 +1,10 @@
 'use client';
 
 import { useLayoutEffect, useRef, useState, type ReactNode } from 'react';
-import { Loader2, MoreVertical, Pencil, Trash2 } from 'lucide-react';
+import { FolderInput, Loader2, MoreVertical, Pencil, Trash2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { GlossaryTerm as SharedGlossaryTerm } from '@/components/common/GlossaryTerm';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -21,8 +22,9 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { applyCommas, formatGrouped } from './calc';
+import { formatGrouped, regroupNumericInput } from './calc';
 import { GLOSSARY } from './glossary';
+import type { DisclosureReason } from './types';
 
 /**
  * Kebab menu isolating a single destructive action behind a confirm step —
@@ -37,6 +39,9 @@ export function DeleteRowMenu({
   onConfirm,
   onEdit,
   editLabel = 'Edit',
+  onMove,
+  moveLabel = 'Move to group…',
+  confirmLabel,
 }: {
   label: string;
   title: string;
@@ -45,6 +50,10 @@ export function DeleteRowMenu({
   /** When provided, an "Edit" item is shown above the destructive action. */
   onEdit?: () => void;
   editLabel?: string;
+  /** When provided, a "Move" item is shown above the destructive action. */
+  onMove?: () => void;
+  moveLabel?: string;
+  confirmLabel?: string;
 }) {
   const [busy, setBusy] = useState(false);
 
@@ -84,6 +93,17 @@ export function DeleteRowMenu({
               {editLabel}
             </DropdownMenuItem>
           )}
+          {onMove && (
+            <DropdownMenuItem
+              onClick={(e) => {
+                e.stopPropagation();
+                onMove();
+              }}
+            >
+              <FolderInput className="mr-2 h-3.5 w-3.5" />
+              {moveLabel}
+            </DropdownMenuItem>
+          )}
           <AlertDialogTrigger asChild>
             <DropdownMenuItem
               onSelect={(e) => e.preventDefault()}
@@ -107,7 +127,7 @@ export function DeleteRowMenu({
             className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             onClick={confirm}
           >
-            Delete
+            {confirmLabel ?? 'Delete'}
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>
@@ -144,6 +164,10 @@ export function InlineEdit({
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState('');
   const ref = useRef<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>(null);
+  // Key actions can unmount the editor and trigger blur in the same event
+  // cycle. Guard the edit session so Escape never falls through to commit and
+  // Enter never submits twice through keydown + blur.
+  const finishedRef = useRef(false);
 
   useLayoutEffect(() => {
     if (editing && ref.current) {
@@ -159,6 +183,7 @@ export function InlineEdit({
   }, [editing, kind]);
 
   const start = () => {
+    finishedRef.current = false;
     if (kind === 'num' && value != null && value !== '') {
       const n = Number(value);
       setDraft(Number.isFinite(n) ? formatGrouped(n) : String(value));
@@ -168,8 +193,14 @@ export function InlineEdit({
     setEditing(true);
   };
   const commit = () => {
+    if (finishedRef.current) return;
+    finishedRef.current = true;
     setEditing(false);
     onCommit(kind === 'num' ? draft.trim().replace(/,/g, '') : draft.trim());
+  };
+  const cancel = () => {
+    finishedRef.current = true;
+    setEditing(false);
   };
 
   // Numeric/date fields are sized to their content (narrow); text/select fill the cell.
@@ -211,7 +242,7 @@ export function InlineEdit({
           onKeyDown={(e) => {
             if (e.key === 'Escape') {
               e.preventDefault();
-              setEditing(false);
+              cancel();
             } else if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
               e.preventDefault();
               commit();
@@ -230,27 +261,14 @@ export function InlineEdit({
         onChange={(e) => {
           if (kind !== 'num') { setDraft(e.target.value); return; }
           const el = e.currentTarget;
-          const cursorInV = el.selectionStart ?? el.value.length;
-          // Count non-comma chars before the cursor in the browser's value
-          const before = el.value.slice(0, cursorInV).replace(/,/g, '').length;
-          const stripped = el.value.replace(/,/g, '');
-          const formatted = applyCommas(stripped);
-          setDraft(formatted);
-          // Restore cursor position after React re-renders
+          const next = regroupNumericInput(el.value, el.selectionStart ?? el.value.length, {
+            allowSuffix: true,
+          });
+          setDraft(next.text);
+          // Restore the cursor after React re-renders, or re-grouping drops it
+          // at the end of the field.
           requestAnimationFrame(() => {
-            const inp = ref.current as HTMLInputElement | null;
-            if (!inp) return;
-            let rem = before;
-            let cur = formatted.length;
-            if (rem === 0) {
-              cur = 0;
-            } else {
-              for (let i = 0; i < formatted.length; i++) {
-                if (formatted[i] !== ',') rem--;
-                if (rem === 0) { cur = i + 1; break; }
-              }
-            }
-            inp.setSelectionRange(cur, cur);
+            (ref.current as HTMLInputElement | null)?.setSelectionRange(next.caret, next.caret);
           });
         }}
         onBlur={commit}
@@ -260,7 +278,7 @@ export function InlineEdit({
             commit();
           } else if (e.key === 'Escape') {
             e.preventDefault();
-            setEditing(false);
+            cancel();
           }
         }}
         className={cn(inputCls, align === 'right' && 'text-right', className)}
@@ -291,7 +309,12 @@ export function InlineEdit({
   );
 }
 
-/** A dotted term that reveals a plain-English definition on hover. */
+/**
+ * A dotted term that reveals a plain-English definition on hover, looked up in
+ * the fund-management glossary. The presentation lives in
+ * `@/components/common/GlossaryTerm`, which other pages bind to their own
+ * vocabulary the same way.
+ */
 export function GlossaryTerm({
   term,
   children,
@@ -301,26 +324,34 @@ export function GlossaryTerm({
   children: ReactNode;
   className?: string;
 }) {
-  const g = GLOSSARY[term];
-  if (!g) return <>{children}</>;
+  return (
+    <SharedGlossaryTerm entry={GLOSSARY[term]} className={className}>
+      {children}
+    </SharedGlossaryTerm>
+  );
+}
+
+const PARTIAL_VALUATION_HINT =
+  'Some holdings lack a valuation. This amount only includes positions that have a mark.';
+
+/** Amount with a hover explanation when the roll-up is only partially valued. */
+export function PartialValuationAmount({
+  partial,
+  children,
+}: {
+  partial: boolean;
+  children: ReactNode;
+}) {
+  if (!partial) return <>{children}</>;
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <span
-          className={cn(
-            'cursor-help border-b border-dotted border-muted-foreground/60 hover:border-accent hover:text-accent',
-            className,
-          )}
-        >
+        <span className="cursor-help border-b border-dotted border-muted-foreground/60">
           {children}
         </span>
       </TooltipTrigger>
       <TooltipContent className="max-w-[280px]">
-        <div className="text-xs font-semibold text-foreground">{g.t}</div>
-        <div className="mt-1 text-xs leading-relaxed text-muted-foreground">{g.d}</div>
-        {g.e && (
-          <div className="mt-1.5 border-t pt-1.5 text-[11px] text-muted-foreground">{g.e}</div>
-        )}
+        <div className="text-xs leading-relaxed">{PARTIAL_VALUATION_HINT}</div>
       </TooltipContent>
     </Tooltip>
   );
@@ -340,6 +371,53 @@ export function Pill({ children, className }: { children: ReactNode; className?:
   );
 }
 
+const DISCLOSURE_CONFIG: Record<DisclosureReason, { label: string; tooltip: string }> = {
+  external_fund: {
+    label: 'External · not managed',
+    tooltip: 'This fund is managed externally and is excluded from portfolio totals.',
+  },
+  liquidated_fund: {
+    label: 'Liquidated',
+    tooltip: 'This fund has been liquidated and is excluded from active portfolio totals.',
+  },
+  no_holder: {
+    label: 'No holder linked',
+    tooltip: 'This asset exists but has no position linking it to a fund or holding entity, so it carries no figures.',
+  },
+  unresolved_target: {
+    label: 'Unresolved holding',
+    tooltip: 'This holding references a fund not found in the portfolio, so its figures are excluded from totals.',
+  },
+};
+
+export function DisclosureBadge({ reason }: { reason: DisclosureReason }) {
+  const config = DISCLOSURE_CONFIG[reason];
+  if (!config) return null;
+
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span className="inline-flex cursor-help">
+          <Pill className="border-amber-300 bg-muted text-amber-800 dark:border-amber-700 dark:text-amber-300">
+            {config.label}
+          </Pill>
+        </span>
+      </TooltipTrigger>
+      <TooltipContent className="max-w-[280px]">
+        <div className="text-xs leading-relaxed">{config.tooltip}</div>
+      </TooltipContent>
+    </Tooltip>
+  );
+}
+
+export function DisclosureFootnote({ className }: { className?: string }) {
+  return (
+    <p className={cn('mt-2 text-xs text-muted-foreground italic', className)}>
+      Rows marked with a badge are shown for completeness and are excluded from all totals.
+    </p>
+  );
+}
+
 /** Section label used above uppercase field values. */
 export function FieldKey({ children }: { children: ReactNode }) {
   return (
@@ -350,7 +428,14 @@ export function FieldKey({ children }: { children: ReactNode }) {
 }
 
 /** A quarter-over-quarter delta chip. */
-export function DeltaBadge({ pct, goodUp = true }: { pct: number; goodUp?: boolean }) {
+export function DeltaBadge({ pct, goodUp = true }: { pct: number | null; goodUp?: boolean }) {
+  if (pct === null) {
+    return (
+      <span className="text-[11px] text-muted-foreground">
+        – unavailable <GlossaryTerm term="vslast">vs last quarter</GlossaryTerm>
+      </span>
+    );
+  }
   if (Math.abs(pct) < 0.05) {
     return (
       <span className="text-[11px] text-muted-foreground">

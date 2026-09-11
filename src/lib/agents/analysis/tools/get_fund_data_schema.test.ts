@@ -12,7 +12,7 @@ vi.mock('@/lib/workspace', () => ({
 
 vi.mock('@/lib/services', () => ({
   createContainer: vi.fn(() => ({
-    fundService: { listFunds: listFundsMock },
+    flMasterDataService: { listFunds: listFundsMock },
   })),
 }));
 

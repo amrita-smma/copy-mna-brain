@@ -91,6 +91,8 @@ describe('llmExtractor', () => {
     expect(asset.valuations).toHaveLength(1); // The invalid date was filtered out
     expect(asset.valuations[0].marketValue).toBe(1500000); // Comma stripped
     expect(asset.valuations[0].valuationMethod).toBe('other'); // Invalid enum coerced to 'other'
+    expect(asset.valuations[0].periodLabel).toBe('Q4 2023');
+    expect(asset.fund).toBe('Fund I');
     
     expect(asset.txns).toHaveLength(1);
     expect(asset.txns[0].valueAmount).toBe(500000);

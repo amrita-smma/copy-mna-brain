@@ -4,7 +4,7 @@ import { cn } from '@/lib/utils';
 import type { Fund } from './types';
 import { aggregateByTxn, getAssetFundingSources } from './calc';
 import { useFundMoney } from './useFundMoney';
-import { DeleteRowMenu, GlossaryTerm, Pill } from './parts';
+import { DeleteRowMenu, GlossaryTerm, PartialValuationAmount, Pill } from './parts';
 import { useFundData } from './context';
 
 const COLS: { label: string; term?: string; align: 'left' | 'right' }[] = [
@@ -48,7 +48,16 @@ export function SourceSummaryTable({
     (h) => getAssetFundingSources(h),
   );
   sourceNames.forEach((name) => {
-    if (name && !bySource.has(name)) bySource.set(name, { cost: 0, fmv: 0, real: 0, gain: 0, moic: 0, count: 0 });
+    if (name && !bySource.has(name))
+      bySource.set(name, {
+        cost: 0,
+        fmv: 0,
+        real: 0,
+        gain: 0,
+        moic: null,
+        count: 0,
+        valuationCoverage: 'complete',
+      });
   });
   const rows = [...bySource.entries()]
     .map(([src, a]) => ({ src, a }))
@@ -106,7 +115,7 @@ export function SourceSummaryTable({
                       <DeleteRowMenu
                         label="Delete source"
                         title={`Delete "${src}"?`}
-                        description="This removes the source of fund from your managed list. No assets or transactions are deleted — holdings that named this source stay, shown as an in-use source until you re-tag them. This action cannot be undone."
+                        description="Only unused funding sources with no positions or transaction allocations can be deleted. If this source is in use, reassign or settle its positions and allocations first. This action cannot be undone."
                         onConfirm={() => onDeleteSource(sourceId)}
                       />
                     )}
@@ -114,18 +123,25 @@ export function SourceSummaryTable({
                 </td>
                 <td className="px-3 py-2.5 text-right align-middle text-[13px] font-medium text-foreground">{money(a.cost)}</td>
                 <td className="px-3 py-2.5 text-right align-middle text-[13px] font-medium text-foreground">
-                  {a.fmv > 0 ? money(a.fmv) : '—'}
+                  <PartialValuationAmount partial={a.valuationCoverage === 'partial'}>
+                    {a.valuationCoverage === 'partial' || a.fmv > 0 ? money(a.fmv) : '—'}
+                  </PartialValuationAmount>
                 </td>
                 <td
                   className={cn(
                     'px-3 py-2.5 text-right align-middle text-[13px] font-medium',
-                    a.gain >= 0 ? 'text-success' : 'text-destructive',
+                    a.gain == null
+                      ? 'text-muted-foreground'
+                      : a.gain >= 0
+                        ? 'text-success'
+                        : 'text-destructive',
                   )}
                 >
-                  {a.gain >= 0 ? '+' : '−'}
-                  {money(Math.abs(a.gain))}
+                  {a.gain != null ? `${a.gain >= 0 ? '+' : '−'}${money(Math.abs(a.gain))}` : '—'}
                 </td>
-                <td className="px-3 py-2.5 text-right align-middle text-[13px] font-medium text-foreground">{a.moic.toFixed(2)}×</td>
+                <td className="px-3 py-2.5 text-right align-middle text-[13px] font-medium text-foreground">
+                  {a.moic != null ? `${a.moic.toFixed(2)}×` : '—'}
+                </td>
               </tr>
               );
             })}

@@ -59,7 +59,9 @@ function makeFile(overrides: Partial<FileRow> = {}): FileRow {
     raw_notes: null,
     structured_notes: null,
     tags: [],
-    processing_status: 'pending',
+    // Most service-level fixtures exercise the review/approve path. Tests for
+    // ingestion lifecycle states override this explicitly.
+    processing_status: 'awaiting_review',
     matched_companies: [],
     file_date: null,
     file_type: 'other',
@@ -116,8 +118,16 @@ function makeScreening(id: string): ScreeningRow {
   } as ScreeningRow;
 }
 
+function makeMockDb(): DbClient {
+  const mock: any = {
+    transaction: async (cb: (tx: any) => Promise<any>) => cb(mock),
+    execute: vi.fn().mockResolvedValue([]),
+  };
+  return mock as unknown as DbClient;
+}
+
 function makeFileRepoStub(): FileRepository {
-  return {
+  const stub: any = {
     findById: vi.fn(),
     findLinkAndNameById: vi.fn(),
     findAll: vi.fn(),
@@ -128,7 +138,9 @@ function makeFileRepoStub(): FileRepository {
     updatePartial: vi.fn(),
     delete: vi.fn(),
     searchForAgent: vi.fn(),
-  } as unknown as FileRepository;
+  };
+  stub.findByIdForUpdate = vi.fn().mockImplementation((id: string, executor?: any) => stub.findById(id, executor));
+  return stub as unknown as FileRepository;
 }
 
 function makeCriteriaRepoStub(): CriteriaRepository {
@@ -206,6 +218,7 @@ function makeCompanyServiceStub(): CompanyService {
 }
 
 function makeService(overrides: {
+  db?: DbClient;
   fileRepo?: FileRepository;
   companyAnalysisService?: CompanyAnalysisService;
   aiScreeningService?: AIScreeningService;
@@ -216,7 +229,7 @@ function makeService(overrides: {
   companyFxAdjustmentRepo?: CompanyFxAdjustmentRepository;
 } = {}) {
   return new FileService(
-    null as unknown as DbClient,
+    overrides.db ?? makeMockDb(),
     'workspace-1',
     overrides.fileRepo ?? makeFileRepoStub(),
     overrides.companyAnalysisService ?? makeCompanyAnalysisServiceStub(),
@@ -1485,7 +1498,7 @@ describe('FileService.approve', () => {
     screeningRepo = makeScreeningRepoStub();
     aiScreeningService = makeAIScreeningServiceStub();
     service = new FileService(
-      null as unknown as DbClient,
+      makeMockDb(),
       'workspace-1',
       fileRepo,
       companyAnalysisService,
@@ -2330,12 +2343,13 @@ describe('FileService.approve', () => {
         expect.any(Array),
         ['ACME'],
         undefined,
-        { isV1: true },
+        { isV1: true, fileId: 'file-1', fundCatalogItems: undefined, executor: expect.anything() },
         undefined,
       );
       expect(fileRepo.updatePartial).toHaveBeenCalledWith(
         'file-1',
         expect.objectContaining({ processing_status: 'completed' }),
+        expect.anything(),
       );
       expect(result.fund_update).toBeDefined();
     });
@@ -2412,7 +2426,7 @@ describe('FileService.approve', () => {
         expect.any(Array),
         ['ACME'],
         undefined,
-        { isV1: true },
+        { isV1: true, fileId: 'file-1', fundCatalogItems: undefined, executor: expect.anything() },
         catalogSelections,
       );
       expect(result.fund_update).toBeDefined();
@@ -2863,6 +2877,7 @@ describe('FileService.getReviewData fund_updates', () => {
         }),
       ],
       [],
+      expect.any(Object),
     );
   });
 
@@ -2974,6 +2989,14 @@ describe('FileService.getReviewData fund_updates', () => {
   });
   it('forwards commitment_events from proposal into buildFullReview', async () => {
     const fileRepo = makeFileRepoStub();
+    const mockApplyService = {
+      buildFullReview: vi.fn().mockResolvedValue({
+        assets: [],
+        funds: [],
+        investors: [],
+        sources: [],
+      }),
+    };
     const commitmentEvents = [
       {
         fund: 'Fund A',
@@ -2992,20 +3015,6 @@ describe('FileService.getReviewData fund_updates', () => {
         sourceRow: 3,
       },
     ];
-    const commitmentEventReview = [{
-      key: 'fund a|investor a|2024-01-15|increase|1000000|3',
-      status: 'actionable' as const,
-      event: commitmentEvents[0],
-    }];
-    const mockApplyService = {
-      buildFullReview: vi.fn().mockResolvedValue({
-        assets: [],
-        funds: [],
-        investors: [],
-        sources: [],
-        commitment_events: commitmentEventReview,
-      }),
-    };
     const notes = JSON.stringify({
       file_type: 'fund_updates',
       parser: 'nanjing_fund_ledger_v1',
@@ -3020,15 +3029,271 @@ describe('FileService.getReviewData fund_updates', () => {
     );
     const service = makeService({ fileRepo });
     service.setFundUpdateApplyService(mockApplyService as any);
-    const result = await service.getReviewData('file-nanjing-review');
+    await service.getReviewData('file-nanjing-review');
     expect(mockApplyService.buildFullReview).toHaveBeenCalledWith(
       expect.any(Array),
       commitmentEvents,
+      expect.any(Object),
     );
-    expect(result).toMatchObject({
-      kind: 'fund_updates',
-      commitment_events: commitmentEventReview,
+  });
+
+  it('threads reconciliation and review_items from proposal to getReviewData', async () => {
+    const fileRepo = makeFileRepoStub();
+    const mockApplyService = {
+      buildFullReview: vi.fn().mockResolvedValue({
+        assets: [],
+        funds: [],
+        investors: [],
+        sources: [],
+        reconciliation: [{ metricName: 'Net Commitment', sourceValue: 100, calculatedValue: 100, diff: 0, diffPct: 0, isReconciled: true }],
+        review_items: [{ sourceRow: 5, fund: 'Fund A', investorName: 'LP 1', date: '2024-01-01', amount: 50, currency: 'CNY', action: '实缴调整', nature: '损益核销', direction: '非现金调整', explanation: 'Manual review required', isPostable: false, requiresReview: true }],
+      }),
+    };
+    const notes = JSON.stringify({
+      file_type: 'fund_updates',
+      parser: 'nanjing_fund_ledger_v1',
+      fund_update_proposal: {
+        template_id: 'nanjing_fund_ledger_v1',
+        assets: [],
+        commitment_events: [{
+          fund: 'Fund A',
+          investorName: 'Investor A',
+          investorTypeRaw: '机构投资人',
+          investorTypeLabel: 'Institutional Investor',
+          date: '2024-01-02',
+          intent: 'transfer_in',
+          amount: 50,
+          currency: 'CNY',
+          counterpartyName: 'Unverified transferor',
+          actionRaw: '认缴',
+          natureRaw: '受让额度',
+          directionRaw: '认缴额度增加',
+          notes: null,
+          sourceRow: 6,
+          transferPairing: {
+            status: 'unknown_counterparty',
+            transferorName: null,
+            counterpartyRaw: 'Unverified transferor',
+            matchedReductionSourceRow: null,
+            eligibleForTransferOut: false,
+            requiresReview: true,
+            reviewReason: 'Transferor requires verification.',
+          },
+        }],
+        reconciliation: [{ metricName: 'Net Commitment', sourceValue: 100, calculatedValue: 100, diff: 0, diffPct: 0, isReconciled: true }],
+        review_items: [{ sourceRow: 5, fund: 'Fund A', investorName: 'LP 1', date: '2024-01-01', amount: 50, currency: 'CNY', action: '实缴调整', nature: '损益核销', direction: '非现金调整', explanation: 'Manual review required', isPostable: false, requiresReview: true }],
+      },
     });
+    vi.mocked(fileRepo.findById).mockResolvedValue(
+      makeFile({ id: 'file-nanjing-recon', file_type: 'fund_updates', structured_notes: notes }),
+    );
+    const service = makeService({ fileRepo });
+    service.setFundUpdateApplyService(mockApplyService as any);
+    const review = await service.getReviewData('file-nanjing-recon');
+    expect(review.kind).toBe('fund_updates');
+    if (review.kind !== 'fund_updates') throw new Error('expected fund_updates');
+    expect(review.reconciliation).toHaveLength(1);
+    expect(review.reconciliation![0].metricName).toBe('Net Commitment');
+    expect(review.review_items).toHaveLength(2);
+    expect(review.review_items![0].action).toBe('实缴调整');
+    expect(review.review_items![1]).toMatchObject({
+      sourceRow: 6,
+      action: 'Commitment transfer',
+      isPostable: false,
+    });
+  });
+
+  it('surfaces valid unknown transfer counterparty in review.investors with Transfer Counterparty role instead of review_items', async () => {
+    const fileRepo = makeFileRepoStub();
+    const mockApplyService = {
+      buildFullReview: vi.fn().mockImplementation((_assets, commitmentEvents) => {
+        const investors = [
+          { name: 'Investor A', status: 'new' as const, matched_id: null },
+          { name: 'New Counterparty LP', status: 'new' as const, matched_id: null, role: 'Transfer Counterparty' },
+        ];
+        return Promise.resolve({
+          assets: [],
+          funds: [],
+          investors,
+          sources: [],
+        });
+      }),
+    };
+
+    const notes = JSON.stringify({
+      file_type: 'fund_updates',
+      parser: 'nanjing_fund_ledger_v1',
+      fund_update_proposal: {
+        template_id: 'nanjing_fund_ledger_v1',
+        assets: [],
+        commitment_events: [{
+          fund: 'Fund A',
+          investorName: 'Investor A',
+          investorTypeRaw: '机构投资人',
+          investorTypeLabel: 'Institutional Investor',
+          date: '2024-01-02',
+          intent: 'transfer_in',
+          amount: 50,
+          currency: 'CNY',
+          counterpartyName: 'New Counterparty LP',
+          actionRaw: '认缴',
+          natureRaw: '受让额度',
+          directionRaw: '认缴额度增加',
+          notes: null,
+          sourceRow: 6,
+          transferPairing: {
+            status: 'unknown_counterparty',
+            transferorName: 'New Counterparty LP',
+            counterpartyRaw: 'New Counterparty LP',
+            matchedReductionSourceRow: null,
+            eligibleForTransferOut: true,
+            requiresReview: false,
+            reviewReason: null,
+          },
+        }],
+        review_items: [],
+      },
+    });
+    vi.mocked(fileRepo.findById).mockResolvedValue(
+      makeFile({ id: 'file-nanjing-cp', file_type: 'fund_updates', structured_notes: notes }),
+    );
+    const service = makeService({ fileRepo });
+    service.setFundUpdateApplyService(mockApplyService as any);
+    const review = await service.getReviewData('file-nanjing-cp');
+
+    expect(review.kind).toBe('fund_updates');
+    if (review.kind !== 'fund_updates') throw new Error('expected fund_updates');
+
+    // Valid unknown counterparty is NOT placed in review_items as non-postable
+    expect(review.review_items).toEqual([]);
+
+    // Surfaced in investors catalog with role metadata
+    expect(review.investors).toHaveLength(2);
+    const cp = review.investors.find((i) => i.name === 'New Counterparty LP');
+    expect(cp).toBeDefined();
+    expect(cp?.role).toBe('Transfer Counterparty');
+    expect(cp?.status).toBe('new');
+  });
+
+  it('forwards fund_update_catalog_selections to applyCommitmentEvents on approve', async () => {
+    const fileRepo = makeFileRepoStub();
+    const mockApplyService = {
+      applySelected: vi.fn().mockResolvedValue({
+        applied: 0,
+        created_assets: 0,
+        updated_assets: 0,
+        skipped: 0,
+        txns_inserted: 0,
+        valuations_upserted: 0,
+        created_funds: 0,
+        created_investors: 1,
+        created_sources: 0,
+      }),
+      applyCommitmentEvents: vi.fn().mockResolvedValue({
+        events_inserted: 1,
+        events_skipped_duplicate: 0,
+        events_skipped: 0,
+        warnings: [],
+      }),
+    };
+
+    const notes = JSON.stringify({
+      file_type: 'fund_updates',
+      parser: 'nanjing_fund_ledger_v1',
+      fund_update_proposal: {
+        template_id: 'nanjing_fund_ledger_v1',
+        assets: [],
+        fund_catalog: ['Fund A'],
+        commitment_events: [{
+          fund: 'Fund A',
+          investorName: 'Investor A',
+          date: '2024-01-02',
+          intent: 'transfer_in',
+          amount: 50,
+          currency: 'CNY',
+          sourceRow: 6,
+          transferPairing: {
+            status: 'unknown_counterparty',
+            transferorName: 'New Counterparty LP',
+            eligibleForTransferOut: true,
+            requiresReview: false,
+          },
+        }],
+      },
+    });
+    vi.mocked(fileRepo.findById).mockResolvedValue(
+      makeFile({ id: 'file-nanjing-approve', file_type: 'fund_updates', structured_notes: notes }),
+    );
+    const service = makeService({ fileRepo });
+    service.setFundUpdateApplyService(mockApplyService as any);
+
+    await service.approve('file-nanjing-approve', {
+      file_type: 'fund_updates',
+      matched_company_id: null,
+      fund_update_asset_codes: [],
+      fund_update_catalog_selections: {
+        funds: ['Fund A'],
+        investors: ['Investor A', 'New Counterparty LP'],
+        sources: [],
+      },
+    });
+
+    expect(mockApplyService.applyCommitmentEvents).toHaveBeenCalledWith(
+      expect.any(Array),
+      expect.objectContaining({
+        catalogSelections: {
+          funds: ['Fund A'],
+          investors: ['Investor A', 'New Counterparty LP'],
+          sources: [],
+        },
+      }),
+    );
+  });
+
+  it('triggers hitl review for proposals with review_items or commitment_events even with 0 assets', async () => {
+    const fileRepo = makeFileRepoStub();
+    const mockApplyService = {
+      buildReview: vi.fn().mockResolvedValue([]),
+    };
+    const service = makeService({ fileRepo });
+    service.setFundUpdateApplyService(mockApplyService as any);
+
+    // 1. review_items with 0 assets
+    const proposalWithReviewItems = {
+      file_type: 'fund_updates' as const,
+      fund_update_proposal: {
+        template_id: 'nanjing_fund_ledger_v1',
+        assets: [],
+        review_items: [{ sourceRow: 5, fund: 'Fund A', investorName: 'LP 1', date: '2024-01-01', amount: 50, currency: 'CNY' as const, action: '实缴调整', nature: null, direction: null, explanation: 'Manual review', isPostable: false as const, requiresReview: true as const }],
+      },
+    };
+    const needsReview1 = await (service as any).fundUpdateProposalNeedsReview(proposalWithReviewItems);
+    expect(needsReview1).toBe(true);
+
+    // 2. commitment_events with 0 assets
+    const proposalWithCommitmentEvents = {
+      file_type: 'fund_updates' as const,
+      fund_update_proposal: {
+        template_id: 'nanjing_fund_ledger_v1',
+        assets: [],
+        commitment_events: [{ fund: 'Fund A', investorName: 'LP 1', investorTypeRaw: 'LP', investorTypeLabel: 'LP', date: '2024-01-01', intent: 'increase' as const, amount: 100, currency: 'CNY' as const, counterpartyName: null, actionRaw: '认缴', natureRaw: '新增', directionRaw: '增加', notes: null, sourceRow: 2 }],
+      },
+    };
+    const needsReview2 = await (service as any).fundUpdateProposalNeedsReview(proposalWithCommitmentEvents);
+    expect(needsReview2).toBe(true);
+
+    // 3. 0 assets, 0 events, 0 review_items -> false
+    const emptyProposal = {
+      file_type: 'fund_updates' as const,
+      fund_update_proposal: {
+        template_id: 'nanjing_fund_ledger_v1',
+        assets: [],
+        commitment_events: [],
+        review_items: [],
+      },
+    };
+    const needsReview3 = await (service as any).fundUpdateProposalNeedsReview(emptyProposal);
+    expect(needsReview3).toBe(false);
   });
 
   it('links a Nanjing investor to every asset booked under their committed fund (MB-485 regression)', async () => {
@@ -3113,7 +3378,7 @@ describe('FileService.getReviewData fund_updates', () => {
   });
 });
 describe('FileService.approve (fund_updates commitment events)', () => {
-  it('calls applyCommitmentEvents for Nanjing proposal with commitment_events and merges result into fund_update', async () => {
+  it('approves Nanjing events despite advisory reconciliation and unresolved transfers', async () => {
     const fileRepo = makeFileRepoStub();
     const mockApplyService = {
       applySelected: vi.fn().mockResolvedValue({
@@ -3139,7 +3404,7 @@ describe('FileService.approve (fund_updates commitment events)', () => {
         investorTypeRaw: '机构投资人',
         investorTypeLabel: 'Institutional Investor',
         date: '2024-01-15',
-        intent: 'increase' as const,
+        intent: 'transfer_in' as const,
         amount: 1000000,
         currency: 'CNY' as const,
         counterpartyName: null,
@@ -3148,6 +3413,15 @@ describe('FileService.approve (fund_updates commitment events)', () => {
         directionRaw: '认缴额度增加',
         notes: null,
         sourceRow: 3,
+        transferPairing: {
+          status: 'unknown_counterparty' as const,
+          transferorName: null,
+          counterpartyRaw: 'Unverified transferor',
+          matchedReductionSourceRow: null,
+          eligibleForTransferOut: false,
+          requiresReview: true,
+          reviewReason: 'Transferor requires verification.',
+        },
       },
     ];
     const notes = JSON.stringify({
@@ -3158,6 +3432,22 @@ describe('FileService.approve (fund_updates commitment events)', () => {
         stats: { asset_count: 1, commitment_event_count: 1 },
         assets: [{ code: 'NJ-01', name: 'Asset 1', fund: 'Fund A', txns: [] }],
         fund_catalog: ['Fund A'],
+        // Summary totals are cumulative, while this upload can contain a
+        // partial commitment or staged capital call. Reconciliation remains
+        // review information and must not prevent posting this valid event.
+        reconciliation: [{
+          metricName: 'Paid-in Capital vs Summary',
+          fund: 'Fund A',
+          sourceValue: 10_000_000,
+          calculatedValue: 1_000_000,
+          diff: -9_000_000,
+          diffPct: 90,
+          currency: 'CNY',
+          unit: 'CNY',
+          isReconciled: false,
+          sheet: '基金汇总 / 基金流水明细',
+          notes: 'Partial capital call in this upload.',
+        }],
         commitment_events: commitmentEvents,
       },
     });
@@ -3166,18 +3456,34 @@ describe('FileService.approve (fund_updates commitment events)', () => {
     );
     const service = makeService({ fileRepo });
     service.setFundUpdateApplyService(mockApplyService as any);
-    const res = await service.approve('file-nanjing', {
-      file_type: 'fund_updates',
-      matched_company_id: null,
-      fund_update_asset_codes: ['NJ-01'],
-    });
+    const res = await service.approve(
+      'file-nanjing',
+      {
+        file_type: 'fund_updates',
+        matched_company_id: null,
+        fund_update_asset_codes: ['NJ-01'],
+      },
+      '8cbd7aa4-dd0b-4e16-9512-4961c3223d29',
+    );
     expect(mockApplyService.applySelected).toHaveBeenCalledTimes(1);
     expect(mockApplyService.applyCommitmentEvents).toHaveBeenCalledWith(
       commitmentEvents,
       {
         source: 'nanjing_fund_ledger_v1',
         fundCatalog: ['Fund A'],
+        fundCatalogItems: undefined,
+        fileId: 'file-nanjing',
+        createdBy: '8cbd7aa4-dd0b-4e16-9512-4961c3223d29',
         catalogSelections: undefined,
+        reviewResolutions: undefined,
+        reviewItems: [
+          expect.objectContaining({
+            sourceRow: 3,
+            category: 'missing_counterparty',
+            action: 'Commitment transfer',
+          }),
+        ],
+        executor: expect.anything(),
       },
     );
     expect(res.fund_update).toEqual({
@@ -3193,159 +3499,6 @@ describe('FileService.approve (fund_updates commitment events)', () => {
       commitment_event_warnings: ['Some warning'],
     });
   });
-
-  it('threads fund_update_catalog_selections to applyCommitmentEvents for legacy proposal with commitment_events', async () => {
-    const fileRepo = makeFileRepoStub();
-    const mockApplyService = {
-      applySelected: vi.fn().mockResolvedValue({
-        applied: 1,
-        created_assets: 1,
-        updated_assets: 0,
-        skipped: 0,
-        txns_inserted: 1,
-        valuations_upserted: 0,
-      }),
-      applyCommitmentEvents: vi.fn().mockResolvedValue({
-        events_inserted: 1,
-        events_skipped_duplicate: 0,
-        events_skipped: 0,
-        warnings: [],
-      }),
-      buildReview: vi.fn().mockResolvedValue([]),
-    };
-    const commitmentEvents = [
-      {
-        fund: 'Fund A',
-        investorName: 'Investor A',
-        investorTypeRaw: '机构投资人',
-        investorTypeLabel: 'Institutional Investor',
-        date: '2024-01-15',
-        intent: 'increase' as const,
-        amount: 1000000,
-        currency: 'CNY' as const,
-        counterpartyName: null,
-        actionRaw: '认缴',
-        natureRaw: '新增额度',
-        directionRaw: '认缴额度增加',
-        notes: null,
-        sourceRow: 3,
-      },
-    ];
-    const notes = JSON.stringify({
-      file_type: 'fund_updates',
-      parser: 'nanjing_fund_ledger_v1',
-      fund_update_proposal: {
-        template_id: 'nanjing_fund_ledger_v1',
-        stats: { asset_count: 1, commitment_event_count: 1 },
-        assets: [{ code: 'NJ-01', name: 'Asset 1', fund: 'Fund A', txns: [] }],
-        fund_catalog: ['Fund A'],
-        commitment_events: commitmentEvents,
-      },
-    });
-    vi.mocked(fileRepo.findById).mockResolvedValue(
-      makeFile({ id: 'file-nanjing', file_type: 'fund_updates', structured_notes: notes }),
-    );
-    const service = makeService({ fileRepo });
-    service.setFundUpdateApplyService(mockApplyService as any);
-
-    const catalogSelections = {
-      funds: ['Fund A'],
-      investors: ['Investor A'],
-      sources: ['Source B'],
-    };
-    const eventKeys = ['fund a|investor a|2024-01-15|increase|1000000|3'];
-
-    await service.approve('file-nanjing', {
-      file_type: 'fund_updates',
-      matched_company_id: null,
-      fund_update_asset_codes: ['NJ-01'],
-      fund_update_catalog_selections: catalogSelections,
-      fund_update_commitment_event_keys: eventKeys,
-    });
-
-    expect(mockApplyService.applyCommitmentEvents).toHaveBeenCalledWith(
-      commitmentEvents,
-      {
-        source: 'nanjing_fund_ledger_v1',
-        fundCatalog: ['Fund A'],
-        catalogSelections,
-        eventKeys,
-      },
-    );
-  });
-
-  it('forwards empty eventKeys array when fund_update_commitment_event_keys is empty array', async () => {
-    const fileRepo = makeFileRepoStub();
-    const mockApplyService = {
-      applySelected: vi.fn().mockResolvedValue({
-        applied: 1,
-        created_assets: 1,
-        updated_assets: 0,
-        skipped: 0,
-        txns_inserted: 1,
-        valuations_upserted: 0,
-      }),
-      applyCommitmentEvents: vi.fn().mockResolvedValue({
-        events_inserted: 0,
-        events_skipped_duplicate: 0,
-        events_skipped: 1,
-        warnings: [],
-      }),
-      buildReview: vi.fn().mockResolvedValue([]),
-    };
-    const commitmentEvents = [
-      {
-        fund: 'Fund A',
-        investorName: 'Investor A',
-        investorTypeRaw: '机构投资人',
-        investorTypeLabel: 'Institutional Investor',
-        date: '2024-01-15',
-        intent: 'increase' as const,
-        amount: 1000000,
-        currency: 'CNY' as const,
-        counterpartyName: null,
-        actionRaw: '认缴',
-        natureRaw: '新增额度',
-        directionRaw: '认缴额度增加',
-        notes: null,
-        sourceRow: 3,
-      },
-    ];
-    const notes = JSON.stringify({
-      file_type: 'fund_updates',
-      parser: 'nanjing_fund_ledger_v1',
-      fund_update_proposal: {
-        template_id: 'nanjing_fund_ledger_v1',
-        stats: { asset_count: 1, commitment_event_count: 1 },
-        assets: [{ code: 'NJ-01', name: 'Asset 1', fund: 'Fund A', txns: [] }],
-        fund_catalog: ['Fund A'],
-        commitment_events: commitmentEvents,
-      },
-    });
-    vi.mocked(fileRepo.findById).mockResolvedValue(
-      makeFile({ id: 'file-nanjing', file_type: 'fund_updates', structured_notes: notes }),
-    );
-    const service = makeService({ fileRepo });
-    service.setFundUpdateApplyService(mockApplyService as any);
-
-    await service.approve('file-nanjing', {
-      file_type: 'fund_updates',
-      matched_company_id: null,
-      fund_update_asset_codes: ['NJ-01'],
-      fund_update_commitment_event_keys: [],
-    });
-
-    expect(mockApplyService.applyCommitmentEvents).toHaveBeenCalledWith(
-      commitmentEvents,
-      {
-        source: 'nanjing_fund_ledger_v1',
-        fundCatalog: ['Fund A'],
-        catalogSelections: undefined,
-        eventKeys: [],
-      },
-    );
-  });
-
   it('never calls applyCommitmentEvents for a v1 (workbook_fallback_v1) proposal', async () => {
     const fileRepo = makeFileRepoStub();
     const mockApplyService = {
@@ -4205,5 +4358,2650 @@ describe('FileService.addMatchedCompany / removeMatchedCompanyEntry', () => {
       service.removeMatchedCompanyEntry('file-1', {}),
     ).rejects.toThrow(/companyId or unmatchedName/);
   });
+});
 
+describe('MB-513 FileService Fund Update Review & Lifecycle Contract', () => {
+  describe('proposal normalization across all shapes (Req 1)', () => {
+    it('normalizes STARTECH quarterly proposal into unified FundUpdateReviewData with assets, funds, investors, sources', async () => {
+      const fileRepo = makeFileRepoStub();
+      const mockApplyService = {
+        buildFullReview: vi.fn().mockResolvedValue({
+          assets: [
+            {
+              code: 'ST-01',
+              name: 'Startech Asset 1',
+              fund: 'Startech Growth Fund 1',
+              asset_type: 'direct_investment',
+              entity: 'Startech LP',
+              funding_source: 'DCA',
+              status: 'new',
+              matched_asset_id: null,
+              proposed_txn_count: 1,
+              proposed_valuation_count: 1,
+              missing_txn_count: 1,
+              missing_valuation_count: 1,
+              proposed: {
+                code: 'ST-01',
+                name: 'Startech Asset 1',
+                fund: 'Startech Growth Fund 1',
+                entity: 'Startech LP',
+                fundingSource: 'DCA',
+                fundingSourceRaw: 'DCA',
+                txns: [{ date: '2023-01-01', type: 'contribution', valueAmount: 100, currency: 'USD' }],
+                valuations: [{ asOfDate: '2023-03-31', marketValue: 150, currency: 'USD' }],
+              },
+              missing_txns: [{ date: '2023-01-01', type: 'contribution', valueAmount: 100, currency: 'USD' }],
+              missing_valuations: [{ asOfDate: '2023-03-31', marketValue: 150, currency: 'USD' }],
+            },
+          ],
+          funds: [{ name: 'Startech Growth Fund 1', status: 'existing', matched_id: 'fund-1' }],
+          investors: [{ name: 'Startech LP', status: 'new', matched_id: null }],
+          sources: [{ name: 'DCA', status: 'existing', matched_id: 'fs-1' }],
+          reconciliation: [],
+          review_items: [],
+        }),
+      };
+
+      const startechNotes = JSON.stringify({
+        file_type: 'fund_updates',
+        parser: 'startech_master_sheet_v1',
+        summary: 'STARTECH Q1 2023 Update',
+        fund_update_proposal: {
+          template_id: 'startech_master_sheet_v1',
+          stats: {
+            asset_count: 1,
+            direct_count: 1,
+            fund_of_funds_count: 0,
+            transaction_count: 1,
+            valuation_count: 1,
+          },
+          assets: [
+            {
+              code: 'ST-01',
+              name: 'Startech Asset 1',
+              fund: 'Startech Growth Fund 1',
+              entity: 'Startech LP',
+              fundingSource: 'DCA',
+              txns: [{ date: '2023-01-01', type: 'contribution', valueAmount: 100, currency: 'USD' }],
+              valuations: [{ asOfDate: '2023-03-31', marketValue: 150, currency: 'USD' }],
+            },
+          ],
+        },
+      });
+
+      vi.mocked(fileRepo.findById).mockResolvedValue(
+        makeFile({ id: 'file-st', file_type: 'fund_updates', structured_notes: startechNotes }),
+      );
+
+      const service = makeService({ fileRepo });
+      service.setFundUpdateApplyService(mockApplyService as any);
+
+      const result = await service.getReviewData('file-st');
+
+      expect(result.kind).toBe('fund_updates');
+      if (result.kind !== 'fund_updates') throw new Error('Expected fund_updates');
+
+      expect(result.template_id).toBe('startech_master_sheet_v1');
+      expect(result.assets).toHaveLength(1);
+      expect(result.assets[0].code).toBe('ST-01');
+      expect(result.funds[0].name).toBe('Startech Growth Fund 1');
+      expect(result.funds[0].asset_codes).toEqual(['ST-01']);
+      expect(result.investors[0].name).toBe('Startech LP');
+      expect(result.investors[0].asset_codes).toEqual(['ST-01']);
+      expect(result.sources[0].name).toBe('DCA');
+      expect(result.sources[0].asset_codes).toEqual(['ST-01']);
+    });
+
+    it('normalizes Nanjing lifecycle proposal into unified FundUpdateReviewData with commitment events and unresolved review items', async () => {
+      const fileRepo = makeFileRepoStub();
+      const mockApplyService = {
+        buildFullReview: vi.fn().mockImplementation((_assets, _commitments, options) => ({
+          assets: [
+            {
+              code: 'NJ-01',
+              name: 'Nanjing Co',
+              fund: '南京新工基金',
+              asset_type: 'direct_investment',
+              status: 'new',
+              proposed: { code: 'NJ-01', name: 'Nanjing Co', fund: '南京新工基金', txns: [], valuations: [] },
+              missing_txns: [],
+              missing_valuations: [],
+            },
+          ],
+          funds: [{ name: '南京新工基金', status: 'new', matched_id: null }],
+          investors: [{ name: '南京国资', status: 'new', matched_id: null }],
+          sources: [],
+          reconciliation: options?.reconciliation ?? [],
+          review_items: options?.review_items ?? [],
+        })),
+      };
+
+      const nanjingNotes = JSON.stringify({
+        file_type: 'fund_updates',
+        parser: 'nanjing_fund_ledger_v1',
+        summary: 'Nanjing Fund Ledger 2023',
+        fund_update_proposal: {
+          template_id: 'nanjing_fund_ledger_v1',
+          stats: { asset_count: 1, commitment_event_count: 2 },
+          assets: [{ code: 'NJ-01', name: 'Nanjing Co', fund: '南京新工基金', txns: [], valuations: [] }],
+          fund_catalog: ['南京新工基金'],
+          reconciliation: [
+            {
+              metricName: 'Paid-in Capital vs Summary',
+              fund: '南京新工基金',
+              sourceValue: 10_000_000,
+              calculatedValue: 10_000_000,
+              diff: 0,
+              diffPct: 0,
+              isReconciled: true,
+            },
+          ],
+          review_items: [
+            {
+              sourceRow: 5,
+              fund: '南京新工基金',
+              investorName: '南京国资',
+              date: '2023-05-10',
+              amount: 200_000,
+              currency: 'CNY',
+              action: '实缴调整',
+              nature: '损益核销',
+              direction: '非现金调整',
+              category: 'non_cash_adjustment',
+              explanation: 'Non cash writeoff',
+              isPostable: false,
+              requiresReview: true,
+            },
+          ],
+          commitment_events: [
+            {
+              fund: '南京新工基金',
+              investorName: '南京国资',
+              date: '2023-01-15',
+              amount: 5_000_000,
+              currency: 'CNY',
+              intent: 'increase',
+              actionRaw: '认缴',
+              natureRaw: '新增额度',
+              directionRaw: '认缴额度增加',
+              sourceRow: 2,
+            },
+            {
+              fund: '南京新工基金',
+              investorName: '南京国资',
+              date: '2023-06-01',
+              amount: 1_000_000,
+              currency: 'CNY',
+              intent: 'transfer_in',
+              counterpartyName: '未核实投资人',
+              sourceRow: 10,
+              transferPairing: {
+                status: 'missing_counterparty',
+                requiresReview: true,
+                eligibleForTransferOut: false,
+                reviewReason: 'Missing verified transferor counterparty',
+              },
+            },
+          ],
+        },
+      });
+
+      vi.mocked(fileRepo.findById).mockResolvedValue(
+        makeFile({ id: 'file-nj', file_type: 'fund_updates', structured_notes: nanjingNotes }),
+      );
+
+      const service = makeService({ fileRepo });
+      service.setFundUpdateApplyService(mockApplyService as any);
+
+      const result = await service.getReviewData('file-nj');
+
+      expect(result.kind).toBe('fund_updates');
+      if (result.kind !== 'fund_updates') throw new Error('Expected fund_updates');
+
+      expect(result.reconciliation).toHaveLength(1);
+      expect(result.reconciliation[0].isReconciled).toBe(true);
+
+      // 1 explicit review item (non-cash adjustment) + 1 unresolved transfer converted into review item
+      expect(result.review_items).toHaveLength(2);
+      expect(result.review_items.some((r) => r.category === 'non_cash_adjustment')).toBe(true);
+      expect(result.review_items.some((r) => r.action === 'Commitment transfer')).toBe(true);
+    });
+
+    it('normalizes Workbook Fallback v1 proposal into unified FundUpdateReviewData with hydrated assets and linked catalog asset codes', async () => {
+      const fileRepo = makeFileRepoStub();
+      const mockApplyService = {
+        buildFullReview: vi.fn().mockImplementation((assets) => ({
+          assets: assets.map((a: any) => ({
+            code: a.code,
+            name: a.name,
+            fund: a.fund,
+            asset_type: a.assetType ?? 'direct_investment',
+            entity: a.entity,
+            funding_source: a.fundingSource,
+            status: 'new',
+            proposed: a,
+            missing_txns: a.txns ?? [],
+            missing_valuations: a.valuations ?? [],
+          })),
+          funds: [],
+          investors: [],
+          sources: [],
+          reconciliation: [],
+          review_items: [],
+        })),
+      };
+
+      const fallbackNotes = JSON.stringify({
+        file_type: 'fund_updates',
+        parser: 'workbook_fallback_llm',
+        summary: 'LLM Fallback Extraction',
+        fund_update_proposal: {
+          template_id: 'workbook_fallback_v1',
+          schema_version: 'workbook_fallback_v1',
+          stats: {
+            asset_count: 1,
+            direct_count: 1,
+            fund_of_funds_count: 0,
+            transaction_count: 1,
+            valuation_count: 1,
+            entity_count: 2,
+            event_count: 1,
+          },
+          entities: [
+            { proposalId: 'ent-fund-1', entityType: 'fund', originalName: 'Global Growth Fund', aliases: [], sourceLocations: [], warnings: [] },
+            { proposalId: 'ent-inv-1', entityType: 'institutional_investor', originalName: 'Acme Holding LP', aliases: [], sourceLocations: [], warnings: [] },
+            { proposalId: 'ent-target-1', entityType: 'portfolio_company', originalName: 'BioTech Innovations', aliases: [], sourceLocations: [], warnings: [] },
+          ],
+          events: [
+            {
+              proposalId: 'evt-1',
+              eventType: 'asset_investment',
+              fromEntityRef: 'ent-inv-1',
+              toEntityRef: 'ent-target-1',
+              relatedFundRef: 'Global Growth Fund',
+              date: '2023-04-15',
+              normalizedAmount: 2_000_000,
+              normalizedCurrency: 'USD',
+              sourceLocation: { sheet: 'Sheet1', row: 4 },
+              warnings: [],
+            },
+          ],
+          valuations: [
+            {
+              proposalId: 'val-1',
+              entityRef: 'ent-target-1',
+              asOfDate: '2023-06-30',
+              normalizedMarketValue: 2_500_000,
+              normalizedCurrency: 'USD',
+              sourceLocation: { sheet: 'Sheet1', row: 5 },
+              warnings: [],
+            },
+          ],
+          assets: [
+            {
+              code: 'BIO-01',
+              name: 'BioTech Innovations',
+              fund: '', // Empty: will be hydrated from event relatedFundRef
+              entity: '', // Empty: will be hydrated from event fromEntityRef
+              fundingSource: null,
+              txns: [{ date: '2023-04-15', type: 'contribution', valueAmount: 2_000_000, currency: 'USD' }],
+              valuations: [{ asOfDate: '2023-06-30', marketValue: 2_500_000, currency: 'USD' }],
+            },
+          ],
+          reconciliation: [],
+        },
+      });
+
+      vi.mocked(fileRepo.findById).mockResolvedValue(
+        makeFile({ id: 'file-v1-norm', file_type: 'fund_updates', structured_notes: fallbackNotes }),
+      );
+
+      const service = makeService({ fileRepo });
+      service.setFundUpdateApplyService(mockApplyService as any);
+
+      const result = await service.getReviewData('file-v1-norm');
+
+      expect(result.kind).toBe('fund_updates');
+      if (result.kind !== 'fund_updates') throw new Error('Expected fund_updates');
+
+      // Check hydration: fund and entity populated from events
+      expect(result.assets[0].proposed.fund).toBe('Global Growth Fund');
+      expect(result.assets[0].proposed.entity).toBe('Acme Holding LP');
+
+      // Extra fund and investor entities merged into catalogs
+      expect(result.funds.some((f) => f.name === 'Global Growth Fund')).toBe(true);
+      expect(result.investors.some((i) => i.name === 'Acme Holding LP')).toBe(true);
+    });
+  });
+
+  describe('step 1 staging without writes (Req 2)', () => {
+    it('stages fund_updates file in awaiting_review status without invoking ledger or master data writes during processUpload', async () => {
+      const fileRepo = makeFileRepoStub();
+      const companyService = makeCompanyServiceStub();
+      const mockApplyService = {
+        buildReview: vi.fn().mockResolvedValue([{ status: 'new' }]),
+      };
+
+      const fundUpdateResult = {
+        file_type: 'fund_updates',
+        parser: 'startech_master_sheet_v1',
+        summary: 'Extracted Startech updates',
+        key_points: [],
+        action_items: [],
+        tags: ['fund_updates'],
+        companies_detected: [],
+        company_notes: [],
+        file_date: '2023-03-31',
+        suggested_track_ids: [],
+        matched_companies: [],
+        fund_update_proposal: {
+          template_id: 'startech_master_sheet_v1',
+          stats: { asset_count: 1 },
+          assets: [{ code: 'A1', name: 'Asset 1', txns: [], valuations: [] }],
+        },
+      };
+
+      vi.mocked(processFundUpdateContent).mockResolvedValue(fundUpdateResult as any);
+      vi.mocked(fileRepo.insert).mockResolvedValue(makeFile({ id: 'file-stage-1' }));
+      vi.mocked(fileRepo.findById).mockResolvedValue(makeFile({ id: 'file-stage-1' }));
+
+      const service = makeService({ fileRepo, companyService });
+      service.setFundUpdateApplyService(mockApplyService as any);
+
+      await service.processUpload(
+        'uploads/startech_report.pdf',
+        'startech_report.pdf',
+        'application/pdf',
+        undefined,
+        'fund_updates',
+        false,
+      );
+
+      // File was updated with awaiting_review processing status and structured notes
+      expect(fileRepo.updatePartial).toHaveBeenCalledWith(
+        'file-stage-1',
+        expect.objectContaining({
+          processing_status: 'awaiting_review',
+          file_type: 'fund_updates',
+          structured_notes: expect.stringContaining('startech_master_sheet_v1'),
+        }),
+      );
+
+      // ZERO master data / company creation writes took place during step 1
+      expect(companyService.createFromDTO).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('lifecycle processing status gates & approve forwarding (Req 10 & 5, 6, 8)', () => {
+    it('does not fall back to posting every commitment event when the two-step row selection is empty', async () => {
+      const fileRepo = makeFileRepoStub();
+      const mockApplyService = {
+        buildFullReview: vi.fn().mockResolvedValue({
+          assets: [],
+          funds: [],
+          investors: [],
+          sources: [],
+          reconciliation: [],
+          review_items: [],
+        }),
+        applySelected: vi.fn().mockResolvedValue({
+          applied: 0,
+          created_assets: 0,
+          updated_assets: 0,
+          skipped: 0,
+          txns_inserted: 0,
+          valuations_upserted: 0,
+        }),
+        applyCommitmentEvents: vi.fn(),
+      };
+      const notes = JSON.stringify({
+        file_type: 'fund_updates',
+        parser: 'nanjing_fund_ledger_v1',
+        fund_update_proposal: {
+          template_id: 'nanjing_fund_ledger_v1',
+          stats: { asset_count: 0, commitment_event_count: 1 },
+          assets: [],
+          commitment_events: [
+            {
+              fund: 'Fund A',
+              fundEnglishName: 'Fund A English',
+              investorName: 'Investor A',
+              investorEnglishName: 'Investor A English',
+              date: '2023-01-01',
+              amount: 100,
+              intent: 'increase',
+              sourceRow: 2,
+            },
+          ],
+        },
+      });
+
+      vi.mocked(fileRepo.findById).mockResolvedValue(
+        makeFile({
+          id: 'file-empty-two-step-selection',
+          processing_status: 'awaiting_review',
+          file_type: 'fund_updates',
+          structured_notes: notes,
+        }),
+      );
+
+      const service = makeService({ fileRepo });
+      service.setFundUpdateApplyService(mockApplyService as any);
+
+      const reviewData = await service.getReviewData('file-empty-two-step-selection');
+      if (reviewData.kind !== 'fund_updates') throw new Error('Expected fund update review data');
+      expect(
+        reviewData.two_step_review.entities.find((entity) => entity.key === 'fund:Fund A')
+          ?.englishName,
+      ).toBe('Fund A English');
+      expect(
+        reviewData.two_step_review.entities.find(
+          (entity) => entity.key === 'investor:Investor A',
+        )?.englishName,
+      ).toBe('Investor A English');
+
+      await service.approve(
+        'file-empty-two-step-selection',
+        {
+          file_type: 'fund_updates',
+          matched_company_id: null,
+          two_step_approval: {
+            entityDecisions: [
+              { key: 'fund:Fund A', action: 'omit' },
+              { key: 'investor:Investor A', action: 'omit' },
+            ],
+            transactions: [],
+            valuations: [],
+          },
+        },
+        'reviewer@example.com',
+      );
+
+      expect(mockApplyService.applyCommitmentEvents).not.toHaveBeenCalled();
+      expect(mockApplyService.applySelected).toHaveBeenCalledWith(
+        [],
+        [],
+        [],
+        expect.objectContaining({ fileId: 'file-empty-two-step-selection' }),
+        { funds: [], investors: [], sources: [] },
+      );
+    });
+
+    it('getReviewData exposes processing_status and approve transitions awaiting_review file to completed', async () => {
+      const fileRepo = makeFileRepoStub();
+      const mockApplyService = {
+        buildFullReview: vi.fn().mockResolvedValue({
+          assets: [],
+          funds: [],
+          investors: [],
+          sources: [],
+          reconciliation: [],
+          review_items: [],
+        }),
+        applySelected: vi.fn().mockResolvedValue({
+          applied: 1,
+          created_assets: 1,
+          updated_assets: 0,
+          skipped: 0,
+          txns_inserted: 1,
+          valuations_upserted: 1,
+        }),
+        applyCommitmentEvents: vi.fn().mockResolvedValue({
+          events_inserted: 1,
+          events_skipped_duplicate: 0,
+          events_skipped: 0,
+          review_items_applied: 1,
+          warnings: [],
+        }),
+      };
+
+      const notes = JSON.stringify({
+        file_type: 'fund_updates',
+        parser: 'nanjing_fund_ledger_v1',
+        fund_update_proposal: {
+          template_id: 'nanjing_fund_ledger_v1',
+          stats: { asset_count: 1, commitment_event_count: 1 },
+          assets: [{ code: 'NJ-01', name: 'Asset 1', txns: [], valuations: [] }],
+          commitment_events: [
+            { fund: 'Fund A', investorName: 'Investor A', date: '2023-01-01', amount: 100, intent: 'increase', sourceRow: 2 },
+          ],
+        },
+      });
+
+      vi.mocked(fileRepo.findById).mockResolvedValue(
+        makeFile({ id: 'file-gate-1', processing_status: 'awaiting_review', file_type: 'fund_updates', structured_notes: notes }),
+      );
+
+      const service = makeService({ fileRepo });
+      service.setFundUpdateApplyService(mockApplyService as any);
+
+      // getReviewData returns processing_status
+      const reviewData = await service.getReviewData('file-gate-1');
+      expect(reviewData.file.processing_status).toBe('awaiting_review');
+
+      // approve forwards selections, catalog selections, and resolutions to apply services
+      const approveInput: ApproveFileInput = {
+        file_type: 'fund_updates',
+        matched_company_id: null,
+        fund_update_asset_codes: ['NJ-01'],
+        fund_update_selections: [
+          {
+            asset_code: 'NJ-01',
+            txns: [
+              {
+                date: '2023-01-01',
+                type: 'contribution',
+                valueAmount: 100,
+                currency: 'USD',
+                subTypeLabel: null,
+                pricePerShare: null,
+                shareCount: null,
+                fxRate: null,
+                notes: null,
+              },
+            ],
+          },
+        ],
+        fund_update_catalog_selections: {
+          funds: ['Fund A'],
+          investors: ['Investor A'],
+          sources: [], // Optional source omitted/deselected
+        },
+        fund_update_review_resolutions: [
+          {
+            sourceRow: 5,
+            resolutionType: 'non_cash_adjustment',
+            investorName: 'Investor A',
+            fundName: 'Fund A',
+            date: '2023-05-01',
+            amount: 50_000,
+            currency: 'CNY',
+            direction: 'reduction',
+            subType: 'profit_loss_writeoff',
+          },
+        ],
+      };
+
+      const approveResult = await service.approve('file-gate-1', approveInput, 'reviewer@example.com');
+
+      // Verify applySelected received catalog selections and selections
+      expect(mockApplyService.applySelected).toHaveBeenCalledWith(
+        expect.anything(),
+        ['NJ-01'],
+        approveInput.fund_update_selections,
+        expect.objectContaining({ isV1: false, fileId: 'file-gate-1' }),
+        approveInput.fund_update_catalog_selections,
+      );
+
+      // Verify applyCommitmentEvents received review resolutions and catalog selections
+      expect(mockApplyService.applyCommitmentEvents).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          fileId: 'file-gate-1',
+          createdBy: 'reviewer@example.com',
+          catalogSelections: approveInput.fund_update_catalog_selections,
+          reviewResolutions: approveInput.fund_update_review_resolutions,
+        }),
+      );
+
+      // Verify file processing_status transitioned to completed
+      expect(fileRepo.updatePartial).toHaveBeenCalledWith(
+        'file-gate-1',
+        expect.objectContaining({
+          processing_status: 'completed',
+        }),
+        expect.anything(),
+      );
+
+      expect(approveResult.fund_update?.applied).toBe(1);
+      expect(approveResult.fund_update?.commitment_events_inserted).toBe(1);
+    });
+
+    it('translates FoF decision under Fund tab into applySelected codes without duplicate asset decision', async () => {
+      const fileRepo = makeFileRepoStub();
+      const mockApplyService = {
+        buildFullReview: vi.fn().mockImplementation(async (proposedAssets: any[]) => {
+          return {
+            assets: proposedAssets.map((p) => ({
+              code: p.code,
+              name: p.name,
+              fund: p.fund,
+              asset_type: p.assetType,
+              status: 'new',
+              matched_asset_id: null,
+              proposed_txn_count: p.txns.length,
+              proposed_valuation_count: p.valuations.length,
+              missing_txn_count: p.txns.length,
+              missing_valuation_count: p.valuations.length,
+              proposed: p,
+              missing_txns: p.txns,
+              missing_valuations: p.valuations,
+            })),
+            funds: [
+              { name: '南京瑞满基金', status: 'existing', matched_id: 'fund-rm-1' },
+              { name: '南通越盛股权投资合伙企业（有限合伙）', status: 'new', matched_id: null, role: 'Fund of Funds' },
+            ],
+            investors: [],
+            sources: [],
+            reconciliation: [],
+            review_items: [],
+          };
+        }),
+        applySelected: vi.fn().mockResolvedValue({
+          applied: 1,
+          created_assets: 0,
+          updated_assets: 0,
+          created_funds: 1,
+          skipped: 0,
+          txns_inserted: 1,
+          valuations_upserted: 0,
+          outcomes: [
+            {
+              submittedId: 'txn:SAPE40:0:2024-01-15:contribution',
+              family: 'transaction',
+              disposition: 'posted',
+            },
+          ],
+        }),
+        applyCommitmentEvents: vi.fn().mockResolvedValue({
+          events_inserted: 0,
+          events_skipped_duplicate: 0,
+          events_skipped: 0,
+          review_items_applied: 0,
+          warnings: [],
+        }),
+      };
+
+      const fofAsset = {
+        code: 'SAPE40',
+        name: '南通越盛股权投资合伙企业（有限合伙）',
+        englishName: 'Yuesheng Fund LP',
+        assetType: 'fund_of_funds',
+        fund: '南京瑞满基金',
+        txns: [{ date: '2024-01-15', type: 'contribution', valueAmount: 10000000, currency: 'CNY' }],
+        valuations: [],
+      };
+
+      const notes = JSON.stringify({
+        file_type: 'fund_updates',
+        parser: 'nanjing_fund_ledger_v1',
+        fund_update_proposal: {
+          template_id: 'nanjing_fund_ledger_v1',
+          stats: { asset_count: 1, direct_count: 0, fund_of_funds_count: 1 },
+          assets: [fofAsset],
+          fund_catalog: ['南京瑞满基金'],
+        },
+      });
+
+      vi.mocked(fileRepo.findById).mockResolvedValue(
+        makeFile({
+          id: 'file-fof-two-step',
+          processing_status: 'awaiting_review',
+          file_type: 'fund_updates',
+          structured_notes: notes,
+        }),
+      );
+
+      const service = makeService({ fileRepo });
+      service.setFundUpdateApplyService(mockApplyService as any);
+
+      // Verify review data has only Fund entity for FoF target, NO asset entity
+      const reviewData = await service.getReviewData('file-fof-two-step');
+      if (reviewData.kind !== 'fund_updates') throw new Error('Expected fund update review data');
+      expect(reviewData.two_step_review.entities.filter((e) => e.tab === 'asset')).toHaveLength(0);
+      expect(reviewData.two_step_review.entities.find((e) => e.key === 'fund:南通越盛股权投资合伙企业（有限合伙）')).toBeDefined();
+
+      // Approve with FoF Fund staged
+      await service.approve(
+        'file-fof-two-step',
+        {
+          file_type: 'fund_updates',
+          matched_company_id: null,
+          two_step_approval: {
+            entityDecisions: [
+              { key: 'fund:南京瑞满基金', action: 'use_existing', matchedId: 'fund-rm-1' },
+              { key: 'fund:南通越盛股权投资合伙企业（有限合伙）', action: 'create' },
+            ],
+            transactions: [
+              {
+                id: 'txn:SAPE40:0:2024-01-15:contribution',
+                edits: { date: '2024-01-15', amount: 10000000, currency: 'CNY', cashDelta: -10000000 },
+              },
+            ],
+            valuations: [],
+          },
+        },
+        'reviewer@example.com',
+      );
+
+      // Verify applySelected was called with code 'SAPE40' derived from Fund decision,
+      // and catalogSelections.funds contains ONLY managed/owning funds ('南京瑞满基金'), excluding the pure FoF target
+      expect(mockApplyService.applySelected).toHaveBeenCalledWith(
+        expect.arrayContaining([expect.objectContaining({ code: 'SAPE40' })]),
+        ['SAPE40'],
+        [expect.objectContaining({ asset_code: 'SAPE40' })],
+        expect.objectContaining({ fileId: 'file-fof-two-step' }),
+        { funds: ['南京瑞满基金'], investors: [], sources: [] },
+        expect.anything(),
+      );
+    });
+
+    it('keeps a managed fund in catalogSelections when the same workbook also holds it as a FoF target', async () => {
+      // Nanjing chains managed funds: 桐德 -> 月升星繁 -> 江苏美克. 月升星繁 is simultaneously a
+      // fund_of_funds target (held by 桐德) and the owning fund of a direct asset, and it is in the
+      // fund catalog. Excluding it from catalogSelections.funds left `fundId` null in applySelected,
+      // so every asset it holds aborted the approval with "unresolved position for holder".
+      const fileRepo = makeFileRepoStub();
+      const mockApplyService = {
+        buildFullReview: vi.fn().mockImplementation(async (proposedAssets: any[]) => ({
+          assets: proposedAssets.map((p) => ({
+            code: p.code,
+            name: p.name,
+            fund: p.fund,
+            asset_type: p.assetType,
+            status: 'new',
+            matched_asset_id: null,
+            proposed_txn_count: p.txns.length,
+            proposed_valuation_count: p.valuations.length,
+            missing_txn_count: p.txns.length,
+            missing_valuation_count: p.valuations.length,
+            proposed: p,
+            missing_txns: p.txns,
+            missing_valuations: p.valuations,
+          })),
+          funds: [
+            { name: '南京桐德股权投资合伙企业（有限合伙）', status: 'new', matched_id: null },
+            { name: '南京月升星繁创业投资合伙企业（有限合伙）', status: 'new', matched_id: null, role: 'Fund of Funds' },
+          ],
+          investors: [],
+          sources: [],
+          reconciliation: [],
+          review_items: [],
+        })),
+        applySelected: vi.fn().mockResolvedValue({
+          applied: 2,
+          created_assets: 1,
+          updated_assets: 0,
+          created_funds: 2,
+          skipped: 0,
+          txns_inserted: 2,
+          valuations_upserted: 0,
+          outcomes: [
+            {
+              submittedId: 'txn:NJ-YUESHENG:0:2026-04-14:contribution',
+              family: 'transaction',
+              disposition: 'posted',
+            },
+            {
+              submittedId: 'txn:NJ-MEDOMICS:0:2024-09-29:contribution',
+              family: 'transaction',
+              disposition: 'posted',
+            },
+          ],
+        }),
+        applyCommitmentEvents: vi.fn().mockResolvedValue({
+          events_inserted: 0,
+          events_skipped_duplicate: 0,
+          events_skipped: 0,
+          review_items_applied: 0,
+          warnings: [],
+        }),
+      };
+
+      const fofAsset = {
+        code: 'NJ-YUESHENG',
+        name: '南京月升星繁创业投资合伙企业（有限合伙）',
+        assetType: 'fund_of_funds',
+        fund: '南京桐德股权投资合伙企业（有限合伙）',
+        txns: [{ date: '2026-04-14', type: 'contribution', valueAmount: 59000000, currency: 'CNY' }],
+        valuations: [],
+      };
+      const heldDirectAsset = {
+        code: 'NJ-MEDOMICS',
+        name: '江苏美克医学技术有限公司',
+        assetType: 'direct_investment',
+        fund: '南京月升星繁创业投资合伙企业（有限合伙）',
+        txns: [{ date: '2024-09-29', type: 'contribution', valueAmount: 30000000, currency: 'CNY' }],
+        valuations: [],
+      };
+
+      const notes = JSON.stringify({
+        file_type: 'fund_updates',
+        parser: 'nanjing_fund_ledger_v1',
+        fund_update_proposal: {
+          template_id: 'nanjing_fund_ledger_v1',
+          stats: { asset_count: 2, direct_count: 1, fund_of_funds_count: 1 },
+          assets: [fofAsset, heldDirectAsset],
+          fund_catalog: [
+            '南京桐德股权投资合伙企业（有限合伙）',
+            '南京月升星繁创业投资合伙企业（有限合伙）',
+          ],
+        },
+      });
+
+      vi.mocked(fileRepo.findById).mockResolvedValue(
+        makeFile({
+          id: 'file-fof-managed-chain',
+          processing_status: 'awaiting_review',
+          file_type: 'fund_updates',
+          structured_notes: notes,
+        }),
+      );
+
+      const service = makeService({ fileRepo });
+      service.setFundUpdateApplyService(mockApplyService as any);
+
+      await service.approve(
+        'file-fof-managed-chain',
+        {
+          file_type: 'fund_updates',
+          matched_company_id: null,
+          two_step_approval: {
+            entityDecisions: [
+              { key: 'fund:南京桐德股权投资合伙企业（有限合伙）', action: 'create' },
+              { key: 'fund:南京月升星繁创业投资合伙企业（有限合伙）', action: 'create' },
+              { key: 'asset:NJ-MEDOMICS', action: 'create' },
+            ],
+            transactions: [
+              {
+                id: 'txn:NJ-YUESHENG:0:2026-04-14:contribution',
+                edits: { date: '2026-04-14', amount: 59000000, currency: 'CNY', cashDelta: -59000000 },
+              },
+              {
+                id: 'txn:NJ-MEDOMICS:0:2024-09-29:contribution',
+                edits: { date: '2024-09-29', amount: 30000000, currency: 'CNY', cashDelta: -30000000 },
+              },
+            ],
+            valuations: [],
+          },
+        },
+        'reviewer@example.com',
+      );
+
+      const catalogArg = mockApplyService.applySelected.mock.calls[0][4] as {
+        funds: string[];
+        investors: string[];
+        sources: string[];
+      };
+      expect(catalogArg.funds).toContain('南京月升星繁创业投资合伙企业（有限合伙）');
+      expect(catalogArg.funds).toContain('南京桐德股权投资合伙企业（有限合伙）');
+    });
+
+    it('still creates a staged direct asset when its owning fund is omitted', async () => {
+      const fileRepo = makeFileRepoStub();
+      const mockApplyService = {
+        buildFullReview: vi.fn().mockImplementation(async (proposedAssets: any[]) => ({
+          assets: proposedAssets.map((p) => ({
+            code: p.code,
+            name: p.name,
+            fund: p.fund,
+            asset_type: p.assetType,
+            status: 'new',
+            matched_asset_id: null,
+            proposed_txn_count: p.txns.length,
+            proposed_valuation_count: p.valuations.length,
+            missing_txn_count: p.txns.length,
+            missing_valuation_count: p.valuations.length,
+            proposed: p,
+            missing_txns: p.txns,
+            missing_valuations: p.valuations,
+          })),
+          funds: [{ name: '南京瑞满基金', status: 'new', matched_id: null }],
+          investors: [],
+          sources: [],
+          reconciliation: [],
+          review_items: [],
+        })),
+        applySelected: vi.fn().mockResolvedValue({
+          applied: 1,
+          created_assets: 1,
+          updated_assets: 0,
+          created_funds: 0,
+          skipped: 0,
+          txns_inserted: 0,
+          valuations_upserted: 0,
+        }),
+        applyCommitmentEvents: vi.fn().mockResolvedValue({
+          events_inserted: 0,
+          events_skipped_duplicate: 0,
+          events_skipped: 0,
+          review_items_applied: 0,
+          warnings: [],
+        }),
+      };
+
+      const directAsset = {
+        code: 'NJ-MEDOMICS',
+        name: '江苏美克医学技术有限公司',
+        assetType: 'direct_investment',
+        fund: '南京瑞满基金',
+        txns: [{ date: '2024-01-15', type: 'contribution', valueAmount: 1000000, currency: 'CNY' }],
+        valuations: [],
+      };
+
+      vi.mocked(fileRepo.findById).mockResolvedValue(
+        makeFile({
+          id: 'file-direct-orphan',
+          processing_status: 'awaiting_review',
+          file_type: 'fund_updates',
+          structured_notes: JSON.stringify({
+            file_type: 'fund_updates',
+            parser: 'nanjing_fund_ledger_v1',
+            fund_update_proposal: {
+              template_id: 'nanjing_fund_ledger_v1',
+              stats: { asset_count: 1, direct_count: 1, fund_of_funds_count: 0 },
+              assets: [directAsset],
+              fund_catalog: ['南京瑞满基金'],
+            },
+          }),
+        }),
+      );
+
+      const service = makeService({ fileRepo });
+      service.setFundUpdateApplyService(mockApplyService as any);
+
+      await service.approve(
+        'file-direct-orphan',
+        {
+          file_type: 'fund_updates',
+          matched_company_id: null,
+          two_step_approval: {
+            entityDecisions: [
+              { key: 'asset:NJ-MEDOMICS', action: 'create' },
+              { key: 'fund:南京瑞满基金', action: 'omit' },
+            ],
+            transactions: [],
+            valuations: [],
+          },
+        },
+        'reviewer@example.com',
+      );
+
+      // fl_assets has no fund column: the asset is standalone master data and is
+      // created even though its owning fund was deselected. Only the position is
+      // lost, which applySelected skips because the fund resolves to null.
+      expect(mockApplyService.applySelected).toHaveBeenCalledWith(
+        expect.anything(),
+        ['NJ-MEDOMICS'],
+        [expect.objectContaining({ asset_code: 'NJ-MEDOMICS' })],
+        expect.anything(),
+        { funds: [], investors: [], sources: [] },
+        expect.anything(),
+      );
+    });
+
+    it('still creates a staged FoF target when its owning fund is omitted, minus the holding', async () => {
+      const fileRepo = makeFileRepoStub();
+      const mockApplyService = {
+        buildFullReview: vi.fn().mockImplementation(async (proposedAssets: any[]) => ({
+          assets: proposedAssets.map((p) => ({
+            code: p.code,
+            name: p.name,
+            fund: p.fund,
+            asset_type: p.assetType,
+            status: 'new',
+            matched_asset_id: null,
+            proposed_txn_count: p.txns.length,
+            proposed_valuation_count: p.valuations.length,
+            missing_txn_count: p.txns.length,
+            missing_valuation_count: p.valuations.length,
+            proposed: p,
+            missing_txns: p.txns,
+            missing_valuations: p.valuations,
+          })),
+          funds: [
+            { name: '南京瑞满基金', status: 'existing', matched_id: 'fund-rm-1' },
+            { name: '南京瑞来基金', status: 'existing', matched_id: 'fund-rl-1' },
+            { name: '南通越盛股权投资合伙企业（有限合伙）', status: 'new', matched_id: null, role: 'Fund of Funds' },
+          ],
+          investors: [],
+          sources: [],
+          reconciliation: [],
+          review_items: [],
+        })),
+        applySelected: vi.fn().mockResolvedValue({
+          applied: 1,
+          created_assets: 0,
+          updated_assets: 0,
+          created_funds: 1,
+          skipped: 0,
+          txns_inserted: 1,
+          valuations_upserted: 0,
+          outcomes: [
+            {
+              submittedId: 'txn:FOF-H1:0:2024-01-15:contribution',
+              family: 'transaction',
+              disposition: 'posted',
+            },
+          ],
+        }),
+      };
+
+      const fofHolding1 = {
+        code: 'FOF-H1',
+        name: '南通越盛股权投资合伙企业（有限合伙）',
+        assetType: 'fund_of_funds',
+        fund: '南京瑞满基金',
+        txns: [{ date: '2024-01-15', type: 'contribution', valueAmount: 6000000, currency: 'CNY' }],
+        valuations: [],
+      };
+      const fofHolding2 = {
+        code: 'FOF-H2',
+        name: '南通越盛股权投资合伙企业（有限合伙）',
+        assetType: 'fund_of_funds',
+        fund: '南京瑞来基金',
+        txns: [{ date: '2024-02-15', type: 'contribution', valueAmount: 4000000, currency: 'CNY' }],
+        valuations: [],
+      };
+
+      const notes = JSON.stringify({
+        file_type: 'fund_updates',
+        parser: 'nanjing_fund_ledger_v1',
+        fund_update_proposal: {
+          template_id: 'nanjing_fund_ledger_v1',
+          stats: { asset_count: 2, direct_count: 0, fund_of_funds_count: 2 },
+          assets: [fofHolding1, fofHolding2],
+          fund_catalog: ['南京瑞满基金', '南京瑞来基金'],
+        },
+      });
+
+      vi.mocked(fileRepo.findById).mockResolvedValue(
+        makeFile({
+          id: 'file-fof-multi-holding',
+          processing_status: 'awaiting_review',
+          file_type: 'fund_updates',
+          structured_notes: notes,
+        }),
+      );
+
+      const service = makeService({ fileRepo });
+      service.setFundUpdateApplyService(mockApplyService as any);
+
+      // Approve with:
+      // Ruiman: use_existing
+      // Ruilai: omit (deselected!)
+      // Target Yuesheng: create
+      await service.approve(
+        'file-fof-multi-holding',
+        {
+          file_type: 'fund_updates',
+          matched_company_id: null,
+          two_step_approval: {
+            entityDecisions: [
+              { key: 'fund:南京瑞满基金', action: 'use_existing', matchedId: 'fund-rm-1' },
+              { key: 'fund:南京瑞来基金', action: 'omit' }, // Omitted!
+              { key: 'fund:南通越盛股权投资合伙企业（有限合伙）', action: 'create' },
+            ],
+            transactions: [
+              {
+                id: 'txn:FOF-H1:0:2024-01-15:contribution',
+                edits: { date: '2024-01-15', amount: 6000000, currency: 'CNY', cashDelta: -6000000 },
+              },
+            ],
+            valuations: [],
+          },
+        },
+        'reviewer@example.com',
+      );
+
+      // The staged target fund is created from either holding row — fl_funds has
+      // no parent column. Omitting Ruilai drops it from catalogSelections, so
+      // applySelected resolves no fundId for FOF-H2 and opens no position for it.
+      expect(mockApplyService.applySelected).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.arrayContaining(['FOF-H1', 'FOF-H2']),
+        expect.arrayContaining([expect.objectContaining({ asset_code: 'FOF-H1' })]),
+        expect.anything(),
+        { funds: ['南京瑞满基金'], investors: [], sources: [] },
+        expect.anything(),
+      );
+    });
+
+    it('passes remapped target ID to applySelected when FoF target is remapped to existing fund', async () => {
+      const fileRepo = makeFileRepoStub();
+      const mockApplyService = {
+        buildFullReview: vi.fn().mockImplementation(async (proposedAssets: any[]) => ({
+          assets: proposedAssets.map((p) => ({
+            code: p.code,
+            name: p.name,
+            fund: p.fund,
+            asset_type: p.assetType,
+            status: 'new',
+            matched_asset_id: null,
+            proposed_txn_count: p.txns.length,
+            proposed_valuation_count: p.valuations.length,
+            missing_txn_count: p.txns.length,
+            missing_valuation_count: p.valuations.length,
+            proposed: p,
+            missing_txns: p.txns,
+            missing_valuations: p.valuations,
+          })),
+          funds: [{ name: '南京瑞满基金', status: 'existing', matched_id: 'fund-rm-1' }],
+          investors: [],
+          sources: [],
+          reconciliation: [],
+          review_items: [],
+        })),
+        applySelected: vi.fn().mockResolvedValue({
+          applied: 1,
+          created_assets: 0,
+          updated_assets: 1,
+          created_funds: 0,
+          skipped: 0,
+          txns_inserted: 1,
+          valuations_upserted: 0,
+          outcomes: [
+            {
+              submittedId: 'txn:SAPE40:0:2024-01-15:contribution',
+              family: 'transaction',
+              disposition: 'posted',
+            },
+          ],
+        }),
+      };
+
+      const fofAsset = {
+        code: 'SAPE40',
+        name: '南通越盛股权投资合伙企业（有限合伙）',
+        assetType: 'fund_of_funds',
+        fund: '南京瑞满基金',
+        txns: [{ date: '2024-01-15', type: 'contribution', valueAmount: 10000000, currency: 'CNY' }],
+        valuations: [],
+      };
+
+      const notes = JSON.stringify({
+        file_type: 'fund_updates',
+        parser: 'nanjing_fund_ledger_v1',
+        fund_update_proposal: {
+          template_id: 'nanjing_fund_ledger_v1',
+          stats: { asset_count: 1, direct_count: 0, fund_of_funds_count: 1 },
+          assets: [fofAsset],
+          fund_catalog: ['南京瑞满基金'],
+        },
+      });
+
+      vi.mocked(fileRepo.findById).mockResolvedValue(
+        makeFile({
+          id: 'file-fof-remap',
+          processing_status: 'awaiting_review',
+          file_type: 'fund_updates',
+          structured_notes: notes,
+        }),
+      );
+
+      const service = makeService({ fileRepo });
+      service.setFundUpdateApplyService(mockApplyService as any);
+
+      // Approve with FoF target remapped to existing fund 'fund-existing-yuesheng'
+      await service.approve(
+        'file-fof-remap',
+        {
+          file_type: 'fund_updates',
+          matched_company_id: null,
+          two_step_approval: {
+            entityDecisions: [
+              { key: 'fund:南京瑞满基金', action: 'use_existing', matchedId: 'fund-rm-1' },
+              {
+                key: 'fund:南通越盛股权投资合伙企业（有限合伙）',
+                action: 'use_existing',
+                matchedId: 'fund-existing-yuesheng',
+                remappedName: '南通越盛存续基金',
+              },
+            ],
+            transactions: [
+              {
+                id: 'txn:SAPE40:0:2024-01-15:contribution',
+                edits: { date: '2024-01-15', amount: 10000000, currency: 'CNY', cashDelta: -10000000 },
+              },
+            ],
+            valuations: [],
+          },
+        },
+        'reviewer@example.com',
+      );
+
+      // Verify applySelected was called with matched_target_id and remapped_target_name
+      expect(mockApplyService.applySelected).toHaveBeenCalledWith(
+        expect.anything(),
+        ['SAPE40'],
+        [
+          expect.objectContaining({
+            asset_code: 'SAPE40',
+            matched_target_id: 'fund-existing-yuesheng',
+            remapped_target_name: '南通越盛存续基金',
+          }),
+        ],
+        expect.anything(),
+        { funds: ['南京瑞满基金'], investors: [], sources: [] },
+        expect.anything(),
+      );
+    });
+
+    it('stages all constituent asset codes for canonical direct assets and passes decisions to applySelected', async () => {
+      const fileRepo = makeFileRepoStub();
+      const mockApplyService = {
+        buildFullReview: vi.fn().mockImplementation((assets: any[]) => ({
+          assets: assets.map((a) => ({
+            code: a.code,
+            name: a.name,
+            asset_type: 'direct_investment',
+            fund: a.fund,
+            status: 'new',
+            matched_asset_id: null,
+            proposed_txn_count: a.txns?.length ?? 0,
+            proposed_valuation_count: a.valuations?.length ?? 0,
+            missing_txn_count: a.txns?.length ?? 0,
+            missing_valuation_count: a.valuations?.length ?? 0,
+            missing_txns: a.txns ?? [],
+            missing_valuations: a.valuations ?? [],
+            proposed: a,
+          })),
+          funds: [
+            { name: '南京瑞满', status: 'new', matched_id: null },
+            { name: '南京瑞来', status: 'new', matched_id: null },
+          ],
+          investors: [],
+          sources: [],
+          reconciliation: [],
+          review_items: [],
+        })),
+        applySelected: vi.fn().mockResolvedValue({
+          applied: 2,
+          created_assets: 1,
+          updated_assets: 1,
+          created_funds: 2,
+          skipped: 0,
+          txns_inserted: 2,
+          valuations_upserted: 0,
+          outcomes: [
+            {
+              submittedId: 'txn:NJ-RM-SDT:0:2024-01-15:contribution',
+              family: 'transaction',
+              disposition: 'posted',
+            },
+            {
+              submittedId: 'txn:NJ-RL-SDT:0:2024-02-01:contribution',
+              family: 'transaction',
+              disposition: 'posted',
+            },
+          ],
+        }),
+      };
+
+      const assetRuiman = {
+        code: 'NJ-RM-SDT',
+        name: '赛德特生物制药有限公司',
+        assetType: 'direct_investment',
+        fund: '南京瑞满',
+        txns: [{ date: '2024-01-15', type: 'contribution', valueAmount: 10000000, currency: 'CNY' }],
+        valuations: [],
+      };
+      const assetRuilai = {
+        code: 'NJ-RL-SDT',
+        name: '赛德特生物制药有限公司 Saidet Biotech Co., Ltd.',
+        assetType: 'direct_investment',
+        fund: '南京瑞来',
+        txns: [{ date: '2024-02-01', type: 'contribution', valueAmount: 5000000, currency: 'CNY' }],
+        valuations: [],
+      };
+
+      const notes = JSON.stringify({
+        file_type: 'fund_updates',
+        parser: 'nanjing_fund_ledger_v1',
+        fund_update_proposal: {
+          template_id: 'nanjing_fund_ledger_v1',
+          stats: { asset_count: 2, direct_count: 2, fund_of_funds_count: 0 },
+          assets: [assetRuiman, assetRuilai],
+          fund_catalog: ['南京瑞满', '南京瑞来'],
+        },
+      });
+
+      vi.mocked(fileRepo.findById).mockResolvedValue(
+        makeFile({
+          id: 'file-saidet-dedup',
+          processing_status: 'awaiting_review',
+          file_type: 'fund_updates',
+          structured_notes: notes,
+        }),
+      );
+
+      const service = makeService({ fileRepo });
+      service.setFundUpdateApplyService(mockApplyService as any);
+
+      // Approve with canonical asset matched to 'ast-saidet-existing'
+      await service.approve(
+        'file-saidet-dedup',
+        {
+          file_type: 'fund_updates',
+          matched_company_id: null,
+          two_step_approval: {
+            entityDecisions: [
+              { key: 'fund:南京瑞满', action: 'create' },
+              { key: 'fund:南京瑞来', action: 'create' },
+              {
+                key: 'asset:NJ-RM-SDT',
+                action: 'use_existing',
+                matchedId: 'ast-saidet-existing',
+              },
+            ],
+            transactions: [
+              {
+                id: 'txn:NJ-RM-SDT:0:2024-01-15:contribution',
+                edits: { date: '2024-01-15', amount: 10000000, currency: 'CNY', cashDelta: -10000000 },
+              },
+              {
+                id: 'txn:NJ-RL-SDT:0:2024-02-01:contribution',
+                edits: { date: '2024-02-01', amount: 5000000, currency: 'CNY', cashDelta: -5000000 },
+              },
+            ],
+            valuations: [],
+          },
+        },
+        'reviewer@example.com',
+      );
+
+      // Verify both constituent asset codes were staged and received the canonical matchedId
+      expect(mockApplyService.applySelected).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.arrayContaining(['NJ-RM-SDT', 'NJ-RL-SDT']),
+        expect.arrayContaining([
+          expect.objectContaining({
+            asset_code: 'NJ-RM-SDT',
+            matched_target_id: 'ast-saidet-existing',
+          }),
+          expect.objectContaining({
+            asset_code: 'NJ-RL-SDT',
+            matched_target_id: 'ast-saidet-existing',
+          }),
+        ]),
+        expect.anything(),
+        expect.objectContaining({ funds: expect.arrayContaining(['南京瑞满', '南京瑞来']) }),
+        expect.anything(),
+      );
+    });
+
+    it('pre-approval safety invariant: rejects approval when two direct assets sharing canonical identity have conflicting decisions', async () => {
+      const fileRepo = makeFileRepoStub();
+      const mockApplyService = {
+        buildFullReview: vi.fn().mockImplementation((assets: any[]) => ({
+          assets: assets.map((a) => ({
+            code: a.code,
+            name: a.name,
+            asset_type: 'direct_investment',
+            fund: a.fund,
+            status: 'new',
+            matched_asset_id: null,
+            proposed_txn_count: 0,
+            proposed_valuation_count: 0,
+            missing_txn_count: 0,
+            missing_valuation_count: 0,
+            missing_txns: [],
+            missing_valuations: [],
+            proposed: a,
+          })),
+          funds: [{ name: '南京瑞满', status: 'new', matched_id: null }, { name: '南京瑞来', status: 'new', matched_id: null }],
+          investors: [],
+          sources: [],
+          reconciliation: [],
+          review_items: [],
+        })),
+        applySelected: vi.fn(),
+      };
+
+      const assetRuiman = {
+        code: 'NJ-RM-SDT',
+        name: '赛德特生物制药有限公司',
+        assetType: 'direct_investment',
+        fund: '南京瑞满',
+        txns: [],
+        valuations: [],
+      };
+      const assetRuilai = {
+        code: 'NJ-RL-SDT',
+        name: '赛德特生物制药有限公司',
+        assetType: 'direct_investment',
+        fund: '南京瑞来',
+        txns: [],
+        valuations: [],
+      };
+
+      const notes = JSON.stringify({
+        file_type: 'fund_updates',
+        parser: 'nanjing_fund_ledger_v1',
+        fund_update_proposal: {
+          template_id: 'nanjing_fund_ledger_v1',
+          stats: { asset_count: 2, direct_count: 2, fund_of_funds_count: 0 },
+          assets: [assetRuiman, assetRuilai],
+          fund_catalog: ['南京瑞满', '南京瑞来'],
+        },
+      });
+
+      vi.mocked(fileRepo.findById).mockResolvedValue(
+        makeFile({
+          id: 'file-saidet-conflict',
+          processing_status: 'awaiting_review',
+          file_type: 'fund_updates',
+          structured_notes: notes,
+        }),
+      );
+
+      const service = makeService({ fileRepo });
+      service.setFundUpdateApplyService(mockApplyService as any);
+
+      // Attempt approval with conflicting matchedIds for the same canonical entity
+      await expect(
+        service.approve(
+          'file-saidet-conflict',
+          {
+            file_type: 'fund_updates',
+            matched_company_id: null,
+            two_step_approval: {
+              entityDecisions: [
+                { key: 'fund:南京瑞满', action: 'create' },
+                { key: 'fund:南京瑞来', action: 'create' },
+                { key: 'asset:NJ-RM-SDT', action: 'use_existing', matchedId: 'ast-saidet-1' },
+                { key: 'asset:NJ-RL-SDT', action: 'use_existing', matchedId: 'ast-saidet-2' },
+              ],
+              transactions: [],
+              valuations: [],
+            },
+          },
+          'reviewer@example.com',
+        ),
+      ).rejects.toThrow(/Pre-approval safety invariant violation/);
+    });
+
+    it('pre-approval safety invariant: rejects asymmetric create vs use-existing decisions for the same canonical entity', async () => {
+      const fileRepo = makeFileRepoStub();
+      const mockApplyService = {
+        buildFullReview: vi.fn().mockImplementation((assets: any[]) => ({
+          assets: assets.map((a) => ({
+            code: a.code,
+            name: a.name,
+            asset_type: 'direct_investment',
+            fund: a.fund,
+            status: 'new',
+            matched_asset_id: null,
+            proposed_txn_count: 0,
+            proposed_valuation_count: 0,
+            missing_txn_count: 0,
+            missing_valuation_count: 0,
+            missing_txns: [],
+            missing_valuations: [],
+            proposed: a,
+          })),
+          funds: [{ name: '南京瑞满', status: 'new', matched_id: null }, { name: '南京瑞来', status: 'new', matched_id: null }],
+          investors: [],
+          sources: [],
+          reconciliation: [],
+          review_items: [],
+        })),
+        applySelected: vi.fn().mockResolvedValue({
+          created_assets: 1,
+          updated_assets: 0,
+          created_positions: 2,
+          created_events: 2,
+          created_valuations: 0,
+          skipped_txns: 0,
+          skipped_valuations: 0,
+        }),
+      };
+
+      const notes = JSON.stringify({
+        file_type: 'fund_updates',
+        parser: 'nanjing_fund_ledger_v1',
+        fund_update_proposal: {
+          template_id: 'nanjing_fund_ledger_v1',
+          stats: { asset_count: 2, direct_count: 2, fund_of_funds_count: 0 },
+          assets: [
+            {
+              code: 'NJ-RM-SDT',
+              name: '赛德特生物制药有限公司',
+              fund: '南京瑞满',
+              assetType: 'direct_investment',
+              txns: [],
+              valuations: [],
+            },
+            {
+              code: 'NJ-RL-SDT',
+              name: '赛德特生物制药有限公司 Saidet Biotech',
+              fund: '南京瑞来',
+              assetType: 'direct_investment',
+              txns: [],
+              valuations: [],
+            },
+          ],
+          fund_catalog: ['南京瑞满', '南京瑞来'],
+        },
+      });
+
+      vi.mocked(fileRepo.findById).mockResolvedValue(
+        makeFile({
+          id: 'file-saidet-asym',
+          processing_status: 'awaiting_review',
+          file_type: 'fund_updates',
+          structured_notes: notes,
+        }),
+      );
+
+      const service = makeService({ fileRepo });
+      service.setFundUpdateApplyService(mockApplyService as any);
+
+      // One constituent is marked 'create' while the other is marked 'use_existing'
+      await expect(
+        service.approve(
+          'file-saidet-asym',
+          {
+            file_type: 'fund_updates',
+            matched_company_id: null,
+            two_step_approval: {
+              entityDecisions: [
+                { key: 'fund:南京瑞满', action: 'create' },
+                { key: 'fund:南京瑞来', action: 'create' },
+                { key: 'asset:NJ-RM-SDT', action: 'create' },
+                { key: 'asset:NJ-RL-SDT', action: 'use_existing', matchedId: 'ast-saidet-1' },
+              ],
+              transactions: [],
+              valuations: [],
+            },
+          },
+          'reviewer@example.com',
+        ),
+      ).rejects.toThrow(/conflicting action decisions/);
+    });
+
+    it('pre-approval safety invariant: rejects inconsistent remapped target names for the same canonical entity', async () => {
+      const fileRepo = makeFileRepoStub();
+      const mockApplyService = {
+        buildFullReview: vi.fn().mockImplementation((assets: any[]) => ({
+          assets: assets.map((a) => ({
+            code: a.code,
+            name: a.name,
+            asset_type: 'direct_investment',
+            fund: a.fund,
+            status: 'new',
+            matched_asset_id: null,
+            proposed_txn_count: 0,
+            proposed_valuation_count: 0,
+            missing_txn_count: 0,
+            missing_valuation_count: 0,
+            missing_txns: [],
+            missing_valuations: [],
+            proposed: a,
+          })),
+          funds: [{ name: '南京瑞满', status: 'new', matched_id: null }, { name: '南京瑞来', status: 'new', matched_id: null }],
+          investors: [],
+          sources: [],
+          reconciliation: [],
+          review_items: [],
+        })),
+        applySelected: vi.fn(),
+      };
+
+      const notes = JSON.stringify({
+        file_type: 'fund_updates',
+        parser: 'nanjing_fund_ledger_v1',
+        fund_update_proposal: {
+          template_id: 'nanjing_fund_ledger_v1',
+          stats: { asset_count: 2, direct_count: 2, fund_of_funds_count: 0 },
+          assets: [
+            {
+              code: 'NJ-RM-SDT',
+              name: '赛德特生物制药有限公司',
+              fund: '南京瑞满',
+              assetType: 'direct_investment',
+              txns: [],
+              valuations: [],
+            },
+            {
+              code: 'NJ-RL-SDT',
+              name: '赛德特生物制药有限公司',
+              fund: '南京瑞来',
+              assetType: 'direct_investment',
+              txns: [],
+              valuations: [],
+            },
+          ],
+          fund_catalog: ['南京瑞满', '南京瑞来'],
+        },
+      });
+
+      vi.mocked(fileRepo.findById).mockResolvedValue(
+        makeFile({
+          id: 'file-saidet-remap',
+          processing_status: 'awaiting_review',
+          file_type: 'fund_updates',
+          structured_notes: notes,
+        }),
+      );
+
+      const service = makeService({ fileRepo });
+      service.setFundUpdateApplyService(mockApplyService as any);
+
+      await expect(
+        service.approve(
+          'file-saidet-remap',
+          {
+            file_type: 'fund_updates',
+            matched_company_id: null,
+            two_step_approval: {
+              entityDecisions: [
+                { key: 'fund:南京瑞满', action: 'create' },
+                { key: 'fund:南京瑞来', action: 'create' },
+                { key: 'asset:NJ-RM-SDT', action: 'create', remappedName: 'Target A' },
+                { key: 'asset:NJ-RL-SDT', action: 'create', remappedName: 'Target B' },
+              ],
+              transactions: [],
+              valuations: [],
+            },
+          },
+          'reviewer@example.com',
+        ),
+      ).rejects.toThrow(/inconsistent target names/);
+    });
+
+    it('integration regression: rejects unresolved/create conflicts, and explicit use_existing resolution succeeds fanning out to chosen ID', async () => {
+      const fileRepo = makeFileRepoStub();
+      const mockApplyService = {
+        buildFullReview: vi.fn().mockImplementation((assets: any[]) => ({
+          assets: assets.map((a) => ({
+            code: a.code,
+            name: a.name,
+            asset_type: 'direct_investment',
+            fund: a.fund,
+            status: a.matched_asset_id ? 'unchanged' : 'new',
+            matched_asset_id: a.matched_asset_id ?? null,
+            proposed_txn_count: 0,
+            proposed_valuation_count: 0,
+            missing_txn_count: 0,
+            missing_valuation_count: 0,
+            missing_txns: [],
+            missing_valuations: [],
+            proposed: a,
+          })),
+          funds: [
+            { name: '南京瑞满', status: 'new', matched_id: null },
+            { name: '南京瑞来', status: 'new', matched_id: null },
+          ],
+          investors: [],
+          sources: [],
+          reconciliation: [],
+          review_items: [],
+        })),
+        applySelected: vi.fn().mockResolvedValue({
+          created_assets: 0,
+          updated_assets: 2,
+          created_positions: 2,
+          created_events: 0,
+          created_valuations: 0,
+          skipped_txns: 0,
+          skipped_valuations: 0,
+        }),
+      };
+
+      const notes = JSON.stringify({
+        file_type: 'fund_updates',
+        parser: 'nanjing_fund_ledger_v1',
+        fund_update_proposal: {
+          template_id: 'nanjing_fund_ledger_v1',
+          stats: { asset_count: 2, direct_count: 2, fund_of_funds_count: 0 },
+          assets: [
+            {
+              code: 'NJ-RM-SDT',
+              name: '赛德特生物制药有限公司',
+              fund: '南京瑞满',
+              assetType: 'direct_investment',
+              matched_asset_id: 'ast-saidet-1',
+              txns: [],
+              valuations: [],
+            },
+            {
+              code: 'NJ-RL-SDT',
+              name: '赛德特生物制药有限公司',
+              fund: '南京瑞来',
+              assetType: 'direct_investment',
+              matched_asset_id: 'ast-saidet-2',
+              txns: [],
+              valuations: [],
+            },
+          ],
+          fund_catalog: ['南京瑞满', '南京瑞来'],
+        },
+      });
+
+      vi.mocked(fileRepo.findById).mockResolvedValue(
+        makeFile({
+          id: 'file-saidet-conflict-integration',
+          processing_status: 'awaiting_review',
+          file_type: 'fund_updates',
+          structured_notes: notes,
+        }),
+      );
+
+      const service = makeService({ fileRepo });
+      service.setFundUpdateApplyService(mockApplyService as any);
+
+      // 1. Unresolved conflict (no entity decision or default staging) -> rejected
+      await expect(
+        service.approve(
+          'file-saidet-conflict-integration',
+          {
+            file_type: 'fund_updates',
+            matched_company_id: null,
+            two_step_approval: {
+              entityDecisions: [
+                { key: 'fund:南京瑞满', action: 'create' },
+                { key: 'fund:南京瑞来', action: 'create' },
+              ],
+              transactions: [],
+              valuations: [],
+            },
+          },
+          'reviewer@example.com',
+        ),
+      ).rejects.toThrow(/conflicting matched IDs/);
+
+      // 2. Action: 'create' does not bypass the conflict -> rejected
+      await expect(
+        service.approve(
+          'file-saidet-conflict-integration',
+          {
+            file_type: 'fund_updates',
+            matched_company_id: null,
+            two_step_approval: {
+              entityDecisions: [
+                { key: 'fund:南京瑞满', action: 'create' },
+                { key: 'fund:南京瑞来', action: 'create' },
+                { key: 'asset:NJ-RM-SDT', action: 'create' },
+              ],
+              transactions: [],
+              valuations: [],
+            },
+          },
+          'reviewer@example.com',
+        ),
+      ).rejects.toThrow(/conflicting matched IDs/);
+
+      // 3. Action: 'use_existing' with explicit chosen matchedId: 'ast-saidet-1' -> succeeds!
+      const result = await service.approve(
+        'file-saidet-conflict-integration',
+        {
+          file_type: 'fund_updates',
+          matched_company_id: null,
+          two_step_approval: {
+            entityDecisions: [
+              { key: 'fund:南京瑞满', action: 'create' },
+              { key: 'fund:南京瑞来', action: 'create' },
+              { key: 'asset:NJ-RM-SDT', action: 'use_existing', matchedId: 'ast-saidet-1' },
+            ],
+            transactions: [],
+            valuations: [],
+          },
+        },
+        'reviewer@example.com',
+      );
+
+      expect(result).toBeDefined();
+      expect(mockApplyService.applySelected).toHaveBeenCalledTimes(1);
+
+      // Verify all constituent asset codes fan out to the single chosen matchedId
+      const passedSelections = mockApplyService.applySelected.mock.calls[0][2];
+      expect(passedSelections).toHaveLength(2);
+      expect(passedSelections.find((s: any) => s.asset_code === 'NJ-RM-SDT')?.matched_target_id).toBe('ast-saidet-1');
+      expect(passedSelections.find((s: any) => s.asset_code === 'NJ-RL-SDT')?.matched_target_id).toBe('ast-saidet-1');
+    });
+
+    it('threads reviewer sellProceedsDestination edit into applySelected and leaves unmarked sales without a destination', async () => {
+      const fileRepo = makeFileRepoStub();
+      const mockApplyService = {
+        buildFullReview: vi.fn().mockImplementation(async (proposedAssets: any[]) => ({
+          assets: proposedAssets.map((p) => ({
+            code: p.code,
+            name: p.name,
+            fund: p.fund,
+            asset_type: p.assetType,
+            status: 'new',
+            matched_asset_id: null,
+            proposed_txn_count: p.txns.length,
+            proposed_valuation_count: p.valuations.length,
+            missing_txn_count: p.txns.length,
+            missing_valuation_count: p.valuations.length,
+            proposed: p,
+            missing_txns: p.txns,
+            missing_valuations: p.valuations,
+          })),
+          funds: [{ name: 'Fund A', status: 'new', matched_id: null }],
+          investors: [{ name: 'Investor A', status: 'new', matched_id: null }],
+          sources: [],
+          reconciliation: [],
+          review_items: [],
+        })),
+        applySelected: vi.fn().mockImplementation(async () => ({
+          applied: 1,
+          created_assets: 1,
+          updated_assets: 0,
+          created_funds: 0,
+          skipped: 0,
+          txns_inserted: 2,
+          valuations_upserted: 0,
+          outcomes: [
+            {
+              submittedId: 'txn:AST-SELL:0:2024-06-01:divestment',
+              family: 'transaction',
+              disposition: 'posted',
+            },
+            {
+              submittedId: 'txn:AST-SELL:1:2024-07-01:divestment',
+              family: 'transaction',
+              disposition: 'posted',
+            },
+          ],
+        })),
+        applyCommitmentEvents: vi.fn().mockResolvedValue({
+          events_inserted: 0,
+          events_skipped_duplicate: 0,
+          events_skipped: 0,
+          review_items_applied: 0,
+          warnings: [],
+        }),
+      };
+
+      const statedSell = {
+        date: '2024-06-01',
+        type: 'divestment',
+        subTypeLabel: null,
+        pricePerShare: 10,
+        shareCount: 5,
+        valueAmount: 50,
+        currency: 'USD',
+        fxRate: null,
+        notes: null,
+        sellProceedsDestination: null,
+      };
+      const unmarkedSell = {
+        date: '2024-07-01',
+        type: 'divestment',
+        subTypeLabel: null,
+        pricePerShare: 10,
+        shareCount: 2,
+        valueAmount: 20,
+        currency: 'USD',
+        fxRate: null,
+        notes: null,
+        sellProceedsDestination: null,
+      };
+      const asset = {
+        code: 'AST-SELL',
+        name: 'Sell Co',
+        assetType: 'direct_investment',
+        fund: 'Fund A',
+        entity: 'Investor A',
+        holderKind: 'investor',
+        txns: [statedSell, unmarkedSell],
+        valuations: [],
+      };
+
+      vi.mocked(fileRepo.findById).mockResolvedValue(
+        makeFile({
+          id: 'file-sell-dest-edit',
+          processing_status: 'awaiting_review',
+          file_type: 'fund_updates',
+          structured_notes: JSON.stringify({
+            file_type: 'fund_updates',
+            parser: 'startech_quarterly_v1',
+            fund_update_proposal: {
+              template_id: 'startech_quarterly_v1',
+              stats: { asset_count: 1, direct_count: 1, fund_of_funds_count: 0 },
+              assets: [asset],
+              fund_catalog: ['Fund A'],
+            },
+          }),
+        }),
+      );
+
+      const service = makeService({ fileRepo });
+      service.setFundUpdateApplyService(mockApplyService as any);
+
+      const reviewData = await service.getReviewData('file-sell-dest-edit');
+      if (reviewData.kind !== 'fund_updates') throw new Error('Expected fund update review');
+      const sellRows = reviewData.two_step_review.transactions.filter((t) => t.type === 'sell');
+      expect(sellRows).toHaveLength(2);
+      // Unmarked → no stated destination; the UI renders the effective default
+      expect(sellRows.every((t) => t.sellProceedsDestination == null)).toBe(true);
+      expect(sellRows.every((t) => (t.cashDelta ?? 0) > 0)).toBe(true);
+
+      const [editRow, leaveInferredRow] = sellRows;
+
+      await service.approve(
+        'file-sell-dest-edit',
+        {
+          file_type: 'fund_updates',
+          matched_company_id: null,
+          two_step_approval: {
+            entityDecisions: [
+              { key: 'asset:AST-SELL', action: 'create' },
+              { key: 'fund:Fund A', action: 'create' },
+              { key: 'investor:Investor A', action: 'create' },
+            ],
+            transactions: [
+              {
+                id: editRow.id,
+                edits: {
+                  date: editRow.date,
+                  cashDelta: editRow.cashDelta,
+                  sellProceedsDestination: 'cash_in_fund',
+                },
+              },
+              {
+                id: leaveInferredRow.id,
+                edits: {
+                  date: leaveInferredRow.date,
+                  cashDelta: leaveInferredRow.cashDelta,
+                  // no sellProceedsDestination — keep inferred on apply
+                },
+              },
+            ],
+            valuations: [],
+          },
+        },
+        'reviewer@example.com',
+      );
+
+      expect(mockApplyService.applySelected).toHaveBeenCalled();
+      const selections = mockApplyService.applySelected.mock.calls[0][2];
+      const postedTxns = selections[0].txns;
+      const edited = postedTxns.find((t: any) => t.submittedId === editRow.id);
+      const unmarked = postedTxns.find((t: any) => t.submittedId === leaveInferredRow.id);
+      expect(edited?.sellProceedsDestination).toBe('cash_in_fund');
+      expect(unmarked?.sellProceedsDestination).toBeNull();
+    });
+  });
+
+  describe('FileService.approve (fund_updates hardening)', () => {
+    const makeHarness = (applySelectedOutcomes: any[] = []) => {
+      const mockDb = makeMockDb();
+      const fileRepo = makeFileRepoStub();
+      const mockApplyService = {
+        buildFullReview: vi.fn().mockImplementation(async (proposedAssets: any[]) => ({
+          assets: proposedAssets.map((p) => ({
+            code: p.code,
+            name: p.name,
+            fund: p.fund,
+            asset_type: p.assetType,
+            status: 'new',
+            matched_asset_id: null,
+            proposed_txn_count: (p.txns ?? []).length,
+            proposed_valuation_count: (p.valuations ?? []).length,
+            missing_txn_count: (p.txns ?? []).length,
+            missing_valuation_count: (p.valuations ?? []).length,
+            proposed: p,
+            missing_txns: p.txns ?? [],
+            missing_valuations: p.valuations ?? [],
+          })),
+          funds: [
+            { name: 'Fund A', status: 'new', matched_id: null },
+            ...proposedAssets.filter((p) => p.fund && p.holderKind !== 'investor').map((p) => ({ name: p.fund, status: 'new', matched_id: null })),
+          ],
+          groups: proposedAssets
+            .filter((p) => p.group || (p.holderKind === 'investor' && p.fund))
+            .map((p) => ({ name: p.group || p.fund, status: 'new', matched_id: null })),
+          investors: proposedAssets
+            .filter((p) => p.entity || p.holderName)
+            .map((p) => ({ name: p.entity || p.holderName, status: 'new', matched_id: null })),
+          sources: proposedAssets
+            .filter((p) => p.fundingSource)
+            .map((p) => ({ name: p.fundingSource, status: 'new', matched_id: null })),
+          reconciliation: [],
+          review_items: [],
+        })),
+        applySelected: vi.fn().mockResolvedValue({
+          applied: 1,
+          created_assets: 1,
+          updated_assets: 0,
+          created_funds: 0,
+          skipped: 0,
+          txns_inserted: 1,
+          valuations_upserted: 0,
+          outcomes: applySelectedOutcomes,
+        }),
+      };
+      const service = makeService({ db: mockDb, fileRepo });
+      service.setFundUpdateApplyService(mockApplyService as any);
+      return { mockDb, fileRepo, mockApplyService, service };
+    };
+
+    it('acquires transaction-scoped advisory lock using workspace key before file update', async () => {
+      const { mockDb, fileRepo, service } = makeHarness([
+        {
+          submittedId: 'txn:AST-1:0:2024-01-01:contribution',
+          family: 'transaction',
+          disposition: 'posted',
+        },
+      ]);
+
+      const asset = {
+        code: 'AST-1',
+        name: 'Asset 1',
+        assetType: 'direct_investment',
+        fund: 'Fund A',
+        txns: [{ date: '2024-01-01', type: 'contribution', valueAmount: 100, currency: 'USD' }],
+        valuations: [],
+      };
+
+      vi.mocked(fileRepo.findById).mockResolvedValue(
+        makeFile({
+          id: 'file-lock-test',
+          processing_status: 'awaiting_review',
+          file_type: 'fund_updates',
+          structured_notes: JSON.stringify({
+            file_type: 'fund_updates',
+            parser: 'startech_quarterly_v1',
+            fund_update_proposal: {
+              template_id: 'startech_quarterly_v1',
+              stats: { asset_count: 1, direct_count: 1, fund_of_funds_count: 0 },
+              assets: [asset],
+              fund_catalog: ['Fund A'],
+            },
+          }),
+        }),
+      );
+
+      const reviewData = await service.getReviewData('file-lock-test');
+      if (reviewData.kind !== 'fund_updates') throw new Error('Expected fund update review');
+
+      await service.approve('file-lock-test', {
+        file_type: 'fund_updates',
+        matched_company_id: null,
+        two_step_approval: {
+          entityDecisions: [
+            { key: 'asset:AST-1', action: 'create' },
+            { key: 'fund:Fund A', action: 'create' },
+          ],
+          transactions: [
+            { id: reviewData.two_step_review.transactions[0].id },
+          ],
+          valuations: [],
+        },
+      });
+
+      expect(mockDb.execute).toHaveBeenCalled();
+      const callArg = (mockDb.execute as any).mock.calls[0][0];
+      const sqlString = JSON.stringify(callArg);
+      expect(sqlString).toContain('pg_advisory_xact_lock');
+      expect(sqlString).toContain('fund-update-approval:workspace-1');
+    });
+
+    it('throws invariant violation and aborts approval when submitted transaction has no outcome', async () => {
+      const { fileRepo, service } = makeHarness([]); // Outcomes empty -> missing transaction outcome
+
+      const asset = {
+        code: 'AST-1',
+        name: 'Asset 1',
+        assetType: 'direct_investment',
+        fund: 'Fund A',
+        txns: [{ date: '2024-01-01', type: 'contribution', valueAmount: 100, currency: 'USD' }],
+        valuations: [],
+      };
+
+      vi.mocked(fileRepo.findById).mockResolvedValue(
+        makeFile({
+          id: 'file-missing-outcome-tx',
+          processing_status: 'awaiting_review',
+          file_type: 'fund_updates',
+          structured_notes: JSON.stringify({
+            file_type: 'fund_updates',
+            parser: 'startech_quarterly_v1',
+            fund_update_proposal: {
+              template_id: 'startech_quarterly_v1',
+              stats: { asset_count: 1, direct_count: 1, fund_of_funds_count: 0 },
+              assets: [asset],
+              fund_catalog: ['Fund A'],
+            },
+          }),
+        }),
+      );
+
+      const reviewData = await service.getReviewData('file-missing-outcome-tx');
+      if (reviewData.kind !== 'fund_updates') throw new Error('Expected fund update review');
+      const txnId = reviewData.two_step_review.transactions[0].id;
+
+      await expect(
+        service.approve('file-missing-outcome-tx', {
+          file_type: 'fund_updates',
+          matched_company_id: null,
+          two_step_approval: {
+            entityDecisions: [
+              { key: 'asset:AST-1', action: 'create' },
+              { key: 'fund:Fund A', action: 'create' },
+            ],
+            transactions: [{ id: txnId }],
+            valuations: [],
+          },
+        }),
+      ).rejects.toThrow(`Invariant violation: incomplete result - no outcome recorded for submitted transaction "${txnId}"`);
+
+      expect(fileRepo.updatePartial).not.toHaveBeenCalledWith(
+        'file-missing-outcome-tx',
+        expect.objectContaining({ processing_status: 'completed' }),
+        expect.anything(),
+      );
+    });
+
+    it('throws invariant violation and aborts approval when submitted valuation has no outcome', async () => {
+      const { fileRepo, service } = makeHarness([]); // Outcomes empty -> missing valuation outcome
+
+      const asset = {
+        code: 'AST-1',
+        name: 'Asset 1',
+        assetType: 'direct_investment',
+        fund: 'Fund A',
+        txns: [],
+        valuations: [{ asOfDate: '2024-03-31', marketValue: 5000 }],
+      };
+
+      vi.mocked(fileRepo.findById).mockResolvedValue(
+        makeFile({
+          id: 'file-missing-outcome-val',
+          processing_status: 'awaiting_review',
+          file_type: 'fund_updates',
+          structured_notes: JSON.stringify({
+            file_type: 'fund_updates',
+            parser: 'startech_quarterly_v1',
+            fund_update_proposal: {
+              template_id: 'startech_quarterly_v1',
+              stats: { asset_count: 1, direct_count: 1, fund_of_funds_count: 0 },
+              assets: [asset],
+              fund_catalog: ['Fund A'],
+            },
+          }),
+        }),
+      );
+
+      const reviewData = await service.getReviewData('file-missing-outcome-val');
+      if (reviewData.kind !== 'fund_updates') throw new Error('Expected fund update review');
+      const valId = reviewData.two_step_review.valuations[0].id;
+
+      await expect(
+        service.approve('file-missing-outcome-val', {
+          file_type: 'fund_updates',
+          matched_company_id: null,
+          two_step_approval: {
+            entityDecisions: [
+              { key: 'asset:AST-1', action: 'create' },
+              { key: 'fund:Fund A', action: 'create' },
+            ],
+            transactions: [],
+            valuations: [{ id: valId }],
+          },
+        }),
+      ).rejects.toThrow(`Invariant violation: incomplete result - no outcome recorded for submitted valuation "${valId}"`);
+
+      expect(fileRepo.updatePartial).not.toHaveBeenCalledWith(
+        'file-missing-outcome-val',
+        expect.objectContaining({ processing_status: 'completed' }),
+        expect.anything(),
+      );
+    });
+
+    describe('Independent selected entity persistence and decision input validation', () => {
+      it('rejects unknown entity key in approval.entityDecisions', async () => {
+        const { fileRepo, service } = makeHarness([]);
+
+        vi.mocked(fileRepo.findById).mockResolvedValue(
+          makeFile({
+            id: 'file-unknown-key',
+            processing_status: 'awaiting_review',
+            file_type: 'fund_updates',
+            structured_notes: JSON.stringify({
+              file_type: 'fund_updates',
+              parser: 'startech_quarterly_v1',
+              fund_update_proposal: {
+                template_id: 'startech_quarterly_v1',
+                stats: { asset_count: 1, direct_count: 1, fund_of_funds_count: 0 },
+                assets: [{ code: 'AST-1', name: 'Asset 1', assetType: 'direct_investment', fund: 'Fund A', txns: [], valuations: [] }],
+                fund_catalog: ['Fund A'],
+              },
+            }),
+          }),
+        );
+
+        await expect(
+          service.approve('file-unknown-key', {
+            file_type: 'fund_updates',
+            matched_company_id: null,
+            two_step_approval: {
+              entityDecisions: [
+                { key: 'fund:NonExistentFund', action: 'create' },
+              ],
+              transactions: [],
+              valuations: [],
+            },
+          }),
+        ).rejects.toThrow('Unknown entity key "fund:NonExistentFund" submitted in approval decisions');
+      });
+
+      it('rejects duplicate entity key in approval.entityDecisions', async () => {
+        const { fileRepo, service } = makeHarness([]);
+
+        vi.mocked(fileRepo.findById).mockResolvedValue(
+          makeFile({
+            id: 'file-dup-key',
+            processing_status: 'awaiting_review',
+            file_type: 'fund_updates',
+            structured_notes: JSON.stringify({
+              file_type: 'fund_updates',
+              parser: 'startech_quarterly_v1',
+              fund_update_proposal: {
+                template_id: 'startech_quarterly_v1',
+                stats: { asset_count: 1, direct_count: 1, fund_of_funds_count: 0 },
+                assets: [{ code: 'AST-1', name: 'Asset 1', assetType: 'direct_investment', fund: 'Fund A', txns: [], valuations: [] }],
+                fund_catalog: ['Fund A'],
+              },
+            }),
+          }),
+        );
+
+        await expect(
+          service.approve('file-dup-key', {
+            file_type: 'fund_updates',
+            matched_company_id: null,
+            two_step_approval: {
+              entityDecisions: [
+                { key: 'fund:Fund A', action: 'create' },
+                { key: 'fund:Fund A', action: 'create' },
+              ],
+              transactions: [],
+              valuations: [],
+            },
+          }),
+        ).rejects.toThrow('Duplicate entity decision for key "fund:Fund A" submitted in approval');
+      });
+
+      it('rejects invalid entity action in approval.entityDecisions', async () => {
+        const { fileRepo, service } = makeHarness([]);
+
+        vi.mocked(fileRepo.findById).mockResolvedValue(
+          makeFile({
+            id: 'file-invalid-action',
+            processing_status: 'awaiting_review',
+            file_type: 'fund_updates',
+            structured_notes: JSON.stringify({
+              file_type: 'fund_updates',
+              parser: 'startech_quarterly_v1',
+              fund_update_proposal: {
+                template_id: 'startech_quarterly_v1',
+                stats: { asset_count: 1, direct_count: 1, fund_of_funds_count: 0 },
+                assets: [{ code: 'AST-1', name: 'Asset 1', assetType: 'direct_investment', fund: 'Fund A', txns: [], valuations: [] }],
+                fund_catalog: ['Fund A'],
+              },
+            }),
+          }),
+        );
+
+        await expect(
+          service.approve('file-invalid-action', {
+            file_type: 'fund_updates',
+            matched_company_id: null,
+            two_step_approval: {
+              entityDecisions: [
+                { key: 'fund:Fund A', action: 'delete' as any },
+              ],
+              transactions: [],
+              valuations: [],
+            },
+          }),
+        ).rejects.toThrow('Invalid entity action "delete" for key "fund:Fund A"');
+      });
+
+      it('forwards standalone explicitly selected source, investor, and fund to applySelected with empty txns/valuations', async () => {
+        const { fileRepo, mockApplyService, service } = makeHarness([]);
+
+        const asset = {
+          code: 'AST-STANDALONE',
+          name: 'Target Tech Co',
+          assetType: 'direct_investment',
+          fund: 'Managing Fund 1',
+          entity: 'HoldCo LP',
+          fundingSource: 'DCA Source',
+          txns: [],
+          valuations: [],
+        };
+
+        vi.mocked(fileRepo.findById).mockResolvedValue(
+          makeFile({
+            id: 'file-standalone-entities',
+            processing_status: 'awaiting_review',
+            file_type: 'fund_updates',
+            structured_notes: JSON.stringify({
+              file_type: 'fund_updates',
+              parser: 'startech_quarterly_v1',
+              fund_update_proposal: {
+                template_id: 'startech_quarterly_v1',
+                stats: { asset_count: 1, direct_count: 1, fund_of_funds_count: 0 },
+                assets: [asset],
+                fund_catalog: ['Managing Fund 1'],
+              },
+            }),
+          }),
+        );
+
+        await service.approve('file-standalone-entities', {
+          file_type: 'fund_updates',
+          matched_company_id: null,
+          two_step_approval: {
+            entityDecisions: [
+              { key: 'source:DCA Source', action: 'create' },
+              { key: 'investor:HoldCo LP', action: 'create' },
+              { key: 'fund:Managing Fund 1', action: 'create' },
+              { key: 'asset:AST-STANDALONE', action: 'create' },
+            ],
+            transactions: [],
+            valuations: [],
+          },
+        });
+
+        expect(mockApplyService.applySelected).toHaveBeenCalledWith(
+          expect.anything(),
+          expect.arrayContaining(['AST-STANDALONE']),
+          expect.arrayContaining([
+            expect.objectContaining({
+              asset_code: 'AST-STANDALONE',
+              txns: [],
+              valuations: [],
+            }),
+          ]),
+          expect.anything(),
+          expect.objectContaining({
+            funds: ['Managing Fund 1'],
+            investors: ['HoldCo LP'],
+            sources: ['DCA Source'],
+          }),
+          expect.anything(),
+        );
+      });
+
+      it('excludes omitted entities from catalogSelections and selections', async () => {
+        const { fileRepo, mockApplyService, service } = makeHarness([]);
+
+        const asset = {
+          code: 'AST-OMIT',
+          name: 'Omitted Tech Co',
+          assetType: 'direct_investment',
+          fund: 'Managing Fund 1',
+          entity: 'HoldCo LP',
+          fundingSource: 'DCA Source',
+          txns: [],
+          valuations: [],
+        };
+
+        vi.mocked(fileRepo.findById).mockResolvedValue(
+          makeFile({
+            id: 'file-omitted-entities',
+            processing_status: 'awaiting_review',
+            file_type: 'fund_updates',
+            structured_notes: JSON.stringify({
+              file_type: 'fund_updates',
+              parser: 'startech_quarterly_v1',
+              fund_update_proposal: {
+                template_id: 'startech_quarterly_v1',
+                stats: { asset_count: 1, direct_count: 1, fund_of_funds_count: 0 },
+                assets: [asset],
+                fund_catalog: ['Managing Fund 1'],
+              },
+            }),
+          }),
+        );
+
+        await service.approve('file-omitted-entities', {
+          file_type: 'fund_updates',
+          matched_company_id: null,
+          two_step_approval: {
+            entityDecisions: [
+              { key: 'source:DCA Source', action: 'create' },
+              { key: 'investor:HoldCo LP', action: 'omit' },
+              { key: 'fund:Managing Fund 1', action: 'omit' },
+              { key: 'asset:AST-OMIT', action: 'omit' },
+            ],
+            transactions: [],
+            valuations: [],
+          },
+        });
+
+        expect(mockApplyService.applySelected).toHaveBeenCalledWith(
+          expect.anything(),
+          [], // No asset codes because AST-OMIT is omitted
+          [], // No derived asset selections
+          expect.anything(),
+          expect.objectContaining({
+            funds: [],
+            investors: [],
+            sources: ['DCA Source'],
+          }),
+          expect.anything(),
+        );
+      });
+
+      it('stages group entities into catalogSelections.funds and NOT into catalogSelections.investors', async () => {
+        const { fileRepo, mockApplyService, service } = makeHarness([]);
+
+        const asset = {
+          code: 'AST-GRP',
+          name: 'Group Portfolio Co',
+          assetType: 'direct_investment',
+          fund: 'Startech Growth Fund 1',
+          entity: 'Startech Growth LP',
+          group: 'Startech Growth Fund 1',
+          holderKind: 'investor',
+          txns: [],
+          valuations: [],
+        };
+
+        vi.mocked(fileRepo.findById).mockResolvedValue(
+          makeFile({
+            id: 'file-group-catalog-selections',
+            processing_status: 'awaiting_review',
+            file_type: 'fund_updates',
+            structured_notes: JSON.stringify({
+              file_type: 'fund_updates',
+              parser: 'startech_quarterly_v1',
+              fund_update_proposal: {
+                template_id: 'startech_quarterly_v1',
+                stats: { asset_count: 1, direct_count: 1, fund_of_funds_count: 0 },
+                assets: [asset],
+              },
+            }),
+          }),
+        );
+
+        await service.approve('file-group-catalog-selections', {
+          file_type: 'fund_updates',
+          matched_company_id: null,
+          two_step_approval: {
+            entityDecisions: [
+              { key: 'group:Startech Growth Fund 1', action: 'create' },
+              { key: 'investor:Startech Growth LP', action: 'create' },
+              { key: 'asset:AST-GRP', action: 'create' },
+            ],
+            transactions: [],
+            valuations: [],
+          },
+        });
+
+        expect(mockApplyService.applySelected).toHaveBeenCalledWith(
+          expect.anything(),
+          expect.arrayContaining(['AST-GRP']),
+          expect.anything(),
+          expect.anything(),
+          expect.objectContaining({
+            funds: expect.arrayContaining(['Startech Growth Fund 1']),
+            investors: expect.arrayContaining(['Startech Growth LP']),
+          }),
+        );
+
+        // Verify group appears in catalogSelections.funds and NOT in catalogSelections.investors
+        const lastCall = vi.mocked(mockApplyService.applySelected).mock.calls.at(-1);
+        const passedCatalogSelections = lastCall ? lastCall[4] : undefined;
+        expect(passedCatalogSelections?.funds).toContain('Startech Growth Fund 1');
+        expect(passedCatalogSelections?.investors).not.toContain('Startech Growth Fund 1');
+        expect(passedCatalogSelections?.investors).toContain('Startech Growth LP');
+      });
+
+      it('round-trips parsed FORE transaction and valuation rows through prevalidation without throwing', async () => {
+        const { fileRepo, mockApplyService, service } = makeHarness([]);
+
+        const foreAsset = {
+          code: 'FORE',
+          name: 'FORE Co',
+          assetType: 'direct_investment',
+          fund: 'Fund A',
+          entity: 'Investor A',
+          txns: [
+            {
+              date: '2019-04-26',
+              type: 'contribution',
+              subTypeLabel: null,
+              pricePerShare: 17.97756389,
+              shareCount: 30598,
+              valueAmount: 550077.5,
+              currency: 'USD',
+              fxRate: null,
+              notes: null,
+              sellProceedsDestination: null,
+            },
+          ],
+          valuations: [
+            {
+              asOfDate: '2019-06-30',
+              periodLabel: 'Q2 2019',
+              marketValue: 550077.5,
+              pricePerShare: 17.97756389,
+              sharesOutstanding: 30598,
+              shareholdingPct: null,
+              investedCapitalCum: null,
+              grossMoic: null,
+              grossXirr: null,
+              valuationMethod: 'stock_market_price',
+              notes: null,
+            },
+          ],
+        };
+
+        vi.mocked(fileRepo.findById).mockResolvedValue(
+          makeFile({
+            id: 'file-fore-preval',
+            processing_status: 'awaiting_review',
+            file_type: 'fund_updates',
+            structured_notes: JSON.stringify({
+              file_type: 'fund_updates',
+              parser: 'startech_quarterly_v1',
+              fund_update_proposal: {
+                template_id: 'startech_quarterly_v1',
+                stats: { asset_count: 1, direct_count: 1, fund_of_funds_count: 0 },
+                assets: [foreAsset],
+                fund_catalog: ['Fund A'],
+              },
+            }),
+          }),
+        );
+
+        const reviewData = await service.getReviewData('file-fore-preval');
+        if (reviewData.kind !== 'fund_updates') throw new Error('Expected fund update review');
+
+        const reviewTxn = reviewData.two_step_review.transactions[0];
+        const reviewVal = reviewData.two_step_review.valuations[0];
+        expect(reviewTxn.pricePerShare).toBe(17.97756389);
+        expect(reviewVal.pricePerShare).toBe(17.97756389);
+
+        mockApplyService.applySelected.mockResolvedValue({
+          applied: 1,
+          created_assets: 1,
+          updated_assets: 0,
+          created_funds: 0,
+          skipped: 0,
+          txns_inserted: 1,
+          valuations_upserted: 1,
+          outcomes: [
+            {
+              submittedId: reviewTxn.id,
+              family: 'transaction',
+              disposition: 'inserted',
+              persistedTable: 'fl_ledger_entries',
+              persistedId: 'ent-1',
+              targetId: 'pos-1',
+              assetCode: 'FORE',
+            },
+            {
+              submittedId: reviewVal.id,
+              family: 'valuation',
+              disposition: 'upserted',
+              persistedTable: 'fl_valuations',
+              persistedId: 'val-1',
+              targetId: 'pos-1',
+              assetCode: 'FORE',
+            },
+          ],
+        });
+
+        // Prevalidation round-trip succeeds for parsed positive pricePerShare
+        await expect(
+          service.approve('file-fore-preval', {
+            file_type: 'fund_updates',
+            matched_company_id: null,
+            two_step_approval: {
+              entityDecisions: [
+                { key: 'asset:FORE', action: 'create' },
+                { key: 'fund:Fund A', action: 'create' },
+                { key: 'investor:Investor A', action: 'create' },
+              ],
+              transactions: [
+                {
+                  id: reviewTxn.id,
+                  edits: {
+                    date: reviewTxn.date,
+                    amount: reviewTxn.amount,
+                    cashDelta: reviewTxn.cashDelta,
+                    pricePerShare: reviewTxn.pricePerShare,
+                  },
+                },
+              ],
+              valuations: [
+                {
+                  id: reviewVal.id,
+                  edits: {
+                    asOfDate: reviewVal.asOfDate,
+                    marketValue: reviewVal.marketValue,
+                    pricePerShare: reviewVal.pricePerShare,
+                  },
+                },
+              ],
+            },
+          }),
+        ).resolves.not.toThrow();
+
+        // Guard remains active: prevalidation refuses negative pricePerShare
+        await expect(
+          service.approve('file-fore-preval', {
+            file_type: 'fund_updates',
+            matched_company_id: null,
+            two_step_approval: {
+              entityDecisions: [
+                { key: 'asset:FORE', action: 'create' },
+                { key: 'fund:Fund A', action: 'create' },
+                { key: 'investor:Investor A', action: 'create' },
+              ],
+              transactions: [
+                {
+                  id: reviewTxn.id,
+                  edits: {
+                    pricePerShare: -17.97756389,
+                  },
+                },
+              ],
+              valuations: [],
+            },
+          }),
+        ).rejects.toThrow('Invalid pricePerShare "-17.97756389" for transaction');
+      });
+    });
+  });
 });

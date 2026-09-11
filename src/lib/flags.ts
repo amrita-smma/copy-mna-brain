@@ -39,4 +39,8 @@ export const chatCacheEnabled = booleanFlag("CHAT_CACHE_ENABLED");
 
 export const fundManagementEnabled = booleanFlag("FUND_MANAGEMENT_ENABLED");
 
+export const ledgerEnabled = booleanFlag("LEDGER_ENABLED");
+
 export const sourceOfFundsEnabled = booleanFlag("SOURCE_OF_FUNDS_ENABLED");
+
+export const fundVehicleViewEnabled = booleanFlag("FUND_VEHICLE_VIEW_ENABLED");

@@ -1,13 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { fundMark, companyMark } = vi.hoisted(() => ({
-  fundMark: vi.fn(),
+const { findAssetById, updateAsset, companyMark } = vi.hoisted(() => ({
+  findAssetById: vi.fn(),
+  updateAsset: vi.fn(),
   companyMark: vi.fn(),
 }));
 
 vi.mock('@/lib/repositories', () => ({
-  FundAssetRepository: class {
-    markAiOpinionFailedIfProcessing = fundMark;
+  FlAssetRepository: class {
+    findById = findAssetById;
+    update = updateAsset;
   },
   CompanyRepository: class {
     markAiOpinionFailedIfProcessing = companyMark;
@@ -18,14 +20,15 @@ import { failAiOpinionIfStillProcessing } from './clearAiOpinionOnFailure';
 
 describe('failAiOpinionIfStillProcessing', () => {
   beforeEach(() => {
-    fundMark.mockReset();
+    findAssetById.mockReset();
+    updateAsset.mockReset();
     companyMark.mockReset();
   });
 
   it('no-ops on missing or non-object trigger_meta', async () => {
     await failAiOpinionIfStillProcessing({} as never, 'ws-1', null, 'fund_ai_opinion');
     await failAiOpinionIfStillProcessing({} as never, 'ws-1', 'x', 'ai_opinion');
-    expect(fundMark).not.toHaveBeenCalled();
+    expect(findAssetById).not.toHaveBeenCalled();
     expect(companyMark).not.toHaveBeenCalled();
   });
 
@@ -33,7 +36,7 @@ describe('failAiOpinionIfStillProcessing', () => {
     await failAiOpinionIfStillProcessing(
       {} as never,
       'ws-1',
-      { company_id: 'c-1', fund_asset_id: 'a-1' },
+      { company_id: 'c-1', asset_id: 'a-1' },
       'company_card',
     );
     await failAiOpinionIfStillProcessing(
@@ -42,19 +45,35 @@ describe('failAiOpinionIfStillProcessing', () => {
       { company_id: 'c-1' },
       undefined,
     );
-    expect(fundMark).not.toHaveBeenCalled();
+    expect(findAssetById).not.toHaveBeenCalled();
     expect(companyMark).not.toHaveBeenCalled();
   });
 
-  it('marks a processing fund asset as failed via the atomic conditional update', async () => {
-    fundMark.mockResolvedValueOnce(undefined);
+  it('marks a processing fund asset as failed in fl_assets.instrument_terms', async () => {
+    findAssetById.mockResolvedValueOnce({
+      id: 'asset-1',
+      instrument_terms: {
+        aiOpinion: {
+          status: 'processing',
+        },
+      },
+    });
+    updateAsset.mockResolvedValueOnce({ id: 'asset-1' });
+
     await failAiOpinionIfStillProcessing(
       {} as never,
       'ws-1',
-      { fund_asset_id: 'asset-1' },
+      { asset_id: 'asset-1' },
       'fund_ai_opinion',
     );
-    expect(fundMark).toHaveBeenCalledWith('asset-1');
+    expect(findAssetById).toHaveBeenCalledWith('ws-1', 'asset-1');
+    expect(updateAsset).toHaveBeenCalledWith('ws-1', 'asset-1', {
+      instrument_terms: {
+        aiOpinion: {
+          status: 'failed',
+        },
+      },
+    });
   });
 
   it('marks a processing company as failed via the atomic conditional update', async () => {
@@ -69,12 +88,12 @@ describe('failAiOpinionIfStillProcessing', () => {
   });
 
   it('swallows repository errors so queue failure handling still completes', async () => {
-    fundMark.mockRejectedValueOnce(new Error('db down'));
+    findAssetById.mockRejectedValueOnce(new Error('db down'));
     await expect(
       failAiOpinionIfStillProcessing(
         {} as never,
         'ws-1',
-        { fund_asset_id: 'asset-1' },
+        { asset_id: 'asset-1' },
         'fund_ai_opinion',
       ),
     ).resolves.toBeUndefined();

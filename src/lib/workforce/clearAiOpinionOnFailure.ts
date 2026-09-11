@@ -1,5 +1,5 @@
 import type { DbClient } from '@/lib/repositories';
-import { CompanyRepository, FundAssetRepository } from '@/lib/repositories';
+import { CompanyRepository, FlAssetRepository } from '@/lib/repositories';
 
 /**
  * Queue `agent_name` values that own an entity's `ai_opinion_status` spinner.
@@ -33,11 +33,30 @@ export async function failAiOpinionIfStillProcessing(
   const meta = triggerMeta as Record<string, unknown>;
 
   const fundAssetId =
-    typeof meta.fund_asset_id === 'string' ? meta.fund_asset_id.trim() : '';
+    typeof meta.asset_id === 'string'
+      ? meta.asset_id.trim()
+      : typeof meta.fund_asset_id === 'string'
+        ? meta.fund_asset_id.trim()
+        : '';
   if (fundAssetId) {
     try {
-      const repo = new FundAssetRepository(db, workspaceId);
-      await repo.markAiOpinionFailedIfProcessing(fundAssetId);
+      const repo = new FlAssetRepository(db);
+      const asset = await repo.findById(workspaceId, fundAssetId);
+      if (asset) {
+        const terms = (asset.instrument_terms as Record<string, unknown>) ?? {};
+        const opinion = (terms.aiOpinion as Record<string, unknown>) ?? {};
+        if (opinion.status === 'processing') {
+          await repo.update(workspaceId, fundAssetId, {
+            instrument_terms: {
+              ...terms,
+              aiOpinion: {
+                ...opinion,
+                status: 'failed',
+              },
+            },
+          });
+        }
+      }
     } catch (err) {
       console.error(
         `[failAiOpinionIfStillProcessing] fund_asset ${fundAssetId}:`,

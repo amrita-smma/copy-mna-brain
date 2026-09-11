@@ -45,6 +45,38 @@ describe('hydrateParsedAssetsFromEvents', () => {
     expect(hydrateParsedAssetsFromEvents(null as unknown as ParsedAsset[])).toEqual([]);
   });
 
+  it('canonicalizes persisted LLM proposal IDs even when no events need hydration', () => {
+    const asset = createSampleAsset({
+      fund: 'ent-fund-1',
+      entity: 'ent-holder-1',
+      fundingSource: null,
+      fundingSourceRaw: null,
+    });
+    const entities: ProposedEntity[] = [
+      {
+        proposalId: 'ent-fund-1',
+        entityType: 'fund',
+        originalName: 'Meranti Opportunities Fund II',
+        aliases: [],
+        sourceLocations: [],
+        warnings: [],
+      },
+      {
+        proposalId: 'ent-holder-1',
+        entityType: 'investment_vehicle',
+        originalName: 'Meranti Global Investment Ltd',
+        aliases: [],
+        sourceLocations: [],
+        warnings: [],
+      },
+    ];
+
+    const [hydrated] = hydrateParsedAssetsFromEvents([asset], entities, []);
+
+    expect(hydrated.fund).toBe('Meranti Opportunities Fund II');
+    expect(hydrated.entity).toBe('Meranti Global Investment Ltd');
+  });
+
   it('clones assets without mutating the original input objects', () => {
     const originalAsset = createSampleAsset({ entity: '', fund: '' });
     const entities: ProposedEntity[] = [
@@ -120,7 +152,7 @@ describe('hydrateParsedAssetsFromEvents', () => {
         eventType: 'asset_investment',
         fromEntityRef: 'Global LP Fund',
         toEntityRef: 'Alpha Portco',
-        relatedFundRef: 'Venture Vehicle I',
+        relatedFundRef: 'ent-fund-1',
         sourceLocation: { sheet: 'Sheet1', row: 2 },
         warnings: [],
       },

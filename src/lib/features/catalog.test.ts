@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { FEATURE_CATALOG } from './catalog';
+import { FEATURE_CATALOG, featureEnvDefault } from './catalog';
 
 describe('FEATURE_CATALOG', () => {
   it('has no duplicate feature keys', () => {
@@ -30,6 +30,33 @@ describe('FEATURE_CATALOG', () => {
     expect(smartFiles?.label).toBe('Smart Files');
     expect(smartFiles?.navItem).toBe(true);
     expect(smartFiles?.defaultEnabled).toBe(true);
+  });
+
+  it('registers Fund Vehicle View under FUND_VEHICLE_VIEW_ENABLED with funds category and default on', () => {
+    const fundVehicle = FEATURE_CATALOG.find((feature) => feature.key === 'FUND_VEHICLE_VIEW_ENABLED');
+    expect(fundVehicle).toBeDefined();
+    expect(fundVehicle?.label).toBe('Fund Vehicle View');
+    expect(fundVehicle?.category).toBe('funds');
+    expect(fundVehicle?.defaultEnabled).toBe(true);
+    expect(fundVehicle?.navItem).toBe(false);
+  });
+
+  it('defaults FUND_VEHICLE_VIEW_ENABLED to true and respects env overrides', () => {
+    expect(featureEnvDefault('FUND_VEHICLE_VIEW_ENABLED')).toBe(true);
+
+    const orig = process.env.FUND_VEHICLE_VIEW_ENABLED;
+    try {
+      process.env.FUND_VEHICLE_VIEW_ENABLED = 'false';
+      expect(featureEnvDefault('FUND_VEHICLE_VIEW_ENABLED')).toBe(false);
+      process.env.FUND_VEHICLE_VIEW_ENABLED = 'true';
+      expect(featureEnvDefault('FUND_VEHICLE_VIEW_ENABLED')).toBe(true);
+    } finally {
+      if (orig === undefined) {
+        delete process.env.FUND_VEHICLE_VIEW_ENABLED;
+      } else {
+        process.env.FUND_VEHICLE_VIEW_ENABLED = orig;
+      }
+    }
   });
 
   it('no longer exposes the pre-rename AI_FILE_DUMP_ENABLED key', () => {

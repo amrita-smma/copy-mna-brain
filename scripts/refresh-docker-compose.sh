@@ -2,6 +2,7 @@
 
 DOWN=true
 BUILD=false
+USERS_WORKSPACES_ONLY=false
 EXCLUDES=()
 ONLY=()
 
@@ -19,6 +20,7 @@ function show_help {
     echo "  -h, --help               Show this help message and exit"
     echo "  --down <true|false>      Whether to bring down docker compose before starting (default: true)"
     echo "  --build <true|false>     Whether to build images before starting (default: false)"
+    echo "  --users-workspaces-only  Seed users and workspaces, but no demo/application data"
     echo "  --exclude <services>     List of services to exclude, separated by comma or space."
     echo "                           Can be specified multiple times."
     echo "  --only <services>        List of services to explicitly target, separated by comma or space."
@@ -27,6 +29,7 @@ function show_help {
     echo "Examples:"
     echo "  $0 --exclude \"neo4j,postgres\""
     echo "  $0 --down false --build true --exclude app"
+    echo "  $0 --users-workspaces-only"
 }
 
 while [[ "$#" -gt 0 ]]; do
@@ -37,6 +40,7 @@ while [[ "$#" -gt 0 ]]; do
             ;;
         --down) DOWN="$2"; shift ;;
         --build) BUILD="$2"; shift ;;
+        --users-workspaces-only) USERS_WORKSPACES_ONLY=true ;;
         --exclude)
             IFS=', ' read -r -a arr <<< "$2"
             EXCLUDES+=("${arr[@]}")
@@ -131,21 +135,29 @@ if ! pnpm db:migrate; then
     exit 1
 fi
 
-echo "Running database seed..."
-if ! pnpm db:seed; then
-    echo "Error: Database seed failed."
-    exit 1
-fi
-
-if [ "$needs_langfuse_seed" = true ]; then
-    echo "Running Langfuse model pricing seed..."
-    if ! pnpm db:seed:langfuse; then
-        echo "Error: Langfuse seed failed."
+if [ "$USERS_WORKSPACES_ONLY" = true ]; then
+    echo "Seeding users and workspaces only..."
+    if ! pnpm db:seed -- --users-workspaces-only; then
+        echo "Error: User and workspace seed failed."
         exit 1
     fi
 else
-    echo "Skipping Langfuse seed (Langfuse services not in target set)."
-    echo "Start later with: pnpm docker:run-langfuse"
+    echo "Running database seed..."
+    if ! pnpm db:seed; then
+        echo "Error: Database seed failed."
+        exit 1
+    fi
+
+    if [ "$needs_langfuse_seed" = true ]; then
+        echo "Running Langfuse model pricing seed..."
+        if ! pnpm db:seed:langfuse; then
+            echo "Error: Langfuse seed failed."
+            exit 1
+        fi
+    else
+        echo "Skipping Langfuse seed (Langfuse services not in target set)."
+        echo "Start later with: pnpm docker:run-langfuse"
+    fi
 fi
 
 # Remind when MinIO was not part of the target set (lite refresh).

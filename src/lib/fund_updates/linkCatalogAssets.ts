@@ -10,6 +10,8 @@ export type FundUpdateCatalogKind = 'asset' | 'fund' | 'investor' | 'source';
 export interface LinkableAsset {
   code: string;
   name?: string | null;
+  english_name?: string | null;
+  englishName?: string | null;
   fund?: string | null;
   entity?: string | null;
   funding_source?: string | null;
@@ -27,6 +29,8 @@ export interface AssetCodesForCatalogNameParams {
   events?: ProposedEvent[] | null;
 }
 
+import { normalizeCanonicalName } from '@/lib/fundLedger/normalizeIdentity';
+
 const INVESTOR_ENTITY_TYPES: ReadonlySet<ProposedEntityType> = new Set<ProposedEntityType>([
   'investor',
   'institutional_investor',
@@ -36,10 +40,10 @@ const INVESTOR_ENTITY_TYPES: ReadonlySet<ProposedEntityType> = new Set<ProposedE
 
 function normalizeString(val: string | null | undefined): string {
   if (typeof val !== 'string') return '';
-  return val.trim().toLowerCase();
+  return normalizeCanonicalName(val);
 }
 
-function findEntityByRef(
+export function findEntityByRef(
   ref: string | null | undefined,
   entities: ProposedEntity[],
 ): ProposedEntity | undefined {
@@ -56,6 +60,16 @@ function findEntityByRef(
   });
 }
 
+/** Resolve an LLM-local entity reference (for example `ent_1`) to its business name. */
+export function resolveProposedEntityName(
+  ref: string | null | undefined,
+  entities: ProposedEntity[],
+): string | null {
+  if (typeof ref !== 'string' || !ref.trim()) return null;
+  const entity = findEntityByRef(ref, entities);
+  return entity?.originalName?.trim() || entity?.englishName?.trim() || ref.trim();
+}
+
 function refMatchesAsset(
   ref: string | null | undefined,
   asset: LinkableAsset | ParsedAsset,
@@ -66,12 +80,17 @@ function refMatchesAsset(
   if (norm === normalizeString(asset.code)) return true;
   if (asset.name && norm === normalizeString(asset.name)) return true;
   if (asset.legalName && norm === normalizeString(asset.legalName)) return true;
+  if (asset.englishName && norm === normalizeString(asset.englishName)) return true;
+  if ('english_name' in asset && asset.english_name && norm === normalizeString(asset.english_name)) return true;
 
   const ent = findEntityByRef(ref, entities);
   if (ent) {
     if (normalizeString(ent.proposalId) === normalizeString(asset.code)) return true;
     if (asset.name && normalizeString(ent.originalName) === normalizeString(asset.name)) return true;
     if (asset.legalName && normalizeString(ent.englishName) === normalizeString(asset.legalName)) {
+      return true;
+    }
+    if (asset.englishName && normalizeString(ent.englishName) === normalizeString(asset.englishName)) {
       return true;
     }
   }
@@ -103,11 +122,21 @@ export function hydrateParsedAssetsFromEvents(
   const safeEntities = Array.isArray(entities) ? entities : [];
   const safeEvents = Array.isArray(events) ? events : [];
 
-  const clonedAssets: ParsedAsset[] = assets.map((asset) => ({
-    ...asset,
-    valuations: Array.isArray(asset.valuations) ? [...asset.valuations] : [],
-    txns: Array.isArray(asset.txns) ? [...asset.txns] : [],
-  }));
+  const clonedAssets: ParsedAsset[] = assets.map((asset) => {
+    const resolvedFund = resolveProposedEntityName(asset.fund, safeEntities);
+    const resolvedEntity = resolveProposedEntityName(asset.entity, safeEntities);
+    const resolvedFundingSource = resolveProposedEntityName(asset.fundingSource, safeEntities);
+    const resolvedFundingSourceRaw = resolveProposedEntityName(asset.fundingSourceRaw, safeEntities);
+    return {
+      ...asset,
+      fund: resolvedFund ?? asset.fund,
+      entity: resolvedEntity ?? asset.entity,
+      fundingSource: resolvedFundingSource ?? asset.fundingSource,
+      fundingSourceRaw: resolvedFundingSourceRaw ?? asset.fundingSourceRaw,
+      valuations: Array.isArray(asset.valuations) ? [...asset.valuations] : [],
+      txns: Array.isArray(asset.txns) ? [...asset.txns] : [],
+    };
+  });
 
   if (safeEvents.length === 0) {
     return clonedAssets;
@@ -147,7 +176,7 @@ export function hydrateParsedAssetsFromEvents(
       const fundEmpty = typeof currentFund !== 'string' || currentFund.trim().length === 0;
       if (fundEmpty) {
         if (typeof ev.relatedFundRef === 'string' && ev.relatedFundRef.trim().length > 0) {
-          asset.fund = ev.relatedFundRef.trim();
+          asset.fund = resolveProposedEntityName(ev.relatedFundRef, safeEntities);
         } else {
           const candidateRefs = [ev.fromEntityRef, ev.toEntityRef, ev.counterpartyRef].filter(
             (ref) => typeof ref === 'string' && ref.trim().length > 0 && !refMatchesAsset(ref, asset, safeEntities),

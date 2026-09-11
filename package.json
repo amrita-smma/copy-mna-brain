@@ -23,7 +23,6 @@
     "db:seed": "tsx scripts/seed.ts",
     "db:seed:staging-partial": "tsx scripts/seed-staging-partial.ts",
     "db:seed:crm": "tsx scripts/seed-crm.ts",
-    "db:seed:portfolio": "tsx scripts/seed-portfolio-xlsx.ts",
     "db:seed:neo4j": "tsx scripts/seed-neo4j.ts",
     "rss:import-feeds": "tsx scripts/import-rss-feeds.ts",
     "db:seed:langfuse": "tsx scripts/seed-langfuse-pricing.ts",

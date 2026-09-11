@@ -123,6 +123,14 @@ export const FEATURE_CATALOG: FeatureDefinition[] = [
     defaultEnabled: false,
     navItem: true,
   },
+  {
+    key: 'LEDGER_ENABLED',
+    label: 'Ledger',
+    description:
+      'The fund ledger as posted rows — every signed movement against a position, with as-of balances, funding attribution and reversals.',
+    defaultEnabled: false,
+    navItem: true,
+  },
   // ── Not on the navbar: in-page flags & background/sub-features (default OFF) ──
   {
     key: 'INSIGHTS_DASHBOARD_ENABLED',
@@ -158,6 +166,15 @@ export const FEATURE_CATALOG: FeatureDefinition[] = [
     label: 'Source of Funds',
     description:
       'Track the capital pool behind each holding — the Source of Fund tab and grouping, the transaction funding-source field, and the Copilot funding-sources query. Turn off to hide it everywhere.',
+    defaultEnabled: true,
+    navItem: false,
+    category: 'funds',
+  },
+  {
+    key: 'FUND_VEHICLE_VIEW_ENABLED',
+    label: 'Fund Vehicle View',
+    description:
+      'Fund portfolio tab and fund-type grouping for fund vehicle management. Turn off to group assets by investor and store new external fund investments as assets. Unmanaged fund creation and updates are disabled; managed vehicles remain supported. Existing records are not converted.',
     defaultEnabled: true,
     navItem: false,
     category: 'funds',

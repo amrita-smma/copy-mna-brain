@@ -1,31 +1,34 @@
 'use client';
 
 import { cn } from '@/lib/utils';
-import type { Fund } from './types';
-import { growth, holdingsPortfolioTotals } from './calc';
+import type { Fund, Investor } from './types';
+import { formatHolderCounts, growth, holdingsPortfolioTotals } from './calc';
 import { useFundMoney } from './useFundMoney';
-import { DeltaBadge, GlossaryTerm } from './parts';
+import { DeltaBadge, GlossaryTerm, PartialValuationAmount } from './parts';
 
 interface MetricCardsProps {
   funds: Fund[];
+  investors?: Investor[];
 }
 
 /** Section (a): the four portfolio summary cards across the top. */
-export function MetricCards({ funds }: MetricCardsProps) {
+export function MetricCards({ funds, investors }: MetricCardsProps) {
   const { money } = useFundMoney();
   // Sum Invested / Unrealized MV / Realized from the holdings (i.e. the ledger)
   // rather than fund-level rollups, so the header ties out to every grouping —
-  // including assets under the synthetic "Unassigned Assets" fund.
-  const t = holdingsPortfolioTotals(funds);
+  // including assets under the synthetic "Unassigned Assets" fund, and direct
+  // investor/entity-held positions.
+  const t = holdingsPortfolioTotals(funds, investors);
+  const holdingEntityCount = (investors ?? []).filter(
+    (inv) => (inv.holdings?.length ?? 0) > 0,
+  ).length;
+  const subLabel = formatHolderCounts(funds.length, holdingEntityCount);
   const cards = [
     {
       key: 'pledged',
       label: 'Total Commitment',
       value: money(t.commitment),
-      // Investor count is left out here — the Investor tab has no backend
-      // yet (see FundManagement.tsx), so it's still static mock data and
-      // can't be mixed into an otherwise real, API-backed metric.
-      sub: `${funds.length} fund${funds.length === 1 ? '' : 's'}`,
+      sub: subLabel,
       delta: growth(t.committedHist),
       accent: false,
     },
@@ -42,7 +45,11 @@ export function MetricCards({ funds }: MetricCardsProps) {
     {
       key: 'currentvalue',
       label: 'Unrealized Market Value',
-      value: money(t.fmv),
+      value: (
+        <PartialValuationAmount partial={t.valuationCoverage === 'partial'}>
+          {t.fmv != null ? money(t.fmv) : 'Unavailable (Pending FX)'}
+        </PartialValuationAmount>
+      ),
       sub: `plus ${money(t.real)} realized value`,
       delta: growth(t.fmvHist),
       accent: false,
@@ -50,8 +57,15 @@ export function MetricCards({ funds }: MetricCardsProps) {
     {
       key: 'moic',
       label: 'MOIC',
-      value: `${t.moic.toFixed(2)}×`,
-      sub: 'MOIC across all funds',
+      value: t.moic != null ? `${t.moic.toFixed(2)}×` : '—',
+      sub:
+        t.valuationCoverage === 'partial'
+          ? 'Unavailable (holdings lack valuation or FX pending)'
+          : funds.length > 0 && holdingEntityCount > 0
+            ? 'MOIC across portfolio'
+            : holdingEntityCount > 0
+              ? 'MOIC across all entities'
+              : 'MOIC across all funds',
       delta: growth(t.tvpiHist),
       accent: true,
     },

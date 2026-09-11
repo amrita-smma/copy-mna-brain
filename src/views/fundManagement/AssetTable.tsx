@@ -1,20 +1,25 @@
 'use client';
 
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { cn } from '@/lib/utils';
-import type { Fund, Holding } from './types';
+import type { Fund, Holding, Investor } from './types';
 import {
+  buildInvestorGroupLookup,
+  entityToFundAdapter,
+  formatHolderName,
   getAssetDisplayName,
   getAssetEntity,
   getAssetFundingSources,
   getAssetInvestType,
   mergeHoldingsAcrossFunds,
+  resolveInvestorGroupName,
   sliceHoldingsByTxn,
   type HoldingSlice,
 } from './calc';
 import { useFundMoney } from './useFundMoney';
+import { distinctEnglishName } from '@/lib/fundLedger/format';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
-import { Chevron, DeleteRowMenu, GlossaryTerm, Pill } from './parts';
+import { Chevron, DeleteRowMenu, DisclosureBadge, DisclosureFootnote, GlossaryTerm, PartialValuationAmount, Pill } from './parts';
 import { HoldingDetail } from './HoldingDetail';
 import { TablePager } from './TablePager';
 import { useFundData } from './context';
@@ -67,14 +72,28 @@ const ASSET_COLS: { label: string; term?: string }[] = [
 const dpi = (cost: number, real: number) => (cost > 0 ? real / cost : 0);
 
 /** A table row: a holding slice, plus — for a merged co-invested asset — the
- * names of every fund holding it (the slice's `f` is the primary fund). */
-type AssetRow = HoldingSlice & { fundNames?: string[] };
+ * names of every fund/entity holder holding it (the slice's `f` is the primary fund). */
+type AssetRow = HoldingSlice & { fundNames?: string[]; holderNames?: string[] };
 
-/** The row's fund label. A co-invested asset shows its primary fund plus a
- * "+N" count; hovering reveals the full fund list in a read-only tooltip. */
-function FundsLabel({ names }: { names: string[] }) {
+/** The row's holder label. A co-invested asset shows its primary holder plus a
+ * "+N" count; hovering reveals the full holder list in a read-only tooltip. */
+function HoldersLabel({
+  names,
+  englishByName,
+}: {
+  names: string[];
+  /** Recorded name → its English rendering, for the holders that have one. */
+  englishByName?: Map<string, string>;
+}) {
+  const english = (name: string) => englishByName?.get(name);
   if (names.length <= 1) {
-    return <span className="text-[11px] text-muted-foreground">{names[0]}</span>;
+    const only = names[0] ?? '';
+    return (
+      <span className="text-[11px] text-muted-foreground" title={only}>
+        {only}
+        {english(only) && <span className="text-muted-foreground/70"> ({english(only)})</span>}
+      </span>
+    );
   }
   return (
     <Tooltip>
@@ -87,10 +106,13 @@ function FundsLabel({ names }: { names: string[] }) {
         </span>
       </TooltipTrigger>
       <TooltipContent className="max-w-[280px]">
-        <div className="text-xs font-semibold text-foreground">Funds</div>
+        <div className="text-xs font-semibold text-foreground">Holders</div>
         <ul className="mt-1 space-y-0.5 text-xs text-muted-foreground">
           {names.map((n, i) => (
-            <li key={i}>{n}</li>
+            <li key={i}>
+              {n}
+              {english(n) && <span className="text-muted-foreground/70"> ({english(n)})</span>}
+            </li>
           ))}
         </ul>
       </TooltipContent>
@@ -99,7 +121,7 @@ function FundsLabel({ names }: { names: string[] }) {
 }
 
 /**
- * The "Asset" tab: every holding across all funds, optionally grouped by fund
+ * The "Asset" tab: every holding across all funds and entities, optionally grouped by fund
  * type / investor / source of fund. Ungrouped, each asset row expands to its
  * full HoldingDetail (Performance / Company & legal / Business / Transactions /
  * Deal economics / Historical value). Grouped, a group row expands to its asset
@@ -107,12 +129,15 @@ function FundsLabel({ names }: { names: string[] }) {
  */
 export function AssetTable({
   funds,
+  investors,
+  initialGroupBy,
 }: {
   funds: Fund[];
+  investors?: Investor[];
+  initialGroupBy?: GroupBy;
 }) {
   const {
     deleteAsset,
-    refreshAll,
     entityNameById,
     sourceNameById,
     analyzeAiOpinion,
@@ -121,17 +146,38 @@ export function AssetTable({
   const { money } = useFundMoney();
   const { analyzeWithAI } = useChatContext();
   const { focusCopilot } = useLayoutControl();
-  const [groupBy, setGroupBy] = useState<GroupBy>('none');
-  // Source-of-funds tracking is a per-workspace setting; when off, drop the
-  // "by Source of Fund" grouping and coerce an already-selected 'source' mode
-  // back to ungrouped.
+  // Fund vehicle view and source-of-funds tracking are per-workspace settings.
+  // 'by Fund Type' needs fund vehicles, so it follows the flag. 'by Investor'
+  // does not: investor groups (`parent_investor_id`) exist independently of
+  // fund vehicles, so grouping by investor stays available in both states — it
+  // is merely the default when the flag is off (the intended Startech setting).
+  // Source of funds remains independently controlled.
+  const fundVehicleViewEnabled = useFeatureEnabled('FUND_VEHICLE_VIEW_ENABLED');
   const sourceOfFundsEnabled = useFeatureEnabled('SOURCE_OF_FUNDS_ENABLED');
-  const groupOptions = sourceOfFundsEnabled
-    ? GROUP_OPTIONS
-    : GROUP_OPTIONS.filter((o) => o.k !== 'source');
+  const defaultGroupBy: GroupBy = initialGroupBy ?? (fundVehicleViewEnabled ? 'none' : 'investor');
+  const [groupBy, setGroupBy] = useState<GroupBy>(defaultGroupBy);
+  const groupOptions = useMemo(
+    () =>
+      GROUP_OPTIONS.filter((o) => {
+        if (o.k === 'fund' && !fundVehicleViewEnabled) return false;
+        if (o.k === 'source' && !sourceOfFundsEnabled) return false;
+        return true;
+      }),
+    [fundVehicleViewEnabled, sourceOfFundsEnabled],
+  );
+
+  const effectiveGroupBy: GroupBy =
+    (!fundVehicleViewEnabled && groupBy === 'fund') ||
+    (!sourceOfFundsEnabled && groupBy === 'source')
+      ? defaultGroupBy
+      : groupBy;
+
   useEffect(() => {
-    if (!sourceOfFundsEnabled && groupBy === 'source') setGroupBy('none');
-  }, [sourceOfFundsEnabled, groupBy]);
+    if (groupBy !== effectiveGroupBy) {
+      setGroupBy(effectiveGroupBy);
+    }
+  }, [groupBy, effectiveGroupBy]);
+
 
   // "Dive deeper" hands the existing AI Opinion verdict to the copilot and
   // reveals the pane so the discussion is immediately visible.
@@ -139,10 +185,10 @@ export function AssetTable({
     const name = getAssetDisplayName(h) || 'this holding';
     const verdict = h.aiOpinionVerdict ?? 'unknown';
     const summary = h.aiOpinionSummary ?? 'no summary available';
-    const idHint = h.id ? ` (fund_asset_id: ${h.id})` : '';
+    const idHint = h.id ? ` (asset_id: ${h.id})` : '';
     analyzeWithAI(
       `Dive deeper into the AI Opinion for ${name}${idHint}. The current verdict is "${verdict}" with the rationale: "${summary}". ` +
-        `Start with get_fund_asset_details${h.id ? ` using fund_asset_id "${h.id}"` : ' for this holding by name'} to pull the recorded metrics and valuation history, then explain the reasoning in more detail, surface the key risks and opportunities, and tell me what additional diligence would strengthen this assessment.`,
+        `Start with get_fund_asset_details${h.id ? ` using asset_id "${h.id}"` : ' for this holding by name'} to pull the recorded metrics and valuation history, then explain the reasoning in more detail, surface the key risks and opportunities, and tell me what additional diligence would strengthen this assessment.`,
     );
     focusCopilot();
   };
@@ -152,7 +198,7 @@ export function AssetTable({
 
   // Grouping mode changes what a "row" is (assets vs. groups), so restart
   // paging from the first page to avoid landing on an out-of-range page.
-  useEffect(() => setPage(1), [groupBy]);
+  useEffect(() => setPage(1), [effectiveGroupBy]);
 
   const toggle = <T,>(set: Set<T>, val: T) => {
     const next = new Set(set);
@@ -160,10 +206,34 @@ export function AssetTable({
     return next;
   };
 
+  // Filter out fund-target holdings (FoF) when Fund Vehicle View is enabled,
+  // since they are displayed in the Fund tab instead of the Asset tab.
+  // Never mutate Fund.h or Investor.holdings directly.
+  const visibleFunds = useMemo(() => {
+    if (!fundVehicleViewEnabled) return funds;
+    return funds.map((f) => ({
+      ...f,
+      h: f.h.filter((h) => h.targetKind !== 'fund'),
+    }));
+  }, [funds, fundVehicleViewEnabled]);
+
+  const visibleInvestors = useMemo(() => {
+    if (!fundVehicleViewEnabled || !investors) return investors;
+    return investors.map((e) => ({
+      ...e,
+      holdings: e.holdings ? e.holdings.filter((h) => h.targetKind !== 'fund') : e.holdings,
+    }));
+  }, [investors, fundVehicleViewEnabled]);
+
   // Every row (grouped or not) is a HoldingSlice: for "No grouping" and "by
   // Fund Type" the slice carries the whole-asset numbers; for "by Investor" and
   // "by Source of Fund" it carries only that group's transaction-level slice.
-  const wholeSlice = (h: Holding, f: Fund, hi: number): HoldingSlice => ({
+  const wholeSlice = (
+    h: Holding,
+    f: Fund,
+    hi: number,
+    holderNames?: string[],
+  ): AssetRow => ({
     h,
     f,
     hkey: `${f.id}_${hi}`,
@@ -171,101 +241,223 @@ export function AssetTable({
     fmv: h.fmv,
     real: h.real,
     moic: h.moic,
+    holderNames: holderNames ?? [f.n],
   });
 
-  // Ungrouped rows are whole assets: a co-invested asset's per-fund scoped
+  // Ungrouped rows are whole assets: a co-invested asset's per-fund/entity scoped
   // copies are merged back into one row carrying the asset totals and every
-  // holding fund's name (largest share first).
-  const flat: AssetRow[] = mergeHoldingsAcrossFunds(funds).map(({ key, h, funds: held }) => ({
-    h,
-    f: held[0],
-    hkey: key,
-    cost: h.cost,
-    fmv: h.fmv,
-    real: h.real,
-    moic: h.moic,
-    fundNames: held.length > 1 ? held.map((x) => x.n) : undefined,
-  }));
+  // holding fund/entity's name (largest share first).
+  const flat: AssetRow[] = mergeHoldingsAcrossFunds(visibleFunds, visibleInvestors).map(
+    ({ key, h, funds: held, holders, holderNames }) => {
+      const primaryHolder = holders?.[0];
+      const primaryFund =
+        held[0] ??
+        (primaryHolder?.investor
+          ? entityToFundAdapter(primaryHolder.investor)
+          : undefined);
+
+      return {
+        h,
+        f: primaryFund!,
+        hkey: key,
+        cost: h.cost,
+        fmv: h.fmv,
+        real: h.real,
+        moic: h.moic,
+        fundNames: held.length > 1 ? held.map((x) => x.n) : undefined,
+        holderNames,
+      };
+    },
+  );
 
   const aggSlices = (items: HoldingSlice[]) => {
     let cost = 0;
     let fmv = 0;
     let real = 0;
+    let anyUnvalued = false;
     items.forEach((it) => {
+      if (it.h.displayOnly || it.f?.displayOnly) return;
       cost += it.cost;
-      fmv += it.fmv;
+      if (it.fmv != null) {
+        fmv += it.fmv;
+      } else {
+        anyUnvalued = true;
+      }
       real += it.real;
     });
-    return { cost, fmv, real, moic: cost > 0 ? (fmv + real) / cost : 0, count: items.length };
+    return {
+      cost,
+      fmv,
+      real,
+      moic: anyUnvalued || cost <= 0 ? null : (fmv + real) / cost,
+      count: items.length,
+      valuationCoverage: anyUnvalued ? 'partial' : 'complete',
+    };
   };
 
-  const buildGroups = (): Map<string, HoldingSlice[]> => {
-    if (groupBy === 'fund') {
-      // Fund membership is already transaction-level at load time: a
-      // co-invested asset arrives once per fund, scoped to that fund's share
-      // (see scopeHoldingToFund). So we just group the whole (scoped) holdings
-      // by the fund they belong to.
-      const map = new Map<string, HoldingSlice[]>();
-      funds.forEach((f) =>
+  const buildGroups = (): Map<string, AssetRow[]> => {
+    if (effectiveGroupBy === 'fund') {
+      const map = new Map<string, AssetRow[]>();
+      const push = (groupName: string, row: AssetRow) => {
+        if (!map.has(groupName)) map.set(groupName, []);
+        map.get(groupName)!.push(row);
+      };
+
+      visibleFunds.forEach((f) =>
         f.h.forEach((h, hi) => {
-          if (!map.has(f.n)) map.set(f.n, []);
-          map.get(f.n)!.push(wholeSlice(h, f, hi));
+          push(f.n, wholeSlice(h, f, hi, [f.n]));
         }),
       );
+
+      (visibleInvestors ?? []).forEach((e) => {
+        const f = entityToFundAdapter(e);
+        const holderLabel = formatHolderName(e);
+        (e.holdings ?? []).forEach((h, hi) => {
+          push(e.n, wholeSlice(h, f, hi, [holderLabel]));
+        });
+      });
       return map;
     }
-    if (groupBy === 'investor') {
+    if (effectiveGroupBy === 'investor') {
+      const entityIdSet = new Set((visibleInvestors ?? []).map((inv) => inv.id));
       return sliceHoldingsByTxn(
-        funds,
-        (t, h) =>
-          t.holdingEntityId
+        visibleFunds,
+        (t, h, f) => {
+          if (entityIdSet.has(f.id)) {
+            return t.holdingEntityId
+              ? entityNameById.get(t.holdingEntityId) ?? f.n
+              : f.n;
+          }
+          return t.holdingEntityId
             ? entityNameById.get(t.holdingEntityId) ?? getAssetEntity(h) ?? 'Unspecified'
-            : getAssetEntity(h) || 'Unspecified',
-        (h) => [getAssetEntity(h) || 'Unspecified'],
+            : getAssetEntity(h) || 'Unspecified';
+        },
+        (h, f) => {
+          if (entityIdSet.has(f.id)) {
+            return [f.n];
+          }
+          return [getAssetEntity(h) || 'Unspecified'];
+        },
+        visibleInvestors,
       );
     }
     return sliceHoldingsByTxn(
-      funds,
+      visibleFunds,
       (t, h) =>
         t.fundingSourceId
           ? sourceNameById.get(t.fundingSourceId) ?? getAssetFundingSources(h)[0]
           : getAssetFundingSources(h)[0],
       (h) => getAssetFundingSources(h),
+      visibleInvestors,
     );
   };
 
+  const investorGroupLookup = useMemo(
+    () => buildInvestorGroupLookup(investors),
+    [investors],
+  );
+
+  // Group keys are the bare fund/entity name because they double as lookup keys
+  // (`resolveInvestorGroupName` matches on them), so the English name is carried
+  // in a side lookup and only ever rendered.
+  const englishNameByName = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const fund of funds ?? []) {
+      const english = distinctEnglishName(fund.n, fund.englishName);
+      if (english) map.set(fund.n, english);
+    }
+    for (const entity of investors ?? []) {
+      const english = distinctEnglishName(entity.n, entity.englishName);
+      if (!english) continue;
+      map.set(entity.n, english);
+      // Holder labels carry the parent group — `高亚 (Parent Group)` — so the
+      // formatted form is registered too or a grouped entity's holder line
+      // would never resolve.
+      map.set(formatHolderName(entity), english);
+    }
+    return map;
+  }, [funds, investors]);
+
+  /** The rail is rotated vertical text in an 8px cell, so an English line has
+   *  nowhere to go — it rides in the hover title instead. */
+  const englishRail = (name: string) => {
+    const english = englishNameByName.get(name);
+    return english ? `${name} (${english})` : name;
+  };
   const groups =
-    groupBy === 'none'
+    effectiveGroupBy === 'none'
       ? []
-      : [...buildGroups().entries()]
-          .map(([name, items]) => ({ name, items, a: aggSlices(items) }))
-          .sort((x, y) => y.a.fmv - x.a.fmv);
+      : [...buildGroups().entries()].map(([name, items]) => ({
+          name,
+          items,
+          a: aggSlices(items),
+          investorGroupName:
+            effectiveGroupBy === 'investor'
+              ? resolveInvestorGroupName(investorGroupLookup, name)
+              : null,
+        }));
+  const investorGroupFmv = new Map<string, number>();
+  groups.forEach((group) => {
+    if (!group.investorGroupName) return;
+    investorGroupFmv.set(
+      group.investorGroupName,
+      (investorGroupFmv.get(group.investorGroupName) ?? 0) + group.a.fmv,
+    );
+  });
+  groups.sort((x, y) => {
+    if (effectiveGroupBy !== 'investor') return y.a.fmv - x.a.fmv;
+    if (x.investorGroupName && !y.investorGroupName) return -1;
+    if (!x.investorGroupName && y.investorGroupName) return 1;
+    if (
+      x.investorGroupName &&
+      y.investorGroupName &&
+      x.investorGroupName !== y.investorGroupName
+    ) {
+      const groupDelta =
+        (investorGroupFmv.get(y.investorGroupName) ?? 0) -
+        (investorGroupFmv.get(x.investorGroupName) ?? 0);
+      if (groupDelta !== 0) return groupDelta;
+      return (x.investorGroupName ?? '').localeCompare(y.investorGroupName ?? '');
+    }
+    return y.a.fmv - x.a.fmv;
+  });
 
   // Paginate whichever list is being shown — flat asset rows when ungrouped,
   // group rows when grouped. Slicing the top-level rows (not the expanded
   // detail panels) keeps a heavy portfolio from rendering hundreds of rows at
   // once, complementing the batched load that removed the per-asset fetches.
-  const total = groupBy === 'none' ? flat.length : groups.length;
+  const total = effectiveGroupBy === 'none' ? flat.length : groups.length;
   const start = (Math.min(page, Math.max(1, Math.ceil(total / PAGE_SIZE))) - 1) * PAGE_SIZE;
-  const pagedFlat = [...flat].sort((x, y) => y.fmv - x.fmv).slice(start, start + PAGE_SIZE);
+  const pagedFlat = [...flat].sort((x, y) => (y.fmv ?? 0) - (x.fmv ?? 0)).slice(start, start + PAGE_SIZE);
   const pagedGroups = groups.slice(start, start + PAGE_SIZE);
+  const hasInvestorGroups =
+    effectiveGroupBy === 'investor' && groups.some((group) => group.investorGroupName);
+
+  const hasDisplayOnlyOnScreen =
+    effectiveGroupBy === 'none'
+      ? pagedFlat.some((r) => r.h.displayOnly || r.f?.displayOnly)
+      : pagedGroups.some((g) => g.items.some((it) => it.h.displayOnly || it.f?.displayOnly));
 
   // A single asset row + (if open) its detail panel. `rowKey` scopes the
   // open-state so the same holding under two source groups toggles independently.
   const assetRows = (items: AssetRow[], nested: boolean, scope: string): ReactNode[] => {
     const out: ReactNode[] = [];
     [...items]
-      .sort((x, y) => y.fmv - x.fmv)
-      .forEach(({ h, f, hkey, cost, fmv, real, moic, fundNames }) => {
+      .sort((x, y) => (y.fmv ?? 0) - (x.fmv ?? 0))
+      .forEach(({ h, f, hkey, cost, fmv, real, moic, fundNames, holderNames }) => {
+        const isDisplayOnly = Boolean(h.displayOnly || f?.displayOnly);
+        const disclosure = h.disclosure ?? f?.disclosure;
         const rowKey = `${scope}::${hkey}`;
         const hopen = openAssets.has(rowKey);
         out.push(
           <tr
             key={`a${rowKey}`}
-            onClick={() => setOpenAssets((s) => toggle(s, rowKey))}
+            onClick={isDisplayOnly ? undefined : () => setOpenAssets((s) => toggle(s, rowKey))}
             className={cn(
-              'cursor-pointer border-b [&>td]:bg-muted/10 hover:[&>td]:bg-background',
-              hopen && '[&>td]:!bg-accent/10',
+              isDisplayOnly
+                ? 'border-b [&>td]:bg-muted/10'
+                : 'cursor-pointer border-b [&>td]:bg-muted/10 hover:[&>td]:bg-background',
+              hopen && !isDisplayOnly && '[&>td]:!bg-accent/10',
             )}
           >
             <td className="py-2 pl-3 pr-3 align-middle">
@@ -273,11 +465,16 @@ export function AssetTable({
                 <div className="flex items-center">
                   {nested && <span className="w-5 shrink-0" />}
                   <span className="mr-2 w-3 shrink-0 text-[11px] text-muted-foreground">
-                    {hopen ? '▾' : '▸'}
+                    {!isDisplayOnly ? (hopen ? '▾' : '▸') : ''}
                   </span>
                   <div className={cn(nested && 'border-l-2 border-border pl-2.5')}>
-                    <div className="text-[13px] font-medium text-foreground">
-                      {getAssetDisplayName(h)}
+                    <div className="flex items-center gap-1.5">
+                      <div className="text-[13px] font-medium text-foreground">
+                        {getAssetDisplayName(h)}
+                      </div>
+                      {isDisplayOnly && disclosure && (
+                        <DisclosureBadge reason={disclosure} />
+                      )}
                     </div>
                     <div className="mt-0.5 flex flex-wrap items-center gap-1.5">
                       <Pill>
@@ -286,39 +483,41 @@ export function AssetTable({
                         </GlossaryTerm>
                       </Pill>
                       <Pill>{getAssetInvestType(h)}</Pill>
-                      <FundsLabel names={fundNames ?? [f.n]} />
+                      <HoldersLabel
+                        names={holderNames ?? fundNames ?? (f ? [f.n] : [])}
+                        englishByName={englishNameByName}
+                      />
                       {h.dt && <span className="text-[11px] text-muted-foreground">· {h.dt}</span>}
                     </div>
                   </div>
                 </div>
-                {h.id && (
+                {!isDisplayOnly && h.id && (
                   <DeleteRowMenu
-                    label="Delete holding"
-                    title={`Delete "${getAssetDisplayName(h)}"?`}
-                    description="This will permanently delete this holding and its full transaction and valuation history. This action cannot be undone."
+                    label="Close holding"
+                    title={`Close "${getAssetDisplayName(h)}"?`}
+                    description="This closes the holding's positions while retaining full transaction and valuation history. Active positions must have zero remaining quantity (and no unfunded commitment) to close."
+                    confirmLabel="Close holding"
                     onConfirm={async () => {
                       await deleteAsset(f, h);
-                      // A merged co-invested row exists under several funds;
-                      // deleteAsset only reloads the primary fund, so refresh
-                      // the rest or their stale copies keep the row visible.
-                      if (fundNames) await refreshAll();
                     }}
                   />
                 )}
               </div>
             </td>
-            <td className="px-3 py-2 text-right align-middle text-[13px] text-foreground">{money(cost)}</td>
             <td className="px-3 py-2 text-right align-middle text-[13px] text-foreground">
-              {fmv > 0 ? money(fmv) : '—'}
+              {isDisplayOnly ? '—' : money(cost)}
+            </td>
+            <td className="px-3 py-2 text-right align-middle text-[13px] text-foreground">
+              {isDisplayOnly ? '—' : fmv != null ? money(fmv) : '—'}
             </td>
             <td className="px-3 py-2 text-right align-middle text-[13px] font-medium text-foreground">
-              {moic.toFixed(2)}×
+              {isDisplayOnly ? '—' : moic != null ? `${moic.toFixed(2)}×` : '—'}
             </td>
             <td className="px-3 py-2 text-right align-middle text-[13px] text-foreground">
-              {real > 0 ? money(real) : '—'}
+              {isDisplayOnly ? '—' : real > 0 ? money(real) : '—'}
             </td>
             <td className="px-3 py-2 text-right align-middle text-[13px] text-foreground">
-              {dpi(cost, real).toFixed(2)}×
+              {isDisplayOnly ? '—' : `${dpi(cost, real).toFixed(2)}×`}
             </td>
             <td className="px-3 py-2 align-middle">
               <Pill>{h.st}</Pill>
@@ -333,7 +532,7 @@ export function AssetTable({
             </td>
           </tr>,
         );
-        if (hopen) {
+        if (hopen && !isDisplayOnly) {
           out.push(
             <tr key={`d${rowKey}`} className="border-b">
               <td colSpan={8} className="bg-background px-3 pb-3.5 pt-2">
@@ -357,7 +556,7 @@ export function AssetTable({
             onClick={() => setGroupBy(k)}
             className={cn(
               'rounded-full border px-3 py-1 text-xs',
-              groupBy === k
+              effectiveGroupBy === k
                 ? 'border-accent bg-accent text-accent-foreground'
                 : 'bg-muted/60 text-muted-foreground hover:text-foreground',
             )}
@@ -371,8 +570,11 @@ export function AssetTable({
         <table className="w-full min-w-[1120px] border-collapse">
           <thead>
             <tr>
+              {hasInvestorGroups && (
+                <th className="w-8 border-b border-r bg-muted/50 p-0" />
+              )}
               <th className="whitespace-nowrap border-b bg-muted/50 px-3 py-2 text-left text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                {groupBy === 'none' ? 'Asset' : GROUP_HEAD[groupBy]}
+                {effectiveGroupBy === 'none' ? 'Asset' : GROUP_HEAD[effectiveGroupBy]}
               </th>
               {ASSET_COLS.map((c) => (
                 <th
@@ -403,18 +605,50 @@ export function AssetTable({
             </tr>
           </thead>
           <tbody>
-            {groupBy === 'none'
+            {effectiveGroupBy === 'none'
               ? flat.length === 0
                 ? [
                     <tr key="empty">
-                      <td colSpan={8} className="px-3 py-10 text-center text-sm text-muted-foreground">
+                      <td
+                        colSpan={hasInvestorGroups ? 9 : 8}
+                        className="px-3 py-10 text-center text-sm text-muted-foreground"
+                      >
                         No assets yet.
                       </td>
                     </tr>,
                   ]
                 : assetRows(pagedFlat, false, 'all')
-              : pagedGroups.map(({ name, items, a }) => {
+              : pagedGroups.length === 0
+                ? [
+                    <tr key="empty">
+                      <td
+                        colSpan={hasInvestorGroups ? 9 : 8}
+                        className="px-3 py-10 text-center text-sm text-muted-foreground"
+                      >
+                        No assets yet.
+                      </td>
+                    </tr>,
+                  ]
+                : pagedGroups.map(({ name, items, a, investorGroupName }, groupIndex) => {
                   const gopen = openGroups.has(name);
+                  const isAllDisplayOnly = items.length > 0 && items.every((it) => it.h.displayOnly || it.f?.displayOnly);
+                  const subRows = gopen ? assetRows(items, true, name) : [];
+                  const previousInvestorGroupName = pagedGroups[groupIndex - 1]?.investorGroupName;
+                  const isFirstInInvestorGroup =
+                    Boolean(investorGroupName) &&
+                    investorGroupName !== previousInvestorGroupName;
+                  let investorGroupRowSpan = 0;
+                  if (isFirstInInvestorGroup) {
+                    for (let i = groupIndex; i < pagedGroups.length; i += 1) {
+                      const groupedEntity = pagedGroups[i];
+                      if (groupedEntity.investorGroupName !== investorGroupName) break;
+                      investorGroupRowSpan +=
+                        1 +
+                        (openGroups.has(groupedEntity.name)
+                          ? assetRows(groupedEntity.items, true, groupedEntity.name).length
+                          : 0);
+                    }
+                  }
                   const rows: ReactNode[] = [];
                   rows.push(
                     <tr
@@ -425,11 +659,42 @@ export function AssetTable({
                         gopen && '[&>td]:!bg-accent/10',
                       )}
                     >
+                      {hasInvestorGroups && isFirstInInvestorGroup && (
+                        <td
+                          rowSpan={investorGroupRowSpan}
+                          className="relative w-8 border-b border-r bg-muted/30 p-2 text-center align-middle select-none"
+                        >
+                          <div
+                            className="absolute inset-0 flex items-center justify-center overflow-hidden p-2"
+                            style={{ writingMode: 'vertical-rl', transform: 'rotate(180deg)' }}
+                          >
+                            <span
+                              title={englishRail(investorGroupName)}
+                              className="truncate whitespace-nowrap text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                              {investorGroupName}
+                            </span>
+                          </div>
+                        </td>
+                      )}
+                      {hasInvestorGroups && !investorGroupName && (
+                        <td
+                          rowSpan={1 + subRows.length}
+                          className="w-8 border-b border-r bg-card"
+                        />
+                      )}
                       <td className="px-3 py-2.5 align-middle">
                         <div className="flex items-center gap-2">
                           <Chevron open={gopen} />
                           <div>
                             <div className="text-[13px] font-medium text-foreground">{name}</div>
+                            {englishNameByName.get(name) && (
+                              <div
+                                className="text-[11px] leading-tight text-muted-foreground"
+                                title={englishNameByName.get(name)}
+                              >
+                                {englishNameByName.get(name)}
+                              </div>
+                            )}
                             <div className="mt-0.5">
                               <Pill>
                                 {a.count} holding{a.count === 1 ? '' : 's'}
@@ -439,36 +704,43 @@ export function AssetTable({
                         </div>
                       </td>
                       <td className="px-3 py-2.5 text-right align-middle text-[13px] font-medium text-foreground">
-                        {money(a.cost)}
+                        {isAllDisplayOnly ? '—' : money(a.cost)}
                       </td>
                       <td className="px-3 py-2.5 text-right align-middle text-[13px] font-medium text-foreground">
-                        {a.fmv > 0 ? money(a.fmv) : '—'}
+                        {isAllDisplayOnly ? (
+                          '—'
+                        ) : (
+                          <PartialValuationAmount partial={a.valuationCoverage === 'partial'}>
+                            {a.valuationCoverage === 'partial' || a.fmv > 0 ? money(a.fmv) : '—'}
+                          </PartialValuationAmount>
+                        )}
                       </td>
                       <td className="px-3 py-2.5 text-right align-middle text-[13px] font-medium text-foreground">
-                        {a.moic.toFixed(2)}×
+                        {isAllDisplayOnly ? '—' : a.moic != null ? `${a.moic.toFixed(2)}×` : '—'}
                       </td>
                       <td className="px-3 py-2.5 text-right align-middle text-[13px] font-medium text-foreground">
-                        {a.real > 0 ? money(a.real) : '—'}
+                        {isAllDisplayOnly ? '—' : a.real > 0 ? money(a.real) : '—'}
                       </td>
                       <td className="px-3 py-2.5 text-right align-middle text-[13px] font-medium text-foreground">
-                        {dpi(a.cost, a.real).toFixed(2)}×
+                        {isAllDisplayOnly ? '—' : `${dpi(a.cost, a.real).toFixed(2)}×`}
                       </td>
                       <td className="px-3 py-2.5 align-middle text-[13px] text-muted-foreground">—</td>
                       <td className="px-3 py-2.5 align-middle text-[13px] text-muted-foreground">—</td>
                     </tr>,
                   );
-                  if (gopen) rows.push(...assetRows(items, true, name));
+                  rows.push(...subRows);
                   return rows;
                 })}
           </tbody>
         </table>
       </div>
+      {hasDisplayOnlyOnScreen && <DisclosureFootnote />}
       <TablePager
         page={page}
         pageSize={PAGE_SIZE}
         total={total}
         onPageChange={setPage}
-        itemLabel={groupBy === 'none' ? 'asset' : `${GROUP_HEAD[groupBy].toLowerCase()} group`}
+        itemLabel={effectiveGroupBy === 'none' ? 'asset' : `${GROUP_HEAD[effectiveGroupBy].toLowerCase()} group`}
       />
     </>
   );

@@ -1,6 +1,9 @@
 services:
   postgres:
-    image: postgres:16-alpine
+    # pgvector's image is the official postgres image plus the `vector`
+    # extension files, so `CREATE EXTENSION vector` works in migrations.
+    # Same PG 16 data directory — the existing postgres-data volume is reused.
+    image: pgvector/pgvector:pg16
     container_name: mna-postgres
     restart: unless-stopped
     environment:

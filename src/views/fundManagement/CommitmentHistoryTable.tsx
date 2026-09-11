@@ -6,11 +6,11 @@ import { Button } from '@/components/ui/button';
 import { Pill } from './parts';
 import { useFundMoney } from './useFundMoney';
 import { useFundData } from './context';
-import * as commitmentEventsApi from '@/lib/api/commitmentEvents';
+import * as fundLedgerApi from '@/lib/api/fundLedger';
 import type {
   CommitmentEventType,
   CommitmentEventWithBalance,
-} from '@/lib/api/commitmentEvents';
+} from '@/lib/api/fundLedger';
 
 export const EVENT_TYPE_LABELS: Record<CommitmentEventType, string> = {
   initial_commitment: 'Initial Commitment',
@@ -48,7 +48,7 @@ export function CommitmentEventTypeBadge({ type }: { type: CommitmentEventType |
       );
     case 'transfer_out':
       return (
-        <Pill className="border-indigo-200 bg-indigo-500/10 text-indigo-700">
+        <Pill className="border-rose-200 bg-rose-500/10 text-rose-700">
           Transfer Out
         </Pill>
       );
@@ -60,13 +60,13 @@ export function CommitmentEventTypeBadge({ type }: { type: CommitmentEventType |
 export function formatCommitmentCounterparty(
   eventType: CommitmentEventType | string,
   counterpartyId: string | null | undefined,
-  entityNameById?: Map<string, string> | Record<string, string>,
+  nameMap: Map<string, string> | Record<string, string>,
 ): string {
   if (!counterpartyId) return '—';
   const name =
-    entityNameById instanceof Map
-      ? entityNameById.get(counterpartyId) || counterpartyId
-      : entityNameById?.[counterpartyId] || counterpartyId;
+    nameMap instanceof Map
+      ? nameMap.get(counterpartyId) || counterpartyId
+      : nameMap[counterpartyId] || counterpartyId;
 
   if (eventType === 'transfer_out') {
     return `To: ${name}`;
@@ -78,18 +78,18 @@ export function formatCommitmentCounterparty(
 }
 
 export interface InlineCommitmentHistoryProps {
-  fundId: string;
-  fundName: string;
   holdingEntityId: string;
+  fundId: string;
+  fundName?: string;
   investorName?: string;
   refreshKey?: unknown;
   onOpenDialog?: () => void;
 }
 
 export function InlineCommitmentHistory({
+  holdingEntityId,
   fundId,
   fundName,
-  holdingEntityId,
   refreshKey,
   onOpenDialog,
 }: InlineCommitmentHistoryProps) {
@@ -103,7 +103,7 @@ export function InlineCommitmentHistory({
     setLoading(true);
     setError(null);
     try {
-      const data = await commitmentEventsApi.listCommitmentEvents({
+      const data = await fundLedgerApi.listCommitmentEvents({
         holdingEntityId,
         fundId,
       });
@@ -120,7 +120,7 @@ export function InlineCommitmentHistory({
     setLoading(true);
     setError(null);
 
-    commitmentEventsApi
+    fundLedgerApi
       .listCommitmentEvents({ holdingEntityId, fundId })
       .then((data) => {
         if (!isCancelled) {
@@ -208,7 +208,7 @@ export function InlineCommitmentHistory({
             </thead>
             <tbody>
               {events.map((ev) => {
-                const isPositive = ev.delta > 0;
+                const isPositive = ev.event_type !== 'reduction' && ev.event_type !== 'transfer_out';
                 const counterparty = formatCommitmentCounterparty(
                   ev.event_type,
                   ev.counterparty_holding_entity_id,
@@ -232,7 +232,7 @@ export function InlineCommitmentHistory({
                       )}
                     >
                       {isPositive ? '+' : '−'}
-                      {money(Math.abs(ev.delta) / 1_000_000)}
+                      {money(ev.amount / 1_000_000)}
                     </td>
                     <td className="whitespace-nowrap px-3 py-1.5 text-right font-medium text-foreground">
                       {money(ev.runningBalance / 1_000_000)}

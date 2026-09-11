@@ -2,6 +2,7 @@ import type { ParsedAsset, ParsedTxn, ParsedValuation, StartechParseResult } fro
 export type { ParsedAsset, ParsedTxn, ParsedValuation, StartechParseResult };
 import type { CommitmentEventIntent, ParsedCommitmentEvent } from './parsers/nanjing_fund_ledger';
 export type { CommitmentEventIntent, ParsedCommitmentEvent };
+import type { SellProceedsDestination } from '@/lib/sellProceedsDestination';
 
 export interface SourceLocation {
   sheet: string;
@@ -49,6 +50,17 @@ export type ProposedEventType =
   | 'asset_exit_distribution'
   | 'capital_adjustment'
   | 'other';
+
+export const PERSISTABLE_V1_ASSET_EVENT_TYPES = new Set<ProposedEventType>([
+  'asset_investment',
+  'asset_follow_on_investment',
+  'asset_exit',
+  'asset_exit_distribution',
+]);
+
+export function isPersistableV1AssetEventType(type: ProposedEventType | string): boolean {
+  return PERSISTABLE_V1_ASSET_EVENT_TYPES.has(type as ProposedEventType);
+}
 
 export interface ProposedEvent {
   proposalId: string;
@@ -132,8 +144,71 @@ export interface RowAccounting {
   unaccountedRowItems?: UnaccountedRowItem[];
 }
 
+export interface FundCatalogItem {
+  nameZh: string;
+  nameEn?: string | null;
+  filingCode: string | null;
+  subscribedAmount: number | null;
+  paidInAmount: number | null;
+  investedAmount: number | null;
+}
+
+export type NanjingFundCatalogItem = FundCatalogItem;
+
+export type TransferPairingStatus =
+  | 'paired'
+  | 'reciprocal_reduction_found'
+  | 'unknown_counterparty'
+  | 'missing_counterparty'
+  | 'ambiguous';
+
+export interface TransferPairingMetadata {
+  status: TransferPairingStatus;
+  transferorName?: string | null;
+  counterpartyRaw?: string | null;
+  matchedReductionSourceRow?: number | null;
+  eligibleForTransferOut: boolean;
+  requiresReview: boolean;
+  reviewReason?: string | null;
+}
+
+export type ReviewItemCategory =
+  | 'non_cash_adjustment'
+  | 'truncated_transfer'
+  | 'multi_party_transfer'
+  | 'missing_counterparty'
+  | 'other';
+
+export interface ReviewProposalItem {
+  sourceRow: number;
+  fund: string;
+  fundEnglishName?: string | null;
+  investorName: string | null;
+  investorEnglishName?: string | null;
+  investorTypeRaw?: string | null;
+  date: string | null;
+  amount: number | null;
+  currency: 'CNY';
+  action: string;
+  nature: string | null;
+  direction: string | null;
+  explanation: string;
+  isPostable: false;
+  requiresReview: true;
+  category?: ReviewItemCategory;
+  counterpartyRaw?: string | null;
+  targetRaw?: string | null;
+  entityRaw?: string | null;
+  transferPairing?: TransferPairingMetadata;
+}
+
+export interface NanjingParserOptions {
+  knownMasterInvestors?: string[];
+}
+
 export interface ReconciliationResult {
   metricName: string;
+  fund?: string | null;
   targetEventType?: string;
   sourceValue: number;
   calculatedValue: number;
@@ -254,16 +329,22 @@ export interface LegacyAssetProposal {
   template_id: string;
   stats: StartechParseResult['stats'] & {
     commitment_event_count?: number;
+    review_item_count?: number;
   };
   assets: ParsedAsset[];
   fund_catalog?: string[];
-  /** Investor commitment-ledger rows proposed by a deterministic parser. */
+  fund_catalog_items?: FundCatalogItem[];
+  /** Investor/fund lifecycle rows (commitments, paid-in capital, distributions, transfers). */
   commitment_events?: ParsedCommitmentEvent[];
+  /** Structured review-required items (e.g. non-cash adjustments, write-offs). */
+  review_items?: ReviewProposalItem[];
+  /** Advisory per-fund reconciliation results against summary sheet. */
+  reconciliation?: ReconciliationResult[];
 }
 
 export interface DeterministicParser {
   templateId: string;
-  parse(buffer: Buffer): Promise<FundUpdateStructuredResult | null>;
+  parse(buffer: Buffer, options?: NanjingParserOptions): Promise<FundUpdateStructuredResult | null>;
 }
 
 export type FundUpdateProposal = LegacyAssetProposal | WorkbookFallbackProposalV1;
@@ -287,4 +368,369 @@ export interface FundUpdateStructuredResult {
   matched_companies: unknown[];
   /** Deterministic / LLM proposal payload for HITL. Absent if no assets were found. */
   fund_update_proposal?: FundUpdateProposal;
+}
+
+// -------------------------------------------------------------
+// MB-513 Shared Review Contract Types
+// -------------------------------------------------------------
+
+export type FundUpdateCatalogKind = 'asset' | 'fund' | 'investor' | 'source';
+
+export type FundUpdateCatalogMatchStatus = 'new' | 'existing';
+
+export interface FundUpdateCatalogMatch {
+  name: string;
+  english_name?: string | null;
+  status: FundUpdateCatalogMatchStatus;
+  matched_id: string | null;
+  asset_codes?: string[];
+  auto_created?: boolean;
+  role?: string | null;
+}
+
+export type FundUpdateAssetStatus = 'new' | 'unchanged' | 'add_missing';
+
+export interface FundUpdateAssetReview {
+  code: string;
+  name: string;
+  fund: string;
+  asset_type: ParsedAsset['assetType'];
+  /** Persisted target table; absent on historical reviews. */
+  target_kind?: 'fund' | 'asset';
+  entity: string | null;
+  funding_source: string | null;
+  matched_fund: FundUpdateCatalogMatch | null;
+  matched_investor: FundUpdateCatalogMatch | null;
+  matched_source: FundUpdateCatalogMatch | null;
+  status: FundUpdateAssetStatus;
+  matched_asset_id: string | null;
+  proposed_txn_count: number;
+  proposed_valuation_count: number;
+  existing_txn_count: number;
+  existing_valuation_count: number;
+  missing_txn_count: number;
+  missing_valuation_count: number;
+  /** Full proposed asset (for Overview / tabs). */
+  proposed: ParsedAsset;
+  /** Txns that would be inserted on approve. */
+  missing_txns: ParsedTxn[];
+  /** Valuations whose as_of_date is not yet on the matched asset. */
+  missing_valuations: ParsedValuation[];
+}
+
+export interface FundUpdateFullReview {
+  assets: FundUpdateAssetReview[];
+  funds: FundUpdateCatalogMatch[];
+  investors: FundUpdateCatalogMatch[];
+  sources: FundUpdateCatalogMatch[];
+  groups?: FundUpdateCatalogMatch[];
+  reconciliation?: ReconciliationResult[];
+  review_items?: ReviewProposalItem[];
+  commitment_event_statuses?: Record<number, 'actionable' | 'duplicate'>;
+  two_step_review?: FundUpdateTwoStepReview;
+}
+
+export type WizardStep = 1 | 2;
+
+export type EntityTabKind = 'asset' | 'fund' | 'investor' | 'source';
+export type Step2TabKind = 'transactions' | 'valuations' | 'reconciliation';
+
+export type EntityStatus = 'new' | 'matched' | 'blocked';
+
+export interface EntityLink {
+  key: string;
+  kind: string; // 'Asset' | 'Fund' | 'Investor' | 'Source of Fund'
+  name: string;
+  status: EntityStatus;
+}
+
+export interface EntityField {
+  label: string;
+  value: string | number | null | undefined;
+}
+
+export interface ReviewEntity {
+  key: string; // e.g. "asset:01FN", "fund:Startech Growth Fund 1", "investor:SMMA", "source:DCA"
+  tab: EntityTabKind;
+  code: string;
+  name: string;
+  englishName?: string | null;
+  status: EntityStatus;
+  matchedId: string | null;
+  autoCreated?: boolean;
+  role?: string | null;
+  isGroup?: boolean;
+  groupName?: string | null;
+  txnsCount: number;
+  valsCount: number;
+  fields: EntityField[];
+  links: EntityLink[];
+  isStaged: boolean; // Staged selection semantics only: nothing persists before final approval
+  rawAsset?: FundUpdateAssetReview;
+  rawAssets?: FundUpdateAssetReview[];
+  rawCatalog?: FundUpdateCatalogMatch;
+  isRemapped?: boolean;
+  remappedTo?: {
+    id: string | null;
+    name: string;
+    isNew?: boolean;
+  };
+  matchedIdConflict?: { id1: string; id2: string } | null;
+  blockReason?: string | null;
+}
+
+export interface StagedReviewEntityInput {
+  key: string;
+  name?: string;
+  kind?: string;
+  tab?: EntityTabKind;
+  status?: EntityStatus;
+  matchedId?: string | null;
+  isStaged?: boolean;
+  isGroup?: boolean;
+  rawAssets?: FundUpdateAssetReview[];
+  matchedIdConflict?: { id1: string; id2: string } | null;
+  blockReason?: string | null;
+}
+
+export interface ReviewTransactionLeg {
+  from: string;
+  to: string;
+  type: string;
+  amount: number;
+  units?: number;
+  pps?: number;
+  note?: string;
+}
+
+export interface MultiTransferAllocation {
+  id: string;
+  transferorName: string;
+  amount: number | string;
+}
+
+export interface NonCashAdjustmentState {
+  enabled: boolean;
+  investorName: string;
+  direction: 'reduction' | 'addition';
+  subType: string;
+}
+
+export interface SingleTransferState {
+  enabled: boolean;
+  transferorName: string;
+}
+
+export type BusinessEventBackingRef =
+  | { kind: 'asset_txn'; assetCode: string; txnIndex: number; originalKey?: string }
+  | { kind: 'commitment_event'; sourceRow: number; intent: string }
+  | { kind: 'review_item'; sourceRow: number; category?: string }
+  | { kind: 'v1_event'; proposalId: string; eventType: string };
+
+export type ValuationBackingRef =
+  | { kind: 'asset_valuation'; assetCode: string; valIndex: number; originalKey?: string }
+  | { kind: 'v1_valuation'; proposalId: string };
+
+export interface ReviewTransaction {
+  id: string;
+  sheetRow: number | string;
+  date: string;
+  fromKey: string;
+  toKey: string;
+  srcKey: string | null;
+  sourceKey?: string | null;
+  type: string;
+  subType: string;
+  commitDelta: number | null;
+  quantityDelta: number | null;
+  pricePerShare: number | null;
+  cashDelta: number | null;
+  currency: string;
+  amount?: number | null;
+  positionRef: string | null;
+  status: 'actionable' | 'duplicate' | 'blocked';
+  blockReason?: string | null;
+  selected: boolean;
+  isResolved?: boolean;
+  backingRef?: BusinessEventBackingRef;
+  // Transfer support: transfers are selected as one business event; approval posts all internal legs together
+  isTransfer: boolean;
+  isMultiPartyTransfer?: boolean;
+  allocations?: MultiTransferAllocation[];
+  singleTransferState?: SingleTransferState;
+  legs?: ReviewTransactionLeg[];
+  // Non-cash adjustment support
+  isNonCashAdjustment?: boolean;
+  nonCashState?: NonCashAdjustmentState;
+  // Backing pointers
+  assetCode?: string;
+  originalKey?: string;
+  notes?: string | null;
+  subTypeLabel?: string | null;
+  /**
+   * Effective sell proceeds destination for divestment rows. When the source left
+   * destination unmarked, this is null and the UI renders the effective default.
+   */
+  sellProceedsDestination?: SellProceedsDestination | null;
+  rawTxn?: ParsedTxn;
+  rawReviewItem?: ReviewProposalItem;
+  rawCommitmentEvent?: ParsedCommitmentEvent;
+  rawEvent?: ProposedEvent;
+}
+
+export type ReviewBusinessEvent = ReviewTransaction;
+
+export interface ReviewValuation {
+  id: string;
+  sheetRow: number | string;
+  targetKey?: string;
+  holderKey?: string;
+  assetCode: string;
+  assetName: string;
+  asOfDate: string;
+  periodLabel: string;
+  marketValue: number | null;
+  pricePerShare: number | null;
+  sharesOutstanding: number | null;
+  shareholdingPct: number | null;
+  valuationMethod: string | null;
+  currency: string;
+  notes?: string | null;
+  status: 'actionable' | 'duplicate' | 'blocked';
+  blockReason?: string | null;
+  selected: boolean;
+  backingRef?: ValuationBackingRef;
+  originalKey: string;
+  rawVal?: ParsedValuation;
+  rawValuation?: ProposedValuation;
+}
+
+export interface ReviewReconciliation {
+  fund?: string | null;
+  metricName: string;
+  sourceValue: number;
+  calculatedValue: number;
+  diff: number;
+  diffPct: number;
+  currency?: string;
+  isReconciled: boolean;
+  notes?: string | null;
+}
+
+export interface ReviewOption {
+  key: string;
+  name: string;
+  englishName?: string | null;
+  group: string;
+  isNew?: boolean;
+}
+
+export interface FundUpdateTwoStepReview {
+  entities: ReviewEntity[];
+  transactions: ReviewBusinessEvent[];
+  valuations: ReviewValuation[];
+  reconciliation: ReviewReconciliation[];
+}
+
+export type NormalizedTwoStepReview = FundUpdateTwoStepReview;
+
+export interface ReviewBusinessEventEdits {
+  date?: string;
+  amount?: number;
+  currency?: string;
+  cashDelta?: number | null;
+  quantityDelta?: number | null;
+  pricePerShare?: number | null;
+  notes?: string | null;
+  transferorName?: string;
+  allocations?: Array<{ transferorName: string; amount: number }>;
+  investorName?: string;
+  direction?: 'reduction' | 'addition';
+  subType?: string;
+  type?: string;
+  subTypeLabel?: string | null;
+  /**
+   * Reviewer-stated proceeds destination. Presence means stated (clears the
+   * inferred flag on apply). Omit when the destination remains inferred.
+   */
+  sellProceedsDestination?: SellProceedsDestination | null;
+}
+
+export interface ReviewValuationEdits {
+  asOfDate?: string;
+  marketValue?: number | null;
+  pricePerShare?: number | null;
+  sharesOutstanding?: number | null;
+  shareholdingPct?: number | null;
+  valuationMethod?: string | null;
+  notes?: string | null;
+}
+
+export type SubmittedRowFamily =
+  | 'transaction'
+  | 'valuation'
+  | 'commitment'
+  | 'review_item'
+  | 'commitment_event'
+  | 'review_resolution';
+export type SubmittedRowDisposition = 'posted' | 'duplicate' | 'rejected' | 'stale' | 'partial';
+
+export interface SubmittedRowOutcome {
+  submittedId: string;
+  family: SubmittedRowFamily;
+  disposition: SubmittedRowDisposition;
+  reason?: string | null;
+  assetCode?: string | null;
+  targetId?: string | null;
+  persistedId?: string | null;
+  persistedTable?: 'fl_ledger_entries' | 'fl_valuations' | 'fl_commitment_events' | 'fl_business_events' | null;
+  warnings?: string[];
+  childOutcomes?: SubmittedRowOutcome[];
+}
+
+export interface FundUpdateTwoStepApproval {
+  entityDecisions: Array<{
+    key: string;
+    action: 'use_existing' | 'create' | 'omit';
+    matchedId?: string | null;
+    remappedName?: string | null;
+  }>;
+  transactions: Array<{
+    id: string;
+    edits?: ReviewBusinessEventEdits;
+  }>;
+  valuations: Array<{
+    id: string;
+    edits?: ReviewValuationEdits;
+  }>;
+}
+
+export interface FundUpdateStats {
+  asset_count: number;
+  direct_count: number;
+  fund_of_funds_count: number;
+  transaction_count: number;
+  valuation_count: number;
+  commitment_event_count?: number;
+  total_data_rows?: number;
+  parsed_rows_count?: number;
+  excluded_rows_count?: number;
+  ambiguous_rows_count?: number;
+  coverage_pct?: number;
+  entity_count?: number;
+  event_count?: number;
+}
+
+export interface FundUpdateReviewData {
+  kind: 'fund_updates';
+  file: {
+    id: string;
+    file_name: string;
+    file_type: string | null;
+    processing_status: string;
+  };
+  template_id: string | null;
+  stats: FundUpdateStats | null;
+  summary: string | null;
+  two_step_review: FundUpdateTwoStepReview;
 }

@@ -6,10 +6,9 @@ import { logger } from "../../logger";
 import { createDb } from "@/lib/server/db";
 import {
   AiWorkforceQueueRepository,
-  FundAssetRepository,
-  FundAssetValuationRepository,
+  FlAssetRepository,
+  FlValuationRepository,
 } from "@/lib/repositories";
-import type { TablesUpdate } from "@/lib/repositories";
 import {
   assessFundAiOpinionDataSufficiency,
   clampFundAiOpinionConfidence,
@@ -27,15 +26,11 @@ function extractRunId(config: RunnableConfig | undefined): string | null {
 /**
  * Workforce-only tool: persist a fund holding's AI Opinion — a firm
  * BUY / HOLD / SELL verdict plus a brief (≤50-word) rationale — onto the
- * `fund_assets` row. This is the write half of the right-most "AI Opinion"
- * column in the Fund Management Asset table: the user clicks "Analyze AI
- * Opinion" (or "Re-evaluate"), which enqueues a workforce run; the run
- * reviews the holding's metrics and finishes by calling this tool to record
- * its verdict.
+ * `fl_assets.instrument_terms.aiOpinion` JSON object.
  *
  * Auto-executes (no human approval) — it only writes a narrative verdict, not
  * fund state. Overwrites any prior opinion so re-evaluation is a clean
- * replace, and stamps `ai_opinion_status = 'completed'` so the UI swaps the
+ * replace, and stamps `status = 'completed'` so the UI swaps the
  * spinner for the verdict icon on its next refresh.
  *
  * Confidence is clamped by a server-side data-sufficiency check so a thin
@@ -55,24 +50,26 @@ function clampWords(text: string, maxWords: number): string {
 export const saveFundAiOpinion = tool(
   async (
     {
+      asset_id,
       fund_asset_id,
       verdict,
       summary,
       confidence,
     }: {
-      fund_asset_id: string;
+      asset_id?: string;
+      fund_asset_id?: string;
       verdict: Verdict;
       summary: string;
       confidence: FundAiOpinionConfidence;
     },
     runtime?: RunnableConfig,
   ) => {
+    const rawId = (asset_id ?? fund_asset_id)?.trim();
     logger.debug(
-      `🔧 TOOL CALLED: save_fund_ai_opinion(fund_asset_id='${fund_asset_id}', verdict='${verdict}', confidence='${confidence}')`,
+      `🔧 TOOL CALLED: save_fund_ai_opinion(asset_id='${rawId}', verdict='${verdict}', confidence='${confidence}')`,
     );
 
-    const id = fund_asset_id?.trim();
-    if (!id) return "**Error:** fund_asset_id is required.";
+    if (!rawId) return "**Error:** asset_id is required.";
     const text = summary?.trim();
     if (!text) return "**Error:** summary is required and cannot be empty.";
     if (!VERDICTS.includes(verdict)) {
@@ -85,8 +82,8 @@ export const saveFundAiOpinion = tool(
     try {
       const db = createDb();
       const workspaceId = await getActiveWorkspaceId();
-      const repo = new FundAssetRepository(db, workspaceId);
-      const valuationRepo = new FundAssetValuationRepository(db, workspaceId);
+      const assetRepo = new FlAssetRepository(db);
+      const valuationRepo = new FlValuationRepository(db);
 
       // Refuse writes from a cancelled/terminal run even if a newer dispatch
       // has flipped the holding back to `processing`.
@@ -102,14 +99,32 @@ export const saveFundAiOpinion = tool(
         }
       }
 
-      const asset = await repo.findById(id);
+      const asset = await assetRepo.findById(workspaceId, rawId);
       if (!asset) {
-        return `**Error:** No fund asset found for fund_asset_id "${id}".`;
+        return `**Error:** No fund asset found for asset_id "${rawId}".`;
       }
 
-      const valuations = await valuationRepo.findByFundAssetId(id);
+      const existingTerms = (asset.instrument_terms as Record<string, unknown>) ?? {};
+      const existingOpinion = (existingTerms.aiOpinion as Record<string, unknown>) ?? {};
+
+      if (existingOpinion.status && existingOpinion.status !== 'processing') {
+        return (
+          `**Error:** AI Opinion for asset_id "${rawId}" is no longer processing ` +
+          `(cancelled or superseded); verdict was not saved.`
+        );
+      }
+
+      const valuations = await valuationRepo.findSeriesByTarget(workspaceId, { assetId: rawId });
+      const latestVal = valuations[valuations.length - 1];
+      const fmvAmount = latestVal ? (latestVal.market_value ? parseFloat(latestVal.market_value) : null) : null;
+
       const sufficiency = assessFundAiOpinionDataSufficiency(
-        asset,
+        {
+          sector: asset.sector,
+          country: asset.country,
+          investment_description: asset.description,
+          fmv_amount: fmvAmount,
+        },
         valuations.length,
       );
       const clampedConfidence = clampFundAiOpinionConfidence(
@@ -117,31 +132,30 @@ export const saveFundAiOpinion = tool(
         sufficiency.maxConfidence,
       );
       const dataGaps = formatFundAiOpinionDataGaps(sufficiency.dataGaps);
-
       const clamped = clampWords(text, 50);
-      const updates: TablesUpdate<"fund_assets"> = {
-        ai_opinion_verdict: verdict,
-        ai_opinion_summary: clamped,
-        ai_opinion_confidence: clampedConfidence,
-        ai_opinion_data_gaps: dataGaps || null,
-        ai_opinion_status: "completed",
-        ai_opinion_updated_at: new Date().toISOString(),
+
+      const updatedTerms = {
+        ...existingTerms,
+        aiOpinion: {
+          ...existingOpinion,
+          verdict,
+          summary: clamped,
+          confidence: clampedConfidence,
+          data_gaps: dataGaps || null,
+          status: 'completed',
+          updated_at: new Date().toISOString(),
+        },
       };
 
-      // Conditional on still-processing so cancel → failed wins the race.
-      const updated = await repo.completeAiOpinionIfProcessing(id, updates);
-      if (!updated) {
-        return (
-          `**Error:** AI Opinion for fund_asset_id "${id}" is no longer processing ` +
-          `(cancelled or superseded); verdict was not saved.`
-        );
-      }
+      await assetRepo.update(workspaceId, rawId, {
+        instrument_terms: updatedTerms,
+      });
 
       logger.info(
-        `✓ Fund AI Opinion saved for fund asset ${id}: ${verdict} (${clampedConfidence})`,
+        `✓ Fund AI Opinion saved for fund asset ${rawId}: ${verdict} (${clampedConfidence})`,
       );
       return (
-        `Saved AI Opinion for fund_asset_id "${id}": ${verdict.toUpperCase()} ` +
+        `Saved AI Opinion for asset_id "${rawId}": ${verdict.toUpperCase()} ` +
         `(confidence ${clampedConfidence}) — "${clamped}". ` +
         `The AI Opinion column now reflects this verdict.`
       );
@@ -167,7 +181,7 @@ Confidence meaning (be honest about the basis even when the verdict is firm):
 Be DECISIVE about the verdict. Do NOT use "hold" as a way to avoid committing — reserve it for when the evidence genuinely does not favor buy or sell. Be HONEST about confidence — do not claim high confidence when the holding's recorded data is thin. Cite concrete recorded figures in the summary; say so when external research found nothing reliable. Write the summary in direct language — state the verdict as a conclusion, and avoid hedging words like "may", "might", "could", "possibly", or "seems". The summary must be ≤50 words, plain prose, and justify the verdict (it is truncated server-side if longer).
 
 Args:
-    fund_asset_id: UUID of the fund_assets row to record the opinion for. Required (use verbatim from the instruction).
+    asset_id: UUID of the fl_assets row to record the opinion for. Required.
     verdict: One of "buy", "hold", "sell".
     confidence: One of "high", "medium", "low".
     summary: The ≤50-word rationale. Required, non-empty.
@@ -175,9 +189,14 @@ Args:
 Returns:
     A success message echoing the saved verdict, or an error string starting with **Error:**.`,
     schema: z.object({
+      asset_id: z
+        .string()
+        .optional()
+        .describe("UUID of the fl_assets row to record the AI Opinion for"),
       fund_asset_id: z
         .string()
-        .describe("UUID of the fund_assets row to record the AI Opinion for"),
+        .optional()
+        .describe("Legacy alias for asset_id"),
       verdict: z
         .enum(VERDICTS)
         .describe(

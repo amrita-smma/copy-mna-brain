@@ -61,6 +61,10 @@ export function CurrencyInput({
   const [focused, setFocused] = useState(false);
   const [draft, setDraft] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
+  // Enter/Escape can blur the input after their key handler runs. Finish each
+  // focus session only once so cancel never commits and Enter never commits
+  // the same amount twice.
+  const finishedRef = useRef(false);
   // Currency selection is locked to the workspace display currency: the
   // dropdown defaults to it and the other codes are shown disabled with a note.
   const wsCurrency = useWorkspaceCurrency();
@@ -79,6 +83,8 @@ export function CurrencyInput({
       : formatCompact(amount);
 
   const commit = (fromBlur: boolean) => {
+    if (finishedRef.current) return;
+    finishedRef.current = true;
     const parsed = parseCurrencyInput(draft);
     setFocused(false);
     onCommit(parsed, currency);
@@ -115,6 +121,7 @@ export function CurrencyInput({
         placeholder="0"
         onFocus={() => {
           setDraft(amount == null ? '' : formatGrouped(amount));
+          finishedRef.current = false;
           setFocused(true);
         }}
         onChange={(e) => {
@@ -136,9 +143,11 @@ export function CurrencyInput({
           if (e.key === 'Enter') {
             e.preventDefault();
             commit(false);
+            onBlurred?.();
             inputRef.current?.blur();
           } else if (e.key === 'Escape') {
             e.preventDefault();
+            finishedRef.current = true;
             setFocused(false);
             onBlurred?.();
           }

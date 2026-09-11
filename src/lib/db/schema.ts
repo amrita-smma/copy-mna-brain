@@ -16,6 +16,7 @@ import {
   unique,
   check,
   numeric,
+  char,
   varchar,
   boolean,
   date,
@@ -26,10 +27,6 @@ import {
   type AnyPgColumn,
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
-import {
-  SELL_PROCEEDS_DESTINATIONS,
-  type SellProceedsDestination,
-} from "../sellProceedsDestination";
 
 // MB-205: the analytics schema holds the recomputable / machine-owned data
 // plane — raw layer, email facts, mbox-pipeline state, and the marts. Declared
@@ -3097,10 +3094,6 @@ export const dailyPulse = pgTable(
   },
 );
 
-// --- Fund Management (Confluence 2641362965) ---------------------------
-// Funds the firm manages, the assets each fund holds, their transaction
-// ledgers and valuation history, and fund-level performance rollups.
-
 // ---------------------------------------------------------------------------
 // Company voting (Investment Committee vote on one company)
 // ---------------------------------------------------------------------------
@@ -3246,656 +3239,6 @@ export const companyVoteBallots = pgTable(
   }),
 );
 
-export const fundStatus = pgEnum("fund_status", ["investing", "harvesting"]);
-
-export const assetType = pgEnum("asset_type", [
-  "direct_investment",
-  "cash",
-  "fund_of_funds",
-]);
-
-export const assetStatus = pgEnum("asset_status", [
-  "active",
-  "exiting",
-  "exited",
-]);
-
-export const transactionType = pgEnum("transaction_type", [
-  "contribution",
-  "divestment",
-  "interest_income",
-  "return_of_capital",
-  "other",
-  "internal_transfer",
-]);
-
-export const sellProceedsDestination = pgEnum(
-  "sell_proceeds_destination",
-  SELL_PROCEEDS_DESTINATIONS,
-);
-
-export type { SellProceedsDestination };
-
-export const valuationMethod = pgEnum("valuation_method", [
-  "at_cost",
-  "fundraise_round",
-  "secondary_sale",
-  "stock_market_price",
-  "comparables",
-  "capital_account_statement",
-  "other",
-]);
-
-export const commitmentEventType = pgEnum("commitment_event_type", [
-  "initial_commitment",
-  "additional_commitment",
-  "reduction",
-  "transfer_in",
-  "transfer_out",
-]);
-
-
-// The fund vehicle. `called_amount`, `fmv_amount`, `realized_amount`, `dpi`,
-// `tvpi`, and `irr` are derived rollups normalized into `base_currency` —
-// read-only, background-job-refreshed, and can lag the ledger between a
-// change and the next `FundMetricsService` run (`metrics_computed_at`
-// records staleness). Always gross; Net is only ever computed per-asset.
-export const funds = pgTable("funds", {
-  id: uuid().defaultRandom().primaryKey().notNull(),
-  workspace_id: uuid().notNull().references(() => workspaces.id),
-  name: text().notNull(),
-  description: text(),
-  vintage_year: integer(),
-  commitment_size_amount: numeric({ mode: "number" }),
-  status: fundStatus().default("investing").notNull(),
-  base_currency: text().default("USD").notNull(),
-  called_amount: numeric({ mode: "number" }),
-  fmv_amount: numeric({ mode: "number" }),
-  realized_amount: numeric({ mode: "number" }),
-  dpi: numeric({ mode: "number" }),
-  tvpi: numeric({ mode: "number" }),
-  irr: numeric({ mode: "number" }),
-  metrics_computed_at: timestamp({ withTimezone: true, mode: "string" }),
-  created_by: uuid(),
-  updated_by: uuid(),
-  created_at: timestamp({ withTimezone: true, mode: "string" })
-    .defaultNow()
-    .notNull(),
-  updated_at: timestamp({ withTimezone: true, mode: "string" })
-    .defaultNow()
-    .notNull(),
-}, (table) => ({
-  fundsCreatedByFkey: foreignKey({
-    columns: [table.created_by],
-    foreignColumns: [users.id],
-    name: "funds_created_by_fkey",
-  }).onDelete("set null"),
-  fundsUpdatedByFkey: foreignKey({
-    columns: [table.updated_by],
-    foreignColumns: [users.id],
-    name: "funds_updated_by_fkey",
-  }).onDelete("set null"),
-  idxFundsWorkspaceId: index("idx_funds_workspace_id")
-    .using("btree", table.workspace_id.asc().nullsLast().op("uuid_ops")),
-}));
-
-// An LP. Backs the future by-investor view — created ahead of that view; no
-// repository/service/UI reads from this table yet.
-export const holdingEntities = pgTable("holding_entities", {
-  id: uuid().defaultRandom().primaryKey().notNull(),
-  workspace_id: uuid().notNull().references(() => workspaces.id),
-  name: text().notNull(),
-  entity_type: text("investor_type"),
-  invested_amount: numeric({ mode: "number" }),
-  realized_amount: numeric({ mode: "number" }),
-  fmv_amount: numeric({ mode: "number" }),
-  dpi: numeric({ mode: "number" }),
-  moic: numeric({ mode: "number" }),
-  irr: numeric({ mode: "number" }),
-  metrics_computed_at: timestamp({ withTimezone: true, mode: "string" }),
-  created_by: uuid(),
-  updated_by: uuid(),
-  created_at: timestamp({ withTimezone: true, mode: "string" })
-    .defaultNow()
-    .notNull(),
-  updated_at: timestamp({ withTimezone: true, mode: "string" })
-    .defaultNow()
-    .notNull(),
-}, (table) => ({
-  holdingEntitiesCreatedByFkey: foreignKey({
-    columns: [table.created_by],
-    foreignColumns: [users.id],
-    name: "holding_entities_created_by_fkey",
-  }).onDelete("set null"),
-  holdingEntitiesUpdatedByFkey: foreignKey({
-    columns: [table.updated_by],
-    foreignColumns: [users.id],
-    name: "holding_entities_updated_by_fkey",
-  }).onDelete("set null"),
-  idxHoldingEntitiesWorkspaceId: index("idx_holding_entities_workspace_id")
-    .using("btree", table.workspace_id.asc().nullsLast().op("uuid_ops")),
-}));
-
-// A funding source ("source of fund") capital pool. Root table — carries its
-// own workspace_id. Backs the Source of Fund combobox + the by-source view,
-// and is FK-referenced by fund_investor_stakes / fund_asset_investor_stakes.
-export const fundingSources = pgTable("funding_sources", {
-  id: uuid().defaultRandom().primaryKey().notNull(),
-  workspace_id: uuid().notNull().references(() => workspaces.id),
-  name: text().notNull(),
-  invested_amount: numeric({ mode: "number" }),
-  realized_amount: numeric({ mode: "number" }),
-  fmv_amount: numeric({ mode: "number" }),
-  dpi: numeric({ mode: "number" }),
-  moic: numeric({ mode: "number" }),
-  irr: numeric({ mode: "number" }),
-  metrics_computed_at: timestamp({ withTimezone: true, mode: "string" }),
-  created_by: uuid(),
-  updated_by: uuid(),
-  created_at: timestamp({ withTimezone: true, mode: "string" })
-    .defaultNow()
-    .notNull(),
-  updated_at: timestamp({ withTimezone: true, mode: "string" })
-    .defaultNow()
-    .notNull(),
-}, (table) => ({
-  fundingSourcesCreatedByFkey: foreignKey({
-    columns: [table.created_by],
-    foreignColumns: [users.id],
-    name: "funding_sources_created_by_fkey",
-  }).onDelete("set null"),
-  fundingSourcesUpdatedByFkey: foreignKey({
-    columns: [table.updated_by],
-    foreignColumns: [users.id],
-    name: "funding_sources_updated_by_fkey",
-  }).onDelete("set null"),
-  idxFundingSourcesWorkspaceId: index("idx_funding_sources_workspace_id")
-    .using("btree", table.workspace_id.asc().nullsLast().op("uuid_ops")),
-}));
-
-// `type_details` holds attributes specific to each `asset_type` — for
-// `direct_investment`, `instrumentType` further distinguishes equity, an
-// obligation (loan/note), or publicly traded shares.
-export type DirectInvestmentDetails = {
-  instrumentType?: "equity" | "obligation" | "shares";
-  dealType?: string;
-  entryEV?: number;
-  holdYrs?: number;
-  shareClass?: string;
-  revenue?: number;
-  ebitda?: number;
-  noteType?: string;
-  issuer?: string;
-  coupon?: number;
-  principal?: number;
-  exchange?: string;
-  ticker?: string;
-  sharesOutstanding?: number;
-  marketCapUsdBn?: number;
-  pricePerShare?: string;
-  // Editable in the Fund Management UI's Legal tab but with no dedicated
-  // fund_assets column — kept here since type_details is the flexible
-  // per-asset-type attribute bag.
-  investingEntity?: string;
-  reportDate?: string;
-  prefReturnRatePct?: number;
-  // Cross-references into the source workbook's master tabs (Structure /
-  // Appendix), populated by the portfolio seed: `sourceRef` is the Appendix
-  // "Invt ID" (e.g. "S017"); `vintageYear` its vintage year.
-  sourceRef?: string;
-  vintageYear?: number;
-  /** STARTECH (etc.) workbook sheet/tab code, e.g. "GOTO" — used to re-match uploads. */
-  sheetCode?: string;
-};
-export type CashDetails = { type?: string; institution?: string; yieldPct?: number };
-export type FundOfFundsDetails = {
-  targetFundName?: string;
-  fundManagerName?: string;
-  fundLifeYears?: number;
-  holdYrs?: number;
-  investingEntity?: string;
-  reportDate?: string;
-  dealType?: string;
-  sourceRef?: string;
-  vintageYear?: number;
-  /** STARTECH (etc.) workbook sheet/tab code, e.g. "GOTO" — used to re-match uploads. */
-  sheetCode?: string;
-};
-export type AssetTypeDetails =
-  | DirectInvestmentDetails
-  | CashDetails
-  | FundOfFundsDetails;
-
-// The asset — a company, cash reserve, loan, or fund interest a fund holds.
-// No FK to `companies` (§2 design principle 1): keeps fund reporting
-// independent of pipeline lifecycle events. `share_count`, `gross_moic`,
-// `gross_irr`, `dpi`, `invested_capital_amount`, and `net_distribution_amount`
-// are derived rollups aggregated from `fundAssetTransactions`, normalized into
-// `report_currency` (share counts keep native units) — read-only, see `funds`
-// above for the same staleness caveat.
-export const fundAssets = pgTable("fund_assets", {
-  id: uuid().defaultRandom().primaryKey().notNull(),
-  workspace_id: uuid().notNull().references(() => workspaces.id),
-  asset_type: assetType().notNull(),
-  asset_name: text(),
-  legal_name: text(),
-  // Latin-alphabet rendering of `asset_name` for investments recorded under a
-  // non-English name (e.g. 株式会社ABC). Optional; when present the UI shows it
-  // in brackets after the asset name.
-  english_name: text(),
-  country: text(),
-  funding_source: text(),
-  investment_type: text(),
-  entry_date: date(),
-  maturity_date: date(),
-  commitment_amount: numeric({ mode: "number" }),
-  stake_pct: numeric({ mode: "number" }),
-  sector: text(),
-  sub_sector: text(),
-  investment_currency: text().default("USD"),
-  report_currency: text().default("USD"),
-  investment_description: text(),
-  key_rights: text(),
-  subscription_fee_amount: numeric({ mode: "number" }),
-  mgmt_fee_rate_pct: numeric({ mode: "number" }),
-  carry_rate_pct: numeric({ mode: "number" }),
-  legal_fees_amount: numeric({ mode: "number" }),
-  type_details: jsonb().$type<AssetTypeDetails>().default({}),
-  status: assetStatus().default("active").notNull(),
-  current_price_per_share: numeric({ mode: "number" }),
-  share_count: numeric({ mode: "number" }),
-  gross_moic: numeric({ mode: "number" }),
-  gross_irr: numeric({ mode: "number" }),
-  dpi: numeric({ mode: "number" }),
-  invested_capital_amount: numeric({ mode: "number" }),
-  net_distribution_amount: numeric({ mode: "number" }),
-  fmv_amount: numeric({ mode: "number" }),
-  is_manually_overridden: boolean().default(false).notNull(),
-  metrics_computed_at: timestamp({ withTimezone: true, mode: "string" }),
-  // AI Opinion: a firm BUY/HOLD/SELL verdict + ≤50-word rationale produced
-  // by an AI Workforce run, surfaced as the right-most Asset table column.
-  // `ai_opinion_status` tracks the in-flight run lifecycle
-  // ('processing' | 'completed' | 'failed').
-  // `ai_opinion_confidence` is high|medium|low (clamped by server-side
-  // data sufficiency); `ai_opinion_data_gaps` lists sparse-data reasons.
-  ai_opinion_verdict: text(),
-  ai_opinion_summary: text(),
-  ai_opinion_status: text(),
-  ai_opinion_updated_at: timestamp({ withTimezone: true, mode: "string" }),
-  ai_opinion_confidence: text(),
-  ai_opinion_data_gaps: text(),
-  created_by: uuid(),
-  updated_by: uuid(),
-  created_at: timestamp({ withTimezone: true, mode: "string" })
-    .defaultNow()
-    .notNull(),
-  updated_at: timestamp({ withTimezone: true, mode: "string" })
-    .defaultNow()
-    .notNull(),
-}, (table) => ({
-  fundAssetsCreatedByFkey: foreignKey({
-    columns: [table.created_by],
-    foreignColumns: [users.id],
-    name: "fund_assets_created_by_fkey",
-  }).onDelete("set null"),
-  fundAssetsUpdatedByFkey: foreignKey({
-    columns: [table.updated_by],
-    foreignColumns: [users.id],
-    name: "fund_assets_updated_by_fkey",
-  }).onDelete("set null"),
-  idxFundAssetsWorkspaceId: index("idx_fund_assets_workspace_id")
-    .using("btree", table.workspace_id.asc().nullsLast().op("uuid_ops")),
-}));
-
-// An LP's commitment-based stake in a fund. Funds are not unitized — there
-// is no per-unit NAV, so this table has no `share_count`; an LP's fractional
-// ownership is derived as `commitment_amount / SUM(commitment_amount)`
-// across every stake row for that fund, not stored. Contrast with
-// `fundAssetInvestorStakes.share_count`, a real count (§5.6).
-//
-// `commitment_amount` and `invested_amount` are tracked separately, per PE
-// convention: commitment is what an LP has pledged to the fund, invested is
-// what's actually been called/drawn down so far — they diverge over the
-// fund's life. Each gets its own currency column (not a single shared
-// `currency`) since the two can, in principle, be denominated differently.
-export const fundHoldingEntityStakes = pgTable("fund_investor_stakes", {
-  id: uuid().defaultRandom().primaryKey().notNull(),
-  fund_id: uuid().notNull(),
-  // holding_entity_id and funding_source_id are nullable: a stake belongs to a fund
-  // (required) but the entity and/or funding source are optional (relaxed from
-  // the base's NOT NULL by 20260709000000_relax_fund_investor_stake_nulls).
-  holding_entity_id: uuid(),
-  funding_source_id: uuid(),
-  commitment_amount: numeric({ mode: "number" }),
-  commitment_amount_currency: text().default("USD"),
-  invested_amount: numeric({ mode: "number" }),
-  invested_amount_currency: text().default("USD"),
-  created_by: uuid(),
-  updated_by: uuid(),
-  created_at: timestamp({ withTimezone: true, mode: "string" })
-    .defaultNow()
-    .notNull(),
-  updated_at: timestamp({ withTimezone: true, mode: "string" })
-    .defaultNow()
-    .notNull(),
-}, (table) => ({
-  fundInvestorStakesFundFkey: foreignKey({
-    columns: [table.fund_id],
-    foreignColumns: [funds.id],
-    name: "fund_investor_stakes_fund_id_fkey",
-  }).onDelete("cascade"),
-  fundInvestorStakesHoldingEntityFkey: foreignKey({
-    columns: [table.holding_entity_id],
-    foreignColumns: [holdingEntities.id],
-    name: "fund_investor_stakes_holding_entity_id_fkey",
-  }).onDelete("cascade"),
-  fundInvestorStakesFundingSourceFkey: foreignKey({
-    columns: [table.funding_source_id],
-    foreignColumns: [fundingSources.id],
-    name: "fund_investor_stakes_funding_source_id_fkey",
-  }).onDelete("cascade"),
-  fundInvestorStakesUniq: unique("fund_investor_stakes_fund_investor_uniq")
-    .on(table.fund_id, table.holding_entity_id, table.funding_source_id),
-  // No separate single-column index on fund_id: the composite unique index
-  // above already serves fund_id-only lookups via leftmost-prefix matching.
-  fundInvestorStakesCreatedByFkey: foreignKey({
-    columns: [table.created_by],
-    foreignColumns: [users.id],
-    name: "fund_investor_stakes_created_by_fkey",
-  }).onDelete("set null"),
-  fundInvestorStakesUpdatedByFkey: foreignKey({
-    columns: [table.updated_by],
-    foreignColumns: [users.id],
-    name: "fund_investor_stakes_updated_by_fkey",
-  }).onDelete("set null"),
-}));
-
-// MB-492: Investor-to-fund commitment event ledger. Tracks the chronological
-// history of an LP's commitment changes (initial commitments, additions, reductions,
-// and transfers between holding entities). `fundHoldingEntityStakes.commitment_amount`
-// is maintained as the current projected balance across this ledger.
-export const fundInvestorCommitmentEvents = pgTable("fund_investor_commitment_events", {
-  id: uuid().defaultRandom().primaryKey().notNull(),
-  fund_id: uuid().notNull(),
-  holding_entity_id: uuid().notNull(),
-  effective_date: date().notNull(),
-  event_type: commitmentEventType().notNull(),
-  amount: numeric({ mode: "number" }).notNull(),
-  currency: text().default("USD").notNull(),
-  counterparty_holding_entity_id: uuid(),
-  transfer_group_id: uuid(),
-  notes: text(),
-  source: text(),
-  created_by: uuid(),
-  updated_by: uuid(),
-  created_at: timestamp({ withTimezone: true, mode: "string" })
-    .defaultNow()
-    .notNull(),
-  updated_at: timestamp({ withTimezone: true, mode: "string" })
-    .defaultNow()
-    .notNull(),
-}, (table) => ({
-  fundCommitmentEventsFundFkey: foreignKey({
-    columns: [table.fund_id],
-    foreignColumns: [funds.id],
-    name: "fund_investor_commitment_events_fund_id_fkey",
-  }).onDelete("cascade"),
-  fundCommitmentEventsHoldingEntityFkey: foreignKey({
-    columns: [table.holding_entity_id],
-    foreignColumns: [holdingEntities.id],
-    name: "fund_investor_commitment_events_holding_entity_id_fkey",
-  }).onDelete("cascade"),
-  fundCommitmentEventsCounterpartyFkey: foreignKey({
-    columns: [table.counterparty_holding_entity_id],
-    foreignColumns: [holdingEntities.id],
-    name: "fund_investor_commitment_events_counterparty_holding_entity_id_fkey",
-  }).onDelete("set null"),
-  fundCommitmentEventsCreatedByFkey: foreignKey({
-    columns: [table.created_by],
-    foreignColumns: [users.id],
-    name: "fund_investor_commitment_events_created_by_fkey",
-  }).onDelete("set null"),
-  fundCommitmentEventsUpdatedByFkey: foreignKey({
-    columns: [table.updated_by],
-    foreignColumns: [users.id],
-    name: "fund_investor_commitment_events_updated_by_fkey",
-  }).onDelete("set null"),
-  idxFundCommitmentEventsFundHolding: index("idx_fund_commitment_events_fund_holding_entity")
-    .on(table.fund_id, table.holding_entity_id),
-  idxFundCommitmentEventsTransferGroup: index("idx_fund_commitment_events_transfer_group")
-    .on(table.transfer_group_id),
-  fundCommitmentEventsAmountPositive: check(
-    "fund_commitment_events_amount_positive",
-    sql`${table.amount} > 0`,
-  ),
-}));
-
-
-// The ledger — every cash flow into or out of an asset. `share_count` here
-// is a single transaction's delta, not a running total — see
-// `fundAssets.share_count` for the cumulative figure of the same name. No
-// own `workspace_id` — child of `fundAssets` via the NOT NULL
-// `fund_asset_id` below; scope via a join/subquery through the parent.
-export const fundAssetTransactions = pgTable("fund_asset_transactions", {
-  id: uuid().defaultRandom().primaryKey().notNull(),
-  fund_asset_id: uuid().notNull(),
-  fund_id: uuid(),
-  holding_entity_id: uuid(),
-  funding_source_id: uuid(),
-  txn_date: date().notNull(),
-  txn_type: transactionType().notNull(),
-  sub_type_label: text(),
-  price_per_share: numeric({ mode: "number" }),
-  share_count: numeric({ mode: "number" }),
-  value_amount: numeric({ mode: "number" }),
-  txn_currency: text(),
-  fx_rate: numeric({ mode: "number" }),
-  sell_proceeds_destination: sellProceedsDestination(),
-  source_divestment_txn_id: uuid(),
-  notes: text(),
-  created_by: uuid(),
-  updated_by: uuid(),
-  created_at: timestamp({ withTimezone: true, mode: "string" })
-    .defaultNow()
-    .notNull(),
-  updated_at: timestamp({ withTimezone: true, mode: "string" })
-    .defaultNow()
-    .notNull(),
-}, (table) => ({
-  fundAssetTxnFkey: foreignKey({
-    columns: [table.fund_asset_id],
-    foreignColumns: [fundAssets.id],
-    name: "fund_asset_transactions_fund_asset_id_fkey",
-  }).onDelete("cascade"),
-  fundAssetTxnFundFkey: foreignKey({
-    columns: [table.fund_id],
-    foreignColumns: [funds.id],
-    name: "fund_asset_transactions_fund_id_fkey",
-  }).onDelete("set null"),
-  fundAssetTxnHoldingEntityFkey: foreignKey({
-    columns: [table.holding_entity_id],
-    foreignColumns: [holdingEntities.id],
-    name: "fund_asset_transactions_holding_entity_id_fkey",
-  }).onDelete("set null"),
-  fundAssetTxnFundingSourceFkey: foreignKey({
-    columns: [table.funding_source_id],
-    foreignColumns: [fundingSources.id],
-    name: "fund_asset_transactions_funding_source_id_fkey",
-  }).onDelete("set null"),
-  fundAssetTxnSourceDivestmentFkey: foreignKey({
-    columns: [table.source_divestment_txn_id],
-    foreignColumns: [table.id],
-    name: "fund_asset_transactions_source_divestment_fkey",
-  }).onDelete("cascade"),
-  fundAssetTxnCreatedByFkey: foreignKey({
-    columns: [table.created_by],
-    foreignColumns: [users.id],
-    name: "fund_asset_transactions_created_by_fkey",
-  }).onDelete("set null"),
-  fundAssetTxnUpdatedByFkey: foreignKey({
-    columns: [table.updated_by],
-    foreignColumns: [users.id],
-    name: "fund_asset_transactions_updated_by_fkey",
-  }).onDelete("set null"),
-  fundAssetTxnSellProceedsDestinationChk: check(
-    "fund_asset_transactions_sell_proceeds_destination_chk",
-    sql`(txn_type = 'divestment' AND sell_proceeds_destination IS NOT NULL) OR (txn_type != 'divestment' AND sell_proceeds_destination IS NULL)`,
-  ),
-  fundAssetTxnSourceDivestmentUniq: unique(
-    "fund_asset_transactions_source_divestment_uniq",
-  ).on(table.source_divestment_txn_id),
-  idxFundAssetTxnAsset: index("idx_fund_asset_transactions_fund_asset_id")
-    .using("btree", table.fund_asset_id.asc().nullsLast().op("uuid_ops")),
-}));
-
-// A snapshot of an asset's value and derived metrics as of a specific date.
-// `currency` is captured per row, not inherited from the asset, since a
-// valuation source (e.g. a capital account statement) can report in a
-// different currency than the asset's usual `investment_currency`. No own
-// `workspace_id` — child of `fundAssets` via the NOT NULL `fund_asset_id`
-// below; scope via a join/subquery through the parent.
-export const fundAssetValuations = pgTable("fund_asset_valuations", {
-  id: uuid().defaultRandom().primaryKey().notNull(),
-  fund_asset_id: uuid().notNull(),
-  as_of_date: date().notNull(),
-  period_label: text(),
-  valuation_method: valuationMethod(),
-  currency: text().default("USD"),
-  market_value_amount: numeric({ mode: "number" }),
-  price_per_share: numeric({ mode: "number" }),
-  shares_outstanding: numeric({ mode: "number" }),
-  shareholding_pct: numeric({ mode: "number" }),
-  invested_capital_cum_amount: numeric({ mode: "number" }),
-  net_distribution_amount: numeric({ mode: "number" }),
-  gross_moic: numeric({ mode: "number" }),
-  dpi: numeric({ mode: "number" }),
-  gross_xirr: numeric({ mode: "number" }),
-  notes: text(),
-  created_by: uuid(),
-  updated_by: uuid(),
-  created_at: timestamp({ withTimezone: true, mode: "string" })
-    .defaultNow()
-    .notNull(),
-  updated_at: timestamp({ withTimezone: true, mode: "string" })
-    .defaultNow()
-    .notNull(),
-}, (table) => ({
-  fundAssetValuationFkey: foreignKey({
-    columns: [table.fund_asset_id],
-    foreignColumns: [fundAssets.id],
-    name: "fund_asset_valuations_fund_asset_id_fkey",
-  }).onDelete("cascade"),
-  fundAssetValuationUniq: unique("fund_asset_valuations_asset_date_uniq")
-    .on(table.fund_asset_id, table.as_of_date),
-  // No separate single-column index on fund_asset_id: the composite unique
-  // index above already serves fund_asset_id-only lookups (leftmost-prefix).
-  fundAssetValuationCreatedByFkey: foreignKey({
-    columns: [table.created_by],
-    foreignColumns: [users.id],
-    name: "fund_asset_valuations_created_by_fkey",
-  }).onDelete("set null"),
-  fundAssetValuationUpdatedByFkey: foreignKey({
-    columns: [table.updated_by],
-    foreignColumns: [users.id],
-    name: "fund_asset_valuations_updated_by_fkey",
-  }).onDelete("set null"),
-}));
-
-// An investor's direct co-investment in one specific asset, bypassing the
-// fund's own commitment structure — unlike `fundInvestorStakes`, this one
-// has a real `share_count` (§5.6).
-export const fundAssetHoldingEntityStakes = pgTable("fund_asset_investor_stakes", {
-  id: uuid().defaultRandom().primaryKey().notNull(),
-  fund_asset_id: uuid().notNull(),
-  holding_entity_id: uuid().notNull(),
-  funding_source_id: uuid().notNull(),
-  commitment_amount: numeric({ mode: "number" }),
-  currency: text().default("USD"),
-  share_count: numeric({ mode: "number" }),
-  created_by: uuid(),
-  updated_by: uuid(),
-  created_at: timestamp({ withTimezone: true, mode: "string" })
-    .defaultNow()
-    .notNull(),
-  updated_at: timestamp({ withTimezone: true, mode: "string" })
-    .defaultNow()
-    .notNull(),
-}, (table) => ({
-  fundAssetInvestorStakesAssetFkey: foreignKey({
-    columns: [table.fund_asset_id],
-    foreignColumns: [fundAssets.id],
-    name: "fund_asset_investor_stakes_fund_asset_id_fkey",
-  }).onDelete("cascade"),
-  fundAssetInvestorStakesHoldingEntityFkey: foreignKey({
-    columns: [table.holding_entity_id],
-    foreignColumns: [holdingEntities.id],
-    name: "fund_asset_investor_stakes_holding_entity_id_fkey",
-  }).onDelete("cascade"),
-  fundAssetInvestorStakesFundingSourceFkey: foreignKey({
-    columns: [table.funding_source_id],
-    foreignColumns: [fundingSources.id],
-    name: "fund_asset_investor_stakes_funding_source_id_fkey",
-  }).onDelete("cascade"),
-  fundAssetInvestorStakesUniq: unique(
-    "fund_asset_investor_stakes_asset_investor_uniq",
-  ).on(table.fund_asset_id, table.holding_entity_id, table.funding_source_id),
-  // No separate single-column index on fund_asset_id: the composite unique
-  // index above already serves fund_asset_id-only lookups (leftmost-prefix).
-  fundAssetInvestorStakesCreatedByFkey: foreignKey({
-    columns: [table.created_by],
-    foreignColumns: [users.id],
-    name: "fund_asset_investor_stakes_created_by_fkey",
-  }).onDelete("set null"),
-  fundAssetInvestorStakesUpdatedByFkey: foreignKey({
-    columns: [table.updated_by],
-    foreignColumns: [users.id],
-    name: "fund_asset_investor_stakes_updated_by_fkey",
-  }).onDelete("set null"),
-}));
-
-// Fund-level history — the same time-series shape as `fundAssetValuations`,
-// aggregated to the fund: committed, called, fair market value, realized
-// value, and return metrics as of a given date.
-export const fundValuations = pgTable("fund_valuations", {
-  id: uuid().defaultRandom().primaryKey().notNull(),
-  fund_id: uuid().notNull(),
-  as_of_date: date().notNull(),
-  period_label: text(),
-  currency: text().default("USD"),
-  committed_amount: numeric({ mode: "number" }),
-  called_amount: numeric({ mode: "number" }),
-  fmv_amount: numeric({ mode: "number" }),
-  realized_amount: numeric({ mode: "number" }),
-  gross_moic: numeric({ mode: "number" }),
-  gross_irr: numeric({ mode: "number" }),
-  dpi: numeric({ mode: "number" }),
-  created_by: uuid(),
-  updated_by: uuid(),
-  created_at: timestamp({ withTimezone: true, mode: "string" })
-    .defaultNow()
-    .notNull(),
-  updated_at: timestamp({ withTimezone: true, mode: "string" })
-    .defaultNow()
-    .notNull(),
-}, (table) => ({
-  fundValuationFkey: foreignKey({
-    columns: [table.fund_id],
-    foreignColumns: [funds.id],
-    name: "fund_valuations_fund_id_fkey",
-  }).onDelete("cascade"),
-  fundValuationUniq: unique("fund_valuations_fund_date_uniq")
-    .on(table.fund_id, table.as_of_date),
-  fundValuationCreatedByFkey: foreignKey({
-    columns: [table.created_by],
-    foreignColumns: [users.id],
-    name: "fund_valuations_created_by_fkey",
-  }).onDelete("set null"),
-  fundValuationUpdatedByFkey: foreignKey({
-    columns: [table.updated_by],
-    foreignColumns: [users.id],
-    name: "fund_valuations_updated_by_fkey",
-  }).onDelete("set null"),
-}));
 
 // ── Data Navigator RSS news lake (schema `rss`) ─────────────────────────────
 // Pipeline-owned and GLOBAL: no workspace_id anywhere. The feed catalog and
@@ -4018,3 +3361,599 @@ export const rssIngestRuns = rss.table("ingest_runs", {
   stats: jsonb().default({}).notNull(),
   error: text(),
 });
+// ===== Fund Ledger v2 =====
+
+// Enums (prefixed with fl_)
+export const flInvestorType = pgEnum("fl_investor_type", [
+  "individual",
+  "institution",
+  "internal_entity",
+]);
+
+export const flOwnershipBasis = pgEnum("fl_ownership_basis", [
+  "units",
+  "commitment",
+  "capital_account",
+]);
+
+export const flFundStatus = pgEnum("fl_fund_status", [
+  "raising",
+  "investing",
+  "harvesting",
+  "liquidated",
+]);
+
+export const flAssetKind = pgEnum("fl_asset_kind", [
+  "equity",
+  "loan",
+  "note",
+  "safe",
+  "real_estate",
+  "listed_security",
+  "cash",
+  "other",
+]);
+
+export const flPositionStatus = pgEnum("fl_position_status", [
+  "open",
+  "closed",
+]);
+
+export const flEntryType = pgEnum("fl_entry_type", [
+  "commitment",
+  "commitment_transfer",
+  "paid_in",
+  "distribution",
+  "redemption",
+  "unit_transfer",
+  "buy",
+  "sell",
+  "income",
+  "expense",
+  "adjustment",
+  "cash_movement",
+]);
+
+export const flEventStatus = pgEnum("fl_event_status", [
+  "posted",
+  "reversed",
+]);
+
+export const flDataStatus = pgEnum("fl_data_status", [
+  "verified",
+  "needs_verification",
+]);
+
+export const flValuationMethod = pgEnum("fl_valuation_method", [
+  "at_cost",
+  "fundraise_round",
+  "secondary_sale",
+  "listed_price",
+  "comparables",
+  "capital_account_statement",
+  "appraisal",
+  "other",
+]);
+
+// Tables (11)
+
+// 1. fl_investors — LPs, group holding entities, and internal balance-sheet entities.
+export const flInvestors = pgTable("fl_investors", {
+  id: uuid().defaultRandom().primaryKey().notNull(),
+  workspace_id: uuid().notNull().references(() => workspaces.id, { onDelete: "cascade" }),
+  name: text().notNull(),
+  canonical_name: text().notNull(),
+  legal_name: text(),
+  english_name: text(),
+  investor_type: flInvestorType().notNull(),
+  country: text(),
+  parent_investor_id: uuid(),
+  notes: text(),
+  created_by: uuid(),
+  updated_by: uuid(),
+  created_at: timestamp({ withTimezone: true, mode: "string" })
+    .defaultNow()
+    .notNull(),
+  updated_at: timestamp({ withTimezone: true, mode: "string" })
+    .defaultNow()
+    .notNull(),
+}, (table) => ({
+  flInvestorsParentFkey: foreignKey({
+    columns: [table.parent_investor_id],
+    foreignColumns: [table.id],
+    name: "fl_investors_parent_investor_id_fkey",
+  }).onDelete("set null"),
+  flInvestorsCreatedByFkey: foreignKey({
+    columns: [table.created_by],
+    foreignColumns: [users.id],
+    name: "fl_investors_created_by_fkey",
+  }).onDelete("set null"),
+  flInvestorsUpdatedByFkey: foreignKey({
+    columns: [table.updated_by],
+    foreignColumns: [users.id],
+    name: "fl_investors_updated_by_fkey",
+  }).onDelete("set null"),
+  idxFlInvestorsWorkspaceId: index("idx_fl_investors_workspace_id")
+    .using("btree", table.workspace_id.asc().nullsLast().op("uuid_ops")),
+  flInvestorsWorkspaceCanonicalNameUniq: uniqueIndex("fl_investors_workspace_canonical_name_uniq")
+    .on(table.workspace_id, table.canonical_name),
+}));
+
+// 2. fl_funds — unitized / commitment-based investment vehicles (managed or external).
+export const flFunds = pgTable("fl_funds", {
+  id: uuid().defaultRandom().primaryKey().notNull(),
+  workspace_id: uuid().notNull().references(() => workspaces.id, { onDelete: "cascade" }),
+  name: text().notNull(),
+  canonical_name: text().notNull(),
+  legal_name: text(),
+  english_name: text(),
+  registration_no: text(),
+  managed: boolean().default(false).notNull(),
+  ownership_basis: flOwnershipBasis().notNull(),
+  base_currency: char({ length: 3 }).default("USD").notNull(),
+  vintage_year: integer(),
+  fund_life_years: integer(),
+  status: flFundStatus().default("investing").notNull(),
+  mgmt_fee_rate: numeric({ precision: 9, scale: 6 }),
+  carry_rate: numeric({ precision: 9, scale: 6 }),
+  preferred_return_rate: numeric({ precision: 9, scale: 6 }),
+  description: text(),
+  created_by: uuid(),
+  updated_by: uuid(),
+  created_at: timestamp({ withTimezone: true, mode: "string" })
+    .defaultNow()
+    .notNull(),
+  updated_at: timestamp({ withTimezone: true, mode: "string" })
+    .defaultNow()
+    .notNull(),
+}, (table) => ({
+  flFundsCreatedByFkey: foreignKey({
+    columns: [table.created_by],
+    foreignColumns: [users.id],
+    name: "fl_funds_created_by_fkey",
+  }).onDelete("set null"),
+  flFundsUpdatedByFkey: foreignKey({
+    columns: [table.updated_by],
+    foreignColumns: [users.id],
+    name: "fl_funds_updated_by_fkey",
+  }).onDelete("set null"),
+  idxFlFundsWorkspaceId: index("idx_fl_funds_workspace_id")
+    .using("btree", table.workspace_id.asc().nullsLast().op("uuid_ops")),
+  flFundsWorkspaceCanonicalNameUniq: uniqueIndex("fl_funds_workspace_canonical_name_uniq")
+    .on(table.workspace_id, table.canonical_name),
+}));
+
+// 3. fl_assets — investable assets (companies, loans, notes, safes, real estate, etc.).
+export const flAssets = pgTable("fl_assets", {
+  id: uuid().defaultRandom().primaryKey().notNull(),
+  workspace_id: uuid().notNull().references(() => workspaces.id, { onDelete: "cascade" }),
+  name: text().notNull(),
+  canonical_name: text().notNull(),
+  legal_name: text(),
+  english_name: text(),
+  asset_kind: flAssetKind().notNull(),
+  country: text(),
+  sector: text(),
+  sub_sector: text(),
+  instrument_terms: jsonb().default({}).notNull(),
+  description: text(),
+  created_by: uuid(),
+  updated_by: uuid(),
+  created_at: timestamp({ withTimezone: true, mode: "string" })
+    .defaultNow()
+    .notNull(),
+  updated_at: timestamp({ withTimezone: true, mode: "string" })
+    .defaultNow()
+    .notNull(),
+}, (table) => ({
+  flAssetsCreatedByFkey: foreignKey({
+    columns: [table.created_by],
+    foreignColumns: [users.id],
+    name: "fl_assets_created_by_fkey",
+  }).onDelete("set null"),
+  flAssetsUpdatedByFkey: foreignKey({
+    columns: [table.updated_by],
+    foreignColumns: [users.id],
+    name: "fl_assets_updated_by_fkey",
+  }).onDelete("set null"),
+  idxFlAssetsWorkspaceId: index("idx_fl_assets_workspace_id")
+    .using("btree", table.workspace_id.asc().nullsLast().op("uuid_ops")),
+  flAssetsWorkspaceCanonicalNameUniq: uniqueIndex("fl_assets_workspace_canonical_name_uniq")
+    .on(table.workspace_id, table.canonical_name),
+  flAssetsSystemCashCurrencyUniq: uniqueIndex("fl_assets_system_cash_currency_uniq")
+    .on(table.workspace_id, sql`(${table.instrument_terms}->>'currency')`)
+    .where(sql`${table.asset_kind} = 'cash' AND ${table.instrument_terms}->>'system_cash' = 'true'`),
+}));
+
+// 4. fl_funding_sources — attribution dimension for where money originated.
+export const flFundingSources = pgTable("fl_funding_sources", {
+  id: uuid().defaultRandom().primaryKey().notNull(),
+  workspace_id: uuid().notNull().references(() => workspaces.id, { onDelete: "cascade" }),
+  name: text().notNull(),
+  canonical_name: text().notNull(),
+  source_type: text(),
+  owner_investor_id: uuid(),
+  currency: char({ length: 3 }),
+  created_by: uuid(),
+  updated_by: uuid(),
+  created_at: timestamp({ withTimezone: true, mode: "string" })
+    .defaultNow()
+    .notNull(),
+  updated_at: timestamp({ withTimezone: true, mode: "string" })
+    .defaultNow()
+    .notNull(),
+}, (table) => ({
+  flFundingSourcesOwnerFkey: foreignKey({
+    columns: [table.owner_investor_id],
+    foreignColumns: [flInvestors.id],
+    name: "fl_funding_sources_owner_investor_id_fkey",
+  }).onDelete("set null"),
+  flFundingSourcesCreatedByFkey: foreignKey({
+    columns: [table.created_by],
+    foreignColumns: [users.id],
+    name: "fl_funding_sources_created_by_fkey",
+  }).onDelete("set null"),
+  flFundingSourcesUpdatedByFkey: foreignKey({
+    columns: [table.updated_by],
+    foreignColumns: [users.id],
+    name: "fl_funding_sources_updated_by_fkey",
+  }).onDelete("set null"),
+  idxFlFundingSourcesWorkspaceId: index("idx_fl_funding_sources_workspace_id")
+    .using("btree", table.workspace_id.asc().nullsLast().op("uuid_ops")),
+  flFundingSourcesWorkspaceCanonicalNameUniq: uniqueIndex("fl_funding_sources_workspace_canonical_name_uniq")
+    .on(table.workspace_id, table.canonical_name),
+}));
+
+// 5. fl_positions — accounts representing WHO holds WHAT (fund participation or asset holding).
+export const flPositions = pgTable("fl_positions", {
+  id: uuid().defaultRandom().primaryKey().notNull(),
+  workspace_id: uuid().notNull().references(() => workspaces.id, { onDelete: "cascade" }),
+  holder_investor_id: uuid(),
+  holder_fund_id: uuid(),
+  fund_id: uuid(),
+  asset_id: uuid(),
+  holder_source_of_fund_id: uuid(),
+  status: flPositionStatus().default("open").notNull(),
+  opened_at: date(),
+  closed_at: date(),
+  notes: text(),
+  created_by: uuid(),
+  updated_by: uuid(),
+  created_at: timestamp({ withTimezone: true, mode: "string" })
+    .defaultNow()
+    .notNull(),
+  updated_at: timestamp({ withTimezone: true, mode: "string" })
+    .defaultNow()
+    .notNull(),
+}, (table) => ({
+  flPositionsHolderInvestorFkey: foreignKey({
+    columns: [table.holder_investor_id],
+    foreignColumns: [flInvestors.id],
+    name: "fl_positions_holder_investor_id_fkey",
+  }).onDelete("cascade"),
+  flPositionsHolderFundFkey: foreignKey({
+    columns: [table.holder_fund_id],
+    foreignColumns: [flFunds.id],
+    name: "fl_positions_holder_fund_id_fkey",
+  }).onDelete("cascade"),
+  flPositionsFundFkey: foreignKey({
+    columns: [table.fund_id],
+    foreignColumns: [flFunds.id],
+    name: "fl_positions_fund_id_fkey",
+  }).onDelete("cascade"),
+  flPositionsAssetFkey: foreignKey({
+    columns: [table.asset_id],
+    foreignColumns: [flAssets.id],
+    name: "fl_positions_asset_id_fkey",
+  }).onDelete("cascade"),
+  flPositionsHolderSourceOfFundFkey: foreignKey({
+    columns: [table.holder_source_of_fund_id],
+    foreignColumns: [flFundingSources.id],
+    name: "fl_positions_holder_source_of_fund_id_fkey",
+  }).onDelete("restrict"),
+  flPositionsCreatedByFkey: foreignKey({
+    columns: [table.created_by],
+    foreignColumns: [users.id],
+    name: "fl_positions_created_by_fkey",
+  }).onDelete("set null"),
+  flPositionsUpdatedByFkey: foreignKey({
+    columns: [table.updated_by],
+    foreignColumns: [users.id],
+    name: "fl_positions_updated_by_fkey",
+  }).onDelete("set null"),
+  idxFlPositionsWorkspaceId: index("idx_fl_positions_workspace_id")
+    .using("btree", table.workspace_id.asc().nullsLast().op("uuid_ops")),
+  idxFlPositionsFundId: index("idx_fl_positions_fund_id")
+    .using("btree", table.fund_id.asc().nullsLast().op("uuid_ops")),
+  idxFlPositionsAssetId: index("idx_fl_positions_asset_id")
+    .using("btree", table.asset_id.asc().nullsLast().op("uuid_ops")),
+  idxFlPositionsHolderInvestorId: index("idx_fl_positions_holder_investor_id")
+    .using("btree", table.holder_investor_id.asc().nullsLast().op("uuid_ops")),
+  idxFlPositionsHolderFundId: index("idx_fl_positions_holder_fund_id")
+    .using("btree", table.holder_fund_id.asc().nullsLast().op("uuid_ops")),
+  idxFlPositionsHolderSourceOfFundId: index("idx_fl_positions_holder_source_of_fund_id")
+    .using("btree", table.holder_source_of_fund_id.asc().nullsLast().op("uuid_ops")),
+  // UNIQUE NULLS NOT DISTINCT (holder_investor_id, holder_fund_id, fund_id, asset_id, holder_source_of_fund_id)
+  // is defined in SQL migration because Drizzle TS API does not support NULLS NOT DISTINCT.
+}));
+
+// 6. fl_source_records — import provenance tracking.
+export const flSourceRecords = pgTable("fl_source_records", {
+  id: uuid().defaultRandom().primaryKey().notNull(),
+  workspace_id: uuid().notNull().references(() => workspaces.id, { onDelete: "cascade" }),
+  file_id: text().notNull(),
+  sheet_name: text(),
+  row_number: integer(),
+  raw_payload: jsonb().notNull(),
+  payload_hash: text().notNull(),
+  imported_at: timestamp({ withTimezone: true, mode: "string" })
+    .defaultNow()
+    .notNull(),
+  created_by: uuid(),
+  updated_by: uuid(),
+  created_at: timestamp({ withTimezone: true, mode: "string" })
+    .defaultNow()
+    .notNull(),
+  updated_at: timestamp({ withTimezone: true, mode: "string" })
+    .defaultNow()
+    .notNull(),
+}, (table) => ({
+  flSourceRecordsCreatedByFkey: foreignKey({
+    columns: [table.created_by],
+    foreignColumns: [users.id],
+    name: "fl_source_records_created_by_fkey",
+  }).onDelete("set null"),
+  flSourceRecordsUpdatedByFkey: foreignKey({
+    columns: [table.updated_by],
+    foreignColumns: [users.id],
+    name: "fl_source_records_updated_by_fkey",
+  }).onDelete("set null"),
+  idxFlSourceRecordsWorkspaceId: index("idx_fl_source_records_workspace_id")
+    .using("btree", table.workspace_id.asc().nullsLast().op("uuid_ops")),
+  // UNIQUE NULLS NOT DISTINCT (workspace_id, file_id, sheet_name, row_number, payload_hash)
+  // is defined in SQL migration because Drizzle TS API does not support NULLS NOT DISTINCT.
+}));
+
+// 8. fl_business_events — grouping headers and correction markers.
+export const flBusinessEvents = pgTable("fl_business_events", {
+  id: uuid().defaultRandom().primaryKey().notNull(),
+  workspace_id: uuid().notNull().references(() => workspaces.id, { onDelete: "cascade" }),
+  event_date: date().notNull(),
+  description: text(),
+  status: flEventStatus().default("posted").notNull(),
+  reversal_of_event_id: uuid(),
+  source_record_id: uuid(),
+  created_by: uuid(),
+  updated_by: uuid(),
+  created_at: timestamp({ withTimezone: true, mode: "string" })
+    .defaultNow()
+    .notNull(),
+  updated_at: timestamp({ withTimezone: true, mode: "string" })
+    .defaultNow()
+    .notNull(),
+}, (table) => ({
+  flBusinessEventsReversalFkey: foreignKey({
+    columns: [table.reversal_of_event_id],
+    foreignColumns: [table.id],
+    name: "fl_business_events_reversal_of_event_id_fkey",
+  }).onDelete("set null"),
+  flBusinessEventsSourceRecordFkey: foreignKey({
+    columns: [table.source_record_id],
+    foreignColumns: [flSourceRecords.id],
+    name: "fl_business_events_source_record_id_fkey",
+  }).onDelete("set null"),
+  flBusinessEventsCreatedByFkey: foreignKey({
+    columns: [table.created_by],
+    foreignColumns: [users.id],
+    name: "fl_business_events_created_by_fkey",
+  }).onDelete("set null"),
+  flBusinessEventsUpdatedByFkey: foreignKey({
+    columns: [table.updated_by],
+    foreignColumns: [users.id],
+    name: "fl_business_events_updated_by_fkey",
+  }).onDelete("set null"),
+  idxFlBusinessEventsWorkspaceId: index("idx_fl_business_events_workspace_id")
+    .using("btree", table.workspace_id.asc().nullsLast().op("uuid_ops")),
+}));
+
+export type BusinessEventRevisionSnapshot = {
+  event: typeof flBusinessEvents.$inferSelect;
+  entries: (typeof flLedgerEntries.$inferSelect)[];
+  allocations: (typeof flLedgerEntryFundingAllocations.$inferSelect)[];
+};
+
+// 8b. fl_business_event_revisions — pre-edit snapshots for event revisions.
+export const flBusinessEventRevisions = pgTable("fl_business_event_revisions", {
+  id: uuid().defaultRandom().primaryKey().notNull(),
+  workspace_id: uuid().notNull().references(() => workspaces.id, { onDelete: "cascade" }),
+  business_event_id: uuid().notNull(),
+  revision_no: integer().notNull(),
+  snapshot: jsonb().$type<BusinessEventRevisionSnapshot>().notNull(),
+  changed_by: uuid(),
+  changed_at: timestamp({ withTimezone: true, mode: "string" })
+    .defaultNow()
+    .notNull(),
+}, (table) => ({
+  flBusinessEventRevisionsBusinessEventFkey: foreignKey({
+    columns: [table.business_event_id],
+    foreignColumns: [flBusinessEvents.id],
+    name: "fl_business_event_revisions_business_event_id_fkey",
+  }).onDelete("cascade"),
+  flBusinessEventRevisionsChangedByFkey: foreignKey({
+    columns: [table.changed_by],
+    foreignColumns: [users.id],
+    name: "fl_business_event_revisions_changed_by_fkey",
+  }).onDelete("set null"),
+  flBusinessEventRevisionsEventRevisionUniq: unique("fl_business_event_revisions_business_event_id_revision_no_key")
+    .on(table.business_event_id, table.revision_no),
+  idxFlBusinessEventRevisionsWorkspaceId: index("idx_fl_business_event_revisions_workspace_id")
+    .using("btree", table.workspace_id.asc().nullsLast().op("uuid_ops")),
+  idxFlBusinessEventRevisionsBusinessEventId: index("idx_fl_business_event_revisions_business_event_id")
+    .using("btree", table.business_event_id.asc().nullsLast().op("uuid_ops")),
+}));
+
+// 9. fl_ledger_entries — economic facts against positions.
+export const flLedgerEntries = pgTable("fl_ledger_entries", {
+  id: uuid().defaultRandom().primaryKey().notNull(),
+  position_id: uuid().notNull(),
+  business_event_id: uuid().notNull(),
+  entry_date: date().notNull(),
+  entry_type: flEntryType().notNull(),
+  sub_type: text(),
+  is_reversal: boolean().default(false).notNull(),
+  commitment_delta: numeric({ precision: 38, scale: 8 }).default("0").notNull(),
+  quantity_delta: numeric({ precision: 38, scale: 8 }).default("0").notNull(),
+  valuation_delta: numeric({ precision: 38, scale: 8 }).default("0").notNull(),
+  cash_delta: numeric({ precision: 38, scale: 8 }).default("0").notNull(),
+  currency: char({ length: 3 }).notNull(),
+  fx_rate: numeric({ precision: 38, scale: 12 }),
+  price_per_unit: numeric({ precision: 38, scale: 8 }),
+  counterparty_position_id: uuid(),
+  data_status: flDataStatus().default("verified").notNull(),
+  source_record_id: uuid(),
+  source_ledger_entry_id: uuid(),
+  notes: text(),
+  created_by: uuid(),
+  created_at: timestamp({ withTimezone: true, mode: "string" })
+    .defaultNow()
+    .notNull(),
+}, (table) => ({
+  flLedgerEntriesPositionFkey: foreignKey({
+    columns: [table.position_id],
+    foreignColumns: [flPositions.id],
+    name: "fl_ledger_entries_position_id_fkey",
+  }).onDelete("restrict"),
+  flLedgerEntriesBusinessEventFkey: foreignKey({
+    columns: [table.business_event_id],
+    foreignColumns: [flBusinessEvents.id],
+    name: "fl_ledger_entries_business_event_id_fkey",
+  }).onDelete("restrict"),
+  flLedgerEntriesCounterpartyPositionFkey: foreignKey({
+    columns: [table.counterparty_position_id],
+    foreignColumns: [flPositions.id],
+    name: "fl_ledger_entries_counterparty_position_id_fkey",
+  }).onDelete("restrict"),
+  flLedgerEntriesSourceRecordFkey: foreignKey({
+    columns: [table.source_record_id],
+    foreignColumns: [flSourceRecords.id],
+    name: "fl_ledger_entries_source_record_id_fkey",
+  }).onDelete("set null"),
+  flLedgerEntriesSourceLedgerEntryFkey: foreignKey({
+    columns: [table.source_ledger_entry_id],
+    foreignColumns: [table.id],
+    name: "fl_ledger_entries_source_ledger_entry_id_fkey",
+  }).onDelete("restrict"),
+  flLedgerEntriesCreatedByFkey: foreignKey({
+    columns: [table.created_by],
+    foreignColumns: [users.id],
+    name: "fl_ledger_entries_created_by_fkey",
+  }).onDelete("set null"),
+  idxFlLedgerEntriesPositionEntryDate: index("idx_fl_ledger_entries_position_entry_date")
+    .on(table.position_id, table.entry_date),
+  idxFlLedgerEntriesBusinessEventId: index("idx_fl_ledger_entries_business_event_id")
+    .on(table.business_event_id),
+  flLedgerEntriesSourcePositionUniq: uniqueIndex("fl_ledger_entries_source_position_uniq")
+    .on(table.source_ledger_entry_id, table.position_id)
+    .where(sql`${table.source_ledger_entry_id} IS NOT NULL`),
+}));
+
+// 10. fl_ledger_entry_funding_allocations — many-to-many funding pool attribution.
+export const flLedgerEntryFundingAllocations = pgTable("fl_ledger_entry_funding_allocations", {
+  id: uuid().defaultRandom().primaryKey().notNull(),
+  ledger_entry_id: uuid().notNull(),
+  funding_source_id: uuid().notNull(),
+  amount: numeric({ precision: 38, scale: 8 }).notNull(),
+  created_by: uuid(),
+  created_at: timestamp({ withTimezone: true, mode: "string" })
+    .defaultNow()
+    .notNull(),
+}, (table) => ({
+  flAllocationsLedgerEntryFkey: foreignKey({
+    columns: [table.ledger_entry_id],
+    foreignColumns: [flLedgerEntries.id],
+    name: "fl_ledger_entry_funding_allocations_ledger_entry_id_fkey",
+  }).onDelete("cascade"),
+  flAllocationsFundingSourceFkey: foreignKey({
+    columns: [table.funding_source_id],
+    foreignColumns: [flFundingSources.id],
+    name: "fl_ledger_entry_funding_allocations_funding_source_id_fkey",
+  }).onDelete("restrict"),
+  flAllocationsCreatedByFkey: foreignKey({
+    columns: [table.created_by],
+    foreignColumns: [users.id],
+    name: "fl_ledger_entry_funding_allocations_created_by_fkey",
+  }).onDelete("set null"),
+  flAllocationsUniq: unique("fl_ledger_entry_funding_allocations_entry_source_uniq")
+    .on(table.ledger_entry_id, table.funding_source_id),
+  idxFlAllocationsFundingSourceId: index("idx_fl_allocations_funding_source_id")
+    .using("btree", table.funding_source_id.asc().nullsLast().op("uuid_ops")),
+}));
+
+// 11. fl_valuations — time-series valuations for assets, funds, and positions.
+export const flValuations = pgTable("fl_valuations", {
+  id: uuid().defaultRandom().primaryKey().notNull(),
+  asset_id: uuid(),
+  fund_id: uuid(),
+  position_id: uuid(),
+  as_of_date: date().notNull(),
+  valuation_method: flValuationMethod(),
+  currency: char({ length: 3 }).default("USD").notNull(),
+  market_value: numeric({ precision: 38, scale: 8 }),
+  price_per_unit: numeric({ precision: 38, scale: 8 }),
+  units_outstanding: numeric({ precision: 38, scale: 8 }),
+  gross_value: numeric({ precision: 38, scale: 8 }),
+  net_value: numeric({ precision: 38, scale: 8 }),
+  data_status: flDataStatus().default("verified").notNull(),
+  source_record_id: uuid(),
+  notes: text(),
+  created_by: uuid(),
+  updated_by: uuid(),
+  created_at: timestamp({ withTimezone: true, mode: "string" })
+    .defaultNow()
+    .notNull(),
+  updated_at: timestamp({ withTimezone: true, mode: "string" })
+    .defaultNow()
+    .notNull(),
+}, (table) => ({
+  flValuationsAssetFkey: foreignKey({
+    columns: [table.asset_id],
+    foreignColumns: [flAssets.id],
+    name: "fl_valuations_asset_id_fkey",
+  }).onDelete("cascade"),
+  flValuationsFundFkey: foreignKey({
+    columns: [table.fund_id],
+    foreignColumns: [flFunds.id],
+    name: "fl_valuations_fund_id_fkey",
+  }).onDelete("cascade"),
+  flValuationsPositionFkey: foreignKey({
+    columns: [table.position_id],
+    foreignColumns: [flPositions.id],
+    name: "fl_valuations_position_id_fkey",
+  }).onDelete("cascade"),
+  flValuationsSourceRecordFkey: foreignKey({
+    columns: [table.source_record_id],
+    foreignColumns: [flSourceRecords.id],
+    name: "fl_valuations_source_record_id_fkey",
+  }).onDelete("set null"),
+  flValuationsCreatedByFkey: foreignKey({
+    columns: [table.created_by],
+    foreignColumns: [users.id],
+    name: "fl_valuations_created_by_fkey",
+  }).onDelete("set null"),
+  flValuationsUpdatedByFkey: foreignKey({
+    columns: [table.updated_by],
+    foreignColumns: [users.id],
+    name: "fl_valuations_updated_by_fkey",
+  }).onDelete("set null"),
+  idxFlValuationsAssetId: index("idx_fl_valuations_asset_id")
+    .using("btree", table.asset_id.asc().nullsLast().op("uuid_ops")),
+  idxFlValuationsFundId: index("idx_fl_valuations_fund_id")
+    .using("btree", table.fund_id.asc().nullsLast().op("uuid_ops")),
+  idxFlValuationsPositionId: index("idx_fl_valuations_position_id")
+    .using("btree", table.position_id.asc().nullsLast().op("uuid_ops")),
+  idxFlValuationsAsOfDate: index("idx_fl_valuations_as_of_date")
+    .using("btree", table.as_of_date.asc().nullsLast()),
+  // UNIQUE NULLS NOT DISTINCT (asset_id, fund_id, position_id, as_of_date)
+  // is defined in SQL migration because Drizzle TS API does not support NULLS NOT DISTINCT.
+}));
+

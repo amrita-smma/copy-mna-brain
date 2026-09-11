@@ -61,13 +61,19 @@ export async function resolveFeatureOverride(key: string): Promise<boolean | und
  */
 export async function resolveWorkspaceFeatureFlags(
   workspaceId?: string,
+  options?: { strict?: boolean },
 ): Promise<Record<string, boolean>> {
   let overrides: Record<string, boolean> = {};
   if (!process.env.VITEST) {
     try {
       const wsId = workspaceId ?? (await getActiveWorkspaceId());
-      overrides = await loadOverrides(wsId);
-    } catch {
+      // Persistence policies must not silently fall back to an enabled default
+      // when the override store cannot be read.
+      overrides = options?.strict
+        ? await new FeatureFlagRepository(createDb()).getOverrideMap(wsId)
+        : await loadOverrides(wsId);
+    } catch (error) {
+      if (options?.strict) throw error;
       overrides = {};
     }
   }

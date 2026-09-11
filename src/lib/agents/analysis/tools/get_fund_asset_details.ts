@@ -4,51 +4,59 @@ import { z } from 'zod';
 import { logger } from '../../logger';
 import { createDb } from '@/lib/server/db';
 import {
-  FundAssetRepository,
-  FundAssetTransactionRepository,
-  FundAssetValuationRepository,
-  FundRepository,
+  FlAssetRepository,
+  FlFundRepository,
+  FlInvestorRepository,
+  FlPositionRepository,
+  FlValuationRepository,
+  type Tables,
 } from '@/lib/repositories';
 import { fuzzySearch, matchLabel } from './fuzzySearch';
 
-const fmtAmount = (n: number | null | undefined) =>
-  n != null ? n.toLocaleString('en-US', { maximumFractionDigits: 0 }) : 'N/A';
-const fmtMult = (n: number | null | undefined) => (n != null ? `${n.toFixed(2)}x` : 'N/A');
-const fmtPct = (n: number | null | undefined) =>
-  n != null ? `${(n * 100).toFixed(1)}%` : 'N/A';
-/** stake_pct is stored as percent points (e.g. 12.5 = 12.5%), matching the UI. */
-const fmtStakePct = (n: number | null | undefined) => (n != null ? `${n}%` : 'N/A');
+const fmtAmount = (n: number | string | null | undefined) => {
+  if (n == null) return 'N/A';
+  const num = typeof n === 'string' ? parseFloat(n) : n;
+  return !isNaN(num) ? num.toLocaleString('en-US', { maximumFractionDigits: 0 }) : 'N/A';
+};
+const fmtMult = (n: number | string | null | undefined) => {
+  if (n == null) return 'N/A';
+  const num = typeof n === 'string' ? parseFloat(n) : n;
+  return !isNaN(num) ? `${num.toFixed(2)}x` : 'N/A';
+};
+const fmtPct = (n: number | string | null | undefined) => {
+  if (n == null) return 'N/A';
+  const num = typeof n === 'string' ? parseFloat(n) : n;
+  return !isNaN(num) ? `${(num * 100).toFixed(1)}%` : 'N/A';
+};
+const fmtStakePct = (n: number | string | null | undefined) => {
+  if (n == null) return 'N/A';
+  const num = typeof n === 'string' ? parseFloat(n) : n;
+  return !isNaN(num) ? `${num}%` : 'N/A';
+};
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
- * Get detailed information about a single fund holding (fund_assets row).
- * Mirrors get_company_details for the funds domain: the list tool
- * (query_fund_assets) only returns a summary table; this tool returns the
- * full recorded profile + recent valuation history that Dive deeper / diligence
- * chats need.
- *
- * Prefer `fund_asset_id` when known (e.g. from a Dive deeper prompt). Fall back
- * to a case-insensitive partial match on asset_name / legal_name.
+ * Get detailed information about a single fund holding using Fund Ledger v2.
+ * Mirrors get_company_details for the funds domain.
  */
 export const getFundAssetDetails = tool(
   async ({
+    asset_id,
     fund_asset_id,
     asset_name,
   }: {
+    asset_id?: string;
     fund_asset_id?: string;
     asset_name?: string;
   }) => {
-    const rawId = fund_asset_id?.trim() ?? '';
+    const rawId = (asset_id ?? fund_asset_id)?.trim() ?? '';
     const rawName = asset_name?.trim() ?? '';
-    // Agents sometimes put a name in fund_asset_id. Avoid Postgres UUID cast
-    // errors by only treating well-formed UUIDs as ids; otherwise fall back
-    // to name search using that string when asset_name was omitted.
     const id = rawId && UUID_RE.test(rawId) ? rawId : '';
     const name = rawName || (!id && rawId ? rawId : '');
     logger.debug(
-      `🔧 TOOL CALLED: get_fund_asset_details(fund_asset_id='${rawId}', asset_name='${rawName}')`,
+      `🔧 TOOL CALLED: get_fund_asset_details(asset_id='${rawId}', asset_name='${rawName}')`,
     );
 
     if (!id && !name) {
@@ -61,18 +69,18 @@ export const getFundAssetDetails = tool(
     try {
       const workspaceId = await getActiveWorkspaceId();
       const db = createDb();
-      const fundAssetRepo = new FundAssetRepository(db, workspaceId);
-      const valuationRepo = new FundAssetValuationRepository(db, workspaceId);
-      const txnRepo = new FundAssetTransactionRepository(db, workspaceId);
-      const fundRepo = new FundRepository(db, workspaceId);
+      const assetRepo = new FlAssetRepository(db);
+      const valuationRepo = new FlValuationRepository(db);
+      const positionRepo = new FlPositionRepository(db);
+      const fundRepo = new FlFundRepository(db);
+      const investorRepo = new FlInvestorRepository(db);
 
-      let asset = id ? await fundAssetRepo.findById(id) : undefined;
+      let asset = id ? await assetRepo.findById(workspaceId, id) : undefined;
 
       if (!asset && name) {
-        // Fuzzy, not substring: users type "acme" for "Acme Holdings Pte Ltd",
-        // and occasionally misspell it. See ./fuzzySearch for the ladder.
-        const matches = fuzzySearch(name, await fundAssetRepo.findAll(), (a) => [
-          a.asset_name,
+        const allAssets = await assetRepo.findByWorkspaceId(workspaceId);
+        const matches = fuzzySearch(name, allAssets, (a) => [
+          a.name,
           a.legal_name,
         ]);
 
@@ -84,8 +92,6 @@ export const getFundAssetDetails = tool(
           );
         }
 
-        // A clear winner (much better than the runner-up) is the intended
-        // holding — don't make the agent take another turn to confirm it.
         const decisive =
           matches.length === 1 || matches[0].score - matches[1].score >= 0.15;
 
@@ -96,9 +102,9 @@ export const getFundAssetDetails = tool(
           out += `| Match | Fund Asset ID | Asset | Legal Name | Status |\n`;
           out += `| --- | --- | --- | --- | --- |\n`;
           for (const m of matches.slice(0, 15)) {
-            out += `| ${matchLabel(m.score)} | ${m.item.id} | ${m.item.asset_name ?? '-'} | ${
+            out += `| ${matchLabel(m.score)} | ${m.item.id} | ${m.item.name ?? '-'} | ${
               m.item.legal_name ?? '-'
-            } | ${m.item.status ?? '-'} |\n`;
+            } | active |\n`;
           }
           if (matches.length > 15) {
             out += `\n…and ${matches.length - 15} more. Narrow the name or pick an ID from query_fund_assets.`;
@@ -116,97 +122,118 @@ export const getFundAssetDetails = tool(
         );
       }
 
-      const currency = asset.report_currency ?? asset.investment_currency ?? 'USD';
-      const [valuations, txns, funds] = await Promise.all([
-        valuationRepo.findByFundAssetId(asset.id),
-        txnRepo.findByFundAssetId(asset.id),
-        fundRepo.findAll(),
+      const terms = (asset.instrument_terms as Record<string, unknown>) ?? {};
+      const aiOpinion = (terms.aiOpinion as Record<string, unknown>) ?? {};
+
+      const [valuations, positions] = await Promise.all([
+        valuationRepo.findSeriesByTarget(workspaceId, { assetId: asset.id }),
+        positionRepo.findByAssetIds(workspaceId, [asset.id]),
       ]);
 
-      const fundNameById = new Map(funds.map((f) => [f.id, f.name]));
-      const fundNames = [
+      const holdingFundIds = [
+        ...new Set(positions.map((p) => p.holder_fund_id).filter((fid): fid is string => Boolean(fid))),
+      ];
+      const holdingInvestorIds = [
+        ...new Set(positions.map((p) => p.holder_investor_id).filter((iid): iid is string => Boolean(iid))),
+      ];
+
+      const [funds, directInvestors] = await Promise.all([
+        holdingFundIds.length > 0
+          ? fundRepo.findByIds(workspaceId, holdingFundIds)
+          : Promise.resolve<Tables<'fl_funds'>[]>([]),
+        holdingInvestorIds.length > 0
+          ? investorRepo.findByIds(workspaceId, holdingInvestorIds)
+          : Promise.resolve<Tables<'fl_investors'>[]>([]),
+      ]);
+
+      const investorById = new Map<string, Tables<'fl_investors'>>();
+      for (const inv of directInvestors) {
+        investorById.set(inv.id, inv);
+      }
+      const missingParentIds = [
         ...new Set(
-          txns
-            .map((t) => t.fund_id)
-            .filter((fid): fid is string => Boolean(fid))
-            .map((fid) => fundNameById.get(fid) ?? fid),
+          directInvestors
+            .map((inv) => inv.parent_investor_id)
+            .filter((pid): pid is string => Boolean(pid) && !investorById.has(pid)),
         ),
       ];
-      const fundLabel =
-        fundNames.length > 0 ? fundNames.join(', ') : '(unassigned)';
+      if (missingParentIds.length > 0) {
+        const parentInvestors = await investorRepo.findByIds(workspaceId, missingParentIds);
+        for (const pinv of parentInvestors) {
+          investorById.set(pinv.id, pinv);
+        }
+      }
 
-      const unfundedAmount =
-        asset.commitment_amount != null && asset.invested_capital_amount != null
-          ? asset.commitment_amount - asset.invested_capital_amount
-          : null;
-      const unfundedLabel =
-        unfundedAmount != null && unfundedAmount >= 0
-          ? `${fmtAmount(unfundedAmount)} ${currency}`
-          : 'N/A';
+      const fundNameById = new Map<string, string>();
+      for (const f of funds) {
+        fundNameById.set(f.id, f.name);
+      }
+      const fundNames = holdingFundIds.map((fid) => fundNameById.get(fid) ?? fid);
+      const investorLabels = holdingInvestorIds.map((iid) => {
+        const inv = investorById.get(iid);
+        if (!inv) return iid;
+        if (inv.parent_investor_id) {
+          const parent = investorById.get(inv.parent_investor_id);
+          const parentName = parent?.name ?? inv.parent_investor_id;
+          return `${inv.name} (${parentName})`;
+        }
+        return inv.name;
+      });
 
-      const recent = valuations.slice(0, 8);
+      const allHolders = [...fundNames, ...investorLabels];
+      const holderLabel = allHolders.length > 0 ? allHolders.join(', ') : '(unassigned)';
+
+      const recent = valuations.slice(-8).reverse();
+      const currency = valuations[0]?.currency ?? 'USD';
+
       let valuationSection = '### Valuation History\nNo valuation history on record.\n';
       if (recent.length > 0) {
         valuationSection =
           '### Valuation History (most recent first)\n' +
-          '| As of | FMV | MOIC | DPI | IRR |\n' +
-          '| --- | --- | --- | --- | --- |\n' +
+          '| As of | FMV | Price/Unit | Method |\n' +
+          '| --- | --- | --- | --- |\n' +
           recent
             .map(
               (v) =>
-                `| ${v.as_of_date} | ${fmtAmount(v.market_value_amount)} ${v.currency ?? currency} | ${fmtMult(v.gross_moic)} | ${fmtMult(v.dpi)} | ${fmtPct(v.gross_xirr)} |`,
+                `| ${v.as_of_date} | ${fmtAmount(v.market_value ?? v.net_value)} ${v.currency ?? currency} | ${v.price_per_unit ?? '-'} | ${v.valuation_method ?? 'at_cost'} |`,
             )
             .join('\n') +
           '\n';
       }
 
       const opinionSection =
-        asset.ai_opinion_verdict || asset.ai_opinion_status
+        aiOpinion.verdict || aiOpinion.status
           ? `### AI Opinion
-- **Verdict:** ${asset.ai_opinion_verdict ?? 'N/A'}
-- **Confidence:** ${asset.ai_opinion_confidence ?? 'N/A'}
-- **Status:** ${asset.ai_opinion_status ?? 'N/A'}
-- **Updated:** ${asset.ai_opinion_updated_at ?? 'N/A'}
-${asset.ai_opinion_summary ? `- **Summary:** ${asset.ai_opinion_summary}\n` : ''}${
-              asset.ai_opinion_data_gaps
-                ? `- **Data gaps:** ${asset.ai_opinion_data_gaps}\n`
+- **Verdict:** ${aiOpinion.verdict ?? 'N/A'}
+- **Confidence:** ${aiOpinion.confidence ?? 'N/A'}
+- **Status:** ${aiOpinion.status ?? 'N/A'}
+- **Updated:** ${aiOpinion.updated_at ?? 'N/A'}
+${aiOpinion.summary ? `- **Summary:** ${aiOpinion.summary}\n` : ''}${
+              aiOpinion.data_gaps
+                ? `- **Data gaps:** ${aiOpinion.data_gaps}\n`
                 : ''
             }`
           : '';
 
-      const displayName = asset.asset_name || asset.legal_name || 'Unknown';
+      const displayName = asset.name || asset.legal_name || 'Unknown';
       const result = `## Fund Asset Details: ${displayName}
 
 ### Identity
 - **Fund Asset ID (UUID):** ${asset.id}
-- **Asset Name:** ${asset.asset_name ?? 'N/A'}
+- **Asset Name:** ${asset.name ?? 'N/A'}
 - **Legal Name:** ${asset.legal_name ?? 'N/A'}
-- **Fund(s):** ${fundLabel}
-- **Type:** ${asset.asset_type ?? 'N/A'}
-- **Status:** ${asset.status ?? 'N/A'}
+- **Holders:** ${holderLabel}
+- **Type:** ${asset.asset_kind ?? 'equity'}
+- **Status:** active
 - **Sector:** ${asset.sector ?? 'N/A'}${asset.sub_sector ? ` / ${asset.sub_sector}` : ''}
 - **Country:** ${asset.country ?? 'N/A'}
-- **Ownership stake:** ${fmtStakePct(asset.stake_pct)}
-- **Entry date:** ${asset.entry_date ?? 'N/A'}
-- **Maturity date:** ${asset.maturity_date ?? 'N/A'}
-- **Investment currency:** ${asset.investment_currency ?? 'N/A'}
-- **Report currency:** ${asset.report_currency ?? 'N/A'}
+- **Ownership stake:** ${fmtStakePct((terms.stakePct ?? terms.stake_pct) as any)}
+- **Investment currency:** ${currency}
+- **Report currency:** ${currency}
 
-### Performance
-- **Invested capital:** ${fmtAmount(asset.invested_capital_amount)} ${currency}
-- **Commitment:** ${fmtAmount(asset.commitment_amount)} ${currency}
-- **Unfunded commitment:** ${unfundedLabel}
-- **Fair market value (FMV):** ${fmtAmount(asset.fmv_amount)} ${currency}
-- **Net distributions (realized):** ${fmtAmount(asset.net_distribution_amount)} ${currency}
-- **Gross MOIC:** ${fmtMult(asset.gross_moic)}
-- **Gross IRR:** ${fmtPct(asset.gross_irr)}
-- **DPI:** ${fmtMult(asset.dpi)}
-- **Share count:** ${asset.share_count != null ? String(asset.share_count) : 'N/A'}
-- **Current price / share:** ${asset.current_price_per_share != null ? String(asset.current_price_per_share) : 'N/A'}
-
-${asset.key_rights ? `### Key Rights\n${asset.key_rights}\n\n` : ''}${
-        asset.investment_description
-          ? `### Description\n${asset.investment_description}\n\n`
+${terms.keyRights ?? terms.key_rights ? `### Key Rights\n${terms.keyRights ?? terms.key_rights}\n\n` : ''}${
+        asset.description
+          ? `### Description\n${asset.description}\n\n`
           : ''
       }${valuationSection}
 ${opinionSection}`;
@@ -220,27 +247,30 @@ ${opinionSection}`;
   },
   {
     name: 'get_fund_asset_details',
-    description: `Get detailed information about a specific fund holding (fund_assets row) by UUID or name.
+    description: `Get detailed information about a specific fund holding (fl_assets row) by UUID or name.
 
-Use this when the user asks about a specific holding's metrics, description, rights, valuation marks, or AI Opinion — or when diving deeper into an existing Fund AI Opinion. Prefer \`fund_asset_id\` when known (e.g. supplied in a Dive deeper prompt); fall back to \`asset_name\`, which is matched fuzzily (case/punctuation-insensitive, legal-suffix-tolerant — "acme" finds "Acme Holdings Pte Ltd" — and typo-tolerant) against asset_name and legal_name.
-
-For browsing many holdings, use query_fund_assets instead. If you are not sure the name is a holding at all (it could be a fund, an investor, or a capital source), use search_investments first.
+Use this when the user asks about a specific holding's metrics, description, rights, valuation marks, or AI Opinion — or when diving deeper into an existing Fund AI Opinion. Prefer \`fund_asset_id\` / \`asset_id\` when known; fall back to \`asset_name\`.
 
 Args:
-    fund_asset_id: Optional UUID of the fund_assets row (preferred when known)
-    asset_name: Optional asset or legal name (partial match). Used when fund_asset_id is omitted.
+    asset_id: Optional UUID of the fl_assets row (preferred when known)
+    fund_asset_id: Optional legacy alias for asset_id
+    asset_name: Optional asset or legal name (partial match). Used when id is omitted.
 
 Returns:
     Detailed holding profile including Fund Asset ID (UUID), fund membership, performance metrics, description/key rights, recent valuation history, and any stored AI Opinion.`,
     schema: z.object({
+      asset_id: z
+        .string()
+        .optional()
+        .describe('UUID of the fl_assets row (preferred when known)'),
       fund_asset_id: z
         .string()
         .optional()
-        .describe('UUID of the fund_assets row (preferred when known)'),
+        .describe('Legacy alias for asset_id'),
       asset_name: z
         .string()
         .optional()
-        .describe('Asset or legal name (partial match) when fund_asset_id is unknown'),
+        .describe('Asset or legal name (partial match) when id is unknown'),
     }),
   },
 );

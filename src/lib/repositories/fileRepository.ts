@@ -52,11 +52,26 @@ export class FileRepository {
     private readonly workspaceId: string,
   ) {}
 
-  async findById(id: string): Promise<Tables<'files'>> {
-    const [row] = await this.db
+  private getExecutor(executor?: DbClient): DbClient {
+    return executor ?? this.db;
+  }
+
+  async findById(id: string, executor?: DbClient): Promise<Tables<'files'>> {
+    const [row] = await this.getExecutor(executor)
       .select()
       .from(files)
       .where(and(eq(files.id, id), eq(files.workspace_id, this.workspaceId)))
+      .limit(1);
+    if (!row) throw new Error(`File ${id} not found`);
+    return row;
+  }
+
+  async findByIdForUpdate(id: string, executor: DbClient): Promise<Tables<'files'>> {
+    const [row] = await this.getExecutor(executor)
+      .select()
+      .from(files)
+      .where(and(eq(files.id, id), eq(files.workspace_id, this.workspaceId)))
+      .for('update')
       .limit(1);
     if (!row) throw new Error(`File ${id} not found`);
     return row;
@@ -208,8 +223,8 @@ export class FileRepository {
     return row;
   }
 
-  async updatePartial(id: string, updates: TablesUpdate<'files'>): Promise<void> {
-    await this.db
+  async updatePartial(id: string, updates: TablesUpdate<'files'>, executor?: DbClient): Promise<void> {
+    await this.getExecutor(executor)
       .update(files)
       .set(updates)
       .where(and(eq(files.id, id), eq(files.workspace_id, this.workspaceId)));

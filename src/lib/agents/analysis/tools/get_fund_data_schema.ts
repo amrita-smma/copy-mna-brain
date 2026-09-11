@@ -5,9 +5,8 @@ import { createContainer } from "@/lib/services";
 import { logger } from "../../logger";
 
 /**
- * Describe the fund/investment data model to the investment Copilot so it knows
- * which read tools to reach for. Mirrors get_data_schema (companies) but for the
- * funds domain: funds, fund assets/holdings, investors (LPs), and fund sources.
+ * Describe the fund/investment data model to the investment Copilot using Fund Ledger v2
+ * so it knows which read tools to reach for.
  */
 export const getFundDataSchema = tool(
   async () => {
@@ -15,8 +14,9 @@ export const getFundDataSchema = tool(
 
     let fundCount = 0;
     try {
-      const { fundService } = createContainer(createDb(), await getActiveWorkspaceId());
-      fundCount = (await fundService.listFunds()).length;
+      const workspaceId = await getActiveWorkspaceId();
+      const { flMasterDataService } = createContainer(createDb(), workspaceId);
+      fundCount = (await flMasterDataService.listFunds(workspaceId)).length;
     } catch (error) {
       logger.error(`Error getting fund count: ${(error as Error).message}`);
     }

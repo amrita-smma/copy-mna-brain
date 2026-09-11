@@ -1,9 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 const findAllAssetsMock = vi.fn();
-const findByFundIdsMock = vi.fn();
+const findPositionsByAssetIdsMock = vi.fn();
 const findAllFundsMock = vi.fn();
 const findAllInvestorsMock = vi.fn();
+const findInvestorsByIdsMock = vi.fn();
 const findAllSourcesMock = vi.fn();
 
 vi.mock('@/lib/server/db', () => ({
@@ -21,17 +22,23 @@ vi.mock('@/lib/flags', () => ({
 }));
 
 vi.mock('@/lib/repositories', () => ({
-  FundAssetRepository: vi.fn(function FundAssetRepository() {
-    return { findAll: findAllAssetsMock, findByFundIds: findByFundIdsMock };
+  FlAssetRepository: vi.fn(function FlAssetRepository() {
+    return { findByWorkspaceId: findAllAssetsMock };
   }),
-  FundRepository: vi.fn(function FundRepository() {
-    return { findAll: findAllFundsMock };
+  FlFundRepository: vi.fn(function FlFundRepository() {
+    return { findByWorkspaceId: findAllFundsMock };
   }),
-  HoldingEntityRepository: vi.fn(function HoldingEntityRepository() {
-    return { findAll: findAllInvestorsMock };
+  FlInvestorRepository: vi.fn(function FlInvestorRepository() {
+    return {
+      findByWorkspaceId: findAllInvestorsMock,
+      findByIds: findInvestorsByIdsMock,
+    };
   }),
-  FundSourceRepository: vi.fn(function FundSourceRepository() {
-    return { findAll: findAllSourcesMock };
+  FlFundingSourceRepository: vi.fn(function FlFundingSourceRepository() {
+    return { findByWorkspaceId: findAllSourcesMock };
+  }),
+  FlPositionRepository: vi.fn(function FlPositionRepository() {
+    return { findByAssetIds: findPositionsByAssetIdsMock };
   }),
 }));
 
@@ -41,7 +48,7 @@ const ACME_ID = '11111111-1111-1111-1111-111111111111';
 
 const asset = (over: Record<string, unknown> = {}) => ({
   id: ACME_ID,
-  asset_name: 'Acme Holdings',
+  name: 'Acme Holdings',
   legal_name: 'Acme Holdings Pte Ltd',
   status: 'active',
   sector: 'Software',
@@ -98,20 +105,23 @@ const seed = (over: {
   assets?: unknown[];
   funds?: unknown[];
   investors?: unknown[];
+  investorsByIds?: unknown[];
   sources?: unknown[];
-  assetFundPairs?: unknown[];
+  positions?: unknown[];
 } = {}) => {
   findAllAssetsMock.mockResolvedValue(over.assets ?? []);
   findAllFundsMock.mockResolvedValue(over.funds ?? []);
   findAllInvestorsMock.mockResolvedValue(over.investors ?? []);
+  findInvestorsByIdsMock.mockResolvedValue(over.investorsByIds ?? []);
   findAllSourcesMock.mockResolvedValue(over.sources ?? []);
-  findByFundIdsMock.mockResolvedValue(over.assetFundPairs ?? []);
+  findPositionsByAssetIdsMock.mockResolvedValue(over.positions ?? []);
 };
 
 afterEach(() => {
   vi.clearAllMocks();
   sourceOfFundsEnabledMock.mockResolvedValue(true);
 });
+
 
 describe('searchInvestments', () => {
   it('asks for a query when none is given', async () => {
@@ -125,7 +135,7 @@ describe('searchInvestments', () => {
     seed({
       assets: [asset()],
       funds: [fund()],
-      assetFundPairs: [{ fundId: 'f1', asset: asset() }],
+      positions: [{ asset_id: ACME_ID, holder_fund_id: 'f1' }],
     });
 
     const result = (await searchInvestments.invoke({ query: 'acme' })) as string;
@@ -138,7 +148,7 @@ describe('searchInvestments', () => {
   });
 
   it('matches a holding through its legal suffix and a typo', async () => {
-    seed({ assets: [asset({ asset_name: 'Acme Holdings Pte Ltd' })] });
+    seed({ assets: [asset({ name: 'Acme Holdings Pte Ltd' })] });
 
     const exact = (await searchInvestments.invoke({ query: 'Acme Holdings' })) as string;
     expect(exact).toContain('Acme Holdings');
@@ -166,7 +176,7 @@ describe('searchInvestments', () => {
 
   it('reports every entity type that matches one name and names the best match', async () => {
     seed({
-      assets: [asset({ asset_name: 'Meridian Holdco' })],
+      assets: [asset({ name: 'Meridian Holdco' })],
       funds: [fund({ name: 'Meridian' })],
       investors: [investor({ name: 'Meridian Family Office' })],
     });
@@ -213,24 +223,24 @@ describe('searchInvestments', () => {
   it('maps assets to funds with ONE batched query, not one per asset', async () => {
     seed({
       assets: [
-        asset({ id: ACME_ID, asset_name: 'Acme One' }),
-        asset({ id: 'a2', asset_name: 'Acme Two' }),
+        asset({ id: ACME_ID, name: 'Acme One' }),
+        asset({ id: 'a2', name: 'Acme Two' }),
       ],
       funds: [fund()],
-      assetFundPairs: [
-        { fundId: 'f1', asset: { id: ACME_ID } },
-        { fundId: 'f1', asset: { id: 'a2' } },
+      positions: [
+        { asset_id: ACME_ID, holder_fund_id: 'f1' },
+        { asset_id: 'a2', holder_fund_id: 'f1' },
       ],
     });
 
     await searchInvestments.invoke({ query: 'acme' });
 
-    expect(findByFundIdsMock).toHaveBeenCalledTimes(1);
-    expect(findByFundIdsMock).toHaveBeenCalledWith(['f1']);
+    expect(findPositionsByAssetIdsMock).toHaveBeenCalledTimes(1);
+    expect(findPositionsByAssetIdsMock).toHaveBeenCalledWith('ws-1', [ACME_ID, 'a2']);
   });
 
   it('labels an asset with no fund transactions as unassigned', async () => {
-    seed({ assets: [asset()], funds: [fund()], assetFundPairs: [] });
+    seed({ assets: [asset()], funds: [fund()], positions: [] });
 
     const result = (await searchInvestments.invoke({ query: 'acme' })) as string;
 
@@ -264,5 +274,63 @@ describe('searchInvestments', () => {
     const result = (await searchInvestments.invoke({ query: 'acme' })) as string;
 
     expect(result).toBe('**Error:** db down');
+  });
+
+  it('displays an asset held only by an investor with the investor named', async () => {
+    seed({
+      assets: [asset({ id: ACME_ID, name: 'Acme Holdings' })],
+      positions: [{ asset_id: ACME_ID, holder_investor_id: 'i1', holder_fund_id: null }],
+      investorsByIds: [{ id: 'i1', name: 'Tanaka Family Office' }],
+    });
+
+    const result = (await searchInvestments.invoke({ query: 'acme' })) as string;
+
+    expect(result).toContain('Holdings / fund assets (1)');
+    expect(result).toContain('Acme Holdings');
+    expect(result).toContain('Tanaka Family Office');
+    expect(result).toContain(ACME_ID);
+  });
+
+  it('batches investor lookup into a single call for N positions without per-position queries', async () => {
+    seed({
+      assets: [
+        asset({ id: ACME_ID, name: 'Acme One' }),
+        asset({ id: 'a2', name: 'Acme Two' }),
+      ],
+      positions: [
+        { asset_id: ACME_ID, holder_investor_id: 'i1', holder_fund_id: null },
+        { asset_id: 'a2', holder_investor_id: 'i2', holder_fund_id: null },
+      ],
+      investorsByIds: [
+        { id: 'i1', name: 'Tanaka Family Office' },
+        { id: 'i2', name: 'Pacific Ventures' },
+      ],
+    });
+
+    const result = (await searchInvestments.invoke({ query: 'acme' })) as string;
+
+    expect(result).toContain('Holdings / fund assets (2)');
+    expect(result).toContain('Tanaka Family Office');
+    expect(result).toContain('Pacific Ventures');
+    expect(findInvestorsByIdsMock).toHaveBeenCalledTimes(1);
+    expect(findInvestorsByIdsMock).toHaveBeenCalledWith('ws-1', ['i1', 'i2']);
+  });
+
+  it('lists both fund and investor holders when an asset is co-held', async () => {
+    seed({
+      assets: [asset({ id: ACME_ID, name: 'Acme Holdings' })],
+      funds: [fund({ id: 'f1', name: 'Growth Fund II' })],
+      positions: [
+        { asset_id: ACME_ID, holder_fund_id: 'f1', holder_investor_id: null },
+        { asset_id: ACME_ID, holder_investor_id: 'i1', holder_fund_id: null },
+      ],
+      investorsByIds: [{ id: 'i1', name: 'Tanaka Family Office' }],
+    });
+
+    const result = (await searchInvestments.invoke({ query: 'acme' })) as string;
+
+    expect(result).toContain('Holdings / fund assets (1)');
+    expect(result).toContain('Growth Fund II, Tanaka Family Office');
+    expect(result).toContain('| Holder(s) |');
   });
 });

@@ -1,490 +1,53 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, type ComponentType } from "react";
-import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { Badge } from "@/components/ui/badge";
-import { Checkbox } from "@/components/ui/checkbox";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Command, CommandEmpty, CommandGroup, CommandItem, CommandList } from "@/components/ui/command";
-import { AlertCircle, Building2, Check, ChevronDown, Layers, Loader2, Users, Wallet } from "lucide-react";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
+import { AlertCircle, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
-import { CURRENCIES } from "@/lib/currency";
-import { useWorkspaceCurrency } from "@/components/layout/WorkspaceCurrencyContext";
+import type {
+  EntityTabKind,
+  FundUpdateReviewData,
+  ReviewEntity,
+  ReviewOption,
+  ReviewReconciliation,
+  ReviewTransaction,
+  ReviewValuation,
+  WizardStep,
+} from "./fund-update-review/types";
 import {
-  fundUpdateTxnKey,
-  fundUpdateValKey,
-  sortFundUpdateReviewAssets,
-  defaultCommitmentEventSelection,
-  filterCommitmentEventsByInvestor,
-  setInvestorCommitmentEventSelection,
-} from "@/lib/fund_updates";
-import type { ParsedTxn, ParsedValuation, TxnTypeEnum, ValuationMethodEnum } from "@/lib/fund_updates";
-import type { FundUpdateAssetSelection } from "@/lib/services/fundUpdateApplyService";
+  buildApprovePayload,
+  extractTwoStepReview,
+  formatApprovalFeedback,
+  getEntityOptions,
+} from "./fund-update-review/adapter";
+import {
+  applyTransactionUpdate,
+  recomputeTransactionsAndValuations,
+} from "./fund-update-review/validation";
+import { StepHeader } from "./fund-update-review/StepHeader";
+import { Step1Entities } from "./fund-update-review/Step1Entities";
+import { Step2LedgerRows } from "./fund-update-review/Step2LedgerRows";
+import { StepFooter } from "./fund-update-review/StepFooter";
 
-export type FundUpdateCatalogKind = "asset" | "fund" | "investor" | "source";
-
-export type FundUpdateCatalogMatchStatus = "new" | "existing";
-
-export interface FundUpdateCatalogMatch {
-  name: string;
-  status: FundUpdateCatalogMatchStatus;
-  matched_id: string | null;
-  asset_codes?: string[];
-  auto_created?: boolean;
-}
-
-type CatalogTab = "asset" | "fund" | "investor" | "source";
-
-const CATALOG_TABS: { k: CatalogTab; label: string }[] = [
-  { k: "asset", label: "Asset" },
-  { k: "fund", label: "Fund" },
-  { k: "investor", label: "Investor" },
-  { k: "source", label: "Source of Fund" },
-];
-
-type AssetStatus = "new" | "unchanged" | "add_missing";
-
-interface FundUpdateAssetReview {
-  code: string;
-  name: string;
-  fund: string;
-  asset_type: string;
-  entity: string | null;
-  funding_source: string | null;
-  status: AssetStatus;
-  matched_asset_id: string | null;
-  matched_fund?: FundUpdateCatalogMatch | null;
-  matched_investor?: FundUpdateCatalogMatch | null;
-  matched_source?: FundUpdateCatalogMatch | null;
-  proposed_txn_count: number;
-  proposed_valuation_count: number;
-  existing_txn_count: number;
-  existing_valuation_count: number;
-  missing_txn_count: number;
-  missing_valuation_count: number;
-  proposed: {
-    code: string;
-    name: string;
-    legalName: string | null;
-    country: string | null;
-    investmentTypeLabel: string;
-    entryDate: string | null;
-    stakePct: number | null;
-    sector: string | null;
-    subSector: string | null;
-    commitmentAmount: number | null;
-    txns: ParsedTxn[];
-    valuations: ParsedValuation[];
-  };
-  missing_txns: ParsedTxn[];
-  missing_valuations: ParsedValuation[];
-}
-
-interface FundUpdateReviewData {
-  kind: "fund_updates";
-  file: { id: string; file_name: string; file_type: string | null };
-  template_id: string | null;
-  stats: {
-    asset_count: number;
-    direct_count: number;
-    fund_of_funds_count: number;
-    transaction_count: number;
-    valuation_count: number;
-  } | null;
-  summary: string | null;
-  assets: FundUpdateAssetReview[];
-  funds?: FundUpdateCatalogMatch[];
-  investors?: FundUpdateCatalogMatch[];
-  sources?: FundUpdateCatalogMatch[];
-  commitment_events?: {
-    key: string;
-    status: "actionable" | "duplicate";
-    event: {
-      fund: string;
-      investorName: string;
-      investorTypeRaw: string | null;
-      investorTypeLabel: string | null;
-      date: string;
-      intent: "increase" | "decrease";
-      amount: number;
-      currency: "CNY";
-      counterpartyName: string | null;
-      actionRaw: string;
-      natureRaw: string | null;
-      directionRaw: string;
-      notes: string | null;
-      sourceRow: number;
-    };
-  }[];
-}
-
-interface ItemSelection {
-  txns: Set<string>;
-  vals: Set<string>;
-}
-
-interface AssetEdits {
-  txns: Map<string, ParsedTxn>;
-  vals: Map<string, ParsedValuation>;
-}
-
-interface TxnRowView {
-  txn: ParsedTxn;
-  rowKey: string;
-  originalKey: string;
-  rowStatus: "actionable" | "existing";
-}
-
-interface ValRowView {
-  val: ParsedValuation;
-  rowKey: string;
-  originalKey: string;
-  rowStatus: "actionable" | "existing";
-}
+export type {
+  AssetStatus,
+  FundUpdateAssetReview,
+  FundUpdateAssetStatus,
+  FundUpdateCatalogKind,
+  FundUpdateCatalogMatch,
+  FundUpdateCatalogMatchStatus,
+  FundUpdateReviewData,
+  FundUpdateTwoStepReview,
+} from "./fund-update-review/types";
 
 interface Props {
   fileId: string;
   open: boolean;
   onClose: () => void;
   onApproved: () => void;
-  /** Browse-only: per-asset parsed data without approve / selection UI. */
+  /** Browse-only: view parsed data without approve / selection UI. */
   readOnly?: boolean;
-}
-
-const STATUS_LABEL: Record<AssetStatus, string> = {
-  new: "New",
-  add_missing: "Add missing",
-  unchanged: "Unchanged",
-};
-
-const TXN_TYPE_OPTIONS: { value: TxnTypeEnum; label: string }[] = [
-  { value: "contribution", label: "Contribution" },
-  { value: "divestment", label: "Divestment" },
-  { value: "interest_income", label: "Interest income" },
-  { value: "return_of_capital", label: "Return of capital" },
-  { value: "other", label: "Other" },
-];
-
-function txnTypeLabel(type: string): string {
-  if (type === "distribution") return "Divestment";
-  return TXN_TYPE_OPTIONS.find((o) => o.value === type)?.label ?? type;
-}
-
-const VALUATION_METHOD_OPTIONS: { value: ValuationMethodEnum; label: string }[] = [
-  { value: "at_cost", label: "At cost" },
-  { value: "fundraise_round", label: "Fundraise round" },
-  { value: "secondary_sale", label: "Secondary sale" },
-  { value: "stock_market_price", label: "Stock market price" },
-  { value: "comparables", label: "Comparables" },
-  { value: "capital_account_statement", label: "Capital account statement" },
-  { value: "other", label: "Other" },
-];
-
-function valMethodLabel(method: string | null | undefined): string {
-  if (!method) return "—";
-  return VALUATION_METHOD_OPTIONS.find((o) => o.value === method)?.label ?? method;
-}
-
-
-const TXN_NUMERIC_FIELDS = new Set(["valueAmount", "shareCount", "pricePerShare"]);
-const VAL_NUMERIC_FIELDS = new Set(["marketValue", "pricePerShare", "shareholdingPct"]);
-
-const REVIEW_CELL = "whitespace-nowrap px-2 py-1 align-middle text-xs";
-const REVIEW_TH = "h-8 whitespace-nowrap px-2 text-left align-middle text-xs font-medium text-muted-foreground";
-const REVIEW_INPUT =
-  "h-7 rounded-md border border-input bg-background px-2 text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1";
-
-/** Input width from the longest string in a column. */
-function columnWidthCh(texts: string[], min = 6): number {
-  const longest = texts.reduce((max, t) => Math.max(max, t.length), 0);
-  return Math.max(min, longest + 1);
-}
-
-function numericTexts(amounts: (number | null | undefined)[]): string[] {
-  return amounts.map((n) => (n == null ? "" : String(n)));
-}
-
-function ReviewTableScroller({ children }: { children: React.ReactNode }) {
-  const ref = useRef<HTMLDivElement>(null);
-
-  function onWheel(e: React.WheelEvent<HTMLDivElement>) {
-    if (!e.shiftKey) return;
-    const el = ref.current;
-    if (!el || el.scrollWidth <= el.clientWidth) return;
-    e.preventDefault();
-    el.scrollLeft += e.deltaY;
-  }
-
-  return (
-    <div className="space-y-1">
-      <div ref={ref} className="overflow-x-auto" onWheel={onWheel}>
-        {children}
-      </div>
-      <p className="text-[10px] text-muted-foreground">Shift + scroll to move horizontally</p>
-    </div>
-  );
-}
-
-function ReviewTextInput({
-  value,
-  onChange,
-  widthCh,
-  edited = false,
-  type = "text",
-}: {
-  value: string;
-  onChange: (value: string) => void;
-  widthCh: number;
-  edited?: boolean;
-  type?: "text" | "date";
-}) {
-  return (
-    <input
-      type={type}
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      style={{ width: `calc(${widthCh}ch + 1.5rem)` }}
-      className={cn(REVIEW_INPUT, edited && "border-amber-400")}
-    />
-  );
-}
-
-function ReviewCurrencySelect({
-  value,
-  onChange,
-  edited = false,
-}: {
-  value: string;
-  onChange: (value: string) => void;
-  edited?: boolean;
-}) {
-  const [open, setOpen] = useState(false);
-  // Currency selection is locked to the workspace display currency: the picker
-  // defaults to it and the other codes are shown disabled with a note.
-  const wsCurrency = useWorkspaceCurrency();
-  return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <Button
-          variant="outline"
-          role="combobox"
-          aria-expanded={open}
-          className={cn(
-            "h-7 w-full min-w-[75px] justify-between px-2 py-0 text-xs font-normal",
-            !edited && "border-transparent bg-transparent hover:border-input hover:bg-transparent hover:text-current",
-            edited && "border-amber-400 bg-amber-500/10 text-amber-900"
-          )}
-        >
-          {value || wsCurrency}
-          <ChevronDown className="ml-1 h-3 w-3 shrink-0 opacity-50" />
-        </Button>
-      </PopoverTrigger>
-      <PopoverContent
-        className="w-[280px] p-0"
-        align="start"
-        onWheel={(e) => e.stopPropagation()}
-        onTouchMove={(e) => e.stopPropagation()}
-      >
-        <Command>
-          <CommandList className="max-h-[200px] overflow-y-auto overscroll-contain">
-            <CommandEmpty>No currency found.</CommandEmpty>
-            <CommandGroup>
-              {CURRENCIES.map((ccy) => {
-                const locked = ccy !== wsCurrency;
-                return (
-                  <CommandItem
-                    key={ccy}
-                    value={ccy}
-                    disabled={locked}
-                    onSelect={() => {
-                      if (locked) return;
-                      onChange(ccy);
-                      setOpen(false);
-                    }}
-                    className="text-xs py-1"
-                  >
-                    <Check
-                      className={cn(
-                        "mr-2 h-3 w-3",
-                        value === ccy ? "opacity-100" : "opacity-0"
-                      )}
-                    />
-                    {locked ? `${ccy} (currency not selected in the workspace)` : ccy}
-                  </CommandItem>
-                );
-              })}
-            </CommandGroup>
-          </CommandList>
-        </Command>
-      </PopoverContent>
-    </Popover>
-  );
-}
-
-function ReviewNumericInput({
-  value,
-  onChange,
-  widthCh,
-  edited = false,
-}: {
-  value: number | null;
-  onChange: (raw: string) => void;
-  widthCh: number;
-  edited?: boolean;
-}) {
-  const external = value == null ? "" : String(value);
-  const [text, setText] = useState(external);
-  const focused = useRef(false);
-
-  useEffect(() => {
-    if (!focused.current) setText(external);
-  }, [external]);
-
-  return (
-    <input
-      type="text"
-      inputMode="decimal"
-      value={text}
-      onFocus={() => {
-        focused.current = true;
-      }}
-      onBlur={() => {
-        focused.current = false;
-        onChange(text);
-        setText(value == null ? "" : String(value));
-      }}
-      onChange={(e) => {
-        setText(e.target.value);
-        onChange(e.target.value);
-      }}
-      style={{ width: `calc(${Math.max(widthCh, text.length + 1)}ch + 1.5rem)` }}
-      className={cn(REVIEW_INPUT, "text-right tabular-nums", edited && "border-amber-400")}
-    />
-  );
-}
-
-function statusVariant(status: AssetStatus): "default" | "secondary" | "outline" {
-  if (status === "new") return "default";
-  if (status === "add_missing") return "secondary";
-  return "outline";
-}
-
-function money(n: number | null | undefined): string {
-  if (n == null) return "—";
-  return n.toLocaleString(undefined, { maximumFractionDigits: 2 });
-}
-
-function parseOptionalNumber(raw: string): number | null {
-  const trimmed = raw.trim();
-  if (!trimmed || trimmed === "—") return null;
-  const n = Number(trimmed.replace(/,/g, ""));
-  return Number.isFinite(n) ? n : null;
-}
-
-function defaultItemSelection(assets: FundUpdateAssetReview[]): Map<string, ItemSelection> {
-  const map = new Map<string, ItemSelection>();
-  for (const asset of assets) {
-    if (asset.status === "unchanged") continue;
-    const missingTxnKeys = new Set(asset.missing_txns.map((t) => fundUpdateTxnKey(t)));
-    const missingValKeys = new Set(asset.missing_valuations.map((v) => fundUpdateValKey(v)));
-    const txns =
-      asset.status === "new"
-        ? new Set(asset.proposed.txns.map((t) => fundUpdateTxnKey(t)))
-        : missingTxnKeys;
-    const vals =
-      asset.status === "new"
-        ? new Set(asset.proposed.valuations.map((v) => fundUpdateValKey(v)))
-        : missingValKeys;
-    map.set(asset.code, { txns, vals });
-  }
-  return map;
-}
-
-function buildTxnRows(asset: FundUpdateAssetReview): TxnRowView[] {
-  const missingKeys = new Set(asset.missing_txns.map((t) => fundUpdateTxnKey(t)));
-  return asset.proposed.txns.map((txn, index) => {
-    const originalKey = fundUpdateTxnKey(txn);
-    const rowStatus: TxnRowView["rowStatus"] =
-      asset.status === "add_missing" && !missingKeys.has(originalKey) ? "existing" : "actionable";
-    return {
-      txn,
-      originalKey,
-      rowKey: `${originalKey}:${index}`,
-      rowStatus,
-    };
-  });
-}
-
-function buildValRows(asset: FundUpdateAssetReview): ValRowView[] {
-  const missingKeys = new Set(asset.missing_valuations.map((v) => fundUpdateValKey(v)));
-  return asset.proposed.valuations.map((val, index) => {
-    const originalKey = fundUpdateValKey(val);
-    const rowStatus: ValRowView["rowStatus"] =
-      asset.status === "add_missing" && !missingKeys.has(originalKey) ? "existing" : "actionable";
-    return {
-      val,
-      originalKey,
-      rowKey: `${originalKey}:${index}`,
-      rowStatus,
-    };
-  });
-}
-
-function rowCaption(
-  status: AssetStatus,
-  rows: { rowStatus: "actionable" | "existing" }[],
-): string {
-  if (status === "add_missing") {
-    const existing = rows.filter((r) => r.rowStatus === "existing").length;
-    const actionable = rows.length - existing;
-    return `${actionable} new · ${existing} in system (${rows.length} total)`;
-  }
-  return `All proposed (${rows.length})`;
-}
-
-function assetSubLabel(
-  asset: FundUpdateAssetReview,
-  sel: ItemSelection | undefined,
-  readOnly: boolean,
-): string {
-  if (readOnly || asset.status === "unchanged") return "Nothing to apply";
-
-  const totalTxns =
-    asset.status === "new" ? asset.proposed_txn_count : asset.missing_txn_count;
-  const totalVals =
-    asset.status === "new" ? asset.proposed_valuation_count : asset.missing_valuation_count;
-
-  if (sel) {
-    const txnLabel =
-      asset.status === "add_missing"
-        ? `+${sel.txns.size}/${totalTxns} txns`
-        : `${sel.txns.size}/${totalTxns} txns`;
-    const valLabel =
-      asset.status === "add_missing"
-        ? `+${sel.vals.size}/${totalVals} vals`
-        : `${sel.vals.size}/${totalVals} vals`;
-    return `${txnLabel} · ${valLabel}`;
-  }
-
-  if (readOnly || asset.status === "new") {
-    return `${asset.proposed_txn_count} txns · ${asset.proposed_valuation_count} vals`;
-  }
-  return `+${asset.missing_txn_count} txns · +${asset.missing_valuation_count} vals`;
 }
 
 export function FundUpdateReviewDialog({
@@ -492,635 +55,243 @@ export function FundUpdateReviewDialog({
   open,
   onClose,
   onApproved,
-  readOnly = false,
+  readOnly: explicitReadOnly = false,
 }: Props) {
   const [loading, setLoading] = useState(true);
   const [approving, setApproving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<FundUpdateReviewData | null>(null);
-  const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [itemSelection, setItemSelection] = useState<Map<string, ItemSelection>>(new Map());
-  const [edits, setEdits] = useState<Map<string, AssetEdits>>(new Map());
-  const [activeCode, setActiveCode] = useState<string | null>(null);
-  const [detailTab, setDetailTab] = useState<"overview" | "txn" | "vals">("overview");
-  const [catalogTab, setCatalogTab] = useState<CatalogTab>("asset");
-  const [activeCatalogName, setActiveCatalogName] = useState<string | null>(null);
-  const [selectedFunds, setSelectedFunds] = useState<Set<string>>(new Set());
-  const [selectedInvestors, setSelectedInvestors] = useState<Set<string>>(new Set());
-  const [selectedSources, setSelectedSources] = useState<Set<string>>(new Set());
-  const [selectedCommitmentEvents, setSelectedCommitmentEvents] = useState<Set<string>>(new Set());
 
+  // Wizard state
+  const [step, setStep] = useState<WizardStep>(1);
+  const [activeEntityTab, setActiveEntityTab] = useState<EntityTabKind>("asset");
+  const [selectedEntityKey, setSelectedEntityKey] = useState<string | null>(null);
+
+  // Normalized review data state
+  const [entities, setEntities] = useState<ReviewEntity[]>([]);
+  const [transactions, setTransactions] = useState<ReviewTransaction[]>([]);
+  const [valuations, setValuations] = useState<ReviewValuation[]>([]);
+  const [reconciliations, setReconciliations] = useState<ReviewReconciliation[]>([]);
+
+  // Only awaiting-review imports are mutable. Every other lifecycle state is
+  // browse-only, even if the caller omitted the explicit readOnly prop.
+  const isReadOnly = useMemo(() => {
+    if (explicitReadOnly) return true;
+    return data?.file?.processing_status !== "awaiting_review";
+  }, [explicitReadOnly, data?.file?.processing_status]);
+
+  // Load review data on open
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
+
     (async () => {
       setLoading(true);
       setError(null);
+      setStep(1);
+
       try {
         const res = await fetch(`/api/smart-files/${fileId}/review`);
         const json = await res.json();
-        if (!res.ok) throw new Error(json.error || "Failed to load review");
+        if (!res.ok) throw new Error(json.error || "Failed to load review data");
         if (cancelled) return;
+
         const payload = json.data as FundUpdateReviewData;
         if (payload.kind !== "fund_updates") {
           throw new Error("This file is not a Fund Updates review");
         }
-        const sorted: FundUpdateReviewData = {
-          ...payload,
-          assets: sortFundUpdateReviewAssets(payload.assets ?? []),
-          funds: payload.funds ?? [],
-          investors: payload.investors ?? [],
-          sources: payload.sources ?? [],
-        };
-        setData(sorted);
-        setEdits(new Map());
-        setCatalogTab("asset");
-        setActiveCatalogName(null);
-        if (!readOnly) {
-          const defaults = new Set(
-            sorted.assets
-              .filter((a) => a.status === "new" || a.status === "add_missing")
-              .map((a) => a.code),
+
+        setData(payload);
+
+        // Extract canonical two-step review model (authoritative from server)
+        const twoStep = extractTwoStepReview(payload);
+        const entityMap = new Map<string, ReviewEntity>(
+          twoStep.entities.map((e) => [e.key, e]),
+        );
+        const { transactions: initTxns, valuations: initVals } =
+          recomputeTransactionsAndValuations(
+            twoStep.transactions,
+            twoStep.valuations,
+            entityMap,
           );
-          setSelected(defaults);
-          setItemSelection(defaultItemSelection(sorted.assets));
-          setSelectedFunds(
-            new Set((sorted.funds ?? []).map((f) => f.name.trim().toLowerCase())),
-          );
-          setSelectedInvestors(
-            new Set((sorted.investors ?? []).map((i) => i.name.trim().toLowerCase())),
-          );
-          setSelectedSources(
-            new Set((sorted.sources ?? []).map((s) => s.name.trim().toLowerCase())),
-          );
-          setSelectedCommitmentEvents(
-            defaultCommitmentEventSelection(sorted.commitment_events),
-          );
-        } else {
-          setSelected(new Set());
-          setItemSelection(new Map());
-          setSelectedFunds(new Set());
-          setSelectedInvestors(new Set());
-          setSelectedSources(new Set());
-          setSelectedCommitmentEvents(new Set());
-        }
-        setActiveCode(sorted.assets[0]?.code ?? null);
+
+        setEntities(twoStep.entities);
+        setTransactions(initTxns);
+        setValuations(initVals);
+        setReconciliations(twoStep.reconciliation);
+
+        // Set default selected entity in Step 1
+        const firstAsset = twoStep.entities.find((e) => e.tab === "asset");
+        const initialTab: EntityTabKind = firstAsset ? "asset" : (twoStep.entities[0]?.tab ?? "asset");
+        setActiveEntityTab(initialTab);
+        setSelectedEntityKey(firstAsset?.key ?? twoStep.entities[0]?.key ?? null);
       } catch (err) {
         if (!cancelled) setError((err as Error).message);
       } finally {
         if (!cancelled) setLoading(false);
       }
     })();
+
     return () => {
       cancelled = true;
     };
-  }, [fileId, open, readOnly]);
+  }, [fileId, open]);
 
-  const catalogItems = useMemo<FundUpdateCatalogMatch[]>(() => {
-    if (!data) return [];
-    if (catalogTab === "fund") return data.funds ?? [];
-    if (catalogTab === "investor") return data.investors ?? [];
-    if (catalogTab === "source") return data.sources ?? [];
-    return [];
-  }, [data, catalogTab]);
+  // Recompute transaction/valuation block statuses whenever entity staging changes
+  const refreshBlockedStatuses = useCallback(
+    (currentEntities: ReviewEntity[]) => {
+      const entityMap = new Map<string, ReviewEntity>(
+        currentEntities.map((e) => [e.key, e]),
+      );
 
-  const activeCatalogItem = useMemo(() => {
-    if (catalogTab === "asset" || catalogItems.length === 0) return null;
-    const found = catalogItems.find(
-      (item) => item.name.toLowerCase() === activeCatalogName?.toLowerCase(),
-    );
-    return found ?? catalogItems[0] ?? null;
-  }, [catalogTab, catalogItems, activeCatalogName]);
+      setTransactions((prevTxns) => {
+        const { transactions: nextTxns } = recomputeTransactionsAndValuations(
+          prevTxns,
+          valuations,
+          entityMap,
+        );
+        return nextTxns;
+      });
 
-  const getReferencingAssetsForItem = useCallback(
-    (item: FundUpdateCatalogMatch, tab: CatalogTab): FundUpdateAssetReview[] => {
-      if (!data) return [];
-      if (Array.isArray(item.asset_codes)) {
-        const codeSet = new Set(item.asset_codes);
-        return data.assets.filter((a) => codeSet.has(a.code));
-      }
-      const targetName = item.name.trim().toLowerCase();
-      if (tab === "fund") {
-        return data.assets.filter(
-          (a) =>
-            (a.fund ?? "").trim().toLowerCase() === targetName ||
-            (a.matched_fund?.name ?? "").trim().toLowerCase() === targetName,
+      setValuations((prevVals) => {
+        const { valuations: nextVals } = recomputeTransactionsAndValuations(
+          transactions,
+          prevVals,
+          entityMap,
         );
-      }
-      if (tab === "investor") {
-        return data.assets.filter(
-          (a) =>
-            (a.entity ?? "").trim().toLowerCase() === targetName ||
-            (a.matched_investor?.name ?? "").trim().toLowerCase() === targetName,
-        );
-      }
-      if (tab === "source") {
-        return data.assets.filter(
-          (a) =>
-            (a.funding_source ?? "").trim().toLowerCase() === targetName ||
-            (a.matched_source?.name ?? "").trim().toLowerCase() === targetName,
-        );
-      }
-      return [];
+        return nextVals;
+      });
     },
-    [data],
+    [transactions, valuations],
   );
 
-  const referencingAssets = useMemo(() => {
-    if (!data || !activeCatalogItem || catalogTab === "asset") return [];
-    return getReferencingAssetsForItem(activeCatalogItem, catalogTab);
-  }, [data, activeCatalogItem, catalogTab, getReferencingAssetsForItem]);
-
-  const activeInvestorCommitmentEvents = useMemo(() => {
-    if (!data || catalogTab !== "investor" || !activeCatalogItem || !data.commitment_events) {
-      return [];
-    }
-    return filterCommitmentEventsByInvestor(data.commitment_events, activeCatalogItem.name);
-  }, [data, catalogTab, activeCatalogItem]);
-  const activeInvestorIsSelected =
-    catalogTab === "investor" &&
-    Boolean(
-      activeCatalogItem &&
-        selectedInvestors.has(activeCatalogItem.name.trim().toLowerCase()),
-    );
-
-  const getCatalogItemRefCount = useCallback(
-    (item: FundUpdateCatalogMatch, tab: CatalogTab): number => {
-      if (!data) return 0;
-      if (Array.isArray(item.asset_codes)) {
-        return item.asset_codes.length;
-      }
-      return getReferencingAssetsForItem(item, tab).length;
-    },
-    [data, getReferencingAssetsForItem],
-  );
-
-  const catalogLabel =
-    catalogTab === "fund"
-      ? "Fund"
-      : catalogTab === "investor"
-        ? "Investor"
-        : "Source of Fund";
-
-  const currentCatalogSelection = useMemo(() => {
-    if (catalogTab === "fund") return selectedFunds;
-    if (catalogTab === "investor") return selectedInvestors;
-    if (catalogTab === "source") return selectedSources;
-    return new Set<string>();
-  }, [catalogTab, selectedFunds, selectedInvestors, selectedSources]);
-
-  function toggleCatalogItem(tab: CatalogTab, name: string, checked: boolean) {
-    const key = name.trim().toLowerCase();
-    const updater = (prev: Set<string>) => {
-      const next = new Set(prev);
-      if (checked) next.add(key);
-      else next.delete(key);
-      return next;
-    };
-    if (tab === "fund") setSelectedFunds(updater);
-    else if (tab === "investor") {
-      setSelectedInvestors(updater);
-      setSelectedCommitmentEvents((prev) =>
-        setInvestorCommitmentEventSelection(
-          prev,
-          data?.commitment_events ?? [],
-          name,
-          checked,
-        ),
-      );
-    }
-    else if (tab === "source") setSelectedSources(updater);
+  // Step 1: Toggle staging for a single entity
+  function handleToggleStaged(key: string, staged: boolean) {
+    setEntities((prev) => {
+      const updated = prev.map((e) => (e.key === key ? { ...e, isStaged: staged } : e));
+      refreshBlockedStatuses(updated);
+      return updated;
+    });
   }
 
-  function selectAllCatalog(tab: CatalogTab) {
-    if (!data) return;
-    const items =
-      tab === "fund"
-        ? data.funds ?? []
-        : tab === "investor"
-          ? data.investors ?? []
-          : data.sources ?? [];
-    const allKeys = new Set(items.map((i) => i.name.trim().toLowerCase()));
-    if (tab === "fund") setSelectedFunds(allKeys);
-    else if (tab === "investor") {
-      setSelectedInvestors(allKeys);
-      setSelectedCommitmentEvents(
-        defaultCommitmentEventSelection(data.commitment_events),
+  // Step 1: Toggle all new entities in current tab
+  function handleToggleAllInTab(tab: EntityTabKind, staged: boolean) {
+    setEntities((prev) => {
+      const updated = prev.map((e) =>
+        e.tab === tab && e.status === "new" ? { ...e, isStaged: staged } : e,
       );
-    }
-    else if (tab === "source") setSelectedSources(allKeys);
+      refreshBlockedStatuses(updated);
+      return updated;
+    });
   }
 
-  function deselectAllCatalog(tab: CatalogTab) {
-    if (!data) return;
-    const items =
-      tab === "fund"
-        ? data.funds ?? []
-        : tab === "investor"
-          ? data.investors ?? []
-          : data.sources ?? [];
-    const nonActionableKeys = new Set(
-      items
-        .filter((i) => i.status === "existing" || Boolean(i.auto_created))
-        .map((i) => i.name.trim().toLowerCase()),
-    );
-    if (tab === "fund") setSelectedFunds(nonActionableKeys);
-    else if (tab === "investor") {
-      setSelectedInvestors(nonActionableKeys);
-      const selectedEvents = new Set<string>();
-      for (const investor of items) {
-        const investorKey = investor.name.trim().toLowerCase();
-        if (!nonActionableKeys.has(investorKey)) continue;
-        for (const event of filterCommitmentEventsByInvestor(
-          data.commitment_events ?? [],
-          investor.name,
-        )) {
-          if (event.status === "actionable") selectedEvents.add(event.key);
+  // Step 1: Save remapped entity match
+  function handleSaveRemap(
+    entityKey: string,
+    remapped: { id: string | null; name: string; isNew: boolean },
+  ) {
+    setEntities((prev) => {
+      const updated = prev.map((e) => {
+        if (e.key === entityKey) {
+          return {
+            ...e,
+            name: remapped.name,
+            status: (remapped.isNew ? "new" : "matched") as "new" | "matched",
+            matchedId: remapped.id,
+            isRemapped: true,
+            remappedTo: remapped,
+          };
         }
-      }
-      setSelectedCommitmentEvents(selectedEvents);
-    }
-    else if (tab === "source") setSelectedSources(nonActionableKeys);
-  }
-
-  const catalogCounts = useMemo(() => {
-    const actionable = catalogItems.filter(
-      (item) => item.status === "new" && !item.auto_created,
-    );
-    const selectedActionable = actionable.filter((item) =>
-      currentCatalogSelection.has(item.name.trim().toLowerCase()),
-    );
-    const totalSelected = catalogItems.filter(
-      (item) =>
-        item.status === "existing" ||
-        Boolean(item.auto_created) ||
-        currentCatalogSelection.has(item.name.trim().toLowerCase()),
-    ).length;
-
-    let checkState: boolean | "indeterminate" = false;
-    if (actionable.length === 0) {
-      checkState = catalogItems.length > 0;
-    } else if (selectedActionable.length === 0) {
-      checkState = false;
-    } else if (selectedActionable.length === actionable.length) {
-      checkState = true;
-    } else {
-      checkState = "indeterminate";
-    }
-
-    return {
-      actionableCount: actionable.length,
-      selectedActionableCount: selectedActionable.length,
-      totalSelected,
-      checkState,
-    };
-  }, [catalogItems, currentCatalogSelection]);
-
-  /**
-   * What approving would create, per catalog kind: ticked records that are new
-   * and not auto-created.
-   */
-  const catalogCreateCounts = useMemo(() => {
-    const countKind = (
-      items: FundUpdateCatalogMatch[],
-      selection: Set<string>,
-    ) => {
-      let created = 0;
-      for (const item of items) {
-        if (
-          item.status === "new" &&
-          !item.auto_created &&
-          selection.has(item.name.trim().toLowerCase())
-        ) {
-          created += 1;
-        }
-      }
-      return created;
-    };
-
-    if (!data) {
-      return { funds: 0, investors: 0, sources: 0 };
-    }
-
-    return {
-      funds: countKind(data.funds ?? [], selectedFunds),
-      investors: countKind(data.investors ?? [], selectedInvestors),
-      sources: countKind(data.sources ?? [], selectedSources),
-    };
-  }, [data, selectedFunds, selectedInvestors, selectedSources]);
-
-
-  const active = useMemo(
-    () => data?.assets.find((a) => a.code === activeCode) ?? null,
-    [data, activeCode],
-  );
-
-  const activeTxnRows = useMemo(
-    () => (active ? buildTxnRows(active) : []),
-    [active],
-  );
-
-  const activeValRows = useMemo(
-    () => (active ? buildValRows(active) : []),
-    [active],
-  );
-
-  const counts = useMemo(() => {
-    const assets = data?.assets ?? [];
-    return {
-      new: assets.filter((a) => a.status === "new").length,
-      add_missing: assets.filter((a) => a.status === "add_missing").length,
-      unchanged: assets.filter((a) => a.status === "unchanged").length,
-      selected: selected.size,
-    };
-  }, [data, selected]);
-
-  const approveCounts = useMemo(() => {
-    let txns = 0;
-    let vals = 0;
-    for (const code of selected) {
-      const sel = itemSelection.get(code);
-      if (sel) {
-        txns += sel.txns.size;
-        vals += sel.vals.size;
-      }
-    }
-    return { txns, vals };
-  }, [selected, itemSelection]);
-
-  const hasActionableSelection =
-    selected.size > 0 ||
-    catalogCreateCounts.funds > 0 ||
-    catalogCreateCounts.investors > 0 ||
-    catalogCreateCounts.sources > 0 ||
-    selectedCommitmentEvents.size > 0;
-
-  const approveButtonLabel = useMemo(() => {
-    const parts: string[] = [];
-    if (selected.size > 0) {
-      parts.push(`${selected.size} ${selected.size === 1 ? "asset" : "assets"}`);
-    }
-    if (catalogCreateCounts.funds > 0) {
-      parts.push(
-        `${catalogCreateCounts.funds} ${catalogCreateCounts.funds === 1 ? "fund" : "funds"}`,
-      );
-    }
-    if (catalogCreateCounts.investors > 0) {
-      parts.push(
-        `${catalogCreateCounts.investors} ${catalogCreateCounts.investors === 1 ? "investor" : "investors"}`,
-      );
-    }
-    if (catalogCreateCounts.sources > 0) {
-      parts.push(
-        `${catalogCreateCounts.sources} ${catalogCreateCounts.sources === 1 ? "source of fund" : "sources of fund"}`,
-      );
-    }
-    if (selectedCommitmentEvents.size > 0) {
-      parts.push(
-        `${selectedCommitmentEvents.size} ${selectedCommitmentEvents.size === 1 ? "commitment event" : "commitment events"}`,
-      );
-    }
-
-    if (parts.length === 0) {
-      return "Approve";
-    }
-
-    const mainText = parts.join(", ");
-    if (selected.size > 0) {
-      const txnNoun = approveCounts.txns === 1 ? "txn" : "txns";
-      const valNoun = approveCounts.vals === 1 ? "val" : "vals";
-      return `Approve ${mainText} (+${approveCounts.txns} ${txnNoun}, +${approveCounts.vals} ${valNoun})`;
-    }
-
-    return `Approve ${mainText}`;
-  }, [selected.size, selectedCommitmentEvents.size, catalogCreateCounts, approveCounts]);
-
-  const getEditedTxn = useCallback(
-    (assetCode: string, originalKey: string, fallback: ParsedTxn): ParsedTxn => {
-      return edits.get(assetCode)?.txns.get(originalKey) ?? fallback;
-    },
-    [edits],
-  );
-
-  const getEditedVal = useCallback(
-    (assetCode: string, originalKey: string, fallback: ParsedValuation): ParsedValuation => {
-      return edits.get(assetCode)?.vals.get(originalKey) ?? fallback;
-    },
-    [edits],
-  );
-
-  function toggle(code: string, checked: boolean) {
-    setSelected((prev) => {
-      const next = new Set(prev);
-      if (checked) next.add(code);
-      else next.delete(code);
-      return next;
+        return e;
+      });
+      refreshBlockedStatuses(updated);
+      return updated;
     });
   }
 
-  function selectAll() {
-    if (!data) return;
-    setSelected(
-      new Set(
-        data.assets
-          .filter((a) => a.status === "new" || a.status === "add_missing")
-          .map((a) => a.code),
-      ),
+  // Step 2: Toggle transaction selection (respects user manual selection)
+  function handleToggleSelectTxn(id: string, selected: boolean) {
+    setTransactions((prev) =>
+      prev.map((t) => (t.id === id && t.status === "actionable" ? { ...t, selected } : t)),
     );
   }
 
-  function toggleItemKeys(
-    assetCode: string,
-    kind: "txns" | "vals",
-    keys: string[],
-    checked: boolean,
-  ) {
-    setItemSelection((prev) => {
-      const next = new Map(prev);
-      const current = next.get(assetCode) ?? { txns: new Set<string>(), vals: new Set<string>() };
-      const set = new Set(current[kind]);
-      for (const key of keys) {
-        if (checked) set.add(key);
-        else set.delete(key);
-      }
-      next.set(assetCode, { ...current, [kind]: set });
-      return next;
-    });
+  // Step 2: Toggle valuation selection
+  function handleToggleSelectVal(id: string, selected: boolean) {
+    setValuations((prev) =>
+      prev.map((v) => (v.id === id && v.status === "actionable" ? { ...v, selected } : v)),
+    );
   }
 
-  
-
-  function editField<T extends ParsedTxn | ParsedValuation>(
-    assetCode: string,
-    kind: "txns" | "vals",
-    numericFields: Set<string>,
-    originalKey: string,
-    base: T,
-    field: keyof T,
-    raw: string,
-  ) {
-    setEdits((prev) => {
-      const next = new Map(prev);
-      const assetEdits = next.get(assetCode) ?? { txns: new Map(), vals: new Map() };
-      const map = assetEdits[kind] as Map<string, T>;
-      const current = map.get(originalKey) ?? { ...base };
-      const updated = { ...current };
-      (updated as unknown as Record<string, unknown>)[field as string] = numericFields.has(field as string)
-        ? parseOptionalNumber(raw)
-        : raw;
-      const newMap = new Map(map);
-      newMap.set(originalKey, updated);
-      next.set(assetCode, { ...assetEdits, [kind]: newMap });
-      return next;
-    });
+  // Step 2: Toggle all actionable transactions
+  function handleToggleAllTxns(selected: boolean) {
+    setTransactions((prev) =>
+      prev.map((t) => (t.status === "actionable" ? { ...t, selected } : t)),
+    );
   }
 
-  function editTxnField(
-    assetCode: string,
-    originalKey: string,
-    base: ParsedTxn,
-    field: keyof ParsedTxn,
-    raw: string,
-  ) {
-    editField(assetCode, "txns", TXN_NUMERIC_FIELDS, originalKey, base, field, raw);
+  // Step 2: Toggle all actionable valuations
+  function handleToggleAllVals(selected: boolean) {
+    setValuations((prev) =>
+      prev.map((v) => (v.status === "actionable" ? { ...v, selected } : v)),
+    );
   }
 
-  function editValField(
-    assetCode: string,
-    originalKey: string,
-    base: ParsedValuation,
-    field: keyof ParsedValuation,
-    raw: string,
-  ) {
-    editField(assetCode, "vals", VAL_NUMERIC_FIELDS, originalKey, base, field, raw);
+  // Step 2: In-cell edit transaction field with live resolution validation and state transitions
+  function handleUpdateTxn(id: string, updates: Partial<ReviewTransaction>) {
+    const entityMap = new Map<string, ReviewEntity>(entities.map((e) => [e.key, e]));
+    setTransactions((prev) =>
+      prev.map((t) => (t.id === id ? applyTransactionUpdate(t, updates, entityMap) : t)),
+    );
   }
 
-  function buildSelections(): FundUpdateAssetSelection[] {
-    if (!data) return [];
-    return [...selected].map((code) => {
-      const asset = data.assets.find((a) => a.code === code)!;
-      const sel = itemSelection.get(code);
-      const assetEdits = edits.get(code);
-      const actionableTxns =
-        asset.status === "new" ? asset.proposed.txns : asset.missing_txns;
-      const actionableVals =
-        asset.status === "new" ? asset.proposed.valuations : asset.missing_valuations;
-
-      const selectedTxnKeys = sel?.txns ?? new Set(actionableTxns.map((t) => fundUpdateTxnKey(t)));
-      const selectedValKeys =
-        sel?.vals ?? new Set(actionableVals.map((v) => fundUpdateValKey(v)));
-
-      const txns = actionableTxns
-        .filter((t) => selectedTxnKeys.has(fundUpdateTxnKey(t)))
-        .map((t) => {
-          const key = fundUpdateTxnKey(t);
-          return assetEdits?.txns.get(key) ?? t;
-        });
-
-      const valuations = actionableVals
-        .filter((v) => selectedValKeys.has(fundUpdateValKey(v)))
-        .map((v) => {
-          const key = fundUpdateValKey(v);
-          return assetEdits?.vals.get(key) ?? v;
-        });
-
-      return { asset_code: code, txns, valuations };
-    });
+  // Step 2: In-cell edit valuation field
+  function handleUpdateValuation(id: string, updates: Partial<ReviewValuation>) {
+    setValuations((prev) =>
+      prev.map((v) => (v.id === id ? { ...v, ...updates } : v)),
+    );
   }
 
+  // Step 2: Submit final approval using canonical DTO
   async function handleApprove() {
     if (!data) return;
     setApproving(true);
+
     try {
-      const selections = buildSelections();
-      const selectedFundNames = (data.funds ?? [])
-        .filter(
-          (f) =>
-            f.status === "existing" ||
-            Boolean(f.auto_created) ||
-            selectedFunds.has(f.name.trim().toLowerCase()),
-        )
-        .map((f) => f.name);
-
-      const selectedInvestorNames = (data.investors ?? [])
-        .filter(
-          (i) =>
-            i.status === "existing" ||
-            Boolean(i.auto_created) ||
-            selectedInvestors.has(i.name.trim().toLowerCase()),
-        )
-        .map((i) => i.name);
-
-      const selectedSourceNames = (data.sources ?? [])
-        .filter(
-          (s) =>
-            s.status === "existing" ||
-            Boolean(s.auto_created) ||
-            selectedSources.has(s.name.trim().toLowerCase()),
-        )
-        .map((s) => s.name);
+      const payload = buildApprovePayload({
+        entities,
+        transactions,
+        valuations,
+      });
 
       const res = await fetch(`/api/smart-files/${fileId}/approve`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          file_type: "fund_updates",
-          matched_company_id: null,
-          fund_update_asset_codes: selections.map((s) => s.asset_code),
-          fund_update_selections: selections,
-          fund_update_catalog_selections: {
-            funds: [...selectedFundNames],
-            investors: [...selectedInvestorNames],
-            sources: [...selectedSourceNames],
-          },
-          fund_update_commitment_event_keys: Array.from(selectedCommitmentEvents),
-        }),
+        body: JSON.stringify(payload),
       });
+
       const json = await res.json();
-      if (!res.ok) throw new Error(json.error || "Approve failed");
+      if (!res.ok) throw new Error(json.error || "Failed to approve fund update");
+
       const result = json.data?.fund_update;
       if (result) {
-        const createdParts: string[] = [];
-        const createdFunds = result.created_funds ?? 0;
-        const createdInvestors = result.created_investors ?? 0;
-        const createdSources = result.created_sources ?? 0;
-        if (createdFunds > 0) {
-          createdParts.push(`${createdFunds} ${createdFunds === 1 ? "fund" : "funds"}`);
-        }
-        if (createdInvestors > 0) {
-          createdParts.push(
-            `${createdInvestors} ${createdInvestors === 1 ? "investor" : "investors"}`,
+        const feedback = formatApprovalFeedback(result);
+        if (feedback.type === "warning") {
+          toast.warning(
+            feedback.warningDetail
+              ? `${feedback.message}: ${feedback.warningDetail}`
+              : feedback.message,
           );
-        }
-        if (createdSources > 0) {
-          createdParts.push(
-            `${createdSources} ${createdSources === 1 ? "source of fund" : "sources of fund"}`,
-          );
-        }
-        const createdCommitmentEvents = result.commitment_events_inserted ?? 0;
-        if (createdCommitmentEvents > 0) {
-          createdParts.push(
-            `${createdCommitmentEvents} ${createdCommitmentEvents === 1 ? "commitment event" : "commitment events"}`,
-          );
-        }
-        const base = `Applied ${result.applied} assets (+${result.txns_inserted} txns, +${result.valuations_upserted} vals)`;
-        // A catalog-only approve touches no asset, so lead with what it did create
-        // rather than reporting "Applied 0 assets".
-        const message =
-          result.applied === 0 && result.txns_inserted === 0 && createdParts.length > 0
-            ? `Created ${createdParts.join(", ")}`
-            : createdParts.length > 0
-              ? `${base} · created ${createdParts.join(", ")}`
-              : base;
-        toast.success(message);
-        if (result.commitment_event_warnings && result.commitment_event_warnings.length > 0) {
-          toast.warning("Some commitment events had issues", {
-            description: result.commitment_event_warnings[0] + (result.commitment_event_warnings.length > 1 ? ` (and ${result.commitment_event_warnings.length - 1} more)` : ""),
-          });
+        } else {
+          toast.success(feedback.message);
+          if (feedback.warningDetail) {
+            toast.warning(feedback.warningDetail);
+          }
         }
       } else {
         toast.success("Fund update approved");
       }
+
       onApproved();
     } catch (err) {
       toast.error((err as Error).message);
@@ -1129,1178 +300,133 @@ export function FundUpdateReviewDialog({
     }
   }
 
-  const activeItemSel = active ? itemSelection.get(active.code) : undefined;
+  // Options for From/To and Source of Fund selects
+  const entityOptions: ReviewOption[] = useMemo(
+    () => getEntityOptions(entities, "all"),
+    [entities],
+  );
 
-  const { allTxnChecked, someTxnChecked, allValChecked, someValChecked } = useMemo(() => {
-    const txnActionable = activeTxnRows.filter((r) => r.rowStatus === "actionable");
-    const valActionable = activeValRows.filter((r) => r.rowStatus === "actionable");
-    return {
-      allTxnChecked:
-        txnActionable.length > 0 &&
-        txnActionable.every((r) => activeItemSel?.txns.has(r.originalKey)),
-      someTxnChecked: txnActionable.some((r) => activeItemSel?.txns.has(r.originalKey)),
-      allValChecked:
-        valActionable.length > 0 &&
-        valActionable.every((r) => activeItemSel?.vals.has(r.originalKey)),
-      someValChecked: valActionable.some((r) => activeItemSel?.vals.has(r.originalKey)),
-    };
-  }, [activeTxnRows, activeValRows, activeItemSel]);
+  const sourceOptions: ReviewOption[] = useMemo(
+    () => getEntityOptions(entities, "source"),
+    [entities],
+  );
+
+  // Counters for footer
+  const newEntities = useMemo(
+    () => entities.filter((e) => e.status === "new"),
+    [entities],
+  );
+  const stagedNewEntitiesCount = useMemo(
+    () => newEntities.filter((e) => e.isStaged).length,
+    [newEntities],
+  );
+
+  const selectedTxnsCount = useMemo(
+    () => transactions.filter((t) => t.status === "actionable" && t.selected).length,
+    [transactions],
+  );
+
+  const selectedValsCount = useMemo(
+    () => valuations.filter((v) => v.status === "actionable" && v.selected).length,
+    [valuations],
+  );
+
+  const duplicateRowsCount = useMemo(
+    () =>
+      transactions.filter((t) => t.status === "duplicate").length +
+      valuations.filter((v) => v.status === "duplicate").length,
+    [transactions, valuations],
+  );
 
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="flex h-[85vh] max-h-[90vh] max-w-5xl flex-col gap-0 overflow-hidden p-0">
-        <DialogHeader className="border-b px-6 py-4">
-          <DialogTitle className="pr-8 text-base">
-            {readOnly ? "Parsed Fund Updates" : "Review Fund Updates"}
-            {data?.file.file_name ? (
-              <span className="mt-1 block truncate text-sm font-normal text-muted-foreground">
-                File name: {data.file.file_name}
-              </span>
-            ) : null}
-          </DialogTitle>
-        </DialogHeader>
-
+      <DialogContent
+        className={cn(
+          "flex h-[92vh] max-h-[96vh] flex-col gap-0 overflow-hidden rounded-xl border border-border p-0 shadow-2xl",
+          step === 2
+            ? "w-[calc(100vw-2rem)] max-w-none"
+            : "w-[95vw] max-w-6xl",
+        )}
+      >
+        <DialogTitle className="sr-only">
+          {data?.file.file_name ? `Review fund update: ${data.file.file_name}` : "Review fund update"}
+        </DialogTitle>
         {loading ? (
           <div className="flex flex-1 items-center justify-center py-24">
-            <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+            <Loader2 className="h-7 w-7 animate-spin text-muted-foreground" />
           </div>
         ) : error ? (
-          <div className="flex flex-1 items-center justify-center gap-2 px-6 py-24 text-sm text-destructive">
-            <AlertCircle className="h-4 w-4" />
-            {error}
+          <div className="flex flex-1 items-center justify-center gap-2 p-8 text-sm text-destructive">
+            <AlertCircle className="h-5 w-5" />
+            <span>{error}</span>
           </div>
         ) : data ? (
-          <div className="flex min-h-0 flex-1 flex-col">
-            <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 border-b px-6 py-3 text-xs text-muted-foreground">
-              <div className="flex items-center gap-3">
-                {data.template_id ? (
-                  <span>
-                    Format: <Badge variant="outline">{data.template_id}</Badge>
-                  </span>
-                ) : null}
-                {!readOnly ? (
-                  <>
-                    {data.template_id ? <span className="text-border">·</span> : null}
-                    <span>
-                      {counts.new} new · {counts.add_missing} add missing · {counts.unchanged}{" "}
-                      unchanged
-                    </span>
-                  </>
-                ) : null}
-                {readOnly ? (
-                  <span>{data.assets.length} assets parsed</span>
-                ) : null}
-              </div>
-              <div className="inline-flex overflow-hidden rounded-full border bg-background">
-                {CATALOG_TABS.map(({ k, label }) => (
-                  <button
-                    key={k}
-                    type="button"
-                    onClick={() => setCatalogTab(k)}
-                    className={cn(
-                      "px-3.5 py-1 text-xs",
-                      catalogTab === k
-                        ? "bg-accent text-accent-foreground"
-                        : "text-muted-foreground hover:text-foreground",
-                    )}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
-            </div>
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+            {/* Wizard Header */}
+            <StepHeader
+              step={step}
+              fileName={data.file.file_name}
+              fileStatus={data.file.processing_status}
+              readOnly={isReadOnly}
+              templateId={data.template_id}
+              onStepClick={(targetStep) => setStep(targetStep)}
+            />
 
-            <div className="grid min-h-0 flex-1 grid-cols-[240px_1fr] overflow-hidden">
-              {catalogTab === "asset" ? (
-                <>
-                  <div className="flex min-h-0 flex-col border-r">
-                    {!readOnly ? (
-                      <div className="flex items-center gap-2 border-b bg-muted/40 px-3 py-2.5">
-                        <Checkbox
-                          checked={
-                            counts.selected === 0
-                              ? false
-                              : counts.selected === counts.new + counts.add_missing
-                                ? true
-                                : "indeterminate"
-                          }
-                          onCheckedChange={(c) => (c ? selectAll() : setSelected(new Set()))}
-                          aria-label="Select all actionable assets"
-                        />
-                        <span className="text-xs font-medium text-foreground">
-                          {counts.selected} selected
-                        </span>
-                      </div>
-                    ) : null}
-                    <div className="flex-1 overflow-y-auto overscroll-contain">
-                      {data.assets.length === 0 ? (
-                        <div className="p-4 text-center text-xs text-muted-foreground">
-                          No assets in proposal
-                        </div>
-                      ) : (
-                        data.assets.map((asset) => {
-                          const checked = selected.has(asset.code);
-                          const isActive = activeCode === asset.code;
-                          const sel = itemSelection.get(asset.code);
-                          return (
-                            <div
-                              key={asset.code}
-                              role="option"
-                              aria-selected={isActive}
-                              tabIndex={0}
-                              onClick={() => {
-                                setActiveCode(asset.code);
-                                setDetailTab("overview");
-                              }}
-                              onKeyDown={(e) => {
-                                if (e.key === "Enter" || e.key === " ") {
-                                  e.preventDefault();
-                                  setActiveCode(asset.code);
-                                  setDetailTab("overview");
-                                }
-                              }}
-                              className={cn(
-                                "flex w-full cursor-pointer items-start gap-2 border-b px-3 py-2.5 text-left hover:bg-muted/50",
-                                isActive && "bg-muted",
-                              )}
-                            >
-                              {!readOnly ? (
-                                <Checkbox
-                                  checked={checked}
-                                  onCheckedChange={(v) => toggle(asset.code, Boolean(v))}
-                                  onClick={(e) => e.stopPropagation()}
-                                  className="mt-0.5"
-                                  disabled={asset.status === "unchanged"}
-                                />
-                              ) : null}
-                              <div className="min-w-0 flex-1">
-                                <div className="flex items-center gap-1.5">
-                                  <span className="truncate text-sm font-medium">{asset.name}</span>
-                                  {!readOnly ? (
-                                    <Badge variant={statusVariant(asset.status)} className="shrink-0 text-[10px]">
-                                      {STATUS_LABEL[asset.status]}
-                                    </Badge>
-                                  ) : null}
-                                </div>
-                                <div className="mt-0.5 text-[11px] text-muted-foreground">
-                                  {assetSubLabel(asset, sel, readOnly)}
-                                </div>
-                              </div>
-                            </div>
-                          );
-                        })
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="flex min-h-0 flex-col overflow-hidden">
-                    {active ? (
-                      <>
-                        <div className="flex gap-1 border-b px-4 pt-2">
-                          {(
-                            [
-                              ["overview", "Overview"],
-                              ["txn", `Transactions (${activeTxnRows.length})`],
-                              ["vals", `Valuations (${activeValRows.length})`],
-                            ] as const
-                          ).map(([id, label]) => (
-                            <button
-                              key={id}
-                              type="button"
-                              onClick={() => setDetailTab(id)}
-                              className={cn(
-                                "border-b-2 px-3 py-2 text-sm",
-                                detailTab === id
-                                  ? "border-foreground text-foreground"
-                                  : "border-transparent text-muted-foreground hover:text-foreground",
-                              )}
-                            >
-                              {label}
-                            </button>
-                          ))}
-                        </div>
-                        <div className="min-h-0 flex-1 overflow-y-auto p-4">
-                          {detailTab === "overview" && (
-                            <div className="space-y-6">
-                              <div className="grid gap-3 sm:grid-cols-2">
-                                <KV label="Name" value={active.proposed.name} />
-                                <KV label="Legal name" value={active.proposed.legalName} />
-                                <KV label="Fund" value={active.fund} />
-                                <KV label="Type" value={active.proposed.investmentTypeLabel} />
-                                <KV label="Entity" value={active.entity} />
-                                <KV label="Funding source" value={active.funding_source} />
-                                <KV label="Country" value={active.proposed.country} />
-                                <KV label="Entry date" value={active.proposed.entryDate} />
-                                <KV
-                                  label="Stake %"
-                                  value={
-                                    active.proposed.stakePct == null
-                                      ? null
-                                      : `${active.proposed.stakePct.toFixed(2)}%`
-                                  }
-                                />
-                                <KV label="Sector" value={active.proposed.sector} />
-                                <KV label="Commitment" value={money(active.proposed.commitmentAmount)} />
-                              </div>
-
-                              <div>
-                                <div className="mb-2.5 text-xs font-medium text-muted-foreground">
-                                  Related records
-                                </div>
-                                <div className="grid gap-3 sm:grid-cols-2">
-                                  <RelatedRecordCard
-                                    label="Asset"
-                                    icon={Layers}
-                                    name={active.name || active.proposed.name || active.code}
-                                    isExisting={Boolean(active.matched_asset_id)}
-                                    kindLabel="asset"
-                                  />
-                                  <RelatedRecordCard
-                                    label="Investor"
-                                    icon={Users}
-                                    name={active.matched_investor?.name || active.entity}
-                                    isExisting={
-                                      active.matched_investor?.status === "existing" ||
-                                      Boolean(active.matched_investor?.matched_id)
-                                    }
-                                    kindLabel="investor"
-                                  />
-                                  <RelatedRecordCard
-                                    label="Fund"
-                                    icon={Building2}
-                                    name={active.matched_fund?.name || active.fund}
-                                    isExisting={
-                                      active.matched_fund?.status === "existing" ||
-                                      Boolean(active.matched_fund?.matched_id)
-                                    }
-                                    kindLabel="fund"
-                                  />
-                                  <RelatedRecordCard
-                                    label="Source of Fund"
-                                    icon={Wallet}
-                                    name={active.matched_source?.name || active.funding_source}
-                                    isExisting={
-                                      active.matched_source?.status === "existing" ||
-                                      Boolean(active.matched_source?.matched_id)
-                                    }
-                                    kindLabel="source of funds"
-                                  />
-                                </div>
-                              </div>
-                            </div>
-                          )}
-                          {detailTab === "txn" && (
-                            <TxnTable
-                              rows={activeTxnRows}
-                              caption={rowCaption(active.status, activeTxnRows)}
-                              readOnly={readOnly}
-                              assetCode={active.code}
-                              selectedKeys={activeItemSel?.txns}
-                              allChecked={allTxnChecked}
-                              someChecked={someTxnChecked}
-                              onToggleAll={
-                                readOnly
-                                  ? undefined
-                                  : (checked) => {
-                                      const keys = buildTxnRows(active)
-                                        .filter((r) => r.rowStatus === "actionable")
-                                        .map((r) => r.originalKey);
-                                      toggleItemKeys(active.code, "txns", keys, checked);
-                                    }
-                              }
-                              onToggle={
-                                readOnly
-                                  ? undefined
-                                  : (originalKey, checked) =>
-                                      toggleItemKeys(active.code, "txns", [originalKey], checked)
-                              }
-                              getEditedTxn={getEditedTxn}
-                              onEdit={readOnly ? undefined : editTxnField}
-                              edits={edits.get(active.code)?.txns}
-                            />
-                          )}
-                          {detailTab === "vals" && (
-                            <ValTable
-                              rows={activeValRows}
-                              caption={rowCaption(active.status, activeValRows)}
-                              readOnly={readOnly}
-                              assetCode={active.code}
-                              selectedKeys={activeItemSel?.vals}
-                              allChecked={allValChecked}
-                              someChecked={someValChecked}
-                              onToggleAll={
-                                readOnly
-                                  ? undefined
-                                  : (checked) => {
-                                      const keys = buildValRows(active)
-                                        .filter((r) => r.rowStatus === "actionable")
-                                        .map((r) => r.originalKey);
-                                      toggleItemKeys(active.code, "vals", keys, checked);
-                                    }
-                              }
-                              onToggle={
-                                readOnly
-                                  ? undefined
-                                  : (originalKey, checked) =>
-                                      toggleItemKeys(active.code, "vals", [originalKey], checked)
-                              }
-                              getEditedVal={getEditedVal}
-                              onEdit={readOnly ? undefined : editValField}
-                              edits={edits.get(active.code)?.vals}
-                            />
-                          )}
-                        </div>
-                      </>
-                    ) : (
-                      <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">
-                        No assets in proposal
-                      </div>
-                    )}
-                  </div>
-                </>
+            {/* Wizard Body: Step 1 vs Step 2 */}
+            <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+              {step === 1 ? (
+                <Step1Entities
+                  entities={entities}
+                  activeTab={activeEntityTab}
+                  onTabChange={(tab) => {
+                    setActiveEntityTab(tab);
+                    const firstInTab = entities.find((e) => e.tab === tab);
+                    setSelectedEntityKey(firstInTab?.key ?? null);
+                  }}
+                  selectedEntityKey={selectedEntityKey}
+                  onSelectEntity={setSelectedEntityKey}
+                  onToggleStaged={handleToggleStaged}
+                  onToggleAllInTab={handleToggleAllInTab}
+                  onSaveRemap={handleSaveRemap}
+                  readOnly={isReadOnly}
+                />
               ) : (
-                <>
-                  <div className="flex min-h-0 flex-col border-r">
-                    {!readOnly ? (
-                      <div className="flex items-center gap-2 border-b bg-muted/40 px-3 py-2.5">
-                        <Checkbox
-                          checked={catalogCounts.checkState}
-                          disabled={catalogCounts.actionableCount === 0}
-                          onCheckedChange={(c) =>
-                            c ? selectAllCatalog(catalogTab) : deselectAllCatalog(catalogTab)
-                          }
-                          aria-label={`Select all actionable ${catalogLabel.toLowerCase()}s`}
-                        />
-                        <span className="text-xs font-medium text-foreground">
-                          {catalogCounts.totalSelected} of {catalogItems.length} selected
-                        </span>
-                      </div>
-                    ) : (
-                      <div className="flex items-center border-b bg-muted/40 px-3 py-2.5">
-                        <span className="text-xs font-medium text-foreground">
-                          {catalogItems.length} {catalogLabel.toLowerCase()}
-                          {catalogItems.length === 1 ? "" : "s"}
-                        </span>
-                      </div>
-                    )}
-                    <div className="flex-1 overflow-y-auto overscroll-contain">
-                      {catalogItems.length === 0 ? (
-                        <div className="p-4 text-center text-xs text-muted-foreground">
-                          {catalogTab === "fund"
-                            ? "No funds in proposal"
-                            : catalogTab === "investor"
-                              ? "No investors in proposal"
-                              : "No sources of fund in proposal"}
-                        </div>
-                      ) : (
-                        catalogItems.map((item) => {
-                          const isActive = activeCatalogItem?.name.toLowerCase() === item.name.toLowerCase();
-                          const refCount = getCatalogItemRefCount(item, catalogTab);
-                          const isExisting = item.status === "existing";
-                          const isAutoCreated = Boolean(item.auto_created);
-                          const isChecked =
-                            isExisting ||
-                            isAutoCreated ||
-                            currentCatalogSelection.has(item.name.trim().toLowerCase());
-                          const isDisabled = isExisting || isAutoCreated;
-
-                          return (
-                            <div
-                              key={item.name}
-                              role="option"
-                              aria-selected={isActive}
-                              tabIndex={0}
-                              onClick={() => setActiveCatalogName(item.name)}
-                              onKeyDown={(e) => {
-                                if (e.key === "Enter" || e.key === " ") {
-                                  e.preventDefault();
-                                  setActiveCatalogName(item.name);
-                                }
-                              }}
-                              className={cn(
-                                "flex w-full cursor-pointer items-start gap-2 border-b px-3 py-2.5 text-left hover:bg-muted/50 transition-colors",
-                                isActive && "bg-muted",
-                              )}
-                            >
-                              {!readOnly ? (
-                                <Checkbox
-                                  checked={isChecked}
-                                  disabled={isDisabled}
-                                  onCheckedChange={(v) =>
-                                    toggleCatalogItem(catalogTab, item.name, Boolean(v))
-                                  }
-                                  onClick={(e) => e.stopPropagation()}
-                                  className="mt-0.5"
-                                  aria-label={`Select ${item.name}`}
-                                  title={
-                                    isAutoCreated
-                                      ? "Always created"
-                                      : isExisting
-                                        ? "Already exists in workspace"
-                                        : undefined
-                                  }
-                                />
-                              ) : null}
-                              <div className="min-w-0 flex-1">
-                                <div className="flex items-center justify-between gap-1.5">
-                                  <span className="truncate text-sm font-medium">{item.name}</span>
-                                  <Badge
-                                    variant={item.status === "existing" ? "outline" : "default"}
-                                    className="shrink-0 text-[10px]"
-                                  >
-                                    {item.status === "existing" ? "Existing" : "New"}
-                                  </Badge>
-                                </div>
-                                <div className="flex items-center gap-1 text-[11px] text-muted-foreground">
-                                  <span>
-                                    {refCount} {refCount === 1 ? "asset" : "assets"}
-                                  </span>
-                                  {isAutoCreated ? (
-                                    <>
-                                      <span>·</span>
-                                      <span title="Always created">Always created</span>
-                                    </>
-                                  ) : null}
-                                </div>
-                              </div>
-                            </div>
-                          );
-                        })
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="flex min-h-0 flex-col overflow-hidden">
-                    {activeCatalogItem ? (
-                      <>
-                        <div className="flex items-center justify-between border-b px-6 py-3.5">
-                          <div className="flex items-center gap-2.5 min-w-0">
-                            <h3 className="truncate text-base font-semibold">{activeCatalogItem.name}</h3>
-                            <Badge
-                              variant={activeCatalogItem.status === "existing" ? "outline" : "default"}
-                              className="shrink-0 text-[10px]"
-                            >
-                              {activeCatalogItem.status === "existing" ? "Existing" : "New"}
-                            </Badge>
-                          </div>
-                        </div>
-                        <div className="min-h-0 flex-1 overflow-y-auto p-6 space-y-6">
-                          <div className="grid gap-3 sm:grid-cols-2">
-                            <KV label="Name" value={activeCatalogItem.name} />
-                            <KV
-                              label="Match status"
-                              value={
-                                activeCatalogItem.status === "existing"
-                                  ? `Matches existing ${catalogLabel.toLowerCase()}`
-                                  : activeCatalogItem.auto_created
-                                    ? `Create new ${catalogLabel.toLowerCase()} (always created)`
-                                    : `Create new ${catalogLabel.toLowerCase()}`
-                              }
-                            />
-                            {activeCatalogItem.matched_id ? (
-                              <KV label="Matched ID" value={activeCatalogItem.matched_id} />
-                            ) : null}
-                            <KV
-                              label="Referencing assets"
-                              value={`${referencingAssets.length} asset${referencingAssets.length === 1 ? "" : "s"}`}
-                            />
-                          </div>
-
-                          <div>
-                            <div className="mb-2.5 text-xs font-medium text-muted-foreground">
-                              Referencing assets ({referencingAssets.length})
-                            </div>
-                            {referencingAssets.length === 0 ? (
-                              <p className="text-xs text-muted-foreground">
-                                No assets reference this {catalogLabel.toLowerCase()}.
-                              </p>
-                            ) : (
-                              <div className="rounded-md border divide-y text-xs">
-                                {referencingAssets.map((asset) => (
-                                  <div
-                                    key={asset.code}
-                                    role="button"
-                                    tabIndex={0}
-                                    onClick={() => {
-                                      setActiveCode(asset.code);
-                                      setCatalogTab("asset");
-                                      setDetailTab("overview");
-                                    }}
-                                    onKeyDown={(e) => {
-                                      if (e.key === "Enter" || e.key === " ") {
-                                        e.preventDefault();
-                                        setActiveCode(asset.code);
-                                        setCatalogTab("asset");
-                                        setDetailTab("overview");
-                                      }
-                                    }}
-                                    className="flex cursor-pointer items-center justify-between px-3.5 py-2.5 hover:bg-muted/50 transition-colors"
-                                  >
-                                    <div className="min-w-0 flex-1 pr-3">
-                                      <div className="flex items-center gap-2">
-                                        <span className="truncate font-medium text-foreground">{asset.name}</span>
-                                        {!readOnly ? (
-                                          <Badge variant={statusVariant(asset.status)} className="text-[10px]">
-                                            {STATUS_LABEL[asset.status]}
-                                          </Badge>
-                                        ) : null}
-                                      </div>
-                                    </div>
-                                    <div className="shrink-0 text-muted-foreground">
-                                      {asset.proposed.investmentTypeLabel || asset.asset_type || "Asset"}
-                                    </div>
-                                  </div>
-                                ))}
-                              </div>
-                            )}
-                          </div>
-                          {catalogTab === "investor" && activeInvestorCommitmentEvents.length > 0 && (
-                            <div className="pt-2">
-                              <div className="mb-2.5 flex items-center justify-between">
-                                <div className="text-xs font-medium text-muted-foreground">
-                                  Commitment Events ({activeInvestorCommitmentEvents.length})
-                                </div>
-                                {!readOnly && (
-                                  <div className="flex gap-2">
-                                    <Button
-                                      type="button"
-                                      variant="ghost"
-                                      size="sm"
-                                      className="h-6 px-2 text-[10px]"
-                                      disabled={!activeInvestorIsSelected}
-                                      onClick={() => {
-                                        const keys = activeInvestorCommitmentEvents
-                                          .filter((e) => e.status === "actionable")
-                                          .map((e) => e.key);
-                                        setSelectedCommitmentEvents((prev) => {
-                                          const next = new Set(prev);
-                                          keys.forEach((k) => next.add(k));
-                                          return next;
-                                        });
-                                      }}
-                                    >
-                                      Select all
-                                    </Button>
-                                    <Button
-                                      type="button"
-                                      variant="ghost"
-                                      size="sm"
-                                      className="h-6 px-2 text-[10px]"
-                                      disabled={!activeInvestorIsSelected}
-                                      onClick={() => {
-                                        const keys = activeInvestorCommitmentEvents
-                                          .filter((e) => e.status === "actionable")
-                                          .map((e) => e.key);
-                                        setSelectedCommitmentEvents((prev) => {
-                                          const next = new Set(prev);
-                                          keys.forEach((k) => next.delete(k));
-                                          return next;
-                                        });
-                                      }}
-                                    >
-                                      Deselect all
-                                    </Button>
-                                  </div>
-                                )}
-                              </div>
-                              <div className="rounded-md border divide-y text-xs">
-                                {activeInvestorCommitmentEvents.map((ev) => {
-                                  const isSelected = selectedCommitmentEvents.has(ev.key);
-                                  const isDisabled =
-                                    ev.status === "duplicate" || !activeInvestorIsSelected;
-                                  return (
-                                    <div key={ev.key} className={cn("flex items-start gap-3 p-3", isDisabled && "opacity-60 bg-muted/30")}>
-                                      {!readOnly && (
-                                        <Checkbox
-                                          checked={isSelected}
-                                          disabled={isDisabled}
-                                          onCheckedChange={(checked) => {
-                                            setSelectedCommitmentEvents((prev) => {
-                                              const next = new Set(prev);
-                                              if (checked) next.add(ev.key);
-                                              else next.delete(ev.key);
-                                              return next;
-                                            });
-                                          }}
-                                          className="mt-1 flex-shrink-0"
-                                        />
-                                      )}
-                                      <div className="min-w-0 flex-1 space-y-1">
-                                        <div className="flex items-center gap-2">
-                                          <span className="font-medium text-foreground">{ev.event.date}</span>
-                                          <Badge variant="outline" className="text-[10px] font-normal">{ev.event.intent === "increase" ? "Increase" : "Reduction"}</Badge>
-                                          {isDisabled && !readOnly && <Badge variant="secondary" className="text-[10px]">Existing</Badge>}
-                                        </div>
-                                        <div className="grid grid-cols-2 gap-2 text-muted-foreground mt-1.5">
-                                          <KV label="Amount" value={`${money(ev.event.amount)} ${ev.event.currency}`} />
-                                          <KV label="Fund" value={ev.event.fund} />
-                                          {ev.event.counterpartyName && <KV label="Counterparty" value={ev.event.counterpartyName} />}
-                                          {ev.event.notes && <KV label="Notes" value={ev.event.notes} className="col-span-2" />}
-                                        </div>
-                                      </div>
-                                    </div>
-                                  );
-                                })}
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                      </>
-                    ) : (
-                      <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">
-                        {catalogTab === "fund"
-                          ? "No funds in proposal"
-                          : catalogTab === "investor"
-                            ? "No investors in proposal"
-                            : "No sources of fund in proposal"}
-                      </div>
-                    )}
-                  </div>
-                </>
+                <Step2LedgerRows
+                  transactions={transactions}
+                  valuations={valuations}
+                  reconciliations={reconciliations}
+                  entityOptions={entityOptions}
+                  sourceOptions={sourceOptions}
+                  stagedEntityCount={stagedNewEntitiesCount}
+                  onToggleSelectTxn={handleToggleSelectTxn}
+                  onToggleSelectVal={handleToggleSelectVal}
+                  onToggleAllTxns={handleToggleAllTxns}
+                  onToggleAllVals={handleToggleAllVals}
+                  onUpdateTxn={handleUpdateTxn}
+                  onUpdateValuation={handleUpdateValuation}
+                  readOnly={isReadOnly}
+                />
               )}
             </div>
+
+            {/* Wizard Footer */}
+            <StepFooter
+              step={step}
+              stagedNewEntitiesCount={stagedNewEntitiesCount}
+              totalNewEntitiesCount={newEntities.length}
+              selectedTxnsCount={selectedTxnsCount}
+              selectedValsCount={selectedValsCount}
+              duplicateRowsCount={duplicateRowsCount}
+              approving={approving}
+              readOnly={isReadOnly}
+              onNextStep={() => setStep(2)}
+              onPrevStep={() => setStep(1)}
+              onApprove={handleApprove}
+              onCancel={onClose}
+            />
           </div>
         ) : null}
-
-        <DialogFooter className="border-t px-6 py-3">
-          {readOnly ? (
-            <Button type="button" onClick={onClose}>
-              Close
-            </Button>
-          ) : (
-            <>
-              <Button type="button" variant="outline" onClick={onClose} disabled={approving}>
-                Cancel
-              </Button>
-              <Button
-                type="button"
-                onClick={handleApprove}
-                disabled={approving || loading || !!error || !hasActionableSelection}
-              >
-                {approving ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Applying…
-                  </>
-                ) : (
-                  approveButtonLabel
-                )}
-              </Button>
-            </>
-          )}
-        </DialogFooter>
       </DialogContent>
     </Dialog>
-  );
-}
-
-function RelatedRecordCard({
-  label,
-  icon: Icon,
-  name,
-  isExisting,
-  kindLabel,
-}: {
-  label: string;
-  icon: ComponentType<{ className?: string }>;
-  name: string | null | undefined;
-  isExisting: boolean;
-  kindLabel: "asset" | "investor" | "fund" | "source of funds";
-}) {
-  const trimmed = name?.trim() || null;
-  const hasName = Boolean(trimmed);
-
-  let status: "existing" | "new" | "none" = "none";
-  let copy = "Not specified";
-
-  if (hasName) {
-    if (isExisting) {
-      status = "existing";
-      copy = `Matches existing ${trimmed}`;
-    } else {
-      status = "new";
-      copy = `Create new ${kindLabel}`;
-    }
-  }
-
-  return (
-    <div className="rounded-lg border bg-card p-3 shadow-sm">
-      <div className="flex items-center justify-between gap-2">
-        <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
-          <Icon className="h-3.5 w-3.5 shrink-0" />
-          <span>{label}</span>
-        </div>
-        {status === "existing" ? (
-          <Badge variant="outline" className="text-[10px]">
-            Existing
-          </Badge>
-        ) : status === "new" ? (
-          <Badge variant="default" className="text-[10px]">
-            New
-          </Badge>
-        ) : null}
-      </div>
-      <div className="mt-2 min-w-0">
-        <div
-          className={cn(
-            "truncate text-xs font-medium",
-            status === "none" ? "text-muted-foreground" : "text-foreground",
-          )}
-          title={copy}
-        >
-          {copy}
-        </div>
-        {status === "new" && trimmed ? (
-          <div className="mt-0.5 truncate text-[11px] text-muted-foreground" title={trimmed}>
-            {trimmed}
-          </div>
-        ) : null}
-      </div>
-    </div>
-  );
-}
-
-function RowStatusBadge({ isExisting, isEdited }: { isExisting: boolean; isEdited: boolean }) {
-  if (isExisting) return <Badge variant="outline" className="text-[10px]">In system</Badge>;
-  if (isEdited) return <Badge variant="secondary" className="text-[10px]">Edited</Badge>;
-  return <Badge variant="default" className="text-[10px]">New</Badge>;
-}
-
-function KV({ label, value, className }: { label: string; value: string | null | undefined; className?: string }) {
-  return (
-    <div className={className}>
-      <div className="text-xs text-muted-foreground">{label}</div>
-      <div className="text-sm">{value && value !== "" ? value : "—"}</div>
-    </div>
-  );
-}
-
-interface TxnTableProps {
-  rows: TxnRowView[];
-  caption: string;
-  readOnly: boolean;
-  assetCode: string;
-  selectedKeys?: Set<string>;
-  allChecked: boolean;
-  someChecked: boolean;
-  onToggleAll?: (checked: boolean) => void;
-  onToggle?: (originalKey: string, checked: boolean) => void;
-  getEditedTxn: (assetCode: string, originalKey: string, fallback: ParsedTxn) => ParsedTxn;
-  onEdit?: (
-    assetCode: string,
-    originalKey: string,
-    base: ParsedTxn,
-    field: keyof ParsedTxn,
-    raw: string,
-  ) => void;
-  edits?: Map<string, ParsedTxn>;
-}
-
-function TxnTable({
-  rows,
-  caption,
-  readOnly,
-  assetCode,
-  selectedKeys,
-  allChecked,
-  someChecked,
-  onToggleAll,
-  onToggle,
-  getEditedTxn,
-  onEdit,
-  edits,
-}: TxnTableProps) {
-  if (rows.length === 0) {
-    return <p className="text-sm text-muted-foreground">No transactions to show.</p>;
-  }
-
-  const selectable = !readOnly && Boolean(onToggle);
-
-  const txns = rows.map((row) => getEditedTxn(assetCode, row.originalKey, row.txn));
-  const dateWidthCh = columnWidthCh(txns.map((t) => t.date), 8);
-  const valueWidthCh = columnWidthCh(numericTexts(txns.map((t) => t.valueAmount)), 10);
-  const sharesWidthCh = columnWidthCh(numericTexts(txns.map((t) => t.shareCount)), 8);
-  const ppsWidthCh = columnWidthCh(numericTexts(txns.map((t) => t.pricePerShare)), 8);
-  const ccyWidthCh = columnWidthCh(txns.map((t) => t.currency), 4);
-
-  return (
-    <div>
-      <p className="mb-2 text-xs text-muted-foreground">{caption}</p>
-      <ReviewTableScroller>
-        <table className="w-max caption-bottom text-sm">
-          <thead className="[&_tr]:border-b">
-            <tr className="border-b">
-              {selectable ? (
-                <th className={cn(REVIEW_TH, "w-10")}>
-                  <Checkbox
-                    checked={allChecked ? true : someChecked ? "indeterminate" : false}
-                    onCheckedChange={(v) => onToggleAll?.(Boolean(v))}
-                    aria-label="Select all new transactions"
-                  />
-                </th>
-              ) : null}
-              <th className={REVIEW_TH}>Date</th>
-              <th className={cn(REVIEW_TH, "min-w-[9.5rem]")}>Type</th>
-              <th className={cn(REVIEW_TH, "text-right")}>Value</th>
-              <th className={cn(REVIEW_TH, "text-right")}>Shares</th>
-              <th className={cn(REVIEW_TH, "text-right")}>PPS</th>
-              <th className={REVIEW_TH}>Ccy</th>
-              {!readOnly ? <th className={cn(REVIEW_TH, "w-28")}>Row</th> : null}
-            </tr>
-          </thead>
-          <tbody className="[&_tr:last-child]:border-0">
-            {rows.map((row) => {
-              const txn = getEditedTxn(assetCode, row.originalKey, row.txn);
-              const isExisting = row.rowStatus === "existing";
-              const isChecked = selectedKeys?.has(row.originalKey) ?? false;
-              const isEdited = edits?.has(row.originalKey) ?? false;
-              const canEdit = !readOnly && !isExisting && isChecked && Boolean(onEdit);
-
-              return (
-                <tr
-                  key={row.rowKey}
-                  className={cn(
-                    "border-b transition-colors hover:bg-muted/50",
-                    isExisting && "bg-muted/40 text-muted-foreground opacity-60",
-                  )}
-                >
-                  {selectable ? (
-                    <td className={REVIEW_CELL}>
-                      <Checkbox
-                        checked={isExisting ? false : isChecked}
-                        disabled={isExisting}
-                        onCheckedChange={(v) => onToggle?.(row.originalKey, Boolean(v))}
-                        aria-label={`Select transaction ${row.originalKey}`}
-                      />
-                    </td>
-                  ) : null}
-                  <td className={REVIEW_CELL}>
-                    {canEdit ? (
-                      <ReviewTextInput
-                        type="date"
-                        value={txn.date}
-                        widthCh={dateWidthCh}
-                        onChange={(value) =>
-                          onEdit?.(assetCode, row.originalKey, row.txn, "date", value)
-                        }
-                        edited={isEdited}
-                      />
-                    ) : (
-                      txn.date
-                    )}
-                  </td>
-                  <td className={REVIEW_CELL}>
-                    {canEdit ? (
-                      <Select
-                        value={((txn.type as string) === "distribution" ? "divestment" : txn.type) as string}
-                        onValueChange={(value) =>
-                          onEdit?.(assetCode, row.originalKey, row.txn, "type", value)
-                        }
-                      >
-                        <SelectTrigger
-                          className={cn(
-                            "h-7 w-full min-w-[9rem] text-xs [&>span]:line-clamp-none",
-                            isEdited && "border-amber-400",
-                          )}
-                        >
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {TXN_TYPE_OPTIONS.map((opt) => (
-                            <SelectItem key={opt.value} value={opt.value} className="text-xs">
-                              {opt.label}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    ) : (
-                      txnTypeLabel(txn.type)
-                    )}
-                  </td>
-                  <td className={cn(REVIEW_CELL, "text-right")}>
-                    {canEdit ? (
-                      <ReviewNumericInput
-                        value={txn.valueAmount}
-                        widthCh={valueWidthCh}
-                        onChange={(value) =>
-                          onEdit?.(assetCode, row.originalKey, row.txn, "valueAmount", value)
-                        }
-                        edited={isEdited}
-                      />
-                    ) : (
-                      <span className="tabular-nums">{money(txn.valueAmount)}</span>
-                    )}
-                  </td>
-                  <td className={cn(REVIEW_CELL, "text-right")}>
-                    {canEdit ? (
-                      <ReviewNumericInput
-                        value={txn.shareCount}
-                        widthCh={sharesWidthCh}
-                        onChange={(value) =>
-                          onEdit?.(assetCode, row.originalKey, row.txn, "shareCount", value)
-                        }
-                        edited={isEdited}
-                      />
-                    ) : (
-                      <span className="tabular-nums">{money(txn.shareCount)}</span>
-                    )}
-                  </td>
-                  <td className={cn(REVIEW_CELL, "text-right")}>
-                    {canEdit ? (
-                      <ReviewNumericInput
-                        value={txn.pricePerShare}
-                        widthCh={ppsWidthCh}
-                        onChange={(value) =>
-                          onEdit?.(assetCode, row.originalKey, row.txn, "pricePerShare", value)
-                        }
-                        edited={isEdited}
-                      />
-                    ) : (
-                      <span className="tabular-nums">{money(txn.pricePerShare)}</span>
-                    )}
-                  </td>
-                  <td className={REVIEW_CELL}>
-                    {canEdit ? (
-                      <ReviewCurrencySelect
-                        value={txn.currency}
-                        onChange={(value) =>
-                          onEdit?.(assetCode, row.originalKey, row.txn, "currency", value)
-                        }
-                        edited={isEdited}
-                      />
-                    ) : (
-                      txn.currency
-                    )}
-                  </td>
-                  {!readOnly ? (
-                    <td className={REVIEW_CELL}>
-                      <RowStatusBadge isExisting={isExisting} isEdited={isEdited} />
-                    </td>
-                  ) : null}
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </ReviewTableScroller>
-    </div>
-  );
-}
-
-interface ValTableProps {
-  rows: ValRowView[];
-  caption: string;
-  readOnly: boolean;
-  assetCode: string;
-  selectedKeys?: Set<string>;
-  allChecked: boolean;
-  someChecked: boolean;
-  onToggleAll?: (checked: boolean) => void;
-  onToggle?: (originalKey: string, checked: boolean) => void;
-  getEditedVal: (assetCode: string, originalKey: string, fallback: ParsedValuation) => ParsedValuation;
-  onEdit?: (
-    assetCode: string,
-    originalKey: string,
-    base: ParsedValuation,
-    field: keyof ParsedValuation,
-    raw: string,
-  ) => void;
-  edits?: Map<string, ParsedValuation>;
-}
-
-function ValTable({
-  rows,
-  caption,
-  readOnly,
-  assetCode,
-  selectedKeys,
-  allChecked,
-  someChecked,
-  onToggleAll,
-  onToggle,
-  getEditedVal,
-  onEdit,
-  edits,
-}: ValTableProps) {
-  if (rows.length === 0) {
-    return <p className="text-sm text-muted-foreground">No valuations to show.</p>;
-  }
-
-  const selectable = !readOnly && Boolean(onToggle);
-
-  const vals = rows.map((row) => getEditedVal(assetCode, row.originalKey, row.val));
-  const asOfWidthCh = columnWidthCh(vals.map((v) => v.asOfDate), 8);
-  const periodWidthCh = columnWidthCh(vals.map((v) => v.periodLabel), 8);
-  const marketWidthCh = columnWidthCh(numericTexts(vals.map((v) => v.marketValue)), 10);
-  const ppsWidthCh = columnWidthCh(numericTexts(vals.map((v) => v.pricePerShare)), 8);
-  const stakeWidthCh = columnWidthCh(
-    vals.map((v) => (v.shareholdingPct == null ? "" : v.shareholdingPct.toFixed(2))),
-    6,
-  );
-
-  return (
-    <div>
-      <p className="mb-2 text-xs text-muted-foreground">{caption}</p>
-      <ReviewTableScroller>
-        <table className="w-max caption-bottom text-sm">
-          <thead className="[&_tr]:border-b">
-            <tr className="border-b">
-              {selectable ? (
-                <th className={cn(REVIEW_TH, "w-10")}>
-                  <Checkbox
-                    checked={allChecked ? true : someChecked ? "indeterminate" : false}
-                    onCheckedChange={(v) => onToggleAll?.(Boolean(v))}
-                    aria-label="Select all new valuations"
-                  />
-                </th>
-              ) : null}
-              <th className={REVIEW_TH}>As of</th>
-              <th className={REVIEW_TH}>Period</th>
-              <th className={cn(REVIEW_TH, "text-right")}>Market value</th>
-              <th className={cn(REVIEW_TH, "text-right")}>PPS</th>
-              <th className={cn(REVIEW_TH, "text-right")}>Stake %</th>
-              <th className={REVIEW_TH}>Method</th>
-              {!readOnly ? <th className={cn(REVIEW_TH, "w-28")}>Row</th> : null}
-            </tr>
-          </thead>
-          <tbody className="[&_tr:last-child]:border-0">
-            {rows.map((row) => {
-              const val = getEditedVal(assetCode, row.originalKey, row.val);
-              const isExisting = row.rowStatus === "existing";
-              const isChecked = selectedKeys?.has(row.originalKey) ?? false;
-              const isEdited = edits?.has(row.originalKey) ?? false;
-              const canEdit = !readOnly && !isExisting && isChecked && Boolean(onEdit);
-
-              return (
-                <tr
-                  key={row.rowKey}
-                  className={cn(
-                    "border-b transition-colors hover:bg-muted/50",
-                    isExisting && "bg-muted/40 text-muted-foreground opacity-60",
-                  )}
-                >
-                  {selectable ? (
-                    <td className={REVIEW_CELL}>
-                      <Checkbox
-                        checked={isExisting ? false : isChecked}
-                        disabled={isExisting}
-                        onCheckedChange={(v) => onToggle?.(row.originalKey, Boolean(v))}
-                        aria-label={`Select valuation ${row.originalKey}`}
-                      />
-                    </td>
-                  ) : null}
-                  <td className={REVIEW_CELL}>
-                    {canEdit ? (
-                      <ReviewTextInput
-                        type="date"
-                        value={val.asOfDate}
-                        widthCh={asOfWidthCh}
-                        onChange={(value) =>
-                          onEdit?.(assetCode, row.originalKey, row.val, "asOfDate", value)
-                        }
-                        edited={isEdited}
-                      />
-                    ) : (
-                      val.asOfDate
-                    )}
-                  </td>
-                  <td className={REVIEW_CELL}>
-                    {canEdit ? (
-                      <ReviewTextInput
-                        value={val.periodLabel}
-                        widthCh={periodWidthCh}
-                        onChange={(value) =>
-                          onEdit?.(assetCode, row.originalKey, row.val, "periodLabel", value)
-                        }
-                        edited={isEdited}
-                      />
-                    ) : (
-                      val.periodLabel
-                    )}
-                  </td>
-                  <td className={cn(REVIEW_CELL, "text-right")}>
-                    {canEdit ? (
-                      <ReviewNumericInput
-                        value={val.marketValue}
-                        widthCh={marketWidthCh}
-                        onChange={(value) =>
-                          onEdit?.(assetCode, row.originalKey, row.val, "marketValue", value)
-                        }
-                        edited={isEdited}
-                      />
-                    ) : (
-                      <span className="tabular-nums">{money(val.marketValue)}</span>
-                    )}
-                  </td>
-                  <td className={cn(REVIEW_CELL, "text-right")}>
-                    {canEdit ? (
-                      <ReviewNumericInput
-                        value={val.pricePerShare}
-                        widthCh={ppsWidthCh}
-                        onChange={(value) =>
-                          onEdit?.(assetCode, row.originalKey, row.val, "pricePerShare", value)
-                        }
-                        edited={isEdited}
-                      />
-                    ) : (
-                      <span className="tabular-nums">{money(val.pricePerShare)}</span>
-                    )}
-                  </td>
-                  <td className={cn(REVIEW_CELL, "text-right")}>
-                    {canEdit ? (
-                      <ReviewNumericInput
-                        value={val.shareholdingPct}
-                        widthCh={stakeWidthCh}
-                        onChange={(value) =>
-                          onEdit?.(assetCode, row.originalKey, row.val, "shareholdingPct", value)
-                        }
-                        edited={isEdited}
-                      />
-                    ) : val.shareholdingPct == null ? (
-                      "—"
-                    ) : (
-                      <span className="tabular-nums">{val.shareholdingPct.toFixed(2)}</span>
-                    )}
-                  </td>
-                  <td className={REVIEW_CELL}>
-                    {canEdit ? (
-                      <Select
-                        value={val.valuationMethod ?? ""}
-                        onValueChange={(value) =>
-                          onEdit?.(assetCode, row.originalKey, row.val, "valuationMethod", value)
-                        }
-                      >
-                        <SelectTrigger
-                          className={cn(
-                            "h-7 w-full min-w-[140px] rounded-sm border px-2 py-0 text-xs",
-                            isEdited ? "border-amber-400 bg-amber-500/10 text-amber-900" : "border-transparent",
-                          )}
-                        >
-                          <SelectValue placeholder="Method" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {VALUATION_METHOD_OPTIONS.map((opt) => (
-                            <SelectItem key={opt.value} value={opt.value} className="text-xs">
-                              {opt.label}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    ) : (
-                      valMethodLabel(val.valuationMethod)
-                    )}
-                  </td>
-                  {!readOnly ? (
-                    <td className={REVIEW_CELL}>
-                      <RowStatusBadge isExisting={isExisting} isEdited={isEdited} />
-                    </td>
-                  ) : null}
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </ReviewTableScroller>
-    </div>
   );
 }

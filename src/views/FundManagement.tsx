@@ -23,33 +23,39 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Building2, Layers, Wallet } from 'lucide-react';
-import * as fundsApi from '@/lib/api/funds';
-import * as holdingEntitiesApi from '@/lib/api/holdingEntities';
-import * as fundSourcesApi from '@/lib/api/fundSources';
-import * as holdingEntityStakesApi from '@/lib/api/holdingEntityStakes';
+import type { Tables } from '@/lib/repositories';
+import * as fundLedgerApi from '@/lib/api/fundLedger';
+import type { AssetKind, FlPortfolioReadModel } from '@/lib/api/fundLedger';
 import {
   ASSET_CREATE_FIELDS,
-  assetRowToHolding,
   buildAssetCreatePayload,
-  computeFundHistory,
-  fundRowToFund,
-  holdingToAssetUpdateInput,
-  trailingQuarterEnds,
+  buildEntityFromPortfolio,
+  buildFundFromPortfolio,
+  buildOrphanAssetFund,
+  filterEntityInvestors,
+  fromM,
+  toLocalISODate,
+  txnToLedgerEntryInput,
 } from './fundManagement/adapters';
 import {
+  executeDeleteInvestor,
+  executeDeleteFundingSource,
+  executeDeleteAsset,
+} from './fundManagement/actions';
+import {
   CurrencyInput,
+  CURRENCIES,
   normalizeCurrency,
   type Currency,
 } from './fundManagement/CurrencyInput';
-import { Combobox } from './fundManagement/Combobox';
 import { MetricCards } from './fundManagement/MetricCards';
 import { MoneyBreakdown } from './fundManagement/MoneyBreakdown';
 import { AssetTable } from './fundManagement/AssetTable';
 import { FundSummaryTable } from './fundManagement/FundSummaryTable';
 import { EntitySummaryTable } from './fundManagement/EntitySummaryTable';
 import { CommitmentLedgerDialog } from './fundManagement/CommitmentLedgerDialog';
+import { Combobox } from './fundManagement/Combobox';
 import { SourceSummaryTable } from './fundManagement/SourceSummaryTable';
-
 import { GlossaryTerm } from './fundManagement/parts';
 import { FundDataContext } from './fundManagement/context';
 import { useFeatureEnabled } from '@/components/layout/FeatureFlagsContext';
@@ -57,16 +63,22 @@ import {
   applyHoldingMetrics,
   getAssetEntity,
   getAssetFundingSources,
-  investorInvestedInFund,
+  getAssetInvestType,
   recomputeFund,
-  scopeHoldingToFund,
 } from './fundManagement/calc';
-import { useFundMoney } from './fundManagement/useFundMoney';
 import type { Fund, Holding, HoldingType, Investor } from './fundManagement/types';
 
-type InvestorRow = Awaited<ReturnType<typeof holdingEntitiesApi.listHoldingEntities>>[number];
-type StakeRow = Awaited<ReturnType<typeof holdingEntityStakesApi.listHoldingEntityStakes>>[number];
-type FundSourceRow = Awaited<ReturnType<typeof fundSourcesApi.listFundSources>>[number];
+type InvestorRow = Tables<'fl_investors'>;
+type FundSourceRow = Tables<'fl_funding_sources'>;
+type StakeRow = {
+  id: string;
+  fund_id: string;
+  holding_entity_id: string;
+  commitment_amount: number;
+  invested_amount: number;
+  distributed_amount: number;
+  entity_type?: string;
+};
 
 type PortfolioTab = 'asset' | 'fund' | 'investor' | 'source';
 
@@ -77,8 +89,6 @@ const PORTFOLIO_TABS: { k: PortfolioTab; label: string }[] = [
   { k: 'source', label: 'Source of Fund' },
 ];
 
-// Add-Asset picker options (trimmed from the full HoldingType union: Equity
-// and Obligation removed, Shares folded into "Direct Investments").
 const HOLDING_TYPES: HoldingType[] = ['Direct Investments', 'Cash', 'Fund of funds'];
 
 const HOLDING_TYPE_INFO: Partial<
@@ -88,59 +98,6 @@ const HOLDING_TYPE_INFO: Partial<
   Cash: { icon: Wallet, description: 'Reserve / not yet deployed' },
   'Fund of funds': { icon: Layers, description: 'Investment into another fund' },
 };
-
-
-
-// Turns a fund row + its assets' already-fetched ledgers into the view's Fund
-// domain object. Shared by the batched initial load (buildFundFromPayload) and
-// the single-fund refresh (buildFund) so both produce identical results.
-function assembleFund(
-  fundRow: Omit<fundsApi.PortfolioFund, 'assets'>,
-  perAsset: fundsApi.PortfolioAsset[],
-): Fund {
-  const fundId = fundRow.id;
-  const fund = fundRowToFund(fundRow);
-  // An asset shared across funds (co-investment) arrives once per fund with the
-  // whole-asset numbers + full ledger. Scope each copy to this fund's share so
-  // the per-fund copies sum back to the asset total instead of double-counting.
-  fund.h = perAsset.map(({ asset, txns, valuations }) =>
-    scopeHoldingToFund(assetRowToHolding(asset, txns, valuations), fundId),
-  );
-  // Scope the ledger for the fund's NAV history the same way, so a co-invested
-  // asset's contributions aren't counted in full under every fund.
-  // The synthetic "unassigned" fund owns transactions with fund_id = null.
-  const histFundId: string | null = fundId === 'unassigned' ? null : fundId;
-  const scopedPerAsset = perAsset.map(({ asset, txns, valuations }) => ({
-    asset,
-    txns: txns.filter((t) => (t.fund_id ?? null) === histFundId),
-    valuations,
-  }));
-  fund.hist = computeFundHistory(scopedPerAsset, fundRow.commitment_size_amount, trailingQuarterEnds(4));
-  return fund;
-}
-
-// Builds a fund from one entry of the batched GET /api/funds/portfolio payload
-// — no per-asset network calls.
-function buildFundFromPayload(payload: fundsApi.PortfolioFund): Fund {
-  const { assets, ...fundRow } = payload;
-  return assembleFund(fundRow, assets);
-}
-
-// Single-fund refresh (after an edit). Still per-asset, but scoped to one
-// fund's handful of assets rather than the whole portfolio.
-async function buildFund(fundId: string): Promise<Fund> {
-  const { assets, ...fundRow } = await fundsApi.getFund(fundId);
-  const perAsset = await Promise.all(
-    assets.map(async (asset) => {
-      const [txns, valuations] = await Promise.all([
-        fundsApi.listTransactions(fundId, asset.id),
-        fundsApi.listValuations(fundId, asset.id),
-      ]);
-      return { asset, txns, valuations };
-    }),
-  );
-  return assembleFund(fundRow, perAsset);
-}
 
 function AddFundDialog({
   open,
@@ -152,9 +109,9 @@ function AddFundDialog({
   onCreated: (fundId: string) => Promise<void>;
 }) {
   const [name, setName] = useState('');
+  const [englishName, setEnglishName] = useState('');
   const [description, setDescription] = useState('');
   const [vintageYear, setVintageYear] = useState('');
-  const [commitment, setCommitment] = useState<number | null>(null);
   const [currency, setCurrency] = useState<Currency>('USD');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -167,19 +124,21 @@ function AddFundDialog({
     setSaving(true);
     setError(null);
     try {
-      const fund = await fundsApi.createFund({
+      const fund = await fundLedgerApi.createFund({
         name: name.trim(),
+        english_name: englishName.trim() || null,
         description: description.trim() || null,
-        vintageYear: vintageYear ? Number(vintageYear) : null,
-        commitmentSizeAmount: commitment,
-        baseCurrency: currency,
+        vintage_year: vintageYear ? Number(vintageYear) : null,
+        base_currency: currency,
+        managed: true,
+        ownership_basis: 'commitment',
       });
       await onCreated(fund.id);
       onOpenChange(false);
       setName('');
+      setEnglishName('');
       setDescription('');
       setVintageYear('');
-      setCommitment(null);
       setCurrency('USD');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to create fund');
@@ -198,6 +157,10 @@ function AddFundDialog({
           <div className="space-y-1.5">
             <Label htmlFor="fund-name">Name</Label>
             <Input id="fund-name" value={name} onChange={(e) => setName(e.target.value)} />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="fund-english-name">English Name (optional)</Label>
+            <Input id="fund-english-name" value={englishName} onChange={(e) => setEnglishName(e.target.value)} />
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="fund-description">Description</Label>
@@ -219,16 +182,19 @@ function AddFundDialog({
               />
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="fund-commitment">Commitment size</Label>
-              <CurrencyInput
-                id="fund-commitment"
-                amount={commitment}
-                currency={currency}
-                onCommit={(amt, cur) => {
-                  setCommitment(amt);
-                  setCurrency(cur);
-                }}
-              />
+              <Label htmlFor="fund-currency">Base currency</Label>
+              <Select value={currency} onValueChange={(v) => setCurrency(v as Currency)}>
+                <SelectTrigger id="fund-currency">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {CURRENCIES.map((c) => (
+                    <SelectItem key={c} value={c}>
+                      {c}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
           </div>
           {error && <p className="text-sm text-destructive">{error}</p>}
@@ -258,34 +224,21 @@ function EditFundDialog({
   onSaved: (fundId: string) => Promise<void>;
 }) {
   const [name, setName] = useState('');
+  const [englishName, setEnglishName] = useState('');
   const [description, setDescription] = useState('');
   const [vintageYear, setVintageYear] = useState('');
   const [currency, setCurrency] = useState<Currency>('USD');
-  const [commitment, setCommitment] = useState<number | null>(null);
-  const [called, setCalled] = useState<number | null>(null);
-  const [fmv, setFmv] = useState<number | null>(null);
-  const [realized, setRealized] = useState<number | null>(null);
-  const [dpi, setDpi] = useState('');
-  const [tvpi, setTvpi] = useState('');
-  const [irr, setIrr] = useState('');
   const [status, setStatus] = useState<'investing' | 'harvesting'>('investing');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (open && fund) {
-      const M = 1_000_000;
       setName(fund.n);
+      setEnglishName(fund.englishName ?? '');
       setDescription(fund.description ?? '');
       setVintageYear(fund.v ? String(fund.v) : '');
       setCurrency(normalizeCurrency(fund.baseCurrency));
-      setCommitment(fund.size ? fund.size * M : null);
-      setCalled(fund.called ? fund.called * M : null);
-      setFmv(fund.fmv ? fund.fmv * M : null);
-      setRealized(fund.real ? fund.real * M : null);
-      setDpi(String(fund.dpi ?? 0));
-      setTvpi(String(fund.tvpi ?? 0));
-      setIrr(String(fund.irr ?? 0));
       setStatus(fund.st === 'Harvesting' ? 'harvesting' : 'investing');
       setError(null);
     }
@@ -300,23 +253,13 @@ function EditFundDialog({
     setSaving(true);
     setError(null);
     try {
-      const numOrNull = (s: string): number | null => (s.trim() === '' ? null : Number(s));
-      const irrNum = numOrNull(irr);
-      await fundsApi.updateFund(fund.id, {
+      await fundLedgerApi.updateFund(fund.id, {
         name: name.trim(),
+        english_name: englishName.trim() || null,
         description: description.trim() || null,
-        vintageYear: vintageYear ? Number(vintageYear) : null,
-        baseCurrency: currency,
-        commitmentSizeAmount: commitment,
+        vintage_year: vintageYear ? Number(vintageYear) : null,
+        base_currency: currency,
         status,
-        // Derived overrides. UI money is raw here (already ×1e6); DPI/TVPI are
-        // ratios; IRR is a percent in the UI but a fraction server-side.
-        calledAmount: called,
-        fmvAmount: fmv,
-        realizedAmount: realized,
-        dpi: numOrNull(dpi),
-        tvpi: numOrNull(tvpi),
-        irr: irrNum == null ? null : irrNum / 100,
       });
       await onSaved(fund.id);
       onOpenChange(false);
@@ -339,6 +282,10 @@ function EditFundDialog({
             <Input id="edit-fund-name" value={name} onChange={(e) => setName(e.target.value)} />
           </div>
           <div className="space-y-1.5">
+            <Label htmlFor="edit-fund-english-name">English Name (optional)</Label>
+            <Input id="edit-fund-english-name" value={englishName} onChange={(e) => setEnglishName(e.target.value)} />
+          </div>
+          <div className="space-y-1.5">
             <Label htmlFor="edit-fund-description">Description</Label>
             <Textarea
               id="edit-fund-description"
@@ -347,7 +294,7 @@ function EditFundDialog({
               onChange={(e) => setDescription(e.target.value)}
             />
           </div>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-3 gap-3">
             <div className="space-y-1.5">
               <Label htmlFor="edit-fund-vintage">Vintage year</Label>
               <Input
@@ -356,6 +303,21 @@ function EditFundDialog({
                 value={vintageYear}
                 onChange={(e) => setVintageYear(e.target.value)}
               />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="edit-fund-currency">Base currency</Label>
+              <Select value={currency} onValueChange={(v) => setCurrency(v as Currency)}>
+                <SelectTrigger id="edit-fund-currency">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {CURRENCIES.map((c) => (
+                    <SelectItem key={c} value={c}>
+                      {c}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
             <div className="space-y-1.5">
               <Label>Phase</Label>
@@ -369,76 +331,6 @@ function EditFundDialog({
                 </SelectContent>
               </Select>
             </div>
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="edit-fund-commitment">Commitment size</Label>
-            <CurrencyInput
-              id="edit-fund-commitment"
-              amount={commitment}
-              currency={currency}
-              onCommit={(amt, cur) => {
-                setCommitment(amt);
-                setCurrency(cur);
-              }}
-            />
-          </div>
-
-          <div className="border-t pt-3">
-            <div className="mb-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-              Performance (manual overrides)
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label>Invested</Label>
-                <CurrencyInput
-                  amount={called}
-                  currency={currency}
-                  onCommit={(amt, cur) => {
-                    setCalled(amt);
-                    setCurrency(cur);
-                  }}
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label>Unrealized Market Value</Label>
-                <CurrencyInput
-                  amount={fmv}
-                  currency={currency}
-                  onCommit={(amt, cur) => {
-                    setFmv(amt);
-                    setCurrency(cur);
-                  }}
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label>Realized Value</Label>
-                <CurrencyInput
-                  amount={realized}
-                  currency={currency}
-                  onCommit={(amt, cur) => {
-                    setRealized(amt);
-                    setCurrency(cur);
-                  }}
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="edit-fund-irr">IRR (%)</Label>
-                <Input id="edit-fund-irr" type="number" value={irr} onChange={(e) => setIrr(e.target.value)} />
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="edit-fund-dpi">DPI (×)</Label>
-                <Input id="edit-fund-dpi" type="number" value={dpi} onChange={(e) => setDpi(e.target.value)} />
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="edit-fund-tvpi">MOIC / TVPI (×)</Label>
-                <Input id="edit-fund-tvpi" type="number" value={tvpi} onChange={(e) => setTvpi(e.target.value)} />
-              </div>
-            </div>
-            <p className="mt-2 text-xs text-muted-foreground">
-              These are normally derived from each holding&apos;s transaction ledger. Values you set
-              here are manual overrides — the next metrics recompute (on any asset/transaction
-              change) will overwrite them.
-            </p>
           </div>
           {error && <p className="text-sm text-destructive">{error}</p>}
         </div>
@@ -457,44 +349,26 @@ function EditFundDialog({
 
 function AddAssetDialog({
   funds,
-  investorOptions,
-  sourceOptions,
+  sourceIdsByName,
   initialFundId,
   open,
   onOpenChange,
   onCreated,
 }: {
   funds: Fund[];
-  investorOptions: string[];
-  sourceOptions: string[];
+  sourceIdsByName: Map<string, string>;
   initialFundId?: string | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onCreated: (fundId: string) => Promise<void>;
 }) {
-  // Hardcode a fundId for the API URL paths, as the backend currently requires one
-  // in the route structure despite the asset being unbound in the database.
+  const fundVehicleViewEnabled = useFeatureEnabled('FUND_VEHICLE_VIEW_ENABLED');
   const fundId = initialFundId ?? funds[0]?.id ?? '';
   const [tp, setTp] = useState<HoldingType>('Direct Investments');
-  // Instrument is always Equity for direct investments (picker removed).
   const [values, setValues] = useState<Record<string, string>>({});
   const [assetCurrency, setAssetCurrency] = useState<Currency>('USD');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  // Read via refs (not effect deps) so a background funds reload while the
-  // drawer is open — e.g. an unrelated commitHolding PATCH resolving — can't
-  // re-trigger this reset and wipe whatever the user has already typed.
-  const fundsRef = useRef(funds);
-  fundsRef.current = funds;
-  const initialFundIdRef = useRef(initialFundId);
-  initialFundIdRef.current = initialFundId;
-
-  // Tracks whether the asset create call has already succeeded, so a retry
-  // after a partial failure resumes without re-creating the asset.
-  const progressRef = useRef<{ assetId: string | null }>({
-    assetId: null,
-  });
 
   const effectiveTp: HoldingType = tp;
 
@@ -504,7 +378,6 @@ function AddAssetDialog({
       setValues({});
       setAssetCurrency('USD');
       setError(null);
-      progressRef.current = { assetId: null };
     }
   }, [open]);
 
@@ -525,16 +398,98 @@ function AddAssetDialog({
     setSaving(true);
     setError(null);
     try {
-      const { input } = buildAssetCreatePayload(effectiveTp, values);
-      // Persist the currency chosen on the money fields' prefix dropdown.
-      input.investmentCurrency = assetCurrency;
-      input.reportCurrency = assetCurrency;
+      const payload = buildAssetCreatePayload(effectiveTp, values);
+      const fundingSourceId = payload.input.fundingSource
+        ? sourceIdsByName.get(payload.input.fundingSource as string) || null
+        : null;
 
-      let assetId = progressRef.current.assetId;
-      if (!assetId) {
-        const asset = await fundsApi.addAsset(fundId, input);
-        assetId = asset.id;
-        progressRef.current.assetId = assetId;
+      if (effectiveTp === 'Fund of funds' && fundVehicleViewEnabled) {
+        const newFund = await fundLedgerApi.createFund({
+          name: (payload.input.assetName as string) || 'New target fund',
+          english_name: (payload.input.englishName as string) || null,
+          legal_name: (payload.input.legalName as string) || null,
+          managed: false,
+          ownership_basis: 'units',
+          base_currency: assetCurrency,
+        });
+        const pos = await fundLedgerApi.openPosition({
+          holder_fund_id: fundId,
+          fund_id: newFund.id,
+          holder_source_of_fund_id: fundingSourceId,
+          opened_at: payload.txnDate || toLocalISODate(new Date()),
+        });
+        if (payload.investedM != null && payload.investedM > 0) {
+          const entry = txnToLedgerEntryInput(
+            {
+              date: payload.txnDate || toLocalISODate(new Date()),
+              type: 'Buy',
+              value: payload.investedM,
+              ppsCurrency: assetCurrency,
+              fundingSourceId,
+            },
+            pos.id,
+            { isFoF: true },
+          );
+          await fundLedgerApi.postEvent({
+            event_date: payload.txnDate || toLocalISODate(new Date()),
+            description: 'Initial investment',
+            entries: [entry],
+          });
+        }
+        if (payload.navM != null) {
+          await fundLedgerApi.recordValuation({
+            fund_id: newFund.id,
+            as_of_date: payload.txnDate || toLocalISODate(new Date()),
+            market_value: String(fromM(payload.navM)),
+            currency: assetCurrency,
+          });
+        }
+      } else {
+        const assetKind: AssetKind =
+          effectiveTp === 'Cash'
+            ? 'cash'
+            : (payload.input.typeDetails as any)?.instrumentType === 'obligation'
+              ? 'loan'
+              : (payload.input.typeDetails as any)?.instrumentType === 'shares'
+                ? 'listed_security'
+                : 'equity';
+
+        const newAsset = await fundLedgerApi.createAsset({
+          name: (payload.input.assetName as string) || 'New asset',
+          english_name: (payload.input.englishName as string) || null,
+          asset_kind: assetKind,
+          country: (payload.input.country as string) || null,
+          sector: (payload.input.sector as string) || null,
+          instrument_terms: {
+            ...((payload.input.typeDetails as any) || {}),
+            ...(effectiveTp === 'Fund of funds' ? { investmentTypeLabel: 'Fund of Funds' } : {}),
+          },
+          description: (payload.input.investmentDescription as string) || null,
+        });
+        const pos = await fundLedgerApi.openPosition({
+          holder_fund_id: fundId,
+          asset_id: newAsset.id,
+          holder_source_of_fund_id: fundingSourceId,
+          opened_at: payload.txnDate || toLocalISODate(new Date()),
+        });
+        if (payload.investedM != null && payload.investedM > 0) {
+          const entry = txnToLedgerEntryInput(
+            {
+              date: payload.txnDate || toLocalISODate(new Date()),
+              type: 'Buy',
+              value: payload.investedM,
+              ppsCurrency: assetCurrency,
+              fundingSourceId,
+            },
+            pos.id,
+            { isFoF: effectiveTp === 'Fund of funds' },
+          );
+          await fundLedgerApi.postEvent({
+            event_date: payload.txnDate || toLocalISODate(new Date()),
+            description: 'Initial investment',
+            entries: [entry],
+          });
+        }
       }
 
       await onCreated(fundId);
@@ -546,7 +501,6 @@ function AddAssetDialog({
     }
   };
 
-
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-2xl">
@@ -555,7 +509,6 @@ function AddAssetDialog({
         </DialogHeader>
 
         <div className="max-h-[60vh] space-y-5 overflow-y-auto px-1 pb-1">
-
           <div>
             <div className="mb-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
               What kind of asset?
@@ -585,7 +538,6 @@ function AddAssetDialog({
               })}
             </div>
           </div>
-
 
           <div>
             <div className="mb-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
@@ -650,16 +602,22 @@ function AddAssetDialog({
   );
 }
 
-// Fund Management — a modular React implementation (Tailwind + shadcn tokens,
-// theme-aware). Funds/holdings/ledger come from the Fund Management API
-// (src/lib/api/funds.ts). Investment Entities (investors) and Sources of Fund
-// (funding_sources) are persisted through their own APIs; the by-entity /
-// by-source tabs group the live funds' holdings by those managed lists.
 export default function FundManagement() {
+  const { toast } = useToast();
   const [_funds, setFunds] = useState<Fund[] | null>(null);
+  const [_displayFunds, setDisplayFunds] = useState<Fund[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [investorRows, setInvestorRows] = useState<InvestorRow[]>([]);
   const [stakeRows, setStakeRows] = useState<StakeRow[]>([]);
+  const [fundSourceRows, setFundSourceRows] = useState<FundSourceRow[]>([]);
+  const [portfolioReadModel, setPortfolioReadModel] = useState<FlPortfolioReadModel | null>(null);
+  const verificationSummary = useMemo(() => {
+    if (!portfolioReadModel) return { entries: 0, valuations: 0 };
+    return {
+      entries: portfolioReadModel.entries.filter((entry) => entry.data_status === 'needs_verification').length,
+      valuations: portfolioReadModel.valuations.filter((valuation) => valuation.data_status === 'needs_verification').length,
+    };
+  }, [portfolioReadModel]);
 
   const funds = useMemo(() => {
     if (!_funds) return null;
@@ -673,17 +631,37 @@ export default function FundManagement() {
       return { ...f, size: Math.max(f.size, totalStakesM) };
     });
   }, [_funds, stakeRows]);
-  const [fundSourceRows, setFundSourceRows] = useState<FundSourceRow[]>([]);
+
+  const displayFunds = useMemo(() => {
+    if (!funds || !_displayFunds) return null;
+    const fundMap = new Map(funds.map((f) => [f.id, f]));
+    return _displayFunds.map((df) => fundMap.get(df.id) ?? df);
+  }, [funds, _displayFunds]);
+
   const [tab, setTab] = useState<PortfolioTab>('asset');
-  // Source-of-funds tracking is a per-workspace setting (admin Funds tab). When
-  // off, drop the "Source of Fund" portfolio tab and never let it be the active
-  // one — including if a prior render left `tab` on 'source'.
+  // Empty means the live portfolio; a selected date is propagated all the way
+  // to the ledger read model so balances and marks are truly as-of.
+  const [asOfDate, setAsOfDate] = useState('');
+  const fundVehicleViewEnabled = useFeatureEnabled('FUND_VEHICLE_VIEW_ENABLED');
   const sourceOfFundsEnabled = useFeatureEnabled('SOURCE_OF_FUNDS_ENABLED');
   const portfolioTabs = useMemo(
-    () => PORTFOLIO_TABS.filter((t) => sourceOfFundsEnabled || t.k !== 'source'),
-    [sourceOfFundsEnabled],
+    () =>
+      PORTFOLIO_TABS.filter((t) => {
+        if (!fundVehicleViewEnabled && t.k === 'fund') return false;
+        if (!sourceOfFundsEnabled && t.k === 'source') return false;
+        return true;
+      }),
+    [fundVehicleViewEnabled, sourceOfFundsEnabled],
   );
-  const activeTab: PortfolioTab = !sourceOfFundsEnabled && tab === 'source' ? 'asset' : tab;
+  const activeTab: PortfolioTab =
+    (!fundVehicleViewEnabled && tab === 'fund') || (!sourceOfFundsEnabled && tab === 'source')
+      ? 'asset'
+      : tab;
+  useEffect(() => {
+    if (tab !== activeTab) {
+      setTab(activeTab);
+    }
+  }, [tab, activeTab]);
   const [addFundOpen, setAddFundOpen] = useState(false);
   const [addAssetOpen, setAddAssetOpen] = useState(false);
   const [addAssetFundId, setAddAssetFundId] = useState<string | null>(null);
@@ -693,91 +671,159 @@ export default function FundManagement() {
   const [editStakesFor, setEditStakesFor] = useState<{ investorId: string; fundId?: string | null } | null>(null);
   const [commitmentNonce, setCommitmentNonce] = useState(0);
   const [editFund, setEditFund] = useState<Fund | null>(null);
+  const [editInvestor, setEditInvestor] = useState<Investor | null>(null);
+  const [moveInvestor, setMoveInvestor] = useState<Investor | null>(null);
 
-  // Bump to force a re-render after an in-place optimistic edit to a holding/fund.
   const [, setRev] = useState(0);
-  const { toast } = useToast();
-  // MB-470: fund_assets.id set of holdings with an AI Opinion run in flight
-  // (optimistic, client-tracked — mirrors Pipeline.tsx's analyzingAiOpinionIds).
   const [analyzingAiOpinionIds, setAnalyzingAiOpinionIds] = useState<Set<string>>(new Set());
 
   const reloadAll = useCallback(async () => {
     try {
-      const payloads = await fundsApi.getPortfolio();
-      setFunds(payloads.map(buildFundFromPayload));
+      const readModel = await fundLedgerApi.getPortfolio(asOfDate || undefined);
+      const builtFunds = readModel.managed_funds
+        .filter((f) => f.status !== 'liquidated')
+        .map((f) =>
+          buildFundFromPortfolio(
+            f,
+            readModel.positions,
+            readModel.entries,
+            readModel.valuations,
+            asOfDate || undefined,
+            readModel.fund_cash_summaries?.[f.id],
+          ),
+        );
+      setFunds(builtFunds);
+
+      // Liquidated funds: fl_funds.status = 'liquidated'
+      const liquidatedFundRows = readModel.funds.filter((f) => f.status === 'liquidated');
+      const liquidatedFundIds = new Set(liquidatedFundRows.map((f) => f.id));
+
+      // External funds: fl_funds.managed = false (prefer liquidated_fund if also liquidated)
+      const externalFunds = readModel.external_funds
+        .filter((f) => !liquidatedFundIds.has(f.id))
+        .map((f) =>
+          buildFundFromPortfolio(
+            f,
+            readModel.positions,
+            readModel.entries,
+            readModel.valuations,
+            asOfDate || undefined,
+            readModel.fund_cash_summaries?.[f.id],
+            'external_fund',
+          ),
+        );
+
+      const liquidatedFunds = liquidatedFundRows.map((f) =>
+        buildFundFromPortfolio(
+          f,
+          readModel.positions,
+          readModel.entries,
+          readModel.valuations,
+          asOfDate || undefined,
+          readModel.fund_cash_summaries?.[f.id],
+          'liquidated_fund',
+        ),
+      );
+
+      const orphanFund = buildOrphanAssetFund(readModel.assets, readModel.positions);
+
+      const seenFundIds = new Set<string>();
+      const rawDisplayFunds: Fund[] = [];
+
+      for (const f of builtFunds) {
+        if (!seenFundIds.has(f.id)) {
+          seenFundIds.add(f.id);
+          rawDisplayFunds.push(f);
+        }
+      }
+      for (const f of externalFunds) {
+        if (!seenFundIds.has(f.id)) {
+          seenFundIds.add(f.id);
+          rawDisplayFunds.push(f);
+        }
+      }
+      for (const f of liquidatedFunds) {
+        if (!seenFundIds.has(f.id)) {
+          seenFundIds.add(f.id);
+          rawDisplayFunds.push(f);
+        }
+      }
+      if (orphanFund && !seenFundIds.has(orphanFund.id)) {
+        seenFundIds.add(orphanFund.id);
+        rawDisplayFunds.push(orphanFund);
+      }
+
+      setDisplayFunds(rawDisplayFunds);
+      setPortfolioReadModel(readModel);
+      setInvestorRows(readModel.investors);
+      setFundSourceRows(readModel.funding_sources);
+
+      const stakes: StakeRow[] = readModel.positions
+        .filter((p) => p.holder_investor_id != null && p.fund_id != null)
+        .map((p) => ({
+          id: p.id,
+          fund_id: p.fund_id!,
+          holding_entity_id: p.holder_investor_id!,
+          commitment_amount: Number(p.balance?.commitment ?? 0),
+          invested_amount: Number(p.balance?.drawn_commitment ?? 0),
+          distributed_amount: Number(p.balance?.distributed_capital ?? 0),
+          entity_type: p.holder_investor?.investor_type ?? 'individual',
+        }));
+      setStakeRows(stakes);
+      setCommitmentNonce((n) => n + 1);
       setLoadError(null);
     } catch (err) {
       setLoadError(err instanceof Error ? err.message : 'Failed to load funds');
     }
-  }, []);
+  }, [asOfDate]);
 
-  const reloadInvestors = useCallback(async () => {
-    try {
-      setInvestorRows(await holdingEntitiesApi.listHoldingEntities());
-    } catch (err) {
-      console.error('Failed to load investment entities', err);
-    }
-  }, []);
-
-  const reloadStakes = useCallback(async () => {
-    try {
-      setStakeRows(await holdingEntityStakesApi.listHoldingEntityStakes());
-      setCommitmentNonce((n) => n + 1);
-    } catch (err) {
-      console.error('Failed to load investor stakes', err);
-    }
-  }, []);
-
-  const reloadSources = useCallback(async () => {
-    try {
-      setFundSourceRows(await fundSourcesApi.listFundSources());
-    } catch (err) {
-      console.error('Failed to load sources of fund', err);
-    }
-  }, []);
+  const handleAnalyzeAiOpinion = useCallback(
+    async (holding: Holding) => {
+      if (!holding.id || analyzingAiOpinionIds.has(holding.id)) return;
+      setAnalyzingAiOpinionIds((prev) => new Set(prev).add(holding.id));
+      try {
+        await fundLedgerApi.triggerAiOpinion(holding.id);
+        toast({
+          title: 'AI analysis started',
+          description: `Evaluating "${holding.n}".`,
+        });
+      } catch (err) {
+        toast({
+          title: 'Analysis failed',
+          description: err instanceof Error ? err.message : `Failed to evaluate "${holding.n}".`,
+          variant: 'destructive',
+        });
+      } finally {
+        await reloadAll().catch(() => {});
+        setAnalyzingAiOpinionIds((prev) => {
+          const next = new Set(prev);
+          next.delete(holding.id);
+          return next;
+        });
+      }
+    },
+    [analyzingAiOpinionIds, reloadAll, toast],
+  );
 
   const deleteInvestor = useCallback(
     async (investorId: string) => {
-      try {
-        await holdingEntitiesApi.deleteHoldingEntity(investorId);
-        // Stakes cascade-delete server-side; refresh both so the local view matches.
-        await Promise.all([reloadInvestors(), reloadStakes()]);
-      } catch (err) {
-        console.error('Failed to delete investment entity', err);
-        toast({
-          title: 'Failed to delete investment entity',
-          description: err instanceof Error ? err.message : 'The entity was not deleted.',
-          variant: 'destructive',
-        });
-        throw err;
-      }
+      await executeDeleteInvestor(investorId, { reloadAll, toast });
     },
-    [reloadInvestors, reloadStakes, toast],
+    [reloadAll, toast],
   );
 
   const deleteSource = useCallback(
     async (sourceId: string) => {
-      try {
-        await fundSourcesApi.deleteFundSource(sourceId);
-        await reloadSources();
-      } catch (err) {
-        console.error('Failed to delete source of fund', err);
-        toast({
-          title: 'Failed to delete source of fund',
-          description: err instanceof Error ? err.message : 'The source was not deleted.',
-          variant: 'destructive',
-        });
-        throw err;
-      }
+      await executeDeleteFundingSource(sourceId, { reloadAll, toast });
     },
-    [reloadSources, toast],
+    [reloadAll, toast],
   );
 
   const editSourceName = useCallback(
     async (sourceId: string, name: string) => {
       try {
-        await fundSourcesApi.updateFundSource(sourceId, { name });
-        await reloadSources();
+        await fundLedgerApi.updateFundingSource(sourceId, { name });
+        await reloadAll();
       } catch (err) {
         console.error('Failed to rename source of fund', err);
         toast({
@@ -788,58 +834,17 @@ export default function FundManagement() {
         throw err;
       }
     },
-    [reloadSources, toast],
+    [reloadAll, toast],
   );
 
   useEffect(() => {
     reloadAll();
-    reloadInvestors();
-    reloadStakes();
-    reloadSources();
-  }, [reloadAll, reloadInvestors, reloadStakes, reloadSources]);
+  }, [reloadAll]);
 
-  // MB-470: while any holding has an AI Opinion run processing, poll the
-  // portfolio so the spinner swaps for the verdict once the workforce run
-  // completes (no SSE endpoint for funds — polling is simpler and sufficient
-  // here). Stops automatically once no holding is left in 'processing'.
-  const anyAiOpinionProcessing = useMemo(
-    () => (funds ?? []).some((f) => f.h.some((h) => h.aiOpinionStatus === 'processing')),
-    [funds],
-  );
-  useEffect(() => {
-    if (!anyAiOpinionProcessing) return;
-    const id = setInterval(() => {
-      reloadAll();
-    }, 4000);
-    return () => clearInterval(id);
-  }, [anyAiOpinionProcessing, reloadAll]);
+  const reloadOne = useCallback(async () => {
+    await reloadAll();
+  }, [reloadAll]);
 
-  const reloadOne = useCallback(
-    async (fundId: string) => {
-      try {
-        const fresh = await buildFund(fundId);
-        setFunds((prev) => {
-          if (!prev) return prev;
-          const exists = prev.some((f) => f.id === fundId);
-          return exists ? prev.map((f) => (f.id === fundId ? fresh : f)) : [...prev, fresh];
-        });
-      } catch (err) {
-        console.error('Failed to reload fund', err);
-        toast({
-          title: 'Failed to refresh fund',
-          description: err instanceof Error ? err.message : 'The latest data could not be loaded.',
-          variant: 'destructive',
-        });
-      }
-    },
-    [toast],
-  );
-
-
-  // Combobox / grouping options merge the managed lists (investors /
-  // funding_sources tables) with the values already in use on holdings, so
-  // entities and sources already attached to assets are selectable even
-  // before anyone adds them to the managed list.
   const entityOptions = useMemo(() => {
     const set = new Set<string>(investorRows.map((r) => r.name));
     (funds ?? []).forEach((f) =>
@@ -863,15 +868,11 @@ export default function FundManagement() {
     return [...set].sort((a, b) => a.localeCompare(b));
   }, [fundSourceRows, funds]);
 
-  // Managed-source name → row id, so the Source tab can offer delete only for
-  // sources that actually have a funding_sources row (not free-text/in-use-only).
   const sourceIdsByName = useMemo(
     () => new Map(fundSourceRows.map((r) => [r.name, r.id] as const)),
     [fundSourceRows],
   );
 
-  // Reverse maps (id → name) so edit forms can display a transaction's stored
-  // UUID foreign keys as names — the entity/source comboboxes are name-based.
   const entityNameById = useMemo(
     () => new Map(investorRows.map((r) => [r.id, r.name] as const)),
     [investorRows],
@@ -881,8 +882,6 @@ export default function FundManagement() {
     [fundSourceRows],
   );
 
-  // Names of holdings that have no assigned investing entity (the "Others"
-  // group). The Add-asset combobox lists them so they can be picked directly.
   const entitylessHoldingNames = useMemo(() => {
     const set = new Set<string>();
     (funds ?? []).forEach((f) =>
@@ -893,14 +892,11 @@ export default function FundManagement() {
     return [...set];
   }, [funds]);
 
-  // Investment Entity combobox options: managed/in-use entities + entity-less
-  // holding names (so "Others" holdings show by name in the picker).
   const comboboxEntityOptions = useMemo(
     () => [...new Set([...entityOptions, ...entitylessHoldingNames])].sort((a, b) => a.localeCompare(b)),
     [entityOptions, entitylessHoldingNames],
   );
 
-  // Raw stake detail per (investorId, fundId) — feeds the edit-stakes dialog.
   const stakeDetail = useMemo(() => {
     const map: Record<string, Record<string, StakeRow>> = {};
     stakeRows.forEach((s) => {
@@ -916,9 +912,54 @@ export default function FundManagement() {
         recomputeFund(fund);
         setRev((r) => r + 1);
         if (!holding.id) return;
-        fundsApi
-          .updateAsset(fund.id, holding.id, holdingToAssetUpdateInput(holding))
-          .then(() => reloadOne(fund.id))
+        const updatePromise =
+          (holding.targetKind === 'fund' || (holding.targetKind == null && holding.tp === 'Fund of funds'))
+            ? fundLedgerApi.updateFund(holding.id, {
+                name: holding.n,
+                english_name: holding.englishName || null,
+                legal_name: holding.inv?.legalName || null,
+                description: holding.inv?.description || null,
+                mgmt_fee_rate: holding.inv?.mgmtFeeRate != null ? String(holding.inv.mgmtFeeRate / 100) : null,
+                carry_rate: holding.inv?.carryRate != null ? String(holding.inv.carryRate / 100) : null,
+                preferred_return_rate: holding.inv?.prefReturnRate != null ? String(holding.inv.prefReturnRate / 100) : null,
+                fund_life_years: holding.d?.fundLifeYears ?? null,
+              })
+            : fundLedgerApi.updateAsset(holding.id, {
+                name: holding.n,
+                english_name: holding.englishName || null,
+                legal_name: holding.inv?.legalName || null,
+                country: holding.d?.geo || null,
+                sector: holding.d?.sector || null,
+                sub_sector: holding.d?.subSector || null,
+                description: holding.inv?.description || null,
+                instrument_terms: {
+                  ...((holding.d as Record<string, unknown>) ?? {}),
+                  dealType: holding.d?.dealType ?? null,
+                  investmentTypeLabel: getAssetInvestType(holding),
+                  entryEV: holding.d?.entryEV ?? null,
+                  holdYrs: holding.d?.holdYrs ?? null,
+                  revenue: holding.d?.revenue ?? null,
+                  ebitda: holding.d?.ebitda ?? null,
+                  noteType: holding.d?.noteType ?? null,
+                  issuer: holding.d?.issuer ?? null,
+                  coupon: holding.d?.coupon ?? null,
+                  principal: holding.d?.principal ?? null,
+                  exchange: holding.d?.exchange ?? null,
+                  ticker: holding.d?.ticker ?? null,
+                  sharesOutstanding: holding.d?.sharesK ?? null,
+                  marketCapUsdBn: holding.d?.marketCapB ?? null,
+                  pricePerShare: holding.d?.pricePerShare ?? null,
+                  shareClass: holding.d?.shareClass ?? null,
+                  investingEntity: holding.inv?.entity ?? null,
+                  reportDate: holding.inv?.reportDate ?? holding.d?.reportDate ?? null,
+                  prefReturnRatePct: holding.inv?.prefReturnRate ?? holding.d?.prefReturnRatePct ?? null,
+                  keyRights: holding.inv?.keyRights ?? holding.d?.keyRights ?? null,
+                  businessUpdates: holding.inv?.businessUpdates ?? holding.d?.businessUpdates ?? null,
+                },
+              });
+
+        updatePromise
+          .then(() => reloadOne())
           .catch((err) => {
             console.error('Failed to save asset', err);
             toast({
@@ -926,17 +967,17 @@ export default function FundManagement() {
               description: err instanceof Error ? err.message : 'Your change was not saved.',
               variant: 'destructive',
             });
-            reloadOne(fund.id).catch((reloadErr) => console.error('Failed to reload fund', reloadErr));
+            reloadOne().catch((reloadErr) => console.error('Failed to reload fund', reloadErr));
           });
       },
-      refreshHolding: (fund: Fund) => {
-        reloadOne(fund.id);
+      refreshHolding: () => {
+        reloadOne();
       },
       refreshAll: reloadAll,
       deleteFund: async (fund: Fund) => {
         try {
-          await fundsApi.deleteFund(fund.id);
-          setFunds((prev) => (prev ? prev.filter((f) => f.id !== fund.id) : null));
+          await fundLedgerApi.updateFund(fund.id, { status: 'liquidated' });
+          await reloadAll();
         } catch (err) {
           console.error('Failed to delete fund', err);
           toast({
@@ -948,56 +989,16 @@ export default function FundManagement() {
         }
       },
       deleteAsset: async (fund: Fund, holding: (typeof fund.h)[number]) => {
-        if (!holding.id) return;
-        try {
-          await fundsApi.deleteAsset(fund.id, holding.id);
-          reloadOne(fund.id);
-        } catch (err) {
-          console.error('Failed to delete asset', err);
-          toast({
-            title: 'Failed to delete holding',
-            description: err instanceof Error ? err.message : `"${holding.n}" was not deleted.`,
-            variant: 'destructive',
-          });
-          throw err;
-        }
+        await executeDeleteAsset(fund, holding, { reloadAll, toast });
       },
       funds: funds ?? [],
       investorOptions: comboboxEntityOptions,
       sourceOptions,
       entityNameById,
       sourceNameById,
+      sourceIdsByName,
       sourceOfFundsEnabled,
-      analyzeAiOpinion: (holding: Holding) => {
-        if (!holding.id) return;
-        const id = holding.id;
-        setAnalyzingAiOpinionIds((prev) => new Set(prev).add(id));
-        fundsApi
-          .analyzeFundAiOpinion(id)
-          .then(() => {
-            toast({ title: 'Analyzing AI Opinion', description: `Reviewing "${holding.n}"…` });
-            // Portfolio refresh is best-effort — a transient fetch failure must
-            // not look like the analyze request itself failed (the run is live).
-            return reloadAll().catch((err) => {
-              console.error('Failed to refresh portfolio after AI Opinion dispatch', err);
-            });
-          })
-          .catch((err) => {
-            console.error('Failed to analyze AI Opinion', err);
-            toast({
-              title: 'Failed to analyze AI Opinion',
-              description: err instanceof Error ? err.message : 'The request could not be started.',
-              variant: 'destructive',
-            });
-          })
-          .finally(() => {
-            setAnalyzingAiOpinionIds((prev) => {
-              const next = new Set(prev);
-              next.delete(id);
-              return next;
-            });
-          });
-      },
+      analyzeAiOpinion: handleAnalyzeAiOpinion,
       analyzingAiOpinionIds,
     }),
     [
@@ -1009,25 +1010,53 @@ export default function FundManagement() {
       sourceOptions,
       entityNameById,
       sourceNameById,
+      sourceIdsByName,
       sourceOfFundsEnabled,
+      handleAnalyzeAiOpinion,
       analyzingAiOpinionIds,
     ],
   );
 
-  // LP pro-rata model for the By Investment Entity tab: fractional ownership of
+  const investorById = useMemo(() => {
+    const map = new Map<string, Tables<'fl_investors'>>();
+    for (const inv of investorRows) {
+      map.set(inv.id, inv);
+    }
+    return map;
+  }, [investorRows]);
 
-  // a fund = the entity's committed capital ÷ the fund's commitment size.
   const tabInvestors = useMemo<Investor[]>(() => {
-    const fundSizeById = new Map((funds ?? []).map((f) => [f.id, f.size]));
-    return investorRows.map((row) => {
+    const entityInvestors = filterEntityInvestors(investorRows);
+    return entityInvestors.map((row) => {
       const stakes: Record<string, number> = {};
+      const invested: Record<string, number> = {};
+      const distributed: Record<string, number> = {};
       Object.values(stakeDetail[row.id] ?? {}).forEach((s) => {
         const committedM = (s.commitment_amount ?? 0) / 1_000_000;
         if (committedM > 0) stakes[s.fund_id] = committedM;
+        invested[s.fund_id] = (s.invested_amount ?? 0) / 1_000_000;
+        distributed[s.fund_id] = (s.distributed_amount ?? 0) / 1_000_000;
       });
-      return { id: row.id, n: row.name, type: row.entity_type ?? '', stakes };
+
+      const parent = row.parent_investor_id ? investorById.get(row.parent_investor_id) : null;
+      const entity = buildEntityFromPortfolio(
+        row,
+        portfolioReadModel?.positions ?? [],
+        portfolioReadModel?.entries ?? [],
+        portfolioReadModel?.valuations ?? [],
+        asOfDate,
+        parent ? { id: parent.id, name: parent.name } : null,
+        portfolioReadModel?.funds,
+      );
+
+      return {
+        ...entity,
+        stakes,
+        invested,
+        distributed,
+      };
     });
-  }, [investorRows, stakeDetail, funds]);
+  }, [investorRows, stakeDetail, investorById, portfolioReadModel, asOfDate]);
 
   return (
     <>
@@ -1054,23 +1083,44 @@ export default function FundManagement() {
               </div>
             )}
 
-            {funds == null && !loadError ? (
+            {(verificationSummary.entries > 0 || verificationSummary.valuations > 0) && (
+              <div className="mb-4 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-900 dark:text-amber-200">
+                This report includes {verificationSummary.entries} ledger entr{verificationSummary.entries === 1 ? 'y' : 'ies'} and {verificationSummary.valuations} valuation{verificationSummary.valuations === 1 ? '' : 's'} that need verification.
+              </div>
+            )}
+
+            {(funds == null || displayFunds == null) && !loadError ? (
               <p className="py-10 text-center text-sm text-muted-foreground">Loading funds…</p>
             ) : (
               <>
-                <MetricCards funds={funds ?? []} />
-                <MoneyBreakdown funds={funds ?? []} />
+                <MetricCards funds={funds ?? []} investors={tabInvestors} />
+                <MoneyBreakdown funds={funds ?? []} investors={tabInvestors} />
 
                 <div className="overflow-hidden rounded-lg border bg-card">
                   <div className="flex flex-wrap items-center gap-2.5 border-b bg-muted/30 px-3 py-2.5">
                     <span className="text-xs font-medium text-foreground">Portfolio</span>
                     <div className="ml-auto flex flex-wrap items-center gap-2.5">
-                      {tab === 'fund' && (
+                      <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                        As of
+                        <input
+                          type="date"
+                          value={asOfDate}
+                          onChange={(event) => setAsOfDate(event.target.value)}
+                          className="h-8 rounded-md border bg-background px-2 text-xs text-foreground"
+                          aria-label="Portfolio as-of date"
+                        />
+                      </label>
+                      {asOfDate && (
+                        <Button size="sm" variant="ghost" onClick={() => setAsOfDate('')}>
+                          Current
+                        </Button>
+                      )}
+                      {activeTab === 'fund' && (
                         <Button size="sm" variant="outline" onClick={() => setAddFundOpen(true)}>
                           + Add fund
                         </Button>
                       )}
-                      {activeTab === 'asset' && funds && funds.length > 0 && (
+                      {activeTab === 'asset' && ((displayFunds && displayFunds.length > 0) || tabInvestors.length > 0) && (
                         <Button
                           size="sm"
                           variant="outline"
@@ -1114,16 +1164,28 @@ export default function FundManagement() {
 
                   <div className="p-3">
                     {activeTab === 'asset' ? (
-                      <AssetTable funds={funds ?? []} />
+                      <AssetTable funds={displayFunds ?? []} investors={tabInvestors} />
                     ) : activeTab === 'fund' ? (
-                      <FundSummaryTable funds={funds ?? []} investors={tabInvestors} onEditFund={(fund) => setEditFund(fund)} />
+                      <FundSummaryTable
+                        funds={(displayFunds ?? []).filter((f) => f.id !== 'unassigned' && f.disclosure !== 'no_holder')}
+                        investors={tabInvestors}
+                        onEditFund={(fund) => setEditFund(fund)}
+                        positions={portfolioReadModel?.positions}
+                        entries={portfolioReadModel?.entries}
+                        asOfDate={asOfDate}
+                      />
                     ) : activeTab === 'investor' ? (
                       <EntitySummaryTable
                         funds={funds ?? []}
                         investors={tabInvestors}
                         onEditStakes={(id, fundId) => setEditStakesFor({ investorId: id, fundId })}
+                        onEditInvestor={(inv) => setEditInvestor(inv)}
+                        onMoveInvestor={(inv) => setMoveInvestor(inv)}
                         onDeleteInvestor={deleteInvestor}
                         commitmentNonce={commitmentNonce}
+                        positions={portfolioReadModel?.positions}
+                        entries={portfolioReadModel?.entries}
+                        asOfDate={asOfDate}
                       />
                     ) : (
                       <SourceSummaryTable
@@ -1145,15 +1207,10 @@ export default function FundManagement() {
       <AddFundDialog open={addFundOpen} onOpenChange={setAddFundOpen} onCreated={reloadOne} />
       <AddAssetDialog
         funds={funds ?? []}
-        investorOptions={comboboxEntityOptions}
-        sourceOptions={sourceOptions}
+        sourceIdsByName={sourceIdsByName}
         initialFundId={addAssetFundId}
         open={addAssetOpen}
         onOpenChange={setAddAssetOpen}
-        // Reload every fund (not just the target): a brand-new asset has no
-        // transactions yet, and fund membership is transaction-driven, so it
-        // surfaces under the synthetic "Unassigned Assets" fund until its
-        // first transaction assigns it a real fund.
         onCreated={async () => {
           await reloadAll();
         }}
@@ -1164,15 +1221,23 @@ export default function FundManagement() {
         onOpenChange={(o) => !o && setEditFund(null)}
         onSaved={reloadOne}
       />
-      <NameDialog
-        title="Add Investment Entity"
-        label="Investment Entity Name"
+      <AddEntityDialog
         open={addEntityOpen}
         onOpenChange={setAddEntityOpen}
-        onSubmit={async (name) => {
-          await holdingEntitiesApi.createHoldingEntity({ name });
-          await reloadInvestors();
-        }}
+        onCreated={reloadAll}
+      />
+      <EditInvestorDialog
+        investor={editInvestor}
+        open={editInvestor != null}
+        onOpenChange={(o) => !o && setEditInvestor(null)}
+        onSaved={reloadAll}
+      />
+      <MoveInvestorDialog
+        investor={moveInvestor}
+        investorRows={investorRows}
+        open={moveInvestor != null}
+        onOpenChange={(o) => !o && setMoveInvestor(null)}
+        onSaved={reloadAll}
       />
       <NameDialog
         title="Add Source of Fund"
@@ -1180,8 +1245,8 @@ export default function FundManagement() {
         open={addSourceOpen}
         onOpenChange={setAddSourceOpen}
         onSubmit={async (name) => {
-          await fundSourcesApi.createFundSource({ name });
-          await reloadSources();
+          await fundLedgerApi.createFundingSource({ name });
+          await reloadAll();
         }}
       />
       <NameDialog
@@ -1205,15 +1270,308 @@ export default function FundManagement() {
         funds={funds ?? []}
         allInvestors={investorRows}
         initialFundId={editStakesFor?.fundId}
-        onSaved={reloadStakes}
+        onSaved={reloadAll}
       />
     </>
   );
 }
 
+function AddEntityDialog({
+  open,
+  onOpenChange,
+  onCreated,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onCreated: () => Promise<void>;
+}) {
+  const [name, setName] = useState('');
+  const [englishName, setEnglishName] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-/** Single-text-field dialog used by the "Add Investment Entity" / "Add Source
- * of Fund" header buttons. */
+  const submit = async () => {
+    if (!name.trim()) {
+      setError('Entity name is required');
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    try {
+      await fundLedgerApi.createInvestor({
+        name: name.trim(),
+        english_name: englishName.trim() || null,
+        investor_type: 'institution',
+      });
+      await onCreated();
+      onOpenChange(false);
+      setName('');
+      setEnglishName('');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to create entity');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Add Investment Entity</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-3">
+          <div className="space-y-1.5">
+            <Label htmlFor="entity-name">Investment Entity Name</Label>
+            <Input id="entity-name" value={name} onChange={(e) => setName(e.target.value)} autoFocus />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="entity-english-name">English Name (optional)</Label>
+            <Input id="entity-english-name" value={englishName} onChange={(e) => setEnglishName(e.target.value)} />
+          </div>
+          {error && <p className="text-sm text-destructive">{error}</p>}
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>
+            Cancel
+          </Button>
+          <Button onClick={submit} disabled={saving}>
+            {saving ? 'Creating…' : 'Create entity'}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function EditInvestorDialog({
+  investor,
+  open,
+  onOpenChange,
+  onSaved,
+}: {
+  investor: Investor | null;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onSaved: () => Promise<void>;
+}) {
+  const [name, setName] = useState('');
+  const [englishName, setEnglishName] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (open && investor) {
+      setName(investor.n);
+      setEnglishName(investor.englishName ?? '');
+      setError(null);
+    }
+  }, [open, investor]);
+
+  const submit = async () => {
+    if (!investor) return;
+    if (!name.trim()) {
+      setError('Entity name is required');
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    try {
+      await fundLedgerApi.updateInvestor(investor.id, {
+        name: name.trim(),
+        english_name: englishName.trim() || null,
+      });
+      await onSaved();
+      onOpenChange(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to save entity');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Edit Investment Entity{investor ? ` · ${investor.n}` : ''}</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-3">
+          <div className="space-y-1.5">
+            <Label htmlFor="edit-entity-name">Investment Entity Name</Label>
+            <Input id="edit-entity-name" value={name} onChange={(e) => setName(e.target.value)} autoFocus />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="edit-entity-english-name">English Name (optional)</Label>
+            <Input id="edit-entity-english-name" value={englishName} onChange={(e) => setEnglishName(e.target.value)} />
+          </div>
+          {error && <p className="text-sm text-destructive">{error}</p>}
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>
+            Cancel
+          </Button>
+          <Button onClick={submit} disabled={saving}>
+            {saving ? 'Saving…' : 'Save changes'}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function MoveInvestorDialog({
+  investor,
+  investorRows,
+  open,
+  onOpenChange,
+  onSaved,
+}: {
+  investor: Investor | null;
+  investorRows: Tables<'fl_investors'>[];
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onSaved: () => Promise<void>;
+}) {
+  const [selectedGroupId, setSelectedGroupId] = useState<string>('');
+  const [newGroupName, setNewGroupName] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // Group investors are investors that are some investor's parent_investor_id
+  const groupInvestorIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const inv of investorRows) {
+      if (inv.parent_investor_id) ids.add(inv.parent_investor_id);
+    }
+    return ids;
+  }, [investorRows]);
+
+  // Exclude the entity itself and all its descendants to prevent cycles
+  const descendantIds = useMemo(() => {
+    if (!investor) return new Set<string>();
+    const desc = new Set<string>([investor.id]);
+    let added = true;
+    while (added) {
+      added = false;
+      for (const inv of investorRows) {
+        if (inv.parent_investor_id && desc.has(inv.parent_investor_id) && !desc.has(inv.id)) {
+          desc.add(inv.id);
+          added = true;
+        }
+      }
+    }
+    return desc;
+  }, [investor, investorRows]);
+
+  const targetGroupInvestors = useMemo(() => {
+    return investorRows.filter(
+      (inv) => groupInvestorIds.has(inv.id) && !descendantIds.has(inv.id),
+    );
+  }, [investorRows, groupInvestorIds, descendantIds]);
+
+  const options = useMemo(() => {
+    const ids = targetGroupInvestors.map((g) => g.id);
+    if (newGroupName && !ids.includes('__new__')) {
+      ids.push('__new__');
+    }
+    return ids;
+  }, [targetGroupInvestors, newGroupName]);
+
+  const groupNameById = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const inv of investorRows) {
+      map.set(inv.id, inv.name);
+    }
+    return map;
+  }, [investorRows]);
+
+  useEffect(() => {
+    if (open && investor) {
+      setSelectedGroupId(investor.groupId ?? '');
+      setNewGroupName(null);
+      setError(null);
+    }
+  }, [open, investor]);
+
+  const labelFor = (id: string) => {
+    if (id === '__new__') return newGroupName ? `${newGroupName} (new group)` : '(new group)';
+    return groupNameById.get(id) ?? id;
+  };
+
+  const handleCreateGroup = (typedName: string) => {
+    setNewGroupName(typedName);
+    setSelectedGroupId('__new__');
+  };
+
+  const submit = async () => {
+    if (!investor) return;
+    if (!selectedGroupId) {
+      setError('Please select or create a group');
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    try {
+      let targetParentId = selectedGroupId;
+      if (selectedGroupId === '__new__' && newGroupName) {
+        const created = await fundLedgerApi.createInvestor({
+          name: newGroupName.trim(),
+          investor_type: 'internal_entity',
+        });
+        targetParentId = created.id;
+      }
+      await fundLedgerApi.updateInvestor(investor.id, {
+        parent_investor_id: targetParentId,
+      });
+      await onSaved();
+      onOpenChange(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to move entity');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Move Investment Entity{investor ? ` · ${investor.n}` : ''}</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-3">
+          <div className="space-y-1.5">
+            <Label htmlFor="move-group-select">Group</Label>
+            <Combobox
+              id="move-group-select"
+              value={selectedGroupId}
+              options={options}
+              onChange={(val) => {
+                setSelectedGroupId(val);
+                if (val !== '__new__') {
+                  setNewGroupName(null);
+                }
+              }}
+              labelFor={labelFor}
+              placeholder="Select a group…"
+              onCreate={handleCreateGroup}
+            />
+          </div>
+          {error && <p className="text-sm text-destructive">{error}</p>}
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>
+            Cancel
+          </Button>
+          <Button onClick={submit} disabled={saving}>
+            {saving ? 'Moving…' : 'Move to group'}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function NameDialog({
   title,
   label,
@@ -1228,7 +1586,6 @@ function NameDialog({
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSubmit: (name: string) => Promise<void>;
-  /** Pre-fill the field (used when editing an existing name). */
   initialValue?: string;
   submitLabel?: string;
 }) {

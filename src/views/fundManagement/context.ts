@@ -36,6 +36,8 @@ export interface FundDataCtx {
   entityNameById: Map<string, string>;
   /** Managed funding-source id → name — see `entityNameById`. */
   sourceNameById: Map<string, string>;
+  /** Managed funding-source name → id. */
+  sourceIdsByName: Map<string, string>;
   /** Whether source-of-funds tracking is enabled for the workspace (admin Funds
    * tab). When false, edit forms hide their "Source of fund" fields. */
   sourceOfFundsEnabled: boolean;
@@ -43,7 +45,7 @@ export interface FundDataCtx {
    * holding's buy/hold/sell AI Opinion. Fire-and-forget from the caller's
    * perspective — the portfolio poll picks up the verdict once written. */
   analyzeAiOpinion: (holding: Holding) => void;
-  /** fund_assets.id set of holdings with an AI Opinion run currently in
+  /** Holding id set of holdings with an AI Opinion run currently in
    * flight (optimistic, client-tracked — mirrors PipelineCompany's
    * analyzingAiOpinionIds). */
   analyzingAiOpinionIds: Set<string>;
@@ -60,6 +62,7 @@ export const FundDataContext = createContext<FundDataCtx>({
   sourceOptions: [],
   entityNameById: new Map(),
   sourceNameById: new Map(),
+  sourceIdsByName: new Map(),
   sourceOfFundsEnabled: true,
   analyzeAiOpinion: () => {},
   analyzingAiOpinionIds: new Set(),

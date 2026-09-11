@@ -925,6 +925,55 @@
       "when": 1788912001000,
       "tag": "20260909000001_add_files_matched_companies_gin_index",
       "breakpoints": true
+    },
+    {
+      "idx": 132,
+      "version": "7",
+      "when": 1789084800000,
+      "tag": "20260911000000_fund_ledger_v2",
+      "breakpoints": true
+    },
+    {
+      "idx": 133,
+      "version": "7",
+      "when": 1789084801000,
+      "tag": "20260911000001_add_valuation_delta_to_fl_ledger_entries",
+      "breakpoints": true
+    },
+    {
+      "idx": 134,
+      "version": "7",
+      "when": 1789084802000,
+      "tag": "20260911000002_drop_legacy_fund_v1_tables",
+      "breakpoints": true
+    },
+    {
+      "idx": 135,
+      "version": "7",
+      "when": 1789084803000,
+      "tag": "20260911000003_add_fl_funds_investors_english_name",
+      "breakpoints": true
+    },
+    {
+      "idx": 136,
+      "version": "7",
+      "when": 1789084804000,
+      "tag": "20260911000004_add_fl_entry_type_cash_movement",
+      "breakpoints": true
+    },
+    {
+      "idx": 137,
+      "version": "7",
+      "when": 1789084805000,
+      "tag": "20260911000005_add_cash_movement_pairing_and_system_cash_uniq",
+      "breakpoints": true
+    },
+    {
+      "idx": 138,
+      "version": "7",
+      "when": 1789084806000,
+      "tag": "20260911000006_fund_ledger_event_revisions",
+      "breakpoints": true
     }
   ]
 }

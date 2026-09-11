@@ -5,7 +5,7 @@ import { createAgent } from 'langchain';
 import { getLangfuseCallbacks } from '@/lib/langfuse';
 import { logger } from '../logger';
 import type { ParsedAsset, TxnTypeEnum, ValuationMethodEnum } from '@/lib/fund_updates/parsers/startech_quarterly';
-import { fundForEntity } from '@/lib/fund_updates/parsers/startech_quarterly';
+import { normalizeParsedAssets } from '@/lib/fund_updates/normalizeParsedAsset';
 
 const FILES_API_BETA = 'files-api-2025-04-14' as const;
 
@@ -31,6 +31,7 @@ const SYSTEM_PROMPT = `You are a specialized Fund Management Data Extraction Ass
    - investmentTypeLabel: Either "Direct Investments" or "Fund of Funds". Guess based on context if not explicit.
    - assetType: Must be strictly "direct_investment" or "fund_of_funds".
    - entity: The investment holding entity or fund vehicle that owns the asset.
+   - fund: The name of the fund that holds the asset, if stated. Do not invent a catalog name.
    - entryDate: The date of the initial investment (YYYY-MM-DD), if stated.
    - stakePct: The percentage ownership (e.g. 14.5 for 14.5%).
    - sector, subSector, instrument, sharesOutstanding, vintageYear: Optional metadata.
@@ -262,6 +263,7 @@ export async function extractFundUpdateProposal(
             grossXirr: parseNum(v.grossXirr),
             valuationMethod: valuationMethod,
             notes: v.notes || null,
+            dataStatus: 'needs_verification' as const,
         }
       }).filter((v: any) => v.asOfDate) : [];
 
@@ -297,11 +299,18 @@ export async function extractFundUpdateProposal(
             fxRate: parseNum(t.fxRate),
             sellProceedsDestination,
             notes: t.notes || null,
+            dataStatus: 'needs_verification' as const,
         }
       }).filter((t: any) => t.date) : [];
 
       const assetType = a.assetType === 'fund_of_funds' ? 'fund_of_funds' : 'direct_investment';
       const investmentTypeLabel = assetType === 'fund_of_funds' ? 'Fund of Funds' : 'Direct Investments';
+      const fundName =
+        typeof a.fund === 'string' && a.fund.trim()
+          ? a.fund.trim()
+          : typeof a.entity === 'string' && a.entity.trim()
+            ? a.entity.trim()
+            : '';
 
       return {
         code,
@@ -310,10 +319,10 @@ export async function extractFundUpdateProposal(
         country: a.country || null,
         investmentTypeLabel,
         assetType,
-        fund: fundForEntity(a.entity), // mapping via existing fundForEntity
+        fund: fundName,
         entity: a.entity || null,
         fundingSource: a.fundingSource || null,
-        fundingSourceRaw: a.fundingSourceRaw || null,
+        fundingSourceRaw: a.fundingSourceRaw || a.fundingSource || null,
         entryDate: parseDate(a.entryDate),
         stakePct: parseNum(a.stakePct),
         commitmentAmount: parseNum(a.commitmentAmount),
@@ -331,7 +340,7 @@ export async function extractFundUpdateProposal(
       } as ParsedAsset;
     });
 
-    return { assets };
+    return { assets: normalizeParsedAssets(assets) };
   } catch (err) {
     logger.error('Failed to parse JSON from fund update agent response: ' + err);
     return null;

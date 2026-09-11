@@ -3,23 +3,40 @@ import { z } from 'zod';
 import { getActiveWorkspaceId } from '@/lib/workspace';
 import { createDb } from '@/lib/server/db';
 import {
-  FundAssetRepository,
-  FundRepository,
-  FundSourceRepository,
-  HoldingEntityRepository,
+  FlAssetRepository,
+  FlFundingSourceRepository,
+  FlFundRepository,
+  FlInvestorRepository,
+  FlPositionRepository,
 } from '@/lib/repositories';
 import { sourceOfFundsEnabled } from '@/lib/flags';
 import { logger } from '../../logger';
 import { fuzzySearch, matchLabel } from './fuzzySearch';
 
-const fmtAmount = (n: number | null | undefined) =>
-  n != null ? n.toLocaleString('en-US', { maximumFractionDigits: 0 }) : '-';
-const fmtMult = (n: number | null | undefined) => (n != null ? `${n.toFixed(2)}x` : '-');
-const fmtPct = (n: number | null | undefined) => (n != null ? `${(n * 100).toFixed(1)}%` : '-');
+const fmtAmount = (n: number | string | null | undefined) => {
+  if (n == null) return '-';
+  const num = typeof n === 'string' ? parseFloat(n) : n;
+  return !isNaN(num) ? num.toLocaleString('en-US', { maximumFractionDigits: 0 }) : '-';
+};
+const fmtMult = (n: number | string | null | undefined) => {
+  if (n == null) return '-';
+  const num = typeof n === 'string' ? parseFloat(n) : n;
+  return !isNaN(num) ? `${num.toFixed(2)}x` : '-';
+};
+const fmtPct = (n: number | string | null | undefined) => {
+  if (n == null) return '-';
+  const num = typeof n === 'string' ? parseFloat(n) : n;
+  return !isNaN(num) ? `${(num * 100).toFixed(1)}%` : '-';
+};
 
 export type InvestmentEntityType = 'asset' | 'fund' | 'investor' | 'source';
 
-const ENTITY_TYPES: readonly InvestmentEntityType[] = ['asset', 'fund', 'investor', 'source'];
+const VALID_TYPES = new Set<InvestmentEntityType>([
+  'asset',
+  'fund',
+  'investor',
+  'source',
+]);
 
 const DEFAULT_LIMIT = 8;
 
@@ -36,14 +53,7 @@ const NEXT_STEP: Record<InvestmentEntityType, string> = {
  * investment portfolio — holdings, funds, investors (LPs), and sources of
  * capital — in ONE call.
  *
- * This is the entry point for "how is X doing?" style questions, where the
- * user has no idea (and no obligation to know) whether X is an asset, a fund,
- * an LP, or a capital pool. Matching is fuzzy (see ./fuzzySearch): legal
- * suffixes, partial words, acronyms, and typos all resolve.
- *
- * Read-only. Runs a fixed 5 queries regardless of portfolio size — four
- * findAll()s plus one batched asset→fund lookup — so there is no per-row
- * fan-out.
+ * Universal portfolio lookup using Fund Ledger v2.
  */
 export const searchInvestments = tool(
   async ({
@@ -55,44 +65,52 @@ export const searchInvestments = tool(
     types?: InvestmentEntityType[];
     limit?: number;
   }) => {
-    const needle = (query ?? '').trim();
+    const needle = query?.trim() ?? '';
+    const cap = Math.min(Math.max(limit ?? 8, 1), 25);
     logger.debug(
-      `🔧 TOOL CALLED: search_investments(query='${needle}', types='${(types ?? []).join(',')}')`,
+      `🔧 TOOL CALLED: search_investments(query='${needle}', types=${JSON.stringify(
+        types,
+      )}, limit=${cap})`,
     );
 
     if (!needle) {
-      return 'Please provide a `query` — the name (or partial name) of the fund, holding, investor, or capital source to look for.';
+      return (
+        'Please provide a `query` to search for across funds, holdings, investors, and sources. ' +
+        'Or use query_funds / query_fund_assets to browse the full portfolio.'
+      );
     }
 
-    const wanted = new Set<InvestmentEntityType>(
-      types && types.length > 0 ? types : ENTITY_TYPES,
-    );
-    const cap = Math.min(Math.max(limit ?? DEFAULT_LIMIT, 1), 25);
-
     try {
-      // Honor the source-of-funds gate: when that flag is off the Copilot is
-      // built without query_fund_sources, so this tool must not surface capital
-      // sources either.
-      if (wanted.has('source') && !(await sourceOfFundsEnabled().then(Boolean))) {
-        wanted.delete('source');
+      const allowed = new Set<InvestmentEntityType>(
+        types && types.length > 0
+          ? types.filter((t) => VALID_TYPES.has(t))
+          : (['asset', 'fund', 'investor', 'source'] as InvestmentEntityType[]),
+      );
+
+      const hasSources = await sourceOfFundsEnabled();
+      if (!hasSources) {
+        allowed.delete('source');
       }
+
+      const wanted = allowed.size > 0 ? allowed : new Set<InvestmentEntityType>(['asset', 'fund']);
 
       const workspaceId = await getActiveWorkspaceId();
       const db = createDb();
-      const fundRepo = new FundRepository(db, workspaceId);
-      const fundAssetRepo = new FundAssetRepository(db, workspaceId);
-      const investorRepo = new HoldingEntityRepository(db, workspaceId);
-      const sourceRepo = new FundSourceRepository(db, workspaceId);
+      const fundRepo = new FlFundRepository(db);
+      const assetRepo = new FlAssetRepository(db);
+      const investorRepo = new FlInvestorRepository(db);
+      const sourceRepo = new FlFundingSourceRepository(db);
+      const positionRepo = new FlPositionRepository(db);
 
       const [funds, assets, investors, sources] = await Promise.all([
-        wanted.has('fund') || wanted.has('asset') ? fundRepo.findAll() : Promise.resolve([]),
-        wanted.has('asset') ? fundAssetRepo.findAll() : Promise.resolve([]),
-        wanted.has('investor') ? investorRepo.findAll() : Promise.resolve([]),
-        wanted.has('source') ? sourceRepo.findAll() : Promise.resolve([]),
+        wanted.has('fund') || wanted.has('asset') ? fundRepo.findByWorkspaceId(workspaceId) : Promise.resolve([]),
+        wanted.has('asset') ? assetRepo.findByWorkspaceId(workspaceId) : Promise.resolve([]),
+        wanted.has('investor') ? investorRepo.findByWorkspaceId(workspaceId) : Promise.resolve([]),
+        wanted.has('source') ? sourceRepo.findByWorkspaceId(workspaceId) : Promise.resolve([]),
       ]);
 
       const assetHits = wanted.has('asset')
-        ? fuzzySearch(needle, assets, (a) => [a.asset_name, a.legal_name], { limit: cap })
+        ? fuzzySearch(needle, assets, (a) => [a.name, a.legal_name], { limit: cap })
         : [];
       const fundHits = wanted.has('fund')
         ? fuzzySearch(needle, funds, (f) => [f.name], { limit: cap })
@@ -116,7 +134,7 @@ export const searchInvestments = tool(
             ['source', 'query_fund_sources'],
           ] as Array<[InvestmentEntityType, string]>
         )
-          .filter(([t]) => wanted.has(t))
+          .filter(([t]) => allowed.has(t))
           .map(([, toolName]) => toolName)
           .join(' / ');
         return (
@@ -126,24 +144,54 @@ export const searchInvestments = tool(
         );
       }
 
-      // One batched query maps every asset to the fund(s) it sits in — never a
-      // per-asset lookup (see the N+1 rules in CLAUDE.md).
-      const fundNamesByAssetId = new Map<string, string[]>();
-      if (assetHits.length > 0 && funds.length > 0) {
-        const fundNameById = new Map(funds.map((f) => [f.id, f.name]));
-        for (const { fundId, asset } of await fundAssetRepo.findByFundIds(funds.map((f) => f.id))) {
-          const list = fundNamesByAssetId.get(asset.id) ?? [];
-          list.push(fundNameById.get(fundId) ?? fundId);
-          fundNamesByAssetId.set(asset.id, list);
+      const holderNamesByAssetId = new Map<string, string[]>();
+      if (assetHits.length > 0) {
+        const fundNameById = new Map<string, string>();
+        for (const f of funds) {
+          fundNameById.set(f.id, f.name);
+        }
+        const positions = await positionRepo.findByAssetIds(
+          workspaceId,
+          assetHits.map((h) => h.item.id),
+        );
+        const investorIds = [
+          ...new Set(
+            positions
+              .map((p) => p.holder_investor_id)
+              .filter((id): id is string => Boolean(id)),
+          ),
+        ];
+        const holdingInvestors =
+          investorIds.length > 0
+            ? await investorRepo.findByIds(workspaceId, investorIds)
+            : [];
+        const investorNameById = new Map<string, string>();
+        for (const i of holdingInvestors) {
+          investorNameById.set(i.id, i.name);
+        }
+
+        for (const p of positions) {
+          if (p.asset_id) {
+            let holderName: string | undefined;
+            if (p.holder_fund_id) {
+              holderName = fundNameById.get(p.holder_fund_id) ?? p.holder_fund_id;
+            } else if (p.holder_investor_id) {
+              holderName = investorNameById.get(p.holder_investor_id) ?? p.holder_investor_id;
+            }
+            if (holderName) {
+              const list = holderNamesByAssetId.get(p.asset_id) ?? [];
+              list.push(holderName);
+              holderNamesByAssetId.set(p.asset_id, list);
+            }
+          }
         }
       }
 
-      // Flattened ranking across the four types, used only for the best-match hint.
       const [best] = [
         ...assetHits.map((h) => ({
           type: 'asset' as const,
           score: h.score,
-          name: h.item.asset_name ?? h.item.legal_name ?? h.matchedOn,
+          name: (h.item as any).name ?? (h.item as any).asset_name ?? (h.item as any).legal_name ?? h.matchedOn,
         })),
         ...fundHits.map((h) => ({ type: 'fund' as const, score: h.score, name: h.item.name })),
         ...investorHits.map((h) => ({
@@ -158,14 +206,14 @@ export const searchInvestments = tool(
 
       if (assetHits.length > 0) {
         out += `### Holdings / fund assets (${assetHits.length})\n\n`;
-        out += `| Match | Asset | Legal name | Fund(s) | Status | Sector | Invested | FMV | MOIC | DPI | IRR | fund_asset_id |\n`;
+        out += `| Match | Asset | Legal name | Holder(s) | Status | Sector | Invested | FMV | MOIC | DPI | IRR | fund_asset_id |\n`;
         out += `| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n`;
-        for (const { item: a, score } of assetHits) {
-          const fundLabel = (fundNamesByAssetId.get(a.id) ?? []).join(', ') || '(unassigned)';
-          out += `| ${matchLabel(score)} | ${a.asset_name ?? '-'} | ${a.legal_name ?? '-'} | ${fundLabel} | ${
-            a.status ?? '-'
-          } | ${a.sector ?? '-'} | ${fmtAmount(a.invested_capital_amount)} | ${fmtAmount(
-            a.fmv_amount,
+        for (const { item: a, score } of assetHits as any[]) {
+          const fundLabel = (holderNamesByAssetId.get(a.id) ?? []).join(', ') || '(unassigned)';
+          out += `| ${matchLabel(score)} | ${a.name ?? a.asset_name ?? '-'} | ${a.legal_name ?? '-'} | ${fundLabel} | ${
+            a.status ?? 'active'
+          } | ${a.sector ?? '-'} | ${fmtAmount(a.invested_sum ?? a.invested_capital_amount)} | ${fmtAmount(
+            a.fmv_amount ?? a.market_value,
           )} | ${fmtMult(a.gross_moic)} | ${fmtMult(a.dpi)} | ${fmtPct(a.gross_irr)} | ${a.id} |\n`;
         }
         out += '\n';
@@ -175,12 +223,12 @@ export const searchInvestments = tool(
         out += `### Funds (${fundHits.length})\n\n`;
         out += `| Match | Fund | Vintage | Status | Commitment | Called | FMV | Realized | DPI | TVPI | IRR |\n`;
         out += `| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n`;
-        for (const { item: f, score } of fundHits) {
+        for (const { item: f, score } of fundHits as any[]) {
           out += `| ${matchLabel(score)} | ${f.name} | ${f.vintage_year ?? '-'} | ${
             f.status ?? '-'
-          } | ${fmtAmount(f.commitment_size_amount)} | ${fmtAmount(f.called_amount)} | ${fmtAmount(
-            f.fmv_amount,
-          )} | ${fmtAmount(f.realized_amount)} | ${fmtMult(f.dpi)} | ${fmtMult(f.tvpi)} | ${fmtPct(
+          } | ${fmtAmount(f.target_size ?? f.commitment_size_amount)} | ${fmtAmount(f.called_sum ?? f.called_amount)} | ${fmtAmount(
+            f.total_asset_value ?? f.fmv_amount,
+          )} | ${fmtAmount(f.realized_sum ?? f.realized_amount)} | ${fmtMult(f.dpi)} | ${fmtMult(f.tvpi)} | ${fmtPct(
             f.irr,
           )} |\n`;
         }
@@ -191,10 +239,10 @@ export const searchInvestments = tool(
         out += `### Investors / LPs (${investorHits.length})\n\n`;
         out += `| Match | Investor | Type | Invested | Realized | FMV | DPI | MOIC | IRR |\n`;
         out += `| --- | --- | --- | --- | --- | --- | --- | --- | --- |\n`;
-        for (const { item: i, score } of investorHits) {
-          out += `| ${matchLabel(score)} | ${i.name} | ${i.entity_type ?? '-'} | ${fmtAmount(
-            i.invested_amount,
-          )} | ${fmtAmount(i.realized_amount)} | ${fmtAmount(i.fmv_amount)} | ${fmtMult(
+        for (const { item: i, score } of investorHits as any[]) {
+          out += `| ${matchLabel(score)} | ${i.name} | ${i.investor_type ?? i.entity_type ?? '-'} | ${fmtAmount(
+            i.invested_sum ?? i.invested_amount,
+          )} | ${fmtAmount(i.realized_sum ?? i.realized_amount)} | ${fmtAmount(i.total_nav ?? i.fmv_amount)} | ${fmtMult(
             i.dpi,
           )} | ${fmtMult(i.moic)} | ${fmtPct(i.irr)} |\n`;
         }
@@ -205,10 +253,10 @@ export const searchInvestments = tool(
         out += `### Sources of capital (${sourceHits.length})\n\n`;
         out += `| Match | Source | Invested | Realized | FMV | DPI | MOIC | IRR |\n`;
         out += `| --- | --- | --- | --- | --- | --- | --- | --- |\n`;
-        for (const { item: s, score } of sourceHits) {
-          out += `| ${matchLabel(score)} | ${s.name} | ${fmtAmount(s.invested_amount)} | ${fmtAmount(
-            s.realized_amount,
-          )} | ${fmtAmount(s.fmv_amount)} | ${fmtMult(s.dpi)} | ${fmtMult(s.moic)} | ${fmtPct(
+        for (const { item: s, score } of sourceHits as any[]) {
+          out += `| ${matchLabel(score)} | ${s.name} | ${fmtAmount(s.invested_sum ?? s.invested_amount)} | ${fmtAmount(
+            s.realized_sum ?? s.realized_amount,
+          )} | ${fmtAmount(s.total_fmv ?? s.fmv_amount)} | ${fmtMult(s.dpi)} | ${fmtMult(s.moic)} | ${fmtPct(
             s.irr,
           )} |\n`;
         }

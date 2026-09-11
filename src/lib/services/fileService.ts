@@ -1,5 +1,6 @@
 import { downloadFile, getSignedUrl, deleteFile } from '@/lib/s3';
-import { sql } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
+import { flFunds, flInvestors, flAssets, flFundingSources } from '@/lib/db/schema';
 import { extractTextFromFile } from '@/lib/fileExtractor';
 import { processFileContent, type FileTypeOverride } from '@/lib/agents/file_processing';
 import { processFundUpdateContent } from '@/lib/agents/fund_update_processing';
@@ -7,9 +8,15 @@ import {
   tryDeterministicFundUpdateParse,
   hydrateParsedAssetsFromEvents,
   assetCodesForCatalogName,
+  normalizeCanonicalName,
   FUND_CATALOG,
+  isPersistableV1AssetEventType,
 } from '@/lib/fund_updates';
-import type { FundUpdateStructuredResult, ParsedAsset } from '@/lib/fund_updates';
+import type {
+  FundUpdateStructuredResult,
+  ParsedAsset,
+  ParsedCommitmentEvent,
+} from '@/lib/fund_updates';
 import type { FundUpdateAssetSelection } from '@/lib/services/fundUpdateApplyService';
 import { isGenericDocumentPhrase } from '@/lib/agents/file_processing/genericNameDenylist';
 import type { CompanyDTOInput } from '@/lib/dto/companyDTO';
@@ -42,11 +49,15 @@ import { CompanyL0RequirementsError, CompanyService, IN_PIPELINE_STAGES } from '
 import type { TrackMatchingService } from './trackMatchingService';
 import type {
   FundUpdateApplyService,
+  FundUpdateApplyOptions,
   FundUpdateApplyResult,
   FundUpdateCommitmentApplyResult,
   FundUpdateAssetReview,
   FundUpdateCatalogMatch,
   FundUpdateCatalogMatchStatus,
+  FundUpdateReviewResolution,
+  SubmittedRowDisposition,
+  SubmittedRowOutcome,
 } from './fundUpdateApplyService';
 import type { JobDispatcher } from './jobDispatcher';
 import {
@@ -59,8 +70,22 @@ import {
   formatSourceRowKey,
   type LegacyAssetProposal,
   type ProposedEvent,
+  type ReviewProposalItem,
   type WorkbookFallbackProposalV1,
+  type FundUpdateTwoStepApproval,
+  type FundUpdateTwoStepReview,
+  type StagedReviewEntityInput,
 } from '@/lib/fund_updates/types';
+import {
+  validateTransferCounterparty,
+  buildNormalizedTwoStepReview,
+  validateTwoStepDependencies,
+  classifyFundUpdateTxn,
+  reclassifyReviewTransaction,
+  type TxnTypeEnum,
+} from '@/lib/fund_updates';
+import { FundUpdateValidationError } from './flErrors';
+import { isSellProceedsDestination } from '@/lib/sellProceedsDestination';
 
 /**
  * Helper to safely extract a non-empty string jobId from an unknown response payload.
@@ -301,11 +326,10 @@ export interface ApproveFileInput {
     investors?: string[];
     sources?: string[];
   };
-  /**
-   * Deterministic keys for commitment events the user wants to apply.
-   * If empty array [], no events are applied. If undefined, all events are applied.
-   */
-  fund_update_commitment_event_keys?: string[];
+  /** Explicit reviewer-configured resolutions for review-required items. */
+  fund_update_review_resolutions?: FundUpdateReviewResolution[];
+  /** MB-513: Canonical two-step approval DTO containing staged decisions and edits. */
+  two_step_approval?: FundUpdateTwoStepApproval;
 }
 
 type ProspectusSummary = {
@@ -1032,7 +1056,7 @@ export class FileService {
 
   private mergeCatalogMatches(
     baseList: FundUpdateCatalogMatch[],
-    extraList: Array<{ name: string; status?: FundUpdateCatalogMatchStatus; matched_id?: string | null; auto_created?: boolean }>,
+    extraList: Array<{ name: string; english_name?: string | null; status?: FundUpdateCatalogMatchStatus; matched_id?: string | null; auto_created?: boolean; role?: string | null }>,
   ): FundUpdateCatalogMatch[] {
     const map = new Map<string, FundUpdateCatalogMatch>();
 
@@ -1044,20 +1068,26 @@ export class FileService {
       const itemStatus: FundUpdateCatalogMatchStatus = item.status === 'existing' ? 'existing' : 'new';
       const itemMatchedId = item.matched_id ?? null;
       const autoCreated = item.auto_created;
+      const role = item.role ?? null;
+      const englishName = item.english_name?.trim() || null;
 
       if (!existing) {
         map.set(key, {
           name: cleanName,
+          ...(englishName ? { english_name: englishName } : {}),
           status: itemStatus,
           matched_id: itemMatchedId,
           ...(autoCreated !== undefined ? { auto_created: autoCreated } : {}),
+          ...(role ? { role } : {}),
         });
       } else if (existing.status === 'new' && itemStatus === 'existing') {
         map.set(key, {
           name: existing.name,
+          ...(existing.english_name || englishName ? { english_name: existing.english_name ?? englishName } : {}),
           status: 'existing',
           matched_id: itemMatchedId,
           ...(autoCreated !== undefined ? { auto_created: autoCreated } : existing.auto_created !== undefined ? { auto_created: existing.auto_created } : {}),
+          ...(existing.role || role ? { role: existing.role ?? role ?? undefined } : {}),
         });
       }
     }
@@ -1070,27 +1100,43 @@ export class FileService {
       const itemStatus: FundUpdateCatalogMatchStatus = item.status === 'existing' ? 'existing' : 'new';
       const itemMatchedId = item.matched_id ?? null;
       const autoCreated = item.auto_created;
+      const role = item.role ?? null;
+      const englishName = item.english_name?.trim() || null;
 
       if (!existing) {
         map.set(key, {
           name: cleanName,
+          ...(englishName ? { english_name: englishName } : {}),
           status: itemStatus,
           matched_id: itemMatchedId,
           ...(autoCreated !== undefined ? { auto_created: autoCreated } : {}),
+          ...(role ? { role } : {}),
         });
       } else {
         const mergedAutoCreated = autoCreated !== undefined ? autoCreated : existing.auto_created;
+        const mergedRole = existing.role ?? role ?? undefined;
+        const mergedEnglishName = existing.english_name ?? englishName ?? undefined;
         if (existing.status === 'new' && itemStatus === 'existing') {
           map.set(key, {
             name: existing.name,
+            ...(mergedEnglishName ? { english_name: mergedEnglishName } : {}),
             status: 'existing',
             matched_id: itemMatchedId,
             ...(mergedAutoCreated !== undefined ? { auto_created: mergedAutoCreated } : {}),
+            ...(mergedRole ? { role: mergedRole } : {}),
           });
         } else if (mergedAutoCreated !== undefined && existing.auto_created === undefined) {
           map.set(key, {
             ...existing,
+            ...(mergedEnglishName ? { english_name: mergedEnglishName } : {}),
             auto_created: mergedAutoCreated,
+            ...(mergedRole ? { role: mergedRole } : {}),
+          });
+        } else if ((mergedRole && !existing.role) || (mergedEnglishName && !existing.english_name)) {
+          map.set(key, {
+            ...existing,
+            ...(mergedEnglishName ? { english_name: mergedEnglishName } : {}),
+            ...(mergedRole ? { role: mergedRole } : {}),
           });
         }
       }
@@ -1123,14 +1169,116 @@ export class FileService {
       );
     }
 
+    const legacyProposal = proposal as LegacyAssetProposal | undefined;
     const commitmentEvents = isV1
       ? []
-      : ((proposal as LegacyAssetProposal | undefined)?.commitment_events ?? []);
-    const fullReview = await this.fundUpdateApplyService.buildFullReview(assets, commitmentEvents);
+      : (legacyProposal?.commitment_events ?? []);
+    // An unresolved transfer cannot safely be posted as an ordinary
+    // commitment increase. Surface it alongside other non-postable rows, but
+    // do not prevent the independent, valid lifecycle events in this upload
+    // from being approved.
+    const reviewItems: ReviewProposalItem[] = [
+      ...(legacyProposal?.review_items ?? []),
+      ...commitmentEvents
+        .filter((event) =>
+          event.intent === 'transfer_in' &&
+          (
+            event.transferPairing?.status === 'missing_counterparty' ||
+            event.transferPairing?.status === 'ambiguous' ||
+            event.transferPairing?.requiresReview === true ||
+            !event.transferPairing?.eligibleForTransferOut ||
+            !event.transferPairing?.transferorName
+          ),
+        )
+        .map((event) => {
+          const valRes = event.counterpartyName ? validateTransferCounterparty(event.counterpartyName) : null;
+          const category = !event.counterpartyName?.trim()
+            ? ('missing_counterparty' as const)
+            : valRes?.isMultiParty
+              ? ('multi_party_transfer' as const)
+              : ('truncated_transfer' as const);
+
+          return {
+            sourceRow: event.sourceRow,
+            fund: event.fund,
+            investorName: event.investorName,
+            investorTypeRaw: event.investorTypeRaw,
+            date: event.date,
+            amount: event.amount,
+            currency: 'CNY' as const,
+            action: 'Commitment transfer',
+            nature: event.natureRaw,
+            direction: event.directionRaw,
+            explanation: event.transferPairing?.reviewReason
+              ?? 'Transfer counterparty could not be verified and will not be posted automatically.',
+            isPostable: false as const,
+            requiresReview: true as const,
+            category,
+            counterpartyRaw: event.counterpartyName,
+            targetRaw: event.investorName,
+            entityRaw: event.investorName,
+            transferPairing: event.transferPairing,
+          };
+        }),
+    ];
+    const fullReview = await this.fundUpdateApplyService.buildFullReview(
+      assets,
+      commitmentEvents,
+      {
+        reconciliation: proposal?.reconciliation,
+        review_items: reviewItems,
+        fundCatalog: proposal?.fund_catalog,
+      },
+    );
     const reviews: FundUpdateAssetReview[] = fullReview.assets ?? [];
     let funds: FundUpdateCatalogMatch[] = fullReview.funds ? this.mergeCatalogMatches([], fullReview.funds) : [];
     let investors: FundUpdateCatalogMatch[] = fullReview.investors ? this.mergeCatalogMatches([], fullReview.investors) : [];
     let sources: FundUpdateCatalogMatch[] = fullReview.sources ? this.mergeCatalogMatches([], fullReview.sources) : [];
+    let groups: FundUpdateCatalogMatch[] = fullReview.groups ? this.mergeCatalogMatches([], fullReview.groups) : [];
+
+    // The deterministic Nanjing parser preserves bilingual rich-text names on
+    // assets/events, while buildFullReview's catalog matching is keyed by the
+    // Chinese canonical name. Reattach the English names before normalizing
+    // the Step 1 entity model.
+    if (!v1Proposal) {
+      const bilingualFunds: FundUpdateCatalogMatch[] = [];
+      const bilingualInvestors: FundUpdateCatalogMatch[] = [];
+      const addBilingual = (
+        list: FundUpdateCatalogMatch[],
+        name: string | null | undefined,
+        englishName: string | null | undefined,
+      ) => {
+        const cleanName = name?.trim();
+        const cleanEnglishName = englishName?.trim();
+        if (!cleanName || !cleanEnglishName) return;
+        list.push({
+          name: cleanName,
+          english_name: cleanEnglishName,
+          status: 'new',
+          matched_id: null,
+        });
+      };
+
+      for (const item of legacyProposal?.fund_catalog_items ?? []) {
+        addBilingual(bilingualFunds, item.nameZh, item.nameEn);
+      }
+      for (const asset of assets) {
+        if (asset.holderKind !== 'investor') {
+          addBilingual(bilingualFunds, asset.fund, asset.fundEnglishName);
+        }
+      }
+      for (const event of commitmentEvents) {
+        addBilingual(bilingualFunds, event.fund, event.fundEnglishName);
+        addBilingual(bilingualInvestors, event.investorName, event.investorEnglishName);
+      }
+      for (const item of reviewItems) {
+        addBilingual(bilingualFunds, item.fund, item.fundEnglishName);
+        addBilingual(bilingualInvestors, item.investorName, item.investorEnglishName);
+      }
+
+      funds = this.mergeCatalogMatches(funds, bilingualFunds);
+      investors = this.mergeCatalogMatches(investors, bilingualInvestors);
+    }
 
     if (v1Proposal) {
       const v1Entities = v1Proposal.entities ?? [];
@@ -1149,12 +1297,13 @@ export class FileService {
           const isAutoCreated = FUND_CATALOG.some((c) => c.trim().toLowerCase() === entityName.toLowerCase());
           extraFunds.push({
             name: entityName,
+            english_name: entity.englishName ?? null,
             status,
             matched_id,
             ...(isAutoCreated ? { auto_created: true } : {}),
           });
         } else if (V1_INVESTOR_ENTITY_TYPES.has(entityType)) {
-          extraInvestors.push({ name: entityName, status, matched_id });
+          extraInvestors.push({ name: entityName, english_name: entity.englishName ?? null, status, matched_id });
         }
       }
 
@@ -1167,9 +1316,19 @@ export class FileService {
       ? (v1Proposal.events ?? [])
       : commitmentEvents.map((ev, idx) => ({
           proposalId: `commitment-event-${idx}`,
-          eventType: 'commitment' as const,
-          fromEntityRef: ev.investorName,
+          eventType: (ev.intent === 'paid_in'
+            ? 'capital_contribution'
+            : ev.intent === 'distribution'
+              ? 'investor_distribution'
+              : ev.intent === 'decrease'
+                ? 'commitment_reduction'
+                : 'commitment') as ProposedEvent['eventType'],
+          fromEntityRef: ev.intent === 'distribution' ? ev.fund : ev.investorName,
+          toEntityRef: ev.intent === 'distribution' ? ev.investorName : ev.fund,
           relatedFundRef: ev.fund,
+          date: ev.date,
+          normalizedAmount: ev.amount,
+          normalizedCurrency: ev.currency,
           sourceLocation: { sheet: '基金流水明细', row: ev.sourceRow },
           warnings: [],
         }));
@@ -1216,6 +1375,20 @@ export class FileService {
       }),
     }));
 
+    const twoStep = buildNormalizedTwoStepReview(
+      {
+        assets: reviews,
+        funds,
+        investors,
+        sources,
+        groups,
+        reconciliation: proposal?.reconciliation ?? fullReview.reconciliation ?? [],
+        review_items: reviewItems ?? fullReview.review_items ?? [],
+        commitment_event_statuses: fullReview.commitment_event_statuses,
+      },
+      proposal,
+    );
+
     return {
       kind: 'fund_updates' as const,
       file: {
@@ -1227,11 +1400,15 @@ export class FileService {
       template_id: proposal?.template_id ?? null,
       stats: proposal?.stats ?? null,
       summary: structuredResult?.summary ?? null,
+      two_step_review: twoStep,
       assets: reviews,
       funds,
       investors,
       sources,
-      commitment_events: fullReview.commitment_events ?? [],
+      groups,
+      reconciliation: proposal?.reconciliation ?? fullReview.reconciliation ?? [],
+      review_items: reviewItems ?? fullReview.review_items ?? [],
+      commitment_event_statuses: fullReview.commitment_event_statuses,
     };
   }
 
@@ -1240,11 +1417,13 @@ export class FileService {
     input: ApproveFileInput,
     enteredBy?: string | null,
   ): Promise<{ file: Tables<'files'>; company_id: string | null; fund_update?: FundUpdateApplyResult }> {
-    if (input.file_type === 'fund_updates') {
-      return this.approveFundUpdate(fileId, input);
-    }
-
     const file = await this.fileRepo.findById(fileId);
+    if (input.file_type === 'fund_updates') {
+      if (file.processing_status !== 'awaiting_review') {
+        throw new FundUpdateValidationError('Only awaiting_review fund updates may be submitted.');
+      }
+      return this.approveFundUpdate(fileId, input, enteredBy);
+    }
     const parsedNotes = this.parseStructuredNotes(file.structured_notes);
     const extractedEntries = this.parseExtractedCompanies(parsedNotes);
     let summary: ProspectusSummary | undefined = extractedEntries[0];
@@ -1385,7 +1564,7 @@ export class FileService {
     return { file: updated, company_id: companyId };
   }
 
-  private async approveFundUpdate(fileId: string, input: ApproveFileInput) {
+  private async approveFundUpdate(fileId: string, input: ApproveFileInput, enteredBy?: string | null) {
     if (!this.fundUpdateApplyService) {
       throw new Error('Fund update apply service is not configured');
     }
@@ -1530,9 +1709,7 @@ export class FileService {
 
       // Check if proposal has any persistable asset records
       const persistableEvents = (v1.events || []).filter((ev) =>
-        ['asset_investment', 'asset_follow_on_investment', 'asset_exit', 'asset_exit_distribution'].includes(
-          ev.eventType,
-        ),
+        isPersistableV1AssetEventType(ev.eventType),
       );
       if (persistableEvents.length === 0 && (v1.valuations || []).length === 0 && (!v1.assets || v1.assets.length === 0)) {
         throw new Error(
@@ -1541,71 +1718,1255 @@ export class FileService {
       }
     }
 
-    const assets = (proposal?.assets ?? []) as ParsedAsset[];
-    const selections = input.fund_update_selections;
-    const codes =
-      selections?.map((s) => s.asset_code) ?? input.fund_update_asset_codes ?? [];
-    const applyResult = proposal?.fund_catalog
-      ? await this.fundUpdateApplyService.applySelected(
-          assets,
-          codes,
-          selections,
-          { isV1: Boolean(isV1) },
-          input.fund_update_catalog_selections,
-          proposal.fund_catalog,
-        )
-      : await this.fundUpdateApplyService.applySelected(
-          assets,
-          codes,
-          selections,
-          { isV1: Boolean(isV1) },
-          input.fund_update_catalog_selections,
-        );
+    const legacyProposal = !isV1 ? (proposal as LegacyAssetProposal | undefined) : undefined;
+    const fundCatalogItems = legacyProposal?.fund_catalog_items;
 
-    const commitmentEvents = !isV1
-      ? ((proposal as LegacyAssetProposal | undefined)?.commitment_events ?? [])
+    // Reconciliation is intentionally advisory: a lifecycle ledger can contain
+    // partial commitments, staged capital calls, or only the rows in this
+    // upload, while 基金汇总 is a cumulative snapshot.  It must remain visible
+    // in review, but is not evidence that a posted event is unsafe.
+    const assets = (proposal?.assets ?? []) as ParsedAsset[];
+    let selections = input.fund_update_selections;
+    let codes =
+      selections?.map((s) => s.asset_code) ?? input.fund_update_asset_codes ?? [];
+    let catalogSelections = input.fund_update_catalog_selections;
+    let sourceRemaps: Map<string, string> | undefined = undefined;
+    let investorRemaps: Map<string, string> | undefined = undefined;
+    let fundRemaps: Map<string, string> | undefined = undefined;
+    let reviewResolutions = input.fund_update_review_resolutions;
+    let commitmentEvents = !isV1
+      ? (legacyProposal?.commitment_events ?? [])
       : [];
-    let commitmentResult: FundUpdateCommitmentApplyResult | null = null;
-    if (!isV1 && commitmentEvents.length > 0) {
-      try {
-        commitmentResult = await this.fundUpdateApplyService.applyCommitmentEvents(commitmentEvents, {
-          source: proposal?.template_id,
-          fundCatalog: proposal?.fund_catalog,
-          catalogSelections: input.fund_update_catalog_selections,
-          ...(input.fund_update_commitment_event_keys !== undefined
-            ? { eventKeys: input.fund_update_commitment_event_keys }
-            : {}),
-        });
-      } catch (err) {
-        const errMsg = err instanceof Error ? err.message : String(err);
-        commitmentResult = {
-          events_inserted: 0,
-          events_skipped_duplicate: 0,
-          events_skipped: commitmentEvents.length,
-          warnings: [`Failed to apply commitment events: ${errMsg}`],
-        };
+
+function isValidIsoDate(d: unknown): boolean {
+  if (typeof d !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(d)) return false;
+  const [yearStr, monthStr, dayStr] = d.split('-');
+  const year = Number(yearStr);
+  const month = Number(monthStr);
+  const day = Number(dayStr);
+  if (month < 1 || month > 12 || day < 1 || day > 31) return false;
+  const dt = new Date(Date.UTC(year, month - 1, day));
+  return (
+    dt.getUTCFullYear() === year &&
+    dt.getUTCMonth() === month - 1 &&
+    dt.getUTCDate() === day
+  );
+}
+
+function isValidFiniteNumber(
+  v: unknown,
+  options?: { allowNegative?: boolean; nonZero?: boolean; allowNull?: boolean },
+): boolean {
+  if (v === null && options?.allowNull) return true;
+  if (v == null) return false;
+  if (typeof v !== 'number' && typeof v !== 'string') return false;
+  const str = String(v).trim();
+  if (str === '') return false;
+  const num = Number(str);
+  if (!Number.isFinite(num)) return false;
+  if (!options?.allowNegative && num < 0) return false;
+  if (options?.nonZero && num === 0) return false;
+  return true;
+}
+
+function isEntityDecisionRemapped(
+  key: string,
+  canonicalEntitiesMap: Map<string, { matchedId?: string | null; status?: string }>,
+  decisionsByKey: Map<string, { key: string; action: string; matchedId?: string | null; remappedName?: string | null }>,
+): boolean {
+  const d = decisionsByKey.get(key);
+  if (!d) return false;
+  if (d.remappedName && d.remappedName.trim()) return true;
+  const canonical = canonicalEntitiesMap.get(key);
+  if (!canonical) return false;
+  if (d.matchedId && canonical.matchedId && d.matchedId !== canonical.matchedId) return true;
+  if (d.action === 'use_existing' && canonical.status === 'new' && d.matchedId) return true;
+  return false;
+}
+
+    const preReviewDuplicateOutcomes: SubmittedRowOutcome[] = [];
+
+    // MB-513 Two-Step Approval Processing & Server-Side Validation
+    if (input.two_step_approval) {
+      const approval = input.two_step_approval;
+      const reviewData = await this.getFundUpdateReviewData(file, parsedNotes);
+      const canonicalReview = reviewData.two_step_review;
+      const canonicalEntitiesMap = new Map(canonicalReview.entities.map((e) => [e.key, e]));
+      // `target_kind` is authoritative when the review carries it. When the
+      // review has no row for this code, fall back to the asset's own type —
+      // the pre-`target_kind` behaviour — rather than assuming an asset target.
+      const reviewAssets = reviewData.assets ?? [];
+      const targetsFund = (asset: ParsedAsset): boolean => {
+        const reviewAsset = reviewAssets.find((item) => item.code === asset.code);
+        return reviewAsset?.target_kind === 'fund' ||
+          (reviewAsset?.target_kind == null && asset.assetType === 'fund_of_funds');
+      };
+
+      // 1. Validate decisions and build staged entity map
+      const stagedEntitiesMap = new Map<string, StagedReviewEntityInput>();
+      const decisionsByKey = new Map<string, (typeof approval.entityDecisions)[number]>();
+      const seenDecisionKeys = new Set<string>();
+
+      const isKnownEntityDecisionKey = (key: string): boolean => {
+        if (canonicalEntitiesMap.has(key)) return true;
+        for (const ent of canonicalReview.entities) {
+          if (ent.key === key) return true;
+          if (ent.rawAssets?.some((ra) => ra.code === key.replace(/^asset:/, '') || `asset:${ra.code}` === key)) {
+            return true;
+          }
+        }
+        if (
+          assets.some(
+            (a) =>
+              `asset:${a.code}` === key ||
+              `asset:${a.name}` === key ||
+              `fund:${a.fund}` === key ||
+              `fund:${a.name}` === key ||
+              (a.fundingSource && `source:${a.fundingSource}` === key) ||
+              (a.entity && `investor:${a.entity}` === key) ||
+              (a.holderName && `investor:${a.holderName}` === key) ||
+              (a.group && `group:${a.group}` === key) ||
+              (a.holderKind === 'investor' && a.fund && `group:${a.fund}` === key),
+          )
+        ) {
+          return true;
+        }
+        if (proposal?.fund_catalog?.some((f) => `fund:${f}` === key)) {
+          return true;
+        }
+        return false;
+      };
+
+      for (const d of approval.entityDecisions) {
+        if (seenDecisionKeys.has(d.key)) {
+          throw new FundUpdateValidationError(`Duplicate entity decision for key "${d.key}" submitted in approval`);
+        }
+        seenDecisionKeys.add(d.key);
+        if (!isKnownEntityDecisionKey(d.key)) {
+          throw new FundUpdateValidationError(`Unknown entity key "${d.key}" submitted in approval decisions`);
+        }
+        const canonical = canonicalEntitiesMap.get(d.key);
+        if (d.action !== 'create' && d.action !== 'use_existing' && d.action !== 'omit') {
+          throw new FundUpdateValidationError(`Invalid entity action "${d.action}" for key "${d.key}"`);
+        }
+        if (d.action === 'use_existing' && d.matchedId) {
+          if (typeof (this.db as any)?.select === 'function' && canonical) {
+            let existsInWorkspace = false;
+            if (canonical.isGroup) {
+              const [row] = await this.db.select({ id: flInvestors.id }).from(flInvestors).where(and(eq(flInvestors.workspace_id, this.workspaceId), eq(flInvestors.id, d.matchedId)));
+              existsInWorkspace = Boolean(row);
+            } else if (canonical.tab === 'source') {
+              const [row] = await this.db.select({ id: flFundingSources.id }).from(flFundingSources).where(and(eq(flFundingSources.workspace_id, this.workspaceId), eq(flFundingSources.id, d.matchedId)));
+              existsInWorkspace = Boolean(row);
+            } else if (canonical.tab === 'investor') {
+              const [row] = await this.db.select({ id: flInvestors.id }).from(flInvestors).where(and(eq(flInvestors.workspace_id, this.workspaceId), eq(flInvestors.id, d.matchedId)));
+              existsInWorkspace = Boolean(row);
+            } else if (canonical.tab === 'fund') {
+              const [row] = await this.db.select({ id: flFunds.id }).from(flFunds).where(and(eq(flFunds.workspace_id, this.workspaceId), eq(flFunds.id, d.matchedId)));
+              existsInWorkspace = Boolean(row);
+            } else if (canonical.tab === 'asset') {
+              const [row] = await this.db.select({ id: flAssets.id }).from(flAssets).where(and(eq(flAssets.workspace_id, this.workspaceId), eq(flAssets.id, d.matchedId)));
+              existsInWorkspace = Boolean(row);
+            }
+            if (!existsInWorkspace) {
+              throw new FundUpdateValidationError(`Cannot remap entity "${d.key}": target ID "${d.matchedId}" does not exist in workspace.`);
+            }
+          }
+        }
+        decisionsByKey.set(d.key, d);
       }
+
+      for (const ent of canonicalReview.entities) {
+        const decision = decisionsByKey.get(ent.key);
+        let isStaged = true;
+        let matchedId = ent.matchedId;
+        let matchedIdConflict = ent.matchedIdConflict ?? null;
+        let blockReason = ent.blockReason ?? null;
+        let status = ent.status;
+
+        if (decision) {
+          if (decision.action === 'omit') {
+            isStaged = false;
+            matchedId = null;
+          } else if (decision.action === 'create') {
+            isStaged = true;
+            matchedId = null;
+            // 'create' must NOT silently bypass a conflict and create a third canonical record.
+            // If the entity has a matchedIdConflict, it remains set so validation catches it.
+          } else if (decision.action === 'use_existing') {
+            isStaged = true;
+            if (decision.matchedId) {
+              // Explicit choice of existing matched ID resolves/clears the conflict
+              matchedId = decision.matchedId;
+              matchedIdConflict = null;
+              blockReason = null;
+              status = 'matched';
+            } else {
+              matchedId = ent.matchedId;
+            }
+          }
+        } else {
+          // Default: matched entities are staged and matched; new entities are staged
+          isStaged = ent.isStaged !== false;
+        }
+
+        stagedEntitiesMap.set(ent.key, {
+          key: ent.key,
+          name: ent.name,
+          kind: ent.tab,
+          tab: ent.tab,
+          status,
+          matchedId,
+          isStaged,
+          isGroup: ent.isGroup,
+          rawAssets: ent.rawAssets,
+          matchedIdConflict,
+          blockReason,
+        });
+      }
+
+      // 1b. Prevalidate all submitted transaction and valuation IDs against regenerated review
+      const seenTxnIds = new Set<string>();
+      const canonicalTxnById = new Map(canonicalReview.transactions.map((t) => [t.id, t]));
+      for (const t of approval.transactions) {
+        if (seenTxnIds.has(t.id)) {
+          throw new FundUpdateValidationError(`Duplicate transaction ID "${t.id}" submitted in approval`);
+        }
+        seenTxnIds.add(t.id);
+
+        const canonical = canonicalTxnById.get(t.id);
+        if (!canonical) {
+          throw new FundUpdateValidationError(`Unknown transaction ID "${t.id}" submitted in approval`);
+        }
+
+        const isResolvedTransfer = Boolean(
+          t.edits?.transferorName ||
+          (t.edits?.allocations && t.edits.allocations.length > 0) ||
+          canonical.singleTransferState?.enabled ||
+          (canonical.allocations && canonical.allocations.length > 0)
+        );
+        const isResolvedNonCash = Boolean(t.edits?.investorName || canonical.nonCashState?.enabled);
+        const isResolvedReviewItem =
+          canonical.backingRef?.kind === 'review_item' && !canonical.blockReason;
+
+        const effectiveTxn = reclassifyReviewTransaction(canonical, t.edits);
+
+        if (canonical.status === 'blocked') {
+          if (!isResolvedTransfer && !isResolvedNonCash && !isResolvedReviewItem) {
+            if (effectiveTxn.status === 'blocked') {
+              throw new FundUpdateValidationError(
+                `Cannot approve transaction "${t.id}": item is blocked (${effectiveTxn.blockReason ?? canonical.blockReason ?? 'unresolved transaction requires classification before posting'})`,
+              );
+            }
+          }
+        } else if (canonical.status !== 'actionable' && canonical.status !== 'duplicate') {
+          throw new FundUpdateValidationError(
+            `Cannot approve transaction "${t.id}": item is not actionable (status "${canonical.status}")`,
+          );
+        }
+
+        if (t.edits) {
+          if (t.edits.date !== undefined) {
+            if (!isValidIsoDate(t.edits.date)) {
+              throw new FundUpdateValidationError(`Invalid date "${t.edits.date}" for transaction "${t.id}"`);
+            }
+          }
+          if (t.edits.amount !== undefined) {
+            if (!isValidFiniteNumber(t.edits.amount, { allowNegative: false })) {
+              throw new FundUpdateValidationError(`Invalid amount "${t.edits.amount}" for transaction "${t.id}"`);
+            }
+          }
+          if (t.edits.cashDelta !== undefined) {
+            if (!isValidFiniteNumber(t.edits.cashDelta, { allowNegative: true, allowNull: true })) {
+              throw new FundUpdateValidationError(`Invalid cashDelta "${t.edits.cashDelta}" for transaction "${t.id}"`);
+            }
+            if (t.edits.cashDelta === null && t.edits.amount === undefined && !canonical.nonCashState?.enabled) {
+              throw new FundUpdateValidationError(
+                `Cannot clear cashDelta for cash-bearing transaction "${t.id}": missing required cash amount`,
+              );
+            }
+          }
+          if (t.edits.quantityDelta !== undefined) {
+            if (!isValidFiniteNumber(t.edits.quantityDelta, { allowNegative: true, allowNull: true })) {
+              throw new FundUpdateValidationError(`Invalid quantityDelta "${t.edits.quantityDelta}" for transaction "${t.id}"`);
+            }
+          }
+          if (t.edits.pricePerShare !== undefined) {
+            if (!isValidFiniteNumber(t.edits.pricePerShare, { allowNegative: false, allowNull: true })) {
+              throw new FundUpdateValidationError(`Invalid pricePerShare "${t.edits.pricePerShare}" for transaction "${t.id}"`);
+            }
+          }
+          if (t.edits.sellProceedsDestination !== undefined && t.edits.sellProceedsDestination !== null) {
+            if (!isSellProceedsDestination(t.edits.sellProceedsDestination)) {
+              throw new FundUpdateValidationError(
+                `Invalid sellProceedsDestination "${t.edits.sellProceedsDestination}" for transaction "${t.id}"`,
+              );
+            }
+          }
+        }
+      }
+
+      const seenValIds = new Set<string>();
+      const canonicalValById = new Map(canonicalReview.valuations.map((v) => [v.id, v]));
+      for (const v of approval.valuations) {
+        if (seenValIds.has(v.id)) {
+          throw new FundUpdateValidationError(`Duplicate valuation ID "${v.id}" submitted in approval`);
+        }
+        seenValIds.add(v.id);
+
+        const canonical = canonicalValById.get(v.id);
+        if (!canonical) {
+          throw new FundUpdateValidationError(`Unknown valuation ID "${v.id}" submitted in approval`);
+        }
+
+        if (canonical.status === 'blocked') {
+          throw new FundUpdateValidationError(
+            `Cannot approve valuation "${v.id}": item is blocked (${canonical.blockReason ?? 'unresolved dependency'})`,
+          );
+        } else if (canonical.status !== 'actionable' && canonical.status !== 'duplicate') {
+          throw new FundUpdateValidationError(
+            `Cannot approve valuation "${v.id}": item is not actionable (status "${canonical.status}")`,
+          );
+        }
+
+        if (v.edits) {
+          if (v.edits.asOfDate !== undefined) {
+            if (!isValidIsoDate(v.edits.asOfDate)) {
+              throw new FundUpdateValidationError(`Invalid asOfDate "${v.edits.asOfDate}" for valuation "${v.id}"`);
+            }
+          }
+          if (v.edits.marketValue !== undefined) {
+            if (!isValidFiniteNumber(v.edits.marketValue, { allowNegative: true, allowNull: true })) {
+              throw new FundUpdateValidationError(`Invalid marketValue "${v.edits.marketValue}" for valuation "${v.id}"`);
+            }
+          }
+          if (v.edits.pricePerShare !== undefined) {
+            if (!isValidFiniteNumber(v.edits.pricePerShare, { allowNegative: false, allowNull: true })) {
+              throw new FundUpdateValidationError(`Invalid pricePerShare "${v.edits.pricePerShare}" for valuation "${v.id}"`);
+            }
+          }
+          if (v.edits.sharesOutstanding !== undefined) {
+            if (!isValidFiniteNumber(v.edits.sharesOutstanding, { allowNegative: false, allowNull: true })) {
+              throw new FundUpdateValidationError(`Invalid sharesOutstanding "${v.edits.sharesOutstanding}" for valuation "${v.id}"`);
+            }
+          }
+          if (v.edits.shareholdingPct !== undefined) {
+            if (!isValidFiniteNumber(v.edits.shareholdingPct, { allowNegative: false, allowNull: true })) {
+              throw new FundUpdateValidationError(`Invalid shareholdingPct "${v.edits.shareholdingPct}" for valuation "${v.id}"`);
+            }
+          }
+        }
+      }
+
+      // 2. Map selected transactions and apply allow-listed edits
+      const approvedTxnEditsById = new Map(approval.transactions.map((t) => [t.id, t.edits]));
+      const selectedTransactions = canonicalReview.transactions.map((t) => {
+        const edits = approvedTxnEditsById.get(t.id);
+        const hasEdits = Boolean(edits && Object.keys(edits).length > 0);
+        const txnAssetCode = t.backingRef && 'assetCode' in t.backingRef ? t.backingRef.assetCode : undefined;
+        const isTxnRemapped = Boolean(
+          (t.fromKey && isEntityDecisionRemapped(t.fromKey, canonicalEntitiesMap, decisionsByKey)) ||
+          (t.toKey && isEntityDecisionRemapped(t.toKey, canonicalEntitiesMap, decisionsByKey)) ||
+          (txnAssetCode && (
+            isEntityDecisionRemapped(`asset:${txnAssetCode}`, canonicalEntitiesMap, decisionsByKey) ||
+            isEntityDecisionRemapped(`fund:${txnAssetCode}`, canonicalEntitiesMap, decisionsByKey)
+          ))
+        );
+        const effectiveTxn = reclassifyReviewTransaction(t, edits);
+        const isEligible =
+          effectiveTxn.status === 'actionable' ||
+          (t.status === 'duplicate' && (hasEdits || isTxnRemapped)) ||
+          (t.status === 'blocked' && (isTxnRemapped || t.backingRef?.kind === 'review_item' || effectiveTxn.singleTransferState?.enabled || effectiveTxn.nonCashState?.enabled || (effectiveTxn.allocations && effectiveTxn.allocations.length > 0)));
+        const isSelected = isEligible && approvedTxnEditsById.has(t.id);
+        return {
+          ...effectiveTxn,
+          selected: isSelected,
+        };
+      });
+
+      // 3. Map selected valuations and apply allow-listed edits
+      const approvedValEditsById = new Map(approval.valuations.map((v) => [v.id, v.edits]));
+      const selectedValuations = canonicalReview.valuations.map((v) => {
+        const edits = approvedValEditsById.get(v.id);
+        const hasEdits = Boolean(edits && Object.keys(edits).length > 0);
+        const valAssetCode = v.backingRef && 'assetCode' in v.backingRef ? v.backingRef.assetCode : undefined;
+        const isValRemapped = Boolean(
+          valAssetCode && (
+            isEntityDecisionRemapped(`asset:${valAssetCode}`, canonicalEntitiesMap, decisionsByKey) ||
+            isEntityDecisionRemapped(`fund:${valAssetCode}`, canonicalEntitiesMap, decisionsByKey)
+          )
+        );
+        const isEligible = v.status === 'actionable' || (v.status === 'duplicate' && (hasEdits || isValRemapped));
+        const isSelected = isEligible && approvedValEditsById.has(v.id);
+        const updated = { ...v, selected: isSelected };
+        if (edits) {
+          if (edits.asOfDate !== undefined) updated.asOfDate = edits.asOfDate;
+          if (edits.marketValue !== undefined) {
+            updated.marketValue = edits.marketValue === null ? null : Number(edits.marketValue);
+          }
+          if (edits.pricePerShare !== undefined) {
+            updated.pricePerShare = edits.pricePerShare === null ? null : Number(edits.pricePerShare);
+          }
+          if (edits.sharesOutstanding !== undefined) {
+            updated.sharesOutstanding = edits.sharesOutstanding === null ? null : Number(edits.sharesOutstanding);
+          }
+          if (edits.shareholdingPct !== undefined) {
+            updated.shareholdingPct = edits.shareholdingPct === null ? null : Number(edits.shareholdingPct);
+          }
+          if (edits.valuationMethod !== undefined) updated.valuationMethod = edits.valuationMethod;
+          if (edits.notes !== undefined) updated.notes = edits.notes;
+        }
+        return updated;
+      });
+
+      // 4. Server-Side Dependency Validation
+      const depResult = validateTwoStepDependencies({
+        stagedEntities: stagedEntitiesMap,
+        transactions: selectedTransactions,
+        valuations: selectedValuations,
+      });
+
+      if (!depResult.isValid) {
+        throw new FundUpdateValidationError(
+          `Cannot approve fund update due to dependency validation failures: ${depResult.errors.join('; ')}`,
+        );
+      }
+
+      // 5. Translate into applySelected and applyCommitmentEvents inputs
+      const managedFundNormNames = new Set<string>();
+      for (const a of assets) {
+        if (a.fund) managedFundNormNames.add(normalizeCanonicalName(a.fund) || a.fund.trim().toLowerCase());
+      }
+      for (const e of commitmentEvents) {
+        if (e.fund) managedFundNormNames.add(normalizeCanonicalName(e.fund) || e.fund.trim().toLowerCase());
+      }
+      for (const r of legacyProposal?.review_items ?? []) {
+        if (r.fund) managedFundNormNames.add(normalizeCanonicalName(r.fund) || r.fund.trim().toLowerCase());
+      }
+      for (const f of proposal?.fund_catalog ?? []) {
+        managedFundNormNames.add(normalizeCanonicalName(f) || f.trim().toLowerCase());
+      }
+
+      sourceRemaps = new Map<string, string>();
+      investorRemaps = new Map<string, string>();
+      fundRemaps = new Map<string, string>();
+      for (const d of approval.entityDecisions) {
+        if (d.action === 'use_existing' && d.matchedId) {
+          if (d.key.startsWith('source:')) {
+            sourceRemaps.set(d.key, d.matchedId);
+            sourceRemaps.set(d.key.replace(/^source:/, ''), d.matchedId);
+          } else if (d.key.startsWith('investor:')) {
+            investorRemaps.set(d.key, d.matchedId);
+            investorRemaps.set(d.key.replace(/^investor:/, ''), d.matchedId);
+          } else if (d.key.startsWith('fund:')) {
+            fundRemaps.set(d.key, d.matchedId);
+            fundRemaps.set(d.key.replace(/^fund:/, ''), d.matchedId);
+          }
+        }
+      }
+
+      const postingSourceKeys = new Set<string>();
+      for (const t of depResult.validatedTransactions) {
+        if (t.selected) {
+          if (t.srcKey) {
+            postingSourceKeys.add(t.srcKey);
+            postingSourceKeys.add(t.srcKey.replace(/^source:/, ''));
+          }
+          const raw = t.rawTxn;
+          if (raw?.fundingSource) postingSourceKeys.add(raw.fundingSource);
+          if ((t as any).fundingSource) postingSourceKeys.add((t as any).fundingSource);
+          if (raw?.allocations) {
+            for (const a of raw.allocations) {
+              if (a.fundingSourceId) postingSourceKeys.add(a.fundingSourceId);
+              if ((a as any).funding_source_id) postingSourceKeys.add((a as any).funding_source_id);
+            }
+          }
+        }
+      }
+      for (const e of commitmentEvents) {
+        if ((e as any).fundingSource) {
+          postingSourceKeys.add((e as any).fundingSource);
+        }
+      }
+
+      const verifyOnlySourceKeys = new Set<string>();
+      for (const t of depResult.validatedTransactions) {
+        if (!t.selected) {
+          if (t.srcKey) {
+            verifyOnlySourceKeys.add(t.srcKey);
+            verifyOnlySourceKeys.add(t.srcKey.replace(/^source:/, ''));
+          }
+          const raw = t.rawTxn;
+          if (raw?.fundingSource) verifyOnlySourceKeys.add(raw.fundingSource);
+          if ((t as any).fundingSource) verifyOnlySourceKeys.add((t as any).fundingSource);
+        }
+      }
+
+      const isFofTargetName = (name: string): boolean => {
+        const norm = normalizeCanonicalName(name);
+        const lower = name.trim().toLowerCase();
+        return assets.some(
+          (a) =>
+            a.assetType === 'fund_of_funds' &&
+            ((norm && normalizeCanonicalName(a.name) === norm) ||
+              a.name.trim().toLowerCase() === lower),
+        );
+      };
+
+      const stagedFunds = Array.from(stagedEntitiesMap.values())
+        .filter((e) => {
+          if (!e.isStaged) return false;
+          if (e.isGroup) {
+            const dec = decisionsByKey.get(e.key);
+            return dec?.action !== 'omit';
+          }
+          if (e.kind !== 'fund') return false;
+          // A managed fund is eligible even when the same workbook also holds it as a
+          // fund_of_funds target: a managed fund held by another managed fund is a legitimate
+          // structure (Nanjing chains 桐德 -> 月升星繁 -> 淮安熙和). It must stay in the
+          // allowlist or applySelected leaves `fundId` null for every asset it holds and the
+          // whole approval aborts with "unresolved position for holder".
+          const isManagedFund = managedFundNormNames.has(normalizeCanonicalName(e.name) || e.name.trim().toLowerCase());
+          if (isManagedFund) return true;
+          // A purely external FoF target — never a holder, absent from the fund catalog — is
+          // created by the FoF branch of applySelected as `managed: false` /
+          // `ownership_basis: 'capital_account'`. Keep it out of the eager catalog creation so
+          // that branch stays authoritative for its attributes.
+          if (isFofTargetName(e.name)) return false;
+          const dec = decisionsByKey.get(e.key);
+          if (dec?.action === 'create') return true;
+          return false;
+        })
+        .map((e) => e.name);
+
+      const stagedInvestors = Array.from(stagedEntitiesMap.values())
+        .filter((e) => e.kind === 'investor' && !e.isGroup && e.isStaged)
+        .map((e) => e.name);
+
+      const stagedSources = Array.from(stagedEntitiesMap.values())
+        .filter((e) => {
+          if (e.kind !== 'source' || !e.isStaged) return false;
+          const dec = decisionsByKey.get(e.key);
+          if (dec?.action === 'use_existing' || dec?.action === 'omit') return false;
+          if (dec?.action === 'create') return true;
+          if (e.status !== 'new') return false;
+          const isReferencedByVerifyOnly = verifyOnlySourceKeys.has(e.key) || verifyOnlySourceKeys.has(e.name);
+          const isReferencedByPosting = postingSourceKeys.has(e.key) || postingSourceKeys.has(e.name);
+          if (isReferencedByVerifyOnly && !isReferencedByPosting) {
+            return false;
+          }
+          return true;
+        })
+        .map((e) => e.name);
+      catalogSelections = { funds: stagedFunds, investors: stagedInvestors, sources: stagedSources };
+
+      // fl_assets and fl_funds are standalone master-data tables — neither has a
+      // parent-fund column. Only fl_positions needs a fund, and applySelected
+      // already opens one solely when the owning fund resolves (`if (fundId)`).
+      // So a staged entity is created whether or not its owning fund was staged;
+      // deselecting the fund costs the holding, not the record itself.
+      const stagedAssetCodesSet = new Set<string>();
+      for (const ent of stagedEntitiesMap.values()) {
+        if (ent.kind === 'asset' && ent.isStaged) {
+          const dec = decisionsByKey.get(ent.key);
+          if (dec?.action === 'omit') continue;
+          stagedAssetCodesSet.add(ent.key.replace(/^asset:/, ''));
+          if (ent.rawAssets) {
+            for (const ra of ent.rawAssets) {
+              if (ra.code) stagedAssetCodesSet.add(ra.code);
+            }
+          }
+        }
+      }
+      for (const asset of assets) {
+        if (targetsFund(asset)) {
+          const fundKey = `fund:${asset.name}`;
+          const normKey = normalizeCanonicalName(asset.name) || asset.name.trim().toLowerCase();
+          const targetFundEntity =
+            stagedEntitiesMap.get(fundKey) ??
+            Array.from(stagedEntitiesMap.values()).find(
+              (e) => e.kind === 'fund' && (normalizeCanonicalName(e.name) === normKey || e.name.trim().toLowerCase() === asset.name.trim().toLowerCase()),
+            );
+
+          if (targetFundEntity && targetFundEntity.isStaged) {
+            const dec = decisionsByKey.get(targetFundEntity.key);
+            if (dec?.action !== 'omit') {
+              stagedAssetCodesSet.add(asset.code);
+            }
+          }
+        } else {
+          const normKey = normalizeCanonicalName(asset.name) || normalizeCanonicalName(asset.legalName) || asset.name.trim().toLowerCase();
+          const targetAssetEntity =
+            stagedEntitiesMap.get(`asset:${asset.code}`) ??
+            Array.from(stagedEntitiesMap.values()).find(
+              (e) => e.kind === 'asset' && (normalizeCanonicalName(e.name) === normKey || e.name.trim().toLowerCase() === asset.name.trim().toLowerCase() || (e.rawAssets && e.rawAssets.some((ra) => ra.code === asset.code))),
+            );
+
+          if (targetAssetEntity && targetAssetEntity.isStaged) {
+            const dec = decisionsByKey.get(targetAssetEntity.key);
+            if (dec?.action !== 'omit') {
+              stagedAssetCodesSet.add(asset.code);
+            }
+          }
+        }
+      }
+
+      for (const t of approval.transactions) {
+        const canonical = canonicalTxnById.get(t.id);
+        if (canonical?.backingRef?.kind === 'asset_txn' && canonical.backingRef.assetCode) {
+          stagedAssetCodesSet.add(canonical.backingRef.assetCode);
+        }
+      }
+
+      // Construct per-asset selections
+      const derivedAssetSelections: FundUpdateAssetSelection[] = [];
+      for (const assetCode of stagedAssetCodesSet) {
+        const assetObj = assets.find((a) => a.code === assetCode);
+        let matchedTargetId: string | undefined;
+        let remappedTargetName: string | undefined;
+
+        if (assetObj && targetsFund(assetObj)) {
+          const normKey = normalizeCanonicalName(assetObj.name) || assetObj.name.trim().toLowerCase();
+          const targetFundEnt = Array.from(stagedEntitiesMap.values()).find(
+            (e) =>
+              e.kind === 'fund' &&
+              (e.key === `fund:${assetObj.name}` ||
+                (e.rawAssets && e.rawAssets.some((ra) => ra.code === assetCode)) ||
+                (e.name && (normalizeCanonicalName(e.name) === normKey || e.name.trim().toLowerCase() === assetObj.name.trim().toLowerCase()))),
+          );
+          const targetDecision =
+            approval.entityDecisions.find((d) => d.key === `fund:${assetObj.name}`) ??
+            (targetFundEnt ? approval.entityDecisions.find((d) => d.key === targetFundEnt.key) : undefined) ??
+            approval.entityDecisions.find(
+              (d) =>
+                d.key.startsWith('fund:') &&
+                (normalizeCanonicalName(d.key.replace(/^fund:/, '')) === normKey ||
+                  d.key.replace(/^fund:/, '').trim().toLowerCase() === assetObj.name.trim().toLowerCase()),
+            );
+          if (targetDecision) {
+            matchedTargetId = targetDecision.matchedId ?? undefined;
+            remappedTargetName = targetDecision.remappedName ?? undefined;
+          }
+        } else if (assetObj) {
+          const normKey =
+            normalizeCanonicalName(assetObj.name) ||
+            normalizeCanonicalName(assetObj.legalName) ||
+            assetObj.name.trim().toLowerCase();
+          const targetAssetEnt = Array.from(stagedEntitiesMap.values()).find(
+            (e) =>
+              e.kind === 'asset' &&
+              (e.key === `asset:${assetObj.code}` ||
+                (e.rawAssets && e.rawAssets.some((ra) => ra.code === assetCode)) ||
+                (e.name && (normalizeCanonicalName(e.name) === normKey || e.name.trim().toLowerCase() === assetObj.name.trim().toLowerCase()))),
+          );
+          const assetDecision =
+            approval.entityDecisions.find((d) => d.key === `asset:${assetObj.code}`) ??
+            (targetAssetEnt ? approval.entityDecisions.find((d) => d.key === targetAssetEnt.key) : undefined) ??
+            approval.entityDecisions.find((d) => {
+              if (!d.key.startsWith('asset:')) return false;
+              const rawKey = d.key.replace(/^asset:/, '');
+              if (normalizeCanonicalName(rawKey) === normKey) return true;
+              if (d.remappedName && normalizeCanonicalName(d.remappedName) === normKey) return true;
+              const decisionAsset = assets.find((a) => a.code === rawKey);
+              if (decisionAsset) {
+                const decisionNorm =
+                  normalizeCanonicalName(decisionAsset.name) ||
+                  normalizeCanonicalName(decisionAsset.legalName) ||
+                  decisionAsset.name.trim().toLowerCase();
+                return decisionNorm === normKey;
+              }
+              return false;
+            });
+          if (assetDecision) {
+            matchedTargetId = assetDecision.matchedId ?? undefined;
+            remappedTargetName = assetDecision.remappedName ?? undefined;
+          }
+        }
+
+        const assetTxns = depResult.validatedTransactions
+          .filter((t) => (t.selected || approvedTxnEditsById.has(t.id)) && t.backingRef?.kind === 'asset_txn' && t.backingRef.assetCode === assetCode && t.rawTxn)
+          .map((t) => {
+            const raw = t.rawTxn!;
+            const edits = approvedTxnEditsById.get(t.id);
+            const resolvedShareCount =
+              t.quantityDelta !== undefined ? t.quantityDelta : (raw.shareCount ?? null);
+            const resolvedPricePerShare =
+              t.pricePerShare !== undefined ? t.pricePerShare : (raw.pricePerShare ?? null);
+            const resolvedNotes =
+              edits?.notes !== undefined ? edits.notes : (t.notes !== undefined ? t.notes : (raw.notes ?? null));
+            const resolvedSubTypeLabel =
+              (edits?.subTypeLabel !== undefined ? edits.subTypeLabel : raw.subTypeLabel) ?? null;
+
+            const isUnresolvedRaw =
+              raw.type === 'other' ||
+              (raw.type as string) === 'others' ||
+              (raw.type as string) === 'unknown';
+
+            // Point 1: Preserve semantic type for unchanged canonical rows.
+            // Explicit classification resolution is applied only when deliberately chosen for an unresolved row.
+            const reviewerResolvedType =
+              isUnresolvedRaw && t.type !== 'other' && t.type !== 'unknown';
+            const resolvedType = (reviewerResolvedType ? t.type : raw.type) as TxnTypeEnum;
+
+            // A reviewer may classify an estimate-worded row into an actual event. It posts,
+            // but the ledger entry carries needs_verification so reporting can still flag it.
+            const isEstimateWorded = classifyFundUpdateTxn({
+              type: 'other',
+              subTypeLabel: resolvedSubTypeLabel,
+              notes: resolvedNotes,
+              valueAmount: raw.valueAmount,
+            }).isEstimated;
+            const resolvedDataStatus =
+              reviewerResolvedType && isEstimateWorded ? 'needs_verification' : raw.dataStatus;
+
+            // Point 2: Eventual posting and review validation see identical effective values from effectiveTxn.
+            const resolvedAmount = t.cashDelta != null ? t.cashDelta : (t.amount ?? raw.valueAmount);
+
+            let resolvedFundingSource: string | null | undefined = (t as any).fundingSource ?? raw.fundingSource;
+            let resolvedFundingSourceId: string | null | undefined = (t as any).fundingSourceId ?? raw.fundingSourceId ?? null;
+            if (t.srcKey) {
+              const srcDecision = approval.entityDecisions.find((d) => d.key === t.srcKey);
+              if (srcDecision?.action === 'use_existing' && srcDecision.matchedId) {
+                resolvedFundingSourceId = srcDecision.matchedId;
+                resolvedFundingSource = srcDecision.remappedName ?? srcDecision.matchedId;
+              } else if (srcDecision?.remappedName) {
+                resolvedFundingSource = srcDecision.remappedName;
+              } else {
+                resolvedFundingSource = t.srcKey.replace(/^source:/, '');
+              }
+            }
+
+            let remappedAllocations = (t as any).allocations ?? raw.allocations;
+            if (remappedAllocations && remappedAllocations.length > 0 && sourceRemaps) {
+              remappedAllocations = remappedAllocations.map((a: any) => {
+                const rawKey = (a.funding_source_id ?? a.fundingSourceId)?.trim();
+                const remapped = rawKey ? (sourceRemaps!.get(rawKey) ?? sourceRemaps!.get(`source:${rawKey}`)) : undefined;
+                if (remapped) {
+                  return {
+                    ...a,
+                    funding_source_id: remapped,
+                    fundingSourceId: remapped,
+                  };
+                }
+                return a;
+              });
+            }
+
+            return {
+              ...raw,
+              submittedId: t.id,
+              date: t.date,
+              type: resolvedType,
+              valueAmount: resolvedAmount,
+              currency: t.currency || raw.currency,
+              shareCount: resolvedShareCount,
+              pricePerShare: resolvedPricePerShare,
+              notes: resolvedNotes,
+              subTypeLabel: resolvedSubTypeLabel,
+              reviewerResolvedType,
+              dataStatus: resolvedDataStatus,
+              // Prefer reviewer edit; otherwise keep the source-stated value.
+              // Do NOT fall back to the review row's effective/inferred destination —
+              // that would clear D1's inferred flag on every unmarked sale.
+              sellProceedsDestination:
+                edits?.sellProceedsDestination !== undefined
+                  ? edits.sellProceedsDestination
+                  : (raw.sellProceedsDestination ?? null),
+              fundingSource: resolvedFundingSource,
+              fundingSourceId: resolvedFundingSourceId,
+              allocations: remappedAllocations,
+              allowPost: Boolean(t.selected),
+            };
+          });
+
+        const assetVals = depResult.validatedValuations
+          .filter((v) => v.selected && v.backingRef?.kind === 'asset_valuation' && v.backingRef.assetCode === assetCode && v.rawVal)
+          .map((v) => {
+            const raw = v.rawVal!;
+            return {
+              ...raw,
+              submittedId: v.id,
+              asOfDate: v.asOfDate,
+              marketValue: v.marketValue !== undefined ? v.marketValue : (raw.marketValue ?? null),
+              pricePerShare: v.pricePerShare !== undefined ? v.pricePerShare : (raw.pricePerShare ?? null),
+              sharesOutstanding: v.sharesOutstanding !== undefined ? v.sharesOutstanding : (raw.sharesOutstanding ?? null),
+              shareholdingPct: v.shareholdingPct !== undefined ? v.shareholdingPct : (raw.shareholdingPct ?? null),
+              valuationMethod: v.valuationMethod !== undefined ? (v.valuationMethod as any) : (raw.valuationMethod ?? null),
+              notes: v.notes !== undefined ? v.notes : (raw.notes ?? null),
+            };
+          });
+
+        derivedAssetSelections.push({
+          asset_code: assetCode,
+          txns: assetTxns,
+          valuations: assetVals,
+          matched_target_id: matchedTargetId,
+          remapped_target_name: remappedTargetName,
+        });
+      }
+
+      // Pre-approval safety invariant: Prevent multiple proposed direct assets
+      // with the same canonical identity from having conflicting action decisions (e.g. create vs use-existing),
+      // conflicting matched asset IDs, or inconsistent remapped targets.
+      const directAssetTargetByIdentity = new Map<
+        string,
+        {
+          code: string;
+          action: 'use_existing' | 'create';
+          matchedTargetId?: string;
+          remappedTargetName?: string;
+          effectiveCanonicalTarget: string;
+        }
+      >();
+
+      for (const sel of derivedAssetSelections) {
+        const assetObj = assets.find((a) => a.code === sel.asset_code);
+        if (assetObj && !targetsFund(assetObj)) {
+          const normKey =
+            normalizeCanonicalName(assetObj.name) ||
+            normalizeCanonicalName(assetObj.legalName) ||
+            assetObj.name.trim().toLowerCase();
+
+          const isUseExisting = Boolean(sel.matched_target_id);
+          const action = isUseExisting ? ('use_existing' as const) : ('create' as const);
+          const effectiveCanonicalTarget = sel.remapped_target_name
+            ? (normalizeCanonicalName(sel.remapped_target_name) || sel.remapped_target_name.trim().toLowerCase())
+            : normKey;
+
+          const existing = directAssetTargetByIdentity.get(normKey);
+          if (existing) {
+            if (existing.action !== action) {
+              throw new FundUpdateValidationError(
+                `Pre-approval safety invariant violation: Proposed direct assets "${existing.code}" and "${sel.asset_code}" share canonical identity "${assetObj.name}" but have conflicting action decisions (${existing.action} vs ${action}). Direct assets with the same canonical identity must resolve to the same entity decision.`,
+              );
+            }
+            if (existing.matchedTargetId && sel.matched_target_id && existing.matchedTargetId !== sel.matched_target_id) {
+              throw new FundUpdateValidationError(
+                `Pre-approval safety invariant violation: Proposed direct assets "${existing.code}" and "${sel.asset_code}" share canonical identity "${assetObj.name}" but have conflicting matched asset IDs (${existing.matchedTargetId} vs ${sel.matched_target_id}). Direct assets with the same canonical identity must resolve to the same asset ID.`,
+              );
+            }
+            if (existing.effectiveCanonicalTarget !== effectiveCanonicalTarget) {
+              throw new FundUpdateValidationError(
+                `Pre-approval safety invariant violation: Proposed direct assets "${existing.code}" and "${sel.asset_code}" share canonical identity "${assetObj.name}" but have inconsistent target names ("${existing.remappedTargetName ?? existing.effectiveCanonicalTarget}" vs "${sel.remapped_target_name ?? effectiveCanonicalTarget}"). Direct assets with the same canonical identity must resolve to the same target entity.`,
+              );
+            }
+          } else {
+            directAssetTargetByIdentity.set(normKey, {
+              code: sel.asset_code,
+              action,
+              matchedTargetId: sel.matched_target_id,
+              remappedTargetName: sel.remapped_target_name,
+              effectiveCanonicalTarget,
+            });
+          }
+        }
+      }
+
+      const fofTargetByIdentity = new Map<
+        string,
+        {
+          code: string;
+          action: 'use_existing' | 'create';
+          matchedTargetId?: string;
+          remappedTargetName?: string;
+          effectiveCanonicalTarget: string;
+        }
+      >();
+
+      for (const sel of derivedAssetSelections) {
+        const assetObj = assets.find((a) => a.code === sel.asset_code);
+        if (assetObj && targetsFund(assetObj)) {
+          const normKey =
+            normalizeCanonicalName(assetObj.name) ||
+            normalizeCanonicalName(assetObj.legalName) ||
+            assetObj.name.trim().toLowerCase();
+
+          const isUseExisting = Boolean(sel.matched_target_id);
+          const action = isUseExisting ? ('use_existing' as const) : ('create' as const);
+          const effectiveCanonicalTarget = sel.remapped_target_name
+            ? (normalizeCanonicalName(sel.remapped_target_name) || sel.remapped_target_name.trim().toLowerCase())
+            : normKey;
+
+          const existing = fofTargetByIdentity.get(normKey);
+          if (existing) {
+            if (existing.action !== action) {
+              throw new FundUpdateValidationError(
+                `Pre-approval safety invariant violation: Proposed FoF holdings "${existing.code}" and "${sel.asset_code}" share canonical identity "${assetObj.name}" but have conflicting action decisions (${existing.action} vs ${action}).`,
+              );
+            }
+            if (existing.matchedTargetId && sel.matched_target_id && existing.matchedTargetId !== sel.matched_target_id) {
+              throw new FundUpdateValidationError(
+                `Pre-approval safety invariant violation: Proposed FoF holdings "${existing.code}" and "${sel.asset_code}" share canonical identity "${assetObj.name}" but have conflicting matched fund IDs (${existing.matchedTargetId} vs ${sel.matched_target_id}).`,
+              );
+            }
+            if (existing.effectiveCanonicalTarget !== effectiveCanonicalTarget) {
+              throw new FundUpdateValidationError(
+                `Pre-approval safety invariant violation: Proposed FoF holdings "${existing.code}" and "${sel.asset_code}" share canonical identity "${assetObj.name}" but have inconsistent target names ("${existing.remappedTargetName ?? existing.effectiveCanonicalTarget}" vs "${sel.remapped_target_name ?? effectiveCanonicalTarget}").`,
+              );
+            }
+          } else {
+            fofTargetByIdentity.set(normKey, {
+              code: sel.asset_code,
+              action,
+              matchedTargetId: sel.matched_target_id,
+              remappedTargetName: sel.remapped_target_name,
+              effectiveCanonicalTarget,
+            });
+          }
+        }
+      }
+
+      selections = derivedAssetSelections;
+      codes = Array.from(stagedAssetCodesSet);
+
+      // Construct commitment events and review resolutions
+      const derivedResolutions: FundUpdateReviewResolution[] = [];
+      const derivedCommitmentEvents: ParsedCommitmentEvent[] = [];
+
+      for (const t of depResult.validatedTransactions) {
+        if (!t.selected) continue;
+
+        if (t.backingRef?.kind === 'commitment_event' && t.rawCommitmentEvent) {
+          derivedCommitmentEvents.push({
+            ...t.rawCommitmentEvent,
+            submittedId: t.id,
+          });
+        } else if (t.backingRef?.kind === 'review_item') {
+          if (t.isNonCashAdjustment && t.nonCashState) {
+            derivedResolutions.push({
+              submittedId: t.id,
+              sourceRow: Number(t.sheetRow),
+              resolutionType: 'non_cash_adjustment',
+              investorName: t.nonCashState.investorName || t.fromKey.replace(/^investor:/, ''),
+              fundName: t.rawReviewItem?.fund ?? '',
+              date: t.date,
+              amount: t.rawReviewItem?.amount ?? (typeof t.amount === 'number' ? t.amount : 0),
+              currency: (t.currency || 'CNY') as 'CNY',
+              direction: t.nonCashState.direction,
+              subType: t.nonCashState.subType,
+            });
+          } else if (t.isTransfer) {
+            if (t.isMultiPartyTransfer && t.allocations && t.allocations.length > 0) {
+              derivedResolutions.push({
+                submittedId: t.id,
+                sourceRow: Number(t.sheetRow),
+                resolutionType: 'split_transfer',
+                transfereeName: t.toKey.replace(/^investor:/, ''),
+                fundName: t.rawCommitmentEvent?.fund ?? t.rawReviewItem?.fund ?? '',
+                date: t.date,
+                totalAmount: t.rawCommitmentEvent?.amount ?? t.rawReviewItem?.amount ?? (typeof t.amount === 'number' ? t.amount : 0),
+                currency: (t.currency || 'CNY') as 'CNY',
+                allocations: t.allocations.map((a) => ({ transferorName: a.transferorName, amount: Number(a.amount) })),
+              });
+            } else if (t.singleTransferState) {
+              derivedResolutions.push({
+                submittedId: t.id,
+                sourceRow: Number(t.sheetRow),
+                resolutionType: 'single_transfer',
+                transferorName: t.singleTransferState.transferorName,
+                transfereeName: t.toKey.replace(/^investor:/, ''),
+                fundName: t.rawCommitmentEvent?.fund ?? t.rawReviewItem?.fund ?? '',
+                date: t.date,
+                amount: t.rawCommitmentEvent?.amount ?? t.rawReviewItem?.amount ?? (typeof t.amount === 'number' ? t.amount : 0),
+                currency: (t.currency || 'CNY') as 'CNY',
+              });
+            }
+          }
+        }
+      }
+
+      for (const t of approval.transactions) {
+        const canonical = canonicalTxnById.get(t.id);
+        const sel = selectedTransactions.find((st) => st.id === t.id);
+        if (canonical && (!sel || !sel.selected)) {
+          if (canonical.backingRef?.kind === 'asset_txn') {
+            continue; // Bypassed shortcut: routed through applySelected for attribution/proceeds verification
+          }
+          preReviewDuplicateOutcomes.push({
+            submittedId: t.id,
+            family: canonical.backingRef?.kind === 'review_item'
+              ? 'review_resolution'
+              : canonical.backingRef?.kind === 'commitment_event'
+                ? 'commitment_event'
+                : 'transaction',
+            disposition: 'duplicate',
+            reason: 'Skipped: already recorded in ledger (pre-review duplicate without edits)',
+            assetCode: canonical.backingRef && 'assetCode' in canonical.backingRef ? (canonical.backingRef as { assetCode?: string }).assetCode : undefined,
+            persistedTable: 'fl_ledger_entries',
+          });
+        }
+      }
+
+      for (const v of approval.valuations) {
+        const canonical = canonicalValById.get(v.id);
+        const sel = selectedValuations.find((sv) => sv.id === v.id);
+        if (canonical && (!sel || !sel.selected)) {
+          preReviewDuplicateOutcomes.push({
+            submittedId: v.id,
+            family: 'valuation',
+            disposition: 'duplicate',
+            reason: 'Skipped: already recorded in ledger (pre-review duplicate without edits)',
+            assetCode: canonical.backingRef && 'assetCode' in canonical.backingRef ? (canonical.backingRef as { assetCode?: string }).assetCode : undefined,
+            persistedTable: 'fl_valuations',
+          });
+        }
+      }
+
+      // An empty two-step selection means "post none", never "fall back to all".
+      // Falling back here caused deselected commitment rows to be persisted.
+      reviewResolutions = derivedResolutions;
+      commitmentEvents = derivedCommitmentEvents;
     }
 
-    const mergedFundUpdateResult: FundUpdateApplyResult = {
-      ...applyResult,
-      ...(commitmentResult
-        ? {
-            commitment_events_inserted: commitmentResult.events_inserted,
-            commitment_events_skipped_duplicate: commitmentResult.events_skipped_duplicate,
-            commitment_events_skipped: commitmentResult.events_skipped,
-            commitment_event_warnings: commitmentResult.warnings,
-          }
-        : {}),
+    const reviewItems: ReviewProposalItem[] = !isV1
+      ? [
+          ...(legacyProposal?.review_items ?? []),
+          ...commitmentEvents
+            .filter((event) =>
+              event.intent === 'transfer_in' &&
+              (
+                event.transferPairing?.status === 'missing_counterparty' ||
+                event.transferPairing?.status === 'ambiguous' ||
+                event.transferPairing?.requiresReview === true ||
+                !event.transferPairing?.eligibleForTransferOut ||
+                !event.transferPairing?.transferorName
+              ),
+            )
+            .map((event) => {
+              const validation = event.counterpartyName
+                ? validateTransferCounterparty(event.counterpartyName)
+                : null;
+              const category = !event.counterpartyName?.trim()
+                ? ('missing_counterparty' as const)
+                : validation?.isMultiParty
+                  ? ('multi_party_transfer' as const)
+                  : ('truncated_transfer' as const);
+              return {
+                sourceRow: event.sourceRow,
+                fund: event.fund,
+                investorName: event.investorName,
+                investorTypeRaw: event.investorTypeRaw,
+                date: event.date,
+                amount: event.amount,
+                currency: 'CNY' as const,
+                action: 'Commitment transfer',
+                nature: event.natureRaw,
+                direction: event.directionRaw,
+                explanation: event.transferPairing?.reviewReason
+                  ?? 'Transfer counterparty could not be verified and will not be posted automatically.',
+                isPostable: false as const,
+                requiresReview: true as const,
+                category,
+                counterpartyRaw: event.counterpartyName,
+                targetRaw: event.investorName,
+                entityRaw: event.investorName,
+                transferPairing: event.transferPairing,
+              };
+            }),
+        ]
+      : [];
+
+    const runInTransaction = async <T>(fn: (tx: DbClient) => Promise<T>): Promise<T> => {
+      if (this.db && typeof (this.db as any).transaction === 'function') {
+        return (this.db as any).transaction(fn);
+      }
+      throw new Error('Database client does not support transactions');
     };
 
-    await this.fileRepo.updatePartial(fileId, {
-      file_type: 'fund_updates',
-      processing_status: 'completed',
-    });
+    return runInTransaction(async (tx: DbClient) => {
+      const lockKey = `fund-update-approval:${this.workspaceId}`;
+      await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${lockKey}, 0))`);
 
-    const updated = await this.fileRepo.findById(fileId);
-    return { file: updated, company_id: null, fund_update: mergedFundUpdateResult };
+      const lockedFile = await this.fileRepo.findByIdForUpdate(fileId, tx);
+      if (lockedFile.processing_status !== 'awaiting_review') {
+        throw new FundUpdateValidationError('Only awaiting_review fund updates may be submitted.');
+      }
+
+      const applyOptions: FundUpdateApplyOptions = {
+        isV1: Boolean(isV1),
+        fileId,
+        fundCatalogItems,
+        ...(sourceRemaps !== undefined ? { sourceRemaps } : {}),
+        ...(investorRemaps !== undefined ? { investorRemaps } : {}),
+        ...(fundRemaps !== undefined ? { fundRemaps } : {}),
+        ...(tx ? { executor: tx } : {}),
+      };
+
+      const applyResult = proposal?.fund_catalog
+        ? await this.fundUpdateApplyService!.applySelected(
+            assets,
+            codes,
+            selections,
+            applyOptions,
+            catalogSelections,
+            proposal.fund_catalog,
+          )
+        : await this.fundUpdateApplyService!.applySelected(
+            assets,
+            codes,
+            selections,
+            applyOptions,
+            catalogSelections,
+          );
+
+      let commitmentResult: FundUpdateCommitmentApplyResult | null = null;
+      if (!isV1 && (commitmentEvents.length > 0 || (reviewResolutions && reviewResolutions.length > 0))) {
+        commitmentResult = await this.fundUpdateApplyService!.applyCommitmentEvents(commitmentEvents, {
+          source: proposal?.template_id,
+          fundCatalog: proposal?.fund_catalog,
+          fundCatalogItems,
+          fileId,
+          createdBy: enteredBy ?? null,
+          catalogSelections,
+          reviewResolutions,
+          reviewItems,
+          ...(tx ? { executor: tx } : {}),
+        });
+      }
+
+      const combinedOutcomes: SubmittedRowOutcome[] = [
+        ...(applyResult.outcomes ?? []),
+        ...(commitmentResult?.outcomes ?? []),
+        ...preReviewDuplicateOutcomes,
+      ];
+
+      function aggregateSubmittedOutcomes(list: SubmittedRowOutcome[]): SubmittedRowOutcome {
+        if (list.length === 1) return list[0];
+        const allChildren: SubmittedRowOutcome[] = list.flatMap((o) =>
+          o.childOutcomes && o.childOutcomes.length > 0 ? o.childOutcomes : [o]
+        );
+        const postedAllocs = allChildren.filter((o) => o.disposition === 'posted');
+        const dupAllocs = allChildren.filter((o) => o.disposition === 'duplicate');
+        const rejAllocs = allChildren.filter((o) => o.disposition === 'rejected');
+        const staleAllocs = allChildren.filter((o) => o.disposition === 'stale');
+
+        let disposition: SubmittedRowDisposition;
+        let reason: string | null = null;
+        if (postedAllocs.length > 0 && (rejAllocs.length > 0 || staleAllocs.length > 0)) {
+          disposition = 'partial';
+          const parts: string[] = [];
+          if (postedAllocs.length > 0) parts.push(`${postedAllocs.length} posted`);
+          if (dupAllocs.length > 0) parts.push(`${dupAllocs.length} duplicate`);
+          if (rejAllocs.length > 0) parts.push(`${rejAllocs.length} rejected`);
+          if (staleAllocs.length > 0) parts.push(`${staleAllocs.length} stale`);
+          const failReasons = allChildren
+            .filter((o) => o.disposition !== 'posted' && o.reason)
+            .map((o) => o.reason)
+            .join('; ');
+          reason = `Partial result (${parts.join(', ')})${failReasons ? `: ${failReasons}` : ''}`;
+        } else if (postedAllocs.length > 0) {
+          disposition = 'posted';
+          reason = postedAllocs[0].reason ?? null;
+        } else if (dupAllocs.length === allChildren.length && allChildren.length > 0) {
+          disposition = 'duplicate';
+          reason = allChildren.map((o) => o.reason).filter(Boolean).join('; ') || 'Duplicate rows already recorded';
+        } else if (staleAllocs.length === allChildren.length && allChildren.length > 0) {
+          disposition = 'stale';
+          reason = allChildren.map((o) => o.reason).filter(Boolean).join('; ') || 'Stale/unsupported rows';
+        } else {
+          disposition = 'rejected';
+          reason = allChildren.map((o) => o.reason).filter(Boolean).join('; ') || 'Rows rejected';
+        }
+
+        const firstPersistedId = postedAllocs[0]?.persistedId ?? null;
+        const persistedTable = postedAllocs[0]?.persistedTable ?? null;
+        const warnings = Array.from(
+          new Set(
+            allChildren
+              .flatMap((o) => o.warnings ?? (o.disposition === 'rejected' && o.reason ? [o.reason] : []))
+              .filter(Boolean)
+          )
+        );
+
+        return {
+          submittedId: list[0].submittedId,
+          family: list[0].family,
+          disposition,
+          reason,
+          assetCode: list[0].assetCode,
+          targetId: list[0].targetId,
+          persistedId: firstPersistedId,
+          persistedTable,
+          warnings: warnings.length > 0 ? warnings : undefined,
+          childOutcomes: allChildren,
+        };
+      }
+
+      let finalOutcomes: SubmittedRowOutcome[] = combinedOutcomes;
+      if (input.two_step_approval) {
+        const outcomesBySubmittedId = new Map<string, SubmittedRowOutcome[]>();
+        for (const o of combinedOutcomes) {
+          const existingList = outcomesBySubmittedId.get(o.submittedId) ?? [];
+          existingList.push(o);
+          outcomesBySubmittedId.set(o.submittedId, existingList);
+        }
+        const aggregatedBySubmittedId = new Map<string, SubmittedRowOutcome>();
+        for (const [id, list] of outcomesBySubmittedId.entries()) {
+          aggregatedBySubmittedId.set(id, aggregateSubmittedOutcomes(list));
+        }
+
+        const orderedOutcomes: SubmittedRowOutcome[] = [];
+        for (const t of input.two_step_approval.transactions) {
+          const o = aggregatedBySubmittedId.get(t.id);
+          if (o) {
+            orderedOutcomes.push(o);
+          } else {
+            throw new Error(
+              `Invariant violation: incomplete result - no outcome recorded for submitted transaction "${t.id}"`,
+            );
+          }
+        }
+        for (const v of input.two_step_approval.valuations) {
+          const o = aggregatedBySubmittedId.get(v.id);
+          if (o) {
+            orderedOutcomes.push(o);
+          } else {
+            throw new Error(
+              `Invariant violation: incomplete result - no outcome recorded for submitted valuation "${v.id}"`,
+            );
+          }
+        }
+        for (const [id, o] of aggregatedBySubmittedId.entries()) {
+          if (!orderedOutcomes.some((x) => x.submittedId === id)) {
+            orderedOutcomes.push(o);
+          }
+        }
+        finalOutcomes = orderedOutcomes;
+      }
+
+      const mergedFundUpdateResult: FundUpdateApplyResult = {
+        ...applyResult,
+        ...(input.two_step_approval
+          ? {
+              selected_txns_count: input.two_step_approval.transactions.length,
+              selected_valuations_count: input.two_step_approval.valuations.length,
+            }
+          : {}),
+        ...(commitmentResult
+          ? {
+              commitment_events_inserted: commitmentResult.events_inserted,
+              commitment_events_skipped_duplicate: commitmentResult.events_skipped_duplicate,
+              commitment_events_skipped: commitmentResult.events_skipped,
+              ...(commitmentResult.review_items_applied !== undefined ? { review_items_applied: commitmentResult.review_items_applied } : {}),
+              ...(commitmentResult.review_items_skipped_unresolved !== undefined ? { review_items_skipped_unresolved: commitmentResult.review_items_skipped_unresolved } : {}),
+              commitment_event_warnings: commitmentResult.warnings,
+            }
+          : {}),
+        ...(finalOutcomes.length > 0 || input.two_step_approval ? { outcomes: finalOutcomes } : {}),
+      };
+
+      await this.fileRepo.updatePartial(
+        fileId,
+        {
+          file_type: 'fund_updates',
+          processing_status: 'completed',
+        },
+        tx,
+      );
+
+      const updated = await this.fileRepo.findById(fileId, tx);
+      return { file: updated, company_id: null, fund_update: mergedFundUpdateResult };
+    });
   }
 
   /**
@@ -1629,6 +2990,10 @@ export class FileService {
       }
       return false;
     }
+
+    const legacy = proposal as LegacyAssetProposal;
+    if (legacy.review_items && legacy.review_items.length > 0) return true;
+    if (legacy.commitment_events && legacy.commitment_events.length > 0) return true;
 
     const assets = (proposal?.assets ?? []) as ParsedAsset[];
     if (assets.length === 0) return false;

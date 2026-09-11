@@ -43,6 +43,7 @@ import { queryFundAssets } from "./query_fund_assets";
 import { getFundAssetDetails } from "./get_fund_asset_details";
 import { queryInvestors } from "./query_investors";
 import { queryFundSources } from "./query_fund_sources";
+import { queryLedgerEntries } from "./query_ledger_entries";
 import { searchInvestments } from "./search_investments";
 import { getInvestmentTheses } from "./get_investment_theses";
 import { calculateInvestmentReturns } from "./calculate_investment_returns";
@@ -96,6 +97,7 @@ export {
   getFundAssetDetails,
   queryInvestors,
   queryFundSources,
+  queryLedgerEntries,
   searchInvestments,
   getInvestmentTheses,
   calculateInvestmentReturns,
@@ -217,6 +219,7 @@ export const investmentTools = [
   getFundAssetDetails,
   queryInvestors,
   queryFundSources,
+  queryLedgerEntries,
   webSearch,
   valyuSearch,
   alphasenseSearch,
@@ -254,6 +257,7 @@ export const combinedTools = [
   getFundAssetDetails,
   queryInvestors,
   queryFundSources,
+  queryLedgerEntries,
   valyuSearch,
 ];
 
@@ -340,6 +344,11 @@ export function getToolDescriptions(): string {
       name: "crm_insights",
       description:
         "Get portfolio-wide CRM health metrics: stale relationships, flagged records awaiting curation, and emails received today",
+    },
+    {
+      name: "query_ledger_entries",
+      description:
+        "Read the fund ledger row by row — every posted movement (commitment, capital call, buy, sell, distribution, redemption, transfer, income, expense, adjustment) against the position holding it, with signed commitment/quantity/cash deltas, funding attribution, and reversals",
     },
     {
       name: "web_search",

@@ -1,10 +1,8 @@
 // Plain-English definitions for the dotted glossary terms. `t` = title,
 // `d` = description, `e` = optional industry-term footnote.
-export interface GlossaryEntry {
-  t: string;
-  d: string;
-  e?: string;
-}
+import type { GlossaryEntry } from '@/components/common/GlossaryTerm';
+
+export type { GlossaryEntry };
 
 export const GLOSSARY: Record<string, GlossaryEntry> = {
   dotted: { t: 'How definitions work', d: 'Any term with a dotted underline has a plain-English explanation. Hover it to read what it means.' },

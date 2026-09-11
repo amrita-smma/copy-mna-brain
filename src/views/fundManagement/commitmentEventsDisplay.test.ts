@@ -3,7 +3,7 @@ import {
   EVENT_TYPE_LABELS,
   formatCommitmentCounterparty,
 } from './CommitmentHistoryTable';
-import type { CommitmentEventType } from '@/lib/api/commitmentEvents';
+import type { CommitmentEventType } from '@/lib/api/fundLedger';
 
 describe('Commitment events display logic', () => {
   describe('EVENT_TYPE_LABELS', () => {

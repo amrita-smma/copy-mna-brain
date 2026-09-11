@@ -5,6 +5,7 @@ import { getActiveWorkspaceId } from '@/lib/workspace';
 import { createContainer } from '@/lib/services';
 import type { ApproveFileInput } from '@/lib/services/fileService';
 import { CompanyL0RequirementsError } from '@/lib/services/companyService';
+import { FundUpdateValidationError } from '@/lib/services/flErrors';
 import { UserRepository } from '@/lib/repositories/userRepository';
 
 interface RouteContext {
@@ -23,21 +24,21 @@ export async function POST(request: NextRequest, context: RouteContext) {
       return NextResponse.json({ error: 'file_type is required' }, { status: 400 });
     }
 
-    // Stamp who uploaded the file as the company's `entered_by`.
+    // Audit columns such as fl_source_records.created_by are UUID foreign
+    // keys, so resolve the session to the current database user instead of
+    // passing the display name.
     const session = await auth();
-    const enteredBy = session?.user?.name ?? null;
-
     const db = createDb();
+    const userRepo = new UserRepository(db);
+    const currentUser = session?.user?.email
+      ? await userRepo.findByEmail(session.user.email)
+      : null;
+    const enteredBy = currentUser?.id ?? null;
 
     // Resolve entered_by from the DB by session email — guards against stale
     // JWT user.id (e.g. after a DB re-seed); same pattern as processUpload.
     if (body.create_company_from_ai) {
-      const session = await auth();
-      if (session?.user?.email) {
-        const userRepo = new UserRepository(db);
-        const user = await userRepo.findByEmail(session.user.email);
-        body.entered_by = user?.id ?? null;
-      }
+      body.entered_by = enteredBy;
     }
 
     const { fileService } = createContainer(db, await getActiveWorkspaceId());
@@ -48,6 +49,12 @@ export async function POST(request: NextRequest, context: RouteContext) {
     if (error instanceof CompanyL0RequirementsError) {
       return NextResponse.json(
         { error: 'Missing required fields', missingFields: error.missingFields },
+        { status: 422 },
+      );
+    }
+    if (error instanceof FundUpdateValidationError) {
+      return NextResponse.json(
+        { error: error.message },
         { status: 422 },
       );
     }

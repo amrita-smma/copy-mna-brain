@@ -32,6 +32,7 @@ export function Combobox({
   labelFor,
   size = 'default',
   className,
+  onCreate,
 }: {
   id?: string;
   value: string;
@@ -44,6 +45,8 @@ export function Combobox({
   /** Trigger button size — use `sm` for compact inline grids. */
   size?: 'sm' | 'default';
   className?: string;
+  /** Optional callback to create a new option when the typed search query matches no existing option. */
+  onCreate?: (name: string) => void;
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
@@ -55,6 +58,11 @@ export function Combobox({
     setQuery('');
     setOpen(false);
   };
+
+  const trimmedQuery = query.trim();
+  const hasExactMatch =
+    trimmedQuery !== '' &&
+    options.some((o) => label(o).trim().toLowerCase() === trimmedQuery.toLowerCase());
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -78,13 +86,49 @@ export function Combobox({
         <Command>
           <CommandInput placeholder="Search…" value={query} onValueChange={setQuery} />
           <CommandList>
-            <CommandEmpty>{emptyText}</CommandEmpty>
+            <CommandEmpty>
+              {onCreate && trimmedQuery && !hasExactMatch ? (
+                <div
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => {
+                    onCreate(trimmedQuery);
+                    setQuery('');
+                    setOpen(false);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      onCreate(trimmedQuery);
+                      setQuery('');
+                      setOpen(false);
+                    }
+                  }}
+                  className="flex cursor-pointer select-none items-center rounded-sm px-2 py-1.5 text-sm outline-none hover:bg-accent hover:text-accent-foreground"
+                >
+                  Create &ldquo;{trimmedQuery}&rdquo;
+                </div>
+              ) : (
+                emptyText
+              )}
+            </CommandEmpty>
             {options.map((o) => (
               <CommandItem key={o} value={label(o)} onSelect={() => choose(value === o ? '' : o)}>
                 <Check className={cn('mr-2 h-4 w-4', value === o ? 'opacity-100' : 'opacity-0')} />
                 {label(o)}
               </CommandItem>
             ))}
+            {onCreate && trimmedQuery && !hasExactMatch && (
+              <CommandItem
+                value={trimmedQuery}
+                onSelect={() => {
+                  onCreate(trimmedQuery);
+                  setQuery('');
+                  setOpen(false);
+                }}
+              >
+                Create &ldquo;{trimmedQuery}&rdquo;
+              </CommandItem>
+            )}
           </CommandList>
         </Command>
       </PopoverContent>

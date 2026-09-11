@@ -1,5 +1,5 @@
 import { downloadFile } from '@/lib/s3';
-import { FileRepository, JobRepository } from '@/lib/repositories';
+import { FileRepository, FlInvestorRepository, JobRepository } from '@/lib/repositories';
 import type { DbClient, Tables } from '@/lib/repositories';
 import { getActiveWorkspaceId } from '@/lib/workspace';
 import { orchestrateWorkbookFallback } from '@/lib/agents/fund_update_processing/orchestrateFallback';
@@ -61,11 +61,22 @@ export async function runFundUpdateExtraction(
         ? 'application/vnd.ms-excel'
         : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
     const contentType = payload.contentType || fallbackContentType;
-    const deterministicResult = await tryDeterministicFundUpdateParse(
+    let deterministicResult = await tryDeterministicFundUpdateParse(
       buffer,
       contentType,
       file.file_name,
     );
+    if (deterministicResult?.parser === 'nanjing_fund_ledger_v1') {
+      const knownMasterInvestors = (
+        await new FlInvestorRepository(deps.db).findByWorkspaceId(workspaceId)
+      ).map((investor) => investor.name);
+      deterministicResult = await tryDeterministicFundUpdateParse(
+        buffer,
+        contentType,
+        file.file_name,
+        { knownMasterInvestors },
+      );
+    }
 
     if (deterministicResult) {
       await fileRepo.updatePartial(fileId, {

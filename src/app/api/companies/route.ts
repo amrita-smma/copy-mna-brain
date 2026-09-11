@@ -4,6 +4,7 @@ import { createDb } from "@/lib/server/db";
 import { getActiveWorkspaceId, getActiveWorkspaceIdOrThrow, NoActiveWorkspaceError } from "@/lib/workspace";
 import { createContainer } from "@/lib/services";
 import { CompanyL0RequirementsError } from "@/lib/services/companyService";
+import { UserRepository } from "@/lib/repositories/userRepository";
 
 function parseBool(value: string | null) {
   return value === "true" || value === "1";
@@ -106,7 +107,11 @@ export async function POST(req: NextRequest) {
     // (e.g. an automated source providing its own label).
     if (company && (company.entered_by === undefined || company.entered_by === null)) {
       const session = await auth();
-      if (session?.user?.name) company.entered_by = session.user.name;
+      const userRepo = new UserRepository(db);
+      const currentUser = session?.user?.email
+        ? await userRepo.findByEmail(session.user.email)
+        : null;
+      company.entered_by = currentUser?.id ?? null;
     }
     const data = await companyService.createFromDTO(company, logAction);
     return NextResponse.json({ data });

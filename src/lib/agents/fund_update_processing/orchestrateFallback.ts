@@ -1,12 +1,15 @@
 import type { SerializedWorkbook } from '@/lib/workbook/types';
 import { serializeWorkbookFromBuffer } from '@/lib/workbook/serializeWorkbook';
-import type {
-  FundUpdateStructuredResult,
-  ParsedAsset,
-  ParsedTxn,
-  ParsedValuation,
-  WorkbookFallbackProposalV1,
+import {
+  isPersistableV1AssetEventType,
+  type FundUpdateStructuredResult,
+  type ParsedAsset,
+  type ParsedTxn,
+  type ParsedValuation,
+  type WorkbookFallbackProposalV1,
 } from '@/lib/fund_updates/types';
+import { normalizeParsedAsset } from '@/lib/fund_updates/normalizeParsedAsset';
+import { resolveProposedEntityName } from '@/lib/fund_updates/linkCatalogAssets';
 import { interpretWorkbook } from './interpretWorkbook';
 import { planWorkbookExtraction, type ExtractionChunk } from './planWorkbookExtraction';
 import { extractWorkbookChunk } from './extractWorkbookChunk';
@@ -48,19 +51,22 @@ export function projectToLegacyAssets(
       (ev) =>
         ev.toEntityRef === ent.originalName ||
         ev.toEntityRef === ent.proposalId ||
+        (ent.englishName && ev.toEntityRef === ent.englishName) ||
         ev.fromEntityRef === ent.originalName ||
-        ev.fromEntityRef === ent.proposalId,
+        ev.fromEntityRef === ent.proposalId ||
+        (ent.englishName && ev.fromEntityRef === ent.englishName),
     );
 
     // Only project real portfolio asset transactions (investments, exits, divestments)
     const assetTxnEvents = entEvents.filter((ev) =>
-      ['asset_investment', 'asset_follow_on_investment', 'asset_exit', 'asset_exit_distribution'].includes(
-        ev.eventType,
-      ),
+      isPersistableV1AssetEventType(ev.eventType),
     );
 
     const entVals = valuations.filter(
-      (v) => v.entityRef === ent.originalName || v.entityRef === ent.proposalId,
+      (v) =>
+        v.entityRef === ent.originalName ||
+        v.entityRef === ent.proposalId ||
+        (ent.englishName && v.entityRef === ent.englishName),
     );
 
     if (assetTxnEvents.length === 0 && entVals.length === 0) continue;
@@ -76,7 +82,7 @@ export function projectToLegacyAssets(
       }
 
       return {
-        date: ev.date,
+        date: ev.date ?? '',
         type,
         subTypeLabel: ev.sourceAction || null,
         pricePerShare: null,
@@ -86,12 +92,15 @@ export function projectToLegacyAssets(
         fxRate: null,
         sellProceedsDestination,
         notes: null,
+        sourceSheet: ev.sourceLocation.sheet,
+        sourceRow: ev.sourceLocation.row,
+        dataStatus: 'needs_verification' as const,
       };
     });
 
     const parsedVals: ParsedValuation[] = entVals.map((v) => ({
-      asOfDate: v.asOfDate,
-      periodLabel: v.asOfDate ? v.asOfDate.substring(0, 7) : '',
+      asOfDate: v.asOfDate ?? '',
+      periodLabel: '',
       marketValue: v.normalizedMarketValue,
       pricePerShare: v.pricePerShare ?? null,
       sharesOutstanding: v.sharesOutstanding ?? null,
@@ -99,11 +108,14 @@ export function projectToLegacyAssets(
       investedCapitalCum: v.investedCapitalCum ?? null,
       grossMoic: v.grossMoic ?? null,
       grossXirr: v.grossXirr ?? null,
-      valuationMethod: (v.valuationMethod as any) || 'other',
+      valuationMethod: (v.valuationMethod as ParsedValuation['valuationMethod']) || 'other',
       notes: v.notes ?? null,
+      sourceSheet: v.sourceLocation.sheet,
+      sourceRow: v.sourceLocation.row,
+      dataStatus: 'needs_verification' as const,
     }));
 
-    const fundName = assetTxnEvents[0]?.relatedFundRef || null;
+    const fundName = resolveProposedEntityName(assetTxnEvents[0]?.relatedFundRef, entities);
     const isFoF = ent.entityType === 'fund_or_partnership_asset';
 
     assets.push({
@@ -134,7 +146,7 @@ export function projectToLegacyAssets(
     });
   }
 
-  return assets;
+  return assets.map(normalizeParsedAsset);
 }
 
 /**

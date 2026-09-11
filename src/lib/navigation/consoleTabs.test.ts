@@ -143,6 +143,7 @@ describe('groupedConsoleTabs', () => {
       'master-data',
       'crm',
       'fund-management',
+      'ledger',
     ]);
     expect(groups.find((g) => g.id === 'intelligence')?.tabs.map((t) => t.slug)).toEqual([
       'smart-files',

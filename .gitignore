@@ -77,4 +77,9 @@ data-pipeline/template.local.yaml
 todo.md
 /tasks/
 /.swc
+
+# graft's local graph cache — regenerable, not committed (run `graft build`).
+/graft/
+.herdr-*
 .review-implementation.md
+.next

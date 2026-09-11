@@ -48,16 +48,18 @@ export * from './roleRepository';
 export * from './userWorkspaceRepository';
 export * from './workspaceCorrespondentRepository';
 export * from './workspaceTableLayoutRepository';
-export * from './fundRepository';
-export * from './holdingEntityRepository';
-export * from './fundSourceRepository';
-export * from './fundHoldingEntityStakeRepository';
-export * from './fundInvestorCommitmentEventRepository';
-export * from './fundAssetRepository';
-
-export * from './fundAssetTransactionRepository';
-export * from './fundAssetValuationRepository';
-export * from './fundValuationRepository';
 export * from './rssFeedRepository';
 export * from './rssItemRepository';
 export * from './rssItemChunkRepository';
+
+export * from './flInvestorRepository';
+export * from './flFundRepository';
+export * from './flAssetRepository';
+export * from './flFundingSourceRepository';
+export * from './flPositionRepository';
+export * from './flBusinessEventRepository';
+export * from './flBusinessEventRevisionRepository';
+export * from './flLedgerEntryRepository';
+export * from './flAllocationRepository';
+export * from './flValuationRepository';
+export * from './flSourceRecordRepository';

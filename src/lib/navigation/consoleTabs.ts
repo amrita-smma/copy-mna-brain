@@ -83,6 +83,15 @@ export const CONSOLE_TABS: ConsoleTab[] = [
     purpose: 'Funds, their assets/holdings, valuations and transactions.',
   },
   {
+    slug: 'ledger',
+    path: '/ledger',
+    label: 'Ledger',
+    group: 'deal-flow',
+    flag: 'LEDGER_ENABLED',
+    purpose:
+      'Every posted ledger row — commitments, capital calls, buys, distributions and transfers — against the position that holds it.',
+  },
+  {
     slug: 'smart-files',
     path: '/smart-files',
     label: 'Smart Files',

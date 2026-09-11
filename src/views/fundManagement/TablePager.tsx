@@ -17,6 +17,9 @@ interface TablePagerProps {
  *  portfolio tables. Renders nothing when everything fits on one page. */
 export function TablePager({ page, pageSize, total, onPageChange, itemLabel }: TablePagerProps) {
   const pageCount = Math.max(1, Math.ceil(total / pageSize));
+  if (pageCount <= 1) {
+    return null;
+  }
   const current = Math.min(page, pageCount);
   const start = total === 0 ? 0 : (current - 1) * pageSize + 1;
   const end = Math.min(current * pageSize, total);

@@ -789,14 +789,18 @@ The in-app Copilot ships in four selectable flavors, chosen per workspace:
   `INVESTMENT_TOOL_LIST`, backed by the fund tools in
   `src/lib/agents/analysis/tools/`: `get_fund_data_schema`,
   `search_investments`, `query_funds`, `query_fund_assets`,
-  `get_fund_asset_details`, `query_investors`, `query_fund_sources`).
+  `get_fund_asset_details`, `query_investors`, `query_fund_sources`,
+  `query_ledger_entries`). `query_ledger_entries` is the movement-level tool —
+  it reads the posted ledger rows themselves off the same shared model the
+  [Ledger](#ledger) page renders from, so a figure quoted in chat matches the
+  figure on screen; the other fund tools report roll-ups.
 - **`combined`** — a single assistant with access to BOTH tool sets, for
   workspaces that want one Copilot spanning the deal pipeline and the fund
   portfolio (`COMBINED_SYSTEM_PROMPT` + `COMBINED_TOOL_LIST`). `combinedTools` is
   the deduplicated union of `DEFAULT_TOOL_LIST` and `investmentTools` — the
   shared read tools (`web_search`, `valyu_search`, `query_files`, `lookup_crm`,
   `crm_insights`, `lookup_user`, `send_email`, `propose_workforce_handoff`)
-  appear once.
+  appear once. `query_ledger_entries` is in this set too.
 - **`vc`** — the Venture Capital & Growth Equity assistant: a flavor of the
   existing Copilot (not a separate agent, graph, or endpoint) powered by
   `VC_SYSTEM_PROMPT` + `VC_TOOL_LIST`. It combines curated fact-retrieval tools
@@ -1607,44 +1611,70 @@ transactions, current share price, fee rates, quarterly snapshots, and
 fund/holding financials, with live recomputation of MOIC / IRR / DPI and all
 downstream metrics.
 
+**Fund Ledger v2.** The Fund Management module is powered by Fund Ledger v2
+across 12 `fl_*` tables and is exposed through `/api/fund-ledger/*`. Its append-only
+entries are posted and reversed through workspace-scoped repositories and services;
+monetary values stay decimal strings end to end to avoid floating-point loss.
+The legacy v1 `fund_*` ledger tables (`fund_assets`, `fund_asset_transactions`,
+`fund_asset_valuations`, `fund_asset_investor_stakes`, `fund_investor_stakes`,
+`fund_investor_commitment_events`, `fund_valuations`) are dropped by migration
+`20260911000002_drop_legacy_fund_v1_tables`; only the orphaned legacy
+master-data tables `funds`, `holding_entities`, and `funding_sources` remain
+from v1 (still in Postgres, no longer defined in `schema.ts`).
+
+**Cash Positions and Forward-Only Cutover.** Cash is modeled as canonical portfolio positions
+with `asset_kind='cash'` per currency. Rather than risky historical backfills, funds transition
+via forward-only cutovers (`fl_fund_cash_cutovers`, activated through admin route `/api/auth/fund-cash-cutovers`).
+- **Never-Both Invariant**: For dates on or after cutover where all transacted currencies are activated,
+  the fund is cash-ledger active: FMV includes the served cash balance exactly once and zeroes out
+  retained proceeds. Inactive funds or historical dates prior to cutover remain on the legacy retained
+  proceeds path.
+- **One Cutover Date Per Fund Invariant**: All currencies for a fund must share exactly one common `cutover_date`.
+  Multi-currency activation must be executed in a single transactional batch. Batches containing different dates
+  are rejected (`InvalidCutoverError`), and additions or retries with conflicting dates are rejected
+  (`CutoverConflictError`); identical retries remain idempotent. Persisted staggered rows are defensively
+  treated as invalid/inactive (legacy incomplete) rather than picking an arbitrary date.
+- **Strict Zero-Opening Invariant**: `zero_opening=true` must have no opening entry (`opening_ledger_entry_id` omitted)
+  and requires the canonical cash-position balance at the cutover boundary (including all same-day activity) to equal
+  zero, verified via `sumDeltasByPositionIds`. A non-zero opening balance requires `zero_opening=false` and an explicit
+  non-zero opening entry (`sub_type='opening_balance'`); mixed or ambiguous forms are rejected.
+- **DPI & Valuation Invariant**: Cash positions are valued at par (`cash_par`), excluded from holding
+  counts, and excluded from realized distribution sums (`distributed`, `distributed_capital`, DPI).
+- **FX Boundary**: Cash balances are tracked and exposed per-currency. A single reporting-currency
+  total is provided only when all active balances match the fund base currency; multi-currency balances
+  without exchange rates set `fx_status='pending_fx'` without nominal summation across currencies.
+- **Null-Propagating History**: Aggregate quarterly history preserves explicit unavailability: if any included fund
+  has an explicit null FMV/TVPI value for a quarter (such as active `pending_fx`), the aggregate FMV/TVPI and derived
+  growth/delta for that quarter are null/unavailable—never zero or partial totals presented as complete.
+
 **Multilingual asset names.** Original investments are often recorded under a
 non-English name, so an asset carries both its recorded name
-(`fund_assets.asset_name`) and an optional English rendering
-(`fund_assets.english_name`, migration
-`20260810000001_add_fund_asset_english_name`). Both are editable — from the
-**Company & legal** tab for a direct investment and **Fund & legal** for a
-fund-of-funds position — and the English name can also be entered upfront in the
-Add Asset dialog. Wherever an asset is listed, `getAssetDisplayName` (in
-`src/views/fundManagement/calc.ts`) renders the recorded name with the English
-name in brackets — `凱羅斯半導體 (Kairos Semiconductor)` — falling back to the
-plain name when no English name is set. `legal_name` remains separate: the full
+(`fl_assets.name`) and an optional English rendering
+(`fl_assets.english_name`). Both are editable, and the English name can also be
+entered upfront in the Add Asset dialog. Wherever an asset is listed, `getAssetDisplayName`
+renders the recorded name with the English name in brackets — `凱羅斯半導體 (Kairos Semiconductor)` —
+falling back to the plain name when no English name is set. `legal_name` remains separate: the full
 registered legal name.
 
 The Asset tab's right-most **AI Opinion** column (MB-470) mirrors the
 pipeline's AI Opinion feature: clicking "Analyze AI Opinion" (or
-"Re-evaluate") POSTs `fundAssetId` to `/api/funds/ai-opinion`
+"Re-evaluate") POSTs `fundAssetId` to `/api/fund-ledger/ai-opinion`
 (`FundAiOpinionService.dispatch`), which enqueues a HIGH-effort (Opus) AI
 Workforce run via the same `enqueueAgentRun` queue the pipeline uses. The run
 reviews the holding's metrics (inlined into the instruction) plus `web_search`
 context, then calls the `save_fund_ai_opinion` tool to write a firm
-**buy / hold / sell** verdict + ≤50-word rationale onto `fund_assets`
-(`ai_opinion_verdict` / `ai_opinion_summary` / `ai_opinion_status` /
+**buy / hold / sell** verdict + ≤50-word rationale onto the asset's
+latest valuation (`ai_opinion_verdict` / `ai_opinion_summary` / `ai_opinion_status` /
 `ai_opinion_updated_at`). There is no SSE stream for funds — while any holding
 is `ai_opinion_status='processing'`, `FundManagement.tsx` polls
 `getPortfolio()` every 4s and stops once no holding is left processing.
 
-Funds, holdings, and their ledgers are backed by the Fund Management API
-(`/api/funds/*` → `FundService` / `FundAssetLedgerService` /
-`FundMetricsService`). **Investment Entities** and **Sources of Fund** are
-persisted too: the `investors` table (`/api/investors`, `InvestorService`) and
-the `fund_sources` table (`/api/fund-sources`, `FundSourceService`). The Add
+Funds, positions, and their ledgers are backed by the Fund Ledger API
+(`/api/fund-ledger/*` → `FlLedgerService` / `FlPositionService` /
+`FlBalanceService` / `FlPortfolioService`). **Investors** and **Funding Sources** are
+persisted too (`fl_investors`, `fl_funding_sources`). The Add
 Asset drawer picks an entity + source from these lists. The **By Investment
-Entity** tab is an LP pro-rata view backed by `fund_investor_stakes`
-(`/api/investor-stakes`, `FundInvestorStakeService`): each entity holds a
-committed stake in one or more funds, and Commitment / Invested / Unrealized MV
-/ Net Gain / MOIC are that entity's `fund total × (committed ÷ fund commitment
-size)` summed across funds (edit an entity's per-fund stakes inline via
-✎ stakes). The **By Source of Fund** tab groups each fund's live holdings by
+Entity** tab is an LP pro-rata view backed by positions (`/api/fund-ledger/positions`). The **By Source of Fund** tab groups each fund's live holdings by
 `funding_source` (unmatched → "Others"). The view (`src/views/FundManagement.tsx`) is a
 modular React implementation styled with Tailwind + the app's shadcn design
 tokens (`bg-card`, `text-muted-foreground`, `bg-accent`, `text-success`, …), so
@@ -1670,13 +1700,100 @@ into co-located, single-responsibility modules under `src/views/fundManagement/`
   account tab). The current share price on Share economics is editable and
   recomputes MOIC / IRR / return live.
 - `InvestorTable.tsx` — the "By Investment Entity" LP pro-rata rollup (per-fund
-  stake breakdown, `✎ stakes` inline editor) backed by `fund_investor_stakes`.
+  stake breakdown, `✎ stakes` inline editor) backed by `fl_positions`
+  (`/api/fund-ledger/positions`).
 - `SourceTable.tsx` — the "By Source of Fund" rollup, grouping the live holdings
   by `funding_source` (with an "Others" bucket); both tabs have an inline
   "Add …" header button.
 
 The flag prop `showFundManagement` is threaded through every page and view
 alongside `showCompanyGraph` so the nav item renders consistently.
+
+### Ledger
+
+The **Ledger** page (`/ledger`, nav item gated by the `LEDGER_ENABLED` feature
+flag / `ledgerEnabled` in `src/lib/flags.ts`) is the row-level view of Fund
+Ledger v2: every posted movement against the position that holds it, rather
+than the roll-ups Fund Management shows. It lists entries flat or grouped by
+position, expands any row into its full detail (flow strip, funding split,
+provenance, the far leg of a transfer), and can post new entries and reverse
+existing events.
+
+**Two rules the page is built around.**
+
+1. *Every sign is read from the position holder.* An investor's capital call is
+   negative cash for them; the fund's side of the same movement is the same
+   number with the sign flipped. Distributions, redemptions, sells and income
+   are all positive cash to the holder — which is what lets DPI and IRR be
+   summed from `cash_delta`.
+2. *Nothing is stored as a balance.* Commitment, paid-in capital, units,
+   blended price and net cash are all counted up from the rows on each redraw.
+   The date control therefore sets two different things: **To** is the as-of
+   date, and balances always count from inception up to it; **From** only
+   narrows which rows are listed and which cash flows the metrics total. The
+   right-click quick filters behave the same way — they change what you are
+   looking at, never what a position is worth.
+
+**No new endpoints.** The whole page is served by one
+`GET /api/fund-ledger/portfolio` (the read model already arrives with holders,
+instruments, events and funding allocations joined), and writes go through the
+existing `POST /api/fund-ledger/events`, `PATCH`/`DELETE
+/api/fund-ledger/events/:id` and `POST /api/fund-ledger/positions`. Fetching
+per as-of date would be a request per keystroke on the date picker; fetching
+per row would be the per-asset fan-out that previously exhausted the connection
+pool.
+
+**Editing and deleting.** Expanding a row opens an editor for the whole event.
+It is event-level because `FlLedgerService.replaceEvent` deletes the event and
+re-posts it under the same id — so a transfer's two legs are shown and saved
+together, and the entry ids change on save. Two things the re-post would
+otherwise destroy are handled explicitly: an entry-level funding split is sent
+back verbatim (and its cash field locked, since the split has to add up to the
+cash), and an event whose rows carry `is_reversal` is blocked from editing
+entirely, because `postEvent` refuses that flag as input and saving would
+quietly clear it.
+
+Note that `FlLedgerService.reverseEvent` **is** `deleteEvent`: it removes the
+event, its entries and their allocations, and posts no mirroring rows. The row
+menu therefore says "Delete this event" and the dialog says the history will
+not reproduce — the append-only reversal language the original ledger design
+used does not describe this backend.
+
+**Shared model** (`src/lib/fundLedger/`) — pure, UI-free and server-safe, so the
+page and the copilot's `query_ledger_entries` tool derive identical numbers
+from identical rows:
+
+- `entryTypes.ts` — the entry-type matrix as data, mirroring the CHECK-style
+  validation in `FlLedgerService.validateEntryDeltas`. Drives the Entry rules
+  dialog and the posting form's field gating.
+- `derive.ts` — resolves positions to holder/instrument/source, derives From and
+  To, rolls a position up (commitment, undrawn, invested, units, blended price,
+  net cash), and checks that transfer legs cancel.
+- `filters.ts` / `query.ts` — the right-click filter engine and the three
+  widening scopes (as-of → window → listed) that keep balances and listings
+  independent.
+- `postDraft.ts` — the posting form's model: the rows a draft would write and
+  the `PostEventInput` it becomes. Signs come from the type, never the keyboard.
+- `editDraft.ts` — the in-place event editor's model: the signed deltas as
+  stored, validated against the same matrix, plus the split-preservation and
+  reversal-blocking rules above.
+- `format.ts` — display formatting, exact via `flDecimal` where it matters.
+
+**View** (`src/views/Ledger.tsx` + `src/views/ledger/`) follows the
+fund-management convention: co-located single-responsibility modules, its own
+`glossary.ts`, and shared primitives in `parts.tsx`. The dotted-term tooltip
+itself now lives in `@/components/common/GlossaryTerm` so each page can bind it
+to its own vocabulary.
+
+**`SheetTable`** (`src/components/sheet/`) is the reusable spreadsheet-style
+table the page is built on: fixed pixel column widths behind a horizontal
+scroll, sticky header, truncate/wrap switch, rows that expand into a full-width
+detail panel or a nested section with its own column set, and a right-click
+hook that hands the host the column and value under the cursor. It is
+deliberately free of ledger/fund imports so other pages can drive it from a
+different row type. Not to be confused with `@/components/table`
+(`ManagedTable`), which solves the different problem of workspace-persisted
+column reorder/hide/group for the browsable record tables.
 
 ## In-app feedback (MB-480)
 

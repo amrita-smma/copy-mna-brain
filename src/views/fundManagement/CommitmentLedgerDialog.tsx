@@ -30,11 +30,11 @@ import {
   CommitmentEventTypeBadge,
   formatCommitmentCounterparty,
 } from './CommitmentHistoryTable';
-import * as commitmentEventsApi from '@/lib/api/commitmentEvents';
+import * as fundLedgerApi from '@/lib/api/fundLedger';
 import type {
   CommitmentEventType,
   CommitmentEventWithBalance,
-} from '@/lib/api/commitmentEvents';
+} from '@/lib/api/fundLedger';
 
 interface CommitmentLedgerDialogProps {
   open: boolean;
@@ -101,7 +101,7 @@ export function CommitmentLedgerDialog({
     setLoading(true);
     setError(null);
     try {
-      const data = await commitmentEventsApi.listCommitmentEvents({
+      const data = await fundLedgerApi.listCommitmentEvents({
         holdingEntityId: investorId,
         fundId: selectedFundId || undefined,
       });
@@ -149,13 +149,13 @@ export function CommitmentLedgerDialog({
   }, [selectedFundEvents, currentFund]);
 
   // Open add form
-  const openAddForm = (initialType: CommitmentEventType = 'additional_commitment') => {
+  const handleOpenAdd = () => {
     setEditingEvent(null);
-    setFormFundId(selectedFundId || funds[0]?.id || '');
-    setFormEventType(selectedFundEvents.length === 0 ? 'initial_commitment' : initialType);
+    setFormFundId(selectedFundId || (funds[0]?.id ?? ''));
+    setFormEventType('additional_commitment');
     setFormEffectiveDate(new Date().toISOString().slice(0, 10));
     setFormAmount(null);
-    setFormCurrency(existingLedgerCurrency);
+    setFormCurrency('USD');
     setFormCounterpartyId('');
     setFormNotes('');
     setFormError(null);
@@ -163,7 +163,7 @@ export function CommitmentLedgerDialog({
   };
 
   // Open edit form
-  const openEditForm = (ev: CommitmentEventWithBalance) => {
+  const handleOpenEdit = (ev: CommitmentEventWithBalance) => {
     setEditingEvent(ev);
     setFormFundId(ev.fund_id);
     setFormEventType(ev.event_type);
@@ -176,27 +176,18 @@ export function CommitmentLedgerDialog({
     setFormOpen(true);
   };
 
-  // Submit add / edit form
-  const submitForm = async () => {
-    if (!investorId) return;
-    if (!formFundId) {
-      setFormError('Please select a fund');
+  // Submit form
+  const handleFormSubmit = async () => {
+    if (!investorId || !formFundId || !formEffectiveDate || formAmount == null || formAmount <= 0) {
+      setFormError('Please fill in all required fields with valid values');
       return;
     }
-    if (!formAmount || formAmount <= 0) {
-      setFormError('Amount must be greater than 0');
-      return;
-    }
-    if (!formEffectiveDate) {
-      setFormError('Effective date is required');
-      return;
-    }
+
     if (
-      !editingEvent &&
       (formEventType === 'transfer_in' || formEventType === 'transfer_out') &&
       !formCounterpartyId
     ) {
-      setFormError('Please select a counterparty for the transfer');
+      setFormError('Counterparty is required for transfers');
       return;
     }
 
@@ -205,7 +196,7 @@ export function CommitmentLedgerDialog({
 
     try {
       if (editingEvent) {
-        await commitmentEventsApi.updateCommitmentEvent(editingEvent.id, {
+        await fundLedgerApi.updateCommitmentEvent(editingEvent.id, {
           effectiveDate: formEffectiveDate,
           eventType: formEventType,
           amount: formAmount,
@@ -214,7 +205,7 @@ export function CommitmentLedgerDialog({
         });
         toast({ title: 'Commitment event updated' });
       } else if (formEventType === 'transfer_out') {
-        await commitmentEventsApi.createCommitmentTransfer({
+        await fundLedgerApi.createCommitmentTransfer({
           fundId: formFundId,
           fromHoldingEntityId: investorId,
           toHoldingEntityId: formCounterpartyId,
@@ -225,7 +216,7 @@ export function CommitmentLedgerDialog({
         });
         toast({ title: 'Transfer recorded successfully' });
       } else if (formEventType === 'transfer_in') {
-        await commitmentEventsApi.createCommitmentTransfer({
+        await fundLedgerApi.createCommitmentTransfer({
           fundId: formFundId,
           fromHoldingEntityId: formCounterpartyId,
           toHoldingEntityId: investorId,
@@ -236,7 +227,7 @@ export function CommitmentLedgerDialog({
         });
         toast({ title: 'Transfer recorded successfully' });
       } else {
-        await commitmentEventsApi.createCommitmentEvent({
+        await fundLedgerApi.createCommitmentEvent({
           fundId: formFundId,
           holdingEntityId: investorId,
           effectiveDate: formEffectiveDate,
@@ -262,7 +253,7 @@ export function CommitmentLedgerDialog({
   // Delete event
   const handleDeleteEvent = async (ev: CommitmentEventWithBalance) => {
     try {
-      await commitmentEventsApi.deleteCommitmentEvent(ev.id);
+      await fundLedgerApi.deleteCommitmentEvent(ev.id);
       toast({ title: 'Commitment event deleted' });
       await loadEvents();
       await onSaved();
@@ -318,7 +309,7 @@ export function CommitmentLedgerDialog({
                       {money(selectedFundBalance / 1_000_000)}
                     </span>
                   </div>
-                  <Button size="sm" onClick={() => openAddForm('additional_commitment')}>
+                  <Button size="sm" onClick={() => handleOpenAdd()}>
                     + Add commitment change
                   </Button>
                 </div>
@@ -360,7 +351,7 @@ export function CommitmentLedgerDialog({
                     </tr>
                   ) : (
                     events.map((ev) => {
-                      const isPositive = ev.delta > 0;
+                      const isPositive = ev.event_type !== 'reduction' && ev.event_type !== 'transfer_out';
                       const counterparty = formatCommitmentCounterparty(
                         ev.event_type,
                         ev.counterparty_holding_entity_id,
@@ -385,7 +376,7 @@ export function CommitmentLedgerDialog({
                             )}
                           >
                             {isPositive ? '+' : '−'}
-                            {money(Math.abs(ev.delta) / 1_000_000)}
+                            {money(ev.amount / 1_000_000)}
                           </td>
                           <td className="whitespace-nowrap px-3 py-2 text-right font-medium text-foreground">
                             {money(ev.runningBalance / 1_000_000)}
@@ -402,7 +393,7 @@ export function CommitmentLedgerDialog({
                                   ? 'This is a linked transfer. Deleting it will atomically remove both the transfer-out and transfer-in records and recalculate running balances for both entities.'
                                   : 'This will remove this commitment record and recalculate all chronological running balances.'
                               }
-                              onEdit={() => openEditForm(ev)}
+                              onEdit={() => handleOpenEdit(ev)}
                               onConfirm={() => handleDeleteEvent(ev)}
                             />
                           </td>
@@ -552,7 +543,7 @@ export function CommitmentLedgerDialog({
             <Button variant="outline" onClick={() => setFormOpen(false)} disabled={formSaving}>
               Cancel
             </Button>
-            <Button onClick={submitForm} disabled={formSaving}>
+            <Button onClick={handleFormSubmit} disabled={formSaving}>
               {formSaving ? 'Saving…' : editingEvent ? 'Update Event' : 'Record Change'}
             </Button>
           </DialogFooter>
