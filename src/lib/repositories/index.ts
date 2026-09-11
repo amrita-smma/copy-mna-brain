@@ -34,6 +34,7 @@ export * from './aiWorkforceQueueRepository';
 export * from './copilotChatsRepository';
 export * from './apiKeyRepository';
 export * from './apiChatConversationRepository';
+export * from './alphasenseToolCallRepository';
 export * from './routinesRepository';
 export * from './dashboardActivityRepository';
 export * from './dashboardInsightsRepository';

@@ -289,7 +289,13 @@ export async function POST(req: NextRequest) {
         {
           version: 'v2',
           recursionLimit: 50,
-          configurable: { thread_id: chat.id, userEmail, agentRole: 'chat', pageContext },
+          configurable: {
+            thread_id: chat.id,
+            userEmail,
+            agentRole: 'chat',
+            pageContext,
+            originalUserQuestion: firstUserText,
+          },
           // Propagate client disconnects (the UI's stop()/aborted fetch) down
           // into LangGraph so the underlying Anthropic request is cancelled and
           // the graph stops executing — not just the SSE stream to the client.
@@ -346,7 +352,13 @@ export async function POST(req: NextRequest) {
           { messages, additionalSystemContext: contextData || undefined },
           {
             recursionLimit: 50,
-            configurable: { thread_id: chat.id, userEmail, agentRole: 'chat', pageContext },
+            configurable: {
+              thread_id: chat.id,
+              userEmail,
+              agentRole: 'chat',
+              pageContext,
+              originalUserQuestion: firstUserText,
+            },
             signal: req.signal,
           },
         );

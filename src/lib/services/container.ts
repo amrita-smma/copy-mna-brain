@@ -32,6 +32,7 @@ import {
   EmployerTeamRepository,
   AiWorkforceQueueRepository,
   CopilotChatsRepository,
+  AlphasenseToolCallRepository,
   DashboardActivityRepository,
   DashboardInsightsRepository,
   AppSettingsRepository,
@@ -100,6 +101,7 @@ import { UserService } from './userService';
 import { CRMService } from './crmService';
 import { AiWorkforceService } from './aiWorkforceService';
 import { CopilotChatsService } from './copilotChatsService';
+import { AlphasenseToolCallService } from './alphasenseToolCallService';
 import { DashboardActivityService } from './dashboardActivityService';
 import { DashboardInsightsService } from './dashboardInsightsService';
 import { DailyPulseService } from './dailyPulseService';
@@ -148,6 +150,7 @@ export interface Container {
   crmService: CRMService;
   aiWorkforceService: AiWorkforceService;
   copilotChatsService: CopilotChatsService;
+  alphasenseToolCallService: AlphasenseToolCallService;
   dashboardActivityService: DashboardActivityService;
   dashboardInsightsService: DashboardInsightsService;
   dailyPulseService: DailyPulseService;
@@ -320,6 +323,9 @@ export function createContainer(db: DbClient, workspaceId: string): Container {
 
   const copilotChatsRepo = new CopilotChatsRepository(db, workspaceId);
   const copilotChatsService = new CopilotChatsService(copilotChatsRepo);
+
+  const alphasenseToolCallRepo = new AlphasenseToolCallRepository(db, workspaceId);
+  const alphasenseToolCallService = new AlphasenseToolCallService(alphasenseToolCallRepo);
 
   const dashboardActivityRepo = new DashboardActivityRepository(db, workspaceId);
   const dashboardActivityService = new DashboardActivityService(dashboardActivityRepo);
@@ -511,6 +517,7 @@ export function createContainer(db: DbClient, workspaceId: string): Container {
     crmService,
     aiWorkforceService,
     copilotChatsService,
+    alphasenseToolCallService,
     dashboardActivityService,
     dashboardInsightsService,
     dailyPulseService,

@@ -1,5 +1,6 @@
 import { tool } from "@langchain/core/tools";
 import { z } from "zod";
+import type { RunnableConfig } from "@langchain/core/runnables";
 import {
   AlphaSenseClient,
   AlphaSenseError,
@@ -8,6 +9,10 @@ import {
 } from "@/lib/alphasense";
 import { withToolTimeout } from "../../withToolTimeout";
 import { logger } from "../../logger";
+import { createDb } from "@/lib/server/db";
+import { createContainer } from "@/lib/services";
+import { getActiveWorkspaceId } from "@/lib/workspace";
+import type { AlphasenseToolCallStatus } from "@/lib/services/alphasenseToolCallService";
 
 /**
  * Poll budget for a single GenSearch run. AlphaSense answers typically land in
@@ -31,50 +36,119 @@ export const alphasenseSearchSchema = z.object({
 
 export type AlphaSenseSearchInput = z.infer<typeof alphasenseSearchSchema>;
 
-async function runAlphaSenseSearch({ prompt }: AlphaSenseSearchInput): Promise<string> {
+/**
+ * Persist a record of this call for historical lookback (what was asked, in
+ * which chat thread, and what came back). Never allowed to fail the tool's
+ * actual answer — a logging hiccup is swallowed and warned, not thrown.
+ */
+async function recordToolCall(input: {
+  prompt: string;
+  chatThreadId: string | null;
+  originalQuestion: string | null;
+  status: AlphasenseToolCallStatus;
+  conversationId?: string | null;
+  responseMarkdown?: string | null;
+  errorMessage?: string | null;
+}): Promise<void> {
+  try {
+    const workspaceId = await getActiveWorkspaceId();
+    const db = createDb();
+    const { alphasenseToolCallService } = createContainer(db, workspaceId);
+    await alphasenseToolCallService.recordCall({
+      chatThreadId: input.chatThreadId,
+      originalQuestion: input.originalQuestion,
+      prompt: input.prompt,
+      conversationId: input.conversationId,
+      status: input.status,
+      responseMarkdown: input.responseMarkdown,
+      errorMessage: input.errorMessage,
+    });
+  } catch (error) {
+    logger.error(`Failed to record alphasense_search tool call: ${(error as Error).message}`);
+  }
+}
+
+async function runAlphaSenseSearch(
+  { prompt }: AlphaSenseSearchInput,
+  config?: RunnableConfig,
+): Promise<string> {
   logger.debug(`🔧 TOOL CALLED: alphasense_search(prompt='${prompt}')`);
+
+  // Both travel via the runtime config, set once at the route boundary — the
+  // model never passes them in, so it can't fabricate the thread or question
+  // this call is attributed to (same pattern as read_page_context's pageContext).
+  const chatThreadId = (config?.configurable?.thread_id as string | undefined) ?? null;
+  const originalQuestion =
+    (config?.configurable?.originalUserQuestion as string | undefined) ?? null;
 
   const { credentials, missing } = readAlphaSenseCredentials();
   if (!credentials) {
     logger.warn(`AlphaSense not configured — missing ${missing.join(", ")}`);
-    return `AlphaSense search is not available: ${missing.join(", ")} ${
+    const result = `AlphaSense search is not available: ${missing.join(", ")} ${
       missing.length === 1 ? "is" : "are"
     } not set (expected ${ALPHASENSE_ENV_VARS.join(", ")}). Use valyu_search or web_search as a fallback.`;
+    await recordToolCall({
+      prompt,
+      chatThreadId,
+      originalQuestion,
+      status: "not_configured",
+      responseMarkdown: result,
+    });
+    return result;
   }
 
   try {
     const client = new AlphaSenseClient({ credentials });
     const answer = await client.runGenSearch(prompt, { timeoutMs: ALPHASENSE_POLL_TIMEOUT_MS });
 
+    let result: string;
     if (!answer.markdown.trim()) {
-      return answer.timedOut
+      result = answer.timedOut
         ? `AlphaSense did not finish answering '${prompt}' within ${Math.round(
             ALPHASENSE_POLL_TIMEOUT_MS / 1000,
           )}s and returned no content yet (conversation ${answer.conversationId}). Try a narrower prompt, or fall back to valyu_search / web_search.`
         : `AlphaSense returned no content for '${prompt}'. Try rephrasing the question, or fall back to valyu_search / web_search.`;
-    }
-
-    const lines = [`**AlphaSense Research — '${prompt}':**`];
-    if (answer.timedOut) {
+    } else {
+      const lines = [`**AlphaSense Research — '${prompt}':**`];
+      if (answer.timedOut) {
+        lines.push(
+          `*Partial answer: generation was still at ${Math.round(
+            answer.progress * 100,
+          )}% when the ${Math.round(ALPHASENSE_POLL_TIMEOUT_MS / 1000)}s budget elapsed.*`,
+        );
+      }
+      lines.push("", answer.markdown.trim());
       lines.push(
-        `*Partial answer: generation was still at ${Math.round(
-          answer.progress * 100,
-        )}% when the ${Math.round(ALPHASENSE_POLL_TIMEOUT_MS / 1000)}s budget elapsed.*`,
+        "",
+        "---",
+        "*Source: AlphaSense GenSearch (broker research, filings, transcripts, expert calls, news). Inline `[[n • Source]]` markers are AlphaSense citations.*",
       );
+      result = lines.join("\n");
+      logger.debug(`✓ AlphaSense search completed (conversation ${answer.conversationId})`);
     }
-    lines.push("", answer.markdown.trim());
-    lines.push(
-      "",
-      "---",
-      "*Source: AlphaSense GenSearch (broker research, filings, transcripts, expert calls, news). Inline `[[n • Source]]` markers are AlphaSense citations.*",
-    );
 
-    logger.debug(`✓ AlphaSense search completed (conversation ${answer.conversationId})`);
-    return lines.join("\n");
+    await recordToolCall({
+      prompt,
+      chatThreadId,
+      originalQuestion,
+      status: answer.timedOut ? "timed_out" : "success",
+      conversationId: answer.conversationId,
+      responseMarkdown: result,
+    });
+    return result;
   } catch (error) {
     const message = error instanceof AlphaSenseError ? error.message : (error as Error).message;
     logger.error(`✗ AlphaSense search error: ${message}`);
-    return `AlphaSense search error: ${message}. Consider using valyu_search or web_search as a fallback.`;
+    const result = `AlphaSense search error: ${message}. Consider using valyu_search or web_search as a fallback.`;
+    await recordToolCall({
+      prompt,
+      chatThreadId,
+      originalQuestion,
+      status: "error",
+      errorMessage: message,
+      responseMarkdown: result,
+    });
+    return result;
   }
 }
 

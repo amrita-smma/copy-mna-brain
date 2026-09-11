@@ -25,10 +25,11 @@ export async function POST(req: NextRequest) {
     const { apiKeyService, apiChatConversationService } = createContainer(db, await getActiveWorkspaceId());
 
     const body = await req.json().catch(() => undefined);
-    const { conversationId, messages } = await prepareConversationRun(req, body, {
-      apiKeyService,
-      apiChatConversationService,
-    });
+    const { conversationId, messages, originalUserQuestion } = await prepareConversationRun(
+      req,
+      body,
+      { apiKeyService, apiChatConversationService },
+    );
 
     const agent = await getAgentGraph();
     if (!agent) {
@@ -40,7 +41,11 @@ export async function POST(req: NextRequest) {
 
     const eventStream = await agent.streamEvents(
       { messages },
-      { version: 'v2', recursionLimit: 50, configurable: { thread_id: conversationId } },
+      {
+        version: 'v2',
+        recursionLimit: 50,
+        configurable: { thread_id: conversationId, originalUserQuestion },
+      },
     );
 
     const sse = eventStreamToSse(eventStream, conversationId);

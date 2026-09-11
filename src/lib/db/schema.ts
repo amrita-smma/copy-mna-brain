@@ -2910,6 +2910,62 @@ export const apiChatConversations = pgTable(
   },
 );
 
+// One row per alphasense_search tool invocation, for historical lookback on
+// what the agent asked AlphaSense and what came back. chat_thread_id and
+// original_question capture the conversation the call happened in (the
+// LangGraph thread_id and the user's own un-reformulated question for that
+// turn) — both travel via the runtime config, not tool arguments, so the
+// model can't fabricate them. Not FK'd to copilot_chats/api_chat_conversations
+// since a call can also originate from an AI Workforce run, which has no chat row.
+export const alphasenseToolCalls = pgTable(
+  "alphasense_tool_calls",
+  {
+    id: uuid().defaultRandom().primaryKey().notNull(),
+    workspace_id: uuid()
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    chat_thread_id: text(),
+    original_question: text(),
+    prompt: text().notNull(),
+    conversation_id: text(),
+    status: text().notNull().$type<"success" | "timed_out" | "error" | "not_configured">(),
+    response_markdown: text(),
+    error_message: text(),
+    created_at: timestamp({ withTimezone: true, mode: "string" })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => {
+    return {
+      idxAlphasenseToolCallsWorkspaceId: index(
+        "idx_alphasense_tool_calls_workspace_id",
+      ).using("btree", table.workspace_id.asc().nullsLast().op("uuid_ops")),
+      idxAlphasenseToolCallsChatThreadId: index(
+        "idx_alphasense_tool_calls_chat_thread_id",
+      ).using("btree", table.chat_thread_id.asc().nullsLast().op("text_ops")),
+      idxAlphasenseToolCallsCreatedAt: index(
+        "idx_alphasense_tool_calls_created_at",
+      ).using("btree", table.created_at.asc().nullsLast().op("timestamptz_ops")),
+      allowDeleteAccessOnAlphasenseToolCalls: pgPolicy(
+        "Allow delete access on alphasense_tool_calls",
+        { as: "permissive", for: "delete", to: ["public"], using: sql`true` },
+      ),
+      allowUpdateAccessOnAlphasenseToolCalls: pgPolicy(
+        "Allow update access on alphasense_tool_calls",
+        { as: "permissive", for: "update", to: ["public"] },
+      ),
+      allowInsertAccessOnAlphasenseToolCalls: pgPolicy(
+        "Allow insert access on alphasense_tool_calls",
+        { as: "permissive", for: "insert", to: ["public"] },
+      ),
+      allowReadAccessOnAlphasenseToolCalls: pgPolicy(
+        "Allow read access on alphasense_tool_calls",
+        { as: "permissive", for: "select", to: ["public"] },
+      ),
+    };
+  },
+);
+
 // Generic application settings as a key/value store. Each row holds one JSON
 // config blob (e.g. the Insights dashboard targets / conversion band).
 // Read and written via AppSettingsRepository.

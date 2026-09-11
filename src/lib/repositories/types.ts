@@ -35,6 +35,7 @@ type TableMap = {
   copilot_chats: typeof schema.copilotChats;
   api_keys: typeof schema.apiKeys;
   api_chat_conversations: typeof schema.apiChatConversations;
+  alphasense_tool_calls: typeof schema.alphasenseToolCalls;
   app_settings: typeof schema.appSettings;
   feedback: typeof schema.feedback;
   user_consents: typeof schema.userConsents;

@@ -856,6 +856,19 @@ transcripts, or analyst research; `valyu_search` for broad multi-source /
 proprietary-dataset research; `web_search` for quick general lookups;
 `search_news` first for recent market news the internal lake may already cover.
 
+Every invocation is logged to the `alphasense_tool_calls` table
+(`AlphasenseToolCallRepository` / `AlphasenseToolCallService`, wired into
+`createContainer`) for historical lookback: the resolved workspace, the exact
+`prompt` sent to GenSearch, the call's `status`
+(`success` / `timed_out` / `error` / `not_configured`), the AlphaSense
+`conversation_id`, and the returned markdown or error message. Each row also
+carries `chat_thread_id` and `original_question` — the LangGraph `thread_id`
+and the user's own un-reformulated question for that turn, both of which
+travel via the runtime `configurable` (set once in `/api/chat`,
+`/api/v1/chat`, and `/api/v1/chat/stream`) rather than as tool arguments, so
+the model can't fabricate them. Logging is best-effort: a DB failure is
+swallowed and warned, never surfaced as a broken chat turn.
+
 ### VC external research architecture (Valyu & Web)
 
 The VC Copilot integrates external research tools for live diligence across companies, sectors, fund managers, exit comps, and integrity checks:

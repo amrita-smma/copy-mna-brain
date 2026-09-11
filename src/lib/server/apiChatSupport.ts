@@ -148,6 +148,8 @@ export interface PreparedRun {
   principal: ApiKeyPrincipal;
   conversationId: string;
   messages: BaseMessage[];
+  /** The caller's own latest user-turn text, for tool-call historical lookback. */
+  originalUserQuestion: string;
 }
 
 /**
@@ -193,10 +195,13 @@ export async function prepareConversationRun(
 
   await services.apiChatConversationService.touchLastActive(conversationDbId);
 
+  const lastUser = [...messages].reverse().find((m) => m.role === 'user');
+
   return {
     principal,
     conversationId: conversationDbId,
     messages: buildAgentMessages(messages, isExisting),
+    originalUserQuestion: lastUser?.content ?? '',
   };
 }
 
