@@ -6,6 +6,12 @@ import type { ChangelogEntry } from './changelog';
 
 export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   {
+    "hash": "b9991ca7a05c18ff90858b5a3d921921847b39ac",
+    "date": "2026-09-11",
+    "subject": "Fund ledger now uses the new v2 system for improved performance",
+    "category": "feature"
+  },
+  {
     "hash": "d8d8bf7a933bbfd2074075be31da282d246d6eab",
     "date": "2026-09-10",
     "subject": "Refresh company card details when moving deals between stages",
@@ -49,6 +55,14 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   },
   {
     "hash": "0ee5e4920434106ff9978d6dc7cc4a1a91f36999",
+    "date": "2026-09-10",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
+    "hash": "7e4d1fc1ee367b9b20cf45d42ee14f3b530a00af",
     "date": "2026-09-10",
     "subject": "[skip deploy] chore: update changelog",
     "category": "improvement",
