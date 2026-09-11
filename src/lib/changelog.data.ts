@@ -12,6 +12,22 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "category": "feature"
   },
   {
+    "hash": "7f8fd3ccabda88b2b8774e83c0950c7923163da5",
+    "date": "2026-09-11",
+    "subject": "Log AlphaSense tool calls for historical lookback.",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "87fa56f9605409531fab1c038f1b3f05ad53cbad",
+    "date": "2026-09-11",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "d8d8bf7a933bbfd2074075be31da282d246d6eab",
     "date": "2026-09-10",
     "subject": "Refresh company card details when moving deals between stages",
