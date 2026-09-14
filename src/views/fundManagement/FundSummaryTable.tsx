@@ -329,7 +329,9 @@ export function FundSummaryTable({
                       className="inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-medium bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-500/20"
                       title="Recorded outflows exceed recorded inflows: funding-side data is missing. Cash balance excluded from Unrealized Market Value."
                     >
-                      Cash: incomplete
+                      Cash:{' '}
+                      {f.cashBalances?.map((b) => `${b.currency} ${formatExact(b.amount, 2)}`).join(', ')}
+                      {' (incomplete)'}
                     </span>
                   ) : !f.displayOnly && (f.fxStatus === 'pending_fx' ||
                   f.cashBalances?.some((b) => !flIsZero(b.amount)) ||
@@ -513,9 +515,10 @@ export function FundSummaryTable({
                 {f.cashStatus === 'incomplete_negative' ? (
                   <span
                     className="font-medium text-amber-600 dark:text-amber-400"
-                    title="Recorded outflows exceed recorded inflows: funding-side data is missing"
+                    title="Recorded outflows exceed recorded inflows: funding-side data is missing. Cash balance excluded from Unrealized Market Value."
                   >
-                    Incomplete (missing funding data)
+                    {f.cashBalances?.map((b) => `${b.currency} ${formatExact(b.amount, 2)}`).join(', ')}
+                    {' · Incomplete (missing funding data)'}
                   </span>
                 ) : f.fxStatus === 'pending_fx' ? (
                   <span className="font-medium text-amber-600 dark:text-amber-400">
