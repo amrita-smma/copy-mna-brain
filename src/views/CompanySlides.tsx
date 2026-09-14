@@ -376,6 +376,10 @@ export default function CompanySlides() {
   const [exporting, setExporting] = useState(false);
 
   const promptRef = useRef<HTMLTextAreaElement>(null);
+  const slidesRef = useRef<SlideRow[]>([]);
+  useEffect(() => {
+    slidesRef.current = slides;
+  }, [slides]);
 
   const selectedSlide = slides.find((s) => s.id === selectedSlideId) ?? null;
   const selectedIndex = slides.findIndex((s) => s.id === selectedSlideId);
@@ -444,20 +448,21 @@ export default function CompanySlides() {
     }
   }
 
-  async function dbUpdateSlide(id: string, fields: { title?: string; html?: string; sort_order?: number }) {
-    try {
-      const res = await fetch('/api/company-slides', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id, ...fields }),
-      });
-      if (!res.ok) throw new Error('Failed to update slide');
-      const { slide } = await res.json();
-      return slide as SlideRow;
-    } catch (e) {
-      console.error(e);
-      return null;
+  async function dbUpdateSlide(
+    id: string,
+    fields: { title?: string; html?: string; sort_order?: number }
+  ): Promise<SlideRow> {
+    const res = await fetch('/api/company-slides', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id, ...fields }),
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => null);
+      throw new Error(body?.error || 'Failed to update slide');
     }
+    const { slide } = await res.json();
+    return slide as SlideRow;
   }
 
   async function dbDeleteSlide(id: string) {
@@ -475,8 +480,8 @@ export default function CompanySlides() {
   // Initialize default slides
   // -----------------------------------------------------------------------
 
-  const initializeDefaultSlides = async () => {
-    if (!company) return;
+  const initializeDefaultSlides = async (): Promise<{ failedCount: number }> => {
+    if (!company) return { failedCount: 0 };
     setInitializing(true);
     const ctx = buildCompanyContext(company, analysis);
     const companyName = companyDisplayName(company);
@@ -513,18 +518,27 @@ export default function CompanySlides() {
     ];
 
     const created: SlideRow[] = [];
+    const failedTitles: string[] = [];
+    const MAX_ATTEMPTS = 2;
 
     for (let i = 0; i < defaults.length; i++) {
       const def = defaults[i];
       let html = blankSlideHtml(def.title);
+      let succeeded = false;
 
-      try {
-        html = await generateSlideHtml({
-          instruction: def.instruction,
-          companyContext: ctx,
-          slideTitle: def.title,
-        });
-      } catch { /* use placeholder */ }
+      for (let attempt = 1; attempt <= MAX_ATTEMPTS && !succeeded; attempt++) {
+        try {
+          html = await generateSlideHtml({
+            instruction: def.instruction,
+            companyContext: ctx,
+            slideTitle: def.title,
+          });
+          succeeded = true;
+        } catch (e) {
+          console.error(`Failed to generate slide "${def.title}" (attempt ${attempt}/${MAX_ATTEMPTS}):`, e);
+        }
+      }
+      if (!succeeded) failedTitles.push(def.title);
 
       const row = await dbCreateSlide(def.title, html, i);
       if (row) created.push(row);
@@ -533,6 +547,14 @@ export default function CompanySlides() {
     setSlides(created);
     if (created.length > 0) setSelectedSlideId(created[0].id);
     setInitializing(false);
+
+    if (failedTitles.length > 0) {
+      toast.error(
+        `Could not generate content for: ${failedTitles.join(', ')}. Placeholder slides were created — edit them with the prompt bar to retry.`
+      );
+    }
+
+    return { failedCount: failedTitles.length };
   };
 
   // -----------------------------------------------------------------------
@@ -552,8 +574,8 @@ export default function CompanySlides() {
     setSlides([]);
     setSelectedSlideId(null);
 
-    await initializeDefaultSlides();
-    toast.success('Slides regenerated');
+    const { failedCount } = await initializeDefaultSlides();
+    if (failedCount === 0) toast.success('Slides regenerated');
   };
 
   // -----------------------------------------------------------------------
@@ -563,28 +585,44 @@ export default function CompanySlides() {
   const handleSend = async () => {
     if (!prompt.trim() || generating || !selectedSlide || !company) return;
     const instruction = prompt.trim();
+    const slideId = selectedSlide.id;
+    const slideTitle = selectedSlide.title;
+    const slideHtml = selectedSlide.html;
     setPrompt('');
     const ctx = buildCompanyContext(company, analysis);
 
     setGenerating(true);
+
+    let newHtml: string;
     try {
-      const newHtml = await generateSlideHtml({
+      newHtml = await generateSlideHtml({
         instruction,
-        currentHtml: selectedSlide.html,
+        currentHtml: slideHtml,
         companyContext: ctx,
-        slideTitle: selectedSlide.title,
+        slideTitle,
       });
+    } catch (e) {
+      console.error(e);
+      toast.error(e instanceof Error ? e.message : 'Failed to generate slide content');
+      setGenerating(false);
+      return;
+    }
 
-      // Update local state immediately
-      setSlides((prev) =>
-        prev.map((s) => (s.id === selectedSlide.id ? { ...s, html: newHtml } : s))
-      );
+    // The slide may have been deleted while generation was in flight.
+    if (!slidesRef.current.some((s) => s.id === slideId)) {
+      setGenerating(false);
+      return;
+    }
 
-      // Persist to DB
-      await dbUpdateSlide(selectedSlide.id, { html: newHtml });
+    // Update local state immediately
+    setSlides((prev) => prev.map((s) => (s.id === slideId ? { ...s, html: newHtml } : s)));
+
+    try {
+      await dbUpdateSlide(slideId, { html: newHtml });
       toast.success('Slide updated');
-    } catch {
-      toast.error('Failed to update slide');
+    } catch (e) {
+      console.error(e);
+      toast.error(e instanceof Error ? e.message : 'Failed to update slide');
     } finally {
       setGenerating(false);
     }
@@ -657,10 +695,15 @@ export default function CompanySlides() {
     [newSlides[idx], newSlides[targetIdx]] = [newSlides[targetIdx], newSlides[idx]];
     setSlides(newSlides);
 
-    await Promise.all([
-      dbUpdateSlide(newSlides[idx].id, { sort_order: idx }),
-      dbUpdateSlide(newSlides[targetIdx].id, { sort_order: targetIdx }),
-    ]);
+    try {
+      await Promise.all([
+        dbUpdateSlide(newSlides[idx].id, { sort_order: idx }),
+        dbUpdateSlide(newSlides[targetIdx].id, { sort_order: targetIdx }),
+      ]);
+    } catch (e) {
+      console.error(e);
+      toast.error('Failed to reorder slides');
+    }
   };
 
   // -----------------------------------------------------------------------
@@ -677,12 +720,16 @@ export default function CompanySlides() {
 
   const commitTitle = async () => {
     if (!editingTitle) return;
-    const newTitle = titleDraft.trim() || slides.find((s) => s.id === editingTitle)?.title || 'Untitled';
-    setSlides((prev) =>
-      prev.map((s) => (s.id === editingTitle ? { ...s, title: newTitle } : s))
-    );
-    await dbUpdateSlide(editingTitle, { title: newTitle });
+    const id = editingTitle;
+    const newTitle = titleDraft.trim() || slides.find((s) => s.id === id)?.title || 'Untitled';
+    setSlides((prev) => prev.map((s) => (s.id === id ? { ...s, title: newTitle } : s)));
     setEditingTitle(null);
+    try {
+      await dbUpdateSlide(id, { title: newTitle });
+    } catch (e) {
+      console.error(e);
+      toast.error('Failed to rename slide');
+    }
   };
 
   // -----------------------------------------------------------------------

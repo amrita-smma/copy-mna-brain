@@ -87,10 +87,14 @@ IMPORTANT: Include a citation footer at the bottom of the slide with real source
 
   const message = await anthropic.messages.create({
     model: 'claude-sonnet-5',
-    max_tokens: 4096,
+    max_tokens: 8192,
     system: SLIDE_SYSTEM_PROMPT,
     messages: [{ role: 'user', content: prompt }],
   });
+
+  if (message.stop_reason === 'max_tokens') {
+    throw new Error('Slide generation response was truncated (exceeded max output length)');
+  }
 
   const content = message.content[0];
   let html = content.type === 'text' ? content.text : '';
