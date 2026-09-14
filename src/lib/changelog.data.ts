@@ -32,6 +32,14 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "skipReason": "noise"
   },
   {
+    "hash": "7f9ba407c05021ac967b3afaba08b25a5e7fa3ea",
+    "date": "2026-09-14",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "b9991ca7a05c18ff90858b5a3d921921847b39ac",
     "date": "2026-09-11",
     "subject": "Fund ledger now uses the new v2 system for improved performance",
