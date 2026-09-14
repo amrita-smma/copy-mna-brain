@@ -3,7 +3,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Checkbox } from '@/components/ui/checkbox';
 import {
   Dialog,
   DialogContent,
@@ -47,6 +46,7 @@ import {
   needsAmount,
   needsUnits,
   offersDecreaseToggle,
+  entryDirectionOptions,
   postsAdjustmentDelta,
   adjustmentDirectionOptions,
   adjustmentSubTypesFor,
@@ -76,6 +76,8 @@ import {
 } from './postEntryDestination';
 import { toDivestmentSubType } from '@/lib/sellProceedsDestination';
 import { useLedgerMoney } from './useLedgerMoney';
+import { PricePerUnitField } from './PricePerUnitField';
+import { flIsZero } from '@/lib/services/flDecimal';
 
 /** The entity key a position's holder is addressed by. */
 export function holderKeyOf(position: ResolvedPosition): string {
@@ -433,6 +435,7 @@ export function PostEntryDialog({
   const spec = ENTRY_TYPES[draft.type];
   const transfer = sides.transfer;
   const legs = draftLegs(draft);
+  const hasUnits = legs.some((leg) => !flIsZero(leg.quantityDelta));
   const parsedHolder = parseEntityKey(sides.holderKey);
   const holderFund =
     parsedHolder?.kind === 'fund'
@@ -519,6 +522,7 @@ export function PostEntryDialog({
       // opens on the direction the reviewer almost always wants.
       decrease: postsAdjustmentDelta(type),
       subType: '',
+      pricePerUnit: '',
     });
   };
 
@@ -575,6 +579,12 @@ export function PostEntryDialog({
   // than posting a meaning the reviewer cannot see.
   const adjustmentOptions = adjustmentSubTypesFor(instrumentKind);
   const adjustmentSubType = resolveAdjustmentSubType(draft.subType, instrumentKind);
+  /** Increase / decrease, when the type can post either way. Null when it cannot. */
+  const directionOptions = isAdjustment
+    ? adjustmentDirectionOptions(adjustmentSubType)
+    : offersDecreaseToggle(draft.type)
+      ? entryDirectionOptions(draft.type)
+      : null;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -827,7 +837,7 @@ export function PostEntryDialog({
               )}
             </div>
 
-            <div className="mt-3 grid grid-cols-2 gap-3">
+            <div className={cn('mt-3 grid grid-cols-2 gap-3', hasUnits && 'sm:grid-cols-3')}>
               <div>
                 <Label htmlFor="ledger-post-amount" className={FIELD_LABEL}>
                   {transfer
@@ -853,16 +863,16 @@ export function PostEntryDialog({
                 <div className={cn('mt-1', FIELD_HINT)}>
                   {transfer
                     ? 'Leaves one holder and arrives at the other, unchanged.'
-                    : isAdjustment
-                      ? `Full amount in ${draft.currency}, unsigned — the direction beside it sets the sign.`
+                    : directionOptions
+                      ? `Full amount in ${draft.currency}, unsigned — type 1500000, not 1.5M. The direction beside it sets the sign.`
                       : amountEnabled
                         ? `Full amount in ${draft.currency} — type 1500000, not 1.5M.`
                         : 'This type never moves cash.'}
                 </div>
               </div>
-              {isAdjustment ? (
+              {directionOptions ? (
                 <div>
-                  <Label htmlFor="ledger-post-adjustment-direction" className={FIELD_LABEL}>
+                  <Label htmlFor="ledger-post-direction" className={FIELD_LABEL}>
                     Direction
                   </Label>
                   <Select
@@ -870,13 +880,13 @@ export function PostEntryDialog({
                     onValueChange={(value) => update({ decrease: value === 'decrease' })}
                   >
                     <SelectTrigger
-                      id="ledger-post-adjustment-direction"
+                      id="ledger-post-direction"
                       className={cn('mt-1 h-8', FIELD_TEXT)}
                     >
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      {adjustmentDirectionOptions(adjustmentSubType).map((opt) => (
+                      {directionOptions.map((opt) => (
                         <SelectItem key={opt.value} value={opt.value} className={FIELD_TEXT}>
                           {opt.label}
                         </SelectItem>
@@ -909,18 +919,17 @@ export function PostEntryDialog({
                   </div>
                 </div>
               )}
-            </div>
-
-            {offersDecreaseToggle(draft.type) && (
-              <Label className="mt-3 flex w-fit cursor-pointer items-center gap-2 rounded-md border px-2.5 py-1.5 text-[11px] font-normal">
-                <Checkbox
-                  checked={draft.decrease}
-                  onCheckedChange={(checked) => update({ decrease: checked === true })}
-                  className="h-3.5 w-3.5"
+              {hasUnits && (
+                <PricePerUnitField
+                  id="ledger-post-price"
+                  value={draft.pricePerUnit}
+                  units={legs[0].quantityDelta}
+                  cash={legs[0].cashDelta}
+                  currency={draft.currency}
+                  onChange={(pricePerUnit) => update({ pricePerUnit })}
                 />
-                Reduce instead of increase
-              </Label>
-            )}
+              )}
+            </div>
 
             {selectedPosition?.fundingSource && amountEnabled && (
               <div className="mt-3 rounded border bg-muted px-2.5 py-2 text-[11px] text-muted-foreground">

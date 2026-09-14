@@ -1200,8 +1200,10 @@ function TxnDialog({
       });
 
   const submit = () => {
-    const pps = !fof && g('pps') ? (parseCurrencyInput(g('pps')) ?? null) : null;
-    const shares = !fof && g('shares') ? (parseCurrencyInput(g('shares')) ?? 0) / M : null;
+    // Fund-style forms hide these inputs, but imported or ledger-posted
+    // transactions may already carry units and an explicit price.
+    const pps = fof ? initial?.pps ?? null : g('pps') ? (parseCurrencyInput(g('pps')) ?? null) : null;
+    const shares = fof ? initial?.shares ?? null : g('shares') ? (parseCurrencyInput(g('shares')) ?? 0) / M : null;
     // Only persist an explicitly typed value (an override). When left blank,
     // value stays null and is derived live as PPS × shares by `txnValue`, so
     // later edits to PPS or shares keep the value in sync automatically.
@@ -1217,8 +1219,12 @@ function TxnDialog({
       type: (g('type') as TxnType) || 'Buy',
       value,
       pps,
-      ppsCurrency: !fof && g('ppsCurrency') ? g('ppsCurrency') : null,
+      ppsCurrency: g('ppsCurrency') || null,
       shares,
+      ...(fof ? {
+        rawPricePerUnit: initial?.rawPricePerUnit,
+        rawShares: initial?.rawShares,
+      } : {}),
       fx: g('fx') || null,
       notes: g('notes') || null,
       label: initial?.label,

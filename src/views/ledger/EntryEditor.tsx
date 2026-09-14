@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -37,7 +37,6 @@ import {
   positionIsEditable,
   positionLabel,
   positionOptionsForRow,
-  priceIsDerived,
   valuationIsLocked,
   type EntryEditRow,
   type EventEditDraft,
@@ -47,6 +46,7 @@ import {
 import { EntityCombobox, type EntityOption } from './EntityCombobox';
 import { FIELD_HINT, FIELD_INPUT, FIELD_LABEL, FIELD_TEXT, Term } from './parts';
 import { useLedgerMoney } from './useLedgerMoney';
+import { PricePerUnitField } from './PricePerUnitField';
 import {
   DESTINATION_TO_SUB_TYPE,
   SELL_PROCEEDS_DESTINATIONS,
@@ -303,41 +303,38 @@ function RowFields({
           const locked = isDeltaLocked(row.entryType, delta.column);
           const lockedByCash = delta.column === 'cash' && cashLocked;
           return (
-            <Field
-              key={delta.key}
-              id={fieldId(delta.key)}
-              label={delta.label}
-              hint={
-                lockedByCash
-                  ? `split across ${row.allocations.length} pools`
-                  : deltaHint(row.entryType, delta.column)
-              }
-            >
-              <NumericInput
+            <Fragment key={delta.key}>
+              <Field
                 id={fieldId(delta.key)}
-                className={NUMERIC_INPUT}
-                value={locked ? '0' : row[delta.key]}
-                disabled={fieldsDisabled || locked || lockedByCash}
-                onChange={(value) => onChange({ [delta.key]: value })}
-              />
-            </Field>
+                label={delta.label}
+                hint={
+                  lockedByCash
+                    ? `split across ${row.allocations.length} pools`
+                    : deltaHint(row.entryType, delta.column)
+                }
+              >
+                <NumericInput
+                  id={fieldId(delta.key)}
+                  className={NUMERIC_INPUT}
+                  value={locked ? '0' : row[delta.key]}
+                  disabled={fieldsDisabled || locked || lockedByCash}
+                  onChange={(value) => onChange({ [delta.key]: value })}
+                />
+              </Field>
+              {delta.column === 'quantity' && (
+                <PricePerUnitField
+                  id={fieldId('price')}
+                  value={row.pricePerUnit}
+                  units={row.quantityDelta}
+                  cash={row.cashDelta}
+                  currency={row.currency}
+                  disabled={fieldsDisabled}
+                  onChange={(pricePerUnit) => onChange({ pricePerUnit })}
+                />
+              )}
+            </Fragment>
           );
         })}
-
-        <Field
-          id={fieldId('price')}
-          label="Price per unit"
-          hint={priceIsDerived(row) ? 'blank — derived as cash ÷ units' : undefined}
-        >
-          <NumericInput
-            id={fieldId('price')}
-            className={NUMERIC_INPUT}
-            value={row.pricePerUnit}
-            disabled={fieldsDisabled}
-            placeholder="—"
-            onChange={(value) => onChange({ pricePerUnit: value })}
-          />
-        </Field>
 
         <Field
           id={fieldId('valuation')}
@@ -451,6 +448,11 @@ export function EntryEditor({
     setDraft(original);
   }, [original]);
 
+  const displayRows = useMemo(
+    () => draft ? orderRowsForDisplay(draft.rows) : [],
+    [draft],
+  );
+
   if (!event || !original || !draft) {
     return (
       <div className="rounded-md border bg-card p-3 text-[11px] text-muted-foreground">
@@ -462,11 +464,6 @@ export function EntryEditor({
   const blocked = editBlockedReason(draft);
   const problem = eventEditProblem(draft);
   const unchanged = isEventEditUnchanged(draft, original);
-
-  const displayRows = useMemo(
-    () => orderRowsForDisplay(draft.rows),
-    [draft.rows],
-  );
 
   const patchRow = (id: string) => (patch: Partial<EntryEditRow>) =>
     setDraft((current) =>

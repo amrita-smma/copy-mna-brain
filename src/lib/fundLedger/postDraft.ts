@@ -84,6 +84,8 @@ export interface EntryDraft {
   amount: string;
   /** Magnitude for the quantity column, as typed. */
   units: string;
+  /** Optional explicit transaction price, in the entry currency. */
+  pricePerUnit: string;
   /** Transfers only: what the receiver paid the giver. */
   consideration: string;
   /** Flip the sign on the columns whose rule allows either direction. */
@@ -114,6 +116,7 @@ export function emptyDraft(date: string, currency = 'USD'): EntryDraft {
     date,
     amount: '',
     units: '',
+    pricePerUnit: '',
     consideration: '',
     decrease: false,
     subType: '',
@@ -243,13 +246,33 @@ export function needsAmount(type: FlEntryType): boolean {
   return amountTargetOf(type) !== null;
 }
 
-/** True when the form should offer a decrease toggle for this type. */
+/** True when the form should offer a direction choice for this type. */
 export function offersDecreaseToggle(type: FlEntryType): boolean {
   const spec = ENTRY_TYPES[type];
   if (!spec || isTwoLegged(type)) return false;
   // An adjustment states its direction through `adjustmentDirectionOptions`.
   if (postsAdjustmentDelta(type)) return false;
   return ruleAllowsEitherSign(spec.commitment) || ruleAllowsEitherSign(spec.quantity);
+}
+
+/**
+ * The direction wording for a type that can move either way, named after the
+ * column it actually moves.
+ *
+ * Same shape as `adjustmentDirectionOptions` so the form can render one
+ * Direction dropdown for both cases. A checkbox labelled "reduce instead of
+ * increase" left the default direction implicit; spelling both cases out means
+ * the reviewer reads what will be posted rather than inferring it from an
+ * unticked box.
+ */
+export function entryDirectionOptions(
+  type: FlEntryType,
+): readonly { value: 'increase' | 'decrease'; label: string }[] {
+  const noun = (ENTRY_TYPES[type]?.label ?? type).toLowerCase();
+  return [
+    { value: 'increase', label: `Increase ${noun}` },
+    { value: 'decrease', label: `Decrease ${noun}` },
+  ];
 }
 
 /**
@@ -314,6 +337,19 @@ export function draftProblem(draft: EntryDraft): string | null {
   if (!spec) return 'Pick an entry type.';
 
   const legs = draftLegs(draft);
+
+  if (legs.some((leg) => !flIsZero(leg.quantityDelta)) && draft.pricePerUnit.trim()) {
+    try {
+      if (
+        !/^\+?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?$/i.test(draft.pricePerUnit.trim()) ||
+        !flIsPositive(toDecimalString(draft.pricePerUnit))
+      ) {
+        return 'Enter a positive price per share/unit, or leave it blank.';
+      }
+    } catch {
+      return 'Enter a positive price per share/unit, or leave it blank.';
+    }
+  }
 
   if (isTwoLegged(draft.type)) {
     if (!draft.fromPositionId || !draft.toPositionId) {
@@ -428,6 +464,9 @@ export function buildPostEventInput(draft: EntryDraft, description: string): Pos
       : subType,
     commitment_delta: leg.commitmentDelta,
     quantity_delta: leg.quantityDelta,
+    price_per_unit: !flIsZero(leg.quantityDelta) && draft.pricePerUnit.trim()
+      ? toDecimalString(draft.pricePerUnit)
+      : null,
     cash_delta: leg.cashDelta,
     valuation_delta: leg.valuationDelta,
     currency: draft.currency,

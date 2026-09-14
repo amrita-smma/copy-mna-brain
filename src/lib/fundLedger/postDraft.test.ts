@@ -12,6 +12,7 @@ import {
   needsAmount,
   needsUnits,
   offersDecreaseToggle,
+  entryDirectionOptions,
   parseEntityKey,
   satisfiesRuleDecimal,
   type EntryDraft,
@@ -102,6 +103,22 @@ describe('field gating', () => {
     expect(offersDecreaseToggle('distribution')).toBe(false);
     // Transfers derive both legs from one magnitude.
     expect(offersDecreaseToggle('commitment_transfer')).toBe(false);
+  });
+});
+
+describe('entryDirectionOptions', () => {
+  it('names the column the type actually moves', () => {
+    expect(entryDirectionOptions('commitment').map((option) => option.label)).toEqual([
+      'Increase commitment',
+      'Decrease commitment',
+    ]);
+  });
+
+  it('always offers increase first, so the default reads as the unsigned case', () => {
+    expect(entryDirectionOptions('commitment').map((option) => option.value)).toEqual([
+      'increase',
+      'decrease',
+    ]);
   });
 });
 
@@ -523,6 +540,41 @@ describe('draftProblem', () => {
 });
 
 describe('buildPostEventInput', () => {
+  it.each(['buy', 'sell', 'paid_in', 'redemption'] as const)(
+    'saves an exact explicit price for %s without recalculating cash',
+    (type) => {
+      const input = draft({ type, positionId: 'pos-1', units: '3', amount: '100', pricePerUnit: '32.12345678' });
+      const entry = buildPostEventInput(input, '').entries[0];
+      expect(entry.price_per_unit).toBe('32.12345678');
+      expect(entry.cash_delta).toBe(type === 'buy' || type === 'paid_in' ? '-100.00000000' : '100.00000000');
+    },
+  );
+
+  it('saves the same explicit price on both transfer legs, including without consideration', () => {
+    const input = draft({ type: 'unit_transfer', fromPositionId: 'a', toPositionId: 'b', units: '10', pricePerUnit: '12.34567891' });
+    expect(draftProblem(input)).toBeNull();
+    const entries = buildPostEventInput(input, '').entries;
+    expect(entries.map((entry) => entry.price_per_unit)).toEqual(['12.34567891', '12.34567891']);
+    expect(entries.map((entry) => entry.cash_delta)).toEqual(['0.00000000', '0.00000000']);
+  });
+
+  it('keeps price optional and discards stale prices when units are cleared or the type cannot move units', () => {
+    const input = draft({ type: 'buy', positionId: 'pos-1', amount: '100', units: '3' });
+    expect(buildPostEventInput(input, '').entries[0].price_per_unit).toBeNull();
+    expect(buildPostEventInput({ ...input, units: '', pricePerUnit: '25' }, '').entries[0].price_per_unit).toBeNull();
+    expect(buildPostEventInput({ ...input, type: 'income', pricePerUnit: '25' }, '').entries[0].price_per_unit).toBeNull();
+    const transfer = draft({ type: 'unit_transfer', fromPositionId: 'a', toPositionId: 'b', units: '10' });
+    expect(draftProblem(transfer)).toBeNull();
+  });
+
+  it.each(['abc', '-2', '0', '1.2.3', 'Infinity', '0.000000001'])(
+    'rejects invalid explicit price %s for both single entries and transfers',
+    (pricePerUnit) => {
+      expect(draftProblem(draft({ type: 'buy', positionId: 'pos-1', units: '3', amount: '100', pricePerUnit }))).toContain('positive price');
+      expect(draftProblem(draft({ type: 'unit_transfer', fromPositionId: 'a', toPositionId: 'b', units: '3', pricePerUnit }))).toContain('positive price');
+    },
+  );
+
   it('stamps a chosen adjustment sub-type, ignoring free text', () => {
     const payload = buildPostEventInput(
       draft({
