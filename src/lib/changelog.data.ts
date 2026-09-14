@@ -12,6 +12,26 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "category": "fix"
   },
   {
+    "hash": "594c5a7d4ac75789704d9fff8282535d6e6e0c27",
+    "date": "2026-09-14",
+    "subject": "Cash balance now displays next to incomplete-cash warning for clarity",
+    "category": "fix"
+  },
+  {
+    "hash": "d3aa5b121ad21b5f6b98e3e299a2291e680298ba",
+    "date": "2026-09-14",
+    "subject": "Added price per unit and direction fields to ledger post form",
+    "category": "improvement"
+  },
+  {
+    "hash": "6b28db75b20b81c2e24267aab6053e7e45a2a4b2",
+    "date": "2026-09-14",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "b9991ca7a05c18ff90858b5a3d921921847b39ac",
     "date": "2026-09-11",
     "subject": "Fund ledger now uses the new v2 system for improved performance",
