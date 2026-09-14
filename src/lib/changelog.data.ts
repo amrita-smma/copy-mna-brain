@@ -6,6 +6,12 @@ import type { ChangelogEntry } from './changelog';
 
 export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   {
+    "hash": "fffc0f20a58085a0b632ee3d4c8d9d315a9006f8",
+    "date": "2026-09-14",
+    "subject": "Slide Builder now displays error messages instead of silently failing",
+    "category": "fix"
+  },
+  {
     "hash": "b9991ca7a05c18ff90858b5a3d921921847b39ac",
     "date": "2026-09-11",
     "subject": "Fund ledger now uses the new v2 system for improved performance",
@@ -21,6 +27,14 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   },
   {
     "hash": "87fa56f9605409531fab1c038f1b3f05ad53cbad",
+    "date": "2026-09-11",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
+    "hash": "976d26e0e717f18842be6e27f92532adfa1a32f3",
     "date": "2026-09-11",
     "subject": "[skip deploy] chore: update changelog",
     "category": "improvement",
