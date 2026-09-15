@@ -6,6 +6,12 @@ import type { ChangelogEntry } from './changelog';
 
 export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   {
+    "hash": "afda0fdb62c5662f3bb4e0ed297622c22ebbe954",
+    "date": "2026-09-15",
+    "subject": "Archive and reinstate workspaces without permanent deletion",
+    "category": "improvement"
+  },
+  {
     "hash": "fffc0f20a58085a0b632ee3d4c8d9d315a9006f8",
     "date": "2026-09-14",
     "subject": "Slide Builder now displays error messages instead of silently failing",
@@ -33,6 +39,14 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   },
   {
     "hash": "7f9ba407c05021ac967b3afaba08b25a5e7fa3ea",
+    "date": "2026-09-14",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
+    "hash": "f51164c9c1b96979cfb4519ecc4c855778e09eea",
     "date": "2026-09-14",
     "subject": "[skip deploy] chore: update changelog",
     "category": "improvement",
