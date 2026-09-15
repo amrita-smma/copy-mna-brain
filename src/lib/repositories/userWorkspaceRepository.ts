@@ -1,4 +1,4 @@
-import { and, eq, isNotNull } from 'drizzle-orm';
+import { and, eq, isNotNull, isNull } from 'drizzle-orm';
 import { roles, userWorkspaces, workspaces, users, userConsents } from '@/lib/db/schema';
 import type { DbClient, Tables, TablesInsert } from './types';
 
@@ -38,7 +38,13 @@ export class UserWorkspaceRepository {
     return row;
   }
 
-  /** One row per membership, joined with workspace + role details, oldest workspace first. */
+  /**
+   * One row per membership, joined with workspace + role details, oldest
+   * workspace first. Memberships of a soft-deleted workspace are filtered out
+   * here rather than at each call site — this is the single query behind the
+   * workspace picker, the switcher, and the JWT's `workspaces` claim, so
+   * archiving a workspace removes it from all three at once.
+   */
   async findMembershipsForUser(userId: string): Promise<MembershipDetail[]> {
     return this.db
       .select({
@@ -52,7 +58,7 @@ export class UserWorkspaceRepository {
       .from(userWorkspaces)
       .innerJoin(workspaces, eq(userWorkspaces.workspace_id, workspaces.id))
       .innerJoin(roles, eq(userWorkspaces.role_id, roles.id))
-      .where(eq(userWorkspaces.user_id, userId))
+      .where(and(eq(userWorkspaces.user_id, userId), isNull(workspaces.deleted_at)))
       .orderBy(workspaces.created_at);
   }
 
@@ -150,7 +156,13 @@ export class UserWorkspaceRepository {
       .innerJoin(users, eq(userWorkspaces.user_id, users.id))
       .innerJoin(workspaces, eq(userWorkspaces.workspace_id, workspaces.id))
       .innerJoin(userConsents, eq(userConsents.user_id, users.id))
-      .where(and(eq(users.email, email), eq(userWorkspaces.is_email_synced, true)))
+      .where(
+        and(
+          eq(users.email, email),
+          eq(userWorkspaces.is_email_synced, true),
+          isNull(workspaces.deleted_at),
+        ),
+      )
       .orderBy(workspaces.created_at);
     return rows.map((r) => r.workspace_id);
   }
@@ -163,15 +175,24 @@ export class UserWorkspaceRepository {
    *
    * Requires a `user_consents` row in addition to `is_email_synced = true` —
    * a mailbox is never handed to the pipeline for a user who hasn't accepted
-   * the Sync consent screen, regardless of the toggle.
+   * the Sync consent screen, regardless of the toggle. Memberships of a
+   * soft-deleted workspace don't count either: archiving a workspace has to
+   * stop its custodian mailboxes from being pulled.
    */
   async findSyncedCustodianEmails(): Promise<string[]> {
     const rows = await this.db
       .select({ email: users.email })
       .from(userWorkspaces)
       .innerJoin(users, eq(userWorkspaces.user_id, users.id))
+      .innerJoin(workspaces, eq(userWorkspaces.workspace_id, workspaces.id))
       .innerJoin(userConsents, eq(userConsents.user_id, users.id))
-      .where(and(eq(userWorkspaces.is_email_synced, true), isNotNull(users.email)));
+      .where(
+        and(
+          eq(userWorkspaces.is_email_synced, true),
+          isNotNull(users.email),
+          isNull(workspaces.deleted_at),
+        ),
+      );
     return [...new Set(rows.map((r) => r.email as string))];
   }
 

@@ -17,6 +17,25 @@ interface MockDb {
   delete: ReturnType<typeof vi.fn>;
 }
 
+/**
+ * Column names referenced by a Drizzle `where(...)` expression. Lets these
+ * chain-mock tests assert on the PREDICATE (e.g. that soft-deleted workspaces
+ * are filtered out) rather than only on how many times `where` was called.
+ */
+function columnNamesInSql(node: unknown, acc: string[] = []): string[] {
+  const chunks = (node as { queryChunks?: unknown[] })?.queryChunks;
+  if (!Array.isArray(chunks)) return acc;
+  for (const chunk of chunks) {
+    if (!chunk || typeof chunk !== 'object') continue;
+    if (Array.isArray((chunk as { queryChunks?: unknown[] }).queryChunks)) {
+      columnNamesInSql(chunk, acc);
+    } else if (typeof (chunk as { name?: unknown }).name === 'string') {
+      acc.push((chunk as { name: string }).name);
+    }
+  }
+  return acc;
+}
+
 describe('UserWorkspaceRepository', () => {
   let mockDb: MockDb;
   let repo: UserWorkspaceRepository;
@@ -79,6 +98,8 @@ describe('UserWorkspaceRepository', () => {
     // must be excluded, so the consent table is joined too.
     expect(mockDb.innerJoin).toHaveBeenCalledTimes(3);
     expect(mockDb.orderBy).toHaveBeenCalledTimes(1);
+    // An archived workspace must stop pulling its custodian mailbox.
+    expect(columnNamesInSql(mockDb.where.mock.calls[0][0])).toContain('deleted_at');
   });
 
   it('findWorkspaceIdsBySyncedEmail returns an empty array when no membership is synced for that email', async () => {
@@ -100,6 +121,16 @@ describe('UserWorkspaceRepository', () => {
     expect(result).toEqual(rows);
     expect(mockDb.innerJoin).toHaveBeenCalledTimes(2);
     expect(mockDb.orderBy).toHaveBeenCalledTimes(1);
+  });
+
+  it('findMembershipsForUser excludes memberships of a soft-deleted workspace', async () => {
+    mockDb.orderBy.mockResolvedValueOnce([]);
+
+    await repo.findMembershipsForUser('u1');
+
+    // The `workspaces.deleted_at IS NULL` half of the predicate — this single
+    // query backs the picker, the switcher and the JWT's workspaces claim.
+    expect(columnNamesInSql(mockDb.where.mock.calls[0][0])).toContain('deleted_at');
   });
 
   it('findOne returns the membership row when it exists', async () => {
@@ -210,9 +241,11 @@ describe('UserWorkspaceRepository', () => {
     const result = await repo.findSyncedCustodianEmails();
 
     expect(result).toEqual(['alice@x.com', 'bob@x.com']);
-    // users and user_consents — an is_email_synced user with no recorded
-    // consent must never be returned as an eligible custodian mailbox.
-    expect(mockDb.innerJoin).toHaveBeenCalledTimes(2);
+    // users, workspaces and user_consents — an is_email_synced user with no
+    // recorded consent must never be returned as an eligible custodian
+    // mailbox, and neither must one whose workspace has been archived.
+    expect(mockDb.innerJoin).toHaveBeenCalledTimes(3);
+    expect(columnNamesInSql(mockDb.where.mock.calls[0][0])).toContain('deleted_at');
   });
 
   it('findSyncedCustodianEmails returns [] when nobody is synced', async () => {

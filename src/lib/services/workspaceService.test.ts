@@ -7,7 +7,9 @@ import type {
 } from '@/lib/repositories';
 import { MNA_WORKSPACE_ID } from '@/lib/constants';
 import {
+  NotSuperadminError,
   RoleNotFoundError,
+  WorkspaceNotFoundError,
   WorkspaceService,
   normalizeCopilotAgent,
   COPILOT_AGENTS,
@@ -17,9 +19,18 @@ import {
 function makeRepoStubs() {
   const workspaceRepo = {
     findAll: vi.fn(),
-    findById: vi.fn(),
+    findAllIncludingDeleted: vi.fn(),
+    // Default to a live workspace. `isMember`/`isWorkspaceAdmin` read the row
+    // to reject soft-deleted workspaces, so without this every membership test
+    // would fail on a missing row rather than on the behaviour it's asserting.
+    // Archive-specific tests override with `mockResolvedValueOnce`.
+    findById: vi.fn(async (id: string) => ({ id, name: 'W', slug: 'w', deleted_at: null })),
+    findActiveById: vi.fn(),
+    findBySlug: vi.fn(),
     insert: vi.fn(),
     update: vi.fn(),
+    softDelete: vi.fn(),
+    restore: vi.fn(),
   } as unknown as WorkspaceRepository;
   const userWorkspaceRepo = {
     findByUserId: vi.fn(),
@@ -440,5 +451,246 @@ describe('WorkspaceService.isWorkspaceAdmin', () => {
     const result = await service.isWorkspaceAdmin('u1', 'w1');
 
     expect(result).toBe(false);
+  });
+});
+
+/** A live workspace row, as the archive-aware lookups see it. */
+const LIVE_WORKSPACE = { id: 'w1', name: 'W1', slug: 'w1', deleted_at: null };
+/** The same workspace, soft-deleted. */
+const ARCHIVED_WORKSPACE = { id: 'w1', name: 'W1', slug: 'w1', deleted_at: '2026-09-15T00:00:00.000Z' };
+
+const asMock = (fn: unknown) => fn as ReturnType<typeof vi.fn>;
+
+/** Fresh stubs plus a service wired to them, for the soft-delete suites. */
+function makeArchiveHarness() {
+  const repos = makeRepoStubs();
+  const service = new WorkspaceService(repos.workspaceRepo, repos.userWorkspaceRepo, repos.roleRepo, repos.userRepo);
+  const actingAs = (isSuperadmin: boolean) =>
+    asMock(repos.userRepo.findById).mockResolvedValue({ id: 'u1', is_superadmin: isSuperadmin });
+  return { repos, service, actingAs };
+}
+
+describe('WorkspaceService.softDeleteWorkspace', () => {
+  let harness: ReturnType<typeof makeArchiveHarness>;
+
+  beforeEach(() => {
+    harness = makeArchiveHarness();
+  });
+
+  it('archives the workspace for a superadmin', async () => {
+    const { repos, service, actingAs } = harness;
+    actingAs(true);
+    asMock(repos.workspaceRepo.findById).mockResolvedValueOnce(LIVE_WORKSPACE);
+    asMock(repos.workspaceRepo.softDelete).mockResolvedValueOnce(ARCHIVED_WORKSPACE);
+
+    const result = await service.softDeleteWorkspace('u1', 'w1');
+
+    expect(result).toEqual(ARCHIVED_WORKSPACE);
+    expect(repos.workspaceRepo.softDelete).toHaveBeenCalledWith('w1');
+  });
+
+  it('rejects a non-superadmin without touching the row', async () => {
+    const { repos, service, actingAs } = harness;
+    actingAs(false);
+
+    await expect(service.softDeleteWorkspace('u1', 'w1')).rejects.toBeInstanceOf(NotSuperadminError);
+    expect(repos.workspaceRepo.softDelete).not.toHaveBeenCalled();
+  });
+
+  it('throws WorkspaceNotFoundError for an unknown id', async () => {
+    const { repos, service, actingAs } = harness;
+    actingAs(true);
+    asMock(repos.workspaceRepo.findById).mockResolvedValueOnce(undefined);
+
+    await expect(service.softDeleteWorkspace('u1', 'nope')).rejects.toBeInstanceOf(WorkspaceNotFoundError);
+  });
+
+  it('is a no-op on an already-archived workspace, preserving deleted_at', async () => {
+    const { repos, service, actingAs } = harness;
+    actingAs(true);
+    asMock(repos.workspaceRepo.findById).mockResolvedValueOnce(ARCHIVED_WORKSPACE);
+
+    const result = await service.softDeleteWorkspace('u1', 'w1');
+
+    expect(result).toEqual(ARCHIVED_WORKSPACE);
+    expect(repos.workspaceRepo.softDelete).not.toHaveBeenCalled();
+  });
+});
+
+describe('WorkspaceService.restoreWorkspace', () => {
+  let harness: ReturnType<typeof makeArchiveHarness>;
+
+  beforeEach(() => {
+    harness = makeArchiveHarness();
+  });
+
+  it('reinstates an archived workspace for a superadmin', async () => {
+    const { repos, service, actingAs } = harness;
+    actingAs(true);
+    asMock(repos.workspaceRepo.findById).mockResolvedValueOnce(ARCHIVED_WORKSPACE);
+    asMock(repos.workspaceRepo.restore).mockResolvedValueOnce(LIVE_WORKSPACE);
+
+    const result = await service.restoreWorkspace('u1', 'w1');
+
+    expect(result).toEqual(LIVE_WORKSPACE);
+    expect(repos.workspaceRepo.restore).toHaveBeenCalledWith('w1');
+  });
+
+  it('rejects a non-superadmin', async () => {
+    const { repos, service, actingAs } = harness;
+    actingAs(false);
+
+    await expect(service.restoreWorkspace('u1', 'w1')).rejects.toBeInstanceOf(NotSuperadminError);
+    expect(repos.workspaceRepo.restore).not.toHaveBeenCalled();
+  });
+
+  it('leaves a live workspace untouched', async () => {
+    const { repos, service, actingAs } = harness;
+    actingAs(true);
+    asMock(repos.workspaceRepo.findById).mockResolvedValueOnce(LIVE_WORKSPACE);
+
+    const result = await service.restoreWorkspace('u1', 'w1');
+
+    expect(result).toEqual(LIVE_WORKSPACE);
+    expect(repos.workspaceRepo.restore).not.toHaveBeenCalled();
+  });
+
+  it('throws WorkspaceNotFoundError for an unknown id', async () => {
+    const { repos, service, actingAs } = harness;
+    actingAs(true);
+    asMock(repos.workspaceRepo.findById).mockResolvedValueOnce(undefined);
+
+    await expect(service.restoreWorkspace('u1', 'nope')).rejects.toBeInstanceOf(WorkspaceNotFoundError);
+  });
+});
+
+describe('WorkspaceService.isMember (soft-deleted workspaces)', () => {
+  let harness: ReturnType<typeof makeArchiveHarness>;
+
+  beforeEach(() => {
+    harness = makeArchiveHarness();
+  });
+
+  it('returns false for a soft-deleted workspace even for a superadmin', async () => {
+    const { repos, service, actingAs } = harness;
+    actingAs(true);
+    asMock(repos.workspaceRepo.findById).mockResolvedValueOnce(ARCHIVED_WORKSPACE);
+
+    const result = await service.isMember('u1', 'w1');
+
+    expect(result).toBe(false);
+    expect(repos.userWorkspaceRepo.findOne).not.toHaveBeenCalled();
+  });
+
+  it('returns false when the workspace row is missing entirely', async () => {
+    const { repos, service, actingAs } = harness;
+    actingAs(true);
+    asMock(repos.workspaceRepo.findById).mockResolvedValueOnce(undefined);
+
+    expect(await service.isMember('u1', 'gone')).toBe(false);
+  });
+});
+
+describe('WorkspaceService.isWorkspaceAdmin (soft-deleted workspaces)', () => {
+  it('returns false for a soft-deleted workspace even for a superadmin', async () => {
+    const { repos, service, actingAs } = makeArchiveHarness();
+    actingAs(true);
+    asMock(repos.workspaceRepo.findById).mockResolvedValueOnce(ARCHIVED_WORKSPACE);
+
+    expect(await service.isWorkspaceAdmin('u1', 'w1')).toBe(false);
+  });
+});
+
+describe('WorkspaceService.findActiveWorkspaceBySlug', () => {
+  let harness: ReturnType<typeof makeArchiveHarness>;
+
+  beforeEach(() => {
+    harness = makeArchiveHarness();
+  });
+
+  it('returns the workspace when it is live', async () => {
+    const { repos, service } = harness;
+    asMock(repos.workspaceRepo.findBySlug).mockResolvedValueOnce(LIVE_WORKSPACE);
+
+    expect(await service.findActiveWorkspaceBySlug('w1')).toEqual(LIVE_WORKSPACE);
+  });
+
+  it('returns null for a soft-deleted slug', async () => {
+    const { repos, service } = harness;
+    asMock(repos.workspaceRepo.findBySlug).mockResolvedValueOnce(ARCHIVED_WORKSPACE);
+
+    expect(await service.findActiveWorkspaceBySlug('w1')).toBeNull();
+  });
+
+  it('returns null for an unknown slug', async () => {
+    const { repos, service } = harness;
+    asMock(repos.workspaceRepo.findBySlug).mockResolvedValueOnce(undefined);
+
+    expect(await service.findActiveWorkspaceBySlug('nope')).toBeNull();
+  });
+});
+
+describe('WorkspaceService.isDeleted', () => {
+  it('reports whether the workspace is archived', async () => {
+    const { repos, service } = makeArchiveHarness();
+    asMock(repos.workspaceRepo.findById).mockResolvedValueOnce(ARCHIVED_WORKSPACE);
+    expect(await service.isDeleted('w1')).toBe(true);
+
+    asMock(repos.workspaceRepo.findById).mockResolvedValueOnce(LIVE_WORKSPACE);
+    expect(await service.isDeleted('w1')).toBe(false);
+  });
+});
+
+describe('WorkspaceService.listWorkspaces', () => {
+  it('lists live workspaces only', async () => {
+    const { repos, service } = makeArchiveHarness();
+    asMock(repos.workspaceRepo.findAll).mockResolvedValueOnce([LIVE_WORKSPACE]);
+
+    expect(await service.listWorkspaces()).toEqual([LIVE_WORKSPACE]);
+    expect(repos.workspaceRepo.findAllIncludingDeleted).not.toHaveBeenCalled();
+  });
+});
+
+describe('WorkspaceService.listWorkspacesIncludingDeleted', () => {
+  let harness: ReturnType<typeof makeArchiveHarness>;
+
+  beforeEach(() => {
+    harness = makeArchiveHarness();
+  });
+
+  it('returns archived rows to a superadmin', async () => {
+    const { repos, service, actingAs } = harness;
+    actingAs(true);
+    asMock(repos.workspaceRepo.findAllIncludingDeleted).mockResolvedValueOnce([
+      LIVE_WORKSPACE,
+      ARCHIVED_WORKSPACE,
+    ]);
+
+    expect(await service.listWorkspacesIncludingDeleted('u1')).toEqual([LIVE_WORKSPACE, ARCHIVED_WORKSPACE]);
+  });
+
+  it('rejects a non-superadmin', async () => {
+    const { repos, service, actingAs } = harness;
+    actingAs(false);
+
+    await expect(service.listWorkspacesIncludingDeleted('u1')).rejects.toBeInstanceOf(NotSuperadminError);
+    expect(repos.workspaceRepo.findAllIncludingDeleted).not.toHaveBeenCalled();
+  });
+});
+
+describe('WorkspaceService.getAccessibleWorkspacesForUser (soft-deleted workspaces)', () => {
+  it('never offers a soft-deleted workspace to a superadmin', async () => {
+    const { repos, service, actingAs } = makeArchiveHarness();
+    actingAs(true);
+    asMock(repos.userWorkspaceRepo.findMembershipsForUser).mockResolvedValueOnce([]);
+    // `findAll` is the live-only listing, so an archived row is simply absent
+    // from the implicit-access half of the result.
+    asMock(repos.workspaceRepo.findAll).mockResolvedValueOnce([
+      { id: 'w2', name: 'W2', slug: 'w2', deleted_at: null },
+    ]);
+
+    const result = await service.getAccessibleWorkspacesForUser('u1');
+
+    expect(result.map((m) => m.workspaceId)).toEqual(['w2']);
   });
 });

@@ -49,6 +49,11 @@ import {
   ChevronsUpDown,
   Mail,
   X,
+  Trash2,
+  RotateCcw,
+  ChevronDown,
+  ChevronRight,
+  Archive,
 } from 'lucide-react';
 
 function initialsFor(name: string) {
@@ -81,6 +86,10 @@ interface Workspace {
   copilot_agent?: string;
   /** Workspace-wide display currency (USD | IDR | CNY). */
   default_currency?: string;
+  /** Non-null once the workspace has been soft-deleted (archived). Only ever
+   *  populated here — `GET /api/workspaces?all=true` is the one listing that
+   *  returns archived rows, and only to a superadmin. */
+  deleted_at?: string | null;
 }
 
 /** The AI Copilot flavors, mirrored from the server's COPILOT_AGENTS. */
@@ -175,6 +184,10 @@ export default function AdminPortalPage() {
   const [slugDraft, setSlugDraft] = useState('');
   const [features, setFeatures] = useState<FeatureFlagState[]>([]);
   const [featuresLoading, setFeaturesLoading] = useState(true);
+  // The archived section starts collapsed — it's a recovery affordance, not
+  // part of the day-to-day list.
+  const [showDeleted, setShowDeleted] = useState(false);
+  const [archivePending, setArchivePending] = useState(false);
 
   useEffect(() => {
     if (loading) return;
@@ -233,7 +246,10 @@ export default function AdminPortalPage() {
       const body = await res.json();
       const rows: Workspace[] = body?.data ?? [];
       setWorkspaces(rows);
-      setSelectedId((prev) => prev ?? rows[0]?.id ?? null);
+      // Land on a live workspace, never an archived one — the archived
+      // section is collapsed by default, so auto-selecting one would show a
+      // config panel with no visibly selected row.
+      setSelectedId((prev) => prev ?? rows.find((w) => !w.deleted_at)?.id ?? rows[0]?.id ?? null);
     } catch {
       toast.error('Could not load workspaces');
     } finally {
@@ -335,7 +351,15 @@ export default function AdminPortalPage() {
   }, [dbUsers]);
 
   const selected = workspaces.find((w) => w.id === selectedId) ?? null;
+  const isSelectedDeleted = Boolean(selected?.deleted_at);
   const defaultRoleName = roles.find((r) => r.name === 'editor')?.name ?? roles[0]?.name;
+
+  // Archived workspaces are listed separately, underneath the live ones, and
+  // only for a superadmin. The page already bounces non-superadmins, but the
+  // flag is re-read here so the section can never render for anyone else.
+  const activeWorkspaces = useMemo(() => workspaces.filter((w) => !w.deleted_at), [workspaces]);
+  const deletedWorkspaces = useMemo(() => workspaces.filter((w) => w.deleted_at), [workspaces]);
+  const canSeeDeleted = Boolean(user?.isSuperadmin);
 
   // Split features across the settings tabs. The Funds tab owns its own
   // category; the Features tab shows everything else, sub-split into sidebar
@@ -375,6 +399,48 @@ export default function AdminPortalPage() {
       selectWorkspace(data.id);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Could not create workspace');
+    }
+  };
+
+  /** Archive the selected workspace. Superadmin-only on the server too. */
+  const handleDeleteWorkspace = async () => {
+    if (!selected) return;
+    const target = selected;
+    setArchivePending(true);
+    try {
+      const res = await fetch(`/api/workspaces/${target.id}`, { method: 'DELETE' });
+      if (!res.ok) throw new Error((await res.json())?.error ?? 'Failed to delete workspace');
+      const { data } = await res.json();
+      setWorkspaces((prev) => prev.map((w) => (w.id === target.id ? { ...w, ...data } : w)));
+      // Keep the archived workspace selected (and reveal the section it just
+      // moved into) so the reinstate button is one click away if this was a
+      // mistake.
+      setShowDeleted(true);
+      setEditingName(false);
+      setEditingSlug(false);
+      toast.success(`${target.name} deleted — members can no longer access it`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Could not delete workspace');
+    } finally {
+      setArchivePending(false);
+    }
+  };
+
+  /** Reinstate an archived workspace, data and memberships intact. */
+  const handleRestoreWorkspace = async () => {
+    if (!selected) return;
+    const target = selected;
+    setArchivePending(true);
+    try {
+      const res = await fetch(`/api/workspaces/${target.id}/restore`, { method: 'POST' });
+      if (!res.ok) throw new Error((await res.json())?.error ?? 'Failed to reinstate workspace');
+      const { data } = await res.json();
+      setWorkspaces((prev) => prev.map((w) => (w.id === target.id ? { ...w, ...data } : w)));
+      toast.success(`${target.name} reinstated`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Could not reinstate workspace');
+    } finally {
+      setArchivePending(false);
     }
   };
 
@@ -625,32 +691,47 @@ export default function AdminPortalPage() {
               </div>
             ) : (
               <div className="min-h-0 flex-1 space-y-2 overflow-y-auto pr-1">
-                {workspaces.map((workspace) => {
-                  const isActive = workspace.id === selectedId;
-                  return (
+                {activeWorkspaces.map((workspace) => (
+                  <WorkspaceListItem
+                    key={workspace.id}
+                    workspace={workspace}
+                    isSelected={workspace.id === selectedId}
+                    onSelect={selectWorkspace}
+                  />
+                ))}
+
+                {/* Deleted workspaces live underneath the live ones, behind a
+                    collapsed disclosure, and only for a superadmin — they're
+                    the only role allowed to see, delete, or reinstate one. */}
+                {canSeeDeleted && deletedWorkspaces.length > 0 && (
+                  <div className="pt-2">
                     <button
-                      key={workspace.id}
                       type="button"
-                      onClick={() => selectWorkspace(workspace.id)}
-                      className={cn(
-                        'flex w-full items-start gap-3 rounded-xl border bg-card/80 p-3 text-left backdrop-blur-xl transition hover:border-primary/40 hover:bg-accent/40 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-                        isActive && 'border-primary/60 ring-1 ring-primary/30 border-blue-400 border-2',
-                      )}
+                      onClick={() => setShowDeleted((prev) => !prev)}
+                      aria-expanded={showDeleted}
+                      className="flex w-full items-center gap-1.5 rounded-lg px-1 py-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground transition hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                     >
-                      <span className="grid h-11 w-11 shrink-0 place-items-center rounded-lg bg-gradient-to-br from-blue-500 to-blue-600 text-sm font-bold text-white shadow-sm">
-                        {initialsFor(workspace.name)}
-                      </span>
-                      <span className="min-w-0 flex-1">
-                        <span className="block truncate text-sm font-bold text-primary">
-                          {workspace.name}
-                        </span>
-                        <span className="mt-0.5 block text-xs text-muted-foreground">
-                          {workspace.slug}
-                        </span>
-                      </span>
+                      {showDeleted ? (
+                        <ChevronDown className="h-3.5 w-3.5" />
+                      ) : (
+                        <ChevronRight className="h-3.5 w-3.5" />
+                      )}
+                      Deleted ({deletedWorkspaces.length})
                     </button>
-                  );
-                })}
+                    {showDeleted && (
+                      <div className="mt-2 space-y-2">
+                        {deletedWorkspaces.map((workspace) => (
+                          <WorkspaceListItem
+                            key={workspace.id}
+                            workspace={workspace}
+                            isSelected={workspace.id === selectedId}
+                            onSelect={selectWorkspace}
+                          />
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             )}
           </aside>
@@ -700,8 +781,9 @@ export default function AdminPortalPage() {
                   <button
                     type="button"
                     onClick={startEditName}
-                    title="Click to rename"
-                    className="w-fit border-b-2 border-border pb-1 text-left text-xl font-bold tracking-tight transition hover:border-primary/60"
+                    disabled={isSelectedDeleted}
+                    title={isSelectedDeleted ? 'Reinstate the workspace to edit it' : 'Click to rename'}
+                    className="w-fit border-b-2 border-border pb-1 text-left text-xl font-bold tracking-tight transition hover:border-primary/60 disabled:cursor-default disabled:border-transparent disabled:text-muted-foreground"
                   >
                     {selected.name}
                   </button>
@@ -748,13 +830,93 @@ export default function AdminPortalPage() {
                   <button
                     type="button"
                     onClick={startEditSlug}
-                    title="Click to change slug"
-                    className="-mt-6 w-fit text-left font-mono text-xs text-muted-foreground transition hover:text-primary"
+                    disabled={isSelectedDeleted}
+                    title={
+                      isSelectedDeleted
+                        ? 'A deleted workspace keeps its slug — reinstate it to change it'
+                        : 'Click to change slug'
+                    }
+                    className="-mt-6 w-fit text-left font-mono text-xs text-muted-foreground transition hover:text-primary disabled:cursor-default disabled:hover:text-muted-foreground"
                   >
                     {selected.slug}
                   </button>
                 )}
 
+                {isSelectedDeleted ? (
+                  /* Archived state: the settings tabs below are hidden, so this
+                     banner is the whole panel — say what's true of the
+                     workspace and offer the one action that applies. */
+                  <div className="space-y-4 rounded-xl border border-destructive/30 bg-muted p-5">
+                    <div className="flex items-start gap-3">
+                      <Archive className="mt-0.5 h-5 w-5 shrink-0 text-destructive" />
+                      <div className="space-y-1">
+                        <h3 className="text-sm font-semibold">This workspace is deleted</h3>
+                        <p className="text-xs text-muted-foreground">
+                          Members can no longer open it — anyone visiting{' '}
+                          <span className="font-mono">/w/{selected.slug}</span> is sent back to the
+                          workspace selector, and it no longer appears in anyone&apos;s workspace
+                          list. Nothing has been erased: its data, members and slug are all kept,
+                          and reinstating brings it back exactly as it was.
+                        </p>
+                      </div>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={handleRestoreWorkspace}
+                      disabled={archivePending}
+                      className="w-fit"
+                    >
+                      {archivePending ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <RotateCcw className="h-4 w-4" />
+                      )}
+                      Reinstate workspace
+                    </Button>
+                  </div>
+                ) : (
+                  <AlertDialog>
+                    <AlertDialogTrigger asChild>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        disabled={archivePending}
+                        className="w-fit text-destructive hover:bg-destructive/10 hover:text-destructive"
+                      >
+                        {archivePending ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <Trash2 className="h-4 w-4" />
+                        )}
+                        Delete workspace
+                      </Button>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent>
+                      <AlertDialogHeader>
+                        <AlertDialogTitle>Delete workspace</AlertDialogTitle>
+                        <AlertDialogDescription>
+                          Delete {selected.name}? Its members lose access immediately and it
+                          disappears from their workspace list. Nothing is erased — the workspace
+                          keeps its data and its slug, and you can reinstate it from the Deleted
+                          section at any time.
+                        </AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                        <AlertDialogAction
+                          onClick={handleDeleteWorkspace}
+                          className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                        >
+                          Delete
+                        </AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
+                )}
+
+                {!isSelectedDeleted && (
                 <Tabs defaultValue="copilot" className="flex min-h-0 flex-1 flex-col">
                   <TabsList className="w-fit">
                     <TabsTrigger value="copilot" className={ACTIVE_TAB_CLASS}>
@@ -1067,12 +1229,67 @@ export default function AdminPortalPage() {
                     )}
                   </TabsContent>
                 </Tabs>
+                )}
               </div>
             )}
           </section>
         </div>
       </main>
     </div>
+  );
+}
+
+/** One row in the workspace sidebar. A deleted workspace renders muted, with
+ *  a "Deleted" badge, so the archived section reads as archived at a glance
+ *  rather than looking like a second list of live workspaces. */
+function WorkspaceListItem({
+  workspace,
+  isSelected,
+  onSelect,
+}: {
+  workspace: Workspace;
+  isSelected: boolean;
+  onSelect: (id: string) => void;
+}) {
+  const isDeleted = Boolean(workspace.deleted_at);
+  return (
+    <button
+      type="button"
+      onClick={() => onSelect(workspace.id)}
+      className={cn(
+        'flex w-full items-start gap-3 rounded-xl border bg-card p-3 text-left backdrop-blur-xl transition hover:border-primary/40 hover:bg-accent/40 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+        isSelected && 'border-primary/60 ring-1 ring-primary/30 border-blue-400 border-2',
+      )}
+    >
+      <span
+        className={cn(
+          'grid h-11 w-11 shrink-0 place-items-center rounded-lg text-sm font-bold text-white shadow-sm',
+          isDeleted
+            ? 'bg-muted-foreground/60'
+            : 'bg-gradient-to-br from-blue-500 to-blue-600',
+        )}
+      >
+        {initialsFor(workspace.name)}
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="flex items-center gap-2">
+          <span
+            className={cn(
+              'block truncate text-sm font-bold',
+              isDeleted ? 'text-muted-foreground line-through' : 'text-primary',
+            )}
+          >
+            {workspace.name}
+          </span>
+          {isDeleted && (
+            <Badge variant="outline" className="shrink-0 text-[10px] uppercase">
+              Deleted
+            </Badge>
+          )}
+        </span>
+        <span className="mt-0.5 block text-xs text-muted-foreground">{workspace.slug}</span>
+      </span>
+    </button>
   );
 }
 

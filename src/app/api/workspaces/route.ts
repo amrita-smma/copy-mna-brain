@@ -15,15 +15,18 @@ export async function GET(req: NextRequest) {
 
     // `?all=true` lists every raw workspace row (admin-portal CRUD use) —
     // superadmin only, since a superadmin may have zero memberships of their
-    // own. Default (no param) lists workspaces the caller can actually enter:
-    // real memberships, plus every workspace for a superadmin (implicit
-    // access, no user_workspaces row required) — this feeds the /workspace
-    // picker and the nav switcher.
+    // own. Soft-deleted workspaces are included here and NOWHERE else: the
+    // admin portal shows them in a separate archived section so a superadmin
+    // can reinstate one. Default (no param) lists workspaces the caller can
+    // actually enter: real memberships, plus every live workspace for a
+    // superadmin (implicit access, no user_workspaces row required) — this
+    // feeds the /workspace picker and the nav switcher, both of which must
+    // never show an archived workspace.
     if (req.nextUrl.searchParams.get('all') === 'true') {
       if (!(await workspaceService.isSuperadmin(session.user.id))) {
         return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
       }
-      const data = await workspaceService.listWorkspaces();
+      const data = await workspaceService.listWorkspacesIncludingDeleted(session.user.id);
       return NextResponse.json({ data });
     }
 

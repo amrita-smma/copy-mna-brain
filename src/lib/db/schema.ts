@@ -343,12 +343,23 @@ export const workspaces = pgTable(
     // does NOT convert stored values. Read into the client via
     // WorkspaceCurrencyProvider in the /w/[slug] layout.
     default_currency: text().default("USD").notNull(),
+    // Soft delete. Non-null = the workspace is archived: it disappears from
+    // the workspace picker/switcher, from every membership listing, and from
+    // background sweeps (cron, graph sync), and `/w/<slug>/...` bounces back
+    // to `/workspace`. The row itself is kept, so the slug stays taken (the
+    // unique constraint below is deliberately NOT partial) and a superadmin
+    // can reinstate the workspace with its data intact.
+    deleted_at: timestamp({ withTimezone: true, mode: "string" }),
     created_at: timestamp({ withTimezone: true, mode: "string" }).defaultNow().notNull(),
     updated_at: timestamp({ withTimezone: true, mode: "string" }).defaultNow().notNull(),
   },
   (table) => {
     return {
       workspacesSlugKey: unique("workspaces_slug_key").on(table.slug),
+      idxWorkspacesDeletedAt: index("idx_workspaces_deleted_at").using(
+        "btree",
+        table.deleted_at.asc().nullsLast().op("timestamptz_ops"),
+      ),
     };
   },
 );

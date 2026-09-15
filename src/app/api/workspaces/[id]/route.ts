@@ -2,7 +2,12 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/auth';
 import { createDb } from '@/lib/server/db';
 import { createContainer } from '@/lib/services';
-import { COPILOT_AGENTS, WORKSPACE_CURRENCIES } from '@/lib/services/workspaceService';
+import {
+  COPILOT_AGENTS,
+  NotSuperadminError,
+  WORKSPACE_CURRENCIES,
+  WorkspaceNotFoundError,
+} from '@/lib/services/workspaceService';
 import { MNA_WORKSPACE_ID } from '@/lib/constants';
 
 const SLUG_PATTERN = /^[a-z0-9]+(-[a-z0-9]+)*$/;
@@ -76,6 +81,35 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 
     return NextResponse.json({ data });
   } catch (error: unknown) {
+    console.error(error);
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+  }
+}
+
+/**
+ * Soft-delete (archive) a workspace. Superadmin-only — enforced here and
+ * again inside `WorkspaceService.softDeleteWorkspace`. The row is kept, so
+ * the slug stays reserved and `POST /api/workspaces/{id}/restore` can bring
+ * the workspace back with its data and memberships intact.
+ */
+export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  try {
+    const session = await auth();
+    if (!session?.user?.id) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+    const db = createDb();
+    const { workspaceService } = createContainer(db, MNA_WORKSPACE_ID);
+    const { id } = await params;
+    const data = await workspaceService.softDeleteWorkspace(session.user.id, id);
+    return NextResponse.json({ data });
+  } catch (error: unknown) {
+    if (error instanceof NotSuperadminError) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    }
+    if (error instanceof WorkspaceNotFoundError) {
+      return NextResponse.json({ error: 'Workspace not found' }, { status: 404 });
+    }
     console.error(error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }

@@ -53,9 +53,22 @@ export default async function WorkspaceLayout({
     redirect('/workspace');
   }
 
-  const workspaceId = membership?.workspaceId ?? MNA_WORKSPACE_ID;
   const db = createDb();
-  const { workspaceService } = createContainer(db, workspaceId);
+  const { workspaceService } = createContainer(db, membership?.workspaceId ?? MNA_WORKSPACE_ID);
+
+  // Soft-delete gate. An archived workspace already drops out of every
+  // membership list (so `proxy.ts` bounces ordinary members on the JWT claim
+  // alone), but two callers still reach this point: a superadmin, whom the
+  // proxy waves through every slug by design, and anyone holding a JWT issued
+  // before the workspace was archived. This is the only gate with DB access,
+  // so it's the one that has to fail closed — for everyone, superadmin
+  // included. A soft-deleted workspace is inaccessible, not merely hidden.
+  const workspace = await workspaceService.findActiveWorkspaceBySlug(workspaceSlug);
+  if (!workspace) {
+    redirect('/workspace');
+  }
+
+  const workspaceId = workspace.id;
   const [copilotAgent, defaultCurrency, featureFlags] = await Promise.all([
     workspaceService.getCopilotAgent(workspaceId),
     workspaceService.getDefaultCurrency(workspaceId),

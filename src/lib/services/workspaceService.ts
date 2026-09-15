@@ -40,6 +40,22 @@ export class RoleNotFoundError extends Error {
   }
 }
 
+/** Raised when a non-superadmin tries to archive or reinstate a workspace. */
+export class NotSuperadminError extends Error {
+  constructor() {
+    super('Only a superadmin may archive or reinstate a workspace');
+    this.name = 'NotSuperadminError';
+  }
+}
+
+/** Raised when the workspace id passed to archive/reinstate doesn't exist. */
+export class WorkspaceNotFoundError extends Error {
+  constructor(workspaceId: string) {
+    super(`Unknown workspace: ${workspaceId}`);
+    this.name = 'WorkspaceNotFoundError';
+  }
+}
+
 export class WorkspaceService {
   constructor(
     private readonly workspaceRepo: WorkspaceRepository,
@@ -56,8 +72,15 @@ export class WorkspaceService {
    * A superadmin can switch into and read/write any workspace, explicit
    * `user_workspaces` row or not — that's the whole point of the flag being
    * global rather than per-workspace. Everyone else needs a real membership row.
+   *
+   * A soft-deleted workspace is nobody's — not even a superadmin's. This is
+   * the check behind the session-switch guard in `auth.ts`, so an archived
+   * workspace can never become a session's active workspace, however stale
+   * the caller's membership list is.
    */
   async isMember(userId: string, workspaceId: string): Promise<boolean> {
+    const workspace = await this.workspaceRepo.findById(workspaceId);
+    if (!workspace || workspace.deleted_at !== null) return false;
     if (await this.isSuperadmin(userId)) return true;
     const row = await this.userWorkspaceRepo.findOne(userId, workspaceId);
     return Boolean(row);
@@ -68,6 +91,12 @@ export class WorkspaceService {
    * memberships (with their real role), plus — for a superadmin — every
    * other workspace too, labeled with a synthetic "superadmin" role since
    * there's no real user_workspaces row backing that access.
+   *
+   * Soft-deleted workspaces appear in neither half: `findMembershipsForUser`
+   * filters them out and `findAll` lists live rows only. That's what makes an
+   * archived workspace vanish from the picker and from the JWT's `workspaces`
+   * claim, which is in turn what makes `proxy.ts` bounce a member's
+   * `/w/<slug>` request to `/workspace` with no DB access of its own.
    */
   async getAccessibleWorkspacesForUser(userId: string): Promise<MembershipDetail[]> {
     const memberships = await this.userWorkspaceRepo.findMembershipsForUser(userId);
@@ -113,6 +142,10 @@ export class WorkspaceService {
    * companies in the relationship graph.
    */
   async isWorkspaceAdmin(userId: string, workspaceId: string): Promise<boolean> {
+    // Archived workspaces admit no one — same rule as `isMember`, so a
+    // privileged mutation can't slip through on a stale session either.
+    const workspace = await this.workspaceRepo.findById(workspaceId);
+    if (!workspace || workspace.deleted_at !== null) return false;
     if (await this.isSuperadmin(userId)) return true;
     const memberships = await this.userWorkspaceRepo.findMembershipsForUser(userId);
     return memberships.some(
@@ -120,8 +153,67 @@ export class WorkspaceService {
     );
   }
 
+  /** Live workspaces only. */
   listWorkspaces(): Promise<Tables<'workspaces'>[]> {
     return this.workspaceRepo.findAll();
+  }
+
+  /**
+   * Every workspace, archived ones included, for the admin portal's listing.
+   * Superadmin-only: the caller is re-checked here rather than trusted, so
+   * the "deleted workspaces are visible to superadmins only" rule holds even
+   * if a future route forgets its own gate.
+   */
+  async listWorkspacesIncludingDeleted(actorUserId: string): Promise<Tables<'workspaces'>[]> {
+    if (!(await this.isSuperadmin(actorUserId))) throw new NotSuperadminError();
+    return this.workspaceRepo.findAllIncludingDeleted();
+  }
+
+  /**
+   * The live workspace behind a URL slug, or null when the slug is unknown
+   * OR names a soft-deleted workspace. The `/w/[workspaceSlug]` layout uses
+   * this to bounce to `/workspace`: it's the only gate that sees the DB, and
+   * therefore the only one that can catch a superadmin (whom `proxy.ts` waves
+   * through every slug) or a user holding a JWT issued before the archive.
+   */
+  async findActiveWorkspaceBySlug(slug: string): Promise<Tables<'workspaces'> | null> {
+    const workspace = await this.workspaceRepo.findBySlug(slug);
+    if (!workspace || workspace.deleted_at !== null) return null;
+    return workspace;
+  }
+
+  /** Whether this workspace exists and is archived. */
+  async isDeleted(id: string): Promise<boolean> {
+    const workspace = await this.workspaceRepo.findById(id);
+    return workspace?.deleted_at != null;
+  }
+
+  /**
+   * Archive a workspace. Superadmin-only, and idempotent — re-archiving an
+   * already-archived workspace returns it unchanged rather than overwriting
+   * when it was archived. Nothing is erased: memberships, slug and data all
+   * stay put so `restoreWorkspace` brings it back exactly as it was.
+   */
+  async softDeleteWorkspace(actorUserId: string, id: string): Promise<Tables<'workspaces'>> {
+    if (!(await this.isSuperadmin(actorUserId))) throw new NotSuperadminError();
+    const existing = await this.workspaceRepo.findById(id);
+    if (!existing) throw new WorkspaceNotFoundError(id);
+    if (existing.deleted_at !== null) return existing;
+    const row = await this.workspaceRepo.softDelete(id);
+    return row ?? existing;
+  }
+
+  /**
+   * Reinstate an archived workspace. Superadmin-only; a workspace that isn't
+   * archived is returned unchanged.
+   */
+  async restoreWorkspace(actorUserId: string, id: string): Promise<Tables<'workspaces'>> {
+    if (!(await this.isSuperadmin(actorUserId))) throw new NotSuperadminError();
+    const existing = await this.workspaceRepo.findById(id);
+    if (!existing) throw new WorkspaceNotFoundError(id);
+    if (existing.deleted_at === null) return existing;
+    const row = await this.workspaceRepo.restore(id);
+    return row ?? existing;
   }
 
   createWorkspace(input: { name: string; slug: string }): Promise<Tables<'workspaces'>> {
