@@ -116,8 +116,14 @@ export const proxy = auth((req) => {
   // what replaced the old client-side `GoogleSsoTokenGate` — whose in-render
   // soft redirects raced the app's other redirects and crashed the App Router.
   // The handler itself is excluded so it doesn't redirect to itself forever.
+  // `/reset-password` is also excluded: its own `?token=` is an unrelated
+  // `reset_password_tokens` row (forgot-password / account-invite links), not
+  // an SSO deeplink — without this exception every reset/invite link gets
+  // hijacked into `/api/auth/sso`, which fails verification (it's not a
+  // Google/launcher token) and bounces the user to `/login` instead of the
+  // set-password form.
   const ssoToken = req.nextUrl.searchParams.get('token');
-  if (ssoToken && pathname !== '/api/auth/sso') {
+  if (ssoToken && pathname !== '/api/auth/sso' && pathname !== '/reset-password') {
     const clean = new URL(req.url);
     clean.searchParams.delete('token');
     const ssoUrl = new URL('/api/auth/sso', req.url);

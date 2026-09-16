@@ -223,7 +223,7 @@ export function createContainer(db: DbClient, workspaceId: string): Container {
   const dealLinkService = new DealLinkService(dealLinkRepo);
   const jobService = new JobService(jobRepo, db);
   const authService = new AuthService(userRepo, resetTokenRepo);
-  const userService = new UserService(userRepo, workspaceId);
+  const userService = new UserService(userRepo, workspaceId, authService);
   const chatService = new ChatService(thesisRepo, criteriaRepo);
   const workspaceService = new WorkspaceService(workspaceRepo, userWorkspaceRepo, roleRepo, userRepo);
 

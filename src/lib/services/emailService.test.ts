@@ -3,6 +3,7 @@ import {
   EmailService,
   buildResetUrl,
   renderForgotPasswordEmail,
+  renderAccountInviteEmail,
   renderResearchSummaryEmail,
   renderTaskCompletedEmail,
   renderTaskWaitingApprovalEmail,
@@ -141,6 +142,101 @@ describe('EmailService.sendForgotPasswordEmail', () => {
         appUrl: 'https://x.com',
       }),
     ).rejects.toThrow('SES boom');
+  });
+});
+
+describe('renderAccountInviteEmail', () => {
+  it('greets the user by name, invites them to set a password, and includes the link', () => {
+    const out = renderAccountInviteEmail({
+      name: 'Jane Doe',
+      resetUrl: 'https://app.example.com/reset-password?token=t',
+      ttlMinutes: 60,
+    });
+    expect(out.subject).toMatch(/welcome/i);
+    expect(out.html).toContain('Hi Jane Doe,');
+    expect(out.html).toContain('https://app.example.com/reset-password?token=t');
+    expect(out.text).toContain('https://app.example.com/reset-password?token=t');
+    expect(out.text).toContain('set your password');
+  });
+
+  it('formats a whole-day TTL as days, not minutes', () => {
+    const out = renderAccountInviteEmail({
+      name: 'Jane',
+      resetUrl: 'https://x.com/reset-password?token=t',
+      ttlMinutes: 7 * 24 * 60,
+    });
+    expect(out.html).toContain('7 days');
+    expect(out.text).toContain('7 days');
+  });
+
+  it('falls back to minutes when the TTL is not a whole number of days', () => {
+    const out = renderAccountInviteEmail({
+      name: 'Jane',
+      resetUrl: 'https://x.com/reset-password?token=t',
+      ttlMinutes: 45,
+    });
+    expect(out.text).toContain('45 minutes');
+  });
+
+  it('escapes HTML in the name and reset URL', () => {
+    const out = renderAccountInviteEmail({
+      name: '<script>alert(1)</script>',
+      resetUrl: 'https://x.com/?token=<script>alert(1)</script>',
+      ttlMinutes: 60,
+    });
+    expect(out.html).not.toContain('<script>alert(1)</script>');
+    expect(out.html).toContain('&lt;script&gt;');
+  });
+});
+
+describe('EmailService.sendAccountInviteEmail', () => {
+  let sender: EmailSender;
+  let service: EmailService;
+
+  beforeEach(() => {
+    sender = vi.fn().mockResolvedValue({ messageId: 'msg-1' });
+    service = new EmailService(sender);
+  });
+
+  it('throws when required fields are missing', async () => {
+    await expect(
+      service.sendAccountInviteEmail({ email: '', name: 'Jane', token: 't', appUrl: 'https://x.com' }),
+    ).rejects.toThrow('email is required');
+    await expect(
+      service.sendAccountInviteEmail({ email: 'a@b.com', name: '', token: 't', appUrl: 'https://x.com' }),
+    ).rejects.toThrow('name is required');
+    await expect(
+      service.sendAccountInviteEmail({ email: 'a@b.com', name: 'Jane', token: '', appUrl: 'https://x.com' }),
+    ).rejects.toThrow('token is required');
+    await expect(
+      service.sendAccountInviteEmail({ email: 'a@b.com', name: 'Jane', token: 't', appUrl: '' }),
+    ).rejects.toThrow('appUrl is required');
+  });
+
+  it('calls the sender with a built set-password link and returns its result', async () => {
+    const result = await service.sendAccountInviteEmail({
+      email: 'user@example.com',
+      name: 'Jane Doe',
+      token: 'tok-xyz',
+      appUrl: 'https://app.example.com',
+    });
+
+    expect(result).toEqual({ messageId: 'msg-1' });
+    const arg = vi.mocked(sender).mock.calls[0][0];
+    expect(arg.to).toBe('user@example.com');
+    expect(arg.subject).toMatch(/welcome/i);
+    expect(arg.html).toContain('https://app.example.com/reset-password?token=tok-xyz');
+  });
+
+  it('defaults the TTL to 7 days when none is given', async () => {
+    await service.sendAccountInviteEmail({
+      email: 'user@example.com',
+      name: 'Jane',
+      token: 't',
+      appUrl: 'https://app.example.com',
+    });
+    const arg = vi.mocked(sender).mock.calls[0][0];
+    expect(arg.text).toContain('7 days');
   });
 });
 

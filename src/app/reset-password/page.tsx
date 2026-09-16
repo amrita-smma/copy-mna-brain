@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { PasswordInput } from '@/components/ui/password-input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { LivingBackground } from '@/components/LivingBackground';
@@ -226,9 +227,8 @@ function ResetForm({ token }: { token: string }) {
               <Label htmlFor="new-password" className="text-sm text-black/80 dark:text-white/80">
                 New Password
               </Label>
-              <Input
+              <PasswordInput
                 id="new-password"
-                type="password"
                 placeholder="••••••••"
                 value={newPassword}
                 onChange={(e) => setNewPassword(e.target.value)}
@@ -241,9 +241,8 @@ function ResetForm({ token }: { token: string }) {
               <Label htmlFor="confirm-password" className="text-sm text-black/80 dark:text-white/80">
                 Confirm Password
               </Label>
-              <Input
+              <PasswordInput
                 id="confirm-password"
-                type="password"
                 placeholder="••••••••"
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}

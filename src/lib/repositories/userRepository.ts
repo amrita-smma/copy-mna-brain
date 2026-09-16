@@ -1,16 +1,25 @@
-import { asc, eq, ilike, inArray, sql } from 'drizzle-orm';
+import { and, asc, eq, ilike, inArray, isNull, sql } from 'drizzle-orm';
 import { users, userWorkspaces } from '@/lib/db/schema';
 import type { DbClient, Tables, TablesInsert, TablesUpdate } from './types';
 
 export type UserListItem = Pick<Tables<'users'>, 'id' | 'name' | 'email' | 'role'>;
 
+/** Full row shape for the superadmin admin-portal user directory, including
+ *  fields plain pickers never need (superadmin flag, deactivation, join date). */
+export type AdminUserListItem = Pick<
+  Tables<'users'>,
+  'id' | 'name' | 'email' | 'role' | 'is_superadmin' | 'deactivated_at' | 'created_at'
+>;
+
 export class UserRepository {
   constructor(private readonly db: DbClient) {}
 
   async findAll(): Promise<UserListItem[]> {
+    // Active users only — deactivated accounts stay in `findAllIncludingDeactivated`.
     return this.db
       .select({ id: users.id, name: users.name, email: users.email, role: users.role })
       .from(users)
+      .where(isNull(users.deactivated_at))
       .orderBy(asc(users.name));
   }
 
@@ -27,7 +36,7 @@ export class UserRepository {
       .select({ id: users.id, name: users.name, email: users.email, role: users.role })
       .from(users)
       .innerJoin(userWorkspaces, eq(userWorkspaces.user_id, users.id))
-      .where(eq(userWorkspaces.workspace_id, workspaceId))
+      .where(and(eq(userWorkspaces.workspace_id, workspaceId), isNull(users.deactivated_at)))
       .orderBy(asc(users.name));
   }
 
@@ -90,13 +99,57 @@ export class UserRepository {
     return row ?? null;
   }
 
+  /**
+   * Every user, deactivated ones included, with the fields the superadmin
+   * admin-portal's User Management section needs. Never use this to
+   * populate an in-app picker — see `findAll`/`findAllInWorkspace`.
+   */
+  async findAllIncludingDeactivated(): Promise<AdminUserListItem[]> {
+    return this.db
+      .select({
+        id: users.id,
+        name: users.name,
+        email: users.email,
+        role: users.role,
+        is_superadmin: users.is_superadmin,
+        deactivated_at: users.deactivated_at,
+        created_at: users.created_at,
+      })
+      .from(users)
+      .orderBy(asc(users.name));
+  }
+
   async create(row: TablesInsert<'users'>): Promise<Tables<'users'>> {
     const [created] = await this.db.insert(users).values(row).returning();
     return created;
   }
 
+  async update(id: string, updates: TablesUpdate<'users'>): Promise<Tables<'users'> | undefined> {
+    const [row] = await this.db.update(users).set(updates).where(eq(users.id, id)).returning();
+    return row;
+  }
 
-  async update(id: string, updates: TablesUpdate<'users'>): Promise<void> {
-    await this.db.update(users).set(updates).where(eq(users.id, id));
+  /**
+   * Deactivate a user. Idempotent by design: an already-deactivated row keeps
+   * its original `deactivated_at` (the `isNull` guard), so re-deactivating
+   * never rewrites when it happened.
+   */
+  async deactivate(id: string): Promise<Tables<'users'> | undefined> {
+    const [row] = await this.db
+      .update(users)
+      .set({ deactivated_at: sql`now()`, updated_at: sql`now()` })
+      .where(and(eq(users.id, id), isNull(users.deactivated_at)))
+      .returning();
+    return row;
+  }
+
+  /** Reactivate a deactivated user. Returns undefined if the id is unknown. */
+  async reactivate(id: string): Promise<Tables<'users'> | undefined> {
+    const [row] = await this.db
+      .update(users)
+      .set({ deactivated_at: null, updated_at: sql`now()` })
+      .where(eq(users.id, id))
+      .returning();
+    return row;
   }
 }

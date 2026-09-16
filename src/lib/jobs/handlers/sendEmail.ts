@@ -16,6 +16,14 @@ export type SendEmailPayload =
       ttlMinutes?: number;
     }
   | {
+      kind: 'account_invite';
+      to: string;
+      name: string;
+      token: string;
+      appUrl: string;
+      ttlMinutes?: number;
+    }
+  | {
       kind: 'task_completed';
       to: string;
       taskName: string;
@@ -140,6 +148,25 @@ export async function runSendEmail(
         ttlMinutes: payload.ttlMinutes,
       });
       return { kind: 'forgot_password', to: payload.to, messageId };
+    }
+    case 'account_invite': {
+      if (!payload.name) {
+        throw new Error('send_email[account_invite]: `name` is required');
+      }
+      if (!payload.token) {
+        throw new Error('send_email[account_invite]: `token` is required');
+      }
+      if (!payload.appUrl) {
+        throw new Error('send_email[account_invite]: `appUrl` is required');
+      }
+      const { messageId } = await emailService.sendAccountInviteEmail({
+        email: payload.to,
+        name: payload.name,
+        token: payload.token,
+        appUrl: payload.appUrl,
+        ttlMinutes: payload.ttlMinutes,
+      });
+      return { kind: 'account_invite', to: payload.to, messageId };
     }
     case 'task_completed': {
       const { messageId } = await emailService.sendTaskCompletedEmail({

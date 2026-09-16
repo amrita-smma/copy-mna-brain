@@ -9,6 +9,9 @@ import type { SendEmailPayload } from '@/lib/jobs/handlers/sendEmail';
 const RESET_TOKEN_TTL_MS = 60 * 60 * 1000;
 const RESET_TOKEN_TTL_MINUTES = Math.round(RESET_TOKEN_TTL_MS / 60_000);
 
+const INVITE_TOKEN_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+const INVITE_TOKEN_TTL_MINUTES = Math.round(INVITE_TOKEN_TTL_MS / 60_000);
+
 /**
  * Raised when a Google SSO flow authenticates a real Google identity whose
  * verified email has no matching local account. Google SSO is authentication
@@ -19,6 +22,20 @@ export class UserNotRegisteredError extends Error {
   constructor() {
     super('Your user is not registered in the system, please contact the Investment Brain team');
     this.name = 'UserNotRegisteredError';
+  }
+}
+
+/**
+ * Raised by every sign-in path (password, Google SSO, launcher SSO) when the
+ * resolved user's account has been deactivated (`users.deactivated_at` set)
+ * from the admin portal's User Management section. The account and its
+ * history are untouched — only sign-in is blocked, and a superadmin can
+ * reactivate it at any time.
+ */
+export class AccountDeactivatedError extends Error {
+  constructor() {
+    super('Your account has been deactivated. Please contact the Investment Brain team');
+    this.name = 'AccountDeactivatedError';
   }
 }
 
@@ -33,6 +50,11 @@ export class AuthService {
     if (!user) throw new Error('Invalid email or password');
     const ok = await verifyPassword(password, user.password);
     if (!ok) throw new Error('Invalid email or password');
+    // Checked after the password, not before: a wrong password must still
+    // read as "Invalid email or password" for an unauthenticated caller —
+    // only someone who already proved the credentials learns the account
+    // is deactivated.
+    if (user.deactivated_at) throw new AccountDeactivatedError();
     return user;
   }
 
@@ -50,6 +72,7 @@ export class AuthService {
     const email = await verifyGoogleIdToken(token);
     const user = await this.userRepo.findByEmail(email);
     if (!user) throw new UserNotRegisteredError();
+    if (user.deactivated_at) throw new AccountDeactivatedError();
     return user;
   }
 
@@ -64,18 +87,63 @@ export class AuthService {
     const { email } = await verifyLauncherToken(token);
     const user = await this.userRepo.findByEmail(email);
     if (!user) throw new UserNotRegisteredError();
+    if (user.deactivated_at) throw new AccountDeactivatedError();
     return user;
   }
 
-  async signUp(email: string, name: string, password: string) {
+  /**
+   * Admin-initiated account creation (from the admin portal). The admin never
+   * chooses a password — the new user gets one via a one-time "set your
+   * password" link, reusing the same `reset_password_tokens` mechanics and
+   * `/reset-password` page as the forgot-password flow. The row is created
+   * with a random, never-communicated password so the account can't be
+   * signed into until the link is used.
+   *
+   * The email publish is wrapped in try/catch like `forgetPassword`: a queue
+   * outage shouldn't fail account creation (the row already exists), and the
+   * user can always get a fresh link via the ordinary "Forgot password?" flow.
+   */
+  async signUp(email: string, name: string, appUrl: string) {
     const normalizedEmail = email.toLowerCase().trim();
-    if (!normalizedEmail || !name || !password) {
-      throw new Error('Email, name, and password are required');
+    const trimmedName = name?.trim();
+    if (!normalizedEmail || !trimmedName || !appUrl) {
+      throw new Error('Email, name, and appUrl are required');
     }
     const existing = await this.userRepo.findByEmail(normalizedEmail);
     if (existing) throw new Error('Email already registered');
-    const passwordHash = await hashPassword(password);
-    await this.userRepo.create({ email: normalizedEmail, name, password: passwordHash });
+
+    const placeholderPassword = randomBytes(32).toString('hex');
+    const passwordHash = await hashPassword(placeholderPassword);
+    const user = await this.userRepo.create({
+      email: normalizedEmail,
+      name: trimmedName,
+      password: passwordHash,
+    });
+
+    const token = randomBytes(24).toString('hex');
+    const validUntil = new Date(Date.now() + INVITE_TOKEN_TTL_MS).toISOString();
+    await this.resetTokenRepo.create({
+      token,
+      user_id: user.id,
+      valid_until: validUntil,
+    });
+
+    const payload: SendEmailPayload = {
+      kind: 'account_invite',
+      to: normalizedEmail,
+      name: trimmedName,
+      token,
+      appUrl,
+      ttlMinutes: INVITE_TOKEN_TTL_MINUTES,
+    };
+
+    try {
+      await enqueueSendEmail(payload);
+    } catch (err) {
+      console.error('[auth] enqueueSendEmail failed:', err);
+    }
+
+    return { id: user.id, name: user.name, email: user.email };
   }
 
   /**

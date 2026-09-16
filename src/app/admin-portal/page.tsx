@@ -39,6 +39,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { cn } from '@/lib/utils';
 import { LivingBackground } from '@/components/LivingBackground';
+import { UserManagementSection } from './UserManagementSection';
 import {
   Loader2,
   ArrowLeft,
@@ -187,6 +188,7 @@ export default function AdminPortalPage() {
   // The archived section starts collapsed — it's a recovery affordance, not
   // part of the day-to-day list.
   const [showDeleted, setShowDeleted] = useState(false);
+  const [workspaceMgmtExpanded, setWorkspaceMgmtExpanded] = useState(true);
   const [archivePending, setArchivePending] = useState(false);
 
   useEffect(() => {
@@ -664,18 +666,46 @@ export default function AdminPortalPage() {
             <Settings className="h-4 w-4 text-blue-700 dark:text-blue-200" />
           </div>
           <div>
-            <h1 className="text-base font-extrabold tracking-tight">Workspace Configuration</h1>
+            <h1 className="text-base font-extrabold tracking-tight">Admin Portal</h1>
             <p className="text-xs text-muted-foreground">
-              Manage workspaces and member access.
+              Manage users and workspaces.
             </p>
           </div>
         </div>
       </header>
 
-      <main className="relative z-10 mx-auto flex w-full max-w-6xl flex-1 flex-col overflow-hidden px-6 py-6 sm:px-8">
-        <div className="grid min-h-0 flex-1 grid-cols-1 gap-6 lg:grid-cols-[320px_1fr]">
-          {/* Workspace list */}
-          <aside className="flex min-h-0 flex-col gap-3">
+      <main className="relative z-10 mx-auto flex min-h-0 w-full max-w-6xl flex-1 flex-col gap-6 overflow-y-auto px-6 py-6 sm:px-8">
+        <UserManagementSection currentUserId={user?.id} />
+
+        <div className="shrink-0 rounded-2xl border bg-card shadow-sm backdrop-blur-xl">
+          <button
+            type="button"
+            onClick={() => setWorkspaceMgmtExpanded((prev) => !prev)}
+            aria-expanded={workspaceMgmtExpanded}
+            className="flex w-full items-center justify-between gap-3 p-4 text-left"
+          >
+            <div className="flex items-center gap-3">
+              <div className="grid h-9 w-9 place-items-center rounded-xl bg-gradient-to-br from-blue-200 to-blue-300 dark:from-blue-900 dark:to-blue-700">
+                <Settings className="h-4 w-4 text-blue-700 dark:text-blue-200" />
+              </div>
+              <div>
+                <h2 className="text-sm font-extrabold tracking-tight">Workspace Configuration</h2>
+                <p className="text-xs text-muted-foreground">
+                  Manage workspaces and member access.
+                </p>
+              </div>
+            </div>
+            {workspaceMgmtExpanded ? (
+              <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
+            ) : (
+              <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
+            )}
+          </button>
+
+          {workspaceMgmtExpanded && (
+            <div className="grid grid-cols-1 gap-6 border-t p-4 lg:h-[600px] lg:grid-cols-[320px_1fr]">
+              {/* Workspace list */}
+              <aside className="flex min-h-0 flex-col gap-3">
             <div className="flex items-center justify-between">
               <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
                 Workspaces
@@ -734,10 +764,10 @@ export default function AdminPortalPage() {
                 )}
               </div>
             )}
-          </aside>
+              </aside>
 
-          {/* Configuration panel */}
-          <section className="flex min-h-0 flex-col rounded-2xl border bg-card/80 shadow-sm backdrop-blur-xl">
+              {/* Configuration panel */}
+              <section className="flex min-h-0 flex-col rounded-2xl border bg-card shadow-sm">
             {selected && (
               <div className="flex min-h-0 flex-1 flex-col gap-8 p-6">
                 {editingName ? (
@@ -1232,7 +1262,9 @@ export default function AdminPortalPage() {
                 )}
               </div>
             )}
-          </section>
+              </section>
+            </div>
+          )}
         </div>
       </main>
     </div>

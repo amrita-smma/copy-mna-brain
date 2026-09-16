@@ -99,6 +99,81 @@ export function renderForgotPasswordEmail(input: {
   return { subject, html, text };
 }
 
+export interface AccountInviteEmailInput {
+  email: string;
+  /** Display name used in the "Hi <name>," greeting. */
+  name: string;
+  token: string;
+  /**
+   * The app's base URL used to build the set-password link. Sourced from the
+   * incoming request's origin in the API route, then carried through the
+   * queue payload to this handler.
+   */
+  appUrl: string;
+  /** Token TTL in minutes — surfaced in the body so users know the urgency. */
+  ttlMinutes?: number;
+}
+
+/** Renders a TTL in minutes as whole days when it divides evenly, else minutes. */
+function formatTtl(ttlMinutes: number): string {
+  if (ttlMinutes > 0 && ttlMinutes % (24 * 60) === 0) {
+    const days = ttlMinutes / (24 * 60);
+    return `${days} ${days === 1 ? 'day' : 'days'}`;
+  }
+  return `${ttlMinutes} minutes`;
+}
+
+export function renderAccountInviteEmail(input: {
+  name: string;
+  resetUrl: string;
+  ttlMinutes: number;
+}): { subject: string; html: string; text: string } {
+  const { name, resetUrl, ttlMinutes } = input;
+  const safeName = escapeHtml(name);
+  const safeUrl = escapeHtml(resetUrl);
+  const ttlLabel = formatTtl(ttlMinutes);
+  const subject = 'Welcome to Investment Brain!';
+
+  const html = renderNotificationShell({
+    bannerTitle: 'Welcome to Brain!',
+    accent: '#6d5ef5',
+    accentDark: '#5a4bd6',
+    bodyHtml: `<p style="margin:0 0 16px; line-height:1.6; color:#374151; font-size:15px;">Hi ${safeName},</p>
+      <p style="margin:0 0 16px; line-height:1.6; color:#374151; font-size:15px;">
+        Welcome to Brain! Please click the button below to set your password and log in.
+      </p>
+      <p style="margin:0 0 16px; line-height:1.5; color:#52525b; font-size:14px;">
+        Or paste this link into your browser:<br />
+        <a href="${safeUrl}" style="color:#2563eb; word-break:break-all;">${safeUrl}</a>
+      </p>
+      <p style="margin:0 0 16px; line-height:1.5; color:#a1a1aa; font-size:13px;">
+        This link expires in ${ttlLabel}.
+      </p>
+      <p style="margin:0; line-height:1.6; color:#374151; font-size:15px;">
+        If you have any questions, please don't hesitate to reach out to us!
+      </p>`,
+    ctaUrl: resetUrl,
+    ctaLabel: 'Set your password',
+    footer: 'Sent by Investment Brain.',
+  });
+
+  const text = [
+    `Hi ${name},`,
+    '',
+    'Welcome to Brain! Please click the link below to set your password and log in.',
+    '',
+    resetUrl,
+    '',
+    `This link expires in ${ttlLabel}.`,
+    '',
+    "If you have any questions, please don't hesitate to reach out to us!",
+    '',
+    '— Investment Brain',
+  ].join('\n');
+
+  return { subject, html, text };
+}
+
 export interface ResearchSummaryEmailInput {
   /** Recipient address — typically the requesting user's own email. */
   email: string;
@@ -1150,6 +1225,33 @@ export class EmailService {
     const ttlMinutes = input.ttlMinutes ?? 60;
     const resetUrl = buildResetUrl(token, appUrl);
     const { subject, html, text } = renderForgotPasswordEmail({ resetUrl, ttlMinutes });
+
+    return this.sender({
+      to: email,
+      subject,
+      html,
+      text,
+    });
+  }
+
+  /**
+   * Send the account-invite email containing a one-time "set your password"
+   * link to a user an admin just created via `AuthService.signUp`. Reuses the
+   * same reset-token mechanics and `/reset-password` page as the forgot-password
+   * flow — the `token` is a row in `reset_password_tokens`.
+   */
+  async sendAccountInviteEmail(
+    input: AccountInviteEmailInput,
+  ): Promise<SendEmailResult> {
+    const { email, name, token, appUrl } = input;
+    if (!email) throw new Error('sendAccountInviteEmail: email is required');
+    if (!name) throw new Error('sendAccountInviteEmail: name is required');
+    if (!token) throw new Error('sendAccountInviteEmail: token is required');
+    if (!appUrl) throw new Error('sendAccountInviteEmail: appUrl is required');
+
+    const ttlMinutes = input.ttlMinutes ?? 7 * 24 * 60;
+    const resetUrl = buildResetUrl(token, appUrl);
+    const { subject, html, text } = renderAccountInviteEmail({ name, resetUrl, ttlMinutes });
 
     return this.sender({
       to: email,

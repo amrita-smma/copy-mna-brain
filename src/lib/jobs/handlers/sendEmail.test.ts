@@ -101,6 +101,72 @@ describe('runSendEmail', () => {
     ).rejects.toThrow('SES rate limit');
   });
 
+  it('throws when account_invite payload is missing `name`', async () => {
+    await expect(
+      runSendEmail({
+        kind: 'account_invite',
+        to: 'a@b.com',
+        name: '',
+        token: 't',
+        appUrl: 'https://x.com',
+      }),
+    ).rejects.toThrow('`name` is required');
+  });
+
+  it('throws when account_invite payload is missing `token`', async () => {
+    await expect(
+      runSendEmail({
+        kind: 'account_invite',
+        to: 'a@b.com',
+        name: 'Jane',
+        token: '',
+        appUrl: 'https://x.com',
+      }),
+    ).rejects.toThrow('`token` is required');
+  });
+
+  it('throws when account_invite payload is missing `appUrl`', async () => {
+    await expect(
+      runSendEmail({
+        kind: 'account_invite',
+        to: 'a@b.com',
+        name: 'Jane',
+        token: 't',
+        appUrl: '',
+      }),
+    ).rejects.toThrow('`appUrl` is required');
+  });
+
+  it('delegates account_invite to EmailService.sendAccountInviteEmail', async () => {
+    const emailService = new EmailService(
+      vi.fn().mockResolvedValue({ messageId: 'msg-invite' }),
+    );
+    const spy = vi.spyOn(emailService, 'sendAccountInviteEmail');
+    const payload: SendEmailPayload = {
+      kind: 'account_invite',
+      to: 'new@example.com',
+      name: 'Jane Doe',
+      token: 'tok-1',
+      appUrl: 'https://app.example.com',
+      ttlMinutes: 10080,
+    };
+
+    const result = await runSendEmail(payload, { emailService });
+
+    expect(spy).toHaveBeenCalledWith({
+      email: 'new@example.com',
+      name: 'Jane Doe',
+      token: 'tok-1',
+      appUrl: 'https://app.example.com',
+      ttlMinutes: 10080,
+    });
+    expect(result).toEqual({
+      kind: 'account_invite',
+      to: 'new@example.com',
+      messageId: 'msg-invite',
+    });
+  });
+
   it('delegates task_completed to EmailService.sendTaskCompletedEmail', async () => {
     const emailService = new EmailService(
       vi.fn().mockResolvedValue({ messageId: 'm1' }),

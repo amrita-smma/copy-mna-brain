@@ -567,12 +567,22 @@ export const users = pgTable(
     // above (a free-text job title) or the per-workspace admin/editor/viewer
     // role on user_workspaces.role_id (in-workspace only).
     is_superadmin: boolean().default(false).notNull(),
+    // Soft "deactivate", mirroring workspaces.deleted_at. Non-null blocks
+    // sign-in (AuthService.signIn / signInWithGoogleToken /
+    // signInWithLauncherToken all reject it) but the row, its history, and
+    // every foreign key referencing it are kept — a superadmin can
+    // reactivate the account at any time via the admin portal.
+    deactivated_at: timestamp({ withTimezone: true, mode: "string" }),
   },
   (table) => {
     return {
       idxUsersEmail: index("idx_users_email").using(
         "btree",
         table.email.asc().nullsLast().op("text_ops"),
+      ),
+      idxUsersDeactivatedAt: index("idx_users_deactivated_at").using(
+        "btree",
+        table.deactivated_at.asc().nullsLast().op("timestamptz_ops"),
       ),
       usersEmailKey: unique("users_email_key").on(table.email),
       allowDeleteAccessOnUsers: pgPolicy("Allow delete access on users", {

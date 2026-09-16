@@ -988,6 +988,13 @@
       "when": 1789430400000,
       "tag": "20260915000000_add_workspaces_deleted_at",
       "breakpoints": true
+    },
+    {
+      "idx": 141,
+      "version": "7",
+      "when": 1789516800000,
+      "tag": "20260916000000_add_users_deactivated_at",
+      "breakpoints": true
     }
   ]
 }

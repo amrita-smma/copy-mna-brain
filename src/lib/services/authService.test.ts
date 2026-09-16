@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ResetPasswordTokenRepository, UserRepository } from '@/lib/repositories';
 import type { Tables } from '@/lib/repositories';
-import { AuthService, UserNotRegisteredError } from './authService';
+import { AccountDeactivatedError, AuthService, UserNotRegisteredError } from './authService';
 import { hashPassword } from './password';
 
 type User = Tables<'users'>;
@@ -18,6 +18,12 @@ const verifyGoogleIdTokenMock = vi.fn();
 
 vi.mock('./googleToken', () => ({
   verifyGoogleIdToken: (...args: unknown[]) => verifyGoogleIdTokenMock(...args),
+}));
+
+const verifyLauncherTokenMock = vi.fn();
+
+vi.mock('./launcherToken', () => ({
+  verifyLauncherToken: (...args: unknown[]) => verifyLauncherTokenMock(...args),
 }));
 
 function makeUser(overrides: Partial<User> = {}): User {
@@ -75,6 +81,24 @@ describe('AuthService.signIn', () => {
     const result = await service.signIn('test@example.com', 'correct');
     expect(result).toBe(user);
   });
+
+  it('throws AccountDeactivatedError for a deactivated user, even with the correct password', async () => {
+    const hash = await hashPassword('correct');
+    const user = makeUser({ password: hash, deactivated_at: '2026-02-01T00:00:00.000Z' });
+    vi.mocked(userRepo.findByEmail).mockResolvedValue(user);
+    await expect(service.signIn('test@example.com', 'correct')).rejects.toBeInstanceOf(
+      AccountDeactivatedError,
+    );
+  });
+
+  it('still rejects a wrong password for a deactivated user as "Invalid email or password"', async () => {
+    const hash = await hashPassword('correct');
+    const user = makeUser({ password: hash, deactivated_at: '2026-02-01T00:00:00.000Z' });
+    vi.mocked(userRepo.findByEmail).mockResolvedValue(user);
+    await expect(service.signIn('test@example.com', 'wrong')).rejects.toThrow(
+      'Invalid email or password',
+    );
+  });
 });
 
 describe('AuthService.signInWithGoogleToken', () => {
@@ -115,39 +139,130 @@ describe('AuthService.signInWithGoogleToken', () => {
     expect(result).toBe(user);
     expect(verifyGoogleIdTokenMock).toHaveBeenCalledWith('good-token');
   });
+
+  it('throws AccountDeactivatedError for a deactivated user', async () => {
+    verifyGoogleIdTokenMock.mockResolvedValue('test@example.com');
+    vi.mocked(userRepo.findByEmail).mockResolvedValue(
+      makeUser({ email: 'test@example.com', deactivated_at: '2026-02-01T00:00:00.000Z' }),
+    );
+    await expect(service.signInWithGoogleToken('good-token')).rejects.toBeInstanceOf(
+      AccountDeactivatedError,
+    );
+  });
 });
 
-describe('AuthService.signUp', () => {
+describe('AuthService.signInWithLauncherToken', () => {
   let userRepo: UserRepository;
   let service: AuthService;
 
   beforeEach(() => {
+    verifyLauncherTokenMock.mockReset();
     userRepo = makeUserRepoStub();
     service = new AuthService(userRepo, makeTokenRepoStub());
+  });
+
+  it('throws a UserNotRegisteredError when no local account matches the verified email', async () => {
+    verifyLauncherTokenMock.mockResolvedValue({ email: 'ghost@example.com' });
     vi.mocked(userRepo.findByEmail).mockResolvedValue(undefined);
+    await expect(service.signInWithLauncherToken('good-token')).rejects.toBeInstanceOf(
+      UserNotRegisteredError,
+    );
+  });
+
+  it('returns the matching user for a valid token', async () => {
+    const user = makeUser({ email: 'test@example.com' });
+    verifyLauncherTokenMock.mockResolvedValue({ email: 'test@example.com' });
+    vi.mocked(userRepo.findByEmail).mockResolvedValue(user);
+
+    const result = await service.signInWithLauncherToken('good-token');
+
+    expect(result).toBe(user);
+  });
+
+  it('throws AccountDeactivatedError for a deactivated user', async () => {
+    verifyLauncherTokenMock.mockResolvedValue({ email: 'test@example.com' });
+    vi.mocked(userRepo.findByEmail).mockResolvedValue(
+      makeUser({ email: 'test@example.com', deactivated_at: '2026-02-01T00:00:00.000Z' }),
+    );
+    await expect(service.signInWithLauncherToken('good-token')).rejects.toBeInstanceOf(
+      AccountDeactivatedError,
+    );
+  });
+});
+
+describe('AuthService.signUp', () => {
+  let userRepo: UserRepository;
+  let tokenRepo: ResetPasswordTokenRepository;
+  let service: AuthService;
+
+  beforeEach(() => {
+    enqueueSendEmailMock.mockClear();
+    enqueueSendEmailMock.mockResolvedValue({ messageId: 'msg-1' });
+    userRepo = makeUserRepoStub();
+    tokenRepo = makeTokenRepoStub();
+    service = new AuthService(userRepo, tokenRepo);
+    vi.mocked(userRepo.findByEmail).mockResolvedValue(undefined);
+    vi.mocked(userRepo.create).mockResolvedValue(
+      makeUser({ id: 'new-user-id', name: 'name', email: 'new@example.com' }),
+    );
   });
 
   it('throws when required fields are missing', async () => {
-    await expect(service.signUp('', 'name', 'pw')).rejects.toThrow('required');
-    await expect(service.signUp('a@b.com', '', 'pw')).rejects.toThrow('required');
+    await expect(service.signUp('', 'name', 'https://app.example.com')).rejects.toThrow('required');
+    await expect(service.signUp('a@b.com', '', 'https://app.example.com')).rejects.toThrow('required');
     await expect(service.signUp('a@b.com', 'name', '')).rejects.toThrow('required');
   });
 
   it('throws when email is already registered', async () => {
     vi.mocked(userRepo.findByEmail).mockResolvedValue(makeUser());
-    await expect(service.signUp('test@example.com', 'name', 'pw')).rejects.toThrow('already registered');
+    await expect(
+      service.signUp('test@example.com', 'name', 'https://app.example.com'),
+    ).rejects.toThrow('already registered');
   });
 
   it('normalizes email to lowercase and trims whitespace before lookup', async () => {
-    await service.signUp('  User@Example.COM  ', 'name', 'password');
+    await service.signUp('  User@Example.COM  ', 'name', 'https://app.example.com');
     expect(userRepo.findByEmail).toHaveBeenCalledWith('user@example.com');
   });
 
-  it('stores a hashed password, not the plaintext', async () => {
-    await service.signUp('new@example.com', 'name', 'mypassword');
+  it('stores a random hashed password the caller never supplies', async () => {
+    await service.signUp('new@example.com', 'name', 'https://app.example.com');
     const createCall = vi.mocked(userRepo.create).mock.calls[0][0];
-    expect(createCall.password).not.toBe('mypassword');
     expect(createCall.password).toMatch(/^scrypt\$/);
+  });
+
+  it('mints a reset-password token and enqueues an account_invite email', async () => {
+    await service.signUp('new@example.com', 'Jane Doe', 'https://app.example.com');
+
+    const tokenCall = vi.mocked(tokenRepo.create).mock.calls[0][0];
+    expect(tokenCall.user_id).toBe('new-user-id');
+    expect(typeof tokenCall.token).toBe('string');
+    expect((tokenCall.token as string).length).toBeGreaterThan(20);
+    expect(new Date(tokenCall.valid_until as string).getTime()).toBeGreaterThan(Date.now());
+
+    expect(enqueueSendEmailMock).toHaveBeenCalledTimes(1);
+    const payload = enqueueSendEmailMock.mock.calls[0][0];
+    expect(payload).toMatchObject({
+      kind: 'account_invite',
+      to: 'new@example.com',
+      name: 'Jane Doe',
+      token: tokenCall.token,
+      appUrl: 'https://app.example.com',
+    });
+    expect(payload.ttlMinutes).toBeGreaterThan(0);
+  });
+
+  it('returns the created user', async () => {
+    const result = await service.signUp('new@example.com', 'name', 'https://app.example.com');
+    expect(result).toEqual({ id: 'new-user-id', name: 'name', email: 'new@example.com' });
+  });
+
+  it('swallows enqueue failures — the account is still created', async () => {
+    enqueueSendEmailMock.mockRejectedValueOnce(new Error('queue down'));
+    await expect(
+      service.signUp('new@example.com', 'name', 'https://app.example.com'),
+    ).resolves.toMatchObject({ id: 'new-user-id' });
+    expect(tokenRepo.create).toHaveBeenCalled();
   });
 });
 

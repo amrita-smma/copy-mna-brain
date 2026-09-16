@@ -1178,12 +1178,77 @@ X-Api-Secret: <ADMIN_SECRET>
 `src/lib/api/client.ts` (`apiRequest`) attaches this header automatically from
 `ADMIN_SECRET` for server-side internal calls. Current admin routes:
 
-- `/api/auth/signup` — provision a user account
+- `/api/auth/signup` — M2M user creation (same invite-email flow as
+  session-gated `POST /api/users`; see "Account invite flow" below)
 - `/api/auth/api-keys`, `/api/auth/api-keys/:id` — chat API key management (above)
 
 **Adding a new admin route:** place it under `src/app/api/auth/<route>/`, and add
 its path to the `matcher` array in `src/proxy.ts` so the `X-Api-Secret` gate
 applies. Do not add a per-handler session check — auth happens in the middleware.
+
+## Account invite flow (admin-created users)
+
+The admin portal's User Management section (`/admin-portal`, above the
+per-workspace panel → "Add user") provisions a brand-new account via
+session-gated `POST /api/users` (superadmin-only).
+Machine callers that already hold `ADMIN_SECRET` can use the equivalent
+`POST /api/auth/signup` instead. Both go through `AuthService.signUp`. The
+admin supplies only a name and email — no password is ever collected from or
+chosen by the admin:
+
+1. `AuthService.signUp` creates the `users` row with a random, hashed,
+   never-communicated password (so the account cannot be signed into until
+   the invite link below is used).
+2. It mints a token in `reset_password_tokens` (7-day TTL — longer than the
+   1h forgot-password TTL, since a new user may not check email right away)
+   and publishes an `account_invite` message to the same `send-email` topic
+   used by the forgot-password flow.
+3. The consumer route renders the `account_invite` template
+   (`EmailService.sendAccountInviteEmail` /
+   `renderAccountInviteEmail`) and emails a link to
+   `/reset-password?token=<token>` — the exact same page and
+   `/api/auth/reset-password` endpoint the forgot-password flow uses.
+4. If the invite email never arrives (queue outage, wrong inbox, expired
+   link), the user has an ordinary escape hatch: "Forgot password?" on the
+   login page re-issues a fresh reset link for the same account.
+
+Reusing `reset_password_tokens` and `/reset-password` instead of a
+dedicated invite-token table/page keeps "set a password for the first time"
+and "reset a forgotten password" as one mechanism with two entry points.
+
+## User Management (admin portal)
+
+`/admin-portal` renders a "User Management" section above the per-workspace
+"Workspace Configuration" panel: a superadmin-only global directory of every
+platform user, backed by `UserService` and `PATCH/DELETE /api/users/[id]`,
+`POST /api/users/[id]/reactivate`, and `POST /api/users/[id]/send-reset-link`
+(all session-gated superadmin routes, following the same `auth()` +
+`workspaceService.isSuperadmin` gate as `POST /api/users` and
+`/api/workspaces/[id]`).
+
+Supported actions per user:
+- **Add** — see "Account invite flow" above.
+- **Change name / change email** — inline edit, `UserService.updateProfile`.
+  A new email must not already belong to a different user.
+- **Send password-reset link** — `UserService.sendResetLink` delegates to
+  `AuthService.forgetPassword`, the same mechanism the self-service "Forgot
+  password?" flow uses, just triggered by an admin instead of the user.
+- **Deactivate / Reactivate** — soft delete, not a hard `DELETE FROM users`.
+
+**Why deactivate instead of a hard delete.** `users.id` is referenced by
+~40 foreign keys across the schema. A few (company-vote sessions/ballots)
+are `onDelete: restrict`, so a real hard delete throws outright for any user
+who has ever voted; most others are `onDelete: cascade` (workspace
+memberships, chat history, consents, recent files, reset tokens), so a hard
+delete would silently wipe them for everyone else. `users.deactivated_at`
+(migration `20260916000000_add_users_deactivated_at.sql`) mirrors the
+`workspaces.deleted_at` soft-delete pattern instead: a non-null value blocks
+sign-in (checked in `AuthService.signIn` / `signInWithGoogleToken` /
+`signInWithLauncherToken`, raised as `AccountDeactivatedError`) but the row,
+its history, and every foreign key referencing it are left untouched, so a
+superadmin can reactivate the account at any time. A superadmin cannot
+deactivate their own account (`CannotDeactivateSelfError`) — that would lock
+them out with no one left to reverse it.
 
 ## Forgot-password flow (AWS SES + Vercel Queues)
 

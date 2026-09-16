@@ -61,6 +61,15 @@ describe('proxy /w/ authentication gate', () => {
     );
   });
 
+  it('does not hijack /reset-password?token=... into the SSO deeplink handler', () => {
+    // reset_password_tokens are opaque hex strings, not Google/launcher JWTs —
+    // routing them through /api/auth/sso would fail verification and bounce
+    // the user to /login instead of the set-password form (see reset-password
+    // page.tsx, which reads this same `token` query param itself).
+    const res = runProxy('/reset-password?token=9874664851809f38aa37e337a7eb2522193cb741');
+    expect(res.headers.get('location')).toBeNull();
+  });
+
   it('still bounces an authenticated non-member to the picker, not the deeplink', () => {
     const res = runProxy('/w/other-tenant/pipeline', {
       user: { id: 'u1', isSuperadmin: false, workspaces: [{ slug: 'togan-vcc' }], hasConsented: true },

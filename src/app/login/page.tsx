@@ -8,6 +8,7 @@ import { useTheme } from 'next-themes';
 import { useAuth } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { PasswordInput } from '@/components/ui/password-input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { LivingBackground } from '@/components/LivingBackground';
@@ -162,9 +163,8 @@ function LoginForm() {
             </div>
             <div className="space-y-2">
               <Label htmlFor="signin-password" className="text-sm text-black/80 dark:text-white/80">Password</Label>
-              <Input
+              <PasswordInput
                 id="signin-password"
-                type="password"
                 placeholder="••••••••"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
