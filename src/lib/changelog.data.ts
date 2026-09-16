@@ -12,6 +12,20 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "category": "feature"
   },
   {
+    "hash": "568e00a3cfb80fb097d9156485a9e394fccc5879",
+    "date": "2026-09-16",
+    "subject": "Password reset emails now match the platform's standard notification design",
+    "category": "improvement"
+  },
+  {
+    "hash": "c11d887ed1f0e51da4c19492be6622c4d54c7da1",
+    "date": "2026-09-16",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "afda0fdb62c5662f3bb4e0ed297622c22ebbe954",
     "date": "2026-09-15",
     "subject": "Archive and reinstate workspaces without permanent deletion",
