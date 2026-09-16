@@ -6,10 +6,24 @@ import type { ChangelogEntry } from './changelog';
 
 export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   {
+    "hash": "24360938bf2b45c958af280289bd81822e4e3101",
+    "date": "2026-09-16",
+    "subject": "Superadmins can now deactivate and reactivate user accounts",
+    "category": "feature"
+  },
+  {
     "hash": "afda0fdb62c5662f3bb4e0ed297622c22ebbe954",
     "date": "2026-09-15",
     "subject": "Archive and reinstate workspaces without permanent deletion",
     "category": "improvement"
+  },
+  {
+    "hash": "2be78452f008fc25c7a6f79f2e807319186fa39f",
+    "date": "2026-09-15",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
   },
   {
     "hash": "fffc0f20a58085a0b632ee3d4c8d9d315a9006f8",
