@@ -53,35 +53,30 @@ export function renderForgotPasswordEmail(input: {
 }): { subject: string; html: string; text: string } {
   const { resetUrl, ttlMinutes } = input;
   const safeUrl = escapeHtml(resetUrl);
+  const ttlLabel = formatTtl(ttlMinutes);
   const subject = 'Reset your Investment Brain password';
 
-  const html = `<!DOCTYPE html>
-<html>
-  <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background:#f4f4f5; padding:24px; color:#111;">
-    <div style="max-width:560px; margin:0 auto; background:#fff; border-radius:8px; padding:32px; border:1px solid #e4e4e7;">
-      <h1 style="margin:0 0 16px; font-size:20px;">Reset your password</h1>
-      <p style="margin:0 0 16px; line-height:1.5;">
+  const html = renderNotificationShell({
+    bannerTitle: 'Reset your password',
+    accent: '#6d5ef5',
+    accentDark: '#5a4bd6',
+    bodyHtml: `<p style="margin:0 0 16px; line-height:1.6; color:#374151; font-size:15px;">
         We received a request to reset the password for your Investment Brain account.
         Click the button below to choose a new password.
-      </p>
-      <p style="margin:24px 0;">
-        <a
-          href="${safeUrl}"
-          style="display:inline-block; background:#111; color:#fff; padding:12px 20px; border-radius:6px; text-decoration:none; font-weight:600;"
-        >Reset password</a>
       </p>
       <p style="margin:0 0 16px; line-height:1.5; color:#52525b; font-size:14px;">
         Or paste this link into your browser:<br />
         <a href="${safeUrl}" style="color:#2563eb; word-break:break-all;">${safeUrl}</a>
       </p>
-      <p style="margin:0 0 16px; line-height:1.5; color:#52525b; font-size:14px;">
-        This link expires in ${ttlMinutes} minutes. If you didn't request a
-        password reset, you can safely ignore this email — your current
-        password will continue to work.
-      </p>
-    </div>
-  </body>
-</html>`;
+      <p style="margin:0; line-height:1.5; color:#a1a1aa; font-size:13px;">
+        This link expires in ${ttlLabel}. If you didn't request a password
+        reset, you can safely ignore this email — your current password will
+        continue to work.
+      </p>`,
+    ctaUrl: resetUrl,
+    ctaLabel: 'Reset password',
+    footer: 'Sent by Investment Brain.',
+  });
 
   const text = [
     'Reset your Investment Brain password',
@@ -91,7 +86,7 @@ export function renderForgotPasswordEmail(input: {
     '',
     resetUrl,
     '',
-    `This link expires in ${ttlMinutes} minutes. If you didn't request a`,
+    `This link expires in ${ttlLabel}. If you didn't request a`,
     'password reset, you can safely ignore this email — your current',
     'password will continue to work.',
   ].join('\n');
