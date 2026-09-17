@@ -6,6 +6,12 @@ import type { ChangelogEntry } from './changelog';
 
 export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   {
+    "hash": "8d16c4cb2ddefe995eccebd6ce2b4cf2f23e4b2e",
+    "date": "2026-09-17",
+    "subject": "Admin portal now displays user lists and workspace cards more efficiently",
+    "category": "improvement"
+  },
+  {
     "hash": "24360938bf2b45c958af280289bd81822e4e3101",
     "date": "2026-09-16",
     "subject": "Superadmins can now deactivate and reactivate user accounts",
@@ -19,6 +25,14 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   },
   {
     "hash": "c11d887ed1f0e51da4c19492be6622c4d54c7da1",
+    "date": "2026-09-16",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
+    "hash": "aaff95e785e7a3d466ca4bb7146f0c755edaf951",
     "date": "2026-09-16",
     "subject": "[skip deploy] chore: update changelog",
     "category": "improvement",
