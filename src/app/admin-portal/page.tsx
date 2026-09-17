@@ -7,6 +7,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { consentUrlWithCallback } from '@/lib/callbackUrl';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import {
   Select,
   SelectContent,
@@ -18,6 +19,15 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from '@/components/ui/dialog';
 import {
   Command,
   CommandEmpty,
@@ -131,11 +141,6 @@ interface Member {
   hasConsented: boolean;
 }
 
-/** An "Add user" row that hasn't picked a person yet — no server call until it does. */
-interface DraftRow {
-  draftId: string;
-}
-
 /** One app feature and its effective on/off state, from `GET /api/workspaces/{id}/features`. */
 interface FeatureFlagState {
   key: string;
@@ -178,7 +183,6 @@ export default function AdminPortalPage() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [members, setMembers] = useState<Member[]>([]);
   const [membersLoading, setMembersLoading] = useState(false);
-  const [draftRows, setDraftRows] = useState<DraftRow[]>([]);
   const [editingName, setEditingName] = useState(false);
   const [nameDraft, setNameDraft] = useState('');
   const [editingSlug, setEditingSlug] = useState(false);
@@ -190,6 +194,10 @@ export default function AdminPortalPage() {
   const [showDeleted, setShowDeleted] = useState(false);
   const [workspaceMgmtExpanded, setWorkspaceMgmtExpanded] = useState(true);
   const [archivePending, setArchivePending] = useState(false);
+  const [addMemberOpen, setAddMemberOpen] = useState(false);
+  const [addMemberUserId, setAddMemberUserId] = useState<string | null>(null);
+  const [addMemberRoleName, setAddMemberRoleName] = useState<string | undefined>(undefined);
+  const [addMemberPending, setAddMemberPending] = useState(false);
 
   useEffect(() => {
     if (loading) return;
@@ -341,7 +349,7 @@ export default function AdminPortalPage() {
 
   useEffect(() => {
     if (!selectedId) return;
-    setDraftRows([]);
+    setAddMemberOpen(false);
     loadMembers(selectedId);
     loadFeatures(selectedId);
   }, [selectedId, loadMembers, loadFeatures]);
@@ -359,8 +367,21 @@ export default function AdminPortalPage() {
   // Archived workspaces are listed separately, underneath the live ones, and
   // only for a superadmin. The page already bounces non-superadmins, but the
   // flag is re-read here so the section can never render for anyone else.
-  const activeWorkspaces = useMemo(() => workspaces.filter((w) => !w.deleted_at), [workspaces]);
-  const deletedWorkspaces = useMemo(() => workspaces.filter((w) => w.deleted_at), [workspaces]);
+  // Both lists are alphabetical by name, matching the workspace selector.
+  const activeWorkspaces = useMemo(
+    () =>
+      workspaces
+        .filter((w) => !w.deleted_at)
+        .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })),
+    [workspaces],
+  );
+  const deletedWorkspaces = useMemo(
+    () =>
+      workspaces
+        .filter((w) => w.deleted_at)
+        .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })),
+    [workspaces],
+  );
   const canSeeDeleted = Boolean(user?.isSuperadmin);
 
   // Split features across the settings tabs. The Funds tab owns its own
@@ -553,34 +574,36 @@ export default function AdminPortalPage() {
   };
 
   const assignedUserIds = useMemo(() => new Set(members.map((m) => m.userId)), [members]);
-  const hasEmptyDraft = draftRows.length > 0;
   const allAssigned = dbUsers.length > 0 && assignedUserIds.size >= dbUsers.length;
 
-  const handleAddUserRow = () => {
-    setDraftRows((prev) => [...prev, { draftId: crypto.randomUUID() }]);
+  const openAddMemberDialog = () => {
+    setAddMemberUserId(null);
+    setAddMemberRoleName(defaultRoleName);
+    setAddMemberOpen(true);
   };
 
-  const removeDraftRow = (draftId: string) => {
-    setDraftRows((prev) => prev.filter((r) => r.draftId !== draftId));
-  };
-
-  const selectUserForDraft = async (draftId: string, userId: string) => {
-    if (!selected || !defaultRoleName) return;
+  const handleAddMember = async () => {
+    if (!selected || !addMemberUserId || !addMemberRoleName) return;
+    const userId = addMemberUserId;
+    const roleName = addMemberRoleName;
     const userName = usersById.get(userId)?.name ?? 'User';
+    setAddMemberPending(true);
     try {
       const res = await fetch(`/api/workspaces/${selected.id}/members`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId, roleName: defaultRoleName }),
+        body: JSON.stringify({ userId, roleName }),
       });
       if (!res.ok) throw new Error((await res.json())?.error ?? 'Failed to add member');
-      removeDraftRow(draftId);
       await loadMembers(selected.id);
+      setAddMemberOpen(false);
       toast.success(`${userName} added to ${selected.name}`);
     } catch (err) {
       toast.error(
         err instanceof Error ? err.message : `Could not add ${userName} to ${selected.name}`,
       );
+    } finally {
+      setAddMemberPending(false);
     }
   };
 
@@ -703,7 +726,7 @@ export default function AdminPortalPage() {
           </button>
 
           {workspaceMgmtExpanded && (
-            <div className="grid grid-cols-1 gap-6 border-t p-4 lg:h-[600px] lg:grid-cols-[320px_1fr]">
+            <div className="grid grid-cols-1 gap-6 border-t p-4 lg:h-[1200px] lg:grid-cols-[320px_1fr]">
               {/* Workspace list */}
               <aside className="flex min-h-0 flex-col gap-3">
             <div className="flex items-center justify-between">
@@ -767,7 +790,47 @@ export default function AdminPortalPage() {
               </aside>
 
               {/* Configuration panel */}
-              <section className="flex min-h-0 flex-col rounded-2xl border bg-card shadow-sm">
+              <section className="relative flex min-h-0 flex-col rounded-2xl border bg-card shadow-sm">
+            {selected && !isSelectedDeleted && (
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <Button
+                    type="button"
+                    size="icon"
+                    variant="ghost"
+                    disabled={archivePending}
+                    aria-label={`Delete ${selected.name}`}
+                    className="absolute right-4 top-4 z-10 h-8 w-8 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                  >
+                    {archivePending ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Trash2 className="h-4 w-4" />
+                    )}
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Delete workspace</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      Delete {selected.name}? Its members lose access immediately and it
+                      disappears from their workspace list. Nothing is erased — the workspace
+                      keeps its data and its slug, and you can reinstate it from the Deleted
+                      section at any time.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                    <AlertDialogAction
+                      onClick={handleDeleteWorkspace}
+                      className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                    >
+                      Delete
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+            )}
             {selected && (
               <div className="flex min-h-0 flex-1 flex-col gap-8 p-6">
                 {editingName ? (
@@ -872,7 +935,7 @@ export default function AdminPortalPage() {
                   </button>
                 )}
 
-                {isSelectedDeleted ? (
+                {isSelectedDeleted && (
                   /* Archived state: the settings tabs below are hidden, so this
                      banner is the whole panel — say what's true of the
                      workspace and offer the one action that applies. */
@@ -905,45 +968,6 @@ export default function AdminPortalPage() {
                       Reinstate workspace
                     </Button>
                   </div>
-                ) : (
-                  <AlertDialog>
-                    <AlertDialogTrigger asChild>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        disabled={archivePending}
-                        className="w-fit text-destructive hover:bg-destructive/10 hover:text-destructive"
-                      >
-                        {archivePending ? (
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                        ) : (
-                          <Trash2 className="h-4 w-4" />
-                        )}
-                        Delete workspace
-                      </Button>
-                    </AlertDialogTrigger>
-                    <AlertDialogContent>
-                      <AlertDialogHeader>
-                        <AlertDialogTitle>Delete workspace</AlertDialogTitle>
-                        <AlertDialogDescription>
-                          Delete {selected.name}? Its members lose access immediately and it
-                          disappears from their workspace list. Nothing is erased — the workspace
-                          keeps its data and its slug, and you can reinstate it from the Deleted
-                          section at any time.
-                        </AlertDialogDescription>
-                      </AlertDialogHeader>
-                      <AlertDialogFooter>
-                        <AlertDialogCancel>Cancel</AlertDialogCancel>
-                        <AlertDialogAction
-                          onClick={handleDeleteWorkspace}
-                          className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                        >
-                          Delete
-                        </AlertDialogAction>
-                      </AlertDialogFooter>
-                    </AlertDialogContent>
-                  </AlertDialog>
                 )}
 
                 {!isSelectedDeleted && (
@@ -1022,16 +1046,84 @@ export default function AdminPortalPage() {
                       <h3 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
                         Users
                       </h3>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        onClick={handleAddUserRow}
-                        disabled={usersLoading || hasEmptyDraft || allAssigned}
+                      <Dialog
+                        open={addMemberOpen}
+                        onOpenChange={(open) => {
+                          if (!open && addMemberPending) return;
+                          setAddMemberOpen(open);
+                        }}
                       >
-                        <Plus className="h-4 w-4" />
-                        {allAssigned ? 'All users added' : 'Add user'}
-                      </Button>
+                        <DialogTrigger asChild>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            onClick={openAddMemberDialog}
+                            disabled={usersLoading || allAssigned}
+                          >
+                            <Plus className="h-4 w-4" />
+                            {allAssigned ? 'All users added' : 'Add user'}
+                          </Button>
+                        </DialogTrigger>
+                        <DialogContent>
+                          <DialogHeader>
+                            <DialogTitle>Add user to {selected.name}</DialogTitle>
+                            <DialogDescription>
+                              Pick an existing user and the role they&apos;ll have in this
+                              workspace.
+                            </DialogDescription>
+                          </DialogHeader>
+                          <div className="space-y-3">
+                            <div className="space-y-1.5">
+                              <Label>User</Label>
+                              <UserCombobox
+                                selectedUser={
+                                  addMemberUserId ? usersById.get(addMemberUserId) ?? null : null
+                                }
+                                options={dbUsers.filter((u) => !assignedUserIds.has(u.id))}
+                                onSelect={setAddMemberUserId}
+                              />
+                            </div>
+                            <div className="space-y-1.5">
+                              <Label>Role</Label>
+                              <Select value={addMemberRoleName} onValueChange={setAddMemberRoleName}>
+                                <SelectTrigger className="capitalize">
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {roles.map((role) => (
+                                    <SelectItem key={role.id} value={role.name} className="capitalize">
+                                      {role.name}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            </div>
+                          </div>
+                          <DialogFooter>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              onClick={() => setAddMemberOpen(false)}
+                              disabled={addMemberPending}
+                            >
+                              Cancel
+                            </Button>
+                            <Button
+                              type="button"
+                              onClick={handleAddMember}
+                              disabled={addMemberPending || !addMemberUserId || !addMemberRoleName}
+                            >
+                              {addMemberPending ? (
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                              ) : (
+                                <Plus className="h-4 w-4" />
+                              )}
+                              Add
+                            </Button>
+                          </DialogFooter>
+                        </DialogContent>
+                      </Dialog>
                     </div>
 
                     {usersLoading || membersLoading ? (
@@ -1040,7 +1132,7 @@ export default function AdminPortalPage() {
                     </div>
                     ) : (
                     <div className="mt-3 min-h-0 flex-1 overflow-y-auto pr-1">
-                      {(members.length > 0 || draftRows.length > 0) && (
+                      {members.length > 0 && (
                         <div
                           className={cn(
                             'hidden gap-2 px-3 pb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground sm:grid',
@@ -1055,8 +1147,8 @@ export default function AdminPortalPage() {
                         </div>
                       )}
                       <div className="space-y-2">
-                      {members.length === 0 && draftRows.length === 0 && (
-                        <p className="rounded-lg border border-dashed py-6 text-center text-sm text-muted-foreground">
+                      {members.length === 0 && (
+                        <p className="rounded-lg border border-dashed bg-muted py-6 text-center text-sm text-muted-foreground">
                           No users yet.
                         </p>
                       )}
@@ -1136,48 +1228,6 @@ export default function AdminPortalPage() {
                                 </AlertDialogFooter>
                               </AlertDialogContent>
                             </AlertDialog>
-                          </div>
-                        );
-                      })}
-                      {draftRows.map((draft) => {
-                        const options = dbUsers.filter((u) => !assignedUserIds.has(u.id));
-                        return (
-                          <div
-                            key={draft.draftId}
-                            className={cn(
-                              'grid grid-cols-1 items-center gap-2 rounded-lg border bg-background px-3 py-2',
-                              MEMBER_ROW_GRID,
-                            )}
-                          >
-                            <UserCombobox
-                              selectedUser={null}
-                              options={options}
-                              onSelect={(userId) => selectUserForDraft(draft.draftId, userId)}
-                            />
-                            <Select value={defaultRoleName} disabled>
-                              <SelectTrigger className="capitalize">
-                                <SelectValue />
-                              </SelectTrigger>
-                              <SelectContent>
-                                {roles.map((role) => (
-                                  <SelectItem key={role.id} value={role.name} className="capitalize">
-                                    {role.name}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                            <EmailSyncCombobox value={false} onChange={() => {}} disabled />
-                            <span className="text-xs text-muted-foreground">—</span>
-                            <Button
-                              type="button"
-                              size="icon"
-                              variant="ghost"
-                              onClick={() => removeDraftRow(draft.draftId)}
-                              aria-label="Remove row"
-                              className="h-9 w-9 shrink-0 text-muted-foreground hover:text-destructive"
-                            >
-                              <Minus className="h-4 w-4" />
-                            </Button>
                           </div>
                         );
                       })}
@@ -1366,6 +1416,12 @@ function UserCombobox({
       <PopoverContent
         align="start"
         className="w-[var(--radix-popover-trigger-width)] p-0"
+        // This combobox is also used inside the "Add user" Dialog, where the
+        // popover content is portalled outside the dialog — so the dialog's
+        // scroll lock would otherwise swallow wheel/touch events over the
+        // option list. See EntityCombobox for the same fix.
+        onWheel={(event) => event.stopPropagation()}
+        onTouchMove={(event) => event.stopPropagation()}
       >
         <Command>
           <CommandInput placeholder="Search users…" />

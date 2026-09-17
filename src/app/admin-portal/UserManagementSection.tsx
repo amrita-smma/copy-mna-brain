@@ -24,8 +24,13 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-  AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
 import {
   createUser,
@@ -39,15 +44,20 @@ import {
 import {
   Check,
   ChevronDown,
+  ChevronLeft,
   ChevronRight,
   Loader2,
   Mail,
+  MoreVertical,
   RotateCcw,
+  Search,
   UserPlus,
   Users as UsersIcon,
   UserX,
   X,
 } from 'lucide-react';
+
+const PAGE_SIZE = 10;
 
 function initialsFor(name: string) {
   return (
@@ -85,6 +95,8 @@ export function UserManagementSection({ currentUserId }: { currentUserId?: strin
   const [loading, setLoading] = useState(true);
   const [showDeactivated, setShowDeactivated] = useState(false);
   const [pendingId, setPendingId] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [page, setPage] = useState(1);
 
   const [createOpen, setCreateOpen] = useState(false);
   const [createName, setCreateName] = useState('');
@@ -110,6 +122,44 @@ export function UserManagementSection({ currentUserId }: { currentUserId?: strin
 
   const activeUsers = useMemo(() => users.filter((u) => !u.deactivated_at), [users]);
   const deactivatedUsers = useMemo(() => users.filter((u) => u.deactivated_at), [users]);
+
+  const normalizedQuery = searchQuery.trim().toLowerCase();
+
+  const filteredActiveUsers = useMemo(() => {
+    if (!normalizedQuery) return activeUsers;
+    return activeUsers.filter(
+      (u) =>
+        u.name.toLowerCase().includes(normalizedQuery) ||
+        (u.email ?? '').toLowerCase().includes(normalizedQuery),
+    );
+  }, [activeUsers, normalizedQuery]);
+  const filteredDeactivatedUsers = useMemo(() => {
+    if (!normalizedQuery) return deactivatedUsers;
+    return deactivatedUsers.filter(
+      (u) =>
+        u.name.toLowerCase().includes(normalizedQuery) ||
+        (u.email ?? '').toLowerCase().includes(normalizedQuery),
+    );
+  }, [deactivatedUsers, normalizedQuery]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredActiveUsers.length / PAGE_SIZE));
+  const currentPage = Math.min(page, totalPages);
+  const pageStart = (currentPage - 1) * PAGE_SIZE;
+  const pagedActiveUsers = filteredActiveUsers.slice(pageStart, pageStart + PAGE_SIZE);
+
+  // Keep `page` clamped to `totalPages` whenever the result set shrinks (a
+  // search narrows it, or a user gets deactivated off the active list) so
+  // Prev/Next — which step off `page`, not the display-only `currentPage` —
+  // don't have to "catch up" through several no-op clicks first.
+  useEffect(() => {
+    setPage((p) => Math.min(p, totalPages));
+  }, [totalPages]);
+
+  // Reset to page 1 whenever the search narrows/widens the result set, so a
+  // stale page number never lands on an empty page.
+  useEffect(() => {
+    setPage(1);
+  }, [normalizedQuery]);
 
   const handleCreateUser = async () => {
     const name = createName.trim();
@@ -294,18 +344,29 @@ export function UserManagementSection({ currentUserId }: { currentUserId?: strin
             </Dialog>
           </div>
 
+          <div className="relative mt-3">
+            <Search className="pointer-events-none absolute left-2 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search by name or email…"
+              className="pl-8"
+              aria-label="Search users"
+            />
+          </div>
+
           {loading ? (
             <div className="mt-3 flex items-center justify-center py-8 text-muted-foreground">
               <Loader2 className="h-5 w-5 animate-spin" />
             </div>
           ) : (
             <div className="mt-3 space-y-2">
-              {activeUsers.length === 0 && (
+              {filteredActiveUsers.length === 0 && (
                 <p className="rounded-lg border border-dashed bg-muted py-6 text-center text-sm text-muted-foreground">
-                  No users yet.
+                  {normalizedQuery ? 'No active users match your search.' : 'No users yet.'}
                 </p>
               )}
-              {activeUsers.map((user) => (
+              {pagedActiveUsers.map((user) => (
                 <UserRow
                   key={user.id}
                   user={user}
@@ -324,7 +385,41 @@ export function UserManagementSection({ currentUserId }: { currentUserId?: strin
             </div>
           )}
 
-          {!loading && deactivatedUsers.length > 0 && (
+          {!loading && filteredActiveUsers.length > PAGE_SIZE && (
+            <div className="mt-3 flex items-center justify-between border-t pt-3">
+              <span className="text-xs text-muted-foreground">
+                Showing {pageStart + 1}-{Math.min(pageStart + PAGE_SIZE, filteredActiveUsers.length)} of{' '}
+                {filteredActiveUsers.length}
+              </span>
+              <div className="flex items-center gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                  disabled={currentPage === 1}
+                  aria-label="Previous page"
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                </Button>
+                <span className="px-1 text-xs font-medium">
+                  {currentPage} / {totalPages}
+                </span>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                  disabled={currentPage === totalPages}
+                  aria-label="Next page"
+                >
+                  <ChevronRight className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {!loading && filteredDeactivatedUsers.length > 0 && (
             <div className="pt-3">
               <button
                 type="button"
@@ -337,11 +432,11 @@ export function UserManagementSection({ currentUserId }: { currentUserId?: strin
                 ) : (
                   <ChevronRight className="h-3.5 w-3.5" />
                 )}
-                Deactivated ({deactivatedUsers.length})
+                Deactivated ({filteredDeactivatedUsers.length})
               </button>
               {showDeactivated && (
                 <div className="mt-2 space-y-2">
-                  {deactivatedUsers.map((user) => (
+                  {filteredDeactivatedUsers.map((user) => (
                     <UserRow
                       key={user.id}
                       user={user}
@@ -501,56 +596,115 @@ function UserRow({
             Reactivate
           </Button>
         ) : (
-          <>
-            <Button
-              type="button"
-              size="icon"
-              variant="ghost"
-              title="Send password-reset link"
-              aria-label={`Send password-reset link to ${user.name}`}
-              onClick={onSendResetLink}
-              disabled={busy || !user.email}
-              className="h-8 w-8 text-muted-foreground hover:text-foreground"
-            >
-              {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Mail className="h-4 w-4" />}
-            </Button>
-            <AlertDialog>
-              <AlertDialogTrigger asChild>
-                <Button
-                  type="button"
-                  size="icon"
-                  variant="ghost"
-                  aria-label={`Deactivate ${user.name}`}
-                  disabled={busy || isSelf}
-                  title={isSelf ? "You can't deactivate your own account" : undefined}
-                  className="h-8 w-8 text-muted-foreground hover:text-destructive"
-                >
-                  <UserX className="h-4 w-4" />
-                </Button>
-              </AlertDialogTrigger>
-              <AlertDialogContent>
-                <AlertDialogHeader>
-                  <AlertDialogTitle>Deactivate user</AlertDialogTitle>
-                  <AlertDialogDescription>
-                    Deactivate {user.name}? They will no longer be able to sign in, but nothing
-                    is erased — their data, workspace memberships, and history all stay intact,
-                    and you can reactivate them at any time.
-                  </AlertDialogDescription>
-                </AlertDialogHeader>
-                <AlertDialogFooter>
-                  <AlertDialogCancel>Cancel</AlertDialogCancel>
-                  <AlertDialogAction
-                    onClick={onDeactivate}
-                    className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                  >
-                    Deactivate
-                  </AlertDialogAction>
-                </AlertDialogFooter>
-              </AlertDialogContent>
-            </AlertDialog>
-          </>
+          <UserRowMenu
+            user={user}
+            busy={busy}
+            isSelf={isSelf}
+            onSendResetLink={onSendResetLink}
+            onDeactivate={onDeactivate}
+          />
         )}
       </div>
     </div>
+  );
+}
+
+type UserRowAction = 'reset' | 'deactivate';
+
+/** Row-actions kebab menu for an active user — both actions are confirmed
+ *  before firing, so the menu drives a single controlled AlertDialog instead
+ *  of showing the destination action right on the row. */
+function UserRowMenu({
+  user,
+  busy,
+  isSelf,
+  onSendResetLink,
+  onDeactivate,
+}: {
+  user: AdminUser;
+  busy: boolean;
+  isSelf: boolean;
+  onSendResetLink: () => void;
+  onDeactivate: () => void;
+}) {
+  const [confirmAction, setConfirmAction] = useState<UserRowAction | null>(null);
+
+  return (
+    <AlertDialog
+      open={confirmAction !== null}
+      onOpenChange={(open) => {
+        if (!open) setConfirmAction(null);
+      }}
+    >
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button
+            type="button"
+            size="icon"
+            variant="ghost"
+            aria-label={`Actions for ${user.name}`}
+            disabled={busy}
+            className="h-8 w-8 text-muted-foreground hover:text-foreground"
+          >
+            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <MoreVertical className="h-4 w-4" />}
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end">
+          <DropdownMenuItem
+            onClick={() => setConfirmAction('reset')}
+            disabled={!user.email}
+          >
+            <Mail className="mr-2 h-4 w-4" />
+            Send reset link
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            onClick={() => setConfirmAction('deactivate')}
+            disabled={isSelf}
+            title={isSelf ? "You can't deactivate your own account" : undefined}
+            className="text-destructive focus:text-destructive"
+          >
+            <UserX className="mr-2 h-4 w-4 text-destructive" />
+            Deactivate
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+
+      {confirmAction === 'reset' && (
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Send password-reset link</AlertDialogTitle>
+            <AlertDialogDescription>
+              Send {user.name} a link to set a new password? It&apos;s valid for a limited time
+              and their current password keeps working until they use it.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={onSendResetLink}>Send link</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      )}
+      {confirmAction === 'deactivate' && (
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Deactivate user</AlertDialogTitle>
+            <AlertDialogDescription>
+              Deactivate {user.name}? They will no longer be able to sign in, but nothing is
+              erased — their data, workspace memberships, and history all stay intact, and you
+              can reactivate them at any time.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={onDeactivate}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Deactivate
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      )}
+    </AlertDialog>
   );
 }
