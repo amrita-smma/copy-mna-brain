@@ -12,6 +12,20 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "category": "improvement"
   },
   {
+    "hash": "56574227a057e3e75819b76e32ca62d1683701d9",
+    "date": "2026-09-17",
+    "subject": "Analytics now work reliably even with hostname-based ad blockers enabled",
+    "category": "improvement"
+  },
+  {
+    "hash": "224f93e28b10acc1604124ae435e3ef521b742f9",
+    "date": "2026-09-17",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "24360938bf2b45c958af280289bd81822e4e3101",
     "date": "2026-09-16",
     "subject": "Superadmins can now deactivate and reactivate user accounts",
