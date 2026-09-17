@@ -12,6 +12,47 @@ import { NextRequest, NextResponse } from 'next/server';
 // posthog-js itself, which has no way to attach the `X-Api-Secret` header
 // `src/proxy.ts` requires for `/api/*`. See `src/instrumentation-client.ts`,
 // which points `api_host` at this route.
+
+// Connection-scoped headers (RFC 9110 §7.6.1) plus `content-length`, which the
+// streamed body re-frames. Forwarding any of these to `fetch` is either
+// meaningless or, for `transfer-encoding`, a hard undici error.
+// `proxy-connection` is non-standard but the same section tells intermediaries
+// to drop it.
+const HOP_BY_HOP_HEADERS = [
+  'connection',
+  'content-length',
+  'keep-alive',
+  'proxy-authenticate',
+  'proxy-authorization',
+  'proxy-connection',
+  'te',
+  'trailer',
+  'transfer-encoding',
+  'upgrade',
+];
+
+// Hop-by-hop headers describe *this* connection, not the payload, so a proxy
+// must drop them rather than relay them. undici in particular rejects a
+// manually-set `transfer-encoding` outright (`InvalidArgumentError: invalid
+// transfer-encoding header`), which is what Next.js puts on a streamed POST
+// body. `content-length` goes too: the body we forward is a stream, so undici
+// frames it itself.
+function stripHopByHopHeaders(headers: Headers) {
+  // `Connection` may name *further* per-connection fields; those are hop-by-hop
+  // as well, so they have to go before `Connection` itself does. `close` is a
+  // bare directive rather than a field name.
+  for (const option of headers.get('connection')?.split(',') ?? []) {
+    const name = option.trim().toLowerCase();
+    if (name && name !== 'close') {
+      headers.delete(name);
+    }
+  }
+
+  for (const header of HOP_BY_HOP_HEADERS) {
+    headers.delete(header);
+  }
+}
+
 async function proxyToPostHog(request: NextRequest) {
   const posthogHost = process.env.NEXT_PUBLIC_POSTHOG_HOST?.trim();
   if (!posthogHost || posthogHost === 'posthog_host') {
@@ -24,7 +65,7 @@ async function proxyToPostHog(request: NextRequest) {
 
     const headers = new Headers(request.headers);
     headers.delete('host');
-    headers.delete('content-length');
+    stripHopByHopHeaders(headers);
     // Browser requests to same-origin `/ingest` include session cookies.
     // PostHog does not need them (or Authorization / our admin secret);
     // forwarding would leak credentials to a third party.
@@ -47,7 +88,7 @@ async function proxyToPostHog(request: NextRequest) {
     // Fetched already-decoded by undici; forwarding the original
     // Content-Encoding/-Length would mismatch the body we're passing through.
     responseHeaders.delete('content-encoding');
-    responseHeaders.delete('content-length');
+    stripHopByHopHeaders(responseHeaders);
 
     return new NextResponse(response.body, {
       status: response.status,
