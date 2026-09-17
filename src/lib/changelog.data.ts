@@ -26,6 +26,22 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "skipReason": "noise"
   },
   {
+    "hash": "107a408e61d705fa8b6ac4cd12c2ce2410cb8276",
+    "date": "2026-09-17",
+    "subject": "Fix PostHog ingest proxy 500s from undici rejecting hop-by-hop Transfer-Encoding.",
+    "category": "fix",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "60df581b6f699e440252e183ac0ac55cfa06fd75",
+    "date": "2026-09-17",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "24360938bf2b45c958af280289bd81822e4e3101",
     "date": "2026-09-16",
     "subject": "Superadmins can now deactivate and reactivate user accounts",
