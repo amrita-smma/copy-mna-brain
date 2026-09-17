@@ -10,7 +10,13 @@ const posthogHost = process.env.NEXT_PUBLIC_POSTHOG_HOST?.trim()
 // analytics requests to nonexistent routes under the current workspace.
 if (posthogKey && posthogKey !== 'posthog_key' && posthogHost !== 'posthog_host') {
   posthog.init(posthogKey, {
-    api_host: posthogHost,
+    // Routed through our own `/ingest` reverse proxy (`src/app/ingest/[...path]/route.ts`)
+    // rather than posthogHost directly, so ad blockers that block PostHog's
+    // domain by hostname don't silently drop capture/flags/session-recording
+    // traffic. `ui_host` keeps toolbar/session-replay links pointed at the
+    // real PostHog instance.
+    api_host: '/ingest',
+    ui_host: posthogHost,
     defaults: '2026-01-30',
     capture_exceptions: true,
     before_send: (event) => {
