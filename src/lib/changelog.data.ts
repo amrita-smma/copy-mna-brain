@@ -42,6 +42,20 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "skipReason": "noise"
   },
   {
+    "hash": "d0cb3492b191c86622d518996df18ace0dacce1e",
+    "date": "2026-09-17",
+    "subject": "Featured slide now appears on company card details",
+    "category": "feature"
+  },
+  {
+    "hash": "54e7c456e9061539d444e24cf486c229f6c65473",
+    "date": "2026-09-17",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "24360938bf2b45c958af280289bd81822e4e3101",
     "date": "2026-09-16",
     "subject": "Superadmins can now deactivate and reactivate user accounts",
