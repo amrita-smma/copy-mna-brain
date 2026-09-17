@@ -92,6 +92,28 @@ describe('DealDocumentRepository', () => {
     expect(mockDb.limit).not.toHaveBeenCalled();
   });
 
+  it('findFeaturedByDealId returns the featured row scoped to the deal and workspace', async () => {
+    const row = { id: 'doc1', deal_id: 'deal-1', is_featured: true };
+    mockDb.limit.mockResolvedValueOnce([row]);
+
+    const result = await repo.findFeaturedByDealId('deal-1');
+
+    expect(result).toEqual(row);
+    expect(mockDb.where).toHaveBeenCalledTimes(2);
+  });
+
+  it('findFeaturedByDealId returns null when the deal has no featured document', async () => {
+    mockDb.limit.mockResolvedValueOnce([]);
+    await expect(repo.findFeaturedByDealId('deal-1')).resolves.toBeNull();
+  });
+
+  it('clearFeaturedByDealId scopes the update to the deal, is_featured rows, and this workspace', async () => {
+    await repo.clearFeaturedByDealId('deal-1');
+
+    expect(mockDb.set).toHaveBeenCalledWith({ is_featured: false });
+    expect(mockDb.where).toHaveBeenCalledTimes(2);
+  });
+
   it('findFilePathsByDealId scopes to companies in this workspace and drops falsy paths', async () => {
     // First where() call is the workspace-companies subquery; the second is
     // the outer, awaited query that actually resolves the rows.

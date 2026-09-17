@@ -1072,6 +1072,7 @@ export const dealDocuments = pgTable(
     structured_notes: text(),
     tags: text().array().default([]),
     processing_status: text().default("pending"),
+    is_featured: boolean().default(false).notNull(),
   },
   (table) => {
     return {
@@ -1083,6 +1084,12 @@ export const dealDocuments = pgTable(
         "btree",
         table.stage.asc().nullsLast().op("text_ops"),
       ),
+      // At most one featured slide per deal — uploading a new one clears the
+      // previous row (see DealDocumentService.register) before insert, but
+      // this is the safety net against a race between two uploads.
+      uqDealDocumentsOneFeatured: uniqueIndex("uq_deal_documents_one_featured")
+        .using("btree", table.deal_id.asc().nullsLast().op("uuid_ops"))
+        .where(sql`is_featured = true`),
       dealDocumentsDealIdFkey: foreignKey({
         columns: [table.deal_id],
         foreignColumns: [companies.id],

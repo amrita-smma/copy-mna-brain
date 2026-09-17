@@ -995,6 +995,13 @@
       "when": 1789516800000,
       "tag": "20260916000000_add_users_deactivated_at",
       "breakpoints": true
+    },
+    {
+      "idx": 142,
+      "version": "7",
+      "when": 1789603200000,
+      "tag": "20260917000000_add_deal_documents_is_featured",
+      "breakpoints": true
     }
   ]
 }

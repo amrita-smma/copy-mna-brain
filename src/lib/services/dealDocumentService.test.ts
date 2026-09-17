@@ -25,6 +25,7 @@ function makeDocument(overrides: Partial<DealDocument> = {}): DealDocument {
     structured_notes: null,
     tags: [],
     processing_status: 'pending',
+    is_featured: false,
     ...overrides,
   } as DealDocument;
 }
@@ -33,6 +34,8 @@ function makeRepoStub(): DealDocumentRepository {
   return {
     findById: vi.fn(),
     findPathAndNameById: vi.fn(),
+    findFeaturedByDealId: vi.fn().mockResolvedValue(null),
+    clearFeaturedByDealId: vi.fn(),
     findFilePathsByDealId: vi.fn(),
     insert: vi.fn(),
     updatePartial: vi.fn(),
@@ -78,6 +81,138 @@ describe('DealDocumentService.register', () => {
         payload: { dealDocumentId: 'doc-1', workspaceId: 'workspace-1', contentType: 'application/pdf' },
       }),
     );
+  });
+
+  it('does not clear any featured document when registering a non-featured upload', async () => {
+    const repo = makeRepoStub();
+    const jobDispatcher = makeJobDispatcherStub();
+    vi.mocked(repo.insert).mockResolvedValue(makeDocument());
+    const service = new DealDocumentService(repo, jobDispatcher, 'workspace-1');
+
+    await service.register({
+      deal_id: 'company-1',
+      file_name: 'report.pdf',
+      file_path: 'uploads/deals/report.pdf',
+      stage: 'L1',
+    });
+
+    expect(repo.clearFeaturedByDealId).not.toHaveBeenCalled();
+  });
+
+  it('unfeatures the previous featured document (without deleting it) before registering a new featured upload', async () => {
+    const repo = makeRepoStub();
+    const jobDispatcher = makeJobDispatcherStub();
+    vi.mocked(repo.insert).mockResolvedValue(makeDocument({ id: 'doc-new', is_featured: true }));
+    const service = new DealDocumentService(repo, jobDispatcher, 'workspace-1');
+
+    await service.register({
+      deal_id: 'company-1',
+      file_name: 'new.pdf',
+      file_path: 'uploads/deals/new.pdf',
+      stage: 'L1',
+      is_featured: true,
+    });
+
+    expect(repo.clearFeaturedByDealId).toHaveBeenCalledWith('company-1');
+    expect(deleteFile).not.toHaveBeenCalled();
+    expect(repo.delete).not.toHaveBeenCalled();
+    expect(repo.insert).toHaveBeenCalledWith(
+      expect.objectContaining({ file_name: 'new.pdf', is_featured: true }),
+    );
+  });
+
+  it('clears before inserting (order preserved) so the unique index never sees two featured rows', async () => {
+    const repo = makeRepoStub();
+    const jobDispatcher = makeJobDispatcherStub();
+    const callOrder: string[] = [];
+    vi.mocked(repo.clearFeaturedByDealId).mockImplementation(async () => { callOrder.push('clear'); });
+    vi.mocked(repo.insert).mockImplementation(async () => { callOrder.push('insert'); return makeDocument({ is_featured: true }); });
+    const service = new DealDocumentService(repo, jobDispatcher, 'workspace-1');
+
+    await service.register({
+      deal_id: 'company-1',
+      file_name: 'new.pdf',
+      file_path: 'uploads/deals/new.pdf',
+      stage: 'L1',
+      is_featured: true,
+    });
+
+    expect(callOrder).toEqual(['clear', 'insert']);
+  });
+
+  it('rejects a featured upload that is not a PDF or PPTX', async () => {
+    const repo = makeRepoStub();
+    const jobDispatcher = makeJobDispatcherStub();
+    const service = new DealDocumentService(repo, jobDispatcher, 'workspace-1');
+
+    await expect(
+      service.register({
+        deal_id: 'company-1',
+        file_name: 'notes.docx',
+        file_path: 'uploads/deals/notes.docx',
+        stage: 'L1',
+        is_featured: true,
+      }),
+    ).rejects.toThrow(/PDF or PPTX/);
+    expect(repo.clearFeaturedByDealId).not.toHaveBeenCalled();
+    expect(repo.insert).not.toHaveBeenCalled();
+  });
+});
+
+describe('DealDocumentService.setFeatured', () => {
+  it('unfeatures the current featured document, then features the given one', async () => {
+    const repo = makeRepoStub();
+    const jobDispatcher = makeJobDispatcherStub();
+    const callOrder: string[] = [];
+    vi.mocked(repo.findById).mockResolvedValue(makeDocument({ id: 'doc-existing', deal_id: 'company-1' }));
+    vi.mocked(repo.clearFeaturedByDealId).mockImplementation(async () => { callOrder.push('clear'); });
+    vi.mocked(repo.updatePartial).mockImplementation(async () => { callOrder.push('update'); });
+    const service = new DealDocumentService(repo, jobDispatcher, 'workspace-1');
+
+    await service.setFeatured('company-1', 'doc-existing');
+
+    expect(repo.clearFeaturedByDealId).toHaveBeenCalledWith('company-1');
+    expect(repo.updatePartial).toHaveBeenCalledWith('doc-existing', { is_featured: true });
+    expect(callOrder).toEqual(['clear', 'update']);
+  });
+
+  it('rejects a document that belongs to a different deal without changing featured state', async () => {
+    const repo = makeRepoStub();
+    const jobDispatcher = makeJobDispatcherStub();
+    vi.mocked(repo.findById).mockResolvedValue(
+      makeDocument({ id: 'doc-other', deal_id: 'company-2', file_name: 'deck.pptx' }),
+    );
+    const service = new DealDocumentService(repo, jobDispatcher, 'workspace-1');
+
+    await expect(service.setFeatured('company-1', 'doc-other')).rejects.toThrow(
+      /does not belong to this deal/,
+    );
+    expect(repo.clearFeaturedByDealId).not.toHaveBeenCalled();
+    expect(repo.updatePartial).not.toHaveBeenCalled();
+  });
+
+  it('rejects a document that is not a PDF or PPTX', async () => {
+    const repo = makeRepoStub();
+    const jobDispatcher = makeJobDispatcherStub();
+    vi.mocked(repo.findById).mockResolvedValue(makeDocument({ file_name: 'notes.docx' }));
+    const service = new DealDocumentService(repo, jobDispatcher, 'workspace-1');
+
+    await expect(service.setFeatured('company-1', 'doc-1')).rejects.toThrow(/PDF or PPTX/);
+    expect(repo.clearFeaturedByDealId).not.toHaveBeenCalled();
+  });
+});
+
+describe('DealDocumentService.clearFeatured', () => {
+  it('unfeatures the deal\'s current featured slide without deleting anything', async () => {
+    const repo = makeRepoStub();
+    const jobDispatcher = makeJobDispatcherStub();
+    const service = new DealDocumentService(repo, jobDispatcher, 'workspace-1');
+
+    await service.clearFeatured('company-1');
+
+    expect(repo.clearFeaturedByDealId).toHaveBeenCalledWith('company-1');
+    expect(repo.delete).not.toHaveBeenCalled();
+    expect(deleteFile).not.toHaveBeenCalled();
   });
 });
 

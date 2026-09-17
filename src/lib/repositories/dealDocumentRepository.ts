@@ -52,6 +52,35 @@ export class DealDocumentRepository {
     return limit === undefined ? query : query.limit(limit);
   }
 
+  async findFeaturedByDealId(dealId: string): Promise<Tables<'deal_documents'> | null> {
+    const [row] = await this.db
+      .select()
+      .from(dealDocuments)
+      .where(
+        and(
+          eq(dealDocuments.deal_id, dealId),
+          eq(dealDocuments.is_featured, true),
+          inArray(dealDocuments.deal_id, this.workspaceCompanyIds()),
+        ),
+      )
+      .limit(1);
+    return row ?? null;
+  }
+
+  /** Unfeatures whichever document currently holds the deal's featured slide, if any. */
+  async clearFeaturedByDealId(dealId: string): Promise<void> {
+    await this.db
+      .update(dealDocuments)
+      .set({ is_featured: false })
+      .where(
+        and(
+          eq(dealDocuments.deal_id, dealId),
+          eq(dealDocuments.is_featured, true),
+          inArray(dealDocuments.deal_id, this.workspaceCompanyIds()),
+        ),
+      );
+  }
+
   async findFilePathsByDealId(dealId: string): Promise<string[]> {
     const rows = await this.db
       .select({ file_path: dealDocuments.file_path })

@@ -1,4 +1,5 @@
 import { deleteFile } from '@/lib/s3';
+import { detectFileKind } from '@/lib/fileType';
 import type { DealDocumentRepository, TablesInsert } from '@/lib/repositories';
 import type { JobDispatcher } from './jobDispatcher';
 import {
@@ -14,6 +15,14 @@ export class DealDocumentService {
   ) {}
 
   async register(data: Omit<TablesInsert<'deal_documents'>, 'workspace_id'>) {
+    // Only one featured slide per deal — unfeature (not delete) whichever
+    // document currently holds it, since that document may be a regular
+    // attachment the user still wants around.
+    if (data.is_featured) {
+      assertFeaturedSlideKind(data.file_name);
+      await this.dealDocRepo.clearFeaturedByDealId(data.deal_id);
+    }
+
     const row = await this.dealDocRepo.insert(data);
 
     await this.jobDispatcher.dispatch({
@@ -30,9 +39,32 @@ export class DealDocumentService {
     return row;
   }
 
+  /** Features an already-uploaded attachment instead of uploading a new file. */
+  async setFeatured(dealId: string, documentId: string) {
+    const row = await this.dealDocRepo.findById(documentId);
+    if (row.deal_id !== dealId) {
+      throw new Error('Document does not belong to this deal');
+    }
+    assertFeaturedSlideKind(row.file_name);
+    await this.dealDocRepo.clearFeaturedByDealId(dealId);
+    await this.dealDocRepo.updatePartial(documentId, { is_featured: true });
+  }
+
+  /** Unfeatures the deal's current featured slide, leaving the file itself in place. */
+  async clearFeatured(dealId: string) {
+    await this.dealDocRepo.clearFeaturedByDealId(dealId);
+  }
+
   async delete(id: string) {
     const row = await this.dealDocRepo.findById(id);
     await deleteFile(row.file_path);
     await this.dealDocRepo.delete(id);
+  }
+}
+
+function assertFeaturedSlideKind(fileName: string) {
+  const kind = detectFileKind(fileName);
+  if (kind !== 'pdf' && kind !== 'pptx') {
+    throw new Error('Only PDF or PPTX files can be featured');
   }
 }

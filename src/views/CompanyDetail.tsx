@@ -94,6 +94,10 @@ import CompanyOverviewSlide, {
 } from '@/components/pipeline/CompanyOverviewSlide';
 import { useLayoutControl } from '@/components/layout/LayoutControlContext';
 import FilePreview from '@/components/Files/FilePreview';
+import FileBody from '@/components/Files/FileBody';
+import { detectFileKind } from '@/lib/fileType';
+import ExistingAttachmentPicker from '@/components/pipeline/ExistingAttachmentPicker';
+import { cn } from '@/lib/utils';
 import {
   DocumentStatusBadge,
   DocumentTagsList,
@@ -286,6 +290,7 @@ interface DealDocument {
   structured_notes: string | null;
   tags: string[] | null;
   processing_status: string | null;
+  is_featured: boolean;
 }
 
 /** File from the "files" table (Smart Files) where matched_companies contains this company */
@@ -336,7 +341,7 @@ interface AnalysisSource {
 }
 
 /** Tab values, mirrored in the `?tab=` query param so back/forward restores one. */
-const TAB_VALUES = ['overview', 'company-card', 'filters', 'attachments', 'voting'] as const;
+const TAB_VALUES = ['overview', 'featured-slide', 'company-card', 'filters', 'attachments', 'voting'] as const;
 type CompanyTab = (typeof TAB_VALUES)[number];
 const DEFAULT_TAB: CompanyTab = 'overview';
 
@@ -361,6 +366,7 @@ export default function CompanyDetail() {
   const pipelineHref = useWorkspaceHref('/pipeline');
   const chatHref = useWorkspaceHref('/chat');
   const smartFilesHref = useWorkspaceHref('/smart-files');
+  const presentationHref = useWorkspaceHref('/presentation');
   const returnTo = searchParams.get('from') || pipelineHref;
 
   // The active tab lives in the URL (`?tab=`) so each switch is a history entry
@@ -523,6 +529,22 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
   const [previewMatchedFile, setPreviewMatchedFile] = useState<MatchedFile | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [loadingPreview, setLoadingPreview] = useState(false);
+
+  // Featured Slide — a single highlighted PDF/PPTX (e.g. an external company
+  // one-pager) shown full-width in its own tab. Backed by the same
+  // deal_documents row as the Attachments tab's Documents section, just
+  // flagged is_featured.
+  const [isUploadingFeaturedSlide, setIsUploadingFeaturedSlide] = useState(false);
+  const [isDraggingFeaturedSlide, setIsDraggingFeaturedSlide] = useState(false);
+  const [featuredSlideUrl, setFeaturedSlideUrl] = useState<string | null>(null);
+  const [loadingFeaturedSlide, setLoadingFeaturedSlide] = useState(false);
+  const featuredDocument = documents.find((d) => d.is_featured) ?? null;
+  // Existing attachments this company already has that could be featured
+  // as-is, without re-uploading — offered via the search dropdown.
+  const eligibleExistingAttachments = documents.filter((d) => {
+    const kind = detectFileKind(d.file_name);
+    return kind === 'pdf' || kind === 'pptx';
+  });
 
   // Inline edit mode for the Company Information card
   type EditForm = {
@@ -779,6 +801,35 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
     void fetchDetails();
   });
 
+  // Fetch a fresh signed preview URL whenever the featured document changes
+  // (new upload, replace, or removal).
+  useEffect(() => {
+    if (!featuredDocument) {
+      setFeaturedSlideUrl(null);
+      return;
+    }
+    let cancelled = false;
+    setLoadingFeaturedSlide(true);
+    fetch(`/api/deal-documents/download-url?id=${encodeURIComponent(featuredDocument.id)}&preview=true`)
+      .then((res) => res.json())
+      .then((data) => {
+        if (cancelled) return;
+        if (data.success) setFeaturedSlideUrl(data.url);
+        else setFeaturedSlideUrl(null);
+      })
+      .catch((error) => {
+        console.error('Error loading featured slide preview:', error);
+        if (!cancelled) setFeaturedSlideUrl(null);
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingFeaturedSlide(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [featuredDocument?.id]);
+
   // Live screening progress over SSE (replaces a 3s poll): connect only while a
   // screening is pending; the stream pushes the full list on every state change.
   const hasPendingScreening = screenings.some((s) => s.state === 'pending');
@@ -1023,6 +1074,166 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
     } finally {
       setIsSubmitting(false);
     }
+  };
+
+  // Uploads (or replaces) this company's Featured Slide. Mirrors
+  // handleFileUpload's presign → PUT → register flow, but flags the
+  // registered document `featured: true` so the service supersedes any
+  // previous featured slide instead of appending to it.
+  const FEATURED_SLIDE_ACCEPT =
+    '.pdf,.pptx,application/pdf,application/vnd.openxmlformats-officedocument.presentationml.presentation';
+
+  const uploadFeaturedSlideFile = async (file: File) => {
+    if (!company) return;
+    const kind = detectFileKind(file.name);
+    if (kind !== 'pdf' && kind !== 'pptx') {
+      toast.error('Only PDF or PPTX files can be featured');
+      return;
+    }
+
+    setIsUploadingFeaturedSlide(true);
+    try {
+      const contentType = file.type || 'application/octet-stream';
+
+      let uploadUrlRes: Response;
+      try {
+        uploadUrlRes = await fetch(
+          `/api/deal-documents/upload-url?dealId=${encodeURIComponent(company.id)}&fileName=${encodeURIComponent(file.name)}&contentType=${encodeURIComponent(contentType)}`
+        );
+      } catch (netErr) {
+        throw new Error('Could not reach server. Check your connection and that the app is running.');
+      }
+      const uploadUrlText = await uploadUrlRes.text();
+      let uploadUrlData: { success?: boolean; error?: string; data?: { uploadUrl: string; key: string } };
+      try {
+        uploadUrlData = JSON.parse(uploadUrlText);
+      } catch {
+        throw new Error(uploadUrlRes.ok ? 'Invalid server response' : `Get upload URL failed: ${uploadUrlRes.status}`);
+      }
+      if (!uploadUrlData.success || !uploadUrlData.data) {
+        throw new Error(uploadUrlData.error || 'Failed to get upload URL');
+      }
+      const { uploadUrl, key } = uploadUrlData.data;
+
+      let s3Res: Response;
+      try {
+        s3Res = await fetch(uploadUrl, {
+          method: 'PUT',
+          body: file,
+          headers: { 'Content-Type': contentType },
+        });
+      } catch (netErr) {
+        throw new Error(
+          'Upload to storage failed (network error). Ensure AWS_S3_BUCKET matches your bucket and the bucket has CORS enabled for this origin.'
+        );
+      }
+      if (!s3Res.ok) throw new Error('Failed to upload file to storage');
+
+      let registerRes: Response;
+      try {
+        registerRes = await fetch('/api/deal-documents', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            dealId: company.id,
+            key,
+            fileName: file.name,
+            fileSize: file.size,
+            mimeType: file.type || null,
+            stage: company.pipeline_stage || 'L0',
+            featured: true,
+          }),
+        });
+      } catch (netErr) {
+        throw new Error('Could not register document. Check your connection.');
+      }
+      const registerText = await registerRes.text();
+      let registerData: { success?: boolean; error?: string };
+      try {
+        registerData = registerText ? JSON.parse(registerText) : {};
+      } catch {
+        throw new Error(registerRes.ok ? 'Invalid server response' : `Register failed: ${registerRes.status}`);
+      }
+      if (!registerData.success) {
+        throw new Error(registerData.error || 'Failed to register document');
+      }
+
+      await fetchDetails();
+      toast.success('Featured slide uploaded');
+    } catch (error: unknown) {
+      console.error('Featured slide upload error:', error);
+      toast.error((error as Error)?.message || 'Failed to upload featured slide');
+    } finally {
+      setIsUploadingFeaturedSlide(false);
+    }
+  };
+
+  const handleFeaturedSlideUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (file) void uploadFeaturedSlideFile(file);
+  };
+
+  const handleFeaturedSlideDragOver = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    if (!isUploadingFeaturedSlide) setIsDraggingFeaturedSlide(true);
+  };
+
+  const handleFeaturedSlideDragLeave = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setIsDraggingFeaturedSlide(false);
+  };
+
+  const handleFeaturedSlideDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setIsDraggingFeaturedSlide(false);
+    if (isUploadingFeaturedSlide) return;
+    const file = e.dataTransfer.files?.[0];
+    if (file) void uploadFeaturedSlideFile(file);
+  };
+
+  const selectExistingAsFeaturedSlide = async (documentId: string) => {
+    if (!company) return;
+    try {
+      const res = await fetch('/api/deal-documents/feature', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ dealId: company.id, documentId }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || 'Failed to set featured slide');
+      }
+      await fetchDetails();
+      toast.success('Featured slide updated');
+    } catch (error) {
+      toast.error((error as Error)?.message || 'Failed to set featured slide');
+    }
+  };
+
+  const removeFeaturedSlide = async () => {
+    if (!featuredDocument || !company) return;
+    try {
+      const res = await fetch(`/api/deal-documents/feature?dealId=${encodeURIComponent(company.id)}`, {
+        method: 'DELETE',
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || 'Failed to remove featured slide');
+      }
+      await fetchDetails();
+      toast.success('Featured slide removed');
+    } catch (error) {
+      toast.error((error as Error)?.message || 'Failed to remove featured slide');
+    }
+  };
+
+  const openFeaturedSlideInPresentation = () => {
+    if (!featuredDocument) return;
+    const params = new URLSearchParams();
+    params.set('key', featuredDocument.file_path);
+    params.set('name', featuredDocument.file_name);
+    router.push(`${presentationHref}?${params.toString()}`);
   };
 
   const deleteNote = async (noteId: string) => {
@@ -1333,8 +1544,9 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
 
         {/* Content */}
         <Tabs value={activeTab} onValueChange={handleTabChange} className="w-full">
-          <TabsList className="grid grid-cols-5 max-w-3xl">
+          <TabsList className="grid grid-cols-6 max-w-4xl">
             <TabsTrigger value="overview">Overview</TabsTrigger>
+            <TabsTrigger value="featured-slide">Featured Slide</TabsTrigger>
             <TabsTrigger value="company-card">Details</TabsTrigger>
             <TabsTrigger value="filters">L1 Screening</TabsTrigger>
             <TabsTrigger value="attachments">Attachments</TabsTrigger>
@@ -1373,6 +1585,124 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
                 onUpdateOwnership={saveOwnership}
               />
             )}
+          </TabsContent>
+
+          {/* Featured Slide — a highlighted PDF/PPTX one-pager (e.g. an
+              external company card) shown full-width in its own tab. */}
+          <TabsContent value="featured-slide" className="space-y-3 mt-6">
+            <div
+              className={cn(
+                'space-y-3 rounded-lg transition-shadow',
+                isDraggingFeaturedSlide && 'ring-2 ring-primary ring-offset-2',
+              )}
+              onDragOver={handleFeaturedSlideDragOver}
+              onDragLeave={handleFeaturedSlideDragLeave}
+              onDrop={handleFeaturedSlideDrop}
+            >
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <p className="text-sm text-muted-foreground">
+                  Highlight a company one-pager (PDF or PPTX) full-width on this card.
+                </p>
+                <div className="flex items-center gap-1 shrink-0 flex-wrap">
+                  {featuredDocument && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="gap-1.5"
+                      onClick={openFeaturedSlideInPresentation}
+                    >
+                      <Presentation className="h-3.5 w-3.5" />
+                      Present
+                    </Button>
+                  )}
+                  {eligibleExistingAttachments.length > 0 && (
+                    <ExistingAttachmentPicker
+                      documents={eligibleExistingAttachments}
+                      onSelect={selectExistingAsFeaturedSlide}
+                      selectedId={featuredDocument?.id ?? null}
+                      disabled={isUploadingFeaturedSlide}
+                    />
+                  )}
+                  <Label htmlFor="featured-slide-file-input" className="cursor-pointer">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="gap-1.5"
+                      disabled={isUploadingFeaturedSlide}
+                      asChild
+                    >
+                      <span>
+                        {isUploadingFeaturedSlide ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <Upload className="h-3.5 w-3.5" />
+                        )}
+                        {featuredDocument ? 'Replace' : 'Upload'}
+                      </span>
+                    </Button>
+                  </Label>
+                  {featuredDocument && (
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={removeFeaturedSlide}
+                      title="Remove featured slide"
+                    >
+                      <Trash2 className="h-4 w-4 text-destructive" />
+                    </Button>
+                  )}
+                </div>
+              </div>
+              <Input
+                id="featured-slide-file-input"
+                type="file"
+                accept={FEATURED_SLIDE_ACCEPT}
+                className="hidden"
+                onChange={handleFeaturedSlideUpload}
+                disabled={isUploadingFeaturedSlide}
+              />
+              {featuredDocument ? (
+                <div className="h-[75vh] w-full">
+                  {loadingFeaturedSlide ? (
+                    <div className="flex h-full w-full items-center justify-center bg-muted rounded-md border">
+                      <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                    </div>
+                  ) : featuredSlideUrl ? (
+                    <FileBody
+                      url={featuredSlideUrl}
+                      fileName={featuredDocument.file_name}
+                      onDownload={() => downloadDocument(featuredDocument)}
+                    />
+                  ) : (
+                    <div className="flex h-full w-full items-center justify-center bg-muted rounded-md border text-sm text-muted-foreground">
+                      Preview not available
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div>
+                  <Label htmlFor="featured-slide-file-input" className="cursor-pointer">
+                    <div
+                      className={cn(
+                        'border-2 border-dashed rounded-lg bg-muted p-10 text-center transition-colors',
+                        isDraggingFeaturedSlide ? 'border-primary bg-primary/5' : 'hover:border-primary',
+                      )}
+                    >
+                      <Upload className="h-8 w-8 mx-auto mb-2 text-muted-foreground" />
+                      <p className="text-sm text-muted-foreground">
+                        Click to upload, or drag and drop a PDF or PPTX to feature it here
+                      </p>
+                    </div>
+                  </Label>
+                  {isUploadingFeaturedSlide && (
+                    <div className="flex items-center justify-center gap-2 mt-2 text-sm text-muted-foreground">
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Uploading…
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
           </TabsContent>
 
           <TabsContent value="company-card" className="space-y-6 mt-6">

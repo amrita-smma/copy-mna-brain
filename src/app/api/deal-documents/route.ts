@@ -6,7 +6,7 @@ import { createContainer } from '@/lib/services';
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { dealId, key, fileName, fileSize, mimeType, stage } = body;
+    const { dealId, key, fileName, fileSize, mimeType, stage, featured } = body;
 
     if (!dealId || !key || !fileName) {
       return NextResponse.json(
@@ -24,6 +24,7 @@ export async function POST(request: NextRequest) {
       file_size: fileSize ?? null,
       mime_type: mimeType ?? null,
       stage: stage ?? 'L0',
+      is_featured: Boolean(featured),
     });
 
     return NextResponse.json({ success: true });
