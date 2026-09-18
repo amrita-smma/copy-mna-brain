@@ -23,13 +23,17 @@ const ORIGIN = 'https://brain.test';
  * normally receives. The `next-auth` mock above makes `proxy` the bare handler,
  * so it can be driven directly with just the fields the `/w/` branch reads.
  */
-function runProxy(path: string, auth: unknown = null): { headers: Headers } {
+function runProxy(
+  path: string,
+  auth: unknown = null,
+  headers: HeadersInit = {},
+): { headers: Headers } {
   const url = new URL(path, ORIGIN);
   const req = {
     url: url.toString(),
     nextUrl: url,
     auth,
-    headers: new Headers(),
+    headers: new Headers(headers),
     cookies: { has: () => false },
   };
   const handler = proxy as unknown as (r: unknown) => { headers: Headers };
@@ -238,5 +242,62 @@ describe('classifyApiRoute — rss feed admin routes', () => {
 
   it('leaves the rest of /api/auth open for NextAuth', () => {
     expect(classifyApiRoute('/api/auth/session')).toBe('allow');
+  });
+});
+
+describe('proxy PostHog ingest branch', () => {
+  const CREDENTIALS = {
+    cookie: 'authjs.session-token=live-session-token',
+    authorization: 'Bearer user-token',
+    'x-api-secret': 'admin-secret',
+    'content-type': 'text/plain',
+  };
+
+  /** Header names `NextResponse.next({ request: { headers } })` forwarded on. */
+  function overriddenHeaders(res: { headers: Headers }): string[] {
+    return (res.headers.get('x-middleware-override-headers') ?? '')
+      .split(',')
+      .map((h) => h.trim())
+      .filter(Boolean);
+  }
+
+  it('strips session cookies so they never reach PostHog', () => {
+    const res = runProxy('/ingest/e/', null, CREDENTIALS);
+    expect(overriddenHeaders(res)).not.toContain('cookie');
+  });
+
+  it('strips authorization and the admin secret too', () => {
+    const res = runProxy('/ingest/e/', null, CREDENTIALS);
+    const forwarded = overriddenHeaders(res);
+    expect(forwarded).not.toContain('authorization');
+    expect(forwarded).not.toContain('x-api-secret');
+  });
+
+  it('strips credentials from the static asset path as well', () => {
+    const res = runProxy('/ingest/static/recorder.js', null, CREDENTIALS);
+    expect(overriddenHeaders(res)).not.toContain('cookie');
+  });
+
+  it('forwards the headers PostHog needs', () => {
+    const res = runProxy('/ingest/e/', null, CREDENTIALS);
+    expect(res.headers.get('x-middleware-request-content-type')).toBe('text/plain');
+  });
+
+  it('lets an unauthenticated request through rather than redirecting to login', () => {
+    // posthog-js fires on the login page too, and has no session to present.
+    const res = runProxy('/ingest/e/', null, CREDENTIALS);
+    expect(res.headers.get('location')).toBeNull();
+  });
+
+  it('does not hand a `?token=` ingest request to the SSO consumer', () => {
+    // The SSO branch matches any path carrying `?token=`; the ingest branch
+    // must run first so a query param can never redirect analytics traffic.
+    const res = runProxy('/ingest/e/?token=abc', null, CREDENTIALS);
+    expect(res.headers.get('location')).toBeNull();
+  });
+
+  it('still gates a lookalike path that is not the ingest proxy', () => {
+    const res = runProxy('/api/ingest', null, CREDENTIALS);
+    expect(res.headers.get('x-middleware-override-headers')).toBeNull();
   });
 });

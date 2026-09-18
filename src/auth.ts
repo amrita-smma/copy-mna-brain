@@ -4,6 +4,7 @@ import Credentials from "next-auth/providers/credentials";
 import { createDb } from "@/lib/server/db";
 import { createContainer } from "@/lib/services";
 import { authConfig } from "@/auth.config";
+import { captureUserEvent } from "@/lib/posthog-server";
 import type { WorkspaceService } from "@/lib/services/workspaceService";
 
 /**
@@ -222,6 +223,33 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       },
     }),
   ],
+  events: {
+    /**
+     * `user_signed_in`, captured server-side.
+     *
+     * This used to be a `posthog.capture()` on the login page, which never
+     * arrived: `before_send` drops everything captured on `/login` (see
+     * `@/lib/posthog-events`). Emitting it here fixes that and makes the event
+     * immune to ad blockers, which is the whole point of moving the events that
+     * matter for per-user attribution off the client.
+     *
+     * No workspace yet at sign-in time — the user hasn't picked one — so this
+     * is a `captureUserEvent`, not a `captureWorkspaceEvent`.
+     */
+    async signIn({ user, account }) {
+      if (!user.id) return;
+      captureUserEvent({
+        distinctId: user.id,
+        event: "user_signed_in",
+        properties: {
+          // Matches the distinct id `PostHogIdentityTracker` identifies with,
+          // so the sign-in lands on the same person as the session's events.
+          method: account?.provider ?? "unknown",
+          email: user.email ?? undefined,
+        },
+      });
+    },
+  },
 });
 
 /** A workspace this user can access, as embedded in the JWT — see `getWorkspaceClaims`. */

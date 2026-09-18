@@ -1,4 +1,3 @@
-import posthog from 'posthog-js';
 import { companyDisplayName } from '@/lib/companyDisplay';
 import { getCriterias, prepareScreenings } from '@/lib/api/pipeline';
 import { buildWorkspaceHeaders } from '@/lib/api/client';
@@ -84,11 +83,8 @@ export async function runAIScreeningForCompanyTracks(
     })),
   );
 
-  posthog.capture('ai_screening_started', {
-    company_count: 1,
-    track_count: groups.length,
-    total_screenings: screeningEntries.length,
-  });
+  // `ai_screening_started` is captured server-side in `ScreeningService.prepare`
+  // (the call `prepareScreenings` just made), where an ad blocker can't drop it.
 
   screeningEntries.forEach((entry) => {
     const criterion = criteriaById.get(entry.criteria_id);

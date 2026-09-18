@@ -1154,6 +1154,79 @@ in `src/components/chat/ChatProvider.tsx`; the drag-drop / paperclip / chip UI i
 `src/components/chat/ChatComposerAttachments.tsx`, wired into both the full
 `ChatWindow` composer and the `AICopilotPane` composer.
 
+## Product telemetry (PostHog)
+
+Analytics is PostHog, reached three ways. All three exist because ad/tracker
+blockers silently drop a meaningful slice of browser-side analytics, which makes
+a blocked user indistinguishable from an absent one.
+
+**1. Same-origin ingest proxy (`/ingest`).** `posthog-js` is initialised in
+`src/instrumentation-client.ts` with `api_host: '/ingest'` rather than PostHog's
+own domain, so blockers filtering by hostname (`*.posthog.com`) don't match.
+`/ingest` is a pair of `rewrites()` in `next.config.ts`, not a route handler:
+rewrites resolve in the platform's edge routing layer, so no serverless function
+is invoked per captured event. PostHog serves ingestion and static assets from
+two different hosts, so `/ingest/static/*` and `/ingest/*` are rewritten
+separately — see `posthogUpstreams` in `src/lib/posthog-proxy.ts`, which derives
+the `<region>-assets` host and returns nothing when PostHog is unconfigured (the
+path then simply 404s). `skipTrailingSlashRedirect` is on because posthog-js
+addresses its endpoints with trailing slashes (`/e/`, `/flags/?v=2`).
+
+`src/proxy.ts` matches `/ingest/:path*` purely to **strip credentials** —
+the browser attaches session cookies to `/ingest` because it is same-origin and
+cannot know the request is about to be proxied to a vendor. Without that strip,
+every captured event would ship a live session token to PostHog.
+
+**2. Identity.** `PostHogIdentityTracker` (mounted once in `Providers`)
+identifies the user off the resolved NextAuth session, keyed on their **UUID**,
+and refreshes person properties via `setPersonProperties`. It deliberately does
+not live on the login page: `before_send` drops everything captured on `/login`
+(see `src/lib/posthog-events.ts`), and since `identify()` is itself a captured
+`$identify` event, identifying there sent nothing — losing the anonymous →
+identified merge and the `email` / `name` person properties. Identity events are
+now explicitly exempt from that path filter.
+
+The tracker also registers the user's **email as a super property**, so every
+event carries both the email and the UUID (the UUID is already the `distinct_id`,
+so it needs no equivalent). This is an interim measure while identities migrate
+from email-keyed to UUID-keyed persons — it makes a user findable by raw event
+search without depending on person profiles having merged. **To stop sending
+emails, flip `SEND_EMAIL_WITH_EVENTS` in `src/lib/posthog-identity.ts` to
+`false`.** Do not simply delete the `register` call: super properties persist in
+each browser's localStorage, so a deleted call would leave existing sessions
+stamping email indefinitely. The flag drives an `unregister` on the off path,
+which clears the stored value. (`posthog.reset()` on sign-out already clears it
+too, so a shared browser never carries one user's email into the next session.)
+
+**3. Server-side capture.** The events that matter most for per-user attribution
+are emitted with `posthog-node`, where no blocker can reach them:
+`user_signed_in` (`src/auth.ts`), `deal_promoted` / `deal_demoted`
+(`CompanyService.promote` **and** `promoteMany`, so chat bulk moves are counted
+too — those carry `bulk: true` instead of a company name), `file_uploaded`
+(`FileService.processUpload`) and `ai_screening_started`
+(`ScreeningService.prepare`). Their client-side counterparts were removed, so
+these are not double counted. `promote` takes a trailing telemetry-only `opts`
+argument (`triggeredByUserId`, `hasDocument`) — `hasDocument` is passed in
+explicitly because the attachment is uploaded *after* the promote call returns,
+so the server cannot observe it. Use
+`captureWorkspaceEvent` for anything inside a workspace and `captureUserEvent`
+only where there genuinely is no workspace (sign-in). Server-side capture covers
+agent-tool and pipeline callers that have no browser at all, but gives up
+autocapture, `$pageview` and session replay — it complements the client, it does
+not replace it.
+
+**Blocked-client signal.** `ClientHealthProbe` HEADs `/ingest/static/array.js`
+once per tab session for a signed-in user; a rejected fetch (`ERR_BLOCKED_BY_CLIENT`)
+means blocked, while any HTTP response — including a 5xx — counts as reachable,
+so a broken proxy is never misreported as an ad blocker. A blocked client POSTs
+to `/api/client-health`, which records `client_telemetry_blocked` server-side
+against that user. The probe also runs on `/workspace` and `/consent`, which
+resolve no workspace, so `ClientHealthService` falls back to `captureUserEvent`
+rather than stamping the fail-closed `NO_ACTIVE_WORKSPACE_ID` sentinel as a real
+PostHog group. The route and probe paths deliberately avoid the words
+`analytics`, `tracking`, `telemetry`, `posthog` and `ph`, all of which appear in
+the filter lists this is trying to measure.
+
 ## Admin routes (`/api/auth`)
 
 Privileged, machine-to-machine **admin** endpoints live under `/api/auth/*` and

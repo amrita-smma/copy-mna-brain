@@ -24,7 +24,6 @@ import {
   AlertCircle,
 } from "lucide-react";
 import { DealStage } from "@/lib/types";
-import posthog from "posthog-js";
 import { promoteCompany } from "@/lib/api/pipeline";
 import { apiRequest } from "@/lib/api/client";
 
@@ -76,6 +75,9 @@ export default function PromoteDialog({
           mode === "promote" && promotionReason.trim()
             ? promotionReason
             : undefined,
+        // Telemetry only — the document is uploaded further down, after this
+        // call returns, so the server-side capture can't observe it otherwise.
+        hasDocument: selectedFile !== null,
       });
 
       // The Company Card is refreshed server-side on every stage move (see
@@ -141,15 +143,10 @@ export default function PromoteDialog({
         }
       }
 
-      posthog.capture(mode === "demote" ? "deal_demoted" : "deal_promoted", {
-        deal_id: dealId,
-        company_name: companyName,
-        from_stage: currentStage,
-        to_stage: nextStage,
-        has_note: note.trim() !== "",
-        has_link: linkUrl.trim() !== "",
-        has_document: selectedFile !== null,
-      });
+      // `deal_promoted` / `deal_demoted` are captured server-side in
+      // `CompanyService.promote` — an ad blocker can't drop those, and they
+      // also cover stage moves made by the agent tools and bulk triage, which
+      // never touch this dialog.
 
       toast.success(
         mode === "demote"

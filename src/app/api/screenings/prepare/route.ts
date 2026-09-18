@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createDb } from '@/lib/server/db';
 import { getActiveWorkspaceId } from '@/lib/workspace';
 import { createContainer } from '@/lib/services';
+import { auth } from '@/auth';
 
 export async function POST(req: NextRequest) {
   try {
@@ -28,7 +29,10 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const data = await screeningService.prepare(groups);
+    // Attributes the server-side `ai_screening_started` capture to the user who
+    // kicked the run off rather than to 'server'.
+    const session = await auth();
+    const data = await screeningService.prepare(groups, session?.user?.id ?? null);
     return NextResponse.json({ data });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : 'Failed to prepare screenings';

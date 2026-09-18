@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createDb } from '@/lib/server/db';
 import { getActiveWorkspaceId } from '@/lib/workspace';
 import { createContainer } from '@/lib/services';
+import { auth } from '@/auth';
 import { CompanyDroppedError } from '@/lib/services/companyService';
 
 interface PromoteBulkBody {
@@ -28,7 +29,10 @@ export async function POST(req: NextRequest) {
 
     const db = createDb();
     const { companyService } = createContainer(db, await getActiveWorkspaceId());
-    await companyService.promoteMany(normalized, body.nextStage);
+    // Attributes the server-side `deal_promoted`/`deal_demoted` captures to the
+    // user who ran the bulk move rather than to 'server'.
+    const session = await auth();
+    await companyService.promoteMany(normalized, body.nextStage, session?.user?.id ?? null);
     return NextResponse.json({ data: { success: true, count: normalized.length } });
   } catch (error: unknown) {
     if (error instanceof CompanyDroppedError) {

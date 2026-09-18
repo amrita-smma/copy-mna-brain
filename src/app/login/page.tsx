@@ -15,7 +15,6 @@ import { LivingBackground } from '@/components/LivingBackground';
 import { GoogleSignInButton } from '@/components/GoogleSignInButton';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Loader2, AlertCircle } from 'lucide-react';
-import posthog from 'posthog-js';
 import { apiRequest } from '@/lib/api/client';
 import { CALLBACK_URL_PARAM, sanitizeCallbackUrl } from '@/lib/callbackUrl';
 
@@ -64,15 +63,12 @@ function LoginForm() {
     }
   }, [user, loading, router, destination]);
 
-  const completeSignIn = (signedInEmail: string, method: 'password' | 'google') => {
-    const normalizedEmail = signedInEmail.toLowerCase().trim();
-    posthog.identify(normalizedEmail, {
-      email: normalizedEmail,
-    });
-    posthog.capture('user_signed_in', {
-      email: normalizedEmail,
-      method,
-    });
+  // Telemetry is deliberately absent here. Identification now runs off the
+  // resolved session in `PostHogIdentityTracker`, and `user_signed_in` is
+  // captured server-side in `src/auth.ts` — both because `before_send` drops
+  // everything captured on `/login` (so these calls sent nothing) and because
+  // an ad blocker can't intercept a server-side capture.
+  const completeSignIn = (_signedInEmail: string, _method: 'password' | 'google') => {
     router.push(destination);
   };
 

@@ -20,6 +20,11 @@ vi.mock('@/lib/s3', () => ({
   deleteFile: vi.fn(),
 }));
 
+const posthogMocks = vi.hoisted(() => ({ captureWorkspaceEvent: vi.fn() }));
+vi.mock('@/lib/posthog-server', () => ({
+  captureWorkspaceEvent: posthogMocks.captureWorkspaceEvent,
+}));
+
 vi.mock('@/lib/fileExtractor', () => ({
   extractTextFromFile: vi.fn(),
 }));
@@ -7003,5 +7008,97 @@ describe('MB-513 FileService Fund Update Review & Lifecycle Contract', () => {
         ).rejects.toThrow('Invalid pricePerShare "-17.97756389" for transaction');
       });
     });
+  });
+});
+
+describe('FileService.processUpload — telemetry', () => {
+  let fileRepo: FileRepository;
+  let service: FileService;
+
+  beforeEach(() => {
+    posthogMocks.captureWorkspaceEvent.mockReset();
+    fileRepo = makeFileRepoStub();
+    service = new FileService(
+      null as unknown as DbClient,
+      'workspace-1',
+      fileRepo,
+      makeCompanyAnalysisServiceStub(),
+      makeAIScreeningServiceStub(),
+      makeCriteriaRepoStub(),
+      makeScreeningRepoStub(),
+      makeCompanyFinancialRepoStub(),
+      makeCompanyServiceStub(),
+      makeCompanyFxAdjustmentRepoStub(),
+      makeUserWorkspaceRepoStub(),
+    );
+
+    vi.mocked(downloadFile).mockResolvedValue(Buffer.from('content'));
+    vi.mocked(getSignedUrl).mockResolvedValue('https://signed-url');
+    vi.mocked(fileRepo.insert).mockResolvedValue(
+      makeFile({ id: 'file-1', processing_status: 'processing' }),
+    );
+    vi.mocked(fileRepo.findById).mockResolvedValue(
+      makeFile({ id: 'file-1', processing_status: 'completed' }),
+    );
+    vi.mocked(processFileContent).mockResolvedValue(null);
+  });
+
+  it('captures file_uploaded against the uploading session user', async () => {
+    await service.processUpload(
+      'uploads/report.pdf',
+      'report.pdf',
+      'application/pdf',
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      'user-7',
+    );
+
+    expect(posthogMocks.captureWorkspaceEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        workspaceId: 'workspace-1',
+        distinctId: 'user-7',
+        event: 'file_uploaded',
+        properties: expect.objectContaining({
+          file_id: 'file-1',
+          file_name: 'report.pdf',
+          content_type: 'application/pdf',
+          source: 'user',
+        }),
+      }),
+    );
+  });
+
+  it("attributes a pipeline ingest with no session to 'server'", async () => {
+    await service.processUpload('uploads/report.pdf', 'report.pdf', 'application/pdf');
+
+    expect(posthogMocks.captureWorkspaceEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        distinctId: 'server',
+        properties: expect.objectContaining({ source: 'pipeline' }),
+      }),
+    );
+  });
+
+  it('does not capture an upload that was rejected as a duplicate', async () => {
+    vi.mocked(fileRepo.findFirstByName).mockResolvedValue(
+      makeFile({ id: 'file-existing', file_name: 'report.pdf' }),
+    );
+    vi.mocked(deleteFile).mockResolvedValue(undefined as never);
+
+    await service.processUpload('uploads/copy.pdf', 'report.pdf', 'application/pdf');
+
+    expect(posthogMocks.captureWorkspaceEvent).not.toHaveBeenCalled();
+  });
+
+  it('captures exactly once per upload', async () => {
+    await service.processUpload('uploads/report.pdf', 'report.pdf', 'application/pdf');
+
+    const uploads = posthogMocks.captureWorkspaceEvent.mock.calls.filter(
+      ([arg]) => arg.event === 'file_uploaded',
+    );
+    expect(uploads).toHaveLength(1);
   });
 });

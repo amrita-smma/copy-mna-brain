@@ -15,7 +15,14 @@ import { CompanyDroppedError, CompanyL0RequirementsError, CompanyService } from 
 
 vi.mock("@/lib/s3", () => ({ deleteFile: vi.fn() }));
 
+const posthogMocks = vi.hoisted(() => ({ captureWorkspaceEvent: vi.fn() }));
+vi.mock("@/lib/posthog-server", () => ({
+  captureWorkspaceEvent: posthogMocks.captureWorkspaceEvent,
+}));
+
 import { deleteFile } from "@/lib/s3";
+
+const TEST_WORKSPACE_ID = "ws-test";
 
 afterEach(() => vi.clearAllMocks());
 
@@ -126,6 +133,7 @@ function buildService(
   companyAnalysisService?: Partial<ReturnType<typeof makeCompanyAnalysisService>>,
 ) {
   return new CompanyService(
+    TEST_WORKSPACE_ID,
     repos.companyRepo,
     repos.companyLogRepo,
     repos.dealDocRepo,
@@ -265,6 +273,7 @@ describe("CompanyService.delete", () => {
     const repos = makeRepos();
     vi.mocked(repos.dealDocRepo.findFilePathsByDealId).mockResolvedValue([]);
     const service = new CompanyService(
+      TEST_WORKSPACE_ID,
       repos.companyRepo,
       repos.companyLogRepo,
       repos.dealDocRepo,
@@ -1645,6 +1654,7 @@ describe("CompanyService user-name resolution (entered_by / deal_sponsor / deal_
 
   function buildServiceWithUsers(repos: ReturnType<typeof makeRepos>, findByIds: ReturnType<typeof vi.fn>) {
     return new CompanyService(
+      TEST_WORKSPACE_ID,
       repos.companyRepo,
       repos.companyLogRepo,
       repos.dealDocRepo,
@@ -1900,5 +1910,161 @@ describe('CompanyService — Company Card regeneration on a stage move', () => {
     await service.updateFromDTO('company-1', { comments: 'just a note' } as never);
 
     expect(analysis.regenerate).not.toHaveBeenCalled();
+  });
+});
+
+describe("CompanyService.promote — telemetry", () => {
+  it("captures deal_promoted server-side, attributed to the acting user", async () => {
+    const repos = makeRepos();
+    vi.mocked(repos.companyRepo.findById).mockResolvedValue(
+      makeCompany({ pipeline_stage: "L1", target: "Acme Corp" }),
+    );
+    const service = buildService(repos);
+
+    await service.promote("company-1", "L1", "L2", undefined, undefined, undefined, undefined, undefined, {
+      triggeredByUserId: "user-7",
+    });
+
+    expect(posthogMocks.captureWorkspaceEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        workspaceId: TEST_WORKSPACE_ID,
+        distinctId: "user-7",
+        event: "deal_promoted",
+      }),
+    );
+  });
+
+  it("captures deal_demoted when the move goes backwards", async () => {
+    const repos = makeRepos();
+    vi.mocked(repos.companyRepo.findById).mockResolvedValue(
+      makeCompany({ pipeline_stage: "L2" }),
+    );
+    const service = buildService(repos);
+
+    await service.promote("company-1", "L2", "L1");
+
+    expect(posthogMocks.captureWorkspaceEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ event: "deal_demoted" }),
+    );
+  });
+
+  it("falls back to 'server' for callers with no session (agent tools, bulk triage)", async () => {
+    const repos = makeRepos();
+    const service = buildService(repos);
+
+    await service.promote("company-1", "L1", "L2");
+
+    expect(posthogMocks.captureWorkspaceEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ distinctId: "server" }),
+    );
+  });
+
+  it("carries the stage move and note/link flags as properties", async () => {
+    const repos = makeRepos();
+    vi.mocked(repos.companyRepo.findById).mockResolvedValue(
+      makeCompany({ pipeline_stage: "L1", target: "Acme Corp" }),
+    );
+    const service = buildService(repos);
+
+    await service.promote(
+      "company-1",
+      "L1",
+      "L2",
+      "a note",
+      "https://x.test",
+      "X",
+      undefined,
+      undefined,
+      { hasDocument: true },
+    );
+
+    expect(posthogMocks.captureWorkspaceEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        properties: expect.objectContaining({
+          deal_id: "company-1",
+          company_name: "Acme Corp",
+          from_stage: "L1",
+          to_stage: "L2",
+          has_note: true,
+          has_link: true,
+          has_reason: false,
+          has_document: true,
+        }),
+      }),
+    );
+  });
+
+  it("does not capture when the promotion throws before completing", async () => {
+    const repos = makeRepos();
+    vi.mocked(repos.companyRepo.findById).mockResolvedValue(
+      makeCompany({ status: "dropped" } as Partial<Company>),
+    );
+    const service = buildService(repos);
+
+    await expect(service.promote("company-1", "L1", "L2")).rejects.toThrow(
+      CompanyDroppedError,
+    );
+    expect(posthogMocks.captureWorkspaceEvent).not.toHaveBeenCalled();
+  });
+});
+
+describe("CompanyService.promoteMany — telemetry", () => {
+  it("captures one event per deal so bulk moves are not invisible", async () => {
+    const repos = makeRepos();
+    const service = buildService(repos);
+
+    await service.promoteMany(
+      [
+        { id: "company-1", currentStage: "L1" },
+        { id: "company-2", currentStage: "L1" },
+      ],
+      "L2",
+      "user-7",
+    );
+
+    const moves = posthogMocks.captureWorkspaceEvent.mock.calls.filter(
+      ([arg]) => arg.event === "deal_promoted",
+    );
+    expect(moves).toHaveLength(2);
+    expect(moves.map(([arg]) => arg.properties.deal_id)).toEqual([
+      "company-1",
+      "company-2",
+    ]);
+  });
+
+  it("attributes bulk moves to the acting user and marks them as bulk", async () => {
+    const repos = makeRepos();
+    const service = buildService(repos);
+
+    await service.promoteMany([{ id: "company-1", currentStage: "L1" }], "L2", "user-7");
+
+    expect(posthogMocks.captureWorkspaceEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        workspaceId: TEST_WORKSPACE_ID,
+        distinctId: "user-7",
+        event: "deal_promoted",
+        properties: expect.objectContaining({ bulk: true, bulk_size: 1 }),
+      }),
+    );
+  });
+
+  it("captures deal_demoted for a backwards bulk move", async () => {
+    const repos = makeRepos();
+    const service = buildService(repos);
+
+    await service.promoteMany([{ id: "company-1", currentStage: "L3" }], "L1");
+
+    expect(posthogMocks.captureWorkspaceEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ event: "deal_demoted", distinctId: "server" }),
+    );
+  });
+
+  it("captures nothing for an empty deal list", async () => {
+    const repos = makeRepos();
+    const service = buildService(repos);
+
+    await service.promoteMany([], "L2");
+
+    expect(posthogMocks.captureWorkspaceEvent).not.toHaveBeenCalled();
   });
 });

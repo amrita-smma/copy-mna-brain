@@ -42,6 +42,30 @@ export function captureWorkspaceEvent(args: {
   });
 }
 
+/**
+ * Capture a server-side event that isn't scoped to a workspace.
+ *
+ * Reserved for the handful of events that genuinely have no workspace —
+ * principally `user_signed_in`, which fires before any workspace is chosen.
+ * Anything happening inside a workspace must use `captureWorkspaceEvent`
+ * instead, so it stays filterable and groupable per workspace.
+ *
+ * Server-side capture is also the only kind an ad blocker cannot intercept,
+ * which is why the events that matter most for per-user attribution are
+ * emitted here rather than from the browser.
+ */
+export function captureUserEvent(args: {
+  distinctId: string;
+  event: string;
+  properties?: Record<string, unknown>;
+}): void {
+  getPostHogClient()?.capture({
+    distinctId: args.distinctId,
+    event: args.event,
+    properties: args.properties,
+  });
+}
+
 export async function shutdownPostHog() {
   if (posthogClient) {
     await posthogClient.shutdown();

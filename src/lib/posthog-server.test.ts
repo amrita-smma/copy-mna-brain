@@ -83,3 +83,48 @@ describe('captureWorkspaceEvent', () => {
     ).not.toThrow();
   });
 });
+
+describe('captureUserEvent', () => {
+  beforeEach(() => {
+    vi.resetModules();
+    vi.unstubAllEnvs();
+  });
+
+  it('captures against the user without any workspace attribution', async () => {
+    vi.stubEnv('NEXT_PUBLIC_POSTHOG_KEY', 'phc_testkey');
+    const { getPostHogClient, captureUserEvent } = await import('./posthog-server');
+    const client = getPostHogClient()!;
+
+    captureUserEvent({
+      distinctId: 'user-1',
+      event: 'user_signed_in',
+      properties: { method: 'credentials' },
+    });
+
+    expect(client.capture).toHaveBeenCalledWith({
+      distinctId: 'user-1',
+      event: 'user_signed_in',
+      properties: { method: 'credentials' },
+    });
+  });
+
+  it('does not invent a workspace group — that is captureWorkspaceEvent’s job', async () => {
+    vi.stubEnv('NEXT_PUBLIC_POSTHOG_KEY', 'phc_testkey');
+    const { getPostHogClient, captureUserEvent } = await import('./posthog-server');
+    const client = getPostHogClient()!;
+
+    captureUserEvent({ distinctId: 'user-1', event: 'user_signed_in' });
+
+    expect(client.capture).toHaveBeenCalledWith(
+      expect.not.objectContaining({ groups: expect.anything() }),
+    );
+  });
+
+  it('is a no-op when PostHog is not configured', async () => {
+    vi.stubEnv('NEXT_PUBLIC_POSTHOG_KEY', '');
+    const { captureUserEvent } = await import('./posthog-server');
+    expect(() =>
+      captureUserEvent({ distinctId: 'user-1', event: 'user_signed_in' }),
+    ).not.toThrow();
+  });
+});

@@ -1534,12 +1534,9 @@ export default function SmartFiles({
     }
 
     if (results.success > 0) {
-      // Capture file upload event
-      posthog.capture("file_uploaded", {
-        file_count: results.success,
-        failed_count: results.failed,
-        duplicate_count: duplicates.length,
-      });
+      // `file_uploaded` is captured server-side per file in
+      // `FileService.processUpload`, where an ad blocker can't drop it and
+      // pipeline (MBOX) ingestion is counted too.
 
       if (filesToUpload.length === 1) {
         if (asyncCount > 0) {

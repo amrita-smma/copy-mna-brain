@@ -42,6 +42,7 @@ import {
   type UserWorkspaceRepository,
 } from '@/lib/repositories';
 import { enqueueSendEmail } from '@/lib/queue';
+import { captureWorkspaceEvent } from '@/lib/posthog-server';
 import type { CompanyAnalysisService } from './companyAnalysisService';
 import type { AIScreeningService } from './aiScreeningService';
 import type { CRMService } from './crmService';
@@ -542,6 +543,29 @@ export class FileService {
       file_type: fileTypeOverride ?? 'other',
       origin_email: originEmail ?? false,
       workspace_id: primaryWorkspaceId,
+    });
+
+    // `file_uploaded`, captured server-side rather than in the Smart Files
+    // view. Emitted here, right after the row lands, because that is the point
+    // the upload is definitively accepted — the duplicate gate has already
+    // returned above, and everything below is processing, which succeeds or
+    // fails on its own and is reported by its own events. Stamped against the
+    // primary workspace, which is the one that owns the file.
+    captureWorkspaceEvent({
+      workspaceId: primaryWorkspaceId,
+      // Pipeline (MBOX) ingestion has no session user — those uploads are
+      // attributed to 'server' and separable via `source`.
+      distinctId: uploaderUserId ?? 'server',
+      event: 'file_uploaded',
+      properties: {
+        file_id: initialData.id,
+        file_name: fileName,
+        file_type: fileTypeOverride ?? 'other',
+        content_type: contentType,
+        source: uploaderUserId ? 'user' : 'pipeline',
+        origin_email: originEmail ?? false,
+        fanned_out_workspaces: secondaryWorkspaceIds.length,
+      },
     });
 
     const secondaryFileRepos = secondaryWorkspaceIds.map(
@@ -3492,6 +3516,7 @@ function isEntityDecisionRemapped(
   private buildCompanyService(db: DbClient): CompanyService {
     const companyGraphRepo = new CompanyRelationRepository(createNeo4jDriver());
     return new CompanyService(
+      this.workspaceId,
       new CompanyRepository(db, this.workspaceId, companyGraphRepo),
       new CompanyLogRepository(db, this.workspaceId),
       new DealDocumentRepository(db, this.workspaceId),

@@ -2,6 +2,7 @@ import NextAuth from 'next-auth';
 import { NextResponse } from 'next/server';
 import { authConfig } from '@/auth.config';
 import { loginUrlWithCallback, consentUrlWithCallback } from '@/lib/callbackUrl';
+import { isIngestPath, stripCredentialHeaders } from '@/lib/posthog-proxy';
 
 // Middleware-only NextAuth instance. It carries no providers (those live in
 // `src/auth.ts` and touch the DB) — here we only read and verify the JWT
@@ -108,6 +109,22 @@ export function extractRefererWorkspaceSlug(refererHeader: string | null, reques
 
 export const proxy = auth((req) => {
   const pathname = req.nextUrl.pathname;
+
+  // PostHog ingest proxy (`/ingest/*`, rewritten to PostHog in
+  // `next.config.ts`). Handled first, before any auth or SSO branch: this is
+  // unauthenticated third-party-bound traffic, it runs on every captured
+  // event, and none of the gates below apply to it.
+  //
+  // The only thing middleware does here is take our credentials back off the
+  // request. The browser attaches session cookies to `/ingest` because it is
+  // same-origin and has no idea the request is about to be proxied to a
+  // vendor; without this strip, every captured event would ship a live
+  // session token to PostHog.
+  if (isIngestPath(pathname)) {
+    const requestHeaders = new Headers(req.headers);
+    stripCredentialHeaders(requestHeaders);
+    return NextResponse.next({ request: { headers: requestHeaders } });
+  }
 
   // Google-SSO deeplink. Any URL carrying `?token=` is a sign-in-and-land
   // request; consume it server-side exactly once by handing off to
@@ -255,6 +272,9 @@ export const config = {
   matcher: [
     '/api/:path*',
     '/w/:path*',
+    // Not a gate — this is the only hook we have to strip session cookies off
+    // requests headed for PostHog via the `next.config.ts` rewrite.
+    '/ingest/:path*',
     // Also run on ANY other route when it carries a `?token` query, so a
     // Google-SSO deeplink (e.g. `/?token=...`, `/chat?token=...`) is consumed
     // server-side before a page renders. Excludes Next internals/static assets.

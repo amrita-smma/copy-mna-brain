@@ -23,6 +23,24 @@ export const isAnalysisInProgress = (status: AnalysisJobStatus | null | undefine
 export const PIPELINE_STAGES: DealStage[] = ['L0', 'L1', 'L2', 'L3', 'L4', 'L5'];
 
 /**
+ * Which way a stage move travels along the pipeline.
+ *
+ * One code path (`CompanyService.promote`) serves both directions, so the
+ * telemetry it emits has to work the direction out from the stages themselves.
+ * Stages outside `PIPELINE_STAGES` (`market_screening`, `unreviewed`,
+ * `discovered`, or an absent current stage) rank below L0, so entering the
+ * pipeline always reads as a promotion.
+ */
+export function stageMoveDirection(
+  currentStage: string | undefined | null,
+  nextStage: string,
+): 'promote' | 'demote' {
+  const rank = (stage: string | undefined | null) =>
+    stage ? PIPELINE_STAGES.indexOf(stage as DealStage) : -1;
+  return rank(nextStage) < rank(currentStage) ? 'demote' : 'promote';
+}
+
+/**
  * Stage given to companies the relationship-graph tooling auto-creates as one
  * side of an edge. They sit outside the L0–L5 pipeline and get their own
  * Master Data section.

@@ -25,6 +25,9 @@ import type { CompanyAnalysisService } from './companyAnalysisService';
 import type { UserRepository } from '@/lib/repositories';
 import { bestFuzzyMatch } from '@/lib/fuzzySearch';
 import { getMissingL0Fields, type L0CompanyInput } from '@/lib/companies/l0Requirements';
+import { stageMoveDirection } from '@/lib/constants';
+import { companyDisplayName } from '@/lib/companyDisplay';
+import { captureWorkspaceEvent } from '@/lib/posthog-server';
 
 const L0_STAGE: DealStage = 'L0';
 // Stages above L0. A move into L0 from one of these is a *demotion*, not a fresh
@@ -95,6 +98,9 @@ function ratio(
 
 export class CompanyService {
   constructor(
+    // First rather than alongside the other scalars at the end: the trailing
+    // dependencies are optional, and a required parameter can't follow one.
+    private readonly workspaceId: string,
     private readonly companyRepo: CompanyRepository,
     private readonly companyLogRepo: CompanyLogRepository,
     private readonly dealDocRepo: DealDocumentRepository,
@@ -543,6 +549,15 @@ export class CompanyService {
     linkTitle?: string,
     assigneeIds?: string[],
     promotionReason?: string,
+    /** Telemetry-only context — see the `captureWorkspaceEvent` call below. */
+    opts?: {
+      /** Session user behind the move. Absent for agent-tool and bulk-triage
+       *  callers, which capture as 'server'. */
+      triggeredByUserId?: string | null;
+      /** Whether the caller is about to attach a document. The upload happens
+       *  after this call returns, so the server can't observe it itself. */
+      hasDocument?: boolean;
+    },
   ) {
     await this.guardWritable(id);
 
@@ -609,6 +624,26 @@ export class CompanyService {
       await this.companyRepo.setAssignees(id, assigneeIds);
     }
     await this.regenerateCompanyCardForStageMove(id, currentStage, nextStage);
+
+    // Captured here rather than in `PromoteDialog` so an ad blocker can't drop
+    // it, and so stage moves made by the agent tools and bulk triage — which
+    // have no browser at all — are counted too.
+    const direction = stageMoveDirection(currentStage, nextStage);
+    captureWorkspaceEvent({
+      workspaceId: this.workspaceId,
+      distinctId: opts?.triggeredByUserId ?? 'server',
+      event: direction === 'demote' ? 'deal_demoted' : 'deal_promoted',
+      properties: {
+        deal_id: id,
+        company_name: companyDisplayName(existing, ''),
+        from_stage: currentStage ?? null,
+        to_stage: nextStage,
+        has_note: Boolean(note?.trim()),
+        has_link: Boolean(linkUrl?.trim()),
+        has_reason: Boolean(trimmedPromotionReason),
+        has_document: Boolean(opts?.hasDocument),
+      },
+    });
   }
 
   getAssignees(id: string) {
@@ -713,6 +748,8 @@ export class CompanyService {
   async promoteMany(
     deals: Array<{ id: string; currentStage?: string }>,
     nextStage: string,
+    /** Session user behind the move, for telemetry attribution — see `promote`. */
+    triggeredByUserId?: string | null,
   ) {
     if (deals.length === 0) return;
     const ids = deals.map((d) => d.id);
@@ -729,6 +766,29 @@ export class CompanyService {
       })),
     );
     await this.regenerateCompanyCardsForBulkStageMove(deals, nextStage);
+
+    // One event per deal, matching `promote`'s shape, so a bulk move and a
+    // single move are counted the same way and a breakdown by stage doesn't
+    // silently miss every deal moved from the chat's bulk-promote card.
+    for (const { id, currentStage } of deals) {
+      captureWorkspaceEvent({
+        workspaceId: this.workspaceId,
+        distinctId: triggeredByUserId ?? 'server',
+        event:
+          stageMoveDirection(currentStage, nextStage) === 'demote'
+            ? 'deal_demoted'
+            : 'deal_promoted',
+        properties: {
+          deal_id: id,
+          from_stage: currentStage ?? null,
+          to_stage: nextStage,
+          // Distinguishes these from single moves, which carry a company name
+          // and note/link/reason flags this path has no equivalent of.
+          bulk: true,
+          bulk_size: deals.length,
+        },
+      });
+    }
   }
 
   async drop(id: string, reason?: string): Promise<void> {

@@ -139,6 +139,15 @@ export async function promoteCompany(id: string, payload: {
   linkTitle?: string;
   assigneeIds?: string[];
   promotionReason?: string;
+  /**
+   * Telemetry only: whether the caller is about to attach a document.
+   *
+   * The attachment itself is uploaded separately (S3 + `/api/deal-documents`)
+   * *after* this call returns, so the server cannot infer it. Passed explicitly
+   * to keep the `has_document` property on `deal_promoted`, which existed while
+   * that event was captured in the browser.
+   */
+  hasDocument?: boolean;
 }) {
   return apiRequest<{ success: boolean }>(`/api/companies/${encodeURIComponent(id)}/promote`, {
     method: 'POST',

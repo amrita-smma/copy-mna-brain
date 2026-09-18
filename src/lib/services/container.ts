@@ -76,6 +76,7 @@ import { FlPortfolioService } from './flPortfolioService';
 import { createNeo4jDriver } from '@/lib/neo4j';
 import { CompanyRelationRepository } from '@/lib/repositories/companyRelationRepository';
 import { ScreeningService } from './screeningService';
+import { ClientHealthService } from './clientHealthService';
 import { CriteriaService } from './criteriaService';
 import { InvestmentThesisService } from './investmentThesisService';
 import { TrackVariableService } from './trackVariableService';
@@ -126,6 +127,7 @@ export interface Container {
   companyGraphService: CompanyGraphService;
   companyRelationshipService: CompanyRelationshipService;
   screeningService: ScreeningService;
+  clientHealthService: ClientHealthService;
   criteriaService: CriteriaService;
   investmentThesisService: InvestmentThesisService;
   trackVariableService: TrackVariableService;
@@ -211,7 +213,8 @@ export function createContainer(db: DbClient, workspaceId: string): Container {
   const roleRepo = new RoleRepository(db);
 
   const criteriaService = new CriteriaService(criteriaRepo);
-  const screeningService = new ScreeningService(screeningRepo);
+  const screeningService = new ScreeningService(screeningRepo, workspaceId);
+  const clientHealthService = new ClientHealthService(workspaceId);
   const routinesRepo = new RoutinesRepository(db, workspaceId);
   const marketScanningRoutineService = new MarketScanningRoutineService(routinesRepo);
   const investmentThesisService = new InvestmentThesisService(
@@ -235,6 +238,7 @@ export function createContainer(db: DbClient, workspaceId: string): Container {
   const slideService = new SlideService(companySlidesRepo, jobDispatcher);
 
   const companyService = new CompanyService(
+    workspaceId,
     companyRepo,
     companyLogRepo,
     dealDocRepo,
@@ -493,6 +497,7 @@ export function createContainer(db: DbClient, workspaceId: string): Container {
     companyGraphService,
     companyRelationshipService,
     screeningService,
+    clientHealthService,
     criteriaService,
     investmentThesisService,
     trackVariableService,
