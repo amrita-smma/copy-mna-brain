@@ -6,6 +6,12 @@ import type { ChangelogEntry } from './changelog';
 
 export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   {
+    "hash": "bf26669ea74cab70e229b4bdd189d2bb9d89088f",
+    "date": "2026-09-18",
+    "subject": "Analytics now work reliably even with ad blockers enabled",
+    "category": "fix"
+  },
+  {
     "hash": "8d16c4cb2ddefe995eccebd6ce2b4cf2f23e4b2e",
     "date": "2026-09-17",
     "subject": "Admin portal now displays user lists and workspace cards more efficiently",
@@ -49,6 +55,14 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   },
   {
     "hash": "54e7c456e9061539d444e24cf486c229f6c65473",
+    "date": "2026-09-17",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
+    "hash": "c2c262ce0278dd63ad687b3f7645eafdea49b3d8",
     "date": "2026-09-17",
     "subject": "[skip deploy] chore: update changelog",
     "category": "improvement",
