@@ -1,8 +1,19 @@
 import NextAuth from 'next-auth';
 import { NextResponse } from 'next/server';
+import { waitUntil } from '@vercel/functions';
 import { authConfig } from '@/auth.config';
 import { loginUrlWithCallback, consentUrlWithCallback } from '@/lib/callbackUrl';
 import { isIngestPath, stripCredentialHeaders } from '@/lib/posthog-proxy';
+import {
+  captureUrl,
+  claimHeartbeat,
+  createHeartbeatThrottle,
+  heartbeatBucket,
+  heartbeatPayload,
+  isActivityPath,
+  resolveWorkspaceId,
+  sendHeartbeat,
+} from '@/lib/posthog-heartbeat';
 
 // Middleware-only NextAuth instance. It carries no providers (those live in
 // `src/auth.ts` and touch the DB) — here we only read and verify the JWT
@@ -107,6 +118,86 @@ export function extractRefererWorkspaceSlug(refererHeader: string | null, reques
   }
 }
 
+/**
+ * Per-instance heartbeat throttle. Module scope so it survives between
+ * invocations on a warm instance — see `posthog-heartbeat.ts` for why being
+ * per-instance (rather than shared) is correct.
+ */
+const heartbeatThrottle = createHeartbeatThrottle();
+
+/**
+ * The slice of the authenticated request `recordActivity` reads. Structural
+ * rather than next-auth's augmented `NextRequest`, which isn't exported as a
+ * usable type from the beta — and keeps this function trivially callable from a
+ * test without constructing a real request.
+ */
+interface ActivityRequest {
+  method: string;
+  headers: Headers;
+  nextUrl: { pathname: string };
+  auth?: {
+    user?: {
+      id?: string;
+      email?: string | null;
+      workspaceId?: string | null;
+      workspaces?: { workspaceId: string; slug: string }[];
+    };
+  } | null;
+}
+
+/**
+ * Emit a server-side activity heartbeat for an authenticated request.
+ *
+ * This is the blocker-proof usage tracker: the proxy already decodes the
+ * session JWT for every gated request, so counting here sees real usage without
+ * any browser involvement. Entirely fire-and-forget — wrapped so that no
+ * telemetry failure can ever affect the response.
+ */
+export function recordActivity(req: ActivityRequest): void {
+  try {
+    const userId = req.auth?.user?.id;
+    if (!userId) return;
+
+    const pathname = req.nextUrl.pathname;
+    if (!isActivityPath(pathname)) return;
+
+    // Resolved before the throttle is touched, so an unconfigured deploy
+    // doesn't accumulate entries in a Map it will never emit from.
+    const url = captureUrl(process.env.NEXT_PUBLIC_POSTHOG_HOST);
+    const apiKey = process.env.NEXT_PUBLIC_POSTHOG_KEY;
+    if (!url || !apiKey) return;
+
+    const bucket = heartbeatBucket(Date.now());
+    if (!claimHeartbeat(heartbeatThrottle, userId, bucket)) return;
+
+    // `/w/<slug>` is authoritative when present; otherwise fall back to the
+    // header apiRequest injects, then to the calling tab's Referer — the same
+    // precedence the workspace gate below uses.
+    const slug =
+      extractWorkspaceSlug(pathname) ??
+      req.headers.get('x-workspace-slug') ??
+      extractRefererWorkspaceSlug(req.headers.get('referer'), req.headers.get('host'));
+
+    const payload = heartbeatPayload(apiKey, {
+      userId,
+      email: req.auth?.user?.email,
+      workspaceSlug: slug,
+      workspaceId: resolveWorkspaceId(
+        slug,
+        req.auth?.user?.workspaces,
+        req.auth?.user?.workspaceId,
+      ),
+      pathname,
+      method: req.method,
+      bucket,
+    });
+
+    waitUntil(sendHeartbeat(url, payload, fetch));
+  } catch {
+    // Telemetry must never break a request.
+  }
+}
+
 export const proxy = auth((req) => {
   const pathname = req.nextUrl.pathname;
 
@@ -148,6 +239,13 @@ export const proxy = auth((req) => {
     ssoUrl.searchParams.set('callbackUrl', clean.pathname + clean.search);
     return NextResponse.redirect(ssoUrl);
   }
+
+  // Usage tracking. Placed after the ingest and SSO early-returns (neither is
+  // user activity) and before every gate below, so it covers both the `/w/*`
+  // page branch and the `/api/*` branch from one call site. No-ops unless a
+  // session is attached, so the unauthenticated paths through the gates below
+  // contribute nothing.
+  recordActivity(req);
 
   if (pathname.startsWith('/w/')) {
     if (!req.auth?.user?.id) {

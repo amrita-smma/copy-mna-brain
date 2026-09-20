@@ -1227,6 +1227,45 @@ PostHog group. The route and probe paths deliberately avoid the words
 `analytics`, `tracking`, `telemetry`, `posthog` and `ph`, all of which appear in
 the filter lists this is trying to measure.
 
+**4. Activity heartbeat — the usage tracker.** `src/lib/posthog-heartbeat.ts`,
+fired from `recordActivity` in `src/proxy.ts`. This is the authoritative "who is
+using the product, and how much" signal, and the only one an ad blocker cannot
+touch: the proxy already decodes the session JWT on every gated request, so
+usage is counted server-side with nothing running in the browser.
+
+Time is sliced into fixed five-minute windows (`HEARTBEAT_INTERVAL_MS`) and each
+user emits at most one `user_activity_heartbeat` per window **per instance**,
+carrying that window's index as `heartbeat_bucket`. The bucket is derived from
+wall-clock time rather than from process state, which is what lets the throttle
+be a per-instance in-memory `Map` with no shared dedup infrastructure and no
+database round-trip on the request path: two instances serving the same user in
+one window build a *byte-identical* event — same `$insert_id`
+(`<user>:<bucket>`) and same `timestamp` (the window's start, not the moment of
+the request, since PostHog's dedup tuple includes it) — so the duplicate is
+dropped at ingest. `uniqExact(heartbeat_bucket)` collapses any that slip
+through. Active time is `distinct buckets x interval`.
+
+This measures **active** time (windows containing at least one request), not
+time-on-page. That is deliberate: the client-side `$prev_pageview_duration` it
+replaces counts an idle background tab as usage. For the same reason
+`isActivityPath` excludes `/api/auth/*` — the NextAuth client polls
+`/api/auth/session` on an interval and on window focus, which would make an
+abandoned tab read as active forever — along with `/ingest`, `/api/cron/*`,
+`/api/queues/*`, `/api/healthcheck` and `/api/client-health`.
+
+The heartbeat posts directly to PostHog's `/i/v0/e/` capture endpoint with
+`fetch` (via `waitUntil`, so it never delays the response). A bare `fetch`
+rather than `posthog-node` because the proxy runs per request with no
+meaningful process lifetime to flush a buffered client against — there is
+nothing for a client library to batch. It deliberately does *not* route through
+our own `/ingest` rewrite either: the request originates on the server, where
+there is no blocker to evade, and doing so would bounce it back through the
+proxy. The `email` event property honours the same `SEND_EMAIL_WITH_EVENTS` kill
+switch as the client super property, so flipping that flag stops both surfaces.
+`$set: { email }` is *not* gated on it — that flag governs per-event stamping,
+not the person properties `identify` would set anyway, and it is what gives a
+permanently blocked user a searchable person profile instead of a bare UUID.
+
 ## Admin routes (`/api/auth`)
 
 Privileged, machine-to-machine **admin** endpoints live under `/api/auth/*` and
