@@ -6,10 +6,26 @@ import type { ChangelogEntry } from './changelog';
 
 export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   {
+    "hash": "a6e03b4ebebedd7ea7d266b327e8e7eabc510e6d",
+    "date": "2026-09-20",
+    "subject": "Add blocker-proof server-side PostHog activity heartbeat",
+    "category": "feature",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
     "hash": "bf26669ea74cab70e229b4bdd189d2bb9d89088f",
     "date": "2026-09-18",
     "subject": "Analytics now work reliably even with ad blockers enabled",
     "category": "fix"
+  },
+  {
+    "hash": "00389ce95ae22984164c45e9479cfe3a8035730b",
+    "date": "2026-09-18",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
   },
   {
     "hash": "8d16c4cb2ddefe995eccebd6ce2b4cf2f23e4b2e",
