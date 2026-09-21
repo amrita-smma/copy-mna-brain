@@ -12,6 +12,20 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "category": "improvement"
   },
   {
+    "hash": "f7124b7c8ed6d2723fdddb7746572836a471702d",
+    "date": "2026-09-21",
+    "subject": "Enable quick deal removal from company profiles and master data views",
+    "category": "feature"
+  },
+  {
+    "hash": "c2a2cb87838f49ea193fdf31feaded257452f834",
+    "date": "2026-09-21",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "a6e03b4ebebedd7ea7d266b327e8e7eabc510e6d",
     "date": "2026-09-20",
     "subject": "Add blocker-proof server-side PostHog activity heartbeat",
