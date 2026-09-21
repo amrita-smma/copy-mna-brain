@@ -121,9 +121,11 @@ import {
   getTracks,
   getUsers,
   updateCompany,
+  restoreDeal,
   type Track,
   type UserSummary,
 } from '@/lib/api/pipeline';
+import DropDealDialog from '@/components/pipeline/DropDealDialog';
 
 const websiteHref = (url: string) =>
   /^https?:\/\//i.test(url) ? url : `https://${url}`;
@@ -629,6 +631,35 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
   const cancelEditing = () => {
     setIsEditing(false);
     setEditForm(null);
+  };
+
+  // Deal Status (Active/Dropped) toggle, paired with the Status field above.
+  // Dropping and reactivating are immediate side-effecting actions (their own
+  // log entry, optional note) rather than fields saved via handleSave.
+  const [showDropDialog, setShowDropDialog] = useState(false);
+  const [isTogglingDealStatus, setIsTogglingDealStatus] = useState(false);
+
+  const handleDealStatusChange = async (next: 'active' | 'dropped') => {
+    if (!company || next === (company.status === 'dropped' ? 'dropped' : 'active')) return;
+    if (next === 'dropped') {
+      setShowDropDialog(true);
+      return;
+    }
+    // Reactivating is immediate, no confirmation — matches the pipeline
+    // board's restore action.
+    setIsTogglingDealStatus(true);
+    try {
+      await restoreDeal(company.id, { currentStage: company.pipeline_stage });
+      toast.success(`Restored ${companyDisplayName(company, 'company')}`);
+      setCompany((prev) =>
+        prev ? { ...prev, status: 'active', dropped_at: null, dropped_reason: null } : prev,
+      );
+    } catch (err: unknown) {
+      console.error('Error restoring deal:', err);
+      toast.error(`Failed to restore deal: ${err instanceof Error ? err.message : 'Unknown error'}`);
+    } finally {
+      setIsTogglingDealStatus(false);
+    }
   };
 
   // Inline edit mode for the AI Market Scanning Remarks card
@@ -1953,6 +1984,31 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
                   )}
                 </div>
                 <div>
+                  <p className="text-xs text-muted-foreground">Deal Status</p>
+                  {isEditing ? (
+                    <div className="mt-1">
+                      <Select
+                        value={company.status === 'dropped' ? 'dropped' : 'active'}
+                        onValueChange={(v) => handleDealStatusChange(v as 'active' | 'dropped')}
+                        disabled={isSaving || isTogglingDealStatus}
+                      >
+                        <SelectTrigger data-testid="deal-status-select" className="h-7 text-sm">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="active">Active</SelectItem>
+                          <SelectItem value="dropped">Dropped</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      {company.status === 'dropped' && company.dropped_reason && (
+                        <p className="mt-1 text-xs text-muted-foreground">Reason: {company.dropped_reason}</p>
+                      )}
+                    </div>
+                  ) : (
+                    <p className="text-sm font-medium break-words">{company.status === 'dropped' ? 'Dropped' : 'Active'}</p>
+                  )}
+                </div>
+                <div>
                   <p className="text-xs text-muted-foreground">Last Activity</p>
                   {isEditing && editForm ? (
                     <Input type="date" value={editForm.last_activity_at} onChange={(e) => setEditForm({ ...editForm, last_activity_at: e.target.value })} disabled={isSaving} className="mt-1 h-7 text-sm" />
@@ -2510,6 +2566,23 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
           </div>
         </DialogContent>
       </Dialog>
+
+      {company && (
+        <DropDealDialog
+          open={showDropDialog}
+          onOpenChange={setShowDropDialog}
+          dealId={company.id}
+          companyName={companyDisplayName(company, 'this company')}
+          currentStage={company.pipeline_stage}
+          onSuccess={(reason) => {
+            setCompany((prev) =>
+              prev
+                ? { ...prev, status: 'dropped', dropped_at: new Date().toISOString(), dropped_reason: reason }
+                : prev,
+            );
+          }}
+        />
+      )}
     </>
   );
 }

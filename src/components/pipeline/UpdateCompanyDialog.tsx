@@ -28,6 +28,7 @@ import {
   getBankerNames,
   getUsers,
   promoteCompany,
+  restoreDeal,
   type FinancialEditRow,
   type UserSummary,
 } from "@/lib/api/pipeline";
@@ -36,6 +37,7 @@ import StatusCombobox, {
   DEFAULT_INBOUND_STATUS_OPTIONS,
   DEFAULT_OUTBOUND_STATUS_OPTIONS,
 } from "@/components/pipeline/StatusCombobox";
+import DropDealDialog from "@/components/pipeline/DropDealDialog";
 import type { Tables } from "@/lib/repositories";
 import { normalizeStake } from "@/lib/stake";
 import TrackMultiSelect from "@/components/pipeline/TrackMultiSelect";
@@ -62,6 +64,11 @@ export interface UpdateCompanyData {
   key_rationale: string | null;
   matched_track_ids?: string[] | null;
   financials_raw?: Tables<"company_financials">[];
+  /** Pipeline lifecycle status ('active' | 'dropped') — drives the Deal
+   * Status dropdown. */
+  status: string | null;
+  pipeline_stage: string | null;
+  dropped_reason: string | null;
 }
 
 interface UpdateCompanyDialogProps {
@@ -161,15 +168,50 @@ export default function UpdateCompanyDialog({
   const [newFinYear, setNewFinYear] = useState<string>(() => defaultNewYear(company.financials_raw));
   const isOutbound = company.source === "outbound";
 
+  // Deal Status (Active/Dropped) — tracked separately from `form`. Dropping
+  // and reactivating are immediate side-effecting actions (their own log
+  // entry, optional note) rather than fields saved via handleSave.
+  const [dealStatus, setDealStatus] = useState(company.status);
+  const [droppedReason, setDroppedReason] = useState(company.dropped_reason);
+  const [showDropDialog, setShowDropDialog] = useState(false);
+  const [isTogglingStatus, setIsTogglingStatus] = useState(false);
+
   useEffect(() => {
     if (open) {
       setForm(buildForm(company));
       setMissingFields([]);
       setDeletedYears([]);
       setNewFinYear(defaultNewYear(company.financials_raw));
+      setDealStatus(company.status);
+      setDroppedReason(company.dropped_reason);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, company.id]);
+
+  const handleDealStatusChange = async (next: "active" | "dropped") => {
+    if (next === dealStatus) return;
+    if (next === "dropped") {
+      setShowDropDialog(true);
+      return;
+    }
+    // Reactivating is immediate, no confirmation — matches the pipeline
+    // board's restore action.
+    setIsTogglingStatus(true);
+    try {
+      await restoreDeal(company.id, { currentStage: company.pipeline_stage });
+      toast.success(`Restored ${form.target.trim() || "company"}`);
+      setDealStatus("active");
+      setDroppedReason(null);
+      await onUpdate();
+    } catch (err: unknown) {
+      console.error("Error restoring deal:", err);
+      toast.error(
+        `Failed to restore deal: ${err instanceof Error ? err.message : "Unknown error"}`,
+      );
+    } finally {
+      setIsTogglingStatus(false);
+    }
+  };
 
   // Load existing banker names once, to suggest Banker / Source values.
   useEffect(() => {
@@ -305,7 +347,8 @@ export default function UpdateCompanyDialog({
       : DEFAULT_INBOUND_STATUS_OPTIONS);
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <>
+      <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-xl max-h-[88vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>{promoteOnSave ? "Edit & Add to L0" : "Update Company"}</DialogTitle>
@@ -591,6 +634,26 @@ export default function UpdateCompanyDialog({
           </div>
 
           <div className="col-span-2 space-y-1.5">
+            <Label>Deal Status</Label>
+            <Select
+              value={dealStatus === "dropped" ? "dropped" : "active"}
+              onValueChange={(v) => handleDealStatusChange(v as "active" | "dropped")}
+              disabled={isSaving || isTogglingStatus}
+            >
+              <SelectTrigger data-testid="deal-status-select">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="active">Active</SelectItem>
+                <SelectItem value="dropped">Dropped</SelectItem>
+              </SelectContent>
+            </Select>
+            {dealStatus === "dropped" && droppedReason && (
+              <p className="text-xs text-muted-foreground">Reason: {droppedReason}</p>
+            )}
+          </div>
+
+          <div className="col-span-2 space-y-1.5">
             <Label htmlFor="u_remarks">Additional Remarks</Label>
             <Textarea
               id="u_remarks"
@@ -622,5 +685,19 @@ export default function UpdateCompanyDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+
+      <DropDealDialog
+        open={showDropDialog}
+        onOpenChange={setShowDropDialog}
+        dealId={company.id}
+        companyName={form.target.trim() || "this company"}
+        currentStage={company.pipeline_stage}
+        onSuccess={(reason) => {
+          setDealStatus("dropped");
+          setDroppedReason(reason);
+          onUpdate();
+        }}
+      />
+    </>
   );
 }

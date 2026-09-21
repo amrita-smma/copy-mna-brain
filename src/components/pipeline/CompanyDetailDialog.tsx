@@ -60,6 +60,7 @@ import {
 } from "lucide-react";
 import { CompanyAnalysisSection } from "@/components/pipeline/CompanyAnalysisSection";
 import { AICompanyCardLoading } from "@/components/pipeline/AICompanyCardLoading";
+import DropDealDialog from "@/components/pipeline/DropDealDialog";
 import CompanyOverviewSlide, {
   type AnalysisSectionKey,
   type EditSectionRequest,
@@ -503,6 +504,7 @@ export default function CompanyDetailDialog({
     matched_track_ids: string[];
   };
   const [isEditing, setIsEditing] = useState(false);
+  const [showDropDialog, setShowDropDialog] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [editForm, setEditForm] = useState<EditForm | null>(null);
   const [bankerOptions, setBankerOptions] = useState<string[]>([]);
@@ -1557,6 +1559,18 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
                       onOpenChange(false);
                     }}
                   />
+                  {company.status !== "dropped" && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      data-testid="company-detail-drop-button"
+                      className="gap-1.5 h-7 text-xs text-destructive border-destructive/40 hover:bg-destructive/10 hover:text-destructive"
+                      onClick={() => setShowDropDialog(true)}
+                    >
+                      <XCircle className="h-3.5 w-3.5" />
+                      Drop Deal
+                    </Button>
+                  )}
                 </div>
               </div>
             </div>
@@ -3103,6 +3117,23 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
           </div>
         </DialogContent>
       </Dialog>
+
+      <DropDealDialog
+        open={showDropDialog}
+        onOpenChange={setShowDropDialog}
+        dealId={company.id}
+        companyName={companyDisplayName(company, "this company")}
+        currentStage={company.pipeline_stage}
+        onSuccess={(reason) => {
+          setCompany((prev) => ({
+            ...prev,
+            status: "dropped",
+            dropped_at: new Date().toISOString(),
+            dropped_reason: reason,
+          }));
+          onUpdate();
+        }}
+      />
     </>
   );
 }

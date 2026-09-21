@@ -7,6 +7,7 @@ import { useWorkspaceCurrency } from '@/components/layout/WorkspaceCurrencyConte
 import { formatMoneyMn } from '@/lib/currency';
 import CompanyDetailDialog, { type CompanyData } from '@/components/pipeline/CompanyDetailDialog';
 import PromoteDialog from '@/components/pipeline/PromoteDialog';
+import DropDealDialog from '@/components/pipeline/DropDealDialog';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
@@ -24,7 +25,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { deleteCompanyById, getCompanies } from '@/lib/api/pipeline';
+import { deleteCompanyById, getCompanies, restoreDeal } from '@/lib/api/pipeline';
 import {
   Database,
   Search,
@@ -41,6 +42,8 @@ import {
   ArrowRight,
   MoreVertical,
   Plus,
+  XCircle,
+  RotateCcw,
 } from 'lucide-react';
 import type { DealStage } from '@/lib/types';
 import { Button } from '@/components/ui/button';
@@ -179,7 +182,9 @@ export default function MasterData() {
   const [currentPage, setCurrentPage] = useState(1);
   const [discoveredPage, setDiscoveredPage] = useState(1);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [reactivatingId, setReactivatingId] = useState<string | null>(null);
   const [companyToPromote, setCompanyToPromote] = useState<CompanyWithDeal | null>(null);
+  const [dropDealCompany, setDropDealCompany] = useState<CompanyWithDeal | null>(null);
   const [selectedCompany, setSelectedCompany] = useState<CompanyData | null>(null);
   const [loadingDialog, setLoadingDialog] = useState(false);
   // Tracks which company id the most recent click/close is for, so an
@@ -303,6 +308,34 @@ export default function MasterData() {
       });
     } finally {
       setDeletingId(null);
+    }
+  };
+
+  // Reactivating is immediate, no confirmation — matches the pipeline
+  // board's restore action.
+  const reactivateCompany = async (company: CompanyWithDeal) => {
+    setReactivatingId(company.id);
+    try {
+      await restoreDeal(company.id, { currentStage: company.current_stage });
+      setCompanies((prev) =>
+        prev.map((c) => (c.id === company.id ? { ...c, status: 'active' } : c)),
+      );
+      toast({
+        title: 'Deal reactivated',
+        description: `"${companyDisplayName(company, 'this company')}" is active again.`,
+      });
+    } catch (error: unknown) {
+      console.error('Error reactivating company:', error);
+      toast({
+        title: 'Reactivate failed',
+        description:
+          error instanceof Error
+            ? error.message
+            : 'Could not reactivate the deal. Please try again.',
+        variant: 'destructive',
+      });
+    } finally {
+      setReactivatingId(null);
     }
   };
 
@@ -878,9 +911,9 @@ export default function MasterData() {
                                       "h-7 w-7 transition-opacity group-hover:opacity-100 data-[state=open]:opacity-100",
                                       nearEdge ? "opacity-100" : "opacity-0",
                                     )}
-                                    disabled={deletingId === company.id}
+                                    disabled={deletingId === company.id || reactivatingId === company.id}
                                   >
-                                    {deletingId === company.id ? (
+                                    {deletingId === company.id || reactivatingId === company.id ? (
                                       <Loader2 className="h-4 w-4 animate-spin" />
                                     ) : (
                                       <MoreVertical className="h-4 w-4" />
@@ -888,6 +921,23 @@ export default function MasterData() {
                                   </Button>
                                 </DropdownMenuTrigger>
                                 <DropdownMenuContent align="end">
+                                  {company.status === 'dropped' ? (
+                                    <DropdownMenuItem
+                                      data-testid={`master-data-reactivate-button-${company.id}`}
+                                      onSelect={() => reactivateCompany(company)}
+                                    >
+                                      <RotateCcw className="mr-2 h-4 w-4" />
+                                      Reactivate deal
+                                    </DropdownMenuItem>
+                                  ) : (
+                                    <DropdownMenuItem
+                                      data-testid={`master-data-drop-button-${company.id}`}
+                                      onSelect={() => setDropDealCompany(company)}
+                                    >
+                                      <XCircle className="mr-2 h-4 w-4" />
+                                      Drop
+                                    </DropdownMenuItem>
+                                  )}
                                   <AlertDialogTrigger asChild>
                                     <DropdownMenuItem
                                       onSelect={(e) => e.preventDefault()}
@@ -1081,6 +1131,26 @@ export default function MasterData() {
               setCompanyToPromote(null);
               setDiscoveredCompanies((prev) => prev.filter((c) => c.id !== companyToPromote.id));
               fetchCompanies({ silent: true });
+            }}
+          />
+        )}
+
+        {dropDealCompany && (
+          <DropDealDialog
+            open={!!dropDealCompany}
+            onOpenChange={(open) => {
+              if (!open) setDropDealCompany(null);
+            }}
+            dealId={dropDealCompany.id}
+            companyName={companyDisplayName(dropDealCompany, 'this company')}
+            currentStage={dropDealCompany.current_stage}
+            onSuccess={() => {
+              setCompanies((prev) =>
+                prev.map((c) =>
+                  c.id === dropDealCompany.id ? { ...c, status: 'dropped' } : c,
+                ),
+              );
+              setDropDealCompany(null);
             }}
           />
         )}
