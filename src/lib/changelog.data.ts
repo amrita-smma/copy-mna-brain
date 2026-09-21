@@ -6,12 +6,26 @@ import type { ChangelogEntry } from './changelog';
 
 export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   {
+    "hash": "0348734de96479079c02f0db3a6be0ccaee4bcfb",
+    "date": "2026-09-21",
+    "subject": "Dashboard activity feed now filters by current company lifecycle status",
+    "category": "improvement"
+  },
+  {
     "hash": "a6e03b4ebebedd7ea7d266b327e8e7eabc510e6d",
     "date": "2026-09-20",
     "subject": "Add blocker-proof server-side PostHog activity heartbeat",
     "category": "feature",
     "skipped": true,
     "skipReason": "vague"
+  },
+  {
+    "hash": "6e0407450cb845bd4c15bd5664126dab5ca9a701",
+    "date": "2026-09-20",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
   },
   {
     "hash": "bf26669ea74cab70e229b4bdd189d2bb9d89088f",
