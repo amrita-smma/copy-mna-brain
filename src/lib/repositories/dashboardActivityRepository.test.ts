@@ -35,6 +35,11 @@ describe('DashboardActivityRepository.getDroppedDeals', () => {
     expect(selectArg).toHaveProperty('remarks');
     expect(selectArg).toHaveProperty('thesis_content');
     expect(selectArg).toHaveProperty('logo_url');
+    // status + pipeline_stage are the company's CURRENT state, carried onto
+    // the feed event so current-status filtering (see dashboardActivityService)
+    // can bucket by where the company presently sits.
+    expect(selectArg).toHaveProperty('status');
+    expect(selectArg).toHaveProperty('pipeline_stage');
   });
 
   it('selects FY financials and entered_by_name for the per-row summary', async () => {
@@ -104,6 +109,10 @@ describe('DashboardActivityRepository.getPipelineMoves', () => {
     expect(selectArg).toHaveProperty('ev_usd_mn');
     expect(selectArg).toHaveProperty('entered_by_name');
     expect(selectArg).toHaveProperty('deal_sponsor_name');
+    // Current status + stage, so a company promoted then later dropped within
+    // the same window can be bucketed by where it presently sits.
+    expect(selectArg).toHaveProperty('status');
+    expect(selectArg).toHaveProperty('pipeline_stage');
     // Left joins: financials, users (entered_by), aliased users (deal_sponsor).
     expect(mockDb.leftJoin).toHaveBeenCalledTimes(3);
   });
@@ -155,6 +164,65 @@ describe('DashboardActivityRepository.getAddedCompanies', () => {
     );
 
     expect(result).toEqual(rows);
+  });
+});
+
+describe('DashboardActivityRepository.getNewL0Companies', () => {
+  let repo: DashboardActivityRepository;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockDb.select.mockReturnThis();
+    mockDb.from.mockReturnThis();
+    mockDb.innerJoin.mockReturnThis();
+    mockDb.leftJoin.mockReturnThis();
+    mockDb.where.mockReturnThis();
+    repo = new DashboardActivityRepository(mockDb as never, 'workspace-1');
+  });
+
+  it('selects the company current status + pipeline_stage on both the created and demoted sub-queries', async () => {
+    mockDb.orderBy.mockResolvedValueOnce([]).mockResolvedValueOnce([]);
+
+    await repo.getNewL0Companies(new Date('2026-01-01'), new Date('2026-01-08'));
+
+    // Both the created and demoted sub-query selects (identified by carrying
+    // `event_at`, unique to the two top-level selects — the correlated
+    // financials-year subquery's select does not) must carry the company's
+    // CURRENT status/stage, so the feed can bucket by where a company
+    // presently sits rather than by which sub-query surfaced it.
+    const topLevelSelects = mockDb.select.mock.calls
+      .map((call) => call[0])
+      .filter((arg) => arg && typeof arg === 'object' && 'event_at' in arg);
+    expect(topLevelSelects).toHaveLength(2);
+    for (const selectArg of topLevelSelects) {
+      expect(selectArg).toHaveProperty('status');
+      expect(selectArg).toHaveProperty('pipeline_stage');
+    }
+  });
+});
+
+describe('DashboardActivityRepository.getNotesUpdated', () => {
+  let repo: DashboardActivityRepository;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockDb.select.mockReturnThis();
+    mockDb.from.mockReturnThis();
+    mockDb.innerJoin.mockReturnThis();
+    mockDb.leftJoin.mockReturnThis();
+    mockDb.where.mockReturnThis();
+    repo = new DashboardActivityRepository(mockDb as never, 'workspace-1');
+  });
+
+  it('selects the company current status + pipeline_stage alongside the note', async () => {
+    mockDb.orderBy.mockResolvedValueOnce([]);
+
+    await repo.getNotesUpdated(new Date('2026-01-01'), new Date('2026-01-08'));
+
+    const selectArg = mockDb.select.mock.calls[0][0];
+    expect(selectArg).toHaveProperty('content');
+    expect(selectArg).toHaveProperty('status');
+    expect(selectArg).toHaveProperty('pipeline_stage');
   });
 });
 

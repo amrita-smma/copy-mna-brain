@@ -254,6 +254,34 @@ interface FeedEvent {
   ebitda_usd_mn?: number | null;
   ev_usd_mn?: number | null;
   financial_year?: number | null;
+  /** The company's status **today**, not at the time this event happened —
+   * drives the "new"/"moved"/"dropped" filters, which key off where a
+   * company presently sits rather than which event fired in the window. */
+  current_status?: "active" | "dropped" | null;
+  /** The company's pipeline stage **today**, not at the time this event
+   * happened — see {@link current_status}. */
+  current_pipeline_stage?: string | null;
+}
+
+/**
+ * Whether `event`'s company is *presently* in the lifecycle state named by
+ * `filterKey` (`"new"` | `"moved"` | `"dropped"`) — not whether this
+ * particular event's own type matches. A company can pick up several
+ * lifecycle events within one window (e.g. promoted, then dropped); this
+ * looks at where it landed, not every step along the way, so it only ever
+ * matches one of the three buckets.
+ */
+function matchesCurrentStatus(
+  event: FeedEvent,
+  filterKey: "new" | "moved" | "dropped",
+): boolean {
+  if (filterKey === "dropped") return event.current_status === "dropped";
+  if (event.current_status !== "active") return false;
+  if (filterKey === "new") return event.current_pipeline_stage === "L0";
+  return (
+    event.current_pipeline_stage != null &&
+    event.current_pipeline_stage !== "L0"
+  );
 }
 
 /** Format a millions figure as `IDR 4.9B` / `USD 312M`, or null when absent.
@@ -306,6 +334,8 @@ function buildFeedEvents(activity: DashboardActivity): FeedEvent[] {
       ebitda_usd_mn: c.ebitda_usd_mn ?? null,
       ev_usd_mn: c.ev_usd_mn ?? null,
       financial_year: c.financial_year ?? null,
+      current_status: c.status ?? null,
+      current_pipeline_stage: c.pipeline_stage ?? null,
     });
   }
 
@@ -331,6 +361,8 @@ function buildFeedEvents(activity: DashboardActivity): FeedEvent[] {
       ebitda_usd_mn: m.ebitda_usd_mn ?? null,
       ev_usd_mn: m.ev_usd_mn ?? null,
       financial_year: m.financial_year ?? null,
+      current_status: m.status ?? null,
+      current_pipeline_stage: m.pipeline_stage ?? null,
     });
   }
 
@@ -354,6 +386,8 @@ function buildFeedEvents(activity: DashboardActivity): FeedEvent[] {
       ebitda_usd_mn: d.ebitda_usd_mn ?? null,
       ev_usd_mn: d.ev_usd_mn ?? null,
       financial_year: d.financial_year ?? null,
+      current_status: d.status ?? null,
+      current_pipeline_stage: d.pipeline_stage ?? null,
     });
   }
 
@@ -377,6 +411,8 @@ function buildFeedEvents(activity: DashboardActivity): FeedEvent[] {
       ebitda_usd_mn: n.ebitda_usd_mn ?? null,
       ev_usd_mn: n.ev_usd_mn ?? null,
       financial_year: n.financial_year ?? null,
+      current_status: n.status ?? null,
+      current_pipeline_stage: n.pipeline_stage ?? null,
     });
   }
 
@@ -1026,14 +1062,19 @@ export default function Dashboard({
 
   const filteredFeedEvents = useMemo(() => {
     if (feedFilter === "all") return allFeedEvents;
-    const typeMap: Record<FeedFilterKey, FeedEventType> = {
-      all: "new_deal",
-      new: "new_deal",
-      moved: "stage_move",
-      dropped: "dropped",
-      notes: "note_updated",
-    };
-    return allFeedEvents.filter((e) => e.type === typeMap[feedFilter]);
+    // "notes" stays a plain event-type filter — a note doesn't change a
+    // company's current lifecycle state. "new"/"moved"/"dropped" instead key
+    // off where the company presently sits (see matchesCurrentStatus), so a
+    // company that moved and was later dropped in the same window only shows
+    // under "dropped".
+    if (feedFilter === "notes") {
+      return allFeedEvents.filter((e) => e.type === "note_updated");
+    }
+    return allFeedEvents.filter(
+      (e) =>
+        (e.type === "new_deal" || e.type === "stage_move" || e.type === "dropped") &&
+        matchesCurrentStatus(e, feedFilter),
+    );
   }, [allFeedEvents, feedFilter]);
 
   // Collapse the filtered events into one group per company (no duplicate

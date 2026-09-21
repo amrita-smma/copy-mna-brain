@@ -110,6 +110,57 @@ export interface FeedEvent {
   ebitda_usd_mn?: number | null;
   ev_usd_mn?: number | null;
   financial_year?: number | null;
+  /** The company's status **today** (not at the time this event happened) —
+   * drives current-status filtering (see {@link CURRENT_STATUS_FILTER_KEYS}). */
+  current_status?: 'active' | 'dropped' | null;
+  /** The company's pipeline stage **today** (not at the time this event
+   * happened) — drives current-status filtering. */
+  current_pipeline_stage?: string | null;
+}
+
+/** Feed filter keys whose meaning is "the company is *presently* in this
+ * lifecycle state", as opposed to "this type of event happened in the
+ * window". A company can rack up several lifecycle events within one window
+ * (created, promoted, dropped) — these filters key off where it landed, not
+ * every step it took to get there. `note_updated` / `ai_discovered` stay
+ * plain event-type filters since a note or discovery doesn't change a
+ * company's current lifecycle state. */
+export const CURRENT_STATUS_FILTER_KEYS = ['new_deal', 'stage_move', 'dropped'] as const;
+export type CurrentStatusFilterKey = (typeof CURRENT_STATUS_FILTER_KEYS)[number];
+
+function isCurrentStatusFilterKey(filter: FeedFilter): filter is CurrentStatusFilterKey {
+  return (CURRENT_STATUS_FILTER_KEYS as readonly string[]).includes(filter);
+}
+
+/**
+ * Whether `event`'s company is *presently* in the lifecycle state named by
+ * `filter` — `'dropped'` means currently dropped, `'new_deal'` means active
+ * and still sitting at L0 (hasn't been promoted yet), `'stage_move'` means
+ * active and past L0 (has been promoted at least once). This looks at
+ * {@link FeedEvent.current_status} / {@link FeedEvent.current_pipeline_stage},
+ * not the event's own type or timestamp, so a company that moved and was
+ * later dropped within the same window only matches `'dropped'`.
+ */
+export function matchesCurrentStatus(event: FeedEvent, filter: CurrentStatusFilterKey): boolean {
+  if (filter === 'dropped') return event.current_status === 'dropped';
+  if (event.current_status !== 'active') return false;
+  if (filter === 'new_deal') return event.current_pipeline_stage === 'L0';
+  // SQL `<>` is UNKNOWN for NULL, so a missing stage matches neither "new"
+  // (must be L0) nor "moved" (must be a real non-L0 stage).
+  return event.current_pipeline_stage != null && event.current_pipeline_stage !== 'L0';
+}
+
+/** Filter a merged, newest-first event list down to `filter`'s companies. For
+ * `'new_deal'` / `'stage_move'` / `'dropped'`, matches on the company's
+ * CURRENT lifecycle state (see {@link matchesCurrentStatus}); every other
+ * filter (`'all'`, `'note_updated'`, `'ai_discovered'`) matches on the
+ * event's own type, unchanged. */
+export function applyFeedFilter(events: FeedEvent[], filter: FeedFilter): FeedEvent[] {
+  if (filter === 'all') return events;
+  if (isCurrentStatusFilterKey(filter)) {
+    return events.filter((e) => matchesCurrentStatus(e, filter));
+  }
+  return events.filter((e) => e.type === filter);
 }
 
 export interface FeedPage {
@@ -268,10 +319,47 @@ export class DashboardActivityService {
    * then slice the requested window. Fetching `offset + limit + 1` per source is
    * the smallest cap that still guarantees the true top `(offset + limit + 1)`
    * of the merged stream is present (a single source could supply the entire
-   * window), and the extra `+1` row tells us whether more pages remain. When a
-   * single `filter` is set we only query that one source.
+   * window), and the extra `+1` row tells us whether more pages remain. Plain
+   * event-type filters (`note_updated`, `ai_discovered`) still query only that
+   * one source. Current-status filters query every lifecycle source that can
+   * produce a matching row (see below).
+   *
+   * `'new_deal'` / `'stage_move'` / `'dropped'` are current-status filters
+   * (see {@link matchesCurrentStatus}): a company can pick up several
+   * lifecycle events within one window (e.g. promoted, then dropped), so
+   * which of the three sources contributed its window activity doesn't
+   * determine its bucket. Those filters therefore query every lifecycle
+   * source that can produce a matching row, with the company's current
+   * status/stage applied in SQL (so the same `offset + limit + 1` cap still
+   * guarantees the merged page — filtering after a cap would under-fetch).
+   * `getDroppedDeals` already constrains `status = dropped`, so it is only
+   * queried for the `'dropped'` filter.
    */
   async getFeed({ from, to, offset, limit, filter = 'all' }: GetFeedParams): Promise<FeedPage> {
+    if (isCurrentStatusFilterKey(filter)) {
+      const cap = offset + limit + 1;
+      const [newL0Companies, pipelineMoves, droppedDeals] = await Promise.all([
+        this.repo.getNewL0Companies(from, to, cap, undefined, filter),
+        this.repo.getPipelineMoves(from, to, cap, undefined, filter),
+        filter === 'dropped'
+          ? this.repo.getDroppedDeals(from, to, cap)
+          : Promise.resolve([]),
+      ]);
+      const all = applyFeedFilter(
+        buildFeedEvents({
+          newL0Companies,
+          pipelineMoves,
+          droppedDeals,
+          notesUpdated: [],
+          discoveredCompanies: [],
+        }),
+        filter,
+      );
+      const hasMore = all.length > offset + limit;
+      const events = all.slice(offset, offset + limit);
+      return { events, hasMore };
+    }
+
     const cap = offset + limit + 1;
     const want = (type: FeedEventType) => filter === 'all' || filter === type;
 
@@ -382,6 +470,8 @@ export function buildFeedEvents(activity: {
       ebitda_usd_mn: c.ebitda_usd_mn ?? null,
       ev_usd_mn: c.ev_usd_mn ?? null,
       financial_year: c.financial_year ?? null,
+      current_status: c.status ?? null,
+      current_pipeline_stage: c.pipeline_stage ?? null,
     });
   }
 
@@ -409,6 +499,8 @@ export function buildFeedEvents(activity: {
       ebitda_usd_mn: m.ebitda_usd_mn ?? null,
       ev_usd_mn: m.ev_usd_mn ?? null,
       financial_year: m.financial_year ?? null,
+      current_status: m.status ?? null,
+      current_pipeline_stage: m.pipeline_stage ?? null,
     });
   }
 
@@ -431,6 +523,8 @@ export function buildFeedEvents(activity: {
       ebitda_usd_mn: d.ebitda_usd_mn ?? null,
       ev_usd_mn: d.ev_usd_mn ?? null,
       financial_year: d.financial_year ?? null,
+      current_status: d.status ?? null,
+      current_pipeline_stage: d.pipeline_stage ?? null,
     });
   }
 
@@ -454,6 +548,8 @@ export function buildFeedEvents(activity: {
       ebitda_usd_mn: n.ebitda_usd_mn ?? null,
       ev_usd_mn: n.ev_usd_mn ?? null,
       financial_year: n.financial_year ?? null,
+      current_status: n.status ?? null,
+      current_pipeline_stage: n.pipeline_stage ?? null,
     });
   }
 

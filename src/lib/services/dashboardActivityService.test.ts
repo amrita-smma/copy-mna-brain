@@ -1,5 +1,10 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { DashboardActivityService, isPreL0EntryMove } from './dashboardActivityService';
+import {
+  DashboardActivityService,
+  isPreL0EntryMove,
+  matchesCurrentStatus,
+  type FeedEvent,
+} from './dashboardActivityService';
 import type { DashboardActivityRepository } from '@/lib/repositories/dashboardActivityRepository';
 
 /**
@@ -22,8 +27,16 @@ class MockRepo {
 const FROM = new Date('2026-01-01T00:00:00.000Z');
 const TO = new Date('2026-06-18T00:00:00.000Z');
 
-// Minimal row fixtures shaped like each repository source.
-function newDealRow(id: string, eventAt: string) {
+// Minimal row fixtures shaped like each repository source. `status` /
+// `pipeline_stage` reflect the company's state TODAY (not at the time of this
+// event), so tests can freely make a row's current state disagree with the
+// event that surfaced it — e.g. a new_deal row whose company has since moved
+// past L0, or a stage_move row whose company has since been dropped.
+function newDealRow(
+  id: string,
+  eventAt: string,
+  opts: { status?: 'active' | 'dropped'; pipeline_stage?: string | null } = {},
+) {
   return {
     id,
     target: `Target ${id}`,
@@ -39,10 +52,16 @@ function newDealRow(id: string, eventAt: string) {
     financial_year: null,
     event_at: eventAt,
     reason: 'created' as const,
+    status: opts.status ?? 'active',
+    pipeline_stage: opts.pipeline_stage ?? 'L0',
   };
 }
 
-function moveRow(id: string, createdAt: string) {
+function moveRow(
+  id: string,
+  createdAt: string,
+  opts: { status?: 'active' | 'dropped'; pipeline_stage?: string | null } = {},
+) {
   return {
     id,
     company_id: `co-${id}`,
@@ -59,6 +78,8 @@ function moveRow(id: string, createdAt: string) {
     ebitda_usd_mn: null,
     ev_usd_mn: null,
     financial_year: null,
+    status: opts.status ?? 'active',
+    pipeline_stage: opts.pipeline_stage ?? 'L2',
   };
 }
 
@@ -68,6 +89,7 @@ function droppedRow(id: string, droppedAt: string) {
     target: `Dropped ${id}`,
     project_name: null,
     pipeline_stage: 'L2',
+    status: 'dropped' as const,
     dropped_at: droppedAt,
     dropped_reason: null,
     segment: null,
@@ -81,7 +103,11 @@ function droppedRow(id: string, droppedAt: string) {
   };
 }
 
-function noteRow(id: string, createdAt: string) {
+function noteRow(
+  id: string,
+  createdAt: string,
+  opts: { status?: 'active' | 'dropped'; pipeline_stage?: string | null } = {},
+) {
   return {
     id,
     company_id: `co-${id}`,
@@ -99,6 +125,8 @@ function noteRow(id: string, createdAt: string) {
     ebitda_usd_mn: null,
     ev_usd_mn: null,
     financial_year: null,
+    status: opts.status ?? 'active',
+    pipeline_stage: opts.pipeline_stage ?? 'L1',
   };
 }
 
@@ -157,6 +185,53 @@ function addedRow(
     event_at: opts.createdAt ?? '2026-03-01T00:00:00.000Z',
   };
 }
+
+describe('matchesCurrentStatus', () => {
+  const event = (
+    status: FeedEvent['current_status'],
+    stage: string | null,
+  ): FeedEvent =>
+    ({
+      id: 'e',
+      type: 'stage_move',
+      company_id: 'c',
+      company_name: 'C',
+      logo_url: null,
+      segment: null,
+      geography: null,
+      source: null,
+      event_at: '2026-01-01T00:00:00.000Z',
+      current_status: status,
+      current_pipeline_stage: stage,
+    }) as FeedEvent;
+
+  it('puts a currently-dropped company only in dropped, regardless of stage', () => {
+    const dropped = event('dropped', 'L2');
+    expect(matchesCurrentStatus(dropped, 'dropped')).toBe(true);
+    expect(matchesCurrentStatus(dropped, 'new_deal')).toBe(false);
+    expect(matchesCurrentStatus(dropped, 'stage_move')).toBe(false);
+  });
+
+  it('puts an active L0 company only in new_deal', () => {
+    const l0 = event('active', 'L0');
+    expect(matchesCurrentStatus(l0, 'new_deal')).toBe(true);
+    expect(matchesCurrentStatus(l0, 'stage_move')).toBe(false);
+    expect(matchesCurrentStatus(l0, 'dropped')).toBe(false);
+  });
+
+  it('puts an active non-L0 company only in stage_move', () => {
+    const l2 = event('active', 'L2');
+    expect(matchesCurrentStatus(l2, 'stage_move')).toBe(true);
+    expect(matchesCurrentStatus(l2, 'new_deal')).toBe(false);
+    expect(matchesCurrentStatus(l2, 'dropped')).toBe(false);
+  });
+
+  it('matches neither new_deal nor stage_move when the current stage is missing', () => {
+    const missing = event('active', null);
+    expect(matchesCurrentStatus(missing, 'new_deal')).toBe(false);
+    expect(matchesCurrentStatus(missing, 'stage_move')).toBe(false);
+  });
+});
 
 describe('isPreL0EntryMove', () => {
   it('is true for a move into L0 from a pre-L0 stage', () => {
@@ -313,8 +388,30 @@ describe('DashboardActivityService.getFeed', () => {
     expect(hasMore).toBe(false);
   });
 
-  it('only queries the matching source when a single filter is set', async () => {
-    repo.getPipelineMoves.mockResolvedValue([moveRow('b', '2026-06-12T00:00:00.000Z')]);
+  it('only queries note_updated when the notes filter is set (plain event-type filter)', async () => {
+    repo.getNotesUpdated.mockResolvedValue([noteRow('d', '2026-06-14T00:00:00.000Z')]);
+
+    const { events } = await service.getFeed({
+      from: FROM,
+      to: TO,
+      offset: 0,
+      limit: 10,
+      filter: 'note_updated',
+    });
+
+    expect(repo.getNotesUpdated).toHaveBeenCalledTimes(1);
+    expect(repo.getNewL0Companies).not.toHaveBeenCalled();
+    expect(repo.getPipelineMoves).not.toHaveBeenCalled();
+    expect(repo.getDroppedDeals).not.toHaveBeenCalled();
+    expect(repo.getDiscoveredCompanies).not.toHaveBeenCalled();
+    expect(events).toHaveLength(1);
+    expect(events[0].type).toBe('note_updated');
+  });
+
+  it('"stage_move" is a current-status filter: reads lifecycle sources with the cap and current-status SQL constraint', async () => {
+    repo.getPipelineMoves.mockResolvedValue([
+      moveRow('b', '2026-06-12T00:00:00.000Z', { status: 'active', pipeline_stage: 'L2' }),
+    ]);
 
     const { events } = await service.getFeed({
       from: FROM,
@@ -324,8 +421,11 @@ describe('DashboardActivityService.getFeed', () => {
       filter: 'stage_move',
     });
 
-    expect(repo.getPipelineMoves).toHaveBeenCalledTimes(1);
-    expect(repo.getNewL0Companies).not.toHaveBeenCalled();
+    // cap = 0 + 10 + 1; current-status is pushed into SQL so the cap is applied
+    // to already-matching rows. Dropped deals can't be presently active, so
+    // that source is skipped. Notes/discovered stay event-type filters.
+    expect(repo.getPipelineMoves).toHaveBeenCalledWith(FROM, TO, 11, undefined, 'stage_move');
+    expect(repo.getNewL0Companies).toHaveBeenCalledWith(FROM, TO, 11, undefined, 'stage_move');
     expect(repo.getDroppedDeals).not.toHaveBeenCalled();
     expect(repo.getNotesUpdated).not.toHaveBeenCalled();
     expect(repo.getDiscoveredCompanies).not.toHaveBeenCalled();
@@ -333,6 +433,99 @@ describe('DashboardActivityService.getFeed', () => {
     expect(events[0].type).toBe('stage_move');
     expect(events[0].from_stage).toBe('L1');
     expect(events[0].to_stage).toBe('L2');
+  });
+
+  it('excludes a "moved" event whose company has since been dropped', async () => {
+    // Promoted within the window, then dropped — still within the window —
+    // before the page loads. The company is presently dropped, so it should
+    // surface only under the "dropped" bucket, not "stage_move".
+    repo.getPipelineMoves.mockResolvedValue([
+      moveRow('b', '2026-06-10T00:00:00.000Z', { status: 'dropped', pipeline_stage: 'L2' }),
+    ]);
+
+    const { events } = await service.getFeed({
+      from: FROM,
+      to: TO,
+      offset: 0,
+      limit: 10,
+      filter: 'stage_move',
+    });
+
+    expect(events).toHaveLength(0);
+  });
+
+  it('excludes a "new_deal" event whose company has since moved past L0', async () => {
+    // Created at L0 within the window, then promoted to L1 — still within the
+    // window. It's presently at L1, so it should surface under "moved", not
+    // "new".
+    repo.getNewL0Companies.mockResolvedValue([
+      newDealRow('a', '2026-06-10T00:00:00.000Z', { status: 'active', pipeline_stage: 'L1' }),
+    ]);
+
+    const { events: newEvents } = await service.getFeed({
+      from: FROM,
+      to: TO,
+      offset: 0,
+      limit: 10,
+      filter: 'new_deal',
+    });
+    expect(newEvents).toHaveLength(0);
+
+    // Reset so this second call isolates the stage_move source.
+    repo.getNewL0Companies.mockResolvedValue([]);
+    repo.getPipelineMoves.mockResolvedValue([
+      moveRow('a', '2026-06-11T00:00:00.000Z', { status: 'active', pipeline_stage: 'L1' }),
+    ]);
+    const { events: movedEvents } = await service.getFeed({
+      from: FROM,
+      to: TO,
+      offset: 0,
+      limit: 10,
+      filter: 'stage_move',
+    });
+    expect(movedEvents).toHaveLength(1);
+    expect(movedEvents[0].company_id).toBe('co-a');
+  });
+
+  it('"dropped" reads all three lifecycle sources (capped) so a moved-then-dropped company still surfaces', async () => {
+    repo.getPipelineMoves.mockResolvedValue([
+      moveRow('b', '2026-06-10T00:00:00.000Z', { status: 'dropped', pipeline_stage: 'L2' }),
+    ]);
+    repo.getDroppedDeals.mockResolvedValue([droppedRow('co-b', '2026-06-11T00:00:00.000Z')]);
+
+    const { events, hasMore } = await service.getFeed({
+      from: FROM,
+      to: TO,
+      offset: 0,
+      limit: 10,
+      filter: 'dropped',
+    });
+
+    expect(repo.getNewL0Companies).toHaveBeenCalledWith(FROM, TO, 11, undefined, 'dropped');
+    expect(repo.getPipelineMoves).toHaveBeenCalledWith(FROM, TO, 11, undefined, 'dropped');
+    expect(repo.getDroppedDeals).toHaveBeenCalledWith(FROM, TO, 11);
+    expect(events.map((e) => e.type)).toEqual(['dropped', 'stage_move']);
+    expect(hasMore).toBe(false);
+  });
+
+  it('paginates a current-status filter after merging matching lifecycle events', async () => {
+    repo.getPipelineMoves.mockResolvedValue([
+      moveRow('a', '2026-06-12T00:00:00.000Z', { status: 'active', pipeline_stage: 'L2' }),
+      moveRow('b', '2026-06-11T00:00:00.000Z', { status: 'active', pipeline_stage: 'L3' }),
+      moveRow('c', '2026-06-10T00:00:00.000Z', { status: 'active', pipeline_stage: 'L1' }),
+    ]);
+
+    const { events, hasMore } = await service.getFeed({
+      from: FROM,
+      to: TO,
+      offset: 0,
+      limit: 2,
+      filter: 'stage_move',
+    });
+
+    expect(events).toHaveLength(2);
+    expect(events.map((e) => e.company_id)).toEqual(['co-a', 'co-b']);
+    expect(hasMore).toBe(true);
   });
 
   it('carries the company logo_url through onto the feed event', async () => {
@@ -407,7 +600,10 @@ describe('DashboardActivityService.getFeed', () => {
     repo.getPipelineMoves.mockResolvedValue([
       { ...moveRow('a', '2026-06-12T00:00:00.000Z'), action: 'PROMOTED_FROM_unreviewed_TO_L0' },
       { ...moveRow('b', '2026-06-11T00:00:00.000Z'), action: 'PROMOTED_TO_L0' },
-      { ...moveRow('c', '2026-06-10T00:00:00.000Z'), action: 'PROMOTED_FROM_L0_TO_L1' },
+      {
+        ...moveRow('c', '2026-06-10T00:00:00.000Z', { status: 'active', pipeline_stage: 'L1' }),
+        action: 'PROMOTED_FROM_L0_TO_L1',
+      },
     ]);
 
     const { events } = await service.getFeed({

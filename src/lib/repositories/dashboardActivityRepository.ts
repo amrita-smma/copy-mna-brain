@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, inArray, isNotNull, isNull, like, lte, or, sql } from 'drizzle-orm';
+import { and, desc, eq, gte, inArray, isNotNull, isNull, like, lte, ne, or, sql } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 import {
   aiWorkforceQueue,
@@ -41,6 +41,14 @@ type FeedFinancials = {
   financial_year: number | null;
 };
 
+/**
+ * SQL-side lifecycle constraint for activity-feed current-status filters:
+ * active + currently L0 (`new_deal`), active + currently not L0 (`stage_move`),
+ * or currently dropped. Applied here so `getFeed` can keep per-source pagination
+ * caps instead of reading every lifecycle row in the date window.
+ */
+export type FeedCurrentStatus = 'new_deal' | 'stage_move' | 'dropped';
+
 export class DashboardActivityRepository {
   constructor(
     private db: DbClient,
@@ -72,6 +80,19 @@ export class DashboardActivityRepository {
   }
 
   /**
+   * Restrict a companies-joined feed query to the company's CURRENT lifecycle
+   * state. `undefined` leaves the query unscoped (event-type / date only).
+   */
+  private currentStatusWhere(currentStatus?: FeedCurrentStatus) {
+    if (!currentStatus) return undefined;
+    if (currentStatus === 'dropped') return eq(companies.status, 'dropped');
+    if (currentStatus === 'new_deal') {
+      return and(eq(companies.status, 'active'), eq(companies.pipeline_stage, 'L0'));
+    }
+    return and(eq(companies.status, 'active'), ne(companies.pipeline_stage, 'L0'));
+  }
+
+  /**
    * Correlated subquery selecting the company's most recent analysis logo
    * (highest `updated_at`, skipping null logos). Rendered as a scalar column on
    * feed rows so the activity feed can show a company logo when one exists,
@@ -91,8 +112,8 @@ export class DashboardActivityRepository {
     )`;
   }
 
-  async getNewL0Companies(from: Date, to: Date, limit?: number, companyId?: string): Promise<
-    ({ id: string; target: string | null; project_name: string | null; source: string | null; segment: string | null; geography: string | null; remarks: string | null; thesis_content: string | null; logo_url: string | null; deal_sponsor_name: string | null; entered_by: string | null; entered_by_name: string | null; event_at: string; reason: 'created' | 'demoted' } & FeedFinancials)[]
+  async getNewL0Companies(from: Date, to: Date, limit?: number, companyId?: string, currentStatus?: FeedCurrentStatus): Promise<
+    ({ id: string; target: string | null; project_name: string | null; source: string | null; segment: string | null; geography: string | null; remarks: string | null; thesis_content: string | null; logo_url: string | null; deal_sponsor_name: string | null; entered_by: string | null; entered_by_name: string | null; status: 'active' | 'dropped'; pipeline_stage: string | null; event_at: string; reason: 'created' | 'demoted' } & FeedFinancials)[]
   > {
     const fromIso = from.toISOString();
     const toIso = to.toISOString();
@@ -113,6 +134,8 @@ export class DashboardActivityRepository {
         deal_sponsor_name: sponsorUsers.name,
         entered_by: companies.entered_by,
         entered_by_name: users.name,
+        status: companies.status,
+        pipeline_stage: companies.pipeline_stage,
         revenue_usd_mn: companyFinancials.revenue_usd_mn,
         ebitda_usd_mn: companyFinancials.ebitda_usd_mn,
         ev_usd_mn: companyFinancials.ev_usd_mn,
@@ -130,6 +153,7 @@ export class DashboardActivityRepository {
           gte(companies.created_at, fromIso),
           lte(companies.created_at, toIso),
           companyId ? eq(companies.id, companyId) : undefined,
+          this.currentStatusWhere(currentStatus),
         ),
       )
       .orderBy(desc(companies.created_at));
@@ -148,6 +172,8 @@ export class DashboardActivityRepository {
         deal_sponsor_name: sponsorUsers.name,
         entered_by: companies.entered_by,
         entered_by_name: users.name,
+        status: companies.status,
+        pipeline_stage: companies.pipeline_stage,
         revenue_usd_mn: companyFinancials.revenue_usd_mn,
         ebitda_usd_mn: companyFinancials.ebitda_usd_mn,
         ev_usd_mn: companyFinancials.ev_usd_mn,
@@ -165,6 +191,7 @@ export class DashboardActivityRepository {
           like(companyLogs.action, '%_TO_L0'),
           logDateInRange(fromIso, toIso),
           companyId ? eq(companies.id, companyId) : undefined,
+          this.currentStatusWhere(currentStatus),
         ),
       )
       .orderBy(sql`${companyLogs.created_at} desc nulls last`);
@@ -314,7 +341,7 @@ export class DashboardActivityRepository {
       .orderBy(desc(companies.updated_at));
   }
 
-  async getPipelineMoves(from: Date, to: Date, limit?: number, companyId?: string) {
+  async getPipelineMoves(from: Date, to: Date, limit?: number, companyId?: string, currentStatus?: FeedCurrentStatus) {
     const fromIso = from.toISOString();
     const toIso = to.toISOString();
     const query = this.db
@@ -335,6 +362,8 @@ export class DashboardActivityRepository {
         deal_sponsor_name: sponsorUsers.name,
         entered_by: companies.entered_by,
         entered_by_name: users.name,
+        status: companies.status,
+        pipeline_stage: companies.pipeline_stage,
         revenue_usd_mn: companyFinancials.revenue_usd_mn,
         ebitda_usd_mn: companyFinancials.ebitda_usd_mn,
         ev_usd_mn: companyFinancials.ev_usd_mn,
@@ -351,6 +380,7 @@ export class DashboardActivityRepository {
           like(companyLogs.action, 'PROMOTED_%'),
           logDateInRange(fromIso, toIso),
           companyId ? eq(companies.id, companyId) : undefined,
+          this.currentStatusWhere(currentStatus),
         ),
       )
       .orderBy(sql`${companyLogs.created_at} desc nulls last`);
@@ -386,6 +416,7 @@ export class DashboardActivityRepository {
         target: companies.target,
         project_name: companies.project_name,
         pipeline_stage: companies.pipeline_stage,
+        status: companies.status,
         dropped_at: companies.dropped_at,
         dropped_reason: companies.dropped_reason,
         remarks: companies.remarks,
@@ -435,6 +466,8 @@ export class DashboardActivityRepository {
         remarks: companies.remarks,
         thesis_content: companies.thesis_content,
         logo_url: this.latestLogoUrl(),
+        status: companies.status,
+        pipeline_stage: companies.pipeline_stage,
         revenue_usd_mn: companyFinancials.revenue_usd_mn,
         ebitda_usd_mn: companyFinancials.ebitda_usd_mn,
         ev_usd_mn: companyFinancials.ev_usd_mn,
