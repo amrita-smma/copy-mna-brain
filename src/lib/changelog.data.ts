@@ -6,6 +6,12 @@ import type { ChangelogEntry } from './changelog';
 
 export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   {
+    "hash": "2d89a5b3013604e14ef22edf6faf07f2eda82e36",
+    "date": "2026-09-22",
+    "subject": "Analysis agent now grounds recommendations in external data sources for better accuracy",
+    "category": "improvement"
+  },
+  {
     "hash": "0348734de96479079c02f0db3a6be0ccaee4bcfb",
     "date": "2026-09-21",
     "subject": "Dashboard activity feed now filters by current company lifecycle status",
@@ -19,6 +25,14 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   },
   {
     "hash": "c2a2cb87838f49ea193fdf31feaded257452f834",
+    "date": "2026-09-21",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
+    "hash": "14ae4c9a274aacfa612b3779beadd3be7b65c6bf",
     "date": "2026-09-21",
     "subject": "[skip deploy] chore: update changelog",
     "category": "improvement",
