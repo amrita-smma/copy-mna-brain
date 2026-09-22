@@ -328,7 +328,7 @@ describe('getAgentGraph flavor selection', () => {
     expect(prompt).toMatch(/invoke multiple topic research tools in parallel/i);
     expect(prompt).toMatch(/generic `valyu_search` for ad-hoc/i);
     expect(prompt).toMatch(/`valyu_extract_content` to deeply inspect a small number/i);
-    expect(prompt).toMatch(/retain `web_search` as a fallback/i);
+    expect(prompt).toMatch(/reach for `web_search` freely/i);
 
     // Topic tools focus areas
     expect(prompt).toMatch(/company overview, founders/i);
@@ -381,6 +381,228 @@ describe('getAgentGraph flavor selection', () => {
 
     expect(await getAgentGraph('vc', 'high')).toBe(high);
     expect(mocks.createAgent).toHaveBeenCalledTimes(2);
+  });
+});
+
+// The four chat flavors used to carry their own, mutually inconsistent search
+// policies — "web search is a fallback for when the DB is empty" in one section
+// and "always search for anything market-shaped" in the next — which let the
+// agent settle on re-reading internal records. They now share one grounding
+// block that makes external research a default step.
+describe('external evidence grounding (chat flavors)', () => {
+  beforeEach(() => {
+    resetAgent();
+    mocks.createAgent.mockClear();
+    process.env.ANTHROPIC_API_KEY = 'test-key';
+  });
+
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  const promptFor = async (flavor: 'mna' | 'investment' | 'combined' | 'vc') => {
+    await getAgentGraph(flavor);
+    return mocks.createAgent.mock.calls[0][0].systemPrompt as string;
+  };
+
+  const FLAVORS = ['mna', 'investment', 'combined', 'vc'] as const;
+
+  it.each(FLAVORS)('gives the %s flavor the shared grounding section', async (flavor) => {
+    const prompt = await promptFor(flavor);
+
+    expect(prompt).toContain('## Grounding: Internal Records and the Outside World');
+    // External research is a default step, not a last resort.
+    expect(prompt).toMatch(/External research is a default step, not a fallback/);
+    expect(prompt).toMatch(/including when the internal record looks complete/);
+    // Fire it alongside the internal read rather than after discovering a gap.
+    expect(prompt).toMatch(/Search while you pull internal data, not after it/);
+  });
+
+  it.each(FLAVORS)('tells the %s flavor not to re-narrate records it already read', async (flavor) => {
+    const prompt = await promptFor(flavor);
+
+    expect(prompt).toMatch(/Don't repeat yourself/);
+    expect(prompt).toMatch(/something the user doesn't already have/);
+    expect(prompt).toMatch(/the new work is almost always external/);
+  });
+
+  it.each(FLAVORS)('tells the %s flavor to date internal figures and surface contradictions', async (flavor) => {
+    const prompt = await promptFor(flavor);
+
+    expect(prompt).toMatch(/They do not tell you what is true today/);
+    expect(prompt).toMatch(/lead with the contradiction and call the record stale/);
+    expect(prompt).toMatch(/Never report "not found" or "no data" on the strength of internal tools alone/);
+  });
+
+  // Only the M&A and combined tool lists carry search_news, so only those two
+  // prompts may mention the lake.
+  it.each(['mna', 'combined'] as const)(
+    'treats search_news and the open web as complements in the %s flavor',
+    async (flavor) => {
+      const prompt = await promptFor(flavor);
+
+      expect(prompt).toMatch(/complements, not a sequence/);
+      // An empty lake is an ingest gap, never evidence the event did not happen.
+      expect(prompt).toMatch(/means nothing was ingested — never that nothing happened/);
+    },
+  );
+
+  it.each(['investment', 'vc'] as const)(
+    'never names search_news to the %s flavor, which has no such tool',
+    async (flavor) => {
+      const prompt = await promptFor(flavor);
+
+      expect(prompt).not.toMatch(/search_news/);
+      // The rest of the grounding block still applies.
+      expect(prompt).toMatch(/External research is a default step, not a fallback/);
+      expect(prompt).toMatch(/alphasense_search/);
+    },
+  );
+
+  it.each(FLAVORS)('drops the old fallback-only framing from the %s flavor', async (flavor) => {
+    const prompt = await promptFor(flavor);
+
+    // The two headings that carried the contradictory policies are gone, and so
+    // is the search_news-before-the-web precedence rule they each restated.
+    expect(prompt).not.toMatch(/CRITICAL: Automatic Web Search Fallback/);
+    expect(prompt).not.toMatch(/External Search Fallback/);
+    expect(prompt).not.toMatch(/Precedence rule for recent market news/);
+  });
+
+  it('keeps a single files guidance line in the M&A flavor', async () => {
+    const prompt = await promptFor('mna');
+
+    // Four overlapping "always check files first" mandates collapsed into one
+    // that also dates what a file says.
+    expect(prompt).not.toMatch(/NEVER\*\* assume internal knowledge is complete/);
+    expect(prompt.match(/query_files/g)?.length).toBeLessThan(6);
+    expect(prompt).toMatch(/what a memo said last year is evidence about last year/);
+  });
+
+  it('points the M&A flavor at the bulk cards section that actually follows it', async () => {
+    const prompt = await promptFor('mna');
+
+    // The cross-reference used to say "above" while the section sits below it.
+    expect(prompt).toContain('see "Bulk Drop and Bulk Promote — Inline Approval Cards" below');
+    expect(prompt).not.toMatch(/`propose_bulk_promote_companies`'s sibling/);
+  });
+
+  it('makes external evidence the default for the vc flavor rather than a not-found fallback', async () => {
+    const prompt = await promptFor('vc');
+
+    expect(prompt).toMatch(/\*\*External Evidence Is The Default:\*\*/);
+    expect(prompt).toMatch(/never let a stale internal field stand in for current evidence/);
+    expect(prompt).not.toMatch(/Workspace Fallback & External Subjects/);
+  });
+
+  // The VC flavor prefers five focused topic tools that no other flavor has, so
+  // the shared block must route to them rather than past them.
+  it('routes the vc flavor to its topic tools inside the shared grounding block', async () => {
+    const prompt = await promptFor('vc');
+
+    expect(prompt).toMatch(
+      /The five focused topic tools \(`get_company_profile`[\s\S]*?\) are the first stop/,
+    );
+    expect(prompt).toMatch(/and the topic-tool routing above/);
+  });
+
+  it.each(['mna', 'investment', 'combined'] as const)(
+    'does not name the vc-only topic tools to the %s flavor',
+    async (flavor) => {
+      const prompt = await promptFor(flavor);
+
+      expect(prompt).not.toMatch(/get_sector_context/);
+      expect(prompt).not.toMatch(/first stop for the standard diligence dimensions/);
+    },
+  );
+
+  // "Dynamic tool selection" used to read as a licence to skip research, which
+  // contradicted the grounding block injected into the same prompt.
+  it('scopes the vc no-rigid-script rule so it does not cancel the grounding block', async () => {
+    const prompt = await promptFor('vc');
+
+    expect(prompt).toMatch(/rather than working through a fixed module sequence or evaluation checklist/);
+    expect(prompt).toMatch(/What this rules out is a canned diligence script, not research itself/);
+    expect(prompt).not.toMatch(/making mandatory tool calls/);
+    // The judgment half of the rule survives intact.
+    expect(prompt).toMatch(/must not be delegated to a tool/);
+  });
+
+  // The promote/drop procedures are explicit enough to override general
+  // guidance, so each one has to carry the external check itself.
+  it('puts an external check inside the M&A promote and drop procedures', async () => {
+    const prompt = await promptFor('mna');
+
+    // Single L0→L1: judge the EBITDA against something newer than the record.
+    expect(prompt).toMatch(/Search externally first for anything that post-dates the stored figures/);
+    // Bulk promote: verify the shortlist before proposing it.
+    expect(prompt).toMatch(/search the shortlist externally before you commit to it/);
+    // Bulk drop: several drop signals only exist outside the record.
+    expect(prompt).toMatch(/check the names you intend to drop externally/);
+  });
+
+  it('stops framing the per-company read as a gap-fill in the M&A flavor', async () => {
+    const prompt = await promptFor('mna');
+
+    expect(prompt).toMatch(/both in the same turn, not one as a backstop for the other/);
+    // "Governs every read in this list" contradicted the block's own carve-out
+    // for pure-bookkeeping questions.
+    expect(prompt).not.toMatch(/governs every read in this list/);
+  });
+});
+
+// The workforce writes judgments into the record (AI Opinions, promotion and
+// drop reasons), so a verdict sourced only from stale internal fields is the
+// costliest version of the internal-data bias.
+describe('workforce prompt evidence rules', () => {
+  beforeEach(() => {
+    resetAgent();
+    mocks.createAgent.mockClear();
+    process.env.ANTHROPIC_API_KEY = 'test-key';
+  });
+
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  const workforcePrompt = async () => {
+    await getWorkforceAgentGraphForEffort('medium');
+    return mocks.createAgent.mock.calls[0][0].systemPrompt as string;
+  };
+
+  it('requires an external check before any write that embodies a judgment', async () => {
+    const prompt = await workforcePrompt();
+
+    expect(prompt).toContain('## Evidence and freshness');
+    expect(prompt).toMatch(/search externally, even when the record looks complete/);
+    expect(prompt).toMatch(/Do not write a verdict sourced only from internal fields/);
+    expect(prompt).toMatch(/When outside evidence contradicts the record, say so in the report/);
+  });
+
+  it('makes web_search a required step of forming an AI Opinion', async () => {
+    const prompt = await workforcePrompt();
+
+    expect(prompt).toMatch(/before you form a view, every time/);
+    expect(prompt).toMatch(/including when the stored fields look complete/);
+  });
+
+  it('drops the internal-before-web ordering from the fund AI Opinion flow', async () => {
+    const prompt = await workforcePrompt();
+
+    expect(prompt).not.toMatch(/\*\*Before `web_search`\*\*/);
+    // The save_fund_ai_opinion blurb sequenced internal-then-web and so
+    // contradicted the procedure it points at.
+    expect(prompt).not.toMatch(/check internal notes by name first, then web_search/);
+    expect(prompt).toMatch(/every time, not only when the internal side is empty/);
+    expect(prompt).toMatch(/Do this on every call, not only when the internal side comes up empty/);
+    expect(prompt).toMatch(/a mark can lag reality by quarters/);
+  });
+
+  it('treats the news lake and the web as one turn, not a precedence chain', async () => {
+    const prompt = await workforcePrompt();
+
+    expect(prompt).toMatch(/complements, not a sequence/);
+    expect(prompt).not.toMatch(/call this FIRST, before web_search/);
   });
 });
 
