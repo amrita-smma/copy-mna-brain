@@ -12,6 +12,22 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "category": "fix"
   },
   {
+    "hash": "0e80d108a1e7ef76487223f345025303ece5bea5",
+    "date": "2026-09-26",
+    "subject": "pin preview teardown checkout to main",
+    "category": "fix",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "70de99b07bba1437f0581d3461e1d17013901174",
+    "date": "2026-09-26",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "2d89a5b3013604e14ef22edf6faf07f2eda82e36",
     "date": "2026-09-22",
     "subject": "Analysis agent now grounds recommendations in external data sources for better accuracy",
