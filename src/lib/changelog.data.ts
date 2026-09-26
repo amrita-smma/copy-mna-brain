@@ -6,10 +6,24 @@ import type { ChangelogEntry } from './changelog';
 
 export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   {
+    "hash": "be093fa913ed2ada370043dbb99039073a2f810a",
+    "date": "2026-09-26",
+    "subject": "Company detail dialog now displays correct data without flashing previous content",
+    "category": "fix"
+  },
+  {
     "hash": "2d89a5b3013604e14ef22edf6faf07f2eda82e36",
     "date": "2026-09-22",
     "subject": "Analysis agent now grounds recommendations in external data sources for better accuracy",
     "category": "improvement"
+  },
+  {
+    "hash": "9ad7bf407ad35cd5034425c7ede53752701733b9",
+    "date": "2026-09-22",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
   },
   {
     "hash": "0348734de96479079c02f0db3a6be0ccaee4bcfb",
