@@ -1,6 +1,6 @@
 ---
 name: review-implementation
-description: "Use post-implementation, pre-PR, to validate a branch's diff against this repo's own architecture rules: repository/service/route layering, N+1 query rules, Drizzle migration/seed conventions, admin-route secret gate, agent design pattern, feature flags, and test coverage. Produces `.review-implementation.md` with a PASS/WARN/NEEDS_FIX verdict. Local, pre-push gate — distinct from /pr-review, which is a conversational review of an already-open PR."
+description: "Use post-implementation, pre-PR, to validate a branch's diff against this repo's own architecture rules: repository/service/route layering, N+1 query rules, Drizzle migration/seed conventions, admin-route secret gate, agent design pattern, feature flags, detail dialog open state, and test coverage. Produces `.review-implementation.md` with a PASS/WARN/NEEDS_FIX verdict. Local, pre-push gate — distinct from /pr-review, which is a conversational review of an already-open PR."
 ---
 
 # Review Implementation — Pre-PR Convention Compliance
@@ -55,6 +55,7 @@ Use TodoWrite to track each layer below.
    | Seeds | `scripts/seed.ts`, any other `scripts/*seed*.ts` |
    | Agents | `src/lib/agents/**` |
    | Flags / layout | `src/lib/flags.ts`, `src/components/layout/DashboardLayout.tsx`, `src/app/**/page.tsx` |
+   | Dialog hosts | any `src/views/**`, `src/components/**` file whose diff renders a record-scoped dialog (`*DetailDialog`, `*Dialog` taking a record prop) |
    | Tests | any `*.test.ts` in the diff |
 
 4. If the diff is empty against `<base-ref>` → stop, print `Nothing to review — branch matches <base-ref>.`
@@ -138,7 +139,27 @@ PR), or **Minor** (nit / follow-up). Only run a category if its bucket is non-em
 - Minor: export name doesn't follow `<featureName>Enabled` / prop doesn't follow
   `show<FeatureName>`.
 
-**8. Test coverage** (CLAUDE.md "Overview", "Test Files") — bucket: Tests, plus cross-check
+**8. Detail dialog open state** (`.claude/rules/dialog-open-state.md`, CLAUDE.md "Detail
+Dialog Open State") — bucket: Dialog hosts
+- Critical: a record-scoped dialog rendered with `open={<boolean useState>}` held separately
+  from the selected record — this is the stale-mounted-instance race that made the company
+  card flash the previously-viewed company; an `onOpenChange` whose close branch doesn't null
+  the selected record; an async open handler (`openCompany`, `handleCompanyClick`, …) that
+  awaits a fetch and then sets state with no `activeRequestIdRef` staleness guard.
+- Important: a record-scoped dialog missing `key={record.id}`; a fetching parent's close
+  handler that does not null `activeRequestIdRef`; a `catch` or empty-result branch that
+  toasts or writes selection state without checking the ref. A `catch` that only logs and
+  does not set state (Dashboard, Insights) is not this finding. One awaited fetch to fill a
+  partial record before open is required (Smart Files, Master Data, Insights, Dashboard's
+  uncached path). The fetch defect is a second request left in flight beside the dialog's
+  own load on `[open, company.id]` — Company Graph seeds from the node and does not fetch.
+- Minor: the derived-open block deviates in shape from the canonical example in the rule file.
+
+Grep aids: `rg "open=\{\w+\}" src/views src/components` for candidate call sites, then check
+each one's state declarations. A diff that *removes* a separate boolean is the fix, not a
+finding.
+
+**9. Test coverage** (CLAUDE.md "Overview", "Test Files") — bucket: Tests, plus cross-check
 against Repositories/Services buckets
 - Critical: a changed file under `src/lib/**` with no corresponding `*.test.ts` addition or
   update anywhere in the diff; a test file importing `jest` or using Jest-only globals.
@@ -150,7 +171,7 @@ against Repositories/Services buckets
 
 ### Layer 3 — compile, verdict, report
 
-1. Sort findings by severity, then by category order (1→8).
+1. Sort findings by severity, then by category order (1→9).
 2. Verdict: any Critical → `NEEDS_FIX`; else any Important → `WARN`; else `PASS`. Minor
    findings never change the verdict.
 3. Write `.review-implementation.md` at repo root:
@@ -168,7 +189,8 @@ against Repositories/Services buckets
    - 5. Drizzle migrations & seeding: ...
    - 6. Agent design pattern: ...
    - 7. Feature flags: ...
-   - 8. Test coverage: ...
+   - 8. Detail dialog open state: ...
+   - 9. Test coverage: ...
 
    ## Critical (fix before pushing)
    ### C-<n>: <one-line summary>

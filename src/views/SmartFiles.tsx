@@ -1291,18 +1291,25 @@ export default function SmartFiles({
   // chips only carry id + name, but CompanyDetailDialog reads (and can edit)
   // the full record, so fetch it here before opening — same pattern as
   // MasterData / Pipeline.
+  // Tracks the most recently requested company so a slow earlier fetch can't
+  // land after a newer click and open the wrong company's dialog.
+  const activeCompanyRequestIdRef = useRef<string | null>(null);
   const openCompany = useCallback(async (companyId: string) => {
+    activeCompanyRequestIdRef.current = companyId;
     try {
       const data = (await getCompanies({ id: companyId })) as
         | CompanyData
         | null;
+      if (activeCompanyRequestIdRef.current !== companyId) return;
       if (!data) {
         toast.error("Could not load company");
         return;
       }
       setSelectedCompany(data);
     } catch {
-      toast.error("Could not load company");
+      if (activeCompanyRequestIdRef.current === companyId) {
+        toast.error("Could not load company");
+      }
     }
   }, []);
 
@@ -2485,9 +2492,15 @@ export default function SmartFiles({
 
       {selectedCompany && (
         <CompanyDetailDialog
+          key={selectedCompany.id}
           company={selectedCompany}
           open={!!selectedCompany}
-          onOpenChange={(open) => !open && setSelectedCompany(null)}
+          onOpenChange={(open) => {
+            if (!open) {
+              activeCompanyRequestIdRef.current = null;
+              setSelectedCompany(null);
+            }
+          }}
           onUpdate={() => {
             refetchVisited();
           }}

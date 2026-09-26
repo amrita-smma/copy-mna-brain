@@ -2051,6 +2051,7 @@ export default function Pipeline() {
 
         {selectedCompany && (
           <CompanyDetailDialog
+            key={selectedCompany.id}
             company={selectedCompany}
             open={!!selectedCompany}
             onOpenChange={(open) => {

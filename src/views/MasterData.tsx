@@ -1102,6 +1102,7 @@ export default function MasterData() {
 
         {selectedCompany && (
           <CompanyDetailDialog
+            key={selectedCompany.id}
             company={selectedCompany}
             open={!!selectedCompany}
             onOpenChange={(open) => {

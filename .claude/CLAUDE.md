@@ -61,6 +61,10 @@ The backend layers as: **repositories** (`src/lib/repositories/*`, workspace-sco
 - **Avoid client-side request fan-out.** Do not issue one HTTP request per row from a React view. Add a single batched/aggregated endpoint instead. The canonical example is `GET /api/funds/portfolio` backed by `FundPortfolioService`, which assembles every fund with its assets and each asset's full transaction + valuation ledger in a fixed handful of batched queries regardless of row count. The anti-pattern it replaced was the view calling `listTransactions`/`listValuations` per asset — that per-asset fan-out opened a DB connection per asset and exhausted the pool (`53300`).
 - **Watch for related anti-patterns.** Paginate unbounded result sets rather than selecting everything. Ensure filtered/joined columns have indexes. Use set-based updates instead of `SELECT`-then-loop-and-update-each-row. Hoist or batch repeated identical queries so the same read isn't issued many times per request.
 
+## Detail Dialog Open State
+
+**Never track a record-scoped dialog's `open` as a boolean separate from the selected record.** Derive it: `{selected && <Dialog key={selected.id} open={!!selected} onOpenChange={(o) => { if (!o) setSelected(null); }} />}`. A separate boolean leaves the dialog mounted after close, holding the previous record's fetched state, so the next open flashes the previously-viewed record — the "opening a company card blips to the older card" bug. Any open handler that fetches before setting state also needs an `activeRequestIdRef` guard so a slow earlier response can't beat a newer click. Full rule, rationale and review checklist: `.claude/rules/dialog-open-state.md`.
+
 ## Card & Surface Backgrounds
 
 **Never ship a card or panel with a transparent (or partially transparent) background.** Anything that reads as a raised surface — a bordered/rounded container, a panel, a popover, an empty-state box, a summary tile — must paint an opaque background so whatever sits behind it (page background, another card, a sticky header scrolling underneath) cannot show through.

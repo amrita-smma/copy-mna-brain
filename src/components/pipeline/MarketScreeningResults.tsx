@@ -137,8 +137,11 @@ export default function MarketScreeningResults({ refreshTrigger, onAddedToPipeli
   const formatCurrency = (value: number | null | undefined) => formatMoneyMn(value, currency);
   const [results, setResults] = useState<MarketScreeningResult[]>([]);
   const [loading, setLoading] = useState(true);
+  // Open state is derived from `selectedResult` (not a separate boolean) so the
+  // dialog unmounts on close. Keeping it mounted preserves the previous
+  // company's fetched analysis/notes/documents, which then flash on the next
+  // open before the newly selected company's data arrives.
   const [selectedResult, setSelectedResult] = useState<MarketScreeningResult | null>(null);
-  const [detailDialogOpen, setDetailDialogOpen] = useState(false);
   // When true, the detail dialog opens straight into inline edit mode (Details tab).
   const [detailInEdit, setDetailInEdit] = useState(false);
   const [companyToPromote, setCompanyToPromote] = useState<MarketScreeningResult | null>(null);
@@ -458,7 +461,6 @@ export default function MarketScreeningResults({ refreshTrigger, onAddedToPipeli
                               onClick={() => {
                                 setDetailInEdit(false);
                                 setSelectedResult(result);
-                                setDetailDialogOpen(true);
                               }}
                               className="font-medium text-left hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
                             >
@@ -483,7 +485,6 @@ export default function MarketScreeningResults({ refreshTrigger, onAddedToPipeli
                                 onClick={() => {
                                   setDetailInEdit(true);
                                   setSelectedResult(result);
-                                  setDetailDialogOpen(true);
                                 }}
                               >
                                 <Pencil className="mr-2 h-4 w-4" />
@@ -539,6 +540,7 @@ export default function MarketScreeningResults({ refreshTrigger, onAddedToPipeli
 
             {selectedResult && (
               <CompanyDetailDialog
+                key={selectedResult.id}
                 company={{
                   id: selectedResult.id,
                   target: selectedResult.target,
@@ -588,10 +590,12 @@ export default function MarketScreeningResults({ refreshTrigger, onAddedToPipeli
                   slide_track_variable_ids: selectedResult.slide_track_variable_ids ?? null,
                   financials_raw: selectedResult.financials_raw,
                 }}
-                open={detailDialogOpen}
+                open={!!selectedResult}
                 onOpenChange={(open) => {
-                  setDetailDialogOpen(open);
-                  if (!open) setDetailInEdit(false);
+                  if (!open) {
+                    setSelectedResult(null);
+                    setDetailInEdit(false);
+                  }
                 }}
                 onUpdate={() => fetchResults({ silent: true })}
                 initialTab={detailInEdit ? 'details' : 'overview'}

@@ -694,10 +694,18 @@ export default function Dashboard({
   // Cohort snapshot backing the tally sections (Total Companies Added, Recap,
   // Pipeline Stages). All three derive from this single payload so they tally.
   const [overview, setOverview] = useState<DashboardOverview | null>(null);
+  // The detail dialog's open state is *derived* from `selectedCompany` rather
+  // than tracked as a separate boolean. A separate boolean leaves the dialog
+  // mounted (holding the previous company's fetched analysis/notes/documents)
+  // after it closes, so the next open paints that stale card for a frame before
+  // the new company's data lands — the "blips to the older company" bug. Same
+  // pattern as Pipeline / MasterData / SmartFiles.
   const [selectedCompany, setSelectedCompany] = useState<CompanyData | null>(
     null,
   );
-  const [dialogOpen, setDialogOpen] = useState(false);
+  // Guards the async open path below: if two companies are clicked in quick
+  // succession, only the most recently requested id is allowed to win.
+  const activeCompanyRequestIdRef = useRef<string | null>(null);
   const router = useRouter();
   const isMobile = useIsMobile();
   const pipelineHref = useWorkspaceHref("/pipeline");
@@ -886,10 +894,10 @@ export default function Dashboard({
         router.push(`${pipelineHref}/${id}?from=${encodeURIComponent(dashboardHref)}`);
         return;
       }
+      activeCompanyRequestIdRef.current = id;
       const cached = companies.find((c: any) => c.id === id);
       if (cached) {
         setSelectedCompany(cached as CompanyData);
-        setDialogOpen(true);
         return;
       }
       try {
@@ -897,9 +905,12 @@ export default function Dashboard({
         // one DTO object (not an array). Dropped companies are excluded from the
         // cached `companies` list, so they always take this path.
         const company = await getCompanies({ id });
+        // A later click already superseded this one — dropping the response
+        // keeps a slow earlier fetch from replacing the company the user
+        // actually asked for last.
+        if (activeCompanyRequestIdRef.current !== id) return;
         if (company) {
           setSelectedCompany(company as CompanyData);
-          setDialogOpen(true);
         }
       } catch (err) {
         console.error("Failed to load company details", err);
@@ -2177,9 +2188,15 @@ export default function Dashboard({
       {
         selectedCompany && (
           <CompanyDetailDialog
+            key={selectedCompany.id}
             company={selectedCompany}
-            open={dialogOpen}
-            onOpenChange={setDialogOpen}
+            open={!!selectedCompany}
+            onOpenChange={(open) => {
+              if (!open) {
+                activeCompanyRequestIdRef.current = null;
+                setSelectedCompany(null);
+              }
+            }}
             onUpdate={fetchPipelineData}
           />
         )

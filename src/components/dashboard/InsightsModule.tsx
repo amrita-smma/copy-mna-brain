@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
   Dialog,
@@ -292,15 +292,20 @@ function InsightsContent({
   // Company detail popup, opened by clicking a deal name (e.g. in the stale
   // list). Mirrors the main Dashboard's handleCompanyClick — the Insights module
   // is desktop-only, so there's no mobile full-screen fallback to handle.
+  // Open state is derived from `selectedCompany` (not a separate boolean) so the
+  // dialog unmounts on close and can't repaint the previous company's card on
+  // the next open. See the same note in Dashboard's handleCompanyClick.
   const [selectedCompany, setSelectedCompany] = useState<CompanyData | null>(null);
-  const [companyDialogOpen, setCompanyDialogOpen] = useState(false);
+  const activeCompanyRequestIdRef = useRef<string | null>(null);
 
   const openCompany = useCallback(async (id: string) => {
+    activeCompanyRequestIdRef.current = id;
     try {
       const company = await getCompanies({ id });
+      // A newer click won — discard this (now stale) response.
+      if (activeCompanyRequestIdRef.current !== id) return;
       if (company) {
         setSelectedCompany(company as CompanyData);
-        setCompanyDialogOpen(true);
       }
     } catch (err) {
       console.error('Failed to load company details', err);
@@ -684,9 +689,15 @@ function InsightsContent({
 
       {selectedCompany && (
         <CompanyDetailDialog
+          key={selectedCompany.id}
           company={selectedCompany}
-          open={companyDialogOpen}
-          onOpenChange={setCompanyDialogOpen}
+          open={!!selectedCompany}
+          onOpenChange={(open) => {
+            if (!open) {
+              activeCompanyRequestIdRef.current = null;
+              setSelectedCompany(null);
+            }
+          }}
           onUpdate={onRefresh}
         />
       )}
