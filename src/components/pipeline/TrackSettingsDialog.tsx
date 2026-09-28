@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Dialog,
   DialogContent,
@@ -83,6 +83,21 @@ export default function TrackSettingsDialog({
       .then(setUsers)
       .catch((err) => console.error("Failed to load users:", err));
   }, [open, users.length]);
+
+  // `tracks.pic` stores the member's *name* (free text), so the picker is
+  // keyed by name — with the email stacked underneath, like every other user
+  // dropdown. A duplicated name simply shares a hint.
+  const userNames = useMemo(
+    () => users.map((u) => u.name).filter((n): n is string => !!n),
+    [users],
+  );
+  const userEmailsByName = useMemo(
+    () =>
+      Object.fromEntries(
+        users.filter((u) => !!u.name).map((u) => [u.name, u.email]),
+      ),
+    [users],
+  );
 
   // Load all screening criteria once; the manager filters to the active track.
   useEffect(() => {
@@ -304,9 +319,8 @@ export default function TrackSettingsDialog({
                   <Label>PIC</Label>
                   <StatusCombobox
                     value={active.pic || null}
-                    options={users
-                      .map((u) => u.name)
-                      .filter((n): n is string => !!n)}
+                    options={userNames}
+                    optionHints={userEmailsByName}
                     placeholder="Set PIC…"
                     searchPlaceholder="Search or type a name…"
                     emptyText="No team members found."

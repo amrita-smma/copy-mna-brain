@@ -41,10 +41,16 @@ interface StatusComboboxProps {
   /**
    * Whether the input can create a brand-new value not in `options`. Defaults to
    * `true` (creatable, e.g. statuses/bankers). Set `false` to restrict the field
-   * to existing options only — the dropdown then acts as a searchable picker
-   * (e.g. Deal Sponsor / Deal Captain, which must be an existing team member).
+   * to existing options only — the dropdown then acts as a searchable picker.
+   * (Fields whose value is a `users.id` FK use `UserSelectCombobox` instead.)
    */
   allowCreate?: boolean;
+  /**
+   * Optional secondary line rendered (and searched) under each option — used
+   * by the user-valued fields (e.g. Track PIC) to stack a team member's email
+   * beneath their name, matching every other user picker in the app.
+   */
+  optionHints?: Record<string, string | null | undefined>;
   className?: string;
 }
 
@@ -58,6 +64,7 @@ export default function StatusCombobox({
   emptyText = "No statuses yet.",
   variant = "input",
   allowCreate = true,
+  optionHints,
   className,
 }: StatusComboboxProps) {
   const [open, setOpen] = useState(false);
@@ -67,8 +74,12 @@ export default function StatusCombobox({
     const q = query.trim().toLowerCase();
     const uniq = Array.from(new Set(options.filter(Boolean)));
     if (!q) return uniq;
-    return uniq.filter((o) => o.toLowerCase().includes(q));
-  }, [options, query]);
+    return uniq.filter(
+      (o) =>
+        o.toLowerCase().includes(q) ||
+        (optionHints?.[o] ?? "").toLowerCase().includes(q),
+    );
+  }, [options, optionHints, query]);
 
   const trimmed = query.trim();
   const exactExists = options.some(
@@ -133,6 +144,7 @@ export default function StatusCombobox({
                     key={opt}
                     value={opt}
                     onSelect={() => commit(opt)}
+                    className="group"
                   >
                     <Check
                       className={cn(
@@ -140,7 +152,17 @@ export default function StatusCombobox({
                         value === opt ? "opacity-100" : "opacity-0",
                       )}
                     />
-                    <span className="truncate">{opt}</span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate">{opt}</span>
+                      {optionHints && (
+                        // The highlighted row is filled with `--accent`, so the
+                        // muted hint has to flip to `accent-foreground` or it
+                        // goes near-invisible on the highlight.
+                        <span className="block truncate text-xs text-muted-foreground group-data-[selected=true]:text-accent-foreground/75">
+                          {optionHints[opt] || "—"}
+                        </span>
+                      )}
+                    </span>
                   </CommandItem>
                 ))}
               </CommandGroup>

@@ -21,12 +21,15 @@ import { Check, ChevronDown } from "lucide-react";
 export interface UserOption {
   id: string;
   name: string | null;
+  /** Shown beneath the name in the option list, and searchable. */
+  email?: string | null;
 }
 
 /**
- * Searchable single-user picker backing the "Entered by" field (a `users.id`
- * uuid FK). Stores the user's `id` while showing their `name`, offers a
- * search box, and is NOT creatable — the value must be an existing user.
+ * Searchable single-user picker backing the "Entered by" / Deal Sponsor /
+ * Deal Captain fields (a `users.id` uuid FK). Stores the user's `id` while
+ * showing their `name` with their email stacked beneath it, offers a search
+ * box over both, and is NOT creatable — the value must be an existing user.
  *
  * (Distinct from `UserCombobox`, which is the multi-select assignee picker.)
  */
@@ -67,7 +70,11 @@ export default function UserSelectCombobox({
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return users;
-    return users.filter((u) => (u.name ?? "").toLowerCase().includes(q));
+    return users.filter(
+      (u) =>
+        (u.name ?? "").toLowerCase().includes(q) ||
+        (u.email ?? "").toLowerCase().includes(q),
+    );
   }, [users, query]);
 
   const commit = (next: string) => {
@@ -126,14 +133,27 @@ export default function UserSelectCombobox({
                 </CommandItem>
               )}
               {filtered.map((u) => (
-                <CommandItem key={u.id} value={u.id} onSelect={() => commit(u.id)}>
+                <CommandItem
+                  key={u.id}
+                  value={u.id}
+                  onSelect={() => commit(u.id)}
+                  className="group"
+                >
                   <Check
                     className={cn(
                       "mr-2 h-4 w-4 shrink-0",
                       value === u.id ? "opacity-100" : "opacity-0",
                     )}
                   />
-                  <span className="truncate">{u.name ?? u.id}</span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate">{u.name ?? u.id}</span>
+                    {/* The highlighted row is filled with `--accent`, so the
+                        muted email has to flip to `accent-foreground` or it
+                        goes near-invisible on the highlight. */}
+                    <span className="block truncate text-xs text-muted-foreground group-data-[selected=true]:text-accent-foreground/75">
+                      {u.email ?? "—"}
+                    </span>
+                  </span>
                 </CommandItem>
               ))}
             </CommandGroup>

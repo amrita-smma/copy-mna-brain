@@ -107,7 +107,7 @@ export default function UserCombobox({
               <CommandGroup>
                 {users.map((user) => {
                   const isSelected = selectedUserIds.includes(user.id);
-                  // `group` so the name/role spans can follow the item's own
+                  // `group` so the name/email spans can follow the item's own
                   // highlight state — see their group-data rules below.
                   return (
                     <CommandItem
@@ -122,17 +122,18 @@ export default function UserCombobox({
                           isSelected ? "opacity-100" : "opacity-0",
                         )}
                       />
-                      <div className="flex flex-col">
-                        {/* The highlighted row is filled with `--accent` (a deep
-                            blue), so the name must flip to `accent-foreground`
-                            (white). Hardcoding `text-foreground` here would
-                            override CommandItem's own highlight colour and
-                            leave black-on-blue. */}
-                        <span className="group-data-[selected=true]:text-accent-foreground">
+                      <div className="flex min-w-0 flex-col">
+                        {/* Name over email — the same two-line shape every
+                            user picker uses. The highlighted row is filled
+                            with `--accent` (a deep blue), so the name must
+                            flip to `accent-foreground` (white). Hardcoding
+                            `text-foreground` here would override CommandItem's
+                            own highlight colour and leave black-on-blue. */}
+                        <span className="truncate group-data-[selected=true]:text-accent-foreground">
                           {user.name}
                         </span>
-                        <span className="text-xs text-muted-foreground group-data-[selected=true]:text-accent-foreground/75">
-                          {user.role ?? "—"}
+                        <span className="truncate text-xs text-muted-foreground group-data-[selected=true]:text-accent-foreground/75">
+                          {user.email ?? "—"}
                         </span>
                       </div>
                     </CommandItem>

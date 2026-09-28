@@ -579,10 +579,9 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
   const [isSaving, setIsSaving] = useState(false);
   const [editForm, setEditForm] = useState<EditForm | null>(null);
   const [bankerOptions, setBankerOptions] = useState<string[]>([]);
-  const [userOptions, setUserOptions] = useState<string[]>([]);
-  // Full users list (id + name) for the `entered_by` picker — it's a uuid FK,
-  // so it can't reuse the name-only `userOptions` (those back the free-text
-  // Deal Sponsor / Deal Captain comboboxes).
+  // Full users list (id + name + email) for the `entered_by` and Deal Sponsor
+  // / Deal Captain pickers — all three are uuid FKs to `users`, so they are
+  // pickers over this list rather than free-text fields.
   const [users, setUsers] = useState<UserSummary[]>([]);
 
   const startEditing = async () => {
@@ -618,12 +617,9 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
         .then(setBankerOptions)
         .catch((err) => console.error('Failed to load bankers:', err));
     }
-    if (userOptions.length === 0) {
+    if (users.length === 0) {
       getUsers()
-        .then((rows: UserSummary[]) => {
-          setUsers(rows);
-          setUserOptions(rows.map((u) => u.name).filter((n): n is string => !!n));
-        })
+        .then(setUsers)
         .catch((err) => console.error('Failed to load users:', err));
     }
   };
@@ -1926,10 +1922,9 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
                         <p className="text-xs text-muted-foreground">{dealLeadLabel(stage)}</p>
                         {isEditing && editForm ? (
                           <div className="mt-1">
-                            <StatusCombobox
+                            <UserSelectCombobox
                               value={editForm[field] || null}
-                              options={userOptions}
-                              allowCreate={false}
+                              users={users}
                               placeholder={
                                 fallback ? `${fallback} (from track)` : `Set ${dealLeadLabel(stage)}…`
                               }

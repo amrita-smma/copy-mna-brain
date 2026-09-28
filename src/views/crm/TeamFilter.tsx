@@ -30,8 +30,11 @@ export function TeamFilter({
     if (open) setDraft(new Set(selected));
   }, [open, selected]);
 
-  const filtered = users.filter((u) =>
-    u.name.toLowerCase().includes(query.toLowerCase()),
+  const q = query.trim().toLowerCase();
+  const filtered = users.filter(
+    (u) =>
+      u.name.toLowerCase().includes(q) ||
+      (u.email ?? "").toLowerCase().includes(q),
   );
   const first = users.find((u) => selected.has(u.id));
   const label =
@@ -79,7 +82,7 @@ export function TeamFilter({
                   key={u.id}
                   type="button"
                   className={cn(
-                    "flex w-full items-center gap-2 rounded-md p-1.5 text-left text-sm hover:bg-muted",
+                    "flex w-full items-start gap-2 rounded-md p-1.5 text-left text-sm hover:bg-muted",
                     on && "font-semibold text-blue-700 dark:text-blue-300",
                   )}
                   onClick={() => {
@@ -91,13 +94,18 @@ export function TeamFilter({
                   <span
                     aria-hidden
                     className={cn(
-                      "flex h-4 w-4 shrink-0 items-center justify-center rounded-sm border border-primary",
+                      "mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-sm border border-primary",
                       on && "bg-primary text-primary-foreground",
                     )}
                   >
                     {on && <Check className="h-3 w-3" />}
                   </span>
-                  {u.name}
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate">{u.name}</span>
+                    <span className="block truncate text-xs font-normal text-muted-foreground">
+                      {u.email ?? "—"}
+                    </span>
+                  </span>
                 </button>
               );
             })
