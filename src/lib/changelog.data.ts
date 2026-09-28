@@ -102,6 +102,20 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "skipReason": "noise"
   },
   {
+    "hash": "6ac05014c6d7b1bbf9373ebbd1e629ca88cf1ed1",
+    "date": "2026-09-28",
+    "subject": "Client telemetry blocking now properly reported in platform events",
+    "category": "improvement"
+  },
+  {
+    "hash": "9f68497153864d99ce736845c02cbfb3b4e37daa",
+    "date": "2026-09-28",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "be093fa913ed2ada370043dbb99039073a2f810a",
     "date": "2026-09-26",
     "subject": "Company detail dialog now displays correct data without flashing previous content",
