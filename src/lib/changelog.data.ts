@@ -14,6 +14,22 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "skipReason": "vague"
   },
   {
+    "hash": "ab1af31bc03573c074bff797dceaf1c263f4fd8c",
+    "date": "2026-09-28",
+    "subject": "Stamp workspace_slug on server-side copilot telemetry.",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "e97c9c985770bdfad65569e234bf4bedc6c2baa9",
+    "date": "2026-09-28",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "be093fa913ed2ada370043dbb99039073a2f810a",
     "date": "2026-09-26",
     "subject": "Company detail dialog now displays correct data without flashing previous content",
