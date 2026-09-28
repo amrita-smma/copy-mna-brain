@@ -74,6 +74,26 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "skipReason": "noise"
   },
   {
+    "hash": "76eb6f705b1947e94bf0e97e1a65b68dd889b437",
+    "date": "2026-09-28",
+    "subject": "Organizers can now set absolute voting deadlines and view live results",
+    "category": "improvement"
+  },
+  {
+    "hash": "0ef97f0b39a905f70fba77a3773f9a0601972939",
+    "date": "2026-09-28",
+    "subject": "User email now displays below name in all dropdown menus",
+    "category": "improvement"
+  },
+  {
+    "hash": "b6ad2594c67a4c90dbea8a1b4aed4b117f801758",
+    "date": "2026-09-28",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "be093fa913ed2ada370043dbb99039073a2f810a",
     "date": "2026-09-26",
     "subject": "Company detail dialog now displays correct data without flashing previous content",
