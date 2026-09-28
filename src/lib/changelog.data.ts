@@ -6,6 +6,14 @@ import type { ChangelogEntry } from './changelog';
 
 export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   {
+    "hash": "d333087012ec9944db94130b36a18d98a7058e36",
+    "date": "2026-09-28",
+    "subject": "Record copilot usage in PostHog so engagement survives ad blockers.",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
     "hash": "be093fa913ed2ada370043dbb99039073a2f810a",
     "date": "2026-09-26",
     "subject": "Company detail dialog now displays correct data without flashing previous content",
@@ -21,6 +29,14 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   },
   {
     "hash": "70de99b07bba1437f0581d3461e1d17013901174",
+    "date": "2026-09-26",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
+    "hash": "1a948f759d3082155aec014d4bebf65f878fbd2f",
     "date": "2026-09-26",
     "subject": "[skip deploy] chore: update changelog",
     "category": "improvement",
