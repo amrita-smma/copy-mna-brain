@@ -13,7 +13,6 @@ import {
   employerTopics,
   topics,
   users,
-  userWorkspaces,
   workspaceCorrespondents,
 } from "@/lib/db/schema";
 import type { DbClient } from "./types";
@@ -103,47 +102,26 @@ export class EmployerRepository {
       //
       // The correspondent/related-company branches mirror
       // CorrespondentRepository.visibleCorrespondentIds /
-      // EmployerRelatedCompanyRepository.listForEmployer's workspace-level
-      // sync gate — only the mailbox-sync-derived value (`source='ingest'`
-      // for correspondents, `'auto'` for related-companies) is gated on this
-      // workspace having a synced member; everything else (manual, and
-      // correspondents' `'direct'` — see
-      // 20260705000006_workspace_correspondents_direct_source.sql) always
-      // counts. Checking `!=` the known sync-derived value rather than
-      // enumerating durable ones means a future new source defaults to
-      // visible, not silently hidden. Without this, a fully-unsynced
-      // workspace would still list an employer here (this row still exists)
-      // only to land on an empty detail card, since the detail reads already
-      // hide it — this keeps the list and the detail view agreeing with
-      // each other.
+      // EmployerRelatedCompanyRepository.listForEmployer: workspace
+      // membership alone, with no `user_workspaces.is_email_synced` gate on
+      // the mailbox-sync-derived rows (`source='ingest'` for correspondents,
+      // `'auto'` for related-companies). That gate used to hide already-
+      // ingested CRM data the moment the workspace's last synced member
+      // toggled sync off; sync now only governs which mailboxes the pipeline
+      // pulls from. Keep this branch list in step with those two reads so
+      // the list and the detail card never disagree.
       sql`(
         EXISTS (
           SELECT 1 FROM ${correspondents}
           JOIN ${workspaceCorrespondents} ON ${workspaceCorrespondents.correspondent_id} = ${correspondents.id}
           WHERE ${correspondents.employer_id} = ${employers.id}
             AND ${workspaceCorrespondents.workspace_id} = ${workspaceId}
-            AND (
-              ${workspaceCorrespondents.source} != 'ingest'
-              OR EXISTS (
-                SELECT 1 FROM ${userWorkspaces}
-                WHERE ${userWorkspaces.workspace_id} = ${workspaceId}
-                  AND ${userWorkspaces.is_email_synced} = true
-              )
-            )
         )
         OR EXISTS (
           SELECT 1 FROM ${employerRelatedCompanies}
           WHERE ${employerRelatedCompanies.employer_id} = ${employers.id}
             AND ${employerRelatedCompanies.workspace_id} = ${workspaceId}
             AND ${employerRelatedCompanies.dismissed_at} IS NULL
-            AND (
-              ${employerRelatedCompanies.source} != 'auto'
-              OR EXISTS (
-                SELECT 1 FROM ${userWorkspaces}
-                WHERE ${userWorkspaces.workspace_id} = ${workspaceId}
-                  AND ${userWorkspaces.is_email_synced} = true
-              )
-            )
         )
         OR EXISTS (
           SELECT 1 FROM ${employerNotes}
@@ -260,11 +238,10 @@ export class EmployerRepository {
         // 20260705000004_workspace_primary_correspondents.sql), falling back to
         // oldest-visible when no explicit designation exists. Unscoped reads
         // here previously leaked another workspace's private contact.
-        // Same sync gate as CorrespondentRepository.visibleCorrespondentIds:
-        // only 'ingest' (mailbox-sync) is gated on this workspace having a
-        // synced member; 'manual' and 'direct' always count — otherwise the
+        // Same visibility rule as CorrespondentRepository.visibleCorrespondentIds
+        // — workspace membership only, no email-sync gate — otherwise the
         // list could show a "primary contact" that findByEmployerId's detail
-        // read wouldn't.
+        // read wouldn't (or hide one it would).
         primary_pic: sql<EmployerSummary["primary_pic"]>`(
           SELECT jsonb_build_object(
             'id', "correspondents"."id",
@@ -277,14 +254,6 @@ export class EmployerRepository {
           JOIN "workspace_correspondents"
             ON "workspace_correspondents"."correspondent_id" = "correspondents"."id"
             AND "workspace_correspondents"."workspace_id" = ${workspaceId}
-            AND (
-              "workspace_correspondents"."source" != 'ingest'
-              OR EXISTS (
-                SELECT 1 FROM "user_workspaces"
-                WHERE "user_workspaces"."workspace_id" = ${workspaceId}
-                  AND "user_workspaces"."is_email_synced" = true
-              )
-            )
           WHERE "correspondents"."employer_id" = "employers"."id"
           ORDER BY "correspondents"."created_at" ASC, "correspondents"."id" ASC
           LIMIT 1
@@ -442,11 +411,6 @@ export class EmployerRepository {
             JOIN ${workspaceCorrespondents} ON ${workspaceCorrespondents.correspondent_id} = ${correspondents.id}
             WHERE ${correspondents.employer_id} = ${employers.id}
               AND ${workspaceCorrespondents.workspace_id} = ${workspaceId}
-              AND (${workspaceCorrespondents.source} != 'ingest' OR EXISTS (
-                SELECT 1 FROM ${userWorkspaces}
-                WHERE ${userWorkspaces.workspace_id} = ${workspaceId}
-                  AND ${userWorkspaces.is_email_synced} = true
-              ))
           )`
         )
       );

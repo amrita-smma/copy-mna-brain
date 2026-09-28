@@ -1,9 +1,8 @@
-import { and, asc, eq, inArray, or, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import {
   correspondents,
   correspondentEffective,
   workspaceCorrespondents,
-  userWorkspaces,
 } from "@/lib/db/schema";
 import type { DbClient } from "./types";
 
@@ -21,37 +20,20 @@ export class CorrespondentRepository {
    * through this same class. Mirrors the `workspaceTrackIds()`
    * derived-table subquery idiom used by CriteriaRepository/TrackVariableRepository.
    *
-   * `source='manual'` (createContact/curateEmployer) and `source='direct'`
-   * (CRMService.ingestEmails — Vault export / file-extracted communications,
-   * no mailbox or message_id, never governed by any sync concept) are durable
-   * memberships: they stay regardless of any mailbox's sync state. Only
-   * `source='ingest'` (crmIngest's real mailbox-sync pipeline,
-   * message_id/raw_emails-backed) is gated on this workspace having at least
-   * one currently synced member — workspace-level, not per-custodian (see
-   * 20260705000006_workspace_correspondents_direct_source.sql for why a
-   * per-custodian email-evidence check was tried and rejected: it can't tell
-   * a Vault/file-direct link apart from a real one and would hide the former
-   * permanently). Checking `!= 'ingest'` rather than enumerating durable
-   * values means a future new source defaults to visible, not silently
-   * hidden — the safer direction here. Live, no refresh step needed.
+   * Membership in this workspace is the ONLY visibility rule — every source
+   * (`manual`, `direct`, `ingest`) is equally durable. The old
+   * `source='ingest'` branch additionally required this workspace to have at
+   * least one `user_workspaces.is_email_synced = true` member, so turning a
+   * member's mailbox sync off retroactively hid CRM contacts that had
+   * already been ingested. Sync state governs which mailboxes the pipeline
+   * *pulls* from (`findSyncedCustodianEmails` /
+   * `findWorkspaceIdsBySyncedEmail`), not what a workspace member can *read*.
    */
   private visibleCorrespondentIds(workspaceId: string) {
     return this.db
       .select({ id: workspaceCorrespondents.correspondent_id })
       .from(workspaceCorrespondents)
-      .where(
-        and(
-          eq(workspaceCorrespondents.workspace_id, workspaceId),
-          or(
-            sql`${workspaceCorrespondents.source} != 'ingest'`,
-            sql`EXISTS (
-              SELECT 1 FROM ${userWorkspaces}
-              WHERE ${userWorkspaces.workspace_id} = ${workspaceId}
-                AND ${userWorkspaces.is_email_synced} = true
-            )`,
-          ),
-        ),
-      );
+      .where(eq(workspaceCorrespondents.workspace_id, workspaceId));
   }
 
   // Reads go through the effective view so the human overlay wins (RFC §3.4).

@@ -41,7 +41,8 @@ entry (spool to `/tmp` → `processMboxSource`).
 
 ```bash
 # Postgres migrated; ANTHROPIC_API_KEY in .env.local
-# Optional: ensure analyst@starcapital.co.id exists with is_email_synced=true
+# Optional: ensure analyst@starcapital.co.id exists as a user with a workspace
+# membership (is_email_synced is not required for mart visibility)
 # For attachment (Smart Files) uploads: INTERNAL_API_URL + ADMIN_SECRET + app server up
 
 # IMPORTANT: pnpm --filter runs with cwd=data-pipeline/, so use fixtures/...

@@ -278,7 +278,8 @@ export class DashboardInsightsRepository {
    * reply per inbound email, gaps capped at 30 days — using the same logic as
    * the `mart_crm` response p50, but returning the raw gaps rather than only
    * the median. Workspace scoping is via the `analytics.email_workspace` bridge
-   * (message_id → raw_emails.custodian → synced user_workspaces).
+   * (emails.custodian_email → users → user_workspaces — every membership, not
+   * only email-synced ones; see 20260928000000_email_workspace_drop_sync_gate).
    *
    * Defensive: the analytics tables are produced by the data pipeline and may
    * be absent in some environments, so any failure yields `[]` rather than

@@ -163,24 +163,24 @@ describe('EmployerRepository', () => {
       expect(text).toContain('workspace_correspondents');
     });
 
-    it('gates primary_pic on the workspace having a synced member, for an ingest-derived contact', async () => {
+    it('does not gate primary_pic on the workspace having an email-synced member', async () => {
       db.offset.mockResolvedValueOnce([]);
       await repo.list({}, 'w1');
       const selectArg = db.select.mock.calls[0]?.[0];
       const { sql: text } = new PgDialect().sqlToQuery(selectArg.primary_pic);
-      expect(text).toContain('user_workspaces');
-      expect(text).toContain('is_email_synced');
+      expect(text).not.toContain('user_workspaces');
+      expect(text).not.toContain('is_email_synced');
     });
 
-    it('gates the correspondent/related-company visibility branches on the same sync check, so the list agrees with the detail view', async () => {
+    it('does not gate the correspondent/related-company visibility branches on email sync, so an unsynced workspace still sees its ingested CRM data', async () => {
       db.offset.mockResolvedValueOnce([]);
       await repo.list({}, 'w1');
       const whereArg = db.where.mock.calls[0]?.[0];
       const { sql: text } = new PgDialect().sqlToQuery(whereArg);
-      expect(text).toContain("!= 'ingest'");
-      expect(text).toContain("!= 'auto'");
-      expect(text).toContain('user_workspaces');
-      expect(text).toContain('is_email_synced');
+      expect(text).not.toContain("!= 'ingest'");
+      expect(text).not.toContain("!= 'auto'");
+      expect(text).not.toContain('user_workspaces');
+      expect(text).not.toContain('is_email_synced');
     });
 
     it('coerces numeric response fields from strings and keeps a null p50', async () => {
@@ -209,6 +209,26 @@ describe('EmployerRepository', () => {
       const out = await repo.list({}, 'w1');
       expect(out[0].response_p50_seconds).toBeNull();
       expect(out[0].response_pair_count).toBe(0);
+    });
+  });
+
+  describe('countFlagged', () => {
+    it('counts flagged employers the workspace can see without an email-sync gate', async () => {
+      db.where.mockResolvedValueOnce([{ n: '4' }]);
+
+      const out = await repo.countFlagged('w1');
+
+      expect(out).toBe(4);
+      const { sql: text } = new PgDialect().sqlToQuery(db.where.mock.calls[0]?.[0]);
+      expect(text).toContain('workspace_correspondents');
+      expect(text).not.toContain("!= 'ingest'");
+      expect(text).not.toContain('user_workspaces');
+      expect(text).not.toContain('is_email_synced');
+    });
+
+    it('returns 0 when the count row is missing', async () => {
+      db.where.mockResolvedValueOnce([]);
+      expect(await repo.countFlagged('w1')).toBe(0);
     });
   });
 });

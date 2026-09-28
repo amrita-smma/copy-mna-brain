@@ -12,6 +12,20 @@ extraction, CRM upserts, and approved attachment delivery to Smart Files in one 
 It stores only CRM facts and a resumable cursor in
 `analytics.email_process_runs`.
 
+## Workspace attribution
+
+`analytics.email_workspace` maps each ingested email to a workspace through its
+custodian: `emails.custodian_email` → `users` → `user_workspaces`. It joins on
+**every** membership, not only `is_email_synced = true` ones, so the marts built
+on it (`mart_crm`, `mart_mom`, `mart_topics`) keep reporting email volume, last
+contact, response p50, and topic mentions after a member's mailbox sync is
+turned off. `is_email_synced` decides only which mailboxes
+`vault-archive-start` collects from — it never hides data that was already
+collected. Same rule on the app side: the CRM reads in
+`src/lib/repositories/{correspondent,employer,employerRelatedCompany,email}Repository.ts`
+scope on workspace membership alone (migration
+`20260928000000_email_workspace_drop_sync_gate`).
+
 ## Retention boundary
 
 - MBOX data is never written to S3.

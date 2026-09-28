@@ -1,9 +1,8 @@
-import { and, desc, eq, inArray, isNotNull, isNull, or, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNotNull, isNull, sql } from 'drizzle-orm';
 import {
   employers,
   employerRelatedCompanies,
   employerRelatedCompanyEvidence,
-  userWorkspaces,
 } from '@/lib/db/schema';
 import type { DbClient, Tables, TablesInsert } from '@/lib/repositories';
 
@@ -54,16 +53,14 @@ export class EmployerRelatedCompanyRepository {
   constructor(private readonly db: DbClient) {}
 
   /**
-   * A `source='manual'` link (createManual) is a durable membership — stays
-   * regardless of any mailbox's sync state. Only `source='auto'` (ingest's
-   * LLM-detected match) is gated on this workspace having at least one
-   * currently synced member — workspace-level, matching
-   * CorrespondentRepository.visibleCorrespondentIds exactly, so the same
-   * un-sync action can't hide a related-company while leaving a contact from
-   * the same mailbox visible on the same employer card (or vice versa).
-   * Checking `!= 'auto'` rather than `= 'manual'` means a future new source
-   * value defaults to visible, not silently hidden. Live, no refresh step
-   * needed.
+   * Every link in this workspace is durable regardless of source: a
+   * `source='manual'` link (createManual) and ingest's `source='auto'`
+   * LLM-detected match are equally visible. `source='auto'` used to be gated
+   * on the workspace having at least one `is_email_synced` member, which
+   * retroactively hid already-detected matches when the last mailbox was
+   * un-synced. Matches CorrespondentRepository.visibleCorrespondentIds
+   * exactly, so contacts and related-companies from the same mailbox always
+   * appear together on an employer card.
    *
    * Only companies that exist in the system are returned: rows are gated on
    * `company_id IS NOT NULL` so an auto-detected name that never matched a
@@ -83,14 +80,6 @@ export class EmployerRelatedCompanyRepository {
           eq(employerRelatedCompanies.workspace_id, workspaceId),
           isNull(employerRelatedCompanies.dismissed_at),
           isNotNull(employerRelatedCompanies.company_id),
-          or(
-            sql`${employerRelatedCompanies.source} != 'auto'`,
-            sql`EXISTS (
-              SELECT 1 FROM ${userWorkspaces}
-              WHERE ${userWorkspaces.workspace_id} = ${workspaceId}
-                AND ${userWorkspaces.is_email_synced} = true
-            )`,
-          ),
         ),
       );
 
@@ -273,10 +262,10 @@ export class EmployerRelatedCompanyRepository {
    * Rank every banker (employer) in the workspace by how many distinct related
    * companies are attached to it, most first. Uses the exact same visibility
    * rules as {@link listForEmployer} so the counts match what a user sees on the
-   * employer cards: non-dismissed rows only, `source='auto'` rows count only
-   * when the workspace has at least one email-synced member, and only companies
-   * that exist in the system (`company_id IS NOT NULL`) are counted — an
-   * unmatched auto name is excluded exactly as it is from the employer card.
+   * employer cards: non-dismissed rows only, every source counted regardless
+   * of any member's email-sync state, and only companies that exist in the
+   * system (`company_id IS NOT NULL`) are counted — an unmatched auto name is
+   * excluded exactly as it is from the employer card.
    *
    * The distinct count collapses auto + manual rows for the same company (keyed
    * on `company_id`), mirroring `dedupeRelatedCompanies` in the CRM service.
@@ -307,14 +296,6 @@ export class EmployerRelatedCompanyRepository {
           eq(employerRelatedCompanies.workspace_id, workspaceId),
           isNull(employerRelatedCompanies.dismissed_at),
           isNotNull(employerRelatedCompanies.company_id),
-          or(
-            sql`${employerRelatedCompanies.source} != 'auto'`,
-            sql`EXISTS (
-              SELECT 1 FROM ${userWorkspaces}
-              WHERE ${userWorkspaces.workspace_id} = ${workspaceId}
-                AND ${userWorkspaces.is_email_synced} = true
-            )`,
-          ),
         ),
       )
       .groupBy(employers.id, employers.name)

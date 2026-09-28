@@ -47,7 +47,7 @@ describe('EmployerRelatedCompanyRepository.listForEmployer', () => {
     expect(out[0].evidence[0].matched_text).toBe('We represent X');
   });
 
-  it('never gates a manual link on sync state, and gates only an auto link on the workspace having any synced member', async () => {
+  it('keeps auto links visible without any email-sync gate, so un-syncing the last mailbox does not hide detected matches', async () => {
     const db = makeDb();
     db.where.mockResolvedValueOnce([]); // aggregates query result
     const repo = new EmployerRelatedCompanyRepository(db as never);
@@ -55,9 +55,9 @@ describe('EmployerRelatedCompanyRepository.listForEmployer', () => {
 
     const whereArg = db.where.mock.calls[0]?.[0];
     const { sql: text } = new PgDialect().sqlToQuery(whereArg);
-    expect(text).toContain("!= 'auto'");
-    expect(text).toContain('user_workspaces');
-    expect(text).toContain('is_email_synced');
+    expect(text).not.toContain("!= 'auto'");
+    expect(text).not.toContain('user_workspaces');
+    expect(text).not.toContain('is_email_synced');
   });
 
   it('excludes related companies that are not in the system (company_id IS NULL)', async () => {
@@ -222,7 +222,7 @@ describe('EmployerRelatedCompanyRepository.rankByRelatedCompanyCount', () => {
     ]);
   });
 
-  it('excludes dismissed rows and gates auto rows on workspace sync state', async () => {
+  it('excludes dismissed rows and counts auto rows regardless of workspace sync state', async () => {
     const db = makeDb();
     db.orderBy.mockResolvedValueOnce([]);
     const repo = new EmployerRelatedCompanyRepository(db as never);
@@ -232,8 +232,8 @@ describe('EmployerRelatedCompanyRepository.rankByRelatedCompanyCount', () => {
     const whereArg = db.where.mock.calls[0]?.[0];
     const { sql: text } = new PgDialect().sqlToQuery(whereArg);
     expect(text).toContain('dismissed_at');
-    expect(text).toContain("!= 'auto'");
-    expect(text).toContain('is_email_synced');
+    expect(text).not.toContain("!= 'auto'");
+    expect(text).not.toContain('is_email_synced');
     // Only companies in the system are counted.
     expect(text).toContain('company_id');
     expect(text.toLowerCase()).toContain('is not null');

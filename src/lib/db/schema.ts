@@ -619,6 +619,9 @@ export const userWorkspaces = pgTable(
     role_id: uuid().notNull(),
     // The user's own email is the "custodian mailbox" being watched for this
     // workspace when true (replaces the old workspace_email_to_sync table).
+    // Collection only: this decides which mailboxes the pipeline pulls from,
+    // NOT what CRM data a workspace member can read. Turning it off stops new
+    // email from being ingested and never hides what was already ingested.
     is_email_synced: boolean().default(false).notNull(),
     created_at: timestamp({ withTimezone: true, mode: "string" }).defaultNow().notNull(),
     updated_at: timestamp({ withTimezone: true, mode: "string" }).defaultNow().notNull(),

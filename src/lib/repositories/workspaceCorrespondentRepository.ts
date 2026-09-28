@@ -4,15 +4,18 @@ import type { DbClient } from "./types";
 
 export type WorkspaceCorrespondentSource = "ingest" | "manual" | "direct";
 
-// Durability order: manual > direct > ingest — a conflict always upgrades
-// toward the more durable value, never downgrades. 'manual' (human-affirmed,
+// Provenance order: manual > direct > ingest — a conflict always upgrades
+// toward the stronger value, never downgrades. 'manual' (human-affirmed,
 // createContact/curateEmployer) wins outright. 'direct' (CRMService.
 // ingestEmails — Vault export / file-extracted communications, no mailbox
 // or is_email_synced concept at all) beats plain 'ingest' (crmIngest's real
-// mailbox-sync pipeline): a workspace that has BOTH a mailbox-sync link and
-// a separately Vault/file-imported link to the same correspondent must stay
-// visible even if that mailbox later gets un-synced. Only when neither side
-// is 'manual' or 'direct' does it stay 'ingest'.
+// mailbox-sync pipeline). Only when neither side is 'manual' or 'direct'
+// does it stay 'ingest'.
+//
+// This is provenance only — it no longer affects visibility. Reads used to
+// hide `source='ingest'` rows once a workspace had no email-synced member;
+// that gate is gone (see CorrespondentRepository.visibleCorrespondentIds), so
+// every membership row is visible to its workspace whatever its source.
 const sourceUpgradeOnConflict = sql`CASE
   WHEN excluded.source = 'manual' OR ${workspaceCorrespondents.source} = 'manual' THEN 'manual'
   WHEN excluded.source = 'direct' OR ${workspaceCorrespondents.source} = 'direct' THEN 'direct'

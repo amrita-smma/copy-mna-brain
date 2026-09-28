@@ -776,12 +776,12 @@ export class CRMService {
   }
 
   // "direct", not "ingest" — this path (Google Vault export / file-extracted
-  // communications, called from vaultExport.ts/fileService.ts) has no
-  // mailbox or message_id at all and is never governed by
-  // user_workspaces.is_email_synced, unlike crmIngest's real mailbox-sync
-  // pipeline. Labeling it "ingest" would let the sync gate hide it
-  // permanently for a workspace with no currently-synced member, even
-  // though this content was never tied to mailbox sync in the first place.
+  // communications, called from vaultExport.ts/fileService.ts) has no mailbox
+  // or message_id at all, unlike crmIngest's real mailbox-sync pipeline, so
+  // the membership records where the link actually came from. Provenance
+  // only: no read gates on `source` any more (they used to hide 'ingest' rows
+  // from a workspace with no email-synced member — see
+  // CorrespondentRepository.visibleCorrespondentIds).
   private async upsertCorrespondent(
     employerId: string,
     data: { email?: string; name?: string },

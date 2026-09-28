@@ -1,11 +1,10 @@
-import { and, desc, eq, gte, inArray, or, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, sql } from "drizzle-orm";
 import {
   correspondents,
   emailParticipants,
   emails,
   emailTopics,
   employers,
-  userWorkspaces,
   workspaceCorrespondents,
 } from "@/lib/db/schema";
 import type { DbClient } from "./types";
@@ -83,14 +82,6 @@ export class EmailRepository {
         and(
           gte(emails.sent_at, isoDate),
           eq(workspaceCorrespondents.workspace_id, workspaceId),
-          or(
-            sql`${workspaceCorrespondents.source} != 'ingest'`,
-            sql`EXISTS (
-              SELECT 1 FROM ${userWorkspaces}
-              WHERE ${userWorkspaces.workspace_id} = ${workspaceId}
-                AND ${userWorkspaces.is_email_synced} = true
-            )`
-          )
         )
       );
     return Number(rows[0]?.n ?? 0);
@@ -201,11 +192,6 @@ export class EmailRepository {
             JOIN ${workspaceCorrespondents} ON ${workspaceCorrespondents.correspondent_id} = ${correspondents.id}
             WHERE ${correspondents.employer_id} = ${employers.id}
               AND ${workspaceCorrespondents.workspace_id} = ${workspaceId}
-              AND (${workspaceCorrespondents.source} != 'ingest' OR EXISTS (
-                SELECT 1 FROM ${userWorkspaces}
-                WHERE ${userWorkspaces.workspace_id} = ${workspaceId}
-                  AND ${userWorkspaces.is_email_synced} = true
-              ))
           )`,
           sql`COALESCE(
             (SELECT MAX(${emails.sent_at})
@@ -214,12 +200,7 @@ export class EmailRepository {
              JOIN ${emails}         ON ${emails.id}         = ${emailParticipants.email_id}
              JOIN ${workspaceCorrespondents} ON ${workspaceCorrespondents.correspondent_id} = ${correspondents.id}
              WHERE ${correspondents.employer_id} = ${employers.id}
-               AND ${workspaceCorrespondents.workspace_id} = ${workspaceId}
-               AND (${workspaceCorrespondents.source} != 'ingest' OR EXISTS (
-                 SELECT 1 FROM ${userWorkspaces}
-                 WHERE ${userWorkspaces.workspace_id} = ${workspaceId}
-                   AND ${userWorkspaces.is_email_synced} = true
-               ))),
+               AND ${workspaceCorrespondents.workspace_id} = ${workspaceId}),
             ${employers.created_at}
           ) < ${thresholdIso}`
         )

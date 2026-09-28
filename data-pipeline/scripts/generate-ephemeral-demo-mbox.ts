@@ -6,7 +6,9 @@
  *   pnpm --filter data-pipeline exec tsx scripts/generate-ephemeral-demo-mbox.ts
  *
  * Custodian mailbox used in To:/Cc: headers: analyst@starcapital.co.id
- * (must exist with is_email_synced=true for mart visibility).
+ * (must exist as a user with a workspace membership for mart visibility —
+ * `is_email_synced` is not required, the email_workspace bridge joins every
+ * membership; see 20260928000000_email_workspace_drop_sync_gate).
  */
 import { writeFileSync, mkdirSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';

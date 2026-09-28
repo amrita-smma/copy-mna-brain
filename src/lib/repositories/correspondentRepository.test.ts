@@ -138,7 +138,7 @@ describe('CorrespondentRepository', () => {
   });
 
   describe('visibleCorrespondentIds (via findByEmployerId)', () => {
-    it('never gates a manual/direct link on sync state, and gates only an ingest link on the workspace having any synced member', async () => {
+    it('scopes on workspace membership alone — no source or email-sync gate, so an ingest-derived contact stays visible after the last mailbox is un-synced', async () => {
       db.orderBy.mockResolvedValueOnce([]); // main query result
       await repo.findByEmployerId('e1', 'w1');
 
@@ -146,9 +146,10 @@ describe('CorrespondentRepository', () => {
       // [1] the outer findByEmployerId where().
       const subqueryWhereArg = db.where.mock.calls[0]?.[0];
       const { sql: text } = new PgDialect().sqlToQuery(subqueryWhereArg);
-      expect(text).toContain("!= 'ingest'");
-      expect(text).toContain('user_workspaces');
-      expect(text).toContain('is_email_synced');
+      expect(text).toContain('workspace_correspondents');
+      expect(text).not.toContain("!= 'ingest'");
+      expect(text).not.toContain('user_workspaces');
+      expect(text).not.toContain('is_email_synced');
     });
   });
 });
