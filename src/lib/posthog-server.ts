@@ -24,19 +24,31 @@ export function getPostHogClient(): PostHog | null {
  * `workspace_id` event property (filterable everywhere, no plan requirement)
  * and as a `workspace` group (enables PostHog Group Analytics dashboards
  * per workspace).
+ *
+ * Pass `workspaceSlug` whenever the caller already knows it (a request
+ * handler can read it off the session's membership claims for free). It is
+ * stamped as `workspace_slug`, matching what `applyWorkspaceIdentity` puts on
+ * every *client* capture — without it a PostHog insight filtered on
+ * `workspace_slug = acme` silently omits the server-side events, which is
+ * exactly the half of the data an ad blocker cannot drop.
  */
 export function captureWorkspaceEvent(args: {
   workspaceId: string;
+  workspaceSlug?: string | null;
   distinctId: string;
   event: string;
   properties?: Record<string, unknown>;
 }): void {
+  const slug = args.workspaceSlug?.trim();
   getPostHogClient()?.capture({
     distinctId: args.distinctId,
     event: args.event,
     properties: {
       ...args.properties,
       workspace_id: args.workspaceId,
+      // Omitted rather than sent as null when unknown: a null would show up as
+      // a real value in a PostHog breakdown alongside the genuine slugs.
+      ...(slug ? { workspace_slug: slug } : {}),
     },
     groups: { workspace: args.workspaceId },
   });

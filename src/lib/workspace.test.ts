@@ -5,6 +5,7 @@ import {
   getActiveWorkspaceIdOrThrow,
   NoActiveWorkspaceError,
   runWithWorkforceWorkspaceId,
+  workspaceSlugFromClaims,
 } from './workspace';
 
 const { mockAuth, mockHeaders } = vi.hoisted(() => ({
@@ -190,5 +191,43 @@ describe('runWithWorkforceWorkspaceId', () => {
 
     expect(result).toBe('run-ws-4');
     expect(mockAuth).not.toHaveBeenCalled();
+  });
+});
+
+describe('workspaceSlugFromClaims', () => {
+  const claims = [
+    { workspaceId: 'w1', slug: 'acme' },
+    { workspaceId: 'w2', slug: 'globex' },
+  ];
+
+  it('returns the slug of the matching claim', () => {
+    expect(workspaceSlugFromClaims(claims, 'w2')).toBe('globex');
+  });
+
+  it('returns null when the workspace is not among the claims', () => {
+    expect(workspaceSlugFromClaims(claims, 'w3')).toBeNull();
+  });
+
+  it('returns null when there are no claims (a caller with no session)', () => {
+    expect(workspaceSlugFromClaims(undefined, 'w1')).toBeNull();
+    expect(workspaceSlugFromClaims([], 'w1')).toBeNull();
+  });
+
+  it('returns null when the matching claim has a blank slug', () => {
+    expect(workspaceSlugFromClaims([{ workspaceId: 'w1', slug: '  ' }], 'w1')).toBeNull();
+    expect(workspaceSlugFromClaims([{ workspaceId: 'w1', slug: '' }], 'w1')).toBeNull();
+  });
+
+  it('returns null instead of throwing when claims is not an array', () => {
+    expect(workspaceSlugFromClaims({ workspaceId: 'w1', slug: 'acme' } as never, 'w1')).toBeNull();
+  });
+
+  it('returns null for the fail-closed sentinel rather than guessing a slug', () => {
+    expect(
+      workspaceSlugFromClaims(
+        [{ workspaceId: NO_ACTIVE_WORKSPACE_ID, slug: 'somehow' }],
+        NO_ACTIVE_WORKSPACE_ID,
+      ),
+    ).toBeNull();
   });
 });

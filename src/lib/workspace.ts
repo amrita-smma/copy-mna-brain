@@ -122,3 +122,32 @@ export async function getActiveWorkspaceIdOrThrow(): Promise<string> {
   }
   return workspaceId;
 }
+
+/**
+ * The URL slug for `workspaceId`, read out of the session's own membership
+ * claims (`session.user.workspaces`) — zero DB calls, since the JWT already
+ * carries `{workspaceId, slug}` for every workspace the user can access.
+ *
+ * Exists for telemetry: `captureWorkspaceEvent` stamps `workspace_slug`
+ * alongside `workspace_id` so server-side events land in the same PostHog
+ * filter as the client-side ones, which get the slug from the URL. Returns
+ * null for the `NO_ACTIVE_WORKSPACE_ID` sentinel, for a blank slug, and for a
+ * workspace the claims don't mention (a job-handler-style caller with no
+ * session), so the property is simply omitted rather than guessed at. A
+ * non-array `claims` value is treated the same way — this runs on the chat
+ * request path, and a throw here would fail a turn that already passed auth.
+ *
+ * Structurally typed rather than importing `WorkspaceClaim` from `@/auth` —
+ * this module avoids that import entirely to keep the `auth.ts` cycle closed
+ * and stay out of the edge bundle.
+ */
+export function workspaceSlugFromClaims(
+  claims: readonly { workspaceId: string; slug: string }[] | undefined,
+  workspaceId: string,
+): string | null {
+  if (!Array.isArray(claims) || workspaceId === NO_ACTIVE_WORKSPACE_ID) return null;
+  const slug = claims.find((c) => c?.workspaceId === workspaceId)?.slug?.trim();
+  // A blank slug is the same as an unknown one: callers omit the property
+  // rather than stamp whitespace that would never match a `/w/<slug>` filter.
+  return slug ? slug : null;
+}

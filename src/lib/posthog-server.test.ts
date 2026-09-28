@@ -71,6 +71,54 @@ describe('captureWorkspaceEvent', () => {
     );
   });
 
+  it('stamps workspace_slug when the caller knows it', async () => {
+    vi.stubEnv('NEXT_PUBLIC_POSTHOG_KEY', 'phc_testkey');
+    const { getPostHogClient, captureWorkspaceEvent } = await import('./posthog-server');
+    const client = getPostHogClient()!;
+
+    captureWorkspaceEvent({
+      workspaceId: 'ws-3',
+      workspaceSlug: 'acme',
+      distinctId: 'user-3',
+      event: 'thing_happened',
+      properties: { foo: 'bar' },
+    });
+
+    expect(client.capture).toHaveBeenCalledWith(
+      expect.objectContaining({
+        properties: { foo: 'bar', workspace_id: 'ws-3', workspace_slug: 'acme' },
+      }),
+    );
+  });
+
+  it('omits workspace_slug entirely when it is null, undefined or blank', async () => {
+    vi.stubEnv('NEXT_PUBLIC_POSTHOG_KEY', 'phc_testkey');
+    const { getPostHogClient, captureWorkspaceEvent } = await import('./posthog-server');
+    const client = getPostHogClient()!;
+
+    const blanks = [null, undefined, '', '  '] as const;
+    for (const workspaceSlug of blanks) {
+      captureWorkspaceEvent({
+        workspaceId: 'ws-4',
+        workspaceSlug,
+        distinctId: 'user-4',
+        event: 'thing_happened',
+      });
+    }
+
+    // Exact payload: a present `workspace_slug` (even null) would fail this,
+    // and `toHaveBeenCalledTimes` keeps an empty mock from passing the loop.
+    expect(client.capture).toHaveBeenCalledTimes(blanks.length);
+    for (let n = 1; n <= blanks.length; n++) {
+      expect(client.capture).toHaveBeenNthCalledWith(n, {
+        distinctId: 'user-4',
+        event: 'thing_happened',
+        properties: { workspace_id: 'ws-4' },
+        groups: { workspace: 'ws-4' },
+      });
+    }
+  });
+
   it('is a no-op when PostHog is not configured', async () => {
     vi.stubEnv('NEXT_PUBLIC_POSTHOG_KEY', '');
     const { captureWorkspaceEvent } = await import('./posthog-server');

@@ -1,7 +1,7 @@
 import { after, NextRequest, NextResponse } from 'next/server';
 import { getAgentGraph, AIMessage, extractFirstTurn, type EffortChoice } from '@/lib/agents/analysis';
 import { createDb, withBackgroundDb } from '@/lib/server/db';
-import { getActiveWorkspaceId } from '@/lib/workspace';
+import { getActiveWorkspaceId, workspaceSlugFromClaims } from '@/lib/workspace';
 import { createContainer } from '@/lib/services';
 import { isCacheableResponse } from '@/lib/services/copilotChatsService';
 import {
@@ -231,6 +231,10 @@ export async function POST(req: NextRequest) {
     // count means "a turn actually ran", not "a request arrived".
     captureWorkspaceEvent({
       workspaceId,
+      // Stamped so this event answers a `workspace_slug` filter the same way
+      // the client-side chat events do — those get the slug from the `/w/<slug>`
+      // URL, this one from the session's membership claims (no DB call).
+      workspaceSlug: workspaceSlugFromClaims(session.user.workspaces, workspaceId),
       distinctId: userId,
       event: CHAT_MESSAGE_SENT,
       properties: chatMessageSentProperties({
