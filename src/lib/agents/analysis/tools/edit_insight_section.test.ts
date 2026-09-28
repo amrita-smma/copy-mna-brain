@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { INSIGHT_LAYOUT_WARNING_LEAD } from '@/lib/insights/layoutCheck';
 import {
   InsightNotFoundError,
   InsightPayloadTooLargeError,
@@ -264,5 +265,33 @@ describe('editInsightSection tool', () => {
     expect(mockGet).not.toHaveBeenCalled();
     expect(mockPublishVersion).not.toHaveBeenCalled();
     expect(mockApplyRunDraftEdit).not.toHaveBeenCalled();
+  });
+
+  describe('layout warning', () => {
+    const TRAP_STYLE = '<style>.deck{height:100vh;overflow:auto}</style>';
+    const withDeck = (style: string) =>
+      `<!DOCTYPE html><html><head>${style}</head><body><div class="deck">` +
+      '<section data-section="summary"><p>Old summary</p></section>' +
+      '<section data-section="details"><p>Details content</p></section>' +
+      '</div></body></html>';
+
+    it('warns, and still publishes, when the edit introduces the pattern', async () => {
+      mockGet.mockResolvedValue({ id: INSIGHT_ID, name: 'Sector Brief', kind: 'document', version_no: 2, html: withDeck('') });
+      const out = await invoke(summaryEdit(`${TRAP_STYLE}<p>New</p>`));
+
+      expect(mockPublishVersion).toHaveBeenCalled();
+      expect(out).toContain(`${INSIGHT_LAYOUT_WARNING_LEAD}: \`.deck\``);
+      expect(out).toContain('outside this section');
+    });
+
+    it('stays quiet when the pattern was already in the document before the edit', async () => {
+      mockGet.mockResolvedValue({
+        id: INSIGHT_ID, name: 'Sector Brief', kind: 'document', version_no: 2, html: withDeck(TRAP_STYLE),
+      });
+      const out = await invoke(summaryEdit('<p>New</p>'));
+
+      expect(mockPublishVersion).toHaveBeenCalled();
+      expect(out).not.toContain(INSIGHT_LAYOUT_WARNING_LEAD);
+    });
   });
 });

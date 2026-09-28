@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { INSIGHT_LAYOUT_WARNING_LEAD } from '@/lib/insights/layoutCheck';
 import { MAX_INSIGHT_NAME_LENGTH } from '@/lib/insights/toolValidation';
 
 const { mockCreateFromDocument, mockGetActiveWorkspaceIdOrThrow } = vi.hoisted(() => ({
@@ -168,5 +169,17 @@ describe('createInsight tool', () => {
     expect(out).toContain('report the failure and its reason in your final report');
     expect(out).not.toContain('matches no Sources entry');
     expect(mockCreateFromDocument).not.toHaveBeenCalled();
+  });
+
+  it('still creates an insight whose page container traps its overflow, and appends the warning', async () => {
+    const trapped =
+      '<!DOCTYPE html><html><head><style>.deck{aspect-ratio:16/9;overflow:auto}</style></head>' +
+      '<body><div class="deck"><p>Content</p></div></body></html>';
+    const out = await invoke({ name: 'Sector Brief', html: trapped });
+
+    expect(mockCreateFromDocument).toHaveBeenCalled();
+    expect(out).toContain('Created insight **Sector Brief**');
+    expect(out).toContain(`${INSIGHT_LAYOUT_WARNING_LEAD}: \`.deck\``);
+    expect(out).toContain('replace_insight_document');
   });
 });

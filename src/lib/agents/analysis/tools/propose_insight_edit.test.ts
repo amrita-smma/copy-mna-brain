@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { INSIGHT_LAYOUT_WARNING_LEAD } from '@/lib/insights/layoutCheck';
 import type { RunnableConfig } from '@langchain/core/runnables';
 import type { InsightEditApprovalMarker } from '@/lib/insights/types';
 import {
@@ -128,5 +129,21 @@ describe('proposeInsightEdit', () => {
     // The render check wins over the dangling [S1] the cut-off Sources left.
     expect(out).not.toContain('matches no Sources entry');
     expect(out).not.toContain(INSIGHT_EDIT_APPROVAL_MARKER);
+  });
+
+  it('still offers the card for a page container that traps its overflow, with the warning', async () => {
+    const trapped =
+      '<!DOCTYPE html><html><head><style>.deck{aspect-ratio:16/9;overflow:auto}</style></head>' +
+      '<body><div class="deck"><p>Content</p></div></body></html>';
+    const result = await invoke({ insight_id: VALID_UUID, summary: 'Widen deck', html: trapped });
+
+    expect(payloadOf(result)).toMatchObject({ insight_id: VALID_UUID, summary: 'Widen deck' });
+    expect(result).toContain(`${INSIGHT_LAYOUT_WARNING_LEAD}: \`.deck\``);
+    expect(result).toContain('Propose a corrected version');
+  });
+
+  it('adds no layout warning for a page that grows with its content', async () => {
+    const result = await invoke({ insight_id: VALID_UUID, summary: 'Updated deal count to 45', html: UPDATED_HTML });
+    expect(result).not.toContain(INSIGHT_LAYOUT_WARNING_LEAD);
   });
 });

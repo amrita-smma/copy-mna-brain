@@ -11,6 +11,7 @@ import {
   insightCreateSchema,
   validateInsightCreate,
 } from '@/lib/insights/toolValidation';
+import { insightLayoutNote } from '@/lib/insights/layoutCheck';
 import { insightMarkerRefusal } from '@/lib/agents/sector/evidenceMarkers';
 import { isUuid } from '@/lib/uuid';
 
@@ -62,10 +63,12 @@ export const proposeInsightCreate = tool(
       ...(template_id && isUuid(template_id) ? { template_id } : {}),
     };
 
+    const layoutNote = insightLayoutNote(trimmedHtml, 'create-proposal');
     const lines = [
       `New insight proposal: **${payload.name}**`,
       '',
       payload.description ? `${payload.description}\n` : '',
+      layoutNote ? `${layoutNote}\n` : '',
       encodeApprovalMarker(INSIGHT_CREATE_APPROVAL_MARKER, payload),
     ];
 

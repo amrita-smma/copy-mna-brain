@@ -4,9 +4,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTheme } from 'next-themes';
 import type { InsightSectionRef } from '@/lib/chat/pageContext';
 import {
+  INSIGHT_PRIME_TIMEOUT_MS,
   INSIGHT_SANDBOX,
   INSIGHT_SELECT_MODE_MESSAGE,
+  buildInsightPrimerSrcDoc,
   buildInsightSrcDoc,
+  isInsightFrameReadyMessage,
   isInsightHeightMessage,
   isInsightPickMessage,
   isInsightSectionsMessage,
@@ -85,6 +88,23 @@ export function InsightFrame({
   const { resolvedTheme } = useTheme();
   const theme: InsightTheme = resolvedTheme === 'dark' ? 'dark' : 'light';
   const srcDoc = useMemo(() => buildInsightSrcDoc(html, { theme }), [html, theme]);
+  // The insight loads only after the primer has seen the frame laid out — see
+  // buildInsightPrimerSrcDoc. Once primed, html and theme changes load directly:
+  // the frame is already sized, so later documents parse at their real width.
+  const [primed, setPrimed] = useState(false);
+
+  useEffect(() => {
+    if (primed) return;
+    function onReady(event: MessageEvent) {
+      if (isInsightFrameReadyMessage(event, frameRef.current)) setPrimed(true);
+    }
+    window.addEventListener('message', onReady);
+    const timer = setTimeout(() => setPrimed(true), INSIGHT_PRIME_TIMEOUT_MS);
+    return () => {
+      window.removeEventListener('message', onReady);
+      clearTimeout(timer);
+    };
+  }, [primed]);
 
   // Read by the load handler, which has to re-send the current state to a
   // document that has just replaced itself (a theme flip rebuilds the srcdoc).
@@ -154,7 +174,7 @@ export function InsightFrame({
       ref={frameRef}
       title={title}
       sandbox={INSIGHT_SANDBOX}
-      srcDoc={srcDoc}
+      srcDoc={primed ? srcDoc : buildInsightPrimerSrcDoc(theme)}
       onLoad={postSelectMode}
       style={{ width: '100%', height, border: 'none', display: 'block' }}
       // Referrer would otherwise leak the workspace URL to the CDN hosts.

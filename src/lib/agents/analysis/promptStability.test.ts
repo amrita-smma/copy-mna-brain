@@ -86,15 +86,15 @@ function lastSystemPrompt(): string {
 // Workforce; a template request is pointed at Upload Template / Save as
 // template; a handoff carries the most recent earlier attachments.
 const EXPECTED_CHAT_HASHES: Record<CopilotAgentType, string> = {
-  mna: '199810a6dc37648b1fad60feb928c55100b04e20f2407641d0b66e74dfce9f2e',
-  investment: 'd91fbfa279cc6dd78dcc9dfac806758698e7770c9fb141769560a0e923b87f71',
-  combined: 'c10eeaafbe9ab24c9ccb12feeb027fb2bab74cfc04658bc92463810e96cdb01b',
-  vc: '3d905ba5b38816e03e04a1d9352f9edba02b0909db3d78b1f286da5c7361de73',
+  mna: '327438c2bda070b73050e7d4ae33c58470bbdf51b3f15d4b1e7402c8ce66d3be',
+  investment: '25100581b858fe40caf4db513565dd89491c0f9fc9a6c1c315afa44f129cd737',
+  combined: '86b4d84a0d9fde72895635187d2fdb22be6dc69d52595b13b588d46886a757d9',
+  vc: '641fb87cb67fdb4c7083262d44ce20133ebb4f0cb6e0d7f60a21c6da6bba57ca',
 };
 // The Workforce prompt changed on purpose: get_insight_template returns a
 // template in parts, and the Workforce reads every part before building it
 // section by section.
-const EXPECTED_WORKFORCE_HASH = 'da22ac4cc8c5aa5a36af0e89198ba8d42b5d62ddeac25cbae96b712da6a94931';
+const EXPECTED_WORKFORCE_HASH = 'f6c930116c666eee60a4ba7cc9a99bc0fd4c7ae6442c1ffcf0b5d8b60540e2df';
 
 describe('existing CoPilot prompts', () => {
   beforeEach(() => {

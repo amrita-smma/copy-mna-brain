@@ -72,7 +72,12 @@ import { useChatContext } from '@/components/chat/ChatProvider';
 import { useLayoutControl } from '@/components/layout/LayoutControlContext';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { useWorkspaceHref, useWorkspacePush } from '@/hooks/useWorkspaceHref';
-import { INSIGHT_SANDBOX } from '@/lib/insights/srcdoc';
+import {
+  INSIGHT_PRIME_TIMEOUT_MS,
+  INSIGHT_SANDBOX,
+  buildInsightPrimerSrcDoc,
+  isInsightFrameReadyMessage,
+} from '@/lib/insights/srcdoc';
 import { buildInsightPrintDoc, isInsightPrintDoneMessage } from '@/lib/insights/printDoc';
 import { cn } from '@/lib/utils';
 import { insightHtmlFileName } from '@/lib/insights/downloadName';
@@ -372,7 +377,11 @@ export function InsightView({
     frame.setAttribute('sandbox', INSIGHT_SANDBOX);
     frame.referrerPolicy = 'no-referrer';
     frame.title = `Print ${detail.name}`;
-    frame.srcdoc = buildInsightPrintDoc(detail.html);
+    // Primer first, same as InsightFrame: the first document an opaque-origin
+    // frame parses sees a 0×0 viewport, which breaks decks that paginate while
+    // parsing. The print document loads once the primer reports a real width.
+    frame.srcdoc = buildInsightPrimerSrcDoc('light');
+    const printDoc = buildInsightPrintDoc(detail.html);
     frame.style.position = 'fixed';
     frame.style.left = '-10000px';
     frame.style.top = '0';
@@ -381,11 +390,27 @@ export function InsightView({
     frame.style.border = '0';
 
     let timer: NodeJS.Timeout | null = null;
+    let primeTimer: NodeJS.Timeout | null = null;
+    let primed = false;
+
+    const loadPrintDoc = () => {
+      if (primed) return;
+      primed = true;
+      if (primeTimer) {
+        clearTimeout(primeTimer);
+        primeTimer = null;
+      }
+      frame.srcdoc = printDoc;
+    };
 
     const cleanup = () => {
       if (timer) {
         clearTimeout(timer);
         timer = null;
+      }
+      if (primeTimer) {
+        clearTimeout(primeTimer);
+        primeTimer = null;
       }
       window.removeEventListener('message', handleMessage);
       if (frame.parentNode) {
@@ -396,6 +421,10 @@ export function InsightView({
     };
 
     const handleMessage = (event: MessageEvent) => {
+      if (isInsightFrameReadyMessage(event, frame)) {
+        loadPrintDoc();
+        return;
+      }
       if (isInsightPrintDoneMessage(event, frame)) {
         cleanup();
       }
@@ -408,6 +437,7 @@ export function InsightView({
     printCleanupRef.current = cleanup;
     window.addEventListener('message', handleMessage);
     document.body.appendChild(frame);
+    primeTimer = setTimeout(loadPrintDoc, INSIGHT_PRIME_TIMEOUT_MS);
   };
 
   // The current version's HTML as a file, named after the insight.

@@ -10,6 +10,7 @@ import {
   insightCreateSchema,
   validateInsightCreate,
 } from '@/lib/insights/toolValidation';
+import { insightLayoutNote } from '@/lib/insights/layoutCheck';
 import { readInsightRunContext } from '@/lib/insights/refreshRun';
 import { insightMarkerRefusal } from '@/lib/agents/sector/evidenceMarkers';
 
@@ -73,7 +74,9 @@ export const createInsight = tool(
         templateId: template_id ?? null,
       });
 
-      return `Created insight **${created.name}** — [open it](/insight/${created.id})`;
+      const layoutNote = insightLayoutNote(trimmedHtml, 'workforce-create');
+      const createdLine = `Created insight **${created.name}** — [open it](/insight/${created.id})`;
+      return layoutNote ? `${createdLine}\n\n${layoutNote}` : createdLine;
     } catch (err) {
       logger.error(
         `Failed to create insight "${trimmedName}": ${

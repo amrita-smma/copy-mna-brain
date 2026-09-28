@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { INSIGHT_LAYOUT_WARNING_LEAD } from '@/lib/insights/layoutCheck';
 import type { InsightCreateApprovalMarker } from '@/lib/insights/types';
 import {
   proposeInsightCreate,
@@ -124,5 +125,16 @@ describe('proposeInsightCreate', () => {
     expect(out).toContain('suggest the user rephrase the request or narrow it');
     expect(out).not.toContain('matches no Sources entry');
     expect(out).not.toContain(INSIGHT_CREATE_APPROVAL_MARKER);
+  });
+
+  it('still offers the card for a page container that traps its overflow, with the warning', async () => {
+    const trapped =
+      '<!DOCTYPE html><html><head><style>.deck{aspect-ratio:16/9;overflow:auto}</style></head>' +
+      '<body><div class="deck"><p>Content</p></div></body></html>';
+    const result = await invoke({ name: 'Sector Brief', html: trapped });
+
+    expect(payloadOf(result).name).toBe('Sector Brief');
+    expect(result).toContain(`${INSIGHT_LAYOUT_WARNING_LEAD}: \`.deck\``);
+    expect(result).toContain('Propose a corrected version');
   });
 });

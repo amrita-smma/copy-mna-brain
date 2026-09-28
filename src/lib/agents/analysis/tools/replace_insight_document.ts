@@ -8,6 +8,7 @@ import { createContainer } from '@/lib/services/container';
 import { readConfiguredAgentStamp } from '@/lib/insights/agentStamp';
 import { rejectInvalidInsightDocument } from '@/lib/insights/documentGuard';
 import { insightStructureRefusal } from '@/lib/insights/structuralCheck';
+import { insightLayoutNote } from '@/lib/insights/layoutCheck';
 import { MAX_INSIGHT_BYTES } from '@/lib/insights/srcdoc';
 import {
   InsightNotFoundError,
@@ -97,7 +98,9 @@ export const replaceInsightDocument = tool(
           },
         });
 
-        return `Replaced the document of insight **${result.insightName}** in this refresh run's draft (based on version ${result.baseVersionNo}). Nothing is published until the run completes.`;
+        const draftLine = `Replaced the document of insight **${result.insightName}** in this refresh run's draft (based on version ${result.baseVersionNo}). Nothing is published until the run completes.`;
+        const draftNote = insightLayoutNote(trimmedHtml, 'workforce-document');
+        return draftNote ? `${draftLine}\n\n${draftNote}` : draftLine;
       }
 
       const current = await insightService.get(workspaceId, resolvedId);
@@ -119,7 +122,9 @@ export const replaceInsightDocument = tool(
         agentStamp: readConfiguredAgentStamp(runtime?.configurable),
       });
 
-      return `Replaced the document of insight **${updated.name}** (version ${updated.version_no}) — [open it](/insight/${updated.id})`;
+      const replacedLine = `Replaced the document of insight **${updated.name}** (version ${updated.version_no}) — [open it](/insight/${updated.id})`;
+      const layoutNote = insightLayoutNote(trimmedHtml, 'workforce-document');
+      return layoutNote ? `${replacedLine}\n\n${layoutNote}` : replacedLine;
     } catch (err) {
       if (
         err instanceof InsightValidationError ||

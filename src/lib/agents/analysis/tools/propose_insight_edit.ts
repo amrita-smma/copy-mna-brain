@@ -13,6 +13,7 @@ import {
   resolveInsightId,
   validateInsightDocument,
 } from '@/lib/insights/toolValidation';
+import { insightLayoutNote } from '@/lib/insights/layoutCheck';
 import { insightMarkerRefusal } from '@/lib/agents/sector/evidenceMarkers';
 
 export { INSIGHT_EDIT_APPROVAL_MARKER };
@@ -71,11 +72,13 @@ export const proposeInsightEdit = tool(
       summary: trimmedSummary,
     };
 
+    const layoutNote = insightLayoutNote(doc.html, 'edit-proposal');
     const lines = [
       `Insight edit proposal: **${payload.summary}**`,
       '',
       `Target insight: \`${payload.insight_id}\``,
       '',
+      ...(layoutNote ? [layoutNote, ''] : []),
       encodeApprovalMarker(INSIGHT_EDIT_APPROVAL_MARKER, payload),
     ];
 

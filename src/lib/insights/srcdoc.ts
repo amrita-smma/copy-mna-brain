@@ -64,6 +64,47 @@ export const INSIGHT_SANDBOX = 'allow-scripts allow-forms allow-modals';
 /** Message an insight posts to the host so the frame can size to its content. */
 export const INSIGHT_HEIGHT_MESSAGE = 'insight:height';
 
+/** Message the primer document posts once its frame has a laid-out size. */
+export const INSIGHT_FRAME_READY_MESSAGE = 'insight:frame-ready';
+
+/** How long a host waits for {@link INSIGHT_FRAME_READY_MESSAGE} before loading
+ *  the insight anyway, so a frame mounted in a zero-width container still renders. */
+export const INSIGHT_PRIME_TIMEOUT_MS = 500;
+
+/**
+ * The document a sandboxed frame loads BEFORE the insight.
+ *
+ * Chrome runs an opaque-origin frame out of process, and the FIRST document it
+ * parses there sees a 0×0 viewport: `innerWidth`, `clientWidth` and every
+ * `offsetHeight` read 0 until layout arrives. An insight whose inline script
+ * measures while parsing — a deck that paginates rows by `offsetHeight`, or
+ * scales slides by `clientWidth` — then lays itself out for a zero-size page
+ * (everything "fits" on one slide, scaled to nothing). A later navigation of the
+ * same frame is sized from its first byte, so the host loads this primer, waits
+ * for it to report a real width, and only then swaps in the insight.
+ */
+export function buildInsightPrimerSrcDoc(theme: InsightTheme = 'light'): string {
+  const dark = theme === 'dark';
+  return (
+    `<!DOCTYPE html><html><head><meta charset="utf-8">` +
+    `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'">` +
+    `<meta name="color-scheme" content="${dark ? 'dark' : 'light'}">` +
+    // Same page colour as headPrelude, so the swap to the insight doesn't flash.
+    `<style>html,body{margin:0;background:${dark ? '#0b0b0d' : '#ffffff'};}</style>` +
+    `</head><body><script>(function(){
+  var sent = false;
+  function check() {
+    if (sent || !(window.innerWidth > 0)) return;
+    sent = true;
+    parent.postMessage({ type: ${JSON.stringify(INSIGHT_FRAME_READY_MESSAGE)} }, '*');
+  }
+  window.addEventListener('resize', check);
+  window.addEventListener('load', check);
+  check();
+})();</script></body></html>`
+  );
+}
+
 /**
  * Message an insight posts to the host when its section selection changes, and
  * once on load to announce how many selectable blocks it has.
@@ -712,6 +753,16 @@ export function isInsightHeightMessage(
     typeof data.height === 'number' &&
     Number.isFinite(data.height)
   );
+}
+
+/** True when `value` is the primer in `frame` reporting that the frame is sized. */
+export function isInsightFrameReadyMessage(
+  event: MessageEvent,
+  frame: HTMLIFrameElement | null,
+): boolean {
+  if (!frame || event.source !== frame.contentWindow) return false;
+  const data = event.data as { type?: unknown } | null;
+  return !!data && typeof data === 'object' && data.type === INSIGHT_FRAME_READY_MESSAGE;
 }
 
 function isValidRef(ref: unknown): ref is InsightSectionRef {

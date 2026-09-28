@@ -1,12 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import {
   INSIGHT_CSP,
+  INSIGHT_FRAME_READY_MESSAGE,
   INSIGHT_HEIGHT_MESSAGE,
   INSIGHT_SANDBOX,
   INSIGHT_SECTIONS_MESSAGE,
   INSIGHT_SELECT_MODE_MESSAGE,
   INSIGHT_PICK_MESSAGE,
+  buildInsightPrimerSrcDoc,
   buildInsightSrcDoc,
+  isInsightFrameReadyMessage,
   isInsightHeightMessage,
   isInsightPickMessage,
   isInsightSectionsMessage,
@@ -133,6 +136,7 @@ const pick = (extra: Record<string, unknown> = {}) => ({
 describe('message guards frame and window validation', () => {
   const guards = [
     { name: 'isInsightHeightMessage', guard: isInsightHeightMessage, data: { type: INSIGHT_HEIGHT_MESSAGE, height: 420 } },
+    { name: 'isInsightFrameReadyMessage', guard: isInsightFrameReadyMessage, data: { type: INSIGHT_FRAME_READY_MESSAGE } },
     { name: 'isInsightSectionsMessage', guard: isInsightSectionsMessage, data: sections({ sections: [{ key: 'r' }] }) },
     { name: 'isInsightPickMessage', guard: isInsightPickMessage, data: pick() },
   ];
@@ -141,6 +145,38 @@ describe('message guards frame and window validation', () => {
     expect(guard(ev(data), frame)).toBe(true);
     expect(guard(ev(data, {} as Window), frame)).toBe(false);
     expect(guard(ev(data), null)).toBe(false);
+  });
+});
+
+describe('buildInsightPrimerSrcDoc', () => {
+  it('reports readiness only once the frame has a real width', () => {
+    const primer = buildInsightPrimerSrcDoc();
+    expect(primer).toContain(JSON.stringify(INSIGHT_FRAME_READY_MESSAGE));
+    expect(primer).toContain('window.innerWidth > 0');
+    // A frame that starts at zero size gets its width later, via resize.
+    expect(primer).toContain("addEventListener('resize'");
+  });
+
+  it('locks the primer down to its own inline script and style', () => {
+    expect(buildInsightPrimerSrcDoc()).toContain(
+      `http-equiv="${CSP}" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'"`,
+    );
+  });
+
+  it('paints the same page colour as the insight so the swap does not flash', () => {
+    expect(buildInsightPrimerSrcDoc('light')).toContain('background:#ffffff');
+    expect(buildInsightPrimerSrcDoc('dark')).toContain('background:#0b0b0d');
+    expect(buildInsightPrimerSrcDoc('dark')).toContain('<meta name="color-scheme" content="dark">');
+  });
+});
+
+describe('isInsightFrameReadyMessage', () => {
+  it.each([
+    ['an unrelated message type', { type: INSIGHT_HEIGHT_MESSAGE, height: 1 }],
+    ['a non-object payload', INSIGHT_FRAME_READY_MESSAGE],
+    ['a null payload', null],
+  ])('rejects %s', (_, data) => {
+    expect(isInsightFrameReadyMessage(ev(data), frame)).toBe(false);
   });
 });
 

@@ -9,6 +9,7 @@ import { readConfiguredAgentStamp } from '@/lib/insights/agentStamp';
 import { replaceInsightSection } from '@/lib/insights/sectionEdit';
 import { rejectInvalidInsightDocument } from '@/lib/insights/documentGuard';
 import { insightStructureRefusal } from '@/lib/insights/structuralCheck';
+import { insightLayoutNote } from '@/lib/insights/layoutCheck';
 import {
   InsightNotFoundError,
   InsightPayloadTooLargeError,
@@ -144,7 +145,9 @@ export const editInsightSection = tool(
         agentStamp: readConfiguredAgentStamp(runtime?.configurable),
       });
 
-      return `Updated section "${trimmedSection}" of insight **${updated.name}** (version ${updated.version_no}) — [open it](/insight/${updated.id})`;
+      const updatedLine = `Updated section "${trimmedSection}" of insight **${updated.name}** (version ${updated.version_no}) — [open it](/insight/${updated.id})`;
+      const layoutNote = insightLayoutNote(splicedHtml, 'workforce-section', current.html);
+      return layoutNote ? `${updatedLine}\n\n${layoutNote}` : updatedLine;
     } catch (err) {
       if (
         err instanceof InsightValidationError ||

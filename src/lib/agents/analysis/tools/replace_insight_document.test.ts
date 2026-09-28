@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { INSIGHT_LAYOUT_WARNING_LEAD } from '@/lib/insights/layoutCheck';
 import { MAX_INSIGHT_BYTES } from '@/lib/insights/srcdoc';
 import {
   InsightNotFoundError,
@@ -206,6 +207,29 @@ describe('replaceInsightDocument tool', () => {
 
       expect(out.startsWith(RENDER_CHECK_REFUSAL_LEAD)).toBe(true);
       expect(mockApplyRunDraftEdit).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('layout warning', () => {
+    const TRAPPED_HTML =
+      '<!DOCTYPE html><html><head><style>.deck{aspect-ratio:16/9;overflow:auto}</style></head>' +
+      '<body><div class="deck"><h1>Deck</h1><p>Content</p></div></body></html>';
+
+    it('still publishes a page container that traps its overflow, and appends the warning', async () => {
+      const out = await invoke({ insight_id: INSIGHT_ID, html: TRAPPED_HTML });
+
+      expect(mockPublishVersion).toHaveBeenCalledWith(expect.objectContaining({ html: TRAPPED_HTML }));
+      expect(out).toContain('Replaced the document of insight **Sector Brief** (version 3)');
+      expect(out).toContain(`${INSIGHT_LAYOUT_WARNING_LEAD}: \`.deck\``);
+      expect(out).toContain('replace_insight_document');
+    });
+
+    it('appends the warning to a refresh-run draft write too', async () => {
+      mockApplyRunDraftEdit.mockResolvedValue({ insightId: INSIGHT_ID, insightName: 'Sector Brief', baseVersionNo: 2 });
+      const out = await invoke({ insight_id: INSIGHT_ID, html: TRAPPED_HTML }, REFRESH);
+
+      expect(mockApplyRunDraftEdit).toHaveBeenCalled();
+      expect(out).toContain(INSIGHT_LAYOUT_WARNING_LEAD);
     });
   });
 });
