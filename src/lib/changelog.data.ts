@@ -116,6 +116,20 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "skipReason": "noise"
   },
   {
+    "hash": "c27c2d27402a13f6bbab682c6d6ce665daf4c06a",
+    "date": "2026-09-28",
+    "subject": "Insight decks now display fully without clipping and show warnings for overflow issues",
+    "category": "fix"
+  },
+  {
+    "hash": "d11626a429843a6f2569d36e2af3d30ec2a410d4",
+    "date": "2026-09-28",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "be093fa913ed2ada370043dbb99039073a2f810a",
     "date": "2026-09-26",
     "subject": "Company detail dialog now displays correct data without flashing previous content",
