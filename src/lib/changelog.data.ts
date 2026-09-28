@@ -60,6 +60,20 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "skipReason": "noise"
   },
   {
+    "hash": "b300c95a2ba61477559d7b8b6ec61e0fe9274db6",
+    "date": "2026-09-28",
+    "subject": "Copilot now handles large insight edits without timing out",
+    "category": "fix"
+  },
+  {
+    "hash": "0d4e92ee9c226d5d9893a0d1a7907149d95d5b4f",
+    "date": "2026-09-28",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "be093fa913ed2ada370043dbb99039073a2f810a",
     "date": "2026-09-26",
     "subject": "Company detail dialog now displays correct data without flashing previous content",
