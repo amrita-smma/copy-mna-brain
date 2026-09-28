@@ -49,6 +49,12 @@ export async function POST(
     if (!Array.isArray(body?.voterIds)) {
       return NextResponse.json({ error: 'voterIds must be an array' }, { status: 400 });
     }
+    if (typeof body?.deadlineAt !== 'string' || !body.deadlineAt.trim()) {
+      return NextResponse.json(
+        { error: 'deadlineAt must be an ISO date-time string' },
+        { status: 400 },
+      );
+    }
 
     const db = createDb();
     const { companyVoteService } = createContainer(db, await getActiveWorkspaceId());
@@ -56,8 +62,7 @@ export async function POST(
       companyId: id,
       initiatorId: session.user.id,
       voterIds: body.voterIds,
-      durationDays: Number(body.durationDays ?? 0),
-      durationHours: Number(body.durationHours ?? 0),
+      deadlineAt: body.deadlineAt,
     });
     const data = await companyVoteService.getState(id, session.user.id);
     // The round stands either way, but a swallowed notification failure must

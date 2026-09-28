@@ -27,6 +27,8 @@ vi.mock('@/lib/jobs/handlers/companyVote', () => ({
 }));
 
 const NOW = new Date('2026-09-03T10:00:00.000Z');
+/** A deadline comfortably clear of the minimum lead time, as the picker sends it. */
+const DEADLINE = '2026-09-05T14:00:00.000Z';
 
 function makeVoteRepo() {
   return {
@@ -56,8 +58,6 @@ function makeSession(overrides: Record<string, unknown> = {}) {
     initiated_by: 'u-init',
     status: 'active',
     deadline_at: '2026-09-05T10:00:00.000Z',
-    duration_days: 2,
-    duration_hours: 0,
     concluded_at: null,
     cancelled_at: null,
     ai_status: 'pending',
@@ -356,6 +356,121 @@ describe('CompanyVoteService', () => {
       expect(state.viewer.isInitiator).toBe(true);
     });
 
+    it('shows the initiator every ballot live while their round is open', async () => {
+      voteRepo.findLatestSessionByCompanyId.mockResolvedValue(makeSession());
+      voteRepo.listBallotsBySessionId.mockResolvedValue([
+        makeBallot({
+          id: 'b-1',
+          voter_id: 'u-1',
+          choice: 'yes',
+          body_html: '<p>in favour</p>',
+          status: 'submitted',
+        }),
+        makeBallot({
+          id: 'b-2',
+          voter_id: 'u-2',
+          choice: 'hard_no',
+          body_html: '<p>still drafting</p>',
+          status: 'draft',
+        }),
+      ]);
+
+      const state = await service.getState('c-1', 'u-init');
+
+      expect(state.visibility).toBe('live_results');
+      const submitted = state.session!.voters.find((v) => v.userId === 'u-1')!;
+      const drafting = state.session!.voters.find((v) => v.userId === 'u-2')!;
+      expect(submitted.choice).toBe('yes');
+      expect(submitted.bodyHtml).toBe('<p>in favour</p>');
+      // A draft is visible too — the organizer is watching the room, and the
+      // UI labels it as unsettled.
+      expect(drafting.choice).toBe('hard_no');
+      expect(drafting.bodyHtml).toBe('<p>still drafting</p>');
+      expect(drafting.status).toBe('draft');
+    });
+
+    it('counts only submitted ballots in the initiator’s running tally', async () => {
+      voteRepo.findLatestSessionByCompanyId.mockResolvedValue(makeSession());
+      voteRepo.listBallotsBySessionId.mockResolvedValue([
+        makeBallot({ id: 'b-1', voter_id: 'u-1', choice: 'yes', status: 'submitted' }),
+        // A draft NO must not tip the headline — it is not a vote yet.
+        makeBallot({ id: 'b-2', voter_id: 'u-2', choice: 'hard_no', status: 'draft' }),
+      ]);
+
+      const state = await service.getState('c-1', 'u-init');
+
+      expect(state.session!.tally!.headline).toBe('1–0 FOR');
+      expect(state.session!.tally!.castCount).toBe(1);
+    });
+
+    it('shows the AI’s standing opinion live, flagged as not yet cast', async () => {
+      voteRepo.findLatestSessionByCompanyId.mockResolvedValue(makeSession());
+      voteRepo.listBallotsBySessionId.mockResolvedValue([
+        makeBallot({ id: 'b-1', voter_id: 'u-1', choice: 'yes', status: 'submitted' }),
+      ]);
+      companyRepo.findByIdOrNull.mockResolvedValue({
+        id: 'c-1',
+        ai_opinion_status: 'completed',
+        ai_opinion_verdict: 'fail',
+        ai_opinion_summary: 'Sub-scale.',
+      });
+
+      const state = await service.getState('c-1', 'u-init');
+
+      expect(state.session!.aiParticipant.choice).toBe('no');
+      expect(state.session!.aiParticipant.verdict).toBe('fail');
+      expect(state.session!.aiParticipant.summary).toBe('Sub-scale.');
+      expect(state.session!.aiParticipant.submitted).toBe(false);
+      // …and it is NOT folded into the running tally, because it has not voted.
+      expect(state.session!.tally!.castCount).toBe(1);
+      expect(state.session!.submittedCount).toBe(1);
+    });
+
+    it('withholds the synthesis from the live view — it is written at close', async () => {
+      voteRepo.findLatestSessionByCompanyId.mockResolvedValue(
+        makeSession({ ai_synthesis: 'leftover', ai_key_positives: ['stale'] }),
+      );
+      voteRepo.listBallotsBySessionId.mockResolvedValue([makeBallot({ voter_id: 'u-1' })]);
+
+      const state = await service.getState('c-1', 'u-init');
+
+      expect(state.session!.ai!.synthesis).toBeNull();
+      expect(state.session!.ai!.keyPositives).toEqual([]);
+      expect(state.session!.ai!.keyConcerns).toEqual([]);
+    });
+
+    it('does not leak the live view to a voter, even one who has submitted', async () => {
+      voteRepo.findLatestSessionByCompanyId.mockResolvedValue(makeSession());
+      voteRepo.listBallotsBySessionId.mockResolvedValue([
+        makeBallot({ id: 'b-1', voter_id: 'u-1', choice: 'yes', status: 'submitted' }),
+        makeBallot({ id: 'b-2', voter_id: 'u-2', choice: 'no', status: 'submitted' }),
+      ]);
+
+      const state = await service.getState('c-1', 'u-1');
+
+      expect(state.visibility).toBe('in_progress');
+      expect(state.session!.tally).toBeNull();
+      expect(state.session!.ai).toBeNull();
+      expect(state.session!.voters.find((v) => v.userId === 'u-2')!.choice).toBeNull();
+    });
+
+    it('does not give the initiator a live view of a cancelled round', async () => {
+      // Nobody consented to publishing a half-written rationale, not even to
+      // the person who abandoned the round.
+      voteRepo.findLatestSessionByCompanyId.mockResolvedValue(
+        makeSession({ status: 'cancelled', cancelled_at: '2026-09-04T10:00:00.000Z' }),
+      );
+      voteRepo.listBallotsBySessionId.mockResolvedValue([
+        makeBallot({ id: 'b-1', voter_id: 'u-1', choice: 'yes', body_html: '<p>x</p>' }),
+      ]);
+
+      const state = await service.getState('c-1', 'u-init');
+
+      expect(state.visibility).toBe('none');
+      expect(state.session!.tally).toBeNull();
+      expect(state.session!.voters[0].choice).toBeNull();
+    });
+
     it('resolves voter names in one bulk lookup, never per voter', async () => {
       voteRepo.findLatestSessionByCompanyId.mockResolvedValue(makeSession());
       voteRepo.listBallotsBySessionId.mockResolvedValue([
@@ -382,8 +497,7 @@ describe('CompanyVoteService', () => {
         companyId: 'c-1',
         initiatorId: 'u-init',
         voterIds: ['u-1', 'u-2'],
-        durationDays: 2,
-        durationHours: 4,
+        deadlineAt: DEADLINE,
       });
 
       // workspace_id is stamped by the repository, never passed in.
@@ -395,9 +509,7 @@ describe('CompanyVoteService', () => {
           company_id: 'c-1',
           initiated_by: 'u-init',
           status: 'active',
-          deadline_at: '2026-09-05T14:00:00.000Z',
-          duration_days: 2,
-          duration_hours: 4,
+          deadline_at: DEADLINE,
         }),
       );
       expect(voteRepo.insertBallots).toHaveBeenCalledWith([
@@ -417,8 +529,7 @@ describe('CompanyVoteService', () => {
         companyId: 'c-1',
         initiatorId: 'u-init',
         voterIds: ['u-1', 'u-1', 'u-2'],
-        durationDays: 1,
-        durationHours: 0,
+        deadlineAt: DEADLINE,
       });
 
       expect(voteRepo.insertBallots).toHaveBeenCalledWith([
@@ -435,8 +546,7 @@ describe('CompanyVoteService', () => {
           companyId: 'c-1',
           initiatorId: 'u-init',
           voterIds: ['u-1'],
-          durationDays: 1,
-          durationHours: 0,
+          deadlineAt: DEADLINE,
         }),
       ).rejects.toMatchObject({ status: 409 });
       expect(voteRepo.createSession).not.toHaveBeenCalled();
@@ -448,8 +558,7 @@ describe('CompanyVoteService', () => {
           companyId: 'c-1',
           initiatorId: 'u-init',
           voterIds: [],
-          durationDays: 1,
-          durationHours: 0,
+          deadlineAt: DEADLINE,
         }),
       ).rejects.toThrow(/at least one voter/);
     });
@@ -460,22 +569,59 @@ describe('CompanyVoteService', () => {
           companyId: 'c-1',
           initiatorId: 'u-init',
           voterIds: ['u-1', 'stranger'],
-          durationDays: 1,
-          durationHours: 0,
+          deadlineAt: DEADLINE,
         }),
       ).rejects.toThrow(/not a member of this workspace/);
     });
 
-    it('rejects a zero-length voting window', async () => {
+    it('stores the picked instant verbatim rather than re-deriving it', async () => {
+      // The initiator chose a wall-clock deadline in their own timezone; the
+      // server must not round, shift or recompute it.
+      await service.startVote({
+        companyId: 'c-1',
+        initiatorId: 'u-init',
+        voterIds: ['u-1'],
+        deadlineAt: '2026-09-04T23:45:00.000Z',
+      });
+
+      expect(voteRepo.createSession).toHaveBeenCalledWith(
+        expect.objectContaining({ deadline_at: '2026-09-04T23:45:00.000Z' }),
+      );
+    });
+
+    it('rejects a deadline inside the minimum lead time', async () => {
       await expect(
         service.startVote({
           companyId: 'c-1',
           initiatorId: 'u-init',
           voterIds: ['u-1'],
-          durationDays: 0,
-          durationHours: 0,
+          // 5 minutes out — the invitation email would not even land first.
+          deadlineAt: '2026-09-03T10:05:00.000Z',
         }),
-      ).rejects.toThrow(/at least 1 hour/);
+      ).rejects.toThrow(/at least 15 minutes/);
+      expect(voteRepo.createSession).not.toHaveBeenCalled();
+    });
+
+    it('rejects a deadline in the past', async () => {
+      await expect(
+        service.startVote({
+          companyId: 'c-1',
+          initiatorId: 'u-init',
+          voterIds: ['u-1'],
+          deadlineAt: '2026-09-01T10:00:00.000Z',
+        }),
+      ).rejects.toThrow(/at least 15 minutes/);
+    });
+
+    it('rejects an unparseable deadline as a 400, not a 500', async () => {
+      await expect(
+        service.startVote({
+          companyId: 'c-1',
+          initiatorId: 'u-init',
+          voterIds: ['u-1'],
+          deadlineAt: 'sometime next week',
+        }),
+      ).rejects.toMatchObject({ status: 400 });
     });
 
     it('404s when the company is not in this workspace', async () => {
@@ -486,8 +632,7 @@ describe('CompanyVoteService', () => {
           companyId: 'c-9',
           initiatorId: 'u-init',
           voterIds: ['u-1'],
-          durationDays: 1,
-          durationHours: 0,
+          deadlineAt: DEADLINE,
         }),
       ).rejects.toMatchObject({ status: 404 });
     });
@@ -502,8 +647,7 @@ describe('CompanyVoteService', () => {
         companyId: 'c-1',
         initiatorId: 'u-init',
         voterIds: ['u-1'],
-        durationDays: 1,
-        durationHours: 0,
+        deadlineAt: DEADLINE,
       });
 
       expect(aiOpinionService.dispatch).toHaveBeenCalledWith('c-1', 'u-init');
@@ -522,8 +666,7 @@ describe('CompanyVoteService', () => {
         companyId: 'c-1',
         initiatorId: 'u-init',
         voterIds: ['u-1'],
-        durationDays: 1,
-        durationHours: 0,
+        deadlineAt: DEADLINE,
       });
 
       expect(aiOpinionService.dispatch).not.toHaveBeenCalled();
@@ -537,8 +680,7 @@ describe('CompanyVoteService', () => {
           companyId: 'c-1',
           initiatorId: 'u-init',
           voterIds: ['u-1'],
-          durationDays: 1,
-          durationHours: 0,
+          deadlineAt: DEADLINE,
         }),
       ).resolves.toMatchObject({ invitationsQueued: true });
     });
@@ -551,8 +693,7 @@ describe('CompanyVoteService', () => {
           companyId: 'c-1',
           initiatorId: 'u-init',
           voterIds: ['u-1'],
-          durationDays: 1,
-          durationHours: 0,
+          deadlineAt: DEADLINE,
         }),
       ).resolves.toMatchObject({ invitationsQueued: false });
     });
@@ -569,8 +710,7 @@ describe('CompanyVoteService', () => {
           companyId: 'c-1',
           initiatorId: 'u-init',
           voterIds: ['u-1'],
-          durationDays: 1,
-          durationHours: 0,
+          deadlineAt: DEADLINE,
         }),
       ).rejects.toMatchObject({ status: 409 });
     });
@@ -583,8 +723,7 @@ describe('CompanyVoteService', () => {
           companyId: 'c-1',
           initiatorId: 'u-init',
           voterIds: ['u-1'],
-          durationDays: 1,
-          durationHours: 0,
+          deadlineAt: DEADLINE,
         }),
       ).rejects.toThrow('connection reset');
     });
@@ -600,8 +739,7 @@ describe('CompanyVoteService', () => {
           companyId: 'c-1',
           initiatorId: 'u-init',
           voterIds: ['u-1'],
-          durationDays: 1,
-          durationHours: 0,
+          deadlineAt: DEADLINE,
         }),
       ).rejects.toThrow('ballot insert failed');
       expect(voteRepo.deleteSession).toHaveBeenCalledWith('vs-1');
@@ -616,8 +754,7 @@ describe('CompanyVoteService', () => {
           companyId: 'c-1',
           initiatorId: 'u-init',
           voterIds: ['u-1'],
-          durationDays: 1,
-          durationHours: 0,
+          deadlineAt: DEADLINE,
         }),
       ).resolves.toMatchObject({ invitationsQueued: false });
       expect(voteRepo.createSession).toHaveBeenCalled();
@@ -1108,7 +1245,7 @@ describe('CompanyVoteService', () => {
           email: 'cp@example.com',
           companyName: 'Highway Materials',
           initiatorName: 'Nico',
-          durationLabel: '2 days',
+          deadlineLabel: '10:00 AM UTC on September 5, 2026',
           companyCardPptx: expect.any(Buffer),
           voteUrl: 'http://localhost:3000/w/mna/companies/c-1?tab=voting',
           companyCardUrl: 'http://localhost:3000/w/mna/companies/c-1?tab=overview',

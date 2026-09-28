@@ -273,6 +273,7 @@ export default function CompanyVotingTab({
           onVoteAgain={() => setStartingNew(true)}
         />
       ) : (
+        <>
         <div className="grid gap-6 lg:grid-cols-[1fr_320px]">
           <div className="space-y-5">
             <ActiveRoundHeader
@@ -337,8 +338,9 @@ export default function CompanyVotingTab({
                 <div>
                   <h3 className="text-base font-semibold">Voting in progress</h3>
                   <p className="mt-1 max-w-sm text-sm text-muted-foreground">
-                    You are not a voter on this round. Individual votes and
-                    rationales stay hidden until the round closes.
+                    {state!.visibility === 'live_results'
+                      ? 'You are not a voter on this round, but you started it — the ballots below update live as they come in.'
+                      : 'You are not a voter on this round. Individual votes and rationales stay hidden until the round closes.'}
                   </p>
                 </div>
               </div>
@@ -346,6 +348,18 @@ export default function CompanyVotingTab({
           </div>
           <VotingRules />
         </div>
+
+        {/* The initiator watches their own round come in, in the same card the
+            whole workspace will see once it closes — full width, outside the
+            sidebar grid, because the reviewer columns need the room.
+            Gated server-side: `visibility` is only `live_results` for the
+            initiator (see `CompanyVoteService.getState`), and the ballots are
+            redacted for everyone else, so this can never leak a rationale to a
+            voter who has not cast their own yet. */}
+        {state!.visibility === 'live_results' && (
+          <VoteResults session={session} live />
+        )}
+        </>
       )}
     </div>
   );

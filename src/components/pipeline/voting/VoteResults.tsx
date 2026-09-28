@@ -1,6 +1,15 @@
 'use client';
 
-import { AlertTriangle, Loader2, Minus, Sparkles, TrendingDown, TrendingUp, Vote } from 'lucide-react';
+import {
+  AlertTriangle,
+  Loader2,
+  Minus,
+  Radio,
+  Sparkles,
+  TrendingDown,
+  TrendingUp,
+  Vote,
+} from 'lucide-react';
 import { format } from 'date-fns';
 import { useMemo } from 'react';
 import { Button } from '@/components/ui/button';
@@ -13,19 +22,32 @@ type Session = NonNullable<VoteTabState['session']>;
 
 export interface VoteResultsProps {
   session: Session;
-  onVoteAgain: () => void;
+  /** Omitted in `live` mode — an open round cannot be re-run. */
+  onVoteAgain?: () => void;
   voteAgainDisabled?: boolean;
+  /**
+   * Render the initiator's view of a round that is still open: the same card,
+   * but the numbers are a running tally, the synthesis has not been written
+   * yet, and there is nothing to re-run.
+   */
+  live?: boolean;
 }
 
 /**
- * The concluded-round results card: outcome headline, the AI-written synthesis
- * / key positives / key concerns, the company's standing AI Opinion, and every
- * reviewer's verbatim rationale side by side.
+ * The results card: outcome headline, the AI-written synthesis / key positives
+ * / key concerns, the company's standing AI Opinion, and every reviewer's
+ * verbatim rationale side by side.
+ *
+ * Deliberately one component for both the concluded round (what the whole
+ * workspace sees) and the initiator's live view of an open one — the organizer
+ * should be reading the round in exactly the layout it will be recorded in,
+ * not a second, differently-shaped summary.
  */
 export default function VoteResults({
   session,
   onVoteAgain,
   voteAgainDisabled,
+  live = false,
 }: VoteResultsProps) {
   const tally = session.tally;
   const ai = session.ai;
@@ -39,6 +61,15 @@ export default function VoteResults({
     <div className="space-y-6" data-testid="vote-results">
       {/* Outcome header */}
       <div className="flex flex-wrap items-center gap-3 rounded-lg border bg-card p-4">
+        {live && (
+          <span
+            className="inline-flex items-center gap-1.5 rounded-full border border-sky-300 bg-sky-50 px-3 py-1 text-xs font-semibold text-sky-800 dark:border-sky-800 dark:bg-sky-950 dark:text-sky-300"
+            data-testid="vote-live-pill"
+          >
+            <Radio className="h-3.5 w-3.5" />
+            Live — visible to you only
+          </span>
+        )}
         {tally && <OutcomePill outcome={tally.outcome} label={tally.outcomeLabel} />}
         {tally && (
           <span
@@ -53,12 +84,21 @@ export default function VoteResults({
             {tally.headline}
           </span>
         )}
-        <span className="text-xs text-muted-foreground">
-          Data as of{' '}
-          <span className="font-semibold text-foreground">
-            {safeDate(asOf, 'd MMM yyyy')}
+        {live ? (
+          <span className="text-xs text-muted-foreground">
+            {session.submittedCount}/{session.voterCount} in · closes{' '}
+            <span className="font-semibold text-foreground">
+              {safeDate(session.deadlineAt, 'd MMM yyyy, HH:mm')}
+            </span>
           </span>
-        </span>
+        ) : (
+          <span className="text-xs text-muted-foreground">
+            Data as of{' '}
+            <span className="font-semibold text-foreground">
+              {safeDate(asOf, 'd MMM yyyy')}
+            </span>
+          </span>
+        )}
         {tally && tally.inconclusiveCount > 0 && (
           <span className="text-xs text-muted-foreground">
             · {tally.inconclusiveCount} inconclusive
@@ -76,7 +116,7 @@ export default function VoteResults({
           <SectionLabel className="text-sky-700 dark:text-sky-400">
             SYNTHESIS
           </SectionLabel>
-          <AiBlock status={ai?.status} error={ai?.error}>
+          <AiBlock status={ai?.status} error={ai?.error} live={live}>
             {ai?.synthesis ? (
               <p className="text-xs leading-relaxed" data-testid="vote-synthesis">
                 {ai.synthesis}
@@ -89,7 +129,7 @@ export default function VoteResults({
           <SectionLabel className="text-emerald-700 dark:text-emerald-400">
             KEY POSITIVES
           </SectionLabel>
-          <AiBlock status={ai?.status} error={ai?.error}>
+          <AiBlock status={ai?.status} error={ai?.error} live={live}>
             <BulletList items={ai?.keyPositives ?? []} testId="vote-key-positives" />
           </AiBlock>
         </div>
@@ -98,7 +138,7 @@ export default function VoteResults({
           <SectionLabel className="text-rose-700 dark:text-rose-400">
             KEY CONCERNS
           </SectionLabel>
-          <AiBlock status={ai?.status} error={ai?.error}>
+          <AiBlock status={ai?.status} error={ai?.error} live={live}>
             <BulletList items={ai?.keyConcerns ?? []} testId="vote-key-concerns" />
           </AiBlock>
         </div>
@@ -110,7 +150,9 @@ export default function VoteResults({
               AI Opinion
             </span>
             {/* The AI votes as one participant, so its ballot shows here with
-                the same badge treatment the reviewers get. */}
+                the same badge treatment the reviewers get. Live, that vote is
+                only where its standing opinion currently points — it is not
+                cast until the round closes. */}
             {session.aiParticipant?.choice && (
               <span
                 className={cn(
@@ -120,6 +162,11 @@ export default function VoteResults({
                 data-testid="vote-ai-choice"
               >
                 {choiceStyle(session.aiParticipant.choice).label}
+              </span>
+            )}
+            {live && (
+              <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                not cast yet
               </span>
             )}
           </div>
@@ -139,7 +186,9 @@ export default function VoteResults({
             </div>
           ) : (
             <p className="text-xs text-muted-foreground">
-              No AI Opinion was on record when this round closed.
+              {live
+                ? 'No AI Opinion on record yet — it abstains as INCONCLUSIVE if the round closes without one.'
+                : 'No AI Opinion was on record when this round closed.'}
             </p>
           )}
         </div>
@@ -151,7 +200,9 @@ export default function VoteResults({
           REVIEWER FEEDBACK — VERBATIM
         </SectionLabel>
         {session.voters.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No ballots were cast.</p>
+          <p className="text-sm text-muted-foreground">
+            {live ? 'Nobody has been given a ballot.' : 'No ballots were cast.'}
+          </p>
         ) : (
           // Equal-width columns would leave one long rationale towering over
           // four short ones, so each reviewer's share of the row is scaled to
@@ -171,23 +222,25 @@ export default function VoteResults({
                 className="flex min-w-[min(100%,12rem)] max-w-[36rem] basis-0"
                 style={{ flexGrow: columnWeights[index] }}
               >
-                <ReviewerCard voter={voter} />
+                <ReviewerCard voter={voter} live={live} />
               </div>
             ))}
           </div>
         )}
       </div>
 
-      <div className="flex justify-center">
-        <Button
-          onClick={onVoteAgain}
-          disabled={voteAgainDisabled}
-          data-testid="vote-again-button"
-        >
-          <Vote className="h-4 w-4 mr-2" />
-          Vote again
-        </Button>
-      </div>
+      {!live && onVoteAgain && (
+        <div className="flex justify-center">
+          <Button
+            onClick={onVoteAgain}
+            disabled={voteAgainDisabled}
+            data-testid="vote-again-button"
+          >
+            <Vote className="h-4 w-4 mr-2" />
+            Vote again
+          </Button>
+        </div>
+      )}
     </div>
   );
 }
@@ -195,8 +248,18 @@ export default function VoteResults({
 /**
  * One reviewer's ballot. The rationale is shown in full — never clipped, never
  * scrolled; the column it sits in is widened instead (see `reviewerLayout`).
+ *
+ * In `live` mode a ballot may still be a draft, so it is labelled as one: the
+ * organizer must be able to tell a settled vote from one still being written.
  */
-function ReviewerCard({ voter }: { voter: Session['voters'][number] }) {
+function ReviewerCard({
+  voter,
+  live,
+}: {
+  voter: Session['voters'][number];
+  live?: boolean;
+}) {
+  const draft = live && voter.status !== 'submitted';
   return (
     <div
       className="flex w-full flex-col rounded-md border bg-muted p-3"
@@ -216,7 +279,15 @@ function ReviewerCard({ voter }: { voter: Session['voters'][number] }) {
           </span>
         ) : (
           <span className="rounded border bg-background px-1.5 py-0.5 text-[10px] font-bold uppercase text-muted-foreground">
-            No vote
+            {draft ? 'Not picked yet' : 'No vote'}
+          </span>
+        )}
+        {draft && (
+          <span
+            className="text-[10px] uppercase tracking-wide text-amber-700 dark:text-amber-400"
+            data-testid={`vote-reviewer-draft-${voter.userId}`}
+          >
+            draft
           </span>
         )}
         {voter.autoSubmitted && (
@@ -236,7 +307,7 @@ function ReviewerCard({ voter }: { voter: Session['voters'][number] }) {
         />
       ) : (
         <p className="text-xs italic text-muted-foreground">
-          No rationale written.
+          {draft ? 'Nothing written yet.' : 'No rationale written.'}
         </p>
       )}
     </div>
@@ -294,12 +365,24 @@ function SectionLabel({
 function AiBlock({
   status,
   error,
+  live,
   children,
 }: {
   status?: string;
   error?: string | null;
+  live?: boolean;
   children: React.ReactNode;
 }) {
+  // Live, the synthesis has not been *started*, let alone failed — the session
+  // still carries its opening `pending`, which would otherwise read as a
+  // spinner that never resolves.
+  if (live) {
+    return (
+      <p className="text-xs text-muted-foreground">
+        Written by the AI when the round closes.
+      </p>
+    );
+  }
   if (status === 'processing' || status === 'pending') {
     return (
       <div className="flex items-center gap-2 text-xs text-muted-foreground">

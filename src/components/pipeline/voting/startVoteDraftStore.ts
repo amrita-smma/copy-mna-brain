@@ -1,4 +1,5 @@
 import type { DraftStorage } from './ballotDraftStore';
+import { isDeadlineDay, isDeadlineTime } from '@/lib/voting/deadline';
 
 /**
  * Local persistence for a half-completed *Start Vote* wizard.
@@ -19,7 +20,7 @@ import type { DraftStorage } from './ballotDraftStore';
  */
 
 /** The steps worth restoring — `idle` means there is nothing in progress. */
-export type StartVoteStep = 'voters' | 'duration';
+export type StartVoteStep = 'voters' | 'deadline';
 
 export interface StoredStartVoteDraft {
   /**
@@ -29,8 +30,13 @@ export interface StoredStartVoteDraft {
   afterSessionId: string | null;
   step: StartVoteStep;
   voterIds: string[];
-  days: number;
-  hours: number;
+  /**
+   * The picker's two fields, stored as it renders them (`YYYY-MM-DD` /
+   * `HH:mm`) rather than as an absolute instant — restoring the wizard must
+   * put back the wall-clock deadline the initiator was looking at.
+   */
+  deadlineDay: string;
+  deadlineTime: string;
 }
 
 const KEY_PREFIX = 'mna:start-vote-draft:';
@@ -41,10 +47,7 @@ export function startVoteDraftKey(companyId: string): string {
 }
 
 const isStep = (value: unknown): value is StartVoteStep =>
-  value === 'voters' || value === 'duration';
-
-const isCount = (value: unknown): value is number =>
-  typeof value === 'number' && Number.isInteger(value) && value >= 0;
+  value === 'voters' || value === 'deadline';
 
 /**
  * Read the wizard stored for this company, but only if it was launched from
@@ -72,7 +75,7 @@ export function readStartVoteDraft(
   try {
     const parsed: unknown = JSON.parse(raw);
     if (!parsed || typeof parsed !== 'object') return null;
-    const { afterSessionId: storedAfter, step, voterIds, days, hours } =
+    const { afterSessionId: storedAfter, step, voterIds, deadlineDay, deadlineTime } =
       parsed as Record<string, unknown>;
     if (storedAfter !== null && typeof storedAfter !== 'string') return null;
     if (storedAfter !== afterSessionId) return null;
@@ -80,13 +83,13 @@ export function readStartVoteDraft(
     if (!Array.isArray(voterIds) || voterIds.some((id) => typeof id !== 'string')) {
       return null;
     }
-    if (!isCount(days) || !isCount(hours)) return null;
+    if (!isDeadlineDay(deadlineDay) || !isDeadlineTime(deadlineTime)) return null;
     return {
       afterSessionId: storedAfter,
       step,
       voterIds: voterIds as string[],
-      days,
-      hours,
+      deadlineDay,
+      deadlineTime,
     };
   } catch {
     return null;

@@ -17,13 +17,12 @@ import {
   DEFAULT_UNCAST_CHOICE,
   VOTE_CHOICE_LABELS,
   aiVerdictToVoteChoice,
-  computeDeadline,
-  formatDuration,
   isVoteChoice,
   tallyVotes,
   type VoteChoice,
   type VoteTally,
 } from '@/lib/voting/tally';
+import { parseDeadline } from '@/lib/voting/deadline';
 import { generateVoteSynthesis } from '@/lib/voting/synthesis';
 import type { CompanyVotePayload } from '@/lib/jobs/handlers/companyVote';
 
@@ -46,7 +45,13 @@ export class VoteNotFoundError extends VoteRuleError {
   }
 }
 
-export type VoteVisibility = 'none' | 'in_progress' | 'results';
+/**
+ * What this viewer may see of the round.
+ *
+ * `live_results` is the initiator's view of a round that is still open: the
+ * same published payload as `results`, only not final yet. See `getState`.
+ */
+export type VoteVisibility = 'none' | 'in_progress' | 'results' | 'live_results';
 
 export interface VoteVoterState {
   userId: string;
@@ -55,9 +60,9 @@ export interface VoteVoterState {
   status: VoteBallotRow['status'];
   submittedAt: string | null;
   autoSubmitted: boolean;
-  /** Only populated once `visibility` is `results`. */
+  /** Only populated once `visibility` publishes contents. */
   choice: VoteChoice | null;
-  /** Only populated once `visibility` is `results`. */
+  /** Only populated once `visibility` publishes contents. */
   bodyHtml: string | null;
 }
 
@@ -93,8 +98,6 @@ export interface VoteSessionState {
   companyId: string;
   status: VoteSessionRow['status'];
   deadlineAt: string;
-  durationDays: number;
-  durationHours: number;
   initiatedBy: { id: string; name: string };
   createdAt: string;
   concludedAt: string | null;
@@ -105,9 +108,13 @@ export interface VoteSessionState {
   /** Human voters **plus** the AI Opinion. */
   voterCount: number;
   submittedCount: number;
-  /** Only populated once `visibility` is `results`. */
+  /**
+   * Only populated once `visibility` publishes contents. While the round is
+   * open (the initiator's live view) this counts **submitted ballots only** —
+   * a draft is not a vote.
+   */
   tally: VoteTally | null;
-  /** Only populated once `visibility` is `results`. */
+  /** Only populated once `visibility` publishes contents. */
   ai: VoteAiState | null;
 }
 
@@ -138,8 +145,8 @@ export interface StartVoteInput {
   companyId: string;
   initiatorId: string;
   voterIds: string[];
-  durationDays: number;
-  durationHours: number;
+  /** Absolute ISO instant the round closes at, as picked in the browser. */
+  deadlineAt: string;
 }
 
 export interface SaveBallotInput {
@@ -170,8 +177,9 @@ const VOTE_JOB_TIMEOUT_SECONDS = 300;
  *  - A voter may save and revise a draft freely until they submit; submitting
  *    locks the ballot.
  *  - Only the initiator can cancel a round or send submissions back to draft.
- *  - While a round is open nobody sees anyone else's choice or rationale —
- *    only who has submitted.
+ *  - While a round is open, voters see only who has submitted — never anyone
+ *    else's choice or rationale. The initiator is the exception: they watch
+ *    their own round's ballots live, because they are the one steering it.
  *  - A round closes when every ballot is submitted, or at the deadline (which
  *    auto-submits the remaining drafts as INCONCLUSIVE).
  *  - Closing kicks off the AI synthesis and the recap email; results become
@@ -236,16 +244,25 @@ export class CompanyVoteService {
     const ownBallot = ballots.find((b) => b.voter_id === viewerId) ?? null;
     const isInitiator = session.initiated_by === viewerId;
     const isVoter = ownBallot != null;
-    // Results are published only for a round that actually concluded. A
-    // CANCELLED round's drafts stay private — nobody consented to publishing a
-    // half-written rationale.
+    // Results are published to the workspace only for a round that actually
+    // concluded. A CANCELLED round's drafts stay private — nobody consented to
+    // publishing a half-written rationale.
+    //
+    // The initiator is the exception, and only for a round they are still
+    // running: they are the one steering it (chasing stragglers, deciding
+    // whether to send submissions back), so they see the same results view
+    // live. Nobody else does — a voter must not be able to read the room
+    // before casting their own ballot.
     const visibility: VoteVisibility =
       session.status === 'active'
-        ? 'in_progress'
+        ? isInitiator
+          ? 'live_results'
+          : 'in_progress'
         : session.status === 'completed'
           ? 'results'
           : 'none';
-    const showContents = visibility === 'results';
+    const live = visibility === 'live_results';
+    const showContents = visibility === 'results' || live;
 
     const voters: VoteVoterState[] = ballots.map((ballot) => ({
       userId: ballot.voter_id,
@@ -265,13 +282,27 @@ export class CompanyVoteService {
 
     const concluded = session.status === 'completed';
     const aiParticipant: VoteAiParticipant = {
-      // Hidden mid-round like everyone else's ballot, and not resolved until
-      // the round closes anyway.
-      choice: showContents ? ((session.ai_vote_choice as VoteChoice | null) ?? null) : null,
-      verdict: showContents
-        ? (session.ai_opinion_verdict ?? null)
-        : null,
-      summary: showContents ? (session.ai_opinion_summary ?? null) : null,
+      // Hidden mid-round from everyone but the initiator. Its ballot is not
+      // *cast* until the round closes, so the live view shows where the
+      // standing opinion currently points rather than the (still null)
+      // snapshot on the session.
+      choice: live
+        ? company?.ai_opinion_verdict
+          ? aiVerdictToVoteChoice(company.ai_opinion_verdict)
+          : null
+        : showContents
+          ? ((session.ai_vote_choice as VoteChoice | null) ?? null)
+          : null,
+      verdict: live
+        ? (company?.ai_opinion_verdict ?? null)
+        : showContents
+          ? (session.ai_opinion_verdict ?? null)
+          : null,
+      summary: live
+        ? (company?.ai_opinion_summary ?? null)
+        : showContents
+          ? (session.ai_opinion_summary ?? null)
+          : null,
       opinionStatus: concluded
         ? null
         : (company?.ai_opinion_status ?? null),
@@ -284,8 +315,6 @@ export class CompanyVoteService {
         companyId: session.company_id,
         status: session.status,
         deadlineAt: session.deadline_at,
-        durationDays: session.duration_days,
-        durationHours: session.duration_hours,
         initiatedBy: {
           id: session.initiated_by,
           name: namesById.get(session.initiated_by)?.name ?? 'Unknown user',
@@ -300,23 +329,45 @@ export class CompanyVoteService {
         submittedCount:
           ballots.filter((b) => b.status === 'submitted').length +
           (aiParticipant.submitted ? 1 : 0),
-        tally: showContents
-          ? tallyVotes([
-              ...ballots.map((b) => b.choice as VoteChoice | null),
-              session.ai_vote_choice as VoteChoice | null,
-            ])
-          : null,
-        ai: showContents
+        // Live, the running tally counts SUBMITTED ballots only — a draft is
+        // a work in progress, not a vote, and the AI has not cast one yet.
+        // Once the round concludes every ballot is submitted, so the two
+        // branches agree on the final number.
+        tally: live
+          ? tallyVotes(
+              ballots
+                .filter((b) => b.status === 'submitted')
+                .map((b) => b.choice as VoteChoice | null),
+            )
+          : showContents
+            ? tallyVotes([
+                ...ballots.map((b) => b.choice as VoteChoice | null),
+                session.ai_vote_choice as VoteChoice | null,
+              ])
+            : null,
+        ai: live
           ? {
+              // The synthesis is only written at conclusion; the live view
+              // renders a placeholder rather than a spinner for it.
               status: session.ai_status,
-              synthesis: session.ai_synthesis ?? null,
-              keyPositives: session.ai_key_positives ?? [],
-              keyConcerns: session.ai_key_concerns ?? [],
-              opinionVerdict: session.ai_opinion_verdict ?? null,
-              opinionSummary: session.ai_opinion_summary ?? null,
-              error: session.ai_error ?? null,
+              synthesis: null,
+              keyPositives: [],
+              keyConcerns: [],
+              opinionVerdict: company?.ai_opinion_verdict ?? null,
+              opinionSummary: company?.ai_opinion_summary ?? null,
+              error: null,
             }
-          : null,
+          : showContents
+            ? {
+                status: session.ai_status,
+                synthesis: session.ai_synthesis ?? null,
+                keyPositives: session.ai_key_positives ?? [],
+                keyConcerns: session.ai_key_concerns ?? [],
+                opinionVerdict: session.ai_opinion_verdict ?? null,
+                opinionSummary: session.ai_opinion_summary ?? null,
+                error: session.ai_error ?? null,
+              }
+            : null,
       },
       visibility,
       viewer: {
@@ -387,7 +438,7 @@ export class CompanyVoteService {
 
     let deadline: Date;
     try {
-      deadline = computeDeadline(this.now(), input.durationDays, input.durationHours);
+      deadline = parseDeadline(input.deadlineAt, this.now());
     } catch (err) {
       throw new VoteRuleError((err as Error).message);
     }
@@ -399,8 +450,6 @@ export class CompanyVoteService {
         initiated_by: input.initiatorId,
         status: 'active',
         deadline_at: deadline.toISOString(),
-        duration_days: Math.trunc(input.durationDays),
-        duration_hours: Math.trunc(input.durationHours),
         ai_status: 'pending',
       });
     } catch (err) {
@@ -722,7 +771,6 @@ export class CompanyVoteService {
 
     const companyCardUrl = await this.companyUrl(session.company_id, 'overview');
     const deadlineLabel = formatDeadline(session.deadline_at);
-    const durationLabel = formatDuration(session.duration_days, session.duration_hours);
     const initiatorName = namesById.get(session.initiated_by)?.name ?? 'A colleague';
 
     let sent = 0;
@@ -740,7 +788,6 @@ export class CompanyVoteService {
           companyName,
           initiatorName,
           deadlineLabel,
-          durationLabel,
           voteUrl,
           companyCardUrl,
           companyCardPptx: pptx,

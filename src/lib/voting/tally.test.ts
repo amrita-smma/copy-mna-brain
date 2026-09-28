@@ -1,8 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
   aiVerdictToVoteChoice,
-  computeDeadline,
-  formatDuration,
   isVoteChoice,
   tallyVotes,
   voteSide,
@@ -103,41 +101,6 @@ describe('tallyVotes', () => {
       hard_no: 1,
       inconclusive: 1,
     });
-  });
-});
-
-describe('computeDeadline', () => {
-  const from = new Date('2026-09-03T00:00:00.000Z');
-
-  it('adds days and hours to the start instant', () => {
-    expect(computeDeadline(from, 2, 4).toISOString()).toBe('2026-09-05T04:00:00.000Z');
-  });
-
-  it('supports an hours-only duration', () => {
-    expect(computeDeadline(from, 0, 6).toISOString()).toBe('2026-09-03T06:00:00.000Z');
-  });
-
-  it('rejects a zero duration', () => {
-    expect(() => computeDeadline(from, 0, 0)).toThrow(/at least 1 hour/);
-  });
-
-  it('rejects a negative duration', () => {
-    expect(() => computeDeadline(from, -1, 0)).toThrow(/non-negative/);
-  });
-});
-
-describe('formatDuration', () => {
-  it('renders days and hours together', () => {
-    expect(formatDuration(2, 4)).toBe('2 days 4 hours');
-  });
-
-  it('singularizes a one-day / one-hour duration', () => {
-    expect(formatDuration(1, 1)).toBe('1 day 1 hour');
-  });
-
-  it('omits a zero component', () => {
-    expect(formatDuration(3, 0)).toBe('3 days');
-    expect(formatDuration(0, 5)).toBe('5 hours');
   });
 });
 

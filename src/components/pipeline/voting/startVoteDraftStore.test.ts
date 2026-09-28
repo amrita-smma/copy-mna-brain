@@ -29,10 +29,10 @@ function makeStorage(seed: Record<string, string> = {}): DraftStorage & {
 /** A wizard launched from a completed round. */
 const draft: StoredStartVoteDraft = {
   afterSessionId: 'vs-1',
-  step: 'duration',
+  step: 'deadline',
   voterIds: ['u-1', 'u-2'],
-  days: 3,
-  hours: 6,
+  deadlineDay: '2026-09-30',
+  deadlineTime: '17:30',
 };
 
 describe('startVoteDraftKey', () => {
@@ -60,8 +60,8 @@ describe('writeStartVoteDraft / readStartVoteDraft', () => {
       afterSessionId: 'vs-1',
       step: 'voters',
       voterIds: [],
-      days: 2,
-      hours: 0,
+      deadlineDay: '2026-09-30',
+      deadlineTime: '09:00',
     };
     writeStartVoteDraft(storage, 'c-1', early);
 
@@ -128,16 +128,27 @@ describe('writeStartVoteDraft / readStartVoteDraft', () => {
     expect(readStartVoteDraft(storage, 'c-1', 'vs-1')).toBeNull();
   });
 
-  it('rejects a non-integer or negative duration', () => {
-    const bad = makeStorage({
-      [startVoteDraftKey('c-1')]: JSON.stringify({ ...draft, days: 1.5 }),
+  it('rejects a deadline day or time the picker could not have written', () => {
+    const badDay = makeStorage({
+      [startVoteDraftKey('c-1')]: JSON.stringify({ ...draft, deadlineDay: '30/09/2026' }),
     });
-    const negative = makeStorage({
-      [startVoteDraftKey('c-2')]: JSON.stringify({ ...draft, hours: -1 }),
+    const badTime = makeStorage({
+      [startVoteDraftKey('c-2')]: JSON.stringify({ ...draft, deadlineTime: '5pm' }),
+    });
+    // A wizard written before the deadline picker replaced the days/hours one.
+    const legacy = makeStorage({
+      [startVoteDraftKey('c-3')]: JSON.stringify({
+        afterSessionId: 'vs-1',
+        step: 'voters',
+        voterIds: ['u-1'],
+        days: 2,
+        hours: 0,
+      }),
     });
 
-    expect(readStartVoteDraft(bad, 'c-1', 'vs-1')).toBeNull();
-    expect(readStartVoteDraft(negative, 'c-2', 'vs-1')).toBeNull();
+    expect(readStartVoteDraft(badDay, 'c-1', 'vs-1')).toBeNull();
+    expect(readStartVoteDraft(badTime, 'c-2', 'vs-1')).toBeNull();
+    expect(readStartVoteDraft(legacy, 'c-3', 'vs-1')).toBeNull();
   });
 
   it('treats a null storage handle as persistence-off', () => {

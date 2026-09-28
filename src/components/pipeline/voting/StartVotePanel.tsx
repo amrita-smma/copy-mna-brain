@@ -1,18 +1,23 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { ArrowLeft, ArrowRight, Loader2, Users, Vote } from 'lucide-react';
+import { ArrowLeft, ArrowRight, CalendarDays, Loader2, Users, Vote } from 'lucide-react';
+import { format } from 'date-fns';
 import { Button } from '@/components/ui/button';
+import { Calendar } from '@/components/ui/calendar';
+import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import UserCombobox from '@/components/pipeline/UserCombobox';
 import type { UserSummary } from '@/lib/api/pipeline';
+import {
+  combineDeadline,
+  defaultDeadline,
+  describeTimeRemaining,
+  MAX_DEADLINE_LEAD_MS,
+  MIN_DEADLINE_LEAD_MS,
+  toDeadlineDay,
+} from '@/lib/voting/deadline';
 import { browserDraftStorage } from './ballotDraftStore';
 import {
   clearStartVoteDraft,
@@ -20,20 +25,7 @@ import {
   writeStartVoteDraft,
 } from './startVoteDraftStore';
 
-
-const DAY_OPTIONS = [0, 1, 2, 3, 4, 5, 6, 7, 10, 14, 21, 30];
-const HOUR_OPTIONS = [0, 1, 2, 3, 4, 6, 8, 12, 18];
-const DEFAULT_DAYS = 2;
-const DEFAULT_HOURS = 0;
-
-type Step = 'idle' | 'voters' | 'duration';
-
-/**
- * A restored duration must still be one of the offered options — a Radix
- * `Select` given a value with no matching item renders blank.
- */
-const pickOption = (options: number[], value: number | undefined, fallback: number) =>
-  value !== undefined && options.includes(value) ? value : fallback;
+type Step = 'idle' | 'voters' | 'deadline';
 
 export interface StartVotePanelProps {
   /** The company this round would be for — namespaces the local wizard cache. */
@@ -47,21 +39,18 @@ export interface StartVotePanelProps {
   users: UserSummary[];
   usersLoading?: boolean;
   starting?: boolean;
-  onStart: (input: {
-    voterIds: string[];
-    durationDays: number;
-    durationHours: number;
-  }) => void;
+  /** `deadlineAt` is an absolute ISO instant, built from the picker's local time. */
+  onStart: (input: { voterIds: string[]; deadlineAt: string }) => void;
   /** Shown above the button when the company has been voted on before. */
   again?: boolean;
 }
 
 /**
  * The "Start Vote" flow: a single button that expands into voter selection,
- * then the duration picker, then the confirm.
+ * then the deadline picker, then the confirm.
  *
  * Deliberately staged rather than one big form — the initiator picks *who*
- * before they can sensibly judge *how long*.
+ * before they can sensibly judge *by when*.
  *
  * A wizard in progress survives leaving the tab: Radix unmounts an inactive
  * `TabsContent`, so without the `startVoteDraftStore` mirror below a panel the
@@ -83,15 +72,25 @@ export default function StartVotePanel({
     () => readStartVoteDraft(storage, companyId, afterSessionId),
     [storage, companyId, afterSessionId],
   );
-
   const [step, setStep] = useState<Step>(() => restored?.step ?? 'idle');
   const [voterIds, setVoterIds] = useState<string[]>(() => restored?.voterIds ?? []);
-  const [days, setDays] = useState(() =>
-    pickOption(DAY_OPTIONS, restored?.days, DEFAULT_DAYS),
-  );
-  const [hours, setHours] = useState(() =>
-    pickOption(HOUR_OPTIONS, restored?.hours, DEFAULT_HOURS),
-  );
+  // Empty until the browser fills them in below — see the effect.
+  const [day, setDay] = useState(() => restored?.deadlineDay ?? '');
+  const [time, setTime] = useState(() => restored?.deadlineTime ?? '');
+  const [calendarOpen, setCalendarOpen] = useState(false);
+
+  // The default deadline is a *wall-clock* one, so it can only be computed in
+  // the browser. Next.js server-renders client components too, and `new Date()`
+  // there is the server's zone (UTC on Vercel) — seeding this state during
+  // render would prefill the picker hours, or a whole calendar day, off for
+  // anyone outside that zone. Running it in an effect guarantees it is the
+  // viewer's own clock, and only when a restored draft did not supply one.
+  useEffect(() => {
+    if (day && time) return;
+    const fallback = defaultDeadline(new Date());
+    setDay((current) => current || fallback.day);
+    setTime((current) => current || fallback.time);
+  }, [day, time]);
 
   // Mirror the wizard out while it is in flight, and drop the cache the moment
   // there is nothing in progress left to protect.
@@ -105,12 +104,22 @@ export default function StartVotePanel({
       afterSessionId,
       step,
       voterIds,
-      days,
-      hours,
+      deadlineDay: day,
+      deadlineTime: time,
     });
-  }, [storage, companyId, afterSessionId, step, voterIds, days, hours]);
+  }, [storage, companyId, afterSessionId, step, voterIds, day, time]);
 
-  const totalHours = days * 24 + hours;
+  // The picked wall-clock deadline as an absolute instant, or null when the
+  // two fields do not describe a real one.
+  const deadline = useMemo(() => combineDeadline(day, time), [day, time]);
+  // Recomputed on every render rather than ticking: the only thing that has to
+  // stay honest is the moment the initiator presses Start, and the server
+  // re-validates the instant it receives regardless. Both bounds are mirrored
+  // from `parseDeadline` so the form explains a rejection instead of letting
+  // the POST fail with one.
+  const lead = deadline === null ? null : deadline.getTime() - Date.now();
+  const tooSoon = lead === null || lead < MIN_DEADLINE_LEAD_MS;
+  const tooFar = lead !== null && lead > MAX_DEADLINE_LEAD_MS;
 
   if (step === 'idle') {
     return (
@@ -172,7 +181,7 @@ export default function StartVotePanel({
             Back
           </Button>
           <Button
-            onClick={() => setStep('duration')}
+            onClick={() => setStep('deadline')}
             disabled={voterIds.length === 0}
             data-testid="start-vote-next"
           >
@@ -185,8 +194,8 @@ export default function StartVotePanel({
   }
 
   return (
-    <div className="max-w-xl mx-auto space-y-4 py-8" data-testid="start-vote-duration">
-      <h3 className="text-base font-semibold">How long should voting stay open?</h3>
+    <div className="max-w-xl mx-auto space-y-4 py-8" data-testid="start-vote-deadline">
+      <h3 className="text-base font-semibold">When does voting close?</h3>
       <p className="text-sm text-muted-foreground">
         Ballots still in draft when the deadline passes are submitted
         automatically as INCONCLUSIVE.
@@ -194,44 +203,63 @@ export default function StartVotePanel({
       <div className="grid grid-cols-2 gap-4">
         <div>
           <Label className="text-xs uppercase tracking-wide text-muted-foreground">
-            Days
+            Date
           </Label>
-          <Select value={String(days)} onValueChange={(v) => setDays(Number(v))}>
-            <SelectTrigger className="mt-2" data-testid="start-vote-days">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {DAY_OPTIONS.map((d) => (
-                <SelectItem key={d} value={String(d)}>
-                  {d} {d === 1 ? 'day' : 'days'}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <Popover open={calendarOpen} onOpenChange={setCalendarOpen}>
+            <PopoverTrigger asChild>
+              <Button
+                variant="outline"
+                className="mt-2 w-full justify-start font-normal"
+                data-testid="start-vote-date"
+              >
+                <CalendarDays className="h-4 w-4 mr-2 text-muted-foreground" />
+                {deadline ? format(deadline, 'd MMM yyyy') : 'Pick a date'}
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-auto p-0" align="start">
+              <Calendar
+                mode="single"
+                selected={deadline ?? undefined}
+                defaultMonth={deadline ?? undefined}
+                // A deadline in the past is never a legitimate choice, so the
+                // calendar refuses it rather than letting the confirm button
+                // explain it after the fact.
+                disabled={{ before: new Date() }}
+                onSelect={(picked) => {
+                  if (!picked) return;
+                  setDay(toDeadlineDay(picked));
+                  setCalendarOpen(false);
+                }}
+              />
+            </PopoverContent>
+          </Popover>
         </div>
         <div>
-          <Label className="text-xs uppercase tracking-wide text-muted-foreground">
-            Hours
+          <Label
+            className="text-xs uppercase tracking-wide text-muted-foreground"
+            htmlFor="start-vote-time"
+          >
+            Time
           </Label>
-          <Select value={String(hours)} onValueChange={(v) => setHours(Number(v))}>
-            <SelectTrigger className="mt-2" data-testid="start-vote-hours">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {HOUR_OPTIONS.map((h) => (
-                <SelectItem key={h} value={String(h)}>
-                  {h} {h === 1 ? 'hour' : 'hours'}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <Input
+            id="start-vote-time"
+            type="time"
+            value={time}
+            onChange={(e) => setTime(e.target.value)}
+            className="mt-2"
+            data-testid="start-vote-time"
+          />
         </div>
       </div>
-      <p className="text-xs text-muted-foreground">
+      <p className="text-xs text-muted-foreground" data-testid="start-vote-summary">
         {voterIds.length} {voterIds.length === 1 ? 'voter' : 'voters'} selected ·{' '}
-        {totalHours > 0
-          ? `closes in ${totalHours} ${totalHours === 1 ? 'hour' : 'hours'}`
-          : 'pick at least 1 hour'}
+        {deadline === null
+          ? 'pick a valid date and time'
+          : tooSoon
+            ? 'the deadline must be at least 15 minutes from now'
+            : tooFar
+              ? 'the deadline must be within a year from now'
+              : `closes ${format(deadline, 'd MMM yyyy, HH:mm')} — in ${describeTimeRemaining(deadline, new Date())}`}
       </p>
       <div className="flex justify-between pt-2">
         <Button variant="ghost" onClick={() => setStep('voters')} disabled={starting}>
@@ -240,9 +268,9 @@ export default function StartVotePanel({
         </Button>
         <Button
           onClick={() =>
-            onStart({ voterIds, durationDays: days, durationHours: hours })
+            deadline && onStart({ voterIds, deadlineAt: deadline.toISOString() })
           }
-          disabled={starting || totalHours <= 0 || voterIds.length === 0}
+          disabled={starting || tooSoon || tooFar || voterIds.length === 0}
           data-testid="start-vote-confirm"
         >
           {starting ? (

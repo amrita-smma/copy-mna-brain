@@ -17,9 +17,10 @@ export function getVoteState(companyId: string): Promise<VoteTabState> {
   return apiRequest<VoteTabState>(votePath(companyId));
 }
 
+/** `deadlineAt` is the absolute instant the round closes, as an ISO string. */
 export function startVote(
   companyId: string,
-  payload: { voterIds: string[]; durationDays: number; durationHours: number },
+  payload: { voterIds: string[]; deadlineAt: string },
 ): Promise<VoteTabState> {
   return apiRequest<VoteTabState>(votePath(companyId), {
     method: 'POST',

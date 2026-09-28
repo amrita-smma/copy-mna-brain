@@ -116,29 +116,6 @@ export function tallyVotes(choices: Array<VoteChoice | null | undefined>): VoteT
 }
 
 /**
- * Turn the initiator's days/hours picker into an absolute deadline.
- *
- * Throws when the total duration is zero — a vote that expires the instant it
- * opens would be swept before anyone could read the invitation email.
- */
-export function computeDeadline(
-  from: Date,
-  durationDays: number,
-  durationHours: number,
-): Date {
-  const days = Math.trunc(durationDays);
-  const hours = Math.trunc(durationHours);
-  if (!Number.isFinite(days) || !Number.isFinite(hours) || days < 0 || hours < 0) {
-    throw new Error('Vote duration must be a non-negative number of days and hours.');
-  }
-  const totalHours = days * 24 + hours;
-  if (totalHours <= 0) {
-    throw new Error('Vote duration must be at least 1 hour.');
-  }
-  return new Date(from.getTime() + totalHours * 60 * 60 * 1000);
-}
-
-/**
  * Map the company's standing AI Opinion verdict onto a ballot choice, so the
  * AI participates in the tally as one more voter.
  *
@@ -159,14 +136,4 @@ export function aiVerdictToVoteChoice(
     default:
       return 'inconclusive';
   }
-}
-
-/** Human duration for the invitation email, e.g. `2 days 4 hours`. */
-export function formatDuration(durationDays: number, durationHours: number): string {
-  const parts: string[] = [];
-  if (durationDays > 0) parts.push(`${durationDays} day${durationDays === 1 ? '' : 's'}`);
-  if (durationHours > 0) {
-    parts.push(`${durationHours} hour${durationHours === 1 ? '' : 's'}`);
-  }
-  return parts.join(' ') || '0 hours';
 }

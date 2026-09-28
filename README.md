@@ -1925,8 +1925,10 @@ Every company detail surface — the full page (`/companies/<id>` and
 `?tab=voting`). It runs an Investment-Committee style round on one company.
 
 **Data model.** `company_vote_sessions` holds one row per round (initiator,
-deadline, the days/hours the initiator picked, status, and the post-conclusion
-`ai_*` synthesis columns). `company_vote_ballots` holds one row per selected
+deadline, status, and the post-conclusion `ai_*` synthesis columns). Its
+`duration_days` / `duration_hours` columns are **legacy** — rounds used to be
+opened for "X days Y hours"; the initiator now picks an absolute deadline, so
+nothing writes them and they default to 0 on new rows. `company_vote_ballots` holds one row per selected
 voter (`choice`, `body_html`, `status`, `submitted_at`, `auto_submitted`),
 unique on `(vote_session_id, voter_id)`. A **partial unique index**
 (`uq_company_vote_sessions_one_active` on `company_id WHERE status = 'active'`)
@@ -1936,9 +1938,15 @@ clicks cannot both win.
 **Lifecycle** (all rules enforced in `CompanyVoteService`, and restated for
 users by `VotingRules.tsx`):
 
-1. **Start.** The initiator multi-selects voters (workspace members only) and a
-   duration in days + hours. Ballot rows are created up-front, so "who still
-   owes a vote" is a plain query rather than a set difference.
+1. **Start.** The initiator multi-selects voters (workspace members only) and
+   picks the **date and time** the round closes — a calendar popover plus a time
+   field, combined in the browser's local zone and sent as an absolute ISO
+   instant. `parseDeadline` (`src/lib/voting/deadline.ts`) re-validates it
+   server-side: at least 15 minutes out (an invitation email has to land first)
+   and at most a year. The server stores the instant verbatim and never
+   re-derives it, so the wall-clock deadline the picker showed is exactly what
+   the cron sweeps on. Ballot rows are created up-front, so "who still owes a
+   vote" is a plain query rather than a set difference.
 2. **Invite.** A `company_vote` job (`kind: 'invite'`) builds the Company Card
    deck **once** via `CompanyCardSlideService` + `exportElementsToPptx` and
    emails every voter an invitation carrying a deep link to the Voting tab, a
@@ -1975,6 +1983,17 @@ users by `VotingRules.tsx`):
 5. **Privacy.** While a round is `active`, `getState` returns only the viewer's
    own choice and rationale plus everyone's submitted/pending status. A non-voter
    sees "Voting in progress".
+
+   **The initiator is the exception.** For a round *they* started and that is
+   still open, `getState` returns `visibility: 'live_results'` — every ballot's
+   choice and rationale, and a running tally — so the organizer can read the
+   room while it fills. It is decided server-side off `session.initiated_by`;
+   the client only reads the flag. Three things stay honest in that view: the
+   tally counts **submitted ballots only** (a draft is not a vote), the AI
+   Opinion shows where its standing verdict currently points but is *not* folded
+   into the tally (its ballot is cast at conclusion), and the synthesis is
+   absent because it is not written until the round closes. A `cancelled`
+   round's drafts stay private even from the initiator.
 6. **Initiator controls.** *Cancel vote* abandons the round; *Send back
    submissions* flips every submitted ballot back to `draft` in one set-based
    UPDATE.
@@ -1997,6 +2016,12 @@ users by `VotingRules.tsx`):
    FOR`, from the pure `tallyVotes` in `src/lib/voting/tally.ts`), the synthesis
    / key positives / key concerns / AI Opinion row, and every reviewer's
    verbatim rationale side by side. A **Vote again** button opens a fresh round.
+   The same component renders the initiator's live view (`live` prop) — one
+   layout for both, so the organizer reads an open round in exactly the shape it
+   will be recorded in. In `live` mode it swaps "Data as of" for the submitted
+   count + deadline, adds a LIVE pill, marks unsubmitted ballots as drafts,
+   replaces the synthesis blocks with "written when the round closes", and drops
+   the **Vote again** button.
 
 **Unsaved drafts survive a tab switch.** Radix unmounts an inactive
 `TabsContent`, so `BallotPanel` is destroyed the moment the user looks at

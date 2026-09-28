@@ -3280,7 +3280,12 @@ export const companyVoteSessions = pgTable(
     status: voteSessionStatus().default("active").notNull(),
     /** Ballots are auto-submitted once this passes (cron sweep). */
     deadline_at: timestamp({ withTimezone: true, mode: "string" }).notNull(),
-    /** The duration the initiator picked, kept verbatim for display. */
+    /**
+     * Legacy: rounds used to be opened for "X days Y hours" and these held that
+     * verbatim. The initiator now picks an absolute deadline, so nothing writes
+     * them any more and they default to 0 — kept (rather than dropped) because
+     * historical rounds still carry the window they were opened with.
+     */
     duration_days: integer().default(0).notNull(),
     duration_hours: integer().default(0).notNull(),
     concluded_at: timestamp({ withTimezone: true, mode: "string" }),

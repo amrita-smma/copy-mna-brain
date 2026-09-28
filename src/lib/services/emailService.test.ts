@@ -1065,7 +1065,6 @@ describe('renderVoteInvitationEmail', () => {
     companyName: 'Project Highway',
     initiatorName: 'Nico',
     deadlineLabel: '5:00 PM UTC on September 5, 2026',
-    durationLabel: '2 days 4 hours',
     voteUrl: 'https://app.example.com/w/mna/companies/c-1?tab=voting',
   };
 
@@ -1075,12 +1074,11 @@ describe('renderVoteInvitationEmail', () => {
     );
   });
 
-  it('states the deadline, window and initiator in both bodies', () => {
+  it('states the deadline and initiator in both bodies', () => {
     const { html, text } = renderVoteInvitationEmail(input);
     for (const body of [html, text]) {
       expect(body).toContain('Project Highway');
       expect(body).toContain('5:00 PM UTC on September 5, 2026');
-      expect(body).toContain('2 days 4 hours');
       expect(body).toContain('Nico');
     }
   });
@@ -1132,7 +1130,6 @@ describe('EmailService.sendVoteInvitationEmail', () => {
     companyName: 'Project Highway',
     initiatorName: 'Nico',
     deadlineLabel: 'tomorrow',
-    durationLabel: '1 day',
     voteUrl: 'https://app.example.com/vote',
   };
 

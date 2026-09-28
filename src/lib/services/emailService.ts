@@ -908,8 +908,6 @@ export interface VoteInvitationEmailInput {
   initiatorName: string;
   /** Pre-formatted absolute deadline, e.g. "5:00 PM on September 5, 2026". */
   deadlineLabel: string;
-  /** Pre-formatted duration, e.g. "2 days 4 hours". */
-  durationLabel: string;
   /** Deep link straight to the company's Voting tab. */
   voteUrl: string;
   /** Deep link to the company's Company Card (the Overview tab). */
@@ -928,8 +926,7 @@ export function renderVoteInvitationEmail(
   const rows = [
     { label: 'Company', value: input.companyName },
     { label: 'Initiated by', value: input.initiatorName },
-    { label: 'Voting window', value: input.durationLabel },
-    { label: 'Deadline', value: input.deadlineLabel },
+    { label: 'Voting deadline', value: input.deadlineLabel },
   ];
 
   const html = renderNotificationShell({
