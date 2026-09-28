@@ -30,6 +30,20 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "skipReason": "noise"
   },
   {
+    "hash": "6edb290c1a874aae152356e8eed955419a40c3d6",
+    "date": "2026-09-28",
+    "subject": "CRM data now displays for all workspace members without requiring email sync",
+    "category": "improvement"
+  },
+  {
+    "hash": "6a82479a610ab8489cd994ed02418f553712e47c",
+    "date": "2026-09-28",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "be093fa913ed2ada370043dbb99039073a2f810a",
     "date": "2026-09-26",
     "subject": "Company detail dialog now displays correct data without flashing previous content",
