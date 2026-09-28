@@ -1,4 +1,8 @@
-import { captureUserEvent, captureWorkspaceEvent } from '@/lib/posthog-server';
+import {
+  captureUserEvent,
+  captureWorkspaceEvent,
+  flushPostHogWithin,
+} from '@/lib/posthog-server';
 import { NO_ACTIVE_WORKSPACE_ID } from '@/lib/constants';
 
 /** Why a client reported itself unhealthy. Only one cause so far. */
@@ -26,11 +30,25 @@ export function parseClientHealthReason(value: unknown): ClientHealthReason | nu
 export class ClientHealthService {
   constructor(private readonly workspaceId: string) {}
 
-  recordBlockedClient(input: {
+  /**
+   * Awaited by the route rather than fired and forgotten.
+   *
+   * `/api/client-health` does nothing else — it answers within milliseconds,
+   * so on a serverless platform the instance is frozen before `capture()`'s
+   * background flush has finished its POST, and the one event this whole
+   * feature exists to emit is dropped. Every other server capture happens
+   * mid-request with work still to do behind it, which is why they survive and
+   * this one did not. Awaiting the flush makes delivery deterministic.
+   *
+   * Bounded, though: a diagnostic event must not hold the request open for the
+   * tens of seconds PostHog's own retry budget allows against an unreachable
+   * host. Past the cap the flush keeps running in the background.
+   */
+  async recordBlockedClient(input: {
     userId: string;
     reason: ClientHealthReason;
     userAgent?: string | null;
-  }): void {
+  }): Promise<void> {
     const properties = {
       reason: input.reason,
       // The blocker is usually an extension, but the browser is the best proxy
@@ -50,6 +68,7 @@ export class ClientHealthService {
         event: 'client_telemetry_blocked',
         properties,
       });
+      await flushPostHogWithin();
       return;
     }
 
@@ -59,5 +78,6 @@ export class ClientHealthService {
       event: 'client_telemetry_blocked',
       properties,
     });
+    await flushPostHogWithin();
   }
 }

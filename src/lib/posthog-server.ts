@@ -1,4 +1,5 @@
 import { PostHog } from 'posthog-node';
+import { waitUntil } from '@vercel/functions';
 
 let posthogClient: PostHog | null = null;
 
@@ -14,6 +15,73 @@ export function getPostHogClient(): PostHog | null {
     });
   }
   return posthogClient;
+}
+
+/**
+ * Drain the client's queue, resolving once the events are actually delivered.
+ *
+ * `capture()` only *enqueues*; `flushAt: 1` then kicks off a background flush
+ * whose promise nobody holds. On a serverless platform the instance is frozen
+ * the moment the response is written, so that in-flight POST is simply never
+ * finished — the event is lost. `flush()` chains onto any flush already in
+ * progress, so this resolves only when the send has completed.
+ *
+ * Never rejects: telemetry must not be able to fail its caller's work.
+ */
+export function flushPostHog(): Promise<void> {
+  const client = getPostHogClient();
+  if (!client) return Promise.resolve();
+  return client.flush().then(
+    () => undefined,
+    () => undefined,
+  );
+}
+
+/**
+ * Keep a fire-and-forget telemetry promise alive past the response.
+ *
+ * This is the piece that makes `capture()` durable in production: without it
+ * the platform may freeze the instance before the queued event leaves the
+ * process. `waitUntil` is unavailable outside a Vercel request context (local
+ * `next dev`, jobs, tests), where the event loop stays alive on its own — so a
+ * throw there is expected and ignored.
+ */
+function keepAlive(promise: Promise<unknown>): void {
+  try {
+    waitUntil(promise);
+  } catch {
+    // Not running on Vercel — nothing to extend.
+  }
+}
+
+/**
+ * How long a caller that *awaits* delivery is willing to wait for it.
+ *
+ * `@posthog/core` bounds a flush only by `fetchRetryCount * requestTimeout`,
+ * which is tens of seconds against an unreachable ingestion host — far too
+ * long to hold a request open for a diagnostic event.
+ */
+export const FLUSH_WAIT_MS = 3_000;
+
+/**
+ * Await delivery, but give up waiting after `timeoutMs`.
+ *
+ * Giving up is only ever about *waiting*: the flush is registered with
+ * `keepAlive` first, so it still runs to completion in the background. This is
+ * for the caller that has nothing else to hide the flush behind and therefore
+ * has to await it, but must not stall on a slow or unreachable PostHog.
+ */
+export function flushPostHogWithin(timeoutMs: number = FLUSH_WAIT_MS): Promise<void> {
+  const flush = flushPostHog();
+  keepAlive(flush);
+
+  return new Promise<void>((resolve) => {
+    const timer = setTimeout(resolve, timeoutMs);
+    void flush.then(() => {
+      clearTimeout(timer);
+      resolve();
+    });
+  });
 }
 
 /**
@@ -40,7 +108,10 @@ export function captureWorkspaceEvent(args: {
   properties?: Record<string, unknown>;
 }): void {
   const slug = args.workspaceSlug?.trim();
-  getPostHogClient()?.capture({
+  const client = getPostHogClient();
+  if (!client) return;
+
+  client.capture({
     distinctId: args.distinctId,
     event: args.event,
     properties: {
@@ -52,6 +123,7 @@ export function captureWorkspaceEvent(args: {
     },
     groups: { workspace: args.workspaceId },
   });
+  keepAlive(flushPostHog());
 }
 
 /**
@@ -71,11 +143,15 @@ export function captureUserEvent(args: {
   event: string;
   properties?: Record<string, unknown>;
 }): void {
-  getPostHogClient()?.capture({
+  const client = getPostHogClient();
+  if (!client) return;
+
+  client.capture({
     distinctId: args.distinctId,
     event: args.event,
     properties: args.properties,
   });
+  keepAlive(flushPostHog());
 }
 
 export async function shutdownPostHog() {

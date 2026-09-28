@@ -1,10 +1,22 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
+const vercelMocks = vi.hoisted(() => ({ waitUntil: vi.fn() }));
+vi.mock('@vercel/functions', () => ({ waitUntil: vercelMocks.waitUntil }));
+
 vi.mock('posthog-node', () => {
   const PostHog = vi.fn(function (this: object) {
-    Object.assign(this, { capture: vi.fn(), shutdown: vi.fn() });
+    Object.assign(this, {
+      capture: vi.fn(),
+      // `capture()` only enqueues; `flush()` is what actually delivers.
+      flush: vi.fn().mockResolvedValue([]),
+      shutdown: vi.fn(),
+    });
   });
   return { PostHog };
+});
+
+beforeEach(() => {
+  vercelMocks.waitUntil.mockReset();
 });
 
 describe('getPostHogClient', () => {
@@ -174,5 +186,145 @@ describe('captureUserEvent', () => {
     expect(() =>
       captureUserEvent({ distinctId: 'user-1', event: 'user_signed_in' }),
     ).not.toThrow();
+  });
+});
+
+describe('flushPostHog', () => {
+  beforeEach(() => {
+    vi.resetModules();
+    vi.unstubAllEnvs();
+  });
+
+  it('drains the queue and resolves once delivery has completed', async () => {
+    vi.stubEnv('NEXT_PUBLIC_POSTHOG_KEY', 'phc_testkey');
+    const { getPostHogClient, flushPostHog } = await import('./posthog-server');
+    const client = getPostHogClient()!;
+
+    await expect(flushPostHog()).resolves.toBeUndefined();
+    expect(client.flush).toHaveBeenCalledTimes(1);
+  });
+
+  it('swallows a delivery failure — telemetry must never fail its caller', async () => {
+    vi.stubEnv('NEXT_PUBLIC_POSTHOG_KEY', 'phc_testkey');
+    const { getPostHogClient, flushPostHog } = await import('./posthog-server');
+    const client = getPostHogClient()!;
+    vi.mocked(client.flush).mockRejectedValue(new Error('network down'));
+
+    await expect(flushPostHog()).resolves.toBeUndefined();
+  });
+
+  it('resolves immediately when PostHog is not configured', async () => {
+    vi.stubEnv('NEXT_PUBLIC_POSTHOG_KEY', '');
+    const { flushPostHog } = await import('./posthog-server');
+
+    await expect(flushPostHog()).resolves.toBeUndefined();
+  });
+});
+
+describe('capture delivery on a frozen instance', () => {
+  beforeEach(() => {
+    vi.resetModules();
+    vi.unstubAllEnvs();
+  });
+
+  it('flushes after captureWorkspaceEvent instead of leaving the POST in flight', async () => {
+    // A serverless instance is frozen the moment the response is written. An
+    // event that is only *queued* at that point never leaves the process.
+    vi.stubEnv('NEXT_PUBLIC_POSTHOG_KEY', 'phc_testkey');
+    const { getPostHogClient, captureWorkspaceEvent } = await import('./posthog-server');
+    const client = getPostHogClient()!;
+
+    captureWorkspaceEvent({ workspaceId: 'ws-1', distinctId: 'user-1', event: 'e' });
+
+    expect(client.flush).toHaveBeenCalledTimes(1);
+  });
+
+  it('flushes after captureUserEvent too', async () => {
+    vi.stubEnv('NEXT_PUBLIC_POSTHOG_KEY', 'phc_testkey');
+    const { getPostHogClient, captureUserEvent } = await import('./posthog-server');
+    const client = getPostHogClient()!;
+
+    captureUserEvent({ distinctId: 'user-1', event: 'user_signed_in' });
+
+    expect(client.flush).toHaveBeenCalledTimes(1);
+  });
+
+  it('hands the flush to waitUntil so the platform keeps the instance alive', async () => {
+    vi.stubEnv('NEXT_PUBLIC_POSTHOG_KEY', 'phc_testkey');
+    const { captureUserEvent } = await import('./posthog-server');
+
+    captureUserEvent({ distinctId: 'user-1', event: 'user_signed_in' });
+
+    expect(vercelMocks.waitUntil).toHaveBeenCalledTimes(1);
+    await expect(vercelMocks.waitUntil.mock.calls[0][0]).resolves.toBeUndefined();
+  });
+
+  it('still captures when waitUntil is unavailable off-platform', async () => {
+    // `next dev`, job handlers and tests have no Vercel request context.
+    vercelMocks.waitUntil.mockImplementation(() => {
+      throw new Error('waitUntil() is not supported in this environment');
+    });
+    vi.stubEnv('NEXT_PUBLIC_POSTHOG_KEY', 'phc_testkey');
+    const { getPostHogClient, captureUserEvent } = await import('./posthog-server');
+    const client = getPostHogClient()!;
+
+    expect(() =>
+      captureUserEvent({ distinctId: 'user-1', event: 'user_signed_in' }),
+    ).not.toThrow();
+    expect(client.capture).toHaveBeenCalledTimes(1);
+    // The flush is what delivers; a throwing waitUntil must not skip it.
+    expect(client.flush).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not touch waitUntil when PostHog is not configured', async () => {
+    vi.stubEnv('NEXT_PUBLIC_POSTHOG_KEY', '');
+    const { captureUserEvent } = await import('./posthog-server');
+
+    captureUserEvent({ distinctId: 'user-1', event: 'user_signed_in' });
+
+    expect(vercelMocks.waitUntil).not.toHaveBeenCalled();
+  });
+});
+
+describe('flushPostHogWithin', () => {
+  beforeEach(() => {
+    vi.resetModules();
+    vi.unstubAllEnvs();
+  });
+
+  it('resolves as soon as the flush lands', async () => {
+    vi.stubEnv('NEXT_PUBLIC_POSTHOG_KEY', 'phc_testkey');
+    const { getPostHogClient, flushPostHogWithin } = await import('./posthog-server');
+    const client = getPostHogClient()!;
+
+    await expect(flushPostHogWithin(50_000)).resolves.toBeUndefined();
+    expect(client.flush).toHaveBeenCalledTimes(1);
+  });
+
+  it('stops waiting at the cap rather than holding the request open', async () => {
+    // `@posthog/core` bounds a flush only by retries x request timeout, which
+    // is tens of seconds against an unreachable ingestion host — far too long
+    // to keep a diagnostics request open for.
+    vi.stubEnv('NEXT_PUBLIC_POSTHOG_KEY', 'phc_testkey');
+    const { getPostHogClient, flushPostHogWithin } = await import('./posthog-server');
+    const client = getPostHogClient()!;
+    vi.mocked(client.flush).mockReturnValue(new Promise(() => {}));
+
+    await expect(flushPostHogWithin(1)).resolves.toBeUndefined();
+  });
+
+  it('keeps the abandoned flush alive in the background', async () => {
+    // Giving up is about waiting, not about delivery.
+    vi.stubEnv('NEXT_PUBLIC_POSTHOG_KEY', 'phc_testkey');
+    const { flushPostHogWithin } = await import('./posthog-server');
+
+    await flushPostHogWithin(1);
+
+    expect(vercelMocks.waitUntil).toHaveBeenCalledTimes(1);
+  });
+
+  it('caps the wait well below PostHog\'s own retry budget by default', async () => {
+    const { FLUSH_WAIT_MS } = await import('./posthog-server');
+    expect(FLUSH_WAIT_MS).toBe(3_000);
   });
 });

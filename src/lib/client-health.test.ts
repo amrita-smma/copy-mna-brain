@@ -1,6 +1,8 @@
 import { describe, it, expect, vi } from 'vitest';
 import {
+  CAPTURE_PROBE_PATH,
   PROBE_PATH,
+  PROBE_PATHS,
   REPORTED_FLAG,
   REPORT_PATH,
   hasReported,
@@ -27,21 +29,50 @@ describe('probeIngest', () => {
     await expect(probeIngest(fetchImpl as unknown as typeof fetch)).resolves.toBe('reachable');
   });
 
-  it('probes a real PostHog asset path so filter rules actually apply', async () => {
+  it('probes real PostHog paths so filter rules actually apply', async () => {
     const fetchImpl = vi.fn().mockResolvedValue(new Response(null, { status: 200 }));
     await probeIngest(fetchImpl as unknown as typeof fetch);
 
-    expect(fetchImpl).toHaveBeenCalledWith(
-      PROBE_PATH,
-      expect.objectContaining({ method: 'HEAD' }),
-    );
+    for (const path of PROBE_PATHS) {
+      expect(fetchImpl).toHaveBeenCalledWith(
+        path,
+        expect.objectContaining({ method: 'HEAD' }),
+      );
+    }
     expect(PROBE_PATH).toBe('/ingest/static/array.js');
+    expect(CAPTURE_PROBE_PATH).toBe('/ingest/i/v0/e/');
+  });
+
+  it('probes the capture endpoint, not just the asset host', () => {
+    // `/ingest/static/*` and the capture path are two different rewrites
+    // pointed at two different upstreams. A blocker that catches only the
+    // request carrying the data left the asset probe green and the user dark.
+    expect(PROBE_PATHS).toContain(CAPTURE_PROBE_PATH);
+  });
+
+  it('reports blocked when only the capture endpoint is eaten', async () => {
+    const fetchImpl = vi.fn(async (path: string) => {
+      if (path === CAPTURE_PROBE_PATH) throw new TypeError('Failed to fetch');
+      return new Response(null, { status: 200 });
+    });
+
+    await expect(probeIngest(fetchImpl as unknown as typeof fetch)).resolves.toBe('blocked');
+  });
+
+  it('reports blocked when only the static asset is eaten', async () => {
+    const fetchImpl = vi.fn(async (path: string) => {
+      if (path === PROBE_PATH) throw new TypeError('Failed to fetch');
+      return new Response(null, { status: 200 });
+    });
+
+    await expect(probeIngest(fetchImpl as unknown as typeof fetch)).resolves.toBe('blocked');
   });
 
   it('accepts an explicit path override', async () => {
     const fetchImpl = vi.fn().mockResolvedValue(new Response(null, { status: 200 }));
-    await probeIngest(fetchImpl as unknown as typeof fetch, '/ingest/e/');
+    await probeIngest(fetchImpl as unknown as typeof fetch, ['/ingest/e/']);
 
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
     expect(fetchImpl).toHaveBeenCalledWith('/ingest/e/', expect.anything());
   });
 });

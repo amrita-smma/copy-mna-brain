@@ -31,7 +31,11 @@ export async function POST(req: NextRequest) {
 
     const db = createDb();
     const { clientHealthService } = createContainer(db, await getActiveWorkspaceId());
-    clientHealthService.recordBlockedClient({
+    // Awaited, not fired and forgotten: this route returns immediately, and a
+    // serverless instance is frozen the moment it does — a queued PostHog
+    // event that hasn't left the process yet is simply lost. See
+    // `ClientHealthService.recordBlockedClient`.
+    await clientHealthService.recordBlockedClient({
       userId,
       reason,
       userAgent: req.headers.get('user-agent'),

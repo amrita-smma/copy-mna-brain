@@ -1397,17 +1397,28 @@ argument (`triggeredByUserId`, `hasDocument`) — `hasDocument` is passed in
 explicitly because the attachment is uploaded *after* the promote call returns,
 so the server cannot observe it. Use
 `captureWorkspaceEvent` for anything inside a workspace and `captureUserEvent`
-only where there genuinely is no workspace (sign-in). Server-side capture covers
+only where there genuinely is no workspace (sign-in). Both enqueue and then hand
+`flushPostHog()` to `waitUntil`, because `posthog-node`'s `capture()` only
+queues: without that, a short request can return and have its instance frozen
+before the event's POST completes, silently losing it. Server-side capture covers
 agent-tool and pipeline callers that have no browser at all, but gives up
 autocapture, `$pageview` and session replay — it complements the client, it does
 not replace it.
 
-**Blocked-client signal.** `ClientHealthProbe` HEADs `/ingest/static/array.js`
-once per tab session for a signed-in user; a rejected fetch (`ERR_BLOCKED_BY_CLIENT`)
+**Blocked-client signal.** `ClientHealthProbe` HEADs both `/ingest/static/array.js`
+and the capture endpoint `/ingest/i/v0/e/` (`PROBE_PATHS`) once per tab session
+for a signed-in user; a rejected fetch (`ERR_BLOCKED_BY_CLIENT`) on *either*
 means blocked, while any HTTP response — including a 5xx — counts as reachable,
-so a broken proxy is never misreported as an ad blocker. A blocked client POSTs
+so a broken proxy is never misreported as an ad blocker. Both are probed because
+they are two different rewrites pointed at two different upstreams (asset host
+vs ingestion host): a blocker that eats only the request carrying the data left
+the asset probe green and the user silently dark. A blocked client POSTs
 to `/api/client-health`, which records `client_telemetry_blocked` server-side
-against that user. The probe also runs on `/workspace` and `/consent`, which
+against that user. The route **awaits** `flushPostHogWithin()` before responding
+— it has no other work to hide the flush behind, and a serverless instance
+frozen at response time drops a captured-but-unflushed event. The wait is capped
+at `FLUSH_WAIT_MS` (3s) because PostHog's own retry budget is tens of seconds; past
+the cap the flush finishes in the background under `waitUntil`. The probe also runs on `/workspace` and `/consent`, which
 resolve no workspace, so `ClientHealthService` falls back to `captureUserEvent`
 rather than stamping the fail-closed `NO_ACTIVE_WORKSPACE_ID` sentinel as a real
 PostHog group. The route and probe paths deliberately avoid the words

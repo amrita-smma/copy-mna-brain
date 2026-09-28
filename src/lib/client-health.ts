@@ -22,6 +22,25 @@ import { INGEST_PATH_PREFIX } from '@/lib/posthog-proxy';
  */
 export const PROBE_PATH = `${INGEST_PATH_PREFIX}/static/array.js`;
 
+/**
+ * The capture endpoint itself — the one path that has to work for an event to
+ * be recorded.
+ *
+ * Probing this is not redundant with {@link PROBE_PATH}. `/ingest/static/*` is
+ * a *separate* rewrite in `next.config.ts` pointed at PostHog's asset host,
+ * while capture traffic goes through the catch-all rewrite to the ingestion
+ * host. A blocker that catches only the capture path — the common case, since
+ * that is the request carrying the data — left the asset probe succeeding and
+ * the user silently dark, which is exactly the hole this closes.
+ *
+ * A bare HEAD carries no event: PostHog answers it with an HTTP error, and an
+ * HTTP error means the request left the browser, which is all we're asking.
+ */
+export const CAPTURE_PROBE_PATH = `${INGEST_PATH_PREFIX}/i/v0/e/`;
+
+/** Every path the probe exercises. A failure on any one means blocked. */
+export const PROBE_PATHS = [PROBE_PATH, CAPTURE_PROBE_PATH];
+
 /** Where a blocked client reports in. Kept free of blocklist trigger words. */
 export const REPORT_PATH = '/api/client-health';
 
@@ -31,25 +50,35 @@ export const REPORTED_FLAG = 'mnab.clientHealth.reported';
 export type ProbeOutcome = 'reachable' | 'blocked';
 
 /**
- * Probe the ingest path.
+ * Probe the ingest paths.
  *
  * A blocked request fails at the network layer (`ERR_BLOCKED_BY_CLIENT`), which
  * surfaces as a rejected fetch. Any HTTP *response* — including a 404 or a 500
  * — means the request left the browser, so the blocker is not the problem and
- * this reports `reachable`. Being conservative in that direction matters: a
- * false "blocked" would send us chasing an ad blocker when the real fault is
+ * that path counts as reachable. Being conservative in that direction matters:
+ * a false "blocked" would send us chasing an ad blocker when the real fault is
  * our own proxy.
+ *
+ * Reports `blocked` when *any* path fails, because losing either one loses the
+ * telemetry. The probes run concurrently so the slower of the two, not their
+ * sum, is what a page load pays.
  */
 export async function probeIngest(
   fetchImpl: typeof fetch,
-  path: string = PROBE_PATH,
+  paths: string[] = PROBE_PATHS,
 ): Promise<ProbeOutcome> {
-  try {
-    await fetchImpl(path, { method: 'HEAD', cache: 'no-store' });
-    return 'reachable';
-  } catch {
-    return 'blocked';
-  }
+  const outcomes = await Promise.all(
+    paths.map(async (path): Promise<ProbeOutcome> => {
+      try {
+        await fetchImpl(path, { method: 'HEAD', cache: 'no-store' });
+        return 'reachable';
+      } catch {
+        return 'blocked';
+      }
+    }),
+  );
+
+  return outcomes.includes('blocked') ? 'blocked' : 'reachable';
 }
 
 /**
